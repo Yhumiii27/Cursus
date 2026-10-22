@@ -18,6 +18,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 
 const { problemesConfig } = await import('../server/src/config.ts');
 const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { json } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { ERREURS_MICROSOFT } = await import('../shared/constants.ts');
 
@@ -168,12 +169,12 @@ test('connexion Microsoft 365 (OpenID Connect, faux fournisseur local)', async t
   const OIDC = { CURSUS_OIDC_TENANT: TENANT.toUpperCase(), CURSUS_OIDC_CLIENT_ID: CLIENT, CURSUS_OIDC_CLIENT_SECRET: SECRET, CURSUS_PUBLIC_URL: publicUrl, CURSUS_OIDC_AUTORITE: f.base };
   const srv = await cursus(file, { ...OIDC, CURSUS_SECRET: CLE_COOKIES }, port);
 
-  const compte = async (where: string) => (await db.one(`SELECT id, identifiant, type, oid, emp_id AS empId FROM comptes WHERE ${where}`)) as { id: number; identifiant: string; type: string; oid: string | null; empId: number | null };
+  const compte = async (where: string) => (await db.one(`SELECT id, identifiant, type, oid, emp_id AS "empId" FROM comptes WHERE ${where}`)) as { id: number; identifiant: string; type: string; oid: string | null; empId: number | null };
   const journal = async () => (await db.query('SELECT actor, role, action, message, identifiant, payload FROM journal ORDER BY id')) as
     { actor: string; role: string | null; action: string; message: string; identifiant: string | null; payload: string }[];
-  const karim = await compte('emp_id = 12');
-  const antoine = await compte('emp_id = 14');
-  const sandrine = await compte('emp_id IS NULL');
+  const karim = (await compte('emp_id = 12'));
+  const antoine = (await compte('emp_id = 14'));
+  const sandrine = (await compte('emp_id IS NULL'));
   // Un collaborateur sans équipe à encadrer ni profil RH, doté d'un compte Microsoft 365.
   const collab = (await db.one(`SELECT c.id, c.identifiant FROM comptes c WHERE c.type = 'microsoft' AND c.emp_id IS NOT NULL AND c.profil_rh = 'aucun'
     AND c.emp_id NOT IN (SELECT manager_id FROM equipes WHERE manager_id IS NOT NULL) ORDER BY c.id`)) as { id: number; identifiant: string };
@@ -345,7 +346,7 @@ test('connexion Microsoft 365 (OpenID Connect, faux fournisseur local)', async t
     let j = await derniere('connexion.refusee');
     assert.deepEqual([j.actor, j.identifiant], ['Paul Durand', null]);
     assert.match(j.message, /aucun compte Cursus pour paul\.durand@entreprise\.example/);
-    assert.equal(JSON.parse(j.payload).oid, 'oid-inconnu');
+    assert.equal(json(j.payload).oid, 'oid-inconnu');
     const e = ERREURS_MICROSOFT.acces;
     assert.equal(`${e.titre} : ${e.texte}`, 'Accès non autorisé : demandez l’ouverture d’un compte au service RH.', 'message affiché par l’écran de connexion');
     // Un compte Cursus (local) ne s'ouvre jamais par Microsoft, même avec la même adresse.

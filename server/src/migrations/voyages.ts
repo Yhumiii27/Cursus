@@ -21,7 +21,7 @@ export const REFERENCES_DEPLACEMENTS: Migration = {
   // Base existante sans déplacement à reprendre : notée faite. Base neuve : exécutée, sans effet.
   necessaire: async db => db.neuve || await aReprendre(db) > 0,
   executer: async db => {
-    const lignes = await db.query(`SELECT id, emp_id AS empId ${SANS_REF} ORDER BY id`) as { id: number; empId: number }[];
+    const lignes = await db.query(`SELECT id, emp_id AS "empId" ${SANS_REF} ORDER BY id`) as { id: number; empId: number }[];
     if (!lignes.length) return;
     const prises = new Set((await db.query(`SELECT ref FROM voyages WHERE TRIM(COALESCE(ref, '')) <> ''`) as { ref: string }[]).map(r => r.ref));
     for (const l of lignes) {

@@ -121,7 +121,7 @@ test('SQL brut : query, one, run, exec ; colonnes, remise à zéro, ouverture et
     assert.equal(await db.count('projets'), 0);
     await db.fermer();
     await db.fermer(); // déjà fermée : sans effet
-    assert.equal(db.sql.isOpen, false);
+    assert.equal((db as InstanceType<typeof Db>).sql.isOpen, false);
     const encore = new Db(join(dir, 'cursus.db'));
     assert.equal(encore.neuve, false);
     await encore.fermer();

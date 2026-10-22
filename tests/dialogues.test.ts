@@ -10,7 +10,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 const { rangTabulation } = await import('../client/src/components/focus.ts');
 const { erreurDate, erreurEntier, erreurJours, erreursPeriode, erreursSession, erreurTexte } = await import('../client/src/components/controles.ts');
 const C = await import('../client/src/state/confirmations.ts');
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -131,7 +131,7 @@ const KARIM: User = { role: 'manager', empId: 12, nom: 'Karim Haddad', intitule:
 const MEHDI: User = { role: 'collaborateur', empId: 2, nom: 'Mehdi Benali', intitule: '' };
 
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const run = async (user: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => await ACTIONS[name](makeCtx(db, user, await loadFull(db, user)), payload));
   return { db, run };
@@ -189,7 +189,7 @@ test('refus d’une demande Keystone : motif conservé dans Cursus, absent du me
   // Le message de l'action, inscrit au journal (lu par le service RH), porte le motif.
   assert.match(String(await run(RH, 'keystone.refuser', { id: dm.id, motif: 'Visa impossible à obtenir à temps' })), / · motif : Visa impossible à obtenir à temps$/);
   assert.equal((await loadFull(db, RH)).demandesKeystone.find(x => x.id === dm.id)?.motifRefus, 'Visa impossible à obtenir à temps');
-  const envois = (await db.query(`SELECT contenu FROM envois WHERE type = 'demande.decision'`)) as { contenu: string }[];
+  const envois = (await db.query(`SELECT ${db.jsonTexte('contenu')} AS contenu FROM envois WHERE type = 'demande.decision'`)) as { contenu: string }[];
   assert.ok(envois.length > 0);
   assert.ok(envois.every(e => !e.contenu.includes('Visa impossible')), 'texte libre jamais transmis');
   assert.deepEqual((await buildSnapshot(db, KARIM)).demandesKeystone, [], 'réservé au service RH');

@@ -11,9 +11,9 @@ import { join } from 'node:path';
 process.env.CURSUS_TODAY = '2026-10-10';
 process.env.CURSUS_DEMO = '1';
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { json, nouvelleBase } = await import('./base.ts');
+const { mettreAJourBase } = await import('../server/src/demarrage.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
-const { appliquerMigrations } = await import('../server/src/migrations/cadre.ts');
 const { createApp } = await import('../server/src/app.ts');
 const { currentUser, loadFull, buildSnapshot } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -26,18 +26,17 @@ const { DEFAULT_SETTINGS } = await import('../server/src/dataset.ts');
 const { familleAction, JOURNAL_LABEL } = await import('../shared/journal.ts');
 const { cheminJournal, reglerJournaux } = await import('../server/src/logs.ts');
 const { donneesSalarie } = await import('../server/src/donnees.ts');
-type Db = InstanceType<typeof Db>;
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 
 const dir = mkdtempSync(join(tmpdir(), 'cursus-agenda-'));
-const db = new Db(':memory:');
-await appliquerMigrations(db);
+const db = await nouvelleBase();
+await mettreAJourBase(db);
 await seedDemo(db);
 let srv: Server, port: number;
 before(async () => {
   await new Promise<void>(ok => { srv = createApp(db, { production: false, journalRequetes: false, dist: join(dir, 'sans-interface') }).listen(0, '127.0.0.1', () => { port = (srv.address() as AddressInfo).port; ok(); }); });
 });
-after(() => { srv.close(); db.sql.close(); rmSync(dir, { recursive: true, force: true }); });
+after(async () => { srv.close(); await db.fermer(); rmSync(dir, { recursive: true, force: true }); });
 
 function lire(chemin: string): Promise<{ status: number; headers: IncomingHttpHeaders; corps: string }> {
   return new Promise((ok, ko) => {
@@ -61,7 +60,7 @@ async function agir(u: User, nom: string, p: Record<string, unknown>) {
   });
 }
 const reglages = async (r: Record<string, unknown>) => await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), ...r });
-const derniersEnvois = async (type: string) => (await db.query('SELECT contenu FROM envois WHERE type = ? ORDER BY id DESC', [type])).map(r => JSON.parse(String((r as { contenu: string }).contenu)));
+const derniersEnvois = async (type: string) => (await db.query('SELECT contenu FROM envois WHERE type = ? ORDER BY id DESC', [type])).map(r => json((r as { contenu: unknown }).contenu));
 const contenuIcs = (pj: { base64: string }) => Buffer.from(pj.base64, 'base64').toString('utf8');
 
 test('.ics d’un congé : journées entières, UID stable de l’absence, annulation du même événement', () => {
@@ -168,9 +167,9 @@ test('flux personnel : jeton montré une fois et haché, absences « Absent », 
   await reglages({ agendaFluxActif: false });
   assert.equal((await lire(`/api/agenda/${q}.ics`)).status, 404);
   await reglages({ agendaFluxActif: true });
-  await db.run('UPDATE comptes SET actif = 0 WHERE emp_id = 2');
+  await db.run('UPDATE comptes SET actif = FALSE WHERE emp_id = 2');
   assert.equal((await lire(`/api/agenda/${q}.ics`)).status, 404);
-  await db.run('UPDATE comptes SET actif = 1 WHERE emp_id = 2');
+  await db.run('UPDATE comptes SET actif = TRUE WHERE emp_id = 2');
   assert.equal((await lire(`/api/agenda/${q}.ics`)).status, 200);
 });
 

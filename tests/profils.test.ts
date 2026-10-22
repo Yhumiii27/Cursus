@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase, bool } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -22,7 +22,6 @@ const { Domain } = await import('../shared/domain.ts');
 const { droitsRh, PROFILS_RH, vuesDe } = await import('../shared/constants.ts');
 const { absenceVueManager, natureMedicale } = await import('../shared/rules/absences.ts');
 const { PROFIL_VIDE } = await import('../shared/rules/profil.ts');
-type Db = InstanceType<typeof Db>;
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Dataset = Awaited<ReturnType<typeof buildSnapshot>>;
 type Compte = Parameters<typeof espacesDuCompte>[1];
@@ -38,7 +37,7 @@ after(() => {
 // Comptes de démonstration : Sandrine Vidal (administratrice RH, externe), Antoine Leroy (14, gestionnaire RH),
 // Sarah Cohen (23, référente HSE), Aïcha Diallo (7, paie), Élodie Bernard (11, lecture seule).
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const compte = async (empId: number | null) => (await db.get<Compte>('comptes', ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number }).id))!;
   const user = async (empId: number | null, role: User['role']) => {
@@ -205,7 +204,7 @@ test('membre du RH salarié : il ne décide pas de ses propres absences, feuille
   await assert.rejects(async () => await run(ANTOINE, 'absence.saisir', { empId: 14, nature: 'MARIAGE', du: '2026-12-21', au: '2026-12-22' }), refus(/pour vous-même/));
   await run(ANTOINE, 'absence.signaler', { empId: 14, du: '2026-12-28', au: '2026-12-28' });
   const sig = (await db.one(`SELECT id, signale_par_interesse AS interesse FROM absences WHERE emp_id = 14 AND du = '2026-12-28'`)) as { id: number; interesse: number };
-  assert.equal(sig.interesse, 1, 'signalée par l’intéressé, même depuis l’espace RH');
+  assert.equal(bool(sig.interesse), true, 'signalée par l’intéressé, même depuis l’espace RH');
   await assert.rejects(async () => await run(ANTOINE, 'absence.qualifier', { id: sig.id, nature: 'MALADIE' }), refus(/qualifier votre propre absence/));
   await run(ADMIN, 'absence.qualifier', { id: sig.id, nature: 'MALADIE' });
   await run(ANTOINE, 'absence.prolonger', { id: sig.id, au: '2026-12-29' });

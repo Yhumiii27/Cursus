@@ -7,7 +7,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 process.env.CURSUS_PUBLIC_URL = 'https://cursus.example.fr';
 for (const k of ['CURSUS_MAIL_FROM', 'CURSUS_MAIL_TENANT', 'CURSUS_MAIL_CLIENT_ID', 'CURSUS_MAIL_CLIENT_SECRET', 'CURSUS_OIDC_TENANT', 'CURSUS_OIDC_CLIENT_ID', 'CURSUS_OIDC_CLIENT_SECRET']) delete process.env[k];
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -25,7 +25,7 @@ type Ligne = Record<string, any>;
 const RH_MAIL = 'rh@entreprise.example';
 
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number };
   const RH = (await currentUser(db, { compteId: (await compteDe(null)).id, role: 'rh', methode: 'demo' }))!;
@@ -149,7 +149,7 @@ test('relance déjà prise en charge (session planifiée) ou entretien planifié
 
 test('entretien annuel planifié à une date dépassée, jamais clos : relancé comme échu', async () => {
   const { db, recaps, passer } = await fresh();
-  const x = (await db.one(`SELECT id, emp_id AS empId, date FROM entretiens WHERE type = 'annuel' AND statut = 'planifie' ORDER BY date`)) as { id: number; empId: number; date: string };
+  const x = (await db.one(`SELECT id, emp_id AS "empId", date FROM entretiens WHERE type = 'annuel' AND statut = 'planifie' ORDER BY date`)) as { id: number; empId: number; date: string };
   // Le lendemain de la date prévue, sans clôture ni reprogrammation.
   const lendemain = new Date(Date.parse(x.date) + 86400000).toISOString().slice(0, 10);
   await le(lendemain, async () => {

@@ -7,9 +7,10 @@ import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 process.env.CURSUS_DEMO = '1';
 
-const { SqliteDb: Db, TABLES, snake } = await import('../server/src/db.ts');
+const { TABLES, snake } = await import('../server/src/db.ts');
+const { json, nouvelleBase } = await import('./base.ts');
+const { mettreAJourBase } = await import('../server/src/demarrage.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
-const { appliquerMigrations } = await import('../server/src/migrations/cadre.ts');
 const { currentUser, loadFull, buildSnapshot, DEFAULT_SETTINGS } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
@@ -24,12 +25,12 @@ const { reglerJournaux } = await import('../server/src/logs.ts');
 // Journaux du serveur muets : le nettoyage des pièces (setImmediate) écrirait sur la sortie standard, que le lanceur de
 // tests lit.
 reglerJournaux({ sortie: () => {} });
-type Db = InstanceType<typeof Db>;
+type Db = Awaited<ReturnType<typeof nouvelleBase>>;
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 
 async function base() {
-  const db = new Db(':memory:');
-  await appliquerMigrations(db);
+  const db = await nouvelleBase();
+  await mettreAJourBase(db);
   await seedDemo(db);
   return db;
 }
@@ -153,7 +154,7 @@ async function occurrences(db: Db, termes: string[]): Promise<string[]> {
   for (const [nom, def] of Object.entries(TABLES)) {
     for (const [col, type] of Object.entries(def.cols)) {
       if (type !== 'text' && type !== 'json') continue;
-      for (const t of termes) if (await compter(db, `SELECT COUNT(*) AS n FROM ${snake(nom)} WHERE instr(${snake(col)}, ?) > 0`, t)) out.push(`${snake(nom)}.${snake(col)}`);
+      for (const t of termes) if (await compter(db, `SELECT COUNT(*) AS n FROM ${snake(nom)} WHERE CAST(${snake(col)} AS text) LIKE '%' || CAST(? AS text) || '%'`, t)) out.push(`${snake(nom)}.${snake(col)}`);
     }
   }
   return out;
@@ -200,10 +201,10 @@ test('anonymisation d’un dossier échu : cascade complète, nom retiré de tou
   assert.deepEqual(await occurrences(db, ['Mehdi Benali', 'mehdi.benali@entreprise.example']), []);
   assert.equal((await db.where<Record<string, any>>('absences', 'empId', 6)).find(a => a.du === '2025-02-03')?.signalePar, 'Salarié anonymisé n° 2', 'auteur nommé ailleurs');
   // Journal : ligne de l'action sans nom, motif masqué, salarié et catégories ; trace de l'effacement gardée.
-  const j = await db.one(`SELECT message, payload, salaries FROM journal WHERE action = 'employe.anonymiser'`) as { message: string; payload: string; salaries: string };
-  assert.equal(JSON.parse(j.salaries)[0], 2);
-  assert.equal(JSON.parse(j.payload).motif, '[texte renseigné]');
-  assert.ok(JSON.parse(j.payload).effacements[0].categories.includes('dossier'));
+  const j = await db.one(`SELECT message, payload, salaries FROM journal WHERE action = 'employe.anonymiser'`) as { message: string; payload: unknown; salaries: unknown };
+  assert.equal(json(j.salaries)[0], 2);
+  assert.equal(json(j.payload).motif, '[texte renseigné]');
+  assert.ok(json(j.payload).effacements[0].categories.includes('dossier'));
   const trace = await db.where<Record<string, any>>('effacements', 'empId', 2);
   assert.equal(trace.length, 1);
   assert.equal(trace[0].motif, 'Durées validées par le DPO');

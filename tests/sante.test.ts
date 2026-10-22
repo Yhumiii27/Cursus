@@ -7,7 +7,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 delete process.env.KEYSTONE_URL;
 delete process.env.KEYSTONE_TOKEN;
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS, changeVerdicts } = await import('../server/src/actions/index.ts');
@@ -29,7 +29,7 @@ const collab = (empId: number, nom: string): User => ({ role: 'collaborateur', e
 
 /** Base de démonstration ; les actions passent par le même enchaînement que POST /api/actions/:nom (suivi des verdicts compris). */
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const run = async (user: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => {
     const r = await ACTIONS[name](makeCtx(db, user, await loadFull(db, user)), payload);

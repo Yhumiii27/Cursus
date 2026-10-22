@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase, texteJson } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -26,7 +26,7 @@ const SEMAINE_MINEUR = '2026-10-05', SEMAINE_18_ANS = '2026-10-12', SEMAINE_MAJE
 const jours = (...h: number[]) => [...h, 0, 0, 0, 0, 0, 0, 0].slice(0, 7);
 
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const compteId = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number }).id;
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteId(empId), role, methode: 'demo' }))!;
@@ -44,7 +44,7 @@ async function fresh() {
     nom: 'Léo Martin', poste: 'Apprenti électromécanicien', equipe: 'Maintenance', statut: 'ouvrier', typeContrat: 'alternance', temps: '35h', jourOff: [],
     entree: '2026-09-01', fin: '2028-08-31', naissanceLe: LEO.naissanceLe, email: 'leo.martin@entreprise.example', ...o,
   }) as { result: { id: number } }).result.id;
-  const journal = async (action: string) => ((await db.one('SELECT payload FROM journal WHERE action = ? ORDER BY id DESC LIMIT 1', [action])) as { payload: string } | undefined)?.payload ?? '';
+  const journal = async (action: string) => texteJson(((await db.one('SELECT payload FROM journal WHERE action = ? ORDER BY id DESC LIMIT 1', [action])) as { payload: unknown } | undefined)?.payload ?? '');
   return { db, user, run, refus, RH, domain, creer, journal };
 }
 

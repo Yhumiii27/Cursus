@@ -18,7 +18,7 @@ import { droitsRh } from '../../shared/constants.ts';
 import { plural } from '../../shared/format.ts';
 import { DELAI_PIECE_EN_ATTENTE_MS, voitPiece } from '../../shared/rules/pieces.ts';
 import type { CurrentUser, ObjetPiece, Piece, StockagePieces } from '../../shared/types.ts';
-import { dossierPieces } from './chemins.ts';
+import { dossierPieces, fichierBase } from './chemins.ts';
 import type { Db, TableName } from './db.ts';
 import { DepotGed, estFichierGed } from './integrations/ged.ts';
 import { log } from './logs.ts';
@@ -80,11 +80,16 @@ export class DepotLocal implements DepotPieces {
 /** Dossier d'une base en mémoire (tests) : un dossier temporaire par base, sauf CURSUS_PIECES_DIR. */
 const temporaires = new WeakMap<Db, string>();
 
-/** Dossier des pièces de la base ouverte : à côté de son fichier réel, ou CURSUS_PIECES_DIR. */
+/**
+ * Dossier des pièces de la base ouverte : à côté de son fichier réel, ou CURSUS_PIECES_DIR. Serveur PostgreSQL (aucun
+ * fichier de base) : celui qu'aurait la base SQLite de cette installation (`pieces/` à côté de CURSUS_DB, /data/pieces
+ * dans le conteneur), à partager entre les instances.
+ */
 export function dossierPiecesDe(db: Db): string {
   const f = db.emplacement;
   if (f) return dossierPieces(realpathSync(f));
   if (process.env.CURSUS_PIECES_DIR) return dossierPieces('', process.env);
+  if (db.moteur === 'pg') return dossierPieces(fichierBase());
   if (!temporaires.has(db)) temporaires.set(db, mkdtempSync(join(tmpdir(), 'cursus-pieces-')));
   return temporaires.get(db)!;
 }

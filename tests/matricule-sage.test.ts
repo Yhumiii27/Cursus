@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 process.env.SAGE_MODE = 'fichier';
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -18,7 +18,7 @@ const PAIE: User = { role: 'rh', empId: null, nom: 'Aïcha Diallo', intitule: ''
 const ADMIN: User = { role: 'rh', empId: null, nom: 'Sandrine Vidal', intitule: '', profilRh: 'rh_admin' };
 
 test('t021 transmission réelle : refusée tant qu’un salarié du lot n’a pas de matricule de paie', async () => {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p));
   for (const empId of [2, 24]) {

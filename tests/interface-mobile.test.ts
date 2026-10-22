@@ -10,7 +10,7 @@ import type { FeuilleTemps } from '../shared/types.ts';
 process.env.CURSUS_TODAY = '2026-10-10';
 
 const { default: express } = await import('express');
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -28,7 +28,7 @@ const { titreOnglet } = await import('../client/src/layout/navigation.ts');
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const compte = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number }).id;
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compte(empId), role, methode: 'demo' }))!;
@@ -61,12 +61,12 @@ test('à faire : compte rendu à signer, feuille renvoyée, semaine passée à s
   const feuille = async () => (await db.one('SELECT id FROM feuilles WHERE emp_id = 2 AND week = ?', [passee])) as { id: number } | undefined;
   assert.deepEqual(aFaireCollaborateur(await domaine(), 2), { comptesRendus: [], feuilles: [] });
   // Renvoyée par le valideur : à corriger, avec son commentaire, comptée une seule fois.
-  await db.update('feuilles', (await (await feuille())!).id, { statut: 'rejetee', comment: 'Heures du jeudi à répartir' });
+  await db.update('feuilles', (await feuille())!.id, { statut: 'rejetee', comment: 'Heures du jeudi à répartir' });
   assert.deepEqual(aFaireCollaborateur(await domaine(), 2).feuilles, [{ week: passee, etat: 'renvoyee', commentaire: 'Heures du jeudi à répartir' }]);
   // Brouillon, ou aucune feuille : à soumettre.
-  await db.update('feuilles', (await (await feuille())!).id, { statut: 'brouillon', comment: null });
+  await db.update('feuilles', (await feuille())!.id, { statut: 'brouillon', comment: null });
   assert.deepEqual(aFaireCollaborateur(await domaine(), 2).feuilles, [{ week: passee, etat: 'a_soumettre', commentaire: null }]);
-  await db.remove('feuilles', (await (await feuille())!).id);
+  await db.remove('feuilles', (await feuille())!.id);
   assert.equal(aFaireCollaborateur(await domaine(), 2).feuilles.length, 1, 'aucune feuille cette semaine-là, mais des feuilles antérieures');
   // Avant le début du suivi dans Cursus (aucune feuille jusqu'à la semaine passée : mise en service, reprise de
   // Lucca) : rien n'est réclamé ; une feuille ouverte cette semaine-ci n'y change rien.

@@ -13,7 +13,7 @@ import { matricule, plural } from '../../shared/format.ts';
 import { dossierComplet, libelleAction } from '../../shared/journal.ts';
 import { journaliser, type Compte } from './comptes.ts';
 import { identite } from './connexion.ts';
-import { enSerie, TABLES, type Db, type TableName } from './db.ts';
+import { enSerie, jsonLu, TABLES, type Db, type TableName } from './db.ts';
 import { exigerRh, fichierJoint, tracerRefus } from './journal.ts';
 import { contenuLocal } from './pieces.ts';
 
@@ -92,16 +92,16 @@ export async function donneesSalarie(db: Db, empId: number, o: { journal: boolea
   const m = matricule(empId), paie = typeof e.matriculePaie === 'string' && e.matriculePaie ? e.matriculePaie : null;
   const partage = !!paie && (await db.where<Ligne>('employes', 'matriculePaie', paie)).some(x => x.id !== empId);
   const pendant = (creation: unknown) => !partage || (String(creation).slice(0, 10) >= String(e.entree) && (!e.fin || String(creation).slice(0, 10) <= String(e.fin)));
-  sections['Messages envoyés à Keystone'] = (await db.query(`SELECT id, cible, type, statut, creation, envoi, contenu FROM envois WHERE contenu LIKE ? OR contenu LIKE ? ORDER BY id`, [`%"${m}"%`, paie ? `%"matricule":"${paie}"%` : `%"${m}"%`]) as Ligne[])
+  sections['Messages envoyés à Keystone'] = (await db.query(`SELECT id, cible, type, statut, creation, envoi, ${db.jsonTexte('contenu')} AS contenu FROM envois WHERE ${db.jsonTexte('contenu')} LIKE ? OR ${db.jsonTexte('contenu')} LIKE ? ORDER BY id`, [`%"${m}"%`, paie ? `%"matricule":"${paie}"%` : `%"${m}"%`]) as Ligne[])
     .filter(r => String(r.contenu).includes(`"${m}"`) || pendant(r.creation))
     .map(r => ({ ...r, contenu: JSON.parse(String(r.contenu)) }));
   if (o.journal) {
     // Actions qui le concernent (sa fiche, ses absences…) et actions faites avec son compte (connexions comprises), archive paie comprise.
     const lignes = await db.query(`SELECT at, actor, role, action, message, identifiant, payload, archivee FROM journal
-      WHERE EXISTS (SELECT 1 FROM json_each(journal.salaries) WHERE value = ?)${comptes.length ? ` OR compte_id IN (${dans})` : ''} ORDER BY id`, [empId, ...comptes]) as Ligne[];
+      WHERE ${db.contientEntier('journal.salaries')}${comptes.length ? ` OR compte_id IN (${dans})` : ''} ORDER BY id`, [empId, ...comptes]) as Ligne[];
     sections['Journal des actions le concernant'] = lignes.map(l => ({
       date: l.at, auteur: l.actor, identifiant: l.identifiant, espace: l.role, action: libelleAction(String(l.action)), code: l.action,
-      message: l.message, detail: JSON.parse(String(l.payload ?? '{}')), ...(l.archivee ? { archiveeLe: l.archivee } : {}),
+      message: l.message, detail: jsonLu(l.payload) ?? {}, ...(l.archivee ? { archiveeLe: l.archivee } : {}),
     }));
   }
   return {

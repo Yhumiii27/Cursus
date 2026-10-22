@@ -17,6 +17,7 @@ process.env.CURSUS_PUBLIC_URL = 'https://cursus.example.fr';
 for (const k of ['CURSUS_MAIL_FROM', 'CURSUS_MAIL_TENANT', 'CURSUS_MAIL_CLIENT_ID', 'CURSUS_MAIL_CLIENT_SECRET', 'CURSUS_OIDC_TENANT', 'CURSUS_OIDC_CLIENT_ID', 'CURSUS_OIDC_CLIENT_SECRET']) delete process.env[k];
 
 const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS, changeVerdicts } = await import('../server/src/actions/index.ts');
@@ -54,7 +55,7 @@ after(() => fermer.forEach(f => f()));
 
 /** Base de démonstration ; les actions passent par le même enchaînement que POST /api/actions/:nom. */
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const run = async (user: User, name: string, payload: Record<string, unknown> = {}) => await db.tx(async () => {
     const r = await ACTIONS[name](makeCtx(db, user, await loadFull(db, user)), payload);

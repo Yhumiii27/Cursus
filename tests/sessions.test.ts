@@ -9,6 +9,7 @@ import { join } from 'node:path';
 process.env.CURSUS_TODAY = '2026-10-10';
 
 const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
 const { migrate } = await import('../server/src/migrate.ts');
@@ -31,7 +32,7 @@ async function le<T>(date: string, fn: () => T | Promise<T>): Promise<T> {
 }
 
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   // Chantier en France du 1er au 5 décembre exigeant le SST de Camille Roux (obtenu le 20/11/2024, expire le 20/11/2026),
   // inscrite au recyclage SST du 14 octobre (session 1).

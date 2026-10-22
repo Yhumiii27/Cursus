@@ -7,7 +7,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-07';
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { SqliteDb } = await import('../server/src/db.ts');
+const { json, nouvelleBase, PG, SQLITE_SEUL, sqlite } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull, scopeIds } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -33,7 +34,7 @@ const SOPHIE: User = { role: 'manager', empId: 3, nom: 'Sophie Lemaire', intitul
 const WEEK = '2026-09-28';
 
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   // Chemin de POST /api/actions/:nom (server/src/app.ts) : action, signature « par délégation », journal.
   const run = async (user: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
@@ -106,8 +107,8 @@ test('droits : le suppléant décide pendant la délégation, signée « par dé
   const o = await run(THOMAS, 'absence.decider', { id: a, ok: true });
   assert.equal(await statut(a), 'validee');
   assert.match(o.message!, /par délégation de Karim Haddad/);
-  const j = await db.one(`SELECT payload, actor FROM journal WHERE action = 'absence.decider' ORDER BY id DESC LIMIT 1`) as { payload: string; actor: string };
-  assert.deepEqual(JSON.parse(j.payload).parDelegation, [12], 'journal : manager remplacé');
+  const j = await db.one(`SELECT payload, actor FROM journal WHERE action = 'absence.decider' ORDER BY id DESC LIMIT 1`) as { payload: unknown; actor: string };
+  assert.deepEqual(json(j.payload).parDelegation, [12], 'journal : manager remplacé');
   assert.equal(j.actor, 'Thomas Garnier');
   // Sa propre demande : refusée (ni auto-validation, ni dans l'espace collaborateur).
   const propre = await demande(6);
@@ -138,9 +139,9 @@ test('début, fin et révocation : droits ouverts du premier au dernier jour, fe
   await run(SOPHIE, 'absence.decider', { id: await demande(2), ok: true });
   await run(KARIM, 'equipe.revoquerDelegation', { id: g });
   await refus(SOPHIE, 'absence.decider', { id: await demande(2), ok: true }, 403);
-  const j = await db.one(`SELECT payload, salaries FROM journal WHERE action = 'equipe.revoquerDelegation'`) as { payload: string; salaries: string };
-  assert.ok(JSON.parse(j.payload).apres.revoqueeLe, 'journal : horodatage de la révocation');
-  assert.deepEqual(JSON.parse(j.salaries).sort((a: number, b: number) => a - b), [3, 12]);
+  const j = await db.one(`SELECT payload, salaries FROM journal WHERE action = 'equipe.revoquerDelegation'`) as { payload: unknown; salaries: unknown };
+  assert.ok(json(j.payload).apres.revoqueeLe, 'journal : horodatage de la révocation');
+  assert.deepEqual(json(j.salaries).sort((a: number, b: number) => a - b), [3, 12]);
   await refus(KARIM, 'equipe.revoquerDelegation', { id: await deleguer({ du: '2026-09-01', au: '2026-09-10' }) }, 400, /déjà terminée/);
 });
 
@@ -162,7 +163,7 @@ test('enregistrement : contrôles, suppléant prévenu avec les demandes en atte
   assert.equal(String(m[0].contenu.a), await adresse(6));
   assert.match(m[0].contenu.texte, /Mehdi Benali : demande de congés payés/);
   assert.ok((await db.all<{ annonceeLe: string | null }>('delegations'))[0].annonceeLe, 'annonce notée');
-  const j = JSON.parse((await db.one(`SELECT payload FROM journal WHERE action = 'equipe.delegation'`) as { payload: string }).payload);
+  const j = json((await db.one(`SELECT payload FROM journal WHERE action = 'equipe.delegation'`) as { payload: unknown }).payload);
   assert.deepEqual(j.perimetre, ['absences', 'feuilles']);
   assert.equal(j.suppleantId, 6);
   await refus(RH, 'equipe.delegation', { ...p, managerId: 12, suppleantId: 3, du: '2026-10-10', au: '2026-10-12' }, 400, /déjà délégué/);
@@ -215,18 +216,18 @@ test('instantané du suppléant : membres dont il décide, sans entretiens hors 
   assert.deepEqual((await buildSnapshot(db, { role: 'rh', empId: null, nom: 'Aïcha', intitule: 'Paie', profilRh: 'paie', compteId: 98 })).delegations, []);
 });
 
-test('intégrité et migration lot6-hierarchie-delegations : colonnes déclarées, délégations impossibles révoquées', async () => {
+test('intégrité et migration lot6-hierarchie-delegations : colonnes déclarées, délégations impossibles révoquées', { skip: PG && SQLITE_SEUL }, async () => {
   assert.ok(REFERENCES.some(r => r.table === 'delegations' && r.colonne === 'manager_id'));
   assert.ok(REFERENCES.some(r => r.table === 'delegations' && r.colonne === 'suppleant_id'));
-  const neuve = new Db(':memory:');
+  const neuve = new SqliteDb(':memory:');
   assert.ok((await appliquerMigrations(neuve)).includes('lot6-hierarchie-delegations'));
   const { db, deleguer } = await fresh();
   const ok = await deleguer({ du: '2026-10-07', au: '2026-10-09' });
   const soi = await deleguer({ du: '2026-10-07', au: '2026-10-09', suppleantId: 12 });
-  assert.equal(await DELEGATIONS_VALIDATION.executer(db), '1 délégation de validation impossible révoquée');
+  assert.equal(await DELEGATIONS_VALIDATION.executer(sqlite(db)), '1 délégation de validation impossible révoquée');
   assert.ok((await db.get<{ revoqueeLe: string | null }>('delegations', soi))!.revoqueeLe);
   assert.equal((await db.get<{ revoqueeLe: string | null }>('delegations', ok))!.revoqueeLe, null);
-  assert.equal(await DELEGATIONS_VALIDATION.executer(db), undefined, 'rien à refaire');
+  assert.equal(await DELEGATIONS_VALIDATION.executer(sqlite(db)), undefined, 'rien à refaire');
 });
 
 test('entretiens : délégués seulement si le réglage les ouvre ; le réglage refermé les retire aussitôt', async () => {
@@ -315,16 +316,16 @@ test('signature : ni le N+1 qui décide pour le suppléant, ni une relance de sa
   const o = await run(SOPHIE, 'absence.decider', { id: a, ok: true });
   assert.equal(await statut(a), 'validee');
   assert.doesNotMatch(o.message!, /par délégation/);
-  const j = await db.one(`SELECT payload FROM journal WHERE action = 'absence.decider' ORDER BY id DESC LIMIT 1`) as { payload: string };
-  assert.equal(JSON.parse(j.payload).parDelegation, undefined);
+  const j = await db.one(`SELECT payload FROM journal WHERE action = 'absence.decider' ORDER BY id DESC LIMIT 1`) as { payload: unknown };
+  assert.equal(json(j.payload).parDelegation, undefined);
   // Karim délègue à Sophie : sa relance d'un membre direct de la Production n'est pas signée.
   await db.run('DELETE FROM delegations');
   await deleguer({ du: '2026-10-07', au: '2026-10-09', suppleantId: 3 });
   await db.run('DELETE FROM feuilles WHERE emp_id IN (2, 8)');
   const r = await run(SOPHIE, 'temps.relancer', { empId: 8 });
   assert.doesNotMatch(r.message!, /par délégation/);
-  const jr = await db.one(`SELECT payload FROM journal WHERE action = 'temps.relancer' ORDER BY id DESC LIMIT 1`) as { payload: string };
-  assert.equal(JSON.parse(jr.payload).parDelegation, undefined);
+  const jr = await db.one(`SELECT payload FROM journal WHERE action = 'temps.relancer' ORDER BY id DESC LIMIT 1`) as { payload: unknown };
+  assert.equal(json(jr.payload).parDelegation, undefined);
   // Le membre de l'équipe remplacée reste relançable par le suppléant.
   assert.ok(((await run(SOPHIE, 'temps.relancer', { empId: 2 })).result as { feuilles: { empId: number }[] }).feuilles.some(f => f.empId === 2));
 });

@@ -8,7 +8,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 process.env.CURSUS_PUBLIC_URL = 'https://cursus.example.fr';
 for (const k of ['CURSUS_MAIL_FROM', 'CURSUS_MAIL_TENANT', 'CURSUS_MAIL_CLIENT_ID', 'CURSUS_MAIL_CLIENT_SECRET', 'CURSUS_OIDC_TENANT', 'CURSUS_OIDC_CLIENT_ID', 'CURSUS_OIDC_CLIENT_SECRET', 'KEYSTONE_URL']) delete process.env[k];
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -25,7 +25,7 @@ type Ligne = Record<string, any>;
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (état lu avant l'action, trace au journal après). */
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number };
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
@@ -44,7 +44,7 @@ async function fresh() {
   const envois = async (type: string) => (await db.all<Ligne>('envois')).filter(e => e.type === type);
   return { db, run, refus, domain, journal, envois, user, RH, KARIM: await user(12, 'manager'), MEHDI: await user(2, 'collaborateur') };
 }
-const voyageDe = async (db: InstanceType<typeof Db>, empId: number, dest: string) => (await db.all<Ligne>('voyages')).find(v => v.empId === empId && v.dest === dest)!;
+const voyageDe = async (db: import('../server/src/db.ts').Db, empId: number, dest: string) => (await db.all<Ligne>('voyages')).find(v => v.empId === empId && v.dest === dest)!;
 
 // — Déplacements —
 

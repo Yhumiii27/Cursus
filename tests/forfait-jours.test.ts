@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { horsContraintes, nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -30,7 +30,7 @@ type Feuille = import('../shared/types.ts').FeuilleTemps;
 const CADRE = 9;
 
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   // Les feuilles du cadre sont posées par chaque test.
   await db.run('DELETE FROM feuilles WHERE emp_id = ?', [CADRE]);
@@ -269,9 +269,12 @@ test('t043 instantanés : service RH complet, paie et lecture seule sans le moti
   }
   assert.deepEqual(await vue(HSE), []);
   // Nadia Kaci (9) : son propre avenant, sans auteur ; manager de Clara Roussel (19), forfait jours : jours et année seulement.
-  await db.insert('avenantsForfait', {
-    empId: 19, annee: 2026, jours: 2, taux: 15, signeLe: '2026-10-01', reference: 'AV-19', creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Sandrine Vidal',
-    annuleLe: null, annulePar: null, annuleMotif: null, lotId: 3, sage: true, horsFichier: false,
+  // Lot de paie n° 3 seulement désigné (aucun lot écrit) : clés étrangères contournées en PostgreSQL.
+  await horsContraintes(db, async () => {
+    await db.insert('avenantsForfait', {
+      empId: 19, annee: 2026, jours: 2, taux: 15, signeLe: '2026-10-01', reference: 'AV-19', creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Sandrine Vidal',
+      annuleLe: null, annulePar: null, annuleMotif: null, lotId: 3, sage: true, horsFichier: false,
+    });
   });
   const compte = async (empId: number) => (await db.one('SELECT id FROM comptes WHERE emp_id = ?', [empId]) as { id: number }).id;
   const soi = (await buildSnapshot(db, (await currentUser(db, { compteId: await compte(CADRE), role: 'collaborateur', methode: 'demo' }))!)).avenantsForfait ?? [];

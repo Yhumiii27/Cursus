@@ -12,6 +12,7 @@ process.env.CURSUS_PUBLIC_URL = 'https://cursus.example.fr';
 for (const k of ['CURSUS_MAIL_FROM', 'CURSUS_MAIL_TENANT', 'CURSUS_MAIL_CLIENT_ID', 'CURSUS_MAIL_CLIENT_SECRET', 'CURSUS_OIDC_TENANT', 'CURSUS_OIDC_CLIENT_ID', 'CURSUS_OIDC_CLIENT_SECRET']) delete process.env[k];
 
 const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -26,13 +27,13 @@ const { budgetSummary } = await import('../shared/rules/budget.ts');
 const { exercicesProposes, montantReel } = await import('../shared/rules/exercices.ts');
 const { appliquerReglages, REGLAGES, ReglageInvalide } = await import('../shared/reglages.ts');
 const { SAMPLE_PLAN_CSV } = await import('../shared/rules/imports.ts');
-type Db = InstanceType<typeof Db>;
+type Db = import('../server/src/db.ts').Db;
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Ligne = Record<string, any>;
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (état lu avant l'action, trace au journal après). */
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number };
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
@@ -145,7 +146,7 @@ test('mise à disposition refusée sans compte actif : remise en main propre', a
   const x = await fresh();
   const { db, refus, run, KARIM } = x;
   const id = await clos(x);
-  (await db.run('UPDATE comptes SET actif = 0 WHERE emp_id = 2'));
+  (await db.run('UPDATE comptes SET actif = FALSE WHERE emp_id = 2'));
   await refus(KARIM, 'entretien.remettre', { id, mode: 'portail' }, /Mehdi Benali n’a pas de compte Cursus actif : remettez-lui le compte rendu en main propre/);
   assert.match(String(await run(KARIM, 'entretien.remettre', { id, mode: 'main_propre' })), /remis en main propre/);
   // Sans adresse e-mail : mis à disposition, le salarié est à prévenir.

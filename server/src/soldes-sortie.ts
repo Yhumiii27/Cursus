@@ -89,7 +89,7 @@ export async function marquerHorsFichier(db: Db, d: Domain, lot: Pick<LotPaie, '
 
 /** Lot annulé : ses soldes de sortie redeviennent en attente. */
 export async function libererSorties(db: Db, lot: Pick<LotPaie, 'id'>) {
-  await db.run('UPDATE soldes_sortie SET lot_id = NULL WHERE lot_id = ? AND sage = 0', [lot.id]);
+  await db.run('UPDATE soldes_sortie SET lot_id = NULL WHERE lot_id = ? AND sage = FALSE', [lot.id]);
 }
 
 /**
@@ -121,7 +121,7 @@ export const FAMILLE_SORTIES: FamilleLot<ElementSortiePaie> = {
   idsDuContenu: sortiesDuContenu,
   reserver: async (db, lotId, elements) => { for (const x of sortiesDuContenu(elements)) await db.update('soldesSortie', x.id, { lotId }); },
   confirmer: async (db, d, lot) => {
-    (await db.run('UPDATE soldes_sortie SET sage = 1 WHERE lot_id = ?', [lot.id]));
+    (await db.run('UPDATE soldes_sortie SET sage = TRUE WHERE lot_id = ?', [lot.id]));
     // Soldes de sortie de la période sans rubrique active : saisis dans Sage, ils ne partiront plus dans un lot.
     await marquerHorsFichier(db, d, lot);
   },

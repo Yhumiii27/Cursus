@@ -7,7 +7,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 for (const k of ['CURSUS_MAIL_FROM', 'CURSUS_MAIL_TENANT', 'CURSUS_MAIL_CLIENT_ID', 'CURSUS_MAIL_CLIENT_SECRET']) delete process.env[k];
 
 await import('./outils/client-node.ts');
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { PG, SQLITE_SEUL, nouvelleBase, sqlite } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { currentUser, loadFull, buildSnapshot } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -31,7 +31,7 @@ type Ligne = Record<string, any>;
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (trace au journal comprise). */
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const compteDe = async (empId: number | null) => await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', (empId ? [empId] : [])) as { id: number };
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
@@ -236,14 +236,14 @@ test('titre d’habilitation imprimé : modèle du référentiel, prérequis vé
   assert.match(JSON.stringify(sectionsTitre(await emp(3), (await domain()).hm('atex'), { delivree: '2026-10-05', par: 'Sarah Cohen' })), /Prérequis vérifiés.*ATEX/);
 });
 
-test('migration : délivrances en vigueur amorcées une fois, tracées, sans orphelin', async () => {
+test('migration : délivrances en vigueur amorcées une fois, tracées, sans orphelin', { skip: PG && SQLITE_SEUL }, async () => {
   const { db, journal } = await fresh();
   await db.exec('DELETE FROM hab_delivrances');
   const delivres = Number((await db.one('SELECT COUNT(*) AS n FROM hab_titres WHERE delivree IS NOT NULL') as { n: number }).n);
-  assert.equal(await HAB_DELIVRANCES.necessaire!(db), true);
-  assert.equal(await db.tx(async () => await HAB_DELIVRANCES.executer(db)), `${delivres} délivrances en vigueur inscrites`);
+  assert.equal(await HAB_DELIVRANCES.necessaire!(sqlite(db)), true);
+  assert.equal(await db.tx(async () => await HAB_DELIVRANCES.executer(sqlite(db))), `${delivres} délivrances en vigueur inscrites`);
   assert.deepEqual((await journal('migration.habDelivrances')).at(-1)!.payload, { delivrances: delivres });
-  assert.equal(await db.tx(() => HAB_DELIVRANCES.executer(db)), undefined, 'rien à refaire');
+  assert.equal(await db.tx(async () => await HAB_DELIVRANCES.executer(sqlite(db))), undefined, 'rien à refaire');
   // Échéance avec la fin de mois (addMonths) : ac489 délivrée le 15 avril 2022, 60 mois.
   assert.equal((await db.all<Ligne>('habDelivrances')).find(x => x.empId === 1)!.expire, '2027-04-15');
   assert.equal((await controlerOrphelins(db)).orphelins, 0);
@@ -264,10 +264,12 @@ test('durée en heures : lue dans le texte quand elle y est seule, contrôlée, 
   assert.match(controlerFormation({ ...base, dureeHeures: '0' }, ref, 'sst').erreurs.dureeHeures!, /0,25 à 2/);
   await run(RH, 'referentiel.formation.enregistrer', { id: 'sst', ...base, dureeHeures: '10,5' });
   assert.equal((await domain()).fm('sst').dureeHeures, 10.5);
-  // Base d'avant le lot 6 : durées en heures vides, extraites du texte quand il en donne une seule.
+  // Base d'avant le lot 6 : durées en heures vides, extraites du texte quand il en donne une seule (migration nommée,
+  // propre au fichier SQLite).
+  if (PG) return;
   await db.exec(`UPDATE formations SET duree_heures = NULL; UPDATE formations SET duree = '2 jours' WHERE id = 'rgpd'`);
-  assert.equal(await DUREE_HEURES.necessaire!(db), true);
-  assert.equal(await db.tx(async () => await DUREE_HEURES.executer(db)), '10 durées en heures extraites');
+  assert.equal(await DUREE_HEURES.necessaire!(sqlite(db)), true);
+  assert.equal(await db.tx(async () => await DUREE_HEURES.executer(sqlite(db))), '10 durées en heures extraites');
   assert.deepEqual([(await domain()).fm('fco').dureeHeures, (await domain()).fm('rgpd').dureeHeures ?? null], [35, null]);
 });
 

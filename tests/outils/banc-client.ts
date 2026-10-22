@@ -28,6 +28,8 @@ type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
  * collaborateur de la Maintenance).
  */
 export async function baseDemo() {
+  // SQLite sur les deux moteurs de test : les clics du banc (act) n'attendent que les microtâches, que les échanges avec
+  // un serveur PostgreSQL dépasseraient ; l'écran ne dépend pas du moteur, les actions sont vérifiées par les autres tests.
   const db = new SqliteDb(':memory:');
   await seedDemo(db);
   const personne = async (empId: number | null, role: Role): Promise<User> => {

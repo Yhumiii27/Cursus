@@ -11,7 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -25,10 +25,10 @@ const { estActionPaie, familleAction, JOURNAL_LABEL } = await import('../shared/
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Dataset = Awaited<ReturnType<typeof loadFull>>;
 type Absence = Dataset['absences'][number];
-type Db = InstanceType<typeof Db>;
+type Db = Awaited<ReturnType<typeof nouvelleBase>>;
 
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   // Compteurs repris arrêtés au 1er janvier 2027 (mise en service) : les périodes de 2027 sont suivies par Cursus.
   await db.exec(`UPDATE soldes_reprise SET arrete_le = '2027-01-01'`);

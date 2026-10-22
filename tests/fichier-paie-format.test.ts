@@ -12,6 +12,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 
 const express = (await import('express')).default;
 const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -31,12 +32,13 @@ const { MODES_SAGE } = await import('../shared/rules/paie.ts');
 const { JOURNAL_LABEL } = await import('../shared/journal.ts');
 const { RUBRIQUES_PAIE } = await import('../shared/constants.ts');
 const L = await import('../shared/rules/lots-paie.ts');
-type Db = InstanceType<typeof Db>;
+type Db = import('../server/src/db.ts').Db;
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Format = Parameters<typeof L.fichierLot>[1] & object;
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (trace au journal comprise). */
-async function fresh(db: Db = new Db(':memory:')) {
+async function fresh(base?: Db) {
+  const db = base ?? await nouvelleBase();
   await seedDemo(db);
   const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number }).id;
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteDe(empId), role, methode: 'demo' }))!;

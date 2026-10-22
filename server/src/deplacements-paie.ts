@@ -90,9 +90,9 @@ export const FAMILLE_DEPLACEMENTS: FamilleLot<ElementDeplacementPaie> = {
       });
     }
   },
-  confirmer: async (db, _d, lot) => { (await db.run('UPDATE deplacements_paie SET sage = 1 WHERE lot_id = ?', [lot.id])); },
+  confirmer: async (db, _d, lot) => { (await db.run('UPDATE deplacements_paie SET sage = TRUE WHERE lot_id = ?', [lot.id])); },
   // Lot annulé : ses éléments disparaissent, l'écart du lot suivant les recalcule.
-  liberer: async (db, lot) => { (await db.run('DELETE FROM deplacements_paie WHERE lot_id = ? AND sage = 0', [lot.id])); },
+  liberer: async (db, lot) => { (await db.run('DELETE FROM deplacements_paie WHERE lot_id = ? AND sage = FALSE', [lot.id])); },
 };
 
 /**

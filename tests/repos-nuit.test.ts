@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { PG, nouvelleBase, sqlite } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -34,7 +34,7 @@ const jours = (...h: number[]) => [...h, 0, 0, 0, 0, 0, 0, 0].slice(0, 7);
 const sans = <T>(...x: T[]) => [...x, null, null, null, null, null, null, null].slice(0, 7) as (T | null)[];
 
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const compteId = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', (empId ? [empId] : [])) as { id: number }).id;
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteId(empId), role, methode: 'demo' }))!;
@@ -202,11 +202,13 @@ test('aucun contrôle rétroactif : feuille validée d’avant les horaires sans
   assert.ok(validees.length > 0 && validees.every(f => !f.horairesFiges), 'démonstration : feuilles validées sans horaire');
   const d = await domain();
   assert.ok(validees.every(f => calcSheet(d, d.emp(f.empId)!, f).nuit === 0 && !calcSheet(d, d.emp(f.empId)!, f).reposQuotidien.length));
-  assert.equal(await HORAIRES_NUIT_FIGEE.necessaire!(db), true);
-  assert.ok((await appliquerMigrations(db)).includes('lot6-horaires-majoration-nuit'));
+  // Migration nommée (propre au fichier SQLite) ; sur PostgreSQL, 0003_lot6_etape2.sql fait la même reprise.
+  if (PG) return;
+  assert.equal(await HORAIRES_NUIT_FIGEE.necessaire!(sqlite(db)), true);
+  assert.ok((await appliquerMigrations(sqlite(db))).includes('lot6-horaires-majoration-nuit'));
   assert.ok((await db.all<Feuille>('feuilles')).filter(f => f.statut === 'validee').every(f => f.majNuit === 0));
   assert.ok((await db.all<Feuille>('feuilles')).filter(f => f.statut !== 'validee').every(f => f.majNuit == null), 'brouillons et soumises : le réglage s’appliquera');
-  assert.deepEqual(await appliquerMigrations(db), [], 'une seule fois');
+  assert.deepEqual(await appliquerMigrations(sqlite(db)), [], 'une seule fois');
 });
 
 test('paie : HNUIT et MAJ_NUIT inactives, listées « à saisir dans Sage » dans l’export et le lot ; actives, dans le fichier', async () => {

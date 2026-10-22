@@ -11,7 +11,7 @@ const { api, DELAI_ACTION_MS, DELAI_LECTURE_MS, messageHttp, MSG_DELAI, MSG_DELA
 const { AppelsEnCours, cleAction, garde } = await import('../client/src/state/actions.ts');
 const { saisieModifiee } = await import('../client/src/state/brouillon.ts');
 const { EnregistrementAuFil } = await import('../client/src/state/enregistrement.ts');
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase, json: jsonLu } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -208,7 +208,7 @@ const HUGO: User = { role: 'manager', empId: 16, nom: 'Hugo Lambert', intitule: 
 const MEHDI: User = { role: 'collaborateur', empId: 2, nom: 'Mehdi Benali', intitule: '' };
 
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const run = async (user: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => await ACTIONS[name](makeCtx(db, user, await loadFull(db, user)), payload));
   return { db, run };
@@ -264,13 +264,13 @@ test('feuille de temps : la croix supprime la ligne visée, jamais la suivante',
   const { db, run } = await fresh();
   const week = '2026-10-12';
   const lignes = async () => ((await db.one('SELECT lignes FROM feuilles WHERE emp_id = 2 AND week = ?', [week])) as { lignes: string } | undefined);
-  const projets = async () => (JSON.parse((await (await lignes())!).lignes) as { projet: string }[]).map(l => l.projet);
+  const projets = async () => (jsonLu((await lignes())!.lignes) as { projet: string }[]).map(l => l.projet);
   await run(MEHDI, 'temps.addLine', { empId: 2, week, projet: 'INT-MAINT' });
   await run(MEHDI, 'temps.addLine', { empId: 2, week, projet: 'K-2620' });
   await run(MEHDI, 'temps.addLine', { empId: 2, week, projet: 'INT-QUA' });
   assert.deepEqual(await projets(), ['INT-MAINT', 'K-2620', 'INT-QUA']);
   // Ligne visée : projet et tâche affichés, nombre de lignes de la feuille affichée.
-  const ligne0 = { empId: 2, week, li: 0, projet: 'INT-MAINT', tache: (JSON.parse((await (await lignes())!).lignes) as { tache: string }[])[0].tache, lignes: 3 };
+  const ligne0 = { empId: 2, week, li: 0, projet: 'INT-MAINT', tache: (jsonLu((await lignes())!.lignes) as { tache: string }[])[0].tache, lignes: 3 };
   await run(MEHDI, 'temps.removeLine', ligne0);
   // Second clic (même demande) : la ligne n'existe plus, rien n'est supprimé.
   assert.equal(await run(MEHDI, 'temps.removeLine', ligne0), null);

@@ -8,7 +8,7 @@
 import { plural } from '../../shared/format.ts';
 import { journaliser } from './comptes.ts';
 import type { ObjetPiece } from '../../shared/types.ts';
-import { snake, type Db, type TableName } from './db.ts';
+import { snake, TABLES, type Db, type TableName } from './db.ts';
 import { controlerPieces, TABLE_OBJET } from './pieces.ts';
 import { log } from './logs.ts';
 
@@ -86,13 +86,20 @@ export interface Integrite {
   le: string;
 }
 
+/** Valeur « aucun » d'une colonne de référence : 0 pour un identifiant, chaîne vide pour un code (types de TABLES). */
+function vide(r: Reference): string {
+  const def = (Object.entries(TABLES) as [string, { cols: Record<string, string> }][]).find(([n]) => snake(n) === r.table)?.[1];
+  const type = def && Object.entries(def.cols).find(([c]) => snake(c) === r.colonne)?.[1];
+  return type === 'int' ? '0' : "''";
+}
+
 /** Compte les références orphelines (valeur renseignée, absente de la table visée). Lecture seule. */
 export async function controlerOrphelins(db: Db, references: readonly Reference[] = REFERENCES): Promise<Integrite> {
   const parReference: Record<string, number> = {};
   let orphelins = 0;
   for (const r of references) {
     // Valeur 0 : « aucun » dans quelques colonnes anciennes (identifiants SQLite à partir de 1), jamais une référence.
-    const n = Number((await db.one(`SELECT COUNT(*) AS n FROM ${r.table} t WHERE t.${r.colonne} IS NOT NULL AND t.${r.colonne} <> 0 AND t.${r.colonne} <> ''${r.si ? ` AND ${r.si}` : ''}
+    const n = Number((await db.one(`SELECT COUNT(*) AS n FROM ${r.table} t WHERE t.${r.colonne} IS NOT NULL AND t.${r.colonne} <> ${vide(r)}${r.si ? ` AND ${r.si}` : ''}
       AND NOT EXISTS (SELECT 1 FROM ${r.cible} c WHERE c.${r.cle} = t.${r.colonne})`) as { n: number }).n);
     if (n) { parReference[`${r.table}.${r.colonne} → ${r.cible}`] = n; orphelins += n; }
   }

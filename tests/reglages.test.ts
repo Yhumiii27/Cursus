@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 process.env.CURSUS_TODAY = '2026-10-07';
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { DEFAULT_SETTINGS, loadFull, loadSettings } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -16,7 +16,7 @@ type User = Parameters<typeof loadFull>[1];
 type Settings = Awaited<ReturnType<typeof loadSettings>>;
 const RH: User = { role: 'rh', empId: null, nom: 'Sandrine Vidal', intitule: 'Administrateur RH', profilRh: 'rh_admin' };
 
-const db = new Db(':memory:');
+const db = await nouvelleBase();
 await seedDemo(db);
 const run = async (name: string, p: Record<string, unknown>) => await db.tx(async () => await ACTIONS[name](makeCtx(db, RH, await loadFull(db, RH)), p));
 

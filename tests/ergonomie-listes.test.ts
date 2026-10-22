@@ -8,7 +8,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 
 const { rendreHook } = await import('./outils/client-node.ts');
 const { poserMagasin } = await import('./outils/store-factice.ts');
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser } = await import('../server/src/dataset.ts');
 const { norm, texteRecherche, matricule } = await import('../shared/format.ts');
@@ -20,7 +20,7 @@ type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Dataset = Awaited<ReturnType<typeof buildSnapshot>>;
 type Store = NonNullable<Parameters<typeof poserMagasin>[0]>;
 
-const db = new Db(':memory:');
+const db = await nouvelleBase();
 await seedDemo(db);
 async function donnees(empId: number | null, role: User['role']): Promise<Dataset> {
   const c = (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', (empId ? [empId] : [])) as { id: number }).id;

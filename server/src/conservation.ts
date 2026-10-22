@@ -14,7 +14,7 @@ import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesEchues, conservationActi
 import type { CategorieConservation, DossierEchu, Employe, ISODate, Settings } from '../../shared/types.ts';
 import { journaliser } from './comptes.ts';
 import { loadSettings, todayIso } from './dataset.ts';
-import { snake, TABLES, type Db } from './db.ts';
+import { snake, type SqlValeur, TABLES, type Db } from './db.ts';
 import { log } from './logs.ts';
 import { lireMessagerie } from './messagerie.ts';
 import { nettoyerBientot } from './pieces.ts';
@@ -86,23 +86,23 @@ interface Etape { table: string; ou: string; supprimer?: true; vider?: readonly 
 /** Pièces retirées (fichier effacé après la validation, description gardée). */
 const retrait = (cx: Cx, ou: string): Etape => ({ table: 'pieces', ou: `${ou} AND retiree_le IS NULL`, poser: { retiree_le: cx.le, retiree_par: cx.par, retiree_motif: 'Durée de conservation échue' } });
 /** Déclarations d'un document (passeport, visa, vaccin) faites par le salarié. */
-const declarations = (kinds: string) => `emp_id = ? AND type = 'document' AND json_extract(declaration, '$.kind') IN (${kinds})`;
+const declarations = (db: Db, kinds: string) => `emp_id = ? AND type = 'document' AND ${db.jsonCle('declaration', 'kind')} IN (${kinds})`;
 
 /** Contexte d'un effacement : jour, auteur. */
 export interface Cx { ti: ISODate; le: string; par: string }
 
 /** Étapes propres à chaque catégorie, dans l'ordre (les pièces d'un objet avant l'objet). */
-function etapes(cat: CategorieConservation, cx: Cx, empId: number): Etape[] {
+function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number): Etape[] {
   switch (cat) {
     case 'passeport': return [
-      retrait(cx, `emp_id = ? AND objet = 'declaration' AND objet_id IN (SELECT id FROM demandes_collab WHERE ${declarations(`'passeport', 'visa'`)})`),
-      { table: 'demandes_collab', ou: declarations(`'passeport', 'visa'`), supprimer: true },
+      retrait(cx, `emp_id = ? AND objet = 'declaration' AND objet_id IN (SELECT id FROM demandes_collab WHERE ${declarations(db, `'passeport', 'visa'`)})`),
+      { table: 'demandes_collab', ou: declarations(db, `'passeport', 'visa'`), supprimer: true },
       { table: 'visas', ou: 'emp_id = ?', supprimer: true },
       { table: 'employes', ou: 'id = ?', vider: ['passeport_numero', 'passeport_expire'] },
     ];
     case 'sante': return [
-      retrait(cx, `emp_id = ? AND objet = 'declaration' AND objet_id IN (SELECT id FROM demandes_collab WHERE ${declarations(`'vaccin'`)})`),
-      { table: 'demandes_collab', ou: declarations(`'vaccin'`), supprimer: true },
+      retrait(cx, `emp_id = ? AND objet = 'declaration' AND objet_id IN (SELECT id FROM demandes_collab WHERE ${declarations(db, `'vaccin'`)})`),
+      { table: 'demandes_collab', ou: declarations(db, `'vaccin'`), supprimer: true },
       { table: 'vaccinations', ou: 'emp_id = ?', supprimer: true },
       { table: 'demandes_visite', ou: 'emp_id = ?', supprimer: true },
       { table: 'employes', ou: 'id = ?', vider: ['visite', 'avis', 'restrictions', 'suivi', 'prochaine_visite', 'examen_aptitude', 'expose', 'reprise_motif', 'reprise_date'] },
@@ -155,13 +155,26 @@ function etapes(cat: CategorieConservation, cx: Cx, empId: number): Etape[] {
   }
 }
 
-/** Valeur considérée comme vide (rien à effacer) : NULL, chaîne vide, liste vide, case décochée. */
-const renseignee = (c: string) => `(${c} IS NOT NULL AND ${c} NOT IN ('', '[]', 0))`;
+/** Type déclaré (TABLES) de chaque colonne, par noms SQL : « table.colonne ». */
+const TYPES_SQL = new Map(Object.entries(TABLES as Record<string, { cols: Record<string, string> }>)
+  .flatMap(([t, def]) => Object.entries(def.cols).map(([c, type]) => [`${snake(t)}.${snake(c)}`, type] as const)));
+
+/**
+ * Valeur considérée comme vide (rien à effacer) : NULL, chaîne vide, liste vide, case décochée, zéro. Condition écrite
+ * d'après le type de la colonne, commune aux deux moteurs (en PostgreSQL, une date ou un booléen ne se compare pas à '').
+ */
+function renseignee(table: string, c: string): string {
+  switch (TYPES_SQL.get(`${table}.${c}`)) {
+    case 'bool': return `(${c} IS NOT NULL AND ${c} = TRUE)`;
+    case 'int': case 'real': return `(${c} IS NOT NULL AND ${c} <> 0)`;
+    default: return `(${c} IS NOT NULL AND CAST(${c} AS text) NOT IN ('', '[]'))`;
+  }
+}
 const lier = (ou: string, empId: number) => Array.from({ length: (ou.match(/\?/g) ?? []).length }, () => empId);
 
 /** Lignes ou valeurs qu'une étape effacerait encore. */
 async function compter(db: Db, e: Etape, empId: number): Promise<number> {
-  const reste = e.vider && !e.poser && !e.sql ? ` AND (${e.vider.map(renseignee).join(' OR ')})` : '';
+  const reste = e.vider && !e.poser && !e.sql ? ` AND (${e.vider.map(c => renseignee(e.table, c)).join(' OR ')})` : '';
   return Number((await db.one<{ n: number }>(`SELECT COUNT(*) AS n FROM ${e.table} WHERE ${e.ou}${reste}`, lier(e.ou, empId)))?.n ?? 0);
 }
 
@@ -169,7 +182,8 @@ async function appliquer(db: Db, e: Etape, empId: number): Promise<number> {
   if (e.supprimer) return Number((await db.run(`DELETE FROM ${e.table} WHERE ${e.ou}`, lier(e.ou, empId))).changes);
   const n = await compter(db, e, empId);
   if (!n) return 0;
-  const sets = [...(e.vider ?? []).map(c => `${c} = NULL`), ...Object.keys(e.poser ?? {}).map(c => `${c} = ?`), ...Object.entries(e.sql ?? {}).map(([c, x]) => `${c} = ${x}`)];
+  // Case à cocher vidée : décochée (FALSE ; colonne NOT NULL en PostgreSQL, lue faux comme NULL en SQLite).
+  const sets = [...(e.vider ?? []).map(c => `${c} = ${TYPES_SQL.get(`${e.table}.${c}`) === 'bool' ? 'FALSE' : 'NULL'}`), ...Object.keys(e.poser ?? {}).map(c => `${c} = ?`), ...Object.entries(e.sql ?? {}).map(([c, x]) => `${c} = ${x}`)];
   await db.run(`UPDATE ${e.table} SET ${sets.join(', ')} WHERE ${e.ou}`, [...Object.values(e.poser ?? {}) as (string | number)[], ...lier(e.ou, empId)]);
   return n;
 }
@@ -179,7 +193,7 @@ const cxNeutre = (ti: ISODate): Cx => ({ ti, le: '', par: '' });
 /** Données d'une catégorie partielle encore présentes (lignes et valeurs). */
 export async function aEffacer(db: Db, empId: number, cat: CategorieConservation): Promise<number> {
   let n = 0;
-  for (const e of etapes(cat, cxNeutre(''), empId)) n += await compter(db, e, empId);
+  for (const e of etapes(db, cat, cxNeutre(''), empId)) n += await compter(db, e, empId);
   return n;
 }
 
@@ -260,21 +274,25 @@ export const motifTerme = (t: string) => new RegExp(`(?<![\\p{L}\\p{N}_@.-])${ec
 export async function retirerIdentite(db: Db, empId: number, termes: readonly string[], neutre: string): Promise<number> {
   if (!termes.length) return 0;
   let n = 0;
-  for (const [table, def] of Object.entries(TABLES) as [string, { cols: Record<string, string> }][]) {
+  for (const [table, def] of Object.entries(TABLES) as [string, { pk: string; cols: Record<string, string> }][]) {
     const t = snake(table);
     if (TABLES_EXCLUES.has(t)) continue;
     const borne = LIGNES_DU_SALARIE[t];
+    // Ligne désignée par sa clé (PostgreSQL n'a pas de rowid) ; valeur lue en texte (JSON compris : le texte écrit).
+    const cle = snake(def.pk);
     for (const [col, type] of Object.entries(def.cols)) {
       const c = snake(col);
       if ((type !== 'text' && type !== 'json') || COLONNES_EXCLUES.has(`${t}.${c}`)) continue;
       // JSON : le terme aussi tel qu'il est écrit dans une chaîne JSON (guillemets et barres obliques échappés).
       const formes = [...new Set(termes.flatMap(x => [x, ...(type === 'json' ? [JSON.stringify(x).slice(1, -1)] : [])]))].sort((a, b) => b.length - a.length);
-      const lignes = await db.query<{ r: number; v: string }>(`SELECT rowid AS r, ${c} AS v FROM ${t} WHERE (${formes.map(() => `instr(lower(${c}), lower(?)) > 0`).join(' OR ')})${borne ? ` AND ${borne} = ?` : ''}`,
+      // Lignes candidates (sous-chaîne, sans tenir compte de la casse ; un « _ » ou un « % » du terme élargit seulement la
+      // sélection) ; le remplacement borné est fait ici.
+      const lignes = await db.query<{ r: SqlValeur; v: string }>(`SELECT ${cle} AS r, CAST(${c} AS text) AS v FROM ${t} WHERE (${formes.map(() => `lower(CAST(${c} AS text)) LIKE '%' || lower(CAST(? AS text)) || '%'`).join(' OR ')})${borne ? ` AND ${borne} = ?` : ''}`,
         [...formes, ...(borne ? [empId] : [])]);
       for (const l of lignes) {
         const v = formes.reduce((x, f) => x.replace(motifTerme(f), neutre), l.v);
         if (v === l.v) continue;
-        await db.run(`UPDATE ${t} SET ${c} = ? WHERE rowid = ?`, [v, l.r]);
+        await db.run(`UPDATE ${t} SET ${c} = ? WHERE ${cle} = ?`, [v, l.r]);
         n++;
       }
     }
@@ -293,7 +311,7 @@ export async function effacer(db: Db, empId: number, categories: readonly Catego
   const liste = dossier ? [...CATEGORIES.filter(c => c !== 'dossier'), 'dossier' as const] : categories.filter(c => c !== 'dossier');
   const termes = dossier ? await identite(db, empId) : [];
   let elements = 0;
-  for (const c of liste) for (const e of etapes(c, cx, empId)) elements += await appliquer(db, e, empId);
+  for (const c of liste) for (const e of etapes(db, c, cx, empId)) elements += await appliquer(db, e, empId);
   await db.insert('effacements', { empId, categories: liste, le: cx.le, par: cx.par, motif: o.motif, avantEcheance: o.avantEcheance, elements });
   if (dossier) await retirerIdentite(db, empId, termes, nomAnonyme(empId));
   nettoyerBientot(db);

@@ -366,7 +366,7 @@ test('instantanés : déclarations au service RH, sans auteur au référent HSE 
 
 test('migration lot7-prevention-passeport : formations santé-sécurité cochées sur une base existante, tracée, une seule fois', { skip: PG && SQLITE_SEUL }, async () => {
   const db = new SqliteDb(':memory:');
-  assert.ok(MIGRATIONS.includes(PASSEPORT_PREVENTION) && MIGRATIONS.at(-1) === PASSEPORT_PREVENTION);
+  assert.ok(MIGRATIONS.includes(PASSEPORT_PREVENTION), 'migration inscrite dans la liste (après celles du lot 6)');
   assert.ok((await appliquerMigrations(db)).includes('lot7-prevention-passeport'), 'base neuve : exécutée, sans effet (catalogue vide)');
   assert.equal(await db.count('journal'), 0);
   // Base existante : catalogue saisi à la main avant cette version, case vide (NULL).

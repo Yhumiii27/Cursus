@@ -33,7 +33,7 @@ interface Ligne { action: string; payload: Record<string, any>; salaries: number
 async function fresh() {
   const db = await nouvelleBase();
   await seedDemo(db);
-  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number };
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
@@ -270,9 +270,9 @@ test('échéances « Contrats » : une sortie enregistrée retire la fin de CDD 
   for (const u of [MGR, HSE]) assert.deepEqual([(await domain(u)).emp(4)!.motifSortie, (await domain(u)).emp(4)!.finPrevue], [null, null]);
   // Fin d'essai notifiée (sortie le 24 octobre, essai jusqu'au 31) : plus d'échéance « À décider ».
   await run(RH, 'employe.modifier', { id: 2, essaiFin: '2026-10-31' });
-  assert.ok(contrats(await domain()).some(x => x.emp.id === 2 && /^Fin d’essai/.test(x.label)));
+  assert.ok(contrats(await domain()).some(x => x.emp.id === 2 && x.label.startsWith('Fin d’essai')));
   await run(RH, 'employe.sortie', { id: 2, date: '2026-10-24', motif: 'fin_periode_essai' });
-  assert.ok(!contrats(await domain()).some(x => x.emp.id === 2 && /^Fin d’essai/.test(x.label)));
+  assert.ok(!contrats(await domain()).some(x => x.emp.id === 2 && x.label.startsWith('Fin d’essai')));
 });
 
 test('titre de séjour : le journal ne recopie que des codes et des dates validés, jamais du texte libre', async () => {

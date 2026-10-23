@@ -203,11 +203,11 @@ export const NATURES_ABSENCE: Record<NatureAbsence, NatureDef> = {
 
 const NATURES = Object.entries(NATURES_ABSENCE) as [NatureAbsence, NatureDef][];
 export const ABS_LABEL = {
-  CP: 'Congés payés', RTT: 'RTT / repos', RECUP: 'Récupération', ABSENCE: 'Absence', ...Object.fromEntries(NATURES.map(([k, n]) => [k, n.label])),
+  CP: 'Congés payés', RTT: 'RTT / repos', RECUP: 'Récupération', CET: 'Congé sur le CET', ABSENCE: 'Absence', ...Object.fromEntries(NATURES.map(([k, n]) => [k, n.label])),
 } as Record<AbsenceType, string>;
 /** Libellé court : en-tête de la grille des heures. */
 export const ABS_ABREGE = {
-  CP: 'Congés payés', RTT: 'RTT / repos', RECUP: 'Récupération', ABSENCE: 'Absence', ...Object.fromEntries(NATURES.map(([k, n]) => [k, n.abrege])),
+  CP: 'Congés payés', RTT: 'RTT / repos', RECUP: 'Récupération', CET: 'Congé CET', ABSENCE: 'Absence', ...Object.fromEntries(NATURES.map(([k, n]) => [k, n.abrege])),
 } as Record<AbsenceType, string>;
 export const ABS_CLS: Record<AbsenceStatut, string> = { demandee: 'tag-outline', validee: 'tag-neutral', refusee: 'tag-accent', signalee: 'tag-outline', annulee: 'tag-outline' };
 export const ABS_ST: Record<AbsenceStatut, string> = { demandee: 'À valider', validee: 'Validée', refusee: 'Refusée', signalee: 'Signalée', annulee: 'Annulée' };
@@ -264,6 +264,10 @@ export const EMAIL_LABEL: Record<string, string> = {
   'temps.relance': 'Relance des feuilles de temps en retard',
   'conges.information': 'Congés payés au retour d’une absence',
   'hierarchie.redirection': 'Demandes en attente redirigées (équipe parente)',
+  // Délégation des validations d'un manager absent (t135, server/src/actions/delegations-manager.ts, server/src/delegations.ts).
+  'delegation.prevue': 'Délégation des validations prévue',
+  'delegation.debut': 'Début d’une délégation des validations (demandes en attente)',
+  'delegation.fin': 'Délégation des validations révoquée',
   // E-mail réservé au service RH (donnée de santé), tel que la lecture seule le voit (server/src/envois-lecteur.ts).
   reserve: 'Message réservé au service RH',
   'echeances.recapitulatif': 'Récapitulatif des échéances',
@@ -315,9 +319,9 @@ export const VACCINS: Record<VaccinId, { nom: string; court: string; validite: n
  * Information de la personne (art. 13 du RGPD), affichée avant toute saisie d'une vaccination, par le salarié
  * (déclaration) comme par le service RH (à porter à la connaissance du salarié). Décision de l'entreprise : tous les
  * vaccins sont enregistrés avec leur date d'injection, et seul le service RH y a accès. Données de santé (art. 9) :
- * texte à faire valider par le DPO de l'entreprise. La conservation énonce ce que Cursus fait réellement : aucune
- * purge, même au départ du salarié ; les déclarations et le journal gardent les injections antérieures. La durée est
- * à fixer par le DPO avant la mise en service (docs/DEPLOIEMENT.md).
+ * texte à faire valider par le DPO de l'entreprise. La conservation énonce ce que Cursus fait réellement : effacement
+ * des données de santé après le départ, proposé par Cursus et confirmé par le service RH (t016,
+ * shared/rules/conservation.ts), une fois la durée validée par le DPO ; aucune purge automatique.
  */
 export const INFO_VACCINATIONS = {
   titre: 'Vaccinations : des données de santé',
@@ -327,7 +331,7 @@ export const INFO_VACCINATIONS = {
     ['Base légale', 'obligation de sécurité de l’employeur envers le salarié en déplacement (art. L4121-1 du Code du travail ; art. 6.1.c et 9.2.b du RGPD).'],
     ['Données', 'le vaccin et la date d’injection, rien d’autre : ni certificat, ni contre-indication, ni autre information médicale.'],
     ['Destinataires', 'le service RH seulement. Votre manager, les autres profils et Keystone ne voient que l’état du dossier de voyage, jamais le vaccin.'],
-    ['Conservation', 'durée fixée par l’entreprise avec son délégué à la protection des données (à préciser avant la mise en service) ; rien n’est encore effacé automatiquement, même après votre départ. Votre dossier ne garde que la dernière injection de chaque vaccin, mais vos déclarations successives et le journal des actions gardent les précédentes.'],
+    ['Conservation', 'durée fixée par l’entreprise avec son délégué à la protection des données (référence usuelle : 5 ans après votre départ) ; à son terme, le service RH confirme l’effacement que Cursus lui propose, déclarations comprises. Tant que la durée n’est pas validée, rien n’est effacé. Votre dossier ne garde que la dernière injection de chaque vaccin, mais vos déclarations successives gardent les précédentes jusqu’à cet effacement.'],
     ['Vos droits', 'accès, rectification, effacement, limitation et opposition auprès du service RH ou du délégué à la protection des données ; réclamation auprès de la CNIL (cnil.fr).'],
     ['Si vous ne la déclarez pas', 'un déplacement vers un pays qui exige ce vaccin reste « à compléter ».'],
   ] as [string, string][],
@@ -448,12 +452,20 @@ export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubriqu
   MAJ_FERIE: { label: 'Majoration des heures d’un jour férié (heures équivalentes)', unite: 'h' },
   // Contrepartie obligatoire en repos des heures supplémentaires au-delà du contingent annuel (shared/rules/durees.ts).
   COR_ACQUIS: { label: 'Contrepartie obligatoire en repos acquise (au-delà du contingent)', unite: 'h' },
+  // Heures de nuit (shared/rules/repos-nuit.ts, t048) d'après les horaires de poste, comprises dans les heures ci-dessus, et
+  // leur majoration au taux réglé (0 % par défaut, accord inconnu). Désactivées par défaut tant que la paie n'a pas confirmé
+  // ses codes : quantités calculées, listées « à saisir dans Sage » dans le résumé du lot et l'export des variables.
+  HNUIT: { label: 'Heures de nuit (comprises dans les heures ci-dessus)', unite: 'h', inactiveParDefaut: true },
+  MAJ_NUIT: { label: 'Majoration des heures de nuit (heures équivalentes)', unite: 'h', inactiveParDefaut: true },
   // Absences validées (shared/rules/absences-paie.ts), réglage `absencesFichierPaie` : jours décomptés au demi-jour,
   // ventilés par période de paie. Hors congés, une rubrique par rémunération et par catégorie de nature : le code révèle
   // la catégorie (santé), d'où des lignes réservées au droit « paie ». Codes Sage à confirmer avant tout lot réel.
   CP: { label: 'Congés payés pris (jours ouvrés)', unite: 'j' },
   RTT: { label: 'RTT ou jours de repos du forfait jours pris (jours travaillés)', unite: 'j' },
   RECUP: { label: 'Récupération prise (heures)', unite: 'h' },
+  // Congé pris sur le compte épargne-temps (lot 6, chantier 3) : désactivée par défaut, code Sage à confirmer par la paie ;
+  // d'ici là, chaque congé figure nominativement dans le lot « à saisir dans Sage » (shared/rules/elements-lot.ts).
+  CET: { label: 'Congé pris sur le compte épargne-temps (jours ouvrés)', unite: 'j', inactiveParDefaut: true },
   ABS_NP: { label: 'Absence non payée (jours de la nature : calendaires ou ouvrés)', unite: 'j' },
   ABS_IND_SANTE: { label: 'Absence indemnisée, santé : arrêts de travail (jours calendaires)', unite: 'j' },
   ABS_MAINT_SANTE: { label: 'Absence à salaire maintenu, santé (jours de la nature)', unite: 'j' },
@@ -475,6 +487,10 @@ export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubriqu
   GD_NUIT: { label: 'Nuits de grand déplacement en France', unite: 'nombre', inactiveParDefaut: true },
   ETR_JOUR: { label: 'Jours de mission à l’étranger (jours calendaires, pays en détail)', unite: 'j', inactiveParDefaut: true },
   TRAJET: { label: 'Trajets aller ou retour d’un déplacement (forfait par trajet, art. L3121-4)', unite: 'nombre', inactiveParDefaut: true },
+  // Forfait jours (shared/rules/forfait-jours.ts, t043) : jours de repos rachetés par avenant de renonciation (quantité ; le
+  // taux de majoration part en détail, le montant reste calculé par Sage). Désactivée par défaut tant que la paie n'a pas
+  // donné son code, et sans objet tant qu'aucun accord collectif n'ouvre le rachat (Paramètres → Forfait jours).
+  JREN: { label: 'Jours de repos rachetés, forfait jours (avenant de renonciation, majoration en détail)', unite: 'j', inactiveParDefaut: true },
 };
 
 /** Sections d'un compte rendu : [clé, libellé, rédacteur] — 'mgr' évaluateur, 'sal' salarié. */

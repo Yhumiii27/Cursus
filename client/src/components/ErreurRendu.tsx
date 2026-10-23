@@ -22,7 +22,9 @@ export class ErreurRendu extends Component<Props, State> {
     return { erreur: erreur instanceof Error ? erreur : new Error(String(erreur)) };
   }
 
+  // Changement de page ou de dialogue (`cle`) : l'erreur affichée est oubliée, une seule fois (condition sur `cle`).
   componentDidUpdate(prev: Props) {
+    // oxlint-disable-next-line react/no-did-update-set-state -- remise à zéro conditionnelle, sans boucle de rendus
     if (this.state.erreur && prev.cle !== this.props.cle) this.setState({ erreur: null });
   }
 

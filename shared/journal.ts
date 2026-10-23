@@ -25,6 +25,8 @@ export const ACTIONS_PAIE: readonly string[] = [
   // Clôture des congés (report ou perte du solde de chaque salarié, à justifier en cas de litige) et datation des
   // compteurs repris de l'ancien système (période sur laquelle ils sont décomptés).
   'conges.cloturer', 'migration.soldes',
+  // Jours de fractionnement crédités, ou renonciation du salarié (t046) : droits à congés payés de la période.
+  'conges.fractionnement',
   // Sortie (solde de tout compte, absences qu'elle annule) et solde de RTT gardé avant un changement de régime.
   'employe.sortie', 'employe.annulerSortie', 'employe.rtt',
   // Paie : correspondance des rubriques avec le plan de paie Sage, mode des heures supplémentaires figé sur les feuilles.
@@ -47,6 +49,8 @@ export const ACTIONS_PAIE: readonly string[] = [
   'parametres.feries',
   // Renouvellement d'un CDD (terme du contrat, indemnité de fin de contrat) ; avenant programmé appliqué à sa date.
   'employe.renouvelerCdd', 'employe.avenantApplique',
+  // Forfait jours (t043) : avenant de renonciation à des jours de repos (jours rachetés, majoration, rubrique JREN).
+  'forfait.avenant', 'forfait.annulerAvenant',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -75,6 +79,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'equipe.manager': 'Manager d’une équipe',
   'equipe.affecter': 'Affectation à une équipe',
   'equipe.parente': 'Équipe parente (hiérarchie des managers)',
+  'equipe.delegation': 'Délégation des validations d’un manager à un suppléant',
+  'equipe.revoquerDelegation': 'Délégation des validations révoquée',
   // Formations
   'plan.inscrire': 'Inscription à une session',
   'cert.ajouter': 'Certification enregistrée',
@@ -91,12 +97,16 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'plan.supprimer': 'Ligne du plan de formation supprimée (saisie erronée)',
   'plan.cloturerExercice': 'Clôture d’un exercice du plan de formation',
   'budget.enveloppes': 'Enveloppes budgétaires',
+  'formationSuivie.enregistrer': 'Formation suivie enregistrée',
+  'formationSuivie.modifier': 'Formation suivie corrigée',
+  'formationSuivie.annuler': 'Formation suivie supprimée (saisie erronée)',
   // Habilitations
   'hab.delivrer': 'Habilitation délivrée',
   'hab.suspendre': 'Habilitation suspendue',
   'hab.lever': 'Suspension levée',
   'hab.retirer': 'Habilitation retirée',
   'hab.demander': 'Habilitation exigée demandée',
+  'migration.habDelivrances': 'Reprise : historique des habilitations amorcé',
   'medical.demander': 'Visite médicale demandée',
   'medical.annuler': 'Demande de visite annulée',
   'medical.avis': 'Avis du médecin du travail',
@@ -148,6 +158,9 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'temps.rouvrir': 'Feuille de temps validée rouverte',
   'temps.correction': 'Correction d’heures par le manager ou le RH',
   'temps.ferie': 'Heures saisies un jour férié',
+  // Forfait jours (t043)
+  'forfait.avenant': 'Avenant de renonciation à des jours de repos (forfait jours)',
+  'forfait.annulerAvenant': 'Avenant de renonciation annulé (forfait jours)',
   'temps.pushSage': 'Transmission à la paie',
   'paie.rubrique': 'Rubrique de paie Sage',
   'paie.lotGenerer': 'Lot de paie généré',
@@ -173,6 +186,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'cet.placer': 'Placement sur le compte épargne-temps',
   'report.accorder': 'Report de congés payés',
   'conges.cloturer': 'Clôture d’une période de congés',
+  'conges.fractionnement': 'Jours de fractionnement des congés payés',
   'conges.informer': 'Information sur les congés au retour d’un arrêt',
   // Entretiens
   'entretien.planifier': 'Entretien planifié',
@@ -241,6 +255,13 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'piece.joindre': 'Pièce justificative jointe',
   'piece.retirer': 'Pièce justificative retirée',
   'piece.consulter': 'Pièce justificative consultée',
+  // Conservation des dossiers (t016, server/src/conservation.ts) : identifiants et catégories seulement, jamais de nom.
+  'employe.anonymiser': 'Dossier de salarié sorti : données échues effacées ou dossier anonymisé',
+  'conservation.signalement': 'Dossiers de salariés sortis à effacer signalés au service RH',
+  // Agenda personnel (t036, server/src/agenda.ts) : jeton créé, révoqué ; jamais le jeton.
+  'agenda.creerJeton': 'Abonnement à l’agenda personnel créé',
+  'agenda.revoquerJeton': 'Abonnement à l’agenda personnel révoqué',
+  'agenda.revoquerTout': 'Tous les abonnements aux agendas révoqués',
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
@@ -267,16 +288,17 @@ export const dossierComplet = (u: Pick<CurrentUser, 'role' | 'profilRh'>) => dro
 /** Familles du filtre « Action » : codes commençant par l'un des préfixes (ou égaux à l'un d'eux). */
 export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly string[] }[] = [
   { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.', 'migration.contratsHistorique'] },
-  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'migration.coutReel'] },
-  { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.'] },
+  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel'] },
+  { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.', 'migration.habDelivrances'] },
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
   { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement', 'migration.referencesDeplacements', 'chantier.', 'migration.deplacementsPaie'] },
-  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie', 'migration.rubriquesFeuilles'] },
+  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'forfait.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie', 'migration.rubriquesFeuilles'] },
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
   { id: 'pieces', label: 'Pièces justificatives', prefixes: ['piece.'] },
+  { id: 'conservation', label: 'Conservation et agendas', prefixes: ['conservation.', 'agenda.'] },
   { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.', 'integrite.', 'migration.postgres'] },
   { id: 'connexions', label: 'Connexions et accès', prefixes: ACTIONS_CONNEXION },
   {
@@ -305,7 +327,8 @@ export const CHAMP_LABEL: Record<string, string> = {
   rtt39: 'Jours de RTT (39 h)', uniquementReglementaire: 'Formations réglementaires seules', partageKeystone: 'Partage des motifs avec Keystone',
   projet: 'Projet', jour: 'Jour',
   // Référentiels
-  court: 'Nom court', validite: 'Validité (mois)', duree: 'Durée', organisme: 'Organisme', cout: 'Coût', validation: 'Validation', detail: 'Précision',
+  court: 'Nom court', validite: 'Validité (mois)', duree: 'Durée', dureeHeures: 'Durée (heures)', modele: 'Modèle du titre imprimé', obligatoire: 'Formation obligatoire',
+  libelle: 'Intitulé', beneficiaires: 'Bénéficiaires', organisme: 'Organisme', cout: 'Coût', validation: 'Validation', detail: 'Précision',
   prereqs: 'Prérequis', medical: 'Aptitude médicale exigée', signataire: 'Signataire', pays: 'Pays', visa: 'Entrée', visaSub: 'Précision sur l’entrée',
   oblig: 'Vaccins obligatoires', rec: 'Vaccins recommandés', passMois: 'Validité du passeport après l’entrée (mois)', secu: 'Sécurité sociale',
   archive: 'Archivée le', vigilance: 'Vigilance (France Diplomatie)', vigilanceLe: 'Vigilance vérifiée le',
@@ -358,8 +381,28 @@ export const CHAMP_LABEL: Record<string, string> = {
   entretienMiCarriereActif: 'Entretien de parcours après la visite de mi-carrière', entretienMiCarriereMois: 'Délai de l’entretien de mi-carrière (mois)',
   // Hiérarchie des managers (Paramètres → Hiérarchie, équipe parente).
   consultationN2: 'Consultation N+2 des équipes rattachées', parente: 'Équipe parente',
+  delegationEntretiens: 'Délégation des entretiens au suppléant', revoqueeLe: 'Révoquée le',
   deplacementsFichierPaie: 'Déplacements dans le fichier d’import de la paie', deplacementsPaieAPartirDu: 'Déplacements transmis à la paie à partir du',
   vigilanceRappelJours: 'Rappel de vérification de la vigilance (jours)',
+  // Travail de nuit (Paramètres → Décompte des heures, shared/rules/repos-nuit.ts) ; contrôles des horaires au journal.
+  nuitDebut: 'Début de la plage de nuit (h)', nuitFin: 'Fin de la plage de nuit (h)', nuitSeuilQuotidien: 'Travailleur de nuit : heures de nuit dans la journée',
+  nuitSeuilAnnuel: 'Travailleur de nuit : heures de nuit sur 12 mois', nuitMajoration: 'Majoration des heures de nuit (%)', nuitAccord: 'Référence de l’accord sur le travail de nuit',
+  reposNuit: 'Contrôles des horaires motivés', majNuit: 'Majoration des heures de nuit (%)',
+  // Forfait jours (Paramètres → Forfait jours, t043) ; avenant de renonciation.
+  forfaitJoursAlerte: 'Alerte du cumul du forfait jours (%)', forfaitJoursRachat: 'Renonciation à des jours de repos (forfait jours)',
+  forfaitJoursAccord: 'Accord collectif sur le forfait jours', forfaitJoursPlafond: 'Plafond des jours travaillés avec avenant',
+  forfaitJoursMajorationMin: 'Majoration minimale des jours rachetés (%)', forfaitJoursJren: 'Période de paie des jours rachetés',
+  annee: 'Année', taux: 'Majoration (%)',
+  fractionnementRegle: 'Règle des jours de fractionnement', fractionnementAccord: 'Accord sur le fractionnement des congés',
+  fractionnementDebut: 'Début de la période du congé principal', fractionnementFin: 'Fin de la période du congé principal',
+  cetPlafondRtt: 'Plafond de RTT placés sur le CET par an', cetPlafondCp: 'Plafond de CP placés sur le CET par période',
+  // Conservation des dossiers (Paramètres → Conservation des dossiers) et agenda personnel (Paramètres → Agenda).
+  conservationActive: 'Propositions d’effacement des dossiers échus', conservationDecisionDpo: 'Décision du DPO sur les durées de conservation',
+  conservationDossierAns: 'Conservation du dossier (ans après la sortie)', conservationTempsAns: 'Conservation du temps de travail (ans)',
+  conservationPaieAns: 'Conservation des éléments de paie (ans)', conservationSanteAns: 'Conservation des données de santé (ans)',
+  conservationPasseportAns: 'Conservation du passeport et des visas (ans)', conservationTitreSejourAns: 'Conservation du titre de séjour (ans)',
+  conservationEntretiensAns: 'Conservation des entretiens (ans)', conservationFormationsAns: 'Conservation des formations (ans)',
+  agendaFluxActif: 'Abonnement à l’agenda personnel', agendaContenu: 'Contenu de l’agenda personnel',
 };
 
 const valeur = (v: unknown): string => {

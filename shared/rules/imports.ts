@@ -120,7 +120,7 @@ export function referenceDeplacement(id: number, prises: ReadonlySet<string>): s
 export function parseTrips(d: Domain, text: string): TripRow[] {
   const { lines, cells } = splitCsv(text);
   if (!lines.length) return [];
-  const colOf = (c: string) => /^(ref|numero)/.test(c) ? 'ref' : /^(collab|salari|employ|voyageur|nom)/.test(c) ? 'collaborateur' : /^(dest|pays)/.test(c) ? 'destination' : /^(depart|aller|debut)/.test(c) ? 'depart' : /^(retour|fin)/.test(c) ? 'retour' : /^(motif|objet)/.test(c) ? 'motif' : /^demandeur/.test(c) ? 'demandeur' : c;
+  const colOf = (c: string) => /^(ref|numero)/.test(c) ? 'ref' : /^(collab|salari|employ|voyageur|nom)/.test(c) ? 'collaborateur' : /^(dest|pays)/.test(c) ? 'destination' : /^(depart|aller|debut)/.test(c) ? 'depart' : /^(retour|fin)/.test(c) ? 'retour' : /^(motif|objet)/.test(c) ? 'motif' : c.startsWith('demandeur') ? 'demandeur' : c;
   const head = cells(lines[0]).map(c => colOf(norm(c)));
   const hasHead = head.includes('collaborateur') || head.includes('destination');
   const cols = hasHead ? head : ['ref', 'collaborateur', 'destination', 'depart', 'retour', 'motif', 'demandeur'];

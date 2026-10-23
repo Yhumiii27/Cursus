@@ -40,7 +40,7 @@ type Ligne = { action: string; message: string | null; payload: Record<string, a
 async function fresh() {
   const db = new Db(':memory:');
   await seedDemo(db);
-  const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
+  const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number }).id;
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteDe(empId), role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
@@ -293,7 +293,7 @@ test('t031 instantanés : déplacements en attente pour le service RH, la paie e
 
 test('registre des éléments de lot : soldes de sortie inchangés, compteurs sans rubrique active listés à saisir dans Sage', async () => {
   const { db, run, lots, ADMIN, PAIE } = await fresh();
-  assert.deepEqual(FAMILLES.map(f => f.cle), ['sorties', 'deplacements']);
+  assert.deepEqual(FAMILLES.map(f => f.cle), ['sorties', 'deplacements', 'rachats']);
   await run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
   await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
   const lot = (await lots()).at(-1)!;

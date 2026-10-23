@@ -1,7 +1,8 @@
 // Paramètres → Décompte des heures (shared/rules/majorations.ts et durees.ts) : saisie un jour férié et majoration des
 // fériés autres que le 1er mai (celui-ci : 100 %, fixé par la loi), plafond des heures complémentaires du temps partiel
 // (le tiers seulement avec la référence d'un accord), moyenne maximale sur 12 semaines (46 h seulement avec la référence
-// d'un accord), contingent annuel d'heures supplémentaires et seuil d'alerte. Réglages de l'administrateur RH ; les
+// d'un accord), contingent annuel d'heures supplémentaires et seuil d'alerte ; travail de nuit, repos quotidien et pause
+// (components/ReglagesNuit.tsx, lot 6). Réglages de l'administrateur RH ; les
 // autres profils consultent. Les choix qui supposent un accord ne s'enregistrent qu'avec sa référence (COHERENCE de
 // shared/reglages.ts) ; revenir à la valeur légale s'enregistre aussitôt, la référence gardée pour mémoire.
 import { useEffect, useState } from 'react';
@@ -11,6 +12,7 @@ import type { PlafondComplementaires, Settings } from '../../../../shared/types.
 import { Field } from '../../components/Dialog.tsx';
 import { Btn, Fine, Panel, Seg } from '../../components/ui.tsx';
 import { useRole } from '../../state/derived.ts';
+import { ReglagesNuit } from '../../components/ReglagesNuit.tsx';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
 
 /** Majoration des fériés (%) : de 0 à 100 par pas de 5 (contrôle entier(0, 100, 5) de shared/reglages.ts). */
@@ -149,6 +151,8 @@ export function DecompteHeures({ s }: SectionProps) {
         (art. L3121-30) ni l’intérim ; {CONTINGENT_LEGAL} h par défaut (art. D3121-24). Au-delà, une contrepartie obligatoire en repos de {TAUX_COR} % (plus de 20
         salariés, art. L3121-38) est figée sur chaque feuille à sa validation, créditée au compteur de récupération et transmise à la paie (COR_ACQUIS).
       </Fine>
+
+      <ReglagesNuit s={s} />
     </Panel>
   );
 }

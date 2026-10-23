@@ -40,6 +40,6 @@ const informer: ActionHandler = async (ctx, p) => {
     + (prolonges.length ? ` · ${plural(prolonges.length, 'report légal prolongé', 'reports légaux prolongés')} jusqu’au ${fmtIso(fin)}` : '');
 };
 
-export const informationRetourActions: Record<string, ActionHandler> = {
+export const informationRetourActions = {
   'conges.informer': informer,
-};
+} satisfies Record<string, ActionHandler>;

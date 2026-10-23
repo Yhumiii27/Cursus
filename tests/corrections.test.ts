@@ -24,7 +24,7 @@ const MOTIF = 'Saisie sur la mauvaise fiche — confidentiel 4471';
 async function fresh() {
   const db = await nouvelleBase();
   await seedDemo(db);
-  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number };
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
   /** Chemin de POST /api/actions/:nom : état lu avant l'action, trace au journal après. */
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {

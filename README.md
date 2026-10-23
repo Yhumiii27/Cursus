@@ -35,7 +35,8 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
 - **RH** : tout l'outil, dont la création et la modification des fiches
   (statut, contrat, organisation du temps), l'écran « Équipes & managers » (créer, renommer,
   supprimer une équipe, désigner son manager, affecter les collaborateurs, rattacher une équipe à une équipe parente :
-  le manager de l'équipe est alors validé par son responsable, consultation N+2 en lecture seule réglable), la **sortie** d'un salarié, CDI compris
+  le manager de l'équipe est alors validé par son responsable, consultation N+2 en lecture seule réglable ; délégation
+  datée des validations d'un manager absent à un suppléant, aussi saisie par le manager dans son espace), la **sortie** d'un salarié, CDI compris
   (dernier jour et motif en liste fermée : ce qui était prévu après son départ est annulé, il quitte la conformité et les
   échéances et reste consultable avec le filtre « Sortis » de Collaborateurs ; son solde de congés, de RTT, de
   récupération et de CET à la date est montré avant la confirmation, photographié pour la paie, imprimable et exportable,
@@ -98,7 +99,10 @@ son espace (« Télécharger mes données »).
 Cursus s'utilise aussi sur **téléphone et tablette** (accès depuis Internet) : menu replié derrière un bouton
 « Menu », feuilles de temps saisies jour par jour, champs et boutons à la taille du doigt ; la grille de la semaine
 reste sur PC. Chaque page a son titre d'onglet et un lien « Aller au contenu » pour le clavier ; chaque ligne ou carte
-cliquable s'ouvre aussi au clavier (bouton sur le nom). L'annuaire, le registre des habilitations, les soldes et les
+cliquable s'ouvre aussi au clavier (bouton sur le nom). Les grandes listes se trient en cliquant sur l'en-tête d'une
+colonne et s'affichent par 50 lignes (« Afficher plus ») ; la recherche de l'en-tête (service RH, manager sur son
+équipe ; « / » ou Ctrl+K) propose les collaborateurs au fil de la frappe (nom, poste, équipe ou matricule) et ouvre la
+fiche, et les listes de salariés des dialogues se filtrent de la même façon. L'annuaire, le registre des habilitations, les soldes et les
 absences, et le plan de formation s'exportent en CSV (« Exporter (CSV) »), avec les filtres de l'écran et sans donnée de
 santé ; chaque export est tracé au journal. La page
 **Confidentialité**, ouverte depuis l'écran de connexion et depuis chaque espace, informe les salariés sur le
@@ -128,10 +132,13 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 | `npm run dev` | API (port 3210) + interface Vite (port 5173) avec rechargement à chaud, en mode démonstration (`CURSUS_DEMO=0 npm run dev` pour le couper) |
 | `npm run build` puis `npm start` | Production (`NODE_ENV=production`, Windows compris) : l'API sert l'interface compilée sur le port `PORT` (3210 par défaut), derrière un reverse proxy HTTPS — voir `docs/DEPLOIEMENT.md` (service systemd et fichiers prêts à copier de `deploy/`, ou `Dockerfile` facultatif) |
 | `npm test` | Tests des règles métier, des droits d'accès et de la sécurité |
-| `npm run typecheck` | Vérification TypeScript, puis contrôle des promesses non attendues (`npm run check:await`, `scripts/verifier-await.mjs`) |
+| `npm run lint` | Contrôle du code par oxlint (`.oxlintrc.json`) : erreurs courantes, règles des hooks React (bloquantes), dépendances des effets (avertissements) |
+| `npm run typecheck` | Vérification TypeScript (noms des actions appelées par le client compris), puis contrôle des promesses non attendues (`npm run check:await`, `scripts/verifier-await.mjs`) |
 | `CURSUS_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres npm run test:pg` | Même suite de tests sur un serveur PostgreSQL 16 de test (une base créée puis supprimée par fichier) ; `npm run test:coverage:pg` mesure la couverture de l'adaptateur PostgreSQL |
 | `npm run test:coverage` | Tests avec mesure de la couverture du serveur et de `shared/` (client et tests exclus) ; échoue sous les seuils fixés dans `package.json` |
-| `npm run check` | Tout ce que vérifie la CI avant d'accepter une modification : typage, tests avec seuils de couverture, compilation de l'interface |
+| `npm run test:client` | Tests du client (`tests/client-*.test.ts` : modules, exécution des actions, rendu des dialogues avec happy-dom et Testing Library) avec mesure de sa couverture, à seuils modestes |
+| `npm run check` | Tout ce que vérifie la CI avant d'accepter une modification : contrôle du code, typage, tests avec seuils de couverture (serveur, puis client), compilation de l'interface |
+| `npm run build` puis `npm run e2e` | Parcours de bout en bout par rôle (Playwright, `e2e/`) dans Chrome, Edge et un téléphone simulé, sur une base de démonstration jetable à date figée ; navigateurs installés une fois par `npx playwright install chromium msedge` (sans Edge : `CURSUS_E2E_SANS_EDGE=1`) |
 | `CURSUS_DEMO=1 npm run reset-demo -- --yes` | Recharge les données de démonstration : efface la base après l'avoir copiée. Refusé hors démonstration, avec `NODE_ENV=production` (sauf l'application de bureau) et si un serveur utilise la base (`--force` pour passer outre) ; sans `--yes`, le mot `EFFACER` est demandé dans un terminal |
 | `npm run audit` | Failles connues des dépendances de production (`npm audit`), en échec à partir de la gravité « high » |
 | `npm run mesure` | Taille de l'instantané et durée des actions sur une base temporaire de 100 salariés et 3 ans (`npm run mesure -- 200` : autre effectif) |
@@ -215,6 +222,12 @@ Pièces justificatives (lot 6, désactivées par défaut) : une fois activées p
 sont dans `pieces/` à côté de la base ; chaque sauvegarde copie ceux que sa base désigne dans `backups/pieces-<base>/`,
 et la restauration les remet en place (`docs/SAUVEGARDE.md`, section 1).
 
+Conservation des dossiers (lot 6, t016) : durées préremplies, inactives tant que l'administrateur RH n'a pas saisi la
+référence de la décision du DPO (Paramètres → Conservation des dossiers) ; Cursus propose ensuite chaque jour les
+dossiers des salariés sortis dont une durée est échue, l'administrateur RH confirme l'effacement ou l'anonymisation.
+Rien n'est effacé automatiquement ; les sauvegardes gardent les données jusqu'à leur rotation. Agenda (t036) : `.ics`
+joint aux congés validés, et abonnement personnel à Outlook (Paramètres → Agenda, désactivé par défaut).
+
 Planification (timer systemd), copie chiffrée hors de la machine, restauration pas à pas et test
 périodique : `docs/SAUVEGARDE.md`.
 
@@ -240,8 +253,10 @@ périodique : `docs/SAUVEGARDE.md`.
 
 ## Vérification automatique
 
-Chaque modification poussée sur GitHub passe `npm run check` (`.github/workflows/ci.yml`) : `npm ci`, typage, tests
-avec seuils de couverture, compilation de l'interface, sur Node 22 (`.nvmrc`), avec un essai non bloquant sur Node 24.
+Chaque modification poussée sur GitHub passe `npm run check` (`.github/workflows/ci.yml`) : `npm ci`, contrôle du code
+(oxlint), typage, tests avec seuils de couverture (serveur, puis client), compilation de l'interface, sur Node 22
+(`.nvmrc`), avec un essai non bloquant sur Node 24. Une tâche séparée, non bloquante pour commencer, rejoue les
+parcours de bout en bout (`npm run e2e`) dans Chromium, Edge et un téléphone simulé, et publie leur rapport.
 L'interface compilée est publiée comme artefact pour l'instance de recette. Toute la logique est dans `npm run check` :
 une autre forge (GitLab, Azure DevOps) l'appelle en une ligne après `npm ci`. Les seuils de couverture (lignes,
 branches, fonctions) sont fixés juste sous la mesure du jour, dans le script `test:coverage` de `package.json`, et se
@@ -321,6 +336,14 @@ porte le motif de recours et le terme initial ; « Renouveler le CDD » inscrit 
 Cursus avertit d'une durée maximale ou d'un nombre de renouvellements dépassés et d'un délai de carence
 non écoulé, sans rien bloquer (Paramètres → Contrats pour un accord de branche).
 
+Pour un **forfait annuel en jours**, Cursus compte les jours travaillés des feuilles validées de l'année (une
+demi-journée jusqu'à 4 h) et les compare au forfait au prorata de la présence : cumul, cible à date et jours de repos
+restants sur la fiche, la feuille et la file de validation, alerte à 90 % du plafond (réglable) et motif exigé du valideur
+au-delà. Un **avenant de renonciation** à des jours de repos (majoration de 10 % au moins, 235 jours au plus) ne
+s'enregistre que si la référence de l'accord collectif qui autorise le forfait est saisie dans Paramètres → Forfait jours ;
+ses jours rachetés partent à la paie sous la rubrique JREN, désactivée tant que la paie n'a pas donné son code (« à saisir
+dans Sage » dans le résumé du lot ; `docs/ARCHITECTURE.md`, « Forfait jours »).
+
 La fiche porte aussi la **période d'essai** écrite au contrat (aucune durée proposée : Cursus avertit au-delà du maximum
 légal) et, pour un salarié étranger, le **titre de séjour** valant autorisation de travail (type, numéro réservé au
 service RH, expiration, vérification en préfecture). L'écran Échéances (filtre « Contrats »), le tableau de bord et le
@@ -353,7 +376,10 @@ renforcé ou pour un mineur), reprise après une maternité, une maladie profess
 que « visite à programmer », jamais pour une reprise · entretien de parcours dû 2 mois (réglable, à confirmer
 juridiquement) après la visite de mi-carrière · postes à risques particuliers (art. L4154-2) : formation renforcée des
 CDD, intérimaires et alternants depuis leur entrée (Non conforme, No Go), liste imprimable · couverture minimale des
-équipes en SST et équipiers incendie, alerte datée (expiration, sortie, absence) · seule la dernière certification compte après un
+équipes en SST et équipiers incendie, alerte datée (expiration, sortie, absence) · formations suivies par salarié, hors
+catalogue comprises (bilan à 8 ans) · titre d'habilitation imprimé à signer (NF C18-510, autorisation de conduite, générique),
+historique des délivrances, passeport formation imprimable depuis le portail · durée en heures et indicateurs de formation
+par exercice (catégorie, équipe, statut), exports CSV · seule la dernière certification compte après un
 recyclage, les précédentes restent en historique · formalités de
 voyage par destination (passeport, visas, vaccins, délais) et de détachement (certificat A1 ou de la
 convention bilatérale de sécurité sociale, information écrite au-delà de 4 semaines) · Go / No Go par
@@ -371,7 +397,8 @@ semaine à 7 jours (samedi et dimanche grisés mais saisissables, repos hebdomad
 heures du dimanche HDIM et majoration réglable) · jours fériés saisissables et repérés (1er mai majoré de 100 %, autres
 fériés en quantité, majoration réglable) · journée de solidarité et fériés chômés réglés année par année à partir de 2027,
 sans effet rétroactif · horaires de poste (référentiel, horaire par défaut de l'équipe, horaire du jour sur la feuille,
-figé à la soumission) · heures complémentaires au dixième de la durée (au tiers avec un accord), motif
+figé à la soumission) · repos quotidien de 11 h et pause contrôlés d'après l'horaire (motif), heures de nuit (HNUIT, MAJ_NUIT
+« à saisir dans Sage » tant qu'inactives), nuit refusée aux mineurs, travailleur de nuit repéré avec son suivi médical adapté · heures complémentaires au dixième de la durée (au tiers avec un accord), motif
 au-delà · moyenne sur 12 semaines (44 h), temps partiel à requalifier, contingent annuel d'heures supplémentaires (220 h,
 alerte à 90 %) et contrepartie obligatoire en repos créditée et transmise à la paie · activités internes tenues par le service RH, heures de délégation du CSE
 (mandats, crédit R2314-1, compteur mensuel avec report sur 12 mois) · CP 25 jours
@@ -379,7 +406,11 @@ ouvrés (+5 j à 59 ans, CCN Chimie), chaque jour imputé sur sa période de ré
 anticipation dans la limite des jours acquis à la date du congé · CP, RTT et récupération posables à la demi-journée
 (après-midi du premier jour, matin du dernier ; une demi-journée de travail au plus ce jour-là) · RTT et jours de repos forfait
 calculés au prorata de l'entrée et de la fin du contrat, ceux de l'année suivante posables dès maintenant, CET (5 RTT/an,
-5e semaine de CP), reports de CP rattachés à une période et datés · clôture des congés proposée au 1er juin (CP : report
+5e semaine de CP, plafonds réglables ; congé pris sur le CET, validé par le manager comme un CP, rubrique de paie « à saisir dans
+Sage » tant que la paie ne l'a pas confirmée), reports de CP rattachés à une période et datés · congé principal (12 jours
+ouvrables continus entre le 1er mai et le 31 octobre, 24 au plus d'affilée : avertissements, alerte avant le 31 octobre) et
+jours de fractionnement proposés au 1er novembre, crédités par le service RH ou écartés par la renonciation du salarié
+(règle légale par défaut, accord réglable) · clôture des congés proposée au 1er juin (CP : report
 ou perte décidés salarié par salarié, jamais d'office, report de 15 mois des jours acquis pendant une absence de santé, une
 maternité ou une paternité, ou qu'elle a empêché de prendre) et au 1er janvier (RTT non reportables) · acquisition des CP
 pendant les absences (loi du 22 avril 2024 : accident du travail et maladie professionnelle sans limite, maladie à 2 jours

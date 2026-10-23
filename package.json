@@ -17,14 +17,17 @@
     "backup": "node --disable-warning=ExperimentalWarning server/src/backup.ts",
     "restore": "node --disable-warning=ExperimentalWarning server/src/restore.ts",
     "comptes": "node --disable-warning=ExperimentalWarning server/src/comptes-cli.ts",
+    "lint": "oxlint",
     "reprise-postgres": "node --disable-warning=ExperimentalWarning server/src/reprise-postgres-cli.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && node scripts/verifier-await.mjs",
     "check:await": "node scripts/verifier-await.mjs",
     "test": "node --test \"tests/**/*.test.ts\"",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-exclude=\"tests/**\" --test-coverage-exclude=\"client/**\" --test-coverage-exclude=\"scripts/**\" --test-coverage-exclude=\"server/src/db-pg.ts\" --test-coverage-exclude=\"server/src/reprise-postgres*.ts\" --test-coverage-lines=99 --test-coverage-branches=90 --test-coverage-functions=96 \"tests/**/*.test.ts\"",
+    "test:client": "node --test --enable-source-maps --experimental-test-coverage --test-coverage-include=\"client/**\" --test-coverage-lines=58 --test-coverage-branches=62 --test-coverage-functions=48 \"tests/client-*.test.ts\"",
+    "e2e": "playwright test",
     "audit": "npm audit --omit=dev --audit-level=high",
     "mesure": "node --disable-warning=ExperimentalWarning scripts/mesure-instantane.ts",
-    "check": "npm run typecheck && npm run test:coverage && npm run build",
+    "check": "npm run lint && npm run typecheck && npm run test:coverage && npm run test:client && npm run build",
     "app": "bash desktop/build-app.sh",
     "test:pg": "node scripts/tests-pg.mjs",
     "test:coverage:pg": "node scripts/tests-pg.mjs --couverture"
@@ -38,12 +41,18 @@
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@happy-dom/global-registrator": "20.14.5",
+    "@playwright/test": "1.64.0",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/react": "16.3.3",
     "@types/express": "^5.0.6",
     "@types/node": "^22.20.5",
     "@types/pg": "8.23.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.1.2",
+    "happy-dom": "20.14.5",
+    "oxlint": "1.87.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.4"
   }

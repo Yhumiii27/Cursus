@@ -37,8 +37,14 @@ facultatif est fourni pour un hébergeur qui imposerait des conteneurs (« Varia
   DPO : localisation dans l'UE, contrat de sous-traitance (RGPD, article 28) et question d'un
   hébergement certifié HDS. Le DPO valide aussi l'information affichée avant la saisie d'une vaccination
   (art. 13 du RGPD : `INFO_VACCINATIONS` de `shared/constants.ts`), qu'il complète au besoin de ses coordonnées,
-  et y fixe la durée de conservation (rubrique « Conservation », « à préciser avant la mise en service ») : Cursus
-  n'efface encore rien, même au départ du salarié, et garde les déclarations antérieures et le journal des actions.
+  et valide les durées de conservation préremplies (Paramètres → Conservation des dossiers : dossier 5 ans après la
+  sortie, santé 5 ans, passeport et visas à la sortie…) ; tant que la référence de sa décision n'y est pas saisie, Cursus
+  ne propose ni n'efface rien. Ensuite, chaque effacement est confirmé par l'administrateur RH. L'abonnement à l'agenda
+  personnel (Paramètres → Agenda, désactivé par défaut) passe par `/api/agenda/…`, déjà relayé avec le reste de `/api`.
+  L'adresse contient le jeton secret qui suffit à lire l'agenda : Cursus le masque dans ses propres journaux
+  (`/api/agenda/…`), mais les journaux d'accès du reverse proxy (Traefik de Coolify, Caddy) écrivent l'adresse
+  complète. Les y masquer, ou en restreindre la lecture comme celle de la base ; un jeton vu dans ces journaux se
+  révoque (Portail du salarié, ou « Révoquer tous les abonnements » dans Paramètres → Agenda).
   Il complète `docs/RGPD.md` (registre des traitements, analyse d'impact) et valide la page Confidentialité, que
   chaque salarié ouvre depuis l'écran de connexion ; l'administrateur RH y renseigne le responsable du traitement et
   le contact du DPO (Paramètres → Confidentialité), sans quoi elle renvoie au service RH.
@@ -789,6 +795,16 @@ les compteurs sont arrêtés dans Lucca au 1er janvier 2027.
   Les RTT ne sont pas reportables : leur clôture photographie les soldes perdus, après le rappel du compte
   épargne-temps (un salarié dont une demande de RTT de l'année est en attente n'est clôturé qu'après sa décision). Première clôture des CP de la reprise : le
   1er juin 2027. Chaque clôture est tracée (`conges.cloturer`, archive paie de 3 ans) et sans effet si on la relance.
+- **Fractionnement des congés** (Paramètres → Fractionnement des congés) : règle légale supplétive par défaut (2 jours pour
+  6 jours ouvrables ou plus du congé principal pris hors du 1er mai – 31 octobre, 1 jour pour 3 à 5) tant que les accords
+  d'entreprise et la CCN ne sont pas vérifiés ; « Accord d'entreprise » ou « Aucun jour » exigent la référence de l'accord.
+  Cursus ne suit que les périodes dont la fenêtre commence après la date d'arrêté des compteurs repris : première alerte en
+  septembre 2027, premières propositions au 1er novembre 2027, crédit confirmé par le service RH (`conges.fractionnement`,
+  archive paie de 3 ans).
+- **Compte épargne-temps** (Paramètres → Compte épargne-temps) : plafonds de placement 5 et 5 par défaut, à ajuster à
+  l'accord sur le CET. Le congé pris sur le CET part dans le lot sous la rubrique `CET`, désactivée et « code Sage à
+  confirmer » : à faire confirmer par la paie avec les autres rubriques ; d'ici là, chaque congé figure « À saisir dans
+  Sage » dans le résumé du lot. La monétisation n'est pas encore proposée (accord inconnu).
 
 ### Procédure de reprise
 

@@ -127,7 +127,7 @@ const annulerSortie: ActionHandler = async (ctx, p) => {
     + ' · les absences, inscriptions, entretiens et demandes de visite annulés par la sortie ne sont pas rétablis' + await retirerSoldeSortie(ctx.db, emp);
 };
 
-export const sortiesActions: Record<string, ActionHandler> = {
+export const sortiesActions = {
   'employe.sortie': sortie,
   'employe.annulerSortie': annulerSortie,
-};
+} satisfies Record<string, ActionHandler>;

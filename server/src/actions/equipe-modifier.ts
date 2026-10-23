@@ -36,6 +36,6 @@ const modifier: ActionHandler = async (ctx, p) => {
   return result ? { message, result } : message;
 };
 
-export const equipeModifierActions: Record<string, ActionHandler> = {
+export const equipeModifierActions = {
   'equipe.modifier': modifier,
-};
+} satisfies Record<string, ActionHandler>;

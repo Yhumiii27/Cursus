@@ -20,6 +20,7 @@ import { equipesActions } from './equipes.ts';
 import { equipeModifierActions } from './equipe-modifier.ts';
 import { exercicesActions } from './exercices.ts';
 import { hierarchieActions } from './hierarchie.ts';
+import { delegationsManagerActions } from './delegations-manager.ts';
 import { messagerieActions } from './messagerie.ts';
 import { paieActions } from './paie.ts';
 import { parametresActions } from './parametres.ts';
@@ -40,8 +41,18 @@ import { deplacementsPaieActions } from './deplacements-paie.ts';
 import { contactUrgenceActions } from './contact-urgence.ts';
 import { feriesActions } from './feries.ts';
 import { horairesActions } from './horaires.ts';
+import { forfaitJoursActions } from './forfait-jours.ts';
+import { fractionnementActions } from './fractionnement.ts';
+import { formationsSuiviesActions } from './formations-suivies.ts';
+import { conservationActions } from './conservation.ts';
+import { agendaActions } from './agenda.ts';
 
-export const ACTIONS: Record<string, ActionHandler> = {
+/**
+ * Registre typé (t164) : chaque famille est déclarée avec « satisfies Record<string, ActionHandler> », ce qui garde ses
+ * noms ; `NomAction` les réunit, et le client type `run` et `api.action` avec lui (import de type seulement) : tsc
+ * signale tout nom d'action mal écrit. Les noms construits à l'exécution sont vérifiés par tests/actions-contrat.test.ts.
+ */
+const REGISTRE = {
   ...conformiteActions,
   ...sessionsActions,
   ...voyagesActions,
@@ -52,6 +63,7 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...entretiensActions,
   ...equipesActions,
   ...hierarchieActions,
+  ...delegationsManagerActions,
   ...parametresActions,
   ...comptesActions,
   ...envoisActions,
@@ -82,13 +94,24 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...contactUrgenceActions,
   ...feriesActions,
   ...horairesActions,
-};
+  ...forfaitJoursActions,
+  ...fractionnementActions,
+  ...formationsSuiviesActions,
+  ...conservationActions,
+  ...agendaActions,
+} satisfies Record<string, ActionHandler>;
+
+/** Nom d'une action exposée par POST /api/actions/:nom. */
+export type NomAction = keyof typeof REGISTRE;
+
+/** Recherche par nom reçu (chaîne quelconque de la requête) : un nom inconnu donne undefined. */
+export const ACTIONS: Record<string, ActionHandler> = REGISTRE;
 
 /**
  * Familles d'actions sans effet sur un verdict Go / No Go (temps, compteurs de congés, entretiens, budget, équipes, envois,
- * messagerie et page Confidentialité) :
+ * messagerie, page Confidentialité et formations suivies, qui ne sont pas des certifications) :
  * après toute autre action, les verdicts transmis à Keystone sont recalculés (integrations/keystone-verdicts.ts).
  * Les actions d'absence en font partie : une absence pendant la présence sur un chantier bloque la ressource.
  */
-const SANS_EFFET_VERDICT = ['temps.', 'cet.', 'report.', 'conges.', 'entretien.', 'budget.', 'equipe.', 'envoi.', 'convocation.', 'messagerie.', 'notification.', 'releve.', 'paie.', 'confidentialite.', 'mandat.', 'piece.'];
+const SANS_EFFET_VERDICT = ['temps.', 'cet.', 'report.', 'conges.', 'entretien.', 'budget.', 'equipe.', 'envoi.', 'convocation.', 'messagerie.', 'notification.', 'releve.', 'paie.', 'confidentialite.', 'mandat.', 'piece.', 'forfait.', 'formationSuivie.', 'agenda.'];
 export const changeVerdicts = (nom: string) => !SANS_EFFET_VERDICT.some(p => nom.startsWith(p));

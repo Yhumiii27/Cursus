@@ -17,6 +17,7 @@ import { plural } from '../../shared/format.ts';
 import { detailElement } from '../../shared/rules/absences-paie.ts';
 import { detailSortie } from '../../shared/rules/solde-sortie.ts';
 import { detailDeplacement } from '../../shared/rules/deplacements-paie.ts';
+import { detailRachat } from '../../shared/rules/forfait-jours.ts';
 import { A_SAISIR_SAGE } from '../../shared/rules/elements-lot.ts';
 import { feuillesDuLot, libellesSage, STATUTS_LOT } from '../../shared/rules/lots-paie.ts';
 import { matriculeAffiche } from '../../shared/rules/matricules.ts';
@@ -56,7 +57,7 @@ export async function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: s
   const table = rubriquesPaie(await db.all<RubriquePaie>('rubriquesPaie'));
   const out: VariablePaie[] = [];
   const paysLabel = (code: string) => d.destOf(code)?.pays ?? code;
-  const ajouter = (contenu: Pick<SagePush, 'lignes' | 'absences' | 'sorties' | 'deplacements' | 'aSaisir' | 'libelles'>, lot: string, etat: string) => {
+  const ajouter = (contenu: Pick<SagePush, 'lignes' | 'absences' | 'sorties' | 'deplacements' | 'rachats' | 'aSaisir' | 'libelles'>, lot: string, etat: string) => {
     const libelles = contenu.libelles ?? libellesSage(contenu, table);
     for (const l of contenu.lignes) {
       if ((l.periode ?? '') !== periode) continue;
@@ -98,6 +99,15 @@ export async function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: s
         detail: detailDeplacement(x, paysLabel, periodeLabel),
       });
     }
+    // Jours rachetés d'un forfait jours (t043) : taux de majoration en détail ; sans code Sage (JREN désactivée), absents du
+    // fichier, à saisir dans Sage.
+    for (const x of contenu.rachats ?? []) {
+      if (x.periode !== periode) continue;
+      out.push({
+        matricule: x.matricule, salarie: d.emp(x.empId)?.nom ?? '', rubrique: x.codeSage ?? A_SAISIR, quantite: x.quantite, lot, etat, empId: x.empId,
+        libelle: x.codeSage ? libelles[x.codeSage] ?? x.codeSage : RUBRIQUES_PAIE[x.rubrique]?.label ?? x.rubrique, detail: detailRachat(x),
+      });
+    }
     // Autres éléments laissés à Sage (soldes de sortie sous une rubrique désactivée) : listés pour la saisie à la main.
     for (const x of contenu.aSaisir ?? []) {
       if (x.periode !== periode) continue;
@@ -117,7 +127,10 @@ export async function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: s
   const familles = await elementsDesFamilles(db, d, periode);
   const deFamilles = contenuDesFamilles(familles);
   if (sheets.length || absences.length || Object.keys(deFamilles).length) {
-    ajouter({ ...buildSagePayload(d, sheets, SAGE_DOSSIER, new Date(), sageMode(), await optionsRegularisation(db, d)), absences, ...deFamilles }, '', 'En attente d’un lot');
+    const payload = buildSagePayload(d, sheets, SAGE_DOSSIER, new Date(), sageMode(), await optionsRegularisation(db, d));
+    // Heures de nuit des feuilles sous une rubrique désactivée, puis éléments des familles : à saisir dans Sage.
+    const aSaisir = [...(payload.aSaisir ?? []), ...(deFamilles.aSaisir ?? [])];
+    ajouter({ ...payload, absences, ...deFamilles, ...(aSaisir.length ? { aSaisir } : {}) }, '', 'En attente d’un lot');
   }
   return out.sort((a, b) => a.matricule.localeCompare(b.matricule) || a.rubrique.localeCompare(b.rubrique) || a.detail.localeCompare(b.detail));
 }

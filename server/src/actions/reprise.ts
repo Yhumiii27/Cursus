@@ -7,6 +7,7 @@ import { fmtIso, plural } from '../../../shared/format.ts';
 import { analyserReprise, bilanReprise, estTypeReprise, ISSUE_LABEL, type LigneReprise, REPRISES, RESTRICTION_A_RECOPIER, type TypeReprise } from '../../../shared/rules/reprise.ts';
 import type { Certification, DemandeVisite, Employe, HabTitre, LotReprise, SoldeReprise } from '../../../shared/types.ts';
 import { creerCompte } from '../comptes.ts';
+import { auteurDe, inscrireDelivrance } from '../delivrances.ts';
 import { rattacherFiches } from '../migrations/referentiels.ts';
 import { ActionError, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
@@ -63,8 +64,11 @@ async function ecrire(ctx: Ctx, l: LigneReprise, o: { comptes: boolean }): Promi
       return { empId: l.empId! };
     case 'habilitations': {
       const entry = { delivree: w.date, par: w.par, demande: null, mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null };
+      const avant = w.titreId ? await ctx.db.get<HabTitre>('habTitres', w.titreId) : null;
       if (w.titreId) await ctx.db.update<HabTitre>('habTitres', w.titreId, entry);
-      else await ctx.db.insert<HabTitre>('habTitres', { empId: l.empId!, h: w.h, ...entry });
+      const titreId = w.titreId ?? (await ctx.db.insert<HabTitre>('habTitres', { empId: l.empId!, h: w.h, ...entry })).id;
+      // Historique des délivrances (t115) : la délivrance reprise s'inscrit, une délivrance remplacée est close.
+      await inscrireDelivrance(ctx.db, avant, titreId, { empId: l.empId!, h: w.h, delivree: w.date, par: w.par }, auteurDe(ctx.user, ctx.d.ti));
       return { empId: l.empId! };
     }
     case 'visites': {
@@ -147,6 +151,6 @@ const importer: ActionHandler = async (ctx, p) => {
   return { message, result: { lot: lot.id, salaries: [...salaries], ...b, comptes: comptesCrees, comptesOuverts: ouverts } };
 };
 
-export const repriseActions: Record<string, ActionHandler> = {
+export const repriseActions = {
   'reprise.importer': importer,
-};
+} satisfies Record<string, ActionHandler>;

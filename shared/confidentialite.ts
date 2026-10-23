@@ -28,6 +28,7 @@ export function controleContact(v: unknown, libelle: string): { valeur: string |
   if (v == null) return { valeur: null };
   if (typeof v !== 'string') return { erreur: `${libelle} : texte attendu` };
   // Caractères de contrôle retirés (tabulations, retours à la ligne gardés pour une adresse sur plusieurs lignes).
+  // oxlint-disable-next-line no-control-regex -- caractères de contrôle retirés volontairement d'un texte reçu
   const t = v.replace(/[^\S\n]+/g, ' ').replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, '').replace(/ *\n */g, '\n').replace(/\n{3,}/g, '\n\n').trim();
   if (t.length > CONTACT_MAX) return { erreur: `${libelle} : ${CONTACT_MAX} caractères au plus` };
   return { valeur: t || null };
@@ -91,9 +92,10 @@ export const INFO_CONFIDENTIALITE: readonly RubriqueConfidentialite[] = [
       ['Journal des actions', `${ans(CONSERVATION_JOURNAL_MOIS)} ; les actions liées à la paie sont ensuite archivées, hors de l’écran, jusqu’à ${ans(CONSERVATION_ARCHIVE_PAIE_MOIS)}.`],
       ['Journaux techniques du serveur', 'un an au plus, consultés seulement par le service informatique.'],
       ['Messages envoyés par Cursus', `${ans(CONSERVATION_ENVOIS_MOIS)} dans la file d’envoi.`],
-      ['Dossier du salarié', `pendant le contrat, puis ${A_COMPLETER} (bulletins et éléments de paie, temps de travail, entretiens, formations).`],
-      ['Données de santé et vaccinations', `${A_COMPLETER} ; rien n’est encore effacé automatiquement.`],
-      ['Pièces justificatives', `comme le dossier qu’elles justifient (${A_COMPLETER}) ; une pièce retirée ou jointe à une déclaration refusée est effacée, ses copies quittent les sauvegardes avec leur rotation.`],
+      ['Dossier du salarié', `pendant le contrat, puis pendant une durée fixée par l’entreprise avec son DPO (${A_COMPLETER} ; référence usuelle : 5 ans après le départ, 3 ans pour le temps de travail) ; à son terme, le service RH confirme l’anonymisation du dossier que Cursus lui propose : votre nom disparaît, les heures et les coûts restent sans nom.`],
+      ['Données de santé et vaccinations', `durée fixée de même (${A_COMPLETER} ; référence usuelle : 5 ans après le départ), effacées sur confirmation du service RH ; tant que ces durées ne sont pas validées, rien n’est effacé.`],
+      ['Passeport, visas et titre de séjour', `passeport et visas effacés après votre départ, titre de séjour 5 ans après (registre unique du personnel), sur confirmation du service RH (${A_COMPLETER}).`],
+      ['Pièces justificatives', `comme le dossier qu’elles justifient ; une pièce retirée ou jointe à une déclaration refusée est effacée, ses copies quittent les sauvegardes avec leur rotation.`],
       ['Sauvegardes', `copies chiffrées, gardées selon le calendrier du service informatique (${A_COMPLETER}).`],
     ],
   },
@@ -110,7 +112,7 @@ export const INFO_CONFIDENTIALITE: readonly RubriqueConfidentialite[] = [
     points: [
       ['Accès et copie', 'depuis l’accueil de votre espace (« Télécharger mes données ») ; le journal des actions qui vous concernent vous est remis par le service RH.'],
       ['Rectification', 'demandez au service RH de corriger une information inexacte ; vos documents de voyage se déclarent depuis votre espace.'],
-      ['Effacement, limitation, opposition', 'auprès du service RH ou du DPO, dans les limites des obligations légales de l’employeur (paie, temps de travail, santé au travail).'],
+      ['Effacement, limitation, opposition', 'auprès du service RH ou du DPO, dans les limites des obligations légales de l’employeur (paie, temps de travail, santé au travail) ; après votre départ, le service RH efface aussitôt ce qu’aucune obligation n’impose de garder (passeport, entretiens…) ; votre identité et votre titre de séjour (registre unique du personnel, 5 ans après le départ) restent jusqu’à leur échéance.'],
       ['Réclamation', 'auprès de la CNIL (cnil.fr), si vous estimez que vos droits ne sont pas respectés.'],
     ],
   },

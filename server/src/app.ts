@@ -8,6 +8,7 @@ import { droitsRh } from '../../shared/constants.ts';
 import { libelleAction } from '../../shared/journal.ts';
 import { ACTIONS, changeVerdicts } from './actions/index.ts';
 import { ActionError, makeCtx } from './actions/context.ts';
+import { signerDelegation } from './actions/delegations-manager.ts';
 import { DEMO } from './auth.ts';
 import { dossierInterface } from './chemins.ts';
 import { compression } from './compression.ts';
@@ -24,6 +25,7 @@ import { apiInconnue, ERREUR_INTERNE, gestionnaireErreurs, LIMITE_CORPS, signale
 import { routesFichierPaie } from './fichier-paie.ts';
 import { routesVariablesPaie } from './variables-paie.ts';
 import { routesPieces } from './pieces-routes.ts';
+import { routesAgenda } from './agenda.ts';
 import { journaliserAction, preparerTrace, routesJournal, tracerRefus } from './journal.ts';
 import { emailMode } from './integrations/email.ts';
 import { KEYSTONE_MODE } from './integrations/keystone.ts';
@@ -98,10 +100,10 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
         const ctx = makeCtx(db, user, await loadFull(db, user));
         const trace = await preparerTrace(db, name, req.body ?? {});
         const r = await handler(ctx, req.body ?? {});
-        const o = typeof r === 'object' && r !== null ? r : { message: r };
+        const o = signerDelegation(ctx, typeof r === 'object' && r !== null ? r : { message: r });
         // Journal signé du nom de la personne connectée et de son compte : champs de la liste blanche de l'action,
-        // anciennes et nouvelles valeurs, salariés concernés (server/src/journal.ts).
-        await journaliserAction(db, trace, { user, compte, message: o.message ?? null, result: o.result });
+        // anciennes et nouvelles valeurs, salariés concernés (server/src/journal.ts) ; managers remplacés (t135).
+        await journaliserAction(db, trace, { user, compte, message: o.message ?? null, result: o.result, parDelegation: [...ctx.parDelegation] });
         // Verdicts transmis à Keystone : un changement est mis en file avec l'action, dans la même transaction.
         if (changeVerdicts(name)) await suivreVerdicts(db);
         return o;
@@ -134,6 +136,9 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // Pièces justificatives : envoi (corps brut, 10 Mo au plus) et consultation contrôlée par les droits, tracées :
   // server/src/pieces-routes.ts.
   app.use(routesPieces(db));
+  // Agenda personnel par abonnement (t036) : GET /api/agenda/<jeton>.ics, sans session (client d'agenda), débit limité
+  // par adresse et par jeton, 404 pour tout jeton inutilisable : server/src/agenda.ts.
+  app.use(routesAgenda(db));
 
   // File d'envoi des messages sortants (Paramètres → Envois) : état de l'intégration et derniers messages.
   // Service RH et lecture seule (droit `consultation`) ; ni le référent HSE, ni la paie. La lecture seule ne lit pas le

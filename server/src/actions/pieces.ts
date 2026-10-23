@@ -129,7 +129,7 @@ const retirer: ActionHandler = async (ctx, p) => {
   return `Pièce retirée du dossier (${OBJETS_PIECE[piece.objet].label.toLowerCase()}) · fichier effacé, les sauvegardes en gardent la copie jusqu’à leur rotation`;
 };
 
-export const piecesActions: Record<string, ActionHandler> = {
+export const piecesActions = {
   'piece.joindre': joindre,
   'piece.retirer': retirer,
-};
+} satisfies Record<string, ActionHandler>;

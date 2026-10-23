@@ -28,9 +28,13 @@ const ref = (table: string, colonne: string, cible: string, cle = 'id', si?: str
 export const REFERENCES: readonly Reference[] = [
   ...['demandes_visite', 'certifications', 'hab_titres', 'visas', 'vaccinations', 'inscriptions', 'participations', 'voyages', 'demandes_keystone',
     'missions', 'taches', 'feuilles', 'mandats', 'absences', 'cet', 'reports', 'soldes_reprise', 'clotures', 'entretiens', 'demandes_collab', 'comptes',
-    'notifications', 'verdicts_keystone', 'informations_cp', 'soldes_sortie', 'pieces', 'contrats_historique'].map(t => ref(t, 'emp_id', 'employes')),
+    'notifications', 'verdicts_keystone', 'informations_cp', 'soldes_sortie', 'pieces', 'contrats_historique',
+    // Conservation des dossiers et agenda personnel (t016, t036, chantier 7 étape 2).
+    'effacements', 'jetons_agenda'].map(t => ref(t, 'emp_id', 'employes')),
   // Auteur d'une ligne de l'historique des contrats (fiche du compte qui l'a enregistrée, t074).
   ref('contrats_historique', 'par_id', 'employes'),
+  // Manager qui a demandé une formation ou une habilitation pour un membre de son équipe (server/src/actions/conformite.ts).
+  ref('demandes_collab', 'par_id', 'employes'),
   ...['certifications', 'inscriptions', 'participations', 'demandes_collab'].map(t => ref(t, 'session_id', 'sessions')),
   ref('participations', 'cert_id', 'certifications'),
   ref('certifications', 'f', 'formations'),
@@ -41,6 +45,9 @@ export const REFERENCES: readonly Reference[] = [
   ref('employes', 'equipe', 'equipes', 'nom'),
   ref('equipes', 'manager_id', 'employes'),
   ref('equipes', 'parente', 'equipes', 'nom'),
+  // Délégation des validations (t135) : manager qui délègue et suppléant (cascade d'anonymisation comprise).
+  ref('delegations', 'manager_id', 'employes'),
+  ref('delegations', 'suppleant_id', 'employes'),
   ref('feuilles', 'lot_id', 'lots_paie'),
   ref('absences', 'lot_id', 'lots_paie'),
   ref('soldes_sortie', 'lot_id', 'lots_paie'),
@@ -52,8 +59,22 @@ export const REFERENCES: readonly Reference[] = [
   // Éléments de déplacement des lots de paie (t031) : salarié et lot.
   ref('deplacements_paie', 'emp_id', 'employes'),
   ref('deplacements_paie', 'lot_id', 'lots_paie'),
+  // Avenants de renonciation d'un forfait jours (t043) : salarié et lot de paie des jours rachetés.
+  ref('avenants_forfait', 'emp_id', 'employes'),
+  ref('avenants_forfait', 'lot_id', 'lots_paie'),
   // Horaire de poste par défaut d'une équipe (lot 6) ; ceux des feuilles (JSON, archivés gardés) ne sont jamais supprimés.
   ref('equipes', 'horaire', 'horaires', 'code'),
+  // Jours de fractionnement (t046) : salarié et report reçu qui porte le crédit.
+  ref('fractionnements', 'emp_id', 'employes'),
+  ref('fractionnements', 'report_id', 'reports'),
+  // Délivrances d'habilitation (t115) et formations suivies (t116) : salarié, auteur de l'enregistrement (fiche du compte),
+  // titre, habilitation, formation du catalogue, ligne du plan et demande qui les ont produites.
+  ...['hab_delivrances', 'formations_suivies'].flatMap(t => [ref(t, 'emp_id', 'employes'), ref(t, 'auteur_id', 'employes')]),
+  ref('hab_delivrances', 'titre_id', 'hab_titres'),
+  ref('hab_delivrances', 'h', 'habilitations'),
+  ref('formations_suivies', 'f', 'formations'),
+  ref('formations_suivies', 'plan_action_id', 'plan_actions'),
+  ref('formations_suivies', 'demande_id', 'demandes_collab'),
 ];
 
 export interface Integrite {

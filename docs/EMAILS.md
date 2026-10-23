@@ -22,8 +22,9 @@ désignent une donnée de santé (congés au retour d'une absence, demande de vi
 | E-mail | Destinataire | Quand |
 | --- | --- | --- |
 | Demande de congés à valider | Valideur : manager direct, sinon la boîte du service RH | Demande d'un salarié |
-| Décision sur une demande de congés, congés posés par le manager | Salarié | Validation, refus, pose |
+| Décision sur une demande de congés, congés posés par le manager (signée « par délégation de » quand le suppléant décide) | Salarié | Validation, refus, pose |
 | Feuille de temps à valider | Valideur | Soumission |
+| Délégation des validations (t135) : délégation prévue, début (avec les demandes déjà en attente), révocation ; pendant la délégation, demandes de congés, feuilles soumises et relances des feuilles « en l'absence de » du manager | Suppléant (pour ses propres demandes : le responsable du manager, ou la boîte du service RH) ; le manager, quand le service RH enregistre ou révoque | Enregistrement, premier jour de la délégation, révocation, demande ou soumission pendant la délégation |
 | Congés payés au retour d'une absence : jours dont il dispose, date limite, échéance du report de 15 mois (dates de l'absence, jamais sa nature) | Salarié | « Informer » par le service RH au retour d'un arrêt de maladie ou d'accident (art. L3141-19-3) |
 | Feuille de temps à corriger | Salarié | Renvoi par le valideur, ou absence annulée qui couvrait la semaine |
 | Compte rendu d'entretien à signer | Salarié | Clôture par l'évaluateur |
@@ -34,6 +35,8 @@ désignent une donnée de santé (congés au retour d'une absence, demande de vi
 | Récapitulatif des échéances : titres, visites médicales (échéance seule), formalités de voyage (une vaccination n'est qu'une « formalité sanitaire »), déplacements au dossier incomplet, entretiens, fins de contrat ; jamais d'avis d'aptitude | Boîte du service RH (tout le périmètre) ; chaque manager (son équipe, sans visite ni vaccination ni entretien de reprise, ni titre de séjour, ni 18 ans ou dérogation d'un salarié mineur) ; chaque référent HSE (formations et habilitations) | Chaque jour à partir de 7 h (ou un jour de la semaine), seulement les paliers franchis depuis la dernière relance (90, 30, 7 jours, échu par défaut) ; désactivable dans Paramètres → Messagerie |
 | Demande de visite médicale (contenu de la demande imprimable : salarié, poste, motif, habilitations qui exigent l'aptitude ; aucune information médicale) | Service de prévention et de santé au travail (Paramètres → Messagerie) | Demande de visite enregistrée par le service RH ; sans adresse, la demande est à imprimer |
 | Relevé d'heures des intérimaires (CSV joint) | Agence d'intérim | Chaque semaine, dès que toutes les feuilles de ses intérimaires sont validées, même avec retard (jusqu'à cinq semaines) ; relevé complet après un relevé envoyé incomplet par le service RH ; renvoi par le service RH |
+| Décision sur un congé validé : fichier `.ics` joint (journées entières) ; congé validé à venir annulé : `.ics` d'annulation | Salarié qui reçoit ses notifications aussitôt (le récapitulatif quotidien ne porte pas de fichier) | `absence.decider`, congé posé par le manager, `absence.annuler` |
+| Dossiers de salariés sortis à effacer (nombre seulement, aucun nom) | Boîte du service RH, dans son récapitulatif quotidien | Nouveaux dossiers échus, conservation des dossiers activée (Paramètres → Conservation des dossiers) |
 | Récapitulatif quotidien | Personne qui l'a choisi | Chaque jour à partir de 7 h |
 | E-mail d'essai | Adresse saisie | Paramètres → Messagerie |
 
@@ -48,7 +51,10 @@ sortie ou sans adresse entre-temps sont closes sans envoi.
 session ; avec des horaires, un créneau à l'heure de Paris répété chaque jour de la session, jours sautés exclus, un jour
 à un autre horaire remplacé ; organisateur : la boîte d'envoi, identifiant stable par session et salarié). Le salarié ouvre celui de la convocation pour ajouter
 l'événement à son agenda, celui de l'annulation pour l'en retirer ; une convocation renvoyée le met à jour. Une session « à confirmer » par l'organisme y figure comme
-provisoire. Le comportement d'Outlook (ajout, mise à jour, retrait) est à vérifier à la mise en service (section 5).
+provisoire. Les congés validés portent aussi le leur (titre « Congés payés », « RTT / repos » ou « Récupération », UID
+`absence-<n°>` que l'annulation reprend). Abonnement : chaque salarié peut ajouter à Outlook son agenda Cursus (Paramètres →
+Agenda, désactivé par défaut ; adresse `https://<cursus>/api/agenda/<jeton>.ics`, absences sous « Absent »). Le
+comportement d'Outlook (ajout, mise à jour, retrait, abonnement) est à vérifier à la mise en service (section 5).
 
 **Contenu** : texte brut, objet clair, nom, dates, lien vers Cursus (`CURSUS_PUBLIC_URL`). Jamais de donnée de
 santé, de motif d'absence médical, de numéro de passeport, ni les textes libres saisis dans Cursus

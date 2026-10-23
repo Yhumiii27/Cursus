@@ -81,7 +81,8 @@ export function routesConnexion(db: Db): Router {
       if (espaces.includes('rh')) out.rh.push({ id: c.id, nom: `${nom} — ${PROFILS_RH[c.profilRh].label}` });
       if (espaces.includes('manager')) {
         const equipes = (await db.where<{ nom: string }>('equipes', 'managerId', c.empId)).map(q => q.nom);
-        out.manager.push({ id: c.id, nom: `${nom} — ${equipes.join(', ')}` });
+        // Suppléant d'un manager absent (t135) : espace manager ouvert pendant la délégation, sans équipe à lui.
+        out.manager.push({ id: c.id, nom: `${nom} — ${equipes.length ? equipes.join(', ') : 'suppléant (délégation)'}` });
       }
       if (espaces.includes('collaborateur')) out.collaborateur.push({ id: c.id, nom });
     }

@@ -37,17 +37,18 @@ const lotsTransmis = (tous: LotEnregistre[], sh: Pick<FeuilleTemps, 'empId' | 'w
  * sinon (lot historique, sans contenu) la feuille recalculée telle qu'elle a été validée (régime, mode des heures
  * supplémentaires, majorations et contrepartie figés), traduite avec la table des rubriques en vigueur.
  */
-export async function transmisDeLaFeuille(db: Db, d: Domain, sh: FeuilleTemps): Promise<Pick<ReouvertureFeuille, 'rubriques' | 'lot' | 'source'>> {
+export async function transmisDeLaFeuille(db: Db, d: Domain, sh: FeuilleTemps): Promise<Pick<ReouvertureFeuille, 'rubriques' | 'lot' | 'source' | 'aSaisir'>> {
   return transmisParLesLots(await db.all<LotEnregistre>('lotsPaie'), d, sh);
 }
 
 /** Comme transmisDeLaFeuille, d'après les lots de paie déjà lus (`tous`). */
-function transmisParLesLots(tous: LotEnregistre[], d: Domain, sh: FeuilleTemps): Pick<ReouvertureFeuille, 'rubriques' | 'lot' | 'source'> {
+function transmisParLesLots(tous: LotEnregistre[], d: Domain, sh: FeuilleTemps): Pick<ReouvertureFeuille, 'rubriques' | 'lot' | 'source' | 'aSaisir'> {
   const lots = lotsTransmis(tous, sh);
   const lot = lots[0]?.id ?? null;
   for (const l of lots) {
     const r = l.contenu?.rubriquesFeuilles?.find(x => x.empId === sh.empId && x.week === sh.week);
-    if (r) return { rubriques: r.periodes, lot: l.id, source: 'lot' };
+    // Heures de nuit listées à saisir dans Sage par ce lot (rubriques désactivées) ; un lot d'avant le lot 6 n'en a pas.
+    if (r) return { rubriques: r.periodes, lot: l.id, source: 'lot', aSaisir: r.aSaisir ?? null };
   }
   const e = d.emp(sh.empId);
   const parLignes = e ? lots.flatMap(l => (l.contenu ? [rubriquesDesLignes(l.contenu, matriculeAffiche(e), sh.week)] : [])).filter((x): x is ParPeriode => x !== null) : [];

@@ -34,8 +34,11 @@ export type TypeTitreSejour = 'salarie' | 'travailleur_temporaire' | 'pluriannue
 export interface AutorisationTravail { type: TypeTitreSejour; numero?: string | null; expire: ISODate | null; demandeLe?: ISODate | null; verifieLe: ISODate | null }
 /** Organisation du temps de travail (durée de référence ou convention de forfait). */
 export type TempsTravail = '35h' | '39h_rtt' | 'forfait_heures_hebdo' | 'forfait_heures_annuel' | 'forfait_jours' | 'partiel' | 'dirigeant';
-/** Congés décomptés sur un solde : congés payés, RTT / jours de repos, récupération. */
-export type CongeType = 'CP' | 'RTT' | 'RECUP';
+/**
+ * Congés décomptés sur un solde : congés payés, RTT / jours de repos, récupération, congé pris sur le compte
+ * épargne-temps (`CET`, jours ouvrés débités du CET, shared/rules/conges.ts).
+ */
+export type CongeType = 'CP' | 'RTT' | 'RECUP' | 'CET';
 /** Absences hors congés : natures du référentiel `NATURES_ABSENCE` (shared/constants.ts). */
 export type NatureAbsence =
   | 'MALADIE' | 'ALD' | 'AT' | 'TRAJET' | 'MP'
@@ -62,12 +65,26 @@ export type SessionStatut = 'À confirmer' | 'Confirmée' | 'Clôturée' | 'Annu
 // — Référentiels —
 // Administrés depuis l'écran Référentiels (shared/rules/referentiels.ts). `archive` : date d'archivage (null : en
 // vigueur) ; un élément archivé n'est plus proposé dans les listes, mais reste reconnu (dossiers, journal, Keystone).
-export interface Formation { id: string; nom: string; court: string; type: FormationType; validite: number; duree: string; organisme: string; cout: number; validation: ValidationMode; archive?: ISODate | null }
+export interface Formation {
+  id: string; nom: string; court: string; type: FormationType; validite: number; duree: string; organisme: string; cout: number; validation: ValidationMode; archive?: ISODate | null;
+  /**
+   * Durée en heures (t122, shared/rules/heures-formation.ts), facultative : extraite du texte `duree` à la reprise quand
+   * c'est possible, sinon à compléter. Sans elle ni horaires de session, une formation suivie compte « durée inconnue ».
+   */
+  dureeHeures?: number | null;
+}
 export interface HabType {
   id: string; nom: string; detail: string; prereqs: string[]; medical: boolean; validite: number; signataire: string; archive?: ISODate | null;
   /** Titre qui place son titulaire en suivi individuel renforcé (art. R4624-23 II : autorisation de conduite, habilitation électrique…). */
   sir?: boolean;
+  /**
+   * Modèle du titre imprimé à la délivrance (t115, client/src/titre-habilitation.ts) : habilitation électrique (NF C18-510),
+   * autorisation de conduite (art. R4323-56, R489, R486) ou générique ; absent : générique.
+   */
+  modele?: ModeleTitre | null;
 }
+/** Modèle de titre d'habilitation imprimé : électrique (NF C18-510), autorisation de conduite (R4323-56) ou générique. */
+export type ModeleTitre = 'electrique' | 'conduite' | 'generique';
 export interface Destination {
   code: string; pays: string; visa: VisaKind; visaSub: string; oblig: VaccinId[]; rec: VaccinId[]; passMois: number;
   /** Formalité de sécurité sociale du détachement ; null : déduite du code pays (`secuDe` de shared/constants.ts). */
@@ -212,6 +229,32 @@ export interface HabTitre {
   /** Suspension ou retrait en cours (null = aucun), avec sa date, son motif (texte libre) et son auteur. */
   mesure: HabMesure | null; mesureDate: ISODate | null; mesureMotif: string | null; mesurePar: string | null;
 }
+/**
+ * Délivrance d'un titre d'habilitation (t115, server/src/delivrances.ts) : une ligne par délivrance et par renouvellement,
+ * le titre en vigueur restant dans `habTitres`. `expire` : échéance calculée à la délivrance (validité d'alors) ;
+ * `remplaceeLe` : date de la délivrance suivante (null : délivrance en vigueur), avec la mesure (suspension, retrait) et sa
+ * date figées à ce moment, sans motif. `auteur`, `auteurId` : qui l'a enregistrée (nom, fiche ; null : Cursus, reprise).
+ */
+export interface HabDelivrance {
+  id: number; empId: number; h: string; titreId: number | null; delivree: ISODate; par: string | null; expire: ISODate | null;
+  remplaceeLe: ISODate | null; mesure: HabMesure | null; mesureDate: ISODate | null;
+  le: ISODate; auteur: string | null; auteurId: number | null;
+}
+/** Origine d'une formation suivie : demande hors catalogue acceptée, action du plan réalisée, session, saisie directe. */
+export type OrigineFormationSuivie = 'demande' | 'plan' | 'session' | 'saisie';
+/**
+ * Formation suivie par un salarié (t116, shared/rules/formations-suivies.ts), du catalogue (`f`) ou hors catalogue
+ * (`libelle`) : dates, durée en heures (null : celle du catalogue, sinon inconnue), organisme, formation obligatoire ou non
+ * (compte pour l'état des lieux à 8 ans quand elle ne l'est pas), origine et ce qui l'a produite (ligne du plan, demande).
+ * Correction et annulation motivées comme les certifications ; annulée, hors de tous les calculs (service RH seulement).
+ */
+export interface FormationSuivie {
+  id: number; empId: number; f: string | null; libelle: string | null; du: ISODate; au: ISODate; duree: number | null;
+  organisme: string | null; obligatoire: boolean; origine: OrigineFormationSuivie; planActionId: number | null; demandeId: number | null;
+  le: ISODate; auteur: string | null; auteurId: number | null;
+  corrigeLe?: ISODate | null; corrigePar?: string | null; corrigeMotif?: string | null;
+  annuleLe?: ISODate | null; annulePar?: string | null; annuleMotif?: string | null;
+}
 /** Avis du médecin du travail à l'issue d'une visite : apte, apte avec restrictions ou aménagements de poste, inapte. */
 export type AvisMedical = 'apte' | 'restrictions' | 'inapte';
 /**
@@ -329,6 +372,11 @@ export interface Employe {
    * des 18 ans, calculé par le serveur (pas d'échéance de renouvellement, comme pour le service RH) ; sans la date.
    */
   derogationApresMajorite?: boolean;
+  /**
+   * Vue du référent HSE, qui ne reçoit pas les feuilles de temps : travailleur de nuit (art. L3122-5), calculé par le
+   * serveur sur les feuilles validées (shared/rules/repos-nuit.ts). Jamais enregistré.
+   */
+  travailleurNuit?: boolean;
   agence: string | null;
   /**
    * Matricule du dossier de paie (Sage), saisi ou repris par le service RH : 1 à 20 lettres et chiffres, unique (sauf
@@ -349,6 +397,11 @@ export interface Employe {
    */
   urgenceNom?: string | null;
   urgenceTel?: string | null;
+  /**
+   * Dossier anonymisé (`employe.anonymiser`, durées de conservation : shared/rules/conservation.ts) : identité remplacée
+   * par « Salarié anonymisé n° X », date du jour de l'anonymisation ; null tant que le dossier est nominatif.
+   */
+  anonymiseLe?: ISODate | null;
   /** Date de la dernière visite d'aptitude — réservée au service RH. */
   visite: ISODate | null;
   /**
@@ -514,6 +567,11 @@ export interface FeuilleTemps {
   /** Motif d'un dépassement des durées maximales (10 h par jour, 48 h par semaine), exigé à la soumission ou à la validation. */
   motifDepassement?: string | null;
   /**
+   * Forfait jours (t043, shared/rules/forfait-jours.ts) : motif donné à la validation quand le cumul de l'année dépasse le
+   * plafond (forfait, plus les jours rachetés par avenant) ; texte libre du valideur, jamais recopié au journal.
+   */
+  motifForfait?: string | null;
+  /**
    * Mode des heures supplémentaires figé à la validation (réglage `heuresSupMode` du jour) : payées ou remplacées par un
    * repos ; « historique » pour une feuille transmise avant ce choix (payées et repos crédité, calcul d'origine). Null
    * avant la validation : le réglage en vigueur s'applique (`calcSheet` de shared/rules/temps.ts).
@@ -532,6 +590,11 @@ export interface FeuilleTemps {
    * Jamais enregistré.
    */
   mineur?: boolean;
+  /**
+   * Mêmes vues : salarié de moins de 16 ans un jour au moins de la semaine (repos quotidien de 14 h, nuit de 20 h à 6 h :
+   * shared/rules/repos-nuit.ts), présent seulement quand c'est le cas. Jamais enregistré.
+   */
+  moins16?: boolean;
   /**
    * Majoration des heures d'un jour férié autre que le 1er mai (%, réglage `tauxMajorationFerie`) figée à la validation,
    * comme celle du dimanche. Null avant : le réglage s'applique. Le 1er mai est toujours majoré de 100 % (art. L3133-6).
@@ -563,6 +626,11 @@ export interface FeuilleTemps {
    * soumission suivante, en gardant les heures d'un code inchangé.
    */
   horairesFiges?: (HoraireFige | null)[] | null;
+  /**
+   * Majoration des heures de nuit (%, réglage `nuitMajoration`, shared/rules/repos-nuit.ts) figée à la validation, comme
+   * celles du dimanche et des fériés. Null avant : le réglage s'applique.
+   */
+  majNuit?: number | null;
 }
 /**
  * Réouverture d'une feuille validée (action `temps.rouvrir`, administrateur RH seul, motif obligatoire) : ce qui était
@@ -585,6 +653,11 @@ export interface ReouvertureFeuille {
   rubriques: Record<string, Record<string, number>> | null;
   /** D'où viennent `rubriques` : contenu figé du lot, lignes du lot rapprochées par matricule, ou recalcul de la feuille. */
   source?: 'lot' | 'lignes' | 'recalcul' | null;
+  /**
+   * Heures de nuit déjà listées « à saisir dans Sage » (rubriques désactivées, codes internes, par période d'origine :
+   * `RubriquesFeuille.aSaisir` du dernier lot transmis) : la régularisation en liste l'écart. Absent ou null : aucune.
+   */
+  aSaisir?: Record<string, Record<string, number>> | null;
   /** Heures par projet déjà renvoyées à Keystone ; un projet retiré y est renvoyé à 0. Null : aucun événement parti. */
   keystone: Record<string, number> | null;
   /** Réouvertures précédentes (instant, auteur, motif), de la plus ancienne à la plus récente. */
@@ -622,6 +695,17 @@ export type CalendrierFeries = Record<string, FeriesAnnee>;
  */
 export type RoleMandat = 'titulaire' | 'suppleant';
 export interface Mandat { id: number; empId: number; role: RoleMandat; du: ISODate; au: ISODate | null; credit: number }
+/** Délégation des validations d'un manager absent (t135, shared/rules/delegations-manager.ts) : ce que le suppléant valide. */
+export type PerimetreDelegation = 'absences' | 'feuilles' | 'entretiens';
+/**
+ * Délégation datée des validations d'un manager à un suppléant (t135), bornes comprises. Saisie par le manager pour
+ * lui-même ou par le service RH ; `creePar`, `revoqueePar` : nom de l'auteur ; `revoqueeLe` : horodatage de la révocation,
+ * qui y met fin aussitôt ; `annonceeLe` : horodatage du message envoyé au suppléant à son début (éléments en attente).
+ */
+export interface DelegationValidation {
+  id: number; managerId: number; suppleantId: number; du: ISODate; au: ISODate; perimetre: PerimetreDelegation[];
+  creeLe: string; creePar: string; revoqueeLe: string | null; revoqueePar: string | null; annonceeLe: string | null;
+}
 /**
  * Heures supplémentaires payées avec majoration, ou remplacées par un repos compensateur (accord collectif, art. L3121-33 ;
  * à défaut de délégué syndical, sans opposition du CSE, art. L3121-37).
@@ -683,6 +767,8 @@ export interface CetMouvement { id: number; empId: number; type: 'CP' | 'RTT'; j
 export interface ReportCp {
   id: number; empId: number; jours: number; motif: string; par: string; date: ISODate; sens: 'recu' | 'accorde';
   periode: number | null; expire: ISODate | null;
+  /** Report reçu qui porte des jours de fractionnement (`conges.fractionnement`, shared/rules/fractionnement.ts) ; null sinon. */
+  origine?: 'fractionnement' | null;
 }
 /**
  * Compteurs repris de l'ancien système (Lucca), arrêtés le `arreteLe` : `cpPris` porte sur la période de congés payés
@@ -715,6 +801,17 @@ export interface ClotureConges {
   decision: 'reporter' | 'perdre' | 'solde_nul'; reportes: number; perdus: number; expire: ISODate | null; reportId: number | null;
   motif: 'report_legal' | 'report_en_cours' | null; le: ISODate; par: string;
 }
+/**
+ * Jours de fractionnement d'une période de congés payés (`periode` : année de prise, t046, shared/rules/fractionnement.ts),
+ * décidés par le service RH (`conges.fractionnement`), une ligne par salarié et période : crédités (`jours`, report reçu
+ * `reportId` sur la période) ou renonciation individuelle du salarié (art. L3141-19, aucun jour). Service RH, paie, lecture
+ * seule et intéressé.
+ */
+export interface Fractionnement {
+  id: number; empId: number; periode: number; decision: 'credite' | 'renonce'; jours: number; reportId: number | null; le: ISODate; par: string;
+}
+/** Règle des jours de fractionnement : légale (supplétive), fixée par un accord d'entreprise, ou aucun jour (accord collectif). */
+export type RegleFractionnement = 'legal' | 'accord' | 'aucun';
 /**
  * Information du salarié sur ses congés payés à son retour d'un arrêt de maladie ou d'accident (art. L3141-19-3,
  * `conges.informer`, shared/rules/information-retour.ts) : arrêt concerné (`absenceId`, ses dates), jour de l'information,
@@ -929,6 +1026,8 @@ export interface Settings {
   entretienMiCarriereMois: number;
   /** Hiérarchie (t136) : membres des équipes descendantes consultables par le manager, en lecture seule (désactivé par défaut). */
   consultationN2: boolean;
+  /** Délégation des validations (t135) : le manager peut aussi déléguer ses entretiens (désactivé par défaut). */
+  delegationEntretiens: boolean;
   /**
    * Paie (t031, shared/rules/deplacements-paie.ts) : jours et nuits de grand déplacement, jours à l'étranger et trajets dans
    * le fichier d'import (désactivé tant que la paie n'a pas confirmé ses codes : quantités calculées, à saisir dans Sage),
@@ -938,7 +1037,89 @@ export interface Settings {
   deplacementsPaieAPartirDu: ISODate | null;
   /** Rappel de vérifier la vigilance d'un pays (France Diplomatie) avant un départ : vérification de plus de N jours (t068). */
   vigilanceRappelJours: number;
+  /**
+   * Travail de nuit (t048, Paramètres → Décompte des heures, shared/rules/repos-nuit.ts) : plage de nuit en heures entières
+   * (21 h – 6 h par défaut, art. L3122-20), seuils du travailleur de nuit (3 h dans la journée deux fois par semaine, 270 h
+   * sur 12 mois : art. L3122-5 et L3122-23), majoration des heures de nuit en % (0 : quantité seule, rubrique HNUIT) et
+   * référence de l'accord, exigée pour s'écarter des valeurs de la loi.
+   */
+  nuitDebut: number;
+  nuitFin: number;
+  nuitSeuilQuotidien: number;
+  nuitSeuilAnnuel: number;
+  nuitMajoration: number;
+  nuitAccord: string;
+  /**
+   * Forfait jours (t043, shared/rules/forfait-jours.ts) : seuil d'alerte du cumul annuel (% du plafond) ; avenant de
+   * renonciation à des jours de repos ouvert (seulement avec la référence de l'accord collectif, COHERENCE), plafond des
+   * jours travaillés avec avenant (235 à défaut d'accord, art. L3121-66), majoration minimale des jours rachetés (10 %,
+   * art. L3121-59) et période de paie des jours rachetés (JREN : mois de la signature, ou décembre de l'année).
+   */
+  forfaitJoursAlerte: number;
+  forfaitJoursRachat: boolean;
+  forfaitJoursAccord: string;
+  forfaitJoursPlafond: number;
+  forfaitJoursMajorationMin: number;
+  forfaitJoursJren: EmissionJren;
+  /**
+   * Fractionnement des congés payés (t046, shared/rules/fractionnement.ts) : règle légale supplétive par défaut, fixée par un
+   * accord d'entreprise ou aucun jour (art. L3141-21 ; la référence de l'accord est alors exigée), et période du congé
+   * principal (« MM-JJ », du 1er mai au 31 octobre par défaut, art. L3141-13).
+   */
+  fractionnementRegle: RegleFractionnement;
+  fractionnementAccord: string;
+  fractionnementDebut: string;
+  fractionnementFin: string;
+  /** Compte épargne-temps (shared/rules/conges.ts) : plafonds de placement, RTT par an et CP de 5e semaine par période (5 et 5). */
+  cetPlafondRtt: number;
+  cetPlafondCp: number;
+  /**
+   * Conservation des dossiers des salariés sortis (t016, shared/rules/conservation.ts) : propositions d'effacement actives
+   * (désactivé par défaut, exige la référence de la décision du DPO), et durée de chaque catégorie en années après la
+   * sortie (0 : dès le lendemain du dernier jour). Rien n'est effacé sans la confirmation de l'administrateur RH.
+   */
+  conservationActive: boolean;
+  conservationDecisionDpo: string;
+  conservationDossierAns: number;
+  conservationTempsAns: number;
+  conservationPaieAns: number;
+  conservationSanteAns: number;
+  conservationPasseportAns: number;
+  conservationTitreSejourAns: number;
+  conservationEntretiensAns: number;
+  conservationFormationsAns: number;
+  /**
+   * Agenda personnel (t036, server/src/agenda.ts) : flux .ics par abonnement à jeton révocable, désactivé par défaut, et ce
+   * qu'il publie (absences toujours sous le libellé neutre « Absent »).
+   */
+  agendaFluxActif: boolean;
+  agendaContenu: ContenuAgenda[];
 }
+/** Période de paie des jours rachetés d'un forfait jours : mois de la signature de l'avenant, ou clôture de l'année (décembre). */
+export type EmissionJren = 'signature' | 'cloture';
+/**
+ * Avenant de renonciation à des jours de repos d'un forfait jours (t043, art. L3121-59) : année, jours rachetés, taux de
+ * majoration (10 % au moins), signature et référence (texte libre du service RH). Il porte le plafond de l'année au
+ * forfait plus les jours rachetés, dans la limite du réglage `forfaitJoursPlafond`. Jours rachetés transmis à la paie
+ * (rubrique JREN, famille « rachats » du registre des éléments de lot) : lot qui les emporte (`lotId`), import confirmé
+ * (`sage`), ou réglés hors fichier faute de rubrique active (`horsFichier`). Annulé avec un motif : gardé pour l'historique.
+ */
+export interface AvenantForfait {
+  id: number; empId: number; annee: number; jours: number; taux: number; signeLe: ISODate; reference: string | null;
+  creeLe: string; creePar: string;
+  annuleLe: string | null; annulePar: string | null; annuleMotif: string | null;
+  lotId: number | null; sage: boolean; horsFichier: boolean;
+}
+/**
+ * Jours rachetés d'un avenant de renonciation dans un lot de paie (rubrique JREN, quantité en jours ; taux de majoration
+ * en détail, le montant reste calculé par Sage), partis sur la période `periode`. `codeSage` null : rubrique désactivée,
+ * l'avenant est réservé par le lot mais absent du fichier, à saisir dans Sage (réglé hors fichier à la confirmation).
+ */
+export interface ElementRachatPaie {
+  avenant: number; empId: number; matricule: string; periode: string; rubrique: string; codeSage: string | null; quantite: number; taux: number; annee: number; signeLe: ISODate;
+}
+/** Ce que publie le flux d'agenda personnel (t036). */
+export type ContenuAgenda = 'sessions' | 'entretiens' | 'absences' | 'deplacements';
 /** Plafond des heures complémentaires du temps partiel : le dixième (art. L3123-28) ou le tiers avec un accord (art. L3123-20). */
 export type PlafondComplementaires = 'dixieme' | 'tiers';
 
@@ -1113,6 +1294,8 @@ export interface SagePush {
   sorties?: ElementSortiePaie[];
   /** Déplacements du lot (t031, shared/rules/deplacements-paie.ts), `codeSage` null : à saisir dans Sage ; absent avant le lot 6. */
   deplacements?: ElementDeplacementPaie[];
+  /** Jours rachetés d'un forfait jours (t043, rubrique JREN active) ; absent avant le lot 6 (étape 2). */
+  rachats?: ElementRachatPaie[];
   /**
    * Éléments calculés que le lot n'emporte pas, faute de rubrique active (soldes de sortie) : listés « à saisir dans Sage »
    * dans le résumé du lot et l'export des variables (server/src/elements-lot.ts). Les absences et déplacements sans code
@@ -1197,7 +1380,14 @@ export type TypeLotPaie = 'normal' | 'correctif';
 /** Régularisation d'une feuille transmise : écart sur la période ouverte, ou rubriques complètes de la période d'origine. */
 export type ModeRegularisation = 'ecart' | 'remplace';
 /** Rubriques d'une feuille (codes Sage), par période d'origine (AAAA-MM). */
-export interface RubriquesFeuille { empId: number; week: ISODate; periodes: Record<string, Record<string, number>> }
+export interface RubriquesFeuille {
+  empId: number; week: ISODate; periodes: Record<string, Record<string, number>>;
+  /**
+   * Heures de nuit listées « à saisir dans Sage » pour la feuille (rubriques désactivées : codes internes HNUIT, MAJ_NUIT,
+   * par période d'origine ; shared/rules/temps.ts, `nuitASaisirDeLaFeuille`). Absent : aucune, ou lot d'avant le lot 6.
+   */
+  aSaisir?: Record<string, Record<string, number>>;
+}
 export interface LotPaie {
   id: number;
   /** Clé d'idempotence (UUID) : identique à chaque téléchargement du fichier. */
@@ -1214,6 +1404,8 @@ export interface LotPaie {
   sorties?: { id: number; empId: number }[];
   /** Séjours du lot (source, identifiant, salarié), gardés après une annulation ; absent avant le lot 6 (t031). */
   deplacements?: { source: 'voyage' | 'mission'; id: number; empId: number }[];
+  /** Avenants de renonciation dont le lot emporte les jours rachetés (identifiant, salarié ; t043). */
+  rachats?: { id: number; empId: number }[];
   /**
    * Totaux du contenu figé : lignes du fichier, salariés, quantité par code Sage des heures ; `absences` : éléments
    * d'absence, salariés et quantité par code Sage (codes retirés hors droit « paie » : server/src/dataset.ts).
@@ -1222,6 +1414,8 @@ export interface LotPaie {
     lignes: number; salaries: number; rubriques: Record<string, number>; absences?: { elements: number; salaries: number; rubriques: Record<string, number> }; sorties?: { elements: number; salaries: number };
     /** Déplacements (t031) : éléments et salariés. */
     deplacements?: { elements: number; salaries: number };
+    /** Jours rachetés d'un forfait jours (t043) : éléments et salariés. */
+    rachats?: { elements: number; salaries: number };
     /** Éléments à saisir à la main dans Sage, nominatifs (shared/rules/elements-lot.ts) ; absent : aucun. */
     aSaisir?: ElementASaisir[];
   };
@@ -1295,6 +1489,8 @@ export interface Dataset {
   clotures: ClotureConges[];
   /** Informations des salariés sur leurs congés à leur retour d'arrêt : service RH et intéressé (vide ailleurs). */
   informationsCp?: InformationCp[];
+  /** Jours de fractionnement décidés (t046) : service RH, paie et lecture seule (tous), intéressé (les siens) ; absent ailleurs. */
+  fractionnements?: Fractionnement[];
   /** Acquisition des CP calculée par le serveur, par salarié et par période : profil paie seulement (absent ailleurs). */
   acquisitionsCp?: AcquisitionCpCalculee[];
   /** Soldes de sortie photographiés (t128) : service RH, paie et lecture seule (absent ou vide ailleurs). */
@@ -1304,6 +1500,11 @@ export interface Dataset {
    * référence ni l'auteur ; absent ailleurs (server/src/dataset.ts). Absent ou vide : régime de la fiche seul.
    */
   contratsHistorique?: ContratHistorique[];
+  /**
+   * Avenants de renonciation d'un forfait jours (t043) : service RH (tous), paie et lecture seule (sans le motif d'une
+   * annulation) ; manager (son équipe : année et jours seulement) et intéressé ; absent ailleurs (server/src/dataset.ts).
+   */
+  avenantsForfait?: AvenantForfait[];
   entretiens: Entretien[];
   demandesCollab: DemandeCollab[];
   demandesVisite: DemandeVisite[];
@@ -1359,7 +1560,45 @@ export interface Dataset {
    * seule, avec les filtres de sa vue et sans aptitude détaillée ; ni entretiens, ni demandes. Absent ou vide ailleurs.
    */
   lectureSeule?: number[];
+  /**
+   * Formations suivies (t116) : service RH (toutes, annulées comprises) ; référent HSE et lecture seule (en vigueur, sans
+   * motif ni auteur) ; manager (son équipe) et intéressé de même ; rien pour la paie (server/src/dataset.ts).
+   */
+  formationsSuivies?: FormationSuivie[];
+  /** Délivrances des titres d'habilitation (t115) : mêmes vues que les habilitations, sans l'auteur hors du service RH. */
+  habDelivrances?: HabDelivrance[];
+  /**
+   * Délégations des validations (t135) : toutes pour le service RH et la lecture seule ; pour le manager et le collaborateur,
+   * celles qu'il a données ou reçues, celles des managers dont il est le N+1 et celle de son propre valideur. Absent ailleurs.
+   */
+  delegations?: DelegationValidation[];
+  /**
+   * Salariés dont la personne connectée (espace manager) décide aujourd'hui par délégation, avec le manager remplacé et
+   * les périmètres reçus (`deleguesA`, calculé par le serveur). Absent ou vide ailleurs.
+   */
+  delegues?: { empId: number; managerId: number; perimetre: PerimetreDelegation[] }[];
+  /**
+   * Suppléants possibles du manager connecté hors de l'espace RH (t135, dialogue de délégation de Mon espace) : salariés
+   * présents, hors intérim et hors lui-même, réduits à l'annuaire (nom, équipe, poste) ; sa présence sur la période est
+   * contrôlée par le serveur. Absent ailleurs (service RH : `employes`).
+   */
+  suppleantsPossibles?: Personne[];
+  /**
+   * Dossiers des salariés sortis dont une durée de conservation est échue (t016, server/src/conservation.ts) : calculés par
+   * le serveur pour l'administrateur RH seulement, réglage `conservationActive` et décision du DPO renseignés ; absent ailleurs.
+   */
+  conservation?: DossierEchu[];
+  /** Abonnement à l'agenda personnel (t036) : jeton en vigueur de la personne connectée (date de création), sinon null. */
+  agendaJeton?: { creeLe: string } | null;
 }
+
+/** Catégorie de données d'un dossier, avec sa durée de conservation après la sortie (shared/rules/conservation.ts). */
+export type CategorieConservation = 'dossier' | 'temps' | 'paie' | 'sante' | 'passeport' | 'titreSejour' | 'entretiens' | 'formations';
+/**
+ * Dossier proposé à l'effacement : catégories échues qui ont encore des données (`categories`), et `dossier` vrai quand la
+ * durée du dossier est échue (anonymisation complète). Aucun nom : l'écran le lit dans la fiche.
+ */
+export interface DossierEchu { empId: number; fin: ISODate; categories: CategorieConservation[]; dossier: boolean; elements: number }
 
 /**
  * Lot importé depuis l'écran Mise en service (`reprise.importer`, shared/rules/reprise.ts) : type, date de reprise des

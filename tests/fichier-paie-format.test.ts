@@ -40,7 +40,7 @@ type Format = Parameters<typeof L.fichierLot>[1] & object;
 async function fresh(base?: Db) {
   const db = base ?? await nouvelleBase();
   await seedDemo(db);
-  const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
+  const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number }).id;
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteDe(empId), role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
@@ -215,7 +215,7 @@ test('t019 fichier téléchargé en Windows-1252 avec libellés figés à la gé
     };
     const utf8 = await telecharger();
     assert.match(utf8.type, /^text\/csv; charset=utf-8/);
-    assert.notDeepEqual([...utf8.octets.slice(0, 3)], [0xef, 0xbb, 0xbf], 'sans BOM');
+    assert.notDeepEqual(Array.from(utf8.octets.slice(0, 3)), [0xef, 0xbb, 0xbf], 'sans BOM');
     // Réglage par la paie (refusé au gestionnaire RH) : Windows-1252 et libellé de la rubrique.
     await refus(GEST, 'paie.formatFichier', { encodage: 'windows-1252' }, 403);
     await refus(PAIE, 'paie.formatFichier', { encodage: 'ansi' }, 400, /Encodage inconnu/);

@@ -38,7 +38,7 @@ export function EntDialog({ entId }: { entId: number }) {
   const e = x ? d.emp(x.empId) : undefined;
 
   // Par section : texte saisi (local) et motif d'un refus ; l'enregistrement suit ce que le serveur a accepté.
-  const [vals, setVals] = useState<Record<string, string>>(() => ({ ...(x?.cr ?? {}) }));
+  const [vals, setVals] = useState<Record<string, string>>(() => ({ ...x?.cr }));
   const [info, setInfo] = useState(!!x?.info);
   const [busy, setBusy] = useState(false);
   // Date à laquelle l'entretien a eu lieu, demandée quand la date prévue n'est pas encore passée.

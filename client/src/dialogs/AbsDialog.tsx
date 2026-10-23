@@ -11,6 +11,7 @@ import { erreursPeriode } from '../components/controles.ts';
 import { CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { decideur } from '../state/delegues.ts';
 
 export function AbsDialog({ empId }: { empId: number }) {
   const d = useDomain();
@@ -38,7 +39,7 @@ export function AbsDialog({ empId }: { empId: number }) {
     );
   }
 
-  const parManager = manager && emp.id !== me && d.mgrOf(emp) === me;
+  const parManager = manager && decideur(d, emp, me, 'absences');
   const demiPossible = demiAutorisee(kind) && !!du && !!au && au >= du, seul = du === au;
   const demi = !demiPossible ? { debutDemi: null, finDemi: null }
     : seul ? { debutDemi: unJour || null, finDemi: null }

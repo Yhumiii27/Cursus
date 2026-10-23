@@ -97,8 +97,10 @@ export async function creerLot(ctx: Ctx, sheets: FeuilleTemps[], mode: SageMode,
   const elements = traduireElements(absences, ctx.ds.rubriquesPaie);
   const deFamilles = contenuDesFamilles(familles);
   const periodesFamilles = Object.values(autres).flatMap(l => (l ?? []).map(x => x.periode));
+  // Éléments à saisir dans Sage : heures de nuit des feuilles (rubriques désactivées), puis ceux des familles.
+  const aSaisir = [...(payload.aSaisir ?? []), ...(deFamilles.aSaisir ?? [])];
   const avecAbsences = elements.length || Object.keys(deFamilles).length ? {
-    ...payload, ...(elements.length ? { absences: elements } : {}), ...deFamilles,
+    ...payload, ...(elements.length ? { absences: elements } : {}), ...deFamilles, ...(aSaisir.length ? { aSaisir } : {}),
     periodes: [...new Set([...(payload.periodes ?? []), ...elements.map(x => x.periode), ...periodesFamilles])].sort(),
   } : payload;
   const contenu = { ...avecAbsences, libelles: libellesSage(avecAbsences, rubriquesPaie(ctx.ds.rubriquesPaie)) };
@@ -284,10 +286,10 @@ export async function pushSageSimulation(ctx: Ctx) {
   };
 }
 
-export const paieActions: Record<string, ActionHandler> = {
+export const paieActions = {
   'paie.rubrique': rubrique,
   'paie.lotGenerer': lotGenerer,
   'paie.lotConfirmer': lotConfirmer,
   'paie.lotAnnuler': lotAnnuler,
   'paie.formatFichier': formatFichier,
-};
+} satisfies Record<string, ActionHandler>;

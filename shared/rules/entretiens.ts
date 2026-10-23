@@ -9,6 +9,7 @@ import type { Conflit } from './conflits.ts';
 import { present } from './contrats.ts';
 import { ageAu } from './mineurs.ts';
 import { ENTRETIEN_MI_CARRIERE, entretienMiCarriere } from './entretien-mi-carriere.ts';
+import { formationNonObligatoireDepuis } from './formations-suivies.ts';
 
 export type ObligStatus = 'late' | 'soon' | 'planifie' | 'todo' | 'ok';
 export interface Obligation {
@@ -46,7 +47,7 @@ export function obligations(d: Domain, scopeIds: number[]): Obligation[] {
       // Due après le départ (sortie enregistrée, fin de CDD…) et pas planifiée avant : plus d'obligation.
       if (!pl && !present(e, due)) return;
       // Planifié à une date passée sans avoir été clos (reporté, oublié) : en retard, comme s'il ne l'était pas.
-      out.push({ id, e, kind, due, detail, pl, st: pl ? (pl.date < Ti ? 'late' : 'planifie') : due < Ti ? 'late' : due <= in90 ? 'soon' : 'ok', ...(extra || {}) });
+      out.push({ id, e, kind, due, detail, pl, st: pl ? (pl.date < Ti ? 'late' : 'planifie') : due < Ti ? 'late' : due <= in90 ? 'soon' : 'ok', ...extra });
     };
     const lastE = done(['epp', 'reprise'])[0];
     const periodique = lastE ? addM(lastE.date, 48) : addM(e.entree, 12);
@@ -67,7 +68,9 @@ export function obligations(d: Domain, scopeIds: number[]): Obligation[] {
     if (anniv <= addM(Ti, 12) && !done(['bilan']).some(x => x.date >= addM(anniv, -12))) {
       const from = addM(anniv, -96);
       const nE = list.filter(x => ['epp', 'reprise'].includes(x.type) && x.statut === 'realise' && x.date >= from).length;
-      const fno = e.certs.some(cc => d.fm(cc.f).type !== 'Réglementaire' && cc.obtenue >= from);
+      // Formation non obligatoire : certification hors « Réglementaire », ou formation suivie non obligatoire (hors catalogue
+      // comprise, t116 : shared/rules/formations-suivies.ts).
+      const fno = formationNonObligatoireDepuis(d, e, from);
       push('bilan', anniv, `${nE} entretien${nE > 1 ? 's' : ''} de parcours sur 8 ans (2 attendus) · ${fno ? 'formation non obligatoire suivie' : 'aucune formation non obligatoire'}`, { risk: nE < 2 || !fno });
     }
     if (c.forfait) {
@@ -149,10 +152,11 @@ export function debutCloture(d: Domain, x: Entretien): { min: ISODate; raison: s
  * Salariés dont les entretiens se suivent dans l'espace affiché : dans l'espace manager, son équipe sans lui-même — ses
  * propres entretiens relèvent de son responsable, et il les prépare et les signe dans son espace collaborateur ; ailleurs,
  * tout l'instantané (le RH, l'intéressé). Les salariés consultés en lecture seule (consultation N+2, t136) n'en font pas
- * partie : leurs entretiens relèvent de leur manager direct et ne sont pas transmis.
+ * partie : leurs entretiens relèvent de leur manager direct et ne sont pas transmis. Ceux dont il décide par délégation
+ * d'un manager absent (t135) n'en font partie que si la délégation comprend les entretiens.
  */
-export function perimetreEntretiens(ds: Pick<Dataset, 'user' | 'employes' | 'lectureSeule'>): number[] {
+export function perimetreEntretiens(ds: Pick<Dataset, 'user' | 'employes' | 'lectureSeule' | 'delegues'>): number[] {
   const moi = ds.user.role === 'manager' ? ds.user.empId : null;
-  const lecture = new Set(ds.lectureSeule ?? []);
+  const lecture = new Set([...(ds.lectureSeule ?? []), ...(ds.delegues ?? []).filter(x => !x.perimetre.includes('entretiens')).map(x => x.empId)]);
   return ds.employes.filter(e => e.id !== moi && !lecture.has(e.id)).map(e => e.id);
 }

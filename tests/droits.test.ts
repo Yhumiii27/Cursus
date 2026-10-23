@@ -27,7 +27,7 @@ type Role = User['role'];
 const db = await nouvelleBase();
 await seedDemo(db);
 
-const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
+const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number };
 async function personne(empId: number | null, role: Role): Promise<User> {
   const u = await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' });
   assert.ok(u, `compte de démonstration ${empId} dans l’espace ${role}`);
@@ -57,9 +57,21 @@ const demande = async (h: string, o: { statut?: string; parId?: number | null } 
 /** Ligne prévue du plan, sans session rattachée (FCO de la Logistique). */
 const lignePrevue = async () => ((await db.one(`SELECT id FROM plan_actions WHERE statut = 'prevu' AND f = 'fco'`)) as { id: number }).id;
 const titre = async (h: string) => (await db.one('SELECT id FROM hab_titres WHERE emp_id = 2 AND h = ?', [h])) as { id: number };
+/** Formation suivie hors catalogue de Mehdi (jeu de démonstration). */
+const suivie = async () => ((await db.one('SELECT id FROM formations_suivies WHERE emp_id = 2')) as { id: number }).id;
 const cert = async (f: string) => ((await db.one('SELECT id FROM certifications WHERE emp_id = 2 AND f = ?', [f])) as { id: number }).id;
 /** Poste du référentiel créé depuis les fiches de démonstration. */
 const posteNomme = async (nom: string) => ((await db.one('SELECT id FROM postes WHERE nom = ?', [nom])) as { id: number }).id;
+/** Renonciation ouverte (référence de l'accord) dans les réglages, pour la transaction du cas ; rien à envoyer en plus. */
+const rachatOuvert = async () => {
+  await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), forfaitJoursRachat: true, forfaitJoursAccord: 'Accord d’entreprise du 1er mars 2026' });
+  return {};
+};
+/** Avenant de renonciation 2026 de la fiche 9 (forfait jours), en vigueur. */
+const avenantForfait = async () => (await db.insert<{ id: number }>('avenantsForfait', {
+  empId: 9, annee: 2026, jours: 5, taux: 25, signeLe: '2026-10-01', reference: null, creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Sandrine Vidal',
+  annuleLe: null, annulePar: null, annuleMotif: null, lotId: null, sage: false, horsFichier: false,
+})).id;
 const ENTRETIEN = async () => ((await db.one(`SELECT id FROM entretiens WHERE emp_id = 2 AND statut = 'planifie'`)) as { id: number }).id;
 
 /** Absence de Mehdi le 15 décembre, dans l'état voulu (signalée par son manager, ou validée). */
@@ -110,6 +122,14 @@ const pieceJointe = async (objet: string, objetId: number) => (await db.insert<{
   empId: 2, objet, objetId, nom: 'piece.pdf', type: 'application/pdf', taille: 5, empreinte: 'e', fichier: 'b'.repeat(32),
   deposeLe: '2026-10-07T08:00:00.000Z', deposePar: 'Essai', deposeCompteId: null,
 })).id;
+/** Réglages modifiés pour l'essai (transaction annulée ensuite). */
+const reglages = async (r: Record<string, unknown>) => await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), ...r });
+/** Mehdi sorti à la date (démission), conservation des dossiers activée avec la décision du DPO ; renvoie son identifiant. */
+const sortiLe = async (fin: string) => {
+  await reglages({ conservationActive: true, conservationDecisionDpo: 'Décision DPO 2026-01' });
+  await db.update('employes', 2, { fin, motifSortie: 'demission' });
+  return 2;
+};
 // `p` reçoit la personne qui agit (pièce justificative envoyée par son compte) ; les autres lignes l'ignorent.
 interface Ligne { action: string; variante?: string; droits: string; p: (u: User) => Record<string, unknown> | Promise<Record<string, unknown>>; env?: Record<string, string> }
 
@@ -141,6 +161,11 @@ const MATRICE: Ligne[] = [
   { action: 'equipe.supprimer', droits: '                    O    -    -    -    -    -    -    -    -', p: async () => { await db.insert('equipes', { nom: 'Vide', managerId: null, ordre: 99 }); return { nom: 'Vide' }; } },
   // Équipe parente (t136) : le manager de la Maintenance aura pour valideur celui de la Production.
   { action: 'equipe.parente', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Maintenance', parente: 'Production' }) },
+  // Délégation des validations (t135) : le manager pour lui-même (Karim Haddad) et le service RH ; révocation de même.
+  { action: 'equipe.delegation', droits: '                  O    O    O    -    -    -    -    -    -', p: () => ({ managerId: 12, suppleantId: 3, du: '2026-10-19', au: '2026-10-30', perimetre: ['absences', 'feuilles'] }) },
+  { action: 'equipe.revoquerDelegation', droits: '          O    O    O    -    -    -    -    -    -', p: async () => ({
+    id: (await db.insert<{ id: number }>('delegations', { managerId: 12, suppleantId: 3, du: '2026-10-19', au: '2026-10-30', perimetre: ['absences'], creeLe: '2026-10-07T08:00:00.000Z', creePar: 'Karim Haddad' })).id,
+  }) },
   { action: 'equipe.affecter', variante: 'retrait', droits: 'O    O    O    -    -    -    -    -    -', p: () => ({ empId: 2, equipe: null }) },
   // Le manager n'accueille qu'un salarié « à affecter » (libéré par son manager) ; une mutation directe relève du RH.
   { action: 'equipe.affecter', variante: 'salarié à affecter', droits: 'O    O    O    -    -    -    -    -    -', p: async () => {
@@ -163,6 +188,10 @@ const MATRICE: Ligne[] = [
   // Corrections d'une saisie erronée : modification (service RH, référent HSE), suppression (administrateur RH), motif exigé.
   { action: 'cert.modifier', droits: '                       O    O    -    -    -    -    O    -    -', p: async () => ({ id: await cert('sst'), date: '2025-05-05', motif: 'Date mal saisie' }) },
   { action: 'cert.annuler', droits: '                        O    -    -    -    -    -    -    -    -', p: async () => ({ id: await cert('sst'), motif: 'Saisie sur la mauvaise fiche' }) },
+  // Formations suivies (t116) : saisie et correction par le service RH et le référent HSE, suppression par l'administrateur RH.
+  { action: 'formationSuivie.enregistrer', droits: '         O    O    -    -    -    -    O    -    -', p: () => ({ empId: 2, libelle: 'Anglais technique', du: '2026-09-14', au: '2026-09-16', duree: 21 }) },
+  { action: 'formationSuivie.modifier', droits: '            O    O    -    -    -    -    O    -    -', p: async () => ({ id: await suivie(), duree: 15, motif: 'Durée mal saisie' }) },
+  { action: 'formationSuivie.annuler', droits: '             O    -    -    -    -    -    -    -    -', p: async () => ({ id: await suivie(), motif: 'Saisie sur la mauvaise fiche' }) },
   { action: 'session.creer', droits: '                       O    O    -    -    -    -    O    -    -', p: () => ({ f: 'sst', date: '2026-12-01', lieu: 'Site de Lyon', places: 8 }) },
   // Sessions : cycle de vie et clôture par le service RH (session 2 : SST du 18 novembre, à confirmer).
   { action: 'session.confirmer', droits: '                   O    O    -    -    -    -    O    -    -', p: async () => ({ id: 2 }) },
@@ -256,6 +285,9 @@ const MATRICE: Ligne[] = [
   // Contact d'urgence (t068) : le salarié pour lui-même (portail) ou le service RH ; ni le manager, ni les profils restreints.
   { action: 'employe.contactUrgence', droits: '          O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, nom: 'Nadia Benali (sœur)', telephone: '06 12 34 56 78' }) },
   { action: 'voyage.annuler', droits: '                  O    O    -    -    -    -    -    -    -', p: async () => ({ id: await voyage(), motif: 'Chantier reporté' }) },
+  // Forfait jours (t043) : avenant de renonciation d'un cadre au forfait (fiche 9), service RH, une fois l'accord référencé.
+  { action: 'forfait.avenant', droits: '                 O    O    -    -    -    -    -    -    -', p: async () => ({ ...await rachatOuvert(), empId: 9, annee: 2026, jours: 2, taux: 25, signeLe: '2026-10-01', reference: 'AV-FJ-2026-01' }) },
+  { action: 'forfait.annulerAvenant', droits: '          O    O    -    -    -    -    -    -    -', p: async () => ({ id: await avenantForfait(), motif: 'Avenant saisi par erreur' }) },
   { action: 'formalite.enregistrer', droits: '               O    O    -    -    O    -    -    -    -', p: async () => ({ empId: 2, kind: 'passeport', numero: '21XY12345', expire: '2032-01-01' }) },
   { action: 'voyages.importer', droits: '                    O    O    -    -    -    -    -    -    -', p: async () => ({ texte: SAMPLE_TRIPS_CSV }) },
   { action: 'keystone.accepter', droits: '                   O    O    -    -    -    -    -    -    -', p: async () => ({ id: 1 }) },
@@ -326,6 +358,11 @@ const MATRICE: Ligne[] = [
   { action: 'conges.cloturer', droits: '                     O    O    -    -    -    -    -    -    -', p: async () => {
     await db.update('soldesReprise', 2, { arreteLe: '2025-09-01' });
     return { type: 'RTT', periode: 2025 };
+  } },
+  // Jours de fractionnement (t046) : service RH (période 2025 de Mehdi, compteurs repris arrêtés avant sa fenêtre pour l'essai).
+  { action: 'conges.fractionnement', droits: '               O    O    -    -    -    -    -    -    -', p: async () => {
+    await db.update('soldesReprise', 2, { arreteLe: '2025-01-01' });
+    return { periode: 2025, lignes: [{ empId: 2, decision: 'renoncer' }] };
   } },
   // Information au retour d'un arrêt (art. L3141-19-3) : service RH, jamais pour lui-même (arrêt de Mehdi terminé le 2 octobre).
   { action: 'conges.informer', droits: '                     O    O    -    -    -    -    -    -    -', p: async () => ({
@@ -400,6 +437,15 @@ const MATRICE: Ligne[] = [
   { action: 'piece.joindre', variante: 'déplacement', droits: '    O    O    -    -    -    -    -    -    -', p: async u => await ({ jetons: [await pieceEnvoyee(u)], objet: 'voyage', objetId: await voyage() }) },
   { action: 'piece.retirer', variante: 'certification', droits: '  O    O    -    -    -    -    O    -    -', p: async () => ({ id: await pieceJointe('certification', await cert('sst')), motif: 'Mauvais document' }) },
   { action: 'piece.retirer', variante: 'absence', droits: '        O    O    -    -    -    -    -    -    -', p: async () => ({ id: await pieceJointe('absence', await absence('signalee', 'ABSENCE')), motif: 'Mauvais document' }) },
+  // Conservation des dossiers (t016) : effacement irréversible, administrateur RH seul ; Mehdi sorti il y a longtemps (dossier
+  // échu, fonction activée avec la décision du DPO) ou récemment (droit à l'effacement exercé avant l'échéance).
+  { action: 'employe.anonymiser', variante: 'dossier échu', droits: '   O    -    -    -    -    -    -    -    -', p: async () => ({ ids: [await sortiLe('2019-01-31')], motif: 'Durées validées par le DPO' }) },
+  { action: 'employe.anonymiser', variante: 'avant l’échéance', droits: 'O    -    -    -    -    -    -    -    -', p: async () => ({ ids: [await sortiLe('2026-01-31')], motif: 'Demande du salarié', avantEcheance: true }) },
+  // Agenda personnel (t036) : le salarié pour lui-même, depuis son espace (collaborateur ou manager) ; révocation de tous
+  // les abonnements, administrateur RH.
+  { action: 'agenda.creerJeton', droits: '                       -    -    O    O    O    O    -    -    -', p: async () => { await reglages({ agendaFluxActif: true }); return {}; } },
+  { action: 'agenda.revoquerJeton', droits: '                    -    -    O    O    O    O    -    -    -', p: () => ({}) },
+  { action: 'agenda.revoquerTout', droits: '                     O    -    -    -    -    -    -    -    -', p: () => ({}) },
 ];
 
 const ANNULER = Symbol('annuler');

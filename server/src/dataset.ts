@@ -7,9 +7,10 @@ import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.
 import { acquisitionsCalculees } from '../../shared/rules/acquisition-cp.ts';
 import { aptitudeVueManager } from '../../shared/rules/sante.ts';
 import { visiteAProgrammer } from '../../shared/rules/visites-dues.ts';
-import { etatMineur, mineurDeLaSemaine, naissanceVueManager } from '../../shared/rules/mineurs.ts';
+import { etatMineur, mineurDeLaSemaine, moins16DeLaSemaine, naissanceVueManager } from '../../shared/rules/mineurs.ts';
+import { statutNuit } from '../../shared/rules/repos-nuit.ts';
 import { needsFinCarriere } from '../../shared/rules/entretiens.ts';
-import { verdictAutorisation } from '../../shared/rules/contrats.ts';
+import { present, verdictAutorisation } from '../../shared/rules/contrats.ts';
 import { completerSession } from '../../shared/rules/plage-session.ts';
 import { avecInscrits } from '../../shared/rules/sessions.ts';
 import { finPeriodeCp, periodeReport } from '../../shared/rules/conges.ts';
@@ -17,12 +18,13 @@ import { debutSaisieDe } from '../../shared/rules/suivi-feuilles.ts';
 import { reouvertureNeutre } from '../../shared/rules/regularisation.ts';
 import { effectifSite } from '../../shared/rules/delegation.ts';
 import { equipesDescendantes } from '../../shared/rules/hierarchie.ts';
+import { delegationEnVigueur, deleguesA, type Delegue } from '../../shared/rules/delegations-manager.ts';
 import { reglagesParDefaut } from '../../shared/reglages.ts';
 import { etatsCouverture } from '../../shared/rules/couverture.ts';
 import { entretienMiCarriere } from '../../shared/rules/entretien-mi-carriere.ts';
-import type { ContratHistorique, DemandeVisite, EtatCouverture, LotReprise } from '../../shared/types.ts';
+import type { AvenantForfait, ContratHistorique, DelegationValidation, DemandeVisite, EtatCouverture, FormationSuivie, HabDelivrance, LotReprise, Personne } from '../../shared/types.ts';
 import type {
-  Absence, Certification, Inscription, CetMouvement, Chantier, ClotureConges, CurrentUser, InformationCp, Dataset, SoldeSortie, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
+  Absence, Certification, Inscription, CetMouvement, Fractionnement, Chantier, ClotureConges, CurrentUser, InformationCp, Dataset, SoldeSortie, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
   CalendrierFeries, DerogationDominicale, Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, Horaire, ISODate, Mandat, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim,
   ReportCp, RubriquePaie, Session,
   Settings, SoldeReprise, TacheKeystone, Vaccination, Visa, Voyage,
@@ -36,6 +38,8 @@ import { absenceSansPaie, resumeAbsencesPaie, sansCodesAbsences } from './absenc
 import { lireMessagerie } from './messagerie.ts';
 import { lirePieces, piecesVisibles } from './pieces.ts';
 import { resumeDeplacementsPaie } from './deplacements-paie.ts';
+import { dossiersEchus } from './conservation.ts';
+import { jetonActif } from './agenda.ts';
 
 /** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
 export const DEFAULT_SETTINGS: Settings = reglagesParDefaut();
@@ -137,10 +141,14 @@ async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
     clotures: await db.all<ClotureConges>('clotures'),
     // Informations au retour d'un arrêt (art. L3141-19-3) : elles désignent un arrêt de santé, service RH et intéressé.
     informationsCp: await db.all<InformationCp>('informationsCp'),
+    // Jours de fractionnement décidés (t046) : crédit (report reçu, compté dans les droits) ou renonciation du salarié.
+    fractionnements: await db.all<Fractionnement>('fractionnements'),
     // Soldes de sortie photographiés (t128) : compteurs du solde de tout compte, service RH, paie et lecture seule.
     soldesSortie: await db.all<SoldeSortie>('soldesSortie'),
     // Historique des contrats (t074) : régimes successifs, renouvellements des CDD, avenants programmés.
     contratsHistorique: await db.all<ContratHistorique>('contratsHistorique'),
+    // Avenants de renonciation d'un forfait jours (t043) : service RH, paie et lecture seule ; manager et intéressé réduits.
+    avenantsForfait: await db.all<AvenantForfait>('avenantsForfait'),
     entretiens: await db.all<Entretien>('entretiens'),
     demandesCollab: await db.all<DemandeCollab>('demandesCollab'),
     demandesVisite: await db.all<DemandeVisite>('demandesVisite'),
@@ -166,6 +174,11 @@ async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
     effectifCse: effectifSite({ employes }, todayIso()),
     // Pièces justificatives jointes (server/src/pieces.ts) : description seule, ni nom stocké ni jeton.
     pieces: await lirePieces(db),
+    // Formations suivies (t116, annulées comprises) et délivrances des habilitations (t115) : filtrées hors du service RH.
+    formationsSuivies: await db.all<FormationSuivie>('formationsSuivies'),
+    habDelivrances: await db.all<HabDelivrance>('habDelivrances'),
+    // Délégations des validations (t135) : identifiants, dates et périmètre, jamais de motif.
+    delegations: await db.all<DelegationValidation>('delegations'),
   };
   // Absences en attente du fichier de paie par période (server/src/absences-paie.ts) : lit le contenu figé des lots.
   // Déplacements en attente du fichier de paie (t031, server/src/deplacements-paie.ts) : lit la table des éléments émis.
@@ -182,6 +195,14 @@ const sansCorrections = (e: Employe): Employe => ({
 });
 const ligneSansMotif = (l: PlanAction): PlanAction => (l.corrigeMotif ? { ...l, corrigeMotif: null } : l);
 const demandeSansMotifRh = (r: DemandeCollab): DemandeCollab => (r.rouverteMotif ? { ...r, rouverteMotif: null } : r);
+/**
+ * Formations suivies (t116) et délivrances d'habilitation (t115) hors du service RH : en vigueur seulement, sans motif de
+ * correction (texte libre du service RH) ni auteur de l'enregistrement (une autre personne, comme pour l'historique des
+ * contrats). Le salarié retrouve tout dans la copie de ses données.
+ */
+const suiviesNeutres = (l: readonly FormationSuivie[]): FormationSuivie[] =>
+  l.filter(x => !x.annuleLe).map(x => ({ ...x, corrigeMotif: null, auteur: null, auteurId: null }));
+const delivrancesNeutres = (l: readonly HabDelivrance[]): HabDelivrance[] => l.map(x => ({ ...x, auteur: null, auteurId: null }));
 
 /**
  * Coordonnées sur place d'un déplacement (hébergement, contact local : textes libres du service RH, t068) et contact
@@ -200,6 +221,13 @@ const ligneContratNeutre = (l: ContratHistorique): ContratHistorique => ({ ...l,
  * la fin prévue de la fiche. Les renouvellements, qui ne changent pas le régime, ne lui sont pas transmis.
  */
 const ligneContratEquipe = (l: ContratHistorique): ContratHistorique => ({ ...ligneContratNeutre(l), jusquau: null, signeLe: null });
+/**
+ * Avenant de renonciation d'un forfait jours (t043) hors du service RH : ni le motif d'une annulation (texte libre du
+ * service RH), ni l'auteur ; pour le manager d'un membre, en plus, ni la majoration (rémunération) ni la référence : l'année et
+ * les jours rachetés suffisent au plafond du cumul affiché à la validation.
+ */
+const avenantNeutre = (a: AvenantForfait): AvenantForfait => ({ ...a, annuleMotif: null, creePar: '', annulePar: null });
+const avenantEquipe = (a: AvenantForfait): AvenantForfait => ({ ...avenantNeutre(a), taux: 0, reference: null, lotId: null, sage: false, horsFichier: false });
 
 /** Dérogations au repos dominical sans la référence de l'accord (texte libre) : hors du service RH, le type suffit. */
 const derogationsSansReference = (full: Dataset) => (full.derogationsDominicales ?? []).map(x => ({ ...x, reference: null }));
@@ -220,7 +248,15 @@ export async function currentUser(db: Db, s: SessionInfo | null): Promise<Curren
   const e = (await db.get<EmpRow>('employes', empId))!;
   if (s.role === 'manager') {
     const teams = (await db.where<Equipe>('equipes', 'managerId', empId)).map(q => q.nom);
-    return { role: s.role, empId, nom: e.nom, intitule: `Manager · ${teams.join(', ')}`, ...compte };
+    // Suppléant d'un manager absent (t135) : l'espace manager lui est ouvert pendant la délégation (comptes.ts).
+    const jour = todayIso();
+    const remplaces: string[] = [];
+    for (const g of await db.where<DelegationValidation>('delegations', 'suppleantId', empId)) {
+      const nom = delegationEnVigueur(g, jour) ? (await db.get<EmpRow>('employes', g.managerId))?.nom : null;
+      if (nom) remplaces.push(nom);
+    }
+    const intitule = [teams.length ? `Manager · ${teams.join(', ')}` : 'Manager', remplaces.length ? `suppléant de ${remplaces.join(', ')}` : ''].filter(Boolean).join(' · ');
+    return { role: s.role, empId, nom: e.nom, intitule, ...compte };
   }
   return { role: s.role, empId, nom: e.nom, intitule: e.poste, ...compte };
 }
@@ -240,11 +276,49 @@ export function lectureSeuleIds(d: Domain, user: CurrentUser): number[] {
   return d.ds.employes.filter(e => !!e.equipe && sous.has(e.equipe) && !directs.has(e.id)).map(e => e.id);
 }
 
-/** Identifiants des collaborateurs visibles par l'utilisateur (manager : consultation N+2 comprise, `lectureSeuleIds`). */
+/**
+ * Délégation des validations (t135, shared/rules/delegations-manager.ts) : salariés dont le manager connecté décide
+ * aujourd'hui par délégation d'un manager absent (suppléant, ou N+1 pour les demandes du suppléant lui-même), avec les
+ * périmètres reçus. Ils entrent dans son périmètre avec les filtres de l'équipe directe.
+ */
+export function deleguesDe(d: Domain, user: CurrentUser): Delegue[] {
+  if (user.role !== 'manager' || !user.empId) return [];
+  return deleguesA(d.ds, user.empId, d.ti);
+}
+
+/**
+ * Identifiants des collaborateurs visibles par l'utilisateur (manager : consultation N+2 comprise, `lectureSeuleIds`, et
+ * salariés dont il décide par délégation, `deleguesDe`).
+ */
 export function scopeIds(d: Domain, user: CurrentUser): number[] {
   if (user.role === 'rh') return d.ds.employes.map(e => e.id);
-  if (user.role === 'manager') return [user.empId!, ...equipeDirecte(d, user.empId!), ...lectureSeuleIds(d, user)];
+  if (user.role === 'manager') return [...new Set([user.empId!, ...equipeDirecte(d, user.empId!), ...deleguesDe(d, user).map(x => x.empId), ...lectureSeuleIds(d, user)])];
   return [user.empId!];
+}
+
+/**
+ * Délégations transmises hors du service RH (t135) : celles que la personne a données ou reçues, celles des managers dont
+ * elle est le valideur (N+1, qui reçoit les demandes du suppléant) et celle de son propre valideur (qui la remplace).
+ */
+function delegationsVisibles(d: Domain, user: CurrentUser): DelegationValidation[] {
+  const moi = user.empId;
+  if (!moi) return [];
+  const e = d.emp(moi);
+  const monValideur = e ? d.mgrOf(e) : 0;
+  return (d.ds.delegations ?? []).filter(g => {
+    if (g.managerId === moi || g.suppleantId === moi || g.managerId === monValideur) return true;
+    const m = d.emp(g.managerId);
+    return !!m && d.mgrOf(m) === moi;
+  });
+}
+
+/**
+ * Suppléants possibles d'un manager (t135, dialogue de délégation) : salariés présents aujourd'hui, hors intérim et hors
+ * lui-même, sans autre donnée que celles de l'annuaire (nom, équipe, poste), déjà transmises à tous.
+ */
+function suppleantsPossibles(d: Domain, managerId: number): Personne[] {
+  return d.ds.employes.filter(e => e.id !== managerId && present(e, d.ti) && !d.contratOf(e).interim)
+    .map(e => ({ id: e.id, nom: e.nom, equipe: e.equipe, poste: e.poste }));
 }
 
 /** Semaines de planning Keystone envoyées au navigateur, avant et après la semaine en cours. */
@@ -286,7 +360,11 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
     // Sans droit « paie » (gestionnaire RH), ni les rubriques d'absence en attente ni celles des lots : le code révèle la catégorie.
     // Couverture minimale des équipes (t067), calculée ici sur l'instantané complet : toutes les équipes.
     return droits.includes('rh')
-      ? { ...full, taches: tachesProches(full.taches, full.today), ...(droits.includes('paie') ? {} : sansCodesAbsences(full)), couverture: etatsCouverture(full, full.settings.horizonAlerte) }
+      ? {
+        ...full, taches: tachesProches(full.taches, full.today), ...(droits.includes('paie') ? {} : sansCodesAbsences(full)), couverture: etatsCouverture(full, full.settings.horizonAlerte),
+        // Dossiers des salariés sortis dont une durée de conservation est échue (t016) : administrateur RH seulement.
+        ...(droits.includes('admin') ? { conservation: await dossiersEchus(db, full.settings, full.today) } : {}),
+      }
       : vueProfil(full, droits);
   }
   const d = new Domain(full);
@@ -295,8 +373,12 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
   const isMgr = user.role === 'manager';
   // Consultation N+2 (t136) : mêmes filtres que pour l'équipe directe, aptitude réduite au verdict (ni avis, ni
   // restrictions), ni entretiens ni demandes au service RH (affaires du valideur direct).
-  const lecture = new Set(lectureSeuleIds(d, user));
-  const direct = <T extends { empId: number }>(list: T[]) => list.filter(x => !lecture.has(x.empId));
+  // Délégation (t135) : les salariés dont il décide par délégation sortent de la lecture seule ; sans le périmètre des
+  // entretiens, ni leurs entretiens ni leurs demandes au service RH (affaires de leur manager).
+  const delegues = deleguesDe(d, user);
+  const sansEntretiens = new Set(delegues.filter(x => !x.perimetre.includes('entretiens')).map(x => x.empId));
+  const lecture = new Set(lectureSeuleIds(d, user).filter(id => !delegues.some(x => x.empId === id)));
+  const direct = <T extends { empId: number }>(list: T[]) => list.filter(x => !lecture.has(x.empId) && !sansEntretiens.has(x.empId));
   // Les managers voient le verdict d'aptitude, les restrictions de poste en vigueur et l'état des dossiers voyage,
   // jamais les données de santé (date de visite, avis daté, demande de visite, suivi médical, vaccinations). Une reprise ouverte par
   // un arrêt longue maladie leur est masquée : elle trahirait la nature de l'arrêt (l'entretien de reprise est suivi par le RH).
@@ -324,6 +406,8 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
       entretienMiCarriere: entretienMiCarriere(full, e)?.due ?? null,
       // Contact d'urgence (t068) : service RH et intéressé, jamais le manager.
       urgenceNom: null, urgenceTel: null,
+      // Anonymisation d'un dossier échu (t016) : affaire du service RH.
+      anonymiseLe: null,
       ...(repriseMedicale(e, full.absences) ? { repriseMotif: null, repriseDate: null } : { repriseMotif: e.repriseDate ? 'absence longue' : null }),
     }
     : e).map(e => (lecture.has(e.id) && e.aptitude ? { ...e, aptitude: { ok: e.aptitude.ok, aProgrammer: e.aptitude.aProgrammer } } : e));
@@ -366,6 +450,9 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
     clotures: mine(full.clotures).map(c => isMgr && c.empId !== user.empId ? clotureNeutre(c) : c),
     // Information au retour d'un arrêt : elle révèle un arrêt de santé, l'intéressé seul la reçoit (jamais son manager).
     informationsCp: (full.informationsCp ?? []).filter(i => i.empId === user.empId),
+    // Jours de fractionnement : la décision (crédit, renonciation) à l'intéressé seul ; le manager voit le crédit dans les
+    // reports reçus de son équipe (`reportNeutre`), comme tout report.
+    fractionnements: (full.fractionnements ?? []).filter(f => f.empId === user.empId),
     // Solde de sortie : solde de tout compte, l'affaire du service RH et de la paie (ni le manager, ni l'intéressé).
     soldesSortie: [],
     // Historique des contrats : lignes du périmètre (régimes de son équipe pour le manager, les siennes pour le salarié),
@@ -374,6 +461,8 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
     contratsHistorique: mine(full.contratsHistorique ?? [])
       .filter(l => !(isMgr && l.empId !== user.empId && l.nature === 'renouvellement'))
       .map(l => (isMgr && l.empId !== user.empId ? ligneContratEquipe(l) : ligneContratNeutre(l))),
+    // Avenants de renonciation (t043) : les siens ; ceux de l'équipe directe, réduits à l'année et aux jours rachetés.
+    avenantsForfait: direct(mine(full.avenantsForfait ?? [])).map(a => (isMgr && a.empId !== user.empId ? avenantEquipe(a) : avenantNeutre(a))),
     // Sections « fin de carrière » des entretiens d'un membre calculées ici : sa date de naissance n'est pas transmise.
     entretiens: direct(mine(full.entretiens)).map(x => isMgr && x.empId !== user.empId ? avecFinCarriere(d, x) : x),
     // Les documents déclarés (passeport, visas, vaccinations) des membres ne sont pas montrés au manager ;
@@ -406,6 +495,15 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
     // le collaborateur.
     couverture: isMgr ? etatsCouverture(full, full.settings.horizonAlerte, d.teamsOf(user.empId)) : [],
     lectureSeule: [...lecture],
+    // Formations suivies et délivrances d'habilitation : celles du périmètre, comme les certifications et les titres.
+    formationsSuivies: suiviesNeutres(mine(full.formationsSuivies ?? [])),
+    habDelivrances: delivrancesNeutres(mine(full.habDelivrances ?? [])),
+    delegations: delegationsVisibles(d, user),
+    delegues,
+    // Manager qui délègue pour lui-même (Mon espace ou espace manager) : suppléants possibles, réduits à l'annuaire.
+    ...(d.teamsOf(user.empId).length ? { suppleantsPossibles: suppleantsPossibles(d, user.empId!) } : {}),
+    // Abonnement à l'agenda personnel (t036) : seulement le fait qu'il existe et sa date, jamais le jeton (haché en base).
+    agendaJeton: await (async () => { const j = await jetonActif(db, user.empId!); return j ? { creeLe: j.creeLe } : null; })(),
   };
 }
 
@@ -416,10 +514,13 @@ const sansExigences = (r: Dataset['referentiels']): Pick<Dataset['referentiels']
   equipes: r.equipes.map(q => ({ ...q, exigences: null, couverture: null })),
 });
 
-/** Feuille d'une vue sans la date de naissance : indication « mineur » de la semaine (contrôles des mineurs). */
+/**
+ * Feuille d'une vue sans la date de naissance : indications « mineur » et « moins de 16 ans » de la semaine (contrôles des
+ * mineurs, repos quotidien de 14 h : le valideur demande le motif comme le serveur).
+ */
 function feuilleSansNaissance(d: Domain, sh: FeuilleTemps): FeuilleTemps {
   const e = d.emp(sh.empId);
-  return e ? { ...sh, mineur: mineurDeLaSemaine(e, sh.week) } : sh;
+  return e ? { ...sh, mineur: mineurDeLaSemaine(e, sh.week), ...(moins16DeLaSemaine(e, sh.week) ? { moins16: true } : {}) } : sh;
 }
 
 /**
@@ -484,6 +585,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     ...(lecture && !repriseMedicale(e, full.absences) ? { repriseMotif: e.repriseDate ? 'absence longue' : null } : { repriseMotif: null, repriseDate: null }),
     // Entretien de parcours après la visite de mi-carrière (lecture seule, qui voit les entretiens) : l'échéance seule.
     entretienMiCarriere: lecture ? entretienMiCarriere(full, e)?.due ?? null : null,
+    // Sans les feuilles de temps (référent HSE) : l'indication « travailleur de nuit » calculée ici (shared/rules/repos-nuit.ts).
+    ...(paie ? {} : { travailleurNuit: statutNuit(full, e.id, full.today).travailleur }),
   }));
   // Déplacements : l'état du dossier et les formalités manquantes sont calculés ici, avec les pièces du dossier,
   // pour que le verdict Go / No Go soit exact sans les transmettre.
@@ -524,10 +627,14 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     clotures: paie ? full.clotures.map(clotureNeutre) : [],
     // Informations au retour d'un arrêt de santé : service RH seulement.
     informationsCp: [],
+    // Jours de fractionnement décidés (crédit, renonciation) : paie et lecture seule, comme les clôtures ; pas le référent HSE.
+    fractionnements: paie ? full.fractionnements ?? [] : [],
     // Solde de sortie : paie (solde de tout compte) et lecture seule ; pas le référent HSE.
     soldesSortie: paie ? full.soldesSortie : [],
     // Historique des contrats : paie et lecture seule (régimes, renouvellements des CDD) ; pas le référent HSE.
     contratsHistorique: paie ? full.contratsHistorique : [],
+    // Avenants de renonciation (t043) : paie (jours rachetés, majoration) et lecture seule, sans le motif d'une annulation.
+    avenantsForfait: paie ? (full.avenantsForfait ?? []).map(a => ({ ...a, annuleMotif: null })) : [],
     // Profil paie : jours de CP acquis chaque mois, calculés ici avec la vraie nature des absences masquées, pour que ses
     // soldes et ses exports soient ceux du service RH ; aucune absence n'y est désignée (pas d'effet absence par absence).
     acquisitionsCp: droits.includes('paie') ? acquisitionsCalculees(d) : [],
@@ -550,12 +657,17 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // Compteur des heures de délégation : service RH et l'élu seulement.
     mandats: [],
     effectifCse: null,
+    // Délégations des validations (t135) : la lecture seule les consulte (écran Équipes) ; ni le référent HSE, ni la paie.
+    delegations: lecture ? full.delegations : [],
     // Pièces justificatives : certifications et habilitations pour le référent HSE ; rien pour la paie et la lecture seule.
     pieces: piecesVisibles(full.pieces, full.user),
     // Couverture minimale des équipes : référent HSE et lecture seule. Le référent HSE, qui ne reçoit pas les absences hors
     // des chantiers, l'a calculée avec les seules absences qu'il reçoit : un manque daté par une autre absence lui
     // désignerait l'absent et ses dates, par élimination parmi les titulaires dont il voit les certifications.
     couverture: !formations ? [] : lecture ? etatsCouverture(full, full.settings.horizonAlerte) : couvertureVueHse(full),
+    // Formations suivies et délivrances d'habilitation : avec les certifications et les titres (référent HSE, lecture seule).
+    formationsSuivies: formations ? suiviesNeutres(full.formationsSuivies ?? []) : [],
+    habDelivrances: formations ? delivrancesNeutres(full.habDelivrances ?? []) : [],
   };
 }
 

@@ -27,7 +27,7 @@ const RH_MAIL = 'rh@entreprise.example';
 async function fresh() {
   const db = await nouvelleBase();
   await seedDemo(db);
-  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number };
   const RH = (await currentUser(db, { compteId: (await compteDe(null)).id, role: 'rh', methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown> = {}) => await db.tx(async () => await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p));
   await run(RH, 'messagerie.regler', { rh: RH_MAIL });

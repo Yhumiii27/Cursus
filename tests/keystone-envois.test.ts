@@ -272,7 +272,7 @@ test('un seul envoi à la fois par cible, dans l’ordre d’émission ; un mess
   const ids: number[] = [];
   for (const n of [1, 2, 3]) ids.push((await sendToKeystone(db, { type: 'absence.validee', absence: n, matricule: 'EMP-0002', du: '2026-12-07', au: '2026-12-08' })).id);
   ks.delai = 40;
-  const [n1, n2] = await Promise.all([await traiterFile(db, 'keystone', t), await traiterFile(db, 'keystone', t)]);
+  const [n1, n2] = await Promise.all([traiterFile(db, 'keystone', t), traiterFile(db, 'keystone', t)]);
   assert.deepEqual([n1, n2], [3, 0], 'le second traitement ne fait rien pendant le premier');
   assert.equal(ks.maxSimultanes, 1);
   assert.deepEqual(ks.recus.map(r => r.body.donnees.absence), [1, 2, 3]);

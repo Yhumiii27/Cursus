@@ -13,7 +13,7 @@ const annuler: ActionHandler = async (ctx, p) => {
   if (!x) throw new ActionError('Entretien introuvable', 404);
   const e = getEmp(ctx, x.empId);
   refuserSoiMeme(ctx, e, 'Vous ne pouvez pas annuler votre propre entretien');
-  if (!isValidatorOf(ctx, e)) throw new ActionError('Annulation réservée à l’évaluateur ou au service RH', 403);
+  if (!isValidatorOf(ctx, e, 'entretiens')) throw new ActionError('Annulation réservée à l’évaluateur ou au service RH', 403);
   const nom = ENT_TYPES[x.type].nom;
   if (x.statut !== 'planifie') throw new ActionError(`${nom} déjà clos : il ne s’annule plus`, 409);
   if (crCommence(x) && p.confirmer !== true) {
@@ -25,6 +25,6 @@ const annuler: ActionHandler = async (ctx, p) => {
   return `${nom} du ${fmtIso(x.date)} annulé — ${e.nom}${prevenu === null ? '' : prevenu ? ' · annulation envoyée au salarié' : ' · à prévenir (aucune adresse e-mail)'}`;
 };
 
-export const annulationEntretienActions: Record<string, ActionHandler> = {
+export const annulationEntretienActions = {
   'entretien.annuler': annuler,
-};
+} satisfies Record<string, ActionHandler>;

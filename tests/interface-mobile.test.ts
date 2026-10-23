@@ -30,7 +30,7 @@ type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 async function fresh() {
   const db = await nouvelleBase();
   await seedDemo(db);
-  const compte = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
+  const compte = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number }).id;
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compte(empId), role, methode: 'demo' }))!;
   const RH = await user(null, 'rh');
   const domaine = async () => new Domain(await loadFull(db, RH));

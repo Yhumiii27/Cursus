@@ -6,6 +6,9 @@ dist/
 build/
 out/
 coverage/
+# Tests de bout en bout (npm run e2e) : résultats et rapport de Playwright
+test-results/
+playwright-report/
 .vite/
 *.tsbuildinfo
 *.app/

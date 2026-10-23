@@ -5,7 +5,7 @@ import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, HAB_MESURE_LABEL, RANK,
 import type { ContratX, EmpX, HabInfo, Proposal } from '../../../shared/domain.ts';
 import type { Formation } from '../../../shared/types.ts';
 import { days, parse } from '../../../shared/dates.ts';
-import { equipeLabel, fmt, fmtIso, fmtShort, matricule, norm, plural, rel } from '../../../shared/format.ts';
+import { equipeLabel, fmt, fmtIso, fmtShort, matricule, plural, rel } from '../../../shared/format.ts';
 import { sessionDu } from '../../../shared/rules/plage-session.ts';
 import { absenceKinds } from '../../../shared/rules/conges.ts';
 import { habSuivie } from '../../../shared/rules/referentiels.ts';
@@ -16,17 +16,22 @@ import { equipesDescendantes } from '../../../shared/rules/hierarchie.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
 import { Avatar, Bar, Btn, Chips, CloseButton, Empty, Fine, NoteAccent, Page, Panel, SectionLabel, Seg, Tag, Two } from '../components/ui.tsx';
 import { Ouvrir } from '../components/Cliquable.tsx';
+import { correspond } from '../components/recherche.ts';
+import { parDate, parNombre, parTexte, trier, usePagination, useTri, type Colonne } from '../components/tri.ts';
+import { SuiteListe, ThTri } from '../components/TriListe.tsx';
 import { Aptitude } from '../components/Aptitude.tsx';
 import { ExigencesCellule, ExigencesFiche, ExigencesMotif } from '../components/Exigences.tsx';
 import { SortieFiche } from '../components/Sortie.tsx';
 import { ContratFiche } from '../components/ContratFiche.tsx';
 import { HistoriqueContrat } from '../components/HistoriqueContrat.tsx';
 import { MineurFiche } from '../components/Mineur.tsx';
+import { TravailNuitFiche } from '../components/TravailNuit.tsx';
 import { MandatsFiche } from '../components/Delegation.tsx';
 import { LectureSeule, useLectureSeule } from '../components/Hierarchie.tsx';
 import { ContactUrgenceFiche } from '../components/ContactUrgence.tsx';
+import { ForfaitJoursFiche } from '../components/ForfaitJours.tsx';
 import { ActionsCertification, CertsAnnulees, DemandesFiche } from '../components/Corrections.tsx';
-import { downloadCsv, matriculesImprimes, printDocument } from '../print.ts';
+import { downloadCsv } from '../print.ts';
 import { csvAnnuaire } from '../listes-csv.ts';
 import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
 import { desinscription, retraitEquipe } from '../state/confirmations.ts';
@@ -36,9 +41,23 @@ import { EchRow } from './Dashboard.tsx';
 import { PiecesFiche } from '../components/PiecesFiche.tsx';
 import { CouverturePanel } from '../components/Couverture.tsx';
 import { CopierLien } from '../components/CopierLien.tsx';
+import { FormationsSuiviesFiche, HabilitationsAnterieures, ImprimerTitre } from '../components/FormationsSuivies.tsx';
+import { imprimerPasseport } from '../passeport.ts';
+import { titreImprimable } from '../titre-habilitation.ts';
+import { membreOuDelegue } from '../state/delegues.ts';
 
 /** Valeur du filtre d'équipe pour les collaborateurs sans équipe (« À affecter »). */
 const SANS_EQUIPE = '';
+
+/** Colonnes triables de l'annuaire ; « Statut » et « Certifications » : du plus grave, du plus grand d'abord. */
+const COLONNES: Record<string, Colonne<EmpX>> = {
+  nom: parTexte(e => e.nom),
+  equipe: parTexte(e => e.equipe),
+  certifications: parNombre(e => e.certs.length, 'desc'),
+  echeance: parNombre(e => e.next?.d),
+  sortie: parDate(e => e.fin, 'desc'),
+  statut: parNombre(e => RANK[e.worst], 'desc'),
+};
 
 const docCls = (k: string) => k === 'exp' ? 'tag-accent' : k === 'due' ? 'tag-outline' : 'tag-neutral';
 
@@ -72,7 +91,7 @@ export function Collaborateurs() {
   const { ui, setUi, openDialog, notify } = useStore();
 
   const myTeams = useMemo(() => manager ? d.teamsOf(me) : [], [d, manager, me]);
-  const team = useMemo(() => manager ? emps.filter(e => e.id !== me && d.mgrOf(e) === me) : emps, [emps, manager, me, d]);
+  const team = useMemo(() => manager ? emps.filter(e => membreOuDelegue(d, e, me)) : emps, [emps, manager, me, d]);
   // Consultation N+2 (t136) : membres des équipes rattachées, en lecture seule, listés après l'équipe directe et filtrables
   // par sous-équipe ; ils ne comptent ni dans le résumé ni dans les échéances de contrat du manager.
   const lecture = useLectureSeule();
@@ -81,22 +100,26 @@ export function Collaborateurs() {
   // Filtre « Sortis » : les salariés dont la date de sortie est passée, que `emps` ne compte plus (Domain.enrich).
   const sortis = ui.statut === 'sortis';
   const liste = useMemo(() => !sortis ? vus : d.enrich(horizon, onlyReg, { sortis: true })
-    .filter(e => sorti(e, d.ti) && (!manager || (e.id !== me && (d.mgrOf(e) === me || lecture.has(e.id))))), [sortis, vus, d, horizon, onlyReg, manager, me, lecture]);
+    .filter(e => sorti(e, d.ti) && (!manager || (membreOuDelegue(d, e, me) || (e.id !== me && lecture.has(e.id))))), [sortis, vus, d, horizon, onlyReg, manager, me, lecture]);
   const teamOptions = espaceRh ? d.equipes : [...myTeams, ...sousEquipes];
   const multi = espaceRh || teamOptions.length > 1;
   // Un filtre devenu sans objet (équipe renommée, hors périmètre) revient à « Toutes ».
   const filtre = multi && (ui.equipe === SANS_EQUIPE ? espaceRh : teamOptions.includes(ui.equipe)) ? ui.equipe : 'Toutes';
   const aAffecter = espaceRh ? emps.filter(e => !e.equipe).length : 0;
 
-  const q = norm(ui.search.trim());
-  const rows = useMemo(() => liste
+  const q = ui.search;
+  // Tri par colonne (t145) : l'ordre par défaut (gravité, puis échéance, puis nom) tant qu'aucun en-tête n'est cliqué.
+  const t = useTri('collaborateurs');
+  const rows = useMemo(() => trier(liste
     .filter(e => (filtre === 'Toutes' || (filtre === SANS_EQUIPE ? !e.equipe : e.equipe === filtre)) && (ui.statut === 'tous' || sortis || e.worst === ui.statut)
       // Recherche aussi par matricule : de paie (fiche) ou Cursus (EMP-0001, celui des messages de Keystone).
-      && (!q || norm(`${e.nom} ${e.poste} ${equipeLabel(e)} ${e.matriculePaie ?? ''} ${matricule(e.id)}`).includes(q)))
+      && correspond(e, q))
     // Sortis : les départs les plus récents d'abord.
     .sort((a, b) => sortis ? (b.fin ?? '').localeCompare(a.fin ?? '') || a.nom.localeCompare(b.nom)
       : RANK[b.worst] - RANK[a.worst] || (a.next ? a.next.d : 1e9) - (b.next ? b.next.d : 1e9) || a.nom.localeCompare(b.nom)),
-  [liste, filtre, ui.statut, sortis, q]);
+  COLONNES, t.tri), [liste, filtre, ui.statut, sortis, q, t.tri]);
+  // Au-delà de 50 lignes : « Afficher plus » ; les filtres ramènent aux 50 premières (l'export garde toutes les lignes).
+  const page = usePagination(rows, `${filtre}|${ui.statut}|${q}`);
 
   const sel = liste.find(e => e.id === ui.selectedId) || null;
   // Écran étroit : la fiche s'affiche sous la liste ; la sélection l'amène dans le champ de vision.
@@ -153,9 +176,16 @@ export function Collaborateurs() {
         <section style={{ flex: '1 1 420px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Collaborateur</th>{showEquipe && <th>Équipe</th>}<th>Certifications</th><th>Habilitations</th><th>Exigences</th><th>{sortis ? 'Sortie' : 'Prochaine échéance'}</th><th>Statut</th></tr></thead>
+              <thead><tr>
+                <ThTri t={t} col="nom">Collaborateur</ThTri>
+                {showEquipe && <ThTri t={t} col="equipe">Équipe</ThTri>}
+                <ThTri t={t} col="certifications" premier="desc">Certifications</ThTri>
+                <th>Habilitations</th><th>Exigences</th>
+                <ThTri t={t} col={sortis ? 'sortie' : 'echeance'}>{sortis ? 'Sortie' : 'Prochaine échéance'}</ThTri>
+                <ThTri t={t} col="statut" premier="desc">Statut</ThTri>
+              </tr></thead>
               <tbody>
-                {rows.map(e => {
+                {page.lignes.map(e => {
                   const hs = habSummary(e);
                   return (
                     <tr key={e.id} className={`clickable${ui.selectedId === e.id ? ' selected' : ''}`} onClick={() => setUi({ selectedId: ui.selectedId === e.id ? null : e.id })}>
@@ -192,6 +222,7 @@ export function Collaborateurs() {
                 : 'Aucun collaborateur enregistré.'}
             </Empty>
           )}
+          <SuiteListe p={page} unite={['collaborateur', 'collaborateurs']} />
           <p className="text-muted fine">{rows.length} {rows.length > 1 ? 'collaborateurs affichés' : 'collaborateur affiché'} sur {liste.length}</p>
         </section>
 
@@ -298,14 +329,9 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
   // Confirmation, puis la fiche se ferme : un manager ne voit plus le collaborateur retiré de son équipe.
   const retirer = () => openDialog({ type: 'confirmer', c: retraitEquipe(e.id, e.nom, equipeLabel(e), { selectedId: null }) });
 
+  // Passeport formation : sections communes au portail du salarié (client/src/passeport.ts).
   const passeportFormation = () => {
-    const ok = printDocument(`Passeport formation — ${e.nom}`, `${e.poste} · ${equipeLabel(e)}`, [
-      { title: 'Certifications', table: { head: ['Formation', 'Obtenue le', 'Expire le', 'Statut'], rows: e.rawCerts.map(c => [c.fm.nom, fmt(c.obt), fmt(c.exp), CERT_LABEL[c.key]]) } },
-      ...(e.anciennes.length ? [{ title: 'Certifications remplacées', table: { head: ['Formation', 'Obtenue le', 'Expirait le', 'Remplacée le'], rows: e.anciennes.map(c => [c.fm.nom, fmt(c.obt), fmt(c.exp), fmt(c.remplacee!)]) } }] : []),
-      // Le motif d'une suspension ou d'un retrait n'est pas imprimé : seuls l'état et sa date figurent au passeport.
-      ...(e.habs.length ? [{ title: 'Habilitations', table: { head: ['Habilitation', 'Délivrée le', 'Par', 'Expire le', 'Statut'], rows: e.habs.map(h => [h.hm.nom, h.delivree ? fmt(parse(h.delivree)) : '—', h.par ?? '—', h.exp ? fmt(h.exp) : '—', HAB_LABEL[h.key] + (h.mesureLe ? ` le ${fmt(h.mesureLe)}` : '')]) } }] : []),
-    ], e.id, matriculesImprimes(e));
-    if (!ok) notify('Autorisez les fenêtres surgissantes pour imprimer le passeport formation', true);
+    if (!imprimerPasseport(d, e)) notify('Autorisez les fenêtres surgissantes pour imprimer le passeport formation', true);
   };
 
   return (
@@ -476,9 +502,10 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
                   <Tag cls={HAB_CLS[h.key]} style={{ flex: 'none' }}>{HAB_LABEL[h.key]}</Tag>
                 </div>
                 {h.note && <NoteAccent>{h.note}</NoteAccent>}
-                {(a || redelivrer || mesures.length > 0) && (
+                {(a || redelivrer || mesures.length > 0 || (formations && titreImprimable(h))) && (
                   <div className="actions-end">
                     {a && <button type="button" className="btn btn-ghost btn-sm" onClick={() => runProposal(a)}>{a.label}</button>}
+                    <ImprimerTitre e={e} h={h} />
                     {redelivrer && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'hab', empId: e.id, h: h.h, mode: 'deliver' })}>Nouvelle délivrance</button>}
                     {mesures.map(m => (
                       <button key={m} type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'habMesure', empId: e.id, h: h.h, action: m })}>{HAB_MESURE_LABEL[m]}</button>
@@ -490,6 +517,10 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
           })}
         </div>
       </>}
+
+      {/* Délivrances remplacées par un renouvellement (t115) et formations suivies, hors catalogue comprises (t116). */}
+      <HabilitationsAnterieures e={e} />
+      <FormationsSuiviesFiche e={e} parti={parti} />
 
       <PiecesFiche empId={e.id} parti={parti} />
 
@@ -530,7 +561,9 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
         <SortieFiche e={e} />
         <ContratFiche e={e} />
         <HistoriqueContrat e={e} />
+        <ForfaitJoursFiche e={e} />
         <MineurFiche e={e} />
+        <TravailNuitFiche e={e} />
         <MandatsFiche e={e} />
         <ContactUrgenceFiche empId={e.id} />
         <Info label="Manager valideur">{d.mgrName(valideur)}</Info>

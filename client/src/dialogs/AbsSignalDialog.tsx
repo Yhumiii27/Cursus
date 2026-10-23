@@ -5,17 +5,19 @@ import { useState } from 'react';
 import { checkNature } from '../../../shared/rules/conges.ts';
 import { erreursPeriode } from '../components/controles.ts';
 import { CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
+import { ChoixCollaborateur } from '../components/ChoixCollaborateur.tsx';
 import { ChoixPiece, usePieceJointe } from '../components/PieceJointe.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { decideur } from '../state/delegues.ts';
 
 export function AbsSignalDialog({ empId }: { empId?: number | null }) {
   const d = useDomain();
   const { run, closeDialog } = useStore();
   const { rh, manager, me } = useRole();
   // Soi-même, son équipe (manager) ou tout le monde (RH).
-  const choix = d.ds.employes.filter(e => rh || e.id === me || (manager && d.mgrOf(e) === me)).sort((a, b) => a.nom.localeCompare(b.nom));
+  const choix = d.ds.employes.filter(e => rh || e.id === me || (manager && decideur(d, e, me, 'absences'))).sort((a, b) => a.nom.localeCompare(b.nom));
   const [sel, setSel] = useState<number | null>(() => empId ?? (manager ? choix.find(e => e.id !== me)?.id : me) ?? choix[0]?.id ?? null);
   const [du, setDu] = useState(d.ti);
   const [au, setAu] = useState(d.ti);
@@ -45,13 +47,12 @@ export function AbsSignalDialog({ empId }: { empId?: number | null }) {
       <CancelButton />
       <SubmitButton busy={busy}>Signaler l’absence</SubmitButton>
     </>}>
-      <Field label="Collaborateur" htmlFor={empId != null || choix.length <= 1 ? undefined : 'as-emp'} erreur={v.erreur(empErr)}>
+      <Field label="Collaborateur" htmlFor={empId != null || choix.length <= 1 ? undefined : 'as-emp'} requis={empId == null && choix.length > 1} erreur={v.erreur(empErr)}>
         {empId != null || choix.length <= 1
           ? <Static>{emp?.nom ?? '—'}</Static>
           : (
-            <select className="input" id="as-emp" value={String(sel ?? '')} onChange={ev => setSel(Number(ev.target.value))}>
-              {choix.map(e => <option key={e.id} value={e.id}>{e.nom}{e.id === me ? ' (moi)' : ''}</option>)}
-            </select>
+            <ChoixCollaborateur id="as-emp" emps={choix} valeur={sel} onChange={setSel} requis erreur={v.erreur(empErr)}
+              suffixe={e => e.id === me ? ' (moi)' : ''} />
           )}
       </Field>
       <div className="grid-2">

@@ -30,7 +30,7 @@ type Store = Parameters<typeof poserMagasin>[0];
 const db = new Db(':memory:');
 await seedDemo(db);
 async function donnees(empId: number | null, role: User['role']): Promise<Dataset> {
-  const c = ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
+  const c = ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number }).id;
   return await buildSnapshot(db, (await currentUser(db, { compteId: c, role, methode: 'demo' }))!);
 }
 const RH = await donnees(null, 'rh');

@@ -18,6 +18,8 @@
 // déjà transmise, seul son écart part à la revalidation (lot correctif, shared/rules/regularisation.ts).
 // Horaire de poste du jour (lot 6, components/HorairesFeuille.tsx) : une ligne au-dessus des projets, proposée d'après
 // l'équipe, figée à la soumission ; journée de solidarité travaillée (shared/rules/feries.ts) signalée sur son jour.
+// Forfait jours (t043, components/ForfaitJours.tsx) : cumul annuel au récapitulatif et dans la file de validation, alerte au
+// seuil ; au-delà du plafond (forfait, plus les jours rachetés par avenant), motif du valideur exigé à la validation.
 import { useState, type MouseEvent } from 'react';
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
 import { ABS_ABREGE, TEMPS_TRAVAIL, TS_CLS, TS_LABEL } from '../../../shared/constants.ts';
@@ -38,6 +40,7 @@ import { aRegulariser, mentionReouverture } from '../../../shared/rules/regulari
 import { feriesDeLaSemaine, MAJORATION_1ER_MAI, mentionFerie, plafondComplementaires } from '../../../shared/rules/majorations.ts';
 import { contingentsDeLaSemaine, contingentTexte, moyenne12Semaines, moyenneTexte, requalificationPartiel, requalificationTexte } from '../../../shared/rules/durees.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
+import { ChoixCollaborateur } from '../components/ChoixCollaborateur.tsx';
 import { CloseButton, Fine, Page, Panel, stop, Tag, Two } from '../components/ui.tsx';
 import { Ouvrir } from '../components/Cliquable.tsx';
 import { LotsPaie } from '../components/LotsPaie.tsx';
@@ -57,6 +60,9 @@ import { ReposAVerifier } from '../components/ReposAVerifier.tsx';
 import { AlertesDurees } from '../components/AlertesDurees.tsx';
 import { CopierLien } from '../components/CopierLien.tsx';
 import { LegendeHoraires, LigneHoraires, useHorairesFeuille } from '../components/HorairesFeuille.tsx';
+import { fileForfait, recapForfait } from '../components/ForfaitJours.tsx';
+import { controleValidationForfait } from '../../../shared/rules/forfait-jours.ts';
+import { decideur } from '../state/delegues.ts';
 
 /** Année d'une feuille : celle de sa semaine ISO (son jeudi) ; le cumul annuel ventile une semaine à cheval jour par jour. */
 const anneeDe = (week: ISODate) => isoWeekYear(week);
@@ -70,11 +76,16 @@ function queueTotal(d: Domain, e: Employe, sh: FeuilleTemps): { main: string; su
   const t = totalFile(d, e, sh), c = calcSheet(d, e, sh);
   // Repos hebdomadaire ou dominical : signalé au valideur, sans empêcher la validation.
   const repos = c.repos.length ? { ...t, sub: `${t.sub} · repos hebdomadaire à vérifier` } : t;
-  return c.depassements.length && !sh.motifDepassement ? { ...repos, sub: `${repos.sub} · motif du dépassement à indiquer`, motifManquant: true } : repos;
+  if (c.depassements.length && !sh.motifDepassement) return { ...repos, sub: `${repos.sub} · motif du dépassement à indiquer`, motifManquant: true };
+  // Forfait jours au-delà du plafond de l'année : le motif se donne en ouvrant la feuille.
+  return controleValidationForfait(d, e, sh).depassements.length ? { ...repos, sub: `${repos.sub} · motif du dépassement du forfait à indiquer`, motifManquant: true } : repos;
 }
 function totalFile(d: Domain, e: Employe, sh: FeuilleTemps): { main: string; sub: string; aRenvoyer?: boolean } {
   const c = calcSheet(d, e, sh), k = c.c;
-  if (k.forfait) return { main: fJ(c.jours), sub: `forfait jours · ${fH(c.total)} déclarées` };
+  if (k.forfait) {
+    const cumul = fileForfait(d, employeDeLaFeuille(e, sh), sh.week);
+    return { main: fJ(c.jours), sub: `forfait jours · ${fH(c.total)} déclarées${cumul ? ` · ${cumul}` : ''}` };
+  }
   if (k.dirigeant) return { main: fJ(c.jours), sub: `cadre dirigeant · ${fH(c.total)} déclarées` };
   if (k.annuel) {
     const cum = cumulAnnuel(d, employeDeLaFeuille(e, sh), anneeDe(sh.week));
@@ -117,6 +128,8 @@ function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate, sh: Fe
     if (calc.mai1) annexes.push(['Dont heures du 1er mai', fH(calc.mai1)], [`Majoration du 1er mai (${MAJORATION_1ER_MAI} %)`, fH(calc.mai1 * MAJORATION_1ER_MAI / 100)]);
     if (calc.ferie) annexes.push(['Dont heures un jour férié', fH(calc.ferie)], ...(calc.majFerie ? [[`Majoration des fériés (${calc.majFerie} %)`, fH(calc.ferie * calc.majFerie / 100)] as [string, string]] : []));
     if (cor) annexes.push(['Contrepartie obligatoire en repos', fH(cor)]);
+    // Heures de nuit d'après les horaires de poste (shared/rules/repos-nuit.ts) : HNUIT, et MAJ_NUIT au taux réglé.
+    if (calc.nuit) annexes.push(['Dont heures de nuit', fH(calc.nuit)], ...(calc.majNuit ? [[`Majoration de nuit (${calc.majNuit} %)`, fH(calc.nuit * calc.majNuit / 100)] as [string, string]] : []));
   }
   // Contingent annuel d'heures supplémentaires de chaque année de la semaine (deux pour une semaine à cheval sur le
   // 31 décembre ; feuilles validées).
@@ -124,10 +137,15 @@ function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate, sh: Fe
     for (const k of contingentsDeLaSemaine(d, emp, week)) annexes.push([`Contingent ${k.annee} (heures sup validées)`, `${fH(k.cumul)} / ${fH(k.max)}`]);
   }
 
-  if (c.forfait) return {
-    rows: [['Jours travaillés', fJ(calc.jours)], ['Heures déclarées (répartition projets)', fH(calc.total)]],
-    aide: tt.aide + art,
-  };
+  if (c.forfait) {
+    // Cumul validé de l'année (deux pour une semaine à cheval), plafond avec les jours rachetés, alerte au seuil.
+    const f = recapForfait(d, emp, week);
+    return {
+      rows: [['Jours travaillés', fJ(calc.jours)], ['Heures déclarées (répartition projets)', fH(calc.total)], ...f.rows],
+      alert: f.alertes.join(' · ') || undefined,
+      aide: tt.aide + art,
+    };
+  }
   if (c.dirigeant) return {
     rows: [['Jours de présence', fJ(calc.jours)], ['Heures déclarées (répartition projets)', fH(calc.total)]],
     mention: 'Non soumis à la durée du travail, art. L3111-2',
@@ -191,18 +209,18 @@ export function Temps() {
   const queue = data.feuilles
     .filter(sh => sh.statut === 'soumise')
     .map(sh => ({ sh, e: d.emp(sh.empId) }))
-    .filter((q): q is { sh: FeuilleTemps; e: Employe } => !!q.e && (espaceRh || (manager && d.mgrOf(q.e) === me)));
-  const valide = (e: Employe) => (rh && e.id !== soi) || (manager && d.mgrOf(e) === me);
+    .filter((q): q is { sh: FeuilleTemps; e: Employe } => !!q.e && (espaceRh || (manager && decideur(d, q.e, me, 'feuilles'))));
+  const valide = (e: Employe) => (rh && e.id !== soi) || (manager && decideur(d, e, me, 'feuilles'));
 
   return (
     <Page
       kicker={`Semaine ${isoWeek(wk)} · ${fmtShort(parse(wdays[0]))} → ${fmt(parse(wdays[DIMANCHE]))}`}
       title="Temps de travail"
       actions={<>
+        {/* Choix du salarié par suggestions (t152) : nom, poste, équipe ou matricule. */}
         {!collab && (
-          <select className="input" aria-label="Collaborateur" value={String(tsId ?? '')} onChange={ev => setUi({ tsEmp: Number(ev.target.value) })} style={{ width: 'auto', minWidth: 200 }}>
-            {options.map(e => <option key={e.id} value={e.id}>{e.nom}{lecture.has(e.id) ? ' (lecture seule)' : ''}</option>)}
-          </select>
+          <ChoixCollaborateur id="temps-salarie" label="Collaborateur" emps={options} valeur={tsId} style={{ minWidth: 240 }}
+            onChange={id => { if (id != null) setUi({ tsEmp: id }); }} suffixe={e => lecture.has(e.id) ? ' (lecture seule)' : ''} />
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
           <button type="button" className="btn btn-ghost btn-icon plain" aria-label="Semaine précédente" title="Semaine précédente" onClick={() => setUi({ weekStart: addD(wk, -7) })}><CaretLeftIcon size={14} /></button>
@@ -393,7 +411,13 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const motifManquant = depasse && !motif.trim();
   const motifValideur = canValidate && depasse && !motifSoumis;
   // Salarié mineur au-delà de 8 h par jour ou de 35 h par semaine : motif, ou référence de la dérogation de l'inspection.
-  const motifLibelle = calc.depassementsMineur.length ? 'Motif du dépassement ou référence de la dérogation de l’inspection du travail' : 'Motif du dépassement';
+  const motifLibelle = calc.depassementsMineur.length ? 'Motif du dépassement ou référence de la dérogation de l’inspection du travail'
+    // Repos quotidien ou pause insuffisants seulement (horaires de poste, shared/rules/repos-nuit.ts).
+    : calc.depassements.every(x => calc.reposQuotidien.includes(x)) ? 'Motif du repos quotidien ou de la pause insuffisants' : 'Motif du dépassement';
+  // Forfait jours : plafond de l'année dépassé avec cette feuille (comptée validée) : motif du valideur exigé.
+  const [motifForfait, setMotifForfait] = useState(sh?.motifForfait ?? '');
+  const forfaitDepasse = canValidate && sh ? controleValidationForfait(d, emp, sh).depassements : [];
+  const motifForfaitManquant = forfaitDepasse.length > 0 && !motifForfait.trim();
 
   return (
     <div className="row-wrap">
@@ -517,6 +541,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
           </div>
         )}
         {motifSoumis && (st === 'soumise' || st === 'validee') && <Fine>Motif du dépassement : {motifSoumis}</Fine>}
+        {sh?.motifForfait && st === 'validee' && <Fine>Motif du dépassement du forfait jours : {sh.motifForfait}</Fine>}
         <Fine>{flow}</Fine>
         {/* Réouverture (t131) : administrateur RH, jamais sa propre feuille ; une feuille transmise se régularise par écart. */}
         {sh?.reouverture && <Fine>{mentionReouverture(sh, iso => fmtShort(new Date(iso)))}{sh.reouverture.motif ? ` — motif : ${sh.reouverture.motif}` : ''}</Fine>}
@@ -543,11 +568,15 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
             {motifValideur && (
               <textarea className="input short" rows={2} aria-label={motifLibelle} placeholder={`${motifLibelle} (obligatoire pour valider)`} value={motif} onChange={ev => setMotif(ev.target.value)} style={{ resize: 'vertical' }} />
             )}
+            {forfaitDepasse.map(x => <div key={x} className="note-accent">{x} avec cette semaine : motif exigé pour valider.</div>)}
+            {forfaitDepasse.length > 0 && (
+              <textarea className="input short" rows={2} aria-label="Motif du dépassement du forfait jours" placeholder="Motif du dépassement du forfait jours (obligatoire pour valider)" value={motifForfait} onChange={ev => setMotifForfait(ev.target.value)} style={{ resize: 'vertical' }} />
+            )}
             <textarea className="input short" rows={2} aria-label="Commentaire" placeholder="Commentaire en cas de renvoi (facultatif)" value={comment} onChange={ev => setComment(ev.target.value)} style={{ resize: 'vertical' }} />
             <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
               <button type="button" className="btn btn-ghost" disabled={occupe} onClick={reject}>Renvoyer</button>
-              <button type="button" className="btn btn-primary" disabled={surAbsence.length + enAttente.length > 0 || plusCouverte || (motifValideur && motifManquant) || occupe}
-                onClick={agir(() => run('temps.validate', { ...base, ...(motifValideur ? { motif: motif.trim() } : {}) }))}>Valider la semaine</button>
+              <button type="button" className="btn btn-primary" disabled={surAbsence.length + enAttente.length > 0 || plusCouverte || (motifValideur && motifManquant) || motifForfaitManquant || occupe}
+                onClick={agir(() => run('temps.validate', { ...base, ...(motifValideur ? { motif: motif.trim() } : {}), ...(forfaitDepasse.length ? { motifForfait: motifForfait.trim() } : {}) }))}>Valider la semaine</button>
             </div>
           </div>
         )}

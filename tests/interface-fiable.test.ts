@@ -28,7 +28,7 @@ type Dataset = Awaited<ReturnType<typeof buildSnapshot>>;
 async function fresh() {
   const db = await nouvelleBase();
   await seedDemo(db);
-  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number };
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => {
     const o = await db.tx(async () => {
@@ -278,5 +278,6 @@ test('impression : jetons clairs pour Ctrl+P, A4 à 15 mm, cadre caché avec l�
   assert.match(print, /if \(!v && employeur === lecture\) employeur = null/);
   assert.match(source('pages/parametres/Rgpd.tsx'), /oublierEnteteEmployeur\(\)/);
   assert.doesNotMatch(print, /<style/, 'CSP : aucun style en ligne');
-  for (const f of ['pages/Collaborateurs.tsx', 'dialogs/compteRendu.ts', 'components/Aptitude.tsx']) assert.match(source(f), /matriculesImprimes\(e\)/, f);
+  // Passeport formation (fiche et portail) et titre d'habilitation : modules partagés (lot 6, t115).
+  for (const f of ['passeport.ts', 'titre-habilitation.ts', 'dialogs/compteRendu.ts', 'components/Aptitude.tsx']) assert.match(source(f), /matriculesImprimes\(e\)/, f);
 });

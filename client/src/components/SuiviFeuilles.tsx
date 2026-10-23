@@ -9,17 +9,23 @@ import { useState } from 'react';
 import { addD, isoWeek, parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmtShort, plural } from '../../../shared/format.ts';
 import {
-  type CelluleSuivi, compteursSuivi, delaiTexte, ETATS_SEMAINE, etatSemaines, limiteTexte, maintenantParis, semainesSuivies,
+  type CelluleSuivi, type EtatSemaine, compteursSuivi, delaiTexte, ETATS_SEMAINE, etatSemaines, limiteTexte, maintenantParis, semainesSuivies,
 } from '../../../shared/rules/suivi-feuilles.ts';
 import { nombreAvecRepos } from '../../../shared/rules/repos-a-verifier.ts';
 import { useAgir } from '../state/actions.ts';
 import { validationGroupee } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { parNombre, parTexte, trier, useTri, type Colonne } from './tri.ts';
+import { ThTri } from './TriListe.tsx';
 import { Fine, Panel, Tag, Two } from './ui.tsx';
+import { decideur } from '../state/delegues.ts';
 
 const TOUTES = '';
 /** Cellule qui demande une action : à saisir, à corriger, à valider. */
+/** Rang d'une semaine pour le tri : en retard, à corriger, non saisie, brouillon, à saisir, à valider, validée, transmise ; sans feuille attendue en dernier. */
+const ORDRE_ETATS: readonly EtatSemaine[] = ['a_corriger', 'absente', 'brouillon', 'attendue', 'soumise', 'validee', 'transmise'];
+const rangCellule = (c: CelluleSuivi | undefined) => !c?.etat ? null : c.enRetard ? -1 : ORDRE_ETATS.indexOf(c.etat);
 const aSuivre = (c: CelluleSuivi) => c.etat === 'absente' || c.etat === 'brouillon' || c.etat === 'a_corriger' || c.etat === 'soumise';
 
 export function SuiviFeuilles() {
@@ -33,10 +39,17 @@ export function SuiviFeuilles() {
   const semaines = semainesSuivies(d.ti, s.suiviSemaines);
   // Manager : les membres de son équipe ; espace RH : tous, filtrés par équipe.
   const emps = d.ds.employes
-    .filter(e => (manager ? e.id !== me && d.mgrOf(e) === me : equipe === TOUTES || equipeLabel(e) === equipe))
+    .filter(e => (manager ? decideur(d, e, me, 'feuilles') : equipe === TOUTES || equipeLabel(e) === equipe))
     .sort((a, b) => a.nom.localeCompare(b.nom));
   const lignes = etatSemaines(d, emps.map(e => e.id), semaines, maintenantParis(d.ti)).filter(l => l.cellules.some(c => c.etat));
-  const visibles = tout ? lignes : lignes.filter(l => l.cellules.some(aSuivre));
+  // Tri par colonne (t145, tri seulement : une ligne par collaborateur suivi) : par nom tant qu'aucun en-tête n'est cliqué ;
+  // une semaine se trie de l'état qui demande le plus d'action (en retard, à corriger…) à la feuille transmise.
+  const t = useTri('temps.suivi');
+  const colonnes: Record<string, Colonne<(typeof lignes)[number]>> = {
+    nom: parTexte(l => l.emp.nom),
+    ...Object.fromEntries(semaines.map((w, i) => [`s${w}`, parNombre<(typeof lignes)[number]>(l => rangCellule(l.cellules[i]))])),
+  };
+  const visibles = trier(tout ? lignes : lignes.filter(l => l.cellules.some(aSuivre)), colonnes, t.tri);
   const n = compteursSuivi(lignes);
   const agit = rh || manager;
   // Feuilles soumises que la personne peut valider : jamais la sienne (un membre du RH passe par son valideur).
@@ -81,12 +94,14 @@ export function SuiviFeuilles() {
         <div className="scroll-x">
           <table className="table" style={{ fontSize: 13 }}>
             <thead><tr>
-              <th>Collaborateur</th>
+              <ThTri t={t} col="nom">Collaborateur</ThTri>
               {semaines.map(w => (
-                <th key={w} className="center nowrap">
-                  <div>S{isoWeek(w)}</div>
-                  <div style={{ fontSize: 11, fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--color-neutral-500)' }}>{fmtShort(parse(w))} → {fmtShort(parse(addD(w, 6)))}</div>
-                </th>
+                <ThTri key={w} t={t} col={`s${w}`} className="center nowrap">
+                  <span style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span>S{isoWeek(w)}</span>
+                    <span style={{ fontSize: 11, fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--color-neutral-500)' }}>{fmtShort(parse(w))} → {fmtShort(parse(addD(w, 6)))}</span>
+                  </span>
+                </ThTri>
               ))}
               <th></th>
             </tr></thead>

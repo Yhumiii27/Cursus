@@ -43,6 +43,6 @@ const regler: ActionHandler = async (ctx, p) => {
   return { message: `Jours fériés ${annee} : ${solidarite}${nonChomes}${absences}`, result: { salaries: [...new Set(recalculees.map(x => x.absence.empId))] } };
 };
 
-export const feriesActions: Record<string, ActionHandler> = {
+export const feriesActions = {
   'parametres.feries': regler,
-};
+} satisfies Record<string, ActionHandler>;

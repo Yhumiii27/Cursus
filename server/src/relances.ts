@@ -3,7 +3,8 @@
 // - la boîte du service RH : tout le périmètre ;
 // - chaque manager (adresse de sa fiche) : les membres de son équipe, sans lui-même, sans visite médicale ni vaccination
 //   (verdict seul, comme son instantané) ni entretien de reprise (il trahirait un arrêt long), ni titre de séjour, ni
-//   échéance d'un salarié mineur (18 ans, dérogation pour travaux réglementés : `sante` de la relance) ;
+//   échéance d'un salarié mineur (18 ans, dérogation pour travaux réglementés : `sante` de la relance) ; pendant une
+//   délégation des entretiens (t135), son suppléant reçoit aussi les entretiens dus des membres dont il décide ;
 // - chaque référent HSE (compte actif) : formations et habilitations, et la couverture minimale des équipes calculée
 //   comme à son écran, sans les absences hors chantiers (`couvertureVueHse`), sous des clés à part (`hse:couverture:…`).
 // Seuls les paliers franchis depuis le dernier envoi partent (table `relances`, clé de l'objet et palier) : un objet n'est
@@ -16,6 +17,7 @@ import { addD, weekday } from '../../shared/dates.ts';
 import { Domain } from '../../shared/domain.ts';
 import { equipeLabel, fmtIso, plural } from '../../shared/format.ts';
 import { CATEGORIES_HSE, jourDEnvoi, relancesCouverture, relancesDues, titrePalier, type Relance } from '../../shared/rules/relances.ts';
+import { delegationEnVigueur, delegationPour } from '../../shared/rules/delegations-manager.ts';
 import type { CurrentUser, Employe } from '../../shared/types.ts';
 import type { Compte } from './comptes.ts';
 import { couvertureVueHse, loadFull, todayIso } from './dataset.ts';
@@ -82,6 +84,13 @@ async function destinataires(db: Db, d: Domain, relances: Relance[], today: stri
     const a = await adresseSalarie(db, m, today);
     ajouter(a?.adresse, a?.nom ?? null, communes.filter(r => (r.equipe ? d.teamsOf(m).includes(r.equipe) : !r.sante && r.empId !== m && d.mgrOf(d.emp(r.empId) as Employe) === m
       && !(r.categorie === 'entretien' && r.cle.split(':')[2] === 'reprise'))));
+  }
+  // Suppléant d'un manager absent (t135), pendant une délégation qui comprend les entretiens : les entretiens dus des
+  // membres dont il décide, avec les mêmes exclusions que pour le manager (reprise, santé).
+  for (const g of (d.ds.delegations ?? []).filter(x => delegationEnVigueur(x, today))) {
+    const a = await adresseSalarie(db, g.suppleantId, today);
+    ajouter(a?.adresse, a?.nom ?? null, communes.filter(r => !r.equipe && !r.sante && r.categorie === 'entretien' && r.cle.split(':')[2] !== 'reprise'
+      && delegationPour(d.ds, d.emp(r.empId) as Employe, g.suppleantId, today, 'entretiens')?.id === g.id));
   }
   // Référents HSE : formations et habilitations de tous, couverture sans les absences hors chantiers.
   for (const c of (await db.where<Compte>('comptes', 'profilRh', 'referent_hse')).filter(x => x.actif)) {

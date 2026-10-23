@@ -50,7 +50,7 @@ export function erreursSession(
   if (plage && 'champ' in plage) champs[plage.champ] = `${plage.message}.`;
   const err = controleSession(today, v, opts);
   const champ: ChampSession | null = !err || (plage && 'champ' in plage && plage.message === err) ? null
-    : /date/i.test(err) ? 'date' : /^Lieu/.test(err) ? 'lieu' : 'places';
+    : /date/i.test(err) ? 'date' : err.startsWith('Lieu') ? 'lieu' : 'places';
   if (err && champ && !champs[champ]) champs[champ] = `${err}.`;
   const vides: Record<ChampSession, boolean> = { date: !v.date, lieu: !v.lieu.trim(), places: !v.places.trim(), fin: false, jours: false, horaires: false };
   return { champs, vides, bloque: !!err || Object.values(champs).some(Boolean) };

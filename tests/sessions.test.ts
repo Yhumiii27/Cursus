@@ -150,7 +150,7 @@ test('clôture, évaluation requise : échec et absence à replanifier, réussit
   await assert.rejects(async () => await run(RH, 'session.cloturer', { id: 1, participants: tous }), /n’a pas encore eu lieu/);
   await le('2026-10-20', async () => {
     // Contrôles : rien n'est écrit tant que la clôture est incomplète.
-    await assert.rejects(async () => await run(RH, 'session.cloturer', { id: 1, participants: tous.map(({ reussi, ...x }) => x) }), /Résultat de l’évaluation à renseigner : /);
+    await assert.rejects(async () => await run(RH, 'session.cloturer', { id: 1, participants: tous.map(({ reussi: _reussi, ...x }) => x) }), /Résultat de l’évaluation à renseigner : /);
     await assert.rejects(async () => await run(RH, 'session.cloturer', { id: 1, participants: tous.slice(1) }), /Présence à renseigner : Camille Roux/);
     await assert.rejects(async () => await run(RH, 'session.cloturer', { id: 1, participants: [...tous, { empId: 2, present: true, reussi: true }] }), /Mehdi Benali ne figure pas parmi les inscrits/);
     await assert.rejects(async () => await run(RH, 'session.cloturer', { id: 1, participants: tous, note: 6 }), /note entière de 1 à 5/);

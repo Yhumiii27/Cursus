@@ -35,7 +35,7 @@ type Ligne = { action: string; message: string | null; payload: Record<string, a
 async function fresh() {
   const db = await nouvelleBase();
   await seedDemo(db);
-  const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
+  const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number }).id;
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteDe(empId), role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
@@ -304,7 +304,7 @@ test('t128 feuille non validée avant la sortie : signalée, sa récupération n
   assert.ok(!avant.avertissements.some(a => /non validée/.test(a)), JSON.stringify(avant.avertissements));
   await db.insert('feuilles', { empId: 2, week: '2026-10-26', statut: 'soumise', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-ADM', tache: 'Fonctions support', ks: false, h: [9, 9, 9, 9, 9, 0, 0] }], contrat: null });
   const apres = S.etatSortie(await d(), (await d()).emp(2)!, '2026-10-31');
-  assert.ok(apres.avertissements.some(a => /^Feuille de temps de la semaine 44 non validée : récupération comptée sans elles/.test(a)), JSON.stringify(apres.avertissements));
+  assert.ok(apres.avertissements.some(a => a.startsWith('Feuille de temps de la semaine 44 non validée : récupération comptée sans elles')), JSON.stringify(apres.avertissements));
   assert.deepEqual(apres.recup, avant.recup);
 });
 

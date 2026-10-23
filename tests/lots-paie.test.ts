@@ -38,7 +38,7 @@ type Ligne = { action: string; message: string | null; payload: Record<string, a
 async function fresh(base?: Db) {
   const db = base ?? await nouvelleBase();
   await seedDemo(db);
-  const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
+  const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number }).id;
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteDe(empId), role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
@@ -353,7 +353,7 @@ test('t029 confirmations : génération, annulation, validation groupée', () =>
   assert.ok(g.suites!.includes(L.PERIMETRE_FICHIER));
   const s = C.generationLot({ periode: '2026-10', feuilles: 1, salaries: 1, mode: 'simulation', sansMatricule: ['Bastien Morel'], rappels: [] });
   assert.equal(s.titre, 'Générer le lot (simulation)');
-  assert.ok(s.suites!.some(x => /^Simulation : rien n’est envoyé/.test(x)) && s.suites!.some(x => /Bastien Morel/.test(x)));
+  assert.ok(s.suites!.some(x => x.startsWith('Simulation : rien n’est envoyé')) && s.suites!.some(x => /Bastien Morel/.test(x)));
   const a = C.annulationLot({ id: 4, periode: '2026-10', feuilles: [{ empId: 1, week: '2026-10-05' }, { empId: 2, week: '2026-10-05' }], telechargements: 1 });
   assert.deepEqual([a.question, a.action, a.payload], ['Annuler le lot n° 4 (octobre 2026) ?', 'paie.lotAnnuler', { id: 4 }]);
   assert.ok(a.suites![0].startsWith('Ses 2 feuilles redeviennent') && /supprimez-y cet import/.test(a.suites![1]));

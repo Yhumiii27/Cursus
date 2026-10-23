@@ -8,7 +8,7 @@
 -- d'où json_array_elements_text dans pub_titres_detenus.
 --
 -- Décisions : D01 personnes, D08 catalogue des titres, D09 titres détenus, D15 organigramme (unite_code), D14 sites
--- (site_code), D18 journal, D19 horizon d'alerte. Hors de ce fichier : D06 et D07 (vues *_v1, migration echanges_rh).
+-- (site_code), D18 journal, D19 horizon d'alerte, CU-1 absences (Crucible). Hors de ce fichier : D06 et D07 (vues *_v1, migration echanges_rh).
 -- Exécution : en tant que cursus_app (ou un administrateur membre de matrix_admin, SET ROLE cursus_app), après le
 -- premier démarrage de Cursus sur le serveur (voir README.md) :
 --   psql "postgres://cursus_app:…@hôte:5432/epc2i" -v ON_ERROR_STOP=1 -1 -f partage/20-cursus.sql
@@ -22,12 +22,13 @@
 
 \set ON_ERROR_STOP on
 
--- ═══ Prérequis : migration 0002_partage de Cursus passée ═══
+-- ═══ Prérequis : migrations 0002_partage et 0004_pub_absences de Cursus passées ═══
 DO $prerequis$
 BEGIN
   IF to_regclass('cursus.schema_migrations') IS NULL
-     OR NOT EXISTS (SELECT FROM cursus.schema_migrations WHERE nom = '0002_partage') THEN
-    RAISE EXCEPTION 'Cursus n''a pas encore appliqué sa migration 0002_partage sur ce serveur : démarrez Cursus avec DATABASE_URL (rôle cursus_app), puis rejouez ce fichier.';
+     OR NOT EXISTS (SELECT FROM cursus.schema_migrations WHERE nom = '0002_partage')
+     OR NOT EXISTS (SELECT FROM cursus.schema_migrations WHERE nom = '0004_pub_absences') THEN
+    RAISE EXCEPTION 'Cursus n''a pas encore appliqué ses migrations 0002_partage et 0004_pub_absences sur ce serveur : démarrez Cursus avec DATABASE_URL (rôle cursus_app), puis rejouez ce fichier.';
   END IF;
 END $prerequis$;
 
@@ -144,3 +145,19 @@ SELECT 'journal:' || j.id::text  AS ref_source,
 FROM cursus.journal j
 LEFT JOIN cursus.employes a ON a.id = j.actor_emp_id;
 COMMENT ON VIEW cursus.pub_journal IS 'Contrat D18 v1 : journal de Cursus aux colonnes communes. Ni payload ni message. Lecteur : matrix_app (matrix.journal_unifie).';
+-- CU-1 · Absences (demande de Crucible, migration 0004_pub_absences de Cursus) : qui est absent et quand, jamais pourquoi.
+-- statut 'validee' (validée ou signalée) ou 'demandee' ; une absence annulée garde 'validee' avec annulee = true ; les
+-- absences refusées ne sont pas publiées. maj_le : posée par le déclencheur absences_maj_le de Cursus.
+CREATE OR REPLACE VIEW cursus.pub_absences WITH (security_barrier) AS
+SELECT e.matricule,
+       a.du,
+       a.au,
+       CASE WHEN a.statut = 'demandee' THEN 'demandee' ELSE 'validee' END AS statut,
+       (a.statut = 'annulee' OR a.annulee_le IS NOT NULL)                AS annulee,
+       a.maj_le
+FROM cursus.absences a
+JOIN cursus.employes e ON e.id = a.emp_id
+WHERE a.statut IN ('demandee', 'validee', 'signalee', 'annulee')
+  AND e.matricule IS NOT NULL
+  AND a.du IS NOT NULL AND a.au IS NOT NULL;
+COMMENT ON VIEW cursus.pub_absences IS 'Contrat CU-1 v1 (demande de Crucible) : qui est absent et quand. statut validee | demandee, annulee, maj_le. Jamais : type, motif de refus, justificatif, demi-journées, signalement. Absences refusées non publiées. Lecteurs : crucible_app, matrix_app.';

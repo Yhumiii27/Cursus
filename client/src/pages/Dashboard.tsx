@@ -17,6 +17,7 @@ import { refusDemande } from '../state/confirmations.ts';
 import { useStore } from '../state/store.tsx';
 import { LiensPieces } from '../components/PieceJointe.tsx';
 import { CouverturePanel } from '../components/Couverture.tsx';
+import { DossiersEchusPanel } from '../components/DossiersEchus.tsx';
 
 /** Ligne d'échéance (tableau de bord, page Échéances). */
 export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; onAct: () => unknown }) {
@@ -210,6 +211,7 @@ export function Dashboard() {
         </Panel>
 
         <div className="col-stack" style={{ flex: '1 1 320px' }}>
+          <DossiersEchusPanel />
           {aCloturer.length > 0 && (
             <Panel highlight title="Sessions à clôturer" aside={<a href="/formations" className="link-more" onClick={e => { e.preventDefault(); go('formations'); }}>Formations →</a>}>
               <div className="list">

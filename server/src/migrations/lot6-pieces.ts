@@ -18,3 +18,19 @@ export const INDEX_PIECES: Migration = {
     return `index ${Object.keys(INDEX).join(', ')}`;
   },
 };
+
+// Étape 2 du chantier (t016, t036) : abonnements à l'agenda (lus à chaque instantané du salarié) et effacements d'un
+// salarié (dossiers échus) ; les tables elles-mêmes sont déclarées dans TABLES.
+const INDEX_ETAPE_2: Record<string, string> = {
+  jetons_agenda_emp: 'CREATE INDEX IF NOT EXISTS jetons_agenda_emp ON jetons_agenda (emp_id)',
+  effacements_emp: 'CREATE INDEX IF NOT EXISTS effacements_emp ON effacements (emp_id)',
+};
+
+export const INDEX_CONSERVATION_AGENDA: Migration = {
+  nom: 'lot6-pieces-index-conservation-agenda',
+  necessaire: (db: SqliteDb) => Object.keys(INDEX_ETAPE_2).some(i => !indexExiste(db, i)),
+  executer: async (db: Db) => {
+    for (const sql of Object.values(INDEX_ETAPE_2)) await db.exec(sql);
+    return `index ${Object.keys(INDEX_ETAPE_2).join(', ')}`;
+  },
+};

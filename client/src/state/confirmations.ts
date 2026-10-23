@@ -10,6 +10,7 @@ import { PERIMETRE_FICHIER } from '../../../shared/rules/lots-paie.ts';
 import type { absencesDuLot } from '../../../shared/rules/absences-paie.ts';
 import { feuillesDeLaPeriode, type GroupePaie, periodeLabel } from '../../../shared/rules/paie.ts';
 import type { LotPaie, ModeRegularisation, SageMode } from '../../../shared/types.ts';
+import type { NomAction } from '../api.ts';
 import type { DialogState, UiState } from './store.tsx';
 
 /** Longueur maximale d'un motif (contrôlée aussi par le serveur). */
@@ -23,7 +24,7 @@ export interface Confirmation {
   suites?: string[];
   /** Libellé du bouton qui exécute l'action. */
   bouton: string;
-  action: string;
+  action: NomAction;
   payload: Record<string, unknown>;
   /** Motif saisi, envoyé dans `payload.motif` ; `aide` dit qui le lira. */
   motif?: { label: string; requis: boolean; aide: string; placeholder?: string };

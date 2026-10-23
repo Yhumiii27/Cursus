@@ -75,6 +75,7 @@ export const TELEPHONE = /^\+?[0-9 .()-]{6,30}$/;
 export function texteCoordonnees(v: unknown, libelle: string, max = COORDONNEES_MAX): { valeur: string | null } | { erreur: string } {
   if (v == null) return { valeur: null };
   if (typeof v !== 'string') return { erreur: `${libelle} : texte attendu` };
+  // oxlint-disable-next-line no-control-regex -- caractères de contrôle retirés volontairement d'un texte reçu
   const t = v.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim();
   if (t.length > max) return { erreur: `${libelle} : ${max} caractères au plus` };
   return { valeur: t || null };

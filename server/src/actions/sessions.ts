@@ -234,10 +234,10 @@ const cloturer: ActionHandler = async (ctx, p) => {
   ].filter(Boolean).join(' · ');
 };
 
-export const sessionsActions: Record<string, ActionHandler> = {
+export const sessionsActions = {
   'session.creer': creer,
   'session.confirmer': confirmer,
   'session.modifier': modifier,
   'session.annuler': annuler,
   'session.cloturer': cloturer,
-};
+} satisfies Record<string, ActionHandler>;

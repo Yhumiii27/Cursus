@@ -49,7 +49,11 @@ Sommaire : [Collaborateur](#collaborateur) · [Manager](#manager) · [Service RH
    **Horaire du jour** (ligne « Horaire du jour », au-dessus des projets ; sous le titre du jour sur téléphone) : l'horaire
    de poste de chaque jour (journée, matin, après-midi, nuit…), proposé en italique d'après l'équipe dès que des heures sont
    saisies ; le salarié, son manager ou le service RH le changent jour par jour, « — » pour aucun. Facultatif ; figé à la
-   soumission avec ses heures (une feuille renvoyée le propose de nouveau d'après les jours travaillés).
+   soumission avec ses heures (une feuille renvoyée le propose de nouveau d'après les jours travaillés). Avec un horaire,
+   la feuille compte les **heures de nuit** (de 21 h à 6 h par défaut) et signale un **repos de moins de 11 h** entre deux
+   jours ou une **pause** de moins de 20 min dès 6 h de travail : un motif est alors demandé, sans autre blocage. Un salarié
+   de moins de 18 ans ne peut pas recevoir un horaire qui empiète sur la nuit (22 h – 6 h) : l'horaire et la soumission
+   sont refusés.
 6. « Soumettre au manager » (ou « Soumettre au service RH » sans manager). Au-delà de 10 h dans une journée ou de 48 h dans
    la semaine, un motif est demandé avant la soumission ; il est lu par le valideur.
 7. La feuille est attendue **le lundi suivant à 12 h** ; passé ce délai, le manager ou le service RH relance
@@ -64,7 +68,10 @@ pas dans Cursus : la paie les traite dans Sage.
 1. Menu « Mes absences » : soldes de congés payés (période en cours et période d'acquisition), RTT ou jours de repos,
    récupération, compte épargne-temps.
 2. « Poser une absence » : type, premier et dernier jour, et demi-journée si besoin (après-midi du premier jour, matin du
-   dernier, ou matin ou après-midi pour un seul jour). Le décompte et les contrôles s'affichent avant « Envoyer la
+   dernier, ou matin ou après-midi pour un seul jour). Des jours épargnés sur le compte épargne-temps se prennent par le
+   type « Congé sur le compte épargne-temps » (jours ouvrés, journées entières). Un congé de plus de 24 jours ouvrables
+   d'affilée, ou qui ne laisse plus de quoi prendre 12 jours continus entre le 1er mai et le 31 octobre, est signalé sans
+   être refusé. Le décompte et les contrôles s'affichent avant « Envoyer la
    demande ».
 3. Le manager valide ou refuse ; un refus arrive avec son motif.
 4. Une absence imprévue (maladie, enfant malade, accident) se déclare par « Signaler une absence ». Le service RH en
@@ -75,11 +82,15 @@ pas dans Cursus : la paie les traite dans Sage.
 - **Accueil** : certifications et habilitations avec leur échéance, formations planifiées. « Demander une formation »,
   « Demander le recyclage » d'une certification qui expire et « Demander une habilitation » envoient la demande au service
   RH ; « Retirer la demande » l'annule tant qu'il ne l'a pas traitée.
-- Les convocations aux sessions et aux entretiens arrivent par e-mail, avec un fichier pour l'agenda.
+- Les convocations aux sessions et aux entretiens arrivent par e-mail, avec un fichier pour l'agenda ; les congés validés
+  aussi. « Mon agenda dans Outlook » (si le service RH l'a ouvert) : « Créer mon adresse d’abonnement », puis l'ajouter à
+  Outlook (« Ajouter un calendrier », « À partir d’Internet ») ; les absences y figurent sous « Absent ».
 - « Mes documents de voyage » : passeport, visa, vaccination. Ils n'entrent dans le dossier qu'après validation par le
   service RH ; les vaccinations sont des données de santé que lui seul voit.
 - « Mon contact d’urgence » : la personne à prévenir (et son lien) et son téléphone, facultatifs, saisis par « Renseigner ».
   Seul le service RH les voit, jamais votre manager ; videz les deux champs pour les retirer.
+- « Imprimer mon passeport formation » : certifications en vigueur et remplacées, habilitations et délivrances
+  antérieures, formations suivies (« Mes formations suivies »), sans aucun motif de suspension ou de retrait.
 
 ### Entretiens et portail
 
@@ -142,11 +153,20 @@ Les feuilles validées partent à la paie avec le lot du mois : le manager n'a r
   d'équipe vous soumet ses absences, ses feuilles et ses entretiens. Si l'administrateur RH a activé la consultation N+2,
   les membres de son équipe s'affichent aussi, marqués « Lecture seule » : vous consultez leur fiche, leurs absences et
   leurs feuilles, sans donnée médicale ni entretien ; les décisions restent à leur manager direct.
+- Absences du manager : dans l'espace collaborateur (« Accueil »), « Déléguer mes validations » confie vos congés et
+  feuilles de temps à décider à un suppléant, du … au … (votre responsable est proposé d'abord). Pendant cette période, le
+  suppléant reçoit les demandes et l'espace Manager lui est ouvert ; ses décisions sont signées « par délégation » ; vous
+  gardez la main à votre retour. « Révoquer » y met fin aussitôt. Suppléant, vous ne décidez jamais de vos propres
+  demandes : elles vont au responsable du manager, ou au service RH. Un suppléant qui deviendrait le valideur de son propre
+  valideur (par exemple un membre de votre équipe quand votre responsable délègue) est refusé.
 - « Formations » : renouvellements à prévoir. « Planifier » inscrit le collaborateur à une session ouverte ; sans session,
   « Demander au RH ».
 - « Couverture minimale des équipes » (écran Équipe) : jour où votre équipe n'aura plus assez de secouristes ou
   d'équipiers incendie présents et formés, et pourquoi (certification qui expire, départ, absence, sans sa nature).
 - « Entretiens » : un entretien de mi-carrière peut apparaître, « à planifier avant le » une date donnée par le service RH.
+- Recherche en haut de l'écran (touche « / » ou Ctrl+K) : tapez un nom, un poste ou un matricule ; les membres de votre
+  équipe s'affichent au fil de la frappe, Entrée ou un clic ouvre la fiche, « Voir tous les résultats » filtre l'écran
+  Équipe. Les listes de salariés des formulaires se filtrent de la même façon.
 
 ## Service RH
 
@@ -154,6 +174,11 @@ Profils de l'espace RH : gestionnaire RH, administrateur RH (paramètres, compte
 et trois profils restreints : référent HSE (formations et habilitations), gestionnaire de paie (partie suivante) et
 lecture seule (direction, DPO, auditeur). Un membre du service RH ne décide jamais de ses propres absences, feuilles ou
 entretiens : un collègue ou son manager le fait.
+
+Listes : un clic sur l'en-tête d'une colonne trie (un deuxième inverse, un troisième revient à l'ordre habituel) ; au-delà
+de 50 lignes, la suite s'affiche à la demande (« Tout afficher »). Un export CSV reprend toutes les lignes filtrées, dans
+l'ordre affiché. La recherche en haut de l'écran (« / » ou Ctrl+K) propose les collaborateurs au fil de la frappe (nom,
+poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous les résultats » filtre l'annuaire.
 
 ### Fiches, contrats et sorties
 
@@ -166,6 +191,9 @@ entretiens : un collègue ou son manager le fait.
   en attente qui changent de valideur ; le nouveau valideur en est prévenu par e-mail. Il en va de même quand vous
   changez le manager d'une équipe parente. Une modification qui ferait de deux salariés chacun le valideur de l'autre
   (rattachement, manager, affectation) est refusée en les nommant.
+  Dans le détail d'une équipe, « Déléguer les validations » enregistre la délégation du manager absent à un suppléant
+  (période, congés et feuilles de temps ; entretiens si Paramètres → Hiérarchie des managers les ouvre) ; « Révoquer »
+  y met fin. Le suppléant et le manager en sont prévenus par e-mail.
 - Liens : l'adresse de la page garde la fiche ouverte, la feuille de temps (salarié et semaine) et les filtres ; F5 ne
   les perd plus et Précédent referme la fiche. « Copier le lien » (fiche, feuille de temps) donne un lien à partager : la
   personne qui l'ouvre ne voit que ce que son rôle lui ouvre.
@@ -208,6 +236,23 @@ entretiens : un collègue ou son manager le fait.
   depuis la visite le remplit.
 - Fiche du collaborateur : « Avis du médecin du travail », « Demander une visite » ; les visites dues (embauche, reprise,
   mi-carrière) sont signalées dans « Échéances ».
+- Formations suivies (fiche du collaborateur, service RH et référent HSE) : « Enregistrer une formation suivie », du
+  catalogue ou hors catalogue, avec ses dates, sa durée en heures et son organisme. Hors catalogue, elle est « non
+  obligatoire » par défaut (case modifiable) et compte alors pour l'état des lieux du bilan à 8 ans. Une demande hors
+  catalogue acceptée apparaît « À clore » : « Enregistrer la formation suivie » une fois faite. À la clôture d'une action
+  du plan, cocher ses bénéficiaires parmi l'équipe (le demandeur est coché d'office) ; pour une formation du catalogue,
+  enregistrer aussi la certification de chacun, qui la remplace alors au passeport et dans les indicateurs. Les historiques tenus ailleurs ne
+  sont pas repris : saisie manuelle.
+- Titre d'habilitation : « Imprimer le titre » sur la fiche (titre en vigueur seulement : ni retiré, ni suspendu, ni
+  expiré), ou case cochée à la délivrance. Modèle choisi au référentiel
+  (« Modèle du titre imprimé » : électrique NF C18-510, autorisation de conduite R4323-56, générique) ; titulaire,
+  précision (symboles, catégories), validité, prérequis et aptitude médicale vérifiés (jamais l'avis), signatures de
+  l'employeur et du titulaire. Modèles à faire valider par le référent HSE avant la mise en service. Un renouvellement
+  garde la délivrance précédente dans « Habilitations antérieures » (fiche et passeport).
+- « Plan & budget » : panneau « Indicateurs de formation » de l'exercice (stagiaires, formations et heures par
+  catégorie, par équipe et par statut, actions réalisées, coûts), exports CSV des indicateurs et des formations suivies.
+  Les heures viennent des horaires des sessions, sinon de la « Durée en heures » du catalogue (Référentiels) ; une
+  formation sans durée connue est signalée. Indicateurs utiles à la BDESE (pas de bilan social sous 300 salariés).
 
 ### Congés et absences
 
@@ -219,6 +264,11 @@ entretiens : un collègue ou son manager le fait.
   adoption) sont automatiques. Première clôture des CP après la reprise : le 1er juin 2027.
 - Retour d'arrêt : la tâche d'information du salarié sur ses congés apparaît dans « Congés & absences ».
 - « Reporter » et « Épargner » (compte épargne-temps) depuis le tableau des soldes.
+- **Congé principal et fractionnement** : de septembre au 31 octobre, « Congé principal à prévoir » liste les salariés qui
+  n'ont pas posé 12 jours ouvrables continus (10 ouvrés) dans la période. À partir du 1er novembre, « Jours de fractionnement
+  à décider » propose 1 ou 2 jours par salarié qui a pris (ou prendra) hors période une partie de son congé principal :
+  « Décider » pour créditer les jours ou noter la renonciation écrite du salarié ; rien n'est crédité d'office. Règle et
+  période dans Paramètres → Fractionnement des congés (règle légale par défaut ; un accord exige sa référence).
 - **Pièces justificatives** (désactivées tant que l'administrateur RH ne les a pas activées dans Paramètres, après avis
   du DPO) : « Joindre le justificatif » dans la saisie et la qualification d'une absence, « Justificatifs reçus » pour
   ouvrir celui que le salarié a envoyé avec son signalement ou depuis « Justificatif » ; sur la fiche, « Pièces
@@ -311,7 +361,9 @@ d'un mois clos enregistrée en retard part entière, en rappel.
   majoration), complémentaires du temps partiel, heures du dimanche (HDIM, et MAJ_DIM si une majoration est réglée),
   jours fériés travaillés (1er mai en MAJ_1MAI, autres en FERIE_TRAV), contrepartie obligatoire en repos (COR_ACQUIS).
 - Absences validées : CP en jours ouvrés, RTT ou jours de repos en jours, récupération en heures, absences hors congés
-  par rémunération et catégorie (Paramètres → Absences et paie, activé par défaut).
+  par rémunération et catégorie (Paramètres → Absences et paie, activé par défaut). Congés pris sur le compte
+  épargne-temps (rubrique CET) : désactivée tant que la paie n'a pas donné son code ; chaque congé est alors listé « À
+  saisir dans Sage » dans le résumé du lot et l'export des variables.
 - Soldes de sortie (CP, RTT, récupération, CET) quand leurs rubriques sont activées ; sinon ils se saisissent dans Sage à
   partir de l'état imprimé.
 - Déplacements (jours et nuits de grand déplacement en GD_JOUR et GD_NUIT, jours à l'étranger en ETR_JOUR avec le pays en
@@ -319,6 +371,11 @@ d'un mois clos enregistrée en retard part entière, en rappel.
   (Paramètres → Déplacements et paie, décoché par défaut) et leurs rubriques activées. Sinon, ils partent dans le lot sans
   code Sage : listés « À saisir dans Sage », nominativement, dans le résumé du lot (écran Temps) et l'export des variables,
   comme tout élément dont la rubrique est désactivée (absence, solde de sortie) ; confirmé, le lot ne les renvoie plus.
+- Jours rachetés d'un forfait jours (JREN, quantité en jours, majoration en détail de l'export), par avenant de renonciation
+  enregistré sur la fiche (« Enregistrer un avenant de renonciation »), seulement quand l'accord collectif est référencé
+  dans Paramètres → Forfait jours. JREN est désactivée tant que la paie n'a pas donné son code : les jours sont alors
+  listés « À saisir dans Sage » dans le résumé du lot du mois de la signature (ou de décembre, selon le réglage), et
+  réglés hors fichier quand ce lot est confirmé. Un avenant enregistré après la génération du lot attend le lot suivant.
 - **Hors fichier, à saisir dans Sage** : heures de nuit ; intérimaires (relevé envoyé à leur agence)
   et cadres dirigeants exclus. La journée de solidarité et les fériés chômés se règlent année par année
   (Paramètres, « Jours fériés et journée de solidarité ») : un jour ainsi travaillé n'est plus férié (art. L3133-8).
@@ -408,6 +465,12 @@ questions encore ouvertes).
 - **Postes et exigences** : formations et habilitations exigées par poste et par équipe (« Référentiels »), case « travail
   de nuit ou en continu » des équipes (Référentiels → Postes) et horaire de poste par défaut de chaque équipe (facultatif ;
   horaires d'exemple à adapter dans Référentiels → Horaires).
+- **Travail de nuit** (Paramètres → Décompte des heures, bloc « Travail de nuit ») : plage de nuit, seuils du travailleur
+  de nuit et majoration, aux valeurs de la loi tant que l'accord n'est pas connu (21 h – 6 h ; 3 h deux fois par semaine
+  ou 270 h sur 12 mois ; 0 %) ; s'en écarter demande la référence de l'accord. Le travailleur de nuit est repéré sur sa
+  fiche et, encore en VIP, « Suivi médical adapté à prévoir » paraît dans les échéances. Les heures de nuit partent sous
+  HNUIT et MAJ_NUIT, rubriques désactivées tant que la paie ne les a pas confirmées : elles figurent alors « à saisir dans
+  Sage » dans le résumé du lot et l'export des variables.
 - **Sécurité au poste** : liste des postes à risques particuliers (avis du médecin du travail et du CSE) et formation
   renforcée à désigner ; seuils de secouristes et d'équipiers incendie par équipe (une équipe par quart) ; délai de
   l'entretien de mi-carrière à confirmer juridiquement.
@@ -427,3 +490,6 @@ questions encore ouvertes).
   service de santé au travail et des agences d'intérim dans Paramètres → Messagerie.
 - **Confidentialité** : responsable du traitement et contact du DPO (Paramètres → Confidentialité), repris en tête des
   documents imprimés ; validation du texte par le DPO (`docs/RGPD.md`).
+- **Conservation des dossiers** : durées à valider par le DPO, puis sa référence et la case « Proposer les dossiers échus »
+  (Paramètres → « Conservation des dossiers ») ; chaque effacement se confirme ensuite (« Effacer la sélection »,
+  « Effacer définitivement », motif). Agenda Outlook par abonnement : Paramètres → « Agenda ».

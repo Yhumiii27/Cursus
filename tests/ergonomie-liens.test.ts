@@ -23,13 +23,13 @@ type UiState = import('../client/src/state/store.tsx').UiState;
 const UI: UiState = {
   horizon: null, search: '', equipe: 'Toutes', statut: 'tous', selectedId: null, typeForm: 'toutes', formationFilter: null,
   habFilter: 'tous', habType: null, tripSel: null, echType: 'tous', goSel: null, exercice: null, planFilter: 'tous', weekStart: null, tsEmp: null,
-  refOnglet: 'formations', tsJour: null,
+  refOnglet: 'formations', tsJour: null, tris: {},
 };
 
 async function fresh() {
   const db = new Db(':memory:');
   await seedDemo(db);
-  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number };
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const r = ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
@@ -205,7 +205,7 @@ test('t148 : chaque case a un texte complet et une lettre, chaque ligne un résu
   assert.equal(resumeLigne([{ nature: 'mission' }, { nature: 'mission' }, { nature: 'absence' }, { nature: 'demande' }, { nature: 'ferie' }]), '2 j de mission · 1 j d’absence · 1 j demandé');
   assert.equal(resumeLigne([{ nature: 'present' }, { nature: 'ferie' }]), 'Présent');
   // Manager : toute son équipe, même présente.
-  const mgr = planningMissions(new Domain(await buildSnapshot(db, (await (await fresh())).KARIM)), true);
+  const mgr = planningMissions(new Domain(await buildSnapshot(db, (await fresh()).KARIM)), true);
   assert.ok(mgr.lignes.length >= 1);
   const grille = readFileSync(new URL('../client/src/pages/PlanningMissions.tsx', import.meta.url), 'utf8');
   for (const m of ['<table', '<caption', 'scope="col"', 'scope="row"', 'aria-live="polite"', 'tabIndex={l === li && i === co ? 0 : -1}', 'onFocus=', 'ArrowDown', 'jourComplet(s)'])

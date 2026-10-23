@@ -3,13 +3,25 @@
 // contrat (fin d'essai avant le délai de prévenance, fin de CDD, de mission, d'alternance, titre de séjour).
 import { useMemo } from 'react';
 import { DownloadSimpleIcon } from '@phosphor-icons/react';
+import { RANK } from '../../../shared/constants.ts';
+import type { EchItem } from '../../../shared/domain.ts';
 import { cap, equipeLabel, monthShort, plural } from '../../../shared/format.ts';
+import { parNombre, parTexte, trier, useTri, type Colonne } from '../components/tri.ts';
+import { ThTri } from '../components/TriListe.tsx';
 import { Btn, Empty, Page, Panel, Seg } from '../components/ui.tsx';
 import { downloadCsv } from '../print.ts';
 import { useEnriched, useIntentPermis } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { EchRow } from './Dashboard.tsx';
 import { CouverturePanel } from '../components/Couverture.tsx';
+
+/** Colonnes triables des échéances ; « Statut » : dépassées d'abord. */
+const COLONNES: Record<string, Colonne<EchItem>> = {
+  nom: parTexte(x => x.emp.nom),
+  element: parTexte(x => x.label),
+  echeance: parNombre(x => x.d),
+  statut: parNombre(x => RANK[x.key], 'desc'),
+};
 
 const dmy = (d: Date) => d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
@@ -43,9 +55,13 @@ export function Echeances() {
     ];
     return { months, max, year, exp: exp.length, groups };
   }, [d, emps, horizon, ui.echType, permis]);
+  // Tri par colonne (t145) dans chaque groupe (dépassées, puis mois) : par échéance tant qu'aucun en-tête n'est cliqué.
+  // L'export suit l'ordre affiché.
+  const t = useTri('echeances');
+  const groups = useMemo(() => v.groups.map(g => ({ ...g, items: trier(g.items, COLONNES, t.tri) })), [v.groups, t.tri]);
 
   const exportCsv = () => {
-    const items = v.groups.flatMap(g => g.items);
+    const items = groups.flatMap(g => g.items);
     downloadCsv(`echeances-${d.ti}.csv`, ['Collaborateur', 'Équipe', 'Élément', 'Type', 'Échéance', 'Statut', 'Planifié'],
       items.map(x => [x.emp.nom, equipeLabel(x.emp), x.label, x.kindLabel, x.sansDate ? '' : dmy(x.exp), x.statut, x.planned ? x.plannedLabel : '']));
     notify(`Export CSV généré — ${plural(items.length, 'échéance', 'échéances')}`);
@@ -82,7 +98,7 @@ export function Echeances() {
       </Panel>}
 
       <Panel style={{ gap: 'var(--space-2)' }}>
-        {v.groups.map(g => (
+        {groups.map(g => (
           <div key={g.key} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-3)', marginTop: 'var(--space-3)' }}>
               <h2 className="section-label" style={{ fontSize: 13 }}>{g.label}</h2>
@@ -91,6 +107,13 @@ export function Echeances() {
             <div className="scroll-x">
               <table className="table">
                 <colgroup><col style={{ width: '26%' }} /></colgroup>
+                <thead><tr>
+                  <ThTri t={t} col="nom">Collaborateur</ThTri>
+                  <ThTri t={t} col="element">Élément</ThTri>
+                  <ThTri t={t} col="echeance">Échéance</ThTri>
+                  <ThTri t={t} col="statut" premier="desc">Statut</ThTri>
+                  <th><span className="sr-only">Action</span></th>
+                </tr></thead>
                 <tbody>
                   {g.items.map((x, i) => (
                     <EchRow key={`${x.kind}-${x.emp.id}-${x.label}-${i}`} x={x}

@@ -35,6 +35,9 @@ const { appliquerReglages, ReglageInvalide } = await import('../shared/reglages.
 const { DEFAULT_SETTINGS } = await import('../server/src/dataset.ts');
 const { refusCsrf } = await import('../server/src/securite.ts');
 const { reglerJournaux } = await import('../server/src/logs.ts');
+// Journaux du serveur muets : le nettoyage des pièces (setImmediate) écrirait sur la sortie standard, que le lanceur de
+// tests lit.
+reglerJournaux({ sortie: () => {} });
 type Db = InstanceType<typeof Db>;
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 
@@ -76,7 +79,7 @@ function appel(chemin: string, o: { method?: string; headers?: Record<string, st
   });
 }
 const cookieDe = (r: Reponse) => String(r.headers['set-cookie']).match(/cursus_session=[^;]*/)![0];
-const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
+const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number }).id;
 
 /** Session de démonstration de la personne dans l'espace voulu : cookie et en-tête d'espace. */
 async function connexion(empId: number | null, role: 'rh' | 'manager' | 'collaborateur') {

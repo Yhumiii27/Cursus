@@ -14,8 +14,10 @@ export interface TableDef { pk: string; auto?: boolean; cols: Record<string, Col
 export const TABLES = {
   // Référentiels administrés par le service RH (server/src/actions/referentiels.ts) : `archive`, date d'archivage (null :
   // en vigueur) ; on archive au lieu de supprimer. `sir` : habilitation ou poste qui place en suivi individuel renforcé.
-  formations: { pk: 'id', cols: { id: 'text', nom: 'text', court: 'text', type: 'text', validite: 'int', duree: 'text', organisme: 'text', cout: 'real', validation: 'text', archive: 'text' } },
-  habilitations: { pk: 'id', cols: { id: 'text', nom: 'text', detail: 'text', prereqs: 'json', medical: 'bool', validite: 'int', signataire: 'text', archive: 'text', sir: 'bool' } },
+  // `dureeHeures` : durée en heures (t122, shared/rules/heures-formation.ts), facultative ; `modele` d'une habilitation : modèle
+  // du titre imprimé (t115, client/src/titre-habilitation.ts).
+  formations: { pk: 'id', cols: { id: 'text', nom: 'text', court: 'text', type: 'text', validite: 'int', duree: 'text', organisme: 'text', cout: 'real', validation: 'text', archive: 'text', dureeHeures: 'real' } },
+  habilitations: { pk: 'id', cols: { id: 'text', nom: 'text', detail: 'text', prereqs: 'json', medical: 'bool', validite: 'int', signataire: 'text', archive: 'text', sir: 'bool', modele: 'text' } },
   // `secu` : formalité de sécurité sociale du détachement (null : déduite du code pays, shared/constants.ts).
   destinations: { pk: 'code', cols: { code: 'text', pays: 'text', visa: 'text', visaSub: 'text', oblig: 'json', rec: 'json', passMois: 'int', secu: 'text', archive: 'text',
     // Vigilance France Diplomatie et jour de sa vérification (t068, shared/rules/vigilance.ts) : saisies par le service RH.
@@ -66,6 +68,8 @@ export const TABLES = {
       // CDD et intérim (t053, shared/rules/cdd.ts) : motif de recours et terme initial du CDD ; ses renouvellements sont
       // des lignes de l'historique des contrats.
       motifRecours: 'text', cddFinInitiale: 'text',
+      // Dossier anonymisé à la fin de sa durée de conservation (t016, server/src/conservation.ts) : date ; null : nominatif.
+      anonymiseLe: 'text',
     },
   },
   // Historique des contrats (t074, shared/rules/historique-contrat.ts) : régime en vigueur à compter de chaque date d'effet
@@ -92,6 +96,21 @@ export const TABLES = {
     },
   },
   habTitres: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', h: 'text', delivree: 'text', par: 'text', demande: 'text', mesure: 'text', mesureDate: 'text', mesureMotif: 'text', mesurePar: 'text' } },
+  // Délivrances des titres d'habilitation (t115, server/src/delivrances.ts) : une ligne par délivrance et renouvellement,
+  // `remplaceeLe` et la mesure figés au renouvellement ; amorcée par la migration lot6-securite-hab-delivrances.
+  habDelivrances: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', empId: 'int', h: 'text', titreId: 'int', delivree: 'text', par: 'text', expire: 'text', remplaceeLe: 'text', mesure: 'text', mesureDate: 'text', le: 'text', auteur: 'text', auteurId: 'int' },
+  },
+  // Formations suivies par salarié, du catalogue ou hors catalogue (t116, shared/rules/formations-suivies.ts).
+  formationsSuivies: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', f: 'text', libelle: 'text', du: 'text', au: 'text', duree: 'real', organisme: 'text', obligatoire: 'bool', origine: 'text',
+      planActionId: 'int', demandeId: 'int', le: 'text', auteur: 'text', auteurId: 'int',
+      corrigeLe: 'text', corrigePar: 'text', corrigeMotif: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+    },
+  },
   visas: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', dest: 'text', type: 'text', obtenu: 'text', expire: 'text' } },
   vaccinations: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', v: 'text', date: 'text' } },
   // Le nombre d'inscrits n'est pas stocké : il est calculé au chargement (server/src/dataset.ts).
@@ -149,12 +168,25 @@ export const TABLES = {
       horaires: 'json',
       // Horaires retenus (code, début, fin, pause), figés à la soumission et à la validation (lot 6).
       horairesFiges: 'json',
+      // Majoration des heures de nuit (%) figée à la validation (lot 6, shared/rules/repos-nuit.ts).
+      majNuit: 'int',
+      // Motif du dépassement du plafond d'un forfait jours, donné à la validation (t043, shared/rules/forfait-jours.ts).
+      motifForfait: 'text',
     },
     unique: [['empId', 'week']],
   },
   // Mandats des élus au CSE (server/src/actions/delegation.ts, shared/rules/delegation.ts) : titulaire ou suppléant, dates,
   // crédit d'heures de délégation par mois ; saisis par le service RH.
   mandats: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', role: 'text', du: 'text', au: 'text', credit: 'real' } },
+  // Délégations des validations d'un manager absent à un suppléant (t135, server/src/actions/delegations-manager.ts,
+  // shared/rules/delegations-manager.ts) : période (bornes comprises), périmètre, auteur, révocation, message de début.
+  delegations: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', managerId: 'int', suppleantId: 'int', du: 'text', au: 'text', perimetre: 'json',
+      creeLe: 'text', creePar: 'text', revoqueeLe: 'text', revoqueePar: 'text', annonceeLe: 'text',
+    },
+  },
 
   // Lots de paie (server/src/actions/paie.ts, shared/rules/lots-paie.ts) : contenu figé à la génération (`contenu`, lignes
   // de SagePush), feuilles du lot, téléchargements du fichier d'import, confirmation de l'import (accusé) ou annulation.
@@ -172,8 +204,21 @@ export const TABLES = {
       sorties: 'json',
       // Séjours du lot (source, identifiant, salarié ; t031, shared/rules/deplacements-paie.ts) : quantités dans `contenu`.
       deplacements: 'json',
+      // Avenants de renonciation dont le lot emporte les jours rachetés (identifiant, salarié ; t043) : quantités dans `contenu`.
+      rachats: 'json',
     },
     unique: [['cle']],
+  },
+  // Avenants de renonciation à des jours de repos d'un forfait jours (t043, server/src/actions/forfait-jours.ts) : année,
+  // jours rachetés, taux de majoration, signature et référence (texte libre) ; annulation avec motif (gardé pour
+  // l'historique) ; lot de paie qui emporte les jours rachetés (`lotId`), import confirmé (`sage`) ou réglé hors fichier
+  // faute de rubrique JREN active (`horsFichier`).
+  avenantsForfait: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', annee: 'int', jours: 'real', taux: 'int', signeLe: 'text', reference: 'text', creeLe: 'text', creePar: 'text',
+      annuleLe: 'text', annulePar: 'text', annuleMotif: 'text', lotId: 'int', sage: 'bool', horsFichier: 'bool',
+    },
   },
   // Éléments de déplacement émis par les lots de paie (t031, server/src/deplacements-paie.ts) : une ligne par séjour
   // (`source` : voyage ou mission, `sourceId`), mois, rubrique et pays, avec le lot qui l'emporte (`lotId`) et l'import
@@ -214,7 +259,8 @@ export const TABLES = {
   },
   cet: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', type: 'text', jours: 'real', date: 'text', periode: 'text' } },
   // `periode` : année de prise de la période dont les droits reçoivent les jours ; `expire` : échéance (shared/rules/conges.ts).
-  reports: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', jours: 'real', motif: 'text', par: 'text', date: 'text', sens: 'text', periode: 'int', expire: 'text' } },
+  // `origine` : « fractionnement » pour les jours de fractionnement crédités (`conges.fractionnement`) ; null sinon.
+  reports: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', jours: 'real', motif: 'text', par: 'text', date: 'text', sens: 'text', periode: 'int', expire: 'text', origine: 'text' } },
   // `arreteLe` : date d'arrêté des compteurs repris, qui fixe la période CP et l'année RTT sur lesquelles ils comptent.
   // `cpSolde`, `cpSoldeSuivant`, `rttSolde`, `cetSolde` : soldes d'ouverture importés à la mise en service (actions/reprise.ts) ;
   // `heuresSupAnnee` : heures supplémentaires déjà faites dans l'année de l'arrêté (contingent annuel).
@@ -242,6 +288,13 @@ export const TABLES = {
       reportId: 'int', motif: 'text', le: 'text', par: 'text',
     },
     unique: [['empId', 'type', 'periode']],
+  },
+  // Jours de fractionnement d'une période de CP (`conges.fractionnement`, t046) : crédités (report reçu `reportId`) ou
+  // renonciation du salarié ; une décision par salarié et par période.
+  fractionnements: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', empId: 'int', periode: 'int', decision: 'text', jours: 'real', reportId: 'int', le: 'text', par: 'text' },
+    unique: [['empId', 'periode']],
   },
   // Informations des salariés sur leurs congés à leur retour d'arrêt (`conges.informer`, art. L3141-19-3) : une par arrêt
   // et par fin d'arrêt (`au` : un arrêt prolongé après l'information en reçoit une autre à son nouveau terme).
@@ -338,6 +391,17 @@ export const TABLES = {
       deposeLe: 'text', deposePar: 'text', deposeCompteId: 'int', conserverJusquau: 'text', retireeLe: 'text', retireePar: 'text', retireeMotif: 'text',
     },
     unique: [['jeton'], ['fichier']],
+  },
+  // Effacements confirmés par l'administrateur RH à la fin des durées de conservation (t016, server/src/conservation.ts) :
+  // catégories effacées, date, auteur, motif (texte du service RH, jamais au journal) ; `avantEcheance` : droit à
+  // l'effacement exercé avant l'échéance. Trace gardée après l'anonymisation, sans donnée d'identité.
+  effacements: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', categories: 'json', le: 'text', par: 'text', motif: 'text', avantEcheance: 'bool', elements: 'int' } },
+  // Abonnements à l'agenda personnel (t036, server/src/agenda.ts) : empreinte SHA-256 du jeton (le jeton lui-même n'est
+  // montré qu'une fois), création, révocation, dernier accès du client d'agenda.
+  jetonsAgenda: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', empId: 'int', empreinte: 'text', creeLe: 'text', revoqueLe: 'text', revoquePar: 'text', dernierAcces: 'text' },
+    unique: [['empreinte']],
   },
 } satisfies Record<string, TableDef>;
 
@@ -464,6 +528,10 @@ export abstract class Db {
   /** Condition « la clé `cle` de l'objet JSON `colonne` vaut le paramètre » (un `?`, nombre ou texte), comparée en texte en PostgreSQL. */
   jsonCleEgale(colonne: string, cle: string): string {
     return this.moteur === 'pg' ? `(${colonne})->>'${cle}' = CAST(? AS text)` : `json_extract(${colonne}, '$.${cle}') = ?`;
+  }
+  /** Texte de la clé `cle` de l'objet JSON `colonne` (comparaison à des littéraux texte : `IN ('a', 'b')`). */
+  jsonCle(colonne: string, cle: string): string {
+    return this.moteur === 'pg' ? `(${colonne})->>'${cle}'` : `json_extract(${colonne}, '$.${cle}')`;
   }
 
   /** Première ligne brute d'une requête SQL, ou undefined. */

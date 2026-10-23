@@ -17,7 +17,7 @@ import { joursAvantDepart, suitePaie } from '../absences-paie.ts';
 import { absenceKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { recrediterPeriodesCloses } from './clotures.ts';
 import { joindrePieces } from './pieces.ts';
-import { notifierDecisionConge, notifierDemandeConge, notifierFeuilleRenvoyee } from '../notifications.ts';
+import { annulerAgendaConge, notifierDecisionConge, notifierDemandeConge, notifierFeuilleRenvoyee } from '../notifications.ts';
 import {
   ActionError, type ActionHandler, type Ctx, estSoiMeme, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, refuserSoiMeme, requireRh, str,
 } from './context.ts';
@@ -29,7 +29,7 @@ import {
  */
 const demander: ActionHandler = async (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
-  const parManager = isManagerOf(ctx, emp);
+  const parManager = isManagerOf(ctx, emp, 'absences');
   if (!(isRh(ctx) || isSelf(ctx, emp.id) || parManager)) throw new ActionError('Vous ne pouvez poser une absence que pour vous-même ou votre équipe', 403);
   const kind = str(p.kind) as CongeType;
   const chk = checkAbsence(ctx.d, emp, kind, p.du, p.au, parManager, { debutDemi: p.debutDemi, finDemi: p.finDemi });
@@ -38,10 +38,10 @@ const demander: ActionHandler = async (ctx, p) => {
   if (parManager) {
     await keystone(ctx, 'absence.validee', a);
     await notifierDecisionConge(ctx, emp, a, true, true); // e-mail : le salarié est informé
-    return `Absence de ${emp.nom} (${ABS_LABEL[kind].toLowerCase()}) posée et validée — transmise à Keystone pour la planification`;
+    return `Absence de ${emp.nom} (${enMinuscules(kind)}) posée et validée — transmise à Keystone pour la planification`;
   }
   await notifierDemandeConge(ctx, emp, a, ctx.d.mgrOf(emp)); // e-mail : la demande part au valideur
-  return `Demande de ${ABS_LABEL[kind].toLowerCase()} envoyée ${ctx.d.mgrDest(ctx.d.mgrOf(emp))}`;
+  return `Demande de ${enMinuscules(kind)} envoyée ${ctx.d.mgrDest(ctx.d.mgrOf(emp))}`;
 };
 
 const decider: ActionHandler = async (ctx, p) => {
@@ -49,11 +49,11 @@ const decider: ActionHandler = async (ctx, p) => {
   const ok = !!p.ok;
   // Même décision déjà prise (double clic, autre onglet, autre valideur) : rien n'est refait ni renvoyé à Keystone.
   const deja = a && a.statut === (ok ? 'validee' : 'refusee') ? ctx.d.emp(a.empId) : undefined;
-  if (deja && isValidatorOf(ctx, deja)) return `Absence de ${deja.nom} déjà ${ok ? 'validée' : 'refusée'}`;
+  if (deja && isValidatorOf(ctx, deja, 'absences')) return `Absence de ${deja.nom} déjà ${ok ? 'validée' : 'refusée'}`;
   if (!a || a.statut !== 'demandee') throw new ActionError('Demande introuvable ou déjà traitée');
   const emp = getEmp(ctx, a.empId);
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas décider de votre propre demande d’absence');
-  if (!isValidatorOf(ctx, emp)) throw new ActionError('Décision réservée au manager du salarié ou au service RH', 403);
+  if (!isValidatorOf(ctx, emp, 'absences')) throw new ActionError('Décision réservée au manager du salarié ou au service RH', 403);
   // Demande antérieure au contrôle des bornes du contrat : jamais validée hors contrat.
   const hors = ok ? borneContrat(emp, a.du, a.au) : null;
   if (hors) throw new ActionError(`Absence hors contrat : ${hors}`);
@@ -145,7 +145,7 @@ const sansNature = (chk: { msgs: { text: string; bad: boolean }[] }) => new Acti
  */
 const signaler: ActionHandler = async (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
-  if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp))) throw new ActionError('Vous ne pouvez signaler une absence que pour vous-même ou votre équipe', 403);
+  if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp, 'absences'))) throw new ActionError('Vous ne pouvez signaler une absence que pour vous-même ou votre équipe', 403);
   const du = str(p.du), au = str(p.au) || du;
   const chk = checkNature(ctx.d, emp, 'ABSENCE', du, au, { quand: 'avant de signaler l’absence' });
   if (chk.cant) throw sansNature(chk);
@@ -206,7 +206,7 @@ const qualifier: ActionHandler = async (ctx, p) => {
 const prolonger: ActionHandler = async (ctx, p) => {
   const a = absenceOf(ctx, p.id);
   const emp = getEmp(ctx, a.empId);
-  if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp))) throw new ActionError('Vous ne pouvez prolonger qu’une absence de vous-même ou de votre équipe', 403);
+  if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp, 'absences'))) throw new ActionError('Vous ne pouvez prolonger qu’une absence de vous-même ou de votre équipe', 403);
   if (!prolongeable(a)) throw new ActionError(estConge(a.type) ? 'Un congé ne se prolonge pas : posez une nouvelle demande' : 'Absence annulée ou refusée : elle ne se prolonge pas');
   const au = str(p.au);
   if (!isValidDate(au) || au <= a.au) throw new ActionError(`Nouvelle fin requise, après le ${fmt(parse(a.au))}`);
@@ -230,13 +230,15 @@ const annuler: ActionHandler = async (ctx, p) => {
   const a = absenceOf(ctx, p.id);
   const emp = getEmp(ctx, a.empId);
   // Périmètre d'abord : hors de celui-ci, aucun refus ne doit révéler l'état ou les dates de l'absence.
-  if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp))) throw new ActionError('Vous ne pouvez annuler qu’une absence de vous-même ou de votre équipe', 403);
+  if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp, 'absences'))) throw new ActionError('Vous ne pouvez annuler qu’une absence de vous-même ou de votre équipe', 403);
   // Un membre du RH annule ses propres absences avec les droits de l'intéressé, jamais ceux du service RH.
   const soi = estSoiMeme(ctx, emp.id), self = isSelf(ctx, emp.id) || soi;
-  const droit = droitAnnulation(a, ctx.d.ti, { rh: isRh(ctx) && !soi, self, manager: isManagerOf(ctx, emp) });
+  const droit = droitAnnulation(a, ctx.d.ti, { rh: isRh(ctx) && !soi, self, manager: isManagerOf(ctx, emp, 'absences') });
   if (!droit.ok) throw new ActionError(droit.raison, a.statut === 'refusee' || a.statut === 'annulee' ? 400 : 403);
   await ctx.db.update<Absence>('absences', a.id, { statut: 'annulee', annuleeLe: ctx.d.ti, annuleePar: ctx.user.nom, keystone: false });
   if (a.keystone) await keystone(ctx, 'absence.annulee', a);
+  // Congé validé à venir : son événement, reçu avec la décision (.ics), est retiré de l'agenda du salarié (t036).
+  if (estConge(a.type) && a.statut === 'validee' && a.au >= ctx.d.ti) await annulerAgendaConge(ctx, emp, a);
   const n = estConge(a.type) ? ctx.d.countDays(emp, a.du, a.au, a.type, a) : 0, h = a.type === 'RECUP' ? n * ctx.d.dayH(emp) : 0;
   // CP d'une période déjà close : la ligne de clôture n'est pas refaite, les jours rendus sont reportés sur la suivante.
   const rendus = a.type === 'CP' ? await recrediterPeriodesCloses(ctx, emp, ctx.d) : '';
@@ -255,7 +257,9 @@ const annuler: ActionHandler = async (ctx, p) => {
 };
 
 /** Nature dans un message : « congés payés », « RTT / repos », « arrêt maladie » ; rien pour une absence à qualifier. */
-const libelle = (t: AbsenceType) => t === 'ABSENCE' ? '' : t === 'RTT' ? 'RTT / repos' : natureDef(t)?.court ?? ABS_LABEL[t].toLowerCase();
+const libelle = (t: AbsenceType) => t === 'ABSENCE' ? '' : t === 'RTT' ? 'RTT / repos' : natureDef(t)?.court ?? enMinuscules(t);
+/** Libellé dans une phrase : en minuscules, sigle du CET gardé (« congé sur le CET »). */
+function enMinuscules(t: AbsenceType) { return t === 'CET' ? 'congé sur le CET' : ABS_LABEL[t].toLowerCase(); }
 
 /**
  * Placement sur le compte épargne-temps : RTT de l'année (`annee` : l'année précédente, tant que sa clôture n'est pas
@@ -296,7 +300,7 @@ const accorderReport: ActionHandler = async (ctx, p) => {
   return `${fJ(j)} de CP ${periodeCp(A)} reportés pour ${emp.nom} sur la période ${periodeCp(A + 1)} (appliqués à la clôture du ${fmt(parse(finPeriodeCp(A)))}) — utilisables jusqu’au ${fmt(parse(expire))}`;
 };
 
-export const absencesActions: Record<string, ActionHandler> = {
+export const absencesActions = {
   'absence.demander': demander,
   'absence.decider': decider,
   'absence.signaler': signaler,
@@ -306,4 +310,4 @@ export const absencesActions: Record<string, ActionHandler> = {
   'absence.annuler': annuler,
   'cet.placer': placerCet,
   'report.accorder': accorderReport,
-};
+} satisfies Record<string, ActionHandler>;

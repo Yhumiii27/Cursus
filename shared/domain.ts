@@ -22,6 +22,7 @@ import { echeanceVisite, examenRequis, prochaineTexte, suiviDe, type ProchaineVi
 import { finSession } from './rules/plage-session.ts';
 import { employeAu } from './rules/historique-contrat.ts';
 import { visitesDues, type VisiteDue } from './rules/visites-dues.ts';
+import { estTravailleurNuit, SUIVI_NUIT } from './rules/repos-nuit.ts';
 import { valideurHierarchique } from './rules/hierarchie.ts';
 import type {
   AvisMedical, Certification, Chantier, Dataset, DemandeVisite, Destination, Employe, FormaliteManquante, Formation, HabTitre, HabType, ISODate,
@@ -64,6 +65,11 @@ export interface MedInfo {
   dues?: VisiteDue[];
   /** Verdict seul (manager, profils restreints) : une visite due est à programmer par le service RH, sans motif ni date. */
   aProgrammer?: boolean;
+  /**
+   * Travailleur de nuit en suivi VIP (shared/rules/repos-nuit.ts) : suivi médical adapté à prévoir (VIP adaptée,
+   * art. R4624-17), sans changer d'office le type de suivi. Service RH et intéressé ; absent du verdict seul.
+   */
+  suiviNuit?: boolean;
 }
 export interface PrereqCheck { type: 'cert' | 'med'; f: string | null; certId: number | null; label: string; ok: boolean; due: boolean; exp: Date | null; text: string }
 export interface HabInfo extends HabTitre {
@@ -297,7 +303,8 @@ export class Domain {
     for (let s = du; s <= au; s = addD(s, 1)) {
       const wd = weekday(s);
       if (wd > 4 || isFerie(s)) continue;
-      if (off.includes(wd) && (kind !== 'CP' || !started)) continue;
+      // Congés en jours ouvrés (CP, congé pris sur le CET) : le jour non travaillé compte une fois le congé commencé.
+      if (off.includes(wd) && ((kind !== 'CP' && kind !== 'CET') || !started)) continue;
       started = true;
       out.push({ jour: s, poids: poidsDuJour(periode, s) });
     }
@@ -390,8 +397,10 @@ export class Domain {
     }
     const demande = this.demandeVisite(e.id), demandee = demande ? `visite demandée le ${fmt(parse(demande.le))}` : 'visite à programmer';
     const suivi = suiviDe(this.ds, e), examen = examenRequis(suivi, e), dues = visitesDues(this, e, suivi);
+    // Travailleur de nuit encore en VIP : suivi adapté à prévoir (alerte, le type de suivi reste celui saisi).
+    const suiviNuit = suivi.type === 'vip' && estTravailleurNuit(this.ds, e, this.ti);
     if (!e.visite) {
-      return { ok: false, exp: null, d: null, text: `Visite médicale non renseignée — ${demandee}`, visite: null, avis: null, restrictions: [], demande, verdictSeul: false, suivi, prochaine: null, examenRequis: examen, dues };
+      return { ok: false, exp: null, d: null, text: `Visite médicale non renseignée — ${demandee}`, visite: null, avis: null, restrictions: [], demande, verdictSeul: false, suivi, prochaine: null, examenRequis: examen, dues, suiviNuit };
     }
     const date = parse(e.visite), ech = echeanceVisite(e, date, suivi.type, this.ds.settings), exp = ech.exp, d = days(this.today, exp);
     // Visite saisie avant l'enregistrement des avis : apte.
@@ -406,7 +415,7 @@ export class Domain {
       : `Aptitude échue le ${fmt(exp)}${quoi} — ${demandee}${examen ? ` · ${EXAMEN_REQUIS.toLowerCase()}` : ''}`;
     return {
       ok: d >= 0 && !inapte, exp, d, text, visite: date, avis, restrictions: avis === 'restrictions' ? e.restrictions ?? [] : [], demande, verdictSeul: false,
-      suivi, prochaine: ech.prochaine, examenRequis: examen, dues,
+      suivi, prochaine: ech.prochaine, examenRequis: examen, dues, suiviNuit,
     };
   }
 
@@ -695,6 +704,16 @@ export class Domain {
         ech.push({
           kind: 'med', kindLabel: 'Visite médicale', label: EXAMEN_REQUIS, emp: e, exp: this.today, d: 0, key: 'due', statut: 'Examen requis', cls: CLS.due,
           sansDate: true, sansDateTexte: { main: 'À programmer', sub: 'suivi individuel renforcé' },
+          planned: !!m.demande, plannedLabel: m.demande ? `Visite demandée le ${fmtShort(parse(m.demande.le))}` : '',
+          action: m.demande ? null : { label: 'Demander la visite', intent: { type: 'medical', empId: e.id } },
+        });
+      }
+      // Travailleur de nuit en VIP (shared/rules/repos-nuit.ts) : suivi médical adapté à prévoir, sans date, parmi les
+      // visites dues ; « Demander la visite », le type de suivi se change sur la fiche.
+      if (!m.verdictSeul && m.suiviNuit) {
+        ech.push({
+          kind: 'med', kindLabel: 'Visite médicale', label: SUIVI_NUIT, emp: e, exp: this.today, d: 0, key: 'due', statut: 'Travailleur de nuit', cls: CLS.due,
+          sansDate: true, sansDateTexte: { main: 'À prévoir', sub: 'VIP adaptée (art. R4624-17)' },
           planned: !!m.demande, plannedLabel: m.demande ? `Visite demandée le ${fmtShort(parse(m.demande.le))}` : '',
           action: m.demande ? null : { label: 'Demander la visite', intent: { type: 'medical', empId: e.id } },
         });

@@ -12,10 +12,12 @@ import { REFERENCES_DEPLACEMENTS } from './voyages.ts';
 import { ACTIVITES_INTERNES, SEMAINE_7_JOURS } from './temps.ts';
 import { ACTIVITE_FORMATION_PROJET, PLAGE_SESSIONS } from './formations.ts';
 import { INDEX_PIECES } from './lot6-pieces.ts';
-import { HIERARCHIE_EQUIPES } from './lot6-hierarchie.ts';
+import { DELEGATIONS_VALIDATION, HIERARCHIE_EQUIPES } from './lot6-hierarchie.ts';
 import { DEPLACEMENTS_DEPART } from './lot6-paie.ts';
-import { HORAIRES_EXEMPLES_MIGRATION } from './lot6-horaires.ts';
+import { HORAIRES_EXEMPLES_MIGRATION, HORAIRES_NUIT_FIGEE } from './lot6-horaires.ts';
 import { CONTRATS_HISTORIQUE } from './lot6-contrats.ts';
+import { DUREE_HEURES, HAB_DELIVRANCES } from './lot6-securite.ts';
+import { INDEX_CONSERVATION_AGENDA } from './lot6-pieces.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   INDEX_JOURNAL,
@@ -41,4 +43,9 @@ export const MIGRATIONS: readonly Migration[] = [
   DEPLACEMENTS_DEPART,
   HORAIRES_EXEMPLES_MIGRATION,
   CONTRATS_HISTORIQUE,
+  HORAIRES_NUIT_FIGEE,
+  HAB_DELIVRANCES,
+  DUREE_HEURES,
+  DELEGATIONS_VALIDATION,
+  INDEX_CONSERVATION_AGENDA,
 ];

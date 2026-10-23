@@ -138,9 +138,9 @@ const suiviMedical: ActionHandler = async (ctx, p) => {
   return `Type de suivi médical enregistré — ${emp.nom} · ${suivi ? SUIVIS_MEDICAUX[suivi].court : 'VIP par défaut'}${expose ? ' · exposé à des risques particuliers' : ''}${keystone}`;
 };
 
-export const santeActions: Record<string, ActionHandler> = {
+export const santeActions = {
   'medical.demander': demanderVisite,
   'medical.annuler': annulerVisite,
   'medical.avis': enregistrerAvis,
   'medical.suivi': suiviMedical,
-};
+} satisfies Record<string, ActionHandler>;

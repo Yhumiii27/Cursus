@@ -13,7 +13,7 @@ const FACTICE = new URL('./store-factice.ts', import.meta.url).href;
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (/\.css\?url$/.test(specifier)) {
+    if (specifier.endsWith('.css?url')) {
       const chemin = '/' + specifier.replace(/^.*\//, '').replace(/\?url$/, '');
       return { url: `data:text/javascript,export default ${encodeURIComponent(JSON.stringify(chemin))};`, shortCircuit: true };
     }

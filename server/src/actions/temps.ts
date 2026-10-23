@@ -21,6 +21,7 @@ import { notifierFeuilleRenvoyee, notifierFeuilleSoumise } from '../notification
 import { relevesAutomatiques } from '../releves.ts';
 import { ActionError, type ActionHandler, type Ctx, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, refuserSoiMeme, str } from './context.ts';
 import { pushSageSimulation } from './paie.ts';
+import { controleForfaitJours } from '../forfait-jours.ts';
 
 function sheetOf(ctx: Ctx, empId: number, week: string): FeuilleTemps | undefined {
   return ctx.ds.feuilles.find(f => f.empId === empId && f.week === week);
@@ -34,12 +35,12 @@ export async function editable(ctx: Ctx, p: Record<string, any>): Promise<{ emp:
   const emp = getEmp(ctx, p.empId);
   const week = String(p.week);
   if (!isValidDate(week) || mondayOf(week) !== week) throw new ActionError('Semaine invalide');
-  if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp))) throw new ActionError('Seuls le salarié, son manager ou le service RH peuvent saisir cette feuille', 403);
+  if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp, 'feuilles'))) throw new ActionError('Seuls le salarié, son manager ou le service RH peuvent saisir cette feuille', 403);
   // Pas de feuille avant l'entrée ni après la fin du contrat (une semaine à cheval reste saisissable).
   const hors = semaineHorsContrat(emp, week);
   if (hors) throw new ActionError(`Semaine hors contrat : ${hors}`);
   let sh = sheetOf(ctx, emp.id, week);
-  const correction = !!sh && sh.statut === 'soumise' && isValidatorOf(ctx, emp);
+  const correction = !!sh && sh.statut === 'soumise' && isValidatorOf(ctx, emp, 'feuilles');
   if (sh && !['brouillon', 'rejetee'].includes(sh.statut) && !correction) throw new ActionError('Feuille déjà soumise ou validée');
   // Feuille créée : figée sur le régime de sa semaine quand l'historique des contrats le dit autre que celui de la fiche
   // (semaine antérieure à un changement, postérieure à un avenant programmé : shared/rules/historique-contrat.ts).
@@ -61,7 +62,9 @@ function controleJournees(sh: Pick<FeuilleTemps, 'week'>, lignes: LigneTemps[], 
  * la hiérarchie réécrirait la déclaration du salarié (justification d'un dépassement, art. L3121-18 et L3121-20).
  */
 function motifDepassement(ctx: Ctx, emp: Employe, sh: FeuilleTemps, p: Record<string, any>, quand: string, valideur = false): string | null {
-  const { depassements, depassementsMineur } = calcSheet(ctx.d, emp, sh);
+  const { depassements, depassementsMineur, nuitMineur } = calcSheet(ctx.d, emp, sh);
+  // Travail de nuit d'un salarié mineur (art. L3163-2, shared/rules/repos-nuit.ts) : refus, sans motif possible.
+  if (nuitMineur.length) throw new ActionError(`${nuitMineur.join(' ; ')} ${quand}`);
   if (!depassements.length) return null;
   const motif = (valideur ? sh.motifDepassement || str(p.motif) : str(p.motif) || sh.motifDepassement) || '';
   // Salarié mineur (décision de l'entreprise du 17 octobre 2026) : motif, ou référence de la dérogation de l'inspection.
@@ -193,7 +196,7 @@ function submitted(ctx: Ctx, p: Record<string, any>) {
   const sh = sheetOf(ctx, emp.id, String(p.week));
   if (!sh || sh.statut !== 'soumise') throw new ActionError('Aucune feuille en attente de validation');
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas valider ni renvoyer votre propre feuille de temps');
-  if (!isValidatorOf(ctx, emp)) throw new ActionError('Validation réservée au manager du salarié ou au service RH', 403);
+  if (!isValidatorOf(ctx, emp, 'feuilles')) throw new ActionError('Validation réservée au manager du salarié ou au service RH', 403);
   return { emp, sh };
 }
 
@@ -223,16 +226,20 @@ export async function validerFeuille(ctx: Ctx, p: Record<string, any>): Promise<
   const heuresSup = sh.heuresSup ?? ctx.ds.settings.heuresSupMode;
   const majDimanche = sh.majDimanche ?? ctx.ds.settings.majorationDimanche;
   const majFerie = sh.majFerie ?? ctx.ds.settings.tauxMajorationFerie;
+  // Majoration des heures de nuit (shared/rules/repos-nuit.ts) : figée de même, 0 % par défaut (quantité HNUIT seule).
+  const majNuit = sh.majNuit ?? ctx.ds.settings.nuitMajoration ?? 0;
   // Contrepartie obligatoire en repos au-delà du contingent (shared/rules/durees.ts) : COR de l'année recalculée sur toutes
   // les feuilles validées, moins celle déjà figée sur les autres ; l'écart est porté par cette feuille.
-  const validee: FeuilleTemps = { ...sh, statut: 'validee', contrat, heuresSup, majDimanche, majFerie };
+  const validee: FeuilleTemps = { ...sh, statut: 'validee', contrat, heuresSup, majDimanche, majFerie, majNuit };
   const cor = corAValider(ctx.d, emp, validee);
+  // Forfait jours (t043, server/src/forfait-jours.ts) : au-delà du plafond de l'année, motif du valideur exigé ; alerte au seuil.
+  const forfait = controleForfaitJours(ctx, emp, validee, p);
   // Horaires de poste refigés après une éventuelle correction du valideur (heures d'un code déjà figé inchangées).
   const horaires = horairesAFiger(ctx.ds.referentiels, emp.equipe, sh, calcSheet(ctx.d, emp, { ...sh, contrat }).perDay);
-  await ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif, heuresSup, majDimanche, majFerie, cor, ...horaires });
+  await ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif, heuresSup, majDimanche, majFerie, majNuit, cor, ...horaires, ...forfait.champs });
   // Seuils franchis par cette feuille (moyenne sur 12 semaines, temps partiel, contingent) : signalés, sans blocage.
   const autres = ctx.ds.feuilles.filter(f => f.empId === emp.id && f.statut === 'validee' && f.id !== sh.id);
-  const alertes = alertesValidation(ctx.d, emp, autres, [...autres, { ...validee, cor }], sh.week, corDeLaFeuille({ cor }));
+  const alertes = [...alertesValidation(ctx.d, emp, autres, [...autres, { ...validee, cor }], sh.week, corDeLaFeuille({ cor })), ...forfait.alertes];
 
   if (keystone) await sendToKeystone(ctx.db, { type: 'heures.validees', matricule: identifiantKeystone(ctx.ds.settings.identifiantKeystone, emp), semaine: sh.week, projets });
   // Intérimaire : la dernière feuille validée d'une semaine révolue fait partir le relevé de son agence.
@@ -261,7 +268,7 @@ const reject: ActionHandler = async (ctx, p) => {
  */
 const pushSage: ActionHandler = async ctx => await pushSageSimulation(ctx);
 
-export const tempsActions: Record<string, ActionHandler> = {
+export const tempsActions = {
   'temps.setCell': setCell,
   'temps.addLine': addLine,
   'temps.removeLine': removeLine,
@@ -270,4 +277,4 @@ export const tempsActions: Record<string, ActionHandler> = {
   'temps.validate': validate,
   'temps.reject': reject,
   'temps.pushSage': pushSage,
-};
+} satisfies Record<string, ActionHandler>;

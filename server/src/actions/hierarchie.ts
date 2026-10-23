@@ -88,6 +88,6 @@ const parente: ActionHandler = async (ctx, p) => {
   };
 };
 
-export const hierarchieActions: Record<string, ActionHandler> = {
+export const hierarchieActions = {
   'equipe.parente': parente,
-};
+} satisfies Record<string, ActionHandler>;

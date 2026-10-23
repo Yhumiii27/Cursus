@@ -39,6 +39,7 @@ shared/            Domaine partagé (aucune dépendance)
                    internes INT-… et ECOLE), delegation.ts (mandats au CSE, crédit R2314-1, compteur des heures de délégation),
                    repos-a-verifier.ts (feuilles soumises ou validées portant une alerte de repos, pour le service RH) ;
                    hierarchie.ts (équipe parente, valideur N+1 du manager, équipes descendantes de la consultation N+2) ;
+                   delegations-manager.ts (délégation datée des validations d'un manager absent à un suppléant, t135) ;
                    demi-journees.ts : congés à la demi-journée (règle, poids, chevauchement, textes) ;
                    acquisition-cp.ts : acquisition des CP mois par mois, absences comprises (loi 2024-364, mémorisée) ;
                    information-retour.ts : information du salarié sur ses congés à son retour d'arrêt (art. L3141-19-3)
@@ -54,8 +55,12 @@ shared/            Domaine partagé (aucune dépendance)
                    vigilance.ts (lot 6) : vigilance France Diplomatie, rappel avant un départ, coordonnées, contact d'urgence
                    feries.ts (lot 6) : jours fériés et journée de solidarité réglés par année (calendrier : dates.ts) ;
                    horaires.ts (lot 6) : horaires de poste, horaire par défaut d'une équipe, horaire du jour d'une feuille
+                   repos-nuit.ts (lot 6) : repos quotidien, pause, heures de nuit, nuit des mineurs, travailleur de nuit
+                   conservation.ts (lot 6, t016) : durées de conservation par catégorie après la sortie, dossiers échus
                    historique-contrat.ts : historique des contrats (régime en vigueur à une date, `regimeAu`, avenants
                    programmés) ; cdd.ts : motif de recours, durée maximale et renouvellements d'un CDD, délai de carence
+                   formations-suivies.ts (lot 6) : formations suivies par salarié, hors catalogue comprises, bilan à 8 ans ;
+                   heures-formation.ts (lot 6) : durée en heures, heures d'une session, indicateurs du plan par exercice
 server/src/
   db.ts            Schéma déclaratif (TABLES) + accès asynchrone (all/get/insert/update/remove/tx/lecture/exclusif,
                    SQL brut query/one/run/exec) ; adaptateur SQLite `SqliteDb` (voir « Accès à la base »)
@@ -70,10 +75,12 @@ server/src/
                    conges.ts (lot 5 : demi-journées hors de la règle ramenées à la journée entière)
                    formations.ts (lot 5 : sessions existantes sur un jour, activité interne INT-FORM)
                    paie.ts, lot 5 : absences des périodes passées laissées à Sage (premier jour transmis par le fichier)
-                   lot6-pieces.ts (lot 6 : index des pièces justificatives par salarié et par objet)
+                   lot6-pieces.ts (lot 6 : index des pièces justificatives par salarié et par objet ; étape 2 : index des
+                   abonnements à l'agenda et des effacements, `lot6-pieces-index-conservation-agenda`)
                    lot6-paie.ts (lot 6) : déplacements des périodes passées laissés à Sage (date de départ)
                    lot6-horaires.ts (lot 6 : horaires de poste d'exemple amorcés)
                    lot6-contrats.ts (lot 6 : historique des contrats amorcé depuis les fiches et les feuilles figées)
+                   lot6-securite.ts (lot 6 : délivrances d'habilitation en vigueur, durée en heures du catalogue)
   seed.ts          Données de démonstration
   avenants.ts      Historique des contrats : lignes écrites par la fiche, le renouvellement d'un CDD et la sortie, brouillons
                    refigés, avenants programmés appliqués à leur date (au démarrage puis toutes les heures)
@@ -99,10 +106,13 @@ server/src/
                    d'import d'un lot (GET /api/paie/lots/:id/fichier, tracé) ; absences-paie.ts : absences d'un lot (éléments
                    déjà émis, réservation, libération, résumé de l'instantané) ; variables-paie.ts : export CSV des variables
                    d'une période (GET /api/paie/variables/:periode, tracé)
+  delivrances.ts   Historique des délivrances d'habilitation (lot 6) : délivrance précédente close au renouvellement
   elements-lot.ts  Registre des éléments de lot (lot 6) : familles réservées, transmises et libérées par le lot (soldes de
                    sortie : soldes-sortie.ts ; déplacements : deplacements-paie.ts) ; vigilance.ts : alerte d'une destination
                    passée à l'orange ou au rouge
   donnees.ts       Données personnelles d'un salarié (droit d'accès) : export RH et téléchargement par l'intéressé
+  conservation.ts  Conservation des dossiers (t016) : dossiers échus, effacement par catégorie et anonymisation en cascade
+                   (REFERENCES), signalement quotidien au service RH ; agenda.ts : .ics des congés et flux d'agenda par jeton (t036)
   pieces.ts        Pièces justificatives : dépôt (local ou GED), description transmise, nettoyage, contrôle d'intégrité ;
                    pieces-routes.ts (envoi et consultation) ; pieces-sauvegarde.ts (fichiers emportés par les sauvegardes)
   confidentialite.ts Coordonnées de la page Confidentialité : GET /api/confidentialite, lisible sans connexion
@@ -117,6 +127,8 @@ server/src/
   index.ts         Démarrage (dans l'ordre : configuration, droits, verrou, migrations, tâches) et routes HTTP
 client/src/
   state/store.tsx  Session, données, navigation, filtres d'écran (ui), dialogue ouvert, notifications, reconnexion
+  state/run.ts     Exécution des actions (réponse, message, relecture) et file des actions interrompues par l'expiration
+                   de la session, rejouées après la reconnexion (sans React : tests/client-run.test.ts)
   state/brouillon.ts Brouillon gardé dans l'onglet pendant une reconnexion Microsoft (page, filtres, dialogue, champs)
   state/url.ts     Sélection et filtres de chaque vue dans l'adresse de la page (paramètres en français, valeurs contrôlées)
   state/actions.ts Actions identiques jamais envoyées deux fois à la fois, garde des boutons (useAgir : double clic)
@@ -132,9 +144,14 @@ client/src/
                    rubriques de paie et export des variables de la période, écran Temps) ;
                    SuiviFeuilles.tsx (suivi des feuilles semaine par semaine, relance, validation groupée, écran Temps) ;
                    media.ts (requête média suivie), heures.ts (cellule d'heures, vue « un jour ») ;
-                   Cliquable.tsx (bouton « Ouvrir » d'une ligne cliquable, carte sélectionnable CartePick)
+                   Cliquable.tsx (bouton « Ouvrir » d'une ligne cliquable, carte sélectionnable CartePick) ;
+                   tri.ts et TriListe.tsx (tri par colonne, pagination de 50 lignes, en-tête ThTri, pied SuiteListe) ;
+                   recherche.ts, combobox.ts et ChoixCollaborateur.tsx (suggestions de collaborateurs, combobox des dialogues)
   listes-csv.ts    Exports CSV des listes (annuaire, registre des habilitations, soldes, absences, plan de formation)
+  formations-csv.ts Exports CSV des indicateurs de formation et des formations suivies (lot 6)
+  passeport.ts     Passeport formation imprimé (fiche et portail) ; titre-habilitation.ts : titre d'habilitation à signer
   layout/Shell.tsx Barre latérale, en-tête, notification ; layout/Reconnexion.tsx : session expirée, par-dessus l'écran ;
+  layout/Shell.tsx Barre latérale, en-tête, notification ; layout/RechercheGlobale.tsx : recherche de l'en-tête (suggestions) ; layout/Reconnexion.tsx : session expirée, par-dessus l'écran ;
                    layout/Tiroir.tsx : menu en tiroir sur écran étroit ; layout/navigation.ts : titre de l'onglet, focus
                    sur le titre après un changement de page
   pages/           Un fichier par écran ; pages/parametres/ : une section de l'écran Paramètres par fichier (sections.tsx)
@@ -144,8 +161,11 @@ design/            Prototype Claude Design de référence, guide du design syste
                    maquette (maquette-handoff.zip, seule archive suivie : *.zip est ignoré ailleurs)
 deploy/            Fichiers d'installation prêts à copier (unités systemd, Caddyfile, copie externe), identiques à la doc
 Dockerfile         Image facultative (hébergeur à conteneurs) ; .dockerignore
-scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Windows compris)
-.github/workflows/ ci.yml : npm ci puis npm run check, Node de .nvmrc
+scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Windows compris), e2e-serveur.mjs (serveur
+                   des tests de bout en bout : base jetable, date figée)
+e2e/               Tests de bout en bout Playwright par rôle (playwright.config.ts : Chromium, Edge, téléphone simulé)
+.oxlintrc.json     Contrôle du code (npm run lint, oxlint)
+.github/workflows/ ci.yml : npm ci puis npm run check, Node de .nvmrc ; tâche e2e séparée, non bloquante
 ```
 
 ## Flux de données
@@ -473,6 +493,21 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
     n'a pas d'API JavaScript (pas de règle `no-floating-promises` de typescript-eslint) : le script lit l'arbre
     syntaxique avec l'analyseur d'oxc fourni par rolldown (installé avec Vite). Exception justifiée : commentaire
     `// await-ok: <raison>` sur la ligne.
+  - *Lot 6 complet.* Les vagues 2 et 3 du lot 6 sont converties de même : délégations des validations (`delegations.ts`,
+    annonce dans la transaction de `tachesEmails`), délivrances d'habilitation, formations suivies (les bénéficiaires
+    d'une action du plan sont écrits par un rappel asynchrone rendu par `controlerBeneficiaires`), forfait jours
+    (famille `rachats` du registre des éléments de lot), fractionnement, conservation des dossiers et agenda, migrations
+    nommées du lot 6, tests et banc de rendu du client (`tests/outils/banc-client.ts`). Les règles de `shared/` restent
+    synchrones : quand l'une demande une donnée de la base par une fonction (`aDesDonnees` de `categoriesEchues` et
+    `categoriesDroitEffacement`), la valeur est lue d'avance (`quantitesAEffacer` ; pour `dossiersEchus`, seulement pour
+    les catégories échues sans regarder les données, comme le faisait l'appel à la demande). Le flux de l'agenda
+    (`GET /api/agenda/<jeton>.ics`) s'exécute en `enSerie` (jeton, fiche, compte, flux et date du dernier accès d'un seul
+    tenant) ; le passage quotidien de la conservation lit le jour du dernier passage dans la transaction qui le note
+    (deux passages simultanés n'en font qu'un). Le SQL brut de ces modules est commun aux deux moteurs (voir « Accès à la
+    base : PostgreSQL ») : effacement des dossiers d'après le type déclaré de chaque colonne (valeur « renseignée »,
+    case décochée à FALSE), balayage de l'identité ligne par ligne par la clé de la table (pas de `rowid`), clé d'une
+    déclaration par `Db.jsonCle` ; leurs tests tournent sur les deux moteurs (`nouvelleBase()`), sauf les migrations
+    nommées et le banc de rendu du client (SQLite).
 - **Accès à la base : PostgreSQL** (sous-étape 8.b, Matrix `docs/architecture-postgres.md` § 4 et § 8). Avec
   `DATABASE_URL`, `openDb()` ouvre le serveur PostgreSQL commun EPC2I (base `epc2i`, rôle `cursus_app`, schéma
   `cursus`) par l'adaptateur `PgDb` (`server/src/db-pg.ts`, pilote `pg`) ; sans elle, SQLite comme avant. Même API `Db` :
@@ -487,8 +522,11 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
     prend le même verrou au niveau de la session pour toute la suite, requêtes validées une à une (une réponse HTTP ne
     part jamais avant la validation de ce qu'elle annonce) ; `lecture` : `REPEATABLE READ READ ONLY` (un seul état de
     la base pour `loadFull`). Les requêtes d'une même portée passent l'une après l'autre sur sa connexion.
-  - *Schéma.* `server/migrations-pg/` : `0001_init.sql` (50 tables, état final de `TABLES`) et `0002_partage.sql` (vues
-    `pub_` lues par Matrix et les autres outils, sans colonne sensible ni GRANT : les droits viennent du socle).
+  - *Schéma.* `server/migrations-pg/` : `0001_init.sql` (50 tables, état final de `TABLES` avant l'étape 2 du lot 6),
+    `0002_partage.sql` (vues `pub_` lues par Matrix et les autres outils, sans colonne sensible ni GRANT : les droits
+    viennent du socle) et `0003_lot6_etape2.sql` (étape 2 du lot 6 : 7 tables, 57 en tout, colonnes ajoutées, nature
+    d'absence `CET` ; sur une base déjà remplie, majoration de nuit figée et délivrances en vigueur reprises en SQL) et `0004_pub_absences.sql` (vue `pub_absences`, demande CU-1 de Crucible : matricule, dates, statut validée ou
+    demandée, annulation, `maj_le` posée par un déclencheur ; jamais le type ni le motif ; lecteurs accordés par Matrix).
     Appliquées au démarrage sous `pg_advisory_lock(hashtext('cursus.migrations'))`, pris avant de lire le journal
     `cursus.schema_migrations`, une transaction par fichier ; une migration du journal inconnue de ce code (base mise à
     jour par une version plus récente) ou un schéma `cursus` absent : refus de démarrer. Puis `TABLES` est comparé au
@@ -501,7 +539,8 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
   - *SQL portable.* Le SQL brut est commun aux deux moteurs : `TRUE` / `FALSE`, `IS DISTINCT FROM`, `CAST(? AS …)` pour
     un paramètre qui peut être nul, alias camelCase entre guillemets (`emp_id AS "empId"`), `ON CONFLICT … DO UPDATE`.
     Fragments propres au moteur fournis par `Db` : `contientEntier` (tableau JSON d'entiers), `like` (ILIKE),
-    `jsonTexte` (texte d'une colonne JSON), `jsonCleEgale` (clé d'un objet JSON).
+    `jsonTexte` (texte d'une colonne JSON), `jsonCleEgale` (clé d'un objet JSON comparée à un paramètre), `jsonCle`
+    (texte d'une clé d'un objet JSON).
   - *Démarrage* (`server/src/demarrage.ts`). SQLite : reprises historiques et migrations nommées. PostgreSQL : le schéma
     part de l'état final ; une base neuve reçoit les amorçages des migrations nommées (activités internes, activité
     formation, horaires de poste d'exemple), puis le rattachement des fiches aux postes, rejoué à chaque démarrage. Le
@@ -609,14 +648,31 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
 
 ## Vérification du code
 
-`npm run check` = `typecheck`, `test:coverage`, `build` : ce que la CI exécute (`.github/workflows/ci.yml`, après
-`npm ci`, Node de `.nvmrc`, essai non bloquant sur Node 24, `dist/` publié en artefact). `test:coverage` mesure la
-couverture des lignes, branches et fonctions du serveur et de `shared/` (`client/`, `tests/` et `scripts/` exclus tant
-que le client n'a pas de tests de rendu) et échoue sous les seuils écrits dans le script (`--test-coverage-lines`…),
-fixés juste sous la mesure du jour : les relever quand des tests s'ajoutent, jamais les baisser pour faire passer un
-ajout non testé. Les serveurs lancés par les tests avec l'environnement du test sont mesurés aussi. `typecheck` comprend
-le contrôle des promesses non attendues (`scripts/verifier-await.mjs`, voir « Accès à la base »). Un contrôle de style
-(lint) s'ajoutera à `check` quand il existera. `@types/node` suit Node 22.
+`npm run check` = `lint`, `typecheck`, `test:coverage`, `test:client`, `build` : ce que la CI exécute
+(`.github/workflows/ci.yml`, après `npm ci`, Node de `.nvmrc`, essai non bloquant sur Node 24, `dist/` publié en
+artefact). `test:coverage` mesure la couverture des lignes, branches et fonctions du serveur et de `shared/` (`client/`,
+`tests/` et `scripts/` exclus : le client est mesuré à part) et échoue sous les seuils écrits dans le script
+(`--test-coverage-lines`…), fixés juste sous la mesure du jour : les relever quand des tests s'ajoutent, jamais les
+baisser pour faire passer un ajout non testé. Les serveurs lancés par les tests avec l'environnement du test sont
+mesurés aussi. `typecheck` comprend le contrôle des promesses non attendues (`scripts/verifier-await.mjs`, voir « Accès
+à la base »). `@types/node` suit Node 22.
+
+Contrôle du code (t163) : `npm run lint` lance oxlint (`.oxlintrc.json`), et non ESLint : TypeScript 7 (version native)
+n'expose pas l'API JavaScript dont typescript-eslint a besoin, alors qu'oxlint analyse seul le TypeScript et le JSX.
+Catégorie « correctness » bloquante (plugins typescript, react, import, unicorn, oxc) ; `react/rules-of-hooks` bloquant ;
+`react/exhaustive-deps` en avertissement (signalé, non bloquant) : un cas voulu se justifie dans le code par
+`// oxlint-disable-next-line <règle> -- <raison>`, comme les quelques exceptions existantes (expressions régulières qui
+retirent les caractères de contrôle, remise à zéro de `ErreurRendu`, légende des champs obligatoires de `Dialog`). Les
+règles du React Compiler (`react/refs`, `react/set-state-in-effect`…) sont coupées : Cursus ne l'utilise pas, et elles
+visent des idiomes voulus (refs « dernière valeur » des fenêtres modales).
+
+Contrat des actions (t164, étape 1) : chaque famille de `server/src/actions/` est déclarée
+`{ … } satisfies Record<string, ActionHandler>`, ce qui garde ses noms ; `NomAction` (`server/src/actions/index.ts`)
+les réunit et type `run` (`state/store.tsx`), `api.action` (`api.ts`) et `Confirmation.action`
+(`state/confirmations.ts`), par un import de type seulement (rien du serveur n'entre dans l'interface compilée) : une
+faute dans un nom d'action est une erreur de `tsc`. `tests/actions-contrat.test.ts` relève en plus les noms écrits dans
+les sources du client et les gabarits (`hab.${action}`) et vérifie qu'ils existent dans `ACTIONS`. Les contenus
+(`ActionPayloads`) ne sont pas encore typés : le serveur les contrôle à l'exécution.
 
 Modules du client sous `node --test` (t159, étape 1) : les modules sans JSX s'importent directement depuis `tests/`
 (Node n'enlève que les types). `tests/outils/client-node.ts`, importé en premier, fait le reste sans dépendance :
@@ -624,6 +680,33 @@ Modules du client sous `node --test` (t159, étape 1) : les modules sans JSX s'i
 `run` espionné), `*.css?url` remplacé par son chemin, et `rendreHook` rend un hook par `react-dom/server` (sans DOM :
 les effets ne s'exécutent pas, leur logique sort dans une fonction testée directement, comme `suivreMedia` de
 `components/media.ts` et `placerPanneau` de `components/panneau.ts`). Exemple : `tests/client-modules.test.ts`.
+
+Exécution des actions et rendu (t159, étape 2) : la logique de `run` (réponse, message, attente de la reconnexion après
+un 401 puis rejeu dans l'ordre, abandon « action non enregistrée », 409 qui fait suivre la session, relecture après un
+refus, double envoi) est sortie de `state/store.tsx` dans `state/run.ts`, testée sans React par
+`tests/client-run.test.ts`. Les dialogues et écrans se rendent sous `node --test` sans Vite (un seul lanceur) :
+`tests/outils/rendu.ts`, importé en premier, pose le DOM de happy-dom (`@happy-dom/global-registrator`) avant React,
+compile les `.tsx` à la volée (transformateur oxc fourni par rolldown, que Vite installe), avec carte des sources pour la
+couverture ; `@testing-library/react` rend, cherche par rôle et libellé, clique et saisit. `tests/outils/banc-client.ts`
+monte l'écran sur une base de démonstration en mémoire : `run` exécute la vraie action du serveur avec les droits de la
+personne, et l'écran se redessine avec l'instantané renvoyé. `tests/client-dialogues.test.ts` : refus avec motif
+(dialogue « confirmer »), demande et validation de congé, feuille de temps saisie et soumise, réouverture d'une feuille
+(motif obligatoire, administrateur RH seul), sortie, inscription. `npm run test:client` lance `tests/client-*.test.ts`
+avec la couverture de `client/**` seule et ses propres seuils, modestes au départ (lignes 58, branches 62,
+fonctions 48) : la mesure ne compte que les fichiers chargés par ces tests, à relever avec eux.
+
+Tests de bout en bout (t165) : `npm run e2e` (Playwright, `playwright.config.ts`, `e2e/*.spec.ts`), après
+`npm run build`. `scripts/e2e-serveur.mjs` lance le serveur avec `NODE_ENV=test`, `CURSUS_DEMO=1`, une base jetable
+dans un dossier temporaire (effacée à l'arrêt), `CURSUS_TODAY=2026-10-10` et le port `CURSUS_E2E_PORT` (4310) ; chaque
+test repart du jeu de démonstration (`demo.reinitialiser`, d'où un seul test à la fois) et échoue sur toute erreur de la
+console (violation de la CSP comprise). Projets : `chromium`, `msedge` (canal Edge ; `CURSUS_E2E_SANS_EDGE=1` sur un poste
+sans Edge) et `telephone` (Pixel 7 : menu en tiroir, feuille de temps jour par jour). Parcours : compte local (mot de
+passe provisoire puis changement), collaborateur (feuille de temps, congé à la demi-journée), manager (validation de la
+feuille et du congé, refus avec motif, inscription à une session), RH (refus d'une demande avec motif, réouverture avec
+motif, sortie, export CSV téléchargé). La connexion Microsoft n'y figure pas : elle se teste avec le faux fournisseur
+(`tests/microsoft.test.ts`) en attendant l'inscription réelle. CI : tâche `e2e` séparée, non bloquante au début, qui
+publie `playwright-report/`. `CURSUS_E2E_CHROMIUM` désigne un Chromium déjà installé (poste sans téléchargement des
+navigateurs de Playwright) ; `CURSUS_DIST` sert une interface compilée ailleurs que dans `dist/`.
 
 Dépendances (t161) : `npm run audit` (`npm audit --omit=dev --audit-level=high`) est une étape de la CI, bloquante,
 après `check` ; l'audit de toutes les dépendances y est seulement informatif (`continue-on-error`). Il reste hors de
@@ -661,6 +744,30 @@ un dossier hors du dépôt (`CURSUS_CAS_PAIE`, chemin absolu). Format et règles
   comprise) et « Changer de compte » remettent l'adresse à « / » : la personne suivante ne reprend pas l'écran de la
   précédente. Les valeurs par défaut de `PARAMS_URL` sont celles de `INITIAL_UI` (contrôlé par le test). « Copier le lien »
   (`components/CopierLien.tsx`) sur la fiche et la feuille de temps. Un nouveau filtre partageable s'ajoute à `PARAMS_URL`.
+- Tri et pagination des grandes listes (t145, `components/tri.ts`, `components/TriListe.tsx`) : une table des colonnes
+  triables (`parTexte` : ordre alphabétique français ; `parNombre`, `parDate` : date ISO ou Date ; `parRang` : rang d'un
+  statut), `useTri('<écran>.<liste>')` et `<ThTri t={t} col="…">` dans l'en-tête (bouton, `aria-sort` sur la seule colonne
+  triée). Sans clic, l'ordre par défaut de l'écran est gardé ; un clic trie, un deuxième inverse, un troisième revient à
+  l'ordre par défaut ; valeurs vides en dernier, égalités dans l'ordre par défaut. Le tri se garde par liste dans
+  `ui.tris` (pas dans l'adresse). `usePagination(lignes, filtres)` affiche 50 lignes (`TAILLE_PAGE`, sans réglage) au-delà
+  de 50, puis « Afficher 50 de plus » ou « Tout afficher » (`<SuiteListe>`), et revient aux 50 premières quand le résumé
+  des filtres change. Un export CSV prend toutes les lignes filtrées et triées, jamais la seule page affichée. Écrans :
+  Congés & absences (soldes : recherche nom, poste ou matricule, équipe ; absences : état, type, période ;
+  `pages/absences-filtres.ts`), Collaborateurs, Habilitations, renouvellements de l'équipe (Formations), Échéances (dans
+  chaque mois), suivi des feuilles (Temps, tri seulement), comptes (Paramètres).
+- Recherche de collaborateurs (t152, `components/recherche.ts`) : même texte cherché que l'annuaire (`texteRecherche` de
+  `shared/format.ts` : nom, poste, équipe, matricule de paie, EMP-xxxx ; accents et casse ignorés), dans le jeu de
+  données du rôle, sans API. L'en-tête (`layout/RechercheGlobale.tsx`) propose 8 suggestions au plus : Entrée ou un clic
+  ouvre la fiche (`go('collaborateurs', { selectedId, search: '' })`), « Voir tous les résultats » ouvre l'annuaire
+  filtré ; dans les deux cas, les filtres d'équipe et d'état de l'annuaire reviennent à « tous » (`ANNUAIRE_SANS_FILTRE`),
+  pour que la fiche s'y trouve et que le compte soit celui des lignes ; ouverte au service RH, aux profils de l'espace RH qui ont l'annuaire et au manager (son équipe, sans
+  lui-même) ; raccourci « / » hors d'un champ, Ctrl+K ou Cmd+K (jamais pendant un dialogue). Une liste de salariés dans
+  un dialogue ou un filtre est un `<ChoixCollaborateur id=… emps=… valeur=… onChange=…>` (combobox ARIA 1.2 : flèches,
+  Entrée, Échap qui referme d'abord la liste ; `vide` : option « aucun » ; `requis`, `erreur` du Field) et non un
+  `<select>`. Sa valeur ne désigne jamais une autre personne que le texte (`components/combobox.ts`) : un nom complet tapé
+  choisit la personne ; un champ `requis` quitté sur une saisie partielle passe à « aucun » et la vérification du
+  formulaire le signale ; un filtre revient au choix affiché. Champs concernés : Signaler et Saisir une absence, « Pour » des demandes du manager, salarié de la feuille de temps, salarié
+  du journal.
 - Dialogue ouvert depuis un autre : `<Dialog fermer={…}>` y revient au lieu de se fermer (Annuler, Échap, fond). « Créer
   une session » depuis « Planifier » (t107) passe le dialogue d'origine (`retour`) ; la session créée y est présélectionnée
   (`dialogs/retour-session.ts`).
@@ -838,6 +945,8 @@ aucun champ du paramètre n'est recopié.
 | `equipe.supprimer` | nom | administrateur RH |
 | `equipe.manager` | nom, managerId (null = aucun) | RH |
 | `equipe.modifier` | nom, nouveau? (absent : inchangé), managerId? (null = aucun ; absent : inchangé) : renommage puis manager dans une seule transaction, avec les contrôles de `equipe.renommer` et `equipe.manager` ; un refus n'enregistre rien (dialogue de l'équipe) | RH |
+| `equipe.delegation` | managerId (service RH ; le manager : lui-même, espace manager ou collaborateur), suppleantId (défaut : son N+1), du, au (bornes comprises), perimetre (`absences`, `feuilles` ; `entretiens` si le réglage `delegationEntretiens` l'ouvre) : contrôles de `controleDelegation` (shared/rules/delegations-manager.ts : manager d'une équipe, suppléant présent sur toute la période et autre que lui, 92 jours au plus, fin à partir d'aujourd'hui, aucun chevauchement avec une autre délégation du manager, ni délégation transmise, ni validation croisée nouvelle), suppléant avec un compte actif ; suppléant prévenu (e-mail `delegation.debut` avec les demandes déjà en attente si elle commence aujourd'hui, sinon `delegation.prevue` puis `delegation.debut` le premier jour) ; manager prévenu si le service RH l'enregistre ; journal : identifiants, dates, codes du périmètre | RH, manager (pour lui-même) |
+| `equipe.revoquerDelegation` | id : délégation en cours ou à venir, révoquée aussitôt (`revoqueeLe`, horodatage) ; suppléant prévenu (`delegation.fin`) ; une délégation terminée est refusée | RH, manager qui a délégué |
 | `equipe.parente` | nom, parente (nom d'une autre équipe ; null ou vide : aucune) : contrôles de `shared/rules/hierarchie.ts` (équipe existante, ni elle-même ni une équipe qui lui est rattachée, 4 niveaux au plus), refus si deux salariés devenaient chacun le valideur de l'autre ; demandes de congés, feuilles soumises et entretiens planifiés dont le valideur change listés dans le message, nouveau valideur prévenu (e-mail `hierarchie.redirection`), journal : identifiants, ancien et nouveau valideur ; renommer l'équipe parente met à jour ses équipes rattachées, la supprimer est refusé tant qu'une équipe y est rattachée | RH |
 | `equipe.affecter` | empId, equipe (null = à affecter) | RH ; manager : ajout à une équipe qu'il encadre d'un salarié « à affecter » (libéré par son manager) ou d'un membre d'une autre de ses équipes, retrait d'un membre — jamais le membre d'une autre équipe : sa mutation relève du RH ; jamais un salarié mineur dans une équipe de nuit ou en continu |
 | `plan.inscrire` | empId, certId (recyclage) ou inscriptionId (formation initiale à replanifier), sessionId, conv (`now`/`later`) ; refusé depuis une session passée non clôturée, et si le salarié est absent ou inscrit à une autre session ce jour-là ; convocation reçue pour l'ancienne session à venir annulée par e-mail | RH, référent HSE, manager direct |
@@ -851,13 +960,16 @@ aucun champ du paramètre n'est recopié.
 | `session.modifier` | id, date? (postérieure à aujourd’hui ; session passée, à clôturer : aussi une date passée ; seule, la plage est décalée d’autant), fin?, jours?, horaires? (comme `session.creer` ; nouveau dernier jour sans jours : jours ouvrés), lieu?, places? (≥ inscrits) | RH, référent HSE |
 | `session.annuler` | id, motif? | RH, référent HSE |
 | `session.cloturer` | id (à partir du dernier jour de la session), participants [{empId, present, reussi?}], note? (1 à 5), commentaire?, coutReel? (de l'action du plan qu'elle réalise, service RH seulement ; coût prévu par défaut et pour le référent HSE) | RH, référent HSE |
-| `hab.delivrer` | empId, h, date, par, mode | RH, référent HSE |
+| `hab.delivrer` | empId, h, date, par, mode ; renouvellement : délivrance précédente close à l'historique (`habDelivrances`, mesure figée, jamais le motif) | RH, référent HSE |
+| `formationSuivie.enregistrer` | empId, f (code du catalogue) ou libelle (hors catalogue, 120 caractères), du, au? (du par défaut ; ni l'un ni l'autre à venir), duree? (heures, 0,25 à 2 000), organisme?, obligatoire? (défaut : formation « Réglementaire » du catalogue ; hors catalogue : non), demandeId? (demande hors catalogue acceptée du même salarié, une fois : origine `demande`) ; même formation ou même intitulé le même premier jour : refus ; journal : codes, dates, durée, case, jamais l'intitulé ni l'organisme | RH, référent HSE |
+| `formationSuivie.modifier` | id, champs d'`enregistrer` (absents : inchangés), motif (obligatoire, 500 caractères, jamais au journal) | RH, référent HSE (jamais la sienne) |
+| `formationSuivie.annuler` | id, motif (obligatoire) : gardée en base, hors des calculs ; une demande qu'elle clôt redevient à clore | administrateur RH (jamais la sienne) |
 | `hab.suspendre` | empId, h, motif, date? (aujourd’hui par défaut) | RH, référent HSE ; manager pour un membre de son équipe (jamais lui-même) |
 | `hab.lever` | empId, h | RH, référent HSE |
 | `hab.retirer` | empId, h, motif, date? | RH, référent HSE |
-| `referentiel.formation.enregistrer` | code (création) ou id (modification : le code ne change pas), nom, court, type, validite (mois, 1 à 240), duree?, organisme?, cout?, validation (`presence`/`evaluation`) ; message : titres devenus échus si la validité change, ligne du journal rattachée à leurs titulaires | RH, référent HSE |
+| `referentiel.formation.enregistrer` | code (création) ou id (modification : le code ne change pas), nom, court, type, validite (mois, 1 à 240), duree?, dureeHeures? (t122 : 0,25 à 2 000 ; absente : inchangée, vide : effacée), organisme?, cout?, validation (`presence`/`evaluation`) ; message : titres devenus échus si la validité change, ligne du journal rattachée à leurs titulaires | RH, référent HSE |
 | `referentiel.formation.archiver` | id, archive? (faux : rétablie) ; refusé tant qu'une habilitation en vigueur l'exige en prérequis ou qu'une session est ouverte ; message : demandes des collaborateurs restées en attente | RH, référent HSE |
-| `referentiel.habilitation.enregistrer` | code ou id, nom, detail?, prereqs (formations du catalogue en vigueur ; une habilitation archivée garde ceux déjà inscrits, archivés depuis), medical, validite, signataire (proposé à la délivrance) ; message : titres devenus échus, ligne du journal rattachée à leurs titulaires | RH, référent HSE |
+| `referentiel.habilitation.enregistrer` | code ou id, nom, detail?, prereqs (formations du catalogue en vigueur ; une habilitation archivée garde ceux déjà inscrits, archivés depuis), medical, validite, signataire (proposé à la délivrance), modele? (t115 : `generique`/`electrique`/`conduite`, titre imprimé ; absent : inchangé, générique à la création) ; message : titres devenus échus, ligne du journal rattachée à leurs titulaires | RH, référent HSE |
 | `referentiel.habilitation.archiver` | id, archive? ; rétablissement refusé tant qu'un prérequis est archivé (formation à rétablir d'abord) ; message : titres demandés et demandes restés en attente | RH, référent HSE |
 | `referentiel.destination.enregistrer` | code (pays ISO à deux lettres, pas FR) ou id, pays, visa (`VISA_RULES`), visaSub?, oblig [vaccins], rec [vaccins, sans le DTP], passMois (0 à 24), secu? (vide : selon le code pays), vigilance? (`vert`/`jaune`/`orange`/`rouge`, vide : non renseignée ; absente avec vigilanceLe : inchangée), vigilanceLe? (exigée avec une couleur, pas à venir) ; passage à l'orange ou au rouge : déplacements prévus dans le message et au journal, managers et boîte du service RH notifiés (t068) | RH |
 | `referentiel.destination.archiver` | id, archive? | RH |
@@ -883,12 +995,14 @@ aucun champ du paramètre n'est recopié.
 | `voyage.annuler` | id, motif (obligatoire pour un déplacement venu de Keystone, 500 caractères ; gardé dans Cursus, `annuleMotif`, jamais transmis à Keystone ; remis au salarié dans la copie de ses données) : `annuleLe`, `annulePar` ; déplacement gardé dans l'historique, hors de tous les calculs ; venu de Keystone : `deplacement.annule` mis en file ; déjà annulé ou terminé : 409 | RH |
 | `chantier.grandDeplacement` | id (chantier Keystone en France), grandDeplacement (vrai, faux, null : à qualifier) : qualification de toutes ses missions pour la paie (t031) ; chantier à l'étranger refusé ; journal : code du chantier, avant et après, salariés de ses missions (archive paie) | RH |
 | `employe.contactUrgence` | empId, nom, telephone (les deux, ou aucun : retiré ; téléphone : chiffres, espaces, points, tirets, « + ») : contact d'urgence de la fiche (t068), service RH et intéressé seulement ; journal : salarié, champs masqués | le salarié pour lui-même (portail), RH |
+| `forfait.avenant` | empId, annee, jours (demi-journées), taux (%), signeLe, reference? : avenant de renonciation à des jours de repos d'un forfait jours (t043), seulement avec la référence de l'accord collectif (Paramètres → Forfait jours) ; forfait plus jours rachetés de l'année dans la limite de `forfaitJoursPlafond` (235), majoration d'au moins `forfaitJoursMajorationMin` (10 %), signature passée, au plus tard le 31 décembre de l'année ; jamais pour soi-même ; journal : salarié, année, jours, taux, date, référence masquée (archive paie) | RH |
+| `forfait.annulerAvenant` | id, motif (obligatoire, gardé sur l'avenant, visible du service RH, remis au salarié dans la copie de ses données) : refusée (409) tant que les jours rachetés sont dans un lot à confirmer ; déjà transmis : annulé, à régulariser dans Sage ; journal : identifiant, salarié, motif masqué (archive paie) | RH |
 | `formalite.enregistrer` | empId, kind (`passeport`/`visa`/`vaccin`), numero, expire, dest, visaType, obtenu, v, date | RH (écrit dans le dossier), ou le collaborateur pour lui-même (déclaration en attente, voir ci-dessous) |
 | `voyages.importer` | texte (CSV) ; ligne sans référence : `DD-<n° du déplacement>` (suffixe si déjà prise) ; demandeur : nom du salarié reconnu, sinon tel que saisi (service RH seulement) | RH |
 | `keystone.accepter` / `keystone.refuser` | id ; refus : motif? (conservé dans Cursus, demande et message du journal, jamais transmis à Keystone) | RH (demande en attente ; l'acceptation revalide affectation, chantier actif, destination, effectifs et l'absence de déplacement déjà créé, et est refusée si le salarié est déjà en déplacement ou absent ces jours-là ; la demande reste en base avec statut, date et décideur) |
 | `plan.importer` | texte, exercice, mode (`add`/`replace`) ; exercice clos refusé | RH ; `replace` (supprime les lignes prévues d'origine `import` ; celles issues d'une demande, d'un report ou sans origine sont conservées) : administrateur RH |
 | `budget.enveloppes` | exercice, enveloppes {équipe: montant} ; exercice clos refusé | RH |
-| `plan.avancer` | id, de? (statut affiché : déjà dépassé, rien n'est refait ; revenu à « prévue », refus), coutReel (vers « réalisé », exigé : euros, 0 accepté), effectifReel? ; exercice clos ou action reportée refusés | RH |
+| `plan.avancer` | id, de? (statut affiché : déjà dépassé, rien n'est refait ; revenu à « prévue », refus), coutReel (vers « réalisé », exigé : euros, 0 accepté), effectifReel?, beneficiaires? [empId] avec du, au?, duree? (t116 : formation suivie d'origine `plan` pour chacun, membre de l'équipe de la ligne ou demandeur d'une demande acceptée qui l'a créée ; refus si une session clôturée réalise la ligne) ; exercice clos ou action reportée refusés | RH |
 | `plan.modifier` | id, f? (vide : hors catalogue), libelle?, equipe?, periode? (`T1`…`T4`), effectif? (1 à 1 000), cout? (0 à 1 000 000 €), motif (obligatoire) ; ligne prévue ou engagée d'un exercice ouvert ; une session ouverte rattachée fige la formation | RH |
 | `plan.supprimer` | id, motif (obligatoire) : ligne prévue ou engagée d'un exercice ouvert, sans session ouverte rattachée (l'annuler d'abord) ; gardée en base (`annuleLe`…), hors de l'instantané et des sommes | administrateur RH |
 | `plan.cloturerExercice` | exercice (passé et ouvert : jamais l'exercice en cours), reporter [id] (actions prévues ou engagées à reporter sur l'exercice suivant) | administrateur RH |
@@ -921,7 +1035,7 @@ aucun champ du paramètre n'est recopié.
 | `paie.formatFichier` | separateur? (`;`/`,`/`tab`), colonnes? (matricule, periode, rubrique, quantite chacune une fois ; facultatives, absentes par défaut, une fois au plus : dossier, libelle, debut, fin), formatPeriode? (`AAAA-MM`/`MM/AAAA`/`AAAAMM`/`MMAAAA`), formatDate? (`JJ/MM/AAAA`/`AAAA-MM-JJ`/`JJMMAAAA`), decimale? (`,`/`.`, différente du séparateur), entete?, encodage? (`utf-8` sans BOM par défaut, `windows-1252`) : clé `formatFichierPaie` de la table settings | administrateur RH, paie |
 | `paie.rubrique` | code (RUBRIQUES_PAIE), codeSage?, active?, confirmer? (`true` : confirmé ce jour par la personne connectée ; `false` : confirmation retirée ; un code changé sans `true` repasse « à confirmer ») ; jamais deux unités sur un même code Sage | administrateur RH, paie (écran Temps) |
 | `releve.envoyer` | agence, semaine (lundi, pas à venir) : relevé des feuilles validées des intérimaires de l'agence, envoi ou renvoi (feuilles en attente nommées) | RH, paie |
-| `absence.demander` | empId, kind (`CP`/`RTT`/`RECUP`), du, au, debutDemi, finDemi (`matin`/`apres_midi`, facultatifs) | intéressé ou RH (demande, refusée si ces jours portent des heures sur une feuille validée) ; manager direct (posée et validée, refusée si des heures sont saisies ces jours-là) |
+| `absence.demander` | empId, kind (`CP`/`RTT`/`RECUP`/`CET` : congé pris sur le compte épargne-temps, journées entières, contrôlé sur son solde), du, au, debutDemi, finDemi (`matin`/`apres_midi`, facultatifs ; pas pour `CET`) ; congés payés : avertissements du congé principal et du fractionnement (`shared/rules/fractionnement.ts`), jamais bloquants | intéressé ou RH (demande, refusée si ces jours portent des heures sur une feuille validée) ; manager direct (posée et validée, refusée si des heures sont saisies ces jours-là) |
 | `absence.decider` | id, ok, motif? (refus : `motifRefus`, montré au salarié et à son manager ; jours rendus à une période de CP close : report reçu sur la suivante, `recrediterPeriodesCloses`) | manager direct ou RH, jamais pour sa propre demande (validation refusée si des heures sont saisies ces jours-là ; même décision déjà prise : rien n'est refait) |
 | `absence.signaler` | empId, du, au | intéressé, manager direct ou RH : absence imprévue « à qualifier », en vigueur aussitôt |
 | `absence.saisir` | empId, nature, du, au, justificatif, justificatifLe | RH (absence hors congés validée d’emblée), jamais pour lui-même |
@@ -932,6 +1046,7 @@ aucun champ du paramètre n'est recopié.
 | `report.accorder` | empId, jours, motif (échéance : 31 mai suivant, seul un report légal court au-delà) : jours de la période en cours reportés sur la suivante, dans la limite du solde non encore reporté, appliqués à la clôture | RH, jamais pour lui-même |
 | `conges.cloturer` | type (`CP`/`RTT`), periode (année de prise des CP, année des RTT), lignes? [{empId, decision `reporter`/`perdre`, jours? (report imposé compris)}] (CP) : période terminée ; une ligne déjà clôturée n'est jamais refaite, une ligne sans décision reste à clôturer, un salarié sans solde est clos d'emblée ; une ligne dont une demande de CP de la période est en attente n'est pas close (refus nommant la demande) ; perte refusée pour les jours d'un report imposé ; RTT : soldes perdus (non reportables), salarié dont une demande de RTT de l'année est en attente non clôturé | RH ; jamais sa propre ligne de CP |
 | `conges.informer` | id (arrêt de maladie ou d'accident terminé, dans `retoursAInformer`) : information du salarié sur ses congés à son retour (art. L3141-19-3) — e-mail sans la nature de l'arrêt, ligne `informationsCp` (jours communiqués, date limite, échéance du report), reports légaux qui couraient pendant la suite d'arrêts prolongés jusqu'à 15 mois après l'information ; arrêt en cours, suivi d'un autre arrêt ou retour antérieur à la mise en service refusés ; information déjà donnée pour la fin actuelle de l'arrêt : rien n'est refait (arrêt prolongé depuis : nouvelle information) | RH, jamais pour lui-même |
+| `conges.fractionnement` | periode (année de prise), lignes [{empId, decision `crediter`/`renoncer`, jours? (proposés par défaut ; règle légale : 1 ou 2, accord : par demi-journée, 6 au plus)}] : après la fin de la période du congé principal, salariés proposés seulement (`fractionnementsAProposer` : période suivie, ni clôturée ni déjà décidée ; une ligne déjà décidée entre-temps est ignorée et signalée) ; crédit = report reçu sur la période (`origine` `fractionnement`, jusqu'au 31 mai) ; renonciation du salarié notée sans jour ; une décision par salarié et période (table `fractionnements`) ; règle « aucun jour » : refus ; journal : période, salarié, décision et jours (archive paie) | RH, jamais pour lui-même |
 | `entretien.planifier` | empId, kind, date, nonTenu? ; un seul entretien planifié par type : une nouvelle date le reprogramme (passé avec un compte rendu commencé, seulement avec `nonTenu`, l'évaluateur confirmant qu'il n'a pas eu lieu) ; refusé un jour d'absence du salarié ; convocation par e-mail (`.ics`, même événement à la reprogrammation) | manager direct ou RH (jamais son propre entretien) |
 | `entretien.annuler` | id, confirmer? (exigé si le compte rendu est commencé : supprimé avec l'entretien) ; entretien planifié seulement (clos : 409), retiré ; date à venir : `.ics` d'annulation au salarié (même UID `entretien-<id>`) | évaluateur (manager direct) ou RH, jamais son propre entretien |
 | `entretien.modifier` | id, section?, value?, info? | évaluateur / salarié selon la section (un membre du RH n'évalue pas son propre entretien) |
@@ -939,7 +1054,7 @@ aucun champ du paramètre n'est recopié.
 | `entretien.signer` | id | salarié |
 | `entretien.remettre` | id, mode (`main_propre`/`refus`/`portail`), date? (main propre, refus : de la clôture à aujourd'hui ; portail : le jour même, compte actif exigé, e-mail avec le seul lien vers Cursus) ; une remise sur papier est définitive, une mise à disposition se complète par une remise sur papier | évaluateur (manager direct) ou RH, jamais pour son propre entretien |
 | `entretien.telecharger` | id : premier téléchargement du compte rendu clos, daté (`telechargeLe`) | salarié, depuis son espace |
-| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, santeMiCarriereAge…, cpMaladie, feriesTravaillesAutorises, tauxMajorationFerie, plafondHeuresComplementaires, heuresComplementairesAccord, moyenne12SemainesMax, moyenne12SemainesAccord, contingentHeuresSup, contingentAlerte, contingentAccord, absencesFichierPaie, absencesPaieAPartirDu, piecesStockage, formationRenforceeCode, entretienMiCarriereActif, entretienMiCarriereMois, consultationN2, deplacementsFichierPaie, deplacementsPaieAPartirDu, vigilanceRappelJours), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
+| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, santeMiCarriereAge…, cpMaladie, feriesTravaillesAutorises, tauxMajorationFerie, plafondHeuresComplementaires, heuresComplementairesAccord, moyenne12SemainesMax, moyenne12SemainesAccord, contingentHeuresSup, contingentAlerte, contingentAccord, absencesFichierPaie, absencesPaieAPartirDu, piecesStockage, formationRenforceeCode, entretienMiCarriereActif, entretienMiCarriereMois, consultationN2, deplacementsFichierPaie, deplacementsPaieAPartirDu, vigilanceRappelJours, fractionnementRegle, fractionnementAccord, fractionnementDebut, fractionnementFin, cetPlafondRtt, cetPlafondCp), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture, fractionnement fixé par accord ou écarté sans référence, période du congé principal inversée) : 400, rien n'est enregistré | administrateur RH |
 | `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, santeMiCarriereAge…, cpMaladie, feriesTravaillesAutorises, tauxMajorationFerie, plafondHeuresComplementaires, heuresComplementairesAccord, moyenne12SemainesMax, moyenne12SemainesAccord, contingentHeuresSup, contingentAlerte, contingentAccord, absencesFichierPaie, absencesPaieAPartirDu), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
 | `parametres.feries` | annee (de l'année en cours, 2027 au plus tôt, à deux ans après), solidarite (`pentecote_chomee`/`pentecote_travaillee`/`autre_ferie`/`hors_calendrier`), solidariteFerie? (`autre_ferie` : ni le 1er mai, ni le lundi de Pentecôte, ni un férié qui tombe un samedi ou un dimanche de l'année), nonChomes [codes des fériés, jamais `1er_mai`], motif? (exigé, 409 sinon, pour une année engagée : absences de l'année transmises à la paie ou dans un lot, congés clôturés sur une période qui la couvre ; 500 caractères, service RH seulement, jamais au journal) : clé `calendrierFeries` de la table settings ; message : absences dont le décompte change (salariés rattachés à la ligne du journal) ; même réglage : rien n'est refait | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
@@ -957,6 +1072,9 @@ aucun champ du paramètre n'est recopié.
 | `confidentialite.regler` | responsable?, dpo? (texte, 300 caractères au plus ; vide : effacé, la page renvoie au service RH) ; journal : nom des champs dont la valeur change, jamais leur texte | administrateur RH |
 | `piece.joindre` | jetons (ou jeton) : pièces envoyées par `POST /api/pieces` par le même compte, encore en attente ; objet (`absence`/`certification`/`habTitre`/`declaration`/`voyage`), objetId ; 10 pièces en vigueur au plus par objet ; fonction désactivée : 409. Les mêmes jetons se passent en `pieces` à `absence.saisir`, `absence.qualifier`, `absence.signaler` (intéressé ou RH), `cert.ajouter`, `hab.delivrer` et `formalite.enregistrer` (déclaration du collaborateur ; celle qu'elle remplace lui laisse ses pièces) | absence (hors congés, ni annulée ni refusée) : intéressé, RH ; certification, titre d'habilitation : RH, référent HSE ; document déclaré : intéressé tant qu'il attend, RH ; déplacement : RH ; jamais le manager |
 | `piece.retirer` | id, motif (obligatoire, 500 caractères ; gardé avec la pièce, lu par le service RH et par le salarié dans l'export de ses données, masqué au journal) : description gardée, fichier effacé après la validation de l'action ; le refus d'un document déclaré retire aussi ses pièces | RH ; référent HSE pour une certification ou un titre d'habilitation ; jamais sur son propre dossier |
+| `employe.anonymiser` | ids (1 à 100), motif (obligatoire, 500 caractères ; gardé dans la table `effacements`, jamais au journal), avantEcheance? (droit à l'effacement : un seul salarié, sorti, même fonction désactivée ; catégories sans obligation légale ou échues effacées, identité, titre de séjour, santé et temps gardés jusqu'à leur échéance, 409 si rien à effacer) ; sans `avantEcheance`, fonction activée avec la décision du DPO (409 sinon) et dossiers proposés seulement (409 sinon) : catégories échues effacées, fiche anonymisée à l'échéance du dossier ; 409 tant qu'un solde de sortie est dans un lot à confirmer ; message et journal sans nom | administrateur RH (jamais son propre dossier) |
+| `agenda.creerJeton` / `agenda.revoquerJeton` | — : nouveau jeton (le précédent révoqué), renvoyé une seule fois dans `result`, jamais au journal ; flux désactivé : 409 / révocation de son abonnement | le salarié pour lui-même, depuis l'espace collaborateur ou manager |
+| `agenda.revoquerTout` | — : tous les abonnements révoqués | administrateur RH |
 | `reprise.importer` | type (`salaries`/`soldes`/`certifications`/`visites`/`habilitations`), texte (CSV), colonnes (champ de chaque colonne), dateReprise (soldes), equipes (rapprochement), confirmations (lignes cochées : réembauche sur un matricule, visite sans avis), comptes (comptes Microsoft 365, y compris pour une fiche déjà à jour), fichier ; analyse de `shared/rules/reprise.ts`, seules les lignes retenues par l'aperçu sont écrites ; ses propres soldes refusés (fiche rattachée au compte) ; lot conservé (table `reprises`) ; journal `reprise.<type>` | administrateur RH |
 
 ## Journal des actions
@@ -991,7 +1109,7 @@ Table `journal`, écrite par `server/src/journal.ts` (actions) et `journaliser` 
   ligne par compte et par filtre pendant 15 minutes) ; application des durées de conservation.
 - **Conservation** (décision de l'entreprise) : 1 an pour tout ; au-delà, les actions liées à la paie
   (`ACTIONS_PAIE` : validations des feuilles (une à une ou en groupe) et des absences, prolongations et annulations
-  d'absences, clôtures des congés, corrections d'heures, transmissions à la paie, lots de paie et téléchargements de leur
+  d'absences, clôtures des congés, jours de fractionnement, corrections d'heures, transmissions à la paie, lots de paie et téléchargements de leur
   fichier (`sage.fichier`) et export des variables de la période (`sage.variables`), date de départ des absences dans le
   fichier (`migration.absencesPaie`), sorties et leur annulation, solde de RTT gardé lors d'un changement de régime, renouvellements de CDD et avenants appliqués à leur date) passent dans l'archive (`archivee`), absente de l'écran et
   consultée sur demande par le service RH, et toute ligne est supprimée au bout de 3 ans. Une action ajoutée
@@ -1064,6 +1182,56 @@ entretiens). Une équipe peut désigner une **équipe parente** (`Equipe.parente
   action (le valideur reste le N+1). À l'écran : mention « Lecture seule » (Collaborateurs, Temps, Congés & absences),
   filtre par sous-équipe dans Collaborateurs ; hors des entretiens du manager (`perimetreEntretiens`).
 - `equipes.parente` est déclarée dans `REFERENCES` (server/src/integrite.ts).
+
+## Délégation des validations d'un manager absent (t135)
+
+Pendant ses absences, un manager confie ses validations à un suppléant pour une période datée (table `delegations` :
+manager, suppléant, `du`, `au` bornes comprises, `perimetre`, auteur, révocation, `annonceeLe`). Règles :
+`shared/rules/delegations-manager.ts` ; actions `equipe.delegation` et `equipe.revoquerDelegation`
+(server/src/actions/delegations-manager.ts) ; écrans : Mon espace (le manager pour lui-même, le suppléant pour ce qu'il
+reçoit) et Équipes & managers (service RH ; lecture seule en consultation), `client/src/components/Delegations.tsx`,
+`dialogs/DelegationDialog.tsx`.
+
+- **Valideurs** (`valideursDe`) : le valideur hiérarchique (`Domain.mgrOf`) reste valideur (retour anticipé) ; pendant une
+  délégation de son périmètre, le suppléant s'y ajoute. Pas d'auto-validation : pour le suppléant lui-même, c'est le N+1
+  du manager (`mgrOf` du manager, service RH à défaut). Suppléant proposé : le N+1 du manager (`suppleantPropose`, réponse
+  de l'entreprise « son propre responsable, pour tout »), sinon une personne choisie. Une délégation ne se transmet pas
+  (le suppléant n'a pas lui-même délégué sur la période, et le manager ne remplace personne sur la période). Pas de
+  validation croisée nouvelle (même garde-fou que `croiseeNouvelle` de t136) : un suppléant qui deviendrait, un jour de la
+  période, le valideur de l'un de ses propres valideurs est refusé, par exemple un membre d'une équipe rattachée quand le
+  N+1 délègue, ou un suppléant déjà reçu de son manager quand le N+1 de celui-ci délègue au même.
+- **Périmètre** : congés et feuilles de temps par défaut ; les entretiens seulement si le réglage `delegationEntretiens`
+  (Paramètres → Hiérarchie des managers, désactivé par défaut) les ouvre : le refermer les retire aussitôt
+  (`perimetreEffectif`).
+- **Droits** : `isValidatorOf(ctx, e, perimetre)` et `isManagerOf(ctx, e, perimetre)` (server/src/actions/context.ts)
+  acceptent le suppléant, dans l'espace manager seulement, pour ce périmètre (absences.ts : `absences` ; temps.ts et
+  `temps.validerLot`, `temps.relancer` : `feuilles` ; entretiens, annulation et remise : `entretiens`) ; sans périmètre
+  (fiche, formations, inscriptions), rien ne change. `canAccess` l'accepte pour tout périmètre. L'espace manager est ouvert
+  au suppléant du premier au dernier jour (`espacesDuCompte`, server/src/comptes.ts), refermé dès la révocation.
+- **Périmètre de données** (server/src/dataset.ts) : `deleguesDe` ajoute à `scopeIds` les salariés dont il décide, avec
+  les filtres de l'équipe directe ; sans le périmètre `entretiens`, ni leurs entretiens ni leurs demandes au service RH
+  (`perimetreEntretiens` les écarte aussi à l'écran). `Dataset.delegues` (salarié, manager remplacé, périmètre) sert aux
+  écrans (`client/src/state/delegues.ts`, `decideur`) ; `Dataset.delegations` : toutes pour le service RH et la lecture
+  seule, rien pour le référent HSE et la paie ; ailleurs, celles données ou reçues, celles des managers dont la personne
+  est le N+1 et celle de son propre valideur (« en son absence, … » dans Mon espace). Le manager qui encadre une équipe
+  reçoit hors de l'espace RH `Dataset.suppleantsPossibles` (présents, hors intérim, réduits à l'annuaire : nom, équipe,
+  poste) pour le dialogue de délégation de Mon espace, dont l'instantané n'a que sa fiche (`client/src/state/delegation-saisie.ts`) ;
+  la présence du suppléant sur la période et les validations croisées sont alors contrôlées par le serveur seul.
+- **Signature** : une décision prise par le suppléant est signée « par délégation de X » : message de l'action
+  (`signerDelegation`, server/src/app.ts), journal (`parDelegation` : identifiants des managers remplacés, à côté du nom
+  de l'auteur) et e-mail au salarié (`signature`, server/src/notifications.ts). Ni le N+1 qui décide des demandes du
+  suppléant (il en est le responsable, le manager ne lui a rien délégué), ni une relance des feuilles (pas une décision :
+  `decideParDelegation` ne signe pas) ne sont signés.
+- **Notifications et relances** : demandes de congés et feuilles soumises notifiées aussi au suppléant
+  (`notifierSuppleants`, objet « en l'absence de X ») ; relance des feuilles (`notifierRelanceSuppleants`) ; récapitulatif
+  des échéances : entretiens dus des membres si la délégation les comprend (server/src/relances.ts). Le premier jour, le
+  suppléant reçoit la liste des demandes déjà en attente (`annoncerDelegations`, server/src/delegations.ts, tâches de fond
+  des e-mails ; aussitôt si la délégation commence le jour de sa saisie).
+- **Base** : colonnes `delegations.manager_id` et `suppleant_id` dans `REFERENCES` (server/src/integrite.ts : intégrité et
+  cascade d'anonymisation) ; migration `lot6-hierarchie-delegations` (révoque les délégations impossibles d'une saisie hors
+  de Cursus, et fait refuser la base par une version antérieure) ; export des données d'un salarié : section
+  « Délégations des validations ». Sans délégation, rien ne change : les validations restent au manager, et au service RH
+  à défaut.
 
 ## Contrat et temps de travail
 
@@ -1322,7 +1490,9 @@ d'une fiche antérieure. Règles dans `shared/rules/mineurs.ts` :
 
 Confidentialité (`server/src/dataset.ts`, `naissanceVueManager`) : le manager (membres de son équipe) et les profils
 restreints de l'espace RH reçoivent `naissanceLe: null`, l'année (règle à l'année des congés, transmise comme avant) et
-`mineur` au jour de l'instantané ; pas d'âge exact, qui à côté de l'année trahirait le jour anniversaire. Les sections de
+`mineur` au jour de l'instantané ; pas d'âge exact, qui à côté de l'année trahirait le jour anniversaire. Leurs feuilles
+portent `mineur` (un jour au moins de la semaine) et, seulement quand c'est le cas, `moins16` (repos quotidien de 14 h,
+nuit de 20 h à 6 h), pour que leurs contrôles soient ceux du serveur. Les sections de
 fin de carrière de leurs entretiens sont calculées par le serveur (`finCarriere` de l'entretien), pour que l'évaluateur
 rédige celles que `entretien.modifier` accepte. Le journal nomme `naissanceLe` parmi les champs modifiés, sans sa valeur.
 
@@ -1341,8 +1511,10 @@ par jour et cessent d'elles-mêmes le jour des 18 ans (date complète), ou le 1e
 - **Repos** (alertes, `repos` de `SheetCalc`, comme le repos hebdomadaire des majeurs) : heures le dimanche (art.
   L3164-5, sans dérogation pour l'industrie chimique, même quand l'équipe a une dérogation au repos dominical) ; à défaut,
   semaine sans deux jours consécutifs sans heure (art. L3164-2), le samedi travaillé laissant possible un repos dimanche
-  et lundi suivant, que l'alerte invite à vérifier. Faute d'horaires, ni le repos quotidien de 12 h (art. L3164-1) ni la
-  pause de 30 min (art. L3162-3) ne sont contrôlés.
+  et lundi suivant, que l'alerte invite à vérifier. Avec un horaire de poste sur la feuille (lot 6,
+  `shared/rules/repos-nuit.ts`) : repos quotidien de 12 h (14 h avant 16 ans, art. L3164-1 ; vues sans la date de
+  naissance : indication `moins16` de la feuille, comme `mineur`, `moins16DeLaSemaine`) et pause de 30 min au-delà de
+  4 h 30 (art. L3162-3), à motiver comme les durées ; sans horaire, ni l'un ni l'autre ne sont contrôlés.
 - **Nuit** (art. L3163-2) : case « travail de nuit ou en continu » de l'équipe (`Equipe.nuit`, colonne JSON pour garder
   `null`, case pas encore renseignée, distincte de « non » ; le schéma déclaratif l'ajoute, sans migration nommée),
   saisie dans le dialogue des exigences communes (Référentiels → Postes : « À renseigner », « Oui », « Non » ; envoyée
@@ -1570,6 +1742,63 @@ Table `postes` (intitulé, `formations` et `habilitations` exigées, `archive`),
 - **Aucune migration nommée** : colonnes nouvelles déclarées dans `TABLES` (vides : décoché, aucun seuil), réglages par
   défaut de `REGLAGES` ; aucune action nouvelle (paramètres ajoutés à `referentiel.poste.enregistrer` et
   `referentiel.equipe.exigences`, journal complété). Démonstration : 4 SST au minimum en Production.
+
+### Formations suivies, titres d'habilitation et heures (lot 6, chantier 4, étape 2)
+
+- **Formations suivies (t116, `shared/rules/formations-suivies.ts`, `server/src/actions/formations-suivies.ts`)** : table
+  `formationsSuivies` (salarié, formation du catalogue `f` ou intitulé hors catalogue `libelle`, du, au, durée en heures,
+  organisme, `obligatoire`, origine `saisie`/`plan`/`demande`/`session`, `planActionId`, `demandeId`, auteur ; correction et
+  annulation motivées comme les certifications). Une formation hors catalogue est « non obligatoire » par défaut, case
+  modifiable. Sources : saisie directe (fiche, service RH et référent HSE), bénéficiaires d'une action du plan réalisée
+  (`plan.avancer`, `PlanRealiserDialog`, membres de l'équipe cochés, demandeur coché d'office), demande hors catalogue
+  acceptée à clore (« Enregistrer la formation suivie », `demandesAClore` ; la ligne du plan créée par l'acceptation, encore
+  prévue ou engagée, est signalée « à passer réalisée »). `origine: 'session'` est réservée : une session du catalogue
+  produit des certifications. Une action du plan d'une formation du catalogue réalisée sans session crée des formations
+  suivies ; la certification se saisit en plus (conformité) et, obtenue du premier jour au dernier plus 7 jours, représente
+  seule la formation au passeport et dans les indicateurs (`suivieCertifiee`, `suiviesHorsCertifications` : pas de double
+  compte). Une demande dont la formation suivie est enregistrée ne se rouvre plus (`demande.reouvrir`, 400) : supprimer
+  d'abord la formation suivie saisie par erreur. Journal de `plan.avancer` : bénéficiaires réellement enregistrés
+  (`result.beneficiaires`), jamais ceux seulement envoyés. Bilan à 8 ans (`obligations()`, `formationNonObligatoireDepuis`) : une
+  certification non « Réglementaire » ou une formation suivie non obligatoire terminée depuis 8 ans évite le risque
+  d'abondement correctif (art. L6323-13). Vues (`server/src/dataset.ts`) : service RH tout (annulées comprises) ; référent
+  HSE, lecture seule, manager (son équipe) et intéressé : en vigueur, sans motif ni auteur ; paie : rien. Fiche
+  (`components/FormationsSuivies.tsx`), portail (« Mes formations suivies »), passeport, export CSV (Plan & budget), copie
+  des données (section « Formations suivies », sans l'auteur pour le salarié). Pas de reprise des historiques existants
+  (réponse « pas encore tranché ») : saisie manuelle, ou plus tard un import CSV de reprise sur le modèle de
+  `shared/rules/reprise.ts`.
+- **Délivrances d'habilitation (t115, `server/src/delivrances.ts`)** : table `habDelivrances`, une ligne par délivrance et
+  par renouvellement (date, signataire `par`, échéance calculée à la délivrance, auteur) ; `habTitres` reste le titre en
+  vigueur (Go / No Go, mesures, pièces). Au renouvellement (`hab.delivrer`, reprise depuis Lucca), la délivrance précédente
+  est close (`remplaceeLe`) avec la mesure en cours figée (suspension ou retrait, date ; jamais le motif) ; un titre
+  délivré avant l'historique y est inscrit au moment où il est remplacé. Migration `lot6-securite-hab-delivrances`
+  (`delivrancesDepuisTitres`, aussi pour la démonstration) : délivrance en vigueur de chaque titre délivré, tracée
+  `migration.habDelivrances` ; les délivrances écrasées avant le lot 6 sont perdues. Fiche et passeport : « Habilitations
+  antérieures ». Vues : celles des habilitations, sans l'auteur hors du service RH ; paie : rien.
+- **Titre d'habilitation imprimé (`client/src/titre-habilitation.ts`)** : modèle au référentiel (`HabType.modele` :
+  `electrique` NF C18-510, `conduite` art. R4323-56 / R489 / R486, `generique` par défaut ; démonstration : électrique et
+  autorisations de conduite), choisi dans `RefHabilitationDialog`. Titulaire (nom, fonction, équipe), intitulé, précision
+  (symboles et domaine de tension, catégories), délivrance et validité, prérequis vérifiés (certification valide à la date
+  de délivrance) et aptitude médicale « vérifiée » si la visite est en cours de validité (jamais l'avis ni les
+  restrictions), mentions du modèle, signatures de l'employeur (`par`) et du titulaire. Imprimé depuis la fiche (« Imprimer
+  le titre », service RH et référent HSE ; seulement un titre en vigueur, `titreImprimable` : jamais retiré, suspendu, échu
+  ou aux prérequis manquants) ou aussitôt après la délivrance (`HabDialog`, case cochée par défaut) ; impression tracée (`POST /api/exports`). Modèles à faire valider par le référent HSE.
+- **Passeport formation (`client/src/passeport.ts`)** : sections communes à la fiche et au portail (« Imprimer mon passeport
+  formation ») : certifications en vigueur et remplacées, habilitations, habilitations antérieures, formations suivies ;
+  impression tracée au journal, rattachée au salarié (le collaborateur sur son propre périmètre).
+- **Durée en heures et indicateurs (t122, `shared/rules/heures-formation.ts`)** : `Formation.dureeHeures` (colonne
+  `duree_heures`), facultative, extraite du texte de la durée quand il en donne une seule (migration
+  `lot6-securite-duree-heures`, `dureeHeuresDe` : « 21 h », « 7 h (MAC) » ; « 2 jours », « 7 h + 7 h », « 2 x 7 h » ou
+  « 7 h par jour sur 3 jours » restent vides, jamais d'estimation), saisie dans
+  `RefFormationDialog`. Heures d'une participation présente : horaires de la session (`heuresSession`), sinon la durée du
+  catalogue ; formation suivie : sa durée, sinon celle du catalogue ; sans l'une ni l'autre, « durée inconnue », signalée.
+  `indicateursFormation(d, exercice)` (année civile) : participations présentes aux sessions clôturées, certifications sans
+  session, formations suivies ; stagiaires, formations et heures par catégorie (`FormationType` ou « Hors catalogue »), par
+  équipe et par statut ; actions du plan hors reportées, réalisées, taux de réalisation, coûts prévu et réalisé. Panneau
+  « Indicateurs de formation » de Plan & budget (`components/IndicateursFormation.tsx`), exports CSV des indicateurs et des
+  formations suivies de l'exercice (`client/src/formations-csv.ts`) ; `csvPlan` gagne « Catégorie » et « Durée (h) ».
+  Indicateurs BDESE seulement (environ 100 salariés : pas de bilan social).
+- **Intégrité et cascade** : `REFERENCES` (`server/src/integrite.ts`) reçoit `emp_id` et `auteur_id` des deux tables, le
+  titre, l'habilitation, la formation, la ligne du plan et la demande.
 
 ## Santé au travail
 
@@ -1807,6 +2036,70 @@ fonction n'efface rien et laisse les pièces jointes consultables.
   remise en place à la restauration), « Exploitation » (contrôle d'intégrité) et « Journal des actions » (l'export des
   données d'un salarié joint le contenu de ses pièces en base64, sans nom stocké ni jeton).
 
+## Conservation des dossiers (t016, lot 6 chantier 7 étape 2)
+
+Décisions de l'entreprise : « Cursus propose, le RH confirme » ; réponse du 18 octobre 2026 : durées préremplies (dossier
+5 ans après la sortie, temps 3 ans, paie 5 ans, titre de séjour 5 ans, santé 5 ans, passeport et visas à la sortie) mais
+**inactives** tant que la référence de la décision du DPO n'est pas saisie. Règles : `shared/rules/conservation.ts` ;
+serveur : `server/src/conservation.ts`, action `employe.anonymiser` (`server/src/actions/conservation.ts`) ; écran :
+Paramètres → Conservation des dossiers (`pages/parametres/Conservation.tsx`, administrateur RH), dialogue
+`dialogs/AnonymiserDialog.tsx`, encart « Dossiers à effacer » du tableau de bord (`components/DossiersEchus.tsx`).
+
+- **Réglages** (section « Conservation des dossiers » de `REGLAGES`) : `conservationActive` (« Proposer les dossiers échus »,
+  décochée), `conservationDecisionDpo` (texte masqué au journal), une durée en années par catégorie
+  (`conservation…Ans`, 0 à 10, 0 : dès le lendemain du dernier jour). `COHERENCE` : activation sans décision du DPO
+  refusée ; dossier 5 ans au moins (registre unique du personnel, art. R1221-26 : identité et titre de séjour) ; aucune
+  catégorie au-delà du dossier (son anonymisation efface tout).
+- **Dossiers échus** (`dossiersEchus`) : salarié sorti (`sorti`), non anonymisé, dont une catégorie échue
+  (`echeanceConservation` : lendemain du dernier jour + durée) a encore des données (`aEffacer` : une catégorie déjà
+  effacée revient si des données y ont été saisies depuis), ou dont le dossier est échu. Transmis dans `Dataset.conservation` à l'administrateur RH seulement ; vide tant que la fonction est inactive.
+- **Effacement par catégorie** (étapes de `etapes`) : passeport et visas (fiche, visas, déclarations et leurs pièces) ;
+  santé (visites, avis, restrictions, suivi, demandes de visite, vaccinations, déclarations) ; titre de séjour ; entretiens
+  (lignes et comptes rendus) ; temps (commentaires et motifs des feuilles, absences, reports, clôtures ; justificatifs
+  d'absence) ; formations (motifs de correction et de mesure, demandes, attestations et titres joints). La paie n'a pas
+  d'effacement propre : lots et soldes de sortie restent, sans nom, après l'anonymisation.
+- **Droit à l'effacement** (`avantEcheance`, `categoriesDroitEffacement`) : salarié sorti seulement ; sont effacées
+  les catégories sans obligation légale (passeport et visas, entretiens, formations) et celles déjà échues ; l'identité
+  (registre unique, 5 ans), le titre de séjour, la santé et le temps restent jusqu'à leur échéance (`obligation` de chaque
+  catégorie, art. 17-3-b du RGPD), listés dans le dialogue et le message ; dossier échu : anonymisation complète.
+- **Anonymisation** (échéance du dossier) : les étapes de toutes les catégories (idempotentes, même déjà effacées), puis la cascade
+  fondée sur `REFERENCES` (`server/src/integrite.ts`) et non sur le seul nom `empId` : chaque colonne qui désigne un
+  salarié a son traitement dans `TRAITEMENTS` (lignes supprimées, textes vidés, ligne gardée, compte fermé, pièces
+  retirées, auteur gardé, référence détachée) ; `tests/conservation.test.ts` échoue si une référence n'en a pas — à
+  rejouer après chaque fusion (délégations, historique des contrats…). Fiche : « Salarié anonymisé n° X » (nom, adresse
+  e-mail, date de naissance complète, matricule de paie, contact d'urgence retirés ; `anonymiseLe`), compte désactivé,
+  identifiant `anonyme-<n°>` (au journal aussi), sessions supprimées. La trace `effacements` est écrite, puis le nom et
+  les adresses e-mail (l'identifiant de connexion seulement s'il est une adresse ; un terme d'un seul mot : 8 caractères
+  au moins) sont remplacés dans les colonnes de texte et JSON du schéma (`retirerIdentite` : journal et son auteur, file
+  d'envoi, notifications, comptes rendus de reprise, auteurs nommés dans d'autres dossiers, motif de l'effacement),
+  quelle que soit la durée du journal. Seules les occurrences délimitées sont remplacées (`motifTerme` : ni lettre,
+  chiffre, « . », « _ », « - » ni « @ » autour) ; la fiche et les comptes d'un autre salarié (réembauche, homonyme), les
+  réglages et le nom des actions du journal ne sont jamais touchés.
+  Heures par projet, absences, certifications, coûts de formation, lots de paie et soldes de sortie restent, sans nom.
+  Trace : table `effacements` (catégories, date, auteur, motif, nombre d'éléments, `avantEcheance`), gardée.
+- **Signalement** (`verifierConservation`, au démarrage puis toutes les heures, un passage par jour) : nouveaux dossiers
+  échus signalés à la boîte du service RH (récapitulatif quotidien) et au journal (`conservation.signalement`, nombre et
+  identifiants) ; rien n'est effacé.
+- **Fichiers et sauvegardes** : les fichiers des pièces retirées sont effacés après la validation (`nettoyerBientot`) ;
+  les sauvegardes gardent les données jusqu'à leur rotation (`docs/SAUVEGARDE.md`).
+
+## Agenda (t036, lot 6 chantier 7 étape 2)
+
+Décision de l'entreprise : tout le monde a une adresse Microsoft 365 (Outlook). `server/src/agenda.ts` :
+
+- **Congés** : la décision d'un congé validé (`absence.decider`, `absence.demander` posée par le manager) joint un `.ics`
+  en journées entières (`icsConge`, UID `absence-<n°>`, demi-journée dans la description) quand le salarié reçoit ses
+  notifications aussitôt (le récapitulatif quotidien ne porte pas de pièce jointe) ; l'annulation d'un congé validé à
+  venir (`absence.annuler`) envoie le même événement annulé (`annulerAgendaConge`, `server/src/notifications.ts`).
+- **Flux personnel** (`GET /api/agenda/<jeton>.ics`, hors session et hors CSRF, après le limiteur de l'API ; débit propre
+  par adresse et par jeton, `DEBIT_AGENDA`) : sessions inscrites, entretiens planifiés, absences en vigueur sous le libellé
+  neutre « Absent » quelle que soit leur nature, déplacements (pays), de 3 mois en arrière à un an en avant ; un
+  VCALENDAR sans METHOD, événements produits par `calendrier` de `integrations/email.ts`. Réglages (section « Agenda ») :
+  `agendaFluxActif` (désactivé par défaut) et `agendaContenu`. Jeton de 256 bits en base64url, montré une seule fois,
+  stocké haché (table `jetonsAgenda`, empreinte SHA-256) ; un jeton inconnu, révoqué, d'un salarié sorti ou anonymisé,
+  d'un compte désactivé, ou un flux désactivé : même 404. Dernier accès noté au plus une fois par heure. Portail : panneau
+  « Mon agenda dans Outlook » (`components/AgendaPortail.tsx`) ; `Dataset.agendaJeton` ne donne que la date de création.
+
 ## Données Keystone
 
 Chantiers, projets, missions et tâches viennent de Keystone par l'API entrante
@@ -1967,8 +2260,44 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   le sens d'une feuille soumise ou validée. Une feuille renvoyée repart des choix et de l'équipe (un jour qui a perdu
   ses heures perd l'horaire proposé, un jour qui en a reçu se le voit proposer), puis se refige. Facultatif : sans horaire, la feuille se
   tient comme avant ; une feuille d'avant les horaires n'en reçoit jamais (aucun contrôle rétroactif). Keystone ne transmet
-  que des heures par jour. Données transmises à tous les espaces (aucune donnée personnelle). Les contrôles du repos de
-  11 h, de la pause et des heures de nuit (étape 2) s'appuieront sur ces horaires.
+  que des heures par jour. Données transmises à tous les espaces (aucune donnée personnelle).
+- **Repos quotidien, pause et travail de nuit** (t048, étape 2 ; `shared/rules/repos-nuit.ts`, appelé par `calcSheet`) :
+  d'après l'horaire de chaque jour (figé, sinon choisi ou proposé par l'équipe), la plage de travail est estimée du
+  début de l'horaire à ce début plus les heures saisies ce jour-là et la pause (des heures en plus la prolongent).
+  Un jour sans horaire n'est pas contrôlé ; une feuille d'avant les horaires n'a ni contrôle ni heure de nuit.
+  - Repos quotidien de 11 h (art. L3131-1 ; 12 h pour un mineur, 14 h avant 16 ans, art. L3164-1) entre la fin d'un jour
+    et le début du suivant, le dimanche de la feuille précédente compris (`veilleDe`) ; pause de 20 min dès 6 h de
+    travail (art. L3121-16 ; 30 min au-delà de 4 h 30 pour un mineur, art. L3162-3), celle de l'horaire. Alertes à
+    motiver (`SheetCalc.reposQuotidien`, dans `depassements`), sans autre blocage, tant que l'accord n'est pas connu ;
+    aucune pour un cadre dirigeant. Le journal de `temps.submit` et `temps.validate` garde leurs codes (`reposNuit` :
+    `repos_quotidien`, `pause`, d'après les horaires figés, sans le dimanche précédent), jamais le motif.
+  - Nuit d'un salarié mineur (de 22 h à 6 h, de 20 h à 6 h avant 16 ans, art. L3163-2) : refusée sans motif possible, au
+    choix de l'horaire (`temps.horaire`, `refusNuitMineur`) comme à la soumission et à la validation (`SheetCalc.nuitMineur`,
+    l'horaire proposé par l'équipe compris).
+  - Heures de nuit (`SheetCalc.nuit`) : la plage de travail dans la plage de nuit réglée (Paramètres → Décompte des
+    heures : 21 h – 6 h par défaut, art. L3122-20 ; 21 h ou 22 h à 6 h ou 7 h, 9 h au moins, art. L3122-2), la pause
+    retirée au prorata, rattachées au jour où commence le poste. Rubriques HNUIT (quantité, comprise dans les heures) et
+    MAJ_NUIT (heures équivalentes au taux `nuitMajoration`, 0 % par défaut, figé sur la feuille à sa validation :
+    `FeuilleTemps.majNuit` ; migration `lot6-horaires-majoration-nuit` : 0 % sur les feuilles déjà validées) ; un forfait
+    jours n'en a pas (décompte en jours). Désactivées par défaut (`inactiveParDefaut`) : tant que la paie ne les a pas
+    activées, elles sortent du fichier mais figurent, salarié par salarié, dans le résumé du lot et l'export des
+    variables comme « à saisir dans Sage » (`SagePush.aSaisir`, famille `nuit`, rempli par `buildSagePayload`). Le lot
+    garde par feuille ce qu'il a listé (`RubriquesFeuille.aSaisir`, `nuitASaisirDeLaFeuille`), que la réouverture reprend
+    (`ReouvertureFeuille.aSaisir`) : une feuille régularisée liste l'écart, positif ou négatif, détail « régularisation »
+    (rappel d'une période close sur la période ouverte) ; rubrique activée depuis, la quantité saisie à la main est à
+    retirer, le fichier emporte la nouvelle.
+  - Travailleur de nuit (`statutNuit`, art. L3122-5) : sur les feuilles validées, deux semaines au moins parmi les quatre
+    dernières validées qui comptent chacune deux jours d'au moins 3 h de nuit (lecture de « deux fois par semaine, selon
+    son horaire habituel » ; une feuille sans horaire compte comme une semaine sans nuit, si bien que des nuits ponctuelles
+    dans une équipe de journée n'en font pas un), ou 270 h de nuit sur 12 mois glissants
+    (art. L3122-23, supplétif) ; seuils réglables avec la référence de l'accord (COHERENCE). Repéré sur la fiche
+    (`components/TravailNuit.tsx`) ; encore en VIP, alerte « Suivi médical adapté à prévoir » (`MedInfo.suiviNuit`,
+    échéance sans date parmi les visites dues, « Demander la visite » ; VIP adaptée, art. R4624-17), sans changer d'office
+    le type de suivi. Calculé sur les feuilles déjà transmises ; le référent HSE, qui ne les reçoit pas, a l'indication
+    `Employe.travailleurNuit` calculée par le serveur.
+  - Réglages (`nuitDebut`, `nuitFin`, `nuitSeuilQuotidien`, `nuitSeuilAnnuel`, `nuitMajoration`, `nuitAccord`, texte
+    masqué au journal) : bloc « Travail de nuit » de Paramètres → Décompte des heures (`components/ReglagesNuit.tsx`) ;
+    plage ou seuils autres que ceux de la loi exigent la référence de l'accord (art. L3122-15 et L3122-16).
 - **Heures complémentaires** : au-delà du dixième de la durée contractuelle (art. L3123-28), ou du tiers avec la
   référence d'un accord (`plafondHeuresComplementaires`, `heuresComplementairesAccord`, art. L3123-20 ; COHERENCE),
   dépassement de `SheetCalc.depassements` : motif exigé à la soumission. Majoration inchangée : 10 % jusqu'au dixième,
@@ -2093,6 +2422,41 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   Les 5 jours de la CCN à partir de 59 ans (`supplementAge`) suivent une seule règle pour la période en cours et les autres :
   accordés dès l'année civile des 59 ans, ils restent acquis à la période une fois passée (sans quoi les jours pris dessus
   seraient repris par anticipation sur la suivante au 1er juin).
+- **Congé principal et fractionnement** (lot 6, t046, `shared/rules/fractionnement.ts`, Paramètres → Fractionnement des
+  congés) : période du congé principal réglable (`fractionnementDebut`, `fractionnementFin`, du 1er mai au 31 octobre par
+  défaut). Seuils légaux en jours ouvrables, Cursus en jours ouvrés : 5 ouvrés valent 6 ouvrables (24 ouvrables = 20 ouvrés,
+  12 = 10, 6 = 5, 3 = 2,5). Calcul par période de CP `A` sur les jours imputés à cette période (`imputationCp`, validés et
+  demandés), comparés à la fenêtre de l'année `A` : un congé du 1er au 31 mai A, imputé à la période A-1 (prise à partir du
+  1er juin), compte hors période pour A-1 ; pris par anticipation sur A, il tombe dans la fenêtre de A. Congé principal :
+  20 ouvrés au plus des droits acquis, sans la 5e semaine ni le supplément d'âge (art. L3141-23). Congés continus
+  (`blocsConges`) : absences de CP qui se suivent réunies (aucun jour décompté entre elles), une demi-journée travaillée
+  coupe. `checkAbsence` avertit, sans bloquer, d'un congé continu de plus de 20 ouvrés (art. L3141-17, dérogations
+  rappelées), d'une demande qui ne laisse plus de quoi prendre la fraction continue de 10 ouvrés dans la fenêtre (art.
+  L3141-18 et L3141-19), et des jours de fractionnement qu'ouvre une demande hors période (règle légale : 2 jours pour
+  6 ouvrables ou plus du principal hors période, 1 pour 3 à 5, crédités en jours ouvrés). « Congé principal à prévoir »
+  (`principauxAPrevoir`, `components/Fractionnement.tsx`) dans les 60 jours qui précèdent la fin de la fenêtre (service RH,
+  manager pour son équipe) ; « Jours de fractionnement à décider » à partir du lendemain (`fractionnementsAProposer` :
+  jours dus si tout le reste du principal se prend hors période, `potentiel`), décidés par `conges.fractionnement`
+  (`dialogs/FractionnementDialog.tsx`) : crédit en report reçu (`ReportCp.origine` `fractionnement`, compté dans `cpDroit`,
+  le solde, la clôture et le solde de sortie), ou renonciation individuelle du salarié (art. L3141-19) ; table
+  `fractionnements` (une décision par salarié et période, `REFERENCES` d'integrite.ts ; une ligne reçue déjà décidée est
+  ignorée et comptée dans le message, les autres sont enregistrées). Réglage `fractionnementRegle` :
+  `legal` (défaut), `accord` (la règle légale reste proposée, à ajuster ; crédit par demi-journée jusqu'à 6) ou `aucun`
+  (renonciation par accord collectif, art. L3141-21 : rien n'est proposé) ; la référence `fractionnementAccord` est exigée
+  hors de la loi (COHERENCE) et masquée au journal. Périodes suivies : fenêtre qui commence à la date d'arrêté des compteurs
+  repris ou après (avant, les congés pris sont des totaux de Lucca) — la première est celle de 2027. Instantané :
+  `fractionnements` au service RH, à la paie et à la lecture seule, à l'intéressé pour lui ; le manager voit le crédit dans
+  les reports reçus de son équipe (sans motif, `reportNeutre`), jamais une renonciation.
+- **Congé pris sur le CET** (lot 6, t127, `shared/rules/conges.ts`) : type de congé `CET`, ouvert dès qu'un jour est épargné
+  (`cetEpargne` : placements et solde repris), journées entières en jours ouvrés (`countedDays` comme un CP), demandé par le
+  salarié et validé par son manager comme un CP, contrôlé sur `cetInfo.solde` (placements + repris − congés pris −
+  demandés), le même solde étant affiché, exporté et liquidé à la sortie (`CET_LIQ` : une demande en attente y compte comme
+  posée, comme pour les CP) ; `cetInfo.total` ne déduit que les congés pris. Plafonds de
+  placement réglables (`cetPlafondRtt`, `cetPlafondCp`, 5 et 5 ; Paramètres → Compte épargne-temps). Paie : rubrique `CET`
+  désactivée et « code Sage à confirmer » ; d'ici là, chaque congé figure nominativement « à saisir dans Sage » dans le
+  résumé du lot et l'export des variables (absence sans code Sage, `elementsASaisir`). Keystone reçoit l'indisponibilité
+  sans la nature. Monétisation (`cet.monetiser`, CET_MON) reportée : elle se branchera sur le registre des éléments de lot
+  quand l'accord CET sera connu.
 - **Entretiens** : `entretien.clore` refuse un entretien prévu à une date à venir, sauf à indiquer le jour où il a eu
   lieu, qui devient sa date (échéance suivante, état des lieux à 8 ans). Cette date n'est pas antérieure au jour de la
   planification ou de la reprogrammation (`Entretien.planifieLe`, `debutCloture`), ni au dernier entretien du même type
@@ -2172,6 +2536,43 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   RH, masqués au journal) et `arianeLe`, modifiables par `voyage.modifier` (Keystone compris, sans le prévenir).
   `employes.urgenceNom`, `urgenceTel` : retirés des vues du manager et des profils restreints, compris dans la fiche de la
   copie des données, mentionnés dans la page Confidentialité.
+
+### Forfait jours : cumul, alertes, avenant de renonciation (lot 6, chantier 2, étape 2 : t043)
+
+Règles : `shared/rules/forfait-jours.ts` ; serveur : `server/src/forfait-jours.ts` (contrôle de la validation, famille
+« rachats » du registre) et `server/src/actions/forfait-jours.ts` ; écrans : `components/ForfaitJours.tsx` (fiche,
+récapitulatif de la feuille, file de validation, jours rachetés en attente sur l'écran Temps), `dialogs/AvenantForfaitDialog.tsx`,
+`pages/parametres/ForfaitJours.tsx`.
+
+- **Cumul** (`cumulForfaitJours`) : jours des feuilles validées de l'année décomptées en forfait jours (régime figé de la
+  feuille), une demi-journée jusqu'à 4 h et une journée au-delà (comme `calcSheet`), ventilés jour par jour (une semaine
+  à cheval sur le 31 décembre compte pour ses deux années, comme `cumulAnnuel`). Cible : le forfait de la fiche au prorata
+  de la présence et des périodes sous forfait jours (historique des contrats) ; cible à date ; jours de repos de l'année
+  (`rttInfo`, inchangé) moins les jours rachetés (`reposForfaitInfo`, affichage seulement : `shared/rules/conges.ts`
+  n'est pas modifié).
+- **Plafond et alertes** : plafond = cible + jours rachetés par les avenants en vigueur de l'année. Alerte à
+  `forfaitJoursAlerte` % (90) sur la feuille, la file de validation et la fiche, et dans le message de validation ; au-delà
+  du plafond, `controleValidationForfait` (un seul appel dans `validerFeuille` de `server/src/actions/temps.ts`, par
+  `controleForfaitJours`) exige le motif du valideur (`motifForfait`, colonne de `feuilles`, 500 caractères, journal :
+  « [texte renseigné] ») ; la validation groupée la refuse et la nomme. La soumission n'est pas concernée.
+- **Avenant** (table `avenantsForfait`, art. L3121-59) : fermé tant que `forfaitJoursRachat` n'est pas coché avec la
+  référence de l'accord (`forfaitJoursAccord`, COHERENCE de `shared/reglages.ts`, art. L3121-63 et L3121-64 ; masquée au
+  journal). Valeurs supplétives réglables : 235 jours au plus (`forfaitJoursPlafond`, art. L3121-66), majoration de 10 %
+  au moins (`forfaitJoursMajorationMin`). Annulation avec motif (texte libre gardé sur l'avenant). Instantanés : service RH
+  complet ; paie et lecture seule sans le motif d'annulation ; manager, pour son équipe directe, année, jours rachetés et
+  dates ; ni majoration, ni référence, ni auteur, ni motif (le plafond affiché à la validation est celui du serveur) ;
+  l'intéressé, les siens sans auteur ; référent HSE, rien (la fiche ne lui montre pas le bloc « Forfait jours »).
+  Export des données du salarié : compris (sans les auteurs pour l'export remis à l'intéressé).
+- **Paie** (famille `rachats` de `FAMILLES`, colonne `lotsPaie.rachats`, `SagePush.rachats`) : rubrique `JREN`, quantité
+  en jours, taux de majoration en détail (export des variables) ; période : mois de la signature ou décembre de l'année
+  (`forfaitJoursJren`), un mois clos partant sur la période ouverte. L'avenant en attente est toujours réservé par le lot
+  de sa période (`lotId`), libéré à son annulation, transmis à sa confirmation ; l'annuler est refusé (409) tant que ce
+  lot n'est pas confirmé. `JREN` désactivée par défaut (code à donner par la paie) : comme un déplacement, l'élément part
+  dans le contenu sans code Sage (`codeSage` null), hors du fichier, listé « à saisir dans Sage » dans le résumé du lot
+  (famille `rachats`) ; la confirmation de ce lot-là le règle hors fichier (`horsFichier`), d'après le contenu figé
+  seulement (`confirmerRachats`) : un avenant enregistré après la génération attend le lot suivant, et une rubrique activée
+  entre la génération et la confirmation ne le renvoie pas dans un autre fichier. Aucune migration : table et colonnes
+  nouvelles seulement.
 
 ## Déplacements modifiés ou annulés
 

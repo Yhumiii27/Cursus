@@ -39,7 +39,7 @@ after(() => {
 async function fresh() {
   const db = await nouvelleBase();
   await seedDemo(db);
-  const compte = async (empId: number | null) => (await db.get<Compte>('comptes', ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id))!;
+  const compte = async (empId: number | null) => (await db.get<Compte>('comptes', ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number }).id))!;
   const user = async (empId: number | null, role: User['role']) => {
     const u = await currentUser(db, { compteId: (await compte(empId)).id, role, methode: 'demo' });
     assert.ok(u, `compte ${empId} dans l’espace ${role}`);

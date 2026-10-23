@@ -1,4 +1,5 @@
-// Délivrer ou renouveler une habilitation, après contrôle des prérequis.
+// Délivrer ou renouveler une habilitation, après contrôle des prérequis ; le titre à signer s'imprime aussitôt après (t115,
+// client/src/titre-habilitation.ts), case cochée par défaut. Un renouvellement garde la délivrance précédente à l'historique.
 import { useState } from 'react';
 import { addMonths, isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt, validiteLabel } from '../../../shared/format.ts';
@@ -9,10 +10,11 @@ import { ChoixPiece, PiecesJointes, usePieceJointe } from '../components/PieceJo
 import { ReferentielVide } from '../components/ReferentielVide.tsx';
 import { useEnriched } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { imprimerTitre, MODELE_TITRE_COURT } from '../titre-habilitation.ts';
 
 export function HabDialog({ empId: empId0, h: h0, mode }: { empId?: number | null; h?: string | null; mode: 'new' | 'deliver' | 'renew' }) {
   const { d, emps, horizon } = useEnriched();
-  const { run, closeDialog } = useStore();
+  const { run, closeDialog, notify } = useStore();
   // Habilitations en vigueur (référentiel), et celle du titre visé même archivée : le serveur dira pourquoi il refuse.
   const habs = d.ds.referentiels.habilitations.filter(x => actif(x) || x.id === h0);
   const [empId, setEmpId] = useState<number>(empId0 ?? d.ds.employes[0]?.id ?? 0);
@@ -20,6 +22,7 @@ export function HabDialog({ empId: empId0, h: h0, mode }: { empId?: number | nul
   const [date, setDate] = useState<string>(d.ds.today);
   const [par, setPar] = useState<string>(d.hm(h0 ?? habs[0]?.id ?? '')?.signataire ?? '');
   const [busy, setBusy] = useState(false);
+  const [imprimer, setImprimer] = useState(true);
   const v = useVerification();
   // Titre d'habilitation signé joint à la délivrance (pièce justificative, components/PieceJointe.tsx).
   const piece = usePieceJointe();
@@ -61,7 +64,9 @@ export function HabDialog({ empId: empId0, h: h0, mode }: { empId?: number | nul
     if (!pieces) { setBusy(false); return; }
     const r = await run('hab.delivrer', { empId: emp.id, h, date, par: par.trim(), mode, ...(pieces.length ? { pieces } : {}) });
     setBusy(false);
-    if (r.ok) closeDialog();
+    if (!r.ok) return;
+    closeDialog();
+    if (imprimer && !imprimerTitre(emp, hm, { delivree: date, par: par.trim() })) notify('Habilitation délivrée — autorisez les fenêtres surgissantes pour imprimer le titre', true);
   };
 
   return (
@@ -90,6 +95,10 @@ export function HabDialog({ empId: empId0, h: h0, mode }: { empId?: number | nul
       </div>
       <PiecesJointes objet="habTitre" objetId={emp.habs.find(x => x.h === h)?.id} label="Titres signés déjà joints" />
       <ChoixPiece piece={piece} id="hab-piece" label="Titre d’habilitation signé (facultatif)" />
+      <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
+        <input type="checkbox" checked={imprimer} onChange={e => setImprimer(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
+        Imprimer le titre à signer après la délivrance ({MODELE_TITRE_COURT[hm.modele ?? 'generique']})
+      </label>
       {blocage ? <Bloquant>{blocage}</Bloquant> : <p className="text-muted fine">{hint}</p>}
     </Dialog>
   );

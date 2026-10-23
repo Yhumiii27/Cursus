@@ -3,6 +3,7 @@
 import { ErreurDialogue, ErreurRendu } from '../components/ErreurRendu.tsx';
 import { useStore, type DialogState } from '../state/store.tsx';
 import { AbsDialog } from './AbsDialog.tsx';
+import { AnonymiserDialog } from './AnonymiserDialog.tsx';
 import { AbsAnnulerDialog } from './AbsAnnulerDialog.tsx';
 import { AbsNatureDialog } from './AbsNatureDialog.tsx';
 import { AbsProlongerDialog } from './AbsProlongerDialog.tsx';
@@ -10,6 +11,7 @@ import { AbsSignalDialog } from './AbsSignalDialog.tsx';
 import { BudgetDialog } from './BudgetDialog.tsx';
 import { CertDialog } from './CertDialog.tsx';
 import { CetDialog } from './CetDialog.tsx';
+import { FractionnementDialog } from './FractionnementDialog.tsx';
 import { ClotureCongesDialog } from './ClotureCongesDialog.tsx';
 import { ClotureDialog } from './ClotureDialog.tsx';
 import { CompteDialog } from './CompteDialog.tsx';
@@ -22,11 +24,13 @@ import { EntPlanDialog } from './EntPlanDialog.tsx';
 import { EquipeDialog } from './EquipeDialog.tsx';
 import { ExerciceClotureDialog } from './ExerciceClotureDialog.tsx';
 import { FormaliteDialog } from './FormaliteDialog.tsx';
+import { FormationSuivieDialog } from './FormationSuivieDialog.tsx';
 import { FormatFichierDialog } from './FormatFichierDialog.tsx';
 import { HabDialog } from './HabDialog.tsx';
 import { HabMesureDialog } from './HabMesureDialog.tsx';
 import { LotImportDialog } from './LotImportDialog.tsx';
 import { MandatDialog } from './MandatDialog.tsx';
+import { DelegationDialog } from './DelegationDialog.tsx';
 import { MembreDialog } from './MembreDialog.tsx';
 import { MotDePasseDialog } from './MotDePasseDialog.tsx';
 import { MotDePasseProvisoireDialog } from './MotDePasseProvisoireDialog.tsx';
@@ -57,6 +61,7 @@ import { TripDialog } from './TripDialog.tsx';
 import { TripImportDialog } from './TripImportDialog.tsx';
 import { TripModifierDialog } from './TripModifierDialog.tsx';
 import { AvisDialog } from './AvisDialog.tsx';
+import { AvenantForfaitDialog } from './AvenantForfaitDialog.tsx';
 import { SuiviDialog } from './SuiviDialog.tsx';
 import { VisiteDialog } from './VisiteDialog.tsx';
 
@@ -102,10 +107,12 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'cet': return <CetDialog {...d} />;
     case 'report': return <ReportDialog {...d} />;
     case 'clotureConges': return <ClotureCongesDialog {...d} />;
+    case 'fractionnement': return <FractionnementDialog {...d} />;
     case 'entPlan': return <EntPlanDialog {...d} />;
     case 'ent': return <EntDialog {...d} />;
     case 'entRemise': return <RemiseDialog {...d} />;
     case 'planRealiser': return <PlanRealiserDialog {...d} />;
+    case 'formationSuivie': return <FormationSuivieDialog {...d} />;
     case 'planLigne': return <PlanLigneDialog {...d} />;
     case 'exerciceCloture': return <ExerciceClotureDialog {...d} />;
     case 'tripImport': return <TripImportDialog />;
@@ -122,12 +129,15 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'refActivite': return <RefActiviteDialog {...d} />;
     case 'refHoraire': return <RefHoraireDialog {...d} />;
     case 'mandat': return <MandatDialog {...d} />;
+    case 'delegation': return <DelegationDialog {...d} />;
     case 'rubrique': return <RubriqueDialog {...d} />;
     case 'lotImport': return <LotImportDialog {...d} />;
     case 'formatFichier': return <FormatFichierDialog />;
     case 'rouvrirFeuille': return <RouvrirFeuilleDialog {...d} />;
     case 'piece': return <PieceDialog {...d} />;
     case 'contactUrgence': return <ContactUrgenceDialog {...d} />;
+    case 'avenantForfait': return <AvenantForfaitDialog {...d} />;
+    case 'anonymiser': return <AnonymiserDialog {...d} />;
     case 'confirmer': return <ConfirmerDialog c={d.c} />;
   }
 }

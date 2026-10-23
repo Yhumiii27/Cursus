@@ -20,7 +20,7 @@ type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 async function fresh() {
   const db = await nouvelleBase();
   await seedDemo(db);
-  const compteId = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
+  const compteId = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number }).id;
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteId(empId), role, methode: 'demo' }))!;
   const run = async (u: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), payload));
   return { db, user, run, RH: await user(null, 'rh') };
@@ -107,13 +107,14 @@ test('information art. 13 du RGPD avant la saisie d’une vaccination : élémen
   assert.match(texte, /service RH seulement/);
   assert.match(texte, /CNIL/);
   assert.match(texte, /9\.2\.b du RGPD/);
-  // Conservation : la règle réellement appliquée (aucune purge ; déclarations et journal gardent les injections
-  // antérieures), la durée restant à fixer par le DPO — rien de ce que l'outil ne fait pas.
+  // Conservation : la règle réellement appliquée (t016 : effacement proposé par Cursus après le départ, confirmé par le
+  // service RH, une fois la durée validée par le DPO ; aucune purge automatique) — rien de ce que l'outil ne fait pas.
   const conservation = INFO_VACCINATIONS.points.find(([k]) => k === 'Conservation')![1];
   assert.doesNotMatch(conservation, /pendant votre contrat|remplace la précédente/);
   assert.match(conservation, /délégué à la protection des données/);
-  assert.match(conservation, /rien n’est encore effacé automatiquement/);
-  assert.match(conservation, /déclarations successives et le journal des actions gardent les précédentes/);
+  assert.match(conservation, /le service RH confirme l’effacement que Cursus lui propose/);
+  assert.match(conservation, /Tant que la durée n’est pas validée, rien n’est effacé/);
+  assert.match(conservation, /déclarations successives gardent les précédentes jusqu’à cet effacement/);
 });
 
 test('envois lus par la lecture seule : l’information au retour d’un arrêt et le récapitulatif qui la contient sont neutralisés', async () => {

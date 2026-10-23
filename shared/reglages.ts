@@ -5,7 +5,9 @@
 import { isValidDate } from './dates.ts';
 import { CONTRATS_EXCLUABLES, PREAVIS_TOUTE_ANNEE } from './rules/campagne.ts';
 import { JOURS_RELANCE, paliersRelance } from './rules/relances.ts';
-import type { Settings, StockagePieces } from './types.ts';
+import { nuitHorsLoi, refusPlageNuit } from './rules/repos-nuit.ts';
+import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesTexte, DOSSIER_MIN_ANS, DUREE_MAX_ANS } from './rules/conservation.ts';
+import type { ContenuAgenda, Settings, StockagePieces } from './types.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
 export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
@@ -187,6 +189,8 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   // — Hiérarchie des managers (parametres/Hierarchie.tsx, t136) : consultation N+2 en lecture seule, désactivée par défaut
   //   (réponse de l'entreprise du 18 octobre 2026) —
   consultationN2: { defaut: false, controle: booleen },
+  //   Délégation des validations (t135) : congés et feuilles de temps ; les entretiens seulement si ce réglage les ouvre —
+  delegationEntretiens: { defaut: false, controle: booleen },
   // — Déplacements dans le fichier de paie (parametres/DeplacementsPaie.tsx, shared/rules/deplacements-paie.ts, t031) :
   //   désactivé par défaut (réponse de l'entreprise du 18 octobre 2026) tant que la paie n'a pas confirmé ses codes ; les
   //   quantités restent calculées, à saisir dans Sage. Date de mise en service : jours d'avant jamais transmis —
@@ -194,6 +198,53 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   deplacementsPaieAPartirDu: { defaut: null, controle: dateOuVide('Déplacements transmis à partir du') },
   //   Vigilance des pays (shared/rules/vigilance.ts, t068) : rappel avant un départ si la vérification a plus de N jours —
   vigilanceRappelJours: { defaut: 30, controle: entier(7, 180) },
+  // — Travail de nuit (components/ReglagesNuit.tsx, dans Paramètres → Décompte des heures ; shared/rules/repos-nuit.ts,
+  //   t048) : valeurs légales supplétives tant que l'accord n'est pas connu — nuit de 21 h à 6 h (art. L3122-20),
+  //   travailleur de nuit à 3 h deux fois par semaine ou 270 h sur 12 mois (art. L3122-5 et L3122-23), majoration à 0 %
+  //   (quantité HNUIT seule) —
+  nuitDebut: { defaut: 21, controle: entier(21, 22) },
+  nuitFin: { defaut: 6, controle: entier(6, 7) },
+  nuitSeuilQuotidien: { defaut: 3, controle: entier(1, 9) },
+  nuitSeuilAnnuel: { defaut: 270, controle: entier(50, 1000, 10) },
+  nuitMajoration: { defaut: 0, controle: entier(0, 100, 5) },
+  nuitAccord: { defaut: '', controle: texte(120, 'Référence de l’accord') },
+  // — Forfait jours (parametres/ForfaitJours.tsx, shared/rules/forfait-jours.ts, t043) : suivi du cumul toujours actif,
+  //   alerte à 90 % du plafond ; avenant de renonciation fermé par défaut, ouvert seulement avec la référence de l'accord
+  //   collectif (COHERENCE, art. L3121-63 et L3121-64) ; valeurs supplétives : 235 jours au plus (art. L3121-66),
+  //   majoration de 10 % au moins (art. L3121-59) ; jours rachetés (JREN) dans la paie du mois de la signature —
+  forfaitJoursAlerte: { defaut: 90, controle: entier(50, 100, 5) },
+  forfaitJoursRachat: { defaut: false, controle: booleen },
+  forfaitJoursAccord: { defaut: '', controle: texte(120, 'Référence de l’accord sur le forfait jours') },
+  forfaitJoursPlafond: { defaut: 235, controle: entier(218, 282) },
+  forfaitJoursMajorationMin: { defaut: 10, controle: entier(10, 100) },
+  forfaitJoursJren: { defaut: 'signature', controle: choix(['signature', 'cloture']) },
+  // — Fractionnement des congés payés (parametres/Fractionnement.tsx, shared/rules/fractionnement.ts, t046) : règle légale
+  //   supplétive tant que les accords d'entreprise ne sont pas connus ; congé principal du 1er mai au 31 octobre —
+  fractionnementRegle: { defaut: 'legal', controle: choix(['legal', 'accord', 'aucun']) },
+  fractionnementAccord: { defaut: '', controle: texte(120, 'Référence de l’accord') },
+  fractionnementDebut: { defaut: '05-01', controle: jourDeLAnnee },
+  fractionnementFin: { defaut: '10-31', controle: jourDeLAnnee },
+  // — Compte épargne-temps (parametres/CompteEpargneTemps.tsx, shared/rules/conges.ts) : plafonds de placement, 5 RTT par
+  //   an et 5 CP de la 5e semaine par période, tant que l'accord sur le CET n'est pas connu —
+  cetPlafondRtt: { defaut: 5, controle: entier(0, 25) },
+  cetPlafondCp: { defaut: 5, controle: entier(0, 5) },
+  // — Conservation des dossiers (parametres/Conservation.tsx, shared/rules/conservation.ts, t016) : durées préremplies mais
+  //   inactives (réponse de l'entreprise du 18 octobre 2026) tant que la décision du DPO n'est pas référencée (COHERENCE) ;
+  //   années après la sortie, 0 : dès le lendemain du dernier jour —
+  conservationActive: { defaut: false, controle: booleen },
+  conservationDecisionDpo: { defaut: '', controle: texte(120, 'Référence de la décision du DPO') },
+  conservationDossierAns: { defaut: 5, controle: entier(0, DUREE_MAX_ANS) },
+  conservationTempsAns: { defaut: 3, controle: entier(0, DUREE_MAX_ANS) },
+  conservationPaieAns: { defaut: 5, controle: entier(0, DUREE_MAX_ANS) },
+  conservationSanteAns: { defaut: 5, controle: entier(0, DUREE_MAX_ANS) },
+  conservationPasseportAns: { defaut: 0, controle: entier(0, DUREE_MAX_ANS) },
+  conservationTitreSejourAns: { defaut: 5, controle: entier(0, DUREE_MAX_ANS) },
+  conservationEntretiensAns: { defaut: 5, controle: entier(0, DUREE_MAX_ANS) },
+  conservationFormationsAns: { defaut: 5, controle: entier(0, DUREE_MAX_ANS) },
+  // — Agenda personnel (parametres/Agenda.tsx, server/src/agenda.ts, t036) : flux par abonnement désactivé par défaut ;
+  //   absences toujours publiées sous le libellé neutre « Absent » —
+  agendaFluxActif: { defaut: false, controle: booleen },
+  agendaContenu: { defaut: ['sessions', 'entretiens', 'absences', 'deplacements'], controle: parmi<ContenuAgenda>(['sessions', 'entretiens', 'absences', 'deplacements']) },
 };
 
 /**
@@ -221,6 +272,31 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
     ? 'Heures complémentaires jusqu’au tiers de la durée contractuelle : indiquez la référence de l’accord collectif qui le prévoit (art. L3123-20)' : null),
   s => (s.moyenne12SemainesMax > 44 && !s.moyenne12SemainesAccord
     ? 'Moyenne au-delà de 44 h sur 12 semaines : indiquez la référence de l’accord collectif qui la porte jusqu’à 46 h (art. L3121-23)' : null),
+  // — Travail de nuit : 9 h consécutives au moins (art. L3122-2) ; une autre plage ou d'autres seuils que ceux de la loi
+  // supposent un accord collectif (art. L3122-15 et L3122-16) —
+  s => refusPlageNuit(s),
+  s => (nuitHorsLoi(s) && !s.nuitAccord
+    ? 'Travail de nuit : une plage ou des seuils autres que ceux de la loi supposent un accord collectif (art. L3122-15 et L3122-16) : indiquez sa référence' : null),
+  // — Forfait jours : la renonciation à des jours de repos suppose l'accord collectif qui autorise le forfait (art. L3121-63
+  // et L3121-64) ; sans lui, le suivi du cumul et ses alertes seulement —
+  s => (s.forfaitJoursRachat && !s.forfaitJoursAccord
+    ? 'Forfait jours : la renonciation à des jours de repos suppose l’accord collectif qui autorise le forfait (art. L3121-63 et L3121-64) : indiquez sa référence' : null),
+  // — Fractionnement : une autre règle que la loi, ou aucun jour, suppose un accord collectif d'entreprise (art. L3141-21) ;
+  // la période du congé principal tient dans l'année civile —
+  s => (s.fractionnementRegle !== 'legal' && !s.fractionnementAccord
+    ? 'Fractionnement des congés : une règle fixée par accord, ou la renonciation aux jours de fractionnement, suppose un accord collectif d’entreprise (art. L3141-21) : indiquez sa référence' : null),
+  s => (s.fractionnementDebut >= s.fractionnementFin ? 'Période du congé principal : le début doit précéder la fin, dans la même année' : null),
+  // — Conservation des dossiers : aucune proposition sans la décision du DPO (réponse de l'entreprise du 18 octobre 2026) ;
+  // le dossier au moins 5 ans (registre unique du personnel, art. R1221-26) et jamais avant une autre catégorie,
+  // car son anonymisation efface tout —
+  s => (s.conservationActive && !s.conservationDecisionDpo
+    ? 'Conservation des dossiers : indiquez la référence de la décision du DPO qui fixe ces durées avant d’activer les propositions' : null),
+  s => (s.conservationDossierAns < DOSSIER_MIN_ANS
+    ? `Conservation des dossiers : ${DOSSIER_MIN_ANS} ans au moins pour le dossier : l’identité et le titre de séjour figurent au registre unique du personnel, gardé 5 ans après le départ (art. R1221-26)` : null),
+  s => {
+    const plus = CATEGORIES.filter(c => c !== 'dossier' && s[CATEGORIES_CONSERVATION[c].reglage] > s.conservationDossierAns);
+    return plus.length ? `Conservation des dossiers : ${categoriesTexte(plus)} au-delà de la durée du dossier, dont l’anonymisation efface tout` : null;
+  },
 ];
 
 /** Vue non typée de la table, pour la parcourir (les contrôles reçoivent la valeur en vigueur du même champ). */

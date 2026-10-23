@@ -8,18 +8,20 @@
 import { useMemo, useRef, type ReactNode } from 'react';
 import {
   AirplaneIcon, BellIcon, BookOpenIcon, BooksIcon, BriefcaseIcon, CalendarBlankIcon, ChartBarIcon, ChatIcon, CheckIcon, ClockIcon, GearSixIcon,
-  HouseIcon, KeyIcon, LifebuoyIcon, LockSimpleIcon, MagnifyingGlassIcon, MapPinIcon, PlusIcon, ShieldCheckIcon, SignOutIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
+  HouseIcon, KeyIcon, LifebuoyIcon, LockSimpleIcon, MapPinIcon, PlusIcon, ShieldCheckIcon, SignOutIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
 } from '@phosphor-icons/react';
 import { droitsRh, PROFILS_RH, vuesDe } from '../../../shared/constants.ts';
 import { aFaireCollaborateur } from '../../../shared/rules/a-faire.ts';
 import { obligations, perimetreEntretiens } from '../../../shared/rules/entretiens.ts';
-import type { Dataset, Role } from '../../../shared/types.ts';
+import type { Dataset, PerimetreDelegation, Role } from '../../../shared/types.ts';
 import { Avatar } from '../components/ui.tsx';
 import { domaineDe } from '../state/derived.ts';
 import { useStore, type Toast as StoreToast, type View } from '../state/store.tsx';
 import { ID_CONTENU, useNavigationAnnoncee } from './navigation.ts';
 import { Reconnexion } from './Reconnexion.tsx';
+import { RechercheGlobale } from './RechercheGlobale.tsx';
 import { BoutonMenu, ID_MENU, PiegeTiroir, useTiroir, type Tiroir } from './Tiroir.tsx';
+import { decideur } from '../state/delegues.ts';
 
 interface NavItem { view: View; label: string; icon: Icon; badge?: number }
 type NavGroup = [string, NavItem[]];
@@ -32,13 +34,14 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
   const late = obligations(d, perimetreEntretiens(data)).filter(o => o.kind === 'epp' && o.st === 'late').length;
   // Service RH (jamais pour ses propres demandes) ou manager direct ; les profils restreints ne valident rien.
   const rh = droitsRh(data.user).includes('rh'), soi = data.user.salarieId ?? null;
-  const canValidate = (empId: number) => {
+  // Délégation (t135) : aussi les demandes dont le manager connecté décide comme suppléant (state/delegues.ts).
+  const canValidate = (empId: number, perimetre: PerimetreDelegation) => {
     const e = d.emp(empId);
-    return !!e && ((rh && empId !== soi) || (role === 'manager' && d.mgrOf(e) === me));
+    return !!e && ((rh && empId !== soi) || (role === 'manager' && decideur(d, e, me, perimetre)));
   };
-  const nQ = data.feuilles.filter(f => f.statut === 'soumise' && canValidate(f.empId)).length;
+  const nQ = data.feuilles.filter(f => f.statut === 'soumise' && canValidate(f.empId, 'feuilles')).length;
   // Demandes à valider ; pour le RH, aussi les absences signalées à qualifier.
-  const nAbs = data.absences.filter(a => (a.statut === 'demandee' && canValidate(a.empId)) || (rh && a.statut === 'signalee' && a.empId !== soi)).length;
+  const nAbs = data.absences.filter(a => (a.statut === 'demandee' && canValidate(a.empId, 'absences')) || (rh && a.statut === 'signalee' && a.empId !== soi)).length;
   if (role === 'rh') {
     const nReq = droitsRh(data.user).includes('formations') ? data.demandesCollab.filter(r => r.statut === 'attente').length : 0;
     // Écrans du profil (référent HSE, paie, lecture seule : une partie de l'espace RH).
@@ -180,13 +183,14 @@ function Sidebar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
 }
 
 function Topbar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
-  const { session, view, ui, setUi, go, openDialog, data } = useStore();
+  const { session, view, ui, openDialog, data } = useStore();
   const [groupe, page] = pageAffichee(groups, view, !!session?.user);
   // Pastilles du menu replié : leur total sur le bouton « Menu ».
   const aTraiter = groups.reduce((n, [, items]) => n + items.reduce((m, i) => m + (i.badge ?? 0), 0), 0);
-  // Espace RH : recherche si le profil ouvre l'annuaire, nouvelle session pour le service RH et le référent HSE.
+  // Recherche si l'espace ouvre l'annuaire (service RH, profils de l'espace RH qui l'ont, manager sur son équipe) ;
+  // nouvelle session pour le service RH et le référent HSE.
   const user = data?.user;
-  const recherche = user?.role === 'rh' && vuesDe('rh', user.profilRh).includes('collaborateurs');
+  const recherche = !!user && user.role !== 'collaborateur' && vuesDe(user.role, user.profilRh).includes('collaborateurs');
   const sessions = !!user && droitsRh(user).includes('formations');
   return (
     <header className="topbar">
@@ -194,13 +198,8 @@ function Topbar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
       <div className="crumb"><span>{groupe}</span><span className="sep">/</span><span className="here">{page}</span></div>
       {session?.user && data && (recherche || sessions) && (
         <div className="topbar-actions">
-          {recherche && (
-            <label className="search">
-              <MagnifyingGlassIcon size={14} />
-              <input className="input" type="text" placeholder="Rechercher un collaborateur…" aria-label="Rechercher un collaborateur"
-                value={ui.search} onChange={e => { setUi({ search: e.target.value }); if (view !== 'collaborateurs') go('collaborateurs'); }} />
-            </label>
-          )}
+          {/* Suggestions au fil de la frappe ; la fiche s'ouvre sur Entrée ou au clic (t152, layout/RechercheGlobale.tsx). */}
+          {recherche && <RechercheGlobale data={data} role={user.role} />}
           {sessions && (
             <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'session', f: ui.formationFilter ?? undefined })}>
               <PlusIcon size={14} /><span>Nouvelle session</span>

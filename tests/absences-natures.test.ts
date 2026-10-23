@@ -102,7 +102,7 @@ test('décompte et durée légale selon la nature', async () => {
   assert.ok(mariage.msgs.some(m => m.text === 'Durée légale : 4 j ouvrés (Art. L3142-4).'));
   const long = checkNature(d, julien, 'MARIAGE', '2026-11-23', '2026-11-30', { quand: '' });
   assert.ok(!long.cant, 'au-delà de la durée légale : simple avertissement');
-  assert.ok(long.msgs.some(m => !m.bad && /^Au-delà de la durée légale \(4 j ouvrés — Art\. L3142-4\)/.test(m.text)));
+  assert.ok(long.msgs.some(m => !m.bad && m.text.startsWith('Au-delà de la durée légale (4 j ouvrés — Art. L3142-4)')));
 });
 
 test('circuit : le manager signale, le RH qualifie (nature, justificatif, dates corrigées)', async () => {
@@ -471,10 +471,10 @@ test('prolongation : la durée légale porte sur toute l’absence', async () =>
   const chk = checkNature(d, d.emp(8)!, 'MARIAGE', '2026-11-20', '2026-11-24', { exclure: mariage.id, quand: '', depuis: mariage.du });
   assert.ok(!chk.cant, 'simple avertissement');
   assert.equal(chk.msgs[0].text, 'Décompte : 3 j ouvrés (7 j au total) — week-ends et jours fériés exclus.');
-  assert.ok(chk.msgs.some(m => !m.bad && /^Au-delà de la durée légale \(4 j ouvrés — Art\. L3142-4\)/.test(m.text)), JSON.stringify(chk.msgs));
+  assert.ok(chk.msgs.some(m => !m.bad && m.text.startsWith('Au-delà de la durée légale (4 j ouvrés — Art. L3142-4)')), JSON.stringify(chk.msgs));
   // Enfant malade : 3 jours puis 2 jours de prolongation, au-delà des 3 jours par an.
   await run(RH, 'absence.saisir', { empId: 8, nature: 'ENFANT_MALADE', du: '2026-11-30', au: '2026-12-02' });
   const em = await abs(8, '2026-11-30'), d2 = await domain();
   const chk2 = checkNature(d2, d2.emp(8)!, 'ENFANT_MALADE', '2026-12-03', '2026-12-04', { exclure: em.id, quand: '', depuis: em.du });
-  assert.ok(chk2.msgs.some(m => !m.bad && /^Au-delà de la durée légale \(3 j ouvrés par an/.test(m.text)), JSON.stringify(chk2.msgs));
+  assert.ok(chk2.msgs.some(m => !m.bad && m.text.startsWith('Au-delà de la durée légale (3 j ouvrés par an')), JSON.stringify(chk2.msgs));
 });

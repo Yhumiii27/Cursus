@@ -61,7 +61,7 @@ export function csvRegistre(d: Domain, rows: { e: EmpX; h: HabInfo }[]): ListeCs
 
 /**
  * Soldes (écran Congés & absences) : CP de la période, en cours d'acquisition, RTT ou repos de l'année, récupération
- * (heures), CET (jours) ; vide quand le compteur ne concerne pas le contrat. Chaque ligne porte la date d'arrêté et la
+ * (heures), CET (jours, demandes en attente déduites comme à l'écran) ; vide quand le compteur ne concerne pas le contrat. Chaque ligne porte la date d'arrêté et la
  * mention des soldes calculés par Cursus.
  */
 export function csvSoldes(d: Domain, emps: Employe[]): ListeCsv {
@@ -75,7 +75,7 @@ export function csvSoldes(d: Domain, emps: Employe[]): ListeCsv {
       const cet = !c.interim && ct.eligible;
       return [e.nom, matricule(e.id), e.equipe ?? 'À affecter', contrat(d, e),
         cp ? nombre(cp.solde) : 'Agence d’intérim', cp ? nombre(cp.droit) : '', cp ? nombre(cp.enCours) : '',
-        rt ? nombre(rt.solde) : '', rc ? nombre(rc.solde) : '', cet ? nombre(ct.total) : '', arrete, MENTION_SOLDES];
+        rt ? nombre(rt.solde) : '', rc ? nombre(rc.solde) : '', cet ? nombre(ct.solde) : '', arrete, MENTION_SOLDES];
     }),
   };
 }
@@ -109,11 +109,13 @@ const ORIGINE: Record<string, string> = { import: 'Plan importé', demande: 'Dem
 export function csvPlan(d: Domain, exercice: number, lignes: PlanAction[]): ListeCsv {
   return {
     fichier: `plan-formation-${exercice}-${d.ti}.csv`,
-    head: ['Exercice', 'Formation', 'Équipe', 'Période', 'Effectif', 'Coût (€)', 'Coût prévu (€)', 'Statut', 'Origine'],
+    // Catégorie du catalogue et durée en heures par stagiaire (t122) : vide quand elle est inconnue.
+    head: ['Exercice', 'Formation', 'Équipe', 'Période', 'Effectif', 'Coût (€)', 'Coût prévu (€)', 'Statut', 'Origine', 'Catégorie', 'Durée (h)'],
     rows: lignes.map(l => {
       const fm = (l.f && d.fm(l.f)) || null;
       return [l.exercice, fm ? fm.nom : l.libelle ?? '', l.equipe, l.periode, l.statut === 'realise' && l.effectifReel != null ? l.effectifReel : l.effectif,
-        nombre(coutRetenu(l)), nombre(l.cout), PLAN_LABEL[l.statut], l.origine ? ORIGINE[l.origine] ?? l.origine : ''];
+        nombre(coutRetenu(l)), nombre(l.cout), PLAN_LABEL[l.statut], l.origine ? ORIGINE[l.origine] ?? l.origine : '',
+        fm ? fm.type : 'Hors catalogue', fm?.dureeHeures != null ? nombre(fm.dureeHeures) : ''];
     }),
   };
 }

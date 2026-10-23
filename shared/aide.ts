@@ -35,7 +35,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           'Menu « Mes heures ». La semaine affichée est la semaine en cours (« Cette semaine » y revient, les flèches changent de semaine).',
           'Ajoutez une ligne par projet (« + Ajouter un projet… ») ou reprenez les tâches prévues (« Proposer depuis Keystone »). Inscrit à une session de formation cette semaine-là, le bouton devient « Proposer les heures prévues » (tâches et heures de formation), ou « Proposer les heures de formation » sans tâche Keystone.',
           'Tapez les heures de chaque jour, en heures décimales (7,5 pour 7 h 30) : chaque cellule s’enregistre seule quand vous la quittez. Sur téléphone, la saisie se fait jour par jour.',
-          'Ligne « Horaire du jour » : l’horaire de poste de chaque jour (journée, matin, après-midi, nuit…), proposé en italique d’après votre équipe dès que des heures sont saisies ; changez-le si besoin, ou choisissez « — » pour aucun. Il est facultatif et se fige à la soumission.',
+          'Ligne « Horaire du jour » : l’horaire de poste de chaque jour (journée, matin, après-midi, nuit…), proposé en italique d’après votre équipe dès que des heures sont saisies ; changez-le si besoin, ou choisissez « — » pour aucun. Il est facultatif et se fige à la soumission. Avec un horaire, la feuille compte vos heures de nuit et signale un repos de moins de 11 h entre deux jours ou une pause trop courte (motif demandé) ; un salarié de moins de 18 ans ne peut pas recevoir un horaire de nuit.',
           'Samedi et dimanche sont grisés et repliés (« Sam. · Dim. ») : dépliez-les pour un chantier, un déplacement ou un impératif. Ces heures comptent dans les heures supplémentaires de la semaine.',
           'En fin de semaine, « Soumettre au manager ». Au-delà de 10 h dans une journée ou de 48 h dans la semaine, indiquez le motif demandé avant de soumettre.',
           'La feuille est attendue le lundi suivant à 12 h. Une feuille renvoyée par votre manager revient « à corriger » avec son commentaire : corrigez-la puis soumettez-la de nouveau.',
@@ -56,6 +56,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           'Accueil : vos certifications et habilitations, avec leur échéance. « Demander une formation » ou « Demander le recyclage » envoie la demande au service RH ; « Demander une habilitation » de même.',
           'Les convocations aux sessions arrivent par e-mail, avec un fichier pour l’agenda.',
           '« Mes documents de voyage » : passeport, visa, vaccinations. Ils n’entrent dans votre dossier qu’après validation par le service RH ; les vaccinations ne sont vues que par lui.',
+          '« Imprimer mon passeport formation » : certifications, habilitations (antérieures comprises) et formations suivies, à garder ou à présenter.',
           '« Mon contact d’urgence » : la personne à prévenir et son téléphone, facultatifs (« Renseigner »). Seul le service RH les voit, jamais votre manager.',
         ],
       },
@@ -89,6 +90,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           '« Congés & absences » : les demandes de votre équipe attendent « Valider » ou « Refuser » (motif obligatoire, lu par le salarié).',
           '« Poser une absence » pour un membre de l’équipe l’enregistre validée (« Poser et valider ») ; « Signaler une absence » déclare une absence imprévue, que le service RH qualifie.',
           'Vous ne voyez jamais la nature d’un arrêt de travail : seulement « Absence », ses dates et son état.',
+          'Avant une absence, « Déléguer mes validations » (espace collaborateur, « Accueil ») confie vos congés et feuilles à valider à un suppléant, pour une période : il décide « par délégation » et vous gardez la main ; « Révoquer » y met fin.',
         ],
       },
       {
@@ -132,6 +134,9 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           'Postes à risques particuliers : case « Liste des postes à risques particuliers (art. L4154-2) » du poste, formation renforcée désignée dans Paramètres ; un CDD, un intérimaire ou un alternant qui ne l’a pas suivie depuis son entrée est « Non conforme » et en No Go. « Imprimer la liste des postes à risques » la tient à disposition de l’inspection et du CSE.',
           'Couverture minimale des équipes (SST, EPI incendie) : seuils saisis avec les exigences de l’équipe, aucun par défaut ; alerte datée au tableau de bord, dans « Équipes & managers » et « Échéances ».',
           'Entretien de mi-carrière : après la visite de mi-carrière enregistrée, l’entretien de parcours est dû dans le délai de Paramètres → Entretien de mi-carrière (2 mois par défaut, à confirmer juridiquement).',
+          'Formations suivies (fiche) : « Enregistrer une formation suivie », du catalogue ou hors catalogue (non obligatoire par défaut : elle compte pour le bilan à 8 ans) ; une demande hors catalogue acceptée se clôt une fois faite ; à la clôture d’une action du plan, cocher ses bénéficiaires.',
+          'Titre d’habilitation en vigueur : « Imprimer le titre » (fiche, ou aussitôt après la délivrance ; jamais un titre retiré, suspendu ou expiré) selon le modèle choisi au référentiel (électrique NF C18-510, autorisation de conduite, générique), à signer par l’employeur et le titulaire ; modèles à faire valider par le référent HSE. Un renouvellement garde la délivrance précédente (« Habilitations antérieures »).',
+          '« Plan & budget » : « Indicateurs de formation » de l’exercice (stagiaires, heures par catégorie, équipe et statut, taux de réalisation), avec la durée en heures du catalogue ; une formation sans durée connue est signalée.',
         ],
       },
       {
@@ -140,6 +145,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           '« Absences à qualifier » : chaque absence signalée attend sa nature et son justificatif (« Qualifier »). « Saisir une absence » enregistre directement un arrêt reçu.',
           'Clôtures proposées par un bandeau : RTT à partir du 1er janvier, congés payés à partir du 1er juin. Pour les CP, vous décidez salarié par salarié du report ou de la perte, jamais d’office ; les reports légaux (santé, maternité…) sont automatiques.',
           '« Reporter » et « Épargner » (compte épargne-temps) se font depuis le tableau des soldes.',
+          '« Congé principal à prévoir » : avant le 31 octobre, les salariés sans 12 jours ouvrables continus dans la période. « Jours de fractionnement à décider » : à partir du 1er novembre, « Décider » pour créditer les jours proposés ou noter la renonciation du salarié, jamais d’office.',
         ],
       },
       {

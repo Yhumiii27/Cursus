@@ -100,10 +100,10 @@ const envoyerReleveAction: ActionHandler = async (ctx, p) => {
     + `${plural(x.r.lignes.length, 'intérimaire', 'intérimaires')}, ${heuresTexte(x.r.heures)} h${attente}`;
 };
 
-export const messagerieActions: Record<string, ActionHandler> = {
+export const messagerieActions = {
   'messagerie.regler': regler,
   'messagerie.essai': essai,
   'messagerie.recapituler': recapituler,
   'notification.regler': reglerNotifications,
   'releve.envoyer': envoyerReleveAction,
-};
+} satisfies Record<string, ActionHandler>;

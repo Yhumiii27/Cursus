@@ -10,6 +10,7 @@ import {
   lecteurJournal, libelleAction,
 } from '../../../shared/journal.ts';
 import { api, type FiltreJournal, type LigneJournal, type PageJournal, type VueJournal } from '../api.ts';
+import { ChoixCollaborateur } from '../components/ChoixCollaborateur.tsx';
 import { Field } from '../components/Dialog.tsx';
 import { Btn, Empty, Fine, NoteAccent, Panel, Seg, Two } from '../components/ui.tsx';
 import { useData, useStore } from '../state/store.tsx';
@@ -127,10 +128,7 @@ function PanneauJournal() {
           </select>
         </Field>
         <Field label="Salarié concerné" htmlFor="journal-salarie">
-          <select id="journal-salarie" className="input" value={salarie ?? ''} onChange={e => setSalarie(e.target.value ? Number(e.target.value) : null)}>
-            <option value="">Tous les salariés</option>
-            {employes.map(e => <option key={e.id} value={e.id}>{e.nom}</option>)}
-          </select>
+          <ChoixCollaborateur id="journal-salarie" emps={employes} valeur={salarie} onChange={setSalarie} vide="Tous les salariés" />
         </Field>
         {filtres && <div className="fin"><Btn small onClick={effacer}>Effacer les filtres</Btn></div>}
       </div>

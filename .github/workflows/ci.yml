@@ -1,4 +1,5 @@
-# Vérification automatique de chaque modification : typage, tests avec seuil de couverture, compilation de l'interface.
+# Vérification automatique de chaque modification : contrôle du code (oxlint), typage, tests avec seuil de couverture
+# (serveur et client), compilation de l'interface ; parcours de bout en bout (Playwright) en tâche séparée, non bloquante.
 # Toute la logique est dans `npm run check` (package.json) : une autre forge (GitLab, Azure DevOps) l'appelle en une ligne
 # après `npm ci`. Version de Node : .nvmrc (22), celle qui fait foi ; Node 24 est essayé en plus, sans bloquer.
 # Job postgres : la même suite de tests sur PostgreSQL 16 (serveur commun EPC2I), socle compris (infra/postgres-socle/).
@@ -65,6 +66,35 @@ jobs:
           path: dist/
           retention-days: 30
 
+  # Parcours complets par rôle (t165) dans Chromium, Microsoft Edge et un téléphone simulé, sur une base jetable de
+  # démonstration à date figée (playwright.config.ts, e2e/). Non bloquant au début : un échec est signalé et le rapport
+  # publié, sans refuser la modification. Ailleurs qu'à GitHub : npm ci, npx playwright install --with-deps chromium
+  # msedge, npm run build, npm run e2e.
+  e2e:
+    name: Parcours de bout en bout (Playwright)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    continue-on-error: true
+    env:
+      TZ: Europe/Paris
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium msedge
+      - run: npm run build
+      - run: npm run e2e
+      - name: Publier le rapport
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: rapport-e2e-${{ github.sha }}
+          path: playwright-report/
+          retention-days: 14
+
   postgres:
     name: Tests sur PostgreSQL 16 et socle du serveur commun
     runs-on: ubuntu-24.04
@@ -108,7 +138,7 @@ jobs:
         env:
           CURSUS_TEST_DATABASE_URL: postgres://postgres:essai-ci-postgres@localhost:5432/postgres
         run: npm run test:coverage:pg
-      # Cursus sur le socle, en cursus_app : migrations, démonstration, 50 tables dans cursus et rien dans public.
+      # Cursus sur le socle, en cursus_app : migrations, démonstration, 57 tables dans cursus et rien dans public.
       - name: Démarrage sur le socle (cursus_app)
         env:
           DATABASE_URL: postgres://cursus_app:essai-ci-cursus-app-012345@localhost:5432/epc2i

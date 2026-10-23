@@ -38,7 +38,7 @@ type Feuille = Dataset['feuilles'][number];
 async function fresh() {
   const db = await nouvelleBase();
   await seedDemo(db);
-  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number };
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
@@ -225,7 +225,7 @@ test('t022 rubriques : pré-remplies au code interne, à confirmer ; saisie, con
   assert.deepEqual(table.map(r => r.code), Object.keys(RUBRIQUES_PAIE), 'tous les codes émis, HSF25 et HSF50 compris');
   // Rubriques de sortie (t128) désactivées par défaut : le solde de tout compte reste saisi dans Sage.
   assert.ok(table.every(r => r.codeSage === r.code && r.active === !RUBRIQUES_PAIE[r.code].inactiveParDefaut && !r.confirmee));
-  assert.deepEqual(table.filter(r => !r.active).map(r => r.code), ['ICCP_J', 'RTT_SOLDE', 'RECUP_H', 'CET_LIQ', 'GD_JOUR', 'GD_NUIT', 'ETR_JOUR', 'TRAJET']);
+  assert.deepEqual(table.filter(r => !r.active).map(r => r.code), ['HNUIT', 'MAJ_NUIT', 'CET', 'ICCP_J', 'RTT_SOLDE', 'RECUP_H', 'CET_LIQ', 'GD_JOUR', 'GD_NUIT', 'ETR_JOUR', 'TRAJET', 'JREN']);
   await refus(GEST, 'paie.rubrique', { code: 'HN', confirmer: true }, 403);
   await refus(PAIE, 'paie.rubrique', { code: 'XX', codeSage: '1' }, 404);
   await refus(PAIE, 'paie.rubrique', { code: 'HN', codeSage: 'code avec espaces' }, 400, /20 caractères au plus/);
@@ -361,7 +361,7 @@ test('t025 transmission : une ligne par période, ventilation jour par jour exac
   const c = C.transmissionSage(2, 1, groupes);
   assert.match(c.question, /Marquer transmises à Sage Paie 2 feuilles validées \(1 salarié\)/);
   assert.ok(c.suites!.some(x => x === 'Rappel : 1 feuille de septembre 2026, période close, part sur octobre 2026.'), c.suites!.join(' | '));
-  assert.ok(c.suites!.some(x => /^Simulation : rien n’est envoyé à Sage Paie/.test(x)));
+  assert.ok(c.suites!.some(x => x.startsWith('Simulation : rien n’est envoyé à Sage Paie')));
   assert.ok(c.suites!.some(x => /samedi et dimanche compris/.test(x)));
   assert.match(String(await run(PAIE, 'temps.pushSage', {})), /· période octobre 2026 · rappel de septembre 2026 · 5 absences · 3 séjours \(déplacements\) · \d+ éléments à saisir dans Sage \(rubrique désactivée ou réglage décoché : voir le résumé du lot\)$/);
   const push = (await dernierLot(db)).contenu!;

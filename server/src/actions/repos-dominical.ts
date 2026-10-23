@@ -41,6 +41,6 @@ const regler: ActionHandler = async (ctx, p) => {
     : `Équipe ${equipe.nom} : ${DEROGATIONS_DOMINICALES[p.type].label.toLowerCase()} — heures du dimanche attendues, sans alerte`;
 };
 
-export const reposDominicalActions: Record<string, ActionHandler> = {
+export const reposDominicalActions = {
   'temps.derogationDominicale': regler,
-};
+} satisfies Record<string, ActionHandler>;

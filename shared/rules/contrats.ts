@@ -452,7 +452,7 @@ export const INFO_TITRE_SEJOUR = {
     ['Base légale', 'obligation légale de l’employeur (art. L5221-8 et R5221-41 du Code du travail ; registre unique du personnel, art. L1221-13 et D1221-23 ; art. 6.1.c du RGPD).'],
     ['Données', 'le type de titre, son numéro, sa date d’expiration, les dates de la demande de vérification auprès de la préfecture et de sa réponse ; ni copie du document, ni nationalité.'],
     ['Destinataires', 'le service RH ; la lecture seule (direction, audit) sans le numéro. Votre manager et les autres profils ne voient qu’un verdict (titre valide ou à régulariser) ; Keystone ne reçoit qu’une « situation contractuelle à régulariser ».'],
-    ['Conservation', 'durée fixée par l’entreprise avec son délégué à la protection des données (à préciser avant la mise en service) ; le registre unique du personnel se conserve 5 ans après votre départ.'],
+    ['Conservation', 'le registre unique du personnel se conserve 5 ans après votre départ ; le titre est ensuite effacé sur confirmation du service RH, une fois cette durée validée par le délégué à la protection des données.'],
     ['Vos droits', 'accès, rectification et limitation auprès du service RH ou du délégué à la protection des données ; réclamation auprès de la CNIL (cnil.fr).'],
   ] as [string, string][],
 };

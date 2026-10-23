@@ -30,6 +30,6 @@ const qualifier: ActionHandler = async (ctx, p) => {
   };
 };
 
-export const deplacementsPaieActions: Record<string, ActionHandler> = {
+export const deplacementsPaieActions = {
   'chantier.grandDeplacement': qualifier,
-};
+} satisfies Record<string, ActionHandler>;

@@ -32,14 +32,15 @@ import { CODE_HORAIRE, normaliserCodeHoraire } from '../../shared/rules/horaires
 import { reglageAnnee } from '../../shared/rules/feries.ts';
 import { estTypeDerogation, JOURS_FEUILLE } from '../../shared/rules/semaine.ts';
 import { controlesMineur } from '../../shared/rules/mineurs.ts';
+import { controlesReposNuit } from '../../shared/rules/repos-nuit.ts';
 import { lignesCouverture } from '../../shared/rules/couverture.ts';
 import { corDeLaFeuille } from '../../shared/rules/temps.ts';
-import type { CalendrierFeries, ClotureConges, CurrentUser, Employe, FeuilleTemps, InformationCp, LigneTemps } from '../../shared/types.ts';
+import type { CalendrierFeries, ClotureConges, CurrentUser, Employe, Fractionnement, FeuilleTemps, HoraireFige, InformationCp, LigneTemps } from '../../shared/types.ts';
 import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
 import { journaliser, type Compte } from './comptes.ts';
 import { lireConfidentialite } from './confidentialite.ts';
 import { identite, type Identite } from './connexion.ts';
-import { loadFull, scopeIds } from './dataset.ts';
+import { loadFull, loadSettings, scopeIds } from './dataset.ts';
 import { type Db, enSerie, jsonLu, type TableName } from './db.ts';
 import { purgerEnvois } from './envois.ts';
 import { copieAvantMigration } from './sauvegarde.ts';
@@ -94,6 +95,9 @@ interface Regle {
   regrouper?: number;
 }
 
+/** Bénéficiaires enregistrés par `plan.avancer` (t116), lus dans son résultat. */
+const beneficiairesDe = (result: unknown): number[] =>
+  ((result as { beneficiaires?: unknown[] } | null)?.beneficiaires ?? []).map(Number).filter(Number.isInteger);
 const parId = (table: TableName, colonnes: readonly string[]): Cible => ({ table, cle: p => Number(p.id) || null, colonnes });
 /** Hiérarchie (t136) : éléments en attente redirigés (`result.redirections`) : type, identifiant, ancien et nouveau valideur (0 : service RH). */
 const redirigesDe = (result: unknown): Ligne[] => (result as { redirections?: Ligne[] } | null)?.redirections ?? [];
@@ -180,7 +184,12 @@ async function depassementTrace(p: P, x: Contexte): Promise<Ligne> {
   const lignes = (x.apres.lignes ?? []) as LigneTemps[];
   const perDay = Array.from({ length: JOURS_FEUILLE }, (_, i) => lignes.reduce((n, l) => n + num(l.h[i]), 0));
   const codes = e ? controlesMineur(e, String(x.apres.week ?? ''), perDay).codes.filter(c => c === 'jour_8h' || c === 'semaine_35h') : [];
-  return { motifDepassement: MENTION_TEXTE, ...(codes.length ? { depassementMineur: codes } : {}) };
+  // Repos quotidien ou pause insuffisants d'après les horaires figés (shared/rules/repos-nuit.ts) : les codes seuls, sans le
+  // dimanche précédent (le repos entre deux semaines reste sur la feuille).
+  const horaires = (x.apres.horairesFiges ?? []) as (HoraireFige | null)[];
+  const reposNuit = horaires.some(Boolean) ? controlesReposNuit(horaires, perDay, String(x.apres.week ?? ''), { s: await loadSettings(x.db), naissance: e })
+    .codes.filter(c => c !== 'nuit_mineur') : [];
+  return { motifDepassement: MENTION_TEXTE, ...(codes.length ? { depassementMineur: codes } : {}), ...(reposNuit.length ? { reposNuit } : {}) };
 }
 /** Soumission, validation : statut avant et après, et total d'heures de la feuille (ce qui part en paie). */
 const statutEtTotal: Partial<Regle> = { cible: FEUILLE, bilan: async (p, x) => ({ heures: totalHeures(x.apres), ...await depassementTrace(p, x) }) };
@@ -195,6 +204,7 @@ const inscritsAvantApres: Partial<Regle> = { etat: async (db, p) => await inscri
 const lotDuResultat = (x: Contexte) => x.result as {
   lot?: number; feuilles?: { empId: number; week: string }[]; absences?: { id: number; empId: number }[]; sorties?: { id: number; empId: number }[];
   deplacements?: { source?: string; id: number; empId: number }[];
+  rachats?: { id: number; empId: number }[];
   correctifs?: { empId: number; week: string }[];
 } | null | undefined;
 const lotRetenu = (x: Contexte) => {
@@ -205,17 +215,22 @@ const lotRetenu = (x: Contexte) => {
     ...(r?.sorties?.length ? { sorties: r.sorties.map(s => s.id) } : {}),
     // Séjours du lot (t031) : identifiants seuls (mission ou déplacement), jamais les quantités ni le pays.
     ...(r?.deplacements?.length ? { deplacements: r.deplacements.map(s => `${s.source}:${s.id}`) } : {}),
+    // Avenants de renonciation d'un forfait jours (t043) : identifiants seuls.
+    ...(r?.rachats?.length ? { rachats: r.rachats.map(s => s.id) } : {}),
   };
 };
 const salariesDuLot = (x: Contexte) => [...new Set([
   ...(lotDuResultat(x)?.feuilles ?? []).map(f => f.empId), ...(lotDuResultat(x)?.absences ?? []).map(a => a.empId), ...(lotDuResultat(x)?.sorties ?? []).map(a => a.empId),
-  ...(lotDuResultat(x)?.deplacements ?? []).map(a => a.empId),
+  ...(lotDuResultat(x)?.deplacements ?? []).map(a => a.empId), ...(lotDuResultat(x)?.rachats ?? []).map(a => a.empId),
 ])];
 /** Feuilles transmises à la paie : validées et non transmises avant l'action, marquées transmises après. */
 const transmises = async (x: Contexte) => (await Promise.all((x.etat as number[]).map(id => x.db.get<FeuilleTemps>('feuilles', id)))).filter((f): f is FeuilleTemps => !!f?.sage);
 /** Lignes de clôture des congés créées par l'action (identifiants au-delà du dernier d'avant l'action). */
 const cloturees = async (x: Contexte) => Promise.all((await x.db.query('SELECT id FROM clotures WHERE id > ? ORDER BY id', [Number(x.etat) || 0]) as { id: number }[])
   .map(async r => (await x.db.get<ClotureConges>('clotures', r.id))!));
+/** Décisions sur les jours de fractionnement enregistrées par l'action (identifiants au-delà du dernier d'avant). */
+const fractionnementsDecides = async (x: Contexte) => Promise.all((await x.db.query('SELECT id FROM fractionnements WHERE id > ? ORDER BY id', [Number(x.etat) || 0]) as { id: number }[])
+  .map(async r => (await x.db.get<Fractionnement>('fractionnements', r.id))!));
 /**
  * Jours rendus à une période de CP close par un refus ou une annulation : reports reçus créés par l'action (identifiants
  * au-delà du dernier d'avant), tracés par leurs jours, période et échéance — jamais leur motif.
@@ -269,7 +284,7 @@ export const REGLES: Record<string, Regle> = {
     champs: ['id', 'date', 'motif'], cible: parId('employes', ['fin', 'motifSortie']), salaries: p => [p.id],
     bilan: (_p, x) => {
       const r = x.result as { annulations?: Ligne; soldeSortie?: number } | null;
-      return { ...(r?.annulations ?? {}), ...(r?.soldeSortie ? { soldeSortie: r.soldeSortie } : {}) };
+      return { ...r?.annulations, ...(r?.soldeSortie ? { soldeSortie: r.soldeSortie } : {}) };
     },
   },
   'employe.annulerSortie': { champs: ['id'], cible: parId('employes', ['fin', 'motifSortie']), salaries: p => [p.id] },
@@ -319,6 +334,19 @@ export const REGLES: Record<string, Regle> = {
     bilan: (_p, x) => bilanRedirections(x.result),
     salaries: (_p, x) => salariesRediriges(x.result),
   },
+  // Délégation des validations (t135) : la délégation enregistrée telle que l'action l'a contrôlée (identifiants, dates,
+  // codes de périmètre), jamais la valeur reçue ; révocation : son horodatage. Salariés concernés : manager et suppléant.
+  'equipe.delegation': {
+    bilan: (_p, x) => {
+      const g = (x.result as { delegation?: Ligne } | null)?.delegation;
+      return g ? { id: g.id, managerId: g.managerId, suppleantId: g.suppleantId, du: g.du, au: g.au, perimetre: g.perimetre } : {};
+    },
+    salaries: (_p, x) => { const g = (x.result as { delegation?: Ligne } | null)?.delegation; return [g?.managerId, g?.suppleantId]; },
+  },
+  'equipe.revoquerDelegation': {
+    champs: ['id'], cible: parId('delegations', ['revoqueeLe']),
+    salaries: (_p, x) => [x.avant?.managerId, x.avant?.suppleantId],
+  },
   // Formations
   'plan.inscrire': { champs: ['empId', 'certId', 'inscriptionId', 'sessionId', 'conv'] },
   'cert.ajouter': { champs: ['empId', 'f', 'date'] },
@@ -347,7 +375,25 @@ export const REGLES: Record<string, Regle> = {
     salaries: p => participants(p).map((x: P) => x?.empId),
   },
   'plan.importer': { champs: ['exercice', 'mode'] },
-  'plan.avancer': { champs: ['id'], cible: parId('planActions', ['statut', 'coutReel', 'effectifReel']) },
+  // Bénéficiaires d'une action réalisée (t116) : identifiants des salariés dont une formation suivie a réellement été
+  // enregistrée (`result`), jamais ceux seulement envoyés (déjà réalisée, passage à « engagé », ligne déjà enregistrée).
+  'plan.avancer': {
+    champs: ['id'], cible: parId('planActions', ['statut', 'coutReel', 'effectifReel']),
+    bilan: (_p, x) => (beneficiairesDe(x.result).length ? { beneficiaires: beneficiairesDe(x.result) } : {}),
+    salaries: (_p, x) => beneficiairesDe(x.result),
+  },
+  // Formations suivies (t116) : codes, dates, durée, case « obligatoire », demande ou ligne du plan ; jamais l'intitulé hors
+  // catalogue ni l'organisme (texte libre : seulement qu'ils changent), ni le motif d'une correction ou d'une annulation.
+  'formationSuivie.enregistrer': {
+    champs: ['empId', 'f', 'du', 'au', 'demandeId'],
+    // Ligne écrite : identifiant, durée et case « obligatoire » telles qu'enregistrées (contrôlées par l'action).
+    bilan: async (_p, x) => {
+      const l = await x.db.get<Ligne>('formationsSuivies', Number((x.result as { id?: number } | null)?.id));
+      return l ? { id: l.id, duree: l.duree, obligatoire: l.obligatoire } : {};
+    },
+  },
+  'formationSuivie.modifier': { champs: ['id'], cible: { ...parId('formationsSuivies', ['f', 'libelle', 'du', 'au', 'duree', 'organisme', 'obligatoire']), masques: ['libelle', 'organisme'] } },
+  'formationSuivie.annuler': { champs: ['id'], extra: (_p, av) => ({ f: av?.f ?? null, du: av?.du ?? null }), cible: parId('formationsSuivies', ['annuleLe']) },
   // Ligne du plan corrigée (avant et après ; de l'intitulé hors catalogue, seulement qu'il change) ou supprimée (exercice,
   // formation, équipe, trimestre, statut et coût de la ligne retirée). Jamais le motif.
   'plan.modifier': { champs: ['id'], cible: { ...parId('planActions', ['f', 'libelle', 'equipe', 'periode', 'effectif', 'cout']), masques: ['libelle'] } },
@@ -374,11 +420,11 @@ export const REGLES: Record<string, Regle> = {
   // Référentiels (catalogue, aucune donnée personnelle) : code de l'élément, valeurs avant et après de chaque champ.
   // Une validité modifiée rattache la ligne aux salariés dont un titre change de statut (le message en nomme).
   'referentiel.formation.enregistrer': {
-    ...referentiel('formations', ['nom', 'court', 'type', 'validite', 'duree', 'organisme', 'cout', 'validation']), salaries: (_p, x) => salariesTouches(x),
+    ...referentiel('formations', ['nom', 'court', 'type', 'validite', 'duree', 'organisme', 'cout', 'validation', 'dureeHeures']), salaries: (_p, x) => salariesTouches(x),
   },
   'referentiel.formation.archiver': referentiel('formations', ['archive'], true),
   'referentiel.habilitation.enregistrer': {
-    ...referentiel('habilitations', ['nom', 'detail', 'prereqs', 'medical', 'validite', 'signataire', 'sir']), salaries: (_p, x) => salariesTouches(x),
+    ...referentiel('habilitations', ['nom', 'detail', 'prereqs', 'medical', 'validite', 'signataire', 'sir', 'modele']), salaries: (_p, x) => salariesTouches(x),
   },
   'referentiel.habilitation.archiver': referentiel('habilitations', ['archive'], true),
   // Vigilance (t068) : couleur et jour de vérification ; voyageurs vers un pays passé à l'orange ou au rouge, au journal.
@@ -468,6 +514,21 @@ export const REGLES: Record<string, Regle> = {
     salaries: (_p, x) => (x.result as { salaries?: number[] } | null)?.salaries ?? [],
   },
   'voyage.annuler': { champs: ['id'], cible: { ...parId('voyages', ['annuleLe', 'annuleMotif']), masques: ['annuleMotif'] } },
+  // Avenant de renonciation d'un forfait jours (t043) : salarié, année, jours rachetés, taux, signature ; la référence
+  // (texte libre) n'est tracée que renseignée. Annulation : identifiant, salarié, date, et le fait qu'un motif soit donné.
+  'forfait.avenant': {
+    champs: ['empId'], salaries: p => [p.empId],
+    extra: p => ({
+      annee: Number.isInteger(Number(p.annee)) ? Number(p.annee) : null, jours: Number.isFinite(Number(p.jours)) ? Number(p.jours) : null,
+      taux: Number.isInteger(Number(p.taux)) ? Number(p.taux) : null, signeLe: isValidDate(p.signeLe) ? p.signeLe : null,
+      ...(typeof p.reference === 'string' && p.reference.trim() ? { reference: MENTION_TEXTE } : {}),
+    }),
+    bilan: (_p, x) => ({ avenant: (x.result as { id?: number } | null)?.id ?? null }),
+  },
+  'forfait.annulerAvenant': {
+    champs: ['id'], cible: { ...parId('avenantsForfait', ['annuleLe', 'annuleMotif']), masques: ['annuleMotif'] },
+    salaries: (_p, x) => [x.avant?.empId],
+  },
   // Pièces justificatives (server/src/actions/pieces.ts) : objet et identifiants, nombre de pièces ; jamais le nom du fichier
   // (il peut nommer une donnée de santé), ni les jetons, ni le motif d'un retrait.
   'piece.joindre': {
@@ -478,6 +539,17 @@ export const REGLES: Record<string, Regle> = {
     champs: ['id'], extra: (_p, av) => ({ objet: av?.objet ?? null, objetId: av?.objetId ?? null }),
     cible: { table: 'pieces', cle: p => Number(p.id) || null, colonnes: ['retireeLe', 'retireeMotif'], masques: ['retireeMotif'] },
   },
+  // Conservation des dossiers (t016) : salariés et catégories effacées, nombre d'éléments ; jamais de nom (le message n'en
+  // porte pas), ni le motif (seul le fait qu'il soit renseigné).
+  'employe.anonymiser': {
+    extra: p => ({ avantEcheance: p.avantEcheance === true, ...(typeof p.motif === 'string' && p.motif.trim() ? { motif: MENTION_TEXTE } : {}) }),
+    bilan: (_p, x) => ({ effacements: (x.result as { effacements?: Ligne[] } | null)?.effacements ?? [] }),
+    salaries: (_p, x) => (x.result as { salaries?: number[] } | null)?.salaries ?? [],
+  },
+  // Agenda personnel (t036) : identifiant de l'abonnement créé, nombre de révocations ; jamais le jeton.
+  'agenda.creerJeton': { bilan: (_p, x) => ({ abonnement: (x.result as { id?: number } | null)?.id ?? null }), salaries: (_p, x) => [x.user.empId] },
+  'agenda.revoquerJeton': { salaries: (_p, x) => [x.user.empId] },
+  'agenda.revoquerTout': { bilan: (_p, x) => ({ revoques: (x.result as { revoques?: number } | null)?.revoques ?? 0 }) },
   'formalite.enregistrer': {
     champs: p => p.kind === 'passeport' ? ['empId', 'kind', 'expire'] : p.kind === 'visa' ? ['empId', 'kind', 'dest', 'visaType', 'obtenu', 'expire'] : ['empId', 'kind'],
   },
@@ -521,7 +593,14 @@ export const REGLES: Record<string, Regle> = {
   'temps.suggest': { champs: ['empId', 'week'], ...ligneTemps },
   'temps.submit': { champs: ['empId', 'week'], ...statutEtTotal },
   // Validation : en plus, la contrepartie obligatoire en repos figée sur la feuille (heures, shared/rules/durees.ts).
-  'temps.validate': { champs: ['empId', 'week'], cible: FEUILLE, bilan: (_p, x) => ({ heures: totalHeures(x.apres), ...(corDeLaFeuille(x.apres as FeuilleTemps | null) ? { cor: corDeLaFeuille(x.apres as FeuilleTemps | null) } : {}) }) },
+  // Forfait jours au-delà du plafond (t043) : seul le fait que le motif du valideur soit renseigné.
+  'temps.validate': {
+    champs: ['empId', 'week'], cible: FEUILLE,
+    bilan: (_p, x) => ({
+      heures: totalHeures(x.apres), ...(corDeLaFeuille(x.apres as FeuilleTemps | null) ? { cor: corDeLaFeuille(x.apres as FeuilleTemps | null) } : {}),
+      ...(x.apres?.motifForfait ? { motifForfait: MENTION_TEXTE } : {}),
+    }),
+  },
   'temps.reject': { champs: ['empId', 'week'], cible: FEUILLE },
   // Réouverture d'une feuille validée (administrateur RH, t131) : statut avant et après, renvoi au salarié, feuille déjà
   // transmise et son lot d'origine ; le motif (texte libre) reste sur la feuille, seul le fait qu'il soit renseigné est tracé.
@@ -598,6 +677,13 @@ export const REGLES: Record<string, Regle> = {
     bilan: async (_p, x) => ({ lignes: (await cloturees(x)).map(c => ({ empId: c.empId, decision: c.decision, solde: c.solde, reportes: c.reportes, perdus: c.perdus, expire: c.expire })) }),
     salaries: async (_p, x) => (await cloturees(x)).map(c => c.empId),
   },
+  // Jours de fractionnement (t046) : période, puis décision de chaque salarié (crédit et jours, ou renonciation).
+  'conges.fractionnement': {
+    champs: ['periode'],
+    etat: async db => Number((await db.one('SELECT MAX(id) AS n FROM fractionnements') as { n: number | null }).n ?? 0),
+    bilan: async (_p, x) => ({ lignes: (await fractionnementsDecides(x)).map(f => ({ empId: f.empId, decision: f.decision, jours: f.jours })) }),
+    salaries: async (_p, x) => (await fractionnementsDecides(x)).map(f => f.empId),
+  },
   // Entretiens : la section rédigée est nommée, jamais son contenu ; une ligne par compte rendu et par demi-heure.
   'entretien.planifier': { champs: ['empId', 'kind', 'date'] },
   // Annulation : type, date et statut de l'entretien retiré (jamais le compte rendu).
@@ -615,7 +701,7 @@ export const REGLES: Record<string, Regle> = {
   // Administration
   // Réglages : anciennes et nouvelles valeurs, sauf la référence de l'accord des heures supplémentaires (texte libre).
   'parametres.maj': {
-    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche'] },
+    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche', 'nuitAccord', 'forfaitJoursAccord', 'fractionnementAccord', 'conservationDecisionDpo'] },
   },
   // Jours fériés d'une année (lot 6) : année, réglage avant et après ; le motif d'une année engagée (texte libre) n'est
   // jamais recopié, seulement le fait qu'il soit renseigné. Salariés dont une absence est recalculée (résultat).
@@ -702,7 +788,7 @@ export function champsRetenus(action: string, p: P, avant: Ligne | null = null):
   // Pièces justificatives jointes par l'action (server/src/actions/pieces.ts) : leur nombre, jamais leurs jetons.
   const pieces = Array.isArray(p.pieces) ? p.pieces.length : typeof p.pieces === 'string' && p.pieces ? 1 : 0;
   if (pieces) out.pieces = pieces;
-  return sansNature({ ...out, ...(r.extra?.(p, avant) ?? {}) });
+  return sansNature({ ...out, ...r.extra?.(p, avant) });
 }
 
 /** Ligne de la cible, lue telle quelle (colonnes de la table). */
@@ -774,12 +860,14 @@ export async function preparerTrace(db: Db, action: string, p: unknown): Promise
  * Trace une action réussie (dans sa transaction) : code, champs retenus, anciennes et nouvelles valeurs,
  * salariés concernés, message expurgé. Rien pour la saisie d'heures du salarié sur sa propre feuille.
  */
-export async function journaliserAction(db: Db, t: Trace, x: { user: CurrentUser; compte: Compte; message: string | null; result?: unknown }) {
+export async function journaliserAction(db: Db, t: Trace, x: { user: CurrentUser; compte: Compte; message: string | null; result?: unknown; parDelegation?: number[] }) {
   const { regle, p, avant } = t;
   const ctx: Contexte = { db, user: x.user, avant, apres: await lireCible(db, regle?.cible, p), etat: t.etat, result: x.result };
   if (regle?.tracer && !await regle.tracer(p, ctx)) return;
   const code = await regle?.code?.(p, ctx) || t.action;
-  const payload = { ...champsRetenus(t.action, p, avant), ...(await regle?.bilan?.(p, ctx) ?? {}) };
+  // Décision prise par le suppléant d'un manager absent (t135) : identifiants des managers remplacés.
+  const delegation = x.parDelegation?.length ? { parDelegation: x.parDelegation } : {};
+  const payload = { ...champsRetenus(t.action, p, avant), ...await regle?.bilan?.(p, ctx), ...delegation };
   const propres = await regle?.changements?.(p, ctx) ?? null;
   const diff = propres ?? (regle?.cible ? comparer(regle.cible, avant, ctx.apres) : null);
   if (propres?.extra) Object.assign(payload, propres.extra);
@@ -811,7 +899,7 @@ const MOTIF_MAX = 200;
 
 /** Refus d'accès (403) d'une personne connectée : action ou écran réservé, motif borné ; rien n'a été modifié. */
 export async function tracerRefus(db: Db, id: Pick<Identite, 'user' | 'compte'>, quoi: string, motif: string, extra: { action?: string; p?: unknown } = {}) {
-  const payload = { ...(extra.action ? { action: extra.action, ...champsRetenus(extra.action, extra.p as P) } : {}) };
+  const payload = extra.action ? { action: extra.action, ...champsRetenus(extra.action, extra.p as P) } : {};
   const p = (extra.p ?? {}) as P;
   const court = motif.length > MOTIF_MAX ? `${motif.slice(0, MOTIF_MAX)}…` : motif;
   await journaliser(db, {
@@ -1151,6 +1239,7 @@ export function routesJournal(db: Db): Router {
     const id = await identite(db, req);
     if (!id) return res.status(401).json({ error: 'Connexion requise' });
     const b = (req.body ?? {}) as P;
+    // oxlint-disable-next-line no-control-regex -- caractères de contrôle retirés volontairement d'un texte reçu
     const titre = typeof b.titre === 'string' ? b.titre.replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 160) : '';
     if (!titre) return res.status(400).json({ error: 'Export sans titre' });
     const lignes = Number.isInteger(b.lignes) && b.lignes >= 0 ? b.lignes as number : null;

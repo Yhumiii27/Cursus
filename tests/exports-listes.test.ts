@@ -21,7 +21,7 @@ type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 async function fresh() {
   const db = await nouvelleBase();
   await seedDemo(db);
-  const compteId = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
+  const compteId = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number }).id;
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteId(empId), role, methode: 'demo' }))!;
   const run = async (u: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), payload));
   // Données telles que le navigateur les reçoit (GET /api/data) : déjà restreintes au profil.
@@ -136,7 +136,7 @@ test('plan de formation : exercice, filtre de statut, coût retenu et origine', 
   const prevus = plan.filter(l => l.statut === 'prevu');
   const x = csvPlan(d, 2026, prevus);
   assert.equal(x.fichier, 'plan-formation-2026-2026-10-10.csv');
-  assert.deepEqual(x.head, ['Exercice', 'Formation', 'Équipe', 'Période', 'Effectif', 'Coût (€)', 'Coût prévu (€)', 'Statut', 'Origine']);
+  assert.deepEqual(x.head, ['Exercice', 'Formation', 'Équipe', 'Période', 'Effectif', 'Coût (€)', 'Coût prévu (€)', 'Statut', 'Origine', 'Catégorie', 'Durée (h)']);
   assert.equal(x.rows.length, prevus.length);
   assert.ok(x.rows.every(r => r[0] === 2026 && r[7] === 'Prévu' && /^T[1-4]$/.test(String(r[3])) && /^\d+(,\d+)?$/.test(String(r[5]))));
 });

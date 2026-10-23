@@ -7,7 +7,8 @@ import { CONTRATS_EXCLUABLES, PREAVIS_TOUTE_ANNEE } from './rules/campagne.ts';
 import { JOURS_RELANCE, paliersRelance } from './rules/relances.ts';
 import { nuitHorsLoi, refusPlageNuit } from './rules/repos-nuit.ts';
 import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesTexte, DOSSIER_MIN_ANS, DUREE_MAX_ANS } from './rules/conservation.ts';
-import type { ContenuAgenda, Settings, StockagePieces } from './types.ts';
+import { DELAI_JOUR_FRANC, DELAI_PREVENANCE_LEGAL } from './rules/astreintes.ts';
+import type { CompensationAstreinte, ContenuAgenda, Settings, StockagePieces } from './types.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
 export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
@@ -245,6 +246,13 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   //   absences toujours publiées sous le libellé neutre « Absent » —
   agendaFluxActif: { defaut: false, controle: booleen },
   agendaContenu: { defaut: ['sessions', 'entretiens', 'absences', 'deplacements'], controle: parmi<ContenuAgenda>(['sessions', 'entretiens', 'absences', 'deplacements']) },
+  // — Astreintes (t049, lot 7, shared/rules/astreintes.ts ; section de Paramètres à l'étape 2) : accord inconnu (réponse de
+  //   l'entreprise du 23 octobre 2026) — délai de prévenance légal de 15 jours (art. L3121-12), compensation financière,
+  //   aucune astreinte pour un salarié mineur, référence de l'accord vide —
+  astreinteDelaiPrevenance: { defaut: DELAI_PREVENANCE_LEGAL, controle: entier(DELAI_JOUR_FRANC, 60) },
+  astreinteCompensation: { defaut: 'financiere', controle: choix<CompensationAstreinte>(['financiere', 'repos']) },
+  astreinteMineurs: { defaut: false, controle: booleen },
+  astreinteAccord: { defaut: '', controle: texte(120, 'Référence de l’accord') },
 };
 
 /**
@@ -297,6 +305,9 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
     const plus = CATEGORIES.filter(c => c !== 'dossier' && s[CATEGORIES_CONSERVATION[c].reglage] > s.conservationDossierAns);
     return plus.length ? `Conservation des dossiers : ${categoriesTexte(plus)} au-delà de la durée du dossier, dont l’anonymisation efface tout` : null;
   },
+  // — Astreintes : un délai de prévenance plus court que 15 jours suppose un accord collectif (art. L3121-11) —
+  s => (s.astreinteDelaiPrevenance < DELAI_PREVENANCE_LEGAL && !s.astreinteAccord
+    ? `Astreintes : un délai de prévenance de moins de ${DELAI_PREVENANCE_LEGAL} jours suppose un accord collectif (art. L3121-11) : indiquez sa référence` : null),
 ];
 
 /** Vue non typée de la table, pour la parcourir (les contrôles reçoivent la valeur en vigueur du même champ). */

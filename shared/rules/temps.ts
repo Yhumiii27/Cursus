@@ -16,6 +16,7 @@ import { heuresFeriees, MAJORATION_1ER_MAI, plafondComplementaires } from './maj
 import { employeAu, memeRegime, regimeFiche, segmentsContrat } from './historique-contrat.ts';
 import { horairesDeLaFeuille } from './horaires.ts';
 import { controlesReposNuit, veilleDe } from './repos-nuit.ts';
+import { plagesInterventions } from './astreintes.ts';
 
 /** Régime de temps de travail en vigueur d'une fiche, à figer sur une feuille soumise. */
 export function contratFige(e: Employe): ContratFige {
@@ -109,7 +110,11 @@ export function calcSheet(d: Domain, e: Employe, sh: FeuilleCalcul | null): Shee
   depassements.push(...jeune.depassements);
   // Horaires de poste du jour (shared/rules/repos-nuit.ts) : repos quotidien et pause, à motiver ; nuit d'un mineur, refusée.
   const rn = controlesReposNuit(horairesDeLaFeuille(d.ds.referentiels, e.equipe, sh ? { statut: sh.statut ?? (sh.horairesFiges ? 'validee' : 'brouillon'), horaires: sh.horaires, horairesFiges: sh.horairesFiges } : null, perDay).map(j => j.horaire),
-    perDay, sh?.week, { s: d.ds.settings, naissance: naissanceDeLaFeuille(e, sh), veille: sh?.week ? veilleDe(d.ds, e, sh.week) : null, exclu: c.dirigeant });
+    perDay, sh?.week, {
+      s: d.ds.settings, naissance: naissanceDeLaFeuille(e, sh), veille: sh?.week ? veilleDe(d.ds, e, sh.week) : null, exclu: c.dirigeant,
+      // Interventions d'astreinte (t049) : plages exactes, repos dû en entier après leur fin (shared/rules/astreintes.ts).
+      interventions: plagesInterventions(d.ds.interventionsAstreinte, e.id, sh?.week),
+    });
   const reposQuotidien = [...rn.repos, ...rn.pauses];
   depassements.push(...reposQuotidien);
   // Heures complémentaires au-delà du plafond (le dixième, le tiers avec un accord) : dépassement, motif exigé.

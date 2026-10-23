@@ -695,6 +695,31 @@ export type CalendrierFeries = Record<string, FeriesAnnee>;
  */
 export type RoleMandat = 'titulaire' | 'suppleant';
 export interface Mandat { id: number; empId: number; role: RoleMandat; du: ISODate; au: ISODate | null; credit: number }
+/** Forme de la compensation des astreintes (art. L3121-9) : financière (montant sur le bulletin de paie) ou en repos. */
+export type CompensationAstreinte = 'financiere' | 'repos';
+/**
+ * Période d'astreinte d'un salarié (t049, lot 7, shared/rules/astreintes.ts) : du jour `du` à l'heure `debut` au jour `au`
+ * à l'heure `fin` (« HH:MM », heure de Paris), équipe au moment de la planification (figée), date à laquelle la
+ * programmation a été communiquée au salarié (`communiqueLe`, refaite à chaque changement des dates), motif des
+ * « circonstances exceptionnelles » quand le délai de prévenance n'est pas tenu (texte libre). Jamais supprimée : annulée
+ * avec un motif (`annuleLe`, horodatage). Planifiée par le manager direct ou le service RH.
+ */
+export interface Astreinte {
+  id: number; empId: number; equipe: string | null;
+  du: ISODate; debut: string; au: ISODate; fin: string;
+  communiqueLe: ISODate; motif: string | null;
+  creeLe: string; creePar: string; modifieLe: string | null; modifiePar: string | null;
+  annuleLe: string | null; annulePar: string | null; annuleMotif: string | null;
+}
+/**
+ * Intervention pendant une astreinte : du travail effectif (art. L3121-9), déclaré sur la feuille de temps avec ses heures
+ * de début et de fin (« HH:MM » ; une fin avant le début : le lendemain), rattaché au jour où il commence (`jour`) ; ses
+ * heures (`heures`) s'ajoutent à la ligne INT-AST de ce jour.
+ */
+export interface InterventionAstreinte {
+  id: number; astreinteId: number; empId: number; jour: ISODate; debut: string; fin: string; heures: number;
+  declareLe: string; declarePar: string;
+}
 /** Délégation des validations d'un manager absent (t135, shared/rules/delegations-manager.ts) : ce que le suppléant valide. */
 export type PerimetreDelegation = 'absences' | 'feuilles' | 'entretiens';
 /**
@@ -1094,6 +1119,16 @@ export interface Settings {
    */
   agendaFluxActif: boolean;
   agendaContenu: ContenuAgenda[];
+  /**
+   * Astreintes (t049, lot 7, shared/rules/astreintes.ts) : délai de prévenance en jours (15 à défaut d'accord, art.
+   * L3121-12 ; en dessous, motif « circonstances exceptionnelles » et un jour franc au moins), forme de la compensation
+   * (financière par défaut, réponse de l'entreprise du 23 octobre 2026), astreinte d'un salarié mineur refusée par défaut,
+   * référence de l'accord (texte libre, vide tant qu'il n'est pas connu).
+   */
+  astreinteDelaiPrevenance: number;
+  astreinteCompensation: CompensationAstreinte;
+  astreinteMineurs: boolean;
+  astreinteAccord: string;
 }
 /** Période de paie des jours rachetés d'un forfait jours : mois de la signature de l'avenant, ou clôture de l'année (décembre). */
 export type EmissionJren = 'signature' | 'cloture';
@@ -1590,6 +1625,13 @@ export interface Dataset {
   conservation?: DossierEchu[];
   /** Abonnement à l'agenda personnel (t036) : jeton en vigueur de la personne connectée (date de création), sinon null. */
   agendaJeton?: { creeLe: string } | null;
+  /**
+   * Astreintes (t049, lot 7) et interventions déclarées : toutes pour le service RH, la paie et la lecture seule (sans les
+   * motifs) ; celles du périmètre pour le manager (motifs de son équipe directe seulement) et les siennes pour le salarié ;
+   * rien pour le référent HSE (server/src/dataset.ts). Absent : aucune.
+   */
+  astreintes?: Astreinte[];
+  interventionsAstreinte?: InterventionAstreinte[];
 }
 
 /** Catégorie de données d'un dossier, avec sa durée de conservation après la sortie (shared/rules/conservation.ts). */

@@ -75,6 +75,10 @@ export const REFERENCES: readonly Reference[] = [
   ref('formations_suivies', 'f', 'formations'),
   ref('formations_suivies', 'plan_action_id', 'plan_actions'),
   ref('formations_suivies', 'demande_id', 'demandes_collab'),
+  // Astreintes (t049, lot 7) : salarié de l'astreinte ; salarié et astreinte de chaque intervention (0005_astreintes.sql).
+  ref('astreintes', 'emp_id', 'employes'),
+  ref('astreinte_interventions', 'emp_id', 'employes'),
+  ref('astreinte_interventions', 'astreinte_id', 'astreintes'),
 ];
 
 export interface Integrite {

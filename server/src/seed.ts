@@ -22,6 +22,7 @@ import { delivrancesDepuisTitres } from './migrations/lot6-securite.ts';
 import { lotHistorique } from './migrations/paie.ts';
 import { amorcerActivites } from './migrations/temps.ts';
 import { amorcerHoraires } from './migrations/lot6-horaires.ts';
+import { amorcerActiviteAstreinte } from './migrations/lot7-astreintes.ts';
 
 // Mode de validation : évaluation réussie pour les habilitations électriques, CACES, SST, ATEX, AIPR et PRAP ;
 // la présence suffit pour les sensibilisations et formations d'information.
@@ -497,6 +498,8 @@ export async function seedDemo(db: Db) {
     for (const [code, nom] of Object.entries(PROJETS)) await enregistrerProjet(cx, code, { nom });
     // Activités internes de base (dont la délégation du CSE) : comme la migration d'une base neuve, rejouée à la réinitialisation.
     await amorcerActivites(db);
+    // Activité des interventions d'astreinte (t049), comme la migration d'une base neuve.
+    await amorcerActiviteAstreinte(db);
     // Horaires de poste d'exemple (comme la migration d'une base neuve) ; horaire de journée proposé à la Maintenance et à
     // l'Administration, équipe du matin à la Production (2x8 : l'après-midi se choisit sur la feuille).
     await amorcerHoraires(db);

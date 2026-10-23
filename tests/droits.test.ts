@@ -72,6 +72,16 @@ const avenantForfait = async () => (await db.insert<{ id: number }>('avenantsFor
   empId: 9, annee: 2026, jours: 5, taux: 25, signeLe: '2026-10-01', reference: null, creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Sandrine Vidal',
   annuleLe: null, annulePar: null, annuleMotif: null, lotId: null, sage: false, horsFichier: false,
 })).id;
+/** Astreinte de Mehdi (Maintenance), de 18 h le premier jour à 8 h le dernier, communiquée le 1er octobre. */
+const astreinte = async (du: string, au: string) => (await db.insert<{ id: number }>('astreintes', {
+  empId: 2, equipe: 'Maintenance', du, debut: '18:00', au, fin: '08:00', communiqueLe: '2026-10-01', motif: null, creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Karim Haddad',
+})).id;
+/** Intervention de Mehdi déclarée le 5 octobre (feuille de la semaine 41 en brouillon, ligne INT-AST). */
+const intervention = async () => {
+  const astreinteId = await astreinte('2026-10-05', '2026-10-07');
+  await db.insert('feuilles', { empId: 2, week: '2026-10-05', statut: 'brouillon', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-AST', tache: 'Intervention d’astreinte', ks: false, h: [1.5, 0, 0, 0, 0, 0, 0] }] });
+  return (await db.insert<{ id: number }>('astreinteInterventions', { astreinteId, empId: 2, jour: '2026-10-05', debut: '22:00', fin: '23:30', heures: 1.5, declareLe: '2026-10-06T08:00:00.000Z', declarePar: 'Mehdi Benali' })).id;
+};
 const ENTRETIEN = async () => ((await db.one(`SELECT id FROM entretiens WHERE emp_id = 2 AND statut = 'planifie'`)) as { id: number }).id;
 
 /** Absence de Mehdi le 15 décembre, dans l'état voulu (signalée par son manager, ou validée). */
@@ -446,6 +456,14 @@ const MATRICE: Ligne[] = [
   { action: 'agenda.creerJeton', droits: '                       -    -    O    O    O    O    -    -    -', p: async () => { await reglages({ agendaFluxActif: true }); return {}; } },
   { action: 'agenda.revoquerJeton', droits: '                    -    -    O    O    O    O    -    -    -', p: () => ({}) },
   { action: 'agenda.revoquerTout', droits: '                     O    -    -    -    -    -    -    -    -', p: () => ({}) },
+  // Astreintes (t049, lot 7) : planning par le manager direct ou le service RH (jamais pour soi-même) ; interventions
+  // déclarées sur la feuille de temps comme la saisie d'heures (salarié, manager direct, service RH).
+  { action: 'astreinte.planifier', droits: '              O    O    O    -    -    -    -    -    -', p: () => ({ empId: 2, du: '2026-11-06', debut: '18:00', au: '2026-11-13', fin: '08:00' }) },
+  { action: 'astreinte.planifier', variante: 'astreinte du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: () => ({ empId: 14, du: '2026-11-06', debut: '18:00', au: '2026-11-13', fin: '08:00' }) },
+  { action: 'astreinte.modifier', droits: '               O    O    O    -    -    -    -    -    -', p: async () => ({ id: await astreinte('2026-11-06', '2026-11-13'), au: '2026-11-12' }) },
+  { action: 'astreinte.annuler', droits: '                O    O    O    -    -    -    -    -    -', p: async () => ({ id: await astreinte('2026-11-06', '2026-11-13'), motif: 'Arrêt technique reporté' }) },
+  { action: 'astreinte.intervention', droits: '           O    O    O    -    O    -    -    -    -', p: async () => ({ astreinteId: await astreinte('2026-10-05', '2026-10-07'), jour: '2026-10-05', debut: '22:00', fin: '23:30' }) },
+  { action: 'astreinte.retirerIntervention', droits: '    O    O    O    -    O    -    -    -    -', p: async () => ({ id: await intervention() }) },
 ];
 
 const ANNULER = Symbol('annuler');

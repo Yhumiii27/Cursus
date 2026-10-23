@@ -171,6 +171,11 @@ export interface EvenementAgenda {
    * différent remplaçant son occurrence (RECURRENCE-ID) ; un seul UID, qu'une annulation retire en entier.
    */
   creneaux?: CreneauAgenda[];
+  /**
+   * Plage continue à l'heure de Paris, du jour `date` à l'heure `debut` jusqu'au jour `finJour` à l'heure `fin` (astreinte,
+   * t049) : un seul événement, sans répétition ; ignorée avec des créneaux.
+   */
+  plage?: { debut: string; finJour: ISODate; fin: string };
   titre: string;
   lieu?: string | null;
   description?: string;
@@ -202,7 +207,10 @@ export function calendrier(ev: EvenementAgenda, maintenant = new Date()): string
   ];
   let dates: string[];
   const remplacements: string[] = [];
-  if (!premier) {
+  const plage = !premier && ev.plage ? ev.plage : null;
+  if (plage) {
+    dates = [`DTSTART;TZID=Europe/Paris:${icsHeure(ev.date, plage.debut)}`, `DTEND;TZID=Europe/Paris:${icsHeure(plage.finJour, plage.fin)}`];
+  } else if (!premier) {
     dates = [`DTSTART;VALUE=DATE:${icsDate(ev.date)}`, `DTEND;VALUE=DATE:${icsDate(lendemain(ev.fin && ev.fin > ev.date ? ev.fin : ev.date))}`];
   } else {
     const tz = (jour: ISODate, hm: string) => `;TZID=Europe/Paris:${icsHeure(jour, hm)}`;
@@ -224,7 +232,7 @@ export function calendrier(ev: EvenementAgenda, maintenant = new Date()): string
   }
   const lignes = [
     'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Cursus//Convocations//FR', 'CALSCALE:GREGORIAN', `METHOD:${ev.annule ? 'CANCEL' : 'PUBLISH'}`,
-    ...(premier ? FUSEAU_PARIS : []),
+    ...(premier || plage ? FUSEAU_PARIS : []),
     'BEGIN:VEVENT', `UID:${ev.uid}`, ...dates, ...commun, 'END:VEVENT',
     ...remplacements,
     'END:VCALENDAR',

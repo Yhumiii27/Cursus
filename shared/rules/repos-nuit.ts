@@ -21,6 +21,10 @@
 //   horaire : une semaine sans horaire compte sans nuit), qui en comptent deux jours —, ou 270 h de nuit sur 12 mois glissants (art. L3122-23, supplétif). Seuils réglables avec la
 //   référence de l'accord. Repéré sur la fiche ; en suivi VIP, alerte « suivi médical adapté à prévoir » dans les visites
 //   dues (VIP adaptée, art. R4624-17), sans changer d'office le type de suivi.
+// - Interventions d'astreinte (t049, lot 7, shared/rules/astreintes.ts) : plages exactes (début et fin déclarés), en plus de la
+//   plage estimée de l'horaire, dont leurs heures sont retirées. Leurs heures de nuit comptent ; le temps d'astreinte sans
+//   intervention compte comme repos (art. L3121-10) : seul le repos qui suit la fin d'une intervention est contrôlé, dû en
+//   entier jusqu'à la reprise suivante (le repos interrompu par l'intervention ne l'est pas).
 // Tout est calculé sur les feuilles et les horaires déjà transmis : aucune donnée nouvelle ne part vers le navigateur, sauf
 // l'indication `travailleurNuit` du référent HSE, qui n'a pas les feuilles (server/src/dataset.ts).
 import { addD, joursSemaine, parse } from '../dates.ts';
@@ -141,17 +145,30 @@ const jourCourt = (s: ISODate) => parse(s).toLocaleDateString('fr-FR', { weekday
 export interface Veille { horaire: HoraireFige | null; heures: number }
 
 /**
+ * Intervention d'astreinte d'une semaine (shared/rules/astreintes.ts, `plagesInterventions`) : début et fin en minutes
+ * depuis le lundi 0 h, jour de la feuille où elle commence (0 = lundi … 6 = dimanche ; -1 : dimanche précédent, lu pour le
+ * repos du lundi seulement).
+ */
+export interface PlageIntervention { di: number; debut: number; fin: number }
+
+/**
  * Contrôles d'une semaine (lundi `week`) : `jours` horaire de chaque jour, `perDay` heures de chaque jour, `veille` le
- * dimanche précédent. `exclu` : cadre dirigeant (art. L3111-2), ni repos ni pause contrôlés ; les heures de nuit restent
- * comptées. Sans semaine connue : rien.
+ * dimanche précédent, `interventions` les interventions d'astreinte de la semaine (et du dimanche précédent), dont les
+ * heures sont dans `perDay`. `exclu` : cadre dirigeant (art. L3111-2), ni repos ni pause contrôlés ; les heures de nuit
+ * restent comptées. Sans semaine connue : rien.
  */
 export function controlesReposNuit(jours: readonly (HoraireFige | null)[], perDay: readonly number[], week: ISODate | null | undefined,
-  o: { s?: Partial<ReglagesNuit>; naissance?: Naissance | null; veille?: Veille | null; exclu?: boolean }): ControlesReposNuit {
+  o: { s?: Partial<ReglagesNuit>; naissance?: Naissance | null; veille?: Veille | null; exclu?: boolean; interventions?: readonly PlageIntervention[] }): ControlesReposNuit {
   const out: ControlesReposNuit = { nuitParJour: Array(JOURS_FEUILLE).fill(0), nuit: 0, repos: [], pauses: [], nuitMineur: [], codes: [] };
   if (!week) return out;
   const s = reglagesNuit(o.s), wd = joursSemaine(week);
-  const plages = Array.from({ length: JOURS_FEUILLE }, (_, i) => plageDuJour(jours[i], num(perDay[i]), i));
-  out.nuitParJour = plages.map(p => heuresDeNuit(p, s));
+  // Interventions d'astreinte : plages exactes ; leurs heures, comprises dans celles du jour, ne prolongent pas l'horaire.
+  const ints = (o.interventions ?? []).filter(x => x.fin > x.debut && x.di >= -1 && x.di < JOURS_FEUILLE);
+  const hInt = (di: number) => ints.filter(x => x.di === di).reduce((n, x) => n + (x.fin - x.debut) / 60, 0);
+  const travail = (i: number) => Math.max(0, num(perDay[i]) - hInt(i));
+  const plages = Array.from({ length: JOURS_FEUILLE }, (_, i) => plageDuJour(jours[i], travail(i), i));
+  const plagesInt = ints.filter(x => x.di >= 0).map(x => ({ di: x.di, p: { debut: x.debut, fin: x.fin, pause: 0 } }));
+  out.nuitParJour = plages.map((p, i) => Math.round((heuresDeNuit(p, s) + plagesInt.filter(x => x.di === i).reduce((n, x) => n + heuresDeNuit(x.p, s), 0)) * 100) / 100);
   out.nuit = Math.round(out.nuitParJour.reduce((a, b) => a + b, 0) * 100) / 100;
   // Salarié mineur ce jour-là (moins de 16 ans quand la date de naissance le dit) : vue sans la date, les indications
   // de la semaine (`mineur`, `moins16` : naissanceDeLaFeuille).
@@ -160,7 +177,7 @@ export function controlesReposNuit(jours: readonly (HoraireFige | null)[], perDa
   const plusJeune = wd.some(day => age(day) === 'moins16') ? 'moins16' : wd.some(day => age(day)) ? 'mineur' : null;
 
   const nuitInterdite: string[] = [];
-  plages.forEach((p, i) => {
+  [...plages.map((p, i) => ({ di: i, p })), ...plagesInt].forEach(({ p, di: i }) => {
     const a = p && age(wd[i]);
     if (!p || !a) return;
     const plage = a === 'moins16' ? NUIT_MOINS_16 : NUIT_MINEUR;
@@ -172,16 +189,27 @@ export function controlesReposNuit(jours: readonly (HoraireFige | null)[], perDa
   }
   if (o.exclu) return out;
 
-  // Repos quotidien : de la fin d'un jour au début du suivant (dimanche précédent compris).
-  const veille = o.veille ? plageDuJour(o.veille.horaire, o.veille.heures, -1) : null;
-  const suite = [veille, ...plages];
+  // Repos quotidien : de la fin d'un jour au début du suivant (dimanche précédent compris). Interventions d'astreinte : le
+  // repos qui suit leur fin est contrôlé (dû en entier), jamais celui qu'elles interrompent.
+  const veille = o.veille ? plageDuJour(o.veille.horaire, Math.max(0, o.veille.heures - hInt(-1)), -1) : null;
+  const suite = [
+    ...(veille ? [{ di: -1, p: veille, intervention: false }] : []),
+    ...ints.filter(x => x.di === -1).map(x => ({ di: -1, p: { debut: x.debut, fin: x.fin, pause: 0 }, intervention: true })),
+    ...plages.flatMap((p, i) => (p ? [{ di: i, p, intervention: false }] : [])),
+    ...plagesInt.map(x => ({ ...x, intervention: true })),
+  ].sort((a, b) => a.p.debut - b.p.debut);
   const courts: string[] = [];
-  for (let i = 1; i < suite.length; i++) {
-    const avant = suite[i - 1], apres = suite[i];
-    if (!avant || !apres) continue;
-    const day = wd[i - 1], a = age(day), min = a === 'moins16' ? REPOS_QUOTIDIEN_MOINS_16 : a ? REPOS_QUOTIDIEN_MINEUR : REPOS_QUOTIDIEN;
-    const repos = (apres.debut - avant.fin) / 60;
-    if (repos < min) courts.push(`${repos > 0 ? fH(repos) : 'aucun repos'} avant le ${jourCourt(day)} (fin à ${heureTexte(avant.fin)}, reprise à ${heureTexte(apres.debut)})`);
+  let finMax: number | null = null, finIntervention = false;
+  for (const x of suite) {
+    if (finMax != null && !x.intervention && x.di >= 0) {
+      const day = wd[x.di], a = age(day), min = a === 'moins16' ? REPOS_QUOTIDIEN_MOINS_16 : a ? REPOS_QUOTIDIEN_MINEUR : REPOS_QUOTIDIEN;
+      const repos = (x.p.debut - finMax) / 60;
+      if (repos < min) {
+        courts.push(`${repos > 0 ? fH(repos) : 'aucun repos'} avant le ${jourCourt(day)} (fin ${finIntervention ? 'de l’intervention d’astreinte ' : ''}à ${heureTexte(finMax)}, reprise à ${heureTexte(x.p.debut)}${finIntervention ? ' ; repos dû en entier après une intervention, art. L3121-10' : ''})`);
+      }
+    }
+    if (finMax == null || x.p.fin > finMax) { finMax = x.p.fin; finIntervention = x.intervention; }
+    else if (x.p.fin === finMax && x.intervention) finIntervention = true;
   }
   if (courts.length) {
     const seuil = plusJeune === 'moins16' ? `${REPOS_QUOTIDIEN_MOINS_16} h (salarié de moins de 16 ans, art. L3164-1)`
@@ -194,7 +222,7 @@ export function controlesReposNuit(jours: readonly (HoraireFige | null)[], perDa
   const sansPause: string[] = [];
   plages.forEach((p, i) => {
     if (!p) return;
-    const a = age(wd[i]), h = num(perDay[i]);
+    const a = age(wd[i]), h = travail(i);
     const [des, min] = a ? [PAUSE_DES_MINEUR, PAUSE_MIN_MINEUR] : [PAUSE_DES, PAUSE_MIN];
     if ((a ? h > des : h >= des) && p.pause < min) sansPause.push(`${jourCourt(wd[i])} (${fH(h)}, pause de ${p.pause} min)`);
   });

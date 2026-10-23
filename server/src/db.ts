@@ -403,6 +403,22 @@ export const TABLES = {
     cols: { id: 'int', empId: 'int', empreinte: 'text', creeLe: 'text', revoqueLe: 'text', revoquePar: 'text', dernierAcces: 'text' },
     unique: [['empreinte']],
   },
+  // Astreintes (t049, lot 7, server/src/actions/astreintes.ts, shared/rules/astreintes.ts) : période (jours et heures),
+  // équipe au moment de la planification, communication au salarié, motif des circonstances exceptionnelles (texte libre),
+  // auteurs, annulation avec motif (jamais supprimée).
+  astreintes: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', equipe: 'text', du: 'text', debut: 'text', au: 'text', fin: 'text', communiqueLe: 'text', motif: 'text',
+      creeLe: 'text', creePar: 'text', modifieLe: 'text', modifiePar: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+    },
+  },
+  // Interventions pendant une astreinte : travail effectif déclaré sur la feuille de temps (ligne INT-AST), jour de début,
+  // heures de début et de fin, durée ; retirées (ligne supprimée, heures retirées de la feuille) tant que la feuille se saisit.
+  astreinteInterventions: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', astreinteId: 'int', empId: 'int', jour: 'text', debut: 'text', fin: 'text', heures: 'real', declareLe: 'text', declarePar: 'text' },
+  },
 } satisfies Record<string, TableDef>;
 
 export type TableName = keyof typeof TABLES;

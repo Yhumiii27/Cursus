@@ -101,6 +101,11 @@ pas dans Cursus : la paie les traite dans Sage.
 - « Mes notifications par e-mail » : chaque notification aussitôt ou un récapitulatif chaque matin.
 - « Télécharger mes données » : copie de tout ce que Cursus conserve sur soi. La page « Confidentialité » explique leur
   traitement et à qui s'adresser.
+- « Mes astreintes » (salariés d'astreinte) : astreintes en cours et à venir, et le récapitulatif de chaque mois (heures
+  d'astreinte, périodes, interventions, forme de la compensation), à l'écran ou par « Imprimer le récapitulatif ». Une
+  intervention se déclare sur la feuille de temps de la semaine (« Déclarer une intervention » dans l'encart
+  « Astreinte » : jour, heures de début et de fin) ; ses heures vont sur la ligne « Intervention d'astreinte », qui ne se
+  saisit pas à la main. Une intervention déclarée par erreur se retire tant que la feuille se saisit.
 
 ## Manager
 
@@ -167,6 +172,11 @@ Les feuilles validées partent à la paie avec le lot du mois : le manager n'a r
 - Recherche en haut de l'écran (touche « / » ou Ctrl+K) : tapez un nom, un poste ou un matricule ; les membres de votre
   équipe s'affichent au fil de la frappe, Entrée ou un clic ouvre la fiche, « Voir tous les résultats » filtre l'écran
   Équipe. Les listes de salariés des formulaires se filtrent de la même façon.
+- « Planning des astreintes » (écran Feuilles de temps, sous la feuille) : astreintes de votre équipe pour la semaine
+  affichée, en cours et à venir, terminées ou annulées. « Planifier une astreinte » : au moins 15 jours avant son début
+  (réglage du service RH) ; en dessous, les circonstances exceptionnelles sont à indiquer, et jamais moins d'un jour franc.
+  Le salarié reçoit un e-mail avec l'événement pour son agenda. Avant son début, l'astreinte se modifie ou s'annule (motif
+  communiqué au salarié) ; commencée, seule sa fin s'avance. Le service RH planifie aussi, et vous en êtes prévenu.
 
 ## Service RH
 
@@ -376,6 +386,10 @@ d'un mois clos enregistrée en retard part entière, en rappel.
   dans Paramètres → Forfait jours. JREN est désactivée tant que la paie n'a pas donné son code : les jours sont alors
   listés « À saisir dans Sage » dans le résumé du lot du mois de la signature (ou de décembre, selon le réglage), et
   réglés hors fichier quand ce lot est confirmé. Un avenant enregistré après la génération du lot attend le lot suivant.
+- Astreintes terminées : heures d'astreinte du mois (AST_H, réparties entre les mois de la période) et périodes (AST_PER,
+  au mois de leur début). Rubriques désactivées tant que la paie n'a pas donné leurs codes : listées « À saisir dans Sage »
+  dans le résumé du lot et l'export des variables. La compensation (AST_COMP : montant, ou repos) suivra l'accord sur les
+  astreintes (forme réglée dans Paramètres → Astreintes). Les interventions sont déjà dans les heures de la feuille.
 - **Hors fichier, à saisir dans Sage** : heures de nuit ; intérimaires (relevé envoyé à leur agence)
   et cadres dirigeants exclus. La journée de solidarité et les fériés chômés se règlent année par année
   (Paramètres, « Jours fériés et journée de solidarité ») : un jour ainsi travaillé n'est plus férié (art. L3133-8).

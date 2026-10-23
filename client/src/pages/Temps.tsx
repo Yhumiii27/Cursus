@@ -63,6 +63,8 @@ import { LegendeHoraires, LigneHoraires, useHorairesFeuille } from '../component
 import { fileForfait, recapForfait } from '../components/ForfaitJours.tsx';
 import { controleValidationForfait } from '../../../shared/rules/forfait-jours.ts';
 import { decideur } from '../state/delegues.ts';
+import { InterventionsFeuille, PlanningAstreintes } from '../components/Astreintes.tsx';
+import { ligneAstreinte } from '../components/astreintes-etat.ts';
 
 /** Année d'une feuille : celle de sa semaine ISO (son jeudi) ; le cumul annuel ventile une semaine à cheval jour par jour. */
 const anneeDe = (week: ISODate) => isoWeekYear(week);
@@ -275,6 +277,9 @@ export function Temps() {
 
       {tsEmp && <CompteurDelegation emp={tsEmp} />}
 
+      {/* Astreintes (lot 7, t049) : planning de l'équipe (manager) ou de tous (espace RH). */}
+      {!collab && <PlanningAstreintes wk={wk} />}
+
       {espaceRh && <LotsPaie />}
 
       {rh && <RelevesPanel wk={wk} />}
@@ -474,7 +479,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
                     const alerte = alerteDe(li, di), alerteId = `ts-alerte-${li}-${di}`;
                     return (
                       <td key={di} className={`center${days[di].weekend ? ' col-weekend' : ''}`}>
-                        <ChampHeures value={num(l.h[di])} disabled={!editable || (days[di].locked && !alerte)} label={nomChamp(l, days[di].long)}
+                        <ChampHeures value={num(l.h[di])} disabled={!editable || (days[di].locked && !alerte) || ligneAstreinte(l)} label={nomChamp(l, days[di].long)}
                           alerte={alerte} alerteId={alerteId} onCommit={raw => enregistrer(li, di, raw)}
                           style={{ width: 56, textAlign: 'right', padding: '0 var(--space-3)' }} />
                         {alerte && <span id={alerteId} className="sr-only">{alerte}</span>}
@@ -483,7 +488,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
                   })}
                   {!voirWeekEnd && <td className="center col-weekend tnum nowrap">{heuresWeekEnd(l.h) ? fH(heuresWeekEnd(l.h)) : '—'}</td>}
                   <td className="right nowrap tnum">{fH(l.h.reduce((n, v) => n + num(v), 0))}</td>
-                  <td className="right">{editable && <CloseButton size={28} label={`Supprimer la ligne ${l.projet}`} disabled={occupe} onClick={ev => supprimer(li, ev)} />}</td>
+                  <td className="right">{editable && !(ligneAstreinte(l) && l.h.some(v => num(v) > 0)) && <CloseButton size={28} label={`Supprimer la ligne ${l.projet}`} disabled={occupe} onClick={ev => supprimer(li, ev)} />}</td>
                 </tr>
               ))}
               <tr>
@@ -500,6 +505,8 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
         </div>
         )}
         {horaires && <LegendeHoraires h={horaires} />}
+        {/* Astreintes de la semaine et interventions déclarées (ligne INT-AST, en lecture seule dans la grille). */}
+        <InterventionsFeuille emp={emp} wk={wk} editable={editable} />
         {horsSemaine && <div className="note-accent">Semaine hors contrat : {horsSemaine}. Aucune feuille de temps.</div>}
         {!horsSemaine && lignes.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Aucune heure saisie pour cette semaine.</p>}
         {couverte && !(calc.total > 0) && editable && !correction && <Fine>Semaine couverte par une absence : la feuille se soumet sans heure.</Fine>}

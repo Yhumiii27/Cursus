@@ -240,6 +240,8 @@ const ligneContratEquipe = (l: ContratHistorique): ContratHistorique => ({ ...li
  */
 /** Astreinte sans ses motifs (circonstances exceptionnelles, annulation : textes libres du manager ou du service RH). */
 const astreinteSansMotif = (a: Astreinte): Astreinte => (a.motif || a.annuleMotif ? { ...a, motif: null, annuleMotif: null } : a);
+/** Astreinte d'un membre de l'équipe, sans son lot de paie (étape 2 : comme les avenants, la paie reste au service RH). */
+const astreinteSansPaie = (a: Astreinte): Astreinte => (a.lotId != null || a.sage ? { ...a, lotId: null, sage: false } : a);
 const avenantNeutre = (a: AvenantForfait): AvenantForfait => ({ ...a, annuleMotif: null, creePar: '', annulePar: null });
 const avenantEquipe = (a: AvenantForfait): AvenantForfait => ({ ...avenantNeutre(a), taux: 0, reference: null, lotId: null, sage: false, horsFichier: false });
 
@@ -524,7 +526,7 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
     ...(d.teamsOf(user.empId).length ? { suppleantsPossibles: suppleantsPossibles(d, user.empId!) } : {}),
     // Astreintes (t049) : celles du périmètre (les siennes, celles de l'équipe pour le manager), motifs compris sauf en
     // consultation N+2 ; interventions déclarées du périmètre, comme les feuilles de temps qui portent leurs heures.
-    astreintes: mine(full.astreintes ?? []).map(a => (lecture.has(a.empId) ? astreinteSansMotif(a) : a)),
+    astreintes: mine(full.astreintes ?? []).map(a => (lecture.has(a.empId) ? astreinteSansMotif(a) : a)).map(a => (a.empId !== user.empId ? astreinteSansPaie(a) : a)),
     interventionsAstreinte: mine(full.interventionsAstreinte ?? []),
     // Abonnement à l'agenda personnel (t036) : seulement le fait qu'il existe et sa date, jamais le jeton (haché en base).
     agendaJeton: await (async () => { const j = await jetonActif(db, user.empId!); return j ? { creeLe: j.creeLe } : null; })(),

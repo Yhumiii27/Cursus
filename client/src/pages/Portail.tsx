@@ -17,6 +17,7 @@ import { retraitDemande } from '../state/confirmations-corrections.ts';
 import { Bar, Btn, Chips, Empty, Fine, Kpi, Kpis, NoteAccent, Page, Panel, Seg, Tag } from '../components/ui.tsx';
 import { ContactUrgencePanel } from '../components/ContactUrgence.tsx';
 import { AgendaPortail } from '../components/AgendaPortail.tsx';
+import { AstreintesPortail } from '../components/AstreintesPortail.tsx';
 import { Aptitude } from '../components/Aptitude.tsx';
 import { ExigencesPortail } from '../components/Exigences.tsx';
 import { FormationsSuiviesPortail } from '../components/FormationsSuivies.tsx';
@@ -302,6 +303,9 @@ export function Portail() {
             </div>
             <Fine>Le journal des actions qui vous concernent vous est remis sur demande par le service RH.</Fine>
           </Panel>
+
+          {/* Astreintes (lot 7, t049) : prochaines astreintes et récapitulatif mensuel imprimable (art. R3121-2). */}
+          <AstreintesPortail e={me} />
 
           <ContactUrgencePanel empId={me.id} />
           <AgendaPortail />

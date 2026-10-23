@@ -506,6 +506,12 @@ export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubriqu
   // taux de majoration part en détail, le montant reste calculé par Sage). Désactivée par défaut tant que la paie n'a pas
   // donné son code, et sans objet tant qu'aucun accord collectif n'ouvre le rachat (Paramètres → Forfait jours).
   JREN: { label: 'Jours de repos rachetés, forfait jours (avenant de renonciation, majoration en détail)', unite: 'j', inactiveParDefaut: true },
+  // Astreintes (shared/rules/astreintes-paie.ts, t049, lot 7) : heures et périodes des astreintes terminées, quantités seules ;
+  // la compensation (montant, ou durée du repos) suivra l'accord sur les astreintes et n'est pas encore calculée. Désactivées
+  // par défaut tant que la paie n'a pas confirmé ses codes (réponse du 23 octobre 2026) : listées « à saisir dans Sage ».
+  AST_H: { label: 'Heures d’astreinte (période entière, interventions comprises)', unite: 'h', inactiveParDefaut: true },
+  AST_PER: { label: 'Périodes d’astreinte (nombre, au mois de leur début)', unite: 'nombre', inactiveParDefaut: true },
+  AST_COMP: { label: 'Compensation des astreintes (selon l’accord, à confirmer)', unite: 'nombre', inactiveParDefaut: true },
 };
 
 /** Sections d'un compte rendu : [clé, libellé, rédacteur] — 'mgr' évaluateur, 'sal' salarié. */

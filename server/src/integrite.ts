@@ -86,6 +86,8 @@ export const REFERENCES: readonly Reference[] = [
   ref('attentes_session', 'demande_id', 'demandes_collab'),
   ref('attentes_session', 'cert_id', 'certifications'),
   ref('attentes_session', 'inscription_id', 'inscriptions'),
+  // Astreintes dans la paie (t049, lot 7, étape 2 ; 0008_astreintes_paie.sql) : lot qui emporte l'astreinte terminée.
+  ref('astreintes', 'lot_id', 'lots_paie'),
 ];
 
 export interface Integrite {

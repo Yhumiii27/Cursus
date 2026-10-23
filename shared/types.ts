@@ -758,6 +758,20 @@ export interface Astreinte {
   communiqueLe: ISODate; motif: string | null;
   creeLe: string; creePar: string; modifieLe: string | null; modifiePar: string | null;
   annuleLe: string | null; annulePar: string | null; annuleMotif: string | null;
+  /**
+   * Paie (étape 2, shared/rules/astreintes-paie.ts) : lot qui emporte les heures et la période de l'astreinte terminée
+   * (`lotId`), import confirmé (`sage`). Absents (instantané du manager et du salarié) : non transmis.
+   */
+  lotId?: number | null; sage?: boolean | null;
+}
+/**
+ * Heures (AST_H) ou période (AST_PER) d'une astreinte terminée dans un lot de paie (t049, shared/rules/astreintes-paie.ts) :
+ * mois où elles tombent (`mois`), période de paie (un mois clos part sur la période ouverte), code Sage (null : rubrique
+ * désactivée, à saisir dans Sage) ; bornes de l'astreinte pour le détail.
+ */
+export interface ElementAstreintePaie {
+  astreinte: number; empId: number; matricule: string; mois: string; periode: string; rubrique: string; codeSage: string | null; quantite: number;
+  du: ISODate; debut: string; au: ISODate; fin: string;
 }
 /**
  * Intervention pendant une astreinte : du travail effectif (art. L3121-9), déclaré sur la feuille de temps avec ses heures
@@ -1388,6 +1402,8 @@ export interface SagePush {
   deplacements?: ElementDeplacementPaie[];
   /** Jours rachetés d'un forfait jours (t043, rubrique JREN active) ; absent avant le lot 6 (étape 2). */
   rachats?: ElementRachatPaie[];
+  /** Heures et périodes d'astreinte (t049, lot 7 ; AST_H, AST_PER), `codeSage` null : à saisir dans Sage. */
+  astreintes?: ElementAstreintePaie[];
   /**
    * Éléments calculés que le lot n'emporte pas, faute de rubrique active (soldes de sortie) : listés « à saisir dans Sage »
    * dans le résumé du lot et l'export des variables (server/src/elements-lot.ts). Les absences et déplacements sans code
@@ -1498,6 +1514,8 @@ export interface LotPaie {
   deplacements?: { source: 'voyage' | 'mission'; id: number; empId: number }[];
   /** Avenants de renonciation dont le lot emporte les jours rachetés (identifiant, salarié ; t043). */
   rachats?: { id: number; empId: number }[];
+  /** Astreintes terminées dont le lot emporte les heures et la période (identifiant, salarié ; t049, lot 7). */
+  astreintes?: { id: number; empId: number }[];
   /**
    * Totaux du contenu figé : lignes du fichier, salariés, quantité par code Sage des heures ; `absences` : éléments
    * d'absence, salariés et quantité par code Sage (codes retirés hors droit « paie » : server/src/dataset.ts).
@@ -1508,6 +1526,8 @@ export interface LotPaie {
     deplacements?: { elements: number; salaries: number };
     /** Jours rachetés d'un forfait jours (t043) : éléments et salariés. */
     rachats?: { elements: number; salaries: number };
+    /** Heures et périodes d'astreinte (t049) : éléments et salariés. */
+    astreintes?: { elements: number; salaries: number };
     /** Éléments à saisir à la main dans Sage, nominatifs (shared/rules/elements-lot.ts) ; absent : aucun. */
     aSaisir?: ElementASaisir[];
   };

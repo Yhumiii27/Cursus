@@ -14,6 +14,7 @@ import type { ISODate, LigneTemps } from '../../../shared/types.ts';
 import { cellText, cellValue, jourParDefaut, nomChamp, VUE_JOUR } from '../components/heures.ts';
 import { useMedia } from '../components/media.ts';
 import { CloseButton } from '../components/ui.tsx';
+import { ligneAstreinte } from '../components/astreintes-etat.ts';
 import { ChoixHoraire, type HorairesFeuille } from '../components/HorairesFeuille.tsx';
 import { useStore } from '../state/store.tsx';
 
@@ -119,9 +120,9 @@ export function SaisieJour({ wk, days, lignes, perDay, total, editable, occupe, 
               </div>
               {/* Une clé par jour : la saisie en cours d'un jour ne passe pas au suivant. */}
               <ChampHeures key={`${li}-${jour}`} className="champ-jour" value={num(l.h[jour])} label={nomChamp(l, x.long)}
-                disabled={!editable || (x.locked && !alerte)} alerte={alerte} alerteId={alerteId}
+                disabled={!editable || (x.locked && !alerte) || ligneAstreinte(l)} alerte={alerte} alerteId={alerteId}
                 onCommit={raw => enregistrer(li, jour, raw)} />
-              {editable && <CloseButton label={`Supprimer la ligne ${l.projet}`} disabled={occupe} onClick={ev => supprimer(li, ev)} />}
+              {editable && !(ligneAstreinte(l) && l.h.some(v => Number(v) > 0)) && <CloseButton label={`Supprimer la ligne ${l.projet}`} disabled={occupe} onClick={ev => supprimer(li, ev)} />}
             </div>
           );
         })}

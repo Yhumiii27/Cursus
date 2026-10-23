@@ -209,6 +209,9 @@ export const TABLES = {
       deplacements: 'json',
       // Avenants de renonciation dont le lot emporte les jours rachetés (identifiant, salarié ; t043) : quantités dans `contenu`.
       rachats: 'json',
+      // Astreintes terminées dont le lot emporte les heures et la période (identifiant, salarié ; t049, lot 7) : quantités
+      // dans `contenu`.
+      astreintes: 'json',
     },
     unique: [['cle']],
   },
@@ -414,6 +417,8 @@ export const TABLES = {
     cols: {
       id: 'int', empId: 'int', equipe: 'text', du: 'text', debut: 'text', au: 'text', fin: 'text', communiqueLe: 'text', motif: 'text',
       creeLe: 'text', creePar: 'text', modifieLe: 'text', modifiePar: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+      // Paie (étape 2, server/src/astreintes-paie.ts) : lot qui emporte l'astreinte terminée, import confirmé.
+      lotId: 'int', sage: 'bool',
     },
   },
   // Interventions pendant une astreinte : travail effectif déclaré sur la feuille de temps (ligne INT-AST), jour de début,

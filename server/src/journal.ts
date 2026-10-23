@@ -208,6 +208,7 @@ const lotDuResultat = (x: Contexte) => x.result as {
   lot?: number; feuilles?: { empId: number; week: string }[]; absences?: { id: number; empId: number }[]; sorties?: { id: number; empId: number }[];
   deplacements?: { source?: string; id: number; empId: number }[];
   rachats?: { id: number; empId: number }[];
+  astreintes?: { id: number; empId: number }[];
   correctifs?: { empId: number; week: string }[];
 } | null | undefined;
 const lotRetenu = (x: Contexte) => {
@@ -220,11 +221,14 @@ const lotRetenu = (x: Contexte) => {
     ...(r?.deplacements?.length ? { deplacements: r.deplacements.map(s => `${s.source}:${s.id}`) } : {}),
     // Avenants de renonciation d'un forfait jours (t043) : identifiants seuls.
     ...(r?.rachats?.length ? { rachats: r.rachats.map(s => s.id) } : {}),
+    // Astreintes terminées (t049) : identifiants seuls.
+    ...(r?.astreintes?.length ? { astreintes: r.astreintes.map(s => s.id) } : {}),
   };
 };
 const salariesDuLot = (x: Contexte) => [...new Set([
   ...(lotDuResultat(x)?.feuilles ?? []).map(f => f.empId), ...(lotDuResultat(x)?.absences ?? []).map(a => a.empId), ...(lotDuResultat(x)?.sorties ?? []).map(a => a.empId),
   ...(lotDuResultat(x)?.deplacements ?? []).map(a => a.empId), ...(lotDuResultat(x)?.rachats ?? []).map(a => a.empId),
+  ...(lotDuResultat(x)?.astreintes ?? []).map(a => a.empId),
 ])];
 /** Feuilles transmises à la paie : validées et non transmises avant l'action, marquées transmises après. */
 const transmises = async (x: Contexte) => (await Promise.all((x.etat as number[]).map(id => x.db.get<FeuilleTemps>('feuilles', id)))).filter((f): f is FeuilleTemps => !!f?.sage);

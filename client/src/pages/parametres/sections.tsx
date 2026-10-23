@@ -9,6 +9,7 @@ import { JournalPanel } from '../Journal.tsx';
 import { MessageriePanel } from '../Messagerie.tsx';
 import type { SectionProps } from './commun.ts';
 import { AbsencesPaie } from './AbsencesPaie.tsx';
+import { Astreintes } from './Astreintes.tsx';
 import { CompteEpargneTemps } from './CompteEpargneTemps.tsx';
 import { Agenda } from './Agenda.tsx';
 import { Conservation } from './Conservation.tsx';
@@ -74,6 +75,7 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'absences-paie', place: 'droite', Section: AbsencesPaie },
   { id: 'deplacements-paie', place: 'droite', Section: DeplacementsPaie },
   { id: 'forfait-jours', place: 'droite', Section: ForfaitJours },
+  { id: 'astreintes', place: 'droite', Section: Astreintes },
   { id: 'feuilles', place: 'gauche', Section: FeuillesTemps },
   { id: 'repos', place: 'droite', Section: ReposHebdomadaire },
   { id: 'sante', place: 'gauche', Section: Sante },

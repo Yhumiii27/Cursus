@@ -153,6 +153,9 @@ export type DialogState =
   | { type: 'anonymiser'; ids: number[]; avantEcheance?: boolean }
   /** Demande de formation dont la session est complète : liste d'attente ou plan de formation (lot 7, t120). */
   | { type: 'accepterAttente'; id: number }
+  /** Astreintes (t049, lot 7) : planification (`empId` présélectionné) ou modification (`id`) ; intervention déclarée. */
+  | { type: 'astreinte'; empId?: number | null; id?: number | null }
+  | { type: 'interventionAstreinte'; empId: number; jour?: ISODate | null; astreinteId?: number | null }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
   | { type: 'confirmer'; c: Confirmation };
 

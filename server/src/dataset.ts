@@ -22,6 +22,7 @@ import { delegationEnVigueur, deleguesA, type Delegue } from '../../shared/rules
 import { reglagesParDefaut } from '../../shared/reglages.ts';
 import { etatsCouverture } from '../../shared/rules/couverture.ts';
 import { entretienMiCarriere } from '../../shared/rules/entretien-mi-carriere.ts';
+import { anneesC2p, syntheseC2p } from '../../shared/rules/c2p.ts';
 import type { AvenantForfait, ContratHistorique, DelegationValidation, DemandeVisite, EtatCouverture, FormationSuivie, HabDelivrance, LotReprise, Personne } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Fractionnement, Chantier, ClotureConges, CurrentUser, InformationCp, Dataset, SoldeSortie, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
@@ -364,6 +365,8 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
         ...full, taches: tachesProches(full.taches, full.today), ...(droits.includes('paie') ? {} : sansCodesAbsences(full)), couverture: etatsCouverture(full, full.settings.horizonAlerte),
         // Dossiers des salariés sortis dont une durée de conservation est échue (t016) : administrateur RH seulement.
         ...(droits.includes('admin') ? { conservation: await dossiersEchus(db, full.settings, full.today) } : {}),
+        // Compte professionnel de prévention (t052) : synthèse calculée ici sur toutes les feuilles validées.
+        c2p: c2pDe(full),
       }
       : vueProfil(full, droits);
   }
@@ -420,7 +423,8 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
   });
   return {
     ...full,
-    referentiels: { ...full.referentiels, chantiers: [] },
+    // Facteurs d'exposition du C2P cochés sur les postes : avec le poste d'un membre, ils diraient son exposition.
+    referentiels: { ...full.referentiels, chantiers: [], postes: sansC2p(full.referentiels.postes) },
     employes,
     // Le bilan d'une session (évaluation à chaud, motif d'annulation : textes libres, parfois nominatifs)
     // est réservé au service RH.
@@ -507,10 +511,20 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
   };
 }
 
+/**
+ * Compte professionnel de prévention (t052, shared/rules/c2p.ts) : synthèse de l'année en cours et de la précédente, sur
+ * l'instantané complet (toutes les feuilles validées) ; service RH, référent HSE (qui ne reçoit pas les feuilles) et
+ * lecture seule. Ni le manager, ni le collaborateur, ni la paie.
+ */
+const c2pDe = (full: Dataset) => anneesC2p(full.today).map(a => syntheseC2p(full, a));
+/** Postes sans les facteurs d'exposition du C2P (manager, collaborateur, paie). */
+const sansC2p = (postes: Dataset['referentiels']['postes']) => postes.map(p => (p.c2p ? { ...p, c2p: null } : p));
+
 /** Référentiels des postes et des équipes vidés de leurs exigences (profil qui ne reçoit pas les titres). */
 const sansExigences = (r: Dataset['referentiels']): Pick<Dataset['referentiels'], 'postes' | 'equipes'> => ({
-  // Poste à risques particuliers (formation renforcée exigée) et couverture minimale : sans les titres, de même.
-  postes: r.postes.map(p => ({ ...p, formations: [], habilitations: [], risquesL4154: false })),
+  // Poste à risques particuliers (formation renforcée exigée) et couverture minimale : sans les titres, de même ; facteurs
+  // d'exposition du C2P, réservés au service RH, au référent HSE et à la lecture seule.
+  postes: sansC2p(r.postes).map(p => ({ ...p, formations: [], habilitations: [], risquesL4154: false })),
   equipes: r.equipes.map(q => ({ ...q, exigences: null, couverture: null })),
 });
 
@@ -668,6 +682,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // Formations suivies et délivrances d'habilitation : avec les certifications et les titres (référent HSE, lecture seule).
     formationsSuivies: formations ? suiviesNeutres(full.formationsSuivies ?? []) : [],
     habDelivrances: formations ? delivrancesNeutres(full.habDelivrances ?? []) : [],
+    // Compte professionnel de prévention (t052) : référent HSE et lecture seule ; pas la paie (le service RH lui remet l'export).
+    ...(formations ? { c2p: c2pDe(full) } : {}),
   };
 }
 

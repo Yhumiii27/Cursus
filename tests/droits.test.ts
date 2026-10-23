@@ -337,6 +337,10 @@ const MATRICE: Ligne[] = [
   // Horaires de poste (lot 6) : service RH ; la lecture seule consulte.
   { action: 'referentiel.horaire.enregistrer', droits: '     O    O    -    -    -    -    -    -    -', p: () => ({ code: 'S', nom: 'Samedi matin', debut: '06:00', fin: '12:00', pause: 0 }) },
   { action: 'referentiel.horaire.archiver', droits: '       O    O    -    -    -    -    -    -    -', p: () => ({ id: 'AM' }) },
+  // Compte professionnel de prévention (lot 7, t052) : facteurs du poste et qualification des horaires, service RH et
+  // référent HSE ; la lecture seule consulte la synthèse.
+  { action: 'referentiel.poste.expositions', droits: '           O    O    -    -    -    -    O    -    -', p: async () => ({ id: await posteNomme('Cariste'), facteurs: ['bruit'] }) },
+  { action: 'referentiel.horaire.alternant', droits: '   O    O    -    -    -    -    O    -    -', p: () => ({ id: 'N', alternant: true }) },
   // Jours fériés et journée de solidarité d'une année (lot 6) : administrateur RH.
   { action: 'parametres.feries', droits: '                  O    -    -    -    -    -    -    -    -', p: () => ({ annee: 2027, solidarite: 'pentecote_travaillee', nonChomes: [] }) },
   { action: 'mandat.enregistrer', droits: '                  O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, role: 'titulaire', du: '2026-11-01', credit: 21 }) },

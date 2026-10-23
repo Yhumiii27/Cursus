@@ -436,7 +436,11 @@ habilitations, destinations), archivés plutôt que supprimés, validité modifi
 échéances au dernier jour du mois cible quand le jour n'y existe pas (29/02 + 36 mois = 28/02) · renouvellement
 accepté d'une habilitation expirée compté « en attente » · exigences par poste et par équipe : une formation ou une
 habilitation exigée jamais obtenue rend « Non conforme », avec une échéance « exigence manquante » (inscrire, demander
-l'habilitation) et un indicateur au tableau de bord ; postes créés depuis les intitulés déjà saisis, choisis en liste.
+l'habilitation) et un indicateur au tableau de bord ; postes créés depuis les intitulés déjà saisis, choisis en liste ·
+compte professionnel de prévention (C2P) : nuits comptées d'après les horaires de poste des feuilles validées (1 h au moins
+entre 0 h et 5 h ; 120 nuits par an, 50 en équipes successives alternantes, au prorata du contrat), horaires de nuit à
+qualifier, facteurs du poste cochés par le service RH ou le référent HSE, synthèse annuelle et export « à saisir dans la DSN »
+(codes à confirmer par la paie).
 
 Interface fiable : une réponse arrivée après une plus récente ne réaffiche pas un état ancien (révision de la base dans
 chaque instantané) · deux personnes qui modifient la même fiche ne s'écrasent plus (seuls les champs modifiés partent,

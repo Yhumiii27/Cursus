@@ -56,6 +56,7 @@ shared/            Domaine partagé (aucune dépendance)
                    feries.ts (lot 6) : jours fériés et journée de solidarité réglés par année (calendrier : dates.ts) ;
                    horaires.ts (lot 6) : horaires de poste, horaire par défaut d'une équipe, horaire du jour d'une feuille
                    repos-nuit.ts (lot 6) : repos quotidien, pause, heures de nuit, nuit des mineurs, travailleur de nuit
+                   c2p.ts (lot 7) : compte professionnel de prévention, nuits de 0 h à 5 h, facteurs du poste, export DSN
                    conservation.ts (lot 6, t016) : durées de conservation par catégorie après la sortie, dossiers échus
                    historique-contrat.ts : historique des contrats (régime en vigueur à une date, `regimeAu`, avenants
                    programmés) ; cdd.ts : motif de recours, durée maximale et renouvellements d'un CDD, délai de carence
@@ -81,6 +82,7 @@ server/src/
                    lot6-horaires.ts (lot 6 : horaires de poste d'exemple amorcés)
                    lot6-contrats.ts (lot 6 : historique des contrats amorcé depuis les fiches et les feuilles figées)
                    lot6-securite.ts (lot 6 : délivrances d'habilitation en vigueur, durée en heures du catalogue)
+                   lot7-prevention.ts (lot 7, chantier B : colonnes du C2P, rien à reprendre)
   seed.ts          Données de démonstration
   avenants.ts      Historique des contrats : lignes écrites par la fiche, le renouvellement d'un CDD et la sortie, brouillons
                    refigés, avenants programmés appliqués à leur date (au démarrage puis toutes les heures)
@@ -526,7 +528,9 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     `0002_partage.sql` (vues `pub_` lues par Matrix et les autres outils, sans colonne sensible ni GRANT : les droits
     viennent du socle) et `0003_lot6_etape2.sql` (étape 2 du lot 6 : 7 tables, 57 en tout, colonnes ajoutées, nature
     d'absence `CET` ; sur une base déjà remplie, majoration de nuit figée et délivrances en vigueur reprises en SQL) et `0004_pub_absences.sql` (vue `pub_absences`, demande CU-1 de Crucible : matricule, dates, statut validée ou
-    demandée, annulation, `maj_le` posée par un déclencheur ; jamais le type ni le motif ; lecteurs accordés par Matrix).
+    demandée, annulation, `maj_le` posée par un déclencheur ; jamais le type ni le motif ; lecteurs accordés par Matrix) et
+    `0006_prevention.sql` (lot 7, chantier B : colonnes `postes.c2p` et `horaires.alternant` du compte professionnel de
+    prévention, JSON contrôlés par CHECK ; aucune vue `pub_`).
     Appliquées au démarrage sous `pg_advisory_lock(hashtext('cursus.migrations'))`, pris avant de lire le journal
     `cursus.schema_migrations`, une transaction par fichier ; une migration du journal inconnue de ce code (base mise à
     jour par une version plus récente) ou un schéma `cursus` absent : refus de démarrer. Puis `TABLES` est comparé au
@@ -978,6 +982,8 @@ aucun champ du paramètre n'est recopié.
 | `referentiel.equipe.exigences` | nom (équipe), formations, habilitations (vides : aucune exigence commune), nuit? (travail de nuit ou en continu : refusé si l'équipe compte un salarié mineur), couverture? ([{ formation, min }] : formation du catalogue en vigueur, une fois chacune, minimum entier de 1 à l'effectif présent ; [] : retirée ; absente : inchangée ; journal : codes et nombres avant et après) ; message comme pour un poste | RH |
 | `referentiel.equipe.exigences` | nom (équipe), formations, habilitations (vides : aucune exigence commune), nuit? (travail de nuit ou en continu : refusé si l'équipe compte un salarié mineur), horaire? (code de l'horaire de poste proposé par défaut, « » ou null : aucun ; absent : inchangé ; archivé : refus) ; message comme pour un poste | RH |
 | `referentiel.horaire.enregistrer` / `referentiel.horaire.archiver` | code (création : 1 à 6 lettres ou chiffres commençant par une lettre, unique, archivés compris) ou id (le code), nom (60 caractères), debut, fin (« HH:MM », « 8 h »… ; fin avant le début : le lendemain), pause (minutes, 0 à 240, plus courte que l'horaire) / id, archive? (faux : rétabli) ; archivage refusé tant qu'une équipe le propose par défaut ; les feuilles qui le portent le gardent | RH |
+| `referentiel.poste.expositions` | id (poste, archivé compris), facteurs [codes `repetitif`, `hyperbare`, `temperatures`, `bruit` ; [] : aucun] : facteurs d'exposition du C2P cochés sur le poste (lot 7, `shared/rules/c2p.ts`) ; journal : identifiant, codes avant et après | RH, référent HSE |
+| `referentiel.horaire.alternant` | id (code de l'horaire), alternant (vrai : équipes successives alternantes ; faux : non ; null ou « » : à qualifier) ; vaut pour toutes les nuits comptées sous cet horaire ; journal : code, valeur avant et après | RH, référent HSE |
 | `hab.demander` | empId, h : habilitation exigée jamais délivrée, titre « en attente » de délivrance (déjà demandée : rien n'est refait ; déjà délivrée ou archivée : refus) | RH, référent HSE |
 | `referentiel.charger` | referentiel (`formations`/`habilitations`/`destinations`) : référentiel type (celui de la démonstration) chargé dans un référentiel vide, archivés compris ; habilitations après les formations (prérequis présents et en vigueur) | RH, référent HSE (destinations : RH) |
 | `medical.demander` | empId, motif? (`periodique`/`embauche`/`reprise`/`employeur`/`mi_carriere`/`fin_carriere` ; par défaut celui de la visite due la plus proche, sinon embauche sans visite enregistrée, sinon périodique) ; e-mail au service de santé au travail | RH (une demande en cours par collaborateur) |
@@ -1742,6 +1748,40 @@ Table `postes` (intitulé, `formations` et `habilitations` exigées, `archive`),
 - **Aucune migration nommée** : colonnes nouvelles déclarées dans `TABLES` (vides : décoché, aucun seuil), réglages par
   défaut de `REGLAGES` ; aucune action nouvelle (paramètres ajoutés à `referentiel.poste.enregistrer` et
   `referentiel.equipe.exigences`, journal complété). Démonstration : 4 SST au minimum en Production.
+
+### Compte professionnel de prévention (lot 7, chantier B, étape 1 : t052)
+
+Règle pure `shared/rules/c2p.ts`, actions `server/src/actions/c2p.ts`, écran Expositions (C2P) (`pages/Prevention.tsx`,
+vue `prevention`, groupe « Prévention » du menu), colonnes des onglets Postes et Horaires de Référentiels.
+
+- **Nuits** : un jour de feuille **validée** compte une nuit quand l'horaire figé ce jour-là (`horairesFiges`) donne au moins
+  1 h de travail entre 0 h et 5 h (`heuresDeNuit` de `repos-nuit.ts` sur la plage `C2P_PLAGE`, pause retirée au prorata,
+  rattachée au jour où commence le poste ; `repos-nuit.ts` n'est pas modifié). Une nuit faite sous un horaire qualifié
+  « équipes successives alternantes » (`Horaire.alternant`, colonne JSON : vrai, faux, null « à qualifier ») compte au seuil
+  de 50 nuits, les autres au seuil de 120, sans double compte ; la qualification est lue au référentiel (le roulement n'est
+  pas figé avec les heures). Un horaire de nuit non qualifié compte au travail de nuit et il est listé « à qualifier »
+  (`horairesAQualifier` : en vigueur et de nuit à sa durée nominale, ou utilisé par une nuit de l'année). Une feuille sans
+  horaire ne compte aucune nuit (« semaines sans horaire » signalées) ; une feuille non validée ne compte pas encore.
+- **Seuils réglementaires** (art. D4163-2) en constantes non réglables (`C2P_SEUIL_NUIT` 120, `C2P_SEUIL_ALTERNANT` 50,
+  plage 0 h – 5 h) : un accord ne les modifie pas. Au prorata de la période du contrat dans l'année (jours de la période sur
+  jours de l'année, au centième) ; un contrat de moins d'un mois (`contratMoinsDUnMois`) n'est pas déclaré ; un intérimaire
+  est déclaré par l'entreprise de travail temporaire (ligne « à lui transmettre », hors de l'export).
+- **Facteurs du poste** (`Poste.c2p`, colonne JSON) : travail répétitif, milieu hyperbare, températures extrêmes, bruit,
+  cochés par le service RH ou le référent HSE (`referentiel.poste.expositions`, dialogue `RefPosteC2pDialog`) quand les
+  titulaires y sont exposés au-delà du seuil après protections ; décochés par défaut. Exposition d'un salarié = poste
+  occupé (`posteDe`) × sa période dans l'année. `referentiel.poste.enregistrer` n'y touche pas.
+- **Codes** (`FACTEURS_C2P` de `shared/constants.ts`) : libellé, code interne (`C2P-NUIT`, `C2P-ESA`, `C2P-REP`, `C2P-HYP`,
+  `C2P-TEMP`, `C2P-BRUIT`), code DSN présumé du facteur (S21.G00.34.001 : 08, 09, 10, 05, 06, 07), à confirmer par la paie,
+  seuil cité. Export CSV `exportC2p` (« Exporter pour la DSN (CSV) », `downloadCsv`, tracé avec son nombre de lignes) : une
+  ligne par salarié déclaré par l'employeur et par facteur exposé, matricule de paie, période, nuits et seuil, mention
+  « À saisir dans la DSN — codes de facteur à confirmer par la paie ». Aucune rubrique du fichier d'import Sage.
+- **Données transmises** (`server/src/dataset.ts`) : `Dataset.c2p` (année en cours et précédente, `syntheseC2p` sur toutes les
+  feuilles validées) au service RH, au référent HSE (qui ne reçoit pas les feuilles) et à la lecture seule ; ni au manager,
+  ni au collaborateur, ni à la paie, à qui les facteurs des postes sont aussi retirés (`sansC2p`). `Horaire.alternant` est
+  transmis à tous (aucune donnée personnelle).
+- **Base** : colonnes déclarées dans `TABLES`, vides par défaut (rien coché d'office, horaires d'exemple compris) ; migration
+  nommée `lot7-prevention-c2p` (rien à reprendre ; exécutée sans effet sur une base neuve, notée faite ailleurs) ;
+  PostgreSQL : `0006_prevention.sql`.
 
 ### Formations suivies, titres d'habilitation et heures (lot 6, chantier 4, étape 2)
 

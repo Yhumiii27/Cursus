@@ -471,6 +471,10 @@ export const REGLES: Record<string, Regle> = {
     },
   },
   'referentiel.horaire.archiver': { extra: p => ({ code: codeHoraire(p), retablir: p.archive === false }), cible: { table: 'horaires', cle: p => codeHoraire(p), colonnes: ['archive'] } },
+  // Compte professionnel de prévention (t052, lot 7) : facteurs cochés sur un poste (codes) et qualification « équipes
+  // successives alternantes » d'un horaire (vrai, faux, null : à qualifier), avant et après ; aucune donnée personnelle.
+  'referentiel.poste.expositions': { extra: p => ({ id: Number(p.id) || null }), cible: parId('postes', ['c2p']) },
+  'referentiel.horaire.alternant': { extra: p => ({ code: codeHoraire(p) }), cible: { table: 'horaires', cle: p => codeHoraire(p), colonnes: ['alternant'] } },
   // Référentiel type : nombre d'éléments ajoutés.
   'referentiel.charger': {
     extra: p => ({ referentiel: referentielRecu(p) }), etat: async (db, p) => await nombreReferentiel(db, p), bilan: async (p, x) => ({ ajoutes: await nombreReferentiel(x.db, p) - Number(x.etat) }),

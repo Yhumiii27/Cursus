@@ -42,6 +42,7 @@ import { RenouvelerCddDialog } from './RenouvelerCddDialog.tsx';
 import { RefDestinationDialog } from './RefDestinationDialog.tsx';
 import { RefEquipeDialog } from './RefEquipeDialog.tsx';
 import { RefPosteDialog } from './RefPosteDialog.tsx';
+import { RefPosteC2pDialog } from './RefPosteC2pDialog.tsx';
 import { RefFormationDialog } from './RefFormationDialog.tsx';
 import { RefHabilitationDialog } from './RefHabilitationDialog.tsx';
 import { PlanRealiserDialog } from './PlanRealiserDialog.tsx';
@@ -125,6 +126,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'refHabilitation': return <RefHabilitationDialog {...d} />;
     case 'refDestination': return <RefDestinationDialog {...d} />;
     case 'refPoste': return <RefPosteDialog {...d} />;
+    case 'refPosteC2p': return <RefPosteC2pDialog {...d} />;
     case 'refEquipe': return <RefEquipeDialog {...d} />;
     case 'refActivite': return <RefActiviteDialog {...d} />;
     case 'refHoraire': return <RefHoraireDialog {...d} />;

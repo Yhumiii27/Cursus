@@ -4,6 +4,7 @@ import type {
   TypeContrat, VaccinId, ValidationMode, VisaKind,
 } from './types.ts';
 import type { AvisMedical, MotifVisite } from './types.ts';
+import type { FacteurC2p } from './types.ts';
 
 export type StatusKey = 'ok' | 'due' | 'exp';
 /** `susp` : suspendue (prérequis non satisfait ou suspension manuelle) ; `retiree` : retirée, définitivement. */
@@ -528,7 +529,8 @@ export const TRIMESTRES = ['T1', 'T2', 'T3', 'T4'] as const;
 /** Vues accessibles par rôle (la première est la page d'accueil). */
 export const ALLOWED_VIEWS = {
   // `miseEnService` : reprise depuis Lucca, ouverte depuis Paramètres (hors du menu ; imports réservés à l'administrateur RH).
-  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'miseEnService'],
+  // `prevention` : compte professionnel de prévention (lot 7, shared/rules/c2p.ts), service RH, référent HSE et lecture seule.
+  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'miseEnService', 'prevention'],
   manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions'],
   collaborateur: ['portail', 'temps', 'absences', 'entretiens'],
 } as const;
@@ -565,7 +567,7 @@ export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits:
   referent_hse: {
     label: 'Référent HSE / formation', espace: 'HSE', droits: ['formations'],
     aide: 'Catalogue, sessions et présences, certifications et habilitations, verdicts Go / No Go ; aptitude médicale réduite au verdict et aux restrictions en vigueur, comme pour un manager ; ni temps, ni paie, ni entretiens',
-    vues: ['dashboard', 'collaborateurs', 'formations', 'habilitations', 'echeances', 'chantiers', 'referentiels'],
+    vues: ['dashboard', 'collaborateurs', 'formations', 'habilitations', 'echeances', 'chantiers', 'referentiels', 'prevention'],
   },
   paie: {
     label: 'Gestionnaire de paie', espace: 'Paie', droits: ['paie'],
@@ -575,7 +577,7 @@ export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits:
   lecture_seule: {
     label: 'Lecture seule', espace: 'Lecture', droits: ['consultation'],
     aide: 'Direction, DPO, auditeur : tableaux de bord, alertes et journal des actions, sans rien modifier ; ni données de santé détaillées, ni dossiers de voyage',
-    vues: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'echeances', 'budget', 'chantiers', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels'],
+    vues: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'echeances', 'budget', 'chantiers', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'prevention'],
   },
 };
 export const aDroitRh = (p: ProfilRh | undefined, droit: DroitRh) => !!p && !!PROFILS_RH[p]?.droits.includes(droit);
@@ -614,3 +616,22 @@ export const ERREURS_MICROSOFT = {
   indisponible: { titre: 'Connexion Microsoft indisponible', texte: 'réessayez dans quelques minutes, ou utilisez un compte Cursus.' },
 } as const;
 export type ErreurMicrosoft = keyof typeof ERREURS_MICROSOFT;
+
+/**
+ * Facteurs du compte professionnel de prévention (t052, art. L4163-1 et D4163-2 ; shared/rules/c2p.ts), dans l'ordre de
+ * l'écran Prévention : libellé, code interne de Cursus (export « à saisir dans la DSN »), code DSN présumé du facteur
+ * (rubrique S21.G00.34.001, à confirmer par la paie avant toute saisie) et seuil réglementaire, cité tel quel (non
+ * réglable : un accord ne le modifie pas). Nuits comptées par Cursus d'après les horaires de poste ; les quatre autres
+ * facteurs sont cochés sur le poste par le service RH ou le référent HSE.
+ */
+export const FACTEURS_C2P: Record<FacteurC2p, { label: string; code: string; dsn: string; seuil: string; poste?: boolean }> = {
+  nuit: { label: 'Travail de nuit', code: 'C2P-NUIT', dsn: '08', seuil: '1 h de travail au moins entre 0 h et 5 h, 120 nuits par an' },
+  alternant: { label: 'Équipes successives alternantes', code: 'C2P-ESA', dsn: '09', seuil: '1 h de travail au moins entre 0 h et 5 h, 50 nuits par an' },
+  repetitif: {
+    label: 'Travail répétitif', code: 'C2P-REP', dsn: '10', poste: true,
+    seuil: '15 actions techniques ou plus par cycle de 30 s au plus, ou 30 actions techniques par minute, 900 heures par an',
+  },
+  hyperbare: { label: 'Activités en milieu hyperbare', code: 'C2P-HYP', dsn: '05', poste: true, seuil: '1 200 hectopascals, 60 interventions ou travaux par an' },
+  temperatures: { label: 'Températures extrêmes', code: 'C2P-TEMP', dsn: '06', poste: true, seuil: '5 °C ou moins, ou 30 °C ou plus, 900 heures par an' },
+  bruit: { label: 'Bruit', code: 'C2P-BRUIT', dsn: '07', poste: true, seuil: '81 dB(A) sur 8 heures pendant 600 heures par an, ou 135 dB(C) en crête 120 fois par an' },
+};

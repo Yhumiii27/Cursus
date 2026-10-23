@@ -8,6 +8,8 @@ import { fmt, plural } from '../../../shared/format.ts';
 import { exigencesEquipe, nombreExigences, posteDe, titulaires } from '../../../shared/rules/exigences.ts';
 import { actif, actifs } from '../../../shared/rules/referentiels.ts';
 import { avertissementRenforcee, postesARisques, raisonsDExaminer } from '../../../shared/rules/formation-renforcee.ts';
+import { facteursDuPoste } from '../../../shared/rules/c2p.ts';
+import { FACTEURS_C2P } from '../../../shared/constants.ts';
 import { imprimerPostesARisques } from '../postes-risques.ts';
 import { CouvertureCellule } from '../components/Couverture.tsx';
 import type { Exigences } from '../../../shared/types.ts';
@@ -31,7 +33,7 @@ function ExigencesChips({ x }: { x: Exigences }) {
 
 export function Postes() {
   const { d, emps } = useEnriched();
-  const { rh: peut } = useRole();
+  const { rh: peut, formations: c2p } = useRole();
   const { openDialog, run } = useStore();
   const { occupe, agir } = useAgir();
   const [archives, setArchives] = useState(false);
@@ -74,7 +76,7 @@ export function Postes() {
           : (
             <div className="scroll-x">
               <table className="table">
-                <thead><tr><th>Poste</th><th>Exigences</th><th>Titulaires</th><th>Exigences manquantes</th><th>État</th>{peut && <th></th>}</tr></thead>
+                <thead><tr><th>Poste</th><th>Exigences</th><th>Facteurs C2P</th><th>Titulaires</th><th>Exigences manquantes</th><th>État</th>{(peut || c2p) && <th></th>}</tr></thead>
                 <tbody>
                   {lignes.map(p => {
                     const n = titulaires(d.ds, p.id).length, ko = nonConformes(p.id);
@@ -85,16 +87,21 @@ export function Postes() {
                       <tr key={p.id}>
                         <td>{cases.length ? <Two main={p.nom} sub={cases.join(' · ')} /> : <Two main={p.nom} />}</td>
                         <td><ExigencesChips x={p} /></td>
+                        {/* Compte professionnel de prévention (lot 7) : facteurs cochés par le service RH ou le référent HSE. */}
+                        <td>{facteursDuPoste(p).length
+                          ? <Chips items={facteursDuPoste(p).map(f => ({ key: f, label: FACTEURS_C2P[f].label, cls: 'tag-neutral' }))} />
+                          : <span className="text-muted">Aucun</span>}</td>
                         <td>{n}</td>
                         <td>{ko ? <Tag cls="tag-accent">{ko}</Tag> : <span className="text-muted">—</span>}</td>
                         <td>{p.archive ? <Tag cls="tag-outline">Archivé le {fmt(parse(p.archive))}</Tag> : <Tag cls="tag-neutral">En vigueur</Tag>}</td>
-                        {peut && (
+                        {(peut || c2p) && (
                           <td className="right">
                             <div className="actions-end" style={{ flexWrap: 'nowrap' }}>
-                              <Btn small onClick={() => openDialog({ type: 'refPoste', id: p.id })}>Modifier</Btn>
-                              {p.archive
+                              {c2p && <Btn small onClick={() => openDialog({ type: 'refPosteC2p', id: p.id })}>Facteurs C2P</Btn>}
+                              {peut && <Btn small onClick={() => openDialog({ type: 'refPoste', id: p.id })}>Modifier</Btn>}
+                              {peut && (p.archive
                                 ? <Btn small disabled={occupe} onClick={agir(() => run('referentiel.poste.archiver', { id: p.id, archive: false }))}>Rétablir</Btn>
-                                : <Btn small onClick={() => openDialog({ type: 'confirmer', c: archivagePoste(p) })}>Archiver</Btn>}
+                                : <Btn small onClick={() => openDialog({ type: 'confirmer', c: archivagePoste(p) })}>Archiver</Btn>)}
                             </div>
                           </td>
                         )}
@@ -113,7 +120,8 @@ export function Postes() {
         à risques particuliers (art. L4154-2), un CDD, un intérimaire ou un alternant doit avoir suivi la formation renforcée à la
         sécurité depuis son entrée : sinon « Non conforme » et No Go aux chantiers. La liste s’établit après avis du médecin du
         travail et du CSE ; les postes en suivi renforcé, exposés ou qui exigent une habilitation SIR ou ATEX sont signalés
-        « à examiner », sans être cochés d’office.
+        « à examiner », sans être cochés d’office. Facteurs C2P (travail répétitif, milieu hyperbare, températures extrêmes, bruit) : cochés par le
+        service RH ou le référent HSE quand les titulaires y sont exposés au-delà du seuil après protections, décochés par défaut (écran Expositions).
       </Fine>
     </Panel>
 

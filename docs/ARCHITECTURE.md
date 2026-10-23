@@ -57,6 +57,8 @@ shared/            Domaine partagé (aucune dépendance)
                    horaires.ts (lot 6) : horaires de poste, horaire par défaut d'une équipe, horaire du jour d'une feuille
                    repos-nuit.ts (lot 6) : repos quotidien, pause, heures de nuit, nuit des mineurs, travailleur de nuit
                    c2p.ts (lot 7) : compte professionnel de prévention, nuits de 0 h à 5 h, facteurs du poste, export DSN
+                   evaluation-formation.ts (lot 7, t121) : évaluation des formations à chaud et à froid, fenêtres, à faire,
+                   demandes et relances, indicateurs par organisme et par formation
                    conservation.ts (lot 6, t016) : durées de conservation par catégorie après la sortie, dossiers échus
                    historique-contrat.ts : historique des contrats (régime en vigueur à une date, `regimeAu`, avenants
                    programmés) ; cdd.ts : motif de recours, durée maximale et renouvellements d'un CDD, délai de carence
@@ -83,6 +85,7 @@ server/src/
                    lot6-contrats.ts (lot 6 : historique des contrats amorcé depuis les fiches et les feuilles figées)
                    lot6-securite.ts (lot 6 : délivrances d'habilitation en vigueur, durée en heures du catalogue)
                    lot7-prevention.ts (lot 7, chantier B : colonnes du C2P, rien à reprendre)
+                   lot7-formations.ts (lot 7, chantier C : index de la liste d'attente, puis des évaluations des formations)
   seed.ts          Données de démonstration
   avenants.ts      Historique des contrats : lignes écrites par la fiche, le renouvellement d'un CDD et la sortie, brouillons
                    refigés, avenants programmés appliqués à leur date (au démarrage puis toutes les heures)
@@ -122,6 +125,7 @@ server/src/
   notifications.ts Notifications d'étapes (aussitôt ou récapitulatif quotidien), convocations .ics, tâches planifiées
   releves.ts       Relevés d'heures hebdomadaires des intérimaires envoyés à leur agence
   relances.ts      Récapitulatif des échéances par paliers (RH, managers, référent HSE), relances notées (table relances)
+  evaluations-formation.ts Demandes et relances des évaluations de formation par e-mail (lot 7, t121), une fois par jour
   integrations/    Adaptateurs Keystone, Sage Paie et e-mails (email.ts : Microsoft Graph, .ics ; simulation par défaut) ;
                    ged.ts : espace documentaire de l'entreprise (squelette, refusé tant que son interface est inconnue) ; API Keystone entrante :
                    keystone-entrant.ts (contrôles, écritures, instantané) et keystone-routes.ts (routes /v1) ;
@@ -532,7 +536,9 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     `0006_prevention.sql` (lot 7, chantier B : colonnes `postes.c2p` et `horaires.alternant` du compte professionnel de
     prévention, JSON contrôlés par CHECK ; aucune vue `pub_`).
     demandée, annulation, `maj_le` posée par un déclencheur ; jamais le type ni le motif ; lecteurs accordés par Matrix) ;
-    `0007_formations.sql` (lot 7, chantier C : liste d'attente des sessions, table `attentes_session`, aucune vue `pub_`).
+    `0007_formations.sql` (lot 7, chantier C : liste d'attente des sessions, table `attentes_session`, aucune vue `pub_`) ;
+    `0010_evaluations_formation.sql` (lot 7, chantier C, étape 2 : évaluations des formations, table `evaluations_formation`,
+    CHECK du type, du répondant, de la note et de l'efficacité, une seule formation évaluée ; aucune vue `pub_`).
     Appliquées au démarrage sous `pg_advisory_lock(hashtext('cursus.migrations'))`, pris avant de lire le journal
     `cursus.schema_migrations`, une transaction par fichier ; une migration du journal inconnue de ce code (base mise à
     jour par une version plus récente) ou un schéma `cursus` absent : refus de démarrer. Puis `TABLES` est comparé au
@@ -965,8 +971,10 @@ aucun champ du paramètre n'est recopié.
 | `session.confirmer` | id | RH, référent HSE |
 | `session.modifier` | id, date? (postérieure à aujourd’hui ; session passée, à clôturer : aussi une date passée ; seule, la plage est décalée d’autant), fin?, jours?, horaires? (comme `session.creer` ; nouveau dernier jour sans jours : jours ouvrés), lieu?, places? (≥ inscrits) | RH, référent HSE |
 | `session.annuler` | id, motif? | RH, référent HSE |
-| `session.cloturer` | id (à partir du dernier jour de la session), participants [{empId, present, reussi?}], note? (1 à 5), commentaire?, coutReel? (de l'action du plan qu'elle réalise, service RH seulement ; coût prévu par défaut et pour le référent HSE) | RH, référent HSE |
+| `session.cloturer` | id (à partir du dernier jour de la session), participants [{empId, present, reussi?, note? (avis à chaud du présent, 1 à 5, recueilli par le service RH seulement : évaluation au nom du salarié, lot 7 t121)}], note? (appréciation de la session, 1 à 5), commentaire?, coutReel? (de l'action du plan qu'elle réalise, service RH seulement ; coût prévu par défaut et pour le référent HSE) | RH, référent HSE |
 | `attente.confirmer` | id : personne de la liste d'attente d'une session (lot 7, t120), proposée par Cursus après une place libérée, ou en file s'il reste une place libre proposée à personne ; mêmes contrôles qu'une inscription ; inscrite et convoquée, demande mise à jour, place quittée ailleurs proposée à son tour | RH, référent HSE |
+| `evaluation.enregistrer` | participationId (présente, session clôturée) ou formationSuivieId, type (`chaud` : note 1 à 5 ; `froid` : efficacite `efficace`, `partielle` ou `non`), commentaire? (1 000 caractères), repondant? (`salarie` par défaut ou `manager`, service RH seulement) ; fenêtres et formations concernées : `refusEvaluation` (lot 7, t121) ; remplace l'avis précédent du même répondant ; journal sans note, efficacité ni commentaire | le salarié pour lui-même (son avis), son manager direct (à froid, avis de manager), RH (avis recueilli, à chaud sans limite de temps) |
+| `evaluation.retirer` | id : avis supprimé (tracé : formation, type, répondant) | l'auteur de l'avis (le salarié pour le sien, le manager pour le sien), RH |
 | `attente.retirer` | id : retrait de la liste d'attente (`issue` : `salarie`, `manager` ou `rh`) ; demande mise à jour, salarié prévenu s'il ne s'est pas retiré lui-même ; place qui lui était proposée proposée au suivant | le salarié pour lui-même, son manager direct, RH, référent HSE |
 | `hab.delivrer` | empId, h, date, par, mode ; renouvellement : délivrance précédente close à l'historique (`habDelivrances`, mesure figée, jamais le motif) | RH, référent HSE |
 | `formationSuivie.enregistrer` | empId, f (code du catalogue) ou libelle (hors catalogue, 120 caractères), du, au? (du par défaut ; ni l'un ni l'autre à venir), duree? (heures, 0,25 à 2 000), organisme?, obligatoire? (défaut : formation « Réglementaire » du catalogue ; hors catalogue : non), demandeId? (demande hors catalogue acceptée du même salarié, une fois : origine `demande`) ; même formation ou même intitulé le même premier jour : refus ; journal : codes, dates, durée, case, jamais l'intitulé ni l'organisme | RH, référent HSE |
@@ -2042,6 +2050,36 @@ Règles dans `shared/rules/sessions.ts` (inscrits nominatifs, contrôles, liste 
   close (`inscription`). Une inscription supprimée (désinscription, clôture, sortie, certification, réouverture) n'est
   plus désignée par `attentesSession.inscriptionId` (`retirerInscription` ; PostgreSQL : `ON DELETE SET NULL`), sans quoi
   SQLite garderait une référence orpheline, refusée par la reprise vers PostgreSQL.
+- **Évaluation des formations** (lot 7, chantier C, étape 2, t121 ; règles `shared/rules/evaluation-formation.ts`, actions
+  `server/src/actions/evaluations-formation.ts`, e-mails `server/src/evaluations-formation.ts`, table `evaluationsFormation`,
+  migration PostgreSQL `0010_evaluations_formation.sql`, index SQLite `lot7-formations-index-evaluations`). Formation
+  évaluable (`ciblesEvaluation`) : participation présente à une session clôturée (`p<id>`), ou formation suivie en vigueur
+  (`s<id>`) ; organisme du catalogue ou de la formation suivie ; exercice : année du premier jour (comme les heures).
+  Une ligne par formation, type et répondant (clés uniques), remplacée par une nouvelle saisie. **À chaud** : note de 1 à
+  5 et commentaire, avis du salarié, donné dans Mon espace (encart « À faire » 30 jours, `DELAI_CHAUD_JOURS`, un e-mail) ou
+  recueilli par le service RH à la clôture (`session.cloturer`, `participants[].note`) ou plus tard (« Recueillir », détail
+  de la session) ; le salarié le modifie jusqu'au début de l'évaluation à froid. **À froid** : efficace, partiellement,
+  non ; `evaluationFroidDelai` jours après le dernier jour (90 par défaut), par le salarié et son manager direct
+  (`evaluationFroidPar` : `les_deux`, réponse de l'entreprise du 23 octobre 2026), pour les catégories cochées
+  (`evaluationFroidCategories` : Réglementaires et Recommandées) ; réponse tardive acceptée. Échéances : « À faire » du
+  salarié (`aFaireCollaborateur().evaluations`, pastille Accueil) et du manager (`evaluationsAFaireManager`, panneau et
+  pastille Formations), 60 jours (`FENETRE_FROID_JOURS`) ; e-mails `evaluation.demande` (salarié) et `evaluation.manager`
+  (manager, un par passage pour son équipe), une fois par palier (`demande`, `relance-15`, `relance-30`), notés dans la
+  table `relances` (clé `evaluation:<formation>:<type>:<répondant>`), tâche de `tachesEmails` à partir de 7 h ; jamais de
+  note ni de commentaire dans l'e-mail. Réglage `evaluationsActives` (Paramètres → Évaluation des formations) : désactivé,
+  plus de saisie, d'à faire ni d'e-mail, les avis restent. **Indicateurs** (`indicateursEvaluation`) : total, par organisme
+  et par formation : participants, avis à chaud (nombre, moyenne, taux), avis à froid attendus (formations concernées
+  échues × répondants prévus) et reçus, efficace / partielle / non, taux d'efficacité (« efficace » sur les réponses),
+  taux de réponse ; `Session.bilan.note` (appréciation de session d'avant le lot 7) reprise telle quelle par session, jamais
+  répartie par personne. Panneau sous les indicateurs de Plan & budget et export CSV (`csvEvaluations`). **Droits** :
+  service RH tout (commentaires, auteurs) ; manager : ses avis de manager sur son équipe directe (hors N+2), jamais l'avis
+  d'un membre ; salarié : ses avis, sans qui les a saisis ; référent HSE et lecture seule : aucune ligne, indicateurs
+  calculés par le serveur (`Dataset.indicateursEvaluation`) sans moyenne ni efficacité sous 3 réponses (`SEUIL_ANONYMAT`,
+  `masque`), vus dans Formations (référent HSE) ou Plan & budget ; paie : rien. Journal : `evaluation.enregistrer`
+  (formation, type, répondant, ligne ; jamais la note, l'efficacité ni le commentaire), `evaluation.retirer`, et la case
+  `avis` des participants de `session.cloturer`. Conservation : catégorie formations, commentaire vidé, note et efficacité
+  gardées ; auteur (`auteurId`) gardé, nom retiré par le balayage. Export des données : section « Évaluations des formations
+  suivies », sans l'auteur pour le salarié.
 - **Base existante** : colonnes et table ajoutées au démarrage (schéma déclaratif) ; `server/src/migrate.ts`
   valide sur la présence les formations sans mode de validation, libère la place d'une certification remplacée
   dans toute session ouverte postérieure au recyclage, puis clôture une fois les sessions passées de l'ancienne

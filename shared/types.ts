@@ -530,6 +530,46 @@ export interface Participation {
   /** Certification enregistrée (présent, et reçu si l'évaluation est exigée). */
   certId: number | null;
 }
+/**
+ * Évaluation d'une formation par un participant (lot 7, chantier C, t121 : shared/rules/evaluation-formation.ts,
+ * server/src/actions/evaluations-formation.ts). Rattachée à une participation présente d'une session clôturée
+ * (`participationId`) ou à une formation suivie hors session (`formationSuivieId`). À chaud (`chaud`) : note de 1 à 5 donnée
+ * par le salarié dans son espace, ou recueillie par le service RH à la clôture. À froid (`froid`) : efficacité (efficace,
+ * partiellement, non), demandée au salarié et à son manager N jours après la formation (réglage). `repondant` : de qui est
+ * l'avis (le salarié, ou son manager) ; `auteur` et `auteurId` : qui l'a enregistré (lui-même, ou le service RH). Une seule
+ * évaluation par formation, type et répondant : une nouvelle saisie remplace la précédente. Le commentaire (texte libre,
+ * nominatif) reste au service RH ; le référent HSE et la lecture seule ne reçoivent que les indicateurs agrégés.
+ */
+export interface EvaluationFormation {
+  id: number; empId: number; participationId: number | null; formationSuivieId: number | null;
+  type: TypeEvaluation; repondant: RepondantEvaluation;
+  /** À chaud : note entière de 1 à 5 ; null à froid. */
+  note: number | null;
+  /** À froid : efficacité ; null à chaud. */
+  efficacite: EfficaciteFormation | null;
+  commentaire: string | null;
+  le: ISODate; auteur: string | null; auteurId: number | null;
+}
+export type TypeEvaluation = 'chaud' | 'froid';
+export type RepondantEvaluation = 'salarie' | 'manager';
+export type EfficaciteFormation = 'efficace' | 'partielle' | 'non';
+/** Qui remplit l'évaluation à froid (réglage `evaluationFroidPar`). */
+export type RepondantsFroid = 'les_deux' | 'salarie' | 'manager';
+/**
+ * Indicateurs des évaluations d'un regroupement (organisme, formation, total) sur un exercice (shared/rules/
+ * evaluation-formation.ts) : participants évaluables, avis à chaud (nombre, moyenne sur 5), avis à froid attendus et
+ * reçus, efficacité (nombres, taux d'« efficace » parmi les réponses), taux de réponse, appréciation de session du service
+ * RH d'avant le lot 7 (`Session.bilan.note`, reprise telle quelle, jamais répartie par personne). `masque` : moins de
+ * 3 réponses, moyenne et taux retirés (vue agrégée du référent HSE et de la lecture seule).
+ */
+export interface LigneEvaluation {
+  cle: string; participants: number;
+  chaud: number; moyenneChaud: number | null; tauxChaud: number | null;
+  froidAttendus: number; froid: number; efficaces: number; partielles: number; non: number; tauxEfficacite: number | null; tauxFroid: number | null;
+  sessionsNotees: number; moyenneSessions: number | null;
+  masque?: boolean;
+}
+export interface IndicateursEvaluation { exercice: number; total: LigneEvaluation; parOrganisme: LigneEvaluation[]; parFormation: LigneEvaluation[] }
 export interface PlanAction {
   id: number; exercice: number; f: string | null; libelle: string | null; equipe: string; periode: Trimestre; effectif: number; cout: number; statut: PlanStatut;
   /** `import` (plan importé), `demande` (demande acceptée), `report` (action reportée d'un exercice clos) ; null : ancienne base, démonstration. */
@@ -1186,7 +1226,18 @@ export interface Settings {
    */
   formationsListeAttente: boolean;
   formationsAttenteMode: ModeAttente;
+  /**
+   * Évaluation des formations (lot 7, chantier C, t121 : shared/rules/evaluation-formation.ts) : activée par défaut ; à chaud
+   * après chaque formation, à froid `evaluationFroidDelai` jours après (90 par défaut), remplie par le salarié et son
+   * manager (réponse de l'entreprise du 23 octobre 2026), pour les catégories cochées (Réglementaires et Recommandées).
+   */
+  evaluationsActives: boolean;
+  evaluationFroidDelai: number;
+  evaluationFroidPar: RepondantsFroid;
+  evaluationFroidCategories: CategorieEvaluee[];
 }
+/** Catégorie d'une formation pour l'évaluation à froid : type du catalogue, ou formation hors catalogue. */
+export type CategorieEvaluee = FormationType | 'Hors catalogue';
 /** Période de paie des jours rachetés d'un forfait jours : mois de la signature de l'avenant, ou clôture de l'année (décembre). */
 export type EmissionJren = 'signature' | 'cloture';
 /**
@@ -1700,6 +1751,18 @@ export interface Dataset {
    * périmètre pour le manager, les siennes pour le collaborateur ; auteurs retirés hors du service RH (server/src/dataset.ts).
    */
   attentesSession?: AttenteSession[];
+  /**
+   * Évaluations des formations (lot 7, t121) : toutes pour le service RH ; pour le manager, celles qu'il donne comme manager
+   * sur son équipe directe ; pour le salarié, les siennes (commentaire compris) ; rien pour les profils restreints, qui
+   * reçoivent les indicateurs agrégés (`indicateursEvaluation`) ; server/src/dataset.ts.
+   */
+  evaluationsFormation?: EvaluationFormation[];
+  /**
+   * Indicateurs des évaluations par exercice, calculés par le serveur sur toutes les données (shared/rules/
+   * evaluation-formation.ts) : référent HSE et lecture seule, qui n'ont pas les évaluations nominatives ; un regroupement de
+   * moins de 3 réponses n'a ni moyenne ni taux (`masque`). Absent ailleurs : calcul sur l'instantané (service RH).
+   */
+  indicateursEvaluation?: IndicateursEvaluation[];
 }
 
 /** Catégorie de données d'un dossier, avec sa durée de conservation après la sortie (shared/rules/conservation.ts). */

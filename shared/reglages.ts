@@ -8,7 +8,7 @@ import { JOURS_RELANCE, paliersRelance } from './rules/relances.ts';
 import { nuitHorsLoi, refusPlageNuit } from './rules/repos-nuit.ts';
 import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesTexte, DOSSIER_MIN_ANS, DUREE_MAX_ANS } from './rules/conservation.ts';
 import { DELAI_JOUR_FRANC, DELAI_PREVENANCE_LEGAL } from './rules/astreintes.ts';
-import type { CompensationAstreinte, ContenuAgenda, ModeAttente, Settings, StockagePieces } from './types.ts';
+import type { CategorieEvaluee, CompensationAstreinte, ContenuAgenda, ModeAttente, RepondantsFroid, Settings, StockagePieces } from './types.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
 export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
@@ -257,6 +257,13 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   //   place libérée est proposée au service RH, qui confirme l'inscription (réponse de l'entreprise du 23 octobre 2026) —
   formationsListeAttente: { defaut: true, controle: booleen },
   formationsAttenteMode: { defaut: 'confirmer', controle: choix<ModeAttente>(['confirmer', 'automatique']) },
+  // — Évaluation des formations (parametres/EvaluationsFormation.tsx, shared/rules/evaluation-formation.ts, lot 7 t121) :
+  //   activée ; à froid 90 jours après la formation, par le salarié et son manager (réponse de l'entreprise du 23 octobre
+  //   2026), pour les formations réglementaires et recommandées ; échelles fixes en attendant un questionnaire qualité —
+  evaluationsActives: { defaut: true, controle: booleen },
+  evaluationFroidDelai: { defaut: 90, controle: entier(30, 365) },
+  evaluationFroidPar: { defaut: 'les_deux', controle: choix<RepondantsFroid>(['les_deux', 'salarie', 'manager']) },
+  evaluationFroidCategories: { defaut: ['Réglementaire', 'Recommandée'], controle: parmi<CategorieEvaluee>(['Réglementaire', 'Recommandée', 'Interne', 'Hors catalogue']) },
 };
 
 /**

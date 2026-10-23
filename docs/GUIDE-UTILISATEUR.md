@@ -91,6 +91,10 @@ pas dans Cursus : la paie les traite dans Sage.
   Seul le service RH les voit, jamais votre manager ; videz les deux champs pour les retirer.
 - « Imprimer mon passeport formation » : certifications en vigueur et remplacées, habilitations et délivrances
   antérieures, formations suivies (« Mes formations suivies »), sans aucun motif de suspension ou de retrait.
+- Après une formation, l'encart À faire de l'accueil demande votre avis pendant un mois : « Donner mon avis » (note de 1 à
+  5, commentaire facultatif). Quelques mois plus tard (90 jours par défaut), il demande si elle vous a été utile dans votre
+  travail : « Répondre ». Un e-mail vous le rappelle. Seul le service RH lit vos commentaires ; votre manager ne voit pas vos
+  avis. « Mes avis sur les formations » les reprend, modifiables tant que l'évaluation est ouverte.
 
 ### Entretiens et portail
 
@@ -139,6 +143,13 @@ Les feuilles validées partent à la paie avec le lot du mois : le manager n'a r
 - Après l'entretien : rédiger ses sections, indiquer la date à laquelle il a eu lieu, puis « Clore et signer ». Le salarié
   relit et signe à son tour ; « Remettre la copie » trace la remise (main propre, refus de signer, mise à disposition).
 - Ses propres entretiens, menés par son responsable, se préparent dans l'espace collaborateur.
+
+### Évaluer les formations de l'équipe
+
+- « Évaluations à froid à faire » (écran Formations, pastille du menu) : quelques mois après une formation d'un membre de
+  l'équipe (90 jours par défaut, formations réglementaires et recommandées), « Évaluer » : efficace, partiellement ou pas
+  efficace, et un commentaire facultatif. Demandée par e-mail, puis relancée 15 et 30 jours après. Le salarié donne aussi
+  son avis ; chacun ne voit que le sien, le service RH lit les commentaires.
 
 ### Planning et équipe
 
@@ -253,6 +264,12 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
   catégorie, par équipe et par statut, actions réalisées, coûts), exports CSV des indicateurs et des formations suivies.
   Les heures viennent des horaires des sessions, sinon de la « Durée en heures » du catalogue (Référentiels) ; une
   formation sans durée connue est signalée. Indicateurs utiles à la BDESE (pas de bilan social sous 300 salariés).
+- Évaluation des formations : à la clôture d'une session, l'avis à chaud de chaque présent peut être recueilli (liste à
+  côté de la présence) ; sinon il le donne dans son espace. Dans le détail d'une session clôturée, « Avis des
+  participants » : avis à chaud, efficacité à froid du salarié et du manager, commentaires ; « Recueillir » saisit un avis
+  reçu sur papier. Sous les indicateurs de Plan & budget, le panneau Évaluation des formations donne, par organisme et par
+  formation, la moyenne à chaud, le taux d'efficacité et les taux de réponse (« Exporter les évaluations »). Le référent
+  HSE le voit dans Formations, sans moyenne ni taux sous 3 réponses. Réglages : Paramètres, section Évaluation des formations.
 
 ### Congés et absences
 

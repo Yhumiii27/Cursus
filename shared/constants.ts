@@ -288,6 +288,10 @@ export const EMAIL_LABEL: Record<string, string> = {
   // demande) pour sa place dans la file ; au service RH pour une place libérée à confirmer.
   'attente.formation': 'Liste d’attente d’une session de formation',
   'attente.proposition': 'Place libérée à confirmer (liste d’attente)',
+  // Évaluation des formations (lot 7, t121, server/src/evaluations-formation.ts) : avis à chaud et efficacité à froid demandés
+  // au salarié, efficacité à froid demandée au manager pour son équipe ; demandes puis relances, sans note ni commentaire.
+  'evaluation.demande': 'Évaluation d’une formation à donner',
+  'evaluation.manager': 'Efficacité des formations de l’équipe à évaluer',
 };
 export const CIBLE_LABEL = { keystone: 'Keystone', sage: 'Sage Paie', email: 'E-mail' } as const;
 export const MODE_NOTIFICATION_LABEL = { immediat: 'Aussitôt', quotidien: 'Récapitulatif quotidien' } as const;

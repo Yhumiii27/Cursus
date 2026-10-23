@@ -43,6 +43,8 @@ import { dossiersEchus } from './conservation.ts';
 import { jetonActif } from './agenda.ts';
 import { avecPositions, avecProposees } from '../../shared/rules/liste-attente.ts';
 import type { AttenteSession } from '../../shared/types.ts';
+import { exercicesEvaluation, indicateursEvaluation, SEUIL_ANONYMAT } from '../../shared/rules/evaluation-formation.ts';
+import type { EvaluationFormation } from '../../shared/types.ts';
 
 /** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
 export const DEFAULT_SETTINGS: Settings = reglagesParDefaut();
@@ -189,6 +191,8 @@ async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
     astreintes: await db.all<Astreinte>('astreintes'),
     interventionsAstreinte: await db.all<InterventionAstreinte>('astreinteInterventions'),
     attentesSession,
+    // Évaluations des formations (lot 7, t121) : avis nominatifs, commentaires compris ; filtrées hors du service RH.
+    evaluationsFormation: await db.all<EvaluationFormation>('evaluationsFormation'),
   };
   // Absences en attente du fichier de paie par période (server/src/absences-paie.ts) : lit le contenu figé des lots.
   // Déplacements en attente du fichier de paie (t031, server/src/deplacements-paie.ts) : lit la table des éléments émis.
@@ -215,6 +219,8 @@ const suiviesNeutres = (l: readonly FormationSuivie[]): FormationSuivie[] =>
 const delivrancesNeutres = (l: readonly HabDelivrance[]): HabDelivrance[] => l.map(x => ({ ...x, auteur: null, auteurId: null }));
 /** Attente d'une liste d'attente (lot 7, t120) hors du service RH : sans l'auteur de l'inscription en file ni de sa fin. */
 const attenteNeutre = (a: AttenteSession): AttenteSession => ({ ...a, par: null, issuePar: null });
+/** Évaluation d'une formation hors du service RH (lot 7, t121) : sans qui l'a saisie (service RH à la clôture, manager). */
+const evaluationNeutre = (x: EvaluationFormation): EvaluationFormation => ({ ...x, auteur: null, auteurId: null });
 
 /**
  * Coordonnées sur place d'un déplacement (hébergement, contact local : textes libres du service RH, t068) et contact
@@ -518,6 +524,11 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
     // Liste d'attente (lot 7, t120) : les siennes ; pour le manager, celles de son périmètre (place dans la file comprise) ;
     // sans les auteurs, comme les formations suivies.
     attentesSession: mine(full.attentesSession ?? []).map(attenteNeutre),
+    // Évaluations des formations (lot 7, t121) : les siennes (son avis, commentaire compris) ; pour le manager, en plus,
+    // ses avis de manager sur son équipe directe (hors consultation N+2) ; jamais l'avis d'un membre ni qui a saisi.
+    evaluationsFormation: (full.evaluationsFormation ?? []).filter(x => (x.empId === user.empId && x.repondant === 'salarie')
+      || (isMgr && x.repondant === 'manager' && x.empId !== user.empId && !lecture.has(x.empId) && d.emp(x.empId) && d.mgrOf(d.emp(x.empId)!) === user.empId))
+      .map(evaluationNeutre),
     delegations: delegationsVisibles(d, user),
     delegues,
     // Manager qui délègue pour lui-même (Mon espace ou espace manager) : suppléants possibles, réduits à l'annuaire.
@@ -709,6 +720,10 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     ...(formations ? { c2p: c2pDe(full) } : {}),
     // Listes d'attente des sessions (lot 7, t120) : avec les sessions (référent HSE, lecture seule), sans les auteurs.
     attentesSession: formations ? (full.attentesSession ?? []).map(attenteNeutre) : [],
+    // Évaluations des formations (lot 7, t121) : aucun avis nominatif ; référent HSE et lecture seule reçoivent les
+    // indicateurs agrégés, calculés ici sur toutes les données, sans moyenne ni taux sous 3 réponses ; rien pour la paie.
+    evaluationsFormation: [],
+    ...(formations ? { indicateursEvaluation: exercicesEvaluation(d).map(ex => indicateursEvaluation(d, ex, SEUIL_ANONYMAT)) } : {}),
   };
 }
 

@@ -8,7 +8,8 @@ import { refusArchive } from '../../../shared/rules/referentiels.ts';
 import { clotureDe, montantReel } from '../../../shared/rules/exercices.ts';
 import { controlePlage, decalerPlage, finSession, horaireTexte, type Plage, plageTexte, sessionDu } from '../../../shared/rules/plage-session.ts';
 import { controleSession, exigeEvaluation, inscritsDe, placesRemplacees } from '../../../shared/rules/sessions.ts';
-import type { Certification, Inscription, Participation, PlanAction, Session, SessionBilan } from '../../../shared/types.ts';
+import { NOTE_MAX, NOTE_MIN } from '../../../shared/rules/evaluation-formation.ts';
+import type { Certification, EvaluationFormation, Inscription, Participation, PlanAction, Session, SessionBilan } from '../../../shared/types.ts';
 import { annulerSiConvoque } from '../notifications.ts';
 import { ajusterPropositions, promouvoirAttente, purgerAttente, retirerInscription } from '../liste-attente.ts';
 import { ActionError, type ActionHandler, type Ctx, isRh, requireFormations, str } from './context.ts';
@@ -164,8 +165,25 @@ const annuler: ActionHandler = async (ctx, p) => {
     + (prevenus ? ` · ${plural(prevenus, 'annulation envoyée', 'annulations envoyées')} par e-mail` : '') + (attente ? ` · ${attente}` : '');
 };
 
-/** Décision saisie pour un inscrit : présence et, si la formation l'exige, résultat de l'évaluation. */
-interface Decision { empId: number; present: unknown; reussi?: unknown }
+/**
+ * Note à chaud d'un participant saisie à la clôture (lot 7, t121) : réservée au service RH (avis nominatif), évaluations
+ * activées, participant présent, entière de 1 à 5 ; null si rien n'est saisi.
+ */
+function avisRecueilli(ctx: Ctx, nom: string, present: boolean, v: unknown): number | null {
+  if (v == null || v === '') return null;
+  if (!isRh(ctx)) throw new ActionError('Avis des participants : recueillis par le service RH seulement', 403);
+  if (!ctx.ds.settings.evaluationsActives) throw new ActionError('Évaluation des formations désactivée (Paramètres → Évaluation des formations)');
+  if (!present) throw new ActionError(`Avis à chaud de ${nom} : seulement pour un participant présent`);
+  const n = Number(v);
+  if (!(Number.isInteger(n) && n >= NOTE_MIN && n <= NOTE_MAX)) throw new ActionError(`Avis à chaud de ${nom} : note entière de ${NOTE_MIN} à ${NOTE_MAX}`);
+  return n;
+}
+
+/**
+ * Décision saisie pour un inscrit : présence et, si la formation l'exige, résultat de l'évaluation ; avis à chaud du
+ * participant présent recueilli par le service RH (lot 7, t121 : note de 1 à 5, facultative).
+ */
+interface Decision { empId: number; present: unknown; reussi?: unknown; note?: unknown }
 
 /**
  * Clôture d'une session passée (ou de son dernier jour). Pour chaque inscrit : présent et, si la formation l'exige,
@@ -196,15 +214,15 @@ const cloturer: ActionHandler = async (ctx, p) => {
     if (!inscrits.some(i => i.empId === id)) throw new ActionError(`${ctx.d.personName(id)} ne figure pas parmi les inscrits : rouvrez la clôture`);
   }
   const lignes = inscrits.map(i => {
-    if (i.dejaObtenue) return { i, present: true, reussi: null, ok: true };
+    if (i.dejaObtenue) return { i, present: true, reussi: null, ok: true, avis: null };
     const x = decisions.get(i.empId);
     if (typeof x?.present !== 'boolean') throw new ActionError(`Présence à renseigner : ${i.nom}`);
     if (evaluation && x.present && typeof x.reussi !== 'boolean') throw new ActionError(`Résultat de l’évaluation à renseigner : ${i.nom}`);
     const reussi = evaluation && x.present ? x.reussi as boolean : null;
-    return { i, present: x.present, reussi, ok: x.present && reussi !== false };
+    return { i, present: x.present, reussi, ok: x.present && reussi !== false, avis: avisRecueilli(ctx, i.nom, x.present, x.note) };
   });
 
-  let obtenues = 0;
+  let obtenues = 0, avis = 0;
   const aReplanifier: string[] = [];
   for (const l of lignes) {
     let certId = l.i.dejaObtenue?.id ?? null;
@@ -219,7 +237,15 @@ const cloturer: ActionHandler = async (ctx, p) => {
       if (l.i.certId) await ctx.db.update<Certification>('certifications', l.i.certId, { sessionId: null, convoc: null });
       aReplanifier.push(l.i.nom);
     }
-    await ctx.db.insert<Participation>('participations', { sessionId: s.id, empId: l.i.empId, parcours: l.i.parcours, present: l.present, reussi: l.reussi, certId });
+    const part = await ctx.db.insert<Participation>('participations', { sessionId: s.id, empId: l.i.empId, parcours: l.i.parcours, present: l.present, reussi: l.reussi, certId });
+    // Avis à chaud du participant recueilli par le service RH (lot 7, t121), en son nom ; il peut le modifier dans son espace.
+    if (l.avis != null) {
+      await ctx.db.insert<EvaluationFormation>('evaluationsFormation', {
+        empId: l.i.empId, participationId: part.id, formationSuivieId: null, type: 'chaud', repondant: 'salarie', note: l.avis, efficacite: null,
+        commentaire: null, le: ctx.d.ti, auteur: ctx.user.nom, auteurId: ctx.user.empId ?? ctx.user.salarieId ?? null,
+      });
+      avis++;
+    }
   }
   // L'action du plan réalisée prend le coût réel saisi à la clôture (`coutReel`, prérempli du coût prévu ; le coût prévu
   // s'il n'est pas transmis) et, pour effectif réel, les présents de ses sessions clôturées. Le coût réel est réservé au
@@ -240,6 +266,7 @@ const cloturer: ActionHandler = async (ctx, p) => {
     `${nomSession(ctx, s)} clôturée — ${plural(obtenues, 'certification enregistrée', 'certifications enregistrées')}`,
     aReplanifier.length ? `à replanifier : ${aReplanifier.join(', ')}` : '',
     realise ? 'action du plan réalisée' : '',
+    avis ? `${plural(avis, 'avis à chaud recueilli', 'avis à chaud recueillis')}` : '',
     attente,
   ].filter(Boolean).join(' · ');
 };

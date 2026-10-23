@@ -71,6 +71,10 @@ export const TRAITEMENTS: Record<string, Traitement> = {
   // Liste d'attente des sessions (lot 7, t120) : rang, statut et issue codés, gardés comme les inscriptions ; la demande qui
   // l'y a placé est détachée avant d'être supprimée (pas de référence orpheline), l'auteur (nom) retiré par le balayage.
   'attentes_session.emp_id': { mode: 'textes', categorie: 'formations' },
+  // Évaluations des formations (lot 7, t121) : comme les formations suivies, notes et efficacité gardées (agrégats), commentaire
+  // (texte libre) vidé ; l'auteur d'une évaluation (manager, service RH) est gardé, son nom retiré par le balayage.
+  'evaluations_formation.emp_id': { mode: 'textes', categorie: 'formations' },
+  'evaluations_formation.auteur_id': { mode: 'auteur' },
   'comptes.emp_id': { mode: 'compte' },
   'pieces.emp_id': { mode: 'pieces' },
   'contrats_historique.par_id': { mode: 'auteur' },
@@ -129,6 +133,8 @@ function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number): Etap
       { table: 'certifications', ou: 'emp_id = ?', vider: ['corrige_motif', 'annule_motif'] },
       { table: 'hab_titres', ou: 'emp_id = ?', vider: ['mesure_motif'] },
       { table: 'formations_suivies', ou: 'emp_id = ?', vider: ['corrige_motif', 'annule_motif'] },
+      // Évaluations des formations (lot 7, t121) : commentaire vidé, note et efficacité gardées.
+      { table: 'evaluations_formation', ou: 'emp_id = ?', vider: ['commentaire'] },
       // Liste d'attente (lot 7, t120) : la demande supprimée ci-dessous n'y est plus désignée.
       { table: 'attentes_session', ou: 'emp_id = ?', vider: ['demande_id'] },
       { table: 'demandes_collab', ou: `emp_id = ? AND type IN ('formation', 'habilitation')`, supprimer: true },

@@ -86,6 +86,12 @@ export const REFERENCES: readonly Reference[] = [
   ref('attentes_session', 'demande_id', 'demandes_collab'),
   ref('attentes_session', 'cert_id', 'certifications'),
   ref('attentes_session', 'inscription_id', 'inscriptions'),
+  // Évaluations des formations (lot 7, chantier C, t121 ; clés étrangères de 0010_evaluations_formation.sql) : salarié
+  // évalué, auteur de la saisie (fiche du compte), participation ou formation suivie évaluée.
+  ref('evaluations_formation', 'emp_id', 'employes'),
+  ref('evaluations_formation', 'auteur_id', 'employes'),
+  ref('evaluations_formation', 'participation_id', 'participations'),
+  ref('evaluations_formation', 'formation_suivie_id', 'formations_suivies'),
 ];
 
 export interface Integrite {

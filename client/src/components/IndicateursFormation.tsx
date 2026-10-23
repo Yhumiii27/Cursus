@@ -2,6 +2,7 @@
 // formations réalisées et heures par catégorie, par équipe et par statut, coûts prévu et réalisé, taux de réalisation ;
 // formations de durée inconnue signalées (durée en heures à compléter au catalogue ou sur la formation suivie). Exports
 // CSV des indicateurs et des formations suivies de l'exercice. Indicateurs BDESE (pas de bilan social sous 300 salariés).
+// En dessous, les indicateurs des évaluations de l'exercice (lot 7, t121 : components/Evaluations.tsx).
 import { useMemo } from 'react';
 import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { fH, fmtEur, plural } from '../../../shared/format.ts';
@@ -11,6 +12,7 @@ import { downloadCsv } from '../print.ts';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { Btn, Fine, NoteAccent, Panel } from './ui.tsx';
+import { IndicateursEvaluationPanel } from './Evaluations.tsx';
 
 function Tableau({ titre, lignes }: { titre: string; lignes: LigneIndicateur[] }) {
   const visibles = lignes.filter(l => l.realisations > 0);
@@ -46,7 +48,7 @@ export function IndicateursFormationPanel({ exercice }: { exercice: number }) {
     downloadCsv(c.fichier, c.head, c.rows);
     notify(`Export CSV généré — ${plural(c.rows.length, 'formation suivie', 'formations suivies')}`);
   };
-  return (
+  return (<>
     <Panel title={`Indicateurs de formation ${exercice}`} aside={<div className="actions-end">
       <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={exporterSuivies}>Formations suivies</Btn>
       <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={exporter}>Exporter les indicateurs</Btn>
@@ -72,5 +74,7 @@ export function IndicateursFormationPanel({ exercice }: { exercice: number }) {
         300 salariés : pas de bilan social obligatoire, ces indicateurs servent à la BDESE.
       </Fine>
     </Panel>
-  );
+    {/* Évaluation des formations (lot 7, t121) : par organisme et par formation, export CSV. */}
+    <IndicateursEvaluationPanel exercice={exercice} />
+  </>);
 }

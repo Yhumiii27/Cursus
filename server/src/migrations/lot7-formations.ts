@@ -18,3 +18,20 @@ export const INDEX_ATTENTES: Migration = {
     return `index ${Object.keys(INDEX).join(', ')}`;
   },
 };
+
+// Étape 2, évaluation des formations (t121) : la table `evaluations_formation` est déclarée dans TABLES, ses clés uniques
+// (participation ou formation suivie, type, répondant) servent la saisie ; seul son index de lecture par salarié
+// (instantané du collaborateur et du manager, effacement d'un dossier) passe par ici. PostgreSQL : même index dans
+// server/migrations-pg/0010_evaluations_formation.sql.
+const INDEX_EVALUATIONS_SQL: Record<string, string> = {
+  evaluations_formation_emp: 'CREATE INDEX IF NOT EXISTS evaluations_formation_emp ON evaluations_formation (emp_id)',
+};
+
+export const INDEX_EVALUATIONS: Migration = {
+  nom: 'lot7-formations-index-evaluations',
+  necessaire: (db: SqliteDb) => Object.keys(INDEX_EVALUATIONS_SQL).some(i => !indexExiste(db, i)),
+  executer: async (db: Db) => {
+    for (const sql of Object.values(INDEX_EVALUATIONS_SQL)) await db.exec(sql);
+    return `index ${Object.keys(INDEX_EVALUATIONS_SQL).join(', ')}`;
+  },
+};

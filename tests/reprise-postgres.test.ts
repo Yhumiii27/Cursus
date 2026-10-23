@@ -79,6 +79,18 @@ test('reprise : instantané identique, identifiants, ordre et séquences gardés
       sessionId: 2, empId: 2, demandeId: null, certId: null, inscriptionId: 4, rang: 1, le: '2026-10-06', par: 'Sandrine Vidal', statut: 'retire',
       proposeeLe: null, issueLe: '2026-10-08', issuePar: 'Sandrine Vidal', issue: 'rh',
     });
+    // Évaluations d'une formation (lot 7, t121) : à chaud d'une participation, à froid d'une formation suivie, reprises avec
+    // leurs clés étrangères et leurs CHECK (0010_evaluations_formation.sql).
+    const part = await s.insert<{ id: number }>('participations', { sessionId: 6, empId: 2, parcours: 'recyclage', present: true, reussi: null, certId: null });
+    await s.insert('evaluationsFormation', {
+      empId: 2, participationId: part.id, formationSuivieId: null, type: 'chaud', repondant: 'salarie', note: 4, efficacite: null,
+      commentaire: 'Formateur clair', le: '2026-10-09', auteur: 'Mehdi Benali', auteurId: 2,
+    });
+    const suivie = (await s.where<{ id: number }>('formationsSuivies', 'empId', 2))[0];
+    await s.insert('evaluationsFormation', {
+      empId: 2, participationId: null, formationSuivieId: suivie.id, type: 'froid', repondant: 'manager', note: null, efficacite: 'partielle',
+      commentaire: null, le: '2026-10-09', auteur: 'Karim Haddad', auteurId: 12,
+    });
   });
   const avant = empreinte(src);
   const db = await cible();

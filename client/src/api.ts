@@ -212,6 +212,12 @@ export const api = {
   /** Paie : variables d'une période de paie (lots et attente), export CSV tracé (server/src/variables-paie.ts). */
   variablesPaie: (periode: string) => telecharger(`/api/paie/variables/${encodeURIComponent(periode)}`),
   /**
+   * Passeport de prévention (lot 7, t066) : lignes de la période (à déclarer, ou déjà déclarées comprises), export CSV
+   * produit et tracé par le serveur (server/src/passeport-prevention.ts).
+   */
+  passeportPrevention: (du: string, au: string, declarees = false) =>
+    telecharger(`/api/formations/passeport-prevention?du=${encodeURIComponent(du)}&au=${encodeURIComponent(au)}${declarees ? '&declarees=1' : ''}`),
+  /**
    * Export ou impression produit par le navigateur (CSV, passeport formation, compte rendu) : signalé au serveur
    * pour le journal, sans attendre ni bloquer le téléchargement.
    */

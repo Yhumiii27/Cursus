@@ -97,7 +97,8 @@ test('formation : création contrôlée (code, intitulé, validité, coût), mod
   assert.ok((await domain()).forms(false).some(x => x.id === 'caces485'), 'proposée dans les listes');
   const cree = await derniere('referentiel.formation.enregistrer');
   assert.equal(cree.payload.code, 'caces485', 'code normalisé comme l’action');
-  assert.deepEqual(cree.payload.apres, { nom: 'CACES R485 — Gerbeurs', court: 'CACES R485', type: 'Réglementaire', validite: 60, duree: '14 h', organisme: 'AFTRAL', cout: 450.5, validation: 'evaluation' });
+  // Lot 7 (t066) : case « Passeport de prévention », décochée à la création.
+  assert.deepEqual(cree.payload.apres, { nom: 'CACES R485 — Gerbeurs', court: 'CACES R485', type: 'Réglementaire', validite: 60, duree: '14 h', organisme: 'AFTRAL', cout: 450.5, validation: 'evaluation', passeportPrevention: false });
   // Modification : le code ne change pas, seules les valeurs modifiées sont tracées.
   await run(HSE, 'referentiel.formation.enregistrer', { ...nouvelle, id: 'caces485', code: 'ignore', organisme: 'Apave', cout: 480 });
   const modif = await derniere('referentiel.formation.enregistrer');

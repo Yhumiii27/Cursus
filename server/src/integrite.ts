@@ -86,6 +86,12 @@ export const REFERENCES: readonly Reference[] = [
   ref('attentes_session', 'demande_id', 'demandes_collab'),
   ref('attentes_session', 'cert_id', 'certifications'),
   ref('attentes_session', 'inscription_id', 'inscriptions'),
+  // Passeport de prévention (lot 7, chantier B, t066 ; clés étrangères de 0009_passeport_prevention.sql) : salarié, auteur de
+  // la marque (fiche de son compte), certification ou formation suivie déclarée.
+  ref('declarations_passeport', 'emp_id', 'employes'),
+  ref('declarations_passeport', 'auteur_id', 'employes'),
+  ref('declarations_passeport', 'cert_id', 'certifications'),
+  ref('declarations_passeport', 'suivie_id', 'formations_suivies'),
 ];
 
 export interface Integrite {

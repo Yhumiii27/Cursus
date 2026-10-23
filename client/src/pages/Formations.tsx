@@ -19,6 +19,7 @@ import { useStore, type UiState } from '../state/store.tsx';
 import { finSession, plageCourte } from '../../../shared/rules/plage-session.ts';
 import { sessionView } from './Dashboard.tsx';
 import { ResumeAttente } from '../components/ListeAttente.tsx';
+import { PasseportPrevention } from '../components/PasseportPrevention.tsx';
 
 const TYPES: Record<UiState['typeForm'], string | null> = { toutes: null, reg: 'Réglementaire', rec: 'Recommandée', int: 'Interne' };
 
@@ -313,6 +314,9 @@ export function Formations() {
           </div>
         </Panel>
       )}
+
+      {/* Passeport de prévention (lot 7, t066) : service RH, référent HSE et lecture seule. */}
+      {espaceRh && <PasseportPrevention />}
     </Page>
   );
 }

@@ -243,6 +243,12 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
   du plan, cocher ses bénéficiaires parmi l'équipe (le demandeur est coché d'office) ; pour une formation du catalogue,
   enregistrer aussi la certification de chacun, qui la remplace alors au passeport et dans les indicateurs. Les historiques tenus ailleurs ne
   sont pas repris : saisie manuelle.
+- Passeport de prévention (écran Formations, service RH et référent HSE) : panneau « Passeport de prévention », lignes à
+  déclarer de l'année (certifications et formations suivies des formations cochées « Passeport de prévention » dans
+  Référentiels → Formations : SST, CACES, ATEX, électrique, AIPR, EPI, hauteur, PRAP). « Exporter (CSV) », vérifier le
+  fichier (format de la plateforme à confirmer ; colonnes réglées dans Paramètres → Passeport de prévention ; pas de NIR),
+  le déclarer sur la plateforme, puis « Marquer déclarées… » avec le jour de la déclaration : ces lignes ne sont plus
+  proposées. Une marque posée par erreur se retire dans « Déjà déclarées ».
 - Titre d'habilitation : « Imprimer le titre » sur la fiche (titre en vigueur seulement : ni retiré, ni suspendu, ni
   expiré), ou case cochée à la délivrance. Modèle choisi au référentiel
   (« Modèle du titre imprimé » : électrique NF C18-510, autorisation de conduite R4323-56, générique) ; titulaire,

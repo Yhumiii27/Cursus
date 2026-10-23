@@ -49,6 +49,7 @@ import { agendaActions } from './agenda.ts';
 import { astreintesActions } from './astreintes.ts';
 import { c2pActions } from './c2p.ts';
 import { listeAttenteActions } from './liste-attente.ts';
+import { passeportPreventionActions } from './passeport-prevention.ts';
 
 /**
  * Registre typé (t164) : chaque famille est déclarée avec « satisfies Record<string, ActionHandler> », ce qui garde ses
@@ -105,6 +106,7 @@ const REGISTRE = {
   ...astreintesActions,
   ...c2pActions,
   ...listeAttenteActions,
+  ...passeportPreventionActions,
 } satisfies Record<string, ActionHandler>;
 
 /** Nom d'une action exposée par POST /api/actions/:nom. */

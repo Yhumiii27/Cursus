@@ -444,7 +444,10 @@ l'habilitation) et un indicateur au tableau de bord ; postes créés depuis les 
 compte professionnel de prévention (C2P) : nuits comptées d'après les horaires de poste des feuilles validées (1 h au moins
 entre 0 h et 5 h ; 120 nuits par an, 50 en équipes successives alternantes, au prorata du contrat), horaires de nuit à
 qualifier, facteurs du poste cochés par le service RH ou le référent HSE, synthèse annuelle et export « à saisir dans la DSN »
-(codes à confirmer par la paie).
+(codes à confirmer par la paie) · Passeport de prévention : formations santé-sécurité marquées au catalogue (SST, CACES,
+ATEX, électrique, AIPR, EPI, hauteur, PRAP, modifiable), lignes à déclarer de l'année dans l'écran Formations, suivi
+« déclarée le » pour ne pas déclarer deux fois, export CSV tracé au gabarit de colonnes réglable (format de la plateforme à
+confirmer, aucun NIR).
 
 Interface fiable : une réponse arrivée après une plus récente ne réaffiche pas un état ancien (révision de la base dans
 chaque instantané) · deux personnes qui modifient la même fiche ne s'écrasent plus (seuls les champs modifiés partent,

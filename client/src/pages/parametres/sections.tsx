@@ -31,6 +31,7 @@ import { Keystone } from './Keystone.tsx';
 import { MatriculesPaie } from './MatriculesPaie.tsx';
 import { Pieces } from './Pieces.tsx';
 import { PostesRisques } from './PostesRisques.tsx';
+import { PasseportPrevention } from './PasseportPrevention.tsx';
 import { ReglagesPaie } from './ReglagesPaie.tsx';
 import { Reprise } from './Reprise.tsx';
 import { RelancesEcheances } from './RelancesEcheances.tsx';
@@ -80,6 +81,7 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'formations', place: 'droite', Section: Formations },
   { id: 'liste-attente', place: 'droite', Section: ListeAttente },
   { id: 'postes-risques', place: 'droite', Section: PostesRisques },
+  { id: 'passeport-prevention', place: 'droite', Section: PasseportPrevention },
   { id: 'confidentialite', place: 'droite', Section: Rgpd },
   { id: 'pieces', place: 'droite', Section: Pieces },
   { id: 'agenda', place: 'droite', Section: Agenda },

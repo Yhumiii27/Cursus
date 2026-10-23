@@ -402,6 +402,17 @@ export const REGLES: Record<string, Regle> = {
   // close) ont leurs propres lignes, écrites par server/src/liste-attente.ts.
   'attente.confirmer': { champs: ['id'], extra: (_p, av) => ({ sessionId: av?.sessionId ?? null }), cible: parId('attentesSession', ['statut', 'issue']) },
   'attente.retirer': { champs: ['id'], extra: (_p, av) => ({ sessionId: av?.sessionId ?? null }), cible: parId('attentesSession', ['statut', 'issue']) },
+  // Passeport de prévention (lot 7, t066) : jour de la déclaration, nombre de lignes et salariés concernés ; marque retirée :
+  // la clé de la ligne (« cert:12 », « suivie:4 », identifiants). Jamais d'intitulé ni de nom. L'export est tracé par la
+  // route (`passeport.exporter`, server/src/passeport-prevention.ts).
+  'passeport.declarer': {
+    extra: p => ({ le: typeof p.le === 'string' && isValidDate(p.le) ? p.le : null, lignes: Array.isArray(p.cles) ? p.cles.length : 0 }),
+    salaries: (_p, x) => (x.result as { salaries?: unknown[] } | null)?.salaries ?? [],
+  },
+  'passeport.retirer': {
+    extra: p => ({ cle: typeof p.cle === 'string' && /^(cert|suivie):\d{1,10}$/.test(p.cle) ? p.cle : null }),
+    salaries: (_p, x) => (x.result as { salaries?: unknown[] } | null)?.salaries ?? [],
+  },
   // Ligne du plan corrigée (avant et après ; de l'intitulé hors catalogue, seulement qu'il change) ou supprimée (exercice,
   // formation, équipe, trimestre, statut et coût de la ligne retirée). Jamais le motif.
   'plan.modifier': { champs: ['id'], cible: { ...parId('planActions', ['f', 'libelle', 'equipe', 'periode', 'effectif', 'cout']), masques: ['libelle'] } },
@@ -428,7 +439,7 @@ export const REGLES: Record<string, Regle> = {
   // Référentiels (catalogue, aucune donnée personnelle) : code de l'élément, valeurs avant et après de chaque champ.
   // Une validité modifiée rattache la ligne aux salariés dont un titre change de statut (le message en nomme).
   'referentiel.formation.enregistrer': {
-    ...referentiel('formations', ['nom', 'court', 'type', 'validite', 'duree', 'organisme', 'cout', 'validation', 'dureeHeures']), salaries: (_p, x) => salariesTouches(x),
+    ...referentiel('formations', ['nom', 'court', 'type', 'validite', 'duree', 'organisme', 'cout', 'validation', 'dureeHeures', 'passeportPrevention']), salaries: (_p, x) => salariesTouches(x),
   },
   'referentiel.formation.archiver': referentiel('formations', ['archive'], true),
   'referentiel.habilitation.enregistrer': {

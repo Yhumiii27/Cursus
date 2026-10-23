@@ -8,7 +8,8 @@ import { JOURS_RELANCE, paliersRelance } from './rules/relances.ts';
 import { nuitHorsLoi, refusPlageNuit } from './rules/repos-nuit.ts';
 import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesTexte, DOSSIER_MIN_ANS, DUREE_MAX_ANS } from './rules/conservation.ts';
 import { DELAI_JOUR_FRANC, DELAI_PREVENANCE_LEGAL } from './rules/astreintes.ts';
-import type { CompensationAstreinte, ContenuAgenda, ModeAttente, Settings, StockagePieces } from './types.ts';
+import { COLONNES_PASSEPORT_DEFAUT, COLONNES_PASSEPORT_IDS } from './rules/passeport-prevention.ts';
+import type { ColonnePasseport, CompensationAstreinte, ContenuAgenda, ModeAttente, Settings, StockagePieces } from './types.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
 export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
@@ -86,6 +87,13 @@ export const codeFormation = (libelle: string) => (v: unknown): string => {
   const t = typeof v === 'string' ? v.trim().toLowerCase() : '';
   if (t && !/^[a-z0-9_-]{1,40}$/.test(t)) throw new ReglageInvalide(`${libelle} : code de formation invalide`);
   return t;
+};
+
+/** Colonnes de l'export du Passeport de prévention : cochées parmi celles du gabarit, au moins une. */
+const colonnesPasseport = (v: unknown): ColonnePasseport[] => {
+  const c = parmi(COLONNES_PASSEPORT_IDS)(v);
+  if (!c.length) throw new ReglageInvalide('Export du Passeport de prévention : gardez au moins une colonne');
+  return c;
 };
 
 /**
@@ -257,6 +265,10 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   //   place libérée est proposée au service RH, qui confirme l'inscription (réponse de l'entreprise du 23 octobre 2026) —
   formationsListeAttente: { defaut: true, controle: booleen },
   formationsAttenteMode: { defaut: 'confirmer', controle: choix<ModeAttente>(['confirmer', 'automatique']) },
+  // — Passeport de prévention (parametres/PasseportPrevention.tsx, shared/rules/passeport-prevention.ts, lot 7 t066) : gabarit
+  //   de l'export, format de la plateforme à confirmer — nom, prénom, date de naissance, matricule, intitulé, organisme,
+  //   du, au, durée, résultat ; au moins une colonne —
+  passeportColonnes: { defaut: COLONNES_PASSEPORT_DEFAUT, controle: colonnesPasseport },
 };
 
 /**

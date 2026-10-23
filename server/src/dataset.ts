@@ -23,7 +23,7 @@ import { reglagesParDefaut } from '../../shared/reglages.ts';
 import { etatsCouverture } from '../../shared/rules/couverture.ts';
 import { entretienMiCarriere } from '../../shared/rules/entretien-mi-carriere.ts';
 import { anneesC2p, syntheseC2p } from '../../shared/rules/c2p.ts';
-import type { Astreinte, AvenantForfait, ContratHistorique, DelegationValidation, DemandeVisite, EtatCouverture, FormationSuivie, HabDelivrance, InterventionAstreinte, LotReprise, Personne } from '../../shared/types.ts';
+import type { Astreinte, AvenantForfait, ContratHistorique, DeclarationPasseport, DelegationValidation, DemandeVisite, EtatCouverture, FormationSuivie, HabDelivrance, InterventionAstreinte, LotReprise, Personne } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Fractionnement, Chantier, ClotureConges, CurrentUser, InformationCp, Dataset, SoldeSortie, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
   CalendrierFeries, DerogationDominicale, Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, Horaire, ISODate, Mandat, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim,
@@ -189,6 +189,8 @@ async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
     astreintes: await db.all<Astreinte>('astreintes'),
     interventionsAstreinte: await db.all<InterventionAstreinte>('astreinteInterventions'),
     attentesSession,
+    // Passeport de prévention (lot 7, t066) : lignes déclarées (identifiants, dates, auteur), filtrées hors du service RH.
+    declarationsPasseport: await db.all<DeclarationPasseport>('declarationsPasseport'),
   };
   // Absences en attente du fichier de paie par période (server/src/absences-paie.ts) : lit le contenu figé des lots.
   // Déplacements en attente du fichier de paie (t031, server/src/deplacements-paie.ts) : lit la table des éléments émis.
@@ -213,6 +215,8 @@ const demandeSansMotifRh = (r: DemandeCollab): DemandeCollab => (r.rouverteMotif
 const suiviesNeutres = (l: readonly FormationSuivie[]): FormationSuivie[] =>
   l.filter(x => !x.annuleLe).map(x => ({ ...x, corrigeMotif: null, auteur: null, auteurId: null }));
 const delivrancesNeutres = (l: readonly HabDelivrance[]): HabDelivrance[] => l.map(x => ({ ...x, auteur: null, auteurId: null }));
+/** Déclaration au Passeport de prévention (lot 7, t066) hors du service RH : sans l'auteur de la marque. */
+const declarationNeutre = (x: DeclarationPasseport): DeclarationPasseport => ({ ...x, auteur: null, auteurId: null });
 /** Attente d'une liste d'attente (lot 7, t120) hors du service RH : sans l'auteur de l'inscription en file ni de sa fin. */
 const attenteNeutre = (a: AttenteSession): AttenteSession => ({ ...a, par: null, issuePar: null });
 
@@ -518,6 +522,8 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
     // Liste d'attente (lot 7, t120) : les siennes ; pour le manager, celles de son périmètre (place dans la file comprise) ;
     // sans les auteurs, comme les formations suivies.
     attentesSession: mine(full.attentesSession ?? []).map(attenteNeutre),
+    // Passeport de prévention (lot 7, t066) : déclarations sur la plateforme, affaire du service RH et du référent HSE.
+    declarationsPasseport: [],
     delegations: delegationsVisibles(d, user),
     delegues,
     // Manager qui délègue pour lui-même (Mon espace ou espace manager) : suppléants possibles, réduits à l'annuaire.
@@ -709,6 +715,9 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     ...(formations ? { c2p: c2pDe(full) } : {}),
     // Listes d'attente des sessions (lot 7, t120) : avec les sessions (référent HSE, lecture seule), sans les auteurs.
     attentesSession: formations ? (full.attentesSession ?? []).map(attenteNeutre) : [],
+    // Passeport de prévention (lot 7, t066) : avec les certifications et les formations suivies (référent HSE, lecture
+    // seule), sans l'auteur de la marque ; rien pour la paie.
+    declarationsPasseport: formations ? (full.declarationsPasseport ?? []).map(declarationNeutre) : [],
   };
 }
 

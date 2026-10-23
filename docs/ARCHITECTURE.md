@@ -57,6 +57,7 @@ shared/            Domaine partagé (aucune dépendance)
                    horaires.ts (lot 6) : horaires de poste, horaire par défaut d'une équipe, horaire du jour d'une feuille
                    repos-nuit.ts (lot 6) : repos quotidien, pause, heures de nuit, nuit des mineurs, travailleur de nuit
                    c2p.ts (lot 7) : compte professionnel de prévention, nuits de 0 h à 5 h, facteurs du poste, export DSN
+                   passeport-prevention.ts (lot 7) : Passeport de prévention, formations marquées, lignes à déclarer, export
                    conservation.ts (lot 6, t016) : durées de conservation par catégorie après la sortie, dossiers échus
                    historique-contrat.ts : historique des contrats (régime en vigueur à une date, `regimeAu`, avenants
                    programmés) ; cdd.ts : motif de recours, durée maximale et renouvellements d'un CDD, délai de carence
@@ -82,7 +83,8 @@ server/src/
                    lot6-horaires.ts (lot 6 : horaires de poste d'exemple amorcés)
                    lot6-contrats.ts (lot 6 : historique des contrats amorcé depuis les fiches et les feuilles figées)
                    lot6-securite.ts (lot 6 : délivrances d'habilitation en vigueur, durée en heures du catalogue)
-                   lot7-prevention.ts (lot 7, chantier B : colonnes du C2P, rien à reprendre)
+                   lot7-prevention.ts (lot 7, chantier B : colonnes du C2P, rien à reprendre ; étape 2 : formations
+                   santé-sécurité marquées pour le Passeport de prévention, index des déclarations)
   seed.ts          Données de démonstration
   avenants.ts      Historique des contrats : lignes écrites par la fiche, le renouvellement d'un CDD et la sortie, brouillons
                    refigés, avenants programmés appliqués à leur date (au démarrage puis toutes les heures)
@@ -105,7 +107,8 @@ server/src/
   envois.ts        File d'envoi persistante des messages sortants (table envois), traitée en tâche de fond
   journal.ts       Journal des actions : liste blanche par action, conservation et archive paie, consultation, export CSV
   lots-paie.ts     Lots de paie (lecture sans contenu, format du fichier d'import) ; fichier-paie.ts : téléchargement du fichier
-                   d'import d'un lot (GET /api/paie/lots/:id/fichier, tracé) ; absences-paie.ts : absences d'un lot (éléments
+                   d'import d'un lot (GET /api/paie/lots/:id/fichier, tracé) ; passeport-prevention.ts : export CSV des
+                   lignes du Passeport de prévention (GET /api/formations/passeport-prevention, tracé, lot 7) ; absences-paie.ts : absences d'un lot (éléments
                    déjà émis, réservation, libération, résumé de l'instantané) ; variables-paie.ts : export CSV des variables
                    d'une période (GET /api/paie/variables/:periode, tracé)
   delivrances.ts   Historique des délivrances d'habilitation (lot 6) : délivrance précédente close au renouvellement
@@ -532,7 +535,10 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     `0006_prevention.sql` (lot 7, chantier B : colonnes `postes.c2p` et `horaires.alternant` du compte professionnel de
     prévention, JSON contrôlés par CHECK ; aucune vue `pub_`).
     demandée, annulation, `maj_le` posée par un déclencheur ; jamais le type ni le motif ; lecteurs accordés par Matrix) ;
-    `0007_formations.sql` (lot 7, chantier C : liste d'attente des sessions, table `attentes_session`, aucune vue `pub_`).
+    `0007_formations.sql` (lot 7, chantier C : liste d'attente des sessions, table `attentes_session`, aucune vue `pub_`) ;
+    `0009_passeport_prevention.sql` (lot 7, chantier B, étape 2 : colonne `formations.passeport_prevention`, cochée en SQL
+    sur les formations santé-sécurité d'une base déjà remplie, table `declarations_passeport` avec ses clés étrangères et
+    son CHECK « certification ou formation suivie » ; aucune vue `pub_`, aucun NIR).
     Appliquées au démarrage sous `pg_advisory_lock(hashtext('cursus.migrations'))`, pris avant de lire le journal
     `cursus.schema_migrations`, une transaction par fichier ; une migration du journal inconnue de ce code (base mise à
     jour par une version plus récente) ou un schéma `cursus` absent : refus de démarrer. Puis `TABLES` est comparé au
@@ -988,6 +994,8 @@ aucun champ du paramètre n'est recopié.
 | `referentiel.horaire.enregistrer` / `referentiel.horaire.archiver` | code (création : 1 à 6 lettres ou chiffres commençant par une lettre, unique, archivés compris) ou id (le code), nom (60 caractères), debut, fin (« HH:MM », « 8 h »… ; fin avant le début : le lendemain), pause (minutes, 0 à 240, plus courte que l'horaire) / id, archive? (faux : rétabli) ; archivage refusé tant qu'une équipe le propose par défaut ; les feuilles qui le portent le gardent | RH |
 | `referentiel.poste.expositions` | id (poste, archivé compris), facteurs [codes `repetitif`, `hyperbare`, `temperatures`, `bruit` ; [] : aucun] : facteurs d'exposition du C2P cochés sur le poste (lot 7, `shared/rules/c2p.ts`) ; journal : identifiant, codes avant et après | RH, référent HSE |
 | `referentiel.horaire.alternant` | id (code de l'horaire), alternant (vrai : équipes successives alternantes ; faux : non ; null ou « » : à qualifier) ; vaut pour toutes les nuits comptées sous cet horaire ; journal : code, valeur avant et après | RH, référent HSE |
+| `passeport.declarer` | cles [« cert:<id> », « suivie:<id> » : lignes du Passeport de prévention, 2 000 au plus], le (jour de la déclaration sur la plateforme : ni à venir, ni avant le dernier jour d'une formation) ; ligne inconnue, annulée, d'une formation plus marquée ou déjà déclarée : refus, rien d'écrit (lot 7, `shared/rules/passeport-prevention.ts`) ; journal : jour, nombre de lignes, salariés concernés | RH, référent HSE |
+| `passeport.retirer` | cle (ligne marquée déclarée) : marque posée par erreur retirée, ligne de nouveau proposée à l'export ; journal : la clé, le salarié | RH, référent HSE |
 | `hab.demander` | empId, h : habilitation exigée jamais délivrée, titre « en attente » de délivrance (déjà demandée : rien n'est refait ; déjà délivrée ou archivée : refus) | RH, référent HSE |
 | `referentiel.charger` | referentiel (`formations`/`habilitations`/`destinations`) : référentiel type (celui de la démonstration) chargé dans un référentiel vide, archivés compris ; habilitations après les formations (prérequis présents et en vigueur) | RH, référent HSE (destinations : RH) |
 | `medical.demander` | empId, motif? (`periodique`/`embauche`/`reprise`/`employeur`/`mi_carriere`/`fin_carriere` ; par défaut celui de la visite due la plus proche, sinon embauche sans visite enregistrée, sinon périodique) ; e-mail au service de santé au travail | RH (une demande en cours par collaborateur) |
@@ -1787,6 +1795,46 @@ vue `prevention`, groupe « Prévention » du menu), colonnes des onglets Postes
 - **Base** : colonnes déclarées dans `TABLES`, vides par défaut (rien coché d'office, horaires d'exemple compris) ; migration
   nommée `lot7-prevention-c2p` (rien à reprendre ; exécutée sans effet sur une base neuve, notée faite ailleurs) ;
   PostgreSQL : `0006_prevention.sql`.
+
+### Passeport de prévention (lot 7, chantier B, étape 2 : t066)
+
+Règle pure `shared/rules/passeport-prevention.ts`, actions `server/src/actions/passeport-prevention.ts`, export
+`server/src/passeport-prevention.ts`, panneau « Passeport de prévention » de l'écran Formations
+(`components/PasseportPrevention.tsx`, dialogue `PasseportDeclarerDialog`), section de Paramètres
+(`pages/parametres/PasseportPrevention.tsx`). Le format d'import de la plateforme (Caisse des dépôts) côté employeur et son
+calendrier d'ouverture ne sont pas connus : seuls le marquage et le suivi « déclarée le », qui n'en dépendent pas, sont
+définitifs ; l'export est un gabarit réglable portant la mention `MENTION_PASSEPORT` (« format à confirmer »).
+
+- **Marquage** : `Formation.passeportPrevention` (colonne booléenne `passeport_prevention`), case du dialogue
+  `RefFormationDialog` (`referentiel.formation.enregistrer`, journal avant et après ; absente de la saisie : inchangée ;
+  décochée à la création, l'aide la propose pour une formation santé-sécurité, `passeportPropose`), étiquette dans l'onglet
+  Formations de Référentiels. Migration nommée `lot7-prevention-passeport` (et `0009` en PostgreSQL) : coche, en SQL figé,
+  les formations du catalogue reconnues santé-sécurité sur le code, le nom court ou l'intitulé (SST, CACES, ATEX,
+  électrique, AIPR, EPI incendie, travail en hauteur, PRAP ; ni FCO ni RGPD), tracée `migration.passeportPrevention`
+  (codes) ; le référentiel type et la démonstration portent la case. Aucune case sur les habilitations : la plateforme
+  recense des formations, les titres d'habilitation n'y sont pas déclarés tant que le format ne le prévoit pas.
+- **Lignes** (`lignesPasseport`) : certifications obtenues et formations suivies, non annulées, des formations marquées,
+  dont le dernier jour tombe dans la période (année civile à l'écran) ; une formation suivie que représente une
+  certification (`suivieCertifiee`) n'est comptée qu'une fois ; dossiers anonymisés écartés ; intérimaire signalé (la
+  déclaration revient en principe à l'agence). Du, au et heures de la session pour une certification de session, sinon le
+  jour d'obtention et la durée du catalogue ; résultat « Acquise (évaluation réussie) », « Acquise (présence) » ou
+  « Formation suivie ».
+- **Suivi « déclarée le »** : table `declarationsPasseport` (salarié, `certId` ou `suivieId`, uniques, jour de la
+  déclaration, jour et auteur de la marque), écrite par `passeport.declarer`, retirée par `passeport.retirer`. Une ligne
+  déclarée n'est plus proposée ni exportée (sauf « Déjà déclarées »). Correction ou annulation d'une certification ou d'une
+  formation suivie déclarée : le message rappelle de la corriger aussi sur la plateforme (`rappelDeclaration`). Références
+  dans `REFERENCES` (`integrite.ts`) et `TRAITEMENTS` (conservation : lignes gardées, auteur balayé) ; section de la copie
+  des données, sans l'auteur pour l'intéressé.
+- **Export** : `GET /api/formations/passeport-prevention?du=&au=[&declarees=1]` (droit `formations` : service RH et
+  référent HSE ; lecture seule et paie : 403 tracé), produit par le serveur, qui lit la date de naissance que l'instantané du
+  référent HSE ne porte jamais ; colonnes du réglage `passeportColonnes` (Paramètres → Passeport de prévention,
+  administrateur RH, au moins une ; par défaut nom, prénom — premier mot du nom de la fiche —, date de naissance, matricule de
+  paie, intitulé, organisme, du, au, durée, résultat ; NIR et code de la formation facultatifs), dans l'ordre du gabarit,
+  puis la mention. Le NIR n'est pas dans Cursus (colonne toujours vide : rapprochement par le matricule dans Sage). Tracé
+  `passeport.exporter` : période, nombre de lignes, salariés concernés, jamais d'intitulé ni de nom.
+- **Données transmises** : `Dataset.declarationsPasseport` au service RH ; sans l'auteur au référent HSE et à la lecture
+  seule (avec les certifications) ; rien au manager, au collaborateur ni à la paie. La case du catalogue va à tous (aucune
+  donnée personnelle).
 
 ### Formations suivies, titres d'habilitation et heures (lot 6, chantier 4, étape 2)
 

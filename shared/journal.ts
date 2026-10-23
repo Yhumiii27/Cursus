@@ -110,6 +110,11 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'attente.sautee': 'Liste d’attente : salarié non admissible passé',
   'attente.remise': 'Liste d’attente : proposition remise en attente',
   'attente.purgee': 'Liste d’attente close (session annulée ou clôturée)',
+  // Passeport de prévention (lot 7, t066)
+  'passeport.declarer': 'Passeport de prévention : lignes marquées déclarées',
+  'passeport.retirer': 'Passeport de prévention : marque de déclaration retirée',
+  'passeport.exporter': 'Passeport de prévention : lignes à déclarer exportées',
+  'migration.passeportPrevention': 'Reprise : formations marquées pour le Passeport de prévention',
   // Habilitations
   'hab.delivrer': 'Habilitation délivrée',
   'hab.suspendre': 'Habilitation suspendue',
@@ -306,7 +311,7 @@ export const dossierComplet = (u: Pick<CurrentUser, 'role' | 'profilRh'>) => dro
 /** Familles du filtre « Action » : codes commençant par l'un des préfixes (ou égaux à l'un d'eux). */
 export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly string[] }[] = [
   { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.', 'migration.contratsHistorique'] },
-  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel', 'attente.'] },
+  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel', 'attente.', 'passeport.', 'migration.passeportPrevention'] },
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.', 'migration.habDelivrances'] },
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
@@ -377,6 +382,8 @@ export const CHAMP_LABEL: Record<string, string> = {
   formationsTemps: 'Heures de formation proposées dans les feuilles de temps', jours: 'Jours de la session',
   // Liste d'attente des sessions complètes (lot 7, t120).
   formationsListeAttente: 'Liste d’attente des sessions complètes', formationsAttenteMode: 'Place libérée (liste d’attente)',
+  // Passeport de prévention (lot 7, t066)
+  passeportPrevention: 'Passeport de prévention', passeportColonnes: 'Colonnes de l’export du Passeport de prévention',
   annuleLe: 'Annulé le', annuleMotif: 'Motif de l’annulation',
   // Semaine à 7 jours (heures du dimanche), activités internes et mandats au CSE (heures de délégation).
   majorationDimanche: 'Majoration des heures du dimanche (%)', role: 'Mandat', credit: 'Crédit d’heures par mois',

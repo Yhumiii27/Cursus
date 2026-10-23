@@ -33,9 +33,10 @@ import { reglageAnnee } from '../../shared/rules/feries.ts';
 import { estTypeDerogation, JOURS_FEUILLE } from '../../shared/rules/semaine.ts';
 import { controlesMineur } from '../../shared/rules/mineurs.ts';
 import { controlesReposNuit } from '../../shared/rules/repos-nuit.ts';
+import { plagesInterventions } from '../../shared/rules/astreintes.ts';
 import { lignesCouverture } from '../../shared/rules/couverture.ts';
 import { corDeLaFeuille } from '../../shared/rules/temps.ts';
-import type { CalendrierFeries, ClotureConges, CurrentUser, Employe, Fractionnement, FeuilleTemps, HoraireFige, InformationCp, LigneTemps } from '../../shared/types.ts';
+import type { CalendrierFeries, ClotureConges, CurrentUser, Employe, Fractionnement, FeuilleTemps, HoraireFige, InformationCp, InterventionAstreinte, LigneTemps } from '../../shared/types.ts';
 import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
 import { journaliser, type Compte } from './comptes.ts';
 import { lireConfidentialite } from './confidentialite.ts';
@@ -187,7 +188,9 @@ async function depassementTrace(p: P, x: Contexte): Promise<Ligne> {
   // Repos quotidien ou pause insuffisants d'après les horaires figés (shared/rules/repos-nuit.ts) : les codes seuls, sans le
   // dimanche précédent (le repos entre deux semaines reste sur la feuille).
   const horaires = (x.apres.horairesFiges ?? []) as (HoraireFige | null)[];
-  const reposNuit = horaires.some(Boolean) ? controlesReposNuit(horaires, perDay, String(x.apres.week ?? ''), { s: await loadSettings(x.db), naissance: e })
+  // Interventions d'astreinte de la semaine (t049) : repos dû en entier après leur fin.
+  const interventions = e ? plagesInterventions(await x.db.where<InterventionAstreinte>('astreinteInterventions', 'empId', e.id), e.id, String(x.apres.week ?? '')) : [];
+  const reposNuit = horaires.some(Boolean) ? controlesReposNuit(horaires, perDay, String(x.apres.week ?? ''), { s: await loadSettings(x.db), naissance: e, interventions })
     .codes.filter(c => c !== 'nuit_mineur') : [];
   return { motifDepassement: MENTION_TEXTE, ...(codes.length ? { depassementMineur: codes } : {}), ...(reposNuit.length ? { reposNuit } : {}) };
 }
@@ -633,6 +636,27 @@ export const REGLES: Record<string, Regle> = {
     champs: ['equipe'], extra: p => ({ type: estTypeDerogation(p.type) ? p.type : null, reference: typeof p.reference === 'string' && p.reference.trim() ? MENTION_TEXTE : null }),
   },
   // Mandats au CSE : rôle, dates et crédit d'heures, avant et après (le salarié est celui du mandat).
+  // Astreintes (t049, lot 7) : identifiants, jours, heures, date de communication ; des motifs (circonstances exceptionnelles,
+  // annulation : textes libres), seulement le fait qu'ils soient renseignés. Interventions : jour, heures, durée.
+  'astreinte.planifier': {
+    champs: ['empId'],
+    bilan: async (_p, x) => {
+      const id = (x.result as { astreinte?: { id?: number } } | null)?.astreinte?.id;
+      const a = id ? await x.db.get<Ligne>('astreintes', id) : null;
+      return a ? { id: a.id, du: a.du, debut: a.debut, au: a.au, fin: a.fin, communiqueLe: a.communiqueLe, ...(a.motif ? { motif: MENTION_TEXTE } : {}) } : {};
+    },
+  },
+  'astreinte.modifier': { champs: ['id'], cible: { ...parId('astreintes', ['du', 'debut', 'au', 'fin', 'communiqueLe', 'motif']), masques: ['motif'] } },
+  'astreinte.annuler': { champs: ['id'], cible: { ...parId('astreintes', ['annuleLe', 'annuleMotif']), masques: ['annuleMotif'] } },
+  'astreinte.intervention': {
+    champs: ['astreinteId', 'jour', 'debut', 'fin'],
+    bilan: (_p, x) => {
+      const i = (x.result as { intervention?: Ligne } | null)?.intervention;
+      return i ? { id: i.id, heures: i.heures } : {};
+    },
+    salaries: (_p, x) => [(x.result as { intervention?: Ligne } | null)?.intervention?.empId],
+  },
+  'astreinte.retirerIntervention': { champs: ['id'], cible: parId('astreinteInterventions', ['astreinteId', 'jour', 'debut', 'fin', 'heures']) },
   'mandat.enregistrer': { champs: ['id', 'empId'], cible: parId('mandats', ['role', 'du', 'au', 'credit']) },
   'mandat.supprimer': { champs: ['id'], cible: parId('mandats', ['role', 'du', 'au', 'credit']) },
   // Correspondance d'une rubrique avec le plan de paie Sage : codes, case « exportée », date de confirmation.
@@ -701,7 +725,7 @@ export const REGLES: Record<string, Regle> = {
   // Administration
   // Réglages : anciennes et nouvelles valeurs, sauf la référence de l'accord des heures supplémentaires (texte libre).
   'parametres.maj': {
-    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche', 'nuitAccord', 'forfaitJoursAccord', 'fractionnementAccord', 'conservationDecisionDpo'] },
+    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche', 'nuitAccord', 'forfaitJoursAccord', 'fractionnementAccord', 'conservationDecisionDpo', 'astreinteAccord'] },
   },
   // Jours fériés d'une année (lot 6) : année, réglage avant et après ; le motif d'une année engagée (texte libre) n'est
   // jamais recopié, seulement le fait qu'il soit renseigné. Salariés dont une absence est recalculée (résultat).

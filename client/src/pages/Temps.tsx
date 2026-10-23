@@ -22,7 +22,7 @@
 // seuil ; au-delà du plafond (forfait, plus les jours rachetés par avenant), motif du valideur exigé à la validation.
 import { useState, type MouseEvent } from 'react';
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
-import { ABS_ABREGE, TEMPS_TRAVAIL, TS_CLS, TS_LABEL } from '../../../shared/constants.ts';
+import { ABS_ABREGE, ACTIVITE_ASTREINTE, TEMPS_TRAVAIL, TS_CLS, TS_LABEL } from '../../../shared/constants.ts';
 import type { Domain } from '../../../shared/domain.ts';
 import { addD, estJourneeSolidarite, isoWeek, isoWeekYear, joursSemaine, mondayOf, parse } from '../../../shared/dates.ts';
 import { DIMANCHE, estWeekEnd, SAMEDI } from '../../../shared/rules/semaine.ts';
@@ -373,7 +373,8 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
     else agir(() => run('temps.removeLine', ligne))(ev);
   };
   const used = new Set(lignes.map(l => l.projet));
-  const projOptions = data.referentiels.projets.filter(p => !used.has(p.code) && p.statut !== 'archive');
+  // Ligne INT-AST : tenue par la déclaration des interventions d'astreinte (t049), jamais ajoutée à la main.
+  const projOptions = data.referentiels.projets.filter(p => !used.has(p.code) && p.statut !== 'archive' && p.code !== ACTIVITE_ASTREINTE.code);
   // Proposition Keystone : seulement si des heures sont planifiées cette semaine-là.
   // Tâches Keystone de la semaine, ou heures des sessions de formation (ligne INT-FORM, shared/rules/formations-temps.ts).
   const keystone = tachesDeLaSemaine(d, emp.id, wk).length > 0, formations = formationsAProposer(d, emp.id, wk);

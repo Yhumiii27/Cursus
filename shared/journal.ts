@@ -51,6 +51,8 @@ export const ACTIONS_PAIE: readonly string[] = [
   'employe.renouvelerCdd', 'employe.avenantApplique',
   // Forfait jours (t043) : avenant de renonciation à des jours de repos (jours rachetés, majoration, rubrique JREN).
   'forfait.avenant', 'forfait.annulerAvenant',
+  // Astreintes (t049, lot 7) : périodes planifiées, modifiées ou annulées (compensation) et interventions (travail effectif).
+  'astreinte.planifier', 'astreinte.modifier', 'astreinte.annuler', 'astreinte.intervention', 'astreinte.retirerIntervention',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -175,6 +177,12 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'temps.derogationDominicale': 'Dérogation au repos dominical d’une équipe',
   'mandat.enregistrer': 'Mandat au CSE enregistré ou modifié',
   'mandat.supprimer': 'Mandat au CSE retiré',
+  // Astreintes (t049, lot 7, server/src/actions/astreintes.ts).
+  'astreinte.planifier': 'Astreinte planifiée',
+  'astreinte.modifier': 'Astreinte modifiée',
+  'astreinte.annuler': 'Astreinte annulée',
+  'astreinte.intervention': 'Intervention d’astreinte déclarée',
+  'astreinte.retirerIntervention': 'Intervention d’astreinte retirée',
   // Absences et congés
   'absence.demander': 'Demande d’absence',
   'absence.decider': 'Décision sur une absence',
@@ -293,7 +301,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
   { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement', 'migration.referencesDeplacements', 'chantier.', 'migration.deplacementsPaie'] },
-  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'forfait.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie', 'migration.rubriquesFeuilles'] },
+  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'forfait.', 'astreinte.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie', 'migration.rubriquesFeuilles'] },
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
@@ -403,6 +411,10 @@ export const CHAMP_LABEL: Record<string, string> = {
   conservationPasseportAns: 'Conservation du passeport et des visas (ans)', conservationTitreSejourAns: 'Conservation du titre de séjour (ans)',
   conservationEntretiensAns: 'Conservation des entretiens (ans)', conservationFormationsAns: 'Conservation des formations (ans)',
   agendaFluxActif: 'Abonnement à l’agenda personnel', agendaContenu: 'Contenu de l’agenda personnel',
+  // Astreintes (t049, lot 7) : réglages et colonnes d'une astreinte.
+  astreinteDelaiPrevenance: 'Astreintes : délai de prévenance (jours)', astreinteCompensation: 'Astreintes : forme de la compensation',
+  astreinteMineurs: 'Astreintes : salariés mineurs admis', astreinteAccord: 'Référence de l’accord sur les astreintes',
+  communiqueLe: 'Communiquée le',
 };
 
 const valeur = (v: unknown): string => {

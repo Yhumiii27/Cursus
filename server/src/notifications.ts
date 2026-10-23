@@ -250,7 +250,7 @@ export async function notifierDecisionDemande(cx: Contexte, emp: Employe, r: Dem
  * Organisateur des événements .ics (exigé par les agendas pour une publication ou une annulation) : la boîte
  * d'envoi de Cursus, à défaut (simulation) la boîte du service RH.
  */
-async function organisateur(cx: Contexte): Promise<EvenementAgenda['organisateur']> {
+export async function organisateur(cx: Contexte): Promise<EvenementAgenda['organisateur']> {
   const from = configMail()?.from;
   if (from) return { nom: 'Cursus', adresse: from };
   const rh = (await messagerie(cx)).rh;

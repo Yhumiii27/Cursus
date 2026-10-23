@@ -239,6 +239,12 @@ export const ACTIVITES_INTERNES = /^(?:INT-|ECOLE$)/;
  * des inscrits à une session, jamais envoyée à Keystone (code INT-*). Amorcée dans les projets par une migration nommée.
  */
 export const ACTIVITE_FORMATION = { code: 'INT-FORM', nom: 'Formation' } as const;
+/**
+ * Activité interne des interventions d'astreinte (t049, shared/rules/astreintes.ts) : ligne de la feuille de temps qui
+ * porte les heures des interventions déclarées (travail effectif), jamais saisie à la main ni envoyée à Keystone. Amorcée
+ * dans les projets par une migration nommée (server/src/migrations/lot7-astreintes.ts).
+ */
+export const ACTIVITE_ASTREINTE = { code: 'INT-AST', nom: 'Intervention d’astreinte' } as const;
 // « Reporté » : action d'un exercice clos reprise sur l'exercice suivant (`plan.cloturerExercice`), hors des sommes.
 export const PLAN_CLS = { prevu: 'tag-outline', engage: 'tag-accent', realise: 'tag-neutral', reporte: 'tag-outline' } as const;
 export const PLAN_LABEL = { prevu: 'Prévu', engage: 'Engagé', realise: 'Réalisé', reporte: 'Reporté' } as const;
@@ -268,6 +274,10 @@ export const EMAIL_LABEL: Record<string, string> = {
   'delegation.prevue': 'Délégation des validations prévue',
   'delegation.debut': 'Début d’une délégation des validations (demandes en attente)',
   'delegation.fin': 'Délégation des validations révoquée',
+  // Astreintes (t049, lot 7, server/src/astreintes.ts) : au salarié, avec l'événement d'agenda (.ics).
+  'astreinte.planifiee': 'Astreinte planifiée',
+  'astreinte.modifiee': 'Astreinte modifiée',
+  'astreinte.annulee': 'Astreinte annulée',
   // E-mail réservé au service RH (donnée de santé), tel que la lecture seule le voit (server/src/envois-lecteur.ts).
   reserve: 'Message réservé au service RH',
   'echeances.recapitulatif': 'Récapitulatif des échéances',

@@ -3,6 +3,7 @@ import { addD, isFerie, isValidDate, isoWeek, joursSemaine, mondayOf } from '../
 import { fH, num, plural } from '../../../shared/format.ts';
 import { fusionProposition } from '../../../shared/rules/formations-temps.ts';
 import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
+import { ACTIVITE_ASTREINTE } from '../../../shared/constants.ts';
 import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
 import {
   absenceCeJour, calcSheet, contratFige, corDeLaFeuille, demandesEnAttenteMessage, demiJourneeRefus, HEURES_JOUR_MAX, heuresSurAbsence,
@@ -22,6 +23,9 @@ import { relevesAutomatiques } from '../releves.ts';
 import { ActionError, type ActionHandler, type Ctx, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, refuserSoiMeme, str } from './context.ts';
 import { pushSageSimulation } from './paie.ts';
 import { controleForfaitJours } from '../forfait-jours.ts';
+
+/** Ligne INT-AST (t049) : ses heures viennent des interventions d'astreinte déclarées (server/src/actions/astreintes.ts). */
+const INTERVENTION_A_DECLARER = 'Les heures d’une intervention d’astreinte se déclarent avec ses heures de début et de fin (« Déclarer une intervention »), pas dans la grille';
 
 function sheetOf(ctx: Ctx, empId: number, week: string): FeuilleTemps | undefined {
   return ctx.ds.feuilles.find(f => f.empId === empId && f.week === week);
@@ -74,7 +78,7 @@ function motifDepassement(ctx: Ctx, emp: Employe, sh: FeuilleTemps, p: Record<st
   return motif;
 }
 
-async function saveLines(ctx: Ctx, sh: FeuilleTemps, lignes: LigneTemps[]) {
+export async function saveLines(ctx: Ctx, sh: FeuilleTemps, lignes: LigneTemps[]) {
   // Une feuille corrigée par son valideur reste « soumise » ; une feuille renvoyée reste « à corriger ».
   await ctx.db.update<FeuilleTemps>('feuilles', sh.id, { lignes, statut: sh.statut === 'rejetee' || sh.statut === 'soumise' ? sh.statut : 'brouillon' });
 }
@@ -89,6 +93,8 @@ const setCell: ActionHandler = async (ctx, p) => {
   const { emp, sh } = await editable(ctx, p);
   const li = Number(p.li), di = Number(p.di);
   if (!sh.lignes[li] || !(Number.isInteger(di) && di >= 0 && di < JOURS_FEUILLE)) throw new ActionError('Cellule invalide');
+  // Ligne des interventions d'astreinte (t049) : tenue par leur déclaration, avec les heures de début et de fin.
+  if (sh.lignes[li].projet === ACTIVITE_ASTREINTE.code) throw new ActionError(INTERVENTION_A_DECLARER);
   const v = Math.round(Math.max(0, Math.min(24, num(String(p.value ?? '').replace(/[^\d.,]/g, '')))) * 100) / 100;
   // Aucune heure un jour d'absence (validée ou signalée) ni hors contrat ; vider la cellule reste toujours possible, pour corriger.
   const abs = joursAbsence(ctx.d, sh.empId, sh.week)[di];
@@ -116,6 +122,7 @@ const addLine: ActionHandler = async (ctx, p) => {
   // Projets transmis par Keystone (server/src/integrations/keystone-entrant.ts) ; un projet archivé n'est plus proposé.
   const pr = ctx.ds.referentiels.projets.find(x => x.code === projet);
   if (!pr) throw new ActionError('Projet inconnu');
+  if (pr.code === ACTIVITE_ASTREINTE.code) throw new ActionError(INTERVENTION_A_DECLARER);
   if (pr.statut === 'archive') {
     throw new ActionError(estActiviteInterne(pr.code) ? 'Activité interne archivée (écran Référentiels) : aucune heure ne peut plus y être imputée' : 'Projet clos dans Keystone : aucune heure ne peut plus y être imputée');
   }
@@ -137,6 +144,9 @@ const removeLine: ActionHandler = async (ctx, p) => {
     if (!sh.lignes[li] || !visee(sh.lignes[li]) || (p.lignes !== undefined && sh.lignes.length !== Number(p.lignes))) {
       throw new ActionError('La feuille a changé entre-temps : vérifiez la ligne à supprimer, puis réessayez');
     }
+  }
+  if (sh.lignes[li]?.projet === ACTIVITE_ASTREINTE.code && sh.lignes[li].h.some(v => num(v) > 0)) {
+    throw new ActionError('Ligne des interventions d’astreinte : retirez d’abord les interventions déclarées cette semaine');
   }
   await saveLines(ctx, sh, sh.lignes.filter((_, i) => i !== li));
   return null;

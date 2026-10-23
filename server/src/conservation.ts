@@ -75,6 +75,10 @@ export const TRAITEMENTS: Record<string, Traitement> = {
   'hab_delivrances.auteur_id': { mode: 'auteur' },
   'formations_suivies.auteur_id': { mode: 'auteur' },
   'equipes.manager_id': { mode: 'detachee' },
+  // Astreintes (t049, lot 7) : lignes gardées avec les feuilles de temps, motifs (textes libres) vidés ; interventions
+  // (jours, heures) gardées telles quelles.
+  'astreintes.emp_id': { mode: 'textes', categorie: 'temps' },
+  'astreinte_interventions.emp_id': { mode: 'gardee' },
 };
 
 /**
@@ -115,6 +119,7 @@ function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number): Etap
       { table: 'absences', ou: 'emp_id = ?', vider: ['motif_refus'] },
       { table: 'reports', ou: 'emp_id = ?', vider: ['motif'] },
       { table: 'clotures', ou: 'emp_id = ?', vider: ['motif'] },
+      { table: 'astreintes', ou: 'emp_id = ?', vider: ['motif', 'annule_motif'] },
     ];
     case 'formations': return [
       retrait(cx, `emp_id = ? AND objet IN ('certification', 'habTitre')`),

@@ -22,7 +22,7 @@ import { delegationEnVigueur, deleguesA, type Delegue } from '../../shared/rules
 import { reglagesParDefaut } from '../../shared/reglages.ts';
 import { etatsCouverture } from '../../shared/rules/couverture.ts';
 import { entretienMiCarriere } from '../../shared/rules/entretien-mi-carriere.ts';
-import type { AvenantForfait, ContratHistorique, DelegationValidation, DemandeVisite, EtatCouverture, FormationSuivie, HabDelivrance, LotReprise, Personne } from '../../shared/types.ts';
+import type { Astreinte, AvenantForfait, ContratHistorique, DelegationValidation, DemandeVisite, EtatCouverture, FormationSuivie, HabDelivrance, InterventionAstreinte, LotReprise, Personne } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Fractionnement, Chantier, ClotureConges, CurrentUser, InformationCp, Dataset, SoldeSortie, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
   CalendrierFeries, DerogationDominicale, Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, Horaire, ISODate, Mandat, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim,
@@ -179,6 +179,9 @@ async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
     habDelivrances: await db.all<HabDelivrance>('habDelivrances'),
     // Délégations des validations (t135) : identifiants, dates et périmètre, jamais de motif.
     delegations: await db.all<DelegationValidation>('delegations'),
+    // Astreintes (t049, lot 7) et interventions déclarées : filtrées hors du service RH (motifs : textes libres).
+    astreintes: await db.all<Astreinte>('astreintes'),
+    interventionsAstreinte: await db.all<InterventionAstreinte>('astreinteInterventions'),
   };
   // Absences en attente du fichier de paie par période (server/src/absences-paie.ts) : lit le contenu figé des lots.
   // Déplacements en attente du fichier de paie (t031, server/src/deplacements-paie.ts) : lit la table des éléments émis.
@@ -226,6 +229,8 @@ const ligneContratEquipe = (l: ContratHistorique): ContratHistorique => ({ ...li
  * service RH), ni l'auteur ; pour le manager d'un membre, en plus, ni la majoration (rémunération) ni la référence : l'année et
  * les jours rachetés suffisent au plafond du cumul affiché à la validation.
  */
+/** Astreinte sans ses motifs (circonstances exceptionnelles, annulation : textes libres du manager ou du service RH). */
+const astreinteSansMotif = (a: Astreinte): Astreinte => (a.motif || a.annuleMotif ? { ...a, motif: null, annuleMotif: null } : a);
 const avenantNeutre = (a: AvenantForfait): AvenantForfait => ({ ...a, annuleMotif: null, creePar: '', annulePar: null });
 const avenantEquipe = (a: AvenantForfait): AvenantForfait => ({ ...avenantNeutre(a), taux: 0, reference: null, lotId: null, sage: false, horsFichier: false });
 
@@ -502,6 +507,10 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
     delegues,
     // Manager qui délègue pour lui-même (Mon espace ou espace manager) : suppléants possibles, réduits à l'annuaire.
     ...(d.teamsOf(user.empId).length ? { suppleantsPossibles: suppleantsPossibles(d, user.empId!) } : {}),
+    // Astreintes (t049) : celles du périmètre (les siennes, celles de l'équipe pour le manager), motifs compris sauf en
+    // consultation N+2 ; interventions déclarées du périmètre, comme les feuilles de temps qui portent leurs heures.
+    astreintes: mine(full.astreintes ?? []).map(a => (lecture.has(a.empId) ? astreinteSansMotif(a) : a)),
+    interventionsAstreinte: mine(full.interventionsAstreinte ?? []),
     // Abonnement à l'agenda personnel (t036) : seulement le fait qu'il existe et sa date, jamais le jeton (haché en base).
     agendaJeton: await (async () => { const j = await jetonActif(db, user.empId!); return j ? { creeLe: j.creeLe } : null; })(),
   };
@@ -668,6 +677,9 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // Formations suivies et délivrances d'habilitation : avec les certifications et les titres (référent HSE, lecture seule).
     formationsSuivies: formations ? suiviesNeutres(full.formationsSuivies ?? []) : [],
     habDelivrances: formations ? delivrancesNeutres(full.habDelivrances ?? []) : [],
+    // Astreintes (t049) : avec les feuilles de temps (paie, lecture seule), sans les motifs ; rien pour le référent HSE.
+    astreintes: paie ? (full.astreintes ?? []).map(astreinteSansMotif) : [],
+    interventionsAstreinte: paie ? full.interventionsAstreinte ?? [] : [],
   };
 }
 

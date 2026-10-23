@@ -25,24 +25,27 @@ const SUIVI: CurrentUser = { role: 'rh', empId: null, nom: 'Cursus', intitule: '
 /** Réglage : jour du dernier passage (un seul par jour, même après un redémarrage). */
 const DERNIER_PASSAGE = 'evaluationsDemandeesLe';
 
-/** Ligne d'une évaluation attendue dans l'e-mail. */
-function ligne(d: Domain, x: DemandeEvaluation, manager: boolean): string {
+/**
+ * Ligne d'une évaluation attendue dans l'e-mail. `relance` : un palier précédent de la même clé est déjà parti ; sinon,
+ * même à un palier de relance (fonction réactivée, délai réduit, formations reprises), c'est une première demande.
+ */
+function ligne(d: Domain, x: DemandeEvaluation, manager: boolean, relance: boolean): string {
   const qui = manager ? `${d.personName(x.cible.empId)} — ` : '';
   const quoi = x.type === 'chaud'
     ? `votre avis sur la formation (note de 1 à 5)`
     : manager ? 'la formation a-t-elle été efficace ?' : 'la formation vous a-t-elle été utile dans votre travail ?';
-  const relance = x.palier === 'demande' ? '' : ` (relance : demandée le ${fmtIso(x.depuis)})`;
-  return `• ${qui}${x.cible.intitule}, terminée le ${fmtIso(x.cible.fin)} : ${quoi}${relance}`;
+  const mention = relance && x.palier !== 'demande' ? ` (relance : demandée le ${fmtIso(x.depuis)})` : '';
+  return `• ${qui}${x.cible.intitule}, terminée le ${fmtIso(x.cible.fin)} : ${quoi}${mention}`;
 }
 
 /** Texte de l'e-mail d'un destinataire : ses évaluations attendues, puis où répondre. */
-function texte(d: Domain, liste: DemandeEvaluation[], manager: boolean): string {
+function texte(d: Domain, liste: DemandeEvaluation[], manager: boolean, envoyees: Set<string>): string {
   return [
     manager
       ? 'Quelques mois après leur formation, Cursus vous demande si elle a été efficace pour ces membres de votre équipe :'
       : 'Cursus vous demande votre avis sur les formations que vous avez suivies :',
     '',
-    ...liste.map(x => ligne(d, x, manager)),
+    ...liste.map(x => ligne(d, x, manager, envoyees.has(x.cle))),
     '',
     manager
       ? 'Répondez dans Cursus, écran Formations (espace manager), encart « Évaluations à froid à faire » : efficace, partiellement ou pas efficace, avec un commentaire si besoin. Votre réponse sert à améliorer le plan de formation ; seul le service RH lit les commentaires.'
@@ -58,7 +61,8 @@ export async function demanderEvaluations(db: Db): Promise<{ emails: number; dem
   const full = await loadFull(db, SUIVI);
   if (!full.settings.evaluationsActives) return { emails: 0, demandes: 0 };
   const d = new Domain(full), today = full.today;
-  const deja = new Set((await db.query('SELECT cle, palier FROM relances WHERE cle LIKE ?', ['evaluation:%']) as { cle: string; palier: string }[]).map(r => `${r.cle}|${r.palier}`));
+  const notes = await db.query('SELECT cle, palier FROM relances WHERE cle LIKE ?', ['evaluation:%']) as { cle: string; palier: string }[];
+  const deja = new Set(notes.map(r => `${r.cle}|${r.palier}`)), envoyees = new Set(notes.map(r => r.cle));
   const nouvelles = demandesEvaluation(d).filter(x => !deja.has(`${x.cle}|${x.palier}`));
   if (!nouvelles.length) return { emails: 0, demandes: 0 };
   const m = await lireMessagerie(db);
@@ -70,11 +74,11 @@ export async function demanderEvaluations(db: Db): Promise<{ emails: number; dem
     const siennes = nouvelles.filter(x => x.destinataire === dest && x.repondant === 'salarie');
     const equipe = nouvelles.filter(x => x.destinataire === dest && x.repondant === 'manager');
     if (siennes.length) {
-      const e = await envoyerEmail(db, 'evaluation.demande', courriel(m, a.adresse, `Cursus — votre avis sur ${siennes.length > 1 ? 'des formations' : 'une formation'}`, texte(d, siennes, false), { nom: a.nom }));
+      const e = await envoyerEmail(db, 'evaluation.demande', courriel(m, a.adresse, `Cursus — votre avis sur ${siennes.length > 1 ? 'des formations' : 'une formation'}`, texte(d, siennes, false, envoyees), { nom: a.nom }));
       if (e) emails++;
     }
     if (equipe.length) {
-      const e = await envoyerEmail(db, 'evaluation.manager', courriel(m, a.adresse, `Cursus — efficacité des formations de votre équipe : ${plural(equipe.length, 'évaluation à faire', 'évaluations à faire')}`, texte(d, equipe, true), { nom: a.nom }));
+      const e = await envoyerEmail(db, 'evaluation.manager', courriel(m, a.adresse, `Cursus — efficacité des formations de votre équipe : ${plural(equipe.length, 'évaluation à faire', 'évaluations à faire')}`, texte(d, equipe, true, envoyees), { nom: a.nom }));
       if (e) emails++;
     }
   }

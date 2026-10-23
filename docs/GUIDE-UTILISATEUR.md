@@ -91,8 +91,8 @@ pas dans Cursus : la paie les traite dans Sage.
   Seul le service RH les voit, jamais votre manager ; videz les deux champs pour les retirer.
 - « Imprimer mon passeport formation » : certifications en vigueur et remplacées, habilitations et délivrances
   antérieures, formations suivies (« Mes formations suivies »), sans aucun motif de suspension ou de retrait.
-- Après une formation, l'encart À faire de l'accueil demande votre avis pendant un mois : « Donner mon avis » (note de 1 à
-  5, commentaire facultatif). Quelques mois plus tard (90 jours par défaut), il demande si elle vous a été utile dans votre
+- Après une formation (une fois la session clôturée par le service RH), l'encart À faire de l'accueil demande votre avis
+  pendant un mois : « Donner mon avis » (note de 1 à 5, commentaire facultatif). Quelques mois plus tard (90 jours par défaut), il demande si elle vous a été utile dans votre
   travail : « Répondre ». Un e-mail vous le rappelle. Seul le service RH lit vos commentaires ; votre manager ne voit pas vos
   avis. « Mes avis sur les formations » les reprend, modifiables tant que l'évaluation est ouverte.
 

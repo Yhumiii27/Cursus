@@ -435,10 +435,11 @@ test('droits : le manager inscrit son équipe, sans clôture ni annulation ; ré
   assert.deepEqual(h.participations.map(p => p.empId), [20], 'Logistique : Yanis Bouzid seulement');
   assert.equal(h.sessions.find(s => s.id === 6)!.inscrits, 5, 'nombre calculé sur toutes les données');
   assert.deepEqual((await buildSnapshot(db, CAMILLE)).participations, []);
-  // Bilan (évaluation à chaud, motif d'annulation : textes libres) réservé au service RH.
+  // Bilan (évaluation à chaud, motif d'annulation : textes libres) réservé au service RH ; seule la date de clôture ou
+  // d'annulation reste (lot 7, t121 : départ de la demande d'avis à chaud), sans auteur.
   for (const u of [HUGO, CAMILLE]) {
     const ds = await buildSnapshot(db, u);
-    assert.deepEqual(ds.sessions.filter(s => s.bilan), [], `bilan transmis à ${u.nom}`);
+    assert.ok(ds.sessions.every(s => !s.bilan || (s.bilan.par === '' && s.bilan.note == null && s.bilan.commentaire == null && s.bilan.motif == null)), `bilan transmis à ${u.nom}`);
     assert.deepEqual(ds.sessions.filter(s => s.id === 6 || s.id === 7).map(s => s.statut), ['Clôturée', 'Annulée']);
     assert.doesNotMatch(JSON.stringify(ds), /arrêt maladie|Formateur malade/);
   }

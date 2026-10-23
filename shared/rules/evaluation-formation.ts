@@ -22,7 +22,10 @@ export const NOTE_MIN = 1;
 export const NOTE_MAX = 5;
 /** Commentaire d'une évaluation : 1 000 caractères au plus. */
 export const COMMENTAIRE_EVALUATION_MAX = 1000;
-/** L'avis à chaud est demandé au salarié pendant 30 jours après le dernier jour de la formation (encart « À faire »). */
+/**
+ * L'avis à chaud est demandé au salarié pendant 30 jours à partir du jour où la formation devient évaluable (dernier jour,
+ * ou clôture de la session si elle vient après), sans dépasser le début de l'évaluation à froid (encart « À faire »).
+ */
 export const DELAI_CHAUD_JOURS = 30;
 /** À froid : demande le jour de l'échéance, relances 15 et 30 jours après ; la demande reste ouverte 60 jours. */
 export const RELANCES_FROID = [15, 30] as const;
@@ -40,12 +43,16 @@ export const estEfficacite = (v: unknown): v is EfficaciteFormation => v === 'ef
 /**
  * Formation évaluable : participation présente à une session clôturée, ou formation suivie hors session (en vigueur).
  * `cle` : « p<participation> » ou « s<formation suivie> » ; `debut` (exercice des indicateurs, comme les heures de
- * formation) et `fin` (dernier jour : départ des délais) ; organisme du catalogue, ou celui saisi sur la formation suivie.
+ * formation) et `fin` (dernier jour : départ des délais) ; `ouverte` : jour où elle devient évaluable — la participation
+ * n'existe qu'à la clôture de la session, la formation suivie qu'à sa saisie —, au plus tôt le dernier jour (départ de la
+ * demande à chaud) ; organisme du catalogue, ou celui saisi sur la formation suivie.
  */
 export interface CibleEvaluation {
   cle: string; empId: number; participationId: number | null; formationSuivieId: number | null; sessionId: number | null;
-  formation: string | null; intitule: string; organisme: string; categorie: CategorieEvaluee; debut: ISODate; fin: ISODate;
+  formation: string | null; intitule: string; organisme: string; categorie: CategorieEvaluee; debut: ISODate; fin: ISODate; ouverte: ISODate;
 }
+
+const plusTard = (a: ISODate, b: ISODate | null | undefined): ISODate => (b && b > a ? b : a);
 
 /** Organisme d'une formation suivie sans organisme ni formation du catalogue. */
 export const ORGANISME_INCONNU = 'Organisme non renseigné';
@@ -60,6 +67,7 @@ export function ciblesEvaluation(d: Domain): CibleEvaluation[] {
     out.push({
       cle: `p${p.id}`, empId: p.empId, participationId: p.id, formationSuivieId: null, sessionId: s.id, formation: s.formation,
       intitule: fm?.nom ?? s.formation, organisme: fm?.organisme || ORGANISME_INCONNU, categorie: fm?.type ?? 'Hors catalogue', debut: s.date, fin: finSession(s),
+      ouverte: plusTard(finSession(s), s.bilan?.le),
     });
   }
   for (const x of suiviesEnVigueur(d.ds)) {
@@ -67,6 +75,7 @@ export function ciblesEvaluation(d: Domain): CibleEvaluation[] {
     out.push({
       cle: `s${x.id}`, empId: x.empId, participationId: null, formationSuivieId: x.id, sessionId: null, formation: x.f,
       intitule: intituleSuivie(d, x), organisme: x.organisme || fm?.organisme || ORGANISME_INCONNU, categorie: fm?.type ?? 'Hors catalogue', debut: x.du, fin: x.au,
+      ouverte: plusTard(x.au, x.le),
     });
   }
   return out;
@@ -120,13 +129,24 @@ export function refusEvaluation(s: Settings, today: ISODate, c: CibleEvaluation,
 /** Évaluation attendue : la formation, le type, le répondant et la date à partir de laquelle elle est demandée. */
 export interface EvaluationAFaire { cible: CibleEvaluation; type: TypeEvaluation; repondant: RepondantEvaluation; depuis: ISODate }
 
+/**
+ * Période de la demande à chaud : 30 jours à partir du jour où la formation devient évaluable (clôture tardive de la
+ * session, saisie tardive de la formation suivie), jamais au-delà du début de l'évaluation à froid, où la saisie à chaud
+ * se ferme pour le salarié. Null : plus rien à demander (clôture ou saisie après cette date).
+ */
+export function periodeChaud(s: Pick<Settings, 'evaluationFroidDelai'>, c: Pick<CibleEvaluation, 'fin' | 'ouverte'>): { du: ISODate; au: ISODate } | null {
+  const au = [addD(c.ouverte, DELAI_CHAUD_JOURS), echeanceFroid(s, c)].sort()[0];
+  return c.ouverte <= au ? { du: c.ouverte, au } : null;
+}
+
 /** Évaluations qu'un salarié a encore à donner (avis à chaud du mois, à froid échu depuis moins de 60 jours). */
 export function evaluationsAFaire(d: Domain, empId: number | null): EvaluationAFaire[] {
   const e = empId != null ? d.emp(empId) : undefined, s = d.ds.settings;
   if (!e || !s.evaluationsActives || !present(e, d.ti)) return [];
   const out: EvaluationAFaire[] = [];
   for (const c of ciblesEvaluation(d).filter(x => x.empId === e.id)) {
-    if (c.fin <= d.ti && d.ti <= addD(c.fin, DELAI_CHAUD_JOURS) && !evaluationDe(d.ds.evaluationsFormation, c, 'chaud', 'salarie')) out.push({ cible: c, type: 'chaud', repondant: 'salarie', depuis: c.fin });
+    const chaud = periodeChaud(s, c);
+    if (chaud && chaud.du <= d.ti && d.ti <= chaud.au && !evaluationDe(d.ds.evaluationsFormation, c, 'chaud', 'salarie')) out.push({ cible: c, type: 'chaud', repondant: 'salarie', depuis: chaud.du });
     const du = echeanceFroid(s, c);
     if (concerneFroid(s, c) && repondantsFroid(s).includes('salarie') && du <= d.ti && d.ti <= addD(du, FENETRE_FROID_JOURS)
       && !evaluationDe(d.ds.evaluationsFormation, c, 'froid', 'salarie')) out.push({ cible: c, type: 'froid', repondant: 'salarie', depuis: du });
@@ -187,6 +207,20 @@ const moyenne = (l: number[]) => (l.length ? Math.round(l.reduce((a, b) => a + b
 
 interface Element { cible: CibleEvaluation; evaluations: EvaluationFormation[]; froidAttendus: number }
 
+/**
+ * Avis à froid attendus pour une formation, selon les règles des demandes : aucun avant l'échéance ni pour une formation
+ * non concernée ; aucun pour un salarié sorti avant l'échéance (rien ne lui est demandé) ; l'avis du salarié s'il est
+ * prévu ; celui du manager s'il est prévu et que le salarié en a un (autre que lui-même) : sans manager, les validations
+ * passent par le service RH et rien n'est demandé.
+ */
+export function avisFroidAttendus(d: Domain, c: CibleEvaluation): number {
+  const s = d.ds.settings, e = d.emp(c.empId);
+  const du = echeanceFroid(s, c);
+  if (!e || !concerneFroid(s, c) || du > d.ti || !present(e, du)) return 0;
+  const mgr = d.mgrOf(e);
+  return repondantsFroid(s).filter(r => r === 'salarie' || (!!mgr && mgr !== e.id)).length;
+}
+
 function ligneEvaluation(cle: string, elements: Element[], notesSessions: number[], seuil: number): LigneEvaluation {
   const evals = elements.flatMap(e => e.evaluations);
   const chauds = evals.filter(e => e.type === 'chaud' && e.note != null).map(e => e.note!);
@@ -211,16 +245,17 @@ function ligneEvaluation(cle: string, elements: Element[], notesSessions: number
 
 /**
  * Indicateurs des évaluations de l'exercice `exercice` (année du premier jour de la formation, comme les heures de
- * formation) : total, par organisme et par formation. Avis à froid attendus : formations concernées dont l'échéance est
- * passée, autant que de répondants prévus (au moins les réponses reçues). `seuil` : vue agrégée (SEUIL_ANONYMAT).
+ * formation) : total, par organisme et par formation. Avis à froid attendus : ceux qui sont demandés (`avisFroidAttendus` :
+ * échéance passée, salarié présent à l'échéance, manager seulement s'il y en a un), au moins les réponses reçues.
+ * `seuil` : vue agrégée (SEUIL_ANONYMAT).
  */
 export function indicateursEvaluation(d: Domain, exercice: number, seuil = 0): IndicateursEvaluation {
-  const s = d.ds.settings, evals = d.ds.evaluationsFormation ?? [];
+  const evals = d.ds.evaluationsFormation ?? [];
   const dans = (j: ISODate) => j.startsWith(`${exercice}-`);
   const elements: Element[] = ciblesEvaluation(d).filter(c => dans(c.debut)).map(cible => ({
     cible,
     evaluations: evals.filter(e => (cible.participationId ? e.participationId === cible.participationId : e.formationSuivieId === cible.formationSuivieId)),
-    froidAttendus: concerneFroid(s, cible) && echeanceFroid(s, cible) <= d.ti ? repondantsFroid(s).length : 0,
+    froidAttendus: avisFroidAttendus(d, cible),
   }));
   // Appréciation de la session par le service RH (Session.bilan.note, d'avant le lot 7) : par session clôturée de l'exercice.
   const notees = d.ds.sessions.filter(x => x.statut === 'Clôturée' && dans(x.date) && x.bilan?.note != null).map(x => {

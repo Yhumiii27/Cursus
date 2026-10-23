@@ -383,3 +383,83 @@ test('migration nommée lot7-formations-index-evaluations : index par salarié c
   assert.equal(indexExiste(db, 'evaluations_formation_emp'), true);
   assert.equal(await INDEX_EVALUATIONS.necessaire!(db), false);
 });
+
+// — Corrections de relecture —
+
+test('indicateurs : avis à froid attendus comme ils sont demandés (salarié sans manager, salarié sorti avant l’échéance)', async () => {
+  const { db, run, domain, sessionClose } = await fresh();
+  // Karim Haddad (12) et Hugo Lambert (16) n'ont pas de manager (validations par le service RH) : l'avis du salarié seul.
+  const [karim, hugo] = await sessionClose('2026-06-10', [12, 16]);
+  let d = await domain();
+  assert.deepEqual(E.demandesEvaluation(d).map(x => [x.cible.empId, x.repondant]), [[12, 'salarie'], [16, 'salarie']]);
+  assert.equal(E.indicateursEvaluation(d, 2026).total.froidAttendus, 2);
+  await run(KARIM, 'evaluation.enregistrer', { participationId: karim, type: 'froid', efficacite: 'efficace' });
+  await run(HUGO, 'evaluation.enregistrer', { participationId: hugo, type: 'froid', efficacite: 'partielle' });
+  d = await domain();
+  assert.deepEqual([E.indicateursEvaluation(d, 2026).total.froid, E.indicateursEvaluation(d, 2026).total.tauxFroid], [2, 100], 'tous ont répondu');
+  // Thomas Garnier (6), sorti le 31 août, avant l'échéance du 8 septembre : rien ne lui est demandé, ni à son manager.
+  await sessionClose('2026-06-10', [6], 'atex');
+  await db.update('employes', 6, { fin: '2026-08-31' });
+  d = await domain();
+  const atex = E.indicateursEvaluation(d, 2026).parFormation.find(l => l.cle.startsWith('Intervention en zone ATEX'))!;
+  assert.deepEqual([atex.participants, atex.froidAttendus, atex.tauxFroid], [1, 0, null]);
+  // Sorti après l'échéance : les deux avis lui ont été demandés, ils restent attendus.
+  await db.update('employes', 6, { fin: '2026-09-30' });
+  d = await domain();
+  assert.equal(E.indicateursEvaluation(d, 2026).parFormation.find(l => l.cle === atex.cle)!.froidAttendus, 2);
+});
+
+test('export « Mes données » du salarié : sans l’avis à froid de son manager ; l’export du service RH le garde', async () => {
+  const { db, run, sessionClose } = await fresh();
+  const { donneesSalarie } = await import('../server/src/donnees.ts');
+  const [p] = await sessionClose('2026-06-10', [2]);
+  await run(MEHDI, 'evaluation.enregistrer', { participationId: p, type: 'froid', efficacite: 'efficace', commentaire: 'Utile au quotidien' });
+  await run(KARIM, 'evaluation.enregistrer', { participationId: p, type: 'froid', efficacite: 'non', commentaire: 'Gestes non maîtrisés, à reprendre' });
+  const section = (x: Awaited<ReturnType<typeof donneesSalarie>>) => x!.sections['Évaluations des formations suivies'] as Record<string, unknown>[];
+  const lui = section(await donneesSalarie(db, 2, { journal: false, par: 'Mehdi Benali' }));
+  assert.deepEqual(lui.map(r => [r.repondant, r.efficacite, r.commentaire]), [['salarie', 'efficace', 'Utile au quotidien']]);
+  assert.ok(lui.every(r => !('auteur' in r) && !('auteurId' in r)), 'sans auteur');
+  assert.ok(!JSON.stringify(lui).includes('Gestes non maîtrisés'));
+  const rh = section(await donneesSalarie(db, 2, { journal: true, par: 'Sandrine Vidal' }));
+  assert.deepEqual(rh.map(r => r.repondant).sort(), ['manager', 'salarie']);
+  assert.ok(JSON.stringify(rh).includes('Gestes non maîtrisés'));
+});
+
+test('avis à chaud demandé à partir de la clôture quand elle vient tard, jamais au-delà du début de l’évaluation à froid', async () => {
+  const { db, domain, sessionClose, emails } = await fresh();
+  const cloturer = async (empId: number, fin: string, le: string) => {
+    const [p] = await sessionClose(fin, [empId]);
+    const { sessionId } = (await db.get<{ sessionId: number }>('participations', p))!;
+    await db.update('sessions', sessionId, { bilan: { le, par: 'Sandrine Vidal', note: null, commentaire: null, motif: null } });
+    return p;
+  };
+  const tard = await cloturer(2, '2026-09-01', '2026-10-05'); // clôturée 34 jours après
+  await cloturer(6, '2026-06-01', '2026-09-15'); // clôturée après l'échéance à froid du 30 août : plus d'avis à chaud
+  const d = await domain(MEHDI);
+  const c = E.cibleDe(d, { participationId: tard })!;
+  assert.deepEqual([c.fin, c.ouverte], ['2026-09-01', '2026-10-05']);
+  assert.deepEqual(E.periodeChaud(d.ds.settings, c), { du: '2026-10-05', au: '2026-11-04' });
+  assert.deepEqual(aFaireCollaborateur(d, 2).evaluations.map(x => [x.cible.participationId, x.type, x.depuis]), [[tard, 'chaud', '2026-10-05']]);
+  assert.deepEqual(aFaireCollaborateur(await domain(THOMAS), 6).evaluations.filter(x => x.type === 'chaud'), []);
+  // Demande par e-mail : l'avis à chaud de Mehdi seul (pour Thomas, l'efficacité à froid, demandée à lui et à son manager).
+  assert.deepEqual(E.demandesEvaluation(await domain()).filter(x => x.type === 'chaud').map(x => [x.destinataire, x.depuis]), [[2, '2026-10-05']]);
+  await db.tx(() => demanderEvaluations(db));
+  const mehdi = (await emails('evaluation.demande')).find(x => x.a[0] === 'mehdi.benali@entreprise.example')!;
+  assert.match(mehdi.texte, /terminée le 1 sept\. 2026 : votre avis sur la formation/);
+  // Bornée par l'échéance à froid : clôture à J+80, demande pendant 10 jours seulement.
+  assert.deepEqual(E.periodeChaud(d.ds.settings, { fin: '2026-06-01', ouverte: '2026-08-20' }), { du: '2026-08-20', au: '2026-08-30' });
+});
+
+test('e-mails : un premier envoi à un palier de relance ne se dit pas relance (fonction réactivée, échéance passée)', async () => {
+  const { db, domain, sessionClose, reglages, emails } = await fresh();
+  await sessionClose('2026-06-10', [6]); // échéance à froid le 8 septembre, 32 jours plus tôt
+  await reglages({ evaluationsActives: false });
+  assert.deepEqual(await db.tx(() => demanderEvaluations(db)), { emails: 0, demandes: 0 });
+  await reglages({ evaluationsActives: true });
+  assert.deepEqual(E.demandesEvaluation(await domain()).map(x => x.palier), ['relance-30', 'relance-30']);
+  assert.deepEqual(await db.tx(() => demanderEvaluations(db)), { emails: 2, demandes: 2 });
+  const tous = [...await emails('evaluation.demande'), ...await emails('evaluation.manager')];
+  assert.equal(tous.length, 2);
+  assert.ok(tous.every(x => !x.texte.includes('relance')), 'première demande');
+  assert.deepEqual(await db.tx(() => demanderEvaluations(db)), { emails: 0, demandes: 0 }, 'palier noté');
+});

@@ -446,8 +446,9 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
     referentiels: { ...full.referentiels, chantiers: [], postes: sansC2p(full.referentiels.postes) },
     employes,
     // Le bilan d'une session (évaluation à chaud, motif d'annulation : textes libres, parfois nominatifs)
-    // est réservé au service RH.
-    sessions: full.sessions.map(s => s.bilan ? { ...s, bilan: null } : s),
+    // est réservé au service RH. Seule la date de clôture ou d'annulation reste, sans auteur (lot 7, t121 : la demande
+    // d'avis à chaud part de la clôture quand elle vient après la formation, `CibleEvaluation.ouverte`).
+    sessions: full.sessions.map(s => s.bilan ? { ...s, bilan: { le: s.bilan.le, par: '', note: null, commentaire: null, motif: null } } : s),
     plan: [],
     budgets: {},
     exercicesClos: [],

@@ -1978,7 +1978,8 @@ Règles dans `shared/rules/sessions.ts` (inscrits nominatifs, contrôles, liste 
   au périmètre comme les inscriptions), l'action du plan rattachée passe « réalisée » si aucune autre session
   ouverte ne la porte, l'évaluation à chaud (note sur 5, commentaire) est facultative. Une seule transaction,
   tracée au journal. Le bilan (`Session.bilan` : évaluation à chaud, motif d'annulation, textes libres parfois
-  nominatifs) n'est transmis qu'au service RH.
+  nominatifs) n'est transmis qu'au service RH ; les autres n'en reçoivent que la date (`le`, sans auteur : départ de la
+  demande d'avis à chaud, t121).
 - **Plusieurs jours** (t118, `shared/rules/plage-session.ts`) : `date` reste le premier jour (lu tel quel partout où
   un seul jour suffit), `fin` le dernier, `jours` les jours de la session (ouvrés par défaut entre les deux, premier et
   dernier compris, modifiables ; 20 au plus sur 92 jours), `horaires` aucun (journées entières), un seul pour tous les
@@ -2056,7 +2057,9 @@ Règles dans `shared/rules/sessions.ts` (inscrits nominatifs, contrôles, liste 
   évaluable (`ciblesEvaluation`) : participation présente à une session clôturée (`p<id>`), ou formation suivie en vigueur
   (`s<id>`) ; organisme du catalogue ou de la formation suivie ; exercice : année du premier jour (comme les heures).
   Une ligne par formation, type et répondant (clés uniques), remplacée par une nouvelle saisie. **À chaud** : note de 1 à
-  5 et commentaire, avis du salarié, donné dans Mon espace (encart « À faire » 30 jours, `DELAI_CHAUD_JOURS`, un e-mail) ou
+  5 et commentaire, avis du salarié, donné dans Mon espace (encart « À faire » 30 jours, `DELAI_CHAUD_JOURS`, à partir du
+  jour où la formation devient évaluable — dernier jour, ou clôture de la session ou saisie de la formation suivie si elle
+  vient après, `CibleEvaluation.ouverte` —, jamais au-delà du début de l'évaluation à froid, `periodeChaud` ; un e-mail) ou
   recueilli par le service RH à la clôture (`session.cloturer`, `participants[].note`) ou plus tard (« Recueillir », détail
   de la session) ; le salarié le modifie jusqu'au début de l'évaluation à froid. **À froid** : efficace, partiellement,
   non ; `evaluationFroidDelai` jours après le dernier jour (90 par défaut), par le salarié et son manager direct
@@ -2066,10 +2069,12 @@ Règles dans `shared/rules/sessions.ts` (inscrits nominatifs, contrôles, liste 
   pastille Formations), 60 jours (`FENETRE_FROID_JOURS`) ; e-mails `evaluation.demande` (salarié) et `evaluation.manager`
   (manager, un par passage pour son équipe), une fois par palier (`demande`, `relance-15`, `relance-30`), notés dans la
   table `relances` (clé `evaluation:<formation>:<type>:<répondant>`), tâche de `tachesEmails` à partir de 7 h ; jamais de
-  note ni de commentaire dans l'e-mail. Réglage `evaluationsActives` (Paramètres → Évaluation des formations) : désactivé,
+  note ni de commentaire dans l'e-mail. Un premier envoi à un palier de relance (fonction réactivée, délai réduit, reprise
+  de formations anciennes) ne porte pas la mention « relance » : elle suppose un envoi précédent de la même clé. Réglage `evaluationsActives` (Paramètres → Évaluation des formations) : désactivé,
   plus de saisie, d'à faire ni d'e-mail, les avis restent. **Indicateurs** (`indicateursEvaluation`) : total, par organisme
-  et par formation : participants, avis à chaud (nombre, moyenne, taux), avis à froid attendus (formations concernées
-  échues × répondants prévus) et reçus, efficace / partielle / non, taux d'efficacité (« efficace » sur les réponses),
+  et par formation : participants, avis à chaud (nombre, moyenne, taux), avis à froid attendus (`avisFroidAttendus`, ceux
+  qui sont demandés : formation concernée échue, salarié présent à l'échéance, avis du manager seulement s'il en a un ;
+  au moins les réponses reçues) et reçus, efficace / partielle / non, taux d'efficacité (« efficace » sur les réponses),
   taux de réponse ; `Session.bilan.note` (appréciation de session d'avant le lot 7) reprise telle quelle par session, jamais
   répartie par personne. Panneau sous les indicateurs de Plan & budget et export CSV (`csvEvaluations`). **Droits** :
   service RH tout (commentaires, auteurs) ; manager : ses avis de manager sur son équipe directe (hors N+2), jamais l'avis
@@ -2079,7 +2084,8 @@ Règles dans `shared/rules/sessions.ts` (inscrits nominatifs, contrôles, liste 
   (formation, type, répondant, ligne ; jamais la note, l'efficacité ni le commentaire), `evaluation.retirer`, et la case
   `avis` des participants de `session.cloturer`. Conservation : catégorie formations, commentaire vidé, note et efficacité
   gardées ; auteur (`auteurId`) gardé, nom retiré par le balayage. Export des données : section « Évaluations des formations
-  suivies », sans l'auteur pour le salarié.
+  suivies » ; le salarié qui télécharge les siennes n'y a que ses avis, sans l'auteur (`LIGNES_SALARIE` : l'avis à froid
+  du manager reste au service RH, comme le dialogue le promet au manager) ; l'export du service RH les a tous.
 - **Base existante** : colonnes et table ajoutées au démarrage (schéma déclaratif) ; `server/src/migrate.ts`
   valide sur la présence les formations sans mode de validation, libère la place d'une certification remplacée
   dans toute session ouverte postérieure au recyclage, puis clôture une fois les sessions passées de l'ancienne

@@ -79,6 +79,8 @@ test('reprise : instantané identique, identifiants, ordre et séquences gardés
       sessionId: 2, empId: 2, demandeId: null, certId: null, inscriptionId: 4, rang: 1, le: '2026-10-06', par: 'Sandrine Vidal', statut: 'retire',
       proposeeLe: null, issueLe: '2026-10-08', issuePar: 'Sandrine Vidal', issue: 'rh',
     });
+    // Passeport de prévention (lot 7, t066) : ligne déclarée, reprise avec ses clés étrangères (0009_passeport_prevention.sql).
+    await s.insert('declarationsPasseport', { empId: 2, certId: 5, suivieId: null, declareLe: '2026-10-09', le: '2026-10-09', auteur: 'Sarah Cohen', auteurId: 23 });
   });
   const avant = empreinte(src);
   const db = await cible();

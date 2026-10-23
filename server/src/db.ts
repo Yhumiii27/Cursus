@@ -16,7 +16,9 @@ export const TABLES = {
   // en vigueur) ; on archive au lieu de supprimer. `sir` : habilitation ou poste qui place en suivi individuel renforcé.
   // `dureeHeures` : durée en heures (t122, shared/rules/heures-formation.ts), facultative ; `modele` d'une habilitation : modèle
   // du titre imprimé (t115, client/src/titre-habilitation.ts).
-  formations: { pk: 'id', cols: { id: 'text', nom: 'text', court: 'text', type: 'text', validite: 'int', duree: 'text', organisme: 'text', cout: 'real', validation: 'text', archive: 'text', dureeHeures: 'real' } },
+  // `passeportPrevention` : formation santé-sécurité à déclarer au Passeport de prévention (lot 7, t066), amorcée par la
+  // migration lot7-prevention-passeport.
+  formations: { pk: 'id', cols: { id: 'text', nom: 'text', court: 'text', type: 'text', validite: 'int', duree: 'text', organisme: 'text', cout: 'real', validation: 'text', archive: 'text', dureeHeures: 'real', passeportPrevention: 'bool' } },
   habilitations: { pk: 'id', cols: { id: 'text', nom: 'text', detail: 'text', prereqs: 'json', medical: 'bool', validite: 'int', signataire: 'text', archive: 'text', sir: 'bool', modele: 'text' } },
   // `secu` : formalité de sécurité sociale du détachement (null : déduite du code pays, shared/constants.ts).
   destinations: { pk: 'code', cols: { code: 'text', pays: 'text', visa: 'text', visaSub: 'text', oblig: 'json', rec: 'json', passMois: 'int', secu: 'text', archive: 'text',
@@ -437,6 +439,14 @@ export const TABLES = {
       statut: 'text', proposeeLe: 'text', issueLe: 'text', issuePar: 'text', issue: 'text',
     },
     unique: [['sessionId', 'empId']],
+  },
+  // Passeport de prévention (lot 7, chantier B, t066 : shared/rules/passeport-prevention.ts) : lignes déjà déclarées sur la
+  // plateforme, certification ou formation suivie (l'une ou l'autre, une seule fois chacune), jour de la déclaration,
+  // instant et auteur de la marque. Migration PostgreSQL 0009_passeport_prevention.sql.
+  declarationsPasseport: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', empId: 'int', certId: 'int', suivieId: 'int', declareLe: 'text', le: 'text', auteur: 'text', auteurId: 'int' },
+    unique: [['certId'], ['suivieId']],
   },
 } satisfies Record<string, TableDef>;
 

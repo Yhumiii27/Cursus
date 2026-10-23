@@ -24,6 +24,7 @@ import { envoisPourLecteur } from './envois-lecteur.ts';
 import { apiInconnue, ERREUR_INTERNE, gestionnaireErreurs, LIMITE_CORPS, signalerErreur } from './erreurs.ts';
 import { routesFichierPaie } from './fichier-paie.ts';
 import { routesVariablesPaie } from './variables-paie.ts';
+import { routesPasseportPrevention } from './passeport-prevention.ts';
 import { routesPieces } from './pieces-routes.ts';
 import { routesAgenda } from './agenda.ts';
 import { journaliserAction, preparerTrace, routesJournal, tracerRefus } from './journal.ts';
@@ -133,6 +134,9 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   app.use(routesFichierPaie(db));
   // Variables de paie d'une période, export CSV tracé (droit « paie ») : server/src/variables-paie.ts.
   app.use(routesVariablesPaie(db));
+  // Passeport de prévention (lot 7, t066) : lignes à déclarer, export CSV tracé (droit « formations ») :
+  // server/src/passeport-prevention.ts.
+  app.use(routesPasseportPrevention(db));
   // Pièces justificatives : envoi (corps brut, 10 Mo au plus) et consultation contrôlée par les droits, tracées :
   // server/src/pieces-routes.ts.
   app.use(routesPieces(db));

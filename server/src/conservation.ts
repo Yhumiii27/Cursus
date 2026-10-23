@@ -82,6 +82,10 @@ export const TRAITEMENTS: Record<string, Traitement> = {
   // (jours, heures) gardées telles quelles.
   'astreintes.emp_id': { mode: 'textes', categorie: 'temps' },
   'astreinte_interventions.emp_id': { mode: 'gardee' },
+  // Passeport de prévention (lot 7, t066) : déclarations (identifiants et dates) gardées avec les certifications et les
+  // formations suivies qu'elles désignent ; l'auteur (nom) retiré par le balayage des textes.
+  'declarations_passeport.emp_id': { mode: 'gardee' },
+  'declarations_passeport.auteur_id': { mode: 'auteur' },
 };
 
 /**

@@ -36,6 +36,7 @@ const TITRES: Partial<Record<TableName, string>> = {
   habDelivrances: 'Délivrances des habilitations (historique)', formationsSuivies: 'Formations suivies',
   effacements: 'Effacements à la fin des durées de conservation', jetonsAgenda: 'Abonnements à l’agenda personnel',
   attentesSession: 'Listes d’attente des sessions de formation',
+  declarationsPasseport: 'Formations déclarées au Passeport de prévention',
 };
 /**
  * Colonnes jamais exportées : empreinte du mot de passe (secret) et du jeton d'agenda ; nom stocké et jeton d'envoi d'une pièce justificative
@@ -55,6 +56,8 @@ const RETIREES_SALARIE: Partial<Record<TableName, string[]>> = {
   effacements: ['par', 'motif'],
   // Liste d'attente (lot 7, t120) : membre du service RH qui l'y a placé ou l'en a retiré.
   attentesSession: ['par', 'issuePar'],
+  // Passeport de prévention (lot 7, t066) : membre du service RH ou référent HSE qui a marqué la ligne déclarée.
+  declarationsPasseport: ['auteur', 'auteurId'],
 };
 
 /** Tables du schéma qui portent la colonne `empId` (la fiche elle-même est la section « Fiche »). */

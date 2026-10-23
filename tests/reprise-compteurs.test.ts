@@ -281,7 +281,9 @@ test('t072 migration nommée : compteurs et reports d’une base existante daté
     // Lot 7, chantier C (t120) : index de la liste d'attente des sessions.
     'lot7-formations-index-attentes',
     // Lot 7 (t049, étape 2) : index des astreintes par lot de paie.
-    'lot7-astreintes-paie-index']);
+    'lot7-astreintes-paie-index',
+    // Lot 7, Passeport de prévention (t066) : catalogue de la démonstration déjà marqué ; index des déclarations.
+    'lot7-prevention-passeport']);
   const ds = await loadFull(db, ADMIN);
   assert.ok(ds.soldesReprise.every(s => s.arreteLe === '2026-10-10'), 'date de mise en service de cette version');
   const recu = ds.reports.find(r => r.empId === 6)!, accorde = ds.reports.find(r => r.empId === 2)!;

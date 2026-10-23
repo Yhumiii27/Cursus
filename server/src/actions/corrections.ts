@@ -13,6 +13,7 @@ import {
 import { montantReel } from '../../../shared/rules/exercices.ts';
 import { suiviesEnVigueur } from '../../../shared/rules/formations-suivies.ts';
 import { refusArchive } from '../../../shared/rules/referentiels.ts';
+import { cleLigne, rappelDeclaration } from '../../../shared/rules/passeport-prevention.ts';
 import type { Certification, DemandeCollab, Employe, HabTitre, Inscription, Participation, PlanAction, Trimestre } from '../../../shared/types.ts';
 import { annulerSiConvoque } from '../notifications.ts';
 import { defaireAttente, promouvoirAttentes, retirerInscription } from '../liste-attente.ts';
@@ -116,6 +117,8 @@ const modifierCert: ActionHandler = async (ctx, p) => {
   suites.push(...await libererRemplacees(ctx, emp, apres.map(x => (x.id === c.id && f !== c.f ? { ...x, sessionId: null } : x)), [c.f, f]));
   // Places quittées (session de recyclage, certification remplacée) : proposées à la liste d'attente (lot 7, t120).
   suites.push(await promouvoirAttentes(ctx, emp.certs.map(x => x.sessionId)));
+  // Passeport de prévention (lot 7, t066) : une ligne déjà déclarée se corrige aussi sur la plateforme.
+  suites.push(rappelDeclaration(ctx.ds, cleLigne({ certId: c.id })));
   const { keystone } = await signaler(ctx, emp);
   const quoi = [f !== c.f ? `formation : ${fm.court}` : '', date !== c.obtenue ? `obtenue le ${fmt(parse(date))}` : ''].filter(Boolean).join(', ');
   return [`${nomCert(ctx, c)} corrigée — ${emp.nom} · ${quoi}`, ...suites.filter(Boolean)].join(' · ') + keystone;
@@ -150,6 +153,8 @@ const annulerCert: ActionHandler = async (ctx, p) => {
     session,
     ...rendues,
     attente,
+    // Passeport de prévention (lot 7, t066) : une ligne déjà déclarée se retire aussi de la plateforme.
+    rappelDeclaration(ctx.ds, cleLigne({ certId: c.id })),
   ].filter(Boolean).join(' · ') + keystone;
 };
 

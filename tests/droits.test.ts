@@ -360,6 +360,14 @@ const MATRICE: Ligne[] = [
   // référent HSE ; la lecture seule consulte la synthèse.
   { action: 'referentiel.poste.expositions', droits: '           O    O    -    -    -    -    O    -    -', p: async () => ({ id: await posteNomme('Cariste'), facteurs: ['bruit'] }) },
   { action: 'referentiel.horaire.alternant', droits: '   O    O    -    -    -    -    O    -    -', p: () => ({ id: 'N', alternant: true }) },
+  // Passeport de prévention (lot 7, t066) : lignes marquées déclarées et marque retirée, service RH et référent HSE ; la
+  // lecture seule consulte l'écran Formations.
+  { action: 'passeport.declarer', droits: '            O    O    -    -    -    -    O    -    -', p: async () => ({ cles: [`cert:${await cert('sst')}`], le: '2026-10-07' }) },
+  { action: 'passeport.retirer', droits: '             O    O    -    -    -    -    O    -    -', p: async () => {
+    const certId = await cert('sst');
+    await db.insert('declarationsPasseport', { empId: 2, certId, suivieId: null, declareLe: '2026-10-01', le: '2026-10-01', auteur: 'Sarah Cohen', auteurId: 23 });
+    return { cle: `cert:${certId}` };
+  } },
   // Jours fériés et journée de solidarité d'une année (lot 6) : administrateur RH.
   { action: 'parametres.feries', droits: '                  O    -    -    -    -    -    -    -    -', p: () => ({ annee: 2027, solidarite: 'pentecote_travaillee', nonChomes: [] }) },
   { action: 'mandat.enregistrer', droits: '                  O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, role: 'titulaire', du: '2026-11-01', credit: 21 }) },

@@ -72,6 +72,12 @@ export interface Formation {
    * c'est possible, sinon à compléter. Sans elle ni horaires de session, une formation suivie compte « durée inconnue ».
    */
   dureeHeures?: number | null;
+  /**
+   * Formation santé-sécurité à déclarer au Passeport de prévention (lot 7, t066, shared/rules/passeport-prevention.ts) :
+   * cochée par la migration sur les formations santé-sécurité (SST, CACES, ATEX, électrique, AIPR, EPI, hauteur, PRAP),
+   * modifiable dans Référentiels → Formations ; absente ou fausse : non déclarée.
+   */
+  passeportPrevention?: boolean;
 }
 export interface HabType {
   id: string; nom: string; detail: string; prereqs: string[]; medical: boolean; validite: number; signataire: string; archive?: ISODate | null;
@@ -1200,6 +1206,11 @@ export interface Settings {
    */
   formationsListeAttente: boolean;
   formationsAttenteMode: ModeAttente;
+  /**
+   * Passeport de prévention (lot 7, chantier B, t066 : shared/rules/passeport-prevention.ts) : colonnes de l'export, dans
+   * l'ordre du gabarit (format de la plateforme à confirmer) ; au moins une.
+   */
+  passeportColonnes: ColonnePasseport[];
 }
 /** Période de paie des jours rachetés d'un forfait jours : mois de la signature de l'avenant, ou clôture de l'année (décembre). */
 export type EmissionJren = 'signature' | 'cloture';
@@ -1720,6 +1731,11 @@ export interface Dataset {
    * périmètre pour le manager, les siennes pour le collaborateur ; auteurs retirés hors du service RH (server/src/dataset.ts).
    */
   attentesSession?: AttenteSession[];
+  /**
+   * Passeport de prévention (lot 7, t066) : lignes déjà déclarées sur la plateforme, avec leur date ; toutes pour le service
+   * RH, sans l'auteur pour le référent HSE et la lecture seule ; rien pour le manager, le collaborateur et la paie.
+   */
+  declarationsPasseport?: DeclarationPasseport[];
 }
 
 /** Catégorie de données d'un dossier, avec sa durée de conservation après la sortie (shared/rules/conservation.ts). */
@@ -1815,3 +1831,29 @@ export interface LigneC2p {
 }
 /** Synthèse annuelle du C2P (écran Prévention) : lignes par salarié, horaires de nuit à qualifier, date du calcul. */
 export interface SyntheseC2p { annee: number; arrete: ISODate; lignes: LigneC2p[]; horairesAQualifier: string[] }
+
+// — Passeport de prévention (lot 7, t066, shared/rules/passeport-prevention.ts) —
+/**
+ * Ligne déclarée sur la plateforme du Passeport de prévention : certification (`certId`) ou formation suivie (`suivieId`),
+ * l'une ou l'autre, jour de la déclaration et auteur de la marque. Une ligne déclarée n'est plus proposée à l'export.
+ */
+export interface DeclarationPasseport {
+  id: number; empId: number; certId: number | null; suivieId: number | null; declareLe: ISODate;
+  le: string; auteur: string | null; auteurId: number | null;
+}
+/** Colonnes de l'export du Passeport de prévention (gabarit réglable dans Paramètres). */
+export type ColonnePasseport = 'nom' | 'prenom' | 'naissance' | 'matricule' | 'nir' | 'code' | 'intitule' | 'organisme' | 'du' | 'au' | 'duree' | 'resultat';
+/**
+ * Ligne à déclarer : formation santé-sécurité (marquée au catalogue) acquise par un salarié, certification obtenue ou
+ * formation suivie (non annulée). Identité lue sur la fiche au moment du calcul ; `declareLe` : déjà déclarée ce jour-là.
+ */
+export interface LignePasseport {
+  cle: string; origine: 'certification' | 'suivie'; certId: number | null; suivieId: number | null; empId: number;
+  formation: string; intitule: string; organisme: string; du: ISODate; au: ISODate;
+  /** Heures ; null : durée inconnue (ni horaires de session, ni durée saisie ou du catalogue). */
+  duree: number | null;
+  resultat: string;
+  /** Intérimaire : la déclaration revient en principe à l'entreprise de travail temporaire (à vérifier avec elle). */
+  interim: boolean;
+  declareLe: ISODate | null;
+}

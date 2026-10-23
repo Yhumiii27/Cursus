@@ -123,7 +123,7 @@ function codeNouveau(e: Erreurs<string>, code: string, pris: Iterable<string>, o
   else if ([...pris].includes(code)) e.code = `Ce code désigne déjà ${opts.nature} (archivée comprise).`;
 }
 
-export type ChampFormation = 'code' | 'nom' | 'court' | 'type' | 'validite' | 'duree' | 'organisme' | 'cout' | 'validation' | 'dureeHeures';
+export type ChampFormation = 'code' | 'nom' | 'court' | 'type' | 'validite' | 'duree' | 'organisme' | 'cout' | 'validation' | 'dureeHeures' | 'passeportPrevention';
 export type SaisieFormation = Partial<Record<ChampFormation, Saisie>>;
 
 /**
@@ -152,12 +152,14 @@ export function controlerFormation(s: SaisieFormation, existantes: readonly Form
   // Durée en heures (t122), facultative : absente de la saisie, inchangée ; vide, effacée.
   const dureeHeures = s.dureeHeures === undefined ? avant?.dureeHeures ?? null : texte(s.dureeHeures) === '' ? null : nombre(s.dureeHeures);
   if (dureeHeures !== null && !dureeValide(dureeHeures)) e.dureeHeures = `Durée en heures : nombre de 0,25 à ${DUREE_HEURES_MAX.toLocaleString('fr-FR')}.`;
+  // Passeport de prévention (lot 7, t066) : case facultative ; absente de la saisie, inchangée (décochée à la création).
+  const passeportPrevention = s.passeportPrevention === undefined ? !!avant?.passeportPrevention : s.passeportPrevention === true || s.passeportPrevention === 'true';
   if (Object.keys(e).length) return { erreurs: e, formation: null };
   return {
     erreurs: e,
     formation: {
       id: code, nom, court, type, validite, duree, organisme, cout: Math.round(cout * 100) / 100, validation, archive: avant?.archive ?? null,
-      dureeHeures: dureeHeures === null ? null : Math.round(dureeHeures * 100) / 100,
+      dureeHeures: dureeHeures === null ? null : Math.round(dureeHeures * 100) / 100, passeportPrevention,
     },
   };
 }

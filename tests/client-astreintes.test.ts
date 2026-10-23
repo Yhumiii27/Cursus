@@ -16,7 +16,7 @@ const { Astreintes } = await import('../client/src/pages/parametres/Astreintes.t
 const { AstreinteDialog } = await import('../client/src/dialogs/AstreinteDialog.tsx');
 const { InterventionAstreinteDialog } = await import('../client/src/dialogs/InterventionAstreinteDialog.tsx');
 const { AstreintesEnAttente, InterventionsFeuille, PlanningAstreintes } = await import('../client/src/components/Astreintes.tsx');
-const { AstreintesPortail, compensationTexte, moisAstreintes, sectionsRecapitulatif } = await import('../client/src/components/AstreintesPortail.tsx');
+const { AstreintesPortail, compensationTexte, moisAstreintes, moisProvisoire, sectionsRecapitulatif, titreRecapitulatif } = await import('../client/src/components/AstreintesPortail.tsx');
 const { etatAstreinte, maintenant, peutPlanifier } = await import('../client/src/components/astreintes-etat.ts');
 const { Temps } = await import('../client/src/pages/Temps.tsx');
 const { useDomain } = await import('../client/src/state/derived.ts');
@@ -55,7 +55,18 @@ test('règles de l’écran : état d’une astreinte, planificateur (manager di
   assert.equal(peutPlanifier(d, karim, d.emp(2)!), true);
   assert.equal(peutPlanifier(d, karim, d.emp(12)!), false, 'jamais pour soi-même');
   assert.equal(peutPlanifier(d, { rh: true, manager: false, me: 14, soi: 14 }, { id: 14, equipe: null }), false);
-  assert.deepEqual(moisAstreintes([{ ...a, du: '2026-09-28', au: '2026-11-02' }], 2, '2026-10-10'), ['2026-10', '2026-09'], 'jusqu’au mois en cours');
+  const dix = instant('2026-10-10', '09:00');
+  assert.deepEqual(moisAstreintes([{ ...a, du: '2026-09-28', au: '2026-11-02' }], 2, dix), ['2026-10', '2026-09'], 'jusqu’au mois en cours');
+  // Astreinte pas encore commencée (encore annulable) : aucun récapitulatif, même dans le mois en cours (R3121-2 : heures accomplies).
+  assert.deepEqual(moisAstreintes([{ ...a, du: '2026-10-23', au: '2026-10-30' }], 2, dix), []);
+  // Fin le 1er à 0 h : aucune heure dans ce mois, qui n'est pas proposé (comme `partsAstreinte` de la paie).
+  const finMinuit = { ...a, du: '2026-09-30', debut: '08:00', au: '2026-10-01', fin: '00:00' };
+  assert.deepEqual(moisAstreintes([finMinuit], 2, instant('2026-11-05', '09:00')), ['2026-09']);
+  assert.deepEqual(moisAstreintes([{ ...finMinuit, du: '2026-10-31', au: '2026-11-01' }], 2, instant('2026-11-05', '09:00')), ['2026-10']);
+  assert.equal(moisProvisoire('2026-10', dix), true);
+  assert.equal(moisProvisoire('2026-09', dix), false);
+  assert.equal(titreRecapitulatif('2026-10', dix), 'Récapitulatif des astreintes — octobre 2026 (provisoire, mois en cours)');
+  assert.equal(titreRecapitulatif('2026-09', dix), 'Récapitulatif des astreintes — septembre 2026');
   assert.equal(compensationTexte({ astreinteCompensation: 'repos', astreinteAccord: 'Accord du 1er mars 2026' }), 'En repos : durée fixée par l’accord sur les astreintes (Accord du 1er mars 2026)');
   assert.equal(compensationTexte(undefined), 'Financière : montant sur le bulletin de paie');
 });
@@ -183,6 +194,8 @@ test('portail : récapitulatif mensuel (heures, interventions, compensation) et 
   const { db, personne } = await baseDemo();
   const passee = await inserer(db, '2026-09-28', '2026-10-05');
   await db.insert('astreinteInterventions', { astreinteId: passee, empId: 2, jour: '2026-09-30', debut: '23:00', fin: '02:00', heures: 3, declareLe: '2026-10-01T08:00:00Z', declarePar: 'Mehdi Benali' });
+  // Astreinte planifiée plus tard dans le mois (encore annulable) : ni dans les heures ni dans les périodes d'octobre.
+  await inserer(db, '2026-10-23', '2026-10-30');
   const b = await monter(db, await personne(2, 'collaborateur'), () => {
     const d = useDomain();
     return createElement(AstreintesPortail, { e: d.emp(2)! });
@@ -190,18 +203,40 @@ test('portail : récapitulatif mensuel (heures, interventions, compensation) et 
   render(b.element);
   assert.ok(screen.getByRole('heading', { name: 'Mes astreintes' }));
   assert.equal((screen.getByLabelText('Récapitulatif du mois') as HTMLSelectElement).value, '2026-10');
-  assert.ok(screen.getByText('0 période, 104 h d’astreinte, 0 intervention'));
+  assert.ok(screen.getByText('Provisoire (mois en cours, heures accomplies à ce jour) : 0 période, 104 h d’astreinte, 0 intervention'));
+  assert.ok(screen.getByText(/Du 23 oct\. 2026 à 18 h au 30 oct\. 2026 à 8 h/), 'elle figure parmi les prochaines astreintes');
   await act(async () => { fireEvent.change(screen.getByLabelText('Récapitulatif du mois'), { target: { value: '2026-09' } }); });
   assert.ok(screen.getByText('1 période, 54 h d’astreinte, 1 intervention (3 h)'));
   assert.ok(screen.getByText(/Mercredi 30 septembre : intervention de 23 h à 2 h \(3 h\)/));
   assert.ok(screen.getByText('Compensation : Financière : montant sur le bulletin de paie'));
   assert.ok(screen.getByRole('button', { name: 'Imprimer le récapitulatif' }));
   // Document imprimé (art. R3121-2) : totaux, périodes (heures du mois), interventions, compensation.
-  const sections = sectionsRecapitulatif(b.donnees(), { id: 2 }, '2026-09');
+  const neuf = instant('2026-10-10', '09:00');
+  const sections = sectionsRecapitulatif(b.donnees(), { id: 2 }, '2026-09', neuf);
   assert.deepEqual(sections.map(s => s.title), ['Totaux du mois', 'Périodes d’astreinte', 'Interventions déclarées', 'À savoir']);
   assert.deepEqual(sections[0].rows, [['Heures d’astreinte', '54 h'], ['Périodes commencées dans le mois', '1'], ['Interventions (travail effectif)', '1 · 3 h'], ['Forme de la compensation', 'Financière : montant sur le bulletin de paie']]);
   assert.deepEqual(sections[1].table!.rows, [['Du 28 sept. 2026 à 18 h au 5 oct. 2026 à 8 h', '158 h', '54 h']]);
   assert.deepEqual(sections[2].table!.rows, [['30 sept. 2026', '23 h', '2 h (lendemain)', '3 h']]);
+  assert.doesNotMatch(sections[3].text!, /provisoire/, 'mois écoulé : définitif');
+  // Mois en cours : arrêté à l'instant présent, sans l'astreinte à venir, dit provisoire.
+  const oct = sectionsRecapitulatif(b.donnees(), { id: 2 }, '2026-10', neuf);
+  assert.deepEqual(oct[0].rows!.slice(0, 2), [['Heures d’astreinte', '104 h'], ['Périodes commencées dans le mois', '0']]);
+  assert.deepEqual(oct[1].table!.rows, [['Du 28 sept. 2026 à 18 h au 5 oct. 2026 à 8 h', '158 h', '104 h']]);
+  assert.match(oct.at(-1)!.text!, /^Mois en cours : récapitulatif provisoire, arrêté au 10 oct\. 2026 à 9 h/);
+});
+
+test('récapitulatif du mois en cours : astreinte commencée arrêtée à l’instant présent', async () => {
+  const { db, personne } = await baseDemo();
+  const id = await inserer(db, '2026-10-09', '2026-10-16');
+  await db.insert('astreinteInterventions', { astreinteId: id, empId: 2, jour: '2026-10-11', debut: '02:00', fin: '04:00', heures: 2, declareLe: '2026-10-11T08:00:00Z', declarePar: 'Mehdi Benali' });
+  const b = await monter(db, await personne(2, 'collaborateur'), () => createElement('div'));
+  const ds = b.donnees();
+  const s = sectionsRecapitulatif(ds, { id: 2 }, '2026-10', instant('2026-10-10', '09:00'));
+  assert.deepEqual(s[0].rows!.slice(0, 3), [['Heures d’astreinte', '15 h'], ['Périodes commencées dans le mois', '1'], ['Interventions (travail effectif)', 'aucune']]);
+  assert.deepEqual(s[1].table!.rows, [['Du 9 oct. 2026 à 18 h au 16 oct. 2026 à 8 h', '158 h prévues (en cours)', '15 h']]);
+  // Plus tard dans le mois : l'intervention déclarée compte.
+  const apres = sectionsRecapitulatif(ds, { id: 2 }, '2026-10', instant('2026-10-12', '09:00'));
+  assert.deepEqual(apres[0].rows![2], ['Interventions (travail effectif)', '1 · 2 h']);
 });
 
 test('paie : astreintes terminées en attente, à saisir dans Sage tant que les rubriques sont désactivées', async () => {

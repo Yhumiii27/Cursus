@@ -324,12 +324,18 @@ export interface BilanAstreintes {
   heuresInterventions: number;
 }
 
-/** Heures, périodes et interventions d'astreinte d'un salarié pour le mois « AAAA-MM » (astreintes annulées exclues). */
-export function bilanMensuel(astreintes: readonly Astreinte[] | undefined, interventions: readonly InterventionAstreinte[] | undefined, empId: number, mois: string): BilanAstreintes {
-  const m = bornesMois(mois);
-  const siennes = (astreintes ?? []).filter(a => a.empId === empId && astreinteActive(a));
-  const heures = siennes.reduce((n, a) => n + Math.max(0, Math.min(finAstreinte(a), m.fin) - Math.max(debutAstreinte(a), m.debut)), 0) / 60;
-  const ints = (interventions ?? []).filter(x => x.empId === empId && x.jour.slice(0, 7) === mois);
+/**
+ * Heures, périodes et interventions d'astreinte d'un salarié pour le mois « AAAA-MM » (astreintes annulées exclues).
+ * Avec `jusqua` (minutes d'horloge, `instant`), seul ce qui est accompli avant cet instant compte : heures arrêtées à
+ * `jusqua`, périodes et interventions commencées avant (récapitulatif du mois en cours, art. R3121-2 : heures
+ * « accomplies » ; une astreinte à venir reste annulable).
+ */
+export function bilanMensuel(astreintes: readonly Astreinte[] | undefined, interventions: readonly InterventionAstreinte[] | undefined, empId: number, mois: string,
+  jusqua: number = Infinity): BilanAstreintes {
+  const m = bornesMois(mois), fin = Math.min(m.fin, jusqua);
+  const siennes = (astreintes ?? []).filter(a => a.empId === empId && astreinteActive(a) && debutAstreinte(a) < jusqua);
+  const heures = siennes.reduce((n, a) => n + Math.max(0, Math.min(finAstreinte(a), fin) - Math.max(debutAstreinte(a), m.debut)), 0) / 60;
+  const ints = (interventions ?? []).filter(x => x.empId === empId && x.jour.slice(0, 7) === mois && bornesIntervention(x).debut < jusqua);
   return {
     periodes: siennes.filter(a => a.du.slice(0, 7) === mois).length,
     heures: arrondi(heures),

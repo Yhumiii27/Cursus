@@ -149,6 +149,36 @@ test('valeurs : « aucun » de référence et dates vides écrites NULL, compté
   assert.equal(await db2.count('employes'), 0);
 });
 
+test('astreintes (lot 7, t049) : lot de paie qui les emporte, interventions et « sage » NULL d’une base de l’étape 1 repris', { skip: SANS_PG }, async () => {
+  let paye = 0, etape1 = 0, lot = 0;
+  const src = await sourceDemo(async s => {
+    // Lot transmis qui emporte une astreinte terminée (clé étrangère astreintes.lot_id → lots_paie de 0008) : le lot doit
+    // être repris avant l'astreinte.
+    lot = (await s.insert<{ id: number }>('lotsPaie', {
+      cle: 'essai-astreintes', mode: 'simulation', statut: 'transmis', periode: '2026-09', periodes: ['2026-09'], rappels: [], creation: '2026-10-01T08:00:00.000Z',
+      auteur: 'Essai', feuilles: [], resume: { lignes: 0, salaries: 0, rubriques: {} }, sansMatricule: [], contenu: { endpoint: '', dossier: 'X', envoye_le: '', lignes: [] },
+      telechargements: 0, historique: false,
+    })).id;
+    const ast = { empId: 2, equipe: 'Maintenance', debut: '18:00', fin: '08:00', communiqueLe: '2026-08-10', motif: null, creeLe: '2026-08-10T08:00:00.000Z', creePar: 'Karim Haddad' };
+    paye = (await s.insert<{ id: number }>('astreintes', { ...ast, du: '2026-09-04', au: '2026-09-11', lotId: lot, sage: true })).id;
+    await s.update('lotsPaie', lot, { astreintes: [{ id: paye, empId: 2 }] });
+    etape1 = (await s.insert<{ id: number }>('astreintes', { ...ast, du: '2026-10-16', au: '2026-10-23' })).id;
+    // Base de l'étape 1 : la colonne sage n'existait pas, elle est restée NULL.
+    await s.run('UPDATE astreintes SET sage = NULL, lot_id = NULL WHERE id = ?', [etape1]);
+    await s.insert('astreinteInterventions', { astreinteId: paye, empId: 2, jour: '2026-09-05', debut: '23:00', fin: '02:00', heures: 3, declareLe: '2026-09-06T08:00:00.000Z', declarePar: 'Mehdi Benali' });
+  });
+  const db = await cible();
+  const cr = await R.reprendreSurPostgres(src, db);
+  assert.equal(cr.statut, 'faite');
+  type A = { id: number; lotId: number | null; sage: boolean };
+  const a = (await db.get<A>('astreintes', paye))!, b = (await db.get<A>('astreintes', etape1))!;
+  assert.deepEqual([a.lotId, a.sage], [lot, true], 'lot qui emporte l’astreinte conservé');
+  assert.deepEqual([b.lotId, b.sage], [null, false], 'sage NULL de l’étape 1 : non transmise (colonne NOT NULL de 0008)');
+  const x = await db.query<{ astreinteId: number; heures: number }>('SELECT astreinte_id AS "astreinteId", heures::float AS heures FROM astreinte_interventions');
+  assert.deepEqual(x, [{ astreinteId: paye, heures: 3 }]);
+  assert.deepEqual((await db.get<{ astreintes: unknown }>('lotsPaie', lot))!.astreintes, [{ id: paye, empId: 2 }]);
+});
+
 // — Ligne de commande (server/src/reprise-postgres-cli.ts) —
 const CLI = join(import.meta.dirname, '..', 'server', 'src', 'reprise-postgres-cli.ts');
 const lancer = (args: string[], env: Record<string, string>) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', CLI, ...args],

@@ -102,7 +102,8 @@ pas dans Cursus : la paie les traite dans Sage.
 - « Télécharger mes données » : copie de tout ce que Cursus conserve sur soi. La page « Confidentialité » explique leur
   traitement et à qui s'adresser.
 - « Mes astreintes » (salariés d'astreinte) : astreintes en cours et à venir, et le récapitulatif de chaque mois (heures
-  d'astreinte, périodes, interventions, forme de la compensation), à l'écran ou par « Imprimer le récapitulatif ». Une
+  d'astreinte, périodes, interventions, forme de la compensation), à l'écran ou par « Imprimer le récapitulatif ». Il ne
+  compte que les heures déjà accomplies : celui du mois en cours est provisoire, arrêté au moment de l'affichage. Une
   intervention se déclare sur la feuille de temps de la semaine (« Déclarer une intervention » dans l'encart
   « Astreinte » : jour, heures de début et de fin) ; ses heures vont sur la ligne « Intervention d'astreinte », qui ne se
   saisit pas à la main. Une intervention déclarée par erreur se retire tant que la feuille se saisit.

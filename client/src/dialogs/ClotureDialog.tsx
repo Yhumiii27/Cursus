@@ -1,5 +1,6 @@
 // Clôture d'une session passée (service RH) : présence de chaque inscrit et, si la formation l'exige,
-// résultat de l'évaluation ; évaluation à chaud facultative. Présents (et reçus) : certification datée
+// résultat de l'évaluation ; appréciation de la session facultative et, pour le service RH, avis à chaud de chaque présent
+// recueilli en son nom (lot 7, t121 : il pourra le modifier dans son espace). Présents (et reçus) : certification datée
 // du jour de la session (du dernier jour d'une session sur plusieurs jours) ; absents ou échecs : à replanifier.
 // Tout est enregistré en une fois.
 // L'action du plan rattachée, réalisée par cette clôture, reçoit son coût réel (prérempli du coût prévu).
@@ -12,7 +13,7 @@ import { finSession, plageCourte } from '../../../shared/rules/plage-session.ts'
 import { exigeEvaluation, inscritsDe } from '../../../shared/rules/sessions.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Empty, Fine, Seg, Tag } from '../components/ui.tsx';
-import { useEnriched } from '../state/derived.ts';
+import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { erreurCoutReel } from './PlanRealiserDialog.tsx';
 
@@ -25,6 +26,9 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
   const [presence, setPresence] = useState<Record<number, 'p' | 'a'>>({});
   const [resultat, setResultat] = useState<Record<number, 'ok' | 'ko'>>({});
   const [note, setNote] = useState('');
+  // Avis à chaud des présents recueilli par le service RH (lot 7, t121), facultatif : note de 1 à 5 par participant.
+  const [avis, setAvis] = useState<Record<number, string>>({});
+  const { rh } = useRole();
   const [commentaire, setCommentaire] = useState('');
   // Coût réel de l'action du plan rattachée : prérempli de son coût prévu.
   const [coutReel, setCoutReel] = useState(() => {
@@ -47,6 +51,7 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
     );
   }
   const evaluation = exigeEvaluation(fm);
+  const recueillir = rh && d.ds.settings.evaluationsActives;
   const present = (id: number) => presence[id] === 'p';
   const decider = inscrits.filter(i => !i.dejaObtenue);
   const sansPresence = decider.filter(i => !presence[i.empId]);
@@ -64,7 +69,10 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
     setBusy(true);
     const r = await run('session.cloturer', {
       id: s.id,
-      participants: decider.map(i => ({ empId: i.empId, present: present(i.empId), reussi: evaluation && present(i.empId) ? resultat[i.empId] === 'ok' : null })),
+      participants: decider.map(i => ({
+        empId: i.empId, present: present(i.empId), reussi: evaluation && present(i.empId) ? resultat[i.empId] === 'ok' : null,
+        ...(recueillir && present(i.empId) && avis[i.empId] ? { note: Number(avis[i.empId]) } : {}),
+      })),
       note: note ? Number(note) : null,
       commentaire: commentaire.trim(),
       ...(realise ? { coutReel: coutReel.trim().replace(',', '.') } : {}),
@@ -101,6 +109,13 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
                       <Seg name={`res-${i.empId}`} label={`Évaluation de ${i.nom}`} value={resultat[i.empId] ?? ('' as 'ok')}
                         onChange={v => setResultat(x => ({ ...x, [i.empId]: v }))} options={[['ok', 'Réussie'], ['ko', 'Échouée']]} />
                     )}
+                    {recueillir && present(i.empId) && (
+                      <select className="input" aria-label={`Avis à chaud de ${i.nom}`} value={avis[i.empId] ?? ''} style={{ width: 'auto' }}
+                        onChange={e => setAvis(x => ({ ...x, [i.empId]: e.target.value }))}>
+                        <option value="">Avis : non recueilli</option>
+                        {[5, 4, 3, 2, 1].map(n => <option key={n} value={n}>Avis : {n} / 5</option>)}
+                      </select>
+                    )}
                   </div>
                 )}
             </div>
@@ -113,7 +128,7 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
       {manquants.length > 0 && <Bloquant>Résultat de l’évaluation à renseigner : {manquants.map(i => i.nom).join(', ')}.</Bloquant>}
 
       <div className="grid-2">
-        <Field label="Évaluation à chaud (facultative)" htmlFor="cl-note">
+        <Field label="Appréciation de la session (facultative)" htmlFor="cl-note">
           <select className="input" id="cl-note" value={note} onChange={e => setNote(e.target.value)}>
             <option value="">Non renseignée</option>
             {[5, 4, 3, 2, 1].map(n => <option key={n} value={n}>{n} / 5</option>)}
@@ -134,6 +149,7 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
         À la validation : {plural(obtenues, 'certification enregistrée', 'certifications enregistrées')}, datée{obtenues > 1 ? 's' : ''} du {quand}
         {aReplanifier ? ` · ${plural(aReplanifier, 'inscrit', 'inscrits')} à replanifier (recyclage de nouveau à planifier, formation initiale à réinscrire)` : ''}
         {realise ? ' · action du plan réalisée' : ''}. La clôture est définitive.
+        {recueillir ? ' Avis à chaud : note donnée par chaque présent (formulaire, tour de table), enregistrée en son nom ; sans avis recueilli, il le donne dans son espace pendant un mois.' : ''}
       </Fine>
     </Dialog>
   );

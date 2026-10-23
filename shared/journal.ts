@@ -115,6 +115,9 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'passeport.retirer': 'Passeport de prévention : marque de déclaration retirée',
   'passeport.exporter': 'Passeport de prévention : lignes exportées',
   'migration.passeportPrevention': 'Reprise : formations marquées pour le Passeport de prévention',
+  // Évaluation des formations (lot 7, t121, server/src/actions/evaluations-formation.ts) : saisie et retrait.
+  'evaluation.enregistrer': 'Évaluation d’une formation enregistrée',
+  'evaluation.retirer': 'Évaluation d’une formation retirée',
   // Habilitations
   'hab.delivrer': 'Habilitation délivrée',
   'hab.suspendre': 'Habilitation suspendue',
@@ -311,7 +314,7 @@ export const dossierComplet = (u: Pick<CurrentUser, 'role' | 'profilRh'>) => dro
 /** Familles du filtre « Action » : codes commençant par l'un des préfixes (ou égaux à l'un d'eux). */
 export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly string[] }[] = [
   { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.', 'migration.contratsHistorique'] },
-  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel', 'attente.', 'passeport.', 'migration.passeportPrevention'] },
+  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel', 'attente.', 'passeport.', 'evaluation.', 'migration.passeportPrevention'] },
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.', 'migration.habDelivrances'] },
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },

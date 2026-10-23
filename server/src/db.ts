@@ -448,6 +448,18 @@ export const TABLES = {
     cols: { id: 'int', empId: 'int', certId: 'int', suivieId: 'int', declareLe: 'text', le: 'text', auteur: 'text', auteurId: 'int' },
     unique: [['certId'], ['suivieId']],
   },
+  // Évaluations des formations (lot 7, chantier C, t121 : server/src/actions/evaluations-formation.ts) : participation
+  // présente d'une session clôturée ou formation suivie, à chaud (note de 1 à 5) ou à froid (efficacité), avis du salarié ou
+  // de son manager (`repondant`), commentaire (texte libre, service RH seulement), saisi par (`auteur`, `auteurId`). Une par
+  // formation, type et répondant. Migration PostgreSQL 0010_evaluations_formation.sql.
+  evaluationsFormation: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', participationId: 'int', formationSuivieId: 'int', type: 'text', repondant: 'text', note: 'int', efficacite: 'text',
+      commentaire: 'text', le: 'text', auteur: 'text', auteurId: 'int',
+    },
+    unique: [['participationId', 'type', 'repondant'], ['formationSuivieId', 'type', 'repondant']],
+  },
 } satisfies Record<string, TableDef>;
 
 export type TableName = keyof typeof TABLES;

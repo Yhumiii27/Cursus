@@ -373,12 +373,16 @@ export const REGLES: Record<string, Regle> = {
   // Session sur plusieurs jours : ses jours (dates, premier et dernier compris), pas les horaires.
   'session.modifier': { champs: ['id'], cible: parId('sessions', ['date', 'jours', 'lieu', 'places', 'statut']), ...inscritsAvantApres },
   'session.annuler': { champs: ['id'], cible: parId('sessions', ['statut']), ...inscritsAvantApres },
-  // Résultats de chaque inscrit (présent, reçu) ; ni la note ni le commentaire de l'évaluation à chaud.
+  // Résultats de chaque inscrit (présent, reçu) ; ni la note ni le commentaire de l'évaluation à chaud (session ou participant).
   'session.cloturer': {
     // Le coût réel saisi n'est pas recopié : il n'est contrôlé que si la clôture réalise une action du plan, dont la trace
     // (planActions) le porte alors. Sinon ce serait un texte libre.
     champs: ['id'], cible: parId('sessions', ['statut']),
-    extra: p => ({ participants: participants(p).map((x: P) => ({ empId: Number(x?.empId) || null, present: !!x?.present, reussi: typeof x?.reussi === 'boolean' ? x.reussi : null })) }),
+    // Avis à chaud recueilli par le service RH (lot 7, t121) : seulement qu'il l'est, jamais la note.
+    extra: p => ({ participants: participants(p).map((x: P) => ({
+      empId: Number(x?.empId) || null, present: !!x?.present, reussi: typeof x?.reussi === 'boolean' ? x.reussi : null,
+      ...(x?.note != null && x?.note !== '' ? { avis: true } : {}),
+    })) }),
     salaries: p => participants(p).map((x: P) => x?.empId),
   },
   'plan.importer': { champs: ['exercice', 'mode'] },
@@ -416,6 +420,20 @@ export const REGLES: Record<string, Regle> = {
   'passeport.retirer': {
     extra: p => ({ cle: typeof p.cle === 'string' && /^(cert|suivie):\d{1,10}$/.test(p.cle) ? p.cle : null }),
     salaries: (_p, x) => (x.result as { salaries?: unknown[] } | null)?.salaries ?? [],
+  },
+  // Évaluation des formations (lot 7, t121) : formation évaluée (participation ou formation suivie), type, répondant et
+  // ligne écrite ; jamais la note, l'efficacité ni le commentaire (avis nominatifs, réservés au service RH).
+  'evaluation.enregistrer': {
+    champs: ['participationId', 'formationSuivieId', 'type'],
+    bilan: (_p, x) => {
+      const r = x.result as { id?: number; repondant?: string; remplace?: boolean } | null;
+      return r?.id ? { id: r.id, repondant: r.repondant ?? null, remplace: !!r.remplace } : {};
+    },
+    salaries: (_p, x) => [(x.result as { empId?: number } | null)?.empId],
+  },
+  'evaluation.retirer': {
+    champs: ['id'], cible: parId('evaluationsFormation', ['type', 'repondant']),
+    extra: (_p, av) => ({ participationId: av?.participationId ?? null, formationSuivieId: av?.formationSuivieId ?? null }),
   },
   // Ligne du plan corrigée (avant et après ; de l'intitulé hors catalogue, seulement qu'il change) ou supprimée (exercice,
   // formation, équipe, trimestre, statut et coût de la ligne retirée). Jamais le motif.

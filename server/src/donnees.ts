@@ -37,6 +37,7 @@ const TITRES: Partial<Record<TableName, string>> = {
   effacements: 'Effacements à la fin des durées de conservation', jetonsAgenda: 'Abonnements à l’agenda personnel',
   attentesSession: 'Listes d’attente des sessions de formation',
   declarationsPasseport: 'Formations déclarées au Passeport de prévention',
+  evaluationsFormation: 'Évaluations des formations suivies',
 };
 /**
  * Colonnes jamais exportées : empreinte du mot de passe (secret) et du jeton d'agenda ; nom stocké et jeton d'envoi d'une pièce justificative
@@ -58,6 +59,17 @@ const RETIREES_SALARIE: Partial<Record<TableName, string[]>> = {
   attentesSession: ['par', 'issuePar'],
   // Passeport de prévention (lot 7, t066) : membre du service RH ou référent HSE qui a marqué la ligne déclarée.
   declarationsPasseport: ['auteur', 'auteurId'],
+  // Évaluations des formations (lot 7, t121) : qui a saisi l'avis (service RH à la clôture, manager).
+  evaluationsFormation: ['auteur', 'auteurId'],
+};
+
+/**
+ * Lignes retirées de l'export remis au salarié lui-même : avis à froid de son manager sur ses formations (lot 7, t121),
+ * que ni son espace ni l'instantané ne lui montrent — le manager remplit son évaluation avec cette promesse, et seul le
+ * service RH lit les commentaires. L'export fait par le service RH (droit d'accès) les garde.
+ */
+const LIGNES_SALARIE: Partial<Record<TableName, (r: Ligne) => boolean>> = {
+  evaluationsFormation: r => r.repondant === 'salarie',
 };
 
 /** Tables du schéma qui portent la colonne `empId` (la fiche elle-même est la section « Fiche »). */
@@ -73,7 +85,8 @@ export async function donneesSalarie(db: Db, empId: number, o: { journal: boolea
   const sections: Record<string, unknown> = { Fiche: e };
   for (const t of TABLES_SALARIE) {
     const retirees = [...(RETIREES[t] ?? []), ...(o.journal ? [] : RETIREES_SALARIE[t] ?? [])];
-    sections[TITRES[t] ?? t] = (await db.where<Ligne>(t, 'empId', empId)).map(r => sans(r, retirees));
+    const garder = o.journal ? undefined : LIGNES_SALARIE[t];
+    sections[TITRES[t] ?? t] = (await db.where<Ligne>(t, 'empId', empId)).filter(r => !garder || garder(r)).map(r => sans(r, retirees));
   }
   // Pièces justificatives en vigueur : leur contenu est joint (copie du document), en base64 (server/src/pieces.ts).
   sections[TITRES.pieces!] = [];

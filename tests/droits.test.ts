@@ -137,6 +137,22 @@ const attente = async (statut = 'proposee') => (await db.insert<{ id: number }>(
   sessionId: 2, empId: 2, demandeId: null, certId: await cert('sst'), inscriptionId: null, rang: 1, le: '2026-10-06', par: 'Sandrine Vidal',
   statut, proposeeLe: statut === 'proposee' ? '2026-10-07' : null, issueLe: null, issuePar: null, issue: null,
 })).id;
+/**
+ * Participation présente de Mehdi à une session SST clôturée le 10 juin 2026 (lot 7, t121) : l'évaluation à froid (90 jours
+ * après) est due depuis le 8 septembre ; renvoie la participation.
+ */
+const participationClose = async () => {
+  const s = await db.insert<{ id: number }>('sessions', {
+    formation: 'sst', date: '2026-06-10', fin: '2026-06-10', jours: ['2026-06-10'], horaires: [], lieu: 'Site de Lyon — salle B', places: 12,
+    statut: 'Clôturée', planId: null, bilan: { le: '2026-06-10', par: 'Sandrine Vidal', note: null, commentaire: null, motif: null },
+  });
+  return (await db.insert<{ id: number }>('participations', { sessionId: s.id, empId: 2, parcours: 'recyclage', present: true, reussi: null, certId: null })).id;
+};
+/** Évaluation à froid donnée par Mehdi sur cette participation. */
+const evaluationDonnee = async () => (await db.insert<{ id: number }>('evaluationsFormation', {
+  empId: 2, participationId: await participationClose(), formationSuivieId: null, type: 'froid', repondant: 'salarie', note: null, efficacite: 'efficace',
+  commentaire: 'Utile sur le terrain', le: '2026-10-01', auteur: 'Mehdi Benali', auteurId: 2,
+})).id;
 /** Réglages modifiés pour l'essai (transaction annulée ensuite). */
 const reglages = async (r: Record<string, unknown>) => await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), ...r });
 /** Mehdi sorti à la date (démission), conservation des dossiers activée avec la décision du DPO ; renvoie son identifiant. */
@@ -238,6 +254,11 @@ const MATRICE: Ligne[] = [
   // référent HSE) ; retrait de la file par le salarié lui-même, son manager direct, le service RH ou le référent HSE.
   { action: 'attente.confirmer', droits: '                   O    O    -    -    -    -    O    -    -', p: async () => ({ id: await attente() }) },
   { action: 'attente.retirer', droits: '                     O    O    O    -    O    -    O    -    -', p: async () => ({ id: await attente('attente') }) },
+  // Évaluation des formations (lot 7, t121) : le salarié pour lui-même, son manager direct (son avis de manager), le service RH
+  // (avis recueilli) ; ni le référent HSE, ni la paie, ni la lecture seule (indicateurs agrégés seulement). Retrait : l'auteur
+  // de l'avis (ici le salarié) et le service RH.
+  { action: 'evaluation.enregistrer', droits: '              O    O    O    -    O    -    -    -    -', p: async () => ({ participationId: await participationClose(), type: 'froid', efficacite: 'efficace', repondant: 'salarie' }) },
+  { action: 'evaluation.retirer', droits: '                  O    O    -    -    O    -    -    -    -', p: async () => ({ id: await evaluationDonnee() }) },
   { action: 'demande.refuser', droits: '                     O    O    -    -    -    -    O    -    -', p: async () => ({ id: await demande('aipr') }) },
   // Demande retirée par son auteur seul (Mehdi pour la sienne, Karim pour celle qu'il a faite pour Mehdi), tant qu'elle
   // attend ; rouverte par le service RH ou le référent HSE.

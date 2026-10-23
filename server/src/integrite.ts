@@ -94,6 +94,12 @@ export const REFERENCES: readonly Reference[] = [
   ref('declarations_passeport', 'auteur_id', 'employes'),
   ref('declarations_passeport', 'cert_id', 'certifications'),
   ref('declarations_passeport', 'suivie_id', 'formations_suivies'),
+  // Évaluations des formations (lot 7, chantier C, t121 ; clés étrangères de 0010_evaluations_formation.sql) : salarié
+  // évalué, auteur de la saisie (fiche du compte), participation ou formation suivie évaluée.
+  ref('evaluations_formation', 'emp_id', 'employes'),
+  ref('evaluations_formation', 'auteur_id', 'employes'),
+  ref('evaluations_formation', 'participation_id', 'participations'),
+  ref('evaluations_formation', 'formation_suivie_id', 'formations_suivies'),
 ];
 
 export interface Integrite {

@@ -20,6 +20,7 @@ import { finSession, plageCourte } from '../../../shared/rules/plage-session.ts'
 import { sessionView } from './Dashboard.tsx';
 import { ResumeAttente } from '../components/ListeAttente.tsx';
 import { PasseportPrevention } from '../components/PasseportPrevention.tsx';
+import { EvaluationsManagerPanel, IndicateursEvaluationPanel } from '../components/Evaluations.tsx';
 
 const TYPES: Record<UiState['typeForm'], string | null> = { toutes: null, reg: 'Réglementaire', rec: 'Recommandée', int: 'Interne' };
 
@@ -53,7 +54,7 @@ const COLONNES_RENOUVELLEMENTS: Record<string, Colonne<Renewal>> = {
 export function Formations() {
   const { emps, forms, formIds, upcoming, d } = useEnriched();
   // `espaceRh` : vue de tout le site (service RH, référent HSE, lecture seule) ; `formations` : gestion des sessions.
-  const { espaceRh, formations, manager, me } = useRole();
+  const { consultation, espaceRh, formations, manager, me, rh } = useRole();
   const { ui, setUi, go, openDialog } = useStore();
 
   // Manager : les membres des équipes qu'il encadre (hors lui-même). RH : tout le monde.
@@ -122,6 +123,8 @@ export function Formations() {
       actions={<Seg name="typeForm" label="Type de formation" value={ui.typeForm} onChange={v => setUi({ typeForm: v })}
         options={[['toutes', 'Toutes'], ['reg', 'Réglementaires'], ['rec', 'Recommandées'], ['int', 'Internes']]} />}
     >
+      {/* Évaluations à froid à faire sur l'équipe directe (lot 7, t121). */}
+      {manager && <EvaluationsManagerPanel />}
       {manager && (
         <Panel highlight={shownRenewals.length > 0}
           title={filteredFm ? `À renouveler dans votre équipe — ${filteredFm.court}` : 'À renouveler dans votre équipe'}
@@ -317,6 +320,8 @@ export function Formations() {
 
       {/* Passeport de prévention (lot 7, t066) : service RH, référent HSE et lecture seule. */}
       {espaceRh && <PasseportPrevention />}
+      {/* Évaluation des formations (lot 7, t121) : le référent HSE, qui n'a pas Plan & budget, en voit ici les agrégats. */}
+      {formations && !rh && !consultation && <IndicateursEvaluationPanel />}
     </Page>
   );
 }

@@ -17,6 +17,7 @@ import { mondayOf } from '../../../shared/dates.ts';
 import type { FormaliteKind, UiIntent } from '../../../shared/domain.ts';
 import type { ReferentielId } from '../../../shared/rules/referentiels.ts';
 import type { CompteSession, Dataset, EntretienType, ISODate, MotifVisite, ObjetPiece, PlanStatut, ProfilRh, Role, VaccinId } from '../../../shared/types.ts';
+import type { RepondantEvaluation, TypeEvaluation } from '../../../shared/types.ts';
 import { api, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type NomAction, type SessionState } from '../api.ts';
 import type { Tri } from '../components/tri.ts';
 import { AppelsEnCours } from './actions.ts';
@@ -158,6 +159,8 @@ export type DialogState =
   /** Astreintes (t049, lot 7) : planification (`empId` présélectionné) ou modification (`id`) ; intervention déclarée. */
   | { type: 'astreinte'; empId?: number | null; id?: number | null }
   | { type: 'interventionAstreinte'; empId: number; jour?: ISODate | null; astreinteId?: number | null }
+  /** Évaluation d'une formation (lot 7, t121) : `cle` de shared/rules/evaluation-formation.ts, à chaud ou à froid, avis de qui. */
+  | { type: 'evaluation'; cle: string; quand: TypeEvaluation; repondant?: RepondantEvaluation }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
   | { type: 'confirmer'; c: Confirmation };
 

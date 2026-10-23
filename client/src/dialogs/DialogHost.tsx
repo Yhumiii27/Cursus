@@ -57,6 +57,7 @@ import { RouvrirFeuilleDialog } from './RouvrirFeuilleDialog.tsx';
 import { PieceDialog } from './PieceDialog.tsx';
 import { SessionDetailDialog } from './SessionDetailDialog.tsx';
 import { AccepterAttenteDialog } from './AccepterAttenteDialog.tsx';
+import { EvaluationDialog } from './EvaluationDialog.tsx';
 import { SessionDialog } from './SessionDialog.tsx';
 import { SortieDialog } from './SortieDialog.tsx';
 import { AutorisationDialog } from './AutorisationDialog.tsx';
@@ -148,6 +149,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'accepterAttente': return <AccepterAttenteDialog {...d} />;
     case 'astreinte': return <AstreinteDialog {...d} />;
     case 'interventionAstreinte': return <InterventionAstreinteDialog {...d} />;
+    case 'evaluation': return <EvaluationDialog {...d} />;
     case 'confirmer': return <ConfirmerDialog c={d.c} />;
   }
 }

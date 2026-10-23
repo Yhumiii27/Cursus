@@ -22,6 +22,7 @@ import { Aptitude } from '../components/Aptitude.tsx';
 import { ExigencesPortail } from '../components/Exigences.tsx';
 import { FormationsSuiviesPortail } from '../components/FormationsSuivies.tsx';
 import { ListeAttentePortail } from '../components/ListeAttente.tsx';
+import { LignesEvaluationsAFaire, MesAvisFormations } from '../components/Evaluations.tsx';
 import { attenteActive, placeTexte } from '../../../shared/rules/liste-attente.ts';
 import { imprimerPasseport } from '../passeport.ts';
 import { DelegationsPortail, suppleanceTexte } from '../components/Delegations.tsx';
@@ -70,7 +71,7 @@ export function Portail() {
   const mgrId = d.mgrOf(me);
   // Ce qui attend le collaborateur : les mêmes nombres que les pastilles du menu (layout/Shell.tsx).
   const aFaire = aFaireCollaborateur(d, me.id);
-  const nAFaire = aFaire.comptesRendus.length + aFaire.feuilles.length;
+  const nAFaire = aFaire.comptesRendus.length + aFaire.feuilles.length + aFaire.evaluations.length;
 
   return (
     <div className="page">
@@ -120,6 +121,8 @@ export function Portail() {
                 </Btn>
               </div>
             ))}
+            {/* Évaluations de formation attendues (lot 7, t121) : avis à chaud, efficacité à froid. */}
+            <LignesEvaluationsAFaire liste={aFaire.evaluations} />
           </div>
         </Panel>
       )}
@@ -223,6 +226,8 @@ export function Portail() {
           </Panel>
 
           <FormationsSuiviesPortail empId={me.id} />
+          {/* Avis donnés sur les formations (lot 7, t121), modifiables tant que l'évaluation est ouverte. */}
+          <MesAvisFormations empId={me.id} />
 
           {/* Avis du médecin du travail, restrictions de poste et visite demandée par le service RH. */}
           <Panel title="Mon aptitude médicale" style={{ gap: 'var(--space-2)' }}>

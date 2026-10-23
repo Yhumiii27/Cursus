@@ -13,6 +13,7 @@ import {
 import { droitsRh, PROFILS_RH, vuesDe } from '../../../shared/constants.ts';
 import { aFaireCollaborateur } from '../../../shared/rules/a-faire.ts';
 import { obligations, perimetreEntretiens } from '../../../shared/rules/entretiens.ts';
+import { evaluationsAFaireManager } from '../../../shared/rules/evaluation-formation.ts';
 import type { Dataset, PerimetreDelegation, Role } from '../../../shared/types.ts';
 import { Avatar } from '../components/ui.tsx';
 import { domaineDe } from '../state/derived.ts';
@@ -60,15 +61,17 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
   }
   if (role === 'manager') {
     return [
-      ['Mon équipe', [{ view: 'collaborateurs', label: 'Équipe', icon: UserIcon }, { view: 'formations', label: 'Formations', icon: BookOpenIcon }, { view: 'entretiens', label: 'Entretiens', icon: ChatIcon, badge: late }]],
+      // Formations : évaluations à froid à faire sur l'équipe directe (lot 7, t121, shared/rules/evaluation-formation.ts).
+      ['Mon équipe', [{ view: 'collaborateurs', label: 'Équipe', icon: UserIcon }, { view: 'formations', label: 'Formations', icon: BookOpenIcon, badge: evaluationsAFaireManager(d, me).length }, { view: 'entretiens', label: 'Entretiens', icon: ChatIcon, badge: late }]],
       ['Temps & absences', [{ view: 'temps', label: 'Feuilles de temps', icon: ClockIcon, badge: nQ }, { view: 'absences', label: 'Congés & absences', icon: CalendarBlankIcon, badge: nAbs }]],
       ['Projets & déplacements', [{ view: 'missions', label: 'Missions', icon: MapPinIcon }]],
     ];
   }
-  // Collaborateur : comptes rendus à signer, feuilles renvoyées ou semaine passée à soumettre (shared/rules/a-faire.ts).
+  // Collaborateur : comptes rendus à signer, feuilles renvoyées ou semaine passée à soumettre, évaluations de formation
+  // attendues (accueil, lot 7 t121) : shared/rules/a-faire.ts.
   const aFaire = aFaireCollaborateur(d, me);
   return [
-    ['Mon espace', [{ view: 'portail', label: 'Accueil', icon: HouseIcon }, { view: 'entretiens', label: 'Mes entretiens', icon: ChatIcon, badge: aFaire.comptesRendus.length }]],
+    ['Mon espace', [{ view: 'portail', label: 'Accueil', icon: HouseIcon, badge: aFaire.evaluations.length }, { view: 'entretiens', label: 'Mes entretiens', icon: ChatIcon, badge: aFaire.comptesRendus.length }]],
     ['Temps & absences', [{ view: 'temps', label: 'Mes heures', icon: ClockIcon, badge: aFaire.feuilles.length }, { view: 'absences', label: 'Mes absences', icon: CalendarBlankIcon }]],
   ];
 }

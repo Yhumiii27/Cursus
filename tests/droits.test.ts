@@ -122,6 +122,11 @@ const pieceJointe = async (objet: string, objetId: number) => (await db.insert<{
   empId: 2, objet, objetId, nom: 'piece.pdf', type: 'application/pdf', taille: 5, empreinte: 'e', fichier: 'b'.repeat(32),
   deposeLe: '2026-10-07T08:00:00.000Z', deposePar: 'Essai', deposeCompteId: null,
 })).id;
+/** Mehdi en liste d'attente de la session SST du 18 novembre (lot 7, t120), proposé au service RH ou encore en file. */
+const attente = async (statut = 'proposee') => (await db.insert<{ id: number }>('attentesSession', {
+  sessionId: 2, empId: 2, demandeId: null, certId: await cert('sst'), inscriptionId: null, rang: 1, le: '2026-10-06', par: 'Sandrine Vidal',
+  statut, proposeeLe: statut === 'proposee' ? '2026-10-07' : null, issueLe: null, issuePar: null, issue: null,
+})).id;
 /** Réglages modifiés pour l'essai (transaction annulée ensuite). */
 const reglages = async (r: Record<string, unknown>) => await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), ...r });
 /** Mehdi sorti à la date (démission), conservation des dossiers activée avec la décision du DPO ; renvoie son identifiant. */
@@ -219,6 +224,10 @@ const MATRICE: Ligne[] = [
   // Type de suivi médical saisi sur la fiche (VIP, VIP adaptée, suivi renforcé) : service RH seulement.
   { action: 'medical.suivi', droits: '                       O    O    -    -    -    -    -    -    -', p: async () => ({ empId: 2, suivi: 'vip_adapte' }) },
   { action: 'demande.accepter', droits: '                    O    O    -    -    -    -    O    -    -', p: async () => ({ id: await demande('aipr') }) },
+  // Liste d'attente des sessions complètes (lot 7, t120) : confirmation de l'inscription d'une personne proposée (service RH,
+  // référent HSE) ; retrait de la file par le salarié lui-même, son manager direct, le service RH ou le référent HSE.
+  { action: 'attente.confirmer', droits: '                   O    O    -    -    -    -    O    -    -', p: async () => ({ id: await attente() }) },
+  { action: 'attente.retirer', droits: '                     O    O    O    -    O    -    O    -    -', p: async () => ({ id: await attente('attente') }) },
   { action: 'demande.refuser', droits: '                     O    O    -    -    -    -    O    -    -', p: async () => ({ id: await demande('aipr') }) },
   // Demande retirée par son auteur seul (Mehdi pour la sienne, Karim pour celle qu'il a faite pour Mehdi), tant qu'elle
   // attend ; rouverte par le service RH ou le référent HSE.

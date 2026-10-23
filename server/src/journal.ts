@@ -394,6 +394,11 @@ export const REGLES: Record<string, Regle> = {
   },
   'formationSuivie.modifier': { champs: ['id'], cible: { ...parId('formationsSuivies', ['f', 'libelle', 'du', 'au', 'duree', 'organisme', 'obligatoire']), masques: ['libelle', 'organisme'] } },
   'formationSuivie.annuler': { champs: ['id'], extra: (_p, av) => ({ f: av?.f ?? null, du: av?.du ?? null }), cible: parId('formationsSuivies', ['annuleLe']) },
+  // Liste d'attente des sessions complètes (lot 7, t120) : l'attente (session, salarié), son statut et son issue codée avant
+  // et après. Les effets d'une place libérée (proposition, inscription automatique, salarié passé avec son motif codé, file
+  // close) ont leurs propres lignes, écrites par server/src/liste-attente.ts.
+  'attente.confirmer': { champs: ['id'], extra: (_p, av) => ({ sessionId: av?.sessionId ?? null }), cible: parId('attentesSession', ['statut', 'issue']) },
+  'attente.retirer': { champs: ['id'], extra: (_p, av) => ({ sessionId: av?.sessionId ?? null }), cible: parId('attentesSession', ['statut', 'issue']) },
   // Ligne du plan corrigée (avant et après ; de l'intitulé hors catalogue, seulement qu'il change) ou supprimée (exercice,
   // formation, équipe, trimestre, statut et coût de la ligne retirée). Jamais le motif.
   'plan.modifier': { champs: ['id'], cible: { ...parId('planActions', ['f', 'libelle', 'equipe', 'periode', 'effectif', 'cout']), masques: ['libelle'] } },
@@ -478,7 +483,10 @@ export const REGLES: Record<string, Regle> = {
   // Demandes des collaborateurs : ni motif, ni réponse, ni contenu d'une déclaration.
   'demande.formation': { champs: ['empId', 'f', 'sessionId'], salaries: (p, x) => [p.empId ?? x.user.empId] },
   'demande.habilitation': { champs: ['empId', 'h'], salaries: (p, x) => [p.empId ?? x.user.empId] },
-  'demande.accepter': { champs: ['id'], cible: parId('demandesCollab', ['statut']) },
+  // `complete` : choix pour une session complète (liste d'attente ou plan de formation, lot 7 t120), un code.
+  'demande.accepter': {
+    champs: ['id'], extra: p => (p.complete === 'plan' || p.complete === 'attente' ? { complete: p.complete } : {}), cible: parId('demandesCollab', ['statut']),
+  },
   'demande.refuser': { champs: ['id'], cible: parId('demandesCollab', ['statut']) },
   // Retrait par l'auteur, réouverture par le service RH : statut avant et après (ni le motif, ni la réponse).
   'demande.annuler': { champs: ['id'], cible: parId('demandesCollab', ['statut']) },

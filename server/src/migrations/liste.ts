@@ -18,6 +18,7 @@ import { HORAIRES_EXEMPLES_MIGRATION, HORAIRES_NUIT_FIGEE } from './lot6-horaire
 import { CONTRATS_HISTORIQUE } from './lot6-contrats.ts';
 import { DUREE_HEURES, HAB_DELIVRANCES } from './lot6-securite.ts';
 import { INDEX_CONSERVATION_AGENDA } from './lot6-pieces.ts';
+import { INDEX_ATTENTES } from './lot7-formations.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   INDEX_JOURNAL,
@@ -48,4 +49,5 @@ export const MIGRATIONS: readonly Migration[] = [
   DUREE_HEURES,
   DELEGATIONS_VALIDATION,
   INDEX_CONSERVATION_AGENDA,
+  INDEX_ATTENTES,
 ];

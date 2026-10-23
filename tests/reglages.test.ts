@@ -76,6 +76,9 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     conservationActive: false, conservationDecisionDpo: '', conservationDossierAns: 5, conservationTempsAns: 3, conservationPaieAns: 5,
     conservationSanteAns: 5, conservationPasseportAns: 0, conservationTitreSejourAns: 5, conservationEntretiensAns: 5, conservationFormationsAns: 5,
     agendaFluxActif: false, agendaContenu: ['sessions', 'entretiens', 'absences', 'deplacements'],
+    // Lot 7, chantier C (t120) : liste d'attente des sessions complètes activée ; place libérée proposée au service RH, qui
+    // confirme (réponse de l'entreprise du 23 octobre 2026).
+    formationsListeAttente: true, formationsAttenteMode: 'confirmer',
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(await loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

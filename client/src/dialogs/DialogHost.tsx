@@ -54,6 +54,7 @@ import { RubriqueDialog } from './RubriqueDialog.tsx';
 import { RouvrirFeuilleDialog } from './RouvrirFeuilleDialog.tsx';
 import { PieceDialog } from './PieceDialog.tsx';
 import { SessionDetailDialog } from './SessionDetailDialog.tsx';
+import { AccepterAttenteDialog } from './AccepterAttenteDialog.tsx';
 import { SessionDialog } from './SessionDialog.tsx';
 import { SortieDialog } from './SortieDialog.tsx';
 import { AutorisationDialog } from './AutorisationDialog.tsx';
@@ -138,6 +139,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'contactUrgence': return <ContactUrgenceDialog {...d} />;
     case 'avenantForfait': return <AvenantForfaitDialog {...d} />;
     case 'anonymiser': return <AnonymiserDialog {...d} />;
+    case 'accepterAttente': return <AccepterAttenteDialog {...d} />;
     case 'confirmer': return <ConfirmerDialog c={d.c} />;
   }
 }

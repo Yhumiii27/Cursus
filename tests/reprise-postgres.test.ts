@@ -74,6 +74,11 @@ test('reprise : instantané identique, identifiants, ordre et séquences gardés
   const src = await sourceDemo(async s => {
     // Ordre d'insertion d'un référentiel différent de l'ordre des codes : gardé par la colonne rang.
     await s.insert('formations', { id: 'AAA-DERNIERE', nom: 'Ajoutée en dernier', type: 'Interne', validite: 0, validation: 'presence' });
+    // Liste d'attente d'une session complète (lot 7, t120) : reprise avec ses clés étrangères (0007_formations.sql).
+    await s.insert('attentesSession', {
+      sessionId: 2, empId: 2, demandeId: null, certId: null, inscriptionId: 4, rang: 1, le: '2026-10-06', par: 'Sandrine Vidal', statut: 'retire',
+      proposeeLe: null, issueLe: '2026-10-08', issuePar: 'Sandrine Vidal', issue: 'rh',
+    });
   });
   const avant = empreinte(src);
   const db = await cible();

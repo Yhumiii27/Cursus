@@ -18,6 +18,7 @@ import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore, type UiState } from '../state/store.tsx';
 import { finSession, plageCourte } from '../../../shared/rules/plage-session.ts';
 import { sessionView } from './Dashboard.tsx';
+import { ResumeAttente } from '../components/ListeAttente.tsx';
 
 const TYPES: Record<UiState['typeForm'], string | null> = { toutes: null, reg: 'Réglementaire', rec: 'Recommandée', int: 'Interne' };
 
@@ -272,6 +273,8 @@ export function Formations() {
                         <Bar pct={sv.pct} width={72} color={sv.full ? 'var(--color-accent-300)' : 'var(--color-accent-600)'} />
                         <span className="tnum nowrap">{s.inscrits} / {s.places}</span>
                       </div>
+                      {/* Liste d'attente de la session complète (lot 7, t120). */}
+                      <ResumeAttente s={s} />
                     </td>
                     {manager && <td className={team.length ? undefined : 'text-muted'} style={{ fontSize: 13 }}>{team.length ? team.join(', ') : '—'}</td>}
                     <td><Tag cls={sv.cls}>{sv.statut}</Tag></td>

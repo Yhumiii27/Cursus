@@ -18,6 +18,7 @@ import { useStore } from '../state/store.tsx';
 import { LiensPieces } from '../components/PieceJointe.tsx';
 import { CouverturePanel } from '../components/Couverture.tsx';
 import { DossiersEchusPanel } from '../components/DossiersEchus.tsx';
+import { sessionDemandeeComplete } from '../../../shared/rules/liste-attente.ts';
 
 /** Ligne d'échéance (tableau de bord, page Échéances). */
 export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; onAct: () => unknown }) {
@@ -138,7 +139,9 @@ export function Dashboard() {
                   {reqs.map(r => {
                     const e = d.emp(r.empId);
                     const s = d.session(r.sessionId);
-                    const detail = [r.motif, s ? `session souhaitée ${plageTexte(s)}${sessionActive(s) ? '' : ` (${s.statut.toLowerCase()})`}` : ''].filter(Boolean).join(' · ');
+                    // Session souhaitée complète (lot 7, t120) : l'acceptation propose la liste d'attente ou le plan de formation.
+                    const complete = sessionDemandeeComplete(d, r);
+                    const detail = [r.motif, s ? `session souhaitée ${plageTexte(s)}${sessionActive(s) ? complete ? ' (complète)' : '' : ` (${s.statut.toLowerCase()})`}` : ''].filter(Boolean).join(' · ');
                     const x = r.declaration;
                     // Formation ou habilitation archivée depuis la demande : elle ne s'accepte plus (refus du serveur).
                     const archivee = r.type === 'formation' ? !!(r.f && d.fm(r.f)?.archive) : r.type === 'habilitation' && !!(r.h && d.hm(r.h)?.archive);
@@ -162,7 +165,8 @@ export function Dashboard() {
                               {/* Refus : confirmation et motif, communiqué au collaborateur seul (le manager qui a fait la demande n'en voit rien). */}
                               <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={stop(() => openDialog({ type: 'confirmer', c: refusDemande(r, e?.nom ?? d.personName(r.empId),
                                 reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom), { manager: r.parId ? d.personName(r.parId) : null, retire: !!e && retireeAuRefus(d, e, r) }) }))}>Refuser</button>
-                              <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={agir(() => run('demande.accepter', { id: r.id }))}>{r.type === 'document' ? 'Valider' : 'Accepter'}</button>
+                              <button type="button" className="btn btn-secondary btn-sm" disabled={occupe}
+                                onClick={complete ? stop(() => openDialog({ type: 'accepterAttente', id: r.id })) : agir(() => run('demande.accepter', { id: r.id }))}>{r.type === 'document' ? 'Valider' : 'Accepter'}</button>
                             </div>
                           )}
                         </td>

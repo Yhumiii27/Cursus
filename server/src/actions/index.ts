@@ -46,6 +46,7 @@ import { fractionnementActions } from './fractionnement.ts';
 import { formationsSuiviesActions } from './formations-suivies.ts';
 import { conservationActions } from './conservation.ts';
 import { agendaActions } from './agenda.ts';
+import { listeAttenteActions } from './liste-attente.ts';
 
 /**
  * Registre typé (t164) : chaque famille est déclarée avec « satisfies Record<string, ActionHandler> », ce qui garde ses
@@ -99,6 +100,7 @@ const REGISTRE = {
   ...formationsSuiviesActions,
   ...conservationActions,
   ...agendaActions,
+  ...listeAttenteActions,
 } satisfies Record<string, ActionHandler>;
 
 /** Nom d'une action exposée par POST /api/actions/:nom. */

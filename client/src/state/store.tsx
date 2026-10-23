@@ -149,6 +149,8 @@ export type DialogState =
   | { type: 'avenantForfait'; empId: number }
   /** Effacement des données échues ou anonymisation de dossiers de salariés sortis (t016, administrateur RH). */
   | { type: 'anonymiser'; ids: number[]; avantEcheance?: boolean }
+  /** Demande de formation dont la session est complète : liste d'attente ou plan de formation (lot 7, t120). */
+  | { type: 'accepterAttente'; id: number }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
   | { type: 'confirmer'; c: Confirmation };
 

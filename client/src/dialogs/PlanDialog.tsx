@@ -95,7 +95,7 @@ export function PlanDialog({ empId, certId, inscriptionId, sessionId: demandee }
           {sessions.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>{formations
             ? 'Aucune session à venir pour cette formation — créez-en une pour inscrire ce collaborateur.'
             : 'Aucune session à venir — la demande sera transmise au service RH.'}</p>}
-          {sessions.length > 0 && demander && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Toutes les sessions sont complètes — la demande sera transmise au service RH.</p>}
+          {sessions.length > 0 && demander && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Toutes les sessions sont complètes — la demande sera transmise au service RH{d.ds.settings.formationsListeAttente ? ', qui pourra la placer en liste d’attente' : ''}.</p>}
           {v.erreur(sessionErr) && <Bloquant>{sessionErr}</Bloquant>}
         </div>
       </Field>

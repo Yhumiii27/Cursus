@@ -40,6 +40,8 @@ import { lirePieces, piecesVisibles } from './pieces.ts';
 import { resumeDeplacementsPaie } from './deplacements-paie.ts';
 import { dossiersEchus } from './conservation.ts';
 import { jetonActif } from './agenda.ts';
+import { avecPositions } from '../../shared/rules/liste-attente.ts';
+import type { AttenteSession } from '../../shared/types.ts';
 
 /** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
 export const DEFAULT_SETTINGS: Settings = reglagesParDefaut();
@@ -179,6 +181,8 @@ async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
     habDelivrances: await db.all<HabDelivrance>('habDelivrances'),
     // Délégations des validations (t135) : identifiants, dates et périmètre, jamais de motif.
     delegations: await db.all<DelegationValidation>('delegations'),
+    // Listes d'attente des sessions complètes (lot 7, t120) : place de chacun dans sa file calculée sur toutes les attentes.
+    attentesSession: avecPositions(await db.all<AttenteSession>('attentesSession')),
   };
   // Absences en attente du fichier de paie par période (server/src/absences-paie.ts) : lit le contenu figé des lots.
   // Déplacements en attente du fichier de paie (t031, server/src/deplacements-paie.ts) : lit la table des éléments émis.
@@ -203,6 +207,8 @@ const demandeSansMotifRh = (r: DemandeCollab): DemandeCollab => (r.rouverteMotif
 const suiviesNeutres = (l: readonly FormationSuivie[]): FormationSuivie[] =>
   l.filter(x => !x.annuleLe).map(x => ({ ...x, corrigeMotif: null, auteur: null, auteurId: null }));
 const delivrancesNeutres = (l: readonly HabDelivrance[]): HabDelivrance[] => l.map(x => ({ ...x, auteur: null, auteurId: null }));
+/** Attente d'une liste d'attente (lot 7, t120) hors du service RH : sans l'auteur de l'inscription en file ni de sa fin. */
+const attenteNeutre = (a: AttenteSession): AttenteSession => ({ ...a, par: null, issuePar: null });
 
 /**
  * Coordonnées sur place d'un déplacement (hébergement, contact local : textes libres du service RH, t068) et contact
@@ -498,6 +504,9 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
     // Formations suivies et délivrances d'habilitation : celles du périmètre, comme les certifications et les titres.
     formationsSuivies: suiviesNeutres(mine(full.formationsSuivies ?? [])),
     habDelivrances: delivrancesNeutres(mine(full.habDelivrances ?? [])),
+    // Liste d'attente (lot 7, t120) : les siennes ; pour le manager, celles de son périmètre (place dans la file comprise) ;
+    // sans les auteurs, comme les formations suivies.
+    attentesSession: mine(full.attentesSession ?? []).map(attenteNeutre),
     delegations: delegationsVisibles(d, user),
     delegues,
     // Manager qui délègue pour lui-même (Mon espace ou espace manager) : suppléants possibles, réduits à l'annuaire.
@@ -668,6 +677,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // Formations suivies et délivrances d'habilitation : avec les certifications et les titres (référent HSE, lecture seule).
     formationsSuivies: formations ? suiviesNeutres(full.formationsSuivies ?? []) : [],
     habDelivrances: formations ? delivrancesNeutres(full.habDelivrances ?? []) : [],
+    // Listes d'attente des sessions (lot 7, t120) : avec les sessions (référent HSE, lecture seule), sans les auteurs.
+    attentesSession: formations ? (full.attentesSession ?? []).map(attenteNeutre) : [],
   };
 }
 

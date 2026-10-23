@@ -273,6 +273,10 @@ export const EMAIL_LABEL: Record<string, string> = {
   'echeances.recapitulatif': 'Récapitulatif des échéances',
   // Destination passée à l'orange ou au rouge (t068, server/src/vigilance.ts) : aux managers des voyageurs (le service RH a la liste dans le message de l'action).
   'voyage.vigilance': 'Vigilance d’un pays de destination relevée',
+  // Liste d'attente des sessions complètes (lot 7, t120, server/src/liste-attente.ts) : au salarié (et au manager qui a fait la
+  // demande) pour sa place dans la file ; au service RH pour une place libérée à confirmer.
+  'attente.formation': 'Liste d’attente d’une session de formation',
+  'attente.proposition': 'Place libérée à confirmer (liste d’attente)',
 };
 export const CIBLE_LABEL = { keystone: 'Keystone', sage: 'Sage Paie', email: 'E-mail' } as const;
 export const MODE_NOTIFICATION_LABEL = { immediat: 'Aussitôt', quotidien: 'Récapitulatif quotidien' } as const;

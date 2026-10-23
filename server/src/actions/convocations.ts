@@ -8,6 +8,7 @@ import { finSession, sessionDu } from '../../../shared/rules/plage-session.ts';
 import { inscritsDe } from '../../../shared/rules/sessions.ts';
 import type { Certification, Inscription, Session } from '../../../shared/types.ts';
 import { annulerSiConvoque, convoquerFormation } from '../notifications.ts';
+import { promouvoirAttente } from '../liste-attente.ts';
 import { ActionError, aDroit, getEmp, isManagerOf, type ActionHandler, type Ctx } from './context.ts';
 
 /** Session ouverte et à venir : seule une telle session reçoit des convocations ou perd des inscrits. */
@@ -71,9 +72,11 @@ const desinscrire: ActionHandler = async (ctx, p) => {
   for (const x of ctx.ds.inscriptions.filter(x => x.empId === emp.id && x.sessionId === s.id)) await ctx.db.remove('inscriptions', x.id);
   // Convocation reçue, même remise « à renvoyer » par un changement de date ou de lieu : annulée par e-mail.
   const annulee = await annulerSiConvoque(ctx, s, emp, i);
+  // Place libérée : proposée à la liste d'attente de la session (lot 7, t120).
+  const attente = await promouvoirAttente(ctx, s.id);
   return `${emp.nom} désinscrit de la ${nomSession(ctx, s)} — place libérée`
     + (i.parcours === 'recyclage' ? ' · recyclage de nouveau à planifier' : ' · inscription en formation initiale retirée')
-    + (annulee ? ' · annulation envoyée par e-mail' : '');
+    + (annulee ? ' · annulation envoyée par e-mail' : '') + (attente ? ` · ${attente}` : '');
 };
 
 export const convocationsActions = {

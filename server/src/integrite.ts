@@ -75,6 +75,13 @@ export const REFERENCES: readonly Reference[] = [
   ref('formations_suivies', 'f', 'formations'),
   ref('formations_suivies', 'plan_action_id', 'plan_actions'),
   ref('formations_suivies', 'demande_id', 'demandes_collab'),
+  // Liste d'attente des sessions complètes (lot 7, chantier C, t120 ; clés étrangères de 0007_formations.sql) : salarié,
+  // session, demande qui l'y a placé, certification à renouveler ou inscription à replanifier.
+  ref('attentes_session', 'emp_id', 'employes'),
+  ref('attentes_session', 'session_id', 'sessions'),
+  ref('attentes_session', 'demande_id', 'demandes_collab'),
+  ref('attentes_session', 'cert_id', 'certifications'),
+  ref('attentes_session', 'inscription_id', 'inscriptions'),
 ];
 
 export interface Integrite {

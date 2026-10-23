@@ -17,6 +17,7 @@ import { absenceKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { annulerSiConvoque } from '../notifications.ts';
 import { controlerSoldeSortie, photographierSortie, retirerSoldeSortie } from '../soldes-sortie.ts';
 import { amorcer, cloreHistorique, rouvrirHistorique } from '../avenants.ts';
+import { promouvoirAttentes, retirerAttentesDe } from '../liste-attente.ts';
 import { ActionError, getEmp, refuserSoiMeme, requireRh, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 /**
@@ -79,6 +80,10 @@ const sortie: ActionHandler = async (ctx, p) => {
     await ctx.db.remove('inscriptions', i.id);
     if (await annulerSiConvoque(ctx, ctx.d.session(i.sessionId), emp, i)) annulees++;
   }
+  // Liste d'attente (lot 7, t120) : ses attentes de sessions qui finissent après son départ sont retirées ; les places qu'il
+  // quitte (inscriptions annulées, place proposée) se proposent à la liste d'attente de leur session.
+  const attentes = await retirerAttentesDe(ctx, emp, date);
+  const promues = await promouvoirAttentes(ctx, [...c.certs.map(x => x.sessionId), ...c.inscriptions.map(i => i.sessionId), ...attentes.sessions]);
   for (const x of c.entretiens) await ctx.db.remove('entretiens', x.id);
   for (const x of c.visites) await ctx.db.update<DemandeVisite>('demandesVisite', x.id, { statut: 'annulee', closeLe: ctx.d.ti, closePar: ctx.user.nom });
   for (const f of c.feuilles) await ctx.db.remove('feuilles', f.id);
@@ -88,6 +93,8 @@ const sortie: ActionHandler = async (ctx, p) => {
   const effets = effetsSortie(c);
   if (annulees) effets.push(annulees > 1 ? `${annulees} annulations de convocation envoyées par e-mail` : 'annulation de convocation envoyée par e-mail');
   if (fermees) effets.push('sessions de connexion fermées');
+  if (attentes.n) effets.push(attentes.n > 1 ? `retiré de ${attentes.n} listes d’attente` : 'retiré de la liste d’attente');
+  if (promues) effets.push(promues);
   if (avenants) effets.push(avenants > 1 ? `${avenants} avenants programmés annulés` : 'avenant programmé annulé');
   if (renouvellements) effets.push(renouvellements > 1 ? `${renouvellements} renouvellements du CDD sans effet annulés` : 'renouvellement du CDD sans effet annulé');
   effets.push(solde.texte);

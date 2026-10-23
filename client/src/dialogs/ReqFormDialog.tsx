@@ -71,7 +71,10 @@ export function ReqFormDialog({ f: f0, sessionId: s0, empId }: { f?: string; ses
   const [busy, setBusy] = useState(false);
   const v = useVerification();
   const isAutre = f === 'autre';
-  const sessions = isAutre ? [] : d.upcoming().filter(s => s.formation === f && s.inscrits < s.places);
+  // Sessions complètes proposées aussi quand la liste d'attente est activée (lot 7, t120) : le service RH y placera le salarié.
+  const attente = d.ds.settings.formationsListeAttente;
+  const sessions = isAutre ? [] : d.upcoming().filter(s => s.formation === f && (attente || s.inscrits < s.places));
+  const ouvertes = sessions.filter(s => s.inscrits < s.places);
 
   // Collaborateur concerné : le membre choisi par le manager, ou le collaborateur lui-même (`soi`).
   const e = c.cible;
@@ -100,7 +103,7 @@ export function ReqFormDialog({ f: f0, sessionId: s0, empId }: { f?: string; ses
     : last.key === 'due' ? `Certification de ${e.nom} à renouveler : elle expire le ${fmt(last.exp)}.`
     : `Certification de ${e.nom} expirée le ${fmt(last.exp)}.`;
   // Inscription directe (dialogue de planification) : formations du catalogue affiché uniquement.
-  const directe = !!e && !!last && last.key !== 'ok' && !inscrit && sessions.length > 0 && forms.some(x => x.id === f);
+  const directe = !!e && !!last && last.key !== 'ok' && !inscrit && ouvertes.length > 0 && forms.some(x => x.id === f);
   const erreurs = {
     cible: c.pourMembre && !e ? 'Choisissez le collaborateur concerné.' : null,
     libelle: isAutre ? erreurTexte(libelle, 'Indiquez l’intitulé de la formation souhaitée.') : null,
@@ -141,11 +144,12 @@ export function ReqFormDialog({ f: f0, sessionId: s0, empId }: { f?: string; ses
           <select className="input" id="rf-s" value={session} onChange={ev => setSession(ev.target.value)}>
             <option value="">Pas de préférence</option>
             {sessions.map(s => (
-              <option key={s.id} value={String(s.id)}>{`${plageCourte(s)} · ${s.lieu} · ${plural(s.places - s.inscrits, 'place', 'places')}`}</option>
+              <option key={s.id} value={String(s.id)}>{`${plageCourte(s)} · ${s.lieu} · ${s.inscrits < s.places ? plural(s.places - s.inscrits, 'place', 'places') : 'complète, liste d’attente'}`}</option>
             ))}
           </select>
         </Field>
       )}
+      {choisie && choisie.inscrits >= choisie.places && <Fine>Session complète : le service RH pourra placer {soi ? 'votre demande' : 'la demande'} en liste d’attente, dans l’ordre d’arrivée ; une place libérée est proposée au premier de la file.</Fine>}
       <Controles msgs={conflits} />
       {!isAutre && sessions.length === 0 && <Fine>Aucune session ouverte : la demande sera ajoutée au plan de formation.</Fine>}
       <Field label="Motif" htmlFor="rf-m" requis erreur={v.erreur(erreurs.motif)}>

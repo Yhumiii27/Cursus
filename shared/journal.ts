@@ -100,6 +100,13 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'formationSuivie.enregistrer': 'Formation suivie enregistrée',
   'formationSuivie.modifier': 'Formation suivie corrigée',
   'formationSuivie.annuler': 'Formation suivie supprimée (saisie erronée)',
+  // Liste d'attente des sessions complètes (lot 7, t120, server/src/liste-attente.ts) : actions et effets d'une place libérée.
+  'attente.confirmer': 'Inscription confirmée depuis la liste d’attente',
+  'attente.retirer': 'Retrait de la liste d’attente',
+  'attente.proposee': 'Place libérée proposée depuis la liste d’attente',
+  'attente.inscrite': 'Inscription automatique depuis la liste d’attente',
+  'attente.sautee': 'Liste d’attente : salarié non admissible passé',
+  'attente.purgee': 'Liste d’attente close (session annulée ou clôturée)',
   // Habilitations
   'hab.delivrer': 'Habilitation délivrée',
   'hab.suspendre': 'Habilitation suspendue',
@@ -288,7 +295,7 @@ export const dossierComplet = (u: Pick<CurrentUser, 'role' | 'profilRh'>) => dro
 /** Familles du filtre « Action » : codes commençant par l'un des préfixes (ou égaux à l'un d'eux). */
 export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly string[] }[] = [
   { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.', 'migration.contratsHistorique'] },
-  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel'] },
+  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel', 'attente.'] },
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.', 'migration.habDelivrances'] },
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
@@ -355,6 +362,8 @@ export const CHAMP_LABEL: Record<string, string> = {
   relancesActives: 'Récapitulatif des échéances', relancesPaliers: 'Paliers de relance (jours)', relancesJour: 'Envoi du récapitulatif des échéances',
   // Formations : heures des sessions dans les feuilles de temps (Paramètres → Formations) ; session sur plusieurs jours.
   formationsTemps: 'Heures de formation proposées dans les feuilles de temps', jours: 'Jours de la session',
+  // Liste d'attente des sessions complètes (lot 7, t120).
+  formationsListeAttente: 'Liste d’attente des sessions complètes', formationsAttenteMode: 'Place libérée (liste d’attente)',
   annuleLe: 'Annulé le', annuleMotif: 'Motif de l’annulation',
   // Semaine à 7 jours (heures du dimanche), activités internes et mandats au CSE (heures de délégation).
   majorationDimanche: 'Majoration des heures du dimanche (%)', role: 'Mandat', credit: 'Crédit d’heures par mois',

@@ -20,6 +20,7 @@ import { DUREE_HEURES, HAB_DELIVRANCES } from './lot6-securite.ts';
 import { INDEX_CONSERVATION_AGENDA } from './lot6-pieces.ts';
 import { ASTREINTES_ACTIVITE_INDEX } from './lot7-astreintes.ts';
 import { C2P_COLONNES } from './lot7-prevention.ts';
+import { INDEX_ATTENTES } from './lot7-formations.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   INDEX_JOURNAL,
@@ -52,4 +53,5 @@ export const MIGRATIONS: readonly Migration[] = [
   INDEX_CONSERVATION_AGENDA,
   ASTREINTES_ACTIVITE_INDEX,
   C2P_COLONNES,
+  INDEX_ATTENTES,
 ];

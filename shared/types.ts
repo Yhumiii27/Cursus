@@ -476,6 +476,11 @@ export interface Session {
   fin: ISODate; jours: ISODate[]; horaires: HoraireSession[];
   /** Calculé au chargement (certifications rattachées, inscriptions, résultats de clôture), jamais stocké. */
   inscrits: number;
+  /**
+   * Places libres proposées à la liste d'attente (lot 7, t120 : statut `proposee`), calculées au chargement sur toute la
+   * file, avant la restriction au périmètre : un manager qui ne voit pas la file sait qu'elles ne sont pas à prendre.
+   */
+  proposees?: number;
   /** Action du plan de formation à l'origine de la session. */
   planId: number | null;
   /** Clôture (évaluation à chaud) ou annulation (motif) : date et auteur. */
@@ -489,6 +494,34 @@ export interface SessionBilan { le: ISODate; par: string; note: number | null; c
  * Rattachée à une session annulée, ou clôturée sans certification (absent, évaluation échouée) : à replanifier.
  */
 export interface Inscription { id: number; empId: number; sessionId: number; convoc: 'now' | 'later'; date: ISODate; convocLe: ISODate | null }
+/**
+ * Liste d'attente d'une session complète (lot 7, chantier C, t120 : shared/rules/liste-attente.ts, server/src/liste-attente.ts).
+ * `attente` : en file, par ordre d'arrivée (`rang`, croissant par session) ; `proposee` : place libérée, proposée au service
+ * RH qui confirme l'inscription ; `inscrit` : inscrit depuis la liste ; `retire` : sorti de la liste (`issue`). Une ligne par
+ * session et par salarié (réutilisée s'il y revient). `demandeId` : demande acceptée qui l'y a placé ; `certId` : recyclage
+ * de cette certification, sinon formation initiale (`inscriptionId` : inscription à replanifier, s'il y en avait une).
+ * `position` : place dans la file, calculée au chargement sur toutes les données (jamais stockée), null hors de la file.
+ */
+export interface AttenteSession {
+  id: number; sessionId: number; empId: number;
+  demandeId: number | null; certId: number | null; inscriptionId: number | null;
+  rang: number; le: ISODate; par: string | null;
+  statut: StatutAttente;
+  proposeeLe: ISODate | null;
+  issueLe: ISODate | null; issuePar: string | null; issue: IssueAttente | null;
+  position?: number | null;
+}
+export type StatutAttente = 'attente' | 'proposee' | 'inscrit' | 'retire';
+/** Mode de la liste d'attente quand une place se libère : proposition au service RH, ou inscription aussitôt. */
+export type ModeAttente = 'confirmer' | 'automatique';
+/**
+ * Fin d'une attente : inscrit (`inscription`), retrait par le salarié, son manager ou le service RH, session annulée,
+ * clôturée ou commencée, salarié hors contrat à la date, déjà inscrit à la session, recyclage ou certification enregistrés
+ * depuis, certification remplacée ou supprimée, demande rouverte.
+ */
+export type IssueAttente =
+  | 'inscription' | 'salarie' | 'manager' | 'rh' | 'session_annulee' | 'session_cloturee' | 'session_commencee' | 'hors_contrat'
+  | 'deja_inscrit' | 'deja_certifie' | 'certification_remplacee' | 'demande_rouverte';
 /** Résultat d'un inscrit, enregistré à la clôture de la session. */
 export interface Participation {
   id: number; sessionId: number; empId: number; parcours: 'recyclage' | 'initiale'; present: boolean;
@@ -947,6 +980,8 @@ export interface DemandeCollab { id: number; empId: number; type: DemandeType; f
  */
 export interface SuiteDemande {
   sessionId?: number; certId?: number; inscriptionId?: number; depuis?: number | null; planId?: number; habTitreId?: number; cree?: boolean;
+  /** Session demandée complète : attente en liste d'attente (lot 7, t120), gardée après l'inscription ou le retour au plan. */
+  attenteId?: number;
 }
 /**
  * Formalité déclarée par le collaborateur (demande « document ») : conservée dans la demande
@@ -1144,6 +1179,13 @@ export interface Settings {
   astreinteCompensation: CompensationAstreinte;
   astreinteMineurs: boolean;
   astreinteAccord: string;
+  /**
+   * Liste d'attente des sessions complètes (lot 7, chantier C, t120 : shared/rules/liste-attente.ts) : activée par défaut ;
+   * désactivée, une demande acceptée sur une session complète va au plan de formation. Place libérée : premier admissible
+   * proposé au service RH, qui confirme (par défaut), ou inscrit et convoqué aussitôt (`automatique`).
+   */
+  formationsListeAttente: boolean;
+  formationsAttenteMode: ModeAttente;
 }
 /** Période de paie des jours rachetés d'un forfait jours : mois de la signature de l'avenant, ou clôture de l'année (décembre). */
 export type EmissionJren = 'signature' | 'cloture';
@@ -1653,6 +1695,11 @@ export interface Dataset {
    * seule. Absente ailleurs (manager, collaborateur, paie).
    */
   c2p?: SyntheseC2p[];
+  /**
+   * Listes d'attente des sessions complètes (lot 7, t120) : toutes pour le service RH et le référent HSE, celles de son
+   * périmètre pour le manager, les siennes pour le collaborateur ; auteurs retirés hors du service RH (server/src/dataset.ts).
+   */
+  attentesSession?: AttenteSession[];
 }
 
 /** Catégorie de données d'un dossier, avec sa durée de conservation après la sortie (shared/rules/conservation.ts). */

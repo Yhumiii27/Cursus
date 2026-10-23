@@ -20,6 +20,8 @@ import { AgendaPortail } from '../components/AgendaPortail.tsx';
 import { Aptitude } from '../components/Aptitude.tsx';
 import { ExigencesPortail } from '../components/Exigences.tsx';
 import { FormationsSuiviesPortail } from '../components/FormationsSuivies.tsx';
+import { ListeAttentePortail } from '../components/ListeAttente.tsx';
+import { attenteActive, placeTexte } from '../../../shared/rules/liste-attente.ts';
 import { imprimerPasseport } from '../passeport.ts';
 import { DelegationsPortail, suppleanceTexte } from '../components/Delegations.tsx';
 import { useEnriched, useRole, useTrips } from '../state/derived.ts';
@@ -157,14 +159,21 @@ export function Portail() {
             </Panel>
           )}
 
+          {/* Listes d'attente des sessions complètes (lot 7, t120) : sa place dans la file, son retrait. */}
+          <ListeAttentePortail empId={me.id} />
+
           <Panel title="Mes certifications" style={{ gap: 'var(--space-2)' }}>
             {me.certs.map(c => {
               const avail = upcoming.find(s => s.formation === c.f && s.inscrits < s.places);
               const pend = myReqs.some(r => r.type === 'formation' && r.f === c.f && r.statut === 'attente');
+              // En liste d'attente d'une session complète de cette formation (lot 7, t120) : rien à redemander.
+              const enFile = (d.ds.attentesSession ?? []).find(a => a.empId === me.id && attenteActive(a) && d.session(a.sessionId)?.formation === c.f);
+              const fileSession = enFile ? d.session(enFile.sessionId) : null;
               const convocation = c.convoc === 'now' ? ` · convocation envoyée${c.convocLe ? ` le ${fmtShort(parse(c.convocLe))}` : ''}` : ' · convocation à venir';
               const info = c.session ? `Inscrit à la session ${sessionDu(c.session)}${convocation}`
                 : c.sessionPassee ? `Session ${sessionDu(c.sessionPassee)} passée — présence et résultat en cours d’enregistrement par le service RH`
-                : pend ? 'Demande de recyclage envoyée au service RH' : '';
+                : pend ? 'Demande de recyclage envoyée au service RH'
+                : fileSession ? `Session ${sessionDu(fileSession)} complète : ${placeTexte(enFile!.position)}` : '';
               return (
                 <div key={c.id} className="list-row stack" style={rowStyle}>
                   <div className="item-head">
@@ -173,7 +182,7 @@ export function Portail() {
                   </div>
                   <Bar variant="thin" pct={c.pct} color={c.key === 'ok' ? 'var(--color-accent-600)' : 'var(--color-accent-300)'} />
                   {info && <NoteAccent>{info}</NoteAccent>}
-                  {c.key !== 'ok' && !c.session && !c.sessionPassee && !pend && (
+                  {c.key !== 'ok' && !c.session && !c.sessionPassee && !pend && !enFile && (
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                       <Btn small onClick={() => openDialog({ type: 'reqForm', f: c.f, sessionId: avail?.id ?? null })}>Demander le recyclage</Btn>
                     </div>
@@ -267,6 +276,11 @@ export function Portail() {
                 </div>
                 {r.declaration && <div className="sub">Déclaré : {declarationDetail(r.declaration)}</div>}
                 <div className="sub text-n400">{r.reponse || (r.type === 'document' ? 'En attente de validation RH' : 'En cours de traitement par le service RH')}</div>
+                {/* Liste d'attente (lot 7, t120) : la place d'aujourd'hui, la réponse donnant celle du jour de la décision. */}
+                {(() => {
+                  const a = r.suite?.attenteId ? (d.ds.attentesSession ?? []).find(x => x.id === r.suite!.attenteId && attenteActive(x)) : undefined;
+                  return a ? <div className="sub">Aujourd’hui : {a.statut === 'proposee' ? 'place libérée, inscription à confirmer par le service RH' : placeTexte(a.position)}</div> : null;
+                })()}
                 {r.statut === 'refusee' && r.motifRefus && <div className="sub">Motif du refus : {r.motifRefus}</div>}
                 {/* Demande en attente, faite par soi-même : retirée tant que le service RH ne l'a pas traitée. */}
                 {demandeRetirable(r) && auteurDemande(r) === me.id && (

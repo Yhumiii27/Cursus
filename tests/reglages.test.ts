@@ -79,6 +79,9 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // Lot 7 (t049) : astreintes communiquées 15 jours avant (art. R3121-3), compensation financière (réponse du 23 octobre
     // 2026), aucune astreinte pour un salarié mineur, accord inconnu.
     astreinteDelaiPrevenance: 15, astreinteCompensation: 'financiere', astreinteMineurs: false, astreinteAccord: '',
+    // Lot 7, chantier C (t120) : liste d'attente des sessions complètes activée ; place libérée proposée au service RH, qui
+    // confirme (réponse de l'entreprise du 23 octobre 2026).
+    formationsListeAttente: true, formationsAttenteMode: 'confirmer',
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(await loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

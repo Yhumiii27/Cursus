@@ -35,6 +35,7 @@ const TITRES: Partial<Record<TableName, string>> = {
   fractionnements: 'Jours de fractionnement des congés payés',
   habDelivrances: 'Délivrances des habilitations (historique)', formationsSuivies: 'Formations suivies',
   effacements: 'Effacements à la fin des durées de conservation', jetonsAgenda: 'Abonnements à l’agenda personnel',
+  attentesSession: 'Listes d’attente des sessions de formation',
 };
 /**
  * Colonnes jamais exportées : empreinte du mot de passe (secret) et du jeton d'agenda ; nom stocké et jeton d'envoi d'une pièce justificative
@@ -52,6 +53,8 @@ const RETIREES_SALARIE: Partial<Record<TableName, string[]>> = {
   // Administrateur RH qui a révoqué les abonnements à l'agenda, ou confirmé un effacement, et son motif (texte libre).
   jetonsAgenda: ['revoquePar'],
   effacements: ['par', 'motif'],
+  // Liste d'attente (lot 7, t120) : membre du service RH qui l'y a placé ou l'en a retiré.
+  attentesSession: ['par', 'issuePar'],
 };
 
 /** Tables du schéma qui portent la colonne `empId` (la fiche elle-même est la section « Fiche »). */

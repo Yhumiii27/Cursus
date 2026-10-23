@@ -8,7 +8,7 @@ import { JOURS_RELANCE, paliersRelance } from './rules/relances.ts';
 import { nuitHorsLoi, refusPlageNuit } from './rules/repos-nuit.ts';
 import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesTexte, DOSSIER_MIN_ANS, DUREE_MAX_ANS } from './rules/conservation.ts';
 import { DELAI_JOUR_FRANC, DELAI_PREVENANCE_LEGAL } from './rules/astreintes.ts';
-import type { CompensationAstreinte, ContenuAgenda, Settings, StockagePieces } from './types.ts';
+import type { CompensationAstreinte, ContenuAgenda, ModeAttente, Settings, StockagePieces } from './types.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
 export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
@@ -253,6 +253,10 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   astreinteCompensation: { defaut: 'financiere', controle: choix<CompensationAstreinte>(['financiere', 'repos']) },
   astreinteMineurs: { defaut: false, controle: booleen },
   astreinteAccord: { defaut: '', controle: texte(120, 'Référence de l’accord') },
+  // — Liste d'attente des sessions (parametres/ListeAttente.tsx, shared/rules/liste-attente.ts, lot 7 t120) : activée ; une
+  //   place libérée est proposée au service RH, qui confirme l'inscription (réponse de l'entreprise du 23 octobre 2026) —
+  formationsListeAttente: { defaut: true, controle: booleen },
+  formationsAttenteMode: { defaut: 'confirmer', controle: choix<ModeAttente>(['confirmer', 'automatique']) },
 };
 
 /**

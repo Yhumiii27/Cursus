@@ -7,11 +7,13 @@ import { fmt } from '../../../shared/format.ts';
 import { inscriptionsARendre } from '../../../shared/rules/corrections.ts';
 import type { Certification, Employe, Inscription } from '../../../shared/types.ts';
 import type { Ctx } from './context.ts';
+import { retirerInscription } from '../liste-attente.ts';
 
 /** La certification obtenue clôt les inscriptions en formation initiale du salarié à la formation `f`, renvoyées pour être gardées sur elle. */
 export async function clore(ctx: Ctx, emp: Employe, f: string): Promise<Inscription[]> {
   const closes = ctx.ds.inscriptions.filter(i => i.empId === emp.id && ctx.d.session(i.sessionId)?.formation === f);
-  for (const i of closes) await ctx.db.remove('inscriptions', i.id);
+  // Une attente qui la désignait ne la désigne plus (liste d'attente, lot 7, t120).
+  for (const i of closes) await retirerInscription(ctx, i.id);
   return closes;
 }
 

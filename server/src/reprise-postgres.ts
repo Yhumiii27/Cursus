@@ -179,7 +179,8 @@ async function preparer(copie: SqliteDb, cibles: Map<string, Colonne[]>, cles: C
     for (const b of brutes) {
       const pk = b[pkDe.get(table)!];
       lignes.push(colonnes.map(c => {
-        if (c === 'rang') return Number(b.__rang);
+        // Colonne d'ordre des référentiels (rowid) ; une colonne `rang` déclarée dans TABLES (liste d'attente, lot 7) est recopiée.
+        if (c === 'rang' && rang) return Number(b.__rang);
         let v = b[c];
         const type = types.get(c)!;
         if (fk.has(c) && (v === 0 || v === '')) { ajouter(cr.aucunVersNull, `${table}.${c}`); v = null; }

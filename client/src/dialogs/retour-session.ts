@@ -6,10 +6,11 @@ import type { DialogePlan, DialogState } from '../state/store.tsx';
 
 /**
  * Session cochée à l'ouverture de « Planifier » : celle demandée (retour de la création) si elle est proposée et a
- * encore une place, sinon la première session ouverte de la formation, sinon aucune.
+ * encore une place, sinon la première session ouverte de la formation, sinon aucune. Une place proposée à la liste
+ * d'attente (`proposees`, lot 7, t120) ne compte pas : elle revient à la file.
  */
-export function sessionPreselectionnee(sessions: Pick<Session, 'id' | 'places' | 'inscrits'>[], demandee?: number | null): number | null {
-  const ouverte = (s: Pick<Session, 'places' | 'inscrits'>) => s.inscrits < s.places;
+export function sessionPreselectionnee(sessions: Pick<Session, 'id' | 'places' | 'inscrits' | 'proposees'>[], demandee?: number | null): number | null {
+  const ouverte = (s: Pick<Session, 'places' | 'inscrits' | 'proposees'>) => s.inscrits + (s.proposees ?? 0) < s.places;
   const choisie = demandee != null ? sessions.find(s => s.id === demandee && ouverte(s)) : undefined;
   return (choisie ?? sessions.find(ouverte))?.id ?? null;
 }

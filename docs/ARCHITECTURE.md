@@ -531,6 +531,8 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     demandée, annulation, `maj_le` posée par un déclencheur ; jamais le type ni le motif ; lecteurs accordés par Matrix) et
     `0006_prevention.sql` (lot 7, chantier B : colonnes `postes.c2p` et `horaires.alternant` du compte professionnel de
     prévention, JSON contrôlés par CHECK ; aucune vue `pub_`).
+    demandée, annulation, `maj_le` posée par un déclencheur ; jamais le type ni le motif ; lecteurs accordés par Matrix) ;
+    `0007_formations.sql` (lot 7, chantier C : liste d'attente des sessions, table `attentes_session`, aucune vue `pub_`).
     Appliquées au démarrage sous `pg_advisory_lock(hashtext('cursus.migrations'))`, pris avant de lire le journal
     `cursus.schema_migrations`, une transaction par fichier ; une migration du journal inconnue de ce code (base mise à
     jour par une version plus récente) ou un schéma `cursus` absent : refus de démarrer. Puis `TABLES` est comparé au
@@ -964,6 +966,8 @@ aucun champ du paramètre n'est recopié.
 | `session.modifier` | id, date? (postérieure à aujourd’hui ; session passée, à clôturer : aussi une date passée ; seule, la plage est décalée d’autant), fin?, jours?, horaires? (comme `session.creer` ; nouveau dernier jour sans jours : jours ouvrés), lieu?, places? (≥ inscrits) | RH, référent HSE |
 | `session.annuler` | id, motif? | RH, référent HSE |
 | `session.cloturer` | id (à partir du dernier jour de la session), participants [{empId, present, reussi?}], note? (1 à 5), commentaire?, coutReel? (de l'action du plan qu'elle réalise, service RH seulement ; coût prévu par défaut et pour le référent HSE) | RH, référent HSE |
+| `attente.confirmer` | id : personne de la liste d'attente d'une session (lot 7, t120), proposée par Cursus après une place libérée, ou en file s'il reste une place libre proposée à personne ; mêmes contrôles qu'une inscription ; inscrite et convoquée, demande mise à jour, place quittée ailleurs proposée à son tour | RH, référent HSE |
+| `attente.retirer` | id : retrait de la liste d'attente (`issue` : `salarie`, `manager` ou `rh`) ; demande mise à jour, salarié prévenu s'il ne s'est pas retiré lui-même ; place qui lui était proposée proposée au suivant | le salarié pour lui-même, son manager direct, RH, référent HSE |
 | `hab.delivrer` | empId, h, date, par, mode ; renouvellement : délivrance précédente close à l'historique (`habDelivrances`, mesure figée, jamais le motif) | RH, référent HSE |
 | `formationSuivie.enregistrer` | empId, f (code du catalogue) ou libelle (hors catalogue, 120 caractères), du, au? (du par défaut ; ni l'un ni l'autre à venir), duree? (heures, 0,25 à 2 000), organisme?, obligatoire? (défaut : formation « Réglementaire » du catalogue ; hors catalogue : non), demandeId? (demande hors catalogue acceptée du même salarié, une fois : origine `demande`) ; même formation ou même intitulé le même premier jour : refus ; journal : codes, dates, durée, case, jamais l'intitulé ni l'organisme | RH, référent HSE |
 | `formationSuivie.modifier` | id, champs d'`enregistrer` (absents : inchangés), motif (obligatoire, 500 caractères, jamais au journal) | RH, référent HSE (jamais la sienne) |
@@ -1996,6 +2000,48 @@ Règles dans `shared/rules/sessions.ts` (inscrits nominatifs, contrôles, liste 
   remplacées ; un jour qui dépasserait 24 h, toutes lignes cumulées, voit ses heures de formation réduites d'autant (la
   formation ne bloque jamais la proposition Keystone). Modifiables comme toute ligne proposée. Réglage `formationsTemps`
   (Paramètres → Formations, actif par défaut).
+- **Liste d'attente** (lot 7, chantier C, t120 ; règles `shared/rules/liste-attente.ts`, serveur `server/src/liste-attente.ts`,
+  table `attentesSession`, migration PostgreSQL `0007_formations.sql`, index SQLite `lot7-formations-index-attentes`) :
+  une demande de formation acceptée sur une session complète (`demande.accepter`, choix `complete` : `attente` par défaut ou
+  `plan`) place le salarié dans la file de la session, dans l'ordre où le service RH accepte les demandes (`rang`, donné à
+  l'acceptation, pas à la date de la demande), sans priorité métier ; la réponse et
+  l'e-mail (`attente.formation`) disent que la session est complète et sa place (`position`, calculée au chargement sur
+  toutes les attentes, jamais stockée). Réglage `formationsListeAttente` (Paramètres → Liste d'attente des sessions) :
+  désactivé, la demande va au plan de formation, la réponse dit que la session était complète. Places libres de
+  `demande.accepter` : hors de celles déjà proposées à la file (`placesAProposer`). Une place libérée appelle
+  `promouvoirAttente` dans la transaction de l'action : changement de session (`plan.inscrire`, `demande.accepter`,
+  `attente.confirmer`), désinscription, recyclage enregistré (`cert.ajouter`), correction ou annulation d'une
+  certification, places augmentées ou libérées par une nouvelle date (`session.modifier`), sortie (`employe.sortie`),
+  réouverture d'une demande, retrait d'une personne proposée. Le premier encore admissible (`nonAdmissible` : session
+  ouverte et pas commencée, dans le contrat, pas déjà inscrit, certification à renouveler toujours en vigueur ou formation
+  initiale pas obtenue depuis, sans absence ni autre session ces jours-là, session précédente pas à clôturer) est proposé
+  au service RH (`proposee`, e-mail `attente.proposition` à la boîte du service RH), qui confirme (`attente.confirmer` :
+  convocation à ce moment-là, réponse de l'entreprise du 23 octobre 2026) ; réglage `formationsAttenteMode` à
+  `automatique` : inscrit et convoqué aussitôt (`attente.inscrite` au journal). Un non-admissible est passé
+  (`attente.sautee`, motif codé, jamais le détail d'une absence) ; s'il n'a plus d'objet (hors contrat, déjà inscrit,
+  recyclage enregistré, certification remplacée, session commencée), il sort de la file. Le message de l'action ne nomme
+  les personnes de la file qu'au service RH et au référent HSE. Session annulée ou clôturée : file close
+  (`purgerAttente`, `attente.purgee`), ceux qui y étaient par une demande repassent au plan de formation (ligne prévue,
+  à replanifier) et en sont prévenus. Sortie : ses attentes de sessions qui finissent après son départ sont retirées ;
+  `cert.ajouter` : celles de la formation. Réouverture d'une demande : l'attente encore en file en sort
+  (`demande_rouverte`) ; une inscription faite depuis la file est défaite comme une acceptation directe (`suite` de la
+  demande, `attenteId`). Instantané : file entière au service RH, au référent HSE et à la lecture seule, celles de son
+  périmètre au manager, la sienne au salarié (sa place sans voir les autres), sans les auteurs hors du service RH.
+  Écrans : file dans le détail de la session (rang, état, « Confirmer l'inscription », « Retirer »), résumé sur la liste
+  des sessions (Formations), « Mes listes d'attente » et place du jour sous la réponse (Mon espace), section de la fiche
+  (retrait par le manager), choix « liste d'attente ou plan » à l'acceptation (dialogue `accepterAttente`), sessions
+  complètes proposées dans la demande de formation quand la liste est activée.
+  Places proposées : `Session.proposees` (calculé au chargement sur toute la file, connu du manager qui ne la voit pas).
+  `plan.inscrire` ne les prend pas au manager (« proposées à sa liste d'attente : le service RH confirme ») ; le service
+  RH et le référent HSE peuvent passer outre, et `ajusterPropositions` remet alors en attente, à leur rang, les dernières
+  propositions qui n'ont plus de place (`attente.remise`, motif `plus_de_place`) ; de même quand `session.modifier` réduit
+  les places. Le retour dans une session quittée (réouverture d'une demande, certification annulée : `refusRetour`) ne
+  prend pas non plus une place proposée. Une personne proposée devenue indisponible (absence, autre session, session
+  précédente à clôturer) ne bloque pas la place : `attente.confirmer` la remet en attente à son rang (`attente.remise`,
+  motif codé) et propose la place au suivant admissible. Une personne de la file inscrite directement voit son attente
+  close (`inscription`). Une inscription supprimée (désinscription, clôture, sortie, certification, réouverture) n'est
+  plus désignée par `attentesSession.inscriptionId` (`retirerInscription` ; PostgreSQL : `ON DELETE SET NULL`), sans quoi
+  SQLite garderait une référence orpheline, refusée par la reprise vers PostgreSQL.
 - **Base existante** : colonnes et table ajoutées au démarrage (schéma déclaratif) ; `server/src/migrate.ts`
   valide sur la présence les formations sans mode de validation, libère la place d'une certification remplacée
   dans toute session ouverte postérieure au recyclage, puis clôture une fois les sessions passées de l'ancienne

@@ -41,6 +41,8 @@ import { lirePieces, piecesVisibles } from './pieces.ts';
 import { resumeDeplacementsPaie } from './deplacements-paie.ts';
 import { dossiersEchus } from './conservation.ts';
 import { jetonActif } from './agenda.ts';
+import { avecPositions, avecProposees } from '../../shared/rules/liste-attente.ts';
+import type { AttenteSession } from '../../shared/types.ts';
 
 /** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
 export const DEFAULT_SETTINGS: Settings = reglagesParDefaut();
@@ -79,6 +81,8 @@ async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
   const vaccins = await db.all<Vaccination>('vaccinations');
   const inscriptions = await db.all<Inscription>('inscriptions');
   const participations = await db.all<Participation>('participations');
+  // Listes d'attente des sessions complètes (lot 7, t120) : place de chacun dans sa file calculée sur toutes les attentes.
+  const attentesSession = avecPositions(await db.all<AttenteSession>('attentesSession'));
   const employes: Employe[] = (await db.all<EmpRow>('employes')).map(({ passeportNumero, passeportExpire, ...e }) => ({
     ...e,
     jourOff: e.jourOff ?? [],
@@ -123,7 +127,8 @@ async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
     employes,
     // Nombre d'inscrits calculé sur toutes les données, avant la restriction au périmètre.
     // Session d'une base ancienne ou écrite sans plage : un seul jour (completerSession).
-    sessions: avecInscrits((await db.all<Omit<Session, 'inscrits'>>('sessions')).map(completerSession), certs, inscriptions, participations),
+    // Places proposées à la liste d'attente (lot 7, t120), comptées sur toute la file.
+    sessions: avecProposees(avecInscrits((await db.all<Omit<Session, 'inscrits'>>('sessions')).map(completerSession), certs, inscriptions, participations), attentesSession),
     inscriptions,
     participations,
     // Ligne du plan supprimée (saisie erronée, `plan.supprimer`, demande rouverte) : hors de l'instantané et des calculs.
@@ -183,6 +188,7 @@ async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
     // Astreintes (t049, lot 7) et interventions déclarées : filtrées hors du service RH (motifs : textes libres).
     astreintes: await db.all<Astreinte>('astreintes'),
     interventionsAstreinte: await db.all<InterventionAstreinte>('astreinteInterventions'),
+    attentesSession,
   };
   // Absences en attente du fichier de paie par période (server/src/absences-paie.ts) : lit le contenu figé des lots.
   // Déplacements en attente du fichier de paie (t031, server/src/deplacements-paie.ts) : lit la table des éléments émis.
@@ -207,6 +213,8 @@ const demandeSansMotifRh = (r: DemandeCollab): DemandeCollab => (r.rouverteMotif
 const suiviesNeutres = (l: readonly FormationSuivie[]): FormationSuivie[] =>
   l.filter(x => !x.annuleLe).map(x => ({ ...x, corrigeMotif: null, auteur: null, auteurId: null }));
 const delivrancesNeutres = (l: readonly HabDelivrance[]): HabDelivrance[] => l.map(x => ({ ...x, auteur: null, auteurId: null }));
+/** Attente d'une liste d'attente (lot 7, t120) hors du service RH : sans l'auteur de l'inscription en file ni de sa fin. */
+const attenteNeutre = (a: AttenteSession): AttenteSession => ({ ...a, par: null, issuePar: null });
 
 /**
  * Coordonnées sur place d'un déplacement (hébergement, contact local : textes libres du service RH, t068) et contact
@@ -507,6 +515,9 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
     // Formations suivies et délivrances d'habilitation : celles du périmètre, comme les certifications et les titres.
     formationsSuivies: suiviesNeutres(mine(full.formationsSuivies ?? [])),
     habDelivrances: delivrancesNeutres(mine(full.habDelivrances ?? [])),
+    // Liste d'attente (lot 7, t120) : les siennes ; pour le manager, celles de son périmètre (place dans la file comprise) ;
+    // sans les auteurs, comme les formations suivies.
+    attentesSession: mine(full.attentesSession ?? []).map(attenteNeutre),
     delegations: delegationsVisibles(d, user),
     delegues,
     // Manager qui délègue pour lui-même (Mon espace ou espace manager) : suppléants possibles, réduits à l'annuaire.
@@ -696,6 +707,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     interventionsAstreinte: paie ? full.interventionsAstreinte ?? [] : [],
     // Compte professionnel de prévention (t052) : référent HSE et lecture seule ; pas la paie (le service RH lui remet l'export).
     ...(formations ? { c2p: c2pDe(full) } : {}),
+    // Listes d'attente des sessions (lot 7, t120) : avec les sessions (référent HSE, lecture seule), sans les auteurs.
+    attentesSession: formations ? (full.attentesSession ?? []).map(attenteNeutre) : [],
   };
 }
 

@@ -277,7 +277,9 @@ test('t072 migration nommée : compteurs et reports d’une base existante daté
     // Lot 7 (t049) : index des astreintes, INT-AST déjà chargée par la démonstration.
     'lot7-astreintes-activite-index',
     // Lot 7, C2P : colonnes nouvelles, rien à reprendre (base neuve : exécutée, sans effet).
-    'lot7-prevention-c2p']);
+    'lot7-prevention-c2p',
+    // Lot 7, chantier C (t120) : index de la liste d'attente des sessions.
+    'lot7-formations-index-attentes']);
   const ds = await loadFull(db, ADMIN);
   assert.ok(ds.soldesReprise.every(s => s.arreteLe === '2026-10-10'), 'date de mise en service de cette version');
   const recu = ds.reports.find(r => r.empId === 6)!, accorde = ds.reports.find(r => r.empId === 2)!;

@@ -26,6 +26,7 @@ import { Formations } from './Formations.tsx';
 import { ForfaitJours } from './ForfaitJours.tsx';
 import { Fractionnement } from './Fractionnement.tsx';
 import { Hierarchie } from './Hierarchie.tsx';
+import { ListeAttente } from './ListeAttente.tsx';
 import { Keystone } from './Keystone.tsx';
 import { MatriculesPaie } from './MatriculesPaie.tsx';
 import { Pieces } from './Pieces.tsx';
@@ -77,6 +78,7 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'repos', place: 'droite', Section: ReposHebdomadaire },
   { id: 'sante', place: 'gauche', Section: Sante },
   { id: 'formations', place: 'droite', Section: Formations },
+  { id: 'liste-attente', place: 'droite', Section: ListeAttente },
   { id: 'postes-risques', place: 'droite', Section: PostesRisques },
   { id: 'confidentialite', place: 'droite', Section: Rgpd },
   { id: 'pieces', place: 'droite', Section: Pieces },

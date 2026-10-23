@@ -422,6 +422,17 @@ export const TABLES = {
     pk: 'id', auto: true,
     cols: { id: 'int', astreinteId: 'int', empId: 'int', jour: 'text', debut: 'text', fin: 'text', heures: 'real', declareLe: 'text', declarePar: 'text' },
   },
+  // Liste d'attente des sessions complètes (lot 7, chantier C, t120 : server/src/liste-attente.ts) : une ligne par session et
+  // par salarié, rang d'arrivée, demande qui l'y a placé, recyclage (`certId`) ou formation initiale, statut, proposition au
+  // service RH (`proposeeLe`) et fin de l'attente (`issue` codée, jour, auteur). Migration PostgreSQL 0007_formations.sql.
+  attentesSession: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', sessionId: 'int', empId: 'int', demandeId: 'int', certId: 'int', inscriptionId: 'int', rang: 'int', le: 'text', par: 'text',
+      statut: 'text', proposeeLe: 'text', issueLe: 'text', issuePar: 'text', issue: 'text',
+    },
+    unique: [['sessionId', 'empId']],
+  },
 } satisfies Record<string, TableDef>;
 
 export type TableName = keyof typeof TABLES;

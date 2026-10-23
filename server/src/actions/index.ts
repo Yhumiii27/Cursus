@@ -47,6 +47,7 @@ import { formationsSuiviesActions } from './formations-suivies.ts';
 import { conservationActions } from './conservation.ts';
 import { agendaActions } from './agenda.ts';
 import { astreintesActions } from './astreintes.ts';
+import { c2pActions } from './c2p.ts';
 
 /**
  * Registre typé (t164) : chaque famille est déclarée avec « satisfies Record<string, ActionHandler> », ce qui garde ses
@@ -101,6 +102,7 @@ const REGISTRE = {
   ...conservationActions,
   ...agendaActions,
   ...astreintesActions,
+  ...c2pActions,
 } satisfies Record<string, ActionHandler>;
 
 /** Nom d'une action exposée par POST /api/actions/:nom. */

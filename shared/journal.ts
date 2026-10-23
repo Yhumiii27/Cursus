@@ -128,6 +128,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'referentiel.activite.archiver': 'Activité interne archivée ou rétablie',
   'referentiel.horaire.enregistrer': 'Horaire de poste créé ou modifié',
   'referentiel.horaire.archiver': 'Horaire de poste archivé ou rétabli',
+  'referentiel.poste.expositions': 'Facteurs d’exposition du poste (C2P)',
+  'referentiel.horaire.alternant': 'Horaire qualifié pour le C2P (équipes alternantes)',
   'migration.postes': 'Reprise : postes créés depuis les fiches',
   // Demandes des collaborateurs
   'demande.formation': 'Demande de formation',
@@ -341,6 +343,8 @@ export const CHAMP_LABEL: Record<string, string> = {
   oblig: 'Vaccins obligatoires', rec: 'Vaccins recommandés', passMois: 'Validité du passeport après l’entrée (mois)', secu: 'Sécurité sociale',
   archive: 'Archivée le', vigilance: 'Vigilance (France Diplomatie)', vigilanceLe: 'Vigilance vérifiée le',
   grandDeplacement: 'Grand déplacement', hebergement: 'Hébergement', contactSurPlace: 'Contact sur place', arianeLe: 'Inscription sur Ariane le',
+  // Compte professionnel de prévention (lot 7)
+  c2p: 'Facteurs d’exposition (C2P)', alternant: 'Équipes successives alternantes',
   // Horaires de poste et jours fériés (lot 6)
   debut: 'Début', finHoraire: 'Fin', pause: 'Pause (minutes)', horaire: 'Horaire', solidarite: 'Journée de solidarité', solidariteFerie: 'Férié de la journée de solidarité',
   nonChomes: 'Fériés non chômés',

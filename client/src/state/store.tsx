@@ -127,6 +127,8 @@ export type DialogState =
   /** Onglet Postes : poste (création sans identifiant) et exigences communes d'une équipe (shared/rules/exigences.ts). */
   | { type: 'refPoste'; id?: number | null }
   | { type: 'refEquipe'; nom: string }
+  /** Onglet Postes : facteurs d'exposition du C2P cochés sur un poste (lot 7, shared/rules/c2p.ts). */
+  | { type: 'refPosteC2p'; id: number }
   /** Onglet Activités internes (création sans code, renommage) ; mandat au CSE d'un salarié (fiche, service RH). */
   | { type: 'refActivite'; code?: string | null }
   /** Onglet Horaires : horaire de poste (création sans code, modification ; shared/rules/horaires.ts). */

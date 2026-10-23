@@ -19,6 +19,7 @@ import { CONTRATS_HISTORIQUE } from './lot6-contrats.ts';
 import { DUREE_HEURES, HAB_DELIVRANCES } from './lot6-securite.ts';
 import { INDEX_CONSERVATION_AGENDA } from './lot6-pieces.ts';
 import { ASTREINTES_ACTIVITE_INDEX } from './lot7-astreintes.ts';
+import { C2P_COLONNES } from './lot7-prevention.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   INDEX_JOURNAL,
@@ -50,4 +51,5 @@ export const MIGRATIONS: readonly Migration[] = [
   DELEGATIONS_VALIDATION,
   INDEX_CONSERVATION_AGENDA,
   ASTREINTES_ACTIVITE_INDEX,
+  C2P_COLONNES,
 ];

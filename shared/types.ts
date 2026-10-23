@@ -120,6 +120,13 @@ export interface Poste extends Exigences {
    * la formation renforcée à la sécurité depuis son entrée (shared/rules/formation-renforcee.ts). Décoché par défaut.
    */
   risquesL4154?: boolean;
+  /**
+   * Compte professionnel de prévention (t052, shared/rules/c2p.ts) : facteurs d'exposition que Cursus ne mesure pas, cochés
+   * par le service RH ou le référent HSE quand ses titulaires y sont exposés au-delà du seuil de l'art. D4163-2 après les
+   * protections collectives et individuelles. null ou vide : aucun (décochés par défaut). Hors des vues du manager et du
+   * collaborateur.
+   */
+  c2p?: FacteurPoste[] | null;
 }
 /**
  * Couverture minimale d'une équipe (t067, shared/rules/couverture.ts) : au moins `min` membres présents, non absents et
@@ -173,7 +180,15 @@ export interface Equipe {
  * leurs exigences : code (choisi une fois pour toutes), libellé, début et fin (« HH:MM » ; une fin antérieure au début
  * finit le lendemain : poste de nuit), pause en minutes. Archivé, il n'est plus proposé ; les feuilles qui le portent le gardent.
  */
-export interface Horaire { code: string; nom: string; debut: string; fin: string; pause: number; archive?: ISODate | null }
+export interface Horaire {
+  code: string; nom: string; debut: string; fin: string; pause: number; archive?: ISODate | null;
+  /**
+   * Compte professionnel de prévention (t052, shared/rules/c2p.ts) : horaire d'un roulement en équipes successives
+   * alternantes (2x8, 3x8…), dont les nuits comptent au seuil de 50 et non à celui de 120 (art. D4163-2). null ou absent :
+   * pas encore qualifié (ses nuits comptent comme travail de nuit, signalées « à qualifier ») ; faux : non alternant.
+   */
+  alternant?: boolean | null;
+}
 /** Horaire figé sur une feuille de temps : code, début, fin et pause au moment de la soumission ou de la validation. */
 export type HoraireFige = Pick<Horaire, 'code' | 'debut' | 'fin' | 'pause'>;
 /** Projet ou chantier tenu dans Keystone : archivé, il reste en base (historique) sans plus être proposé ni évalué. */
@@ -1632,6 +1647,12 @@ export interface Dataset {
    */
   astreintes?: Astreinte[];
   interventionsAstreinte?: InterventionAstreinte[];
+  /**
+   * Compte professionnel de prévention (t052, shared/rules/c2p.ts) : synthèse de l'année en cours et de la précédente,
+   * calculée par le serveur sur toutes les feuilles validées (server/src/dataset.ts) ; service RH, référent HSE et lecture
+   * seule. Absente ailleurs (manager, collaborateur, paie).
+   */
+  c2p?: SyntheseC2p[];
 }
 
 /** Catégorie de données d'un dossier, avec sa durée de conservation après la sortie (shared/rules/conservation.ts). */
@@ -1685,3 +1706,45 @@ export interface Piece {
   retireeLe: string | null;
   retireePar: string | null;
 }
+
+// — Compte professionnel de prévention (t052, shared/rules/c2p.ts) —
+/**
+ * Facteurs d'exposition du C2P que Cursus ne mesure pas, cochés sur le poste (Référentiels → Postes) : travail répétitif,
+ * activités en milieu hyperbare, températures extrêmes, bruit (art. L4163-1 et D4163-2).
+ */
+export type FacteurPoste = 'repetitif' | 'hyperbare' | 'temperatures' | 'bruit';
+/** Les six facteurs : nuits comptées d'après les horaires de poste (travail de nuit, équipes alternantes) et facteurs du poste. */
+export type FacteurC2p = 'nuit' | 'alternant' | FacteurPoste;
+/**
+ * Exposition d'un salarié sur une année civile : période du contrat dans l'année, nuits comptées (au moins 1 h de travail
+ * entre 0 h et 5 h, d'après les horaires figés des feuilles validées), seuils au prorata, facteurs du poste occupé et
+ * facteurs exposés. Aucune donnée de santé ; identifiants, dates et nombres seulement.
+ */
+export interface LigneC2p {
+  empId: number;
+  /** Période du contrat dans l'année (bornée par l'entrée et la fin du contrat). */
+  du: ISODate; au: ISODate;
+  /** Part de l'année couverte par cette période (1 : année complète), appliquée aux seuils. */
+  prorata: number;
+  /**
+   * Qui déclare : l'employeur, l'entreprise de travail temporaire (intérimaire : informations à lui transmettre), ou
+   * personne (contrat de moins d'un mois, non déclaré).
+   */
+  declarant: 'employeur' | 'ett' | null;
+  /** Nuits comptées hors équipes alternantes (horaires à qualifier compris) et nuits en équipes successives alternantes. */
+  nuits: number; nuitsAlternantes: number;
+  /** Parmi `nuits`, celles faites sous un horaire pas encore qualifié (alternant ou non). */
+  nuitsAQualifier: number;
+  /** Seuils au prorata de la période (120 et 50 nuits pour une année complète). */
+  seuilNuit: number; seuilAlternant: number;
+  /** Facteurs cochés sur le poste occupé. */
+  facteursPoste: FacteurPoste[];
+  /** Facteurs exposés au-delà du seuil (nuits) ou cochés sur le poste. */
+  expositions: FacteurC2p[];
+  /** Semaines validées avec des heures un jour sans horaire figé (aucune nuit n'y est comptée). */
+  semainesSansHoraire: number;
+  /** Feuilles de l'année pas encore validées : leurs nuits ne comptent qu'à la validation. */
+  feuillesNonValidees: number;
+}
+/** Synthèse annuelle du C2P (écran Prévention) : lignes par salarié, horaires de nuit à qualifier, date du calcul. */
+export interface SyntheseC2p { annee: number; arrete: ISODate; lignes: LigneC2p[]; horairesAQualifier: string[] }

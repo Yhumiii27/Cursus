@@ -34,6 +34,8 @@ const PAGES: Record<View, ComponentType> = {
   portail: aLaDemande(() => import('./pages/Portail.tsx'), 'Portail'),
   referentiels: aLaDemande(() => import('./pages/Referentiels.tsx'), 'Referentiels'),
   miseEnService: aLaDemande(() => import('./pages/MiseEnService.tsx'), 'MiseEnService'),
+  // Compte professionnel de prévention (lot 7) : synthèse annuelle des expositions et export pour la DSN.
+  prevention: aLaDemande(() => import('./pages/Prevention.tsx'), 'Prevention'),
   // Vue commune à tous les espaces, ouverte aussi sans connexion (depuis l'écran de connexion).
   confidentialite: aLaDemande(() => import('./pages/Confidentialite.tsx'), 'Confidentialite'),
   aide: aLaDemande(() => import('./pages/Aide.tsx'), 'Aide'),

@@ -18,7 +18,7 @@ import { clore } from './inscriptions-closes.ts';
 import { joindrePieces, retirerPiecesDe } from './pieces.ts';
 import { appliquerFormalite, retirerFormalite } from './voyages.ts';
 import { placesAProposer } from '../../../shared/rules/liste-attente.ts';
-import { accepterEnAttente, promouvoirAttente, promouvoirAttentes, retirerAttentesFormation } from '../liste-attente.ts';
+import { accepterEnAttente, ajusterPropositions, cloreAttenteInscrit, promouvoirAttente, promouvoirAttentes, retirerAttentesFormation } from '../liste-attente.ts';
 
 /**
  * Inscrit d'une session passée, pas encore clôturée : seule la clôture (service RH) l'en sort, avec sa présence
@@ -60,6 +60,13 @@ const inscrire: ActionHandler = async (ctx, p) => {
     return `${emp.nom} est déjà inscrit à cette session`;
   }
   if (sess.inscrits >= sess.places) throw new ActionError('Cette session est complète');
+  // Places libres toutes proposées à la liste d'attente (lot 7, t120) : elles reviennent à la file, dans l'ordre, et le
+  // service RH confirme. Le manager ne les prend pas ; le service RH et le référent HSE peuvent passer outre (urgence) :
+  // les propositions en trop sont alors remises en attente, à leur rang (`ajusterPropositions`).
+  const prisSurFile = placesAProposer(sess, (ctx.ds.attentesSession ?? []).filter(a => a.empId !== emp.id)) <= 0;
+  if (prisSurFile && !aDroit(ctx, 'formations')) {
+    throw new ActionError('Les places libres de cette session sont proposées à sa liste d’attente : le service RH confirme ces inscriptions dans l’ordre de la file');
+  }
   // Absent un jour de la session (congé validé, arrêt…) ou inscrit à une autre session ce jour-là : refusé.
   const conflit = blocage(conflitsSession(ctx.d, emp.id, sess, { sessionId: (cert ?? insc)!.sessionId }));
   if (conflit) throw new ActionError(conflit);
@@ -72,8 +79,11 @@ const inscrire: ActionHandler = async (ctx, p) => {
   else await ctx.db.update<Inscription>('inscriptions', insc!.id, { sessionId: sess.id, convoc: conv, date: ctx.d.ti, convocLe });
   // « Envoyer maintenant » : convocation par e-mail avec le fichier .ics (sans adresse : à remettre en main propre).
   const envoi = conv === 'now' && !await convoquerFormation(ctx, sess, emp, cert ? 'recyclage' : 'initiale') ? ' · convocation à remettre en main propre (aucune adresse e-mail)' : '';
-  // Place libérée dans l'ancienne session : proposée à sa liste d'attente (lot 7, t120, server/src/liste-attente.ts).
-  const attente = await promouvoirAttente(ctx, ancienne?.id);
+  // Personne de la file inscrite directement : son attente est close ; place proposée prise par le service RH : la
+  // proposition en trop revient en attente. Place libérée dans l'ancienne session : proposée à sa liste d'attente (lot 7,
+  // t120, server/src/liste-attente.ts).
+  await cloreAttenteInscrit(ctx, emp.id, sess.id);
+  const attente = [await ajusterPropositions(ctx, sess.id), await promouvoirAttente(ctx, ancienne?.id)].filter(Boolean).join(' · ');
   return `${emp.nom} — inscription à la session du ${fmt(parse(sess.date))}${conv === 'now' ? envoi || ' · convocation envoyée' : ' · convocation à envoyer'}`
     + (annulee ? ` · convocation à la session du ${fmt(parse(ancienne!.date))} annulée par e-mail` : '') + (attente ? ` · ${attente}` : '');
 };
@@ -200,6 +210,8 @@ const accepterDemande: ActionHandler = async (ctx, p) => {
           suite = { sessionId: sess.id, inscriptionId: i.id, cree: true };
         }
       }
+      // Déjà dans la file de cette session (demande précédente) : son attente est close (lot 7, t120).
+      await cloreAttenteInscrit(ctx, emp.id, sess.id);
       await done(`Inscrit à la session du ${fmt(parse(sess.date))} — convocation envoyée`, suite);
       // La convocation (e-mail et .ics) tient lieu de réponse au salarié ; le manager qui a fait la demande est prévenu.
       await notifierDecisionDemande(ctx, emp, r, true, await convoquerFormation(ctx, sess, emp, cert ? 'recyclage' : 'initiale'));

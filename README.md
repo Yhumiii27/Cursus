@@ -317,7 +317,7 @@ de santé reste hors du dépôt et se rejoue par `CURSUS_CAS_PAIE=/chemin/absolu
   session ; heures prévues proposées dans la feuille de temps des inscrits (ligne interne INT-FORM, jamais envoyée à
   Keystone ; Paramètres → Formations).
 - **Liste d'attente des sessions complètes** (lot 7) : une demande acceptée sur une session pleine place le salarié en
-  file, par ordre d'arrivée, avec sa place dans Mon espace ; une place libérée est proposée au service RH, qui confirme
+  file, dans l'ordre où le service RH accepte les demandes, avec sa place dans Mon espace ; une place libérée est proposée au service RH, qui confirme
   l'inscription (la convocation part alors), ou inscrit aussitôt en option ; file close à l'annulation ou à la clôture
   (demandes au plan de formation). Paramètres → Liste d'attente des sessions.
 - **Corrections d'une saisie erronée** : certification corrigée (date, formation ; service RH et référent HSE) ou supprimée

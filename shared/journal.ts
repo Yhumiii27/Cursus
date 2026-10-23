@@ -106,6 +106,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'attente.proposee': 'Place libérée proposée depuis la liste d’attente',
   'attente.inscrite': 'Inscription automatique depuis la liste d’attente',
   'attente.sautee': 'Liste d’attente : salarié non admissible passé',
+  'attente.remise': 'Liste d’attente : proposition remise en attente',
   'attente.purgee': 'Liste d’attente close (session annulée ou clôturée)',
   // Habilitations
   'hab.delivrer': 'Habilitation délivrée',

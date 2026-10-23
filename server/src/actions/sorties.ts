@@ -17,7 +17,7 @@ import { absenceKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { annulerSiConvoque } from '../notifications.ts';
 import { controlerSoldeSortie, photographierSortie, retirerSoldeSortie } from '../soldes-sortie.ts';
 import { amorcer, cloreHistorique, rouvrirHistorique } from '../avenants.ts';
-import { promouvoirAttentes, retirerAttentesDe } from '../liste-attente.ts';
+import { promouvoirAttentes, retirerAttentesDe, retirerInscription } from '../liste-attente.ts';
 import { ActionError, getEmp, refuserSoiMeme, requireRh, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 /**
@@ -77,7 +77,7 @@ const sortie: ActionHandler = async (ctx, p) => {
     if (await annulerSiConvoque(ctx, ctx.d.session(x.sessionId), emp, x)) annulees++;
   }
   for (const i of c.inscriptions) {
-    await ctx.db.remove('inscriptions', i.id);
+    await retirerInscription(ctx, i.id);
     if (await annulerSiConvoque(ctx, ctx.d.session(i.sessionId), emp, i)) annulees++;
   }
   // Liste d'attente (lot 7, t120) : ses attentes de sessions qui finissent après son départ sont retirées ; les places qu'il

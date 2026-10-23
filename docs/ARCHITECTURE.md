@@ -1961,7 +1961,8 @@ Règles dans `shared/rules/sessions.ts` (inscrits nominatifs, contrôles, liste 
 - **Liste d'attente** (lot 7, chantier C, t120 ; règles `shared/rules/liste-attente.ts`, serveur `server/src/liste-attente.ts`,
   table `attentesSession`, migration PostgreSQL `0007_formations.sql`, index SQLite `lot7-formations-index-attentes`) :
   une demande de formation acceptée sur une session complète (`demande.accepter`, choix `complete` : `attente` par défaut ou
-  `plan`) place le salarié dans la file de la session, par ordre d'arrivée (`rang`), sans priorité métier ; la réponse et
+  `plan`) place le salarié dans la file de la session, dans l'ordre où le service RH accepte les demandes (`rang`, donné à
+  l'acceptation, pas à la date de la demande), sans priorité métier ; la réponse et
   l'e-mail (`attente.formation`) disent que la session est complète et sa place (`position`, calculée au chargement sur
   toutes les attentes, jamais stockée). Réglage `formationsListeAttente` (Paramètres → Liste d'attente des sessions) :
   désactivé, la demande va au plan de formation, la réponse dit que la session était complète. Places libres de
@@ -1988,6 +1989,17 @@ Règles dans `shared/rules/sessions.ts` (inscrits nominatifs, contrôles, liste 
   des sessions (Formations), « Mes listes d'attente » et place du jour sous la réponse (Mon espace), section de la fiche
   (retrait par le manager), choix « liste d'attente ou plan » à l'acceptation (dialogue `accepterAttente`), sessions
   complètes proposées dans la demande de formation quand la liste est activée.
+  Places proposées : `Session.proposees` (calculé au chargement sur toute la file, connu du manager qui ne la voit pas).
+  `plan.inscrire` ne les prend pas au manager (« proposées à sa liste d'attente : le service RH confirme ») ; le service
+  RH et le référent HSE peuvent passer outre, et `ajusterPropositions` remet alors en attente, à leur rang, les dernières
+  propositions qui n'ont plus de place (`attente.remise`, motif `plus_de_place`) ; de même quand `session.modifier` réduit
+  les places. Le retour dans une session quittée (réouverture d'une demande, certification annulée : `refusRetour`) ne
+  prend pas non plus une place proposée. Une personne proposée devenue indisponible (absence, autre session, session
+  précédente à clôturer) ne bloque pas la place : `attente.confirmer` la remet en attente à son rang (`attente.remise`,
+  motif codé) et propose la place au suivant admissible. Une personne de la file inscrite directement voit son attente
+  close (`inscription`). Une inscription supprimée (désinscription, clôture, sortie, certification, réouverture) n'est
+  plus désignée par `attentesSession.inscriptionId` (`retirerInscription` ; PostgreSQL : `ON DELETE SET NULL`), sans quoi
+  SQLite garderait une référence orpheline, refusée par la reprise vers PostgreSQL.
 - **Base existante** : colonnes et table ajoutées au démarrage (schéma déclaratif) ; `server/src/migrate.ts`
   valide sur la présence les formations sans mode de validation, libère la place d'une certification remplacée
   dans toute session ouverte postérieure au recyclage, puis clôture une fois les sessions passées de l'ancienne

@@ -11,6 +11,8 @@ import { fmt, plural } from '../../../shared/format.ts';
 import { blocage, conflitsSession } from '../../../shared/rules/conflits.ts';
 import { finSession, joursSession, plageCourte, sessionDu, surPlusieursJours } from '../../../shared/rules/plage-session.ts';
 import { horsContratLe } from '../../../shared/rules/contrats.ts';
+import { placesDirectes } from '../../../shared/rules/liste-attente.ts';
+import type { Session } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Seg } from '../components/ui.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
@@ -47,7 +49,10 @@ export function PlanDialog({ empId, certId, inscriptionId, sessionId: demandee }
       </Dialog>
     );
   }
-  const ouvertes = sessions.some(s => s.inscrits < s.places);
+  // Places libres proposées à la liste d'attente (lot 7, t120) : réservées à la file, sauf pour le service RH et le
+  // référent HSE, qui peuvent passer outre (la proposition en trop revient en attente, comme le fait le serveur).
+  const libres = (s: Session) => (formations ? s.places - s.inscrits : placesDirectes(s));
+  const ouvertes = sessions.some(s => libres(s) > 0);
   // Seul le service RH crée des sessions : les autres transmettent une demande de formation.
   const demander = !formations && !ouvertes;
   const choisie = sessions.find(s => s.id === sessionId);
@@ -80,14 +85,17 @@ export function PlanDialog({ empId, certId, inscriptionId, sessionId: demandee }
       <Field label="Session">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           {sessions.map(s => {
-            const full = s.inscrits >= s.places, checked = sessionId === s.id;
+            const full = libres(s) <= 0, checked = sessionId === s.id;
+            const proposees = s.proposees ?? 0;
             return (
               <label key={s.id} className={`radio radio-opt${checked ? ' checked' : ''}${full ? ' full' : ''}`}>
                 <input type="radio" name="session" checked={checked} disabled={full} onChange={() => setSessionId(s.id)} />
                 <span className="dot" />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-3)', flex: 1, minWidth: 0 }}>
                   <div><div style={{ fontSize: 14 }}>{plageCourte(s)}</div><div className="text-muted sub">{s.lieu} · {fm.organisme}{surPlusieursJours(s) ? ` · ${plural(joursSession(s).length, 'jour', 'jours')}` : ''}</div></div>
-                  <span className="text-muted sub nowrap">{full ? 'Complète' : plural(s.places - s.inscrits, 'place restante', 'places restantes')}</span>
+                  <span className="text-muted sub nowrap">{full
+                    ? (s.inscrits < s.places ? 'Places proposées à la liste d’attente' : 'Complète')
+                    : `${plural(libres(s), 'place restante', 'places restantes')}${formations && proposees ? ` dont ${plural(proposees, 'proposée', 'proposées')} à la liste d’attente` : ''}`}</span>
                 </div>
               </label>
             );

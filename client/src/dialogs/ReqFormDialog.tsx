@@ -149,7 +149,7 @@ export function ReqFormDialog({ f: f0, sessionId: s0, empId }: { f?: string; ses
           </select>
         </Field>
       )}
-      {choisie && choisie.inscrits >= choisie.places && <Fine>Session complète : le service RH pourra placer {soi ? 'votre demande' : 'la demande'} en liste d’attente, dans l’ordre d’arrivée ; une place libérée est proposée au premier de la file.</Fine>}
+      {choisie && choisie.inscrits >= choisie.places && <Fine>Session complète : le service RH pourra placer {soi ? 'votre demande' : 'la demande'} en liste d’attente, dans l’ordre où il accepte les demandes ; une place libérée est proposée au premier de la file.</Fine>}
       <Controles msgs={conflits} />
       {!isAutre && sessions.length === 0 && <Fine>Aucune session ouverte : la demande sera ajoutée au plan de formation.</Fine>}
       <Field label="Motif" htmlFor="rf-m" requis erreur={v.erreur(erreurs.motif)}>

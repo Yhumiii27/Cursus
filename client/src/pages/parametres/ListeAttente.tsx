@@ -25,7 +25,7 @@ export function ListeAttente({ s }: SectionProps) {
           options={MODES} onChange={mode => enregistrer({ formationsAttenteMode: mode })} />
       </div>
       <Fine>
-        Une demande de formation acceptée sur une session complète place le salarié dans la file de la session, par ordre d’arrivée, sans
+        Une demande de formation acceptée sur une session complète place le salarié dans la file de la session, dans l’ordre d’acceptation, sans
         autre priorité ; la réponse et l’e-mail lui disent que la session est pleine et quelle est sa place. Une place libérée (désinscription,
         changement de session, recyclage enregistré, places ajoutées, sortie, demande rouverte) est {s.formationsAttenteMode === 'automatique'
           ? 'donnée au premier encore admissible, inscrit et convoqué aussitôt'

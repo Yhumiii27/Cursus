@@ -3,7 +3,9 @@
 // promotion à chaque libération de place (changement de session, désinscription, recyclage enregistré, places augmentées,
 // sortie, réouverture d'une demande, retrait d'une personne proposée), confirmation par le service RH ou inscription
 // automatique, salariés non admissibles passés avec un motif codé au journal, retrait, file close à l'annulation et à la
-// clôture, filtrage de l'instantané par profil.
+// clôture, filtrage de l'instantané par profil ; places proposées gardées à la file (inscription directe, retour d'une
+// demande rouverte, places réduites), personne proposée devenue indisponible remise en attente, inscription supprimée
+// détachée de l'attente.
 // Jeu de démonstration au 10 octobre 2026 : session 2 = SST du 18 novembre (12 places, Nadia Kaci inscrite en formation
 // initiale). Les cas la réduisent à une place : elle est complète.
 import { test } from 'node:test';
@@ -353,4 +355,142 @@ test('migration nommée lot7-formations-index-attentes : index par salarié cré
   assert.equal(await INDEX_ATTENTES.executer(db), 'index attentes_session_emp');
   assert.equal(indexExiste(db, 'attentes_session_emp'), true);
   assert.equal(await INDEX_ATTENTES.necessaire!(db), false);
+});
+
+// — Relecture du chantier C (étape 1) : places proposées, propositions bloquées, références —
+
+test('confirmation d’une personne proposée devenue indisponible : remise en attente à son rang, place au suivant', async () => {
+  const { db, run, attenteDe, enAttente, journal, certSst } = await fresh();
+  await enAttente(2);
+  await enAttente(18);
+  await run(RH, 'plan.desinscrire', { empId: 9, sessionId: 2 });
+  assert.equal((await attenteDe(2)).statut, 'proposee');
+  // Mehdi pose un congé sur la session après la proposition : il ne bloque pas la place.
+  await db.insert('absences', { empId: 2, type: 'CP', du: '2026-11-16', au: '2026-11-20', statut: 'validee', keystone: false, justificatif: false });
+  const msg = await run(RH, 'attente.confirmer', { id: (await attenteDe(2)).id });
+  assert.match(msg, /^Mehdi Benali : absence validée.* — inscription impossible pour l’instant, remis en liste d’attente à son rang · liste d’attente : Romain Chevalier proposé au service RH/);
+  const mehdi = await attenteDe(2);
+  assert.deepEqual([mehdi.statut, mehdi.proposeeLe, mehdi.rang, mehdi.position], ['attente', null, 1, 1], 'garde son rang');
+  assert.equal((await attenteDe(18)).statut, 'proposee');
+  assert.deepEqual((await journal('attente.remise')).map(l => [l.payload.empId, l.payload.motif]), [[2, 'conflit']]);
+  // Romain confirmé : la place est prise.
+  assert.match(await run(RH, 'attente.confirmer', { id: (await attenteDe(18)).id }), /Romain Chevalier inscrit à la session/);
+  assert.equal((await certSst(18)).sessionId, 2);
+});
+
+test('inscription directe : une place proposée à la file n’est pas prise par le manager ; le service RH passe outre', async () => {
+  const { db, run, attenteDe, enAttente, emails, certSst } = await fresh();
+  await enAttente(2);
+  await run(RH, 'plan.desinscrire', { empId: 9, sessionId: 2 });
+  assert.equal((await attenteDe(2)).statut, 'proposee');
+  // Le manager voit la place proposée sans voir la file (Session.proposees).
+  const s2 = (await buildSnapshot(db, KARIM)).sessions.find(s => s.id === 2)!;
+  assert.deepEqual([s2.places, s2.inscrits, s2.proposees], [1, 0, 1]);
+  const romain = (await certSst(18)).id;
+  await assert.rejects(async () => await run(KARIM, 'plan.inscrire', { empId: 18, certId: romain, sessionId: 2, conv: 'now' }),
+    (e: unknown) => e instanceof ActionError && /proposées à sa liste d’attente : le service RH confirme/.test(e.message));
+  assert.equal((await certSst(18)).sessionId, null);
+  // Le service RH inscrit Romain en urgence : la proposition de Mehdi revient en attente, à son rang.
+  const msg = await run(RH, 'plan.inscrire', { empId: 18, certId: romain, sessionId: 2, conv: 'later' });
+  assert.match(msg, /liste d’attente : plus de place libre pour Mehdi Benali, remis en attente à son rang/);
+  assert.equal((await attenteDe(2)).statut, 'attente');
+  // Romain désinscrit : la place est de nouveau proposée à Mehdi, avec un nouvel e-mail au service RH.
+  const avant = (await emails('attente.proposition')).length;
+  await run(RH, 'plan.desinscrire', { empId: 18, sessionId: 2 });
+  assert.equal((await attenteDe(2)).statut, 'proposee');
+  assert.equal((await emails('attente.proposition')).length, avant + 1);
+});
+
+test('personne de la file inscrite directement : son attente est close, sans toucher aux autres', async () => {
+  const { db, run, attenteDe, enAttente, certSst } = await fresh();
+  await enAttente(2);
+  await enAttente(18);
+  // Deux places de plus : Mehdi et Romain proposés ; le service RH inscrit Romain depuis sa fiche.
+  await run(RH, 'session.modifier', { id: 2, places: 3 });
+  await run(RH, 'plan.inscrire', { empId: 18, certId: (await certSst(18)).id, sessionId: 2, conv: 'later' });
+  const r = await attenteDe(18);
+  assert.deepEqual([r.statut, r.issue], ['inscrit', 'inscription']);
+  assert.equal((await attenteDe(2)).statut, 'proposee', 'sa place reste proposée');
+  assert.equal((await db.query('SELECT id FROM attentes_session WHERE statut = ?', ['proposee'])).length, 1);
+});
+
+test('places réduites sous les propositions : les dernières reviennent en attente, à leur rang', async () => {
+  const { run, attenteDe, enAttente, journal } = await fresh();
+  await enAttente(2);
+  await enAttente(18);
+  await run(RH, 'session.modifier', { id: 2, places: 3 });
+  assert.equal((await attenteDe(18)).statut, 'proposee');
+  const msg = await run(RH, 'session.modifier', { id: 2, places: 2 });
+  assert.match(msg, /liste d’attente : plus de place libre pour Romain Chevalier, remis en attente à son rang/);
+  assert.equal((await attenteDe(2)).statut, 'proposee');
+  assert.equal((await attenteDe(18)).statut, 'attente');
+  await run(RH, 'session.modifier', { id: 2, places: 1 });
+  assert.equal((await attenteDe(2)).statut, 'attente');
+  assert.deepEqual((await journal('attente.remise')).map(l => [l.payload.empId, l.payload.motif]), [[18, 'plus_de_place'], [2, 'plus_de_place']]);
+});
+
+test('réouverture d’une demande : le retour dans la session quittée ne prend pas une place proposée à la file', async () => {
+  const { db, run, attenteDe, demande, enAttente, certSst } = await fresh();
+  // Session 2 à deux places : Nadia et Léa Girard (recyclage), complète ; Mehdi attend.
+  await db.update('sessions', 2, { places: 2 });
+  await db.update('certifications', (await certSst(15)).id, { sessionId: 2, convoc: 'now', convocLe: '2026-10-01' });
+  await enAttente(2);
+  // Léa demande une session de décembre, acceptée : elle quitte la session 2, Mehdi est proposé.
+  const s3 = (await db.insert<{ id: number }>('sessions', { formation: 'sst', date: '2026-12-08', fin: '2026-12-08', jours: ['2026-12-08'], horaires: [], lieu: 'Lyon', places: 8, statut: 'Confirmée', planId: null, bilan: null })).id;
+  const lea = await demande(15, s3);
+  assert.match(await run(RH, 'demande.accepter', { id: lea }), /Mehdi Benali proposé/);
+  // Rouverte : Léa ne reprend pas la place proposée à Mehdi ; son recyclage redevient à planifier.
+  const msg = await run(RH, 'demande.reouvrir', { id: lea, motif: 'Acceptée par erreur' });
+  assert.match(msg, /retour à la session du 18 nov\. 2026 impossible \(places libres proposées à la liste d’attente\) : recyclage à planifier/);
+  assert.equal((await certSst(15)).sessionId, null);
+  assert.equal((await attenteDe(2)).statut, 'proposee');
+  assert.match(await run(RH, 'attente.confirmer', { id: (await attenteDe(2)).id }), /Mehdi Benali inscrit/);
+});
+
+test('correction d’une certification (formation changée) : la place quittée est proposée à la file', async () => {
+  const { db, run, attenteDe, enAttente, certSst } = await fresh();
+  await db.update('sessions', 2, { places: 2 });
+  const c = await certSst(15);
+  await db.update('certifications', c.id, { sessionId: 2, convoc: 'now', convocLe: '2026-10-01' });
+  await enAttente(2);
+  const msg = await run(RH, 'cert.modifier', { id: c.id, f: 'elec', motif: 'Saisie sur la mauvaise formation' });
+  assert.match(msg, /liste d’attente : Mehdi Benali proposé/);
+  assert.equal((await attenteDe(2)).statut, 'proposee');
+});
+
+test('suppression d’une certification (administrateur RH) : la place quittée est proposée à la file', async () => {
+  const { db, run, attenteDe, enAttente, certSst } = await fresh();
+  await db.update('sessions', 2, { places: 2 });
+  const c = await certSst(15);
+  await db.update('certifications', c.id, { sessionId: 2, convoc: 'now', convocLe: '2026-10-01' });
+  await enAttente(2);
+  const msg = await run({ ...RH, profilRh: 'rh_admin' } as User, 'cert.annuler', { id: c.id, motif: 'Saisie sur la mauvaise fiche' });
+  assert.match(msg, /liste d’attente : Mehdi Benali proposé/);
+  assert.equal((await attenteDe(2)).statut, 'proposee');
+});
+
+test('nouvelle date de session après un recyclage déjà enregistré : place libérée et proposée', async () => {
+  const { db, run, attenteDe, enAttente, certSst, domain } = await fresh();
+  await db.update('sessions', 2, { places: 2 });
+  await db.update('certifications', (await certSst(15)).id, { sessionId: 2, convoc: 'now', convocLe: '2026-10-01' });
+  // Recyclage de Léa enregistré pour le 20 novembre (reprise) : la session du 18 la compte encore, pas une session du 23.
+  await db.insert('certifications', { empId: 15, f: 'sst', obtenue: '2026-11-20', sessionId: null, convoc: null });
+  assert.equal((await domain()).session(2)!.inscrits, 2, 'complète avant la nouvelle date');
+  await enAttente(2);
+  const msg = await run(RH, 'session.modifier', { id: 2, date: '2026-11-23' });
+  assert.match(msg, /place libérée : Léa Girard.*liste d’attente : Mehdi Benali proposé/);
+  assert.equal((await attenteDe(2)).statut, 'proposee');
+});
+
+test('inscription supprimée : l’attente qui la désignait est détachée, aucune référence orpheline', async () => {
+  const { db, run, attentes, demande } = await fresh();
+  const { controlerOrphelins } = await import('../server/src/integrite.ts');
+  // Nadia Kaci (9) : inscription 4 en formation initiale à la session 2 ; elle attend une session de décembre complète.
+  const s3 = (await db.insert<{ id: number }>('sessions', { formation: 'sst', date: '2026-12-08', fin: '2026-12-08', jours: ['2026-12-08'], horaires: [], lieu: 'Lyon', places: 0, statut: 'Confirmée', planId: null, bilan: null })).id;
+  await run(RH, 'demande.accepter', { id: await demande(9, s3) });
+  const a = (await attentes()).find(x => x.empId === 9)!;
+  assert.equal(a.inscriptionId, 4);
+  await run(RH, 'plan.desinscrire', { empId: 9, sessionId: 2 });
+  assert.equal((await attentes()).find(x => x.id === a.id)!.inscriptionId, null);
+  assert.equal((await controlerOrphelins(db)).orphelins, 0);
 });

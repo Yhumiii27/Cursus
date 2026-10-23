@@ -11,6 +11,9 @@
 //   de formation, à replanifier.
 // - `retirerAttentesDe`, `retirerAttentesFormation`, `defaireAttente` : sortie du salarié, certification enregistrée,
 //   demande rouverte.
+// - `ajusterPropositions`, `cloreAttenteInscrit` : places proposées qui n'existent plus (places réduites, inscription
+//   directe par le service RH, retour d'une demande rouverte), personne de la file inscrite hors de la file.
+// - `retirerInscription` : une inscription supprimée n'est plus désignée par une attente (pas de référence orpheline).
 // Rien de ce qui est tracé au journal n'est un texte libre : identifiants, codes de motif.
 import { parse } from '../../shared/dates.ts';
 import { certEnVigueur, Domain, sessionActive } from '../../shared/domain.ts';
@@ -43,6 +46,28 @@ async function tracer(ctx: Ctx, action: string, payload: Record<string, unknown>
   await journaliser(ctx.db, { actor: ctx.user.nom, role: ctx.user.role, action, message: null, payload, salaries });
 }
 const ids = (a: Pick<AttenteSession, 'id' | 'sessionId' | 'empId'>) => ({ attenteId: a.id, sessionId: a.sessionId, empId: a.empId });
+
+/**
+ * Proposition remise en attente (place qui n'existe plus, personne proposée devenue indisponible) : elle garde son rang,
+ * une place libérée plus tard lui revient d'abord. Motif codé au journal (`attente.remise`).
+ */
+async function remettre(ctx: Ctx, a: AttenteSession, motif: 'plus_de_place' | 'conflit' | 'attend_cloture') {
+  await ctx.db.update<AttenteSession>('attentesSession', a.id, { statut: 'attente', proposeeLe: null });
+  await tracer(ctx, 'attente.remise', { ...ids(a), motif }, [a.empId]);
+}
+
+/**
+ * Inscription supprimée (désinscription, clôture réussie, sortie, certification enregistrée, demande rouverte) : les
+ * attentes qui la désignaient ne la désignent plus, dans la même transaction. PostgreSQL le fait seul (ON DELETE SET NULL
+ * de 0007_formations.sql) ; SQLite, sans clé étrangère, garderait une référence orpheline, signalée par le contrôle
+ * d'intégrité et refusée par la reprise vers PostgreSQL.
+ */
+export async function retirerInscription(ctx: Pick<Ctx, 'db'>, id: number) {
+  for (const a of await ctx.db.where<AttenteSession>('attentesSession', 'inscriptionId', id)) {
+    await ctx.db.update<AttenteSession>('attentesSession', a.id, { inscriptionId: null });
+  }
+  await ctx.db.remove('inscriptions', id);
+}
 
 /** Notification au salarié (et au manager qui a fait la demande) sur sa place dans la liste d'attente. */
 async function prevenir(ctx: Ctx, emp: Pick<Employe, 'id' | 'nom'>, r: DemandeCollab | null, objet: string, texte: string, texteManager: string) {
@@ -180,7 +205,7 @@ export async function promouvoirAttente(ctx: Ctx, sessionId: number | null | und
   if (proposes.length) {
     await notifier(c, 0, {
       type: 'attente.proposition', objet: `Place libérée — liste d’attente : ${nomSession(c, s)}`,
-      texte: `Une place s’est libérée dans la session ${nomSession(c, s)}. Proposé${proposes.length > 1 ? 's' : ''} depuis la liste d’attente, dans l’ordre d’arrivée : `
+      texte: `Une place s’est libérée dans la session ${nomSession(c, s)}. Proposé${proposes.length > 1 ? 's' : ''} depuis la liste d’attente, dans l’ordre de la file : `
         + `${proposes.join(', ')}. Confirmez l’inscription dans Cursus (Formations, détail de la session) : la convocation part à ce moment-là.`,
     }, true);
   }
@@ -297,10 +322,17 @@ export async function confirmerAttente(ctx: Ctx, id: unknown): Promise<string> {
   const emp = ctx.d.emp(a.empId);
   if (!s || !emp) throw new ActionError('Session ou collaborateur introuvable', 404);
   const refus = nonAdmissible(ctx.d, a);
+  if (refus && !refus.definitif && a.statut === 'proposee') {
+    // Personne proposée devenue indisponible (absence posée depuis, autre session, session précédente à clôturer) : elle
+    // garde son rang, la place passe au suivant admissible ; elle ne bloque pas la place jusqu'à son retrait.
+    await remettre(ctx, a, refus.motif as 'conflit' | 'attend_cloture');
+    const suite = await promouvoirAttente(ctx, s.id);
+    return [`${emp.nom} : ${refus.detail ?? refus.texte} — inscription impossible pour l’instant, remis en liste d’attente à son rang`, suite].filter(Boolean).join(' · ');
+  }
   if (refus) throw new ActionError(`${emp.nom} : ${refus.detail ?? refus.texte} — ${refus.definitif ? 'retirez-le de la liste d’attente' : 'inscription impossible pour l’instant'}`);
   if (s.inscrits >= s.places) throw new ActionError(`Session du ${fmt(parse(s.date))} complète : aucune place libre à confirmer`);
   if (a.statut === 'attente' && placesAProposer(s, attentesDe(ctx)) <= 0) {
-    throw new ActionError('Les places libres sont déjà proposées à d’autres personnes de la liste d’attente (ordre d’arrivée) : confirmez-les, ou retirez-les d’abord');
+    throw new ActionError('Les places libres sont déjà proposées à d’autres personnes de la liste d’attente (rang dans la file) : confirmez-les (une personne devenue indisponible est alors remise en attente et la place passe au suivant), ou retirez-les d’abord');
   }
   const { depuis, convoque } = await inscrire(ctx, a, s, emp);
   const suite = depuis ? await promouvoirAttente(ctx, depuis) : '';
@@ -332,4 +364,34 @@ export async function retirerAttente(ctx: Ctx, id: unknown, issue: 'salarie' | '
   }
   const promotion = a.statut === 'proposee' ? await promouvoirAttente(ctx, a.sessionId) : '';
   return [`${emp?.nom ?? ctx.d.personName(a.empId)} retiré de la liste d’attente${s ? ` de la session ${nomSession(ctx, s)}` : ''}`, promotion].filter(Boolean).join(' · ');
+}
+
+/**
+ * Personne de la file inscrite à la session hors de la file (inscription directe par le service RH, nouvelle demande
+ * acceptée sur une place libre) : son attente est close (`inscription`), sa proposition ne compte plus.
+ */
+export async function cloreAttenteInscrit(ctx: Ctx, empId: number, sessionId: number) {
+  const a = attentesDe(ctx).find(x => x.empId === empId && x.sessionId === sessionId && attenteActive(x));
+  if (a) await clore(ctx, a, 'inscrit', 'inscription');
+}
+
+/**
+ * Places proposées au service RH qui n'existent plus : places réduites (`session.modifier`), place prise par une inscription
+ * directe du service RH (`plan.inscrire`) ou par le retour d'une demande rouverte. Les dernières propositions de la file
+ * (rang décroissant) sont remises en attente, avec leur rang (`attente.remise`, motif `plus_de_place`). Renvoie le compte
+ * rendu à ajouter au message de l'action, vide s'il n'y a rien eu à faire ; noms cités au service RH et au référent HSE.
+ */
+export async function ajusterPropositions(ctx: Ctx, sessionId: number | null | undefined): Promise<string> {
+  if (!sessionId || !attentesDe(ctx).some(a => a.sessionId === sessionId && a.statut === 'proposee')) return '';
+  const c = await relire(ctx);
+  const s = c.d.session(sessionId);
+  if (!s) return '';
+  const proposees = fileDe(attentesDe(c), s.id).filter(a => a.statut === 'proposee');
+  const enTrop = proposees.length - Math.max(0, s.places - s.inscrits);
+  if (enTrop <= 0) return '';
+  const remises = proposees.slice(-enTrop);
+  for (const a of remises) await remettre(c, a, 'plus_de_place');
+  return aDroit(ctx, 'formations')
+    ? `liste d’attente : plus de place libre pour ${remises.map(a => c.d.personName(a.empId)).join(', ')}, remis en attente à ${remises.length > 1 ? 'leur' : 'son'} rang`
+    : `liste d’attente : ${plural(remises.length, 'proposition remise', 'propositions remises')} en attente (plus de place libre)`;
 }

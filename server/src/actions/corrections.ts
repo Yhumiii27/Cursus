@@ -15,7 +15,7 @@ import { suiviesEnVigueur } from '../../../shared/rules/formations-suivies.ts';
 import { refusArchive } from '../../../shared/rules/referentiels.ts';
 import type { Certification, DemandeCollab, Employe, HabTitre, Inscription, Participation, PlanAction, Trimestre } from '../../../shared/types.ts';
 import { annulerSiConvoque } from '../notifications.ts';
-import { defaireAttente, promouvoirAttentes } from '../liste-attente.ts';
+import { defaireAttente, promouvoirAttentes, retirerInscription } from '../liste-attente.ts';
 import { refuserExerciceClos } from './budget.ts';
 import { attendCloture, signaler } from './conformite.ts';
 import { clore, rendre } from './inscriptions-closes.ts';
@@ -280,7 +280,7 @@ async function defaireAcceptation(ctx: Ctx, r: DemandeCollab, emp: Employe, moti
       suite = retour ? `de nouveau inscrit ${quand}, convocation à envoyer` : depuis ? `retour ${quand} impossible (${refus}) : recyclage à planifier` : '';
     } else if (x.cree || !depuis || ctx.ds.inscriptions.some(i => i.empId === emp.id && i.sessionId === depuis.id)) {
       // Inscription créée par l'acceptation (ou déjà rétablie ailleurs) : retirée.
-      await ctx.db.remove('inscriptions', insc!.id);
+      await retirerInscription(ctx, insc!.id);
       defait.inscriptionRetiree = true;
     } else if (retour || !sessionActive(depuis)) {
       // Session d'origine à venir et qui l'accueille : l'inscription y revient ; annulée ou clôturée : elle y revient,
@@ -290,7 +290,7 @@ async function defaireAcceptation(ctx: Ctx, r: DemandeCollab, emp: Employe, moti
     } else {
       // Session d'origine ouverte qui ne l'accueille plus (complète, passée, conflit) : y revenir la surréserverait ou y
       // laisserait un inscrit qui ne l'a pas suivie ; l'inscription est retirée, à refaire.
-      await ctx.db.remove('inscriptions', insc!.id);
+      await retirerInscription(ctx, insc!.id);
       defait.inscriptionRetiree = true;
       suite = `retour ${quand} impossible (${refus}) : inscription en formation initiale retirée, à refaire`;
     }

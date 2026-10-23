@@ -8,7 +8,7 @@ import { finSession, sessionDu } from '../../../shared/rules/plage-session.ts';
 import { inscritsDe } from '../../../shared/rules/sessions.ts';
 import type { Certification, Inscription, Session } from '../../../shared/types.ts';
 import { annulerSiConvoque, convoquerFormation } from '../notifications.ts';
-import { promouvoirAttente } from '../liste-attente.ts';
+import { promouvoirAttente, retirerInscription } from '../liste-attente.ts';
 import { ActionError, aDroit, getEmp, isManagerOf, type ActionHandler, type Ctx } from './context.ts';
 
 /** Session ouverte et à venir : seule une telle session reçoit des convocations ou perd des inscrits. */
@@ -69,7 +69,7 @@ const desinscrire: ActionHandler = async (ctx, p) => {
   const i = inscritsDe(ctx.d, s).find(x => x.empId === emp.id);
   if (!i) throw new ActionError(`${emp.nom} n’est pas inscrit à cette session`);
   for (const c of emp.certs.filter(c => c.sessionId === s.id)) await ctx.db.update<Certification>('certifications', c.id, { sessionId: null, convoc: null, convocLe: null });
-  for (const x of ctx.ds.inscriptions.filter(x => x.empId === emp.id && x.sessionId === s.id)) await ctx.db.remove('inscriptions', x.id);
+  for (const x of ctx.ds.inscriptions.filter(x => x.empId === emp.id && x.sessionId === s.id)) await retirerInscription(ctx, x.id);
   // Convocation reçue, même remise « à renvoyer » par un changement de date ou de lieu : annulée par e-mail.
   const annulee = await annulerSiConvoque(ctx, s, emp, i);
   // Place libérée : proposée à la liste d'attente de la session (lot 7, t120).

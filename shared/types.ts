@@ -461,6 +461,11 @@ export interface Session {
   fin: ISODate; jours: ISODate[]; horaires: HoraireSession[];
   /** Calculé au chargement (certifications rattachées, inscriptions, résultats de clôture), jamais stocké. */
   inscrits: number;
+  /**
+   * Places libres proposées à la liste d'attente (lot 7, t120 : statut `proposee`), calculées au chargement sur toute la
+   * file, avant la restriction au périmètre : un manager qui ne voit pas la file sait qu'elles ne sont pas à prendre.
+   */
+  proposees?: number;
   /** Action du plan de formation à l'origine de la session. */
   planId: number | null;
   /** Clôture (évaluation à chaud) ou annulation (motif) : date et auteur. */

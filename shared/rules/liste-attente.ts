@@ -1,6 +1,6 @@
 // Liste d'attente des sessions de formation complètes (lot 7, chantier C, t120). Une demande acceptée sur une session
-// pleine place le salarié en file, par ordre d'arrivée, sans priorité métier (aucune donnée par l'entreprise). Quand une
-// place se libère, le premier encore admissible est proposé au service RH, qui confirme l'inscription (réponse de
+// pleine place le salarié en file, dans l'ordre où le service RH accepte les demandes (rang donné à l'acceptation, pas à
+// la date de la demande), sans priorité métier (aucune donnée par l'entreprise). Quand une place se libère, le premier encore admissible est proposé au service RH, qui confirme l'inscription (réponse de
 // l'entreprise du 23 octobre 2026), ou, réglage `automatique`, inscrit et convoqué aussitôt. Règles pures, communes à
 // l'écran et au serveur (server/src/liste-attente.ts) : file et place de chacun, places à proposer, admissibilité.
 import { parse } from '../dates.ts';
@@ -38,6 +38,19 @@ export function placesAProposer(s: Pick<Session, 'id' | 'places' | 'inscrits'>, 
   const proposees = attentes.filter(a => a.sessionId === s.id && a.statut === 'proposee').length;
   return Math.max(0, s.places - s.inscrits - proposees);
 }
+
+/** Sessions avec le nombre de leurs places proposées à la liste d'attente (`Session.proposees`), compté sur toute la file. */
+export function avecProposees<S extends Pick<Session, 'id'>>(sessions: readonly S[], attentes: readonly Pick<AttenteSession, 'sessionId' | 'statut'>[]): (S & { proposees: number })[] {
+  const n = new Map<number, number>();
+  for (const a of attentes) if (a.statut === 'proposee') n.set(a.sessionId, (n.get(a.sessionId) ?? 0) + 1);
+  return sessions.map(s => ({ ...s, proposees: n.get(s.id) ?? 0 }));
+}
+
+/**
+ * Places qu'une inscription directe peut prendre (`plan.inscrire`) : places libres moins celles proposées à la liste
+ * d'attente (`Session.proposees`, connu même d'un manager qui ne voit pas la file).
+ */
+export const placesDirectes = (s: Pick<Session, 'places' | 'inscrits' | 'proposees'>) => Math.max(0, s.places - s.inscrits - (s.proposees ?? 0));
 
 /** Libellé de la fin d'une attente, à placer après « Retiré de la liste d'attente : ». */
 export const ISSUE_ATTENTE_LABEL: Record<IssueAttente, string> = {

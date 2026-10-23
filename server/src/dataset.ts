@@ -40,7 +40,7 @@ import { lirePieces, piecesVisibles } from './pieces.ts';
 import { resumeDeplacementsPaie } from './deplacements-paie.ts';
 import { dossiersEchus } from './conservation.ts';
 import { jetonActif } from './agenda.ts';
-import { avecPositions } from '../../shared/rules/liste-attente.ts';
+import { avecPositions, avecProposees } from '../../shared/rules/liste-attente.ts';
 import type { AttenteSession } from '../../shared/types.ts';
 
 /** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
@@ -80,6 +80,8 @@ async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
   const vaccins = await db.all<Vaccination>('vaccinations');
   const inscriptions = await db.all<Inscription>('inscriptions');
   const participations = await db.all<Participation>('participations');
+  // Listes d'attente des sessions complètes (lot 7, t120) : place de chacun dans sa file calculée sur toutes les attentes.
+  const attentesSession = avecPositions(await db.all<AttenteSession>('attentesSession'));
   const employes: Employe[] = (await db.all<EmpRow>('employes')).map(({ passeportNumero, passeportExpire, ...e }) => ({
     ...e,
     jourOff: e.jourOff ?? [],
@@ -124,7 +126,8 @@ async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
     employes,
     // Nombre d'inscrits calculé sur toutes les données, avant la restriction au périmètre.
     // Session d'une base ancienne ou écrite sans plage : un seul jour (completerSession).
-    sessions: avecInscrits((await db.all<Omit<Session, 'inscrits'>>('sessions')).map(completerSession), certs, inscriptions, participations),
+    // Places proposées à la liste d'attente (lot 7, t120), comptées sur toute la file.
+    sessions: avecProposees(avecInscrits((await db.all<Omit<Session, 'inscrits'>>('sessions')).map(completerSession), certs, inscriptions, participations), attentesSession),
     inscriptions,
     participations,
     // Ligne du plan supprimée (saisie erronée, `plan.supprimer`, demande rouverte) : hors de l'instantané et des calculs.
@@ -181,8 +184,7 @@ async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
     habDelivrances: await db.all<HabDelivrance>('habDelivrances'),
     // Délégations des validations (t135) : identifiants, dates et périmètre, jamais de motif.
     delegations: await db.all<DelegationValidation>('delegations'),
-    // Listes d'attente des sessions complètes (lot 7, t120) : place de chacun dans sa file calculée sur toutes les attentes.
-    attentesSession: avecPositions(await db.all<AttenteSession>('attentesSession')),
+    attentesSession,
   };
   // Absences en attente du fichier de paie par période (server/src/absences-paie.ts) : lit le contenu figé des lots.
   // Déplacements en attente du fichier de paie (t031, server/src/deplacements-paie.ts) : lit la table des éléments émis.

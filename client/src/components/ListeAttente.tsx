@@ -69,7 +69,7 @@ export function ListeAttenteSession({ s }: { s: Session }) {
       </table>
     </div>
     <Fine>
-      Ordre d’arrivée, sans autre priorité. Quand une place se libère, Cursus propose au service RH le premier encore admissible
+      Ordre d’acceptation des demandes par le service RH, sans autre priorité. Quand une place se libère, Cursus propose au service RH le premier encore admissible
       (contrat, absences et autres sessions ces jours-là, certification toujours à renouveler) ; {d.ds.settings.formationsAttenteMode === 'automatique'
         ? 'réglage « inscription automatique » : il est inscrit et convoqué aussitôt.'
         : 'l’inscription est confirmée ici, et la convocation part à ce moment-là.'}
@@ -119,7 +119,7 @@ export function ListeAttentePortail({ empId }: { empId: number }) {
   return (
     <Panel title="Mes listes d’attente" aside={plural(mes.length, 'session complète', 'sessions complètes')} style={{ gap: 'var(--space-2)' }}>
       {mes.map(a => <LigneAttente key={a.id} a={a} soi peutRetirer />)}
-      <Fine>Vous êtes inscrit dans l’ordre d’arrivée des demandes. Retiré de la liste, vous n’y retrouvez pas votre place.</Fine>
+      <Fine>La file suit l’ordre dans lequel le service RH a accepté les demandes. Retiré de la liste, vous n’y retrouvez pas votre place.</Fine>
     </Panel>
   );
 }

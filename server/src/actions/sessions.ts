@@ -10,7 +10,7 @@ import { controlePlage, decalerPlage, finSession, horaireTexte, type Plage, plag
 import { controleSession, exigeEvaluation, inscritsDe, placesRemplacees } from '../../../shared/rules/sessions.ts';
 import type { Certification, Inscription, Participation, PlanAction, Session, SessionBilan } from '../../../shared/types.ts';
 import { annulerSiConvoque } from '../notifications.ts';
-import { promouvoirAttente, purgerAttente } from '../liste-attente.ts';
+import { ajusterPropositions, promouvoirAttente, purgerAttente, retirerInscription } from '../liste-attente.ts';
 import { ActionError, type ActionHandler, type Ctx, isRh, requireFormations, str } from './context.ts';
 
 /** Session désignée par `id` ; refusée si elle est clôturée ou annulée (sauf `toutes`). */
@@ -124,8 +124,9 @@ const modifier: ActionHandler = async (ctx, p) => {
   }
   const reconfirmer = aVenir && nouvellePlage && s.statut === 'Confirmée';
   await ctx.db.update<Session>('sessions', s.id, { date, ...plage, lieu, places, ...(reconfirmer ? { statut: 'À confirmer' as const } : {}) });
-  // Places augmentées, ou libérées par la nouvelle date : proposées à la liste d'attente (lot 7, t120).
-  const attente = await promouvoirAttente(ctx, s.id);
+  // Places réduites sous le nombre de propositions : les dernières reviennent en attente, à leur rang. Places augmentées,
+  // ou libérées par la nouvelle date : proposées à la liste d'attente (lot 7, t120).
+  const attente = [await ajusterPropositions(ctx, s.id), await promouvoirAttente(ctx, s.id)].filter(Boolean).join(' · ');
   return [
     `${nomSession(ctx, s)} modifiée — ${changes.join(' · ')}`,
     liberees.length ? `recyclage déjà enregistré avant cette date, ${liberees.length > 1 ? 'places libérées' : 'place libérée'} : ${liberees.map(x => ctx.d.personName(x.empId)).join(', ')}` : '',
@@ -210,7 +211,7 @@ const cloturer: ActionHandler = async (ctx, p) => {
     if (!l.i.dejaObtenue && l.ok) {
       // Certification datée du dernier jour de la session ; la certification renouvelée garde la session (historique).
       certId = (await ctx.db.insert<Certification>('certifications', { empId: l.i.empId, f: s.formation, obtenue: dernier, sessionId: null, convoc: null })).id;
-      if (l.i.inscriptionId) await ctx.db.remove('inscriptions', l.i.inscriptionId);
+      if (l.i.inscriptionId) await retirerInscription(ctx, l.i.inscriptionId);
       obtenues++;
     } else if (!l.ok) {
       // Recyclage : la certification se planifie de nouveau. Formation initiale : l'inscription reste

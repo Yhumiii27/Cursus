@@ -385,7 +385,7 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   d'un arrêt longue maladie retirée (comme pour le manager), motif des reports de CP retiré, comme celui d'un report imposé à la
   clôture des congés (`ClotureConges.motif` : il laisse deviner une absence de santé), et échéance des reports et des
   clôtures ramenée au 31 mai (`reportNeutre`, `clotureNeutre` : le 31 août d'un report légal la trahirait aussi, pour le
-  manager comme pour ces profils) ; le référent HSE ne reçoit ni temps, ni absences, ni entretiens, ni plan ; la paie ni formations, ni
+  manager comme pour ces profils) ; le référent HSE ne reçoit ni temps (seulement la synthèse des nuits du C2P, `Dataset.c2p`, sans les feuilles), ni absences, ni entretiens, ni plan ; la paie ni formations, ni
   entretiens, ni déplacements ; la lecture seule tout le reste, sans le contenu des comptes rendus d'entretien ni
   les documents déclarés (plan, enveloppes et exercices clos : service RH et lecture seule seulement). L'état des déplacements (`dossierStatut`, `dossierManque`) est calculé par le serveur
   pour que le verdict Go / No Go reste exact sans les pièces. `GET /api/journal` et `GET /api/envois` : droit
@@ -1755,8 +1755,9 @@ Règle pure `shared/rules/c2p.ts`, actions `server/src/actions/c2p.ts`, écran E
 vue `prevention`, groupe « Prévention » du menu), colonnes des onglets Postes et Horaires de Référentiels.
 
 - **Nuits** : un jour de feuille **validée** compte une nuit quand l'horaire figé ce jour-là (`horairesFiges`) donne au moins
-  1 h de travail entre 0 h et 5 h (`heuresDeNuit` de `repos-nuit.ts` sur la plage `C2P_PLAGE`, pause retirée au prorata,
-  rattachée au jour où commence le poste ; `repos-nuit.ts` n'est pas modifié). Une nuit faite sous un horaire qualifié
+  1 h de travail entre 0 h et 5 h (`heuresC2p` : `heuresDeNuit` de `repos-nuit.ts` sur la plage `C2P_PLAGE`, la pause
+  placée hors de la plage tant qu'elle y tient et retirée seulement pour la part qui n'y tient pas — un poste 20 h – 1 h
+  avec 30 min de pause compte donc 1 h —, rattachée au jour où commence le poste ; `repos-nuit.ts` n'est pas modifié). Une nuit faite sous un horaire qualifié
   « équipes successives alternantes » (`Horaire.alternant`, colonne JSON : vrai, faux, null « à qualifier ») compte au seuil
   de 50 nuits, les autres au seuil de 120, sans double compte ; la qualification est lue au référentiel (le roulement n'est
   pas figé avec les heures). Un horaire de nuit non qualifié compte au travail de nuit et il est listé « à qualifier »

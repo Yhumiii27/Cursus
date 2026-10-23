@@ -2,8 +2,8 @@
 // année civile, aux six facteurs de risques professionnels, pour la déclaration que la paie saisit dans la DSN de Sage.
 // - Travail de nuit et équipes successives alternantes : comptés par Cursus d'après les horaires de poste figés sur les
 //   feuilles validées (shared/rules/horaires.ts) ; une nuit est un jour qui compte au moins 1 h de travail entre 0 h et
-//   5 h (`heuresDeNuit` de shared/rules/repos-nuit.ts sur la plage 0 h – 5 h, pause retirée au prorata, rattachée au jour
-//   où commence le poste). Une nuit faite sous un horaire qualifié « équipes successives alternantes » (Référentiels →
+//   5 h (`heuresDeNuit` de shared/rules/repos-nuit.ts sur la plage 0 h – 5 h, rattachée au jour où commence le poste ;
+//   la pause est placée hors de la plage tant qu'elle y tient, voir `heuresC2p`). Une nuit faite sous un horaire qualifié « équipes successives alternantes » (Référentiels →
 //   Horaires) compte au seuil de 50 nuits ; les autres au seuil de 120, sans double compte. Un horaire de nuit pas encore
 //   qualifié compte au travail de nuit et il est signalé « à qualifier ».
 // - Seuils et plage réglementaires (art. D4163-2), en constantes non réglables : un accord ne les modifie pas, et un
@@ -22,7 +22,7 @@ import { matricule, num } from '../format.ts';
 import type { Dataset, Employe, FacteurC2p, FacteurPoste, FeuilleTemps, Horaire, ISODate, LigneC2p, Poste, Referentiels, SyntheseC2p } from '../types.ts';
 import { posteDe } from './exigences.ts';
 import { dureeHoraire, horairesDe } from './horaires.ts';
-import { heuresDeNuit, plageDuJour } from './repos-nuit.ts';
+import { heuresDeNuit, plageDuJour, type PlageTravail } from './repos-nuit.ts';
 import { JOURS_FEUILLE } from './semaine.ts';
 
 // — Règles fixes (art. D4163-2) —
@@ -69,8 +69,21 @@ export const alternantTexte = (v: boolean | null | undefined) => (v === true ? '
 
 // — Nuits —
 
+/**
+ * Heures de travail entre 0 h et 5 h d'une plage de travail (au centième d'heure). Convention du C2P : la pause est placée
+ * d'abord hors de la plage, et n'en est retirée que pour la part qui n'y tient pas. Le retrait au prorata des heures de
+ * nuit payées (`heuresDeNuit`) ferait manquer le seuil d'une heure à un poste de soirée qui finit à 1 h (20 h – 1 h, pause
+ * de 30 min prise avant minuit : 1 h de travail dans la plage, 0,9 au prorata), soit une sous-déclaration.
+ */
+export function heuresC2p(p: PlageTravail | null): number {
+  if (!p || p.fin <= p.debut) return 0;
+  const dans = Math.round(heuresDeNuit({ ...p, pause: 0 }, C2P_PLAGE) * 60);
+  const pauseDans = Math.max(0, p.pause - (p.fin - p.debut - dans));
+  return Math.round((Math.max(0, dans - pauseDans) / 60) * 100) / 100;
+}
+
 /** Heures entre 0 h et 5 h d'un horaire, à sa durée nominale : un horaire de nuit au sens du C2P en compte 1 au moins. */
-export const heuresC2pHoraire = (h: Pick<Horaire, 'code' | 'debut' | 'fin' | 'pause'>) => heuresDeNuit(plageDuJour(h, dureeHoraire(h), 0), C2P_PLAGE);
+export const heuresC2pHoraire = (h: Pick<Horaire, 'code' | 'debut' | 'fin' | 'pause'>) => heuresC2p(plageDuJour(h, dureeHoraire(h), 0));
 export const horaireDeNuitC2p = (h: Pick<Horaire, 'code' | 'debut' | 'fin' | 'pause'>) => heuresC2pHoraire(h) >= C2P_HEURES_MIN;
 
 /** Nuit d'une feuille : jour où commence le poste, code de l'horaire figé, heures entre 0 h et 5 h, qualification de l'horaire. */
@@ -89,7 +102,7 @@ export function nuitsC2pDeLaFeuille(sh: Pick<FeuilleTemps, 'week' | 'statut' | '
   for (let i = 0; i < JOURS_FEUILLE; i++) {
     const h = sh.horairesFiges[i];
     if (!h) continue;
-    const heures = heuresDeNuit(plageDuJour(h, heuresDuJour(sh, i), i), C2P_PLAGE);
+    const heures = heuresC2p(plageDuJour(h, heuresDuJour(sh, i), i));
     if (heures >= C2P_HEURES_MIN) out.push({ jour: addD(sh.week, i), code: h.code, heures, alternant: horaires.find(x => x.code === h.code)?.alternant ?? null });
   }
   return out;

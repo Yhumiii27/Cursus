@@ -566,7 +566,7 @@ export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits:
   },
   referent_hse: {
     label: 'Référent HSE / formation', espace: 'HSE', droits: ['formations'],
-    aide: 'Catalogue, sessions et présences, certifications et habilitations, verdicts Go / No Go ; aptitude médicale réduite au verdict et aux restrictions en vigueur, comme pour un manager ; ni temps, ni paie, ni entretiens',
+    aide: 'Catalogue, sessions et présences, certifications et habilitations, verdicts Go / No Go ; aptitude médicale réduite au verdict et aux restrictions en vigueur, comme pour un manager ; synthèse du C2P (nuits comptées et facteurs d’exposition par salarié) ; ni feuilles de temps, ni paie, ni entretiens',
     vues: ['dashboard', 'collaborateurs', 'formations', 'habilitations', 'echeances', 'chantiers', 'referentiels', 'prevention'],
   },
   paie: {

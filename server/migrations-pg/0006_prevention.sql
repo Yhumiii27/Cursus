@@ -4,8 +4,9 @@
 --   extrêmes, bruit), cochés sur le poste par le service RH ou le référent HSE ; NULL : aucun (décochés par défaut) ;
 -- - horaires.alternant : horaire d'un roulement en équipes successives alternantes ; NULL : pas encore qualifié (ses
 --   nuits comptent au travail de nuit, signalées « à qualifier »), distinct de false (non alternant).
--- Rien n'est coché d'office : la migration nommée SQLite lot7-prevention-c2p ne modifie aucune donnée (elle annonce les
--- horaires de nuit à qualifier), il n'y a donc rien à reprendre ici. Aucune vue pub_ : les expositions restent à Cursus.
+-- Rien n'est coché d'office : la migration nommée SQLite lot7-prevention-c2p ne modifie aucune donnée et n'écrit aucun
+-- compte rendu (les horaires de nuit à qualifier sont signalés sur l'écran Expositions et dans Référentiels → Horaires),
+-- il n'y a donc rien à reprendre ici. Aucune vue pub_ : les expositions restent à Cursus.
 --
 -- Mêmes règles que 0001_init.sql (types d'après les valeurs écrites par le code, CHECK des domaines fermés de
 -- shared/types.ts, « dans le doute, pas de CHECK »). Noms non qualifiés, aucun droit : le déclencheur droits_ddl du socle

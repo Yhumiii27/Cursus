@@ -1,6 +1,7 @@
 // Rendu des écrans du compte professionnel de prévention (lot 7, t052) sous node --test (tests/outils/rendu.ts) : écran
 // Expositions (C2P) du service RH avec des nuits comptées, horaire à qualifier et export ; facteurs d'un poste cochés par
-// le référent HSE (dialogue en formulaire, vraie action du serveur) ; qualification d'un horaire dans Référentiels.
+// le référent HSE (dialogue en formulaire, vraie action du serveur) ; qualification d'un horaire dans Référentiels, archivé
+// compris.
 import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
@@ -80,4 +81,17 @@ test('qualification d’un horaire de nuit dans Référentiels → Horaires ; la
   render(lect.element);
   assert.equal(screen.queryByLabelText(/Horaire N : équipes/), null);
   assert.ok(screen.getByText('Équipes successives alternantes'));
+});
+
+test('horaire de nuit archivé : le référent HSE le qualifie encore (ses nuits de l’année restent comptées)', async () => {
+  const { db, personne } = await baseDemo();
+  await db.update('horaires', 'N', { archive: '2026-10-01' });
+  const b = await monter(db, await personne(23, 'rh'), () => createElement(Horaires));
+  render(b.element);
+  await act(async () => { fireEvent.click(screen.getByLabelText('Afficher les archivés')); });
+  const choix = screen.getByLabelText(/Horaire N : équipes successives alternantes/) as HTMLSelectElement;
+  await act(async () => { fireEvent.change(choix, { target: { value: 'oui' } }); });
+  assert.deepEqual(b.trace.actions[0].payload, { id: 'N', alternant: true });
+  assert.equal(b.trace.actions[0].r.ok, true, b.trace.actions[0].r.error);
+  assert.equal(b.donnees().referentiels.horaires!.find(h => h.code === 'N')!.alternant, true);
 });

@@ -3,7 +3,8 @@
 // confirmation) et les rétablit d'un clic ; la lecture seule consulte. Chaque équipe peut en proposer un par défaut
 // (onglet Postes, exigences et organisation de l'équipe). Les exemples J, M, AM, N sont amorcés à l'installation.
 // Compte professionnel de prévention (lot 7, shared/rules/c2p.ts) : un horaire de nuit (1 h au moins entre 0 h et 5 h) se
-// qualifie « équipes successives alternantes » ou non, par le service RH ou le référent HSE ; à qualifier par défaut.
+// qualifie « équipes successives alternantes » ou non, par le service RH ou le référent HSE ; à qualifier par défaut,
+// archivé compris.
 import { useState } from 'react';
 import { PlusIcon } from '@phosphor-icons/react';
 import { fH, plural } from '../../../shared/format.ts';
@@ -21,14 +22,15 @@ const QUALIFS: [string, boolean | null][] = [['', null], ['oui', true], ['non', 
 
 /**
  * Qualification C2P d'un horaire : liste de choix pour le service RH et le référent HSE (enregistrée au changement),
- * sinon le texte ; « — » pour un horaire de jour jamais qualifié.
+ * sinon le texte ; « — » pour un horaire de jour jamais qualifié. Un horaire archivé reste qualifiable : ses nuits de
+ * l'année comptent encore et l'écran Expositions le liste « à qualifier » (le référent HSE ne peut pas le rétablir).
  */
 function QualificationC2p({ h, peut }: { h: Horaire; peut: boolean }) {
   const { run } = useStore();
   const { occupe, agir } = useAgir();
   const nuit = horaireDeNuitC2p(h);
   if (!nuit && h.alternant == null) return <span className="text-muted">—</span>;
-  if (!peut || h.archive) return h.alternant == null ? <Tag cls="tag-accent">À qualifier</Tag> : <span>{alternantTexte(h.alternant)}</span>;
+  if (!peut) return h.alternant == null ? <Tag cls="tag-accent">À qualifier</Tag> : <span>{alternantTexte(h.alternant)}</span>;
   const valeur = QUALIFS.find(([, v]) => v === (h.alternant ?? null))![0];
   return (
     <select className="input" aria-label={`Horaire ${h.code} : équipes successives alternantes (C2P)`} value={valeur} disabled={occupe} style={{ minWidth: 190 }}

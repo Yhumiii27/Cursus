@@ -23,7 +23,7 @@ const { REGLAGES } = await import('../shared/reglages.ts');
 const { JOURNAL_LABEL, familleAction } = await import('../shared/journal.ts');
 const {
   alternantTexte, anneesC2p, C2P_PLAGE, C2P_SEUIL_ALTERNANT, C2P_SEUIL_NUIT, contratMoinsDUnMois, controlerFacteursPoste, exportC2p, FACTEURS, FACTEURS_POSTE,
-  facteursDuPoste, heuresC2pHoraire, horairesAQualifier, ligneC2p, MENTION_C2P, nuitsC2pDeLaFeuille, qualificationAlternant, syntheseC2p,
+  facteursDuPoste, heuresC2p, heuresC2pHoraire, horairesAQualifier, ligneC2p, MENTION_C2P, nuitsC2pDeLaFeuille, qualificationAlternant, syntheseC2p,
 } = await import('../shared/rules/c2p.ts');
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Dataset = Awaited<ReturnType<typeof loadFull>>;
@@ -80,18 +80,32 @@ test('règles fixes : plage 0 h – 5 h, 120 et 50 nuits, jamais un réglage de 
   assert.equal(new Set(FACTEURS.map(f => FACTEURS_C2P[f].code)).size, 6, 'codes internes distincts');
 });
 
+test('nuit : la pause est placée hors de la plage 0 h – 5 h tant qu’elle y tient (poste de soirée qui finit à 1 h)', () => {
+  // 20 h – 1 h, 30 min de pause : 1 h de travail dans la plage (0,9 avec la pause au prorata des heures de nuit payées).
+  const S = { code: 'S', nom: 'Soirée', debut: '20:00', fin: '01:00', pause: 30 };
+  assert.equal(heuresC2pHoraire(S), 1);
+  assert.equal(heuresC2pHoraire({ ...S, debut: '19:30' }), 1);
+  assert.deepEqual(nuitsC2pDeLaFeuille(feuille(8, '2026-03-02', { jours: 1, heures: 4.5, h: S }) as unknown as Feuille, [S]).map(n => [n.code, n.heures]), [['S', 1]]);
+  assert.deepEqual(horairesAQualifier({ horaires: [S] }), ['S'], 'horaire de nuit au sens du C2P, à qualifier');
+  // Pause plus longue que le temps hors de la plage : seule la part qui n'y tient pas en est retirée.
+  assert.equal(heuresC2p({ debut: 23 * 60, fin: 26 * 60, pause: 90 }), 1.5);
+  assert.equal(heuresC2p({ debut: 0, fin: 300, pause: 0 }), 5);
+  assert.equal(heuresC2p(null), 0);
+});
+
 test('nuit : au moins 1 h de travail entre 0 h et 5 h, d’après l’horaire figé d’une feuille validée', () => {
   const horaires = [{ ...N, nom: 'Nuit', alternant: true }, { ...M, nom: 'Matin' }];
   const sh = feuille(8, '2026-03-02', { jours: 3 }) as unknown as Feuille;
   assert.deepEqual(nuitsC2pDeLaFeuille(sh, horaires).map(n => [n.jour, n.code, n.alternant]),
     [['2026-03-02', 'N', true], ['2026-03-03', 'N', true], ['2026-03-04', 'N', true]], 'rattachée au jour où commence le poste');
-  // 21 h – 5 h, 7,5 h de travail, 30 min de pause : 5 h dans la plage sur 8 h, pause retirée au prorata.
-  assert.equal(nuitsC2pDeLaFeuille(sh, horaires)[0].heures, 4.69);
-  assert.equal(heuresC2pHoraire(N), 4.69);
+  // 21 h – 5 h, 7,5 h de travail, 30 min de pause : 5 h dans la plage, la pause tient dans les 3 h hors de la plage.
+  assert.equal(nuitsC2pDeLaFeuille(sh, horaires)[0].heures, 5);
+  assert.equal(heuresC2pHoraire(N), 5);
   assert.equal(heuresC2pHoraire(M), 0, 'équipe du matin à partir de 5 h : aucune nuit');
-  // Poste écourté : 3 h 30 de travail à partir de 21 h finit à 0 h 30, moins d'une heure dans la plage.
-  assert.deepEqual(nuitsC2pDeLaFeuille(feuille(8, '2026-03-02', { jours: 1, heures: 3.5 }) as unknown as Feuille, horaires), []);
-  assert.deepEqual(nuitsC2pDeLaFeuille(feuille(8, '2026-03-02', { jours: 1, heures: 4.5 }) as unknown as Feuille, horaires).length, 1, '1 h 15 avec la pause au prorata');
+  // Poste écourté : 3 h de travail et 30 min de pause à partir de 21 h finissent à 0 h 30, moins d'une heure dans la plage.
+  assert.deepEqual(nuitsC2pDeLaFeuille(feuille(8, '2026-03-02', { jours: 1, heures: 3 }) as unknown as Feuille, horaires), []);
+  assert.deepEqual(nuitsC2pDeLaFeuille(feuille(8, '2026-03-02', { jours: 1, heures: 3.5 }) as unknown as Feuille, horaires).map(n => n.heures), [1], 'fin à 1 h : 1 h pile');
+  assert.deepEqual(nuitsC2pDeLaFeuille(feuille(8, '2026-03-02', { jours: 1, heures: 4.5 }) as unknown as Feuille, horaires).map(n => n.heures), [2]);
   assert.deepEqual(nuitsC2pDeLaFeuille(feuille(8, '2026-03-02', { h: M }) as unknown as Feuille, horaires), []);
   assert.deepEqual(nuitsC2pDeLaFeuille(feuille(8, '2026-03-02', { statut: 'soumise' }) as unknown as Feuille, horaires), [], 'feuille non validée');
   assert.deepEqual(nuitsC2pDeLaFeuille(feuille(8, '2026-03-02', { sansHoraire: true }) as unknown as Feuille, horaires), [], 'feuille sans horaire');

@@ -536,16 +536,20 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     `0002_partage.sql` (vues `pub_` lues par Matrix et les autres outils, sans colonne sensible ni GRANT : les droits
     viennent du socle) et `0003_lot6_etape2.sql` (étape 2 du lot 6 : 7 tables, 57 en tout, colonnes ajoutées, nature
     d'absence `CET` ; sur une base déjà remplie, majoration de nuit figée et délivrances en vigueur reprises en SQL) et `0004_pub_absences.sql` (vue `pub_absences`, demande CU-1 de Crucible : matricule, dates, statut validée ou
-    demandée, annulation, `maj_le` posée par un déclencheur ; jamais le type ni le motif ; lecteurs accordés par Matrix) et
-    `0006_prevention.sql` (lot 7, chantier B : colonnes `postes.c2p` et `horaires.alternant` du compte professionnel de
-    prévention, JSON contrôlés par CHECK ; aucune vue `pub_`).
     demandée, annulation, `maj_le` posée par un déclencheur ; jamais le type ni le motif ; lecteurs accordés par Matrix) ;
+    `0005_astreintes.sql` (lot 7, chantier A : tables `astreintes` et `astreinte_interventions`, 59 tables, activité interne
+    `INT-AST` sur une base déjà remplie ; aucune vue `pub_`) ;
+    `0006_prevention.sql` (lot 7, chantier B : colonnes `postes.c2p` et `horaires.alternant` du compte professionnel de
+    prévention, JSON contrôlés par CHECK ; aucune vue `pub_`) ;
     `0007_formations.sql` (lot 7, chantier C : liste d'attente des sessions, table `attentes_session`, aucune vue `pub_`) ;
+    `0008_astreintes_paie.sql` (lot 7, chantier A, étape 2 : `astreintes.lot_id` et `astreintes.sage`, `lots_paie.astreintes`
+    de la famille « astreintes » ; aucune vue `pub_`) ;
     `0009_passeport_prevention.sql` (lot 7, chantier B, étape 2 : colonne `formations.passeport_prevention`, cochée en SQL
     sur les formations santé-sécurité d'une base déjà remplie, table `declarations_passeport` avec ses clés étrangères et
-    son CHECK « certification ou formation suivie » ; aucune vue `pub_`, aucun NIR).
+    son CHECK « certification ou formation suivie » ; aucune vue `pub_`, aucun NIR) ;
     `0010_evaluations_formation.sql` (lot 7, chantier C, étape 2 : évaluations des formations, table `evaluations_formation`,
-    CHECK du type, du répondant, de la note et de l'efficacité, une seule formation évaluée ; aucune vue `pub_`).
+    CHECK du type, du répondant, de la note et de l'efficacité, une seule formation évaluée ; aucune vue `pub_`). 62 tables
+    en tout.
     Appliquées au démarrage sous `pg_advisory_lock(hashtext('cursus.migrations'))`, pris avant de lire le journal
     `cursus.schema_migrations`, une transaction par fichier ; une migration du journal inconnue de ce code (base mise à
     jour par une version plus récente) ou un schéma `cursus` absent : refus de démarrer. Puis `TABLES` est comparé au
@@ -2763,6 +2767,27 @@ récapitulatif de la feuille, file de validation, jours rachetés en attente sur
   seulement (`confirmerRachats`) : un avenant enregistré après la génération attend le lot suivant, et une rubrique activée
   entre la génération et la confirmation ne le renvoie pas dans un autre fichier. Aucune migration : table et colonnes
   nouvelles seulement.
+
+## Astreintes (lot 7, chantier A : t049)
+
+- **Règles** (`shared/rules/astreintes.ts`) : une astreinte est une période planifiée par le manager ou le service RH
+  (`astreinte.planifier`, `.modifier`, `.annuler` avec motif), communiquée au moins `astreinteDelaiPrevenance` jours avant
+  (15 par défaut, art. L3121-9 ; en dessous, motif de circonstances exceptionnelles et jour franc au minimum), 31 jours au
+  plus, refusée sur une absence, hors contrat ou pour un mineur (`astreinteMineurs`). Les interventions sont du travail
+  effectif, déclarées sur la feuille de temps (`astreinte.intervention`, `.retirerIntervention` ; ligne `INT-AST` en
+  lecture seule) avec contrôle du repos qui suit.
+  Serveur : `server/src/astreintes.ts`, `server/src/actions/astreintes.ts` (journal, e-mail et .ics au salarié).
+- **Écrans** : « Planning des astreintes » de l'écran Temps (manager, RH), encart « Astreinte » de la feuille de temps,
+  « Mes astreintes » et récapitulatif mensuel imprimable du portail (art. R3121-2 : heures, périodes, interventions,
+  forme de la compensation), section Paramètres → Astreintes (`client/src/pages/parametres/Astreintes.tsx`).
+- **Paie** (`shared/rules/astreintes-paie.ts`, `server/src/astreintes-paie.ts`) : famille « astreintes » du registre des
+  éléments de lot ; une astreinte terminée part avec le lot (heures `AST_H` réparties par mois, période `AST_PER`),
+  réservée, libérée à l'annulation, figée à la confirmation (`astreintes.lot_id`, `astreintes.sage`). `AST_COMP`
+  (compensation) est déclarée. Les trois rubriques sont inactives par défaut : éléments « à saisir dans Sage » tant que la
+  paie n'a pas donné ses codes. Compensation `astreinteCompensation` : financière par défaut (réponse du 23 octobre 2026),
+  ou repos ; son montant ou sa durée attend l'accord sur les astreintes (`astreinteAccord`).
+- **Base** : migrations nommées `lot7-astreintes*` (SQLite) et `0005_astreintes.sql`, `0008_astreintes_paie.sql`
+  (PostgreSQL). Aucune vue `pub_` pour Keystone tant qu'elle n'est pas demandée et validée.
 
 ## Déplacements modifiés ou annulés
 

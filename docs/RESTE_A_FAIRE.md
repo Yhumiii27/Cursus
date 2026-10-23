@@ -2,7 +2,7 @@
 
 Audit du 10 octobre 2026 (branche `main-n9x7ps`). Chaque point a été relevé dans le code puis contre-vérifié par une seconde lecture qui a écarté ce qui était déjà fait ou inexact. Les preuves renvoient aux fichiers et lignes à cette date.
 
-**179 tâches** (168 faites au 22 octobre 2026 ; suivi à jour : https://claude.ai/artifact/8Dn4CRz3fcHgew8RzbNGEc) : 26 bloquantes pour une mise en production, 98 importantes, 55 souhaitables.
+**179 tâches** (172 faites au 23 octobre 2026 ; suivi à jour : https://claude.ai/artifact/8Dn4CRz3fcHgew8RzbNGEc) : 26 bloquantes pour une mise en production, 98 importantes, 55 souhaitables.
 
 Légende — priorité : 🔴 **Bloquant** (empêche un usage réel : sécurité, données faussées, obligation légale) · 🟠 **Important** (attendu par les utilisateurs) · 🟢 **Souhaitable** (confort). Effort : **S** moins d’une journée · **M** 1 à 3 jours · **L** plus de 3 jours.
 
@@ -210,6 +210,7 @@ Les tâches 🔴, toutes thématiques confondues :
   <br><sub>Preuves : shared/types.ts:101 · shared/rules/temps.ts:42 (heuristique > 13 h) · grep nuit\|L3122 → aucun résultat</sub>
 - [ ] **Gérer les astreintes** — 🟠 Important · L
   Aucune notion d'astreinte n'existe alors qu'elle est courante en maintenance. Ajouter le planning communiqué 15 jours avant, la saisie des interventions comme travail effectif, la compensation transmise à Sage et le récapitulatif mensuel.
+  <br>*Lot 7 (23 octobre 2026) : planning, interventions, récapitulatif mensuel et famille de paie livrés ; reste le montant ou la durée de la compensation et les codes Sage, qui attendent l'accord sur les astreintes et la paie (rubriques AST_* inactives).*
   <br><sub>Preuves : grep astreinte → aucun résultat · shared/types.ts:100-105</sub>
 - [x] **Temps partiel : plafond d'heures complémentaires paramétrable et avenants** — 🟢 Souhaitable · M
   Le code suppose un plafond au tiers, valable seulement avec accord ; sinon c'est le dixième. Paramétrer le plafond et gérer les avenants de complément d'heures.
@@ -217,7 +218,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Paramétrer la journée de solidarité et les jours fériés chômés** — 🟢 Souhaitable · M
   Le lundi de Pentecôte est toujours traité comme chômé, ce qui fausse CP, heures proposées et jours de repos du forfait s'il est travaillé. Ajouter un paramètre d'établissement (jour de solidarité, liste des fériés).
   <br><sub>Preuves : shared/dates.ts:61-70 · shared/types.ts:117-126</sub>
-- [ ] **Suivre les expositions du compte professionnel de prévention (C2P)** — 🟢 Souhaitable · M
+- [x] **Suivre les expositions du compte professionnel de prévention (C2P)** — 🟢 Souhaitable · M
   Nuits travaillées et équipes alternantes ne sont pas comptées. Une fois les postes saisis, compter les nuits par salarié et produire l'export annuel pour la DSN.
   <br><sub>Preuves : grep C2P\|L4163 → aucun résultat · shared/types.ts:101</sub>
 - [x] **CDD : enregistrer motif et renouvellements, alerter sur la durée maximale** — 🟢 Souhaitable · M
@@ -262,7 +263,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Exiger le certificat de détachement (A1) pour les missions à l'étranger** — 🟠 Important · M
   Une destination ne décrit que visa, vaccins et passeport : aucune formalité de sécurité sociale ou de détachement n'est contrôlée, ni l'information écrite au-delà de 4 semaines. Ajouter ces formalités à la destination, à la préparation et au Go / No Go.
   <br><sub>Preuves : shared/types.ts:29 · shared/domain.ts:280-327 · server/src/seed.ts:34-43</sub>
-- [ ] **Exporter les formations santé-sécurité vers le Passeport de prévention** — 🟠 Important · M
+- [x] **Exporter les formations santé-sécurité vers le Passeport de prévention** — 🟠 Important · M
   Cursus a les données (SST, CACES, ATEX…) mais ne propose ni marquage ni export. Marquer ces formations au catalogue et produire l'export au format de la plateforme (à vérifier).
   <br><sub>Preuves : grep L4141 → aucun résultat · shared/types.ts:27 · server/src/seed.ts:11</sub>
 - [x] **Suivre la couverture minimale en SST et équipiers incendie par équipe** — 🟠 Important · M
@@ -433,10 +434,10 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Corriger ou supprimer une saisie erronée (certification, action du plan, demande)** — 🟠 Important · L
   Une certification saisie avec une mauvaise date ou formation reste en base et peut lever un prérequis d'habilitation ; plan et demandes ne sont pas non plus modifiables. Ajouter modification et suppression tracées (RH), avec libération des places de session.
   <br><sub>Preuves : server/src/actions/conformite.ts:26-36 · client/src/dialogs/CertDialog.tsx:22, :39 · server/src/actions/budget.ts:46-50 · grep remove('certifications' → aucun résultat</sub>
-- [ ] **Gérer une liste d'attente pour les sessions complètes** — 🟢 Souhaitable · M
+- [x] **Gérer une liste d'attente pour les sessions complètes** — 🟢 Souhaitable · M
   Une demande acceptée sur une session pleine bascule en silence dans le plan. Ajouter une liste d'attente et l'inscription automatique quand une place se libère.
   <br><sub>Preuves : server/src/actions/conformite.ts:16, :79-81, :99-104</sub>
-- [ ] **Enregistrer l'évaluation des formations** — 🟢 Souhaitable · M
+- [x] **Enregistrer l'évaluation des formations** — 🟢 Souhaitable · M
   Rien ne mesure l'efficacité d'une formation (ISO 9001/45001). Ajouter une évaluation à chaud et à froid rattachée à l'inscription et un indicateur par organisme.
   <br><sub>Preuves : shared/types.ts:44, :91 · grep satisfaction → aucun résultat</sub>
 - [x] **Exporter le plan de formation et les indicateurs du bilan social** — 🟢 Souhaitable · M
@@ -624,4 +625,5 @@ Les tâches 🔴, toutes thématiques confondues :
   <br><sub>Preuves : desktop/CursusApp.swift:70, :76-83</sub>
 - [ ] **Déclarer clés étrangères et contraintes dans le schéma** — 🟢 Souhaitable · M
   Aucune clé étrangère ni contrainte n'est déclarée : une référence orpheline ferait planter le chargement. Ajouter clés étrangères, CHECK et index.
+  <br>*Lot 7 : la production tourne sur le serveur PostgreSQL commun, dont les migrations (`server/migrations-pg/`) déclarent clés étrangères, CHECK et index. Reste éventuellement la base SQLite (démonstration, tests, application de bureau).*
   <br><sub>Preuves : server/src/db.ts:10-49, :79 · shared/domain.ts:101</sub>

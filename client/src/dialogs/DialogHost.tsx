@@ -64,6 +64,8 @@ import { TripImportDialog } from './TripImportDialog.tsx';
 import { TripModifierDialog } from './TripModifierDialog.tsx';
 import { AvisDialog } from './AvisDialog.tsx';
 import { AvenantForfaitDialog } from './AvenantForfaitDialog.tsx';
+import { AstreinteDialog } from './AstreinteDialog.tsx';
+import { InterventionAstreinteDialog } from './InterventionAstreinteDialog.tsx';
 import { SuiviDialog } from './SuiviDialog.tsx';
 import { VisiteDialog } from './VisiteDialog.tsx';
 
@@ -142,6 +144,8 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'avenantForfait': return <AvenantForfaitDialog {...d} />;
     case 'anonymiser': return <AnonymiserDialog {...d} />;
     case 'accepterAttente': return <AccepterAttenteDialog {...d} />;
+    case 'astreinte': return <AstreinteDialog {...d} />;
+    case 'interventionAstreinte': return <InterventionAstreinteDialog {...d} />;
     case 'confirmer': return <ConfirmerDialog c={d.c} />;
   }
 }

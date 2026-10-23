@@ -135,6 +135,9 @@ test('heures et texte d’une astreinte, heures et périodes d’un mois (récap
   assert.deepEqual(A.bilanMensuel([a], ints, 2, '2026-11'), { periodes: 0, heures: 128, interventions: 1, heuresInterventions: 2 });
   assert.deepEqual(A.bilanMensuel([{ ...a, annuleLe: '2026-10-05T08:00:00.000Z' }], [], 2, '2026-10'), { periodes: 0, heures: 0, interventions: 0, heuresInterventions: 0 });
   assert.equal(A.bilanTexte(A.bilanMensuel([a], ints, 2, '2026-10')), '1 période, 30 h d’astreinte, 1 intervention (3,5 h)');
+  // Arrêté à un instant (mois en cours) : heures accomplies seulement, astreinte et intervention à venir exclues.
+  assert.deepEqual(A.bilanMensuel([a], ints, 2, '2026-10', A.instant('2026-10-31', '06:00')), { periodes: 1, heures: 12, interventions: 0, heuresInterventions: 0 });
+  assert.deepEqual(A.bilanMensuel([a], ints, 2, '2026-10', A.instant('2026-10-30', '18:00')), { periodes: 0, heures: 0, interventions: 0, heuresInterventions: 0 });
   assert.equal(A.COMPENSATION_LABEL[A.reglagesAstreinte(S).astreinteCompensation], 'Financière : montant sur le bulletin de paie');
 });
 

@@ -6,15 +6,16 @@
 // (rubriques désactivées, réglage `deplacementsFichierPaie` décoché), jours rachetés d'un forfait jours sans code Sage
 // (rubrique JREN désactivée, t043), et la liste `aSaisir` du contenu, remplie à la
 // génération par les familles du registre qui ne gardent pas leurs éléments inactifs dans le lot (soldes de sortie :
-// server/src/elements-lot.ts). Une nouvelle famille (heures de nuit, congé pris sur le CET…) y ajoute ses éléments.
+// server/src/elements-lot.ts). Heures et périodes d'astreinte sans code Sage (AST_H, AST_PER désactivées, t049). Une nouvelle famille (heures de nuit, congé pris sur le CET…) y ajoute ses éléments.
 import type { ElementASaisir, SagePush } from '../types.ts';
 import { detailElement } from './absences-paie.ts';
 import { detailDeplacement } from './deplacements-paie.ts';
 import { detailRachat } from './forfait-jours.ts';
+import { detailAstreinte } from './astreintes-paie.ts';
 import { periodeLabel } from './paie.ts';
 
 /** Contenu lu : absences, déplacements et jours rachetés du lot, liste des autres éléments laissés à Sage. */
-type ContenuASaisir = Partial<Pick<SagePush, 'absences' | 'deplacements' | 'rachats' | 'aSaisir'>>;
+type ContenuASaisir = Partial<Pick<SagePush, 'absences' | 'deplacements' | 'rachats' | 'astreintes' | 'aSaisir'>>;
 
 /** Libellé de la colonne « Rubrique Sage » d'un élément sans code Sage, absent du fichier. */
 export const A_SAISIR_SAGE = 'À saisir dans Sage';
@@ -25,6 +26,7 @@ export const FAMILLES_A_SAISIR: Record<string, [string, string]> = {
   // Heures de nuit des feuilles (HNUIT, MAJ_NUIT : shared/rules/temps.ts, `buildSagePayload`), rubriques désactivées.
   nuit: ['élément d’heures de nuit', 'éléments d’heures de nuit'],
   rachats: ['jours rachetés (forfait jours)', 'jours rachetés (forfait jours)'],
+  astreintes: ['élément d’astreinte', 'éléments d’astreinte'],
 };
 
 /**
@@ -40,6 +42,8 @@ export function elementsASaisir(contenu: ContenuASaisir, paysLabel: (code: strin
       .map(x => ({ famille: 'deplacements', empId: x.empId, periode: x.periode, rubrique: x.rubrique, quantite: x.quantite, detail: detailDeplacement(x, paysLabel, periodeLabel) })),
     ...(contenu.rachats ?? []).filter(x => !x.codeSage)
       .map(x => ({ famille: 'rachats', empId: x.empId, periode: x.periode, rubrique: x.rubrique, quantite: x.quantite, detail: detailRachat(x) })),
+    ...(contenu.astreintes ?? []).filter(x => !x.codeSage)
+      .map(x => ({ famille: 'astreintes', empId: x.empId, periode: x.periode, rubrique: x.rubrique, quantite: x.quantite, detail: detailAstreinte(x, periodeLabel) })),
     ...(contenu.aSaisir ?? []),
   ];
 }

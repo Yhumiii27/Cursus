@@ -140,7 +140,7 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 export interface LigneFichier { matricule: string; periode: string; rubrique: string; quantite: number }
 
 /** Contenu lu par le fichier : lignes des feuilles et, depuis le lot 5, éléments d'absence et soldes de sortie. */
-type ContenuFichier = Pick<SagePush, 'lignes'> & Partial<Pick<SagePush, 'absences' | 'sorties' | 'deplacements' | 'rachats' | 'aSaisir'>>;
+type ContenuFichier = Pick<SagePush, 'lignes'> & Partial<Pick<SagePush, 'absences' | 'sorties' | 'deplacements' | 'rachats' | 'astreintes' | 'aSaisir'>>;
 
 /**
  * Quantités du contenu par matricule, période et code Sage : heures des feuilles, puis absences et soldes de sortie.
@@ -155,6 +155,8 @@ function quantites(contenu: ContenuFichier): { matricule: string; periode: strin
     ...(contenu.deplacements ?? []).flatMap(x => (x.codeSage ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
     // Jours rachetés d'un forfait jours (t043) : sans code Sage (JREN désactivée), à saisir dans Sage, hors du fichier.
     ...(contenu.rachats ?? []).flatMap(x => (x.codeSage ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
+    // Heures et périodes d'astreinte (t049) : sans code Sage (AST_H, AST_PER désactivées), à saisir dans Sage, hors du fichier.
+    ...(contenu.astreintes ?? []).flatMap(x => (x.codeSage ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
   ];
 }
 
@@ -235,6 +237,7 @@ export function resumeContenu(contenu: ContenuFichier, paysLabel?: (code: string
     ...(contenu.sorties?.length ? { sorties: { elements: contenu.sorties.length, salaries: new Set(contenu.sorties.map(x => x.empId)).size } } : {}),
     ...(contenu.deplacements?.length ? { deplacements: { elements: contenu.deplacements.length, salaries: new Set(contenu.deplacements.map(x => x.empId)).size } } : {}),
     ...(contenu.rachats?.length ? { rachats: { elements: contenu.rachats.length, salaries: new Set(contenu.rachats.map(x => x.empId)).size } } : {}),
+    ...(contenu.astreintes?.length ? { astreintes: { elements: contenu.astreintes.length, salaries: new Set(contenu.astreintes.map(x => x.empId)).size } } : {}),
     ...(aSaisir.length ? { aSaisir } : {}),
   };
 }

@@ -31,3 +31,18 @@ export const ASTREINTES_ACTIVITE_INDEX: Migration = {
     return `${ajoutee ? `activité interne ${ACTIVITE_ASTREINTE.code} ajoutée, ` : ''}index ${Object.keys(INDEX_ASTREINTES).join(', ')}`;
   },
 };
+
+/**
+ * Étape 2 (paie, server/src/astreintes-paie.ts) : index des astreintes par lot de paie (réservation, confirmation et
+ * libération d'un lot), comme astreintes_lot de server/migrations-pg/0008_astreintes_paie.sql. Les colonnes `lot_id` et
+ * `sage` (et `lots_paie.astreintes`) viennent du schéma déclaratif ; aucune donnée à reprendre (aucune astreinte n'a encore
+ * été transmise).
+ */
+export const ASTREINTES_PAIE_INDEX: Migration = {
+  nom: 'lot7-astreintes-paie-index',
+  necessaire: async (db: SqliteDb) => !indexExiste(db, 'astreintes_lot'),
+  executer: async (db: Db) => {
+    await db.exec('CREATE INDEX IF NOT EXISTS astreintes_lot ON astreintes (lot_id)');
+    return 'index astreintes_lot';
+  },
+};

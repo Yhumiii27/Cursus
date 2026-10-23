@@ -70,7 +70,7 @@ const planifier: ActionHandler = async (ctx, p) => {
   if (!r.valeurs) throw new ActionError(premiereErreur(r.erreurs) ?? 'Astreinte invalide');
   const a = await ctx.db.insert<Astreinte>('astreintes', {
     empId: emp.id, equipe: emp.equipe ?? null, ...r.valeurs, communiqueLe: ctx.d.ti, creeLe: new Date().toISOString(), creePar: ctx.user.nom,
-    modifieLe: null, modifiePar: null, annuleLe: null, annulePar: null, annuleMotif: null,
+    modifieLe: null, modifiePar: null, annuleLe: null, annulePar: null, annuleMotif: null, lotId: null, sage: false,
   });
   const envoye = await prevenirAstreinte(ctx, emp, a, 'planifiee', { managerId: managerDe(ctx, emp) });
   return {

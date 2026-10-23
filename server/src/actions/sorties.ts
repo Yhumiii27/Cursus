@@ -8,6 +8,7 @@
 // Solde de sortie (t128) : l'état des compteurs à la date est photographié à l'enregistrement et à chaque modification
 // (server/src/soldes-sortie.ts), pour la paie ; une sortie dont le solde est dans un lot à confirmer ne change plus.
 import { ouvreEspaceRh } from '../../../shared/constants.ts';
+import { addD } from '../../../shared/dates.ts';
 import { fmtIso } from '../../../shared/format.ts';
 import { controleSortie, effetsSortie, estMotifSortie, finContrat, MOTIFS_SORTIE } from '../../../shared/rules/contrats.ts';
 import type { Certification, DemandeVisite, Absence, Employe } from '../../../shared/types.ts';
@@ -17,6 +18,7 @@ import { absenceKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { annulerSiConvoque } from '../notifications.ts';
 import { controlerSoldeSortie, photographierSortie, retirerSoldeSortie } from '../soldes-sortie.ts';
 import { amorcer, cloreHistorique, rouvrirHistorique } from '../avenants.ts';
+import { alerteAstreintes } from '../astreintes.ts';
 import { ActionError, getEmp, refuserSoiMeme, requireRh, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 /**
@@ -92,8 +94,10 @@ const sortie: ActionHandler = async (ctx, p) => {
   if (renouvellements) effets.push(renouvellements > 1 ? `${renouvellements} renouvellements du CDD sans effet annulés` : 'renouvellement du CDD sans effet annulé');
   effets.push(solde.texte);
   const acces = date >= ctx.d.ti ? ` · accès à Cursus jusqu’au ${fmtIso(date)} inclus` : '';
+  // Astreintes planifiées au-delà de la sortie (t049) : à annuler ou raccourcir par le manager ou le service RH.
+  const astreintes = alerteAstreintes(ctx.ds, emp.id, addD(date, 1), null);
   return {
-    message: `Sortie de ${emp.nom} enregistrée le ${fmtIso(date)} — ${MOTIFS_SORTIE[motif]}${effets.map(x => ` · ${x}`).join('')}${acces}`,
+    message: `Sortie de ${emp.nom} enregistrée le ${fmtIso(date)} — ${MOTIFS_SORTIE[motif]}${effets.map(x => ` · ${x}`).join('')}${acces}${astreintes}`,
     result: {
       annulations: {
         absences: c.absences.length, inscriptions: c.certs.length + c.inscriptions.length, entretiens: c.entretiens.length,

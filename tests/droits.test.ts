@@ -72,9 +72,9 @@ const avenantForfait = async () => (await db.insert<{ id: number }>('avenantsFor
   empId: 9, annee: 2026, jours: 5, taux: 25, signeLe: '2026-10-01', reference: null, creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Sandrine Vidal',
   annuleLe: null, annulePar: null, annuleMotif: null, lotId: null, sage: false, horsFichier: false,
 })).id;
-/** Astreinte de Mehdi (Maintenance), de 18 h le premier jour à 8 h le dernier, communiquée le 1er octobre. */
-const astreinte = async (du: string, au: string) => (await db.insert<{ id: number }>('astreintes', {
-  empId: 2, equipe: 'Maintenance', du, debut: '18:00', au, fin: '08:00', communiqueLe: '2026-10-01', motif: null, creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Karim Haddad',
+/** Astreinte de Mehdi (Maintenance, ou d'un autre salarié), de 18 h le premier jour à 8 h le dernier, communiquée le 1er octobre. */
+const astreinte = async (du: string, au: string, empId = 2) => (await db.insert<{ id: number }>('astreintes', {
+  empId, equipe: 'Maintenance', du, debut: '18:00', au, fin: '08:00', communiqueLe: '2026-10-01', motif: null, creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Karim Haddad',
 })).id;
 /** Intervention de Mehdi déclarée le 5 octobre (feuille de la semaine 41 en brouillon, ligne INT-AST). */
 const intervention = async () => {
@@ -463,6 +463,8 @@ const MATRICE: Ligne[] = [
   { action: 'astreinte.modifier', droits: '               O    O    O    -    -    -    -    -    -', p: async () => ({ id: await astreinte('2026-11-06', '2026-11-13'), au: '2026-11-12' }) },
   { action: 'astreinte.annuler', droits: '                O    O    O    -    -    -    -    -    -', p: async () => ({ id: await astreinte('2026-11-06', '2026-11-13'), motif: 'Arrêt technique reporté' }) },
   { action: 'astreinte.intervention', droits: '           O    O    O    -    O    -    -    -    -', p: async () => ({ astreinteId: await astreinte('2026-10-05', '2026-10-07'), jour: '2026-10-05', debut: '22:00', fin: '23:30' }) },
+  // Astreinte d'un autre salarié (Thomas) : Mehdi reçoit le même refus qu'un identifiant inconnu, avant tout contrôle.
+  { action: 'astreinte.intervention', variante: 'astreinte de Thomas', droits: 'O    O    O    -    -    O    -    -    -', p: async () => ({ astreinteId: await astreinte('2026-10-05', '2026-10-07', 6), jour: '2026-10-05', debut: '22:00', fin: '23:30' }) },
   { action: 'astreinte.retirerIntervention', droits: '    O    O    O    -    O    -    -    -    -', p: async () => ({ id: await intervention() }) },
 ];
 

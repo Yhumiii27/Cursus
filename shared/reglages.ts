@@ -247,7 +247,7 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   agendaFluxActif: { defaut: false, controle: booleen },
   agendaContenu: { defaut: ['sessions', 'entretiens', 'absences', 'deplacements'], controle: parmi<ContenuAgenda>(['sessions', 'entretiens', 'absences', 'deplacements']) },
   // — Astreintes (t049, lot 7, shared/rules/astreintes.ts ; section de Paramètres à l'étape 2) : accord inconnu (réponse de
-  //   l'entreprise du 23 octobre 2026) — délai de prévenance légal de 15 jours (art. L3121-12), compensation financière,
+  //   l'entreprise du 23 octobre 2026) — délai de prévenance légal de 15 jours (art. R3121-3), compensation financière,
   //   aucune astreinte pour un salarié mineur, référence de l'accord vide —
   astreinteDelaiPrevenance: { defaut: DELAI_PREVENANCE_LEGAL, controle: entier(DELAI_JOUR_FRANC, 60) },
   astreinteCompensation: { defaut: 'financiere', controle: choix<CompensationAstreinte>(['financiere', 'repos']) },

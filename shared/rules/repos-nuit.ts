@@ -22,14 +22,17 @@
 //   référence de l'accord. Repéré sur la fiche ; en suivi VIP, alerte « suivi médical adapté à prévoir » dans les visites
 //   dues (VIP adaptée, art. R4624-17), sans changer d'office le type de suivi.
 // - Interventions d'astreinte (t049, lot 7, shared/rules/astreintes.ts) : plages exactes (début et fin déclarés), en plus de la
-//   plage estimée de l'horaire, dont leurs heures sont retirées. Leurs heures de nuit comptent ; le temps d'astreinte sans
-//   intervention compte comme repos (art. L3121-10) : seul le repos qui suit la fin d'une intervention est contrôlé, dû en
-//   entier jusqu'à la reprise suivante (le repos interrompu par l'intervention ne l'est pas).
+//   plage estimée de l'horaire, dont leurs heures sont retirées. Leurs heures de nuit comptent, pour la feuille comme pour
+//   le statut de travailleur de nuit (`nuitDeLaFeuille`) ; le temps d'astreinte sans intervention compte comme repos (art.
+//   L3121-10) : seul le repos qui suit la fin d'une intervention est contrôlé, dû en entier jusqu'à la reprise suivante (le
+//   repos interrompu par l'intervention ne l'est pas). Repos dû en entier même si 11 h ont déjà été prises avant l'appel :
+//   choix par défaut du chantier, plus strict que la doctrine administrative, à revoir avec l'accord sur les astreintes.
 // Tout est calculé sur les feuilles et les horaires déjà transmis : aucune donnée nouvelle ne part vers le navigateur, sauf
 // l'indication `travailleurNuit` du référent HSE, qui n'a pas les feuilles (server/src/dataset.ts).
 import { addD, joursSemaine, parse } from '../dates.ts';
 import { fH, num } from '../format.ts';
 import type { Dataset, Employe, FeuilleTemps, HoraireFige, ISODate, Settings } from '../types.ts';
+import { plagesInterventions } from './astreintes.ts';
 import { horairesDeLaFeuille } from './horaires.ts';
 import { ageAu, dateNaissance, mineurAu, moins16Au, type Naissance } from './mineurs.ts';
 import { DIMANCHE, JOURS_FEUILLE } from './semaine.ts';
@@ -205,7 +208,7 @@ export function controlesReposNuit(jours: readonly (HoraireFige | null)[], perDa
       const day = wd[x.di], a = age(day), min = a === 'moins16' ? REPOS_QUOTIDIEN_MOINS_16 : a ? REPOS_QUOTIDIEN_MINEUR : REPOS_QUOTIDIEN;
       const repos = (x.p.debut - finMax) / 60;
       if (repos < min) {
-        courts.push(`${repos > 0 ? fH(repos) : 'aucun repos'} avant le ${jourCourt(day)} (fin ${finIntervention ? 'de l’intervention d’astreinte ' : ''}à ${heureTexte(finMax)}, reprise à ${heureTexte(x.p.debut)}${finIntervention ? ' ; repos dû en entier après une intervention, art. L3121-10' : ''})`);
+        courts.push(`${repos > 0 ? fH(repos) : 'aucun repos'} avant le ${jourCourt(day)} (fin ${finIntervention ? 'de l’intervention d’astreinte ' : ''}à ${heureTexte(finMax)}, reprise à ${heureTexte(x.p.debut)}${finIntervention ? ' ; repos dû en entier après une intervention d’astreinte' : ''})`);
       }
     }
     if (finMax == null || x.p.fin > finMax) { finMax = x.p.fin; finIntervention = x.intervention; }
@@ -257,10 +260,21 @@ export function veilleDe(ds: Pick<Dataset, 'feuilles' | 'referentiels'>, e: Pick
   return { horaire: horairesDeLaFeuille(ds.referentiels, e.equipe, sh, perDay)[DIMANCHE].horaire, heures: perDay[DIMANCHE] };
 }
 
-/** Heures de nuit de chaque jour d'une feuille validée, d'après ses horaires figés ; aucune sans horaires figés. */
-export function nuitDeLaFeuille(sh: Pick<FeuilleTemps, 'lignes' | 'horairesFiges'>, s: Partial<ReglagesNuit> | undefined): number[] {
+/**
+ * Heures de nuit de chaque jour d'une feuille validée, d'après ses horaires figés ; aucune sans horaires figés, hors des
+ * interventions d'astreinte (`interventions`, plages exactes de la semaine : `plagesInterventions`), comptées sur leur plage
+ * réelle et retirées de la plage estimée de l'horaire, comme dans `controlesReposNuit`.
+ */
+export function nuitDeLaFeuille(sh: Pick<FeuilleTemps, 'lignes' | 'horairesFiges'>, s: Partial<ReglagesNuit> | undefined,
+  interventions: readonly PlageIntervention[] = []): number[] {
   const perDay = heuresParJour(sh), r = reglagesNuit(s);
-  return perDay.map((h, i) => heuresDeNuit(plageDuJour(sh.horairesFiges?.[i], h, i), r));
+  const ints = interventions.filter(x => x.fin > x.debut && x.di >= 0 && x.di < JOURS_FEUILLE);
+  return perDay.map((h, i) => {
+    const siennes = ints.filter(x => x.di === i), hInt = siennes.reduce((n, x) => n + (x.fin - x.debut) / 60, 0);
+    const nuit = heuresDeNuit(plageDuJour(sh.horairesFiges?.[i], Math.max(0, h - hInt), i), r)
+      + siennes.reduce((n, x) => n + heuresDeNuit({ debut: x.debut, fin: x.fin, pause: 0 }, r), 0);
+    return Math.round(nuit * 100) / 100;
+  });
 }
 
 // — Travailleur de nuit —
@@ -275,8 +289,8 @@ export interface StatutNuit {
   semaines: number;
 }
 
-/** Statuts calculés, par liste de feuilles (refaits quand elle s'allonge). */
-const cache = new WeakMap<readonly FeuilleTemps[], { n: number; m: Map<string, StatutNuit> }>();
+/** Statuts calculés, par liste de feuilles (refaits quand elle s'allonge ou que les interventions d'astreinte changent). */
+const cache = new WeakMap<readonly FeuilleTemps[], { n: number; ints: unknown; m: Map<string, StatutNuit> }>();
 
 /**
  * Statut de travailleur de nuit à la date `ti`, sur les feuilles validées : deux semaines au moins, parmi les quatre
@@ -284,13 +298,13 @@ const cache = new WeakMap<readonly FeuilleTemps[], { n: number; m: Map<string, S
  * ou le seuil annuel atteint sur les 12 mois glissants (jours du 12e mois avant `ti` exclus, jours postérieurs à `ti`
  * aussi). Une feuille sans horaire (équipe sans horaire par défaut, feuille d'avant les horaires) compte comme une semaine
  * sans nuit : des nuits ponctuelles dans une équipe de journée, séparées par des semaines sans horaire, ne font pas un
- * horaire habituel de nuit.
+ * horaire habituel de nuit. Les interventions d'astreinte, dont les heures sont connues, comptent toujours (t049).
  */
-export function statutNuit(ds: Pick<Dataset, 'feuilles' | 'settings'>, empId: number, ti: ISODate): StatutNuit {
+export function statutNuit(ds: Pick<Dataset, 'feuilles' | 'settings'> & Partial<Pick<Dataset, 'interventionsAstreinte'>>, empId: number, ti: ISODate): StatutNuit {
   const s = reglagesNuit(ds.settings);
   const cle = `${empId}|${ti}|${s.nuitDebut}|${s.nuitFin}|${s.nuitSeuilQuotidien}|${s.nuitSeuilAnnuel}`;
   let x = cache.get(ds.feuilles);
-  if (!x || x.n !== ds.feuilles.length) { x = { n: ds.feuilles.length, m: new Map() }; cache.set(ds.feuilles, x); }
+  if (!x || x.n !== ds.feuilles.length || x.ints !== ds.interventionsAstreinte) { x = { n: ds.feuilles.length, ints: ds.interventionsAstreinte, m: new Map() }; cache.set(ds.feuilles, x); }
   const m = x.m, deja = m.get(cle);
   if (deja) return deja;
   const debut = addD(ti, -365);
@@ -298,7 +312,8 @@ export function statutNuit(ds: Pick<Dataset, 'feuilles' | 'settings'>, empId: nu
     .sort((a, b) => b.week.localeCompare(a.week));
   let heures = 0;
   const semaines = feuilles.map(sh => {
-    const nuit = nuitDeLaFeuille(sh, s);
+    // Interventions d'astreinte (t049) : leurs nuits comptent sur leur plage réelle, même sans horaire figé.
+    const nuit = nuitDeLaFeuille(sh, s, plagesInterventions(ds.interventionsAstreinte, empId, sh.week));
     joursSemaine(sh.week).forEach((day, i) => { if (day > debut && day <= ti) heures += nuit[i]; });
     return nuit.filter(h => h >= s.nuitSeuilQuotidien).length >= NUIT_JOURS_SEMAINE;
   });
@@ -314,7 +329,7 @@ export function statutNuit(ds: Pick<Dataset, 'feuilles' | 'settings'>, empId: nu
  * Travailleur de nuit vu par l'écran : l'indication transmise par le serveur aux vues sans les feuilles (référent HSE),
  * sinon le calcul sur les feuilles de l'instantané.
  */
-export function estTravailleurNuit(ds: Pick<Dataset, 'feuilles' | 'settings'>, e: Pick<Employe, 'id'> & Partial<Pick<Employe, 'travailleurNuit'>>, ti: ISODate): boolean {
+export function estTravailleurNuit(ds: Pick<Dataset, 'feuilles' | 'settings'> & Partial<Pick<Dataset, 'interventionsAstreinte'>>, e: Pick<Employe, 'id'> & Partial<Pick<Employe, 'travailleurNuit'>>, ti: ISODate): boolean {
   return typeof e.travailleurNuit === 'boolean' ? e.travailleurNuit : statutNuit(ds, e.id, ti).travailleur;
 }
 

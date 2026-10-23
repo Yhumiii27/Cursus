@@ -3,18 +3,24 @@
 // l'entreprise : « des salariés d'astreinte », en maintenance surtout. L'accord sur le temps de travail n'est pas connu :
 // valeurs supplétives de la loi et choix par défaut du chantier, réglables (Paramètres, réglages `astreinte…`).
 // - Planning : planifié par le manager direct ou le service RH, communiqué au salarié (e-mail et événement d'agenda) au
-//   moins 15 jours à l'avance (art. L3121-12, réglage `astreinteDelaiPrevenance`). En dessous, motif des « circonstances
-//   exceptionnelles » obligatoire, et jamais moins d'un jour franc : une astreinte communiquée le lundi commence au plus
-//   tôt le mercredi.
+//   moins 15 jours à l'avance (art. R3121-3, à défaut d'accord : dispositions supplétives de l'art. L3121-12 ; réglage
+//   `astreinteDelaiPrevenance`). En dessous, motif des « circonstances exceptionnelles » obligatoire, et jamais moins d'un
+//   jour franc : une astreinte communiquée le lundi commence au plus tôt le mercredi. Une modification qui ne fait que la
+//   raccourcir (ni avancée ni étendue) n'est pas une nouvelle programmation : ni délai ni nouvelle communication.
+// - Commencée à l'instant de son début (jour et heure) : avant, elle s'annule ou se modifie ; après, seule sa fin s'avance.
 // - Pas de chevauchement avec une autre astreinte du salarié, ni avec une absence en vigueur (validée ou signalée) ; une
-//   demande d'absence en attente est signalée sans blocage. Dans le contrat seulement.
+//   demande d'absence en attente est signalée sans blocage. Dans le contrat seulement. Dans l'autre sens, une absence
+//   validée, signalée ou une sortie qui la chevauche après coup est signalée (`astreintesChevauchant`) : un congé ne se
+//   valide pas tant que l'astreinte n'est pas annulée ou raccourcie.
 // - Salarié de moins de 18 ans : refus par défaut (réglage `astreinteMineurs`), le travail de nuit lui étant interdit
 //   (art. L3163-2) et une intervention ne se programmant pas.
 // - Intervention : du travail effectif, déclaré sur la feuille de temps avec ses heures de début et de fin (une fin avant
 //   le début : le lendemain), à l'intérieur de l'astreinte, rattaché au jour où il commence ; ses heures s'ajoutent à la
 //   ligne INT-AST de ce jour et passent par les heures normales, supplémentaires et de nuit comme les autres.
-// - Repos quotidien (art. L3121-10) : le temps d'astreinte sans intervention compte comme repos ; après une intervention, le
-//   repos de 11 h est dû en entier à partir de sa fin (shared/rules/repos-nuit.ts, `interventions`).
+// - Repos quotidien : le temps d'astreinte sans intervention compte comme repos (art. L3121-10) ; après une intervention, le
+//   repos de 11 h (art. L3131-1) est dû en entier à partir de sa fin, choix par défaut du chantier tant que l'accord n'est
+//   pas connu (la doctrine administrative ne l'exige que si le repos n'a pas été pris en entier avant l'intervention) :
+//   shared/rules/repos-nuit.ts, `interventions`.
 // - Heures et périodes d'astreinte d'un mois (récapitulatif remis au salarié, art. R3121-2 ; rubriques AST_H et AST_PER de
 //   l'étape 2) : heures d'horloge de la période comprises dans le mois, période comptée le mois où elle commence.
 // Contrôles partagés par l'action (server/src/actions/astreintes.ts) et, à l'étape 2, les dialogues.
@@ -28,11 +34,11 @@ import type { PlageIntervention } from './repos-nuit.ts';
 
 // — Réglages (valeurs supplétives de la loi et choix par défaut du chantier) —
 
-/** Délai de prévenance à défaut d'accord (art. L3121-12), en jours. */
+/** Délai de prévenance à défaut d'accord (art. R3121-3), en jours. */
 export const DELAI_PREVENANCE_LEGAL = 15;
 /**
  * Délai minimal, même en circonstances exceptionnelles : un jour franc entre le jour de la communication et le premier jour
- * de l'astreinte (art. L3121-12), soit deux jours de date à date.
+ * de l'astreinte (art. R3121-3), soit deux jours de date à date.
  */
 export const DELAI_JOUR_FRANC = 2;
 /** Durée maximale d'une astreinte saisie d'un seul tenant (jours) : au-delà, plusieurs périodes (garde-fou de saisie). */
@@ -72,15 +78,23 @@ export const instant = (jour: ISODate, hhmm: string) => Math.round(Date.UTC(Numb
 export const debutAstreinte = (a: Pick<Astreinte, 'du' | 'debut'>) => instant(a.du, a.debut);
 export const finAstreinte = (a: Pick<Astreinte, 'au' | 'fin'>) => instant(a.au, a.fin);
 const arrondi = (h: number) => Math.round(h * 100) / 100;
+/** « HH:MM » d'un instant en minutes d'horloge. */
+const hhmm = (m: number) => { const x = ((m % 1440) + 1440) % 1440; return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`; };
 /** Heures d'astreinte d'une période (au centième). */
 export const heuresAstreinte = (a: Pick<Astreinte, 'du' | 'debut' | 'au' | 'fin'>) => arrondi((finAstreinte(a) - debutAstreinte(a)) / 60);
 
 /** Astreinte en vigueur (non annulée). */
 export const astreinteActive = (a: Pick<Astreinte, 'annuleLe'>) => !a.annuleLe;
-/** Astreinte commencée à la date `ti` (son premier jour est arrivé) : ses dates ne changent plus, sa fin seulement. */
-export const astreinteCommencee = (a: Pick<Astreinte, 'du'>, ti: ISODate) => a.du <= ti;
-/** Astreinte terminée avant la date `ti`. */
-export const astreinteTerminee = (a: Pick<Astreinte, 'au'>, ti: ISODate) => a.au < ti;
+/**
+ * Astreinte commencée à l'instant `maintenant` (minutes d'horloge, `instant`) : son heure de début est passée. Ses dates ne
+ * changent plus, sa fin seulement ; avant, elle s'annule encore (le jour même, avant l'heure de début).
+ */
+export const astreinteCommencee = (a: Pick<Astreinte, 'du' | 'debut'>, maintenant: number) => debutAstreinte(a) <= maintenant;
+/** Astreinte terminée à l'instant `maintenant`. */
+export const astreinteTerminee = (a: Pick<Astreinte, 'au' | 'fin'>, maintenant: number) => finAstreinte(a) <= maintenant;
+/** Période `v` comprise dans l'astreinte `a` (ni avancée, ni étendue) : une modification qui ne fait que la raccourcir. */
+export const raccourcie = (v: Pick<Astreinte, 'du' | 'debut' | 'au' | 'fin'>, a: Pick<Astreinte, 'du' | 'debut' | 'au' | 'fin'>) =>
+  debutAstreinte(v) >= debutAstreinte(a) && finAstreinte(v) <= finAstreinte(a);
 
 /** « 18 h », « 7 h 30 ». */
 export const heureTexte = (hhmm: string) => `${Number(hhmm.slice(0, 2))} h${hhmm.slice(3) === '00' ? '' : ` ${hhmm.slice(3)}`}`;
@@ -106,14 +120,14 @@ export interface Prevenance {
 export function prevenance(du: ISODate, ti: ISODate, s: Partial<ReglagesAstreinte> | undefined): Prevenance {
   const r = reglagesAstreinte(s), jours = days(parse(ti), parse(du));
   const refus = jours < DELAI_JOUR_FRANC
-    ? `Astreinte communiquée trop tard : un jour franc au moins entre l’information du salarié et le début de l’astreinte (art. L3121-12), soit le ${fmtIso(addD(ti, DELAI_JOUR_FRANC))} au plus tôt`
+    ? `Astreinte communiquée trop tard : un jour franc au moins entre l’information du salarié et le début de l’astreinte (art. R3121-3), soit le ${fmtIso(addD(ti, DELAI_JOUR_FRANC))} au plus tôt`
     : null;
   return { jours, court: jours < r.astreinteDelaiPrevenance, refus };
 }
 
 /** Texte de l'alerte d'un délai court, qui demande le motif. */
 export const delaiCourtTexte = (p: Prevenance, s: Partial<ReglagesAstreinte> | undefined) =>
-  `Astreinte communiquée ${plural(p.jours, 'jour', 'jours')} avant son début, moins que le délai de prévenance de ${reglagesAstreinte(s).astreinteDelaiPrevenance} jours (art. L3121-12) : indiquez les circonstances exceptionnelles qui le justifient`;
+  `Astreinte communiquée ${plural(p.jours, 'jour', 'jours')} avant son début, moins que le délai de prévenance de ${reglagesAstreinte(s).astreinteDelaiPrevenance} jours (art. R3121-3) : indiquez les circonstances exceptionnelles qui le justifient`;
 
 // — Contrôle d'une astreinte —
 
@@ -131,6 +145,8 @@ export interface AstreinteControlee {
   /** Avertissements sans blocage (demande d'absence en attente). */
   avertissements: string[];
   prevenance: Prevenance | null;
+  /** Modification qui ne fait que raccourcir l'astreinte : la programmation communiquée tient toujours (`communiqueLe` gardé). */
+  reduction?: boolean;
 }
 
 /** Première erreur d'un contrôle, dans l'ordre des champs (message de l'action). */
@@ -139,12 +155,16 @@ export const premiereErreur = (e: ErreursAstreinte): string | null => e.general 
 const motifDe = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
 
 /**
- * Astreinte planifiée (`existante` null) ou modifiée, à la date `ti`. Une astreinte commencée ne change plus que de fin, et
- * seulement pour être raccourcie (une prolongation est une nouvelle astreinte, avec son délai de prévenance) : sa fin au
- * plus tôt aujourd'hui et après la dernière intervention déclarée (`finInterventions`, en minutes d'horloge).
+ * Astreinte planifiée (`existante` null) ou modifiée, à la date `ti` et à l'instant `maintenant` (minutes d'horloge ; par
+ * défaut le début du jour `ti`). Une astreinte commencée ne change plus que de fin, et seulement pour être raccourcie (une
+ * prolongation est une nouvelle astreinte, avec son délai de prévenance) : sa fin au plus tôt maintenant et après la
+ * dernière intervention déclarée (`finInterventions`, en minutes d'horloge). Une astreinte à venir seulement raccourcie
+ * (période comprise dans l'ancienne) n'est soumise ni au délai de prévenance ni aux autres contrôles de la planification :
+ * elle ne peut qu'en lever.
  */
 export function controlerAstreinte(ds: DsAstreinte, e: EmployeAstreinte, p: SaisieAstreinte, ti: ISODate,
-  s: Partial<ReglagesAstreinte> | undefined, existante: Astreinte | null = null, finInterventions: number | null = null): AstreinteControlee {
+  s: Partial<ReglagesAstreinte> | undefined, existante: Astreinte | null = null, finInterventions: number | null = null,
+  maintenant: number = instant(ti, '00:00')): AstreinteControlee {
   const erreurs: ErreursAstreinte = {}, avertissements: string[] = [];
   const out = (prevenance: Prevenance | null = null): AstreinteControlee => ({ erreurs, valeurs: null, avertissements, prevenance });
   const val = <T>(v: unknown, actuel: T | undefined): unknown => (v === undefined || v === null || v === '' ? actuel : v);
@@ -163,12 +183,16 @@ export function controlerAstreinte(ds: DsAstreinte, e: EmployeAstreinte, p: Sais
   if (motif.length > MOTIF_ASTREINTE_MAX) { erreurs.motif = `Motif : ${MOTIF_ASTREINTE_MAX} caractères au plus.`; return out(); }
 
   // Astreinte commencée : sa fin seulement, raccourcie.
-  if (existante && astreinteCommencee(existante, ti)) {
+  if (existante && astreinteCommencee(existante, maintenant)) {
     if (du !== existante.du || v.debut !== existante.debut) { erreurs.du = 'Astreinte commencée : seule sa fin peut être avancée.'; return out(); }
     if (finAstreinte(v) > finAstreinte(existante)) { erreurs.au = 'Astreinte commencée : sa fin peut être avancée, pas reculée (planifiez une nouvelle astreinte à la suite).'; return out(); }
-    if (au < ti) { erreurs.au = `Fin de l’astreinte : aujourd’hui (${fmtIso(ti)}) au plus tôt.`; return out(); }
+    if (finAstreinte(v) < maintenant) { erreurs.au = `Fin de l’astreinte : maintenant au plus tôt (${fmtIso(ti)} à ${heureTexte(hhmm(maintenant))}).`; return out(); }
     if (finInterventions != null && finAstreinte(v) < finInterventions) { erreurs.au = 'Fin de l’astreinte : après la dernière intervention déclarée.'; return out(); }
-    return { erreurs, valeurs: { ...v, motif: existante.motif }, avertissements, prevenance: null };
+    return { erreurs, valeurs: { ...v, motif: existante.motif }, avertissements, prevenance: null, reduction: true };
+  }
+  // Astreinte à venir seulement raccourcie : la programmation communiquée vaut toujours (rien n'est ajouté au salarié).
+  if (existante && raccourcie(v, existante)) {
+    return { erreurs, valeurs: { ...v, motif: motif || existante.motif }, avertissements, prevenance: null, reduction: true };
   }
 
   // Délai de prévenance : un jour franc au moins, motif des circonstances exceptionnelles en dessous du délai réglé.
@@ -194,6 +218,19 @@ export function controlerAstreinte(ds: DsAstreinte, e: EmployeAstreinte, p: Sais
   }
   return { erreurs, valeurs: { ...v, motif: pr.court ? motif : (motif || null) }, avertissements, prevenance: pr };
 }
+
+/**
+ * Astreintes en vigueur d'un salarié qui chevauchent les jours `du` à `au` (absence validée ou signalée, sortie) : le contrôle
+ * de la planification dans l'autre sens. `apres` : celles qui finissent après ce jour (sortie, dernier jour du contrat).
+ */
+export function astreintesChevauchant(astreintes: readonly Astreinte[] | undefined, empId: number, du: ISODate, au: ISODate | null): Astreinte[] {
+  return (astreintes ?? []).filter(a => a.empId === empId && astreinteActive(a) && a.au >= du && (au == null || a.du <= au))
+    .sort((a, b) => debutAstreinte(a) - debutAstreinte(b));
+}
+
+/** « Astreinte du 2 nov. 2026 à 18 h au 9 nov. 2026 à 8 h » (une ou plusieurs, pour les messages des absences et sorties). */
+export const astreintesTexte = (list: readonly Pick<Astreinte, 'du' | 'debut' | 'au' | 'fin'>[]) =>
+  `${list.length > 1 ? 'Astreintes' : 'Astreinte'} ${list.map(periodeAstreinteTexte).join(', ')}`;
 
 // — Interventions —
 

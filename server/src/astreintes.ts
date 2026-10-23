@@ -1,18 +1,50 @@
 // Astreintes (t049, lot 7) : information du salarié par e-mail, toujours aussitôt (comme une convocation : la programmation
-// individuelle lui est communiquée, art. L3121-12), avec l'événement d'agenda de la période (.ics, UID stable
+// individuelle lui est communiquée, art. R3121-3), avec l'événement d'agenda de la période (.ics, UID stable
 // `astreinte-<n°>` : une modification met à jour l'événement, une annulation le retire). Son manager est prévenu quand le
 // service RH planifie, modifie ou annule (notification ordinaire, selon son réglage). Rien n'est envoyé à la personne qui
-// agit, ni à un salarié sans adresse (à prévenir de vive voix : le message de l'action le dit).
+// agit, ni à un salarié sans adresse (à prévenir de vive voix : le message de l'action le dit). Le motif d'une annulation
+// figure dans l'e-mail (l'action l'annonce à son auteur).
 import { fH } from '../../shared/format.ts';
-import { heuresAstreinte, periodeAstreinteTexte } from '../../shared/rules/astreintes.ts';
+import { astreintesChevauchant, astreintesTexte, heuresAstreinte, instant, periodeAstreinteTexte } from '../../shared/rules/astreintes.ts';
 import { ACTIVITE_ASTREINTE } from '../../shared/constants.ts';
-import type { Astreinte, CurrentUser, Dataset, Employe } from '../../shared/types.ts';
+import type { Astreinte, CurrentUser, Dataset, Employe, ISODate } from '../../shared/types.ts';
 import type { Db } from './db.ts';
 import { calendrier, domaineAgenda, envoyerEmail, pieceJointe, type EvenementAgenda } from './integrations/email.ts';
 import { adresseSalarie, courriel, lireMessagerie } from './messagerie.ts';
 import { notifier, organisateur } from './notifications.ts';
 
 type Contexte = { db: Db; ds: Dataset; user: CurrentUser };
+
+/** Horloge des astreintes (remplacée par les tests) : l'heure présente. */
+export const horloge = { maintenant: () => new Date() };
+const heureParis = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+
+/**
+ * Instant présent en minutes d'horloge (shared/rules/astreintes.ts, `instant`) : le jour de Cursus `ti` (figé en
+ * démonstration par CURSUS_TODAY) à l'heure de Paris. Une astreinte commence et s'annule à l'heure près.
+ */
+export function instantPresent(ti: ISODate): number {
+  const p = Object.fromEntries(heureParis.formatToParts(horloge.maintenant()).map(x => [x.type, x.value]));
+  return instant(ti, `${p.hour}:${p.minute}`);
+}
+
+/**
+ * Astreintes en vigueur du salarié pendant une absence (`du` à `au`) ou après sa sortie (`au` null, `du` lendemain de la
+ * sortie) : texte à ajouter au message de l'action (« · Astreinte du … : à annuler ou raccourcir »), vide sans astreinte.
+ */
+export function alerteAstreintes(ds: Pick<Dataset, 'astreintes'>, empId: number, du: ISODate, au: ISODate | null, quoi = 'à annuler ou raccourcir'): string {
+  const list = astreintesChevauchant(ds.astreintes, empId, du, au);
+  return list.length ? ` · ${astreintesTexte(list)} : ${quoi}` : '';
+}
+
+/**
+ * Validation d'un congé refusée tant qu'une astreinte en vigueur du salarié le chevauche (pas d'astreinte pendant une
+ * absence validée, choix par défaut du chantier) : le manager ou le service RH l'annule ou la raccourcit d'abord.
+ */
+export function refusAstreintes(ds: Pick<Dataset, 'astreintes'>, empId: number, du: ISODate, au: ISODate): string | null {
+  const list = astreintesChevauchant(ds.astreintes, empId, du, au);
+  return list.length ? `${astreintesTexte(list)} : annulez-la ou raccourcissez-la avant de valider cette absence` : null;
+}
 export type ChangementAstreinte = 'planifiee' | 'modifiee' | 'annulee';
 
 /** Événement d'agenda d'une astreinte : plage continue à l'heure de Paris, du premier jour au dernier. */
@@ -39,7 +71,7 @@ export async function prevenirAstreinte(cx: Contexte, emp: Pick<Employe, 'id' | 
   const periode = periodeAstreinteTexte(a), heures = fH(heuresAstreinte(a));
   const objet = quoi === 'planifiee' ? `Astreinte ${periode}` : quoi === 'modifiee' ? `Astreinte modifiée : ${periode}` : `Astreinte annulée : ${periode}`;
   const corps = quoi === 'annulee'
-    ? [`${auteur(cx.user)} annule votre astreinte ${periode}.`, '', 'Ouvrez le fichier joint pour retirer l’événement de votre agenda, ou supprimez-le vous-même.']
+    ? [`${auteur(cx.user)} annule votre astreinte ${periode}.`, ...(a.annuleMotif ? ['', `Motif : ${a.annuleMotif}`] : []), '', 'Ouvrez le fichier joint pour retirer l’événement de votre agenda, ou supprimez-le vous-même.']
     : [
       quoi === 'planifiee'
         ? `${auteur(cx.user)} vous informe de votre astreinte ${periode} (${heures}).`

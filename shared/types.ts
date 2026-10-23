@@ -1121,7 +1121,7 @@ export interface Settings {
   agendaContenu: ContenuAgenda[];
   /**
    * Astreintes (t049, lot 7, shared/rules/astreintes.ts) : délai de prévenance en jours (15 à défaut d'accord, art.
-   * L3121-12 ; en dessous, motif « circonstances exceptionnelles » et un jour franc au moins), forme de la compensation
+   * R3121-3 ; en dessous, motif « circonstances exceptionnelles » et un jour franc au moins), forme de la compensation
    * (financière par défaut, réponse de l'entreprise du 23 octobre 2026), astreinte d'un salarié mineur refusée par défaut,
    * référence de l'accord (texte libre, vide tant qu'il n'est pas connu).
    */

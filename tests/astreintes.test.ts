@@ -25,7 +25,7 @@ const intervention = (o: Partial<Intervention> = {}): Intervention => ({
 });
 const vide = { astreintes: [], absences: [] };
 
-test('délai de prévenance : 15 jours par défaut, motif en dessous, un jour franc au moins (art. L3121-12)', () => {
+test('délai de prévenance : 15 jours par défaut, motif en dessous, un jour franc au moins (art. R3121-3)', () => {
   assert.deepEqual(A.prevenance('2026-10-25', TI, S), { jours: 15, court: false, refus: null });
   assert.deepEqual([A.prevenance('2026-10-24', TI, S).court, A.prevenance('2026-10-24', TI, S).refus], [true, null]);
   assert.equal(A.prevenance('2026-10-12', TI, S).refus, null, 'communiquée le samedi pour le lundi : le dimanche est un jour franc');
@@ -85,12 +85,44 @@ test('astreinte modifiée : à venir, contrôlée comme à la planification ; co
   const ti = '2026-10-31';
   assert.match(A.controlerAstreinte(vide, MEHDI, { du: '2026-10-29' }, ti, S, a).erreurs.du!, /seule sa fin peut être avancée/);
   assert.match(A.controlerAstreinte(vide, MEHDI, { au: '2026-11-08' }, ti, S, a).erreurs.au!, /pas reculée/);
-  assert.match(A.controlerAstreinte(vide, MEHDI, { au: '2026-10-30', fin: '23:00' }, ti, S, a).erreurs.au!, /aujourd’hui \(31 oct\. 2026\) au plus tôt/);
+  assert.match(A.controlerAstreinte(vide, MEHDI, { au: '2026-10-30', fin: '23:00' }, ti, S, a).erreurs.au!, /maintenant au plus tôt \(31 oct\. 2026 à 0 h\)/);
+  // À l'heure près : fin avancée jusqu'à maintenant (le 31 octobre à 9 h 30), pas avant.
+  const neuf = A.instant(ti, '09:30');
+  assert.match(A.controlerAstreinte(vide, MEHDI, { au: ti, fin: '09:00' }, ti, S, a, null, neuf).erreurs.au!, /maintenant au plus tôt \(31 oct\. 2026 à 9 h 30\)/);
+  assert.deepEqual(A.controlerAstreinte(vide, MEHDI, { au: ti, fin: '09:30' }, ti, S, a, null, neuf).valeurs, { du: '2026-10-30', debut: '18:00', au: ti, fin: '09:30', motif: null });
   const finIntervention = A.bornesIntervention(intervention({ jour: '2026-11-02', debut: '03:00', fin: '05:00' })).fin;
   assert.match(A.controlerAstreinte(vide, MEHDI, { au: '2026-11-02', fin: '04:00' }, ti, S, a, finIntervention).erreurs.au!, /après la dernière intervention/);
   assert.deepEqual(A.controlerAstreinte(vide, MEHDI, { au: '2026-11-03' }, ti, S, a, finIntervention).valeurs?.au, '2026-11-03');
   // Ni le délai de prévenance, ni les chevauchements ne sont refaits pour une fin avancée.
   assert.ok(A.controlerAstreinte({ astreintes: [], absences: [{ id: 1, empId: 2, du: '2026-11-01', au: '2026-11-01', statut: 'validee' }] }, MEHDI, { au: '2026-11-03' }, ti, S, a).valeurs);
+});
+
+test('commencée à l’heure de son début ; raccourcie avant son début : ni délai, ni nouvelle communication', () => {
+  // Astreinte du 10 octobre à 18 h : le 10 à 9 h, elle n'a pas commencé (annulable) ; à 18 h, si.
+  const a = astreinte({ du: TI, au: '2026-10-17' }), neuf = A.instant(TI, '09:00');
+  assert.deepEqual([A.astreinteCommencee(a, neuf), A.astreinteCommencee(a, A.instant(TI, '18:00')), A.astreinteTerminee(a, A.instant('2026-10-17', '08:00'))], [false, true, true]);
+  // Raccourcie le jour même (fin avancée au 12 octobre) : sous le jour franc, permis, la programmation communiquée tient.
+  const r = A.controlerAstreinte({ astreintes: [a], absences: [] }, MEHDI, { au: '2026-10-12' }, TI, S, a, null, neuf);
+  assert.deepEqual([r.valeurs, r.reduction, r.prevenance], [{ du: TI, debut: '18:00', au: '2026-10-12', fin: '08:00', motif: null }, true, null]);
+  // Début repoussé dans la période (lendemain 8 h) : toujours une réduction ; avancée ou étendue : nouvelle programmation.
+  assert.equal(A.controlerAstreinte(vide, MEHDI, { du: '2026-10-11', debut: '08:00' }, TI, S, a, null, neuf).reduction, true);
+  assert.match(A.controlerAstreinte(vide, MEHDI, { debut: '17:00' }, TI, S, a, null, neuf).erreurs.du!, /trop tard/);
+  assert.match(A.controlerAstreinte(vide, MEHDI, { au: '2026-10-18' }, TI, S, a, null, neuf).erreurs.du!, /trop tard/);
+  // Astreinte de demain, fin avancée : plus de refus du jour franc.
+  const demain = astreinte({ du: '2026-10-11', au: '2026-10-18' });
+  assert.equal(A.controlerAstreinte(vide, MEHDI, { au: '2026-10-14' }, TI, S, demain).valeurs?.au, '2026-10-14');
+  // Une réduction lève une absence signalée depuis : aucun contrôle de chevauchement.
+  const arret = { astreintes: [], absences: [{ id: 1, empId: 2, du: '2026-10-15', au: '2026-10-20', statut: 'signalee' as const }] };
+  assert.ok(A.controlerAstreinte(arret, MEHDI, { au: '2026-10-14' }, TI, S, demain).valeurs);
+});
+
+test('astreintes qui chevauchent une absence ou une sortie après coup', () => {
+  const a = astreinte(), b = astreinte({ id: 2, du: '2026-11-13', au: '2026-11-20' });
+  assert.deepEqual(A.astreintesChevauchant([b, a], 2, '2026-11-02', '2026-11-04').map(x => x.id), [1]);
+  assert.deepEqual(A.astreintesChevauchant([b, a], 2, '2026-11-06', null).map(x => x.id), [1, 2], 'sortie : toutes celles qui finissent après');
+  assert.deepEqual(A.astreintesChevauchant([b, a], 2, '2026-11-07', '2026-11-12'), []);
+  assert.deepEqual(A.astreintesChevauchant([{ ...a, annuleLe: '2026-10-05T08:00:00.000Z' }, { ...b, empId: 6 }], 2, '2026-10-01', null), []);
+  assert.equal(A.astreintesTexte([a, b]), 'Astreintes du 30 oct. 2026 à 18 h au 6 nov. 2026 à 8 h, du 13 nov. 2026 à 18 h au 20 nov. 2026 à 8 h');
 });
 
 test('heures et texte d’une astreinte, heures et périodes d’un mois (récapitulatif, art. R3121-2)', () => {
@@ -135,7 +167,7 @@ test('repos quotidien : dû en entier après la fin d’une intervention ; l’a
   const int = A.plagesInterventions([intervention({ jour: SEM, debut: '23:00', fin: '01:30', heures: 2.5 })], 2, SEM);
   const r = R.controlesReposNuit(horaires, [9.5, 7, 7, 7, 7, 0, 0], SEM, { s, interventions: int });
   assert.equal(r.repos.length, 1);
-  assert.match(r.repos[0], /Repos quotidien de 11 h consécutives \(art\. L3131-1\) non respecté : 6,5 h avant le mar\. 3 nov\. \(fin de l’intervention d’astreinte à 1 h 30, reprise à 8 h ; repos dû en entier après une intervention, art\. L3121-10\)/);
+  assert.match(r.repos[0], /Repos quotidien de 11 h consécutives \(art\. L3131-1\) non respecté : 6,5 h avant le mar\. 3 nov\. \(fin de l’intervention d’astreinte à 1 h 30, reprise à 8 h ; repos dû en entier après une intervention d’astreinte\)/);
   assert.deepEqual(r.codes, ['repos_quotidien']);
   assert.deepEqual([r.nuitParJour[0], r.nuit], [2.5, 2.5], 'heures de nuit de l’intervention (21 h – 6 h), rattachées au lundi');
   // Sans la plage de l'intervention, les 9,5 h prolongeraient l'horaire jusqu'à 18 h 30 : aucun repos insuffisant.
@@ -161,6 +193,25 @@ test('repos quotidien : dû en entier après la fin d’une intervention ; l’a
   // La pause se contrôle sur les heures de l'horaire, sans celles de l'intervention.
   assert.deepEqual(R.controlesReposNuit([{ ...J, pause: 0 }, null, null, null, null, null, null], [5.5 + 1, 0, 0, 0, 0, 0, 0], SEM,
     { s, interventions: soir }).pauses, [], '5,5 h de poste et 1 h d’intervention : pas de pause exigée');
+});
+
+test('travailleur de nuit : les nuits des interventions comptent sur leur plage réelle (nuitDeLaFeuille, statutNuit)', () => {
+  const J = { code: 'J', debut: '08:00', fin: '16:00', pause: 60 }, SEM = '2026-11-02', s = reglagesParDefaut();
+  // Lundi : 7 h de poste et une intervention de 22 h à 1 h (3 h), toutes dans la ligne du jour (10 h).
+  const lignes = [{ projet: 'INT-MAINT', tache: '', ks: false, h: [7, 7, 7, 7, 7, 0, 0] }, { projet: 'INT-AST', tache: '', ks: false, h: [3, 0, 0, 0, 0, 0, 0] }];
+  const int = A.plagesInterventions([intervention({ jour: SEM, debut: '22:00', fin: '01:00', heures: 3 })], 2, SEM);
+  const fige = { lignes, horairesFiges: [J, J, J, J, J, null, null] };
+  assert.deepEqual(R.nuitDeLaFeuille(fige, s), [0, 0, 0, 0, 0, 0, 0], 'sans les interventions : 10 h étalées de 8 h à 19 h');
+  assert.deepEqual(R.nuitDeLaFeuille(fige, s, int), [3, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(R.nuitDeLaFeuille({ lignes }, s, int), [3, 0, 0, 0, 0, 0, 0], 'feuille sans horaire figé : la nuit de l’intervention compte');
+  // Deux semaines validées, sans horaire, avec deux nuits d'intervention de 3 h chacune : travailleur de nuit (L3122-5).
+  const semaine = (week: string) => ({ id: week.length + Number(week.slice(8)), empId: 2, week, statut: 'validee', lignes: [{ projet: 'INT-AST', tache: '', ks: false, h: [3, 0, 3, 0, 0, 0, 0] }] });
+  const nuits = (week: string, id: number) => [0, 2].map(i => intervention({ id: id + i, jour: A.joursDeLIntervention({ jour: week })[i], debut: '22:00', fin: '01:00', heures: 3 }));
+  const feuilles = [semaine('2026-09-21'), semaine('2026-09-28')] as never;
+  const interventionsAstreinte = [...nuits('2026-09-21', 10), ...nuits('2026-09-28', 20)];
+  assert.equal(R.statutNuit({ feuilles, settings: s }, 2, '2026-10-10').travailleur, false, 'sans les interventions : aucune nuit');
+  const t = R.statutNuit({ feuilles, settings: s, interventionsAstreinte }, 2, '2026-10-10');
+  assert.deepEqual([t.travailleur, t.critere, t.semaines, t.heures12Mois], [true, 'hebdomadaire', 2, 12]);
 });
 
 test('réglages des astreintes : délai de 2 à 60 jours, moins de 15 jours avec la référence de l’accord, compensation, mineurs', () => {

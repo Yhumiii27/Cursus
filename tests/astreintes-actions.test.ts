@@ -19,6 +19,10 @@ const { controlerOrphelins, REFERENCES } = await import('../server/src/integrite
 const { TRAITEMENTS } = await import('../server/src/conservation.ts');
 const { Domain } = await import('../shared/domain.ts');
 const { calcSheet } = await import('../shared/rules/temps.ts');
+const { horloge } = await import('../server/src/astreintes.ts');
+/** Heure présente des actions (heure de Paris, au jour CURSUS_TODAY) : 9 h par défaut, pour des tests indépendants de l'horloge. */
+const aParis = (hhmm: string) => { horloge.maintenant = () => new Date(`2026-10-10T${hhmm}:00+02:00`); };
+aParis('09:00');
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Dataset = Awaited<ReturnType<typeof loadFull>>;
 type Astreinte = NonNullable<Dataset['astreintes']>[number];
@@ -141,6 +145,64 @@ test('modifier : nouvelle communication, e-mail de mise à jour (même événeme
   await refuse(KARIM, 'astreinte.modifier', { id: passee, au: '2026-10-01' }, /Astreinte terminée/, 409);
 });
 
+test('collaborateur tiers : refus sans détail, identique à un identifiant inconnu (ni dates, ni interventions, ni état)', async () => {
+  const { run, refuse, inserer, RH, THOMAS } = await fresh();
+  const astreinteId = await inserer('2026-10-05', '2026-10-07');
+  await run(RH, 'astreinte.intervention', { astreinteId, jour: '2026-10-05', debut: '22:00', fin: '23:00' });
+  const annulee = await inserer('2026-10-20', '2026-10-27', { annuleLe: '2026-10-01T08:00:00.000Z', annulePar: 'Karim Haddad', annuleMotif: 'Reporté' });
+  const refus = /^Astreinte introuvable ou hors de votre périmètre$/;
+  // Hors de l'astreinte, chevauchant l'intervention déclarée, astreinte annulée, identifiant inconnu : même refus.
+  await refuse(THOMAS, 'astreinte.intervention', { astreinteId, jour: '2026-10-01', debut: '22:00', fin: '23:00' }, refus, 403);
+  await refuse(THOMAS, 'astreinte.intervention', { astreinteId, jour: '2026-10-05', debut: '22:30', fin: '23:30' }, refus, 403);
+  await refuse(THOMAS, 'astreinte.intervention', { astreinteId: annulee, jour: '2026-10-21', debut: '22:00', fin: '23:00' }, refus, 403);
+  await refuse(THOMAS, 'astreinte.intervention', { astreinteId: 999, jour: '2026-10-05', debut: '22:00', fin: '23:00' }, refus, 403);
+  for (const name of ['astreinte.modifier', 'astreinte.annuler']) {
+    await refuse(THOMAS, name, { id: astreinteId, au: '2026-10-06', motif: 'x' }, refus, 403);
+    await refuse(THOMAS, name, { id: 999, au: '2026-10-06', motif: 'x' }, refus, 403);
+  }
+  await refuse(THOMAS, 'astreinte.retirerIntervention', { id: 1 }, /^Intervention introuvable ou hors de votre périmètre$/, 403);
+  await refuse(THOMAS, 'astreinte.retirerIntervention', { id: 999 }, /^Intervention introuvable ou hors de votre périmètre$/, 403);
+  // Le service RH, qui voit tout : 404 pour un identifiant inconnu.
+  await refuse(RH, 'astreinte.intervention', { astreinteId: 999, jour: '2026-10-05', debut: '22:00', fin: '23:00' }, /^Astreinte introuvable$/, 404);
+});
+
+test('commencée à l’heure de son début : annulée le jour même avant ; raccourcie sans délai de prévenance', async () => {
+  const { run, refuse, mails, astreintes, inserer, KARIM } = await fresh();
+  // Astreinte du 10 octobre (aujourd'hui) à 18 h : à 9 h, elle s'annule encore (salarié malade) ; à 19 h, 409.
+  const ce = await inserer('2026-10-10', '2026-10-17', { communiqueLe: '2026-09-20' });
+  aParis('19:00');
+  await refuse(KARIM, 'astreinte.annuler', { id: ce, motif: 'Arrêt maladie' }, /Astreinte commencée/, 409);
+  // Commencée : fin avancée jusqu'à maintenant (19 h), pas avant.
+  await refuse(KARIM, 'astreinte.modifier', { id: ce, au: '2026-10-10', fin: '18:30' }, /maintenant au plus tôt \(10 oct\. 2026 à 19 h\)/);
+  aParis('09:00');
+  assert.match(await run(KARIM, 'astreinte.annuler', { id: ce, motif: 'Arrêt maladie' }), /^Astreinte de Mehdi Benali du 10 oct\. 2026 à 18 h au 17 oct\. 2026 à 8 h annulée/);
+  // Astreinte de demain : fin avancée (réduction) permise malgré le jour franc ; communication d'origine gardée.
+  const demain = await inserer('2026-10-11', '2026-10-18', { communiqueLe: '2026-09-20' });
+  assert.match(await run(KARIM, 'astreinte.modifier', { id: demain, au: '2026-10-14' }), /modifiée : du 11 oct\. 2026 à 18 h au 14 oct\. 2026 à 8 h \(62 h\) · e-mail envoyé/);
+  assert.equal((await astreintes()).find(a => a.id === demain)!.communiqueLe, '2026-09-20');
+  assert.match((await mails('astreinte.modifiee'))[0].texte, /elle a lieu du 11 oct\. 2026 à 18 h au 14 oct\. 2026 à 8 h/);
+  // Avancée ou prolongée : nouvelle programmation, jour franc exigé.
+  await refuse(KARIM, 'astreinte.modifier', { id: demain, au: '2026-10-16' }, /trop tard/);
+});
+
+test('absences et sortie après coup : congé non validé pendant une astreinte, arrêt et sortie signalés', async () => {
+  const { run, refuse, db, KARIM, RH, MEHDI } = await fresh();
+  await run(KARIM, 'astreinte.planifier', { empId: 2, du: '2026-10-30', debut: '18:00', au: '2026-11-06', fin: '08:00' });
+  // Demande de congé du 2 novembre (démonstration) : sa validation est refusée tant que l'astreinte tient.
+  const demande = (await db.all<{ id: number; empId: number; statut: string; du: string }>('absences')).find(a => a.empId === 2 && a.statut === 'demandee' && a.du === '2026-11-02')!;
+  await refuse(KARIM, 'absence.decider', { id: demande.id, ok: true }, /^Astreinte du 30 oct\. 2026 à 18 h au 6 nov\. 2026 à 8 h : annulez-la ou raccourcissez-la avant de valider cette absence$/);
+  // Nouvelle demande du salarié : l'astreinte lui est signalée ; posée par le manager (validée d'emblée) : refusée.
+  assert.match(await run(MEHDI, 'absence.demander', { empId: 2, kind: 'CP', du: '2026-11-05', au: '2026-11-05' }), / · Astreinte du 30 oct\. 2026 à 18 h au 6 nov\. 2026 à 8 h : à annuler ou raccourcir avant la validation$/);
+  await refuse(KARIM, 'absence.demander', { empId: 2, kind: 'CP', du: '2026-11-04', au: '2026-11-04' }, /annulez-la ou raccourcissez-la avant de valider/);
+  // Arrêt signalé : jamais refusé, l'astreinte est signalée.
+  assert.match(await run(KARIM, 'absence.signaler', { empId: 2, du: '2026-11-03', au: '2026-11-03' }), / · Astreinte du 30 oct\. 2026 à 18 h au 6 nov\. 2026 à 8 h : à annuler ou raccourcir$/);
+  // Astreinte raccourcie au 2 novembre 8 h : le congé du 2 se valide (chevauchement au jour près : fin le 1er).
+  await run(KARIM, 'astreinte.modifier', { id: 1, au: '2026-11-01', fin: '20:00' });
+  assert.match(await run(KARIM, 'absence.decider', { id: demande.id, ok: true }), /validée/);
+  // Sortie au 31 octobre : l'astreinte qui finit après est signalée.
+  assert.match(await run(RH, 'employe.sortie', { id: 2, date: '2026-10-31', motif: 'demission' }), / · Astreinte du 30 oct\. 2026 à 18 h au 1 nov\. 2026 à 20 h : à annuler ou raccourcir$/);
+});
+
 test('annuler : motif obligatoire, annulation de l’événement d’agenda ; commencée : 409', async () => {
   const { run, refuse, mails, journal, astreintes, inserer, db, KARIM, RH } = await fresh();
   await run(KARIM, 'astreinte.planifier', { empId: 2, du: '2026-10-30', debut: '18:00', au: '2026-11-06', fin: '08:00' });
@@ -149,7 +211,7 @@ test('annuler : motif obligatoire, annulation de l’événement d’agenda ; co
   const a = (await astreintes())[0];
   assert.deepEqual([!!a.annuleLe, a.annulePar, a.annuleMotif], [true, 'Sandrine Vidal', 'Arrêt technique reporté']);
   const [c] = await mails('astreinte.annulee');
-  assert.match(c.texte, /Le service RH annule votre astreinte du 30 oct\. 2026/);
+  assert.match(c.texte, /Le service RH annule votre astreinte du 30 oct\. 2026 à 18 h au 6 nov\. 2026 à 8 h\.\n\nMotif : Arrêt technique reporté\n/);
   assert.equal(c.pj![0].nom, 'annulation-astreinte-2026-10-30.ics');
   assert.match(texteDe(c.pj![0].base64), /METHOD:CANCEL[\s\S]*UID:astreinte-1@[\s\S]*STATUS:CANCELLED/);
   assert.deepEqual((await journal('astreinte.annuler'))[0].payload.apres, { annuleLe: a.annuleLe, annuleMotif: '[texte renseigné]' });
@@ -190,7 +252,7 @@ test('intervention : ligne INT-AST de la feuille, heures de nuit, repos dû apr�
   // Contrôles : hors de l'astreinte, à venir, chevauchement, collègue, absence.
   await refuse(MEHDI, 'astreinte.intervention', { astreinteId, jour: '2026-10-05', debut: '17:00', fin: '18:30' }, /en dehors de l’astreinte/);
   await refuse(MEHDI, 'astreinte.intervention', { astreinteId, jour: '2026-10-06', debut: '00:30', fin: '02:00' }, /déjà déclarée le 5 oct\. 2026 de 23 h à 1 h 30/);
-  await refuse(THOMAS, 'astreinte.intervention', { astreinteId, jour: '2026-10-07', debut: '20:00', fin: '21:00' }, /Seuls le salarié, son manager ou le service RH/, 403);
+  await refuse(THOMAS, 'astreinte.intervention', { astreinteId, jour: '2026-10-07', debut: '20:00', fin: '21:00' }, /^Astreinte introuvable ou hors de votre périmètre$/, 403);
   const futur = await inserer('2026-10-10', '2026-10-12');
   await refuse(MEHDI, 'astreinte.intervention', { astreinteId: futur, jour: '2026-10-11', debut: '20:00', fin: '21:00' }, /jour à venir refusé/);
   await db.insert('absences', { empId: 2, type: 'RTT', du: '2026-10-08', au: '2026-10-08', statut: 'validee', keystone: false, justificatif: false });

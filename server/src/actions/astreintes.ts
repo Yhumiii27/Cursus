@@ -16,16 +16,32 @@ import { ferieRefus } from '../../../shared/rules/majorations.ts';
 import { completerSemaine } from '../../../shared/rules/semaine.ts';
 import { absenceCeJour, calcSheet, HEURES_JOUR_MAX, joursAbsence } from '../../../shared/rules/temps.ts';
 import type { Astreinte, Employe, FeuilleTemps, InterventionAstreinte, LigneTemps } from '../../../shared/types.ts';
-import { prevenirAstreinte } from '../astreintes.ts';
-import { ActionError, type ActionHandler, type Ctx, getEmp, isManagerOf, isRh, refuserSoiMeme, str } from './context.ts';
+import { instantPresent, prevenirAstreinte } from '../astreintes.ts';
+import { ActionError, type ActionHandler, type Ctx, getEmp, isManagerOf, isRh, isSelf, refuserSoiMeme, str } from './context.ts';
 import { editable, saveLines } from './temps.ts';
 
-/** Astreinte désignée par son identifiant. */
-function astreinteDe(ctx: Ctx, id: unknown): Astreinte {
-  const a = (ctx.ds.astreintes ?? []).find(x => x.id === Number(id));
-  if (!a) throw new ActionError('Astreinte introuvable', 404);
-  return a;
+/**
+ * Salarié dont la personne connectée voit les astreintes et les interventions : lui-même, son manager direct (ou le
+ * suppléant qui saisit ses feuilles pendant une délégation) ou le service RH — le périmètre de la saisie d'heures.
+ */
+function voitAstreintesDe(ctx: Ctx, empId: number): boolean {
+  const e = ctx.d.emp(empId);
+  return !!e && (isRh(ctx) || isSelf(ctx, empId) || isManagerOf(ctx, e, 'feuilles'));
 }
+
+/**
+ * Élément d'astreinte désigné par son identifiant, contrôlé avant toute autre règle : hors du périmètre, le refus est le
+ * même que pour un identifiant inconnu (403, sans dates ni état), pour qu'aucun message ne révèle le planning d'un autre
+ * salarié. Le service RH, qui voit tout, reçoit un 404 pour un identifiant inconnu.
+ */
+function dansPerimetre<T extends { empId: number }>(ctx: Ctx, x: T | undefined, quoi: string): T {
+  if (x && voitAstreintesDe(ctx, x.empId)) return x;
+  if (isRh(ctx)) throw new ActionError(`${quoi} introuvable`, 404);
+  throw new ActionError(`${quoi} introuvable ou hors de votre périmètre`, 403);
+}
+
+/** Astreinte désignée par son identifiant, dans le périmètre de la personne connectée. */
+const astreinteDe = (ctx: Ctx, id: unknown): Astreinte => dansPerimetre(ctx, (ctx.ds.astreintes ?? []).find(x => x.id === Number(id)), 'Astreinte');
 
 /** Planning des astreintes : le manager direct du salarié ou le service RH, jamais pour soi-même. */
 function requirePlanificateur(ctx: Ctx, emp: Employe) {
@@ -73,30 +89,33 @@ const modifier: ActionHandler = async (ctx, p) => {
   const a = astreinteDe(ctx, p.id), emp = getEmp(ctx, a.empId);
   requirePlanificateur(ctx, emp);
   if (!astreinteActive(a)) throw new ActionError('Astreinte annulée : planifiez-en une nouvelle', 409);
-  if (astreinteTerminee(a, ctx.d.ti)) throw new ActionError('Astreinte terminée : elle ne se modifie plus', 409);
+  const maintenant = instantPresent(ctx.d.ti);
+  if (astreinteTerminee(a, maintenant)) throw new ActionError('Astreinte terminée : elle ne se modifie plus', 409);
   const ints = (ctx.ds.interventionsAstreinte ?? []).filter(x => x.astreinteId === a.id);
   const finInterventions = ints.length ? Math.max(...ints.map(x => bornesIntervention(x).fin)) : null;
-  const r = controlerAstreinte(ctx.ds, emp, p, ctx.d.ti, ctx.ds.settings, a, finInterventions);
+  const r = controlerAstreinte(ctx.ds, emp, p, ctx.d.ti, ctx.ds.settings, a, finInterventions, maintenant);
   if (!r.valeurs) throw new ActionError(premiereErreur(r.erreurs) ?? 'Astreinte invalide');
   const v = r.valeurs, dates = v.du !== a.du || v.debut !== a.debut || v.au !== a.au || v.fin !== a.fin;
   if (!dates && (v.motif ?? null) === (a.motif ?? null)) return 'Aucune modification';
-  const maj = { ...v, communiqueLe: dates ? ctx.d.ti : a.communiqueLe, modifieLe: new Date().toISOString(), modifiePar: ctx.user.nom };
+  // Astreinte seulement raccourcie : la programmation communiquée tient toujours (date de communication gardée).
+  const maj = { ...v, communiqueLe: dates && !r.reduction ? ctx.d.ti : a.communiqueLe, modifieLe: new Date().toISOString(), modifiePar: ctx.user.nom };
   await ctx.db.update<Astreinte>('astreintes', a.id, maj);
   const apres: Astreinte = { ...a, ...maj };
   const envoye = dates ? await prevenirAstreinte(ctx, emp, apres, 'modifiee', { avant: a, managerId: managerDe(ctx, emp) }) : false;
   return `Astreinte de ${emp.nom} ${dates ? `modifiée : ${periodeAstreinteTexte(apres)} (${fH(heuresAstreinte(apres))})` : 'modifiée (motif)'}`
-    + (dates && astreinteCommencee(a, ctx.d.ti) ? ' · fin avancée' : '') + (dates ? suite(envoye, r.avertissements) : '');
+    + (dates && astreinteCommencee(a, maintenant) ? ' · fin avancée' : '') + (dates ? suite(envoye, r.avertissements) : '');
 };
 
 /**
- * `id`, `motif` (obligatoire, 500 caractères ; gardé avec l'astreinte, jamais au journal) : astreinte à venir seulement
- * (commencée : 409, sa fin s'avance par `astreinte.modifier`) ; déjà annulée : rien n'est refait.
+ * `id`, `motif` (obligatoire, 500 caractères ; gardé avec l'astreinte et communiqué au salarié dans l'e-mail, jamais au
+ * journal) : astreinte pas encore commencée, le jour même compris avant son heure de début (commencée : 409, sa fin
+ * s'avance par `astreinte.modifier`) ; déjà annulée : rien n'est refait.
  */
 const annuler: ActionHandler = async (ctx, p) => {
   const a = astreinteDe(ctx, p.id), emp = getEmp(ctx, a.empId);
   requirePlanificateur(ctx, emp);
   if (!astreinteActive(a)) return 'Astreinte déjà annulée';
-  if (astreinteCommencee(a, ctx.d.ti)) throw new ActionError('Astreinte commencée : avancez sa fin (Modifier) plutôt que de l’annuler', 409);
+  if (astreinteCommencee(a, instantPresent(ctx.d.ti))) throw new ActionError('Astreinte commencée : avancez sa fin (Modifier) plutôt que de l’annuler', 409);
   const motif = str(p.motif).replace(/\s+/g, ' ');
   if (!motif) throw new ActionError('Indiquez le motif de l’annulation : il est communiqué au salarié');
   if (motif.length > MOTIF_ASTREINTE_MAX) throw new ActionError(`Motif : ${MOTIF_ASTREINTE_MAX} caractères au plus`);
@@ -131,6 +150,7 @@ function alertesRepos(ctx: Ctx, emp: Employe, sh: FeuilleTemps, lignes: LigneTem
  * jour férié, 24 h par jour) ; heures ajoutées à la ligne INT-AST du jour.
  */
 const intervention: ActionHandler = async (ctx, p) => {
+  // Périmètre d'abord (astreinteDe) : les contrôles qui suivent citent la période et les autres interventions.
   const a = astreinteDe(ctx, p.astreinteId);
   const toutes = ctx.ds.interventionsAstreinte ?? [];
   const r = controlerIntervention(a, p, toutes.filter(x => x.empId === a.empId), ctx.d.ti);
@@ -165,8 +185,7 @@ const intervention: ActionHandler = async (ctx, p) => {
  * heures sont retirées de la ligne INT-AST, et la ligne elle-même quand elle n'en porte plus.
  */
 const retirerIntervention: ActionHandler = async (ctx, p) => {
-  const x = (ctx.ds.interventionsAstreinte ?? []).find(i => i.id === Number(p.id));
-  if (!x) throw new ActionError('Intervention introuvable', 404);
+  const x = dansPerimetre(ctx, (ctx.ds.interventionsAstreinte ?? []).find(i => i.id === Number(p.id)), 'Intervention');
   const week = semaineIntervention(x), di = jourIntervention(x);
   const { emp, sh } = await editable(ctx, { empId: x.empId, week });
   let lignes = sh.lignes.map(l => ({ ...l, h: completerSemaine(l.h) }));

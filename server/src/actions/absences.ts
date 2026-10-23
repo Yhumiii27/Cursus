@@ -14,6 +14,7 @@ import { anneeCp, cetInfo, checkAbsence, checkNature, cpInfo, finPeriodeCp, heur
 import { semaineCouverte } from '../../../shared/rules/temps.ts';
 import type { Absence, AbsenceType, CetMouvement, CongeType, Employe, FeuilleTemps, NatureAbsence, ReportCp } from '../../../shared/types.ts';
 import { joursAvantDepart, suitePaie } from '../absences-paie.ts';
+import { alerteAstreintes, refusAstreintes } from '../astreintes.ts';
 import { absenceKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { recrediterPeriodesCloses } from './clotures.ts';
 import { joindrePieces } from './pieces.ts';
@@ -34,6 +35,9 @@ const demander: ActionHandler = async (ctx, p) => {
   const kind = str(p.kind) as CongeType;
   const chk = checkAbsence(ctx.d, emp, kind, p.du, p.au, parManager, { debutDemi: p.debutDemi, finDemi: p.finDemi });
   if (chk.cant) throw new ActionError(chk.msgs.find(m => m.bad)?.text || 'Demande invalide');
+  // Astreinte en vigueur ces jours-là (t049) : pas de congé validé d'emblée ; une demande la signale à son auteur.
+  const astreinte = parManager ? refusAstreintes(ctx.ds, emp.id, p.du, p.au) : null;
+  if (astreinte) throw new ActionError(astreinte);
   const a = await ctx.db.insert<Absence>('absences', { empId: emp.id, type: kind, du: p.du, au: p.au, ...chk.demi, statut: parManager ? 'validee' : 'demandee', keystone: parManager });
   if (parManager) {
     await keystone(ctx, 'absence.validee', a);
@@ -41,7 +45,7 @@ const demander: ActionHandler = async (ctx, p) => {
     return `Absence de ${emp.nom} (${enMinuscules(kind)}) posée et validée — transmise à Keystone pour la planification`;
   }
   await notifierDemandeConge(ctx, emp, a, ctx.d.mgrOf(emp)); // e-mail : la demande part au valideur
-  return `Demande de ${enMinuscules(kind)} envoyée ${ctx.d.mgrDest(ctx.d.mgrOf(emp))}`;
+  return `Demande de ${enMinuscules(kind)} envoyée ${ctx.d.mgrDest(ctx.d.mgrOf(emp))}${alerteAstreintes(ctx.ds, emp.id, p.du, p.au, 'à annuler ou raccourcir avant la validation')}`;
 };
 
 const decider: ActionHandler = async (ctx, p) => {
@@ -60,6 +64,9 @@ const decider: ActionHandler = async (ctx, p) => {
   // Pas de double paiement : les heures saisies ces jours-là doivent d'abord être retirées de la feuille de temps.
   const heures = ok ? heuresAvantAbsence(ctx.d, a, 'avant de valider l’absence') : null;
   if (heures) throw new ActionError(heures.text);
+  // Pas d'astreinte pendant une absence validée (t049) : l'astreinte s'annule ou se raccourcit d'abord.
+  const astreinte = ok ? refusAstreintes(ctx.ds, emp.id, a.du, a.au) : null;
+  if (astreinte) throw new ActionError(astreinte);
   // Motif du refus, montré au salarié et à son manager dans leurs absences (l'écran l'exige ; un appel sans motif reste accepté).
   const motif = ok ? '' : str(p.motif);
   if (motif.length > 500) throw new ActionError('Motif trop long (500 caractères au plus)');
@@ -158,7 +165,8 @@ const signaler: ActionHandler = async (ctx, p) => {
   // Justificatif joint par l'intéressé ou le service RH, jamais par le manager (donnée de santé) : actions/pieces.ts.
   if (p.pieces != null && !(isRh(ctx) || interesse)) throw new ActionError('Justificatif réservé à l’intéressé et au service RH', 403);
   const pieces = await joindrePieces(ctx, p.pieces, 'absence', a.id, emp.id);
-  return `Absence de ${emp.nom} signalée ${periodeTexte(du, au)} — nature à préciser par le service RH${interesse && !pieces ? ', à qui transmettre le justificatif' : ''} · indisponibilité transmise à Keystone${pieces}`;
+  // Astreinte en vigueur pendant l'absence (t049) : un arrêt ne se refuse pas, l'astreinte est à annuler ou raccourcir.
+  return `Absence de ${emp.nom} signalée ${periodeTexte(du, au)} — nature à préciser par le service RH${interesse && !pieces ? ', à qui transmettre le justificatif' : ''} · indisponibilité transmise à Keystone${pieces}${alerteAstreintes(ctx.ds, emp.id, du, au)}`;
 };
 
 /** Saisie directe par le RH d'une absence hors congés, prévisible (maternité, congé parental, événement familial…) ou non. */
@@ -172,7 +180,7 @@ const saisir: ActionHandler = async (ctx, p) => {
   const a = await ctx.db.insert<Absence>('absences', { empId: emp.id, type: nature, du, au, statut: 'validee', keystone: true, ...just });
   await keystone(ctx, 'absence.validee', a);
   const pieces = await joindrePieces(ctx, p.pieces, 'absence', a.id, emp.id);
-  return `Absence de ${emp.nom} enregistrée ${periodeTexte(du, au)} : ${NATURES_ABSENCE[nature].court} — indisponibilité transmise à Keystone${pieces}${await majReprise(ctx, emp, null, nature)}${await joursAvantDepart(ctx.db, ctx.ds.settings, a)}`;
+  return `Absence de ${emp.nom} enregistrée ${periodeTexte(du, au)} : ${NATURES_ABSENCE[nature].court} — indisponibilité transmise à Keystone${pieces}${await majReprise(ctx, emp, null, nature)}${await joursAvantDepart(ctx.db, ctx.ds.settings, a)}${alerteAstreintes(ctx.ds, emp.id, du, au)}`;
 };
 
 /** Qualification par le RH d'une absence signalée, ou correction d'une absence qualifiée : nature, justificatif, dates. */
@@ -195,7 +203,7 @@ const qualifier: ActionHandler = async (ctx, p) => {
   // Absence déjà partie à la paie (t028) : dates ou nature changées, l'écart part dans le prochain lot.
   const paie = (corrigee || nature !== a.type ? await suitePaie(ctx.db, a) : '') + await joursAvantDepart(ctx.db, ctx.ds.settings, { ...a, type: nature, du });
   const pieces = await joindrePieces(ctx, p.pieces, 'absence', a.id, emp.id);
-  return `Absence de ${emp.nom} qualifiée : ${NATURES_ABSENCE[nature].court} ${periodeTexte(du, au)}, ${justTexte}${pieces}${renvoi}${await majReprise(ctx, emp, a, nature)}${paie}`;
+  return `Absence de ${emp.nom} qualifiée : ${NATURES_ABSENCE[nature].court} ${periodeTexte(du, au)}, ${justTexte}${pieces}${renvoi}${await majReprise(ctx, emp, a, nature)}${paie}${corrigee ? alerteAstreintes(ctx.ds, emp.id, du, au) : ''}`;
 };
 
 /**
@@ -217,7 +225,7 @@ const prolonger: ActionHandler = async (ctx, p) => {
   await ctx.db.update<Absence>('absences', a.id, { au, statut, finInitiale: a.finInitiale ?? a.au, keystone: true });
   await keystone(ctx, 'absence.validee', { ...a, au });
   const suite = statut === 'signalee' && a.statut === 'validee' ? ' — prolongation à qualifier par le service RH' : '';
-  return `Absence de ${emp.nom} prolongée jusqu’au ${fmt(parse(au))}${suite} · indisponibilité transmise à Keystone${await majReprise(ctx, emp, a, a.type)}${isRh(ctx) ? await suitePaie(ctx.db, a) : ''}`;
+  return `Absence de ${emp.nom} prolongée jusqu’au ${fmt(parse(au))}${suite} · indisponibilité transmise à Keystone${await majReprise(ctx, emp, a, a.type)}${isRh(ctx) ? await suitePaie(ctx.db, a) : ''}${alerteAstreintes(ctx.ds, emp.id, debut, au)}`;
 };
 
 /**

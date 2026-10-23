@@ -76,7 +76,7 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     conservationActive: false, conservationDecisionDpo: '', conservationDossierAns: 5, conservationTempsAns: 3, conservationPaieAns: 5,
     conservationSanteAns: 5, conservationPasseportAns: 0, conservationTitreSejourAns: 5, conservationEntretiensAns: 5, conservationFormationsAns: 5,
     agendaFluxActif: false, agendaContenu: ['sessions', 'entretiens', 'absences', 'deplacements'],
-    // Lot 7 (t049) : astreintes communiquées 15 jours avant (art. L3121-12), compensation financière (réponse du 23 octobre
+    // Lot 7 (t049) : astreintes communiquées 15 jours avant (art. R3121-3), compensation financière (réponse du 23 octobre
     // 2026), aucune astreinte pour un salarié mineur, accord inconnu.
     astreinteDelaiPrevenance: 15, astreinteCompensation: 'financiere', astreinteMineurs: false, astreinteAccord: '',
   });

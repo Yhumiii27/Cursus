@@ -1816,22 +1816,32 @@ définitifs ; l'export est un gabarit réglable portant la mention `MENTION_PASS
 - **Lignes** (`lignesPasseport`) : certifications obtenues et formations suivies, non annulées, des formations marquées,
   dont le dernier jour tombe dans la période (année civile à l'écran) ; une formation suivie que représente une
   certification (`suivieCertifiee`) n'est comptée qu'une fois ; dossiers anonymisés écartés ; intérimaire signalé (la
-  déclaration revient en principe à l'agence). Du, au et heures de la session pour une certification de session, sinon le
-  jour d'obtention et la durée du catalogue ; résultat « Acquise (évaluation réussie) », « Acquise (présence) » ou
-  « Formation suivie ».
+  déclaration revient en principe à l'agence). Une certification est toujours datée de son obtention : du, au et heures
+  de la session seulement pour celle qu'une session clôturée a produite (participation qui la porte, `certId` posé par
+  `session.cloturer`, et fin de session égale à l'obtention) ; sinon le jour d'obtention et la durée du catalogue.
+  `Certification.sessionId` (recyclage où elle est inscrite) ne date jamais une ligne : une certification inscrite à un
+  recyclage à venir garde sa date, et rien n'est proposé pour une session non clôturée. Résultat « Acquise (évaluation
+  réussie) », « Acquise (présence) » ou « Formation suivie ».
 - **Suivi « déclarée le »** : table `declarationsPasseport` (salarié, `certId` ou `suivieId`, uniques, jour de la
   déclaration, jour et auteur de la marque), écrite par `passeport.declarer`, retirée par `passeport.retirer`. Une ligne
-  déclarée n'est plus proposée ni exportée (sauf « Déjà déclarées »). Correction ou annulation d'une certification ou d'une
+  déclarée n'est plus proposée ni exportée (sauf « Déjà déclarées »). Le dialogue « Marquer déclarées… » fait cocher les
+  lignes une à une : seules celles du dernier export fait depuis l'écran (clés renvoyées par le serveur) le sont d'office ;
+  une ligne saisie depuis l'export, ou refusée par la plateforme, reste à déclarer ; sans export connu (écran rechargé),
+  rien n'est coché. Correction ou annulation d'une certification ou d'une
   formation suivie déclarée : le message rappelle de la corriger aussi sur la plateforme (`rappelDeclaration`). Références
   dans `REFERENCES` (`integrite.ts`) et `TRAITEMENTS` (conservation : lignes gardées, auteur balayé) ; section de la copie
   des données, sans l'auteur pour l'intéressé.
-- **Export** : `GET /api/formations/passeport-prevention?du=&au=[&declarees=1]` (droit `formations` : service RH et
+- **Export** : `GET /api/formations/passeport-prevention?du=&au=[&vue=a-declarer|declarees]` (droit `formations` : service RH et
   référent HSE ; lecture seule et paie : 403 tracé), produit par le serveur, qui lit la date de naissance que l'instantané du
   référent HSE ne porte jamais ; colonnes du réglage `passeportColonnes` (Paramètres → Passeport de prévention,
   administrateur RH, au moins une ; par défaut nom, prénom — premier mot du nom de la fiche —, date de naissance, matricule de
   paie, intitulé, organisme, du, au, durée, résultat ; NIR et code de la formation facultatifs), dans l'ordre du gabarit,
-  puis la mention. Le NIR n'est pas dans Cursus (colonne toujours vide : rapprochement par le matricule dans Sage). Tracé
-  `passeport.exporter` : période, nombre de lignes, salariés concernés, jamais d'intitulé ni de nom.
+  puis la mention. Le NIR n'est pas dans Cursus (colonne toujours vide : rapprochement par le matricule dans Sage). Vue
+  `a-declarer` (par défaut) : lignes sans marque, intérimaires écartés (déclarés en principe par l'agence, comme au C2P) ;
+  `declarees` : lignes marquées seules, comme à l'écran. En-têtes de la réponse : `X-Passeport-Nombre` (lignes du
+  fichier), `X-Passeport-Interimaires` (écartés), `X-Passeport-Lignes` (clés des lignes à déclarer exportées, omis
+  au-delà de 6 000 caractères). Tracé `passeport.exporter` : période, vue, nombre de lignes, intérimaires écartés,
+  salariés concernés, jamais d'intitulé ni de nom.
 - **Données transmises** : `Dataset.declarationsPasseport` au service RH ; sans l'auteur au référent HSE et à la lecture
   seule (avec les certifications) ; rien au manager, au collaborateur ni à la paie. La case du catalogue va à tous (aucune
   donnée personnelle).

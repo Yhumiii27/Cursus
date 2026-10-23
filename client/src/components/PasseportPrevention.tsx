@@ -39,6 +39,9 @@ export function PasseportPrevention() {
   const [an, setAn] = useState(annee);
   const [vue, setVue] = useState<Vue>('a-declarer');
   const [busy, setBusy] = useState(false);
+  // Dernier export des lignes à déclarer fait depuis l'écran : clés renvoyées par le serveur (null : liste trop longue pour
+  // l'en-tête), proposées seules à la marque « déclarées ». Perdu au rechargement : les lignes se cochent alors à la main.
+  const [exporte, setExporte] = useState<{ an: number; cles: string[] | null } | null>(null);
   const du = `${an}-01-01`, au = an === annee ? d.ti : `${an}-12-31`;
   // Toutes les lignes de l'année (déclarées comprises) : compteurs, puis la vue choisie.
   const toutes = useMemo(() => lignesPasseport(d, { du, au, declarees: true }), [d, du, au]);
@@ -53,8 +56,11 @@ export function PasseportPrevention() {
   const exporter = async () => {
     setBusy(true);
     try {
-      await api.passeportPrevention(du, au, vue === 'declarees');
-      notify(`Passeport de prévention : ${plural(lignes.length, 'ligne exportée', 'lignes exportées')} — export tracé dans le journal`);
+      const r = await api.passeportPrevention(du, au, vue);
+      if (vue === 'a-declarer') setExporte({ an, cles: r.cles });
+      notify(`Passeport de prévention : ${plural(r.nombre, 'ligne exportée', 'lignes exportées')}`
+        + (r.interimaires ? ` (${plural(r.interimaires, 'ligne d’intérimaire écartée', 'lignes d’intérimaires écartées')} : déclarées par l’agence)` : '')
+        + ' — export tracé dans le journal');
     } catch (err) {
       notify((err as Error).message, true);
     } finally {
@@ -80,7 +86,7 @@ export function PasseportPrevention() {
           <Seg name="passeportVue" label="Lignes affichées" value={vue} onChange={setVue} options={[['a-declarer', 'À déclarer'], ['declarees', 'Déjà déclarées']]} />
           {peut && lignes.length > 0 && <Btn variant="secondary" small icon={<DownloadSimpleIcon size={14} />} disabled={busy} onClick={exporter}>Exporter (CSV)</Btn>}
           {peut && vue === 'a-declarer' && aDeclarer.length > 0 && (
-            <Btn variant="secondary" small icon={<CheckSquareIcon size={14} />} onClick={() => openDialog({ type: 'passeportDeclarer', cles: aDeclarer.map(l => l.cle), du, au })}>
+            <Btn variant="secondary" small icon={<CheckSquareIcon size={14} />} onClick={() => openDialog({ type: 'passeportDeclarer', du, au, exportees: exporte?.an === an ? exporte.cles : null })}>
               Marquer déclarées…
             </Btn>
           )}
@@ -126,7 +132,8 @@ export function PasseportPrevention() {
         {MENTION_PASSEPORT} (Caisse des dépôts) : colonnes de l’export réglées dans Paramètres → Passeport de prévention ; le prénom est le premier
         mot du nom de la fiche, à vérifier pour un prénom composé. Cursus ne détient pas le NIR : rapprochement par le matricule de paie dans Sage.
         Sont proposées les certifications et formations suivies des formations cochées « Passeport de prévention » dans Référentiels → Formations ;
-        une ligne marquée déclarée ne l’est plus. Une formation d’intérimaire se déclare en principe par l’entreprise de travail temporaire.
+        une ligne marquée déclarée ne l’est plus. « Marquer déclarées » ne coche d’office que les lignes du dernier export. Une formation d’intérimaire
+        se déclare en principe par l’entreprise de travail temporaire : elle est écartée de l’export.
       </Fine>
     </Panel>
   );

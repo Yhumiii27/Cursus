@@ -248,7 +248,10 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
   Référentiels → Formations : SST, CACES, ATEX, électrique, AIPR, EPI, hauteur, PRAP). « Exporter (CSV) », vérifier le
   fichier (format de la plateforme à confirmer ; colonnes réglées dans Paramètres → Passeport de prévention ; pas de NIR),
   le déclarer sur la plateforme, puis « Marquer déclarées… » avec le jour de la déclaration : ces lignes ne sont plus
-  proposées. Une marque posée par erreur se retire dans « Déjà déclarées ».
+  proposées. Seules les lignes du dernier export sont cochées d'office : décochez celles que la plateforme a refusées ;
+  une ligne saisie après l'export reste à déclarer (après un rechargement de l'écran, cochez les lignes du fichier
+  accepté). Les formations des intérimaires ne sont pas exportées (déclarées en principe par l'agence). Une marque
+  posée par erreur se retire dans « Déjà déclarées ».
 - Titre d'habilitation : « Imprimer le titre » sur la fiche (titre en vigueur seulement : ni retiré, ni suspendu, ni
   expiré), ou case cochée à la délivrance. Modèle choisi au référentiel
   (« Modèle du titre imprimé » : électrique NF C18-510, autorisation de conduite R4323-56, générique) ; titulaire,

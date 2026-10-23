@@ -29,16 +29,37 @@ test('panneau du Passeport de prévention : lignes à déclarer de l’année, m
   assert.equal(screen.queryByText('Fatou Ndiaye'), null, 'ligne déclarée : plus proposée');
   assert.ok(screen.getAllByText('Intérimaire : voir avec l’agence').length > 0);
   assert.ok(screen.getByRole('button', { name: 'Exporter (CSV)' }));
+  // Sans export depuis l'ouverture de l'écran : le dialogue ne coche rien d'office.
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Marquer déclarées/ })); });
-  const d = b.trace.ouverts[0] as { type: string; cles: string[]; du: string; au: string };
-  assert.deepEqual([d.type, d.du, d.au], ['passeportDeclarer', '2026-01-01', '2026-10-10']);
-  assert.ok(d.cles.length > 5 && !d.cles.includes(`cert:${sst}`));
+  const d = b.trace.ouverts[0] as { type: string; exportees: string[] | null; du: string; au: string };
+  assert.deepEqual([d.type, d.du, d.au, d.exportees], ['passeportDeclarer', '2026-01-01', '2026-10-10', null]);
+  // Export des lignes à déclarer : le serveur renvoie les clés exportées, que le dialogue reçoit ensuite.
+  const urls: string[] = [];
+  const fetchAvant = globalThis.fetch, urlAvant = URL.createObjectURL;
+  globalThis.fetch = (async (u: string) => {
+    urls.push(String(u));
+    return new Response('Nom\r\n', { headers: { 'content-disposition': 'attachment; filename="p.csv"', 'X-Passeport-Lignes': 'cert:1,suivie:2', 'X-Passeport-Nombre': '2', 'X-Passeport-Interimaires': '3' } });
+  }) as typeof fetch;
+  URL.createObjectURL = () => 'blob:essai';
+  try {
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Exporter (CSV)' })); });
+    assert.match(urls[0], /du=2026-01-01&au=2026-10-10&vue=a-declarer$/);
+    assert.match(b.trace.messages.at(-1)!.text, /2 lignes exportées \(3 lignes d’intérimaires écartées : déclarées par l’agence\)/);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Marquer déclarées/ })); });
+    assert.deepEqual((b.trace.ouverts[1] as { exportees: string[] }).exportees, ['cert:1', 'suivie:2']);
+    // Déjà déclarées : l'export ne demande que celles-là.
+    await act(async () => { fireEvent.click(screen.getByLabelText('Déjà déclarées')); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Exporter (CSV)' })); });
+    assert.match(urls[1], /vue=declarees$/);
+  } finally {
+    globalThis.fetch = fetchAvant;
+    URL.createObjectURL = urlAvant;
+  }
   // Déjà déclarées : la date et le retrait de la marque (confirmé).
-  await act(async () => { fireEvent.click(screen.getByLabelText('Déjà déclarées')); });
   const ligne = screen.getByText('Fatou Ndiaye').closest('tr')!;
   assert.ok(within(ligne).getByText(/Déclarée le 1 oct/));
   await act(async () => { fireEvent.click(within(ligne).getByRole('button', { name: 'Retirer' })); });
-  const c = b.trace.ouverts[1] as { type: string; c: { action: string; payload: unknown } };
+  const c = b.trace.ouverts[2] as { type: string; c: { action: string; payload: unknown } };
   assert.deepEqual([c.type, c.c.action, c.c.payload], ['confirmer', 'passeport.retirer', { cle: `cert:${sst}` }]);
   // Année précédente : d'autres lignes, aucune déclarée.
   await act(async () => { fireEvent.change(screen.getByLabelText('Année'), { target: { value: '2025' } }); });
@@ -58,12 +79,18 @@ test('lecture seule : consultation sans export ni marque ; paie : rien', async (
   assert.equal(screen.queryByRole('heading', { name: 'Passeport de prévention' }), null);
 });
 
-test('dialogue « Marquer déclarées » : jour contrôlé (à venir refusé), puis lignes marquées par le serveur', async () => {
+test('dialogue « Marquer déclarées » : lignes de l’export seules cochées, jour contrôlé, puis lignes marquées par le serveur', async () => {
   const { db, personne } = await baseDemo();
   const cle = `cert:${((await db.one(`SELECT id FROM certifications WHERE emp_id = 17 AND f = 'sst'`)) as { id: number }).id}`;
-  const b = await monter(db, await personne(23, 'rh'), () => createElement(PasseportDeclarerDialog, { cles: [cle, 'cert:999999'], du: '2026-01-01', au: '2026-10-10' }));
+  // Export fait depuis l'écran : la seule ligne de Fatou Ndiaye ; une ligne saisie depuis (ou absente du fichier) n'est
+  // pas cochée.
+  const b = await monter(db, await personne(23, 'rh'), () => createElement(PasseportDeclarerDialog, { du: '2026-01-01', au: '2026-10-10', exportees: [cle, 'cert:999999'] }));
   render(b.element);
-  assert.match(document.body.textContent!, /1 ligne \(1 salarié\) du 1 janv\. 2026 au 10 oct\. 2026/);
+  const cases = within(screen.getByRole('group', { name: 'Lignes déclarées' })).getAllByRole('checkbox') as HTMLInputElement[];
+  assert.ok(cases.length > 5);
+  assert.equal(cases.filter(c => c.checked).length, 1, 'la seule ligne de l’export');
+  assert.ok(screen.getAllByText('Absente de l’export').length === cases.length - 1);
+  assert.match(document.body.textContent!, /1 ligne cochée \(1 salarié\) sur \d+ lignes à déclarer du 1 janv\. 2026 au 10 oct\. 2026/);
   const jour = screen.getByLabelText(/Déclarées sur la plateforme le/) as HTMLInputElement;
   assert.equal(jour.value, '2026-10-10');
   await act(async () => { fireEvent.change(jour, { target: { value: '2026-10-11' } }); });
@@ -74,17 +101,29 @@ test('dialogue « Marquer déclarées » : jour contrôlé (à venir refusé), p
   assert.ok(screen.getByText(/ne peut pas être datée d’un jour à venir/));
   await act(async () => { fireEvent.change(jour, { target: { value: '2026-03-01' } }); });
   assert.ok(screen.getByText(/se termine le 1 avr\. 2026/));
+  // Tout décoché : refusé, message explicite.
   await act(async () => { fireEvent.change(jour, { target: { value: '2026-10-09' } }); });
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Tout décocher' })); });
+  await act(async () => { fireEvent.click(bouton); });
+  assert.equal(b.trace.actions.length, 0);
+  assert.ok(screen.getByText('Cochez les lignes acceptées par la plateforme.'));
+  await act(async () => { fireEvent.click(screen.getByRole('checkbox', { name: /Fatou Ndiaye — Sauveteur secouriste du travail/ })); });
   await act(async () => { fireEvent.click(bouton); });
   assert.deepEqual(b.trace.actions[0].payload, { cles: [cle], le: '2026-10-09' });
   assert.equal(b.trace.actions[0].r.ok, true, b.trace.actions[0].r.error);
   assert.equal(b.trace.fermetures, 1);
   assert.equal(b.donnees().declarationsPasseport!.length, 1);
-  // Rouvert alors que tout est marqué : rien à enregistrer.
   cleanup();
-  const encore = await monter(db, await personne(23, 'rh'), () => createElement(PasseportDeclarerDialog, { cles: [cle], du: '2026-01-01', au: '2026-10-10' }));
-  render(encore.element);
-  assert.ok(screen.getByText(/Plus aucune de ces lignes n’est à déclarer/));
+  // Sans export connu (écran rechargé) : rien n'est coché d'office.
+  const sans = await monter(db, await personne(23, 'rh'), () => createElement(PasseportDeclarerDialog, { du: '2026-01-01', au: '2026-10-10', exportees: null }));
+  render(sans.element);
+  assert.ok(screen.getByText(/Aucun export depuis l’ouverture de l’écran/));
+  assert.ok((within(screen.getByRole('group', { name: 'Lignes déclarées' })).getAllByRole('checkbox') as HTMLInputElement[]).every(c => !c.checked));
+  cleanup();
+  // Plus rien à déclarer sur la période : rien à enregistrer.
+  const vide = await monter(db, await personne(23, 'rh'), () => createElement(PasseportDeclarerDialog, { du: '2026-04-01', au: '2026-04-01', exportees: [cle] }));
+  render(vide.element);
+  assert.ok(screen.getByText(/Plus aucune ligne n’est à déclarer/));
   assert.equal(screen.queryByRole('button', { name: 'Marquer déclarées' }), null);
 });
 

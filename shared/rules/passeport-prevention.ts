@@ -9,8 +9,9 @@
 //   dans Référentiels → Formations. `passeportPropose` reprend la même liste pour l'aide du dialogue.
 // - Lignes (`lignesPasseport`) : certifications obtenues (non annulées) et formations suivies (non annulées, hors celles
 //   que représente déjà une certification : `suivieCertifiee`) des formations marquées, dont le dernier jour tombe dans la
-//   période ; identité lue sur la fiche (dossiers anonymisés écartés). Une ligne déclarée (`DeclarationPasseport`) n'est
-//   plus proposée, sauf à demander aussi les lignes déjà déclarées.
+//   période ; identité lue sur la fiche (dossiers anonymisés écartés). Une certification est toujours datée de son
+//   obtention : dates et heures d'une session seulement pour celle qu'une session clôturée a produite. Une ligne déclarée
+//   (`DeclarationPasseport`) n'est plus proposée, sauf à demander aussi les lignes déjà déclarées.
 // - Export (`exportPasseport`) : colonnes du réglage `passeportColonnes`, dans l'ordre du gabarit ; produit par le serveur
 //   (server/src/passeport-prevention.ts), qui seul connaît la date de naissance, et tracé au journal.
 import { fmtIso } from '../format.ts';
@@ -64,6 +65,13 @@ const resultatCert = (fm: Formation | undefined) => (fm?.validation === 'evaluat
 export function lignesPasseport(d: Domain, p: PeriodePasseport): LignePasseport[] {
   const declarees = new Map((d.ds.declarationsPasseport ?? []).map(x => [cleLigne(x), x.declareLe]));
   const sessions = new Map(d.ds.sessions.map(s => [s.id, s]));
+  // Sessions clôturées qui ont produit une certification (`Participation.certId`, posé par session.cloturer). Le
+  // `sessionId` d'une certification désigne au contraire le recyclage où elle est inscrite : il ne la date jamais.
+  const sessionsDe = new Map<number, Session[]>();
+  for (const x of d.ds.participations ?? []) {
+    const s = x.certId ? sessions.get(x.sessionId) : undefined;
+    if (s?.statut === 'Clôturée') sessionsDe.set(x.certId!, [...sessionsDe.get(x.certId!) ?? [], s]);
+  }
   const dans = (j: ISODate) => j >= p.du && j <= p.au;
   const out: LignePasseport[] = [];
   const ajouter = (l: Omit<LignePasseport, 'cle' | 'declareLe'>) => {
@@ -77,8 +85,10 @@ export function lignesPasseport(d: Domain, p: PeriodePasseport): LignePasseport[
     for (const c of e.certs) {
       const fm = d.fm(c.f);
       if (c.annuleLe || !marqueePasseport(fm)) continue;
-      const s: Session | undefined = c.sessionId ? sessions.get(c.sessionId) : undefined;
-      const du = s ? s.date : c.obtenue, au = s ? s.fin ?? s.date : c.obtenue;
+      // Certification issue d'une session : celle qui finit le jour de l'obtention (un salarié déjà certifié figure aussi
+      // aux participations d'un recyclage ultérieur, avec sa certification). Sinon le jour d'obtention seul.
+      const s = (sessionsDe.get(c.id) ?? []).find(x => (x.fin ?? x.date) === c.obtenue);
+      const du = s ? s.date : c.obtenue, au = c.obtenue;
       if (!dans(au)) continue;
       ajouter({
         origine: 'certification', certId: c.id, suivieId: null, empId: e.id, formation: c.f, intitule: fm!.nom, organisme: fm!.organisme ?? '',

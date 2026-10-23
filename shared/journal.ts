@@ -113,7 +113,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   // Passeport de prévention (lot 7, t066)
   'passeport.declarer': 'Passeport de prévention : lignes marquées déclarées',
   'passeport.retirer': 'Passeport de prévention : marque de déclaration retirée',
-  'passeport.exporter': 'Passeport de prévention : lignes à déclarer exportées',
+  'passeport.exporter': 'Passeport de prévention : lignes exportées',
   'migration.passeportPrevention': 'Reprise : formations marquées pour le Passeport de prévention',
   // Habilitations
   'hab.delivrer': 'Habilitation délivrée',

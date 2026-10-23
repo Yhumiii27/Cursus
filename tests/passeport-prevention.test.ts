@@ -84,11 +84,13 @@ test('lignes à déclarer : certifications et formations suivies des formations 
   assert.equal(an.find(l => l.formation === 'epi')!.resultat, 'Acquise (présence)');
   // Intérimaire (Léa Girard) : signalée, la déclaration revenant en principe à l'agence.
   assert.ok(an.some(l => l.empId === 15 && l.interim));
-  // Certification d'une session : dates et heures de la session.
+  // Certification produite par une session clôturée (participation qui la porte, fin de session = obtention) : dates et
+  // heures de la session.
   const certSst = await certDe(db, 2, 'sst');
   await db.insert('sessions', { formation: 'sst', date: '2026-09-28', fin: '2026-09-29', jours: ['2026-09-28', '2026-09-29'], horaires: [], lieu: 'Salle', places: 8, statut: 'Clôturée', planId: null, bilan: null });
   const sid = ((await db.one('SELECT MAX(id) AS id FROM sessions')) as { id: number }).id;
-  await db.update('certifications', certSst, { obtenue: '2026-09-29', sessionId: sid });
+  await db.update('certifications', certSst, { obtenue: '2026-09-29', sessionId: null });
+  await db.insert('participations', { sessionId: sid, empId: 2, parcours: 'recyclage', present: true, reussi: true, certId: certSst });
   // Formations suivies : une marquée (comptée), une représentée par la certification (pas de double compte), une hors
   // catalogue (non déclarée), une annulée (non déclarée), une de durée saisie.
   const suivie = async (x: Record<string, unknown>) => (await db.insert<{ id: number }>('formationsSuivies', {
@@ -118,6 +120,53 @@ test('lignes à déclarer : certifications et formations suivies des formations 
   // Formation démarquée : ses lignes disparaissent.
   await db.update('formations', 'prap', { passeportPrevention: false });
   assert.ok(!P.lignesPasseport(await domain(), { du: '2026-01-01', au: '2026-10-10' }).some(x => x.formation === 'prap'));
+});
+
+test('certification de session : datée de son obtention ; dates et heures d’une session seulement si elle en est issue', async () => {
+  const { db, user, run, domain, RH } = await fresh();
+  const HSE = await user(23, 'rh');
+  const { inscritsDe } = await import('../shared/rules/sessions.ts');
+  const lignesDe = async (empId: number, du: string, au: string, declarees = false) => P.lignesPasseport(await domain(), { du, au, declarees }).filter(l => l.empId === empId && l.formation === 'epi');
+  // Certification d’Inès Dupont (salariée 5) obtenue le 05/11/2025, inscrite au recyclage du 09/10/2026 (session 6,
+  // confirmée, pas clôturée) : `sessionId` désigne ce recyclage, il ne la date pas.
+  const ancienne = await certDe(db, 5, 'epi');
+  assert.equal(((await db.get<{ sessionId: number }>('certifications', ancienne))!).sessionId, 6);
+  assert.deepEqual((await lignesDe(5, '2026-01-01', '2026-12-31')).map(l => l.cle), [], 'rien en 2026 tant que la session n’est pas clôturée');
+  const avant = (await lignesDe(5, '2025-01-01', '2025-12-31'))[0];
+  assert.deepEqual([avant.cle, avant.du, avant.au, avant.duree], [`cert:${ancienne}`, '2025-11-05', '2025-11-05', 4]);
+  // Inscription à un recyclage à venir (plan.inscrire) : la certification garde sa date, rien n'est daté de la session.
+  const manon = await certDe(db, 21, 'epi');
+  const dateManon = ((await db.get<{ obtenue: string }>('certifications', manon))!).obtenue;
+  await run(HSE, 'plan.inscrire', { empId: 21, certId: manon, sessionId: 12, convoc: 'later' });
+  assert.equal(((await db.get<{ sessionId: number }>('certifications', manon))!).sessionId, 12);
+  const l21 = P.lignesPasseport(await domain(), { du: '2025-01-01', au: '2026-12-31' }).filter(l => l.cle === `cert:${manon}`);
+  assert.deepEqual(l21.map(l => [l.du, l.au]), [[dateManon, dateManon]]);
+  assert.ok(!P.lignesPasseport(await domain(), { du: '2026-10-11', au: '2026-12-31' }).length, 'aucune ligne pour une session à venir');
+  // L'ancienne certification, déclarée (2025), puis la session clôturée, tous présents : une seule ligne en 2026, la
+  // nouvelle certification, datée de la session ; l'ancienne reste en 2025 avec sa date.
+  await run(RH, 'passeport.declarer', { cles: [`cert:${ancienne}`], le: '2026-10-10' });
+  const s6 = (await domain()).session(6)!;
+  const participants = inscritsDe(await domain(), s6).map(i => ({ empId: i.empId, present: true, reussi: true }));
+  await run(HSE, 'session.cloturer', { id: 6, participants });
+  const apres = await lignesDe(5, '2026-01-01', '2026-12-31', true);
+  const nouvelle = ((await db.one('SELECT MAX(id) AS id FROM certifications WHERE emp_id = 5 AND f = ?', ['epi'])) as { id: number }).id;
+  assert.deepEqual(apres.map(l => [l.cle, l.du, l.au, l.duree, l.declareLe]), [[`cert:${nouvelle}`, '2026-10-09', '2026-10-09', 4, null]]);
+  assert.deepEqual((await lignesDe(5, '2025-01-01', '2025-12-31', true)).map(l => [l.cle, l.au, l.declareLe]), [[`cert:${ancienne}`, '2025-11-05', '2026-10-10']]);
+  // Session de plusieurs jours avec horaires (CACES R489, 21-23/10/2026) : du, au et heures de la session.
+  await db.update('sessions', 3, { horaires: [{ debut: '08:30', fin: '12:30', pause: 0 }] });
+  const ti = process.env.CURSUS_TODAY;
+  process.env.CURSUS_TODAY = '2026-10-23';
+  try {
+    const s3 = (await domain()).session(3)!;
+    await run(HSE, 'session.cloturer', { id: 3, participants: inscritsDe(await domain(), s3).map(i => ({ empId: i.empId, present: true, reussi: true })) });
+    const caces = (await db.all<{ id: number; f: string; obtenue: string; empId: number }>('certifications')).filter(c => c.f === 'caces489' && c.obtenue === '2026-10-23');
+    assert.ok(caces.length > 0);
+    const lignes = P.lignesPasseport(await domain(), { du: '2026-10-01', au: '2026-10-31' }).filter(l => l.formation === 'caces489');
+    assert.deepEqual(new Set(lignes.map(l => `${l.du}|${l.au}|${l.duree}`)), new Set(['2026-10-21|2026-10-23|12']));
+    assert.equal(lignes.length, caces.length);
+  } finally {
+    process.env.CURSUS_TODAY = ti;
+  }
 });
 
 test('contrôles : période, clés, jour de déclaration ; prénom et nom ; export au gabarit réglable, sans NIR, mention du format', async () => {
@@ -256,17 +305,33 @@ test('export : service RH et référent HSE seulement, gabarit des Paramètres, 
     assert.ok(csv.includes(`Ndiaye;Fatou;29/02/1988;S0017;;Sauveteur secouriste du travail (SST);01/04/2026;${P.MENTION_PASSEPORT}`), 'date de naissance que l’instantané du référent HSE ne porte pas');
     const n = csv.trim().split('\r\n').length - 1;
     const t = (await journal('passeport.exporter')).at(-1)!;
-    assert.deepEqual([t.payload.du, t.payload.au, t.payload.declarees, t.payload.lignes], ['2026-01-01', '2026-10-10', false, n]);
+    assert.deepEqual([t.payload.du, t.payload.au, t.payload.vue, t.payload.lignes], ['2026-01-01', '2026-10-10', 'a-declarer', n]);
     assert.ok(t.salaries.includes(17));
-    assert.match(t.message, /^Passeport de prévention : lignes à déclarer du 1 janv\. 2026 au 10 oct\. 2026 exportées — \d+ lignes$/);
+    assert.match(t.message, /^Passeport de prévention : lignes à déclarer du 1 janv\. 2026 au 10 oct\. 2026 exportées — \d+ lignes \(\d+ lignes? d’intérimaires? écartées? : déclarées par l’agence\)$/);
+    // Clés des lignes exportées en en-tête (marque « déclarées » limitée à l'export), nombre de lignes, intérimaires écartés.
+    const clesExportees = r.headers.get('X-Passeport-Lignes')!.split(',');
+    assert.equal(clesExportees.length, n);
+    assert.equal(r.headers.get('X-Passeport-Nombre'), String(n));
+    assert.ok(Number(r.headers.get('X-Passeport-Interimaires')) > 0 && t.payload.interimaires === Number(r.headers.get('X-Passeport-Interimaires')));
+    const dRh = new Domain(await loadFull(db, RH));
+    const aDeclarer = P.lignesPasseport(dRh, { du: '2026-01-01', au: '2026-10-10' });
+    assert.deepEqual(clesExportees, aDeclarer.filter(l => !l.interim).map(l => l.cle), 'lignes à déclarer, sans les intérimaires');
+    assert.ok(!t.salaries.includes(15) && !csv.includes('Girard'), 'intérimaire (Léa Girard) écartée de l’export');
+    assert.equal((await get('du=2026-01-01&au=2026-10-10&vue=toutes', hse)).status, 400);
     assert.ok(!/Ndiaye|1988|SST/.test(JSON.stringify(t)), 'ni nom ni date de naissance au journal');
     assert.ok(JOURNAL_LABEL['passeport.exporter'] && familleAction('passeport.exporter')?.id === 'formations');
-    // Déclarées : hors de l'export, sauf avec declarees=1.
+    // Déclarées : hors de l'export des lignes à déclarer ; la vue « Déjà déclarées » n'exporte qu'elles.
     await run(RH, 'passeport.declarer', { cles: [`cert:${await certDe(db, 17, 'sst')}`], le: '2026-10-01' });
     assert.ok(!(await (await get('du=2026-01-01&au=2026-10-10', hse)).text()).includes('Ndiaye;Fatou'));
-    const avec = await get('du=2026-01-01&au=2026-10-10&declarees=1', await session(await compteDe(14)));
-    assert.ok((await avec.text()).includes('Ndiaye;Fatou'));
-    assert.match((await journal('passeport.exporter')).at(-1)!.message, /déjà déclarées comprises/);
+    const avec = await get('du=2026-01-01&au=2026-10-10&vue=declarees', await session(await compteDe(14)));
+    const lignesDeclarees = (await avec.text()).trim().split('\r\n').slice(1);
+    assert.equal(lignesDeclarees.length, 1, 'les seules lignes déclarées');
+    assert.ok(lignesDeclarees[0].startsWith('Ndiaye;Fatou'));
+    assert.equal(avec.headers.get('X-Passeport-Lignes'), null, 'rien à marquer depuis cet export');
+    assert.equal(avec.headers.get('X-Passeport-Nombre'), '1');
+    const td = (await journal('passeport.exporter')).at(-1)!;
+    assert.deepEqual([td.payload.vue, td.payload.lignes], ['declarees', 1]);
+    assert.match(td.message, /lignes déjà déclarées du .* exportées — 1 ligne$/);
   } finally {
     await new Promise(r => srv.close(r));
   }

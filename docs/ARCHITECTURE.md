@@ -747,14 +747,46 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   « Démonstration ») ; « déjà faite » avec `purge.demo` au journal. Ajouts des visiteurs (fiches hors du jeu, reprises,
   lots de paie, fichiers Sage, comptes) listés avec nombre et dates ; les fiches ajoutées ne partent qu'avec
   `--inclure-ajouts`. Plan par profil (`planPurge` : `parametrage` par défaut, `catalogue`, `rien`) : sort de chaque table
-  de `TABLES` et des réglages ; séquence `employes.id` à max(1001, plus grand identifiant attribué + 1000), jamais remise
-  à zéro. Réglages remis à défaut par `parametrage` : clé de session, état de la paie (dont les dates de départ des
-  absences et des déplacements dans le fichier de paie), expurgation, messagerie, `demo` et passages des traitements
-  quotidiens. `seedDemo` garde le réglage `exploitation` : une base exploitée reste refusée. Étape 1 : aperçu à blanc
-  seulement (`--a-blanc`, `apercuPurge`) ; l'exécution vient à l'étape 2. L'aperçu n'écrit rien, pas même la mise à
-  jour de la base (`server/src/purge-demo-ouverture.ts`) : une base qui n'est pas au niveau de cette version
-  (migrations nommées ou PostgreSQL en attente, colonnes manquantes) est refusée, avec pour remède de démarrer une fois
-  le service de cette version.
+  de `TABLES` et des réglages ; séquence `employes.id` à max(1001, plus grand identifiant attribué + 1), compteur de la
+  séquence compris, jamais remise à zéro (décision du propriétaire : le premier vrai salarié est EMP-1001 sur la
+  démonstration standard). Réglages remis à défaut par `parametrage` : clé de session, état de la paie (dont les dates
+  de départ des absences et des déplacements dans le fichier de paie), expurgation, messagerie, `demo` et passages des
+  traitements quotidiens. `seedDemo` garde le réglage `exploitation` : une base exploitée reste refusée. L'aperçu à
+  blanc (`--a-blanc`, `apercuPurge`) n'écrit rien, pas même la mise à jour de la base
+  (`server/src/purge-demo-ouverture.ts`) : une base qui n'est pas au niveau de cette version (migrations nommées ou
+  PostgreSQL en attente, colonnes manquantes) est refusée, purge comprise, avec pour remède de démarrer une fois le
+  service de cette version ; sur PostgreSQL, il rejoue en plus toute la purge dans une transaction annulée
+  (`simulerPurge`).
+- **Exécution de la purge** (lot 8, chantier A, étape 2 ; `server/src/purge-demo-execution.ts`, `executerPurge`) :
+  1. décision refaite (déjà faite, refus, points à lever) ;
+  2. service arrêté : fichier SQLite, verrou du serveur (`controlerPourOutil` puis `controlerServeurPurge`, seul contrôle
+     que `--force` lève) ; PostgreSQL, aucune autre connexion `application_name = 'cursus'` sur la base
+     (`pg_stat_activity`, `controlerConnexionsPg`), la commande n'ouvrant qu'une connexion, contrôlé avant la
+     confirmation puis dans la transaction, sous le verrou `hashtext('cursus.ecritures')` ;
+  3. confirmation `--yes` ou « PRODUCTION <nombre de salariés supprimés> » tapé dans un terminal ;
+  4. sauvegarde préalable obligatoire : copie « avant-purge » du fichier (pièces comprises), ou pg_dump désigné par
+     `--sauvegarde`, vérifié (en-tête `PGDMP`, écrit après la dernière ligne du journal et la dernière activité d'une
+     session : `verifierPgDump`) ; un échec annule tout ;
+  5. une transaction : colonnes des lignes gardées remises à NULL (dont confirmation et auteur de la dernière
+     modification des rubriques de paie), signataire par défaut des habilitations vidé quand c'est un nom de la
+     démonstration (`signatairesFictifs` : salariés du jeu ou de la base, signataires du référentiel du jeu ; listés
+     dans l'aperçu, le bilan et les étapes suivantes), réglages retirés, tables vidées (ordre des clés étrangères sur
+     PostgreSQL ; les comptes non gardés par `--garder-compte` partent à leur rang, après `pieces` qui les désigne et
+     avant `employes`), amorçages reposés (activités internes, horaires d'exemple), séquence placée par
+     `ALTER SEQUENCE … RESTART` (annulable, jamais `RESTART IDENTITY`) ou `sqlite_sequence`, journal vidé puis la seule
+     ligne `purge.demo` (acteur « Ligne de commande (npm run purge-demo) » ; payload : profil, preuve, lignes supprimées
+     et ajustées par table, salariés, fiches ajoutées purgées, comptes gardés, réglages retirés, prochain identifiant,
+     plus grand identifiant attribué, chemin de la copie ; jamais de donnée de personne), `controlerOrphelins` vide,
+     sinon annulation ;
+  6. après la validation : fichiers des pièces effacés (un échec ajoute `piecesNonEffacees` à la ligne `purge.demo`,
+     sans annuler), `VACUUM` du fichier SQLite, et avec `--supprimer-copies-demo` les copies locales antérieures
+     supprimées, sauf la copie avant-purge et les fichiers du miroir des pièces qu'elle désigne ; un échec de l'une de
+     ces opérations est noté dans le bilan (`apres`), jamais propagé : « Purge faite et validée, mais… », code de
+     sortie 2. La commande affiche ensuite les étapes suivantes de la mise en production.
+  Garde-fous (`refusDemo`, `server/src/marqueurs.ts`) : `server/src/index.ts` refuse de démarrer avec `CURSUS_DEMO=1`
+  sur une base qui porte `purge.demo` au journal ou le réglage `exploitation` (« base de production »), avant toute
+  écriture ; `npm run reset-demo` refuse de la recharger. Procédure : `docs/DEPLOIEMENT.md`, « Passage de la
+  démonstration à la production ».
 - **Base sur le disque** (`server/src/protection.ts`) : `protegerBase` ramène la base et ses fichiers `-wal`, `-shm`
   en `600` et son dossier en `700` (créé ainsi ; un dossier partagé — bit sticky, racine du système ou du projet,
   dossier de lancement, autre propriétaire — n'est jamais modifié, avertissement ; le dossier personnel du compte de

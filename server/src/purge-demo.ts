@@ -9,9 +9,10 @@
 // - Décision (`deciderPurge`) : déjà faite, refusée sans appel (base exploitée, sans preuve de démonstration…), ou
 //   possible, avec les points à lever avant d'exécuter (fiches ajoutées sans --inclure-ajouts, compte gardé inconnu).
 // - Plan par profil (`planPurge`) : sort de chaque table de TABLES et des réglages ; séquence des salariés
-//   (`prochainIdEmploye`), jamais remise à zéro, pour qu'aucun vrai salarié ne reprenne un matricule EMP-00xx déjà lu
+//   (`prochainIdEmploye`, EMP-1001 au plus tôt), jamais remise à zéro, pour qu'aucun vrai salarié ne reprenne un matricule EMP-00xx déjà lu
 //   par Keystone, Vigie, Codex ou Matrix.
 // - Aperçu à blanc (`apercuPurge`, `texteApercu`) : ce qui part et ce qui reste, sans rien écrire.
+// L'exécution (service arrêté, sauvegarde préalable, transaction, pièces, copies) : server/src/purge-demo-execution.ts.
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { matricule, plural } from '../../shared/format.ts';
@@ -26,7 +27,7 @@ import { dossierPiecesDe, NOM_LOCAL } from './pieces.ts';
 import { dossierMiroir } from './pieces-sauvegarde.ts';
 import { ACTION_REPRISE } from './reprise-postgres.ts';
 import { dossierSauvegardes, listerSauvegardes } from './sauvegarde.ts';
-import { CREE_PAR_DEMO, DOMAINE_DEMO, LOT_DEMO, SALARIES_DEMO } from './seed.ts';
+import { CREE_PAR_DEMO, DOMAINE_DEMO, HABILITATIONS, LOT_DEMO, SALARIES_DEMO } from './seed.ts';
 
 export class PurgeRefusee extends Error {}
 
@@ -314,7 +315,8 @@ export function planPurge(profil: ProfilPurge, comptesGardes = false): PlanPurge
     tables.chantiers = supprimer('chantiers du Keystone simulé');
     for (const t of ['budgets', 'planActions', 'exercicesClos'] as const) tables[t] = supprimer('budgets et plan de formation fictifs');
     tables.equipes = { sort: 'ajuster', nulles: ['managerId'], pourquoi: 'responsable fictif retiré' };
-    tables.rubriquesPaie = { sort: 'ajuster', nulles: ['confirmeLe', 'confirmePar'], pourquoi: 'confirmation effacée, à revalider par la paie' };
+    // Confirmation et dernière modification : faites pendant la démonstration, sous le nom d'un utilisateur fictif.
+    tables.rubriquesPaie = { sort: 'ajuster', nulles: ['confirmeLe', 'confirmePar', 'modifieLe', 'modifiePar'], pourquoi: 'confirmation et auteur effacés, à revalider par la paie' };
     tables.settings = { sort: 'ajuster', pourquoi: 'réglages fictifs ou techniques retirés' };
   }
   if (profil === 'catalogue') {
@@ -330,16 +332,17 @@ export function planPurge(profil: ProfilPurge, comptesGardes = false): PlanPurge
 
 /** Premier identifiant d'un vrai salarié : EMP-1001 au plus tôt. */
 export const PREMIER_ID_PRODUCTION = 1001;
-/** Écart laissé au-delà du plus grand identifiant déjà attribué. */
-export const ECART_IDS = 1000;
 /** Dernier identifiant au format du matricule partagé sur 4 chiffres (EMP-9999, 0001_init.sql). */
 export const DERNIER_ID_4_CHIFFRES = 9999;
 
 /**
- * Identifiant du prochain salarié créé après la purge : max(1001, plus grand identifiant déjà attribué + 1000). Jamais
- * de remise à zéro : aucun vrai salarié ne reçoit un matricule EMP-00xx déjà vu par les autres outils.
+ * Identifiant du prochain salarié créé après la purge : max(1001, plus grand identifiant déjà attribué + 1), compteur de
+ * la séquence compris (décision du propriétaire pour l'étape 2 : les vrais salariés commencent à EMP-1001). Sur la
+ * démonstration standard (24 salariés), le premier vrai salarié est EMP-1001 ; des fiches créées par des visiteurs
+ * au-delà de 1000 sont suivies. Jamais de remise à zéro : aucun vrai salarié ne reçoit un matricule déjà vu par les
+ * autres outils.
  */
-export const prochainIdEmploye = (plusGrand: number): number => Math.max(PREMIER_ID_PRODUCTION, Math.max(0, plusGrand) + ECART_IDS);
+export const prochainIdEmploye = (plusGrand: number): number => Math.max(PREMIER_ID_PRODUCTION, Math.max(0, plusGrand) + 1);
 
 /** Plus grand identifiant de salarié déjà attribué : lignes présentes et compteur de la séquence (ids de fiches supprimées compris). */
 export async function plusGrandIdEmploye(db: Db): Promise<number> {
@@ -367,6 +370,8 @@ export interface ApercuPurge {
   pieces: { dossier: string; fichiers: number; orphelins: number; octets: number };
   reglages: { supprimes: string[]; gardes: string[] };
   comptesGardes: { id: number; identifiant: string }[];
+  /** Habilitations gardées dont le signataire par défaut est un nom du jeu : signataire vidé, à compléter au référentiel. */
+  signataires: { id: string; signataire: string }[];
   /** Copies locales antérieures (fichier SQLite) et miroir des pièces : elles contiennent encore les données fictives. */
   copies: { dossier: string | null; fichiers: string[]; miroir: string | null };
   sequence: { plusGrand: number; prochain: number; matricule: string };
@@ -407,6 +412,22 @@ async function comptesDesignes(db: Db, designations: readonly string[]): Promise
     else inconnus.push(d);
   }
   return { trouves: [...trouves.values()], inconnus };
+}
+
+/**
+ * Habilitations gardées par le profil dont le signataire par défaut est un nom de la démonstration : salarié du jeu,
+ * fiche de la base (toutes partent) ou signataire du référentiel du jeu. Ce signataire est proposé à chaque délivrance
+ * et repris par la reprise Lucca quand le fichier n'en donne pas (shared/rules/reprise.ts) : gardé, il ferait signer
+ * les titres des vrais salariés par une personne fictive. La purge le vide (la délivrance et la reprise exigent alors
+ * un signataire) ; le service RH le complète à l'écran Référentiels.
+ */
+export async function signatairesFictifs(db: Db, plan: PlanPurge): Promise<{ id: string; signataire: string }[]> {
+  if (plan.tables.habilitations.sort === 'supprimer') return [];
+  const cle = (n: string) => n.trim().toLowerCase();
+  const noms = new Set([...SALARIES_DEMO.map(s => s.nom), ...HABILITATIONS.map(h => h.signataire)].map(cle));
+  for (const e of await db.query<{ nom: string | null }>('SELECT nom FROM employes')) if (e.nom) noms.add(cle(e.nom));
+  const habs = await db.query<{ id: string; signataire: string | null }>('SELECT id, signataire FROM habilitations ORDER BY id');
+  return habs.filter(h => h.signataire && noms.has(cle(h.signataire))).map(h => ({ id: h.id, signataire: h.signataire! }));
 }
 
 /** Fichiers de pièces à effacer : ceux des pièces (retirées comprises) et ceux du dossier qu'aucune pièce ne désigne. */
@@ -456,7 +477,8 @@ export async function apercuPurge(db: Db, options: Pick<OptionsPurge, 'garder' |
   return {
     profil: options.garder, moteur: db.moteur, decision, tables, salaries: tables.find(t => t.table === 'employes')!.partent,
     orphelines: await orphelinesApres(db, plan), ajouts: constat.ajouts, pieces: await fichiersPieces(db),
-    reglages: { supprimes, gardes: cles.filter(k => !supprimes.includes(k)) }, comptesGardes: trouves, copies: copiesAnterieures(db),
+    reglages: { supprimes, gardes: cles.filter(k => !supprimes.includes(k)) }, comptesGardes: trouves, signataires: await signatairesFictifs(db, plan),
+    copies: copiesAnterieures(db),
     sequence: { plusGrand, prochain, matricule: matricule(prochain) }, avertissements,
   };
 }
@@ -485,6 +507,10 @@ export function texteApercu(a: ApercuPurge): string[] {
   out.push(`Fichiers de pièces à effacer : ${a.pieces.fichiers} désignés par une pièce et ${a.pieces.orphelins} sans pièce dans ${a.pieces.dossier} (${a.pieces.octets} octets).`);
   out.push(`Réglages à remettre à défaut : ${a.reglages.supprimes.join(', ') || 'aucun'} ; gardés : ${a.reglages.gardes.join(', ') || 'aucun'}.`);
   out.push(a.comptesGardes.length ? `Comptes gardés (rendus externes) : ${a.comptesGardes.map(c => c.identifiant).join(', ')}.` : 'Comptes gardés : aucun (premier administrateur : npm run comptes -- admin).');
+  if (a.signataires.length) {
+    out.push(`Signataires fictifs au référentiel des habilitations, vidés par la purge (à compléter à l’écran Référentiels avant la reprise Lucca) : `
+      + `${a.signataires.map(h => `${h.id} (${h.signataire})`).join(', ')}.`);
+  }
   if (a.copies.dossier) {
     out.push(`Copies antérieures qui contiennent encore les données fictives (${a.copies.dossier}) : ${a.copies.fichiers.length ? a.copies.fichiers.join(', ') : 'aucune'}`
       + `${a.copies.miroir ? ` ; miroir des pièces ${a.copies.miroir}` : ''}.`);

@@ -495,8 +495,12 @@ puis par Microsoft 365 une fois configuré (`docs/CONNEXION-MICROSOFT.md`).
 `CURSUS_DEMO_PUBLIQUE=1` admet la démonstration derrière le proxy : 24 salariés fictifs chargés dans une base vide, espace RH
 ouvert sans mot de passe à qui atteint l'adresse, avertissement à chaque démarrage. L'accès se restreint en amont
 (authentification HTTP de Coolify, liens diffusés à quelques personnes) ; `CURSUS_SECRET` et `KEYSTONE_API_KEY` restent
-exigées. Jamais avec de vraies données : au passage en production, retirer les deux variables et repartir d'une base vide
-(nouveau volume, ou fichier `/data/cursus.db` supprimé, conteneur arrêté), puis créer le premier administrateur.
+exigées. Jamais avec de vraies données : au passage en production, arrêter l'instance, vider les données fictives en
+gardant le paramétrage saisi pendant la démonstration (`npm run purge-demo -- --a-blanc`, puis `npm run purge-demo --
+--yes` : copie avant-purge, transaction, premier vrai salarié EMP-1001), retirer les variables de démonstration, puis
+créer le premier administrateur (`docs/DEPLOIEMENT.md`, « Passage de la démonstration à la production » : nouvelle
+application Coolify « cursus-prod » sur un espace neuf, alimentée par la base purgée). Une base purgée ou exploitée
+refuse ensuite le mode démonstration.
 
 **Déclaration du schéma à Matrix.** Au démarrage, une fois les migrations faites, Cursus lit le schéma réel de sa base
 (tables, colonnes, clés, unicités) et l'envoie à Matrix, le catalogue des bases de Keystone, Codex, Cursus et Vigie

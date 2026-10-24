@@ -16,7 +16,7 @@ import { controlerIntegrite } from './integrite.ts';
 import { demarrerJournal } from './journal.ts';
 import { appliquerAvenants } from './avenants.ts';
 import { log, redirigerConsole } from './logs.ts';
-import { marquerExploitation } from './marqueurs.ts';
+import { marquerExploitation, refusDemo } from './marqueurs.ts';
 import { demarrerConservation } from './conservation.ts';
 import { demarrerPieces } from './pieces.ts';
 import { controlerMigrations } from './migrations/cadre.ts';
@@ -92,6 +92,12 @@ try {
   await mettreAJourBase(db);
 } catch (err) {
   arret.echec(err instanceof Error ? err.message : String(err));
+}
+// Base de production (lot 8, chantier A) : données fictives purgées (npm run purge-demo) ou base exploitée. Démarrée avec
+// CURSUS_DEMO=1, elle rechargerait la démonstration dans une base vide : refus avant toute écriture (server/src/marqueurs.ts).
+if (DEMO) {
+  const refus = await refusDemo(db);
+  if (refus) arret.echec(refus);
 }
 // Schéma de la base déclaré à Matrix (catalogue des bases), une fois les migrations faites : sans MATRIX_URL rien ne
 // part ; appel non attendu, un échec n'écrit qu'un avertissement (server/src/integrations/matrix.ts).

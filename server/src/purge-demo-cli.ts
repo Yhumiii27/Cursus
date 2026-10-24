@@ -1,55 +1,105 @@
-// npm run purge-demo -- --a-blanc [--garder parametrage|catalogue|rien] [--garder-compte <identifiant>]… [--inclure-ajouts] :
-// passage de la démonstration à la production (lot 8, chantier A), service arrêté. Vide une base de démonstration de ses
-// données fictives en ne gardant que le paramétrage choisi ; règles et aperçu dans server/src/purge-demo.ts.
-// Étape 1 du chantier : aperçu à blanc seulement (rien n'est écrit) ; l'exécution (contrôle du service arrêté,
-// sauvegarde préalable, transaction, pièces, copies) arrive à l'étape 2 et la commande la refuse d'ici là.
-// Code de sortie 0 : aperçu affiché ou purge déjà faite ; 1 : refus.
+// npm run purge-demo -- [--a-blanc] [--garder parametrage|catalogue|rien] [--garder-compte <identifiant>]… [--inclure-ajouts]
+// [--yes] [--force] [--sauvegarde <pg_dump>] [--supprimer-copies-demo] : passage de la démonstration à la production
+// (lot 8, chantier A), service arrêté. Vide une base de démonstration de ses données fictives en ne gardant que le
+// paramétrage choisi ; règles et aperçu dans server/src/purge-demo.ts, exécution dans server/src/purge-demo-execution.ts.
+// - --a-blanc : aperçu sans effet ; sur le serveur PostgreSQL, toute la purge est en plus simulée dans une transaction
+//   annulée (vrais décomptes, violations de clés).
+// - Sans --a-blanc : contrôle du service arrêté (verrou du fichier SQLite, sauf --force ; aucune autre connexion Cursus
+//   sur le serveur PostgreSQL), confirmation (--yes, ou le mot « PRODUCTION <nombre> » tapé dans un terminal), sauvegarde
+//   préalable (copie avant-purge, ou pg_dump vérifié désigné par --sauvegarde), purge en une transaction, puis pièces et
+//   copies ; les étapes suivantes de la mise en production sont affichées à la fin.
+// Code de sortie 0 : aperçu affiché, purge faite ou déjà faite ; 1 : refus ou échec (rien n'a été modifié) ; 2 : purge
+// faite et validée, mais une opération suivante (pièces, compactage, copies) a échoué : bilan et étapes affichés quand même.
 // Image Docker : volume rendu au compte du service, droits root abandonnés (avant tout autre import).
 import './conteneur.ts';
+import { createInterface } from 'node:readline/promises';
+import { plural } from '../../shared/format.ts';
 import { dbFile, urlPostgres } from './db.ts';
-import { apercuPurge, controlerEnvironnementPurge, lireOptionsPurge, type OptionsPurge, PurgeRefusee, texteApercu } from './purge-demo.ts';
-import { controlerSqliteAJour, ouvrirPourApercu } from './purge-demo-ouverture.ts';
+import { controlerPourOutil } from './migrations/cadre.ts';
+import { apercuPurge, controlerEnvironnementPurge, confirmationPurgeTapee, lireOptionsPurge, motConfirmationPurge, type OptionsPurge, PurgeRefusee, texteApercu } from './purge-demo.ts';
+import { executerPurge, SauvegardePurgeImpossible, simulerPurge, texteBilan, texteSimulation } from './purge-demo-execution.ts';
+import { controlerServeurPurge, controlerSqliteAJour, ouvrirPourApercu } from './purge-demo-ouverture.ts';
 import { serveurActif } from './sauvegarde.ts';
 
 function refuser(err: unknown): never {
-  console.error(`Purge refusée : ${err instanceof Error ? err.message : err}`);
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(err instanceof SauvegardePurgeImpossible ? `Sauvegarde préalable impossible : purge annulée. ${message}` : `Purge refusée : ${message}`);
   process.exit(1);
 }
 
 let options: OptionsPurge;
+const serveurPg = !!urlPostgres();
 try {
   options = lireOptionsPurge(process.argv.slice(2));
   controlerEnvironnementPurge(process.env);
-  if (!options.aBlanc) throw new PurgeRefusee('cette version ne fait que l’aperçu : relancez avec --a-blanc (l’exécution de la purge arrive avec l’étape suivante du lot 8).');
+  if (!serveurPg && options.sauvegarde) throw new PurgeRefusee('--sauvegarde désigne un pg_dump du serveur PostgreSQL ; pour le fichier SQLite, la copie avant-purge est faite par la commande.');
+} catch (err) {
+  refuser(err);
+}
+if (serveurPg && options.force) console.error('Attention : --force est sans effet sur le serveur PostgreSQL (le contrôle des connexions Cursus ouvertes ne se lève jamais).');
+
+// Fichier SQLite : base à jour pour cette version, contrôlée sans écriture (server/src/purge-demo-ouverture.ts), puis
+// serveur en service : signalé pour l'aperçu, refusé pour la purge (sauf --force).
+try {
+  if (!serveurPg) {
+    controlerSqliteAJour(dbFile());
+    controlerPourOutil(dbFile());
+    const serveur = serveurActif(dbFile());
+    if (options.aBlanc) {
+      if (serveur) console.error(`Attention : le serveur Cursus (processus ${serveur.pid}) utilise cette base ; la purge elle-même exigera qu’il soit arrêté.`);
+    } else {
+      controlerServeurPurge(serveur, options);
+      if (serveur) console.error(`Attention : --force, le serveur Cursus (processus ${serveur.pid}) utilise encore cette base. Arrêtez-le avant de le redémarrer sans CURSUS_DEMO.`);
+    }
+  }
 } catch (err) {
   refuser(err);
 }
 
-// L'aperçu n'écrit rien, pas même la mise à jour de la base (server/src/purge-demo-ouverture.ts) : base introuvable,
-// mise à jour par une version plus récente ou pas encore par cette version, refusée avant d'être ouverte.
-try {
-  if (!urlPostgres()) {
-    controlerSqliteAJour(dbFile());
-    const serveur = serveurActif(dbFile());
-    if (serveur) console.error(`Attention : le serveur Cursus (processus ${serveur.pid}) utilise cette base ; la purge elle-même exigera qu’il soit arrêté.`);
+/** Confirmation tapée dans un terminal : le nombre de salariés supprimés, fiches ajoutées comprises. */
+async function confirmer(salaries: number, ajouts: number): Promise<boolean> {
+  if (!process.stdin.isTTY) throw new PurgeRefusee(`sans terminal, ajoutez --yes pour confirmer (npm run purge-demo -- --yes).`);
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const dont = ajouts ? `, dont ${plural(ajouts, 'fiche ajoutée', 'fiches ajoutées')} par des visiteurs` : '';
+    const reponse = await rl.question(`${plural(salaries, 'salarié va être supprimé', 'salariés vont être supprimés')}${dont}, avec toutes les données fictives `
+      + `(une copie est faite avant). Tapez ${motConfirmationPurge(salaries)} pour confirmer : `);
+    return confirmationPurgeTapee(reponse, salaries);
+  } finally {
+    rl.close();
   }
-} catch (err) {
-  refuser(err);
 }
 
 let db: Awaited<ReturnType<typeof ouvrirPourApercu>> | null = null;
 try {
-  db = await ouvrirPourApercu();
-  const apercu = await apercuPurge(db, options);
-  if (apercu.decision.statut === 'deja-faite') {
-    console.log(`Purge déjà faite le ${apercu.decision.le}${apercu.decision.message ? ` : ${apercu.decision.message}` : ''}. Rien n’a été modifié.`);
+  // Une seule connexion sur le serveur PostgreSQL : toute autre connexion `cursus` est celle d'une instance en service.
+  db = await ouvrirPourApercu({ ...process.env, ...(serveurPg ? { CURSUS_PG_POOL: '1' } : {}) });
+  if (options.aBlanc) {
+    const apercu = await apercuPurge(db, options);
+    if (apercu.decision.statut === 'deja-faite') {
+      console.log(`Purge déjà faite le ${apercu.decision.le}${apercu.decision.message ? ` : ${apercu.decision.message}` : ''}. Rien n’a été modifié.`);
+    } else {
+      for (const l of texteApercu(apercu)) console.log(l);
+      if (apercu.decision.statut === 'refusee') process.exitCode = 1;
+      else if (db.moteur === 'pg' && !apercu.decision.aLever.length) {
+        try {
+          for (const l of texteSimulation(await simulerPurge(db, options))) console.log(l);
+        } catch (err) {
+          console.error(`La purge échouerait : ${err instanceof Error ? err.message : err}`);
+          process.exitCode = 1;
+        }
+      }
+    }
   } else {
-    for (const l of texteApercu(apercu)) console.log(l);
-    if (apercu.decision.statut === 'refusee') process.exitCode = 1;
+    const issue = await executerPurge(db, options, { confirmer: async a => await confirmer(a.salaries, a.ajouts.fiches.nombre) });
+    if (issue.statut === 'deja-faite') console.log(`Purge déjà faite le ${issue.le}${issue.message ? ` : ${issue.message}` : ''}. Rien n’a été modifié.`);
+    else {
+      for (const l of texteBilan(issue, db.moteur)) console.log(l);
+      if (issue.apres.length) process.exitCode = 2;
+    }
   }
 } catch (err) {
-  console.error(`Aperçu impossible : ${err instanceof Error ? err.message : err}`);
-  process.exitCode = 1;
-} finally {
   await db?.fermer();
+  refuser(err);
 }
+await db?.fermer();

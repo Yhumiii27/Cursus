@@ -29,6 +29,8 @@
     "e2e": "playwright test",
     "audit": "npm audit --omit=dev --audit-level=high",
     "mesure": "node --disable-warning=ExperimentalWarning scripts/mesure-instantane.ts",
+    "charge:generer": "node --disable-warning=ExperimentalWarning scripts/charge/generer.ts",
+    "charge": "node --disable-warning=ExperimentalWarning scripts/charge/executer.ts",
     "check": "npm run lint && npm run typecheck && npm run test:coverage && npm run test:client && npm run build",
     "app": "bash desktop/build-app.sh",
     "test:pg": "node scripts/tests-pg.mjs",

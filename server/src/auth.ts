@@ -89,38 +89,74 @@ async function cookieId(db: Db, req: Request): Promise<string | null> {
 }
 
 /**
- * Session valide portée par la requête, ou null (absente, falsifiée, expirée, révoquée). Une session
- * dont le compte ne peut plus se connecter (désactivé, salarié sorti, plus aucun espace) est révoquée ;
- * si seul l'espace actif a disparu (profil RH retiré, équipe confiée à un autre), elle passe au premier
- * espace restant du compte.
+ * Écritures que la lecture d'une session demande (lot 8, chantier E) : révocation d'une session dont le compte ne vaut
+ * plus, passage au premier espace restant, date de la dernière activité. Elles sont faites à part, après la lecture
+ * (`appliquerMajSession`), pour que la session se lise hors du verrou d'écriture, au besoin dans une lecture stable
+ * (`Db.lecture`, en lecture seule sur PostgreSQL).
  */
-export async function readSession(db: Db, req: Request): Promise<SessionInfo | null> {
+/** `id` : clé de la ligne de `connexions`, empreinte de l’identifiant de session (lot 8, chantier D). */
+export interface MajSession { id: string; revocation?: string; role?: Role; activite?: string }
+
+/**
+ * Session valide portée par la requête, ou null (absente, falsifiée, expirée, révoquée), sans rien écrire : les
+ * écritures demandées sont rendues dans `maj` (null : aucune). Une session dont le compte ne peut plus se connecter
+ * (désactivé, salarié sorti, plus aucun espace) est à révoquer ; si seul l'espace actif a disparu (profil RH retiré,
+ * équipe confiée à un autre), elle passe au premier espace restant du compte.
+ */
+export async function examinerSession(db: Db, req: Request): Promise<{ session: SessionInfo | null; maj: MajSession | null }> {
   const id = await cookieId(db, req);
-  if (!id) return null;
+  if (!id) return { session: null, maj: null };
   const cle = empreinteSession(id);
   const row = await db.get<ConnexionRow>('connexions', cle);
   const now = new Date().toISOString();
-  if (!row || row.revocation || row.expiration <= now) return null;
-  if (!ROLES.includes(row.role)) return null;
+  if (!row || row.revocation || row.expiration <= now) return { session: null, maj: null };
+  if (!ROLES.includes(row.role)) return { session: null, maj: null };
   let role = row.role;
+  const maj: MajSession = { id: cle }; // clé de la ligne : empreinte de l'identifiant (lot 8, chantier D)
   if (row.compteId == null) {
     // Sans compte : démonstration seulement (espace choisi, compte pas encore désigné).
-    if (!DEMO) return null;
+    if (!DEMO) return { session: null, maj: null };
   } else {
     const c = await compteValide(db, row.compteId);
-    if (!c) {
-      await db.update('connexions', cle, { revocation: now });
-      return null;
-    }
+    if (!c) return { session: null, maj: { id: cle, revocation: now } };
     const espaces = await espacesDuCompte(db, c);
     if (!espaces.includes(role)) {
       role = espaces[0];
-      await db.update('connexions', cle, { role });
+      maj.role = role;
     }
   }
-  if (!row.activite || Date.parse(now) - Date.parse(row.activite) > ACTIVITE_MS) await db.update('connexions', cle, { activite: now });
+  if (!row.activite || Date.parse(now) - Date.parse(row.activite) > ACTIVITE_MS) maj.activite = now;
   noterCompte(req, row.compteId); // compte inscrit sur la ligne de la requête (server/src/logs.ts)
-  return { id, compteId: row.compteId, role, methode: row.methode ?? 'local', demoComptes: row.demoComptes ?? {}, expiration: row.expiration };
+  const session: SessionInfo = { id, compteId: row.compteId, role, methode: row.methode ?? 'local', demoComptes: row.demoComptes ?? {}, expiration: row.expiration };
+  return { session, maj: maj.revocation || maj.role || maj.activite ? maj : null };
+}
+
+/**
+ * Écritures demandées par `examinerSession` : chacune une seule instruction conditionnelle, atomique par elle-même
+ * (une session révoquée entre-temps ne reprend ni espace ni activité), sans le verrou d'écriture de Cursus. Sur
+ * PostgreSQL, une lecture n'attend donc pas la transaction d'une autre requête (validation groupée, lot de paie) pour
+ * noter l'activité de la session, au plus une fois par minute ; sur SQLite, elles passent à leur tour dans la file.
+ */
+export async function appliquerMajSession(db: Db, maj: MajSession | null): Promise<void> {
+  if (!maj) return;
+  if (maj.revocation) return void await db.run('UPDATE connexions SET revocation = ? WHERE id = ? AND revocation IS NULL', [maj.revocation, maj.id]);
+  if (maj.role) await db.run('UPDATE connexions SET role = ? WHERE id = ? AND revocation IS NULL', [maj.role, maj.id]);
+  if (maj.activite) await db.run('UPDATE connexions SET activite = ? WHERE id = ? AND revocation IS NULL', [maj.activite, maj.id]);
+}
+
+/**
+ * Session valide portée par la requête, ou null (absente, falsifiée, expirée, révoquée), écritures demandées faites
+ * aussitôt (`examinerSession` puis `appliquerMajSession`) : routes de la session et de la connexion, en `enSerie`.
+ */
+export async function readSession(db: Db, req: Request): Promise<SessionInfo | null> {
+  const { session, maj } = await examinerSession(db, req);
+  await appliquerMajSession(db, maj);
+  return session;
+}
+
+/** Clé de signature des sessions prête (créée au besoin, d'un seul tenant) : avant une lecture qui signe un cookie. */
+export async function preparerCle(db: Db): Promise<void> {
+  await secret(db);
 }
 
 /**

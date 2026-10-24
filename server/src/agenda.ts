@@ -17,7 +17,7 @@ import { present } from '../../shared/rules/contrats.ts';
 import { completerSession, finSession, horaireDuJour, joursSession } from '../../shared/rules/plage-session.ts';
 import type { Absence, ContenuAgenda, Destination, Employe, Entretien, ISODate, Session, Settings, Voyage } from '../../shared/types.ts';
 import { loadSettings, todayIso } from './dataset.ts';
-import { type Db, enSerie } from './db.ts';
+import type { Db } from './db.ts';
 import { LimiteurDebit, tropDeRequetes } from './debit.ts';
 import { calendrier, domaineAgenda, type EvenementAgenda } from './integrations/email.ts';
 
@@ -153,8 +153,9 @@ export const DEBIT_AGENDA = { ip: { capacite: 60, parMinute: 20 }, jeton: { capa
 /** Route publique du flux (hors session et hors CSRF : un GET qui ne modifie rien d'autre que la date du dernier accès). */
 export function routesAgenda(db: Db, limites = { ip: new LimiteurDebit(DEBIT_AGENDA.ip), jeton: new LimiteurDebit(DEBIT_AGENDA.jeton) }): Router {
   const r = express.Router();
-  // Lecture du jeton, de la fiche et du flux, et note du dernier accès d'un seul tenant sur la base (`enSerie`).
-  r.get('/api/agenda/:fichier', enSerie(db, async (req: Request, res: Response) => {
+  // Jeton, fiche et flux lus sur un même état de la base, hors du verrou d'écriture (`Db.lecture`), puis le dernier
+  // accès noté dans sa propre courte transaction, avant la réponse (lot 8, chantier E : la trace suit la lecture).
+  r.get('/api/agenda/:fichier', async (req: Request, res: Response) => {
     const attente = limites.ip.prendre(req.ip ?? '');
     if (attente) return tropDeRequetes(req, res, attente, 'Trop de lectures de l’agenda depuis ce poste');
     const introuvable = () => res.status(404).type('text/plain; charset=utf-8').send('Agenda introuvable');
@@ -166,17 +167,23 @@ export function routesAgenda(db: Db, limites = { ip: new LimiteurDebit(DEBIT_AGE
     const empreinte = empreinteJeton(jeton);
     const attenteJeton = limites.jeton.prendre(empreinte);
     if (attenteJeton) return tropDeRequetes(req, res, attenteJeton, 'Agenda relu trop souvent');
-    const j = await db.one<{ id: number; empId: number; dernierAcces: string | null }>('SELECT id, emp_id AS "empId", dernier_acces AS "dernierAcces" FROM jetons_agenda WHERE empreinte = ? AND revoque_le IS NULL', [empreinte]);
-    const e = j ? await db.get<Employe>('employes', j.empId) : undefined;
-    const ti = todayIso();
-    // Salarié parti, ou compte de connexion désactivé : l'abonnement ne vaut plus.
-    const compte = j && await db.one('SELECT 1 FROM comptes WHERE emp_id = ? AND actif = TRUE', [j.empId]);
-    if (!j || !e || !compte || !present(e, ti) || e.anonymiseLe) return introuvable();
-    // Dernier accès noté au plus une fois par heure (le client d'agenda relit souvent).
     const maintenant = new Date();
-    if (!j.dernierAcces || maintenant.getTime() - Date.parse(j.dernierAcces) > 3600_000) await db.update('jetonsAgenda', j.id, { dernierAcces: maintenant.toISOString() });
+    const lu = await db.lecture(async () => {
+      const j = await db.one<{ id: number; empId: number; dernierAcces: string | null }>('SELECT id, emp_id AS "empId", dernier_acces AS "dernierAcces" FROM jetons_agenda WHERE empreinte = ? AND revoque_le IS NULL', [empreinte]);
+      const e = j ? await db.get<Employe>('employes', j.empId) : undefined;
+      const ti = todayIso();
+      // Salarié parti, ou compte de connexion désactivé : l'abonnement ne vaut plus.
+      const compte = j && await db.one('SELECT 1 FROM comptes WHERE emp_id = ? AND actif = TRUE', [j.empId]);
+      if (!j || !e || !compte || !present(e, ti) || e.anonymiseLe) return null;
+      return { j, flux: calendrierFlux(await evenementsAgenda(db, e.id, s, ti), maintenant) };
+    });
+    if (!lu) return introuvable();
+    // Dernier accès noté au plus une fois par heure (le client d'agenda relit souvent).
+    if (!lu.j.dernierAcces || maintenant.getTime() - Date.parse(lu.j.dernierAcces) > 3600_000) {
+      await db.tx(async () => await db.update('jetonsAgenda', lu.j.id, { dernierAcces: maintenant.toISOString() }));
+    }
     res.set('Content-Disposition', 'inline; filename="cursus.ics"');
-    res.type('text/calendar; charset=utf-8').send(calendrierFlux(await evenementsAgenda(db, e.id, s, ti), maintenant));
-  }));
+    res.type('text/calendar; charset=utf-8').send(lu.flux);
+  });
   return r;
 }

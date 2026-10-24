@@ -37,7 +37,11 @@ export interface EnvoisState {
   email: EtatEnvois & { mode: string; expediteur: string | null; recapitulatif: number };
   envois: Envoi[];
 }
-export interface ActionResponse { ok: boolean; message: string | null; result?: unknown; error?: string; data?: Dataset; status?: number }
+/**
+ * Réponse d'une action. `relire` : action faite, mais l'instantané n'a pas pu être relu après elle (Cursus occupé) ; il
+ * est à relire par GET /api/data.
+ */
+export interface ActionResponse { ok: boolean; message: string | null; result?: unknown; error?: string; data?: Dataset; relire?: boolean; status?: number }
 
 /** Erreur d'appel : `status` 0 quand le serveur n'a pas pu être joint. */
 export type ApiError = Error & { status: number };
@@ -247,7 +251,7 @@ export const api = {
   },
   async action(name: NomAction, payload: Record<string, unknown>, espace?: Role): Promise<ActionResponse> {
     try {
-      const r = await request<{ message: string | null; result?: unknown; data?: Dataset }>('POST', `/api/actions/${name}`, payload, espace);
+      const r = await request<{ message: string | null; result?: unknown; data?: Dataset; relire?: boolean }>('POST', `/api/actions/${name}`, payload, espace);
       return { ok: true, ...r };
     } catch (err) {
       return { ok: false, message: null, error: (err as Error).message, status: (err as ApiError).status };

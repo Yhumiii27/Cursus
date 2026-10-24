@@ -645,7 +645,7 @@
       "CodeErreur": {
         "type": "string",
         "enum": [
-          "VALIDATION", "JSON_INVALIDE", "CORPS_INVALIDE", "CORPS_TROP_VOLUMINEUX", "TYPE_NON_PRIS_EN_CHARGE", "CLE_INVALIDE", "TROP_DE_CLES_INVALIDES", "NON_CONFIGUREE",
+          "VALIDATION", "JSON_INVALIDE", "CORPS_INVALIDE", "CORPS_TROP_VOLUMINEUX", "TYPE_NON_PRIS_EN_CHARGE", "CLE_INVALIDE", "TROP_DE_CLES_INVALIDES", "NON_CONFIGUREE", "OCCUPE",
           "CHANTIER_INCONNU", "CHANTIER_ARCHIVE", "AFFECTATION_INCONNUE", "TACHE_INCONNUE", "DEMANDE_INCONNUE", "DEMANDE_EN_DOUBLE", "ROUTE_INCONNUE", "ERREUR_INTERNE"
         ]
       },
@@ -846,7 +846,7 @@
         }
       },
       "CleInvalide": { "description": "En-tête X-Api-Key absent ou faux (CLE_INVALIDE)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Erreur" } } } },
-      "NonConfiguree": { "description": "Aucune clé configurée sur le serveur Cursus (NON_CONFIGUREE)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Erreur" } } } },
+      "NonConfiguree": { "description": "Aucune clé configurée sur le serveur Cursus (NON_CONFIGUREE), ou Cursus momentanément occupé (OCCUPE : délai de la base dépassé, rien n'est écrit ; rappeler après le délai de l'en-tête Retry-After)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Erreur" } } } },
       "TropDeClesInvalides": { "description": "Trop d'appels sans clé valide depuis cette adresse (60 en 5 minutes) : aucun appel n'est lu jusqu'à la fin de la période, indiquée en secondes par l'en-tête Retry-After (TROP_DE_CLES_INVALIDES)", "headers": { "Retry-After": { "description": "Secondes à attendre avant de rappeler", "schema": { "type": "integer" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Erreur" } } } },
       "Inconnu": { "description": "Objet inconnu (CHANTIER_INCONNU, AFFECTATION_INCONNUE, TACHE_INCONNUE, DEMANDE_INCONNUE)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Erreur" } } } },
       "Archive": { "description": "Chantier archivé : plus de verdict (CHANTIER_ARCHIVE)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Erreur" } } } },

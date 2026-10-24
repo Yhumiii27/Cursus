@@ -1,6 +1,6 @@
 // Exécution des actions serveur et reprise après l'expiration de la session (t159), sortie de state/store.tsx pour être
 // testée sans React ni navigateur (tests/client-run.test.ts) : le magasin ne fait que brancher ses fonctions.
-// - Une action réussie remet l'instantané renvoyé et affiche son message (sauf `silent`).
+// - Une action réussie remet l'instantané renvoyé (sinon, `relire`, le relit) et affiche son message (sauf `silent`).
 // - Session expirée (401) alors qu'une personne est connectée : l'action attend la reconnexion dans la file, puis est
 //   rejouée ; l'écran qui l'a lancée attend sa réponse, ou reçoit « action non enregistrée » si la personne renonce.
 // - Espace changé dans un autre onglet (409) : rien n'a été fait, l'onglet suit la session, l'action n'est pas rejouée.
@@ -42,6 +42,8 @@ export function executeurActions(dep: DependancesAction): Executer {
     const r = await dep.appeler(name, payload);
     if (r.ok) {
       if (r.data) dep.recevoir(r.data);
+      // Action faite, instantané non relu par le serveur (Cursus occupé) : relu à part, l'action n'est pas refaite.
+      else if (r.relire) dep.rafraichir();
       if (r.message && !opts?.silent) dep.notifier(r.message);
       return r;
     }

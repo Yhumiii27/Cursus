@@ -9,7 +9,8 @@ import { aDroitRh, BLOCAGE_MINUTES, ECHECS_MAX, ESPACE_LABEL, PROFILS_RH } from 
 import { controleMotDePasse, normaliserIdentifiant } from '../../shared/rules/comptes.ts';
 import type { CurrentUser, Role } from '../../shared/types.ts';
 import {
-  clearSessionCookie, DEMO, LimiteParIp, openSession, readSession, revokeSession, revokeSessionsDuCompte, ROLES, updateSession, type SessionInfo,
+  appliquerMajSession, clearSessionCookie, DEMO, examinerSession, LimiteParIp, type MajSession, openSession, preparerCle, readSession, revokeSession,
+  revokeSessionsDuCompte, ROLES, updateSession, type SessionInfo,
 } from './auth.ts';
 import {
   compteBloque, compteParIdentifiant, compterTentative, compteSession, comptesVue, compteValide, enregistrerConnexion, espacesDuCompte,
@@ -25,17 +26,29 @@ import { OIDC, routesMicrosoft } from './microsoft.ts';
 export interface Identite { session: SessionInfo; compte: Compte; user: CurrentUser }
 
 /**
- * Personne authentifiée par la requête : session valide, compte en mesure de se connecter, espace
- * ouvert au compte et, pour une connexion par mot de passe, mot de passe provisoire déjà remplacé.
+ * Personne authentifiée par la requête, sans rien écrire : session valide, compte en mesure de se connecter, espace
+ * ouvert au compte et, pour une connexion par mot de passe, mot de passe provisoire déjà remplacé. `maj` : écritures
+ * que demande la session (révocation, espace, activité), à faire après la lecture par `appliquerMajSession`. Se lit
+ * dans une lecture stable (`Db.lecture`), avec l'instantané qui suit une action (server/src/app.ts).
  */
-export function identite(db: Db, req: Request): Promise<Identite | null> {
-  return db.exclusif(async () => {
-    const session = await readSession(db, req);
-    const compte = await compteValide(db, session?.compteId);
-    if (!session || !compte || (session.methode === 'local' && compte.changerMotDePasse)) return null;
-    const user = await currentUser(db, session);
-    return user ? { session, compte, user } : null;
-  });
+export async function examinerIdentite(db: Db, req: Request): Promise<{ id: Identite | null; maj: MajSession | null }> {
+  const { session, maj } = await examinerSession(db, req);
+  const compte = await compteValide(db, session?.compteId);
+  if (!session || !compte || (session.methode === 'local' && compte.changerMotDePasse)) return { id: null, maj };
+  const user = await currentUser(db, session);
+  return { id: user ? { session, compte, user } : null, maj };
+}
+
+/**
+ * Personne authentifiée par la requête (`examinerIdentite`), lue hors du verrou d'écriture (lot 8, chantier E) :
+ * session, compte et utilisateur sur un même état de la base (`Db.lecture`, sans verrou), puis les écritures de la
+ * session à part, instruction par instruction (`appliquerMajSession` : au plus une fois par minute pour l'activité).
+ */
+export async function identite(db: Db, req: Request): Promise<Identite | null> {
+  await preparerCle(db);
+  const { id, maj } = await db.lecture(async () => await examinerIdentite(db, req), { courte: true });
+  await appliquerMajSession(db, maj);
+  return id;
 }
 
 /** En-tête par lequel l'onglet indique l'espace qu'il affiche (client/src/api.ts). */

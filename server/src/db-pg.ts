@@ -87,6 +87,54 @@ function enFile<T>(p: PorteePg, fn: () => Promise<T>): Promise<T> {
   return r;
 }
 
+/**
+ * Délais du serveur (lot 8, chantier E), posés dans les options du pool et réglables par variable, en millisecondes
+ * (0 : sans limite) :
+ * - connexion du pool (`connectionTimeoutMillis`, CURSUS_PG_DELAI_CONNEXION_MS, 5 s) : pool saturé ou serveur injoignable ;
+ * - attente d'un verrou (`lock_timeout`, CURSUS_PG_DELAI_VERROU_MS, 30 s), verrou d'écriture `pg_advisory_lock` compris ;
+ * - durée d'une requête (`statement_timeout`, CURSUS_PG_DELAI_REQUETE_MS, 60 s).
+ * Règle qui les rend cohérents : aucun traitement ne tient le verrou d'écriture plus de la moitié de `lock_timeout`
+ * (validation groupée découpée en tranches, lectures et exports hors du verrou : docs/ARCHITECTURE.md, « Accès à la
+ * base : PostgreSQL »). Un dépassement répond 503 « Cursus est occupé, réessayez » (server/src/erreurs.ts), sans rien écrire.
+ */
+export const DELAIS_PG = { connexion: 5_000, verrou: 30_000, requete: 60_000 } as const;
+
+export function delaisPg(env: Record<string, string | undefined> = process.env): { connexion: number; verrou: number; requete: number } {
+  const lire = (nom: string, defaut: number) => {
+    const v = env[nom]?.trim();
+    return v && /^\d+$/.test(v) ? Number(v) : defaut;
+  };
+  return {
+    connexion: lire('CURSUS_PG_DELAI_CONNEXION_MS', DELAIS_PG.connexion),
+    verrou: lire('CURSUS_PG_DELAI_VERROU_MS', DELAIS_PG.verrou),
+    requete: lire('CURSUS_PG_DELAI_REQUETE_MS', DELAIS_PG.requete),
+  };
+}
+
+/**
+ * Places de lecture (lot 8, chantier E) : une lecture stable garde sa connexion le temps de toutes ses requêtes (une
+ * seconde pour l'instantané complet sur 5 ans de données). Sans limite, des lectures simultanées prendraient toutes les
+ * connexions du pool : les écritures et la sonde de santé attendraient une connexion, puis échoueraient au bout de
+ * `connectionTimeoutMillis`. Les lectures en surnombre attendent donc leur tour en mémoire, sans délai : la moitié du
+ * pool au plus leur est ouverte (5 sur 10), le reste sert les écritures et les requêtes isolées (session, débit, santé).
+ * Le calcul de l'instantané occupe le processus : plus de lectures simultanées n'iraient pas plus vite.
+ */
+class PlacesLecture {
+  private libres: number;
+  private readonly attente: (() => void)[] = [];
+  constructor(places: number) { this.libres = places; }
+  async prendre(): Promise<void> {
+    if (this.libres > 0) { this.libres--; return; }
+    await new Promise<void>(ok => this.attente.push(ok));
+  }
+  rendre(): void {
+    const suivant = this.attente.shift();
+    if (suivant) suivant(); else this.libres++;
+  }
+  /** Lectures en attente d'une place (sonde de l'essai de charge). */
+  get enAttente(): number { return this.attente.length; }
+}
+
 export interface OptionsPg {
   /** Schéma de travail (cursus ; un schéma par base dans les tests). */
   schema?: string;
@@ -105,7 +153,8 @@ export interface OptionsPg {
  *   de lecture seule) ; une `tx` ouverte dedans est une vraie transaction sur la même connexion, validée à sa fin :
  *   son échec n'annule qu'elle, et une route ne répond jamais avant la validation de ce qu'elle a écrit ;
  * - `lecture` hors de toute portée : transaction REPEATABLE READ READ ONLY, sans verrou (les lectures restent
- *   parallèles et voient un même état) ; dans `tx` ou `exclusif`, elle réutilise la portée en cours ;
+ *   parallèles et voient un même état), la moitié du pool à la fois (`PlacesLecture`) ; dans `tx` ou
+ *   `exclusif`, elle réutilise la portée en cours ;
  * - une requête isolée passe par le pool, sans transaction (validée aussitôt) ;
  * - `insert` lit la ligne créée par `RETURNING *` et recale la séquence quand l'identifiant est fixé par l'appelant.
  */
@@ -116,6 +165,8 @@ export class PgDb extends Db {
   readonly pool: pg.Pool;
   private readonly portee = new AsyncLocalStorage<PorteePg>();
   private ferme = false;
+  /** Lectures stables simultanées : la moitié du pool, une au moins (`PlacesLecture`). */
+  readonly placesLecture: PlacesLecture;
 
   constructor(url: string, opts: OptionsPg = {}) {
     super();
@@ -123,12 +174,16 @@ export class PgDb extends Db {
     if (!/^[a-z_][a-z0-9_]*$/.test(this.schema)) throw new SchemaPgError(`nom de schéma invalide : ${this.schema}`);
     const env = opts.env ?? process.env;
     const max = Number(env.CURSUS_PG_POOL) > 0 ? Math.floor(Number(env.CURSUS_PG_POOL)) : 10;
+    this.placesLecture = new PlacesLecture(Math.max(1, Math.floor(max / 2)));
+    const delais = delaisPg(env);
     this.pool = new pg.Pool({
       connectionString: url,
       application_name: 'cursus',
       // search_path aussi fixé sur le rôle par le socle (ALTER ROLE cursus_app SET search_path) : derrière PgBouncer en
-      // mode transaction, qui refuse `options`, retirer cette ligne suffit.
-      options: `-c search_path=${this.schema}`,
+      // mode transaction, qui refuse `options`, retirer cette ligne suffit (les délais sont alors à poser sur le rôle :
+      // ALTER ROLE cursus_app SET lock_timeout / statement_timeout, demande à Matrix).
+      options: `-c search_path=${this.schema} -c lock_timeout=${delais.verrou} -c statement_timeout=${delais.requete}`,
+      connectionTimeoutMillis: delais.connexion,
       max,
       types: TYPES,
       // Le processus peut s'arrêter sans fermer le pool (outils en ligne de commande, tests) une fois les connexions libres.
@@ -299,15 +354,22 @@ export class PgDb extends Db {
     });
   }
 
-  async lecture<T>(fn: () => Promise<T> | T): Promise<T> {
+  async lecture<T>(fn: () => Promise<T> | T, options: { courte?: boolean } = {}): Promise<T> {
     if (this.enCours()) return await fn();
-    return await this.avecConnexion(async client => {
-      await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-      const q: PorteePg = { client, mode: 'lecture', tx: true, active: true, file: Promise.resolve() };
-      const r = await this.dans(q, fn);
-      await client.query('COMMIT');
-      return r;
-    });
+    // Lecture courte (identité de la requête : quelques lignes) : sans place, elle n'attend pas les instantanés.
+    const place = !options.courte;
+    if (place) await this.placesLecture.prendre();
+    try {
+      return await this.avecConnexion(async client => {
+        await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+        const q: PorteePg = { client, mode: 'lecture', tx: true, active: true, file: Promise.resolve() };
+        const r = await this.dans(q, fn);
+        await client.query('COMMIT');
+        return r;
+      });
+    } finally {
+      if (place) this.placesLecture.rendre();
+    }
   }
 
   /**
@@ -352,6 +414,9 @@ export class PgDb extends Db {
           + '(Matrix, infra/postgres/init/02-schemas.sql), jamais par Cursus. Vérifiez DATABASE_URL (base epc2i, rôle cursus_app).');
       }
       if (s.courant !== this.schema) throw new SchemaPgError(`search_path inattendu (schéma courant : ${s.courant ?? 'aucun'}, attendu : ${this.schema}).`);
+      // Migrations sans délai : une instance qui démarre attend celle qui migre, et une migration longue (index sur le
+      // journal) n'est pas interrompue ; délais du pool rétablis avant de rendre la connexion.
+      await client.query('SET lock_timeout = 0; SET statement_timeout = 0');
       await client.query('SELECT pg_advisory_lock(hashtext($1))', [`${this.schema}.migrations`]);
       try {
         await client.query('CREATE TABLE IF NOT EXISTS schema_migrations (nom text PRIMARY KEY, appliquee_le timestamp with time zone DEFAULT now() NOT NULL)');
@@ -380,6 +445,7 @@ export class PgDb extends Db {
         return appliquees;
       } finally {
         await client.query('SELECT pg_advisory_unlock(hashtext($1))', [`${this.schema}.migrations`]);
+        await client.query('RESET lock_timeout; RESET statement_timeout');
       }
     } finally {
       client.release();

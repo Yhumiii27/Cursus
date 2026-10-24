@@ -10,7 +10,9 @@ import { plural } from '../../../shared/format.ts';
 import type { Chantier, CurrentUser, DemandeKeystone, Destination, Formation, HabType } from '../../../shared/types.ts';
 import { LimiteParIp } from '../auth.ts';
 import { loadFull, todayIso } from '../dataset.ts';
-import { type Db, enSerie } from '../db.ts';
+import type { Db } from '../db.ts';
+import { ATTENTE_OCCUPE, CURSUS_OCCUPE, estOccupe } from '../erreurs.ts';
+import { cheminJournal, log } from '../logs.ts';
 import { KEYSTONE_API_KEY, keystoneKeyOk } from './keystone.ts';
 import { suivreVerdicts } from './keystone-verdicts.ts';
 import {
@@ -124,6 +126,13 @@ function champTrace(champ: string): string {
   return (m ? `${fixe}.${dateReelle(m[2]) ? '<date>' : '<clé invalide>'}` : fixe).slice(0, 64);
 }
 
+/** Réponse d'erreur envoyée à la place d'une réponse dont la trace a échoué, sans passer par la trace. */
+function erreurNonTracee(res: Response, json: Response['json'], status: number, code: string, message: string) {
+  res.locals.resultat = undefined;
+  res.status(status);
+  json({ error: message, code });
+}
+
 function erreur(res: Response, e: ErreurKeystone) {
   res.status(e.status).json({ error: e.message, code: e.code, ...(e.details.length ? { details: e.details } : {}), ...e.extra });
 }
@@ -135,31 +144,33 @@ async function tracer(db: Db, req: Request, res: Response, body: unknown) {
   const b = body as { code?: string; details?: { champ: string }[] } | null;
   const champs = statut >= 400 && b?.details ? [...new Set(b.details.map(x => champTrace(x.champ)))].slice(0, 20) : [];
   const detail = statut >= 400 ? `${b?.code ?? 'ERREUR'}${champs.length ? ` (${champs.join(', ')})` : ''}` : res.locals.resultat ?? '';
-  await db.insert('journal', {
+  // Courte transaction à part, après la lecture ou l'écriture de l'appel (lot 8, chantier E).
+  await db.tx(async () => await db.insert('journal', {
     at: new Date().toISOString(), actor: 'Keystone', role: 'integration', action: 'keystone.appel',
     message: `${req.method} ${chemin} → ${statut}${detail ? ` · ${detail}` : ''}${reference ? ` · réf. ${reference}` : ''}`,
     payload: { methode: req.method, chemin, statut, reference, version: chemin.startsWith('/v1/') ? 'v1' : 'obsolete', ...(statut >= 400 ? { erreur: b?.code ?? null, champs } : { resultat: res.locals.resultat ?? null }) },
-  });
+  }));
 }
 
 /**
  * Exécute un traitement : réponse JSON, ou refus documenté (ErreurKeystone) ; le reste va au gestionnaire d'erreurs.
- * Après une écriture, les verdicts Go / No Go changés sont signalés à Keystone, dans la même transaction. Le
- * traitement s'exécute seul sur la base (`enSerie`), comme avec l'accès synchrone d'avant.
+ * Lecture (GET) : sur un même état de la base, hors du verrou d'écriture (`Db.lecture`, lot 8, chantier E) ; la trace de
+ * l'appel suit, dans sa propre courte transaction (`tracer`). Écriture : seule sur la base (`enSerie`), dans une
+ * transaction où les verdicts Go / No Go changés sont signalés à Keystone.
  */
-const executer = (db: Db, fn: Traitement) => enSerie(db, async (req: Request, res: Response, next: NextFunction) => {
+const executer = (db: Db, fn: Traitement) => async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const r = req.method === 'GET' ? await fn(db, req, res) : await db.tx(async () => {
+    const r = req.method === 'GET' ? await db.lecture(async () => await fn(db, req, res)) : await db.exclusif(async () => await db.tx(async () => {
       const r = await fn(db, req, res);
       await suivreVerdicts(db);
       return r;
-    });
+    }));
     res.status(r.status ?? 200).json(r.body);
   } catch (e) {
     if (e instanceof ErreurKeystone) erreur(res, e);
     else next(e);
   }
-});
+};
 
 /**
  * Appels refusés sans clé valide (401, 503) : n'importe qui peut en émettre. Une ligne chacun laisserait un
@@ -204,11 +215,34 @@ export function keystoneRoutes(db: Db, { resumeRefus = 60_000, clesInvalides = n
   const compterRefus = refusResumes(db, resumeRefus);
   // Journal : chaque réponse à un appel authentifié ; les refus de clé sont comptés à part. La réponse part une fois
   // l'appel tracé (écriture asynchrone) : un appelant qui lit le journal aussitôt après la réponse y trouve son appel.
+  // Aucune réponse ne part sans sa trace (lot 8, chantier E) : trace impossible après une lecture (GET, rien d'écrit),
+  // la réponse prévue est remplacée par 503 `OCCUPE` (Cursus occupé, Retry-After) ou 500, sans retracer ; après une
+  // écriture validée, la trace est retentée une fois, puis, si elle échoue encore, la réponse part (l'écriture est
+  // faite : un 503 la ferait refaire) et l'absence de trace est écrite en erreur dans les journaux du serveur.
   router.use((req, res, next) => {
     const json = res.json.bind(res);
     res.json = ((body: unknown) => {
-      const trace = res.locals.cleValide ? tracer(db, req, res, body) : (compterRefus(res.statusCode), Promise.resolve()); // await-ok: attendue ci-dessous avant l'envoi
-      void trace.catch(err => console.error(err)).finally(() => json(body));
+      if (!res.locals.cleValide) {
+        compterRefus(res.statusCode);
+        return json(body);
+      }
+      void (async () => {
+        try {
+          await tracer(db, req, res, body);
+        } catch (err) {
+          if (req.method === 'GET') {
+            if (estOccupe(err)) return erreurNonTracee(res.set('Retry-After', String(ATTENTE_OCCUPE)), json, 503, 'OCCUPE', CURSUS_OCCUPE);
+            log.erreur(`API Keystone : appel non tracé, réponse refusée (${req.method} ${cheminJournal(req.originalUrl)})`, { cause: err instanceof Error ? err.message : String(err) });
+            return erreurNonTracee(res, json, 500, 'ERREUR_INTERNE', 'Erreur interne');
+          }
+          try {
+            await tracer(db, req, res, body);
+          } catch (err2) {
+            log.erreur(`API Keystone : écriture faite, appel non tracé (${req.method} ${cheminJournal(req.originalUrl)})`, { cause: err2 instanceof Error ? err2.message : String(err2) });
+          }
+        }
+        json(body);
+      })();
       return res;
     }) as Response['json'];
     next();
@@ -257,6 +291,8 @@ export function keystoneRoutes(db: Db, { resumeRefus = 60_000, clesInvalides = n
     if (err?.type === 'entity.parse.failed') return erreur(res, new ErreurKeystone(400, 'JSON_INVALIDE', 'Corps JSON illisible'));
     if (err?.type === 'entity.too.large') return erreur(res, new ErreurKeystone(413, 'CORPS_TROP_VOLUMINEUX', 'Corps de plus de 2 Mo : envoyez l’instantané en plusieurs sections'));
     if (err?.status && err.status >= 400 && err.status < 500) return erreur(res, new ErreurKeystone(err.status, 'CORPS_INVALIDE', 'Corps de requête refusé'));
+    // Délai du serveur PostgreSQL dépassé (verrou, requête) : rien n'est écrit, l'appel peut être refait (Retry-After).
+    if (estOccupe(err)) return erreur(res.set('Retry-After', String(ATTENTE_OCCUPE)), new ErreurKeystone(503, 'OCCUPE', CURSUS_OCCUPE));
     console.error(err);
     erreur(res, new ErreurKeystone(500, 'ERREUR_INTERNE', 'Erreur interne'));
   });

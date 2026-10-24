@@ -283,6 +283,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'piece.joindre': 'Pièce justificative jointe',
   'piece.retirer': 'Pièce justificative retirée',
   'piece.consulter': 'Pièce justificative consultée',
+  'piece.chiffrer': 'Pièces justificatives chiffrées sur disque',
   // Conservation des dossiers (t016, server/src/conservation.ts) : identifiants et catégories seulement, jamais de nom.
   'employe.anonymiser': 'Dossier de salarié sorti : données échues effacées ou dossier anonymisé',
   'conservation.signalement': 'Dossiers de salariés sortis à effacer signalés au service RH',

@@ -89,6 +89,7 @@ server/src/
                    santé-sécurité marquées pour le Passeport de prévention, index des déclarations)
                    lot7-prevention.ts (lot 7, chantier B : colonnes du C2P, rien à reprendre)
                    lot7-formations.ts (lot 7, chantier C : index de la liste d'attente, puis des évaluations des formations)
+                   lot8-pieces.ts (lot 8, chantier D : pièces existantes notées en clair, `lot8-pieces-chiffrees`)
   seed.ts          Données de démonstration
   avenants.ts      Historique des contrats : lignes écrites par la fiche, le renouvellement d'un CDD et la sortie, brouillons
                    refigés, avenants programmés appliqués à leur date (au démarrage puis toutes les heures)
@@ -125,7 +126,9 @@ server/src/
   conservation.ts  Conservation des dossiers (t016) : dossiers échus, effacement par catégorie et anonymisation en cascade
                    (REFERENCES), signalement quotidien au service RH ; agenda.ts : .ics des congés et flux d'agenda par jeton (t036)
   pieces.ts        Pièces justificatives : dépôt (local ou GED), description transmise, nettoyage, contrôle d'intégrité ;
-                   pieces-routes.ts (envoi et consultation) ; pieces-sauvegarde.ts (fichiers emportés par les sauvegardes)
+                   pieces-routes.ts (envoi et consultation) ; pieces-sauvegarde.ts (fichiers emportés par les sauvegardes) ;
+                   pieces-chiffrement.ts (chiffrement au repos, lot 8) ; pieces-chiffrer.ts et pieces-chiffrer-cli.ts
+                   (npm run pieces:chiffrer, npm run pieces:verifier)
   confidentialite.ts Coordonnées de la page Confidentialité : GET /api/confidentialite, lisible sans connexion
   messagerie.ts    Adresses (fiche, service RH, santé au travail, agences), forme commune des e-mails
   notifications.ts Notifications d'étapes (aussitôt ou récapitulatif quotidien), convocations .ics, tâches planifiées
@@ -2360,6 +2363,17 @@ fonction n'efface rien et laisse les pièces jointes consultables.
 - **Sauvegarde, restauration, intégrité, export** : voir `docs/SAUVEGARDE.md` (dossier `pieces-<base>/` des copies,
   remise en place à la restauration), « Exploitation » (contrôle d'intégrité) et « Journal des actions » (l'export des
   données d'un salarié joint le contenu de ses pièces en base64, sans nom stocké ni jeton).
+- **Chiffrement au repos** (lot 8, chantier D, `server/src/pieces-chiffrement.ts`) : avec `CURSUS_PIECES_KEY` (32 octets,
+  `clePieces` de `config.ts`, jamais en base), `DepotLocal` chiffre chaque nouveau fichier en AES-256-GCM (en-tête
+  `CURSUSP1`, vecteur aléatoire, étiquette ; le nom stocké est authentifié avec le contenu) et le déchiffre à la lecture ;
+  `pieces.chiffree` le note (migrations `0012_pieces_chiffrees.sql` et `lot8-pieces-chiffrees`). L'empreinte et la taille
+  enregistrées restent celles du clair : l'empreinte est vérifiée après déchiffrement, le contrôle d'intégrité ajoute
+  `SURCOUT_CHIFFREMENT` à la taille attendue. La lecture se fie à l'en-tête, pas à la colonne : les pièces d'avant restent
+  lisibles, et une passe de `npm run pieces:chiffrer` interrompue ne rend rien illisible. Fichier chiffré illisible (clé
+  absente ou autre, contenu altéré) : 409 à la consultation, export sans le contenu. En production (hors application de
+  bureau), `refusPiecesLocales` refuse sans clé l'activation des pièces locales (`parametres.maj`, 409) et chaque envoi,
+  et le démarrage le signale. Les copies de sauvegarde emportent les fichiers chiffrés tels quels. Journal :
+  `piece.chiffrer` (nombres seulement), écrit par la commande.
 
 ## Conservation des dossiers (t016, lot 6 chantier 7 étape 2)
 

@@ -146,6 +146,8 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 | `npm run backup` | Copie à chaud vérifiée de la base dans `data/backups`, avec rotation |
 | `npm run restore -- <fichier>` | Remplace la base par une sauvegarde (serveur arrêté) |
 | `DATABASE_URL=… npm run reprise-postgres -- [<base SQLite>] [--a-blanc]` | Reprise d'une base SQLite sur le serveur PostgreSQL commun, une fois, service arrêté ; `--a-blanc` : contrôles et compte rendu sans rien écrire (`docs/DEPLOIEMENT.md`) |
+| `npm run pieces:chiffrer -- [--apercu]` | Chiffre les pièces justificatives déposées avant la clé `CURSUS_PIECES_KEY` (lot 8), une fois Cursus redémarré avec elle ; service en marche admis, relançable (`docs/SAUVEGARDE.md`, section 10) |
+| `npm run pieces:verifier` | Contrôle complet des pièces, sans rien écrire : chaque fichier lu, déchiffré et comparé à l'empreinte de son envoi (après une restauration) ; code 1 si un fichier est absent, altéré ou illisible |
 | `npm run comptes -- admin <identifiant> [--local]` | Crée le premier administrateur RH, ou rétablit son accès (voir `docs/DEPLOIEMENT.md`) |
 | `npm run verifier-production -- [--config-seule] [--json] [--strict]` | Pré-vol de la mise en production, avec l'environnement de l'application : configuration jugée comme en production et base en lecture seule ; code 0 prête, 1 bloquant, 2 avertissements (`docs/DEPLOIEMENT.md`, « Vérification avant la mise en production ») |
 

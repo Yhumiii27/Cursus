@@ -17,6 +17,8 @@ compte système `cursus`, service `cursus.service`, variables dans `/etc/cursus/
 - Les copies partent **chiffrées hors de la machine** (restic), chez un hébergeur en France ou dans l'UE,
   sur un stockage où la machine peut ajouter des copies mais pas les effacer.
 - Restaurer : arrêter le service, `npm run restore -- <fichier>`, redémarrer.
+- **Serveur PostgreSQL commun** (`DATABASE_URL`) : la base est sauvegardée par Matrix (`pg_dump` du schéma `cursus`),
+  les pièces justificatives par une copie restic chiffrée de leur volume, prise juste après (section 10).
 - **Tester une restauration chaque trimestre**, et après toute modification de cette procédure.
 
 ## 1. Ce qui est sauvegardé
@@ -25,6 +27,7 @@ compte système `cursus`, service `cursus.service`, variables dans `/etc/cursus/
 | --- | --- | --- |
 | Base Cursus : fiches, contrats, formations, habilitations, visites médicales, vaccinations, passeports et visas, feuilles de temps, absences, compteurs, entretiens, plan de formation, journal des actions, paramètres | `CURSUS_DB` (et ses fichiers `-wal` / `-shm`) | `npm run backup` |
 | Pièces justificatives (lot 6, si l'administrateur RH les a activées) : attestations, titres d'habilitation signés, justificatifs d'absence, copies de documents déclarés | `pieces/` à côté de la base (`CURSUS_PIECES_DIR`), un fichier par pièce sous un nom aléatoire, empreinte SHA-256 en base | avec la base, voir ci-dessous |
+| Clé de chiffrement des pièces (`CURSUS_PIECES_KEY`, lot 8) | fichier d'environnement du service, jamais en base | **non** : à conserver dans le coffre-fort de mots de passe, avec le mot de passe de restic ; **perdue, les pièces chiffrées sont perdues** |
 | Clé de signature des sessions | dans la base si `CURSUS_SECRET` n'est pas défini (retirée de la base au démarrage dès qu'elle l'est ; les copies antérieures la gardent) | avec la base |
 | Configuration : `CURSUS_SECRET`, `KEYSTONE_API_KEY`, adresses Keystone et Sage | fichier d'environnement du service | **non** : à conserver dans le coffre-fort de mots de passe du service informatique |
 | Code de l'application | dépôt Git, version déployée | **non** : redéployable ; noter la version (commit) en service |
@@ -425,3 +428,104 @@ Lancer `sudo systemctl start cursus-sauvegarde.service` et vérifier son compte 
 nouvelle version : la copie `avant-migration` faite au redémarrage s'y ajoute, mais seulement si la base
 doit être modifiée ou recevoir de nouvelles migrations nommées. C'est aussi la sauvegarde à restaurer pour
 revenir à la version précédente si la copie `avant-migration` a disparu depuis.
+
+## 10. Serveur PostgreSQL commun EPC2I (`DATABASE_URL`)
+
+Avec `DATABASE_URL`, `npm run backup` et `npm run restore` refusent de tourner : la base n'est plus un fichier. Deux
+choses sont alors à sauvegarder, à la même heure : le schéma `cursus` du serveur commun, et le volume des pièces
+justificatives (fichiers hors de la base, `/data/pieces` dans le conteneur, `CURSUS_PIECES_DIR` sinon). Le serveur et
+sa sauvegarde relèvent de Matrix (`infra/postgres/README.md` du dépôt Matrix, « Sauvegarde et restauration ») ; ce qui
+suit en est la part de Cursus, à valider avec l'exploitant du serveur et le DPO.
+
+### Qui, quand, où
+
+| Quoi | Qui | Quand | Où |
+| --- | --- | --- | --- |
+| Schéma `cursus` (toutes les données sauf les fichiers des pièces) | exploitant du serveur commun : tâche planifiée Coolify `sh /opt/epc2i/sauvegarde/sauvegarder.sh` (rôle `epc2i_sauvegarde`, membre de `pg_read_all_data`) | chaque nuit à 2 h 15 (proposition de Matrix) | `cursus.dump` du dossier daté du volume `epc2i_sauvegardes`, 14 jours ; copie hors du serveur chiffrée (question P-08 de Matrix) |
+| Volume des pièces justificatives | service informatique (exploitant de Cursus) : copie restic ci-dessous | juste après la sauvegarde du schéma, chaque nuit (2 h 45 par exemple) | dépôt restic hors de la machine, en France ou dans l'UE, en ajout seul (section 5) |
+| `CURSUS_PIECES_KEY`, `CURSUS_SECRET`, mot de passe restic | service informatique | à chaque changement | coffre-fort de mots de passe, jamais avec les copies |
+
+Les pièces ne changent jamais une fois écrites (nom aléatoire, empreinte en base) : une copie du volume prise **après**
+le `pg_dump` contient tous les fichiers que ce dump désigne (une pièce déposée entre les deux y figure en plus, sans
+dommage). L'ordre inverse perdrait les pièces déposées entre la copie du volume et le dump.
+
+### Chiffrement des pièces au repos (lot 8)
+
+Avant d'activer les pièces justificatives en production (Paramètres → Pièces justificatives, après avis du DPO) :
+
+1. Générer la clé : `openssl rand -hex 32`, la ranger dans le coffre-fort, puis la poser dans les variables du service
+   (`CURSUS_PIECES_KEY`, onglet « Environment Variables » de Coolify, jamais « Build Variable ») et redéployer. Sans
+   elle, Cursus refuse en production d'activer les pièces dans le dossier local, et refuse chaque envoi si elles
+   l'étaient déjà (règle de `server/src/config.ts`, avertissement au démarrage).
+2. Chaque nouveau fichier est alors chiffré par Cursus (AES-256-GCM, `server/src/pieces-chiffrement.ts`) et déchiffré à
+   la consultation ; l'empreinte SHA-256 et la taille enregistrées restent celles du document d'origine, vérifiées après
+   déchiffrement.
+3. Pièces déposées avant la clé (installation qui les avait déjà activées) : `npm run pieces:chiffrer -- --apercu`, puis
+   `npm run pieces:chiffrer`, avec l'environnement du service (terminal du conteneur sous Coolify), une fois Cursus
+   redémarré avec la clé. Le service peut rester en marche ; la commande peut être relancée sans dommage. Elle ne touche
+   jamais un fichier dont l'empreinte ne correspond plus (preuve gardée telle quelle, signalée). Les copies déjà prises
+   gardent leur version en clair jusqu'à leur expiration : à noter dans le registre d'exploitation.
+4. La clé ne se change pas dans cette version : une nouvelle clé rendrait illisibles les fichiers chiffrés avec
+   l'ancienne (`npm run pieces:verifier` les compte « illisibles »). Clé perdue : pièces chiffrées perdues.
+
+Les copies de sauvegarde (copie restic du volume ; en SQLite, dossier `pieces-cursus/` des copies) emportent les
+fichiers **chiffrés tels quels** : une copie volée ne livre aucune pièce sans la clé, et la restauration remet les
+fichiers à l'identique.
+
+### Copie restic du volume des pièces
+
+Sur l'hôte Coolify, sous root, avec le dépôt restic et le fichier `/etc/cursus/restic.env` de la section 5 (un dépôt
+distinct de celui du serveur commun, ou le même avec l'étiquette `cursus-pieces`). Chemin du volume : celui que montre
+l'onglet des volumes de l'application Cursus dans Coolify (`docker volume inspect <volume> --format '{{ .Mountpoint }}'`).
+
+```sh
+#!/bin/sh
+# /usr/local/sbin/cursus-pieces-copie-externe : copie chiffrée des pièces justificatives de Cursus (serveur commun),
+# lancée chaque nuit après la sauvegarde du schéma cursus par Matrix (sauvegarder.sh, 2 h 15).
+set -eu
+set -a; . /etc/cursus/restic.env; set +a
+VOLUME=/var/lib/docker/volumes/<volume de Cursus>/_data
+# Seulement si la sauvegarde du schéma de la nuit est faite (dossier daté du jour dans le volume epc2i_sauvegardes).
+SAUVEGARDES=/var/lib/docker/volumes/<volume epc2i_sauvegardes>/_data
+ls -d "$SAUVEGARDES/$(date +%Y-%m-%d)_"* >/dev/null 2>&1 || { echo "Pas de sauvegarde du schéma cursus cette nuit : copie des pièces reportée" >&2; exit 1; }
+restic backup --tag cursus-pieces --host cursus "$VOLUME/pieces"
+```
+
+Planification : `45 2 * * * root /usr/local/sbin/cursus-pieces-copie-externe` (après les 2 h 15 de Matrix ; à décaler
+si sa sauvegarde dure plus longtemps), échec signalé par la supervision comme en section 6. Conservation distante : celle
+du dump du schéma (les deux se restaurent ensemble).
+
+### Restaurer, avec contrôle des empreintes
+
+1. Arrêter Cursus (Coolify : « Stop »), puis restaurer le schéma `cursus` selon la procédure de Matrix (`pg_restore` en
+   `cursus_app`, `--schema=cursus --no-owner --no-privileges --single-transaction`, partage reposé, `droits.verifier()`).
+2. Restaurer les pièces de la même nuit, dans un dossier fermé aux autres comptes, puis les remettre dans le volume :
+
+   ```sh
+   sudo install -d -m 700 /var/tmp/restauration-pieces
+   sudo sh -c 'set -a; . /etc/cursus/restic.env; set +a; restic restore latest --tag cursus-pieces --target /var/tmp/restauration-pieces'
+   # Fichiers copiés tels quels (chiffrés), sans écraser ceux déjà en place.
+   sudo rsync -a --ignore-existing /var/tmp/restauration-pieces/<chemin du volume>/pieces/ <chemin du volume>/pieces/
+   ```
+
+   Le volume appartient au compte du service : au redémarrage, l'image le lui rend (`server/src/conteneur.ts`).
+3. **Contrôle des empreintes**, dans le terminal de l'application (environnement du service, donc avec
+   `CURSUS_PIECES_KEY`), avant de rouvrir Cursus aux utilisateurs : `npm run pieces:verifier`. Chaque fichier que
+   désigne la base restaurée est lu, déchiffré et comparé à l'empreinte de son envoi. Attendu : « N fichiers conformes
+   sur N ». Un fichier absent : prendre une copie restic plus récente (`restic snapshots --tag cursus-pieces`) ; altéré
+   ou illisible : vérifier la clé, puis prendre une autre copie. Le contrôle d'intégrité horaire de Cursus (état
+   « degrade » de `/api/health`) ne compare que les tailles.
+4. Redémarrer Cursus, puis supprimer `/var/tmp/restauration-pieces` (données personnelles).
+
+Test de restauration : chaque trimestre, comme en section 8, sur un schéma d'essai d'un serveur d'essai (jamais le
+serveur commun en service), avec `npm run pieces:verifier` comme critère de réussite.
+
+### Disque de l'hôte : chiffrement à vérifier
+
+Le chiffrement des pièces par Cursus ne couvre ni la base (dumps, fichiers du serveur PostgreSQL) ni les journaux.
+Le disque de l'hôte Coolify qui porte le serveur commun, les volumes de Cursus et `epc2i_sauvegardes` doit donc être
+chiffré au repos (option de l'hébergeur ou LUKS, `docs/DEPLOIEMENT.md`, « Protection des données sur le disque »).
+**À vérifier et à noter** dans le registre d'exploitation avant la mise en service : ce n'est pas établi aujourd'hui pour
+l'hôte Coolify (constat D6 du lot 8). La copie hors du serveur des dumps de Matrix doit être chiffrée de même (question
+P-08 de Matrix).
+

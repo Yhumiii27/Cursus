@@ -84,6 +84,8 @@ export const INFO_CONFIDENTIALITE: readonly RubriqueConfidentialite[] = [
       ['Votre manager', 'son équipe seulement, sans donnée de santé : il voit l’avis d’aptitude et les restrictions en vigueur, jamais la date de la visite ni les vaccins, ni la nature d’un arrêt de travail.'],
       ['Profils restreints', 'le référent HSE (formations et habilitations ; pour les chantiers, l’état des dossiers de déplacement et les dates d’absence des personnes affectées, sans leur nature), le gestionnaire de paie (temps, absences et soldes) et la consultation (direction, DPO, auditeur), chacun sans donnée de santé détaillée.'],
       ['Outils et prestataires', 'Keystone, l’outil de planification des chantiers (matricule, verdict et motifs codés, heures validées par projet, dates d’absence sans leur nature) ; Sage Paie (variables de paie) ; Microsoft 365 (connexion et envoi des e-mails) ; les agences d’intérim (relevé des heures validées de leurs intérimaires) ; le service de santé au travail (demande de visite, sans information médicale) ; les organismes de formation (liste des inscrits) ; l’hébergeur de Cursus (' + A_COMPLETER + ').'],
+      // Lot 8 (docs/RGPD.md, § 4 « Serveur PostgreSQL commun EPC2I ») : vues pub_ lues par les autres outils du groupe.
+      ['Autres outils du groupe', 'sur le serveur de données commun : Vigie et Keystone (vos formations et habilitations : dates d’obtention et d’échéance, suspension ou retrait, sans l’aptitude médicale ni le motif), Codex (nom, poste, service, dates d’entrée et de sortie), Crucible (dates de vos absences, sans leur nature) et Matrix (administration des données du groupe, journal des actions sans leur détail) ; jamais une donnée de santé.'],
     ],
   },
   {

@@ -309,6 +309,38 @@ export function problemesBase(env: Env = process.env): string[] {
   return out;
 }
 
+// — Lot 8, chantier D : chiffrement des pièces justificatives au repos (server/src/pieces-chiffrement.ts) —
+
+/**
+ * Clé de chiffrement des pièces justificatives (CURSUS_PIECES_KEY, hors de la base) : 32 octets, en 64 caractères
+ * hexadécimaux (openssl rand -hex 32) ou en base64 (openssl rand -base64 32) ; null si elle est absente ou invalide.
+ */
+export function clePieces(env: Env = process.env): Buffer | null {
+  const v = (env.CURSUS_PIECES_KEY ?? '').trim();
+  if (/^[0-9a-f]{64}$/i.test(v)) return Buffer.from(v, 'hex');
+  if (/^[A-Za-z0-9+/]{43}=$/.test(v)) return Buffer.from(v, 'base64');
+  return null;
+}
+
+/** CURSUS_PIECES_KEY posée mais illisible : les pièces seraient écrites en clair sans que rien ne le dise. */
+function problemesPieces(env: Env): string[] {
+  const v = (env.CURSUS_PIECES_KEY ?? '').trim();
+  return v && !clePieces(env)
+    ? ['CURSUS_PIECES_KEY n’est pas une clé de 32 octets : indiquez 64 caractères hexadécimaux (openssl rand -hex 32) ou sa forme base64 (openssl rand -base64 32).']
+    : [];
+}
+
+/**
+ * Pièces justificatives dans le dossier local sans clé de chiffrement, en production (choix du chantier D : chiffrement
+ * obligatoire dès que les pièces sont activées) : message du refus, ou null si elles sont admises. Seule l'application de
+ * bureau (démonstration sur la boucle locale) en est exemptée. Le réglage est en base : la règle est appliquée quand
+ * l'administrateur RH active les pièces (parametres.maj) et à chaque envoi (POST /api/pieces), pas au démarrage.
+ */
+export function refusPiecesLocales(env: Env = process.env): string | null {
+  if (!enProduction(env) || demoSurBoucleLocale(env) || clePieces(env)) return null;
+  return 'Pièces justificatives refusées en production sans clé de chiffrement : le service informatique définit CURSUS_PIECES_KEY (openssl rand -hex 32, hors de la base) puis redémarre Cursus (docs/SAUVEGARDE.md).';
+}
+
 // — Lot 8 : configurations dangereuses en production et démonstration publique (docs/BASCULE-PRODUCTION.md) —
 
 /** Variables d'envoi des e-mails : propres à la boîte de l'entreprise, jamais sur une démonstration publique. */
@@ -423,6 +455,7 @@ export function problemesConfig(env: Env = process.env, opts: OptionsConfig = {}
   out.push(...problemesSage(env));
   out.push(...problemesExploitation(env));
   out.push(...problemesBase(env));
+  out.push(...problemesPieces(env));
   out.push(...problemesProduction(env));
   if (reglesDemo) out.push(...problemesDemoPublique(env));
   if (env.CURSUS_OIDC_AUTORITE) out.push(`CURSUS_OIDC_AUTORITE est définie (${env.CURSUS_OIDC_AUTORITE}) : elle remplace le service de connexion de Microsoft et reste réservée aux tests.`);

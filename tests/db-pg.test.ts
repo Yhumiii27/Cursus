@@ -451,8 +451,10 @@ test('pré-vol sur le serveur : base de démonstration chargée bloquante, base 
     assert.deepEqual(vide.filter(c => c.niveau !== 'ok'), [], 'base vide avec un administrateur : conforme');
     await seedDemo(ecriture);
     const demo = await controler();
-    assert.deepEqual(demo.filter(c => c.niveau === 'bloquant').map(c => [c.code, c.message]),
-      [['base.demo', 'Données de démonstration présentes : 25 comptes du jeu de démonstration, 24 fiches à une adresse @entreprise.example, lot de paie historique « Démonstration ».']]);
+    const bloquants = demo.filter(c => c.niveau === 'bloquant');
+    assert.deepEqual(bloquants.map(c => c.code), ['base.demo']);
+    // Réglage demo posé par le chargement (lot 8, chantier A), puis les indices du jeu fictif.
+    assert.match(bloquants[0].message, /^Données de démonstration présentes : réglage demo \(jeu chargé le \d{4}-\d{2}-\d{2}\), 25 comptes du jeu de démonstration, 24 fiches à une adresse @entreprise\.example, lot de paie historique « Démonstration »\.$/);
   } finally {
     await ecriture.fermer();
     await surServeur(url, `DROP OWNED BY ${role}; DROP ROLE ${role}`);

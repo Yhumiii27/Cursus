@@ -4,14 +4,16 @@
 // aperçu à blanc, sans effet sur la base. Sur SQLite en mémoire, et sur PostgreSQL par npm run test:pg.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 process.env.CURSUS_TODAY = '2026-10-10';
 delete process.env.KEYSTONE_URL;
 delete process.env.KEYSTONE_TOKEN;
 
-const { nouvelleBase, PG, SQLITE_SEUL } = await import('./base.ts');
+const { nouvelleBase, PG, schemaNeuf, SQLITE_SEUL, surServeur } = await import('./base.ts');
 const { SqliteDb, TABLES } = await import('../server/src/db.ts');
 type TableName = import('../server/src/db.ts').TableName;
 type Db = import('../server/src/db.ts').Db;
@@ -21,6 +23,10 @@ const { journaliser } = await import('../server/src/comptes.ts');
 const { REFERENCES } = await import('../server/src/integrite.ts');
 const { dossierPiecesDe } = await import('../server/src/pieces.ts');
 const { sauvegarderBase } = await import('../server/src/sauvegarde.ts');
+const { mettreAJourBase } = await import('../server/src/demarrage.ts');
+const { CLE_DEPUIS, CLE_JUSQUA } = await import('../server/src/absences-paie.ts');
+const { CLE_DEPUIS_DEPLACEMENTS } = await import('../server/src/deplacements-paie.ts');
+const { ouvrirPourApercu } = await import('../server/src/purge-demo-ouverture.ts');
 const { familleAction, JOURNAL_LABEL } = await import('../shared/journal.ts');
 const { ACTION_PURGE_DEMO, exploitationAMarquer, marquerExploitation, REGLAGE_DEMO, REGLAGE_EXPLOITATION } = await import('../server/src/marqueurs.ts');
 const {
@@ -220,7 +226,8 @@ test('plan par profil : chaque table a un sort ; données de personnes toujours 
   assert.equal(param.tables.projets.amorcee, true);
   assert.deepEqual(param.reglagesSupprimes, REGLAGES_SUPPRIMES_PARAMETRAGE);
   assert.deepEqual([...REGLAGES_SUPPRIMES_PARAMETRAGE], ['secret', 'lastSagePush', 'journalExpurge', 'messagerie', 'demo', 'verdictsKeystoneMode',
-    'conservationSignales', 'conservationVerifieeLe', 'relancesEcheancesLe', 'recapitulatifLe', 'evaluationsDemandeesLe']);
+    'conservationSignales', 'conservationVerifieeLe', 'relancesEcheancesLe', 'recapitulatifLe', 'evaluationsDemandeesLe',
+    'absencesPaieDepuis', 'absencesPaieJusqua', 'deplacementsPaieDepuis']);
   const cat = planPurge('catalogue');
   assert.equal(cat.tables.postes.sort, 'supprimer');
   assert.deepEqual([cat.tables.horaires.sort, cat.tables.horaires.amorcee], ['supprimer', true]);
@@ -333,6 +340,108 @@ test('aperçu : copies locales antérieures qui contiennent encore les données 
   } finally {
     await db.fermer();
   }
+});
+
+test('réglages de la paie posés pendant la démonstration : remis à défaut par le profil parametrage', async () => {
+  // Gardés, ils empêcheraient le premier vrai lot de poser sa date de départ (departAuPremierLot), et le plus grand
+  // identifiant d'absence fictif ferait partir en rappel les absences reprises de Lucca (double paiement).
+  const db = await demo();
+  await db.setSetting(CLE_DEPUIS, '2026-10-01');
+  await db.setSetting(CLE_JUSQUA, 80);
+  await db.setSetting(CLE_DEPUIS_DEPLACEMENTS, '2026-10-01');
+  for (const cle of [CLE_DEPUIS, CLE_JUSQUA, CLE_DEPUIS_DEPLACEMENTS]) assert.ok(REGLAGES_SUPPRIMES_PARAMETRAGE.includes(cle), cle);
+  const a = await apercuPurge(db, OPTIONS);
+  for (const cle of ['absencesPaieDepuis', 'absencesPaieJusqua', 'deplacementsPaieDepuis']) {
+    assert.ok(a.reglages.supprimes.includes(cle), cle);
+    assert.ok(!a.reglages.gardes.includes(cle), cle);
+  }
+  assert.deepEqual(a.reglages.gardes, ['app']);
+});
+
+test('marqueur exploitation : gardé par un rechargement de la démonstration, la base reste refusée', async () => {
+  const db = await demo();
+  await marquerExploitation(db, '0.1.0', { NODE_ENV: 'production' }, new Date('2027-01-02T07:00:00Z'));
+  // Base exploitée redémarrée par erreur avec CURSUS_DEMO=1, puis « Réinitialiser la démonstration ».
+  await seedDemo(db);
+  assert.deepEqual(await db.getSetting(REGLAGE_EXPLOITATION, null), { premierDemarrageHorsDemo: '2027-01-02T07:00:00.000Z', version: '0.1.0' });
+  const d = (await apercuPurge(db, OPTIONS)).decision;
+  assert.equal(d.statut, 'refusee');
+  assert.match(d.statut === 'refusee' ? d.motifs.join(' ') : '', /a servi en production .* elle ne se purge jamais/);
+});
+
+/**
+ * Empreinte d'un fichier, ou null s'il n'existe pas ou est vide (une lecture seule d'une base en WAL laisse un journal
+ * -wal vide, qu'elle ne peut pas retirer : aucune écriture).
+ */
+const empreinte = (f: string) => {
+  const contenu = existsSync(f) ? readFileSync(f) : null;
+  return contenu?.length ? createHash('sha256').update(contenu).digest('hex') : null;
+};
+
+test('commande à blanc : aucune écriture dans le fichier, refus d’une base pas à jour sans la migrer', { skip: PG && SQLITE_SEUL }, async () => {
+  const dossier = mkdtempSync(join(tmpdir(), 'cursus-purge-cli-'));
+  const fichier = join(dossier, 'cursus.db');
+  const backups = join(dossier, 'backups');
+  const commande = (...args: string[]) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/purge-demo-cli.ts', ...args], {
+    encoding: 'utf8', timeout: 30000,
+    env: { ...process.env, CURSUS_DB: fichier, CURSUS_BACKUP_DIR: backups, DATABASE_URL: '', CURSUS_DEMO_PUBLIQUE: '', CURSUS_TODAY: '2026-10-10' },
+  });
+  const releve = () => ({ base: empreinte(fichier), wal: empreinte(`${fichier}-wal`), copies: existsSync(backups) ? readdirSync(backups).sort() : [] });
+  try {
+    // Base de démonstration laissée par le service de cette version, arrêté.
+    const db = new SqliteDb(fichier);
+    await mettreAJourBase(db);
+    await seedDemo(db);
+    await db.fermer();
+    const avant = releve();
+    const r = commande('--a-blanc');
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /^Aperçu de la purge \(profil parametrage, base SQLite\) : rien n’a été modifié\./);
+    assert.doesNotMatch(r.stdout + r.stderr, /Migration|avant-migration/);
+    assert.deepEqual(releve(), avant, 'fichier, journal WAL et copies inchangés');
+    // Base restée à la version précédente (une migration nommée en attente) : refusée, jamais mise à jour ni copiée.
+    const sql = new (await import('node:sqlite')).DatabaseSync(fichier);
+    sql.exec('DELETE FROM migrations WHERE rowid = (SELECT MAX(rowid) FROM migrations)');
+    const lignes = (sql.prepare('SELECT COUNT(*) AS n FROM migrations').get() as { n: number }).n;
+    const journal = (sql.prepare('SELECT COUNT(*) AS n FROM journal').get() as { n: number }).n;
+    sql.close();
+    const ancienne = releve();
+    const r2 = commande('--a-blanc');
+    assert.equal(r2.status, 1);
+    assert.match(r2.stderr, /Purge refusée : la base n’est pas à jour pour cette version \(1 migration en attente : .*\) : démarrez une fois le service/);
+    assert.equal(r2.stdout, '');
+    assert.deepEqual(releve(), ancienne, 'base refusée, rien écrit');
+    const apres = new (await import('node:sqlite')).DatabaseSync(fichier, { readOnly: true });
+    assert.equal((apres.prepare('SELECT COUNT(*) AS n FROM migrations').get() as { n: number }).n, lignes);
+    assert.equal((apres.prepare('SELECT COUNT(*) AS n FROM journal').get() as { n: number }).n, journal);
+    apres.close();
+  } finally {
+    rmSync(dossier, { recursive: true, force: true });
+  }
+});
+
+test('aperçu sur le serveur PostgreSQL : ouvert sans migrer, refus d’un schéma vide ou pas à jour', { skip: !PG && 'propre au serveur PostgreSQL' }, async () => {
+  const { url, schema } = await schemaNeuf();
+  const env = { DATABASE_URL: url, CURSUS_PG_POOL: '2' };
+  await assert.rejects(ouvrirPourApercu(env, '', schema), refus(/n’a jamais été initialisé par Cursus/));
+  assert.deepEqual(await surServeur(url, `SELECT to_regclass('${schema}.schema_migrations') AS t`), [{ t: null }], 'aucune table créée');
+  const { ouvrirPostgres } = await import('../server/src/db-pg.ts');
+  const db = await ouvrirPostgres(url, { schema, env });
+  try {
+    await seedDemo(db);
+  } finally {
+    await db.fermer();
+  }
+  const ouverte = await ouvrirPourApercu(env, '', schema);
+  try {
+    assert.equal((await apercuPurge(ouverte, OPTIONS)).decision.statut, 'possible');
+  } finally {
+    await ouverte.fermer();
+  }
+  await surServeur(url, `DELETE FROM ${schema}.schema_migrations WHERE nom = (SELECT MAX(nom) FROM ${schema}.schema_migrations)`);
+  const n = (await surServeur<{ n: string }>(url, `SELECT COUNT(*) AS n FROM ${schema}.schema_migrations`))[0].n;
+  await assert.rejects(ouvrirPourApercu(env, '', schema), refus(/1 migration en attente : .* démarrez une fois le service/));
+  assert.equal((await surServeur<{ n: string }>(url, `SELECT COUNT(*) AS n FROM ${schema}.schema_migrations`))[0].n, n, 'aucune migration appliquée');
 });
 
 test('journal : libellé et famille du code purge.demo', () => {

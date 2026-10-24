@@ -17,6 +17,8 @@ import { basename, join } from 'node:path';
 import { matricule, plural } from '../../shared/format.ts';
 import type { Env } from './config.ts';
 import { jsonLu, snake, TABLES, type Db, type TableName } from './db.ts';
+import { CLE_DEPUIS, CLE_JUSQUA } from './absences-paie.ts';
+import { CLE_DEPUIS_DEPLACEMENTS } from './deplacements-paie.ts';
 import { REFERENCES } from './integrite.ts';
 import { MODE_VERDICTS } from './integrations/keystone-verdicts.ts';
 import { ACTION_PURGE_DEMO, type MarqueurDemo, type MarqueurExploitation, REGLAGE_DEMO, REGLAGE_EXPLOITATION } from './marqueurs.ts';
@@ -280,13 +282,19 @@ const TOUJOURS: Partial<Record<TableName, string>> = {
  * Réglages supprimés par le profil parametrage : clé de session, état de la paie, expurgation du journal, messagerie
  * fictive, marqueur de démonstration ; et l'état des traitements qui ont tourné sur les données fictives : mode des
  * verdicts Go / No Go mémorisés (ils partent avec verdicts_keystone), dossiers déjà signalés à la fin de leur durée de
- * conservation (identifiants fictifs) et jours des derniers passages quotidiens (conservation, relances, récapitulatif,
- * évaluations à froid), qui repartent au démarrage suivant sur la base vide. Les marqueurs des reprises faites une seule
- * fois (repriseDetachement, adressesComptesReprises) sont gardés : elles ne doivent pas repasser sur les vraies données.
+ * conservation (identifiants fictifs), jours des derniers passages quotidiens (conservation, relances, récapitulatif,
+ * évaluations à froid), qui repartent au démarrage suivant sur la base vide, et dates de départ des absences et des
+ * déplacements dans le fichier de paie, avec le plus grand identifiant d'absence fictif (server/src/absences-paie.ts,
+ * server/src/deplacements-paie.ts) : sans elles, le premier vrai lot pose sa propre date de départ (departAuPremierLot)
+ * et n'envoie pas en rappel les absences et déplacements repris des mois que Lucca et Sage ont payés. Les marqueurs des
+ * reprises faites une seule fois (repriseDetachement, adressesComptesReprises) sont gardés : elles ne doivent pas
+ * repasser sur les vraies données. Les autres réglages gardés sont du paramétrage : app, calendrierFeries,
+ * confidentialite, derogationsDominicales, formatFichierPaie (et exploitation, qui fait refuser la purge).
  */
 export const REGLAGES_SUPPRIMES_PARAMETRAGE: readonly string[] = [
   'secret', 'lastSagePush', 'journalExpurge', 'messagerie', REGLAGE_DEMO, MODE_VERDICTS,
   'conservationSignales', 'conservationVerifieeLe', 'relancesEcheancesLe', 'recapitulatifLe', 'evaluationsDemandeesLe',
+  CLE_DEPUIS, CLE_JUSQUA, CLE_DEPUIS_DEPLACEMENTS,
 ];
 
 /** Sort de chaque table et des réglages selon le profil ; `comptesGardes` : des comptes restent (rendus externes). */

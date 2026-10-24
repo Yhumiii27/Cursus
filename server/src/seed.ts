@@ -14,7 +14,7 @@ import { ACTIVITE_FORMATION, MOTIF_RESTRICTION } from '../../shared/constants.ts
 import { VERSION } from './chemins.ts';
 import type { Db } from './db.ts';
 import { DEFAULT_SETTINGS, loadFull } from './dataset.ts';
-import { marqueurDemo, REGLAGE_DEMO } from './marqueurs.ts';
+import { marqueurDemo, REGLAGE_DEMO, REGLAGE_EXPLOITATION } from './marqueurs.ts';
 import { contexte, enregistrerAffectation, enregistrerChantier, enregistrerProjet, enregistrerTache } from './integrations/keystone-entrant.ts';
 import { suivreVerdicts } from './integrations/keystone-verdicts.ts';
 import { figerFeuilles } from './migrate.ts';
@@ -456,8 +456,11 @@ async function exigencesDemo(db: Db) {
 export async function seedDemo(db: Db) {
   await db.tx(async () => {
     const secret = await db.getSetting<string | null>('secret', null); // conserve les sessions ouvertes
+    // Marqueur d'exploitation (server/src/marqueurs.ts) : jamais effacé, la base reste refusée par npm run purge-demo.
+    const exploitation = await db.getSetting<unknown>(REGLAGE_EXPLOITATION, null);
     await db.clearAll();
     if (secret) await db.setSetting('secret', secret);
+    if (exploitation) await db.setSetting(REGLAGE_EXPLOITATION, exploitation);
     await db.setSetting('app', DEFAULT_SETTINGS);
     await db.setSetting('messagerie', MESSAGERIE_DEMO);
     // Marqueur de base de démonstration (server/src/marqueurs.ts) : la purge des données fictives s'appuie dessus.

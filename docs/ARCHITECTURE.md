@@ -639,7 +639,13 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   lots de paie, fichiers Sage, comptes) listés avec nombre et dates ; les fiches ajoutées ne partent qu'avec
   `--inclure-ajouts`. Plan par profil (`planPurge` : `parametrage` par défaut, `catalogue`, `rien`) : sort de chaque table
   de `TABLES` et des réglages ; séquence `employes.id` à max(1001, plus grand identifiant attribué + 1000), jamais remise
-  à zéro. Étape 1 : aperçu à blanc seulement (`--a-blanc`, `apercuPurge`, sans écriture) ; l'exécution vient à l'étape 2.
+  à zéro. Réglages remis à défaut par `parametrage` : clé de session, état de la paie (dont les dates de départ des
+  absences et des déplacements dans le fichier de paie), expurgation, messagerie, `demo` et passages des traitements
+  quotidiens. `seedDemo` garde le réglage `exploitation` : une base exploitée reste refusée. Étape 1 : aperçu à blanc
+  seulement (`--a-blanc`, `apercuPurge`) ; l'exécution vient à l'étape 2. L'aperçu n'écrit rien, pas même la mise à
+  jour de la base (`server/src/purge-demo-ouverture.ts`) : une base qui n'est pas au niveau de cette version
+  (migrations nommées ou PostgreSQL en attente, colonnes manquantes) est refusée, avec pour remède de démarrer une fois
+  le service de cette version.
 - **Base sur le disque** (`server/src/protection.ts`) : `protegerBase` ramène la base et ses fichiers `-wal`, `-shm`
   en `600` et son dossier en `700` (créé ainsi ; un dossier partagé — bit sticky, racine du système ou du projet,
   dossier de lancement, autre propriétaire — n'est jamais modifié, avertissement ; le dossier personnel du compte de

@@ -6,11 +6,9 @@
 // Code de sortie 0 : aperçu affiché ou purge déjà faite ; 1 : refus.
 // Image Docker : volume rendu au compte du service, droits root abandonnés (avant tout autre import).
 import './conteneur.ts';
-import { existsSync } from 'node:fs';
-import { dbFile, openDb, urlPostgres } from './db.ts';
-import { mettreAJourBase } from './demarrage.ts';
-import { controlerPourOutil } from './migrations/cadre.ts';
+import { dbFile, urlPostgres } from './db.ts';
 import { apercuPurge, controlerEnvironnementPurge, lireOptionsPurge, type OptionsPurge, PurgeRefusee, texteApercu } from './purge-demo.ts';
+import { controlerSqliteAJour, ouvrirPourApercu } from './purge-demo-ouverture.ts';
 import { serveurActif } from './sauvegarde.ts';
 
 function refuser(err: unknown): never {
@@ -27,14 +25,11 @@ try {
   refuser(err);
 }
 
-// Fichier SQLite : base introuvable refusée (aucun fichier vide créé) ; base mise à jour par une version plus récente, ou
-// pas encore par le serveur en service : refusée. Serveur PostgreSQL : openDb applique les migrations, sous verrou.
-const serveurPg = urlPostgres();
-let aMettreAJour = true;
+// L'aperçu n'écrit rien, pas même la mise à jour de la base (server/src/purge-demo-ouverture.ts) : base introuvable,
+// mise à jour par une version plus récente ou pas encore par cette version, refusée avant d'être ouverte.
 try {
-  if (!serveurPg) {
-    if (!existsSync(dbFile())) throw new PurgeRefusee(`base introuvable : ${dbFile()} (CURSUS_DB).`);
-    aMettreAJour = controlerPourOutil(dbFile());
+  if (!urlPostgres()) {
+    controlerSqliteAJour(dbFile());
     const serveur = serveurActif(dbFile());
     if (serveur) console.error(`Attention : le serveur Cursus (processus ${serveur.pid}) utilise cette base ; la purge elle-même exigera qu’il soit arrêté.`);
   }
@@ -42,11 +37,9 @@ try {
   refuser(err);
 }
 
-let db: Awaited<ReturnType<typeof openDb>> | null = null;
+let db: Awaited<ReturnType<typeof ouvrirPourApercu>> | null = null;
 try {
-  db = await openDb();
-  // Comme npm run comptes : base mise au niveau de cette version avant d'être lue (colonnes des migrations nommées).
-  if (aMettreAJour) await mettreAJourBase(db);
+  db = await ouvrirPourApercu();
   const apercu = await apercuPurge(db, options);
   if (apercu.decision.statut === 'deja-faite') {
     console.log(`Purge déjà faite le ${apercu.decision.le}${apercu.decision.message ? ` : ${apercu.decision.message}` : ''}. Rien n’a été modifié.`);

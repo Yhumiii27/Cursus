@@ -16,6 +16,7 @@ import { controlerIntegrite } from './integrite.ts';
 import { demarrerJournal } from './journal.ts';
 import { appliquerAvenants } from './avenants.ts';
 import { log, redirigerConsole } from './logs.ts';
+import { marquerExploitation } from './marqueurs.ts';
 import { demarrerConservation } from './conservation.ts';
 import { demarrerPieces } from './pieces.ts';
 import { controlerMigrations } from './migrations/cadre.ts';
@@ -106,6 +107,9 @@ const vide = await db.tx(async () => {
   return DEMO;
 });
 if (vide !== null) log.info(vide ? 'Base vide : données de démonstration chargées.' : 'Base vide : aucune donnée de démonstration chargée (mode démonstration inactif).');
+// Base passée en exploitation (lot 8, chantier A) : premier démarrage en production hors démonstration, base vide comprise,
+// noté une fois dans le réglage `exploitation` (server/src/marqueurs.ts). npm run purge-demo refuse ensuite cette base.
+if (await marquerExploitation(db, VERSION)) log.info('Premier démarrage en production hors démonstration : base marquée « exploitation » (npm run purge-demo la refusera).');
 // Instance de démonstration publiée derrière le proxy (CURSUS_DEMO_PUBLIQUE=1) : rappel à chaque démarrage.
 if (demoPublique()) log.avertissement('Démonstration publiée (CURSUS_DEMO_PUBLIQUE=1) : l’espace RH s’ouvre sans mot de passe à qui atteint cette adresse. Données fictives seulement ; restreignez l’accès en amont (authentification du proxy).');
 // Base de démonstration antérieure aux comptes : un compte par salarié et la RH de démonstration.

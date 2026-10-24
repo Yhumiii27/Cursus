@@ -5,8 +5,9 @@
 --    les dernières lignes d'un compte pour une action ; seuls journal(at) et journal(action) étaient indexés
 --    (300 000 lignes après 5 ans). Même index en SQLite : migration nommée lot8-index-journal.
 -- 2. Révision de la base (table `revision`, une seule ligne) : augmentée par un déclencheur, une fois par instruction, à
---    chaque écriture d'une table que lit l'instantané (toutes les tables de Cursus sauf le journal des actions et les
---    sessions de connexion, écrits à chaque consultation). L'instantané en cache (server/src/cache-instantane.ts) est
+--    chaque écriture d'une table que lit l'instantané (toutes les tables de Cursus sauf le journal des actions, les
+--    sessions de connexion, les comptes et les abonnements à l'agenda, écrits à chaque consultation ou connexion et
+--    relus à chaque requête : server/src/db.ts, TABLES_SANS_REVISION). L'instantané en cache (server/src/cache-instantane.ts) est
 --    indexé par cette révision, lue au début de chaque lecture stable : une écriture validée par n'importe quelle
 --    instance, tâche de fond ou outil (purge, reprise) le rend périmé. Écrite dans la transaction de l'écriture, la
 --    révision n'est visible qu'avec elle et disparaît avec elle si la transaction est annulée. Une table ajoutée plus tard
@@ -33,12 +34,13 @@ END
 $$;
 --> statement-breakpoint
 -- Un déclencheur par table du schéma (instruction entière : une insertion de mille lignes l'augmente une fois), sauf le
--- journal des actions, les sessions de connexion, le journal des migrations et la révision elle-même.
+-- journal des actions, les sessions de connexion, les comptes (dernière connexion), les abonnements à l'agenda (dernier
+-- accès), le journal des migrations et la révision elle-même.
 DO $$
 DECLARE t text;
 BEGIN
   FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = current_schema()
-    AND tablename NOT IN ('journal', 'connexions', 'schema_migrations', 'revision') ORDER BY tablename
+    AND tablename NOT IN ('journal', 'connexions', 'comptes', 'jetons_agenda', 'schema_migrations', 'revision') ORDER BY tablename
   LOOP
     EXECUTE format('CREATE TRIGGER revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON %I FOR EACH STATEMENT EXECUTE FUNCTION revision_suivante()', t);
   END LOOP;

@@ -600,7 +600,8 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     chantier E, étape 2 : les transactions et suites exclusives d'une instance attendent d'abord leur tour en mémoire
     (`FileEcritures`), au plus le délai du verrou (au-delà : 55P03, donc 503), avant de prendre une connexion puis le
     verrou commun : une écriture en attente ne garde plus une connexion du pool (trente saisies simultanées prenaient les
-    dix connexions, et les lectures comme la santé attendaient une connexion jusqu'au 503).
+    dix connexions, et les lectures comme la santé attendaient une connexion jusqu'au 503). La file mesure l'attente de
+    chaque écriture avant son tour (`attenteEnCours`, `attenteMax`), reprise par la sonde de l'essai de charge.
   - *Schéma.* `server/migrations-pg/` : `0001_init.sql` (50 tables, état final de `TABLES` avant l'étape 2 du lot 6),
     `0002_partage.sql` (vues `pub_` lues par Matrix et les autres outils, sans colonne sensible ni GRANT : les droits
     viennent du socle) et `0003_lot6_etape2.sql` (étape 2 du lot 6 : 7 tables, 57 en tout, colonnes ajoutées, nature
@@ -620,8 +621,8 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     CHECK du type, du répondant, de la note et de l'efficacité, une seule formation évaluée ; aucune vue `pub_`). 62 tables
     en tout.
     `0013_index_journal.sql` (lot 8, chantier E, étape 2 : index `journal(compte_id, action, id DESC)`, table technique
-    `revision` d'une ligne et déclencheur `revision` par instruction sur chaque table hors journal et sessions, clé du
-    cache de l'instantané ; hors de `TABLES` et de la déclaration à Matrix ; aucune vue `pub_` touchée). Une table ajoutée
+    `revision` d'une ligne et déclencheur `revision` par instruction sur chaque table hors journal, sessions, comptes et
+    abonnements à l'agenda (`TABLES_SANS_REVISION`), clé du cache de l'instantané ; hors de `TABLES` et de la déclaration à Matrix ; aucune vue `pub_` touchée). Une table ajoutée
     ensuite reçoit son déclencheur dans sa migration : `controlerSchema` refuse de démarrer sans lui.
     Appliquées au démarrage sous `pg_advisory_lock(hashtext('cursus.migrations'))`, pris avant de lire le journal
     `cursus.schema_migrations`, une transaction par fichier ; une migration du journal inconnue de ce code (base mise à
@@ -741,7 +742,9 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     - *cache de l'instantané* (`server/src/cache-instantane.ts`, `CURSUS_CACHE_INSTANTANE=0` pour le couper) : la
       lecture complète de la base est gardée en mémoire, indexée par la **révision de la base** (table technique
       `revision` d'une ligne, augmentée dans la transaction de chaque écriture par un déclencheur de chaque table hors
-      journal et sessions : migration PostgreSQL `0013_index_journal`, `SqliteDb.poserRevision` en SQLite, posés de
+      journal, sessions, comptes et abonnements à l'agenda — écrits à chaque consultation ou connexion (dernière
+      connexion d'un compte, dernier accès d'un flux d'agenda), jamais lus par l'instantané en cache, relus à chaque
+      requête — : migration PostgreSQL `0013_index_journal`, `SqliteDb.poserRevision` en SQLite, posés de
       nouveau après les migrations nommées) et par la date du jour ; une écriture de n'importe quelle instance, tâche
       de fond ou outil (reprise, purge, écriture SQL directe) la rend périmée, une transaction annulée ne change rien.
       La révision se lit au début de chaque lecture stable (`Db.revisionBase`, `Db.lectureStable`), avant les données :
@@ -772,7 +775,11 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     - *file des écritures de l'instance* (« Accès à la base : PostgreSQL », *Concurrence*) ;
     - *essai* : sessions de l'exécuteur rangées sous l'empreinte de leur identifiant (chantier D), tenue du verrou
       relevée par transaction (deux transactions qui se suivent sur une même connexion ne comptent plus comme une seule
-      tenue), relevé du verrou fait avant l'appel de santé (`/api/health` prend encore le verrou d'écriture : chantier B) ;
+      tenue), relevé du verrou fait avant l'appel de santé (`/api/health` prend encore le verrou d'écriture : chantier B),
+      attente du verrou d'écriture jugée (seuil de 10 s) sur la plus longue de l'attente `Advisory` vue sur le serveur et
+      de l'attente d'un tour dans la file des écritures de l'instance (`FileEcritures.attenteMax` et `attenteEnCours`,
+      `attenteFileMax` du rapport) : sur une instance, une seule écriture à la fois atteint `pg_advisory_xact_lock`, les
+      autres attendent en mémoire, sans connexion, et `pg_stat_activity` ne les voit pas ;
       étape « Essai de charge » du job `postgres` de la CI (non bloquante, seuils ×3, invariants entiers ; jeu d'un an
       et S2, S3 pendant 60 s sur une pull request qui touche `server/src/db*.ts`, `dataset.ts`, `app.ts`,
       `actions/suivi-feuilles.ts` ou `server/migrations-pg/` ; jeu de 5 ans et S1 à S3 sur « Run workflow » et le lundi ;
@@ -787,7 +794,10 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
       mais `temps.setCell` p95 26 à 27 s et `/api/data` p95 1,8 à 2,6 s (collaborateur) : environ 1,3 écriture par
       seconde. Chaque écriture rend la lecture partagée périmée, et la relire (0,6 s de lecture et de décodage, surtout
       les 28 000 feuilles) puis recalculer les vues occupe le processus ; les saisies attendent leur tour dans la file
-      de l'instance. Seuil d'action (800 ms) non tenu.
+      de l'instance. Seuil d'action (800 ms) non tenu. Attente du verrou d'écriture : 25,4 s au plus, toute dans la file
+      de l'instance (aucune session en attente sur le serveur, 69 écritures en file au plus ; S2 rejoué pendant 120 s
+      après la relecture, `temps.setCell` p95 25,6 s) : seuil de 10 s non tenu. La première version de la sonde ne
+      relevait que l'attente sur le serveur et marquait ce seuil tenu.
     - S3 « fin de mois » (6 validations de 16 à 30 feuilles, 20 lecteurs, Keystone, tâches du quart d'heure) :
       validations de 7,6 à 22 s de bout en bout (33 à 37 s à l'étape 1), toutes faites ; avec une validation de 200
       feuilles en plus : 39,9 s pour celle-ci (seuil 60 s) ; verrou tenu au plus 2,2 à 5,8 s (10,2 s à l'étape 1), aucune

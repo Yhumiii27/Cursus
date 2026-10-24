@@ -143,15 +143,30 @@ class PlacesLecture {
  * (503). L'attente en mémoire est bornée par le délai du verrou (`lock_timeout`) : au-delà, la même erreur que le
  * serveur (55P03), donc 503 « Cursus est occupé », sans rien écrire.
  */
-class FileEcritures {
+export class FileEcritures {
   private fin: Promise<void> = Promise.resolve();
   /** Écritures de l'instance en attente de leur tour (sonde de l'essai de charge). */
   enAttente = 0;
+  /**
+   * Plus longue attente d'un tour terminée (servie ou refusée), en millisecondes (sonde de l'essai de charge) : sur une
+   * instance, une seule écriture à la fois atteint `pg_advisory_xact_lock`, les autres attendent ici, sans connexion, et
+   * pg_stat_activity ne les voit pas. L'attente du verrou d'écriture se juge donc aussi sur cette valeur.
+   */
+  attenteMax = 0;
+  private readonly debuts = new Set<{ t: number }>();
+  /** Attente de la plus ancienne écriture encore dans la file (0 si la file est vide). */
+  get attenteEnCours(): number {
+    let plusAncien = Infinity;
+    for (const d of this.debuts) plusAncien = Math.min(plusAncien, d.t);
+    return plusAncien === Infinity ? 0 : performance.now() - plusAncien;
+  }
   async passer<T>(delai: number, fn: () => Promise<T>): Promise<T> {
     const avant = this.fin;
     let liberer!: () => void;
     this.fin = new Promise<void>(ok => { liberer = ok; });
     this.enAttente++;
+    const debut = { t: performance.now() };
+    this.debuts.add(debut);
     let minuteur: NodeJS.Timeout | undefined;
     try {
       const tour = await Promise.race([
@@ -166,6 +181,8 @@ class FileEcritures {
     } finally {
       clearTimeout(minuteur);
       this.enAttente--;
+      this.debuts.delete(debut);
+      this.attenteMax = Math.max(this.attenteMax, performance.now() - debut.t);
     }
     try {
       return await fn();

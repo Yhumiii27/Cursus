@@ -3,7 +3,8 @@
 //   et pour chaque profil de l'espace RH, l'instantané servi par le cache est celui calculé sans cache ;
 // - toute écriture d'une table lue par l'instantané (action, tâche planifiée, API Keystone, écriture SQL directe comme
 //   une reprise, remise à zéro comme une purge) augmente la révision tenue en base et rend le cache périmé ; une
-//   transaction annulée ne la change pas ; le journal et les sessions ne la changent pas ;
+//   transaction annulée ne la change pas ; le journal, les sessions, une connexion (dernière connexion du compte) et
+//   la lecture d'un flux d'agenda (dernier accès) ne la changent pas ;
 // - dans une transaction, la lecture reste directe (révision non lue, écritures non validées jamais mises en cache) ;
 // - sur PostgreSQL, deux instances sur la même base voient la même révision, et chacune voit les écritures de l'autre.
 import { after, test } from 'node:test';
@@ -23,7 +24,8 @@ const { createApp } = await import('../server/src/app.ts');
 const { empreinteSession, sign } = await import('../server/src/auth.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { cacheActif, cleVue, donneesAction, donneesDe, viderCache, voitPaie, vueEnCache } = await import('../server/src/cache-instantane.ts');
-const { espacesDuCompte } = await import('../server/src/comptes.ts');
+const { compterTentative, enregistrerConnexion, espacesDuCompte } = await import('../server/src/comptes.ts');
+const { creerJeton } = await import('../server/src/agenda.ts');
 const { tachesEmails } = await import('../server/src/notifications.ts');
 const { PROFILS_RH } = await import('../shared/constants.ts');
 const { ouvrirPostgres } = await import('../server/src/db-pg.ts');
@@ -72,7 +74,7 @@ test('filtrage identique : chaque compte et chaque espace de la démonstration, 
   assert.equal(cleVue({ ...RH, profilRh: undefined }), 'rh|rh_gestionnaire', 'profil par défaut, comme droitsRh');
 });
 
-test('révision : augmentée par toute écriture validée, sauf journal et sessions ; inchangée par une transaction annulée', async () => {
+test('révision : augmentée par toute écriture validée, sauf journal, sessions, comptes et agenda ; inchangée par une transaction annulée', async () => {
   const db = await demo();
   const r0 = await db.revisionBase();
   await db.update('employes', 2, { nom: 'Mehdi Benali-Durand' });
@@ -89,6 +91,14 @@ test('révision : augmentée par toute écriture validée, sauf journal et sessi
   await db.insert('journal', { at: new Date().toISOString(), actor: 'Cursus', action: 'essai', message: null, payload: {}, salaries: [] });
   await db.run('UPDATE connexions SET activite = ?', [new Date().toISOString()]);
   assert.equal(await db.revisionBase(), r3, 'journal et sessions : sans effet');
+  // Connexion : tentative comptée, puis dernière connexion du compte ; flux d'agenda : abonnement et dernier accès. Ni
+  // les comptes ni les abonnements ne sont lus par l'instantané en cache : une connexion ne doit pas le rendre périmé.
+  const compte = (await db.all<Compte>('comptes'))[0];
+  await compterTentative(db, compte);
+  await enregistrerConnexion(db, compte);
+  const { id: jeton } = await creerJeton(db, 2, 'Mehdi Benali');
+  await db.update('jetonsAgenda', jeton, { dernierAcces: new Date().toISOString() });
+  assert.equal(await db.revisionBase(), r3, 'connexion et flux d’agenda : sans effet');
   // Remise à zéro (comme une purge : TRUNCATE sur PostgreSQL, DELETE sur SQLite).
   await db.clearAll();
   assert.ok(await db.revisionBase() > r3, 'remise à zéro');

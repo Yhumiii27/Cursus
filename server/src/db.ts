@@ -506,12 +506,14 @@ export function jsonLu(v: unknown): unknown {
 }
 
 /**
- * Tables sans déclencheur de révision (lot 8, chantier E) : écrites à chaque consultation (trace au journal, activité
- * d'une session), jamais lues par l'instantané. Toute autre table de TABLES augmente la révision de la base à chaque
+ * Tables sans déclencheur de révision (lot 8, chantier E) : écrites à chaque consultation ou connexion (trace au journal,
+ * activité d'une session, dernière connexion d'un compte, dernier accès d'un flux d'agenda), jamais lues par
+ * l'instantané en cache (`lireTout` de server/src/dataset.ts) : les comptes et l'abonnement à l'agenda sont relus à
+ * chaque requête (identité, `buildSnapshot`). Toute autre table de TABLES augmente la révision de la base à chaque
  * écriture (table `revision` : `SqliteDb.poserRevision`, migration PostgreSQL 0013_index_journal), clé du cache de
- * l'instantané (server/src/cache-instantane.ts).
+ * l'instantané (server/src/cache-instantane.ts). Une table ajoutée ici ne doit jamais être lue par `lireTout`.
  */
-export const TABLES_SANS_REVISION: ReadonlySet<TableName> = new Set<TableName>(['journal', 'connexions']);
+export const TABLES_SANS_REVISION: ReadonlySet<TableName> = new Set<TableName>(['journal', 'connexions', 'comptes', 'jetonsAgenda']);
 
 /** Valeur passée en paramètre d'une requête SQL brute (`query`, `one`, `run`). */
 export type SqlValeur = string | number | bigint | boolean | null | Uint8Array;
@@ -798,7 +800,11 @@ export class SqliteDb extends Db {
   poserRevision(): void {
     const sql = ['CREATE TABLE IF NOT EXISTS revision (cle INTEGER PRIMARY KEY CHECK (cle = 1), n INTEGER NOT NULL)', 'INSERT OR IGNORE INTO revision (cle, n) VALUES (1, 0)'];
     for (const name of Object.keys(TABLES) as TableName[]) {
-      if (TABLES_SANS_REVISION.has(name)) continue;
+      // Table exclue : déclencheurs retirés s'ils avaient été posés (base d'essai d'une version antérieure de l'étape).
+      if (TABLES_SANS_REVISION.has(name)) {
+        for (const suffixe of ['i', 'u', 'd']) sql.push(`DROP TRIGGER IF EXISTS revision_${snake(name)}_${suffixe}`);
+        continue;
+      }
       for (const [suffixe, evenement] of [['i', 'INSERT'], ['u', 'UPDATE'], ['d', 'DELETE']]) {
         sql.push(`CREATE TRIGGER IF NOT EXISTS revision_${snake(name)}_${suffixe} AFTER ${evenement} ON ${snake(name)} BEGIN UPDATE revision SET n = n + 1; END`);
       }

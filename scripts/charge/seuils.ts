@@ -9,7 +9,11 @@ export interface StatRoute { n: number; p50: number; p95: number; p99: number; m
 /** Relevés de la sonde (toutes les 500 ms) : santé, verrou, pool, mémoire. */
 export interface StatSonde {
   sante: StatRoute;
-  /** Plus longue attente du verrou d'écriture (pg_advisory_lock) vue sur le serveur, et nombre de sessions en attente au plus. */
+  /**
+   * Plus longue attente du verrou d'écriture : la plus longue de l'attente Advisory vue sur le serveur et de l'attente
+   * d'un tour dans la file des écritures de l'instance (`attenteFileMax`) ; nombre de sessions en attente sur le serveur
+   * au plus.
+   */
   attenteVerrouMax: number;
   attentesMax: number;
   /** Plus longue tenue du verrou d'écriture par une même session. */
@@ -21,6 +25,8 @@ export interface StatSonde {
   lecturesAttenteMax: number;
   /** Écritures de l'instance en attente de leur tour en mémoire (server/src/db-pg.ts, `FileEcritures`) au plus. */
   ecrituresAttenteMax: number;
+  /** Plus longue attente d'un tour dans la file des écritures de l'instance (comprise dans `attenteVerrouMax`). */
+  attenteFileMax: number;
   rssMax: number;
   tasMax: number;
 }
@@ -53,7 +59,9 @@ export function juger(routes: Record<string, StatRoute>, sonde: StatSonde, { mar
   duree('CSV du journal (100 000 lignes)', r('GET /api/journal/csv')?.max, 20_000);
   duree('/api/health p99', sonde.sante.n ? sonde.sante.p99 : undefined, 2000);
   duree('attente d’une connexion du pool', sonde.attentePoolMax, 2000);
-  duree('attente du verrou d’écriture', sonde.attenteVerrouMax, 10_000);
+  // Attente du verrou : sur le serveur (Advisory) ou dans la file des écritures de l'instance, où attendent toutes les
+  // écritures sauf une (sans connexion, invisibles de pg_stat_activity).
+  duree('attente du verrou d’écriture', Math.max(sonde.attenteVerrouMax, sonde.attenteFileMax), 10_000);
   out.push({ critere: 'mémoire du processus (RSS)', mesure: `${Math.round(sonde.rssMax / 1048576)} Mo`, seuil: `< ${1024 * marge} Mo`, ok: sonde.rssMax < 1024 * 1048576 * marge, invariant: false });
   // Invariants : jamais assouplis par la marge.
   invariant('/api/health jamais au-delà de 5 s', sonde.sante.max < 5000 && !sonde.sante.delais, `${ms(sonde.sante.max)}${sonde.sante.delais ? ` (${sonde.sante.delais} sans réponse)` : ''}`, '< 5 s');

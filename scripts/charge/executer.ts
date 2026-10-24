@@ -149,12 +149,14 @@ async function executer(): Promise<void> {
 
   // — Sonde : santé, verrou d'écriture sur le serveur, pool, mémoire —
   const sante: Mesures = { durees: [], e4xx: 0, e5xx: 0, e503: 0, delais: 0 };
-  const etat = { attenteVerrouMax: 0, attentesMax: 0, tenueVerrouMax: 0, attentePoolMax: 0, poolAttenteMax: 0, lecturesAttenteMax: 0, ecrituresAttenteMax: 0, rssMax: 0, tasMax: 0 };
+  const etat = { attenteVerrouMax: 0, attentesMax: 0, tenueVerrouMax: 0, attentePoolMax: 0, poolAttenteMax: 0, lecturesAttenteMax: 0, ecrituresAttenteMax: 0, attenteFileMax: 0, rssMax: 0, tasMax: 0 };
   const tenues = new Map<number, number>();
   let poolDepuis: number | null = null;
   let sondeEnCours = false;
   const chronologie: { t: number; sante: number | null; attente: number; tenue: number; pool: number }[] = [];
   const debut = performance.now();
+  // Attentes de la file des écritures comptées à partir d'ici (pas celles de la préparation du jeu).
+  db.fileEcritures.attenteMax = 0;
   const relever = async () => {
     const t0 = performance.now();
     const m = process.memoryUsage();
@@ -162,6 +164,12 @@ async function executer(): Promise<void> {
     const attentePool = db.pool.waitingCount;
     etat.lecturesAttenteMax = Math.max(etat.lecturesAttenteMax, db.placesLecture.enAttente);
     etat.ecrituresAttenteMax = Math.max(etat.ecrituresAttenteMax, db.fileEcritures.enAttente);
+    // Attente du verrou d'écriture dans l'instance : sur une instance, une seule écriture à la fois atteint
+    // pg_advisory_xact_lock ; les autres attendent leur tour en mémoire, sans connexion, et pg_stat_activity ne les voit
+    // pas. L'attente jugée est la plus longue des deux (file de l'instance, attente Advisory sur le serveur).
+    const attenteFile = Math.max(db.fileEcritures.attenteEnCours, db.fileEcritures.attenteMax);
+    etat.attenteFileMax = Math.max(etat.attenteFileMax, attenteFile);
+    etat.attenteVerrouMax = Math.max(etat.attenteVerrouMax, attenteFile);
     etat.poolAttenteMax = Math.max(etat.poolAttenteMax, attentePool);
     if (attentePool > 0) { poolDepuis ??= t0; etat.attentePoolMax = Math.max(etat.attentePoolMax, t0 - poolDepuis); } else poolDepuis = null;
     // Santé : un appel par relevé ; au-delà de 10 s sans réponse, compté comme délai dépassé. Lancé après le relevé du
@@ -208,7 +216,7 @@ async function executer(): Promise<void> {
         tenue = Math.max(tenue, maintenant - tenues.get(x.pid)!);
       }
       etat.tenueVerrouMax = Math.max(etat.tenueVerrouMax, tenue);
-      chronologie.push({ t: Math.round((t0 - debut) / 100) / 10, sante: null, attente: Math.round(attenteMax), tenue: Math.round(tenue), pool: attentePool });
+      chronologie.push({ t: Math.round((t0 - debut) / 100) / 10, sante: null, attente: Math.round(Math.max(attenteMax, db.fileEcritures.attenteEnCours)), tenue: Math.round(tenue), pool: attentePool });
     } finally {
       sondeEnCours = false;
       sant = sante1();
@@ -361,7 +369,7 @@ async function executer(): Promise<void> {
     ...Object.entries(routes).map(([n, x]) => `| ${n} | ${x.n} | ${ms(x.p50)} | ${ms(x.p95)} | ${ms(x.p99)} | ${ms(x.max)} | ${x.e4xx} | ${x.e5xx} (${x.e503}) | ${x.delais} |`), '',
     '## Sonde (toutes les 500 ms)', '',
     `- /api/health : ${stats.sante.n} relevés, p50 ${ms(stats.sante.p50)}, p95 ${ms(stats.sante.p95)}, p99 ${ms(stats.sante.p99)}, max ${ms(stats.sante.max)}, ${stats.sante.delais} sans réponse en 10 s`,
-    `- verrou d’écriture : attente au plus ${ms(stats.attenteVerrouMax)} (${stats.attentesMax} sessions en attente au plus), tenue au plus ${ms(stats.tenueVerrouMax)}`,
+    `- verrou d’écriture : attente au plus ${ms(stats.attenteVerrouMax)} (file des écritures de l’instance : ${ms(stats.attenteFileMax)} au plus ; ${stats.attentesMax} sessions en attente sur le serveur au plus), tenue au plus ${ms(stats.tenueVerrouMax)}`,
     `- pool : ${stats.poolAttenteMax} appels en attente d’une connexion au plus, attente continue au plus ${ms(stats.attentePoolMax)} ; lectures stables en attente d’une place au plus : ${stats.lecturesAttenteMax} ; écritures de l’instance en attente de leur tour au plus : ${stats.ecrituresAttenteMax}`,
     `- mémoire : RSS au plus ${Math.round(stats.rssMax / 1048576)} Mo, tas ${Math.round(stats.tasMax / 1048576)} Mo`, '',
     ...(Object.keys(scenariosFaits).length ? ['## Traitements', '', ...Object.entries(scenariosFaits).map(([k, v]) => `- ${k} : ${v}`), ''] : []),

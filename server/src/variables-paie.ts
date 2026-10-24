@@ -18,6 +18,7 @@ import { detailElement } from '../../shared/rules/absences-paie.ts';
 import { detailSortie } from '../../shared/rules/solde-sortie.ts';
 import { detailDeplacement } from '../../shared/rules/deplacements-paie.ts';
 import { detailRachat } from '../../shared/rules/forfait-jours.ts';
+import { detailAstreinte } from '../../shared/rules/astreintes-paie.ts';
 import { A_SAISIR_SAGE } from '../../shared/rules/elements-lot.ts';
 import { feuillesDuLot, libellesSage, STATUTS_LOT } from '../../shared/rules/lots-paie.ts';
 import { matriculeAffiche } from '../../shared/rules/matricules.ts';
@@ -57,7 +58,7 @@ export async function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: s
   const table = rubriquesPaie(await db.all<RubriquePaie>('rubriquesPaie'));
   const out: VariablePaie[] = [];
   const paysLabel = (code: string) => d.destOf(code)?.pays ?? code;
-  const ajouter = (contenu: Pick<SagePush, 'lignes' | 'absences' | 'sorties' | 'deplacements' | 'rachats' | 'aSaisir' | 'libelles'>, lot: string, etat: string) => {
+  const ajouter = (contenu: Pick<SagePush, 'lignes' | 'absences' | 'sorties' | 'deplacements' | 'rachats' | 'astreintes' | 'aSaisir' | 'libelles'>, lot: string, etat: string) => {
     const libelles = contenu.libelles ?? libellesSage(contenu, table);
     for (const l of contenu.lignes) {
       if ((l.periode ?? '') !== periode) continue;
@@ -106,6 +107,14 @@ export async function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: s
       out.push({
         matricule: x.matricule, salarie: d.emp(x.empId)?.nom ?? '', rubrique: x.codeSage ?? A_SAISIR, quantite: x.quantite, lot, etat, empId: x.empId,
         libelle: x.codeSage ? libelles[x.codeSage] ?? x.codeSage : RUBRIQUES_PAIE[x.rubrique]?.label ?? x.rubrique, detail: detailRachat(x),
+      });
+    }
+    // Heures et périodes d'astreinte (t049) : sans code Sage (AST_H, AST_PER désactivées), absentes du fichier, à saisir dans Sage.
+    for (const x of contenu.astreintes ?? []) {
+      if (x.periode !== periode) continue;
+      out.push({
+        matricule: x.matricule, salarie: d.emp(x.empId)?.nom ?? '', rubrique: x.codeSage ?? A_SAISIR, quantite: x.quantite, lot, etat, empId: x.empId,
+        libelle: x.codeSage ? libelles[x.codeSage] ?? x.codeSage : RUBRIQUES_PAIE[x.rubrique]?.label ?? x.rubrique, detail: detailAstreinte(x, periodeLabel),
       });
     }
     // Autres éléments laissés à Sage (soldes de sortie sous une rubrique désactivée) : listés pour la saisie à la main.

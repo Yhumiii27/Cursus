@@ -13,8 +13,10 @@ import {
 import { montantReel } from '../../../shared/rules/exercices.ts';
 import { suiviesEnVigueur } from '../../../shared/rules/formations-suivies.ts';
 import { refusArchive } from '../../../shared/rules/referentiels.ts';
+import { cleLigne, rappelDeclaration } from '../../../shared/rules/passeport-prevention.ts';
 import type { Certification, DemandeCollab, Employe, HabTitre, Inscription, Participation, PlanAction, Trimestre } from '../../../shared/types.ts';
 import { annulerSiConvoque } from '../notifications.ts';
+import { defaireAttente, promouvoirAttentes, retirerInscription } from '../liste-attente.ts';
 import { refuserExerciceClos } from './budget.ts';
 import { attendCloture, signaler } from './conformite.ts';
 import { clore, rendre } from './inscriptions-closes.ts';
@@ -113,6 +115,10 @@ const modifierCert: ActionHandler = async (ctx, p) => {
   }
   await ctx.db.update<Certification>('certifications', c.id, { f, obtenue: date, ...(f !== c.f ? { sessionId: null, convoc: null, convocLe: null, ...closes } : {}), ...marque(ctx, 'corrige', motif) });
   suites.push(...await libererRemplacees(ctx, emp, apres.map(x => (x.id === c.id && f !== c.f ? { ...x, sessionId: null } : x)), [c.f, f]));
+  // Places quittées (session de recyclage, certification remplacée) : proposées à la liste d'attente (lot 7, t120).
+  suites.push(await promouvoirAttentes(ctx, emp.certs.map(x => x.sessionId)));
+  // Passeport de prévention (lot 7, t066) : une ligne déjà déclarée se corrige aussi sur la plateforme.
+  suites.push(rappelDeclaration(ctx.ds, cleLigne({ certId: c.id })));
   const { keystone } = await signaler(ctx, emp);
   const quoi = [f !== c.f ? `formation : ${fm.court}` : '', date !== c.obtenue ? `obtenue le ${fmt(parse(date))}` : ''].filter(Boolean).join(', ');
   return [`${nomCert(ctx, c)} corrigée — ${emp.nom} · ${quoi}`, ...suites.filter(Boolean)].join(' · ') + keystone;
@@ -138,12 +144,17 @@ const annulerCert: ActionHandler = async (ctx, p) => {
   const rendues = await rendre(ctx, emp, c, apres);
   await ctx.db.update<Certification>('certifications', c.id, { sessionId: null, convoc: null, convocLe: null, ...marque(ctx, 'annule', motif) });
   const precedente = certEnVigueur(apres, c.f);
+  // Place quittée : proposée à la liste d'attente de la session (lot 7, t120).
+  const attente = await promouvoirAttentes(ctx, [c.sessionId]);
   const { keystone } = await signaler(ctx, emp);
   return [
     `${nomCert(ctx, c)} supprimée du dossier de ${emp.nom}`,
     precedente && certEnVigueur(emp.certs, c.f) === c ? `certification du ${fmt(parse(precedente.obtenue))} de nouveau en vigueur` : '',
     session,
     ...rendues,
+    attente,
+    // Passeport de prévention (lot 7, t066) : une ligne déjà déclarée se retire aussi de la plateforme.
+    rappelDeclaration(ctx.ds, cleLigne({ certId: c.id })),
   ].filter(Boolean).join(' · ') + keystone;
 };
 
@@ -231,7 +242,11 @@ const annulerDemande: ActionHandler = async (ctx, p) => {
 };
 
 /** Ce que la réouverture a défait, pour le journal (server/src/journal.ts) : identifiants seulement. */
-interface Defait { sessionId?: number; retourSessionId?: number | null; certId?: number; inscriptionId?: number; inscriptionRetiree?: boolean; planId?: number; habTitreId?: number; titreRetire?: boolean }
+interface Defait {
+  sessionId?: number; retourSessionId?: number | null; certId?: number; inscriptionId?: number; inscriptionRetiree?: boolean; planId?: number; habTitreId?: number; titreRetire?: boolean;
+  /** Attente retirée de la liste d'attente de la session demandée (lot 7, t120). */
+  attenteId?: number;
+}
 
 /**
  * Ce que l'acceptation a créé est défait : inscription à la session souhaitée (convocation annulée par e-mail ; le recyclage
@@ -270,7 +285,7 @@ async function defaireAcceptation(ctx: Ctx, r: DemandeCollab, emp: Employe, moti
       suite = retour ? `de nouveau inscrit ${quand}, convocation à envoyer` : depuis ? `retour ${quand} impossible (${refus}) : recyclage à planifier` : '';
     } else if (x.cree || !depuis || ctx.ds.inscriptions.some(i => i.empId === emp.id && i.sessionId === depuis.id)) {
       // Inscription créée par l'acceptation (ou déjà rétablie ailleurs) : retirée.
-      await ctx.db.remove('inscriptions', insc!.id);
+      await retirerInscription(ctx, insc!.id);
       defait.inscriptionRetiree = true;
     } else if (retour || !sessionActive(depuis)) {
       // Session d'origine à venir et qui l'accueille : l'inscription y revient ; annulée ou clôturée : elle y revient,
@@ -280,7 +295,7 @@ async function defaireAcceptation(ctx: Ctx, r: DemandeCollab, emp: Employe, moti
     } else {
       // Session d'origine ouverte qui ne l'accueille plus (complète, passée, conflit) : y revenir la surréserverait ou y
       // laisserait un inscrit qui ne l'a pas suivie ; l'inscription est retirée, à refaire.
-      await ctx.db.remove('inscriptions', insc!.id);
+      await retirerInscription(ctx, insc!.id);
       defait.inscriptionRetiree = true;
       suite = `retour ${quand} impossible (${refus}) : inscription en formation initiale retirée, à refaire`;
     }
@@ -325,8 +340,14 @@ const rouvrirDemande: ActionHandler = async (ctx, p) => {
   refuserSoiMeme(ctx, emp, 'Réouverture de votre propre demande');
   const motif = motifDe(p);
   const { texte, defait } = r.statut === 'acceptee' ? await defaireAcceptation(ctx, r, emp, motif) : { texte: '', defait: {} };
+  // Liste d'attente (lot 7, t120) : l'attente encore en file sort de la liste ; la place quittée par l'inscription défaite se
+  // propose à la liste d'attente de sa session.
+  const attente = r.statut === 'acceptee' ? await defaireAttente(ctx, r) : { texte: '' };
+  const promue = await promouvoirAttentes(ctx, [defait.sessionId]);
+  if (attente.attenteId) (defait as Defait).attenteId = attente.attenteId;
   await ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'attente', reponse: null, motifRefus: null, suite: null, ...marque(ctx, 'rouverte', motif) });
-  return { message: `Demande de ${emp.nom} rouverte, à décider de nouveau${texte ? ` · ${texte}` : ''}`, result: { defait } };
+  const suites = [texte, attente.texte, promue].filter(Boolean).join(' · ');
+  return { message: `Demande de ${emp.nom} rouverte, à décider de nouveau${suites ? ` · ${suites}` : ''}`, result: { defait } };
 };
 
 export const correctionsActions = {

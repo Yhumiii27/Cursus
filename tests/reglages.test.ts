@@ -76,6 +76,17 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     conservationActive: false, conservationDecisionDpo: '', conservationDossierAns: 5, conservationTempsAns: 3, conservationPaieAns: 5,
     conservationSanteAns: 5, conservationPasseportAns: 0, conservationTitreSejourAns: 5, conservationEntretiensAns: 5, conservationFormationsAns: 5,
     agendaFluxActif: false, agendaContenu: ['sessions', 'entretiens', 'absences', 'deplacements'],
+    // Lot 7 (t049) : astreintes communiquées 15 jours avant (art. R3121-3), compensation financière (réponse du 23 octobre
+    // 2026), aucune astreinte pour un salarié mineur, accord inconnu.
+    astreinteDelaiPrevenance: 15, astreinteCompensation: 'financiere', astreinteMineurs: false, astreinteAccord: '',
+    // Lot 7, chantier C (t120) : liste d'attente des sessions complètes activée ; place libérée proposée au service RH, qui
+    // confirme (réponse de l'entreprise du 23 octobre 2026).
+    formationsListeAttente: true, formationsAttenteMode: 'confirmer',
+    // Lot 7, chantier B (t066) : gabarit de l'export du Passeport de prévention (format à confirmer), sans NIR.
+    passeportColonnes: ['nom', 'prenom', 'naissance', 'matricule', 'intitule', 'organisme', 'du', 'au', 'duree', 'resultat'],
+    // Lot 7, chantier C (t121) : évaluation des formations activée ; à froid 90 jours après, par le salarié et son manager
+    // (réponse de l'entreprise du 23 octobre 2026), formations réglementaires et recommandées.
+    evaluationsActives: true, evaluationFroidDelai: 90, evaluationFroidPar: 'les_deux', evaluationFroidCategories: ['Réglementaire', 'Recommandée'],
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(await loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

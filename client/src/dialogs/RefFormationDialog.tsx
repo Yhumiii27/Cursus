@@ -12,6 +12,7 @@ import { Fine, NoteAccent } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { dureeHeuresDe } from '../../../shared/rules/heures-formation.ts';
+import { ARTICLE_PASSEPORT, passeportPropose } from '../../../shared/rules/passeport-prevention.ts';
 
 export function RefFormationDialog({ id }: { id?: string | null }) {
   const d = useDomain();
@@ -30,6 +31,8 @@ export function RefFormationDialog({ id }: { id?: string | null }) {
   const [dureeHeures, setDureeHeures] = useState(avant?.dureeHeures != null ? String(avant.dureeHeures) : '');
   const [organisme, setOrganisme] = useState(avant?.organisme ?? '');
   const [cout, setCout] = useState(avant ? String(avant.cout) : '');
+  // Passeport de prévention (lot 7, t066) : jamais coché d'office à la création ; proposé pour une formation santé-sécurité.
+  const [passeport, setPasseport] = useState(!!avant?.passeportPrevention);
   const [busy, setBusy] = useState(false);
   const [confirmer, setConfirmer] = useState(false);
   const v = useVerification();
@@ -38,7 +41,7 @@ export function RefFormationDialog({ id }: { id?: string | null }) {
   // Code proposé d'après le nom court tant que la personne n'en saisit pas un autre.
   const propose = court.trim() ? codeSuggere(court, liste.map(f => f.id)) : '';
   const codeFinal = code.trim() || propose;
-  const champs = { nom, court, type, validite, validation, duree, organisme, cout, dureeHeures: dureeHeures.trim().replace(',', '.') };
+  const champs = { nom, court, type, validite, validation, duree, organisme, cout, dureeHeures: dureeHeures.trim().replace(',', '.'), passeportPrevention: passeport };
   const { erreurs, formation } = controlerFormation({ ...champs, code: codeFinal }, liste, avant?.id ?? null);
   // Champ vide : signalé à l'envoi ; saisie incorrecte (format, doublon, borne) : dès la saisie.
   const erreur = (k: ChampFormation, saisi: string) => (saisi.trim() ? erreurs[k] ?? null : v.erreur(erreurs[k]));
@@ -120,6 +123,16 @@ export function RefFormationDialog({ id }: { id?: string | null }) {
         <Field label="Organisme" htmlFor="rf-organisme" erreur={erreur('organisme', organisme)}>
           <input className="input" id="rf-organisme" type="text" value={organisme} maxLength={80} placeholder="Interne · HSE" onChange={e => setOrganisme(e.target.value)} />
         </Field>
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-2)', fontSize: 14 }}>
+          <input type="checkbox" checked={passeport} onChange={e => setPasseport(e.target.checked)} style={{ accentColor: 'var(--color-accent)', marginTop: 3 }} />
+          <span>
+            Formation santé-sécurité à déclarer au Passeport de prévention
+            <span className="text-muted sub" style={{ display: 'block' }}>
+              {ARTICLE_PASSEPORT} : ses certifications et formations suivies sont proposées à l’export (écran Formations)
+              {!passeport && passeportPropose({ id: codeFinal, court, nom }) ? ' · formation santé-sécurité : à cocher ?' : ''}
+            </span>
+          </span>
+        </label>
         <Fine>
           {Number.isInteger(n) && n >= 1 && n <= VALIDITE_MAX ? `Validité : ${validiteLabel(n)}. ` : ''}
           La durée en heures compte les heures des formations suivies dans les indicateurs du plan (sans horaires de session) ;

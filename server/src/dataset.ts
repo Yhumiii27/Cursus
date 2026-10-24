@@ -22,7 +22,8 @@ import { delegationEnVigueur, deleguesA, type Delegue } from '../../shared/rules
 import { reglagesParDefaut } from '../../shared/reglages.ts';
 import { etatsCouverture } from '../../shared/rules/couverture.ts';
 import { entretienMiCarriere } from '../../shared/rules/entretien-mi-carriere.ts';
-import type { AvenantForfait, ContratHistorique, DelegationValidation, DemandeVisite, EtatCouverture, FormationSuivie, HabDelivrance, LotReprise, Personne } from '../../shared/types.ts';
+import { anneesC2p, syntheseC2p } from '../../shared/rules/c2p.ts';
+import type { Astreinte, AvenantForfait, ContratHistorique, DeclarationPasseport, DelegationValidation, DemandeVisite, EtatCouverture, FormationSuivie, HabDelivrance, InterventionAstreinte, LotReprise, Personne } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Fractionnement, Chantier, ClotureConges, CurrentUser, InformationCp, Dataset, SoldeSortie, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
   CalendrierFeries, DerogationDominicale, Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, Horaire, ISODate, Mandat, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim,
@@ -40,6 +41,10 @@ import { lirePieces, piecesVisibles } from './pieces.ts';
 import { resumeDeplacementsPaie } from './deplacements-paie.ts';
 import { dossiersEchus } from './conservation.ts';
 import { jetonActif } from './agenda.ts';
+import { avecPositions, avecProposees } from '../../shared/rules/liste-attente.ts';
+import type { AttenteSession } from '../../shared/types.ts';
+import { exercicesEvaluation, indicateursEvaluation, SEUIL_ANONYMAT } from '../../shared/rules/evaluation-formation.ts';
+import type { EvaluationFormation } from '../../shared/types.ts';
 
 /** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
 export const DEFAULT_SETTINGS: Settings = reglagesParDefaut();
@@ -78,6 +83,8 @@ async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
   const vaccins = await db.all<Vaccination>('vaccinations');
   const inscriptions = await db.all<Inscription>('inscriptions');
   const participations = await db.all<Participation>('participations');
+  // Listes d'attente des sessions complètes (lot 7, t120) : place de chacun dans sa file calculée sur toutes les attentes.
+  const attentesSession = avecPositions(await db.all<AttenteSession>('attentesSession'));
   const employes: Employe[] = (await db.all<EmpRow>('employes')).map(({ passeportNumero, passeportExpire, ...e }) => ({
     ...e,
     jourOff: e.jourOff ?? [],
@@ -122,7 +129,8 @@ async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
     employes,
     // Nombre d'inscrits calculé sur toutes les données, avant la restriction au périmètre.
     // Session d'une base ancienne ou écrite sans plage : un seul jour (completerSession).
-    sessions: avecInscrits((await db.all<Omit<Session, 'inscrits'>>('sessions')).map(completerSession), certs, inscriptions, participations),
+    // Places proposées à la liste d'attente (lot 7, t120), comptées sur toute la file.
+    sessions: avecProposees(avecInscrits((await db.all<Omit<Session, 'inscrits'>>('sessions')).map(completerSession), certs, inscriptions, participations), attentesSession),
     inscriptions,
     participations,
     // Ligne du plan supprimée (saisie erronée, `plan.supprimer`, demande rouverte) : hors de l'instantané et des calculs.
@@ -179,6 +187,14 @@ async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
     habDelivrances: await db.all<HabDelivrance>('habDelivrances'),
     // Délégations des validations (t135) : identifiants, dates et périmètre, jamais de motif.
     delegations: await db.all<DelegationValidation>('delegations'),
+    // Astreintes (t049, lot 7) et interventions déclarées : filtrées hors du service RH (motifs : textes libres).
+    astreintes: await db.all<Astreinte>('astreintes'),
+    interventionsAstreinte: await db.all<InterventionAstreinte>('astreinteInterventions'),
+    attentesSession,
+    // Passeport de prévention (lot 7, t066) : lignes déclarées (identifiants, dates, auteur), filtrées hors du service RH.
+    declarationsPasseport: await db.all<DeclarationPasseport>('declarationsPasseport'),
+    // Évaluations des formations (lot 7, t121) : avis nominatifs, commentaires compris ; filtrées hors du service RH.
+    evaluationsFormation: await db.all<EvaluationFormation>('evaluationsFormation'),
   };
   // Absences en attente du fichier de paie par période (server/src/absences-paie.ts) : lit le contenu figé des lots.
   // Déplacements en attente du fichier de paie (t031, server/src/deplacements-paie.ts) : lit la table des éléments émis.
@@ -203,6 +219,12 @@ const demandeSansMotifRh = (r: DemandeCollab): DemandeCollab => (r.rouverteMotif
 const suiviesNeutres = (l: readonly FormationSuivie[]): FormationSuivie[] =>
   l.filter(x => !x.annuleLe).map(x => ({ ...x, corrigeMotif: null, auteur: null, auteurId: null }));
 const delivrancesNeutres = (l: readonly HabDelivrance[]): HabDelivrance[] => l.map(x => ({ ...x, auteur: null, auteurId: null }));
+/** Déclaration au Passeport de prévention (lot 7, t066) hors du service RH : sans l'auteur de la marque. */
+const declarationNeutre = (x: DeclarationPasseport): DeclarationPasseport => ({ ...x, auteur: null, auteurId: null });
+/** Attente d'une liste d'attente (lot 7, t120) hors du service RH : sans l'auteur de l'inscription en file ni de sa fin. */
+const attenteNeutre = (a: AttenteSession): AttenteSession => ({ ...a, par: null, issuePar: null });
+/** Évaluation d'une formation hors du service RH (lot 7, t121) : sans qui l'a saisie (service RH à la clôture, manager). */
+const evaluationNeutre = (x: EvaluationFormation): EvaluationFormation => ({ ...x, auteur: null, auteurId: null });
 
 /**
  * Coordonnées sur place d'un déplacement (hébergement, contact local : textes libres du service RH, t068) et contact
@@ -226,6 +248,10 @@ const ligneContratEquipe = (l: ContratHistorique): ContratHistorique => ({ ...li
  * service RH), ni l'auteur ; pour le manager d'un membre, en plus, ni la majoration (rémunération) ni la référence : l'année et
  * les jours rachetés suffisent au plafond du cumul affiché à la validation.
  */
+/** Astreinte sans ses motifs (circonstances exceptionnelles, annulation : textes libres du manager ou du service RH). */
+const astreinteSansMotif = (a: Astreinte): Astreinte => (a.motif || a.annuleMotif ? { ...a, motif: null, annuleMotif: null } : a);
+/** Astreinte d'un membre de l'équipe, sans son lot de paie (étape 2 : comme les avenants, la paie reste au service RH). */
+const astreinteSansPaie = (a: Astreinte): Astreinte => (a.lotId != null || a.sage ? { ...a, lotId: null, sage: false } : a);
 const avenantNeutre = (a: AvenantForfait): AvenantForfait => ({ ...a, annuleMotif: null, creePar: '', annulePar: null });
 const avenantEquipe = (a: AvenantForfait): AvenantForfait => ({ ...avenantNeutre(a), taux: 0, reference: null, lotId: null, sage: false, horsFichier: false });
 
@@ -364,6 +390,8 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
         ...full, taches: tachesProches(full.taches, full.today), ...(droits.includes('paie') ? {} : sansCodesAbsences(full)), couverture: etatsCouverture(full, full.settings.horizonAlerte),
         // Dossiers des salariés sortis dont une durée de conservation est échue (t016) : administrateur RH seulement.
         ...(droits.includes('admin') ? { conservation: await dossiersEchus(db, full.settings, full.today) } : {}),
+        // Compte professionnel de prévention (t052) : synthèse calculée ici sur toutes les feuilles validées.
+        c2p: c2pDe(full),
       }
       : vueProfil(full, droits);
   }
@@ -420,11 +448,13 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
   });
   return {
     ...full,
-    referentiels: { ...full.referentiels, chantiers: [] },
+    // Facteurs d'exposition du C2P cochés sur les postes : avec le poste d'un membre, ils diraient son exposition.
+    referentiels: { ...full.referentiels, chantiers: [], postes: sansC2p(full.referentiels.postes) },
     employes,
     // Le bilan d'une session (évaluation à chaud, motif d'annulation : textes libres, parfois nominatifs)
-    // est réservé au service RH.
-    sessions: full.sessions.map(s => s.bilan ? { ...s, bilan: null } : s),
+    // est réservé au service RH. Seule la date de clôture ou d'annulation reste, sans auteur (lot 7, t121 : la demande
+    // d'avis à chaud part de la clôture quand elle vient après la formation, `CibleEvaluation.ouverte`).
+    sessions: full.sessions.map(s => s.bilan ? { ...s, bilan: { le: s.bilan.le, par: '', note: null, commentaire: null, motif: null } } : s),
     plan: [],
     budgets: {},
     exercicesClos: [],
@@ -498,19 +528,43 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
     // Formations suivies et délivrances d'habilitation : celles du périmètre, comme les certifications et les titres.
     formationsSuivies: suiviesNeutres(mine(full.formationsSuivies ?? [])),
     habDelivrances: delivrancesNeutres(mine(full.habDelivrances ?? [])),
+    // Liste d'attente (lot 7, t120) : les siennes ; pour le manager, celles de son périmètre (place dans la file comprise) ;
+    // sans les auteurs, comme les formations suivies.
+    attentesSession: mine(full.attentesSession ?? []).map(attenteNeutre),
+    // Passeport de prévention (lot 7, t066) : déclarations sur la plateforme, affaire du service RH et du référent HSE.
+    declarationsPasseport: [],
+    // Évaluations des formations (lot 7, t121) : les siennes (son avis, commentaire compris) ; pour le manager, en plus,
+    // ses avis de manager sur son équipe directe (hors consultation N+2) ; jamais l'avis d'un membre ni qui a saisi.
+    evaluationsFormation: (full.evaluationsFormation ?? []).filter(x => (x.empId === user.empId && x.repondant === 'salarie')
+      || (isMgr && x.repondant === 'manager' && x.empId !== user.empId && !lecture.has(x.empId) && d.emp(x.empId) && d.mgrOf(d.emp(x.empId)!) === user.empId))
+      .map(evaluationNeutre),
     delegations: delegationsVisibles(d, user),
     delegues,
     // Manager qui délègue pour lui-même (Mon espace ou espace manager) : suppléants possibles, réduits à l'annuaire.
     ...(d.teamsOf(user.empId).length ? { suppleantsPossibles: suppleantsPossibles(d, user.empId!) } : {}),
+    // Astreintes (t049) : celles du périmètre (les siennes, celles de l'équipe pour le manager), motifs compris sauf en
+    // consultation N+2 ; interventions déclarées du périmètre, comme les feuilles de temps qui portent leurs heures.
+    astreintes: mine(full.astreintes ?? []).map(a => (lecture.has(a.empId) ? astreinteSansMotif(a) : a)).map(a => (a.empId !== user.empId ? astreinteSansPaie(a) : a)),
+    interventionsAstreinte: mine(full.interventionsAstreinte ?? []),
     // Abonnement à l'agenda personnel (t036) : seulement le fait qu'il existe et sa date, jamais le jeton (haché en base).
     agendaJeton: await (async () => { const j = await jetonActif(db, user.empId!); return j ? { creeLe: j.creeLe } : null; })(),
   };
 }
 
+/**
+ * Compte professionnel de prévention (t052, shared/rules/c2p.ts) : synthèse de l'année en cours et de la précédente, sur
+ * l'instantané complet (toutes les feuilles validées) ; service RH, référent HSE (qui ne reçoit pas les feuilles) et
+ * lecture seule. Ni le manager, ni le collaborateur, ni la paie.
+ */
+const c2pDe = (full: Dataset) => anneesC2p(full.today).map(a => syntheseC2p(full, a));
+/** Postes sans les facteurs d'exposition du C2P (manager, collaborateur, paie). */
+const sansC2p = (postes: Dataset['referentiels']['postes']) => postes.map(p => (p.c2p ? { ...p, c2p: null } : p));
+
 /** Référentiels des postes et des équipes vidés de leurs exigences (profil qui ne reçoit pas les titres). */
 const sansExigences = (r: Dataset['referentiels']): Pick<Dataset['referentiels'], 'postes' | 'equipes'> => ({
-  // Poste à risques particuliers (formation renforcée exigée) et couverture minimale : sans les titres, de même.
-  postes: r.postes.map(p => ({ ...p, formations: [], habilitations: [], risquesL4154: false })),
+  // Poste à risques particuliers (formation renforcée exigée) et couverture minimale : sans les titres, de même ; facteurs
+  // d'exposition du C2P, réservés au service RH, au référent HSE et à la lecture seule.
+  postes: sansC2p(r.postes).map(p => ({ ...p, formations: [], habilitations: [], risquesL4154: false })),
   equipes: r.equipes.map(q => ({ ...q, exigences: null, couverture: null })),
 });
 
@@ -668,6 +722,20 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // Formations suivies et délivrances d'habilitation : avec les certifications et les titres (référent HSE, lecture seule).
     formationsSuivies: formations ? suiviesNeutres(full.formationsSuivies ?? []) : [],
     habDelivrances: formations ? delivrancesNeutres(full.habDelivrances ?? []) : [],
+    // Astreintes (t049) : avec les feuilles de temps (paie, lecture seule), sans les motifs ; rien pour le référent HSE.
+    astreintes: paie ? (full.astreintes ?? []).map(astreinteSansMotif) : [],
+    interventionsAstreinte: paie ? full.interventionsAstreinte ?? [] : [],
+    // Compte professionnel de prévention (t052) : référent HSE et lecture seule ; pas la paie (le service RH lui remet l'export).
+    ...(formations ? { c2p: c2pDe(full) } : {}),
+    // Listes d'attente des sessions (lot 7, t120) : avec les sessions (référent HSE, lecture seule), sans les auteurs.
+    attentesSession: formations ? (full.attentesSession ?? []).map(attenteNeutre) : [],
+    // Passeport de prévention (lot 7, t066) : avec les certifications et les formations suivies (référent HSE, lecture
+    // seule), sans l'auteur de la marque ; rien pour la paie.
+    declarationsPasseport: formations ? (full.declarationsPasseport ?? []).map(declarationNeutre) : [],
+    // Évaluations des formations (lot 7, t121) : aucun avis nominatif ; référent HSE et lecture seule reçoivent les
+    // indicateurs agrégés, calculés ici sur toutes les données, sans moyenne ni taux sous 3 réponses ; rien pour la paie.
+    evaluationsFormation: [],
+    ...(formations ? { indicateursEvaluation: exercicesEvaluation(d).map(ex => indicateursEvaluation(d, ex, SEUIL_ANONYMAT)) } : {}),
   };
 }
 

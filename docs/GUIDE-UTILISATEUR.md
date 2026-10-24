@@ -91,6 +91,10 @@ pas dans Cursus : la paie les traite dans Sage.
   Seul le service RH les voit, jamais votre manager ; videz les deux champs pour les retirer.
 - « Imprimer mon passeport formation » : certifications en vigueur et remplacées, habilitations et délivrances
   antérieures, formations suivies (« Mes formations suivies »), sans aucun motif de suspension ou de retrait.
+- Après une formation (une fois la session clôturée par le service RH), l'encart À faire de l'accueil demande votre avis
+  pendant un mois : « Donner mon avis » (note de 1 à 5, commentaire facultatif). Quelques mois plus tard (90 jours par défaut), il demande si elle vous a été utile dans votre
+  travail : « Répondre ». Un e-mail vous le rappelle. Seul le service RH lit vos commentaires ; votre manager ne voit pas vos
+  avis. « Mes avis sur les formations » les reprend, modifiables tant que l'évaluation est ouverte.
 
 ### Entretiens et portail
 
@@ -101,6 +105,12 @@ pas dans Cursus : la paie les traite dans Sage.
 - « Mes notifications par e-mail » : chaque notification aussitôt ou un récapitulatif chaque matin.
 - « Télécharger mes données » : copie de tout ce que Cursus conserve sur soi. La page « Confidentialité » explique leur
   traitement et à qui s'adresser.
+- « Mes astreintes » (salariés d'astreinte) : astreintes en cours et à venir, et le récapitulatif de chaque mois (heures
+  d'astreinte, périodes, interventions, forme de la compensation), à l'écran ou par « Imprimer le récapitulatif ». Il ne
+  compte que les heures déjà accomplies : celui du mois en cours est provisoire, arrêté au moment de l'affichage. Une
+  intervention se déclare sur la feuille de temps de la semaine (« Déclarer une intervention » dans l'encart
+  « Astreinte » : jour, heures de début et de fin) ; ses heures vont sur la ligne « Intervention d'astreinte », qui ne se
+  saisit pas à la main. Une intervention déclarée par erreur se retire tant que la feuille se saisit.
 
 ## Manager
 
@@ -140,6 +150,13 @@ Les feuilles validées partent à la paie avec le lot du mois : le manager n'a r
   relit et signe à son tour ; « Remettre la copie » trace la remise (main propre, refus de signer, mise à disposition).
 - Ses propres entretiens, menés par son responsable, se préparent dans l'espace collaborateur.
 
+### Évaluer les formations de l'équipe
+
+- « Évaluations à froid à faire » (écran Formations, pastille du menu) : quelques mois après une formation d'un membre de
+  l'équipe (90 jours par défaut, formations réglementaires et recommandées), « Évaluer » : efficace, partiellement ou pas
+  efficace, et un commentaire facultatif. Demandée par e-mail, puis relancée 15 et 30 jours après. Le salarié donne aussi
+  son avis ; chacun ne voit que le sien, le service RH lit les commentaires.
+
 ### Planning et équipe
 
 - « Missions » : qui est en mission aujourd'hui, et le « Planning des 4 prochaines semaines » (missions, absences, fériés).
@@ -167,6 +184,11 @@ Les feuilles validées partent à la paie avec le lot du mois : le manager n'a r
 - Recherche en haut de l'écran (touche « / » ou Ctrl+K) : tapez un nom, un poste ou un matricule ; les membres de votre
   équipe s'affichent au fil de la frappe, Entrée ou un clic ouvre la fiche, « Voir tous les résultats » filtre l'écran
   Équipe. Les listes de salariés des formulaires se filtrent de la même façon.
+- « Planning des astreintes » (écran Feuilles de temps, sous la feuille) : astreintes de votre équipe pour la semaine
+  affichée, en cours et à venir, terminées ou annulées. « Planifier une astreinte » : au moins 15 jours avant son début
+  (réglage du service RH) ; en dessous, les circonstances exceptionnelles sont à indiquer, et jamais moins d'un jour franc.
+  Le salarié reçoit un e-mail avec l'événement pour son agenda. Avant son début, l'astreinte se modifie ou s'annule (motif
+  communiqué au salarié) ; commencée, seule sa fin s'avance. Le service RH planifie aussi, et vous en êtes prévenu.
 
 ## Service RH
 
@@ -243,6 +265,15 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
   du plan, cocher ses bénéficiaires parmi l'équipe (le demandeur est coché d'office) ; pour une formation du catalogue,
   enregistrer aussi la certification de chacun, qui la remplace alors au passeport et dans les indicateurs. Les historiques tenus ailleurs ne
   sont pas repris : saisie manuelle.
+- Passeport de prévention (écran Formations, service RH et référent HSE) : panneau « Passeport de prévention », lignes à
+  déclarer de l'année (certifications et formations suivies des formations cochées « Passeport de prévention » dans
+  Référentiels → Formations : SST, CACES, ATEX, électrique, AIPR, EPI, hauteur, PRAP). « Exporter (CSV) », vérifier le
+  fichier (format de la plateforme à confirmer ; colonnes réglées dans Paramètres → Passeport de prévention ; pas de NIR),
+  le déclarer sur la plateforme, puis « Marquer déclarées… » avec le jour de la déclaration : ces lignes ne sont plus
+  proposées. Seules les lignes du dernier export sont cochées d'office : décochez celles que la plateforme a refusées ;
+  une ligne saisie après l'export reste à déclarer (après un rechargement de l'écran, cochez les lignes du fichier
+  accepté). Les formations des intérimaires ne sont pas exportées (déclarées en principe par l'agence). Une marque
+  posée par erreur se retire dans « Déjà déclarées ».
 - Titre d'habilitation : « Imprimer le titre » sur la fiche (titre en vigueur seulement : ni retiré, ni suspendu, ni
   expiré), ou case cochée à la délivrance. Modèle choisi au référentiel
   (« Modèle du titre imprimé » : électrique NF C18-510, autorisation de conduite R4323-56, générique) ; titulaire,
@@ -253,6 +284,12 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
   catégorie, par équipe et par statut, actions réalisées, coûts), exports CSV des indicateurs et des formations suivies.
   Les heures viennent des horaires des sessions, sinon de la « Durée en heures » du catalogue (Référentiels) ; une
   formation sans durée connue est signalée. Indicateurs utiles à la BDESE (pas de bilan social sous 300 salariés).
+- Évaluation des formations : à la clôture d'une session, l'avis à chaud de chaque présent peut être recueilli (liste à
+  côté de la présence) ; sinon il le donne dans son espace. Dans le détail d'une session clôturée, « Avis des
+  participants » : avis à chaud, efficacité à froid du salarié et du manager, commentaires ; « Recueillir » saisit un avis
+  reçu sur papier. Sous les indicateurs de Plan & budget, le panneau Évaluation des formations donne, par organisme et par
+  formation, la moyenne à chaud, le taux d'efficacité et les taux de réponse (« Exporter les évaluations »). Le référent
+  HSE le voit dans Formations, sans moyenne ni taux sous 3 réponses. Réglages : Paramètres, section Évaluation des formations.
 
 ### Congés et absences
 
@@ -376,6 +413,10 @@ d'un mois clos enregistrée en retard part entière, en rappel.
   dans Paramètres → Forfait jours. JREN est désactivée tant que la paie n'a pas donné son code : les jours sont alors
   listés « À saisir dans Sage » dans le résumé du lot du mois de la signature (ou de décembre, selon le réglage), et
   réglés hors fichier quand ce lot est confirmé. Un avenant enregistré après la génération du lot attend le lot suivant.
+- Astreintes terminées : heures d'astreinte du mois (AST_H, réparties entre les mois de la période) et périodes (AST_PER,
+  au mois de leur début). Rubriques désactivées tant que la paie n'a pas donné leurs codes : listées « À saisir dans Sage »
+  dans le résumé du lot et l'export des variables. La compensation (AST_COMP : montant, ou repos) suivra l'accord sur les
+  astreintes (forme réglée dans Paramètres → Astreintes). Les interventions sont déjà dans les heures de la feuille.
 - **Hors fichier, à saisir dans Sage** : heures de nuit ; intérimaires (relevé envoyé à leur agence)
   et cadres dirigeants exclus. La journée de solidarité et les fériés chômés se règlent année par année
   (Paramètres, « Jours fériés et journée de solidarité ») : un jour ainsi travaillé n'est plus férié (art. L3133-8).

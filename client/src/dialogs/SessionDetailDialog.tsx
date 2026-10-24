@@ -15,6 +15,8 @@ import { downloadCsv } from '../print.ts';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { desinscription } from '../state/confirmations.ts';
 import { useStore } from '../state/store.tsx';
+import { ListeAttenteSession } from '../components/ListeAttente.tsx';
+import { AvisSession } from '../components/Evaluations.tsx';
 
 export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
   const { d } = useEnriched();
@@ -156,6 +158,8 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
           <Fine>Confirmez la session une fois la date validée par {fm?.organisme ?? 'l’organisme'}, et transmettez-lui cette liste (export CSV). Les convocations partent par e-mail aux inscrits, avec le fichier qui ajoute la session à leur agenda.</Fine>
         )}
         {cloturable && <NoteAccent>{dernier < d.ti ? 'Session passée — à clôturer : présence, résultats et certifications.' : surPlusieursJours(s) ? 'Dernier jour de la session : clôturez-la une fois terminée.' : 'Session du jour : clôturez-la une fois terminée.'}</NoteAccent>}
+        {/* Liste d'attente de la session complète (lot 7, t120) : place proposée à confirmer, retrait. */}
+        <ListeAttenteSession s={s} />
       </>}
 
       {s.statut === 'Clôturée' && <>
@@ -179,9 +183,11 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
         ) : <Empty pad="sm">Aucun inscrit.</Empty>}
         <Fine>
           Clôturée le {s.bilan ? fmt(parse(s.bilan.le)) : '—'}{s.bilan?.par ? ` par ${s.bilan.par}` : ''} · validation : {fm && exigeEvaluation(fm) ? 'évaluation réussie requise' : 'présence'}.
-          {s.bilan?.note != null ? ` Évaluation à chaud : ${s.bilan.note} / 5.` : ' Évaluation à chaud non renseignée.'}
+          {s.bilan?.note != null ? ` Appréciation de la session : ${s.bilan.note} / 5.` : ''}
         </Fine>
         {s.bilan?.commentaire && <p className="boxed" style={{ margin: 0, fontSize: 13, whiteSpace: 'pre-wrap' }}>{s.bilan.commentaire}</p>}
+        {/* Avis des participants (lot 7, t121) : service RH seulement. */}
+        <AvisSession s={s} />
       </>}
 
       {s.statut === 'Annulée' && (

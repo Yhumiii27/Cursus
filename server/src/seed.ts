@@ -22,22 +22,25 @@ import { delivrancesDepuisTitres } from './migrations/lot6-securite.ts';
 import { lotHistorique } from './migrations/paie.ts';
 import { amorcerActivites } from './migrations/temps.ts';
 import { amorcerHoraires } from './migrations/lot6-horaires.ts';
+import { amorcerActiviteAstreinte } from './migrations/lot7-astreintes.ts';
 
 // Mode de validation : évaluation réussie pour les habilitations électriques, CACES, SST, ATEX, AIPR et PRAP ;
 // la présence suffit pour les sensibilisations et formations d'information.
+// `passeportPrevention` : formations santé-sécurité à déclarer au Passeport de prévention (lot 7, t066), comme les coche la
+// migration lot7-prevention-passeport sur une base existante (ni FCO, ni RGPD).
 // FORMATIONS, HABILITATIONS et DESTS forment aussi le référentiel type, chargé sur une base vide par le service RH
 // (`referentiel.charger`, server/src/actions/referentiels.ts), sans les salariés.
 export const FORMATIONS = [
-  { id: 'sst', nom: 'Sauveteur secouriste du travail (SST)', court: 'SST', type: 'Réglementaire', validite: 24, duree: '7 h (MAC)', organisme: 'Croix-Rouge française', cout: 180, validation: 'evaluation', dureeHeures: 7 },
-  { id: 'elec', nom: 'Préparation à l’habilitation électrique B1V · B2V · BR', court: 'Formation élec. B1V-BR', type: 'Réglementaire', validite: 36, duree: '21 h', organisme: 'Apave', cout: 480, validation: 'evaluation', dureeHeures: 21 },
-  { id: 'atex', nom: 'Intervention en zone ATEX (niveau 1)', court: 'ATEX', type: 'Réglementaire', validite: 36, duree: '7 h', organisme: 'Apave', cout: 350, validation: 'evaluation', dureeHeures: 7 },
-  { id: 'caces489', nom: 'CACES R489 — Chariots élévateurs (cat. 3)', court: 'CACES R489', type: 'Réglementaire', validite: 60, duree: '21 h', organisme: 'AFTRAL', cout: 650, validation: 'evaluation', dureeHeures: 21 },
-  { id: 'caces486', nom: 'CACES R486 — Nacelles PEMP (cat. B)', court: 'CACES R486', type: 'Réglementaire', validite: 60, duree: '21 h', organisme: 'AFTRAL', cout: 650, validation: 'evaluation', dureeHeures: 21 },
-  { id: 'epi', nom: 'Équipier de première intervention incendie', court: 'EPI incendie', type: 'Réglementaire', validite: 12, duree: '4 h', organisme: 'Interne · HSE', cout: 40, validation: 'presence', dureeHeures: 4 },
+  { id: 'sst', nom: 'Sauveteur secouriste du travail (SST)', court: 'SST', type: 'Réglementaire', validite: 24, duree: '7 h (MAC)', organisme: 'Croix-Rouge française', cout: 180, validation: 'evaluation', dureeHeures: 7, passeportPrevention: true },
+  { id: 'elec', nom: 'Préparation à l’habilitation électrique B1V · B2V · BR', court: 'Formation élec. B1V-BR', type: 'Réglementaire', validite: 36, duree: '21 h', organisme: 'Apave', cout: 480, validation: 'evaluation', dureeHeures: 21, passeportPrevention: true },
+  { id: 'atex', nom: 'Intervention en zone ATEX (niveau 1)', court: 'ATEX', type: 'Réglementaire', validite: 36, duree: '7 h', organisme: 'Apave', cout: 350, validation: 'evaluation', dureeHeures: 7, passeportPrevention: true },
+  { id: 'caces489', nom: 'CACES R489 — Chariots élévateurs (cat. 3)', court: 'CACES R489', type: 'Réglementaire', validite: 60, duree: '21 h', organisme: 'AFTRAL', cout: 650, validation: 'evaluation', dureeHeures: 21, passeportPrevention: true },
+  { id: 'caces486', nom: 'CACES R486 — Nacelles PEMP (cat. B)', court: 'CACES R486', type: 'Réglementaire', validite: 60, duree: '21 h', organisme: 'AFTRAL', cout: 650, validation: 'evaluation', dureeHeures: 21, passeportPrevention: true },
+  { id: 'epi', nom: 'Équipier de première intervention incendie', court: 'EPI incendie', type: 'Réglementaire', validite: 12, duree: '4 h', organisme: 'Interne · HSE', cout: 40, validation: 'presence', dureeHeures: 4, passeportPrevention: true },
   { id: 'fco', nom: 'FCO Marchandises', court: 'FCO', type: 'Réglementaire', validite: 60, duree: '35 h', organisme: 'AFTRAL', cout: 900, validation: 'presence', dureeHeures: 35 },
-  { id: 'aipr', nom: 'AIPR — Opérateur', court: 'AIPR', type: 'Réglementaire', validite: 60, duree: '7 h', organisme: 'Apave', cout: 190, validation: 'evaluation', dureeHeures: 7 },
-  { id: 'hauteur', nom: 'Travail en hauteur et port du harnais', court: 'Travail en hauteur', type: 'Recommandée', validite: 36, duree: '7 h', organisme: 'Socotec', cout: 320, validation: 'presence', dureeHeures: 7 },
-  { id: 'prap', nom: 'PRAP IBC — Prévention des risques liés à l’activité physique', court: 'PRAP', type: 'Recommandée', validite: 24, duree: '14 h', organisme: 'INRS', cout: 420, validation: 'evaluation', dureeHeures: 14 },
+  { id: 'aipr', nom: 'AIPR — Opérateur', court: 'AIPR', type: 'Réglementaire', validite: 60, duree: '7 h', organisme: 'Apave', cout: 190, validation: 'evaluation', dureeHeures: 7, passeportPrevention: true },
+  { id: 'hauteur', nom: 'Travail en hauteur et port du harnais', court: 'Travail en hauteur', type: 'Recommandée', validite: 36, duree: '7 h', organisme: 'Socotec', cout: 320, validation: 'presence', dureeHeures: 7, passeportPrevention: true },
+  { id: 'prap', nom: 'PRAP IBC — Prévention des risques liés à l’activité physique', court: 'PRAP', type: 'Recommandée', validite: 24, duree: '14 h', organisme: 'INRS', cout: 420, validation: 'evaluation', dureeHeures: 14, passeportPrevention: true },
   { id: 'rgpd', nom: 'Sensibilisation RGPD et sécurité de l’information', court: 'RGPD', type: 'Interne', validite: 24, duree: '2 h', organisme: 'Interne · DSI', cout: 0, validation: 'presence', dureeHeures: 2 },
 ];
 
@@ -497,6 +500,8 @@ export async function seedDemo(db: Db) {
     for (const [code, nom] of Object.entries(PROJETS)) await enregistrerProjet(cx, code, { nom });
     // Activités internes de base (dont la délégation du CSE) : comme la migration d'une base neuve, rejouée à la réinitialisation.
     await amorcerActivites(db);
+    // Activité des interventions d'astreinte (t049), comme la migration d'une base neuve.
+    await amorcerActiviteAstreinte(db);
     // Horaires de poste d'exemple (comme la migration d'une base neuve) ; horaire de journée proposé à la Maintenance et à
     // l'Administration, équipe du matin à la Production (2x8 : l'après-midi se choisit sur la feuille).
     await amorcerHoraires(db);

@@ -17,6 +17,7 @@ import { mondayOf } from '../../../shared/dates.ts';
 import type { FormaliteKind, UiIntent } from '../../../shared/domain.ts';
 import type { ReferentielId } from '../../../shared/rules/referentiels.ts';
 import type { CompteSession, Dataset, EntretienType, ISODate, MotifVisite, ObjetPiece, PlanStatut, ProfilRh, Role, VaccinId } from '../../../shared/types.ts';
+import type { RepondantEvaluation, TypeEvaluation } from '../../../shared/types.ts';
 import { api, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type NomAction, type SessionState } from '../api.ts';
 import type { Tri } from '../components/tri.ts';
 import { AppelsEnCours } from './actions.ts';
@@ -127,6 +128,10 @@ export type DialogState =
   /** Onglet Postes : poste (création sans identifiant) et exigences communes d'une équipe (shared/rules/exigences.ts). */
   | { type: 'refPoste'; id?: number | null }
   | { type: 'refEquipe'; nom: string }
+  /** Onglet Postes : facteurs d'exposition du C2P cochés sur un poste (lot 7, shared/rules/c2p.ts). */
+  | { type: 'refPosteC2p'; id: number }
+  /** Écran Formations : lignes du Passeport de prévention à noter déclarées (lot 7, shared/rules/passeport-prevention.ts). */
+  | { type: 'passeportDeclarer'; du: string; au: string; exportees: string[] | null }
   /** Onglet Activités internes (création sans code, renommage) ; mandat au CSE d'un salarié (fiche, service RH). */
   | { type: 'refActivite'; code?: string | null }
   /** Onglet Horaires : horaire de poste (création sans code, modification ; shared/rules/horaires.ts). */
@@ -149,6 +154,13 @@ export type DialogState =
   | { type: 'avenantForfait'; empId: number }
   /** Effacement des données échues ou anonymisation de dossiers de salariés sortis (t016, administrateur RH). */
   | { type: 'anonymiser'; ids: number[]; avantEcheance?: boolean }
+  /** Demande de formation dont la session est complète : liste d'attente ou plan de formation (lot 7, t120). */
+  | { type: 'accepterAttente'; id: number }
+  /** Astreintes (t049, lot 7) : planification (`empId` présélectionné) ou modification (`id`) ; intervention déclarée. */
+  | { type: 'astreinte'; empId?: number | null; id?: number | null }
+  | { type: 'interventionAstreinte'; empId: number; jour?: ISODate | null; astreinteId?: number | null }
+  /** Évaluation d'une formation (lot 7, t121) : `cle` de shared/rules/evaluation-formation.ts, à chaud ou à froid, avis de qui. */
+  | { type: 'evaluation'; cle: string; quand: TypeEvaluation; repondant?: RepondantEvaluation }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
   | { type: 'confirmer'; c: Confirmation };
 

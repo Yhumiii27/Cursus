@@ -68,6 +68,13 @@ export const TRAITEMENTS: Record<string, Traitement> = {
   'delegations.suppleant_id': { mode: 'gardee' },
   'fractionnements.emp_id': { mode: 'gardee' },
   'hab_delivrances.emp_id': { mode: 'gardee' },
+  // Liste d'attente des sessions (lot 7, t120) : rang, statut et issue codés, gardés comme les inscriptions ; la demande qui
+  // l'y a placé est détachée avant d'être supprimée (pas de référence orpheline), l'auteur (nom) retiré par le balayage.
+  'attentes_session.emp_id': { mode: 'textes', categorie: 'formations' },
+  // Évaluations des formations (lot 7, t121) : comme les formations suivies, notes et efficacité gardées (agrégats), commentaire
+  // (texte libre) vidé ; l'auteur d'une évaluation (manager, service RH) est gardé, son nom retiré par le balayage.
+  'evaluations_formation.emp_id': { mode: 'textes', categorie: 'formations' },
+  'evaluations_formation.auteur_id': { mode: 'auteur' },
   'comptes.emp_id': { mode: 'compte' },
   'pieces.emp_id': { mode: 'pieces' },
   'contrats_historique.par_id': { mode: 'auteur' },
@@ -75,6 +82,14 @@ export const TRAITEMENTS: Record<string, Traitement> = {
   'hab_delivrances.auteur_id': { mode: 'auteur' },
   'formations_suivies.auteur_id': { mode: 'auteur' },
   'equipes.manager_id': { mode: 'detachee' },
+  // Astreintes (t049, lot 7) : lignes gardées avec les feuilles de temps, motifs (textes libres) vidés ; interventions
+  // (jours, heures) gardées telles quelles.
+  'astreintes.emp_id': { mode: 'textes', categorie: 'temps' },
+  'astreinte_interventions.emp_id': { mode: 'gardee' },
+  // Passeport de prévention (lot 7, t066) : déclarations (identifiants et dates) gardées avec les certifications et les
+  // formations suivies qu'elles désignent ; l'auteur (nom) retiré par le balayage des textes.
+  'declarations_passeport.emp_id': { mode: 'gardee' },
+  'declarations_passeport.auteur_id': { mode: 'auteur' },
 };
 
 /**
@@ -115,12 +130,17 @@ function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number): Etap
       { table: 'absences', ou: 'emp_id = ?', vider: ['motif_refus'] },
       { table: 'reports', ou: 'emp_id = ?', vider: ['motif'] },
       { table: 'clotures', ou: 'emp_id = ?', vider: ['motif'] },
+      { table: 'astreintes', ou: 'emp_id = ?', vider: ['motif', 'annule_motif'] },
     ];
     case 'formations': return [
       retrait(cx, `emp_id = ? AND objet IN ('certification', 'habTitre')`),
       { table: 'certifications', ou: 'emp_id = ?', vider: ['corrige_motif', 'annule_motif'] },
       { table: 'hab_titres', ou: 'emp_id = ?', vider: ['mesure_motif'] },
       { table: 'formations_suivies', ou: 'emp_id = ?', vider: ['corrige_motif', 'annule_motif'] },
+      // Évaluations des formations (lot 7, t121) : commentaire vidé, note et efficacité gardées.
+      { table: 'evaluations_formation', ou: 'emp_id = ?', vider: ['commentaire'] },
+      // Liste d'attente (lot 7, t120) : la demande supprimée ci-dessous n'y est plus désignée.
+      { table: 'attentes_session', ou: 'emp_id = ?', vider: ['demande_id'] },
       { table: 'demandes_collab', ou: `emp_id = ? AND type IN ('formation', 'habilitation')`, supprimer: true },
     ];
     // Avenants de renonciation d'un forfait jours : référence et motif d'annulation (textes libres du service RH).
@@ -129,6 +149,7 @@ function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number): Etap
       // Pièces restantes (déplacements, autres déclarations) retirées, et leur nom d'origine, qui peut nommer la personne.
       retrait(cx, 'emp_id = ?'),
       { table: 'pieces', ou: `emp_id = ? AND nom NOT LIKE 'piece-%'`, sql: { nom: `'piece-' || id` } },
+      { table: 'attentes_session', ou: 'emp_id = ?', vider: ['demande_id'] },
       { table: 'demandes_collab', ou: 'emp_id = ?', supprimer: true },
       { table: 'notifications', ou: 'emp_id = ?', supprimer: true },
       { table: 'verdicts_keystone', ou: 'emp_id = ?', supprimer: true },

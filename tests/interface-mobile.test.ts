@@ -59,7 +59,7 @@ test('à faire : compte rendu à signer, feuille renvoyée, semaine passée à s
 
   // Mehdi Benali : feuille de la semaine passée validée, rien n'attend.
   const feuille = async () => (await db.one('SELECT id FROM feuilles WHERE emp_id = 2 AND week = ?', [passee])) as { id: number } | undefined;
-  assert.deepEqual(aFaireCollaborateur(await domaine(), 2), { comptesRendus: [], feuilles: [] });
+  assert.deepEqual(aFaireCollaborateur(await domaine(), 2), { comptesRendus: [], feuilles: [], evaluations: [] });
   // Renvoyée par le valideur : à corriger, avec son commentaire, comptée une seule fois.
   await db.update('feuilles', (await feuille())!.id, { statut: 'rejetee', comment: 'Heures du jeudi à répartir' });
   assert.deepEqual(aFaireCollaborateur(await domaine(), 2).feuilles, [{ week: passee, etat: 'renvoyee', commentaire: 'Heures du jeudi à répartir' }]);
@@ -85,7 +85,7 @@ test('à faire : compte rendu à signer, feuille renvoyée, semaine passée à s
   await db.insert('feuilles', { empId: 2, week: passee, statut: 'soumise', comment: null, sage: false, keystone: false, lignes: [], contrat: null });
   assert.deepEqual(aFaireCollaborateur(await domaine(), 2).feuilles, []);
   // Sans fiche (compte externe) : rien.
-  assert.deepEqual(aFaireCollaborateur(await domaine(), null), { comptesRendus: [], feuilles: [] });
+  assert.deepEqual(aFaireCollaborateur(await domaine(), null), { comptesRendus: [], feuilles: [], evaluations: [] });
 });
 
 // — Saisie des heures jour par jour —

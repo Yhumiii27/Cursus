@@ -7,7 +7,9 @@ import { CONTRATS_EXCLUABLES, PREAVIS_TOUTE_ANNEE } from './rules/campagne.ts';
 import { JOURS_RELANCE, paliersRelance } from './rules/relances.ts';
 import { nuitHorsLoi, refusPlageNuit } from './rules/repos-nuit.ts';
 import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesTexte, DOSSIER_MIN_ANS, DUREE_MAX_ANS } from './rules/conservation.ts';
-import type { ContenuAgenda, Settings, StockagePieces } from './types.ts';
+import { DELAI_JOUR_FRANC, DELAI_PREVENANCE_LEGAL } from './rules/astreintes.ts';
+import { COLONNES_PASSEPORT_DEFAUT, COLONNES_PASSEPORT_IDS } from './rules/passeport-prevention.ts';
+import type { CategorieEvaluee, ColonnePasseport, CompensationAstreinte, ContenuAgenda, ModeAttente, RepondantsFroid, Settings, StockagePieces } from './types.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
 export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
@@ -85,6 +87,13 @@ export const codeFormation = (libelle: string) => (v: unknown): string => {
   const t = typeof v === 'string' ? v.trim().toLowerCase() : '';
   if (t && !/^[a-z0-9_-]{1,40}$/.test(t)) throw new ReglageInvalide(`${libelle} : code de formation invalide`);
   return t;
+};
+
+/** Colonnes de l'export du Passeport de prévention : cochées parmi celles du gabarit, au moins une. */
+const colonnesPasseport = (v: unknown): ColonnePasseport[] => {
+  const c = parmi(COLONNES_PASSEPORT_IDS)(v);
+  if (!c.length) throw new ReglageInvalide('Export du Passeport de prévention : gardez au moins une colonne');
+  return c;
 };
 
 /**
@@ -245,6 +254,28 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   //   absences toujours publiées sous le libellé neutre « Absent » —
   agendaFluxActif: { defaut: false, controle: booleen },
   agendaContenu: { defaut: ['sessions', 'entretiens', 'absences', 'deplacements'], controle: parmi<ContenuAgenda>(['sessions', 'entretiens', 'absences', 'deplacements']) },
+  // — Astreintes (t049, lot 7, shared/rules/astreintes.ts ; section de Paramètres à l'étape 2) : accord inconnu (réponse de
+  //   l'entreprise du 23 octobre 2026) — délai de prévenance légal de 15 jours (art. R3121-3), compensation financière,
+  //   aucune astreinte pour un salarié mineur, référence de l'accord vide —
+  astreinteDelaiPrevenance: { defaut: DELAI_PREVENANCE_LEGAL, controle: entier(DELAI_JOUR_FRANC, 60) },
+  astreinteCompensation: { defaut: 'financiere', controle: choix<CompensationAstreinte>(['financiere', 'repos']) },
+  astreinteMineurs: { defaut: false, controle: booleen },
+  astreinteAccord: { defaut: '', controle: texte(120, 'Référence de l’accord') },
+  // — Liste d'attente des sessions (parametres/ListeAttente.tsx, shared/rules/liste-attente.ts, lot 7 t120) : activée ; une
+  //   place libérée est proposée au service RH, qui confirme l'inscription (réponse de l'entreprise du 23 octobre 2026) —
+  formationsListeAttente: { defaut: true, controle: booleen },
+  formationsAttenteMode: { defaut: 'confirmer', controle: choix<ModeAttente>(['confirmer', 'automatique']) },
+  // — Passeport de prévention (parametres/PasseportPrevention.tsx, shared/rules/passeport-prevention.ts, lot 7 t066) : gabarit
+  //   de l'export, format de la plateforme à confirmer — nom, prénom, date de naissance, matricule, intitulé, organisme,
+  //   du, au, durée, résultat ; au moins une colonne —
+  passeportColonnes: { defaut: COLONNES_PASSEPORT_DEFAUT, controle: colonnesPasseport },
+  // — Évaluation des formations (parametres/EvaluationsFormation.tsx, shared/rules/evaluation-formation.ts, lot 7 t121) :
+  //   activée ; à froid 90 jours après la formation, par le salarié et son manager (réponse de l'entreprise du 23 octobre
+  //   2026), pour les formations réglementaires et recommandées ; échelles fixes en attendant un questionnaire qualité —
+  evaluationsActives: { defaut: true, controle: booleen },
+  evaluationFroidDelai: { defaut: 90, controle: entier(30, 365) },
+  evaluationFroidPar: { defaut: 'les_deux', controle: choix<RepondantsFroid>(['les_deux', 'salarie', 'manager']) },
+  evaluationFroidCategories: { defaut: ['Réglementaire', 'Recommandée'], controle: parmi<CategorieEvaluee>(['Réglementaire', 'Recommandée', 'Interne', 'Hors catalogue']) },
 };
 
 /**
@@ -297,6 +328,9 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
     const plus = CATEGORIES.filter(c => c !== 'dossier' && s[CATEGORIES_CONSERVATION[c].reglage] > s.conservationDossierAns);
     return plus.length ? `Conservation des dossiers : ${categoriesTexte(plus)} au-delà de la durée du dossier, dont l’anonymisation efface tout` : null;
   },
+  // — Astreintes : un délai de prévenance plus court que 15 jours suppose un accord collectif (art. L3121-11) —
+  s => (s.astreinteDelaiPrevenance < DELAI_PREVENANCE_LEGAL && !s.astreinteAccord
+    ? `Astreintes : un délai de prévenance de moins de ${DELAI_PREVENANCE_LEGAL} jours suppose un accord collectif (art. L3121-11) : indiquez sa référence` : null),
 ];
 
 /** Vue non typée de la table, pour la parcourir (les contrôles reçoivent la valeur en vigueur du même champ). */

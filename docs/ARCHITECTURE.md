@@ -56,6 +56,10 @@ shared/            Domaine partagé (aucune dépendance)
                    feries.ts (lot 6) : jours fériés et journée de solidarité réglés par année (calendrier : dates.ts) ;
                    horaires.ts (lot 6) : horaires de poste, horaire par défaut d'une équipe, horaire du jour d'une feuille
                    repos-nuit.ts (lot 6) : repos quotidien, pause, heures de nuit, nuit des mineurs, travailleur de nuit
+                   c2p.ts (lot 7) : compte professionnel de prévention, nuits de 0 h à 5 h, facteurs du poste, export DSN
+                   passeport-prevention.ts (lot 7) : Passeport de prévention, formations marquées, lignes à déclarer, export
+                   evaluation-formation.ts (lot 7, t121) : évaluation des formations à chaud et à froid, fenêtres, à faire,
+                   demandes et relances, indicateurs par organisme et par formation
                    conservation.ts (lot 6, t016) : durées de conservation par catégorie après la sortie, dossiers échus
                    historique-contrat.ts : historique des contrats (régime en vigueur à une date, `regimeAu`, avenants
                    programmés) ; cdd.ts : motif de recours, durée maximale et renouvellements d'un CDD, délai de carence
@@ -81,6 +85,10 @@ server/src/
                    lot6-horaires.ts (lot 6 : horaires de poste d'exemple amorcés)
                    lot6-contrats.ts (lot 6 : historique des contrats amorcé depuis les fiches et les feuilles figées)
                    lot6-securite.ts (lot 6 : délivrances d'habilitation en vigueur, durée en heures du catalogue)
+                   lot7-prevention.ts (lot 7, chantier B : colonnes du C2P, rien à reprendre ; étape 2 : formations
+                   santé-sécurité marquées pour le Passeport de prévention, index des déclarations)
+                   lot7-prevention.ts (lot 7, chantier B : colonnes du C2P, rien à reprendre)
+                   lot7-formations.ts (lot 7, chantier C : index de la liste d'attente, puis des évaluations des formations)
   seed.ts          Données de démonstration
   avenants.ts      Historique des contrats : lignes écrites par la fiche, le renouvellement d'un CDD et la sortie, brouillons
                    refigés, avenants programmés appliqués à leur date (au démarrage puis toutes les heures)
@@ -103,7 +111,8 @@ server/src/
   envois.ts        File d'envoi persistante des messages sortants (table envois), traitée en tâche de fond
   journal.ts       Journal des actions : liste blanche par action, conservation et archive paie, consultation, export CSV
   lots-paie.ts     Lots de paie (lecture sans contenu, format du fichier d'import) ; fichier-paie.ts : téléchargement du fichier
-                   d'import d'un lot (GET /api/paie/lots/:id/fichier, tracé) ; absences-paie.ts : absences d'un lot (éléments
+                   d'import d'un lot (GET /api/paie/lots/:id/fichier, tracé) ; passeport-prevention.ts : export CSV des
+                   lignes du Passeport de prévention (GET /api/formations/passeport-prevention, tracé, lot 7) ; absences-paie.ts : absences d'un lot (éléments
                    déjà émis, réservation, libération, résumé de l'instantané) ; variables-paie.ts : export CSV des variables
                    d'une période (GET /api/paie/variables/:periode, tracé)
   delivrances.ts   Historique des délivrances d'habilitation (lot 6) : délivrance précédente close au renouvellement
@@ -120,6 +129,7 @@ server/src/
   notifications.ts Notifications d'étapes (aussitôt ou récapitulatif quotidien), convocations .ics, tâches planifiées
   releves.ts       Relevés d'heures hebdomadaires des intérimaires envoyés à leur agence
   relances.ts      Récapitulatif des échéances par paliers (RH, managers, référent HSE), relances notées (table relances)
+  evaluations-formation.ts Demandes et relances des évaluations de formation par e-mail (lot 7, t121), une fois par jour
   integrations/    Adaptateurs Keystone, Sage Paie et e-mails (email.ts : Microsoft Graph, .ics ; simulation par défaut) ;
                    ged.ts : espace documentaire de l'entreprise (squelette, refusé tant que son interface est inconnue) ; API Keystone entrante :
                    keystone-entrant.ts (contrôles, écritures, instantané) et keystone-routes.ts (routes /v1) ;
@@ -383,7 +393,7 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   d'un arrêt longue maladie retirée (comme pour le manager), motif des reports de CP retiré, comme celui d'un report imposé à la
   clôture des congés (`ClotureConges.motif` : il laisse deviner une absence de santé), et échéance des reports et des
   clôtures ramenée au 31 mai (`reportNeutre`, `clotureNeutre` : le 31 août d'un report légal la trahirait aussi, pour le
-  manager comme pour ces profils) ; le référent HSE ne reçoit ni temps, ni absences, ni entretiens, ni plan ; la paie ni formations, ni
+  manager comme pour ces profils) ; le référent HSE ne reçoit ni temps (seulement la synthèse des nuits du C2P, `Dataset.c2p`, sans les feuilles), ni absences, ni entretiens, ni plan ; la paie ni formations, ni
   entretiens, ni déplacements ; la lecture seule tout le reste, sans le contenu des comptes rendus d'entretien ni
   les documents déclarés (plan, enveloppes et exercices clos : service RH et lecture seule seulement). L'état des déplacements (`dossierStatut`, `dossierManque`) est calculé par le serveur
   pour que le verdict Go / No Go reste exact sans les pièces. `GET /api/journal` et `GET /api/envois` : droit
@@ -526,7 +536,20 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     `0002_partage.sql` (vues `pub_` lues par Matrix et les autres outils, sans colonne sensible ni GRANT : les droits
     viennent du socle) et `0003_lot6_etape2.sql` (étape 2 du lot 6 : 7 tables, 57 en tout, colonnes ajoutées, nature
     d'absence `CET` ; sur une base déjà remplie, majoration de nuit figée et délivrances en vigueur reprises en SQL) et `0004_pub_absences.sql` (vue `pub_absences`, demande CU-1 de Crucible : matricule, dates, statut validée ou
-    demandée, annulation, `maj_le` posée par un déclencheur ; jamais le type ni le motif ; lecteurs accordés par Matrix).
+    demandée, annulation, `maj_le` posée par un déclencheur ; jamais le type ni le motif ; lecteurs accordés par Matrix) ;
+    `0005_astreintes.sql` (lot 7, chantier A : tables `astreintes` et `astreinte_interventions`, 59 tables, activité interne
+    `INT-AST` sur une base déjà remplie ; aucune vue `pub_`) ;
+    `0006_prevention.sql` (lot 7, chantier B : colonnes `postes.c2p` et `horaires.alternant` du compte professionnel de
+    prévention, JSON contrôlés par CHECK ; aucune vue `pub_`) ;
+    `0007_formations.sql` (lot 7, chantier C : liste d'attente des sessions, table `attentes_session`, aucune vue `pub_`) ;
+    `0008_astreintes_paie.sql` (lot 7, chantier A, étape 2 : `astreintes.lot_id` et `astreintes.sage`, `lots_paie.astreintes`
+    de la famille « astreintes » ; aucune vue `pub_`) ;
+    `0009_passeport_prevention.sql` (lot 7, chantier B, étape 2 : colonne `formations.passeport_prevention`, cochée en SQL
+    sur les formations santé-sécurité d'une base déjà remplie, table `declarations_passeport` avec ses clés étrangères et
+    son CHECK « certification ou formation suivie » ; aucune vue `pub_`, aucun NIR) ;
+    `0010_evaluations_formation.sql` (lot 7, chantier C, étape 2 : évaluations des formations, table `evaluations_formation`,
+    CHECK du type, du répondant, de la note et de l'efficacité, une seule formation évaluée ; aucune vue `pub_`). 62 tables
+    en tout.
     Appliquées au démarrage sous `pg_advisory_lock(hashtext('cursus.migrations'))`, pris avant de lire le journal
     `cursus.schema_migrations`, une transaction par fichier ; une migration du journal inconnue de ce code (base mise à
     jour par une version plus récente) ou un schéma `cursus` absent : refus de démarrer. Puis `TABLES` est comparé au
@@ -959,7 +982,11 @@ aucun champ du paramètre n'est recopié.
 | `session.confirmer` | id | RH, référent HSE |
 | `session.modifier` | id, date? (postérieure à aujourd’hui ; session passée, à clôturer : aussi une date passée ; seule, la plage est décalée d’autant), fin?, jours?, horaires? (comme `session.creer` ; nouveau dernier jour sans jours : jours ouvrés), lieu?, places? (≥ inscrits) | RH, référent HSE |
 | `session.annuler` | id, motif? | RH, référent HSE |
-| `session.cloturer` | id (à partir du dernier jour de la session), participants [{empId, present, reussi?}], note? (1 à 5), commentaire?, coutReel? (de l'action du plan qu'elle réalise, service RH seulement ; coût prévu par défaut et pour le référent HSE) | RH, référent HSE |
+| `session.cloturer` | id (à partir du dernier jour de la session), participants [{empId, present, reussi?, note? (avis à chaud du présent, 1 à 5, recueilli par le service RH seulement : évaluation au nom du salarié, lot 7 t121)}], note? (appréciation de la session, 1 à 5), commentaire?, coutReel? (de l'action du plan qu'elle réalise, service RH seulement ; coût prévu par défaut et pour le référent HSE) | RH, référent HSE |
+| `attente.confirmer` | id : personne de la liste d'attente d'une session (lot 7, t120), proposée par Cursus après une place libérée, ou en file s'il reste une place libre proposée à personne ; mêmes contrôles qu'une inscription ; inscrite et convoquée, demande mise à jour, place quittée ailleurs proposée à son tour | RH, référent HSE |
+| `evaluation.enregistrer` | participationId (présente, session clôturée) ou formationSuivieId, type (`chaud` : note 1 à 5 ; `froid` : efficacite `efficace`, `partielle` ou `non`), commentaire? (1 000 caractères), repondant? (`salarie` par défaut ou `manager`, service RH seulement) ; fenêtres et formations concernées : `refusEvaluation` (lot 7, t121) ; remplace l'avis précédent du même répondant ; journal sans note, efficacité ni commentaire | le salarié pour lui-même (son avis), son manager direct (à froid, avis de manager), RH (avis recueilli, à chaud sans limite de temps) |
+| `evaluation.retirer` | id : avis supprimé (tracé : formation, type, répondant) | l'auteur de l'avis (le salarié pour le sien, le manager pour le sien), RH |
+| `attente.retirer` | id : retrait de la liste d'attente (`issue` : `salarie`, `manager` ou `rh`) ; demande mise à jour, salarié prévenu s'il ne s'est pas retiré lui-même ; place qui lui était proposée proposée au suivant | le salarié pour lui-même, son manager direct, RH, référent HSE |
 | `hab.delivrer` | empId, h, date, par, mode ; renouvellement : délivrance précédente close à l'historique (`habDelivrances`, mesure figée, jamais le motif) | RH, référent HSE |
 | `formationSuivie.enregistrer` | empId, f (code du catalogue) ou libelle (hors catalogue, 120 caractères), du, au? (du par défaut ; ni l'un ni l'autre à venir), duree? (heures, 0,25 à 2 000), organisme?, obligatoire? (défaut : formation « Réglementaire » du catalogue ; hors catalogue : non), demandeId? (demande hors catalogue acceptée du même salarié, une fois : origine `demande`) ; même formation ou même intitulé le même premier jour : refus ; journal : codes, dates, durée, case, jamais l'intitulé ni l'organisme | RH, référent HSE |
 | `formationSuivie.modifier` | id, champs d'`enregistrer` (absents : inchangés), motif (obligatoire, 500 caractères, jamais au journal) | RH, référent HSE (jamais la sienne) |
@@ -978,6 +1005,10 @@ aucun champ du paramètre n'est recopié.
 | `referentiel.equipe.exigences` | nom (équipe), formations, habilitations (vides : aucune exigence commune), nuit? (travail de nuit ou en continu : refusé si l'équipe compte un salarié mineur), couverture? ([{ formation, min }] : formation du catalogue en vigueur, une fois chacune, minimum entier de 1 à l'effectif présent ; [] : retirée ; absente : inchangée ; journal : codes et nombres avant et après) ; message comme pour un poste | RH |
 | `referentiel.equipe.exigences` | nom (équipe), formations, habilitations (vides : aucune exigence commune), nuit? (travail de nuit ou en continu : refusé si l'équipe compte un salarié mineur), horaire? (code de l'horaire de poste proposé par défaut, « » ou null : aucun ; absent : inchangé ; archivé : refus) ; message comme pour un poste | RH |
 | `referentiel.horaire.enregistrer` / `referentiel.horaire.archiver` | code (création : 1 à 6 lettres ou chiffres commençant par une lettre, unique, archivés compris) ou id (le code), nom (60 caractères), debut, fin (« HH:MM », « 8 h »… ; fin avant le début : le lendemain), pause (minutes, 0 à 240, plus courte que l'horaire) / id, archive? (faux : rétabli) ; archivage refusé tant qu'une équipe le propose par défaut ; les feuilles qui le portent le gardent | RH |
+| `referentiel.poste.expositions` | id (poste, archivé compris), facteurs [codes `repetitif`, `hyperbare`, `temperatures`, `bruit` ; [] : aucun] : facteurs d'exposition du C2P cochés sur le poste (lot 7, `shared/rules/c2p.ts`) ; journal : identifiant, codes avant et après | RH, référent HSE |
+| `referentiel.horaire.alternant` | id (code de l'horaire), alternant (vrai : équipes successives alternantes ; faux : non ; null ou « » : à qualifier) ; vaut pour toutes les nuits comptées sous cet horaire ; journal : code, valeur avant et après | RH, référent HSE |
+| `passeport.declarer` | cles [« cert:<id> », « suivie:<id> » : lignes du Passeport de prévention, 2 000 au plus], le (jour de la déclaration sur la plateforme : ni à venir, ni avant le dernier jour d'une formation) ; ligne inconnue, annulée, d'une formation plus marquée ou déjà déclarée : refus, rien d'écrit (lot 7, `shared/rules/passeport-prevention.ts`) ; journal : jour, nombre de lignes, salariés concernés | RH, référent HSE |
+| `passeport.retirer` | cle (ligne marquée déclarée) : marque posée par erreur retirée, ligne de nouveau proposée à l'export ; journal : la clé, le salarié | RH, référent HSE |
 | `hab.demander` | empId, h : habilitation exigée jamais délivrée, titre « en attente » de délivrance (déjà demandée : rien n'est refait ; déjà délivrée ou archivée : refus) | RH, référent HSE |
 | `referentiel.charger` | referentiel (`formations`/`habilitations`/`destinations`) : référentiel type (celui de la démonstration) chargé dans un référentiel vide, archivés compris ; habilitations après les formations (prérequis présents et en vigueur) | RH, référent HSE (destinations : RH) |
 | `medical.demander` | empId, motif? (`periodique`/`embauche`/`reprise`/`employeur`/`mi_carriere`/`fin_carriere` ; par défaut celui de la visite due la plus proche, sinon embauche sans visite enregistrée, sinon périodique) ; e-mail au service de santé au travail | RH (une demande en cours par collaborateur) |
@@ -1743,6 +1774,91 @@ Table `postes` (intitulé, `formations` et `habilitations` exigées, `archive`),
   défaut de `REGLAGES` ; aucune action nouvelle (paramètres ajoutés à `referentiel.poste.enregistrer` et
   `referentiel.equipe.exigences`, journal complété). Démonstration : 4 SST au minimum en Production.
 
+### Compte professionnel de prévention (lot 7, chantier B, étape 1 : t052)
+
+Règle pure `shared/rules/c2p.ts`, actions `server/src/actions/c2p.ts`, écran Expositions (C2P) (`pages/Prevention.tsx`,
+vue `prevention`, groupe « Prévention » du menu), colonnes des onglets Postes et Horaires de Référentiels.
+
+- **Nuits** : un jour de feuille **validée** compte une nuit quand l'horaire figé ce jour-là (`horairesFiges`) donne au moins
+  1 h de travail entre 0 h et 5 h (`heuresC2p` : `heuresDeNuit` de `repos-nuit.ts` sur la plage `C2P_PLAGE`, la pause
+  placée hors de la plage tant qu'elle y tient et retirée seulement pour la part qui n'y tient pas — un poste 20 h – 1 h
+  avec 30 min de pause compte donc 1 h —, rattachée au jour où commence le poste ; `repos-nuit.ts` n'est pas modifié). Une nuit faite sous un horaire qualifié
+  « équipes successives alternantes » (`Horaire.alternant`, colonne JSON : vrai, faux, null « à qualifier ») compte au seuil
+  de 50 nuits, les autres au seuil de 120, sans double compte ; la qualification est lue au référentiel (le roulement n'est
+  pas figé avec les heures). Un horaire de nuit non qualifié compte au travail de nuit et il est listé « à qualifier »
+  (`horairesAQualifier` : en vigueur et de nuit à sa durée nominale, ou utilisé par une nuit de l'année). Une feuille sans
+  horaire ne compte aucune nuit (« semaines sans horaire » signalées) ; une feuille non validée ne compte pas encore.
+- **Seuils réglementaires** (art. D4163-2) en constantes non réglables (`C2P_SEUIL_NUIT` 120, `C2P_SEUIL_ALTERNANT` 50,
+  plage 0 h – 5 h) : un accord ne les modifie pas. Au prorata de la période du contrat dans l'année (jours de la période sur
+  jours de l'année, au centième) ; un contrat de moins d'un mois (`contratMoinsDUnMois`) n'est pas déclaré ; un intérimaire
+  est déclaré par l'entreprise de travail temporaire (ligne « à lui transmettre », hors de l'export).
+- **Facteurs du poste** (`Poste.c2p`, colonne JSON) : travail répétitif, milieu hyperbare, températures extrêmes, bruit,
+  cochés par le service RH ou le référent HSE (`referentiel.poste.expositions`, dialogue `RefPosteC2pDialog`) quand les
+  titulaires y sont exposés au-delà du seuil après protections ; décochés par défaut. Exposition d'un salarié = poste
+  occupé (`posteDe`) × sa période dans l'année. `referentiel.poste.enregistrer` n'y touche pas.
+- **Codes** (`FACTEURS_C2P` de `shared/constants.ts`) : libellé, code interne (`C2P-NUIT`, `C2P-ESA`, `C2P-REP`, `C2P-HYP`,
+  `C2P-TEMP`, `C2P-BRUIT`), code DSN présumé du facteur (S21.G00.34.001 : 08, 09, 10, 05, 06, 07), à confirmer par la paie,
+  seuil cité. Export CSV `exportC2p` (« Exporter pour la DSN (CSV) », `downloadCsv`, tracé avec son nombre de lignes) : une
+  ligne par salarié déclaré par l'employeur et par facteur exposé, matricule de paie, période, nuits et seuil, mention
+  « À saisir dans la DSN — codes de facteur à confirmer par la paie ». Aucune rubrique du fichier d'import Sage.
+- **Données transmises** (`server/src/dataset.ts`) : `Dataset.c2p` (année en cours et précédente, `syntheseC2p` sur toutes les
+  feuilles validées) au service RH, au référent HSE (qui ne reçoit pas les feuilles) et à la lecture seule ; ni au manager,
+  ni au collaborateur, ni à la paie, à qui les facteurs des postes sont aussi retirés (`sansC2p`). `Horaire.alternant` est
+  transmis à tous (aucune donnée personnelle).
+- **Base** : colonnes déclarées dans `TABLES`, vides par défaut (rien coché d'office, horaires d'exemple compris) ; migration
+  nommée `lot7-prevention-c2p` (rien à reprendre ; exécutée sans effet sur une base neuve, notée faite ailleurs) ;
+  PostgreSQL : `0006_prevention.sql`.
+
+### Passeport de prévention (lot 7, chantier B, étape 2 : t066)
+
+Règle pure `shared/rules/passeport-prevention.ts`, actions `server/src/actions/passeport-prevention.ts`, export
+`server/src/passeport-prevention.ts`, panneau « Passeport de prévention » de l'écran Formations
+(`components/PasseportPrevention.tsx`, dialogue `PasseportDeclarerDialog`), section de Paramètres
+(`pages/parametres/PasseportPrevention.tsx`). Le format d'import de la plateforme (Caisse des dépôts) côté employeur et son
+calendrier d'ouverture ne sont pas connus : seuls le marquage et le suivi « déclarée le », qui n'en dépendent pas, sont
+définitifs ; l'export est un gabarit réglable portant la mention `MENTION_PASSEPORT` (« format à confirmer »).
+
+- **Marquage** : `Formation.passeportPrevention` (colonne booléenne `passeport_prevention`), case du dialogue
+  `RefFormationDialog` (`referentiel.formation.enregistrer`, journal avant et après ; absente de la saisie : inchangée ;
+  décochée à la création, l'aide la propose pour une formation santé-sécurité, `passeportPropose`), étiquette dans l'onglet
+  Formations de Référentiels. Migration nommée `lot7-prevention-passeport` (et `0009` en PostgreSQL) : coche, en SQL figé,
+  les formations du catalogue reconnues santé-sécurité sur le code, le nom court ou l'intitulé (SST, CACES, ATEX,
+  électrique, AIPR, EPI incendie, travail en hauteur, PRAP ; ni FCO ni RGPD), tracée `migration.passeportPrevention`
+  (codes) ; le référentiel type et la démonstration portent la case. Aucune case sur les habilitations : la plateforme
+  recense des formations, les titres d'habilitation n'y sont pas déclarés tant que le format ne le prévoit pas.
+- **Lignes** (`lignesPasseport`) : certifications obtenues et formations suivies, non annulées, des formations marquées,
+  dont le dernier jour tombe dans la période (année civile à l'écran) ; une formation suivie que représente une
+  certification (`suivieCertifiee`) n'est comptée qu'une fois ; dossiers anonymisés écartés ; intérimaire signalé (la
+  déclaration revient en principe à l'agence). Une certification est toujours datée de son obtention : du, au et heures
+  de la session seulement pour celle qu'une session clôturée a produite (participation qui la porte, `certId` posé par
+  `session.cloturer`, et fin de session égale à l'obtention) ; sinon le jour d'obtention et la durée du catalogue.
+  `Certification.sessionId` (recyclage où elle est inscrite) ne date jamais une ligne : une certification inscrite à un
+  recyclage à venir garde sa date, et rien n'est proposé pour une session non clôturée. Résultat « Acquise (évaluation
+  réussie) », « Acquise (présence) » ou « Formation suivie ».
+- **Suivi « déclarée le »** : table `declarationsPasseport` (salarié, `certId` ou `suivieId`, uniques, jour de la
+  déclaration, jour et auteur de la marque), écrite par `passeport.declarer`, retirée par `passeport.retirer`. Une ligne
+  déclarée n'est plus proposée ni exportée (sauf « Déjà déclarées »). Le dialogue « Marquer déclarées… » fait cocher les
+  lignes une à une : seules celles du dernier export fait depuis l'écran (clés renvoyées par le serveur) le sont d'office ;
+  une ligne saisie depuis l'export, ou refusée par la plateforme, reste à déclarer ; sans export connu (écran rechargé),
+  rien n'est coché. Correction ou annulation d'une certification ou d'une
+  formation suivie déclarée : le message rappelle de la corriger aussi sur la plateforme (`rappelDeclaration`). Références
+  dans `REFERENCES` (`integrite.ts`) et `TRAITEMENTS` (conservation : lignes gardées, auteur balayé) ; section de la copie
+  des données, sans l'auteur pour l'intéressé.
+- **Export** : `GET /api/formations/passeport-prevention?du=&au=[&vue=a-declarer|declarees]` (droit `formations` : service RH et
+  référent HSE ; lecture seule et paie : 403 tracé), produit par le serveur, qui lit la date de naissance que l'instantané du
+  référent HSE ne porte jamais ; colonnes du réglage `passeportColonnes` (Paramètres → Passeport de prévention,
+  administrateur RH, au moins une ; par défaut nom, prénom — premier mot du nom de la fiche —, date de naissance, matricule de
+  paie, intitulé, organisme, du, au, durée, résultat ; NIR et code de la formation facultatifs), dans l'ordre du gabarit,
+  puis la mention. Le NIR n'est pas dans Cursus (colonne toujours vide : rapprochement par le matricule dans Sage). Vue
+  `a-declarer` (par défaut) : lignes sans marque, intérimaires écartés (déclarés en principe par l'agence, comme au C2P) ;
+  `declarees` : lignes marquées seules, comme à l'écran. En-têtes de la réponse : `X-Passeport-Nombre` (lignes du
+  fichier), `X-Passeport-Interimaires` (écartés), `X-Passeport-Lignes` (clés des lignes à déclarer exportées, omis
+  au-delà de 6 000 caractères). Tracé `passeport.exporter` : période, vue, nombre de lignes, intérimaires écartés,
+  salariés concernés, jamais d'intitulé ni de nom.
+- **Données transmises** : `Dataset.declarationsPasseport` au service RH ; sans l'auteur au référent HSE et à la lecture
+  seule (avec les certifications) ; rien au manager, au collaborateur ni à la paie. La case du catalogue va à tous (aucune
+  donnée personnelle).
+
 ### Formations suivies, titres d'habilitation et heures (lot 6, chantier 4, étape 2)
 
 - **Formations suivies (t116, `shared/rules/formations-suivies.ts`, `server/src/actions/formations-suivies.ts`)** : table
@@ -1925,7 +2041,8 @@ Règles dans `shared/rules/sessions.ts` (inscrits nominatifs, contrôles, liste 
   au périmètre comme les inscriptions), l'action du plan rattachée passe « réalisée » si aucune autre session
   ouverte ne la porte, l'évaluation à chaud (note sur 5, commentaire) est facultative. Une seule transaction,
   tracée au journal. Le bilan (`Session.bilan` : évaluation à chaud, motif d'annulation, textes libres parfois
-  nominatifs) n'est transmis qu'au service RH.
+  nominatifs) n'est transmis qu'au service RH ; les autres n'en reçoivent que la date (`le`, sans auteur : départ de la
+  demande d'avis à chaud, t121).
 - **Plusieurs jours** (t118, `shared/rules/plage-session.ts`) : `date` reste le premier jour (lu tel quel partout où
   un seul jour suffit), `fin` le dernier, `jours` les jours de la session (ouvrés par défaut entre les deux, premier et
   dernier compris, modifiables ; 20 au plus sur 92 jours), `horaires` aucun (journées entières), un seul pour tous les
@@ -1955,6 +2072,83 @@ Règles dans `shared/rules/sessions.ts` (inscrits nominatifs, contrôles, liste 
   remplacées ; un jour qui dépasserait 24 h, toutes lignes cumulées, voit ses heures de formation réduites d'autant (la
   formation ne bloque jamais la proposition Keystone). Modifiables comme toute ligne proposée. Réglage `formationsTemps`
   (Paramètres → Formations, actif par défaut).
+- **Liste d'attente** (lot 7, chantier C, t120 ; règles `shared/rules/liste-attente.ts`, serveur `server/src/liste-attente.ts`,
+  table `attentesSession`, migration PostgreSQL `0007_formations.sql`, index SQLite `lot7-formations-index-attentes`) :
+  une demande de formation acceptée sur une session complète (`demande.accepter`, choix `complete` : `attente` par défaut ou
+  `plan`) place le salarié dans la file de la session, dans l'ordre où le service RH accepte les demandes (`rang`, donné à
+  l'acceptation, pas à la date de la demande), sans priorité métier ; la réponse et
+  l'e-mail (`attente.formation`) disent que la session est complète et sa place (`position`, calculée au chargement sur
+  toutes les attentes, jamais stockée). Réglage `formationsListeAttente` (Paramètres → Liste d'attente des sessions) :
+  désactivé, la demande va au plan de formation, la réponse dit que la session était complète. Places libres de
+  `demande.accepter` : hors de celles déjà proposées à la file (`placesAProposer`). Une place libérée appelle
+  `promouvoirAttente` dans la transaction de l'action : changement de session (`plan.inscrire`, `demande.accepter`,
+  `attente.confirmer`), désinscription, recyclage enregistré (`cert.ajouter`), correction ou annulation d'une
+  certification, places augmentées ou libérées par une nouvelle date (`session.modifier`), sortie (`employe.sortie`),
+  réouverture d'une demande, retrait d'une personne proposée. Le premier encore admissible (`nonAdmissible` : session
+  ouverte et pas commencée, dans le contrat, pas déjà inscrit, certification à renouveler toujours en vigueur ou formation
+  initiale pas obtenue depuis, sans absence ni autre session ces jours-là, session précédente pas à clôturer) est proposé
+  au service RH (`proposee`, e-mail `attente.proposition` à la boîte du service RH), qui confirme (`attente.confirmer` :
+  convocation à ce moment-là, réponse de l'entreprise du 23 octobre 2026) ; réglage `formationsAttenteMode` à
+  `automatique` : inscrit et convoqué aussitôt (`attente.inscrite` au journal). Un non-admissible est passé
+  (`attente.sautee`, motif codé, jamais le détail d'une absence) ; s'il n'a plus d'objet (hors contrat, déjà inscrit,
+  recyclage enregistré, certification remplacée, session commencée), il sort de la file. Le message de l'action ne nomme
+  les personnes de la file qu'au service RH et au référent HSE. Session annulée ou clôturée : file close
+  (`purgerAttente`, `attente.purgee`), ceux qui y étaient par une demande repassent au plan de formation (ligne prévue,
+  à replanifier) et en sont prévenus. Sortie : ses attentes de sessions qui finissent après son départ sont retirées ;
+  `cert.ajouter` : celles de la formation. Réouverture d'une demande : l'attente encore en file en sort
+  (`demande_rouverte`) ; une inscription faite depuis la file est défaite comme une acceptation directe (`suite` de la
+  demande, `attenteId`). Instantané : file entière au service RH, au référent HSE et à la lecture seule, celles de son
+  périmètre au manager, la sienne au salarié (sa place sans voir les autres), sans les auteurs hors du service RH.
+  Écrans : file dans le détail de la session (rang, état, « Confirmer l'inscription », « Retirer »), résumé sur la liste
+  des sessions (Formations), « Mes listes d'attente » et place du jour sous la réponse (Mon espace), section de la fiche
+  (retrait par le manager), choix « liste d'attente ou plan » à l'acceptation (dialogue `accepterAttente`), sessions
+  complètes proposées dans la demande de formation quand la liste est activée.
+  Places proposées : `Session.proposees` (calculé au chargement sur toute la file, connu du manager qui ne la voit pas).
+  `plan.inscrire` ne les prend pas au manager (« proposées à sa liste d'attente : le service RH confirme ») ; le service
+  RH et le référent HSE peuvent passer outre, et `ajusterPropositions` remet alors en attente, à leur rang, les dernières
+  propositions qui n'ont plus de place (`attente.remise`, motif `plus_de_place`) ; de même quand `session.modifier` réduit
+  les places. Le retour dans une session quittée (réouverture d'une demande, certification annulée : `refusRetour`) ne
+  prend pas non plus une place proposée. Une personne proposée devenue indisponible (absence, autre session, session
+  précédente à clôturer) ne bloque pas la place : `attente.confirmer` la remet en attente à son rang (`attente.remise`,
+  motif codé) et propose la place au suivant admissible. Une personne de la file inscrite directement voit son attente
+  close (`inscription`). Une inscription supprimée (désinscription, clôture, sortie, certification, réouverture) n'est
+  plus désignée par `attentesSession.inscriptionId` (`retirerInscription` ; PostgreSQL : `ON DELETE SET NULL`), sans quoi
+  SQLite garderait une référence orpheline, refusée par la reprise vers PostgreSQL.
+- **Évaluation des formations** (lot 7, chantier C, étape 2, t121 ; règles `shared/rules/evaluation-formation.ts`, actions
+  `server/src/actions/evaluations-formation.ts`, e-mails `server/src/evaluations-formation.ts`, table `evaluationsFormation`,
+  migration PostgreSQL `0010_evaluations_formation.sql`, index SQLite `lot7-formations-index-evaluations`). Formation
+  évaluable (`ciblesEvaluation`) : participation présente à une session clôturée (`p<id>`), ou formation suivie en vigueur
+  (`s<id>`) ; organisme du catalogue ou de la formation suivie ; exercice : année du premier jour (comme les heures).
+  Une ligne par formation, type et répondant (clés uniques), remplacée par une nouvelle saisie. **À chaud** : note de 1 à
+  5 et commentaire, avis du salarié, donné dans Mon espace (encart « À faire » 30 jours, `DELAI_CHAUD_JOURS`, à partir du
+  jour où la formation devient évaluable — dernier jour, ou clôture de la session ou saisie de la formation suivie si elle
+  vient après, `CibleEvaluation.ouverte` —, jamais au-delà du début de l'évaluation à froid, `periodeChaud` ; un e-mail) ou
+  recueilli par le service RH à la clôture (`session.cloturer`, `participants[].note`) ou plus tard (« Recueillir », détail
+  de la session) ; le salarié le modifie jusqu'au début de l'évaluation à froid. **À froid** : efficace, partiellement,
+  non ; `evaluationFroidDelai` jours après le dernier jour (90 par défaut), par le salarié et son manager direct
+  (`evaluationFroidPar` : `les_deux`, réponse de l'entreprise du 23 octobre 2026), pour les catégories cochées
+  (`evaluationFroidCategories` : Réglementaires et Recommandées) ; réponse tardive acceptée. Échéances : « À faire » du
+  salarié (`aFaireCollaborateur().evaluations`, pastille Accueil) et du manager (`evaluationsAFaireManager`, panneau et
+  pastille Formations), 60 jours (`FENETRE_FROID_JOURS`) ; e-mails `evaluation.demande` (salarié) et `evaluation.manager`
+  (manager, un par passage pour son équipe), une fois par palier (`demande`, `relance-15`, `relance-30`), notés dans la
+  table `relances` (clé `evaluation:<formation>:<type>:<répondant>`), tâche de `tachesEmails` à partir de 7 h ; jamais de
+  note ni de commentaire dans l'e-mail. Un premier envoi à un palier de relance (fonction réactivée, délai réduit, reprise
+  de formations anciennes) ne porte pas la mention « relance » : elle suppose un envoi précédent de la même clé. Réglage `evaluationsActives` (Paramètres → Évaluation des formations) : désactivé,
+  plus de saisie, d'à faire ni d'e-mail, les avis restent. **Indicateurs** (`indicateursEvaluation`) : total, par organisme
+  et par formation : participants, avis à chaud (nombre, moyenne, taux), avis à froid attendus (`avisFroidAttendus`, ceux
+  qui sont demandés : formation concernée échue, salarié présent à l'échéance, avis du manager seulement s'il en a un ;
+  au moins les réponses reçues) et reçus, efficace / partielle / non, taux d'efficacité (« efficace » sur les réponses),
+  taux de réponse ; `Session.bilan.note` (appréciation de session d'avant le lot 7) reprise telle quelle par session, jamais
+  répartie par personne. Panneau sous les indicateurs de Plan & budget et export CSV (`csvEvaluations`). **Droits** :
+  service RH tout (commentaires, auteurs) ; manager : ses avis de manager sur son équipe directe (hors N+2), jamais l'avis
+  d'un membre ; salarié : ses avis, sans qui les a saisis ; référent HSE et lecture seule : aucune ligne, indicateurs
+  calculés par le serveur (`Dataset.indicateursEvaluation`) sans moyenne ni efficacité sous 3 réponses (`SEUIL_ANONYMAT`,
+  `masque`), vus dans Formations (référent HSE) ou Plan & budget ; paie : rien. Journal : `evaluation.enregistrer`
+  (formation, type, répondant, ligne ; jamais la note, l'efficacité ni le commentaire), `evaluation.retirer`, et la case
+  `avis` des participants de `session.cloturer`. Conservation : catégorie formations, commentaire vidé, note et efficacité
+  gardées ; auteur (`auteurId`) gardé, nom retiré par le balayage. Export des données : section « Évaluations des formations
+  suivies » ; le salarié qui télécharge les siennes n'y a que ses avis, sans l'auteur (`LIGNES_SALARIE` : l'avis à froid
+  du manager reste au service RH, comme le dialogue le promet au manager) ; l'export du service RH les a tous.
 - **Base existante** : colonnes et table ajoutées au démarrage (schéma déclaratif) ; `server/src/migrate.ts`
   valide sur la présence les formations sans mode de validation, libère la place d'une certification remplacée
   dans toute session ouverte postérieure au recyclage, puis clôture une fois les sessions passées de l'ancienne
@@ -2573,6 +2767,27 @@ récapitulatif de la feuille, file de validation, jours rachetés en attente sur
   seulement (`confirmerRachats`) : un avenant enregistré après la génération attend le lot suivant, et une rubrique activée
   entre la génération et la confirmation ne le renvoie pas dans un autre fichier. Aucune migration : table et colonnes
   nouvelles seulement.
+
+## Astreintes (lot 7, chantier A : t049)
+
+- **Règles** (`shared/rules/astreintes.ts`) : une astreinte est une période planifiée par le manager ou le service RH
+  (`astreinte.planifier`, `.modifier`, `.annuler` avec motif), communiquée au moins `astreinteDelaiPrevenance` jours avant
+  (15 par défaut, art. L3121-9 ; en dessous, motif de circonstances exceptionnelles et jour franc au minimum), 31 jours au
+  plus, refusée sur une absence, hors contrat ou pour un mineur (`astreinteMineurs`). Les interventions sont du travail
+  effectif, déclarées sur la feuille de temps (`astreinte.intervention`, `.retirerIntervention` ; ligne `INT-AST` en
+  lecture seule) avec contrôle du repos qui suit.
+  Serveur : `server/src/astreintes.ts`, `server/src/actions/astreintes.ts` (journal, e-mail et .ics au salarié).
+- **Écrans** : « Planning des astreintes » de l'écran Temps (manager, RH), encart « Astreinte » de la feuille de temps,
+  « Mes astreintes » et récapitulatif mensuel imprimable du portail (art. R3121-2 : heures, périodes, interventions,
+  forme de la compensation), section Paramètres → Astreintes (`client/src/pages/parametres/Astreintes.tsx`).
+- **Paie** (`shared/rules/astreintes-paie.ts`, `server/src/astreintes-paie.ts`) : famille « astreintes » du registre des
+  éléments de lot ; une astreinte terminée part avec le lot (heures `AST_H` réparties par mois, période `AST_PER`),
+  réservée, libérée à l'annulation, figée à la confirmation (`astreintes.lot_id`, `astreintes.sage`). `AST_COMP`
+  (compensation) est déclarée. Les trois rubriques sont inactives par défaut : éléments « à saisir dans Sage » tant que la
+  paie n'a pas donné ses codes. Compensation `astreinteCompensation` : financière par défaut (réponse du 23 octobre 2026),
+  ou repos ; son montant ou sa durée attend l'accord sur les astreintes (`astreinteAccord`).
+- **Base** : migrations nommées `lot7-astreintes*` (SQLite) et `0005_astreintes.sql`, `0008_astreintes_paie.sql`
+  (PostgreSQL). Aucune vue `pub_` pour Keystone tant qu'elle n'est pas demandée et validée.
 
 ## Déplacements modifiés ou annulés
 

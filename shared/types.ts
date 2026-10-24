@@ -72,6 +72,12 @@ export interface Formation {
    * c'est possible, sinon à compléter. Sans elle ni horaires de session, une formation suivie compte « durée inconnue ».
    */
   dureeHeures?: number | null;
+  /**
+   * Formation santé-sécurité à déclarer au Passeport de prévention (lot 7, t066, shared/rules/passeport-prevention.ts) :
+   * cochée par la migration sur les formations santé-sécurité (SST, CACES, ATEX, électrique, AIPR, EPI, hauteur, PRAP),
+   * modifiable dans Référentiels → Formations ; absente ou fausse : non déclarée.
+   */
+  passeportPrevention?: boolean;
 }
 export interface HabType {
   id: string; nom: string; detail: string; prereqs: string[]; medical: boolean; validite: number; signataire: string; archive?: ISODate | null;
@@ -120,6 +126,13 @@ export interface Poste extends Exigences {
    * la formation renforcée à la sécurité depuis son entrée (shared/rules/formation-renforcee.ts). Décoché par défaut.
    */
   risquesL4154?: boolean;
+  /**
+   * Compte professionnel de prévention (t052, shared/rules/c2p.ts) : facteurs d'exposition que Cursus ne mesure pas, cochés
+   * par le service RH ou le référent HSE quand ses titulaires y sont exposés au-delà du seuil de l'art. D4163-2 après les
+   * protections collectives et individuelles. null ou vide : aucun (décochés par défaut). Hors des vues du manager et du
+   * collaborateur.
+   */
+  c2p?: FacteurPoste[] | null;
 }
 /**
  * Couverture minimale d'une équipe (t067, shared/rules/couverture.ts) : au moins `min` membres présents, non absents et
@@ -173,7 +186,15 @@ export interface Equipe {
  * leurs exigences : code (choisi une fois pour toutes), libellé, début et fin (« HH:MM » ; une fin antérieure au début
  * finit le lendemain : poste de nuit), pause en minutes. Archivé, il n'est plus proposé ; les feuilles qui le portent le gardent.
  */
-export interface Horaire { code: string; nom: string; debut: string; fin: string; pause: number; archive?: ISODate | null }
+export interface Horaire {
+  code: string; nom: string; debut: string; fin: string; pause: number; archive?: ISODate | null;
+  /**
+   * Compte professionnel de prévention (t052, shared/rules/c2p.ts) : horaire d'un roulement en équipes successives
+   * alternantes (2x8, 3x8…), dont les nuits comptent au seuil de 50 et non à celui de 120 (art. D4163-2). null ou absent :
+   * pas encore qualifié (ses nuits comptent comme travail de nuit, signalées « à qualifier ») ; faux : non alternant.
+   */
+  alternant?: boolean | null;
+}
 /** Horaire figé sur une feuille de temps : code, début, fin et pause au moment de la soumission ou de la validation. */
 export type HoraireFige = Pick<Horaire, 'code' | 'debut' | 'fin' | 'pause'>;
 /** Projet ou chantier tenu dans Keystone : archivé, il reste en base (historique) sans plus être proposé ni évalué. */
@@ -461,6 +482,11 @@ export interface Session {
   fin: ISODate; jours: ISODate[]; horaires: HoraireSession[];
   /** Calculé au chargement (certifications rattachées, inscriptions, résultats de clôture), jamais stocké. */
   inscrits: number;
+  /**
+   * Places libres proposées à la liste d'attente (lot 7, t120 : statut `proposee`), calculées au chargement sur toute la
+   * file, avant la restriction au périmètre : un manager qui ne voit pas la file sait qu'elles ne sont pas à prendre.
+   */
+  proposees?: number;
   /** Action du plan de formation à l'origine de la session. */
   planId: number | null;
   /** Clôture (évaluation à chaud) ou annulation (motif) : date et auteur. */
@@ -474,6 +500,34 @@ export interface SessionBilan { le: ISODate; par: string; note: number | null; c
  * Rattachée à une session annulée, ou clôturée sans certification (absent, évaluation échouée) : à replanifier.
  */
 export interface Inscription { id: number; empId: number; sessionId: number; convoc: 'now' | 'later'; date: ISODate; convocLe: ISODate | null }
+/**
+ * Liste d'attente d'une session complète (lot 7, chantier C, t120 : shared/rules/liste-attente.ts, server/src/liste-attente.ts).
+ * `attente` : en file, par ordre d'arrivée (`rang`, croissant par session) ; `proposee` : place libérée, proposée au service
+ * RH qui confirme l'inscription ; `inscrit` : inscrit depuis la liste ; `retire` : sorti de la liste (`issue`). Une ligne par
+ * session et par salarié (réutilisée s'il y revient). `demandeId` : demande acceptée qui l'y a placé ; `certId` : recyclage
+ * de cette certification, sinon formation initiale (`inscriptionId` : inscription à replanifier, s'il y en avait une).
+ * `position` : place dans la file, calculée au chargement sur toutes les données (jamais stockée), null hors de la file.
+ */
+export interface AttenteSession {
+  id: number; sessionId: number; empId: number;
+  demandeId: number | null; certId: number | null; inscriptionId: number | null;
+  rang: number; le: ISODate; par: string | null;
+  statut: StatutAttente;
+  proposeeLe: ISODate | null;
+  issueLe: ISODate | null; issuePar: string | null; issue: IssueAttente | null;
+  position?: number | null;
+}
+export type StatutAttente = 'attente' | 'proposee' | 'inscrit' | 'retire';
+/** Mode de la liste d'attente quand une place se libère : proposition au service RH, ou inscription aussitôt. */
+export type ModeAttente = 'confirmer' | 'automatique';
+/**
+ * Fin d'une attente : inscrit (`inscription`), retrait par le salarié, son manager ou le service RH, session annulée,
+ * clôturée ou commencée, salarié hors contrat à la date, déjà inscrit à la session, recyclage ou certification enregistrés
+ * depuis, certification remplacée ou supprimée, demande rouverte.
+ */
+export type IssueAttente =
+  | 'inscription' | 'salarie' | 'manager' | 'rh' | 'session_annulee' | 'session_cloturee' | 'session_commencee' | 'hors_contrat'
+  | 'deja_inscrit' | 'deja_certifie' | 'certification_remplacee' | 'demande_rouverte';
 /** Résultat d'un inscrit, enregistré à la clôture de la session. */
 export interface Participation {
   id: number; sessionId: number; empId: number; parcours: 'recyclage' | 'initiale'; present: boolean;
@@ -482,6 +536,46 @@ export interface Participation {
   /** Certification enregistrée (présent, et reçu si l'évaluation est exigée). */
   certId: number | null;
 }
+/**
+ * Évaluation d'une formation par un participant (lot 7, chantier C, t121 : shared/rules/evaluation-formation.ts,
+ * server/src/actions/evaluations-formation.ts). Rattachée à une participation présente d'une session clôturée
+ * (`participationId`) ou à une formation suivie hors session (`formationSuivieId`). À chaud (`chaud`) : note de 1 à 5 donnée
+ * par le salarié dans son espace, ou recueillie par le service RH à la clôture. À froid (`froid`) : efficacité (efficace,
+ * partiellement, non), demandée au salarié et à son manager N jours après la formation (réglage). `repondant` : de qui est
+ * l'avis (le salarié, ou son manager) ; `auteur` et `auteurId` : qui l'a enregistré (lui-même, ou le service RH). Une seule
+ * évaluation par formation, type et répondant : une nouvelle saisie remplace la précédente. Le commentaire (texte libre,
+ * nominatif) reste au service RH ; le référent HSE et la lecture seule ne reçoivent que les indicateurs agrégés.
+ */
+export interface EvaluationFormation {
+  id: number; empId: number; participationId: number | null; formationSuivieId: number | null;
+  type: TypeEvaluation; repondant: RepondantEvaluation;
+  /** À chaud : note entière de 1 à 5 ; null à froid. */
+  note: number | null;
+  /** À froid : efficacité ; null à chaud. */
+  efficacite: EfficaciteFormation | null;
+  commentaire: string | null;
+  le: ISODate; auteur: string | null; auteurId: number | null;
+}
+export type TypeEvaluation = 'chaud' | 'froid';
+export type RepondantEvaluation = 'salarie' | 'manager';
+export type EfficaciteFormation = 'efficace' | 'partielle' | 'non';
+/** Qui remplit l'évaluation à froid (réglage `evaluationFroidPar`). */
+export type RepondantsFroid = 'les_deux' | 'salarie' | 'manager';
+/**
+ * Indicateurs des évaluations d'un regroupement (organisme, formation, total) sur un exercice (shared/rules/
+ * evaluation-formation.ts) : participants évaluables, avis à chaud (nombre, moyenne sur 5), avis à froid attendus et
+ * reçus, efficacité (nombres, taux d'« efficace » parmi les réponses), taux de réponse, appréciation de session du service
+ * RH d'avant le lot 7 (`Session.bilan.note`, reprise telle quelle, jamais répartie par personne). `masque` : moins de
+ * 3 réponses, moyenne et taux retirés (vue agrégée du référent HSE et de la lecture seule).
+ */
+export interface LigneEvaluation {
+  cle: string; participants: number;
+  chaud: number; moyenneChaud: number | null; tauxChaud: number | null;
+  froidAttendus: number; froid: number; efficaces: number; partielles: number; non: number; tauxEfficacite: number | null; tauxFroid: number | null;
+  sessionsNotees: number; moyenneSessions: number | null;
+  masque?: boolean;
+}
+export interface IndicateursEvaluation { exercice: number; total: LigneEvaluation; parOrganisme: LigneEvaluation[]; parFormation: LigneEvaluation[] }
 export interface PlanAction {
   id: number; exercice: number; f: string | null; libelle: string | null; equipe: string; periode: Trimestre; effectif: number; cout: number; statut: PlanStatut;
   /** `import` (plan importé), `demande` (demande acceptée), `report` (action reportée d'un exercice clos) ; null : ancienne base, démonstration. */
@@ -695,6 +789,45 @@ export type CalendrierFeries = Record<string, FeriesAnnee>;
  */
 export type RoleMandat = 'titulaire' | 'suppleant';
 export interface Mandat { id: number; empId: number; role: RoleMandat; du: ISODate; au: ISODate | null; credit: number }
+/** Forme de la compensation des astreintes (art. L3121-9) : financière (montant sur le bulletin de paie) ou en repos. */
+export type CompensationAstreinte = 'financiere' | 'repos';
+/**
+ * Période d'astreinte d'un salarié (t049, lot 7, shared/rules/astreintes.ts) : du jour `du` à l'heure `debut` au jour `au`
+ * à l'heure `fin` (« HH:MM », heure de Paris), équipe au moment de la planification (figée), date à laquelle la
+ * programmation a été communiquée au salarié (`communiqueLe`, refaite à chaque changement des dates), motif des
+ * « circonstances exceptionnelles » quand le délai de prévenance n'est pas tenu (texte libre). Jamais supprimée : annulée
+ * avec un motif (`annuleLe`, horodatage). Planifiée par le manager direct ou le service RH.
+ */
+export interface Astreinte {
+  id: number; empId: number; equipe: string | null;
+  du: ISODate; debut: string; au: ISODate; fin: string;
+  communiqueLe: ISODate; motif: string | null;
+  creeLe: string; creePar: string; modifieLe: string | null; modifiePar: string | null;
+  annuleLe: string | null; annulePar: string | null; annuleMotif: string | null;
+  /**
+   * Paie (étape 2, shared/rules/astreintes-paie.ts) : lot qui emporte les heures et la période de l'astreinte terminée
+   * (`lotId`), import confirmé (`sage`). Absents (instantané du manager et du salarié) : non transmis.
+   */
+  lotId?: number | null; sage?: boolean | null;
+}
+/**
+ * Heures (AST_H) ou période (AST_PER) d'une astreinte terminée dans un lot de paie (t049, shared/rules/astreintes-paie.ts) :
+ * mois où elles tombent (`mois`), période de paie (un mois clos part sur la période ouverte), code Sage (null : rubrique
+ * désactivée, à saisir dans Sage) ; bornes de l'astreinte pour le détail.
+ */
+export interface ElementAstreintePaie {
+  astreinte: number; empId: number; matricule: string; mois: string; periode: string; rubrique: string; codeSage: string | null; quantite: number;
+  du: ISODate; debut: string; au: ISODate; fin: string;
+}
+/**
+ * Intervention pendant une astreinte : du travail effectif (art. L3121-9), déclaré sur la feuille de temps avec ses heures
+ * de début et de fin (« HH:MM » ; une fin avant le début : le lendemain), rattaché au jour où il commence (`jour`) ; ses
+ * heures (`heures`) s'ajoutent à la ligne INT-AST de ce jour.
+ */
+export interface InterventionAstreinte {
+  id: number; astreinteId: number; empId: number; jour: ISODate; debut: string; fin: string; heures: number;
+  declareLe: string; declarePar: string;
+}
 /** Délégation des validations d'un manager absent (t135, shared/rules/delegations-manager.ts) : ce que le suppléant valide. */
 export type PerimetreDelegation = 'absences' | 'feuilles' | 'entretiens';
 /**
@@ -907,6 +1040,8 @@ export interface DemandeCollab { id: number; empId: number; type: DemandeType; f
  */
 export interface SuiteDemande {
   sessionId?: number; certId?: number; inscriptionId?: number; depuis?: number | null; planId?: number; habTitreId?: number; cree?: boolean;
+  /** Session demandée complète : attente en liste d'attente (lot 7, t120), gardée après l'inscription ou le retour au plan. */
+  attenteId?: number;
 }
 /**
  * Formalité déclarée par le collaborateur (demande « document ») : conservée dans la demande
@@ -1094,7 +1229,40 @@ export interface Settings {
    */
   agendaFluxActif: boolean;
   agendaContenu: ContenuAgenda[];
+  /**
+   * Astreintes (t049, lot 7, shared/rules/astreintes.ts) : délai de prévenance en jours (15 à défaut d'accord, art.
+   * R3121-3 ; en dessous, motif « circonstances exceptionnelles » et un jour franc au moins), forme de la compensation
+   * (financière par défaut, réponse de l'entreprise du 23 octobre 2026), astreinte d'un salarié mineur refusée par défaut,
+   * référence de l'accord (texte libre, vide tant qu'il n'est pas connu).
+   */
+  astreinteDelaiPrevenance: number;
+  astreinteCompensation: CompensationAstreinte;
+  astreinteMineurs: boolean;
+  astreinteAccord: string;
+  /**
+   * Liste d'attente des sessions complètes (lot 7, chantier C, t120 : shared/rules/liste-attente.ts) : activée par défaut ;
+   * désactivée, une demande acceptée sur une session complète va au plan de formation. Place libérée : premier admissible
+   * proposé au service RH, qui confirme (par défaut), ou inscrit et convoqué aussitôt (`automatique`).
+   */
+  formationsListeAttente: boolean;
+  formationsAttenteMode: ModeAttente;
+  /**
+   * Passeport de prévention (lot 7, chantier B, t066 : shared/rules/passeport-prevention.ts) : colonnes de l'export, dans
+   * l'ordre du gabarit (format de la plateforme à confirmer) ; au moins une.
+   */
+  passeportColonnes: ColonnePasseport[];
+  /**
+   * Évaluation des formations (lot 7, chantier C, t121 : shared/rules/evaluation-formation.ts) : activée par défaut ; à chaud
+   * après chaque formation, à froid `evaluationFroidDelai` jours après (90 par défaut), remplie par le salarié et son
+   * manager (réponse de l'entreprise du 23 octobre 2026), pour les catégories cochées (Réglementaires et Recommandées).
+   */
+  evaluationsActives: boolean;
+  evaluationFroidDelai: number;
+  evaluationFroidPar: RepondantsFroid;
+  evaluationFroidCategories: CategorieEvaluee[];
 }
+/** Catégorie d'une formation pour l'évaluation à froid : type du catalogue, ou formation hors catalogue. */
+export type CategorieEvaluee = FormationType | 'Hors catalogue';
 /** Période de paie des jours rachetés d'un forfait jours : mois de la signature de l'avenant, ou clôture de l'année (décembre). */
 export type EmissionJren = 'signature' | 'cloture';
 /**
@@ -1296,6 +1464,8 @@ export interface SagePush {
   deplacements?: ElementDeplacementPaie[];
   /** Jours rachetés d'un forfait jours (t043, rubrique JREN active) ; absent avant le lot 6 (étape 2). */
   rachats?: ElementRachatPaie[];
+  /** Heures et périodes d'astreinte (t049, lot 7 ; AST_H, AST_PER), `codeSage` null : à saisir dans Sage. */
+  astreintes?: ElementAstreintePaie[];
   /**
    * Éléments calculés que le lot n'emporte pas, faute de rubrique active (soldes de sortie) : listés « à saisir dans Sage »
    * dans le résumé du lot et l'export des variables (server/src/elements-lot.ts). Les absences et déplacements sans code
@@ -1406,6 +1576,8 @@ export interface LotPaie {
   deplacements?: { source: 'voyage' | 'mission'; id: number; empId: number }[];
   /** Avenants de renonciation dont le lot emporte les jours rachetés (identifiant, salarié ; t043). */
   rachats?: { id: number; empId: number }[];
+  /** Astreintes terminées dont le lot emporte les heures et la période (identifiant, salarié ; t049, lot 7). */
+  astreintes?: { id: number; empId: number }[];
   /**
    * Totaux du contenu figé : lignes du fichier, salariés, quantité par code Sage des heures ; `absences` : éléments
    * d'absence, salariés et quantité par code Sage (codes retirés hors droit « paie » : server/src/dataset.ts).
@@ -1416,6 +1588,8 @@ export interface LotPaie {
     deplacements?: { elements: number; salaries: number };
     /** Jours rachetés d'un forfait jours (t043) : éléments et salariés. */
     rachats?: { elements: number; salaries: number };
+    /** Heures et périodes d'astreinte (t049) : éléments et salariés. */
+    astreintes?: { elements: number; salaries: number };
     /** Éléments à saisir à la main dans Sage, nominatifs (shared/rules/elements-lot.ts) ; absent : aucun. */
     aSaisir?: ElementASaisir[];
   };
@@ -1590,6 +1764,41 @@ export interface Dataset {
   conservation?: DossierEchu[];
   /** Abonnement à l'agenda personnel (t036) : jeton en vigueur de la personne connectée (date de création), sinon null. */
   agendaJeton?: { creeLe: string } | null;
+  /**
+   * Astreintes (t049, lot 7) et interventions déclarées : toutes pour le service RH, la paie et la lecture seule (sans les
+   * motifs) ; celles du périmètre pour le manager (motifs de son équipe directe seulement) et les siennes pour le salarié ;
+   * rien pour le référent HSE (server/src/dataset.ts). Absent : aucune.
+   */
+  astreintes?: Astreinte[];
+  interventionsAstreinte?: InterventionAstreinte[];
+  /**
+   * Compte professionnel de prévention (t052, shared/rules/c2p.ts) : synthèse de l'année en cours et de la précédente,
+   * calculée par le serveur sur toutes les feuilles validées (server/src/dataset.ts) ; service RH, référent HSE et lecture
+   * seule. Absente ailleurs (manager, collaborateur, paie).
+   */
+  c2p?: SyntheseC2p[];
+  /**
+   * Listes d'attente des sessions complètes (lot 7, t120) : toutes pour le service RH et le référent HSE, celles de son
+   * périmètre pour le manager, les siennes pour le collaborateur ; auteurs retirés hors du service RH (server/src/dataset.ts).
+   */
+  attentesSession?: AttenteSession[];
+  /**
+   * Passeport de prévention (lot 7, t066) : lignes déjà déclarées sur la plateforme, avec leur date ; toutes pour le service
+   * RH, sans l'auteur pour le référent HSE et la lecture seule ; rien pour le manager, le collaborateur et la paie.
+   */
+  declarationsPasseport?: DeclarationPasseport[];
+  /**
+   * Évaluations des formations (lot 7, t121) : toutes pour le service RH ; pour le manager, celles qu'il donne comme manager
+   * sur son équipe directe ; pour le salarié, les siennes (commentaire compris) ; rien pour les profils restreints, qui
+   * reçoivent les indicateurs agrégés (`indicateursEvaluation`) ; server/src/dataset.ts.
+   */
+  evaluationsFormation?: EvaluationFormation[];
+  /**
+   * Indicateurs des évaluations par exercice, calculés par le serveur sur toutes les données (shared/rules/
+   * evaluation-formation.ts) : référent HSE et lecture seule, qui n'ont pas les évaluations nominatives ; un regroupement de
+   * moins de 3 réponses n'a ni moyenne ni taux (`masque`). Absent ailleurs : calcul sur l'instantané (service RH).
+   */
+  indicateursEvaluation?: IndicateursEvaluation[];
 }
 
 /** Catégorie de données d'un dossier, avec sa durée de conservation après la sortie (shared/rules/conservation.ts). */
@@ -1642,4 +1851,72 @@ export interface Piece {
   conserverJusquau: ISODate | null;
   retireeLe: string | null;
   retireePar: string | null;
+}
+
+// — Compte professionnel de prévention (t052, shared/rules/c2p.ts) —
+/**
+ * Facteurs d'exposition du C2P que Cursus ne mesure pas, cochés sur le poste (Référentiels → Postes) : travail répétitif,
+ * activités en milieu hyperbare, températures extrêmes, bruit (art. L4163-1 et D4163-2).
+ */
+export type FacteurPoste = 'repetitif' | 'hyperbare' | 'temperatures' | 'bruit';
+/** Les six facteurs : nuits comptées d'après les horaires de poste (travail de nuit, équipes alternantes) et facteurs du poste. */
+export type FacteurC2p = 'nuit' | 'alternant' | FacteurPoste;
+/**
+ * Exposition d'un salarié sur une année civile : période du contrat dans l'année, nuits comptées (au moins 1 h de travail
+ * entre 0 h et 5 h, d'après les horaires figés des feuilles validées), seuils au prorata, facteurs du poste occupé et
+ * facteurs exposés. Aucune donnée de santé ; identifiants, dates et nombres seulement.
+ */
+export interface LigneC2p {
+  empId: number;
+  /** Période du contrat dans l'année (bornée par l'entrée et la fin du contrat). */
+  du: ISODate; au: ISODate;
+  /** Part de l'année couverte par cette période (1 : année complète), appliquée aux seuils. */
+  prorata: number;
+  /**
+   * Qui déclare : l'employeur, l'entreprise de travail temporaire (intérimaire : informations à lui transmettre), ou
+   * personne (contrat de moins d'un mois, non déclaré).
+   */
+  declarant: 'employeur' | 'ett' | null;
+  /** Nuits comptées hors équipes alternantes (horaires à qualifier compris) et nuits en équipes successives alternantes. */
+  nuits: number; nuitsAlternantes: number;
+  /** Parmi `nuits`, celles faites sous un horaire pas encore qualifié (alternant ou non). */
+  nuitsAQualifier: number;
+  /** Seuils au prorata de la période (120 et 50 nuits pour une année complète). */
+  seuilNuit: number; seuilAlternant: number;
+  /** Facteurs cochés sur le poste occupé. */
+  facteursPoste: FacteurPoste[];
+  /** Facteurs exposés au-delà du seuil (nuits) ou cochés sur le poste. */
+  expositions: FacteurC2p[];
+  /** Semaines validées avec des heures un jour sans horaire figé (aucune nuit n'y est comptée). */
+  semainesSansHoraire: number;
+  /** Feuilles de l'année pas encore validées : leurs nuits ne comptent qu'à la validation. */
+  feuillesNonValidees: number;
+}
+/** Synthèse annuelle du C2P (écran Prévention) : lignes par salarié, horaires de nuit à qualifier, date du calcul. */
+export interface SyntheseC2p { annee: number; arrete: ISODate; lignes: LigneC2p[]; horairesAQualifier: string[] }
+
+// — Passeport de prévention (lot 7, t066, shared/rules/passeport-prevention.ts) —
+/**
+ * Ligne déclarée sur la plateforme du Passeport de prévention : certification (`certId`) ou formation suivie (`suivieId`),
+ * l'une ou l'autre, jour de la déclaration et auteur de la marque. Une ligne déclarée n'est plus proposée à l'export.
+ */
+export interface DeclarationPasseport {
+  id: number; empId: number; certId: number | null; suivieId: number | null; declareLe: ISODate;
+  le: string; auteur: string | null; auteurId: number | null;
+}
+/** Colonnes de l'export du Passeport de prévention (gabarit réglable dans Paramètres). */
+export type ColonnePasseport = 'nom' | 'prenom' | 'naissance' | 'matricule' | 'nir' | 'code' | 'intitule' | 'organisme' | 'du' | 'au' | 'duree' | 'resultat';
+/**
+ * Ligne à déclarer : formation santé-sécurité (marquée au catalogue) acquise par un salarié, certification obtenue ou
+ * formation suivie (non annulée). Identité lue sur la fiche au moment du calcul ; `declareLe` : déjà déclarée ce jour-là.
+ */
+export interface LignePasseport {
+  cle: string; origine: 'certification' | 'suivie'; certId: number | null; suivieId: number | null; empId: number;
+  formation: string; intitule: string; organisme: string; du: ISODate; au: ISODate;
+  /** Heures ; null : durée inconnue (ni horaires de session, ni durée saisie ou du catalogue). */
+  duree: number | null;
+  resultat: string;
+  /** Intérimaire : la déclaration revient en principe à l'entreprise de travail temporaire (à vérifier avec elle). */
+  interim: boolean;
+  declareLe: ISODate | null;
 }

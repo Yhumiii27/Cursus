@@ -296,10 +296,10 @@ test('instantané : création, archivage, suppression bornée par « depuis », 
   });
   assert.equal(r.body.bilan.projets.archives, 5);
   const internes = (await db.all<Corps>('projets')).filter(p => ACTIVITES_INTERNES.test(p.code));
-  assert.deepEqual([internes.length, internes.every(p => p.statut === 'actif')], [10, true], 'activités internes toujours imputables (dont INT-FORM, lot 5)');
+  assert.deepEqual([internes.length, internes.every(p => p.statut === 'actif')], [11, true], 'activités internes toujours imputables (dont INT-FORM, lot 5, et INT-AST des interventions d’astreinte, lot 7)');
   assert.equal(r.body.bilan.taches.modifies, 1);
   assert.equal(await db.count('taches'), 1);
-  assert.equal(await db.count('projets'), 16, 'dont l’activité interne INT-FORM (lot 5)');
+  assert.equal(await db.count('projets'), 17, 'dont les activités internes INT-FORM (lot 5) et INT-AST (lot 7)');
 });
 
 test('demandes : contrôles 400, doublons 409, hors affectation, ancienne route, journal sans donnée personnelle', async () => {

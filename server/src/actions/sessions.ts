@@ -8,8 +8,10 @@ import { refusArchive } from '../../../shared/rules/referentiels.ts';
 import { clotureDe, montantReel } from '../../../shared/rules/exercices.ts';
 import { controlePlage, decalerPlage, finSession, horaireTexte, type Plage, plageTexte, sessionDu } from '../../../shared/rules/plage-session.ts';
 import { controleSession, exigeEvaluation, inscritsDe, placesRemplacees } from '../../../shared/rules/sessions.ts';
-import type { Certification, Inscription, Participation, PlanAction, Session, SessionBilan } from '../../../shared/types.ts';
+import { NOTE_MAX, NOTE_MIN } from '../../../shared/rules/evaluation-formation.ts';
+import type { Certification, EvaluationFormation, Inscription, Participation, PlanAction, Session, SessionBilan } from '../../../shared/types.ts';
 import { annulerSiConvoque } from '../notifications.ts';
+import { ajusterPropositions, promouvoirAttente, purgerAttente, retirerInscription } from '../liste-attente.ts';
 import { ActionError, type ActionHandler, type Ctx, isRh, requireFormations, str } from './context.ts';
 
 /** Session désignée par `id` ; refusée si elle est clôturée ou annulée (sauf `toutes`). */
@@ -123,12 +125,16 @@ const modifier: ActionHandler = async (ctx, p) => {
   }
   const reconfirmer = aVenir && nouvellePlage && s.statut === 'Confirmée';
   await ctx.db.update<Session>('sessions', s.id, { date, ...plage, lieu, places, ...(reconfirmer ? { statut: 'À confirmer' as const } : {}) });
+  // Places réduites sous le nombre de propositions : les dernières reviennent en attente, à leur rang. Places augmentées,
+  // ou libérées par la nouvelle date : proposées à la liste d'attente (lot 7, t120).
+  const attente = [await ajusterPropositions(ctx, s.id), await promouvoirAttente(ctx, s.id)].filter(Boolean).join(' · ');
   return [
     `${nomSession(ctx, s)} modifiée — ${changes.join(' · ')}`,
     liberees.length ? `recyclage déjà enregistré avant cette date, ${liberees.length > 1 ? 'places libérées' : 'place libérée'} : ${liberees.map(x => ctx.d.personName(x.empId)).join(', ')}` : '',
     prevenus ? `${plural(prevenus, 'annulation envoyée', 'annulations envoyées')} par e-mail` : '',
     aRenvoyer ? plural(aRenvoyer, 'convocation à renvoyer', 'convocations à renvoyer') : '',
     reconfirmer ? `nouvelle date à faire confirmer par ${ctx.d.fm(s.formation)?.organisme ?? 'l’organisme'}` : '',
+    attente,
   ].filter(Boolean).join(' · ');
 };
 
@@ -153,12 +159,31 @@ const annuler: ActionHandler = async (ctx, p) => {
   // e-mail avec le .ics d'annulation, sans le motif. Session passée : plus rien à annuler.
   let prevenus = 0;
   for (const i of inscrits) if (await annulerSiConvoque(ctx, s, { id: i.empId, nom: i.nom }, i, 'annulation')) prevenus++;
+  // Liste d'attente close (lot 7, t120) : ceux qui y étaient par une demande repassent au plan, à replanifier.
+  const attente = await purgerAttente(ctx, s, 'session_annulee');
   return `${nomSession(ctx, s)} annulée${inscrits.length ? ` — ${plural(inscrits.length, 'inscrit à replanifier', 'inscrits à replanifier')}` : ''}${replan ? ' · action du plan de nouveau prévue' : ''}`
-    + (prevenus ? ` · ${plural(prevenus, 'annulation envoyée', 'annulations envoyées')} par e-mail` : '');
+    + (prevenus ? ` · ${plural(prevenus, 'annulation envoyée', 'annulations envoyées')} par e-mail` : '') + (attente ? ` · ${attente}` : '');
 };
 
-/** Décision saisie pour un inscrit : présence et, si la formation l'exige, résultat de l'évaluation. */
-interface Decision { empId: number; present: unknown; reussi?: unknown }
+/**
+ * Note à chaud d'un participant saisie à la clôture (lot 7, t121) : réservée au service RH (avis nominatif), évaluations
+ * activées, participant présent, entière de 1 à 5 ; null si rien n'est saisi.
+ */
+function avisRecueilli(ctx: Ctx, nom: string, present: boolean, v: unknown): number | null {
+  if (v == null || v === '') return null;
+  if (!isRh(ctx)) throw new ActionError('Avis des participants : recueillis par le service RH seulement', 403);
+  if (!ctx.ds.settings.evaluationsActives) throw new ActionError('Évaluation des formations désactivée (Paramètres → Évaluation des formations)');
+  if (!present) throw new ActionError(`Avis à chaud de ${nom} : seulement pour un participant présent`);
+  const n = Number(v);
+  if (!(Number.isInteger(n) && n >= NOTE_MIN && n <= NOTE_MAX)) throw new ActionError(`Avis à chaud de ${nom} : note entière de ${NOTE_MIN} à ${NOTE_MAX}`);
+  return n;
+}
+
+/**
+ * Décision saisie pour un inscrit : présence et, si la formation l'exige, résultat de l'évaluation ; avis à chaud du
+ * participant présent recueilli par le service RH (lot 7, t121 : note de 1 à 5, facultative).
+ */
+interface Decision { empId: number; present: unknown; reussi?: unknown; note?: unknown }
 
 /**
  * Clôture d'une session passée (ou de son dernier jour). Pour chaque inscrit : présent et, si la formation l'exige,
@@ -189,22 +214,22 @@ const cloturer: ActionHandler = async (ctx, p) => {
     if (!inscrits.some(i => i.empId === id)) throw new ActionError(`${ctx.d.personName(id)} ne figure pas parmi les inscrits : rouvrez la clôture`);
   }
   const lignes = inscrits.map(i => {
-    if (i.dejaObtenue) return { i, present: true, reussi: null, ok: true };
+    if (i.dejaObtenue) return { i, present: true, reussi: null, ok: true, avis: null };
     const x = decisions.get(i.empId);
     if (typeof x?.present !== 'boolean') throw new ActionError(`Présence à renseigner : ${i.nom}`);
     if (evaluation && x.present && typeof x.reussi !== 'boolean') throw new ActionError(`Résultat de l’évaluation à renseigner : ${i.nom}`);
     const reussi = evaluation && x.present ? x.reussi as boolean : null;
-    return { i, present: x.present, reussi, ok: x.present && reussi !== false };
+    return { i, present: x.present, reussi, ok: x.present && reussi !== false, avis: avisRecueilli(ctx, i.nom, x.present, x.note) };
   });
 
-  let obtenues = 0;
+  let obtenues = 0, avis = 0;
   const aReplanifier: string[] = [];
   for (const l of lignes) {
     let certId = l.i.dejaObtenue?.id ?? null;
     if (!l.i.dejaObtenue && l.ok) {
       // Certification datée du dernier jour de la session ; la certification renouvelée garde la session (historique).
       certId = (await ctx.db.insert<Certification>('certifications', { empId: l.i.empId, f: s.formation, obtenue: dernier, sessionId: null, convoc: null })).id;
-      if (l.i.inscriptionId) await ctx.db.remove('inscriptions', l.i.inscriptionId);
+      if (l.i.inscriptionId) await retirerInscription(ctx, l.i.inscriptionId);
       obtenues++;
     } else if (!l.ok) {
       // Recyclage : la certification se planifie de nouveau. Formation initiale : l'inscription reste
@@ -212,7 +237,15 @@ const cloturer: ActionHandler = async (ctx, p) => {
       if (l.i.certId) await ctx.db.update<Certification>('certifications', l.i.certId, { sessionId: null, convoc: null });
       aReplanifier.push(l.i.nom);
     }
-    await ctx.db.insert<Participation>('participations', { sessionId: s.id, empId: l.i.empId, parcours: l.i.parcours, present: l.present, reussi: l.reussi, certId });
+    const part = await ctx.db.insert<Participation>('participations', { sessionId: s.id, empId: l.i.empId, parcours: l.i.parcours, present: l.present, reussi: l.reussi, certId });
+    // Avis à chaud du participant recueilli par le service RH (lot 7, t121), en son nom ; il peut le modifier dans son espace.
+    if (l.avis != null) {
+      await ctx.db.insert<EvaluationFormation>('evaluationsFormation', {
+        empId: l.i.empId, participationId: part.id, formationSuivieId: null, type: 'chaud', repondant: 'salarie', note: l.avis, efficacite: null,
+        commentaire: null, le: ctx.d.ti, auteur: ctx.user.nom, auteurId: ctx.user.empId ?? ctx.user.salarieId ?? null,
+      });
+      avis++;
+    }
   }
   // L'action du plan réalisée prend le coût réel saisi à la clôture (`coutReel`, prérempli du coût prévu ; le coût prévu
   // s'il n'est pas transmis) et, pour effectif réel, les présents de ses sessions clôturées. Le coût réel est réservé au
@@ -227,10 +260,14 @@ const cloturer: ActionHandler = async (ctx, p) => {
   }
   const bilan: SessionBilan = { le: ctx.d.ti, par: ctx.user.nom, note, commentaire, motif: null };
   await ctx.db.update<Session>('sessions', s.id, { statut: 'Clôturée', bilan });
+  // Liste d'attente close (lot 7, t120) : la session a eu lieu sans eux, à replanifier.
+  const attente = await purgerAttente(ctx, s, 'session_cloturee');
   return [
     `${nomSession(ctx, s)} clôturée — ${plural(obtenues, 'certification enregistrée', 'certifications enregistrées')}`,
     aReplanifier.length ? `à replanifier : ${aReplanifier.join(', ')}` : '',
     realise ? 'action du plan réalisée' : '',
+    avis ? `${plural(avis, 'avis à chaud recueilli', 'avis à chaud recueillis')}` : '',
+    attente,
   ].filter(Boolean).join(' · ');
 };
 

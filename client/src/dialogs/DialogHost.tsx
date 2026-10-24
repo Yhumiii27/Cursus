@@ -42,6 +42,8 @@ import { RenouvelerCddDialog } from './RenouvelerCddDialog.tsx';
 import { RefDestinationDialog } from './RefDestinationDialog.tsx';
 import { RefEquipeDialog } from './RefEquipeDialog.tsx';
 import { RefPosteDialog } from './RefPosteDialog.tsx';
+import { RefPosteC2pDialog } from './RefPosteC2pDialog.tsx';
+import { PasseportDeclarerDialog } from './PasseportDeclarerDialog.tsx';
 import { RefFormationDialog } from './RefFormationDialog.tsx';
 import { RefHabilitationDialog } from './RefHabilitationDialog.tsx';
 import { PlanRealiserDialog } from './PlanRealiserDialog.tsx';
@@ -54,6 +56,8 @@ import { RubriqueDialog } from './RubriqueDialog.tsx';
 import { RouvrirFeuilleDialog } from './RouvrirFeuilleDialog.tsx';
 import { PieceDialog } from './PieceDialog.tsx';
 import { SessionDetailDialog } from './SessionDetailDialog.tsx';
+import { AccepterAttenteDialog } from './AccepterAttenteDialog.tsx';
+import { EvaluationDialog } from './EvaluationDialog.tsx';
 import { SessionDialog } from './SessionDialog.tsx';
 import { SortieDialog } from './SortieDialog.tsx';
 import { AutorisationDialog } from './AutorisationDialog.tsx';
@@ -62,6 +66,8 @@ import { TripImportDialog } from './TripImportDialog.tsx';
 import { TripModifierDialog } from './TripModifierDialog.tsx';
 import { AvisDialog } from './AvisDialog.tsx';
 import { AvenantForfaitDialog } from './AvenantForfaitDialog.tsx';
+import { AstreinteDialog } from './AstreinteDialog.tsx';
+import { InterventionAstreinteDialog } from './InterventionAstreinteDialog.tsx';
 import { SuiviDialog } from './SuiviDialog.tsx';
 import { VisiteDialog } from './VisiteDialog.tsx';
 
@@ -125,6 +131,8 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'refHabilitation': return <RefHabilitationDialog {...d} />;
     case 'refDestination': return <RefDestinationDialog {...d} />;
     case 'refPoste': return <RefPosteDialog {...d} />;
+    case 'refPosteC2p': return <RefPosteC2pDialog {...d} />;
+    case 'passeportDeclarer': return <PasseportDeclarerDialog {...d} />;
     case 'refEquipe': return <RefEquipeDialog {...d} />;
     case 'refActivite': return <RefActiviteDialog {...d} />;
     case 'refHoraire': return <RefHoraireDialog {...d} />;
@@ -138,6 +146,10 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'contactUrgence': return <ContactUrgenceDialog {...d} />;
     case 'avenantForfait': return <AvenantForfaitDialog {...d} />;
     case 'anonymiser': return <AnonymiserDialog {...d} />;
+    case 'accepterAttente': return <AccepterAttenteDialog {...d} />;
+    case 'astreinte': return <AstreinteDialog {...d} />;
+    case 'interventionAstreinte': return <InterventionAstreinteDialog {...d} />;
+    case 'evaluation': return <EvaluationDialog {...d} />;
     case 'confirmer': return <ConfirmerDialog c={d.c} />;
   }
 }

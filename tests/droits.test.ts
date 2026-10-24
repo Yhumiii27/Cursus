@@ -72,6 +72,16 @@ const avenantForfait = async () => (await db.insert<{ id: number }>('avenantsFor
   empId: 9, annee: 2026, jours: 5, taux: 25, signeLe: '2026-10-01', reference: null, creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Sandrine Vidal',
   annuleLe: null, annulePar: null, annuleMotif: null, lotId: null, sage: false, horsFichier: false,
 })).id;
+/** Astreinte de Mehdi (Maintenance, ou d'un autre salarié), de 18 h le premier jour à 8 h le dernier, communiquée le 1er octobre. */
+const astreinte = async (du: string, au: string, empId = 2) => (await db.insert<{ id: number }>('astreintes', {
+  empId, equipe: 'Maintenance', du, debut: '18:00', au, fin: '08:00', communiqueLe: '2026-10-01', motif: null, creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Karim Haddad',
+})).id;
+/** Intervention de Mehdi déclarée le 5 octobre (feuille de la semaine 41 en brouillon, ligne INT-AST). */
+const intervention = async () => {
+  const astreinteId = await astreinte('2026-10-05', '2026-10-07');
+  await db.insert('feuilles', { empId: 2, week: '2026-10-05', statut: 'brouillon', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-AST', tache: 'Intervention d’astreinte', ks: false, h: [1.5, 0, 0, 0, 0, 0, 0] }] });
+  return (await db.insert<{ id: number }>('astreinteInterventions', { astreinteId, empId: 2, jour: '2026-10-05', debut: '22:00', fin: '23:30', heures: 1.5, declareLe: '2026-10-06T08:00:00.000Z', declarePar: 'Mehdi Benali' })).id;
+};
 const ENTRETIEN = async () => ((await db.one(`SELECT id FROM entretiens WHERE emp_id = 2 AND statut = 'planifie'`)) as { id: number }).id;
 
 /** Absence de Mehdi le 15 décembre, dans l'état voulu (signalée par son manager, ou validée). */
@@ -121,6 +131,27 @@ const pieceEnvoyee = async (u: User) => {
 const pieceJointe = async (objet: string, objetId: number) => (await db.insert<{ id: number }>('pieces', {
   empId: 2, objet, objetId, nom: 'piece.pdf', type: 'application/pdf', taille: 5, empreinte: 'e', fichier: 'b'.repeat(32),
   deposeLe: '2026-10-07T08:00:00.000Z', deposePar: 'Essai', deposeCompteId: null,
+})).id;
+/** Mehdi en liste d'attente de la session SST du 18 novembre (lot 7, t120), proposé au service RH ou encore en file. */
+const attente = async (statut = 'proposee') => (await db.insert<{ id: number }>('attentesSession', {
+  sessionId: 2, empId: 2, demandeId: null, certId: await cert('sst'), inscriptionId: null, rang: 1, le: '2026-10-06', par: 'Sandrine Vidal',
+  statut, proposeeLe: statut === 'proposee' ? '2026-10-07' : null, issueLe: null, issuePar: null, issue: null,
+})).id;
+/**
+ * Participation présente de Mehdi à une session SST clôturée le 10 juin 2026 (lot 7, t121) : l'évaluation à froid (90 jours
+ * après) est due depuis le 8 septembre ; renvoie la participation.
+ */
+const participationClose = async () => {
+  const s = await db.insert<{ id: number }>('sessions', {
+    formation: 'sst', date: '2026-06-10', fin: '2026-06-10', jours: ['2026-06-10'], horaires: [], lieu: 'Site de Lyon — salle B', places: 12,
+    statut: 'Clôturée', planId: null, bilan: { le: '2026-06-10', par: 'Sandrine Vidal', note: null, commentaire: null, motif: null },
+  });
+  return (await db.insert<{ id: number }>('participations', { sessionId: s.id, empId: 2, parcours: 'recyclage', present: true, reussi: null, certId: null })).id;
+};
+/** Évaluation à froid donnée par Mehdi sur cette participation. */
+const evaluationDonnee = async () => (await db.insert<{ id: number }>('evaluationsFormation', {
+  empId: 2, participationId: await participationClose(), formationSuivieId: null, type: 'froid', repondant: 'salarie', note: null, efficacite: 'efficace',
+  commentaire: 'Utile sur le terrain', le: '2026-10-01', auteur: 'Mehdi Benali', auteurId: 2,
 })).id;
 /** Réglages modifiés pour l'essai (transaction annulée ensuite). */
 const reglages = async (r: Record<string, unknown>) => await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), ...r });
@@ -219,6 +250,15 @@ const MATRICE: Ligne[] = [
   // Type de suivi médical saisi sur la fiche (VIP, VIP adaptée, suivi renforcé) : service RH seulement.
   { action: 'medical.suivi', droits: '                       O    O    -    -    -    -    -    -    -', p: async () => ({ empId: 2, suivi: 'vip_adapte' }) },
   { action: 'demande.accepter', droits: '                    O    O    -    -    -    -    O    -    -', p: async () => ({ id: await demande('aipr') }) },
+  // Liste d'attente des sessions complètes (lot 7, t120) : confirmation de l'inscription d'une personne proposée (service RH,
+  // référent HSE) ; retrait de la file par le salarié lui-même, son manager direct, le service RH ou le référent HSE.
+  { action: 'attente.confirmer', droits: '                   O    O    -    -    -    -    O    -    -', p: async () => ({ id: await attente() }) },
+  { action: 'attente.retirer', droits: '                     O    O    O    -    O    -    O    -    -', p: async () => ({ id: await attente('attente') }) },
+  // Évaluation des formations (lot 7, t121) : le salarié pour lui-même, son manager direct (son avis de manager), le service RH
+  // (avis recueilli) ; ni le référent HSE, ni la paie, ni la lecture seule (indicateurs agrégés seulement). Retrait : l'auteur
+  // de l'avis (ici le salarié) et le service RH.
+  { action: 'evaluation.enregistrer', droits: '              O    O    O    -    O    -    -    -    -', p: async () => ({ participationId: await participationClose(), type: 'froid', efficacite: 'efficace', repondant: 'salarie' }) },
+  { action: 'evaluation.retirer', droits: '                  O    O    -    -    O    -    -    -    -', p: async () => ({ id: await evaluationDonnee() }) },
   { action: 'demande.refuser', droits: '                     O    O    -    -    -    -    O    -    -', p: async () => ({ id: await demande('aipr') }) },
   // Demande retirée par son auteur seul (Mehdi pour la sienne, Karim pour celle qu'il a faite pour Mehdi), tant qu'elle
   // attend ; rouverte par le service RH ou le référent HSE.
@@ -337,6 +377,18 @@ const MATRICE: Ligne[] = [
   // Horaires de poste (lot 6) : service RH ; la lecture seule consulte.
   { action: 'referentiel.horaire.enregistrer', droits: '     O    O    -    -    -    -    -    -    -', p: () => ({ code: 'S', nom: 'Samedi matin', debut: '06:00', fin: '12:00', pause: 0 }) },
   { action: 'referentiel.horaire.archiver', droits: '       O    O    -    -    -    -    -    -    -', p: () => ({ id: 'AM' }) },
+  // Compte professionnel de prévention (lot 7, t052) : facteurs du poste et qualification des horaires, service RH et
+  // référent HSE ; la lecture seule consulte la synthèse.
+  { action: 'referentiel.poste.expositions', droits: '           O    O    -    -    -    -    O    -    -', p: async () => ({ id: await posteNomme('Cariste'), facteurs: ['bruit'] }) },
+  { action: 'referentiel.horaire.alternant', droits: '   O    O    -    -    -    -    O    -    -', p: () => ({ id: 'N', alternant: true }) },
+  // Passeport de prévention (lot 7, t066) : lignes marquées déclarées et marque retirée, service RH et référent HSE ; la
+  // lecture seule consulte l'écran Formations.
+  { action: 'passeport.declarer', droits: '            O    O    -    -    -    -    O    -    -', p: async () => ({ cles: [`cert:${await cert('sst')}`], le: '2026-10-07' }) },
+  { action: 'passeport.retirer', droits: '             O    O    -    -    -    -    O    -    -', p: async () => {
+    const certId = await cert('sst');
+    await db.insert('declarationsPasseport', { empId: 2, certId, suivieId: null, declareLe: '2026-10-01', le: '2026-10-01', auteur: 'Sarah Cohen', auteurId: 23 });
+    return { cle: `cert:${certId}` };
+  } },
   // Jours fériés et journée de solidarité d'une année (lot 6) : administrateur RH.
   { action: 'parametres.feries', droits: '                  O    -    -    -    -    -    -    -    -', p: () => ({ annee: 2027, solidarite: 'pentecote_travaillee', nonChomes: [] }) },
   { action: 'mandat.enregistrer', droits: '                  O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, role: 'titulaire', du: '2026-11-01', credit: 21 }) },
@@ -446,6 +498,16 @@ const MATRICE: Ligne[] = [
   { action: 'agenda.creerJeton', droits: '                       -    -    O    O    O    O    -    -    -', p: async () => { await reglages({ agendaFluxActif: true }); return {}; } },
   { action: 'agenda.revoquerJeton', droits: '                    -    -    O    O    O    O    -    -    -', p: () => ({}) },
   { action: 'agenda.revoquerTout', droits: '                     O    -    -    -    -    -    -    -    -', p: () => ({}) },
+  // Astreintes (t049, lot 7) : planning par le manager direct ou le service RH (jamais pour soi-même) ; interventions
+  // déclarées sur la feuille de temps comme la saisie d'heures (salarié, manager direct, service RH).
+  { action: 'astreinte.planifier', droits: '              O    O    O    -    -    -    -    -    -', p: () => ({ empId: 2, du: '2026-11-06', debut: '18:00', au: '2026-11-13', fin: '08:00' }) },
+  { action: 'astreinte.planifier', variante: 'astreinte du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: () => ({ empId: 14, du: '2026-11-06', debut: '18:00', au: '2026-11-13', fin: '08:00' }) },
+  { action: 'astreinte.modifier', droits: '               O    O    O    -    -    -    -    -    -', p: async () => ({ id: await astreinte('2026-11-06', '2026-11-13'), au: '2026-11-12' }) },
+  { action: 'astreinte.annuler', droits: '                O    O    O    -    -    -    -    -    -', p: async () => ({ id: await astreinte('2026-11-06', '2026-11-13'), motif: 'Arrêt technique reporté' }) },
+  { action: 'astreinte.intervention', droits: '           O    O    O    -    O    -    -    -    -', p: async () => ({ astreinteId: await astreinte('2026-10-05', '2026-10-07'), jour: '2026-10-05', debut: '22:00', fin: '23:30' }) },
+  // Astreinte d'un autre salarié (Thomas) : Mehdi reçoit le même refus qu'un identifiant inconnu, avant tout contrôle.
+  { action: 'astreinte.intervention', variante: 'astreinte de Thomas', droits: 'O    O    O    -    -    O    -    -    -', p: async () => ({ astreinteId: await astreinte('2026-10-05', '2026-10-07', 6), jour: '2026-10-05', debut: '22:00', fin: '23:30' }) },
+  { action: 'astreinte.retirerIntervention', droits: '    O    O    O    -    O    -    -    -    -', p: async () => ({ id: await intervention() }) },
 ];
 
 const ANNULER = Symbol('annuler');

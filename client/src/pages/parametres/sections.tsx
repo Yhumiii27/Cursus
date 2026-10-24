@@ -9,6 +9,7 @@ import { JournalPanel } from '../Journal.tsx';
 import { MessageriePanel } from '../Messagerie.tsx';
 import type { SectionProps } from './commun.ts';
 import { AbsencesPaie } from './AbsencesPaie.tsx';
+import { Astreintes } from './Astreintes.tsx';
 import { CompteEpargneTemps } from './CompteEpargneTemps.tsx';
 import { Agenda } from './Agenda.tsx';
 import { Conservation } from './Conservation.tsx';
@@ -26,10 +27,13 @@ import { Formations } from './Formations.tsx';
 import { ForfaitJours } from './ForfaitJours.tsx';
 import { Fractionnement } from './Fractionnement.tsx';
 import { Hierarchie } from './Hierarchie.tsx';
+import { ListeAttente } from './ListeAttente.tsx';
+import { EvaluationsFormation } from './EvaluationsFormation.tsx';
 import { Keystone } from './Keystone.tsx';
 import { MatriculesPaie } from './MatriculesPaie.tsx';
 import { Pieces } from './Pieces.tsx';
 import { PostesRisques } from './PostesRisques.tsx';
+import { PasseportPrevention } from './PasseportPrevention.tsx';
 import { ReglagesPaie } from './ReglagesPaie.tsx';
 import { Reprise } from './Reprise.tsx';
 import { RelancesEcheances } from './RelancesEcheances.tsx';
@@ -73,11 +77,15 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'absences-paie', place: 'droite', Section: AbsencesPaie },
   { id: 'deplacements-paie', place: 'droite', Section: DeplacementsPaie },
   { id: 'forfait-jours', place: 'droite', Section: ForfaitJours },
+  { id: 'astreintes', place: 'droite', Section: Astreintes },
   { id: 'feuilles', place: 'gauche', Section: FeuillesTemps },
   { id: 'repos', place: 'droite', Section: ReposHebdomadaire },
   { id: 'sante', place: 'gauche', Section: Sante },
   { id: 'formations', place: 'droite', Section: Formations },
+  { id: 'liste-attente', place: 'droite', Section: ListeAttente },
+  { id: 'evaluations-formation', place: 'droite', Section: EvaluationsFormation },
   { id: 'postes-risques', place: 'droite', Section: PostesRisques },
+  { id: 'passeport-prevention', place: 'droite', Section: PasseportPrevention },
   { id: 'confidentialite', place: 'droite', Section: Rgpd },
   { id: 'pieces', place: 'droite', Section: Pieces },
   { id: 'agenda', place: 'droite', Section: Agenda },

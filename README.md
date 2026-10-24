@@ -316,6 +316,15 @@ de santé reste hors du dépôt et se rejoue par `CURSUS_CAS_PAIE=/chemin/absolu
   facultatifs ; conflits, contrat, convocation (`.ics`) et clôture (certification datée du dernier jour) sur toute la
   session ; heures prévues proposées dans la feuille de temps des inscrits (ligne interne INT-FORM, jamais envoyée à
   Keystone ; Paramètres → Formations).
+- **Liste d'attente des sessions complètes** (lot 7) : une demande acceptée sur une session pleine place le salarié en
+  file, dans l'ordre où le service RH accepte les demandes, avec sa place dans Mon espace ; une place libérée est proposée au service RH, qui confirme
+  l'inscription (la convocation part alors), ou inscrit aussitôt en option ; file close à l'annulation ou à la clôture
+  (demandes au plan de formation). Paramètres → Liste d'attente des sessions.
+- **Évaluation des formations** (lot 7, t121) : avis à chaud du salarié (note de 1 à 5) dans Mon espace ou recueilli par le
+  service RH à la clôture ; efficacité à froid (efficace, partiellement, non) demandée au salarié et à son manager 90 jours
+  après les formations réglementaires et recommandées, avec e-mails de demande et de relance ; indicateurs par organisme
+  et par formation (Plan & budget, export CSV), agrégats seuls pour le référent HSE ; commentaires au service RH seulement.
+  Paramètres → Évaluation des formations.
 - **Corrections d'une saisie erronée** : certification corrigée (date, formation ; service RH et référent HSE) ou supprimée
   (administrateur RH), ligne du plan corrigée ou supprimée, demande retirée par son auteur tant qu'elle attend ou rouverte
   par le service RH (inscription, ligne du plan ou titre en attente défaits). Motif obligatoire, réservé au service RH ;
@@ -436,7 +445,14 @@ habilitations, destinations), archivés plutôt que supprimés, validité modifi
 échéances au dernier jour du mois cible quand le jour n'y existe pas (29/02 + 36 mois = 28/02) · renouvellement
 accepté d'une habilitation expirée compté « en attente » · exigences par poste et par équipe : une formation ou une
 habilitation exigée jamais obtenue rend « Non conforme », avec une échéance « exigence manquante » (inscrire, demander
-l'habilitation) et un indicateur au tableau de bord ; postes créés depuis les intitulés déjà saisis, choisis en liste.
+l'habilitation) et un indicateur au tableau de bord ; postes créés depuis les intitulés déjà saisis, choisis en liste ·
+compte professionnel de prévention (C2P) : nuits comptées d'après les horaires de poste des feuilles validées (1 h au moins
+entre 0 h et 5 h ; 120 nuits par an, 50 en équipes successives alternantes, au prorata du contrat), horaires de nuit à
+qualifier, facteurs du poste cochés par le service RH ou le référent HSE, synthèse annuelle et export « à saisir dans la DSN »
+(codes à confirmer par la paie) · Passeport de prévention : formations santé-sécurité marquées au catalogue (SST, CACES,
+ATEX, électrique, AIPR, EPI, hauteur, PRAP, modifiable), lignes à déclarer de l'année dans l'écran Formations, suivi
+« déclarée le » pour ne pas déclarer deux fois, export CSV tracé au gabarit de colonnes réglable (format de la plateforme à
+confirmer, aucun NIR).
 
 Interface fiable : une réponse arrivée après une plus récente ne réaffiche pas un état ancien (révision de la base dans
 chaque instantané) · deux personnes qui modifient la même fiche ne s'écrasent plus (seuls les champs modifiés partent,

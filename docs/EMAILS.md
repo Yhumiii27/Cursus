@@ -37,6 +37,7 @@ désignent une donnée de santé (congés au retour d'une absence, demande de vi
 | Relevé d'heures des intérimaires (CSV joint) | Agence d'intérim | Chaque semaine, dès que toutes les feuilles de ses intérimaires sont validées, même avec retard (jusqu'à cinq semaines) ; relevé complet après un relevé envoyé incomplet par le service RH ; renvoi par le service RH |
 | Décision sur un congé validé : fichier `.ics` joint (journées entières) ; congé validé à venir annulé : `.ics` d'annulation | Salarié qui reçoit ses notifications aussitôt (le récapitulatif quotidien ne porte pas de fichier) | `absence.decider`, congé posé par le manager, `absence.annuler` |
 | Dossiers de salariés sortis à effacer (nombre seulement, aucun nom) | Boîte du service RH, dans son récapitulatif quotidien | Nouveaux dossiers échus, conservation des dossiers activée (Paramètres → Conservation des dossiers) |
+| Évaluation d'une formation (lot 7, t121) : avis à chaud, puis efficacité à froid ; intitulé et date de la formation, jamais de note ni de commentaire | Salarié (son avis) ; manager (efficacité des formations de son équipe directe) | Chaque jour à partir de 7 h : avis à chaud une fois après la formation ; à froid le jour de l'échéance (90 jours par défaut), relances 15 et 30 jours après, tant que l'avis manque |
 | Récapitulatif quotidien | Personne qui l'a choisi | Chaque jour à partir de 7 h |
 | E-mail d'essai | Adresse saisie | Paramètres → Messagerie |
 

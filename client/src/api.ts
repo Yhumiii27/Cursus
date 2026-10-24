@@ -128,7 +128,8 @@ async function request<T>(method: string, url: string, body?: unknown, espace?: 
  * Télécharge un fichier produit par le serveur (export CSV du journal, données personnelles d'un salarié) :
  * le nom vient de l'en-tête Content-Disposition. Le serveur trace l'export.
  */
-async function telecharger(url: string): Promise<void> {
+/** Téléchargement d'un fichier produit par le serveur ; rend les en-têtes de la réponse (clés des lignes exportées…). */
+async function telecharger(url: string): Promise<Headers> {
   let res: Response;
   try {
     res = await fetch(url, { credentials: 'same-origin' });
@@ -147,6 +148,7 @@ async function telecharger(url: string): Promise<void> {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(href), 1000);
+  return res.headers;
 }
 
 /** Pièce justificative envoyée, en attente d'être jointe par l'action du dialogue (`jeton`, server/src/pieces-routes.ts). */
@@ -211,6 +213,20 @@ export const api = {
   fichierLotPaie: (id: number) => telecharger(`/api/paie/lots/${id}/fichier`),
   /** Paie : variables d'une période de paie (lots et attente), export CSV tracé (server/src/variables-paie.ts). */
   variablesPaie: (periode: string) => telecharger(`/api/paie/variables/${encodeURIComponent(periode)}`),
+  /**
+   * Passeport de prévention (lot 7, t066) : lignes de la période, à déclarer (intérimaires exclus) ou déjà déclarées
+   * seules, export CSV produit et tracé par le serveur (server/src/passeport-prevention.ts). Rend les clés des lignes à
+   * déclarer exportées (null : déjà déclarées, ou liste trop longue pour l'en-tête), le nombre de lignes du fichier et
+   * celui des intérimaires écartés.
+   */
+  passeportPrevention: async (du: string, au: string, vue: 'a-declarer' | 'declarees') => {
+    const h = await telecharger(`/api/formations/passeport-prevention?du=${encodeURIComponent(du)}&au=${encodeURIComponent(au)}&vue=${vue}`);
+    const cles = h.get('X-Passeport-Lignes');
+    return {
+      cles: cles == null ? null : cles.split(',').filter(Boolean),
+      nombre: Number(h.get('X-Passeport-Nombre') ?? 0), interimaires: Number(h.get('X-Passeport-Interimaires') ?? 0),
+    };
+  },
   /**
    * Export ou impression produit par le navigateur (CSV, passeport formation, compte rendu) : signalé au serveur
    * pour le journal, sans attendre ni bloquer le téléchargement.

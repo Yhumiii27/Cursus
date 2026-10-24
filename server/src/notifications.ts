@@ -24,6 +24,7 @@ import { adresseSalarie, courriel, jourLong, lireMessagerie, periodeLongue } fro
 import { relevesAutomatiques } from './releves.ts';
 import { relancerEcheances } from './relances.ts';
 import { annoncerDelegations } from './delegations.ts';
+import { evaluationsDuJour } from './evaluations-formation.ts';
 
 /**
  * Ce dont une notification a besoin du contexte d'une action ; `parDelegation` : managers au nom desquels le suppléant a
@@ -250,7 +251,7 @@ export async function notifierDecisionDemande(cx: Contexte, emp: Employe, r: Dem
  * Organisateur des événements .ics (exigé par les agendas pour une publication ou une annulation) : la boîte
  * d'envoi de Cursus, à défaut (simulation) la boîte du service RH.
  */
-async function organisateur(cx: Contexte): Promise<EvenementAgenda['organisateur']> {
+export async function organisateur(cx: Contexte): Promise<EvenementAgenda['organisateur']> {
   const from = configMail()?.from;
   if (from) return { nom: 'Cursus', adresse: from };
   const rh = (await messagerie(cx)).rh;
@@ -442,6 +443,8 @@ export async function tachesEmails(db: Db, heure = new Date().getHours()): Promi
     await annoncerDelegations(db);
     // Récapitulatif des échéances par paliers (server/src/relances.ts) : sa propre date de passage, son propre réglage.
     await relancerEcheances(db, heure);
+    // Évaluations des formations (lot 7, t121, server/src/evaluations-formation.ts) : demandes et relances du jour.
+    await evaluationsDuJour(db, heure);
     const jour = todayIso();
     if (heure < HEURE_RECAPITULATIF || await db.getSetting<string | null>(DERNIER_RECAPITULATIF, null) === jour) return { releves, recapitulatifs: null };
     const recapitulatifs = await envoyerRecapitulatifs(db);

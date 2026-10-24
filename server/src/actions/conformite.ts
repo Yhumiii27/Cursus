@@ -17,6 +17,8 @@ import { ActionError, type ActionHandler, aDroit, type Ctx, enriched, getEmp, is
 import { clore } from './inscriptions-closes.ts';
 import { joindrePieces, retirerPiecesDe } from './pieces.ts';
 import { appliquerFormalite, retirerFormalite } from './voyages.ts';
+import { placesAProposer } from '../../../shared/rules/liste-attente.ts';
+import { accepterEnAttente, ajusterPropositions, cloreAttenteInscrit, promouvoirAttente, promouvoirAttentes, retirerAttentesFormation } from '../liste-attente.ts';
 
 /**
  * Inscrit d'une session passée, pas encore clôturée : seule la clôture (service RH) l'en sort, avec sa présence
@@ -58,6 +60,13 @@ const inscrire: ActionHandler = async (ctx, p) => {
     return `${emp.nom} est déjà inscrit à cette session`;
   }
   if (sess.inscrits >= sess.places) throw new ActionError('Cette session est complète');
+  // Places libres toutes proposées à la liste d'attente (lot 7, t120) : elles reviennent à la file, dans l'ordre, et le
+  // service RH confirme. Le manager ne les prend pas ; le service RH et le référent HSE peuvent passer outre (urgence) :
+  // les propositions en trop sont alors remises en attente, à leur rang (`ajusterPropositions`).
+  const prisSurFile = placesAProposer(sess, (ctx.ds.attentesSession ?? []).filter(a => a.empId !== emp.id)) <= 0;
+  if (prisSurFile && !aDroit(ctx, 'formations')) {
+    throw new ActionError('Les places libres de cette session sont proposées à sa liste d’attente : le service RH confirme ces inscriptions dans l’ordre de la file');
+  }
   // Absent un jour de la session (congé validé, arrêt…) ou inscrit à une autre session ce jour-là : refusé.
   const conflit = blocage(conflitsSession(ctx.d, emp.id, sess, { sessionId: (cert ?? insc)!.sessionId }));
   if (conflit) throw new ActionError(conflit);
@@ -70,8 +79,13 @@ const inscrire: ActionHandler = async (ctx, p) => {
   else await ctx.db.update<Inscription>('inscriptions', insc!.id, { sessionId: sess.id, convoc: conv, date: ctx.d.ti, convocLe });
   // « Envoyer maintenant » : convocation par e-mail avec le fichier .ics (sans adresse : à remettre en main propre).
   const envoi = conv === 'now' && !await convoquerFormation(ctx, sess, emp, cert ? 'recyclage' : 'initiale') ? ' · convocation à remettre en main propre (aucune adresse e-mail)' : '';
+  // Personne de la file inscrite directement : son attente est close ; place proposée prise par le service RH : la
+  // proposition en trop revient en attente. Place libérée dans l'ancienne session : proposée à sa liste d'attente (lot 7,
+  // t120, server/src/liste-attente.ts).
+  await cloreAttenteInscrit(ctx, emp.id, sess.id);
+  const attente = [await ajusterPropositions(ctx, sess.id), await promouvoirAttente(ctx, ancienne?.id)].filter(Boolean).join(' · ');
   return `${emp.nom} — inscription à la session du ${fmt(parse(sess.date))}${conv === 'now' ? envoi || ' · convocation envoyée' : ' · convocation à envoyer'}`
-    + (annulee ? ` · convocation à la session du ${fmt(parse(ancienne!.date))} annulée par e-mail` : '');
+    + (annulee ? ` · convocation à la session du ${fmt(parse(ancienne!.date))} annulée par e-mail` : '') + (attente ? ` · ${attente}` : '');
 };
 
 const ajouterCert: ActionHandler = async (ctx, p) => {
@@ -88,6 +102,11 @@ const ajouterCert: ActionHandler = async (ctx, p) => {
   const cert = await ctx.db.insert<Certification>('certifications', { empId: emp.id, f: fm.id, obtenue: p.date, sessionId: null, convoc: null, inscriptionsCloses: closes.length ? closes : null });
   // Attestation jointe (pièce justificative, actions/pieces.ts).
   const pieces = await joindrePieces(ctx, p.pieces, 'certification', cert.id, emp.id);
+  // Liste d'attente (lot 7, t120) : certification en vigueur, ses attentes pour cette formation n'ont plus d'objet ; une place
+  // qui lui était proposée se propose au suivant.
+  const attentes = certEnVigueur([...emp.certs, cert], fm.id) === cert ? await retirerAttentesFormation(ctx, emp, fm.id) : { n: 0, sessions: [] };
+  const sortiFile = attentes.n ? ` · retiré de ${attentes.n > 1 ? `${attentes.n} listes d’attente` : 'la liste d’attente'}` : '';
+  const promues = await promouvoirAttentes(ctx, attentes.sessions);
   // Recyclage enregistré : une session ouverte, postérieure à l'obtention, n'a plus d'objet pour la certification
   // remplacée (qui ne se planifie plus) ; sa place est libérée. Une session antérieure ou du jour même garde
   // l'inscrit : c'est elle qui a produit le recyclage, sa clôture le constatera.
@@ -96,9 +115,11 @@ const ajouterCert: ActionHandler = async (ctx, p) => {
     // La convocation reçue pour cette session, si elle est à venir, est annulée par e-mail.
     const annulee = await annulerSiConvoque(ctx, sess, emp, avant!);
     await ctx.db.update<Certification>('certifications', avant!.id, { sessionId: null, convoc: null, convocLe: null });
-    return `${fm.court} ajoutée au dossier de ${emp.nom}${pieces} · inscription à la session du ${fmt(parse(sess.date))} annulée${annulee ? ' · annulation envoyée par e-mail' : ''}`;
+    // Place libérée : proposée à la liste d'attente de la session.
+    const attente = [promues, await promouvoirAttente(ctx, sess.id)].filter(Boolean).join(' · ');
+    return `${fm.court} ajoutée au dossier de ${emp.nom}${pieces} · inscription à la session du ${fmt(parse(sess.date))} annulée${annulee ? ' · annulation envoyée par e-mail' : ''}${sortiFile}${attente ? ` · ${attente}` : ''}`;
   }
-  return `${fm.court} ajoutée au dossier de ${emp.nom}${pieces}`;
+  return `${fm.court} ajoutée au dossier de ${emp.nom}${pieces}${sortiFile}${promues ? ` · ${promues}` : ''}`;
 };
 
 const delivrerHab: ActionHandler = async (ctx, p) => {
@@ -153,9 +174,11 @@ const accepterDemande: ActionHandler = async (ctx, p) => {
   const done = async (reponse: string, suite: SuiteDemande = {}) => await ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'acceptee', reponse, suite });
   let suite: SuiteDemande = {};
   if (r.type === 'formation') {
-    const sess = r.sessionId && r.f
-      ? ctx.ds.sessions.find(s => s.id === r.sessionId && s.formation === r.f && sessionActive(s) && s.date >= ctx.d.ti && s.inscrits < s.places)
+    const demandee = r.sessionId && r.f
+      ? ctx.ds.sessions.find(s => s.id === r.sessionId && s.formation === r.f && sessionActive(s) && s.date >= ctx.d.ti)
       : undefined;
+    // Place libre qui n'est pas déjà proposée à la liste d'attente de la session (lot 7, t120).
+    const sess = demandee && placesAProposer(demandee, ctx.ds.attentesSession ?? []) > 0 ? demandee : undefined;
     if (sess) {
       const cert = certEnVigueur(emp.certs, r.f!);
       // Absent le jour de la session, ou inscrit ailleurs ce jour-là : la demande ne peut pas être acceptée telle quelle.
@@ -187,19 +210,28 @@ const accepterDemande: ActionHandler = async (ctx, p) => {
           suite = { sessionId: sess.id, inscriptionId: i.id, cree: true };
         }
       }
+      // Déjà dans la file de cette session (demande précédente) : son attente est close (lot 7, t120).
+      await cloreAttenteInscrit(ctx, emp.id, sess.id);
       await done(`Inscrit à la session du ${fmt(parse(sess.date))} — convocation envoyée`, suite);
       // La convocation (e-mail et .ics) tient lieu de réponse au salarié ; le manager qui a fait la demande est prévenu.
       await notifierDecisionDemande(ctx, emp, r, true, await convoquerFormation(ctx, sess, emp, cert ? 'recyclage' : 'initiale'));
-      return `${emp.nom} inscrit à la session du ${fmt(parse(sess.date))}`;
+      // Session quittée pour celle-ci : sa place libérée est proposée à sa liste d'attente.
+      const attente = suite.depuis ? await promouvoirAttente(ctx, suite.depuis) : '';
+      return `${emp.nom} inscrit à la session du ${fmt(parse(sess.date))}${attente ? ` · ${attente}` : ''}`;
     }
+    // Session demandée complète (lot 7, t120, server/src/liste-attente.ts) : le salarié prend son rang dans la liste
+    // d'attente, sauf choix du plan de formation (`complete: 'plan'`) ou liste d'attente désactivée (Paramètres).
+    if (demandee && ctx.ds.settings.formationsListeAttente && p.complete !== 'plan') return await accepterEnAttente(ctx, r, emp, demandee);
     if (!emp.equipe) throw new ActionError(`Affectez d’abord ${emp.nom} à une équipe pour l’inscrire au plan de formation`);
     // Exercice en cours, ou le suivant s'il est déjà clos (plan.cloturerExercice) : alors au premier trimestre.
     const ex = exerciceOuvert(ctx.ds, ctx.d.year);
     const tri = ex > ctx.d.year ? 'T1' : `T${Math.floor(ctx.d.today.getMonth() / 3) + 1}`;
     const l = await ctx.db.insert<PlanAction>('planActions', { exercice: ex, f: r.f, libelle: r.libelle, equipe: emp.equipe, periode: tri, effectif: 1, cout: r.f ? ctx.d.fm(r.f).cout : 0, statut: 'prevu', origine: 'demande' });
-    await done(`Ajoutée au plan de formation ${ex} (${tri})`, { planId: l.id });
+    // Session demandée complète : la réponse le dit, le salarié sait pourquoi il n'est pas inscrit.
+    const complete = demandee ? `Session du ${fmt(parse(demandee.date))} complète — ajoutée` : 'Ajoutée';
+    await done(`${complete} au plan de formation ${ex} (${tri})${demandee ? ' : le service RH vous inscrira à une prochaine session' : ''}`, { planId: l.id });
     await notifierDecisionDemande(ctx, emp, r, true);
-    return `${emp.nom} — demande ajoutée au plan de formation ${ex}`;
+    return `${emp.nom} — ${demandee ? `session du ${fmt(parse(demandee.date))} complète, ` : ''}demande ajoutée au plan de formation ${ex}`;
   }
   if (r.type === 'habilitation') {
     const t = emp.habs.find(h => h.h === r.h);

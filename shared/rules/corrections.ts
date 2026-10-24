@@ -11,6 +11,7 @@ import { blocage, conflitsSession } from './conflits.ts';
 import { horsContratLe } from './contrats.ts';
 import { montantReel } from './exercices.ts';
 import { finSession } from './plage-session.ts';
+import { placesAProposer } from './liste-attente.ts';
 import type { Certification, DemandeCollab, Employe, Inscription, PlanAction, Session, SuiteDemande, Trimestre } from '../types.ts';
 
 /** Longueur maximale d'un motif de correction (comme les motifs de refus et d'annulation). */
@@ -160,6 +161,8 @@ export function refusRetour(d: Domain, emp: Employe, s: Session, quitte: number 
   if (!sessionActive(s)) return `session ${s.statut === 'Annulée' ? 'annulée' : 'clôturée'}`;
   if (s.date < d.ti) return 'session commencée ou passée';
   if (s.inscrits >= s.places) return 'session complète';
+  // Places libres proposées à la liste d'attente (lot 7, t120) : elles reviennent à la file, pas au retour d'une correction.
+  if (placesAProposer(s, d.ds.attentesSession ?? []) <= 0) return 'places libres proposées à la liste d’attente';
   if (horsContratLe(emp, finSession(s))) return 'session après la fin du contrat';
   const conflit = blocage(conflitsSession(d, emp.id, s, { sessionId: quitte }));
   return conflit ? `${conflit.charAt(0).toLowerCase()}${conflit.slice(1)}` : null;

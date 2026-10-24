@@ -51,6 +51,8 @@ export const ACTIONS_PAIE: readonly string[] = [
   'employe.renouvelerCdd', 'employe.avenantApplique',
   // Forfait jours (t043) : avenant de renonciation à des jours de repos (jours rachetés, majoration, rubrique JREN).
   'forfait.avenant', 'forfait.annulerAvenant',
+  // Astreintes (t049, lot 7) : périodes planifiées, modifiées ou annulées (compensation) et interventions (travail effectif).
+  'astreinte.planifier', 'astreinte.modifier', 'astreinte.annuler', 'astreinte.intervention', 'astreinte.retirerIntervention',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -100,6 +102,22 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'formationSuivie.enregistrer': 'Formation suivie enregistrée',
   'formationSuivie.modifier': 'Formation suivie corrigée',
   'formationSuivie.annuler': 'Formation suivie supprimée (saisie erronée)',
+  // Liste d'attente des sessions complètes (lot 7, t120, server/src/liste-attente.ts) : actions et effets d'une place libérée.
+  'attente.confirmer': 'Inscription confirmée depuis la liste d’attente',
+  'attente.retirer': 'Retrait de la liste d’attente',
+  'attente.proposee': 'Place libérée proposée depuis la liste d’attente',
+  'attente.inscrite': 'Inscription automatique depuis la liste d’attente',
+  'attente.sautee': 'Liste d’attente : salarié non admissible passé',
+  'attente.remise': 'Liste d’attente : proposition remise en attente',
+  'attente.purgee': 'Liste d’attente close (session annulée ou clôturée)',
+  // Passeport de prévention (lot 7, t066)
+  'passeport.declarer': 'Passeport de prévention : lignes marquées déclarées',
+  'passeport.retirer': 'Passeport de prévention : marque de déclaration retirée',
+  'passeport.exporter': 'Passeport de prévention : lignes exportées',
+  'migration.passeportPrevention': 'Reprise : formations marquées pour le Passeport de prévention',
+  // Évaluation des formations (lot 7, t121, server/src/actions/evaluations-formation.ts) : saisie et retrait.
+  'evaluation.enregistrer': 'Évaluation d’une formation enregistrée',
+  'evaluation.retirer': 'Évaluation d’une formation retirée',
   // Habilitations
   'hab.delivrer': 'Habilitation délivrée',
   'hab.suspendre': 'Habilitation suspendue',
@@ -126,6 +144,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'referentiel.activite.archiver': 'Activité interne archivée ou rétablie',
   'referentiel.horaire.enregistrer': 'Horaire de poste créé ou modifié',
   'referentiel.horaire.archiver': 'Horaire de poste archivé ou rétabli',
+  'referentiel.poste.expositions': 'Facteurs d’exposition du poste (C2P)',
+  'referentiel.horaire.alternant': 'Horaire qualifié pour le C2P (équipes alternantes)',
   'migration.postes': 'Reprise : postes créés depuis les fiches',
   // Demandes des collaborateurs
   'demande.formation': 'Demande de formation',
@@ -175,6 +195,12 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'temps.derogationDominicale': 'Dérogation au repos dominical d’une équipe',
   'mandat.enregistrer': 'Mandat au CSE enregistré ou modifié',
   'mandat.supprimer': 'Mandat au CSE retiré',
+  // Astreintes (t049, lot 7, server/src/actions/astreintes.ts).
+  'astreinte.planifier': 'Astreinte planifiée',
+  'astreinte.modifier': 'Astreinte modifiée',
+  'astreinte.annuler': 'Astreinte annulée',
+  'astreinte.intervention': 'Intervention d’astreinte déclarée',
+  'astreinte.retirerIntervention': 'Intervention d’astreinte retirée',
   // Absences et congés
   'absence.demander': 'Demande d’absence',
   'absence.decider': 'Décision sur une absence',
@@ -288,12 +314,12 @@ export const dossierComplet = (u: Pick<CurrentUser, 'role' | 'profilRh'>) => dro
 /** Familles du filtre « Action » : codes commençant par l'un des préfixes (ou égaux à l'un d'eux). */
 export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly string[] }[] = [
   { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.', 'migration.contratsHistorique'] },
-  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel'] },
+  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel', 'attente.', 'passeport.', 'evaluation.', 'migration.passeportPrevention'] },
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.', 'migration.habDelivrances'] },
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
   { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement', 'migration.referencesDeplacements', 'chantier.', 'migration.deplacementsPaie'] },
-  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'forfait.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie', 'migration.rubriquesFeuilles'] },
+  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'forfait.', 'astreinte.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie', 'migration.rubriquesFeuilles'] },
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
@@ -333,6 +359,8 @@ export const CHAMP_LABEL: Record<string, string> = {
   oblig: 'Vaccins obligatoires', rec: 'Vaccins recommandés', passMois: 'Validité du passeport après l’entrée (mois)', secu: 'Sécurité sociale',
   archive: 'Archivée le', vigilance: 'Vigilance (France Diplomatie)', vigilanceLe: 'Vigilance vérifiée le',
   grandDeplacement: 'Grand déplacement', hebergement: 'Hébergement', contactSurPlace: 'Contact sur place', arianeLe: 'Inscription sur Ariane le',
+  // Compte professionnel de prévention (lot 7)
+  c2p: 'Facteurs d’exposition (C2P)', alternant: 'Équipes successives alternantes',
   // Horaires de poste et jours fériés (lot 6)
   debut: 'Début', finHoraire: 'Fin', pause: 'Pause (minutes)', horaire: 'Horaire', solidarite: 'Journée de solidarité', solidariteFerie: 'Férié de la journée de solidarité',
   nonChomes: 'Fériés non chômés',
@@ -355,6 +383,10 @@ export const CHAMP_LABEL: Record<string, string> = {
   relancesActives: 'Récapitulatif des échéances', relancesPaliers: 'Paliers de relance (jours)', relancesJour: 'Envoi du récapitulatif des échéances',
   // Formations : heures des sessions dans les feuilles de temps (Paramètres → Formations) ; session sur plusieurs jours.
   formationsTemps: 'Heures de formation proposées dans les feuilles de temps', jours: 'Jours de la session',
+  // Liste d'attente des sessions complètes (lot 7, t120).
+  formationsListeAttente: 'Liste d’attente des sessions complètes', formationsAttenteMode: 'Place libérée (liste d’attente)',
+  // Passeport de prévention (lot 7, t066)
+  passeportPrevention: 'Passeport de prévention', passeportColonnes: 'Colonnes de l’export du Passeport de prévention',
   annuleLe: 'Annulé le', annuleMotif: 'Motif de l’annulation',
   // Semaine à 7 jours (heures du dimanche), activités internes et mandats au CSE (heures de délégation).
   majorationDimanche: 'Majoration des heures du dimanche (%)', role: 'Mandat', credit: 'Crédit d’heures par mois',
@@ -403,6 +435,10 @@ export const CHAMP_LABEL: Record<string, string> = {
   conservationPasseportAns: 'Conservation du passeport et des visas (ans)', conservationTitreSejourAns: 'Conservation du titre de séjour (ans)',
   conservationEntretiensAns: 'Conservation des entretiens (ans)', conservationFormationsAns: 'Conservation des formations (ans)',
   agendaFluxActif: 'Abonnement à l’agenda personnel', agendaContenu: 'Contenu de l’agenda personnel',
+  // Astreintes (t049, lot 7) : réglages et colonnes d'une astreinte.
+  astreinteDelaiPrevenance: 'Astreintes : délai de prévenance (jours)', astreinteCompensation: 'Astreintes : forme de la compensation',
+  astreinteMineurs: 'Astreintes : salariés mineurs admis', astreinteAccord: 'Référence de l’accord sur les astreintes',
+  communiqueLe: 'Communiquée le',
 };
 
 const valeur = (v: unknown): string => {

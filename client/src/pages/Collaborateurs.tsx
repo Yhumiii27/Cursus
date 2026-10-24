@@ -42,6 +42,7 @@ import { PiecesFiche } from '../components/PiecesFiche.tsx';
 import { CouverturePanel } from '../components/Couverture.tsx';
 import { CopierLien } from '../components/CopierLien.tsx';
 import { FormationsSuiviesFiche, HabilitationsAnterieures, ImprimerTitre } from '../components/FormationsSuivies.tsx';
+import { ListeAttenteFiche } from '../components/ListeAttente.tsx';
 import { imprimerPasseport } from '../passeport.ts';
 import { titreImprimable } from '../titre-habilitation.ts';
 import { membreOuDelegue } from '../state/delegues.ts';
@@ -483,6 +484,9 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
           ))}
         </div>
       </>}
+
+      {/* Listes d'attente des sessions complètes (lot 7, t120). */}
+      <ListeAttenteFiche e={e} />
 
       {e.habs.length > 0 && <>
         <SectionLabel>Habilitations</SectionLabel>

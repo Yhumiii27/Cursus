@@ -4,6 +4,7 @@ import type {
   TypeContrat, VaccinId, ValidationMode, VisaKind,
 } from './types.ts';
 import type { AvisMedical, MotifVisite } from './types.ts';
+import type { FacteurC2p } from './types.ts';
 
 export type StatusKey = 'ok' | 'due' | 'exp';
 /** `susp` : suspendue (prérequis non satisfait ou suspension manuelle) ; `retiree` : retirée, définitivement. */
@@ -239,6 +240,12 @@ export const ACTIVITES_INTERNES = /^(?:INT-|ECOLE$)/;
  * des inscrits à une session, jamais envoyée à Keystone (code INT-*). Amorcée dans les projets par une migration nommée.
  */
 export const ACTIVITE_FORMATION = { code: 'INT-FORM', nom: 'Formation' } as const;
+/**
+ * Activité interne des interventions d'astreinte (t049, shared/rules/astreintes.ts) : ligne de la feuille de temps qui
+ * porte les heures des interventions déclarées (travail effectif), jamais saisie à la main ni envoyée à Keystone. Amorcée
+ * dans les projets par une migration nommée (server/src/migrations/lot7-astreintes.ts).
+ */
+export const ACTIVITE_ASTREINTE = { code: 'INT-AST', nom: 'Intervention d’astreinte' } as const;
 // « Reporté » : action d'un exercice clos reprise sur l'exercice suivant (`plan.cloturerExercice`), hors des sommes.
 export const PLAN_CLS = { prevu: 'tag-outline', engage: 'tag-accent', realise: 'tag-neutral', reporte: 'tag-outline' } as const;
 export const PLAN_LABEL = { prevu: 'Prévu', engage: 'Engagé', realise: 'Réalisé', reporte: 'Reporté' } as const;
@@ -268,11 +275,23 @@ export const EMAIL_LABEL: Record<string, string> = {
   'delegation.prevue': 'Délégation des validations prévue',
   'delegation.debut': 'Début d’une délégation des validations (demandes en attente)',
   'delegation.fin': 'Délégation des validations révoquée',
+  // Astreintes (t049, lot 7, server/src/astreintes.ts) : au salarié, avec l'événement d'agenda (.ics).
+  'astreinte.planifiee': 'Astreinte planifiée',
+  'astreinte.modifiee': 'Astreinte modifiée',
+  'astreinte.annulee': 'Astreinte annulée',
   // E-mail réservé au service RH (donnée de santé), tel que la lecture seule le voit (server/src/envois-lecteur.ts).
   reserve: 'Message réservé au service RH',
   'echeances.recapitulatif': 'Récapitulatif des échéances',
   // Destination passée à l'orange ou au rouge (t068, server/src/vigilance.ts) : aux managers des voyageurs (le service RH a la liste dans le message de l'action).
   'voyage.vigilance': 'Vigilance d’un pays de destination relevée',
+  // Liste d'attente des sessions complètes (lot 7, t120, server/src/liste-attente.ts) : au salarié (et au manager qui a fait la
+  // demande) pour sa place dans la file ; au service RH pour une place libérée à confirmer.
+  'attente.formation': 'Liste d’attente d’une session de formation',
+  'attente.proposition': 'Place libérée à confirmer (liste d’attente)',
+  // Évaluation des formations (lot 7, t121, server/src/evaluations-formation.ts) : avis à chaud et efficacité à froid demandés
+  // au salarié, efficacité à froid demandée au manager pour son équipe ; demandes puis relances, sans note ni commentaire.
+  'evaluation.demande': 'Évaluation d’une formation à donner',
+  'evaluation.manager': 'Efficacité des formations de l’équipe à évaluer',
 };
 export const CIBLE_LABEL = { keystone: 'Keystone', sage: 'Sage Paie', email: 'E-mail' } as const;
 export const MODE_NOTIFICATION_LABEL = { immediat: 'Aussitôt', quotidien: 'Récapitulatif quotidien' } as const;
@@ -491,6 +510,12 @@ export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubriqu
   // taux de majoration part en détail, le montant reste calculé par Sage). Désactivée par défaut tant que la paie n'a pas
   // donné son code, et sans objet tant qu'aucun accord collectif n'ouvre le rachat (Paramètres → Forfait jours).
   JREN: { label: 'Jours de repos rachetés, forfait jours (avenant de renonciation, majoration en détail)', unite: 'j', inactiveParDefaut: true },
+  // Astreintes (shared/rules/astreintes-paie.ts, t049, lot 7) : heures et périodes des astreintes terminées, quantités seules ;
+  // la compensation (montant, ou durée du repos) suivra l'accord sur les astreintes et n'est pas encore calculée. Désactivées
+  // par défaut tant que la paie n'a pas confirmé ses codes (réponse du 23 octobre 2026) : listées « à saisir dans Sage ».
+  AST_H: { label: 'Heures d’astreinte (période entière, interventions comprises)', unite: 'h', inactiveParDefaut: true },
+  AST_PER: { label: 'Périodes d’astreinte (nombre, au mois de leur début)', unite: 'nombre', inactiveParDefaut: true },
+  AST_COMP: { label: 'Compensation des astreintes (selon l’accord, à confirmer)', unite: 'nombre', inactiveParDefaut: true },
 };
 
 /** Sections d'un compte rendu : [clé, libellé, rédacteur] — 'mgr' évaluateur, 'sal' salarié. */
@@ -528,7 +553,8 @@ export const TRIMESTRES = ['T1', 'T2', 'T3', 'T4'] as const;
 /** Vues accessibles par rôle (la première est la page d'accueil). */
 export const ALLOWED_VIEWS = {
   // `miseEnService` : reprise depuis Lucca, ouverte depuis Paramètres (hors du menu ; imports réservés à l'administrateur RH).
-  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'miseEnService'],
+  // `prevention` : compte professionnel de prévention (lot 7, shared/rules/c2p.ts), service RH, référent HSE et lecture seule.
+  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'miseEnService', 'prevention'],
   manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions'],
   collaborateur: ['portail', 'temps', 'absences', 'entretiens'],
 } as const;
@@ -564,8 +590,8 @@ export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits:
   },
   referent_hse: {
     label: 'Référent HSE / formation', espace: 'HSE', droits: ['formations'],
-    aide: 'Catalogue, sessions et présences, certifications et habilitations, verdicts Go / No Go ; aptitude médicale réduite au verdict et aux restrictions en vigueur, comme pour un manager ; ni temps, ni paie, ni entretiens',
-    vues: ['dashboard', 'collaborateurs', 'formations', 'habilitations', 'echeances', 'chantiers', 'referentiels'],
+    aide: 'Catalogue, sessions et présences, certifications et habilitations, verdicts Go / No Go ; aptitude médicale réduite au verdict et aux restrictions en vigueur, comme pour un manager ; synthèse du C2P (nuits comptées et facteurs d’exposition par salarié) ; ni feuilles de temps, ni paie, ni entretiens',
+    vues: ['dashboard', 'collaborateurs', 'formations', 'habilitations', 'echeances', 'chantiers', 'referentiels', 'prevention'],
   },
   paie: {
     label: 'Gestionnaire de paie', espace: 'Paie', droits: ['paie'],
@@ -575,7 +601,7 @@ export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits:
   lecture_seule: {
     label: 'Lecture seule', espace: 'Lecture', droits: ['consultation'],
     aide: 'Direction, DPO, auditeur : tableaux de bord, alertes et journal des actions, sans rien modifier ; ni données de santé détaillées, ni dossiers de voyage',
-    vues: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'echeances', 'budget', 'chantiers', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels'],
+    vues: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'echeances', 'budget', 'chantiers', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'prevention'],
   },
 };
 export const aDroitRh = (p: ProfilRh | undefined, droit: DroitRh) => !!p && !!PROFILS_RH[p]?.droits.includes(droit);
@@ -614,3 +640,22 @@ export const ERREURS_MICROSOFT = {
   indisponible: { titre: 'Connexion Microsoft indisponible', texte: 'réessayez dans quelques minutes, ou utilisez un compte Cursus.' },
 } as const;
 export type ErreurMicrosoft = keyof typeof ERREURS_MICROSOFT;
+
+/**
+ * Facteurs du compte professionnel de prévention (t052, art. L4163-1 et D4163-2 ; shared/rules/c2p.ts), dans l'ordre de
+ * l'écran Prévention : libellé, code interne de Cursus (export « à saisir dans la DSN »), code DSN présumé du facteur
+ * (rubrique S21.G00.34.001, à confirmer par la paie avant toute saisie) et seuil réglementaire, cité tel quel (non
+ * réglable : un accord ne le modifie pas). Nuits comptées par Cursus d'après les horaires de poste ; les quatre autres
+ * facteurs sont cochés sur le poste par le service RH ou le référent HSE.
+ */
+export const FACTEURS_C2P: Record<FacteurC2p, { label: string; code: string; dsn: string; seuil: string; poste?: boolean }> = {
+  nuit: { label: 'Travail de nuit', code: 'C2P-NUIT', dsn: '08', seuil: '1 h de travail au moins entre 0 h et 5 h, 120 nuits par an' },
+  alternant: { label: 'Équipes successives alternantes', code: 'C2P-ESA', dsn: '09', seuil: '1 h de travail au moins entre 0 h et 5 h, 50 nuits par an' },
+  repetitif: {
+    label: 'Travail répétitif', code: 'C2P-REP', dsn: '10', poste: true,
+    seuil: '15 actions techniques ou plus par cycle de 30 s au plus, ou 30 actions techniques par minute, 900 heures par an',
+  },
+  hyperbare: { label: 'Activités en milieu hyperbare', code: 'C2P-HYP', dsn: '05', poste: true, seuil: '1 200 hectopascals, 60 interventions ou travaux par an' },
+  temperatures: { label: 'Températures extrêmes', code: 'C2P-TEMP', dsn: '06', poste: true, seuil: '5 °C ou moins, ou 30 °C ou plus, 900 heures par an' },
+  bruit: { label: 'Bruit', code: 'C2P-BRUIT', dsn: '07', poste: true, seuil: '81 dB(A) sur 8 heures pendant 600 heures par an, ou 135 dB(C) en crête 120 fois par an' },
+};

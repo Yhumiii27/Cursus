@@ -75,6 +75,31 @@ export const REFERENCES: readonly Reference[] = [
   ref('formations_suivies', 'f', 'formations'),
   ref('formations_suivies', 'plan_action_id', 'plan_actions'),
   ref('formations_suivies', 'demande_id', 'demandes_collab'),
+  // Astreintes (t049, lot 7) : salarié de l'astreinte ; salarié et astreinte de chaque intervention (0005_astreintes.sql).
+  ref('astreintes', 'emp_id', 'employes'),
+  ref('astreinte_interventions', 'emp_id', 'employes'),
+  ref('astreinte_interventions', 'astreinte_id', 'astreintes'),
+  // Liste d'attente des sessions complètes (lot 7, chantier C, t120 ; clés étrangères de 0007_formations.sql) : salarié,
+  // session, demande qui l'y a placé, certification à renouveler ou inscription à replanifier.
+  ref('attentes_session', 'emp_id', 'employes'),
+  ref('attentes_session', 'session_id', 'sessions'),
+  ref('attentes_session', 'demande_id', 'demandes_collab'),
+  ref('attentes_session', 'cert_id', 'certifications'),
+  ref('attentes_session', 'inscription_id', 'inscriptions'),
+  // Astreintes dans la paie (t049, lot 7, étape 2 ; 0008_astreintes_paie.sql) : lot qui emporte l'astreinte terminée.
+  ref('astreintes', 'lot_id', 'lots_paie'),
+  // Passeport de prévention (lot 7, chantier B, t066 ; clés étrangères de 0009_passeport_prevention.sql) : salarié, auteur de
+  // la marque (fiche de son compte), certification ou formation suivie déclarée.
+  ref('declarations_passeport', 'emp_id', 'employes'),
+  ref('declarations_passeport', 'auteur_id', 'employes'),
+  ref('declarations_passeport', 'cert_id', 'certifications'),
+  ref('declarations_passeport', 'suivie_id', 'formations_suivies'),
+  // Évaluations des formations (lot 7, chantier C, t121 ; clés étrangères de 0010_evaluations_formation.sql) : salarié
+  // évalué, auteur de la saisie (fiche du compte), participation ou formation suivie évaluée.
+  ref('evaluations_formation', 'emp_id', 'employes'),
+  ref('evaluations_formation', 'auteur_id', 'employes'),
+  ref('evaluations_formation', 'participation_id', 'participations'),
+  ref('evaluations_formation', 'formation_suivie_id', 'formations_suivies'),
 ];
 
 export interface Integrite {

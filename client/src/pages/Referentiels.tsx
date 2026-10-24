@@ -130,7 +130,8 @@ function Formations() {
             {lignes.map(f => (
               <tr key={f.id}>
                 <td><Two main={f.nom} sub={`${f.court} · code ${f.id}`} /></td>
-                <td className="nowrap">{f.type}</td>
+                {/* Passeport de prévention (lot 7, t066) : formation santé-sécurité déclarée sur la plateforme. */}
+                <td className="nowrap"><Two main={f.type} sub={f.passeportPrevention ? 'Passeport de prévention' : undefined} /></td>
                 <td className="nowrap">{validiteLabel(f.validite)}</td>
                 <td>{VALIDATION_LABEL[f.validation]}</td>
                 <td><Two main={f.organisme || '—'} sub={f.duree} /></td>

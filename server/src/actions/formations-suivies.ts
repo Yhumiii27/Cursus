@@ -7,6 +7,7 @@ import { parse } from '../../../shared/dates.ts';
 import { fmt, key, plural } from '../../../shared/format.ts';
 import { erreurMotifCorrection } from '../../../shared/rules/corrections.ts';
 import { present } from '../../../shared/rules/contrats.ts';
+import { cleLigne, rappelDeclaration } from '../../../shared/rules/passeport-prevention.ts';
 import { controlerSuivie, intituleSuivie, obligatoireParDefaut, suiviesEnVigueur, type SaisieSuivie } from '../../../shared/rules/formations-suivies.ts';
 import type { Employe, FormationSuivie, OrigineFormationSuivie, PlanAction } from '../../../shared/types.ts';
 import { auteurDe } from '../delivrances.ts';
@@ -77,7 +78,9 @@ const modifier: ActionHandler = async (ctx, p) => {
   const err = erreurMotifCorrection(p.motif);
   if (err) throw new ActionError(err);
   await ctx.db.update<FormationSuivie>('formationsSuivies', avant.id, { ...v, corrigeLe: ctx.d.ti, corrigePar: ctx.user.nom, corrigeMotif: str(p.motif) });
-  return `${intituleSuivie(ctx.d, v)} — ${emp.nom} · formation suivie corrigée`;
+  // Passeport de prévention (lot 7, t066) : une ligne déjà déclarée se corrige aussi sur la plateforme.
+  const rappel = rappelDeclaration(ctx.ds, cleLigne({ suivieId: avant.id }));
+  return `${intituleSuivie(ctx.d, v)} — ${emp.nom} · formation suivie corrigée${rappel ? ` · ${rappel}` : ''}`;
 };
 
 /** Annulation d'une formation suivie saisie par erreur (administrateur RH ; jamais la sienne), motif obligatoire. */
@@ -89,7 +92,8 @@ const annuler: ActionHandler = async (ctx, p) => {
   const err = erreurMotifCorrection(p.motif);
   if (err) throw new ActionError(err);
   await ctx.db.update<FormationSuivie>('formationsSuivies', x.id, { annuleLe: ctx.d.ti, annulePar: ctx.user.nom, annuleMotif: str(p.motif) });
-  return `${intituleSuivie(ctx.d, x)} — ${emp.nom} · formation suivie supprimée (saisie erronée)${x.demandeId ? ' · la demande est de nouveau à clore' : ''}`;
+  const rappel = rappelDeclaration(ctx.ds, cleLigne({ suivieId: x.id }));
+  return `${intituleSuivie(ctx.d, x)} — ${emp.nom} · formation suivie supprimée (saisie erronée)${x.demandeId ? ' · la demande est de nouveau à clore' : ''}${rappel ? ` · ${rappel}` : ''}`;
 };
 
 /**

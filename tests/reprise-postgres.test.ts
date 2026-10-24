@@ -74,6 +74,25 @@ test('reprise : instantané identique, identifiants, ordre et séquences gardés
   const src = await sourceDemo(async s => {
     // Ordre d'insertion d'un référentiel différent de l'ordre des codes : gardé par la colonne rang.
     await s.insert('formations', { id: 'AAA-DERNIERE', nom: 'Ajoutée en dernier', type: 'Interne', validite: 0, validation: 'presence' });
+    // Liste d'attente d'une session complète (lot 7, t120) : reprise avec ses clés étrangères (0007_formations.sql).
+    await s.insert('attentesSession', {
+      sessionId: 2, empId: 2, demandeId: null, certId: null, inscriptionId: 4, rang: 1, le: '2026-10-06', par: 'Sandrine Vidal', statut: 'retire',
+      proposeeLe: null, issueLe: '2026-10-08', issuePar: 'Sandrine Vidal', issue: 'rh',
+    });
+    // Passeport de prévention (lot 7, t066) : ligne déclarée, reprise avec ses clés étrangères (0009_passeport_prevention.sql).
+    await s.insert('declarationsPasseport', { empId: 2, certId: 5, suivieId: null, declareLe: '2026-10-09', le: '2026-10-09', auteur: 'Sarah Cohen', auteurId: 23 });
+    // Évaluations d'une formation (lot 7, t121) : à chaud d'une participation, à froid d'une formation suivie, reprises avec
+    // leurs clés étrangères et leurs CHECK (0010_evaluations_formation.sql).
+    const part = await s.insert<{ id: number }>('participations', { sessionId: 6, empId: 2, parcours: 'recyclage', present: true, reussi: null, certId: null });
+    await s.insert('evaluationsFormation', {
+      empId: 2, participationId: part.id, formationSuivieId: null, type: 'chaud', repondant: 'salarie', note: 4, efficacite: null,
+      commentaire: 'Formateur clair', le: '2026-10-09', auteur: 'Mehdi Benali', auteurId: 2,
+    });
+    const suivie = (await s.where<{ id: number }>('formationsSuivies', 'empId', 2))[0];
+    await s.insert('evaluationsFormation', {
+      empId: 2, participationId: null, formationSuivieId: suivie.id, type: 'froid', repondant: 'manager', note: null, efficacite: 'partielle',
+      commentaire: null, le: '2026-10-09', auteur: 'Karim Haddad', auteurId: 12,
+    });
   });
   const avant = empreinte(src);
   const db = await cible();
@@ -142,6 +161,36 @@ test('valeurs : « aucun » de référence et dates vides écrites NULL, compté
     && /certifications\.emp_id → employes : 1 référence sans ligne visée \(999\)/.test(err.message)
     && /absences\.du \(ligne 1\) : « 12\/10\/2026 » n’est pas une date AAAA-MM-JJ/.test(err.message));
   assert.equal(await db2.count('employes'), 0);
+});
+
+test('astreintes (lot 7, t049) : lot de paie qui les emporte, interventions et « sage » NULL d’une base de l’étape 1 repris', { skip: SANS_PG }, async () => {
+  let paye = 0, etape1 = 0, lot = 0;
+  const src = await sourceDemo(async s => {
+    // Lot transmis qui emporte une astreinte terminée (clé étrangère astreintes.lot_id → lots_paie de 0008) : le lot doit
+    // être repris avant l'astreinte.
+    lot = (await s.insert<{ id: number }>('lotsPaie', {
+      cle: 'essai-astreintes', mode: 'simulation', statut: 'transmis', periode: '2026-09', periodes: ['2026-09'], rappels: [], creation: '2026-10-01T08:00:00.000Z',
+      auteur: 'Essai', feuilles: [], resume: { lignes: 0, salaries: 0, rubriques: {} }, sansMatricule: [], contenu: { endpoint: '', dossier: 'X', envoye_le: '', lignes: [] },
+      telechargements: 0, historique: false,
+    })).id;
+    const ast = { empId: 2, equipe: 'Maintenance', debut: '18:00', fin: '08:00', communiqueLe: '2026-08-10', motif: null, creeLe: '2026-08-10T08:00:00.000Z', creePar: 'Karim Haddad' };
+    paye = (await s.insert<{ id: number }>('astreintes', { ...ast, du: '2026-09-04', au: '2026-09-11', lotId: lot, sage: true })).id;
+    await s.update('lotsPaie', lot, { astreintes: [{ id: paye, empId: 2 }] });
+    etape1 = (await s.insert<{ id: number }>('astreintes', { ...ast, du: '2026-10-16', au: '2026-10-23' })).id;
+    // Base de l'étape 1 : la colonne sage n'existait pas, elle est restée NULL.
+    await s.run('UPDATE astreintes SET sage = NULL, lot_id = NULL WHERE id = ?', [etape1]);
+    await s.insert('astreinteInterventions', { astreinteId: paye, empId: 2, jour: '2026-09-05', debut: '23:00', fin: '02:00', heures: 3, declareLe: '2026-09-06T08:00:00.000Z', declarePar: 'Mehdi Benali' });
+  });
+  const db = await cible();
+  const cr = await R.reprendreSurPostgres(src, db);
+  assert.equal(cr.statut, 'faite');
+  type A = { id: number; lotId: number | null; sage: boolean };
+  const a = (await db.get<A>('astreintes', paye))!, b = (await db.get<A>('astreintes', etape1))!;
+  assert.deepEqual([a.lotId, a.sage], [lot, true], 'lot qui emporte l’astreinte conservé');
+  assert.deepEqual([b.lotId, b.sage], [null, false], 'sage NULL de l’étape 1 : non transmise (colonne NOT NULL de 0008)');
+  const x = await db.query<{ astreinteId: number; heures: number }>('SELECT astreinte_id AS "astreinteId", heures::float AS heures FROM astreinte_interventions');
+  assert.deepEqual(x, [{ astreinteId: paye, heures: 3 }]);
+  assert.deepEqual((await db.get<{ astreintes: unknown }>('lotsPaie', lot))!.astreintes, [{ id: paye, empId: 2 }]);
 });
 
 // — Ligne de commande (server/src/reprise-postgres-cli.ts) —

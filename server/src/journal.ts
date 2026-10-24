@@ -33,9 +33,10 @@ import { reglageAnnee } from '../../shared/rules/feries.ts';
 import { estTypeDerogation, JOURS_FEUILLE } from '../../shared/rules/semaine.ts';
 import { controlesMineur } from '../../shared/rules/mineurs.ts';
 import { controlesReposNuit } from '../../shared/rules/repos-nuit.ts';
+import { plagesInterventions } from '../../shared/rules/astreintes.ts';
 import { lignesCouverture } from '../../shared/rules/couverture.ts';
 import { corDeLaFeuille } from '../../shared/rules/temps.ts';
-import type { CalendrierFeries, ClotureConges, CurrentUser, Employe, Fractionnement, FeuilleTemps, HoraireFige, InformationCp, LigneTemps } from '../../shared/types.ts';
+import type { CalendrierFeries, ClotureConges, CurrentUser, Employe, Fractionnement, FeuilleTemps, HoraireFige, InformationCp, InterventionAstreinte, LigneTemps } from '../../shared/types.ts';
 import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
 import { journaliser, type Compte } from './comptes.ts';
 import { lireConfidentialite } from './confidentialite.ts';
@@ -187,7 +188,9 @@ async function depassementTrace(p: P, x: Contexte): Promise<Ligne> {
   // Repos quotidien ou pause insuffisants d'après les horaires figés (shared/rules/repos-nuit.ts) : les codes seuls, sans le
   // dimanche précédent (le repos entre deux semaines reste sur la feuille).
   const horaires = (x.apres.horairesFiges ?? []) as (HoraireFige | null)[];
-  const reposNuit = horaires.some(Boolean) ? controlesReposNuit(horaires, perDay, String(x.apres.week ?? ''), { s: await loadSettings(x.db), naissance: e })
+  // Interventions d'astreinte de la semaine (t049) : repos dû en entier après leur fin.
+  const interventions = e ? plagesInterventions(await x.db.where<InterventionAstreinte>('astreinteInterventions', 'empId', e.id), e.id, String(x.apres.week ?? '')) : [];
+  const reposNuit = horaires.some(Boolean) ? controlesReposNuit(horaires, perDay, String(x.apres.week ?? ''), { s: await loadSettings(x.db), naissance: e, interventions })
     .codes.filter(c => c !== 'nuit_mineur') : [];
   return { motifDepassement: MENTION_TEXTE, ...(codes.length ? { depassementMineur: codes } : {}), ...(reposNuit.length ? { reposNuit } : {}) };
 }
@@ -205,6 +208,7 @@ const lotDuResultat = (x: Contexte) => x.result as {
   lot?: number; feuilles?: { empId: number; week: string }[]; absences?: { id: number; empId: number }[]; sorties?: { id: number; empId: number }[];
   deplacements?: { source?: string; id: number; empId: number }[];
   rachats?: { id: number; empId: number }[];
+  astreintes?: { id: number; empId: number }[];
   correctifs?: { empId: number; week: string }[];
 } | null | undefined;
 const lotRetenu = (x: Contexte) => {
@@ -217,11 +221,14 @@ const lotRetenu = (x: Contexte) => {
     ...(r?.deplacements?.length ? { deplacements: r.deplacements.map(s => `${s.source}:${s.id}`) } : {}),
     // Avenants de renonciation d'un forfait jours (t043) : identifiants seuls.
     ...(r?.rachats?.length ? { rachats: r.rachats.map(s => s.id) } : {}),
+    // Astreintes terminées (t049) : identifiants seuls.
+    ...(r?.astreintes?.length ? { astreintes: r.astreintes.map(s => s.id) } : {}),
   };
 };
 const salariesDuLot = (x: Contexte) => [...new Set([
   ...(lotDuResultat(x)?.feuilles ?? []).map(f => f.empId), ...(lotDuResultat(x)?.absences ?? []).map(a => a.empId), ...(lotDuResultat(x)?.sorties ?? []).map(a => a.empId),
   ...(lotDuResultat(x)?.deplacements ?? []).map(a => a.empId), ...(lotDuResultat(x)?.rachats ?? []).map(a => a.empId),
+  ...(lotDuResultat(x)?.astreintes ?? []).map(a => a.empId),
 ])];
 /** Feuilles transmises à la paie : validées et non transmises avant l'action, marquées transmises après. */
 const transmises = async (x: Contexte) => (await Promise.all((x.etat as number[]).map(id => x.db.get<FeuilleTemps>('feuilles', id)))).filter((f): f is FeuilleTemps => !!f?.sage);
@@ -366,12 +373,16 @@ export const REGLES: Record<string, Regle> = {
   // Session sur plusieurs jours : ses jours (dates, premier et dernier compris), pas les horaires.
   'session.modifier': { champs: ['id'], cible: parId('sessions', ['date', 'jours', 'lieu', 'places', 'statut']), ...inscritsAvantApres },
   'session.annuler': { champs: ['id'], cible: parId('sessions', ['statut']), ...inscritsAvantApres },
-  // Résultats de chaque inscrit (présent, reçu) ; ni la note ni le commentaire de l'évaluation à chaud.
+  // Résultats de chaque inscrit (présent, reçu) ; ni la note ni le commentaire de l'évaluation à chaud (session ou participant).
   'session.cloturer': {
     // Le coût réel saisi n'est pas recopié : il n'est contrôlé que si la clôture réalise une action du plan, dont la trace
     // (planActions) le porte alors. Sinon ce serait un texte libre.
     champs: ['id'], cible: parId('sessions', ['statut']),
-    extra: p => ({ participants: participants(p).map((x: P) => ({ empId: Number(x?.empId) || null, present: !!x?.present, reussi: typeof x?.reussi === 'boolean' ? x.reussi : null })) }),
+    // Avis à chaud recueilli par le service RH (lot 7, t121) : seulement qu'il l'est, jamais la note.
+    extra: p => ({ participants: participants(p).map((x: P) => ({
+      empId: Number(x?.empId) || null, present: !!x?.present, reussi: typeof x?.reussi === 'boolean' ? x.reussi : null,
+      ...(x?.note != null && x?.note !== '' ? { avis: true } : {}),
+    })) }),
     salaries: p => participants(p).map((x: P) => x?.empId),
   },
   'plan.importer': { champs: ['exercice', 'mode'] },
@@ -394,6 +405,36 @@ export const REGLES: Record<string, Regle> = {
   },
   'formationSuivie.modifier': { champs: ['id'], cible: { ...parId('formationsSuivies', ['f', 'libelle', 'du', 'au', 'duree', 'organisme', 'obligatoire']), masques: ['libelle', 'organisme'] } },
   'formationSuivie.annuler': { champs: ['id'], extra: (_p, av) => ({ f: av?.f ?? null, du: av?.du ?? null }), cible: parId('formationsSuivies', ['annuleLe']) },
+  // Liste d'attente des sessions complètes (lot 7, t120) : l'attente (session, salarié), son statut et son issue codée avant
+  // et après. Les effets d'une place libérée (proposition, inscription automatique, salarié passé avec son motif codé, file
+  // close) ont leurs propres lignes, écrites par server/src/liste-attente.ts.
+  'attente.confirmer': { champs: ['id'], extra: (_p, av) => ({ sessionId: av?.sessionId ?? null }), cible: parId('attentesSession', ['statut', 'issue']) },
+  'attente.retirer': { champs: ['id'], extra: (_p, av) => ({ sessionId: av?.sessionId ?? null }), cible: parId('attentesSession', ['statut', 'issue']) },
+  // Passeport de prévention (lot 7, t066) : jour de la déclaration, nombre de lignes et salariés concernés ; marque retirée :
+  // la clé de la ligne (« cert:12 », « suivie:4 », identifiants). Jamais d'intitulé ni de nom. L'export est tracé par la
+  // route (`passeport.exporter`, server/src/passeport-prevention.ts).
+  'passeport.declarer': {
+    extra: p => ({ le: typeof p.le === 'string' && isValidDate(p.le) ? p.le : null, lignes: Array.isArray(p.cles) ? p.cles.length : 0 }),
+    salaries: (_p, x) => (x.result as { salaries?: unknown[] } | null)?.salaries ?? [],
+  },
+  'passeport.retirer': {
+    extra: p => ({ cle: typeof p.cle === 'string' && /^(cert|suivie):\d{1,10}$/.test(p.cle) ? p.cle : null }),
+    salaries: (_p, x) => (x.result as { salaries?: unknown[] } | null)?.salaries ?? [],
+  },
+  // Évaluation des formations (lot 7, t121) : formation évaluée (participation ou formation suivie), type, répondant et
+  // ligne écrite ; jamais la note, l'efficacité ni le commentaire (avis nominatifs, réservés au service RH).
+  'evaluation.enregistrer': {
+    champs: ['participationId', 'formationSuivieId', 'type'],
+    bilan: (_p, x) => {
+      const r = x.result as { id?: number; repondant?: string; remplace?: boolean } | null;
+      return r?.id ? { id: r.id, repondant: r.repondant ?? null, remplace: !!r.remplace } : {};
+    },
+    salaries: (_p, x) => [(x.result as { empId?: number } | null)?.empId],
+  },
+  'evaluation.retirer': {
+    champs: ['id'], cible: parId('evaluationsFormation', ['type', 'repondant']),
+    extra: (_p, av) => ({ participationId: av?.participationId ?? null, formationSuivieId: av?.formationSuivieId ?? null }),
+  },
   // Ligne du plan corrigée (avant et après ; de l'intitulé hors catalogue, seulement qu'il change) ou supprimée (exercice,
   // formation, équipe, trimestre, statut et coût de la ligne retirée). Jamais le motif.
   'plan.modifier': { champs: ['id'], cible: { ...parId('planActions', ['f', 'libelle', 'equipe', 'periode', 'effectif', 'cout']), masques: ['libelle'] } },
@@ -420,7 +461,7 @@ export const REGLES: Record<string, Regle> = {
   // Référentiels (catalogue, aucune donnée personnelle) : code de l'élément, valeurs avant et après de chaque champ.
   // Une validité modifiée rattache la ligne aux salariés dont un titre change de statut (le message en nomme).
   'referentiel.formation.enregistrer': {
-    ...referentiel('formations', ['nom', 'court', 'type', 'validite', 'duree', 'organisme', 'cout', 'validation', 'dureeHeures']), salaries: (_p, x) => salariesTouches(x),
+    ...referentiel('formations', ['nom', 'court', 'type', 'validite', 'duree', 'organisme', 'cout', 'validation', 'dureeHeures', 'passeportPrevention']), salaries: (_p, x) => salariesTouches(x),
   },
   'referentiel.formation.archiver': referentiel('formations', ['archive'], true),
   'referentiel.habilitation.enregistrer': {
@@ -471,6 +512,10 @@ export const REGLES: Record<string, Regle> = {
     },
   },
   'referentiel.horaire.archiver': { extra: p => ({ code: codeHoraire(p), retablir: p.archive === false }), cible: { table: 'horaires', cle: p => codeHoraire(p), colonnes: ['archive'] } },
+  // Compte professionnel de prévention (t052, lot 7) : facteurs cochés sur un poste (codes) et qualification « équipes
+  // successives alternantes » d'un horaire (vrai, faux, null : à qualifier), avant et après ; aucune donnée personnelle.
+  'referentiel.poste.expositions': { extra: p => ({ id: Number(p.id) || null }), cible: parId('postes', ['c2p']) },
+  'referentiel.horaire.alternant': { extra: p => ({ code: codeHoraire(p) }), cible: { table: 'horaires', cle: p => codeHoraire(p), colonnes: ['alternant'] } },
   // Référentiel type : nombre d'éléments ajoutés.
   'referentiel.charger': {
     extra: p => ({ referentiel: referentielRecu(p) }), etat: async (db, p) => await nombreReferentiel(db, p), bilan: async (p, x) => ({ ajoutes: await nombreReferentiel(x.db, p) - Number(x.etat) }),
@@ -478,7 +523,10 @@ export const REGLES: Record<string, Regle> = {
   // Demandes des collaborateurs : ni motif, ni réponse, ni contenu d'une déclaration.
   'demande.formation': { champs: ['empId', 'f', 'sessionId'], salaries: (p, x) => [p.empId ?? x.user.empId] },
   'demande.habilitation': { champs: ['empId', 'h'], salaries: (p, x) => [p.empId ?? x.user.empId] },
-  'demande.accepter': { champs: ['id'], cible: parId('demandesCollab', ['statut']) },
+  // `complete` : choix pour une session complète (liste d'attente ou plan de formation, lot 7 t120), un code.
+  'demande.accepter': {
+    champs: ['id'], extra: p => (p.complete === 'plan' || p.complete === 'attente' ? { complete: p.complete } : {}), cible: parId('demandesCollab', ['statut']),
+  },
   'demande.refuser': { champs: ['id'], cible: parId('demandesCollab', ['statut']) },
   // Retrait par l'auteur, réouverture par le service RH : statut avant et après (ni le motif, ni la réponse).
   'demande.annuler': { champs: ['id'], cible: parId('demandesCollab', ['statut']) },
@@ -633,6 +681,27 @@ export const REGLES: Record<string, Regle> = {
     champs: ['equipe'], extra: p => ({ type: estTypeDerogation(p.type) ? p.type : null, reference: typeof p.reference === 'string' && p.reference.trim() ? MENTION_TEXTE : null }),
   },
   // Mandats au CSE : rôle, dates et crédit d'heures, avant et après (le salarié est celui du mandat).
+  // Astreintes (t049, lot 7) : identifiants, jours, heures, date de communication ; des motifs (circonstances exceptionnelles,
+  // annulation : textes libres), seulement le fait qu'ils soient renseignés. Interventions : jour, heures, durée.
+  'astreinte.planifier': {
+    champs: ['empId'],
+    bilan: async (_p, x) => {
+      const id = (x.result as { astreinte?: { id?: number } } | null)?.astreinte?.id;
+      const a = id ? await x.db.get<Ligne>('astreintes', id) : null;
+      return a ? { id: a.id, du: a.du, debut: a.debut, au: a.au, fin: a.fin, communiqueLe: a.communiqueLe, ...(a.motif ? { motif: MENTION_TEXTE } : {}) } : {};
+    },
+  },
+  'astreinte.modifier': { champs: ['id'], cible: { ...parId('astreintes', ['du', 'debut', 'au', 'fin', 'communiqueLe', 'motif']), masques: ['motif'] } },
+  'astreinte.annuler': { champs: ['id'], cible: { ...parId('astreintes', ['annuleLe', 'annuleMotif']), masques: ['annuleMotif'] } },
+  'astreinte.intervention': {
+    champs: ['astreinteId', 'jour', 'debut', 'fin'],
+    bilan: (_p, x) => {
+      const i = (x.result as { intervention?: Ligne } | null)?.intervention;
+      return i ? { id: i.id, heures: i.heures } : {};
+    },
+    salaries: (_p, x) => [(x.result as { intervention?: Ligne } | null)?.intervention?.empId],
+  },
+  'astreinte.retirerIntervention': { champs: ['id'], cible: parId('astreinteInterventions', ['astreinteId', 'jour', 'debut', 'fin', 'heures']) },
   'mandat.enregistrer': { champs: ['id', 'empId'], cible: parId('mandats', ['role', 'du', 'au', 'credit']) },
   'mandat.supprimer': { champs: ['id'], cible: parId('mandats', ['role', 'du', 'au', 'credit']) },
   // Correspondance d'une rubrique avec le plan de paie Sage : codes, case « exportée », date de confirmation.
@@ -701,7 +770,7 @@ export const REGLES: Record<string, Regle> = {
   // Administration
   // Réglages : anciennes et nouvelles valeurs, sauf la référence de l'accord des heures supplémentaires (texte libre).
   'parametres.maj': {
-    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche', 'nuitAccord', 'forfaitJoursAccord', 'fractionnementAccord', 'conservationDecisionDpo'] },
+    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche', 'nuitAccord', 'forfaitJoursAccord', 'fractionnementAccord', 'conservationDecisionDpo', 'astreinteAccord'] },
   },
   // Jours fériés d'une année (lot 6) : année, réglage avant et après ; le motif d'une année engagée (texte libre) n'est
   // jamais recopié, seulement le fait qu'il soit renseigné. Salariés dont une absence est recalculée (résultat).

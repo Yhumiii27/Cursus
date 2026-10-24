@@ -16,7 +16,9 @@ export const TABLES = {
   // en vigueur) ; on archive au lieu de supprimer. `sir` : habilitation ou poste qui place en suivi individuel renforcé.
   // `dureeHeures` : durée en heures (t122, shared/rules/heures-formation.ts), facultative ; `modele` d'une habilitation : modèle
   // du titre imprimé (t115, client/src/titre-habilitation.ts).
-  formations: { pk: 'id', cols: { id: 'text', nom: 'text', court: 'text', type: 'text', validite: 'int', duree: 'text', organisme: 'text', cout: 'real', validation: 'text', archive: 'text', dureeHeures: 'real' } },
+  // `passeportPrevention` : formation santé-sécurité à déclarer au Passeport de prévention (lot 7, t066), amorcée par la
+  // migration lot7-prevention-passeport.
+  formations: { pk: 'id', cols: { id: 'text', nom: 'text', court: 'text', type: 'text', validite: 'int', duree: 'text', organisme: 'text', cout: 'real', validation: 'text', archive: 'text', dureeHeures: 'real', passeportPrevention: 'bool' } },
   habilitations: { pk: 'id', cols: { id: 'text', nom: 'text', detail: 'text', prereqs: 'json', medical: 'bool', validite: 'int', signataire: 'text', archive: 'text', sir: 'bool', modele: 'text' } },
   // `secu` : formalité de sécurité sociale du détachement (null : déduite du code pays, shared/constants.ts).
   destinations: { pk: 'code', cols: { code: 'text', pays: 'text', visa: 'text', visaSub: 'text', oblig: 'json', rec: 'json', passMois: 'int', secu: 'text', archive: 'text',
@@ -25,7 +27,8 @@ export const TABLES = {
   // Postes et formations ou habilitations exigées (shared/rules/exigences.ts) ; `exigences` d'une équipe : communes à ses membres.
   // `expose` : poste exposé à des risques particuliers (visite post-exposition à la sortie, shared/rules/visites-dues.ts).
   // `risquesL4154` : poste de la liste des postes à risques particuliers (formation renforcée, shared/rules/formation-renforcee.ts).
-  postes: { pk: 'id', auto: true, cols: { id: 'int', nom: 'text', formations: 'json', habilitations: 'json', archive: 'text', sir: 'bool', expose: 'bool', risquesL4154: 'bool' } },
+  // `c2p` : facteurs d'exposition du compte professionnel de prévention cochés sur le poste (shared/rules/c2p.ts, lot 7).
+  postes: { pk: 'id', auto: true, cols: { id: 'int', nom: 'text', formations: 'json', habilitations: 'json', archive: 'text', sir: 'bool', expose: 'bool', risquesL4154: 'bool', c2p: 'json' } },
   // `nuit` : travail de nuit ou en continu (salariés mineurs exclus, shared/rules/mineurs.ts) ; JSON pour garder null,
   // case pas encore renseignée, distincte de « non ».
   // `couverture` : minimum de membres formés (SST, EPI incendie…), shared/rules/couverture.ts ; null : aucun seuil.
@@ -33,7 +36,9 @@ export const TABLES = {
   equipes: { pk: 'nom', cols: { nom: 'text', managerId: 'int', ordre: 'int', exigences: 'json', nuit: 'json', couverture: 'json', parente: 'text', horaire: 'text' } },
   // Horaires de poste (shared/rules/horaires.ts, server/src/actions/horaires.ts) : code choisi une fois pour toutes,
   // début et fin « HH:MM » (fin avant le début : le lendemain), pause en minutes ; `horaire` d'une équipe : proposé par défaut.
-  horaires: { pk: 'code', cols: { code: 'text', nom: 'text', debut: 'text', fin: 'text', pause: 'int', archive: 'text' } },
+  // `alternant` : horaire d'un roulement en équipes successives alternantes (C2P, shared/rules/c2p.ts, lot 7) ; JSON pour
+  // garder null, horaire pas encore qualifié, distinct de « non ».
+  horaires: { pk: 'code', cols: { code: 'text', nom: 'text', debut: 'text', fin: 'text', pause: 'int', archive: 'text', alternant: 'json' } },
   projets: { pk: 'code', cols: { code: 'text', nom: 'text', statut: 'text' } },
   chantiers: { pk: 'id', cols: { id: 'text', nom: 'text', client: 'text', lieu: 'text', pays: 'text', debut: 'text', fin: 'text', chef: 'text', habs: 'json', certs: 'json', ressources: 'json', statut: 'text',
     // Grand déplacement (t031) : qualification du service RH, jamais écrite par Keystone ; JSON pour garder null (à qualifier).
@@ -206,6 +211,9 @@ export const TABLES = {
       deplacements: 'json',
       // Avenants de renonciation dont le lot emporte les jours rachetés (identifiant, salarié ; t043) : quantités dans `contenu`.
       rachats: 'json',
+      // Astreintes terminées dont le lot emporte les heures et la période (identifiant, salarié ; t049, lot 7) : quantités
+      // dans `contenu`.
+      astreintes: 'json',
     },
     unique: [['cle']],
   },
@@ -402,6 +410,55 @@ export const TABLES = {
     pk: 'id', auto: true,
     cols: { id: 'int', empId: 'int', empreinte: 'text', creeLe: 'text', revoqueLe: 'text', revoquePar: 'text', dernierAcces: 'text' },
     unique: [['empreinte']],
+  },
+  // Astreintes (t049, lot 7, server/src/actions/astreintes.ts, shared/rules/astreintes.ts) : période (jours et heures),
+  // équipe au moment de la planification, communication au salarié, motif des circonstances exceptionnelles (texte libre),
+  // auteurs, annulation avec motif (jamais supprimée).
+  astreintes: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', equipe: 'text', du: 'text', debut: 'text', au: 'text', fin: 'text', communiqueLe: 'text', motif: 'text',
+      creeLe: 'text', creePar: 'text', modifieLe: 'text', modifiePar: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+      // Paie (étape 2, server/src/astreintes-paie.ts) : lot qui emporte l'astreinte terminée, import confirmé.
+      lotId: 'int', sage: 'bool',
+    },
+  },
+  // Interventions pendant une astreinte : travail effectif déclaré sur la feuille de temps (ligne INT-AST), jour de début,
+  // heures de début et de fin, durée ; retirées (ligne supprimée, heures retirées de la feuille) tant que la feuille se saisit.
+  astreinteInterventions: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', astreinteId: 'int', empId: 'int', jour: 'text', debut: 'text', fin: 'text', heures: 'real', declareLe: 'text', declarePar: 'text' },
+  },
+  // Liste d'attente des sessions complètes (lot 7, chantier C, t120 : server/src/liste-attente.ts) : une ligne par session et
+  // par salarié, rang d'arrivée, demande qui l'y a placé, recyclage (`certId`) ou formation initiale, statut, proposition au
+  // service RH (`proposeeLe`) et fin de l'attente (`issue` codée, jour, auteur). Migration PostgreSQL 0007_formations.sql.
+  attentesSession: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', sessionId: 'int', empId: 'int', demandeId: 'int', certId: 'int', inscriptionId: 'int', rang: 'int', le: 'text', par: 'text',
+      statut: 'text', proposeeLe: 'text', issueLe: 'text', issuePar: 'text', issue: 'text',
+    },
+    unique: [['sessionId', 'empId']],
+  },
+  // Passeport de prévention (lot 7, chantier B, t066 : shared/rules/passeport-prevention.ts) : lignes déjà déclarées sur la
+  // plateforme, certification ou formation suivie (l'une ou l'autre, une seule fois chacune), jour de la déclaration,
+  // instant et auteur de la marque. Migration PostgreSQL 0009_passeport_prevention.sql.
+  declarationsPasseport: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', empId: 'int', certId: 'int', suivieId: 'int', declareLe: 'text', le: 'text', auteur: 'text', auteurId: 'int' },
+    unique: [['certId'], ['suivieId']],
+  },
+  // Évaluations des formations (lot 7, chantier C, t121 : server/src/actions/evaluations-formation.ts) : participation
+  // présente d'une session clôturée ou formation suivie, à chaud (note de 1 à 5) ou à froid (efficacité), avis du salarié ou
+  // de son manager (`repondant`), commentaire (texte libre, service RH seulement), saisi par (`auteur`, `auteurId`). Une par
+  // formation, type et répondant. Migration PostgreSQL 0010_evaluations_formation.sql.
+  evaluationsFormation: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', participationId: 'int', formationSuivieId: 'int', type: 'text', repondant: 'text', note: 'int', efficacite: 'text',
+      commentaire: 'text', le: 'text', auteur: 'text', auteurId: 'int',
+    },
+    unique: [['participationId', 'type', 'repondant'], ['formationSuivieId', 'type', 'repondant']],
   },
 } satisfies Record<string, TableDef>;
 

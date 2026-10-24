@@ -20,7 +20,7 @@ const { PG, nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { comptesDemo } = await import('../server/src/seed.ts');
 const { createApp } = await import('../server/src/app.ts');
-const { sign } = await import('../server/src/auth.ts');
+const { empreinteSession, sign } = await import('../server/src/auth.ts');
 const { CURSUS_OCCUPE } = await import('../server/src/erreurs.ts');
 type Db = Awaited<ReturnType<typeof nouvelleBase>>;
 type Pg = import('../server/src/db-pg.ts').PgDb;
@@ -45,7 +45,7 @@ async function monter(env: Record<string, string> = {}) {
     const compte = (await db.one(`SELECT id FROM comptes WHERE ${where}`, params as never[])) as { id: number };
     const id = randomBytes(32).toString('base64url');
     const maintenant = new Date();
-    await db.insert('connexions', { id, compteId: compte.id, role, methode: 'local', demoComptes: {}, creation: maintenant.toISOString(), expiration: new Date(maintenant.getTime() + 3600_000).toISOString(), activite: null });
+    await db.insert('connexions', { id: empreinteSession(id), compteId: compte.id, role, methode: 'local', demoComptes: {}, creation: maintenant.toISOString(), expiration: new Date(maintenant.getTime() + 3600_000).toISOString(), activite: null });
     return { id, compteId: compte.id, role, cookie: `cursus_session=${id}.${await sign(db, id)}` };
   };
   const appel = async (s: { cookie: string; role: string } | null, chemin: string, init: { method?: string; body?: unknown; headers?: Record<string, string> } = {}) => {
@@ -70,7 +70,7 @@ test('chaque route de lecture trace toujours, sa trace écrite à part ; aucune 
   // Instantané : 200, activité de la session notée à part.
   const d = await appel(MEHDI, '/api/data');
   assert.equal(d.status, 200, d.texte);
-  assert.ok(((await db.get<{ activite: string | null }>('connexions', MEHDI.id))!).activite, 'activité de la session notée');
+  assert.ok(((await db.get<{ activite: string | null }>('connexions', empreinteSession(MEHDI.id)))!).activite, 'activité de la session notée');
   // Journal : l'archive paie est tracée à chaque consultation ; l'export CSV aussi.
   assert.equal((await appel(RH, '/api/journal?vue=archive')).status, 200);
   assert.equal(await actions('journal.archive'), 1);
@@ -110,7 +110,7 @@ test('identité : session révoquée et compte désactivé, écritures faites ho
   const { db, appel, MEHDI } = await monter();
   await db.run('UPDATE comptes SET actif = FALSE WHERE id = ?', [MEHDI.compteId]);
   assert.equal((await appel(MEHDI, '/api/data')).status, 401);
-  assert.ok((await db.get<{ revocation: string | null }>('connexions', MEHDI.id))!.revocation, 'session révoquée');
+  assert.ok((await db.get<{ revocation: string | null }>('connexions', empreinteSession(MEHDI.id)))!.revocation, 'session révoquée');
   // Action après le changement de compte : refusée sans rien faire.
   assert.equal((await appel(MEHDI, '/api/actions/temps.setCell', { method: 'POST', body: { empId: 2, week: '2026-10-05', li: 0, di: 0, value: '7' } })).status, 401);
 });

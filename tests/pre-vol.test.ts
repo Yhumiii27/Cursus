@@ -158,7 +158,7 @@ test('contrat des vues pub_ : colonnes de la dernière définition dans les migr
   assert.deepEqual(vues.pub_parametres, ['horizon_alerte_jours']);
   // Requête commune (WITH) et réunion (UNION ALL) : colonnes de la première branche.
   assert.deepEqual(vues.pub_titres_detenus, ['cursus_ref', 'matricule', 'titre_id', 'nature', 'code', 'obtenu_le', 'expire_le', 'utilisable_jusqu_au',
-    'prerequis_manquant', 'organisme', 'delivre_par', 'session_prevue_le']);
+    'prerequis_manquant', 'organisme', 'delivre_par', 'session_prevue_le', 'mesure', 'mesure_le']);
   assert.deepEqual(vues.pub_journal.slice(0, 3), ['ref_source', 'nature', 'quand']);
   // Avenant (remplacement), suppression, schéma qualifié, commentaires et chaînes.
   const m = [
@@ -213,7 +213,7 @@ test('base de démonstration chargée : bloquante, indices du jeu fictif ; régl
   const cs = await controlerBase(db, options());
   const demo = code(cs, 'base.demo')[0];
   assert.equal(demo.niveau, 'bloquant');
-  assert.match(demo.message, /^Données de démonstration présentes : 25 comptes du jeu de démonstration, 24 fiches à une adresse @entreprise\.example, lot de paie historique « Démonstration »\.$/);
+  assert.match(demo.message, /^Données de démonstration présentes : réglage demo \(jeu chargé le \d{4}-\d{2}-\d{2}\), 25 comptes du jeu de démonstration, 24 fiches à une adresse @entreprise\.example, lot de paie historique « Démonstration »\.$/);
   assert.equal(codeSortie(cs), 1);
   await db.fermer();
   // Marqueur du chantier A (réglage `demo`) ; comptes du domaine fictif créés à la main.
@@ -262,7 +262,7 @@ test('base : faits du serveur (rôle, schéma, droits, migrations, schéma confo
   const plusRecente = await un({ migrations: [...migrationsPg().map(m => m.nom), '0099_futur'] }, 'base.migrations');
   assert.deepEqual([plusRecente[0].niveau, plusRecente[0].message], ['bloquant', 'Migrations inconnues de cette version : 0099_futur (base mise à jour par une version plus récente).']);
   const enAttente = await controlerBase(db, options(faits({ migrations: migrationsPg().slice(0, -1).map(m => m.nom) })));
-  assert.match(code(enAttente, 'base.migrations')[0].message, /^1 migration en attente \(0010_evaluations_formation\) : appliquée au prochain démarrage\./);
+  assert.equal(code(enAttente, 'base.migrations')[0].message, `1 migration en attente (${migrationsPg().at(-1)!.nom}) : appliquée au prochain démarrage.`);
   assert.deepEqual([code(enAttente, 'base.vues').length, code(enAttente, 'base.schema-conforme').length], [0, 0], 'contrôlés après les migrations');
   assert.match((await un({ schemaIncomplet: 'table pieces manquante' }, 'base.schema-conforme'))[0].message, /table pieces manquante/);
   const vues = { ...vuesAttendues(migrationsPg()), pub_salaries: ['matricule', 'nom'], pub_parametres: undefined!, pub_absences: ['du', 'matricule', 'au', 'statut', 'annulee', 'maj_le'] };

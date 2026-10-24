@@ -68,13 +68,15 @@ async function controlesBase(): Promise<{ controles: Controle[]; cible: string }
   // le schéma d'une base ancienne ; c'est la copie qui l'est, jamais le fichier en service.
   // La copie porte toute la base RH (santé, titres de séjour, paie) hors de ses protections : supprimée à la fin, et
   // aussi si la commande est interrompue (Ctrl-C, terminal fermé, arrêt du conteneur) ; dossier en 700 (mkdtemp).
-  const dossier = mkdtempSync(join(tmpdir(), 'cursus-pre-vol-'));
-  const copie = join(dossier, 'copie.db');
-  const nettoyer = () => rmSync(dossier, { recursive: true, force: true });
+  // Gestionnaires posés avant la création du dossier : un signal reçu juste après ne laisse jamais la copie en place.
+  let dossier: string | null = null;
+  const nettoyer = () => { if (dossier) rmSync(dossier, { recursive: true, force: true }); };
   const SIGNAUX = { SIGINT: 130, SIGTERM: 143, SIGHUP: 129 } as const;
   const surSignal = (signal: keyof typeof SIGNAUX) => { nettoyer(); process.exit(SIGNAUX[signal]); };
   for (const sig of Object.keys(SIGNAUX) as (keyof typeof SIGNAUX)[]) process.once(sig, surSignal);
   process.once('exit', nettoyer);
+  dossier = mkdtempSync(join(tmpdir(), 'cursus-pre-vol-'));
+  const copie = join(dossier, 'copie.db');
   // Pièces : celles du fichier réel (la copie est ailleurs).
   process.env.CURSUS_PIECES_DIR ||= dossierPieces(realpathSync(fichier));
   try {

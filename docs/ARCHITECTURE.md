@@ -414,7 +414,10 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   valideur d'un salarié sans manager est « le service RH ».
 - **Sessions** (`server/src/auth.ts`, table `connexions`) : le cookie `cursus_session` ne porte que
   l'identifiant de session signé ; la session porte le compte, l'espace actif et le mode de connexion
-  (`local`, `demo`, `microsoft`). Durée absolue de 12 h ;
+  (`local`, `demo`, `microsoft`). La table ne garde que l'empreinte SHA-256 de l'identifiant (`empreinteSession`,
+  lot 8) : toute lecture, mise à jour ou révocation passe par elle, et un lecteur de la table (sauvegarde,
+  `matrix_lecture`) ne peut pas en tirer un cookie, même avec la clé de signature ; les sessions d'avant le lot 8
+  (identifiant en clair) sont fermées au déploiement. Durée absolue de 12 h ;
   `/api/logout` révoque, `/api/mode` ne bascule que vers un espace du compte (403 sinon), une connexion
   en ouvre une nouvelle. Connexions (démonstration comprise), déconnexions, changements d'espace et refus
   d'accès sont tracés dans le journal (voir « Journal des actions »). `revokeSessionsOf(db, empId)` révoque toutes les sessions d'un salarié,
@@ -583,7 +586,12 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     PostgreSQL 16 de test) rejoue la même suite, une base par fichier, un schéma par `nouvelleBase()` (`tests/base.ts`) ;
     les tests des migrations nommées (SQL propre à SQLite) y sont ignorés. Job CI `postgres` : socle de Matrix copié
     dans `infra/postgres-socle/`, couverture de `db-pg.ts`, démarrage en `cursus_app`, rejeu de
-    `infra/postgres-partage/20-cursus.sql` et contrôle des colonnes sensibles.
+    `infra/postgres-partage/20-cursus.sql` et contrôle des colonnes sensibles. Contrôle complémentaire (lot 8) : aucune
+    colonne de `cursus` dont le commentaire contient « Sensible » ou « à exclure de matrix_lecture » ne doit être
+    lisible par `matrix_lecture` (`scripts/colonnes-sensibles-pg.sql`) ; non bloquant tant que Matrix n'a pas ajouté
+    ces colonnes à `droits.colonnes_sensibles` (demande dans `docs/DEMANDES-LOT8-DONNEES.md`), bloquant ensuite.
+    `tests/socle-colonnes-sensibles.test.ts` vérifie que la copie du socle liste bien les colonnes que Cursus déclare
+    sensibles.
 - **Santé** (`server/src/supervision.ts`) : `GET /api/health`, monté avant le limiteur de débit et les autres routes
   `/api`, sans connexion. `SELECT 1` et `PRAGMA user_version` ; 200 `{statut: 'ok', base: 'ok'}`, 503
   `{statut: 'indisponible', base: 'erreur'}`. Appel local non relayé (boucle locale, aucun en-tête `X-Forwarded-*`) ou

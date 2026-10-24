@@ -1,7 +1,7 @@
--- Copie du dépôt Matrix (github.com/Yhumiii27/Matrix, privé), infra/postgres/init/01-base-et-roles.sql au commit 0abe407
--- (dernier changement de infra/postgres/init : cdfd2e7). Sert seulement à l'intégration continue de Cursus
--- (.github/workflows/ci.yml, job postgres) et aux essais locaux : socle du serveur commun EPC2I. Ne pas modifier ici :
--- recopier le fichier depuis Matrix.
+-- Copie du dépôt Matrix (github.com/Yhumiii27/Matrix, privé), infra/postgres/init/01-base-et-roles.sql au commit 403ff37
+-- (recopie du lot 8, 24/10/2026 ; dernier changement de infra/postgres/init : 403ff37). Sert seulement à l'intégration
+-- continue de Cursus (.github/workflows/ci.yml, job postgres) et aux essais locaux : socle du serveur commun EPC2I. Ne
+-- pas modifier ici : recopier le fichier depuis Matrix (tests/socle-colonnes-sensibles.test.ts contrôle la copie).
 
 -- Serveur PostgreSQL commun EPC2I, étape 1 sur 3 : base epc2i et rôles.
 --
@@ -120,7 +120,7 @@ WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = nom) \gexec
 ALTER ROLE matrix_lecture WITH NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS INHERIT;
 ALTER ROLE matrix_admin   WITH NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS INHERIT;
 
--- Rôles de connexion : aucun attribut d'administration, mot de passe chiffré en SCRAM (défaut de PostgreSQL 16).
+-- Rôles de connexion : aucun attribut d'administration, mot de passe chiffré en SCRAM (défaut depuis PostgreSQL 14).
 SELECT format('ALTER ROLE %I WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS INHERIT PASSWORD %L',
               nom, mdp)
 FROM (VALUES ('keystone_app', :'mdp_keystone_app'), ('codex_app', :'mdp_codex_app'),

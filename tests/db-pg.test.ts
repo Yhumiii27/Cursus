@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const { PG, nouvelleBase, schemaNeuf, surServeur } = await import('./base.ts');
+const { demandeMatrix } = await import('./colonnes-sensibles.ts');
 const { DOSSIER_MIGRATIONS_PG, migrationsPg, ouvrirPostgres, PgDb, SchemaPgError, TABLES_RANG, versDollar } = await import('../server/src/db-pg.ts');
 const { openDb, TABLES, urlPostgres } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
@@ -268,4 +269,73 @@ test('vue pub_absences (demande CU-1 de Crucible) : qui est absent et quand, jam
   const apres = (await vue())[0];
   assert.equal(apres.au, '2026-11-03');
   assert.ok(String(apres.maj_le) > avant, 'maj_le avance à la modification');
+});
+
+// ═══ Lot 8, chantier D : vue pub_titres_detenus (migration 0011_pub_titres_valides, avenant du contrat D09) ═══
+test('vue pub_titres_detenus (lot 8) : certification annulée jamais publiée, habilitation suspendue ou retirée bornée par sa mesure', SEUL, async () => {
+  const db = await pg();
+  await db.insert('employes', { id: 1, nom: 'Essai', entree: '2020-01-06' });
+  await db.insert('formations', { id: 'elec', nom: 'Habilitation électrique (formation)', validite: 36, organisme: 'Organisme A' });
+  await db.insert('formations', { id: 'caces', nom: 'CACES R489', validite: 60, organisme: 'Organisme B' });
+  await db.insert('habilitations', { id: 'br', nom: 'BR', prereqs: ['elec'], validite: 36 });
+  await db.insert('habilitations', { id: 'h0', nom: 'H0', prereqs: [], validite: 36 });
+  await db.insert('habilitations', { id: 'b1', nom: 'B1', prereqs: [], validite: 36 });
+  // CACES : la dernière obtention est annulée (saisie par erreur) ; la précédente, non annulée, reprend sa place.
+  const ancienne = await db.insert<{ id: number }>('certifications', { empId: 1, f: 'caces', obtenue: '2022-03-01' });
+  await db.insert('certifications', { empId: 1, f: 'caces', obtenue: '2026-09-01', annuleLe: '2026-09-15', annulePar: 'RH', annuleMotif: 'Erreur de saisie' });
+  // Formation prérequise de BR : seulement une certification annulée, qui ne compte jamais comme prérequis.
+  await db.insert('certifications', { empId: 1, f: 'elec', obtenue: '2026-01-10', annuleLe: '2026-02-01', annulePar: 'RH', annuleMotif: 'Doublon' });
+  await db.insert('habTitres', { empId: 1, h: 'br', delivree: '2026-01-15', par: 'Direction' });
+  const susp = await db.insert<{ id: number }>('habTitres', { empId: 1, h: 'h0', delivree: '2026-01-15', par: 'Direction', mesure: 'suspension', mesureDate: '2026-06-01', mesureMotif: 'Incident', mesurePar: 'RH' });
+  const ret = await db.insert<{ id: number }>('habTitres', { empId: 1, h: 'b1', delivree: '2026-01-15', par: 'Direction', mesure: 'retrait', mesureDate: '2026-07-01', mesureMotif: 'Restriction', mesurePar: 'RH' });
+
+  const lignes = await db.query<Record<string, unknown>>('SELECT * FROM pub_titres_detenus ORDER BY cursus_ref');
+  // Colonnes du contrat D09, dans l'ordre : celles d'avant le lot 8 inchangées, puis mesure et mesure_le en fin.
+  assert.deepEqual(Object.keys(lignes[0]), ['cursus_ref', 'matricule', 'titre_id', 'nature', 'code', 'obtenu_le', 'expire_le',
+    'utilisable_jusqu_au', 'prerequis_manquant', 'organisme', 'delivre_par', 'session_prevue_le', 'mesure', 'mesure_le']);
+  const par = (ref: string) => lignes.find(l => l.cursus_ref === ref);
+  // Certifications : l'annulée n'est pas publiée, ni pour CACES ni pour la formation prérequise.
+  assert.deepEqual(lignes.filter(l => l.nature === 'formation').map(l => l.cursus_ref), [`certification.${ancienne.id}`]);
+  assert.deepEqual([par(`certification.${ancienne.id}`)!.obtenu_le, par(`certification.${ancienne.id}`)!.expire_le, par(`certification.${ancienne.id}`)!.mesure], ['2022-03-01', '2027-03-01', null]);
+  // BR : prérequis manquant (sa seule certification est annulée) ; aucune mesure.
+  const br = lignes.find(l => l.code === 'br')!;
+  assert.deepEqual([br.prerequis_manquant, br.expire_le, br.utilisable_jusqu_au, br.mesure, br.mesure_le], [true, '2029-01-15', '2029-01-15', null, null]);
+  // Suspension et retrait : utilisable jusqu'à la veille de la mesure (date incluse, comme expire_le), échéance
+  // inchangée, mesure publiée sans son motif.
+  assert.deepEqual([par(`hab_titre.${susp.id}`)!.expire_le, par(`hab_titre.${susp.id}`)!.utilisable_jusqu_au, par(`hab_titre.${susp.id}`)!.mesure, par(`hab_titre.${susp.id}`)!.mesure_le],
+    ['2029-01-15', '2026-05-31', 'suspension', '2026-06-01']);
+  assert.deepEqual([par(`hab_titre.${ret.id}`)!.utilisable_jusqu_au, par(`hab_titre.${ret.id}`)!.mesure, par(`hab_titre.${ret.id}`)!.mesure_le], ['2026-06-30', 'retrait', '2026-07-01']);
+  // Lecture d'un autre outil le jour de la mesure : titre non utilisable.
+  assert.equal((await db.one<{ n: number }>(`SELECT count(*)::int AS n FROM pub_titres_detenus WHERE mesure IS NOT NULL AND utilisable_jusqu_au >= mesure_le`))!.n, 0);
+  // Mesure sans date (reprise d'un ancien système) : jamais utilisable (veille de la délivrance).
+  await db.update('habTitres', ret.id, { mesureDate: null });
+  const sansDate = (await db.query<Record<string, unknown>>('SELECT utilisable_jusqu_au, mesure_le FROM pub_titres_detenus WHERE cursus_ref = ?', [`hab_titre.${ret.id}`]))[0];
+  assert.deepEqual([sansDate.utilisable_jusqu_au, sansDate.mesure_le], ['2026-01-14', '2026-01-15']);
+  // Suspension levée (conformite.ts : mesure remise à null) : le titre redevient utilisable jusqu'à son échéance.
+  await db.update('habTitres', susp.id, { mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null });
+  const levee = (await db.query<Record<string, unknown>>('SELECT utilisable_jusqu_au, mesure FROM pub_titres_detenus WHERE cursus_ref = ?', [`hab_titre.${susp.id}`]))[0];
+  assert.deepEqual([levee.utilisable_jusqu_au, levee.mesure], ['2029-01-15', null]);
+  // Certification prérequise valide ajoutée : BR n'est plus en prérequis manquant, borné par l'échéance de la formation.
+  await db.insert('certifications', { empId: 1, f: 'elec', obtenue: '2026-02-10' });
+  const brOk = (await db.query<Record<string, unknown>>(`SELECT prerequis_manquant, utilisable_jusqu_au FROM pub_titres_detenus WHERE code = 'br'`))[0];
+  assert.deepEqual([brOk.prerequis_manquant, brOk.utilisable_jusqu_au], [false, '2029-01-15']);
+  // Jamais lus par la vue : motifs (textes libres), auteur de la mesure, aptitude médicale.
+  const lues = (await db.query<{ table_name: string; column_name: string }>(
+    `SELECT table_name, column_name FROM information_schema.view_column_usage WHERE view_name = 'pub_titres_detenus'`)).map(r => `${r.table_name}.${r.column_name}`);
+  for (const c of ['hab_titres.mesure_motif', 'hab_titres.mesure_par', 'certifications.annule_motif', 'certifications.corrige_motif', 'employes.avis', 'employes.visite']) assert.ok(!lues.includes(c), c);
+});
+
+test('colonnes déclarées sensibles (lot 8) : commentaire « Sensible » posé par les migrations sur chaque colonne de la demande à Matrix', SEUL, async () => {
+  const db = await pg();
+  // Colonnes et tables (« * ») de docs/demandes/matrix-lot8-colonnes-sensibles.sql : toutes couvertes par le contrôle de
+  // la CI (scripts/colonnes-sensibles-pg.sql), qui lit ces commentaires.
+  const marque = /Sensible|à exclure de matrix_lecture/;
+  for (const { table, colonne } of demandeMatrix()) {
+    const r = (await db.one<{ c: string | null; t: string | null }>(
+      `SELECT col_description(c.oid, a.attnum) AS c, obj_description(c.oid, 'pg_class') AS t
+       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace LEFT JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = ?
+       WHERE n.nspname = current_schema() AND c.relname = ?`, [colonne === '*' ? '' : colonne, table]))!;
+    assert.ok(r, `${table} existe`);
+    assert.match(colonne === '*' ? r.t ?? '' : r.c ?? '', marque, `${table}.${colonne}`);
+  }
 });

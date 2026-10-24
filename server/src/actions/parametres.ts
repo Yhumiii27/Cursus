@@ -4,6 +4,7 @@ import { appliquerReglages, ReglageInvalide } from '../../../shared/reglages.ts'
 import type { Settings } from '../../../shared/types.ts';
 import { reactivationAbsences } from '../absences-paie.ts';
 import { DEMO } from '../auth.ts';
+import { refusPiecesLocales } from '../config.ts';
 import { loadSettings } from '../dataset.ts';
 import { sauvegarderBase, type Sauvegarde } from '../sauvegarde.ts';
 import { seedDemo } from '../seed.ts';
@@ -20,6 +21,9 @@ const maj: ActionHandler = async (ctx, p) => {
     if (err instanceof ReglageInvalide) throw new ActionError(err.message, 400);
     throw err;
   }
+  // Pièces justificatives dans le dossier local : refusées en production sans clé de chiffrement (lot 8, config.ts).
+  const refusPieces = next.piecesStockage === 'local' && avant.piecesStockage !== 'local' ? refusPiecesLocales() : null;
+  if (refusPieces) throw new ActionError(refusPieces, 409);
   await ctx.db.setSetting('app', next);
   // Absences de nouveau dans le fichier de paie (t028) : celles saisies dans Sage entre-temps n'y repartent pas.
   const absences = await reactivationAbsences(ctx.db, avant, next, ctx.user, ctx.d.ti);

@@ -397,6 +397,8 @@ export const TABLES = {
     cols: {
       id: 'int', jeton: 'text', empId: 'int', objet: 'text', objetId: 'int', nom: 'text', type: 'text', taille: 'int', empreinte: 'text', fichier: 'text',
       deposeLe: 'text', deposePar: 'text', deposeCompteId: 'int', conserverJusquau: 'text', retireeLe: 'text', retireePar: 'text', retireeMotif: 'text',
+      // Fichier chiffré au repos (lot 8, chantier D, server/src/pieces-chiffrement.ts) : 0012_pieces_chiffrees.sql.
+      chiffree: 'bool',
     },
     unique: [['jeton'], ['fichier']],
   },

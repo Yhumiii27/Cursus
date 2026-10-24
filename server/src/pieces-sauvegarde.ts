@@ -1,7 +1,10 @@
 // Pièces justificatives dans les sauvegardes (t133) : chaque copie de la base (server/src/sauvegarde.ts) emporte les
-// fichiers qu'elle désigne. Ils ne changent jamais une fois écrits (nom aléatoire, empreinte en base) : ils sont copiés une
-// seule fois dans un dossier commun à toutes les copies de la base, `pieces-<base>/` du dossier des sauvegardes, que la
-// copie externe (restic, docs/SAUVEGARDE.md) emporte avec elles. Après la rotation, un fichier que plus aucune copie
+// fichiers qu'elle désigne. Leur contenu ne change jamais une fois écrit (nom aléatoire, empreinte en base) : ils sont
+// copiés une seule fois dans un dossier commun à toutes les copies de la base, `pieces-<base>/` du dossier des
+// sauvegardes, que la copie externe (restic, docs/SAUVEGARDE.md) emporte avec elles. Seule exception, le chiffrement
+// d'une pièce déposée en clair (npm run pieces:chiffrer, lot 8) réécrit son fichier sous le même nom : la copie en clair
+// du dossier commun est alors remplacée par le fichier chiffré, par la commande elle-même (remplacerCopiesEnClair) et, à
+// défaut, par la sauvegarde suivante (copierPieces compare les en-têtes). Aucune copie en clair n'y survit au chiffrement. Après la rotation, un fichier que plus aucune copie
 // conservée ne désigne est retiré de ce dossier. La restauration remet dans le dossier des pièces ceux qui y manquent.
 // Dépôt local seulement : les pièces confiées à la GED sont sauvegardées par la GED.
 import { DatabaseSync } from 'node:sqlite';
@@ -9,6 +12,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, renameSync
 import { join } from 'node:path';
 import { dossierPieces } from './chemins.ts';
 import { NOM_LOCAL } from './pieces.ts';
+import { fichierChiffre } from './pieces-chiffrement.ts';
 
 /** Fichiers du dépôt local que désigne une base (lue en lecture seule) ; aucun pour une base sans pièces. */
 export function fichiersDesignes(base: string): string[] {
@@ -46,16 +50,39 @@ export function copierPieces(copie: string, source: string, miroir: string): Bil
   mkdirSync(miroir, { recursive: true, mode: 0o700 });
   let copiees = 0, manquantes = 0;
   for (const nom of noms) {
-    const cible = join(miroir, nom);
-    if (existsSync(cible)) continue;
-    if (!existsSync(join(dossier, nom))) { manquantes++; continue; }
-    // Copie sous un nom provisoire, puis renommée : le nom final n'apparaît que complet.
-    copyFileSync(join(dossier, nom), `${cible}.partiel`);
-    chmodSync(`${cible}.partiel`, 0o600);
-    renameSync(`${cible}.partiel`, cible);
+    const cible = join(miroir, nom), origine = join(dossier, nom);
+    if (!existsSync(origine)) { if (!existsSync(cible)) manquantes++; continue; }
+    // Déjà copié : recopié seulement si le fichier a été chiffré depuis (copie en clair d'avant npm run pieces:chiffrer).
+    if (existsSync(cible) && !(fichierChiffre(origine) && fichierChiffre(cible) === false)) continue;
+    copierFichier(origine, cible);
     copiees++;
   }
   return { designees: noms.length, copiees, manquantes, retirees: 0 };
+}
+
+/** Copie sous un nom provisoire, puis renommée : le nom final n'apparaît que complet (et remplace l'ancien d'un coup). */
+function copierFichier(origine: string, cible: string) {
+  copyFileSync(origine, `${cible}.partiel`);
+  chmodSync(`${cible}.partiel`, 0o600);
+  renameSync(`${cible}.partiel`, cible);
+}
+
+/**
+ * Après le chiffrement des fichiers `noms` du dossier des pièces `dossier` (npm run pieces:chiffrer) : remplace par le
+ * fichier chiffré leur copie encore en clair dans chacun des dossiers communs `miroirs` (absents ignorés). Renvoie le
+ * nombre de copies remplacées. Les instantanés déjà emportés par restic gardent la leur jusqu'à leur oubli.
+ */
+export function remplacerCopiesEnClair(dossier: string, noms: readonly string[], miroirs: readonly string[]): number {
+  let n = 0;
+  for (const miroir of miroirs) {
+    for (const nom of noms) {
+      const cible = join(miroir, nom), origine = join(dossier, nom);
+      if (fichierChiffre(cible) !== false || !fichierChiffre(origine)) continue;
+      copierFichier(origine, cible);
+      n++;
+    }
+  }
+  return n;
 }
 
 /** Retire du dossier commun les fichiers qu'aucune des copies conservées ne désigne plus ; renvoie leur nombre. */

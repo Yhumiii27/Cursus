@@ -13,12 +13,14 @@ import {
   depotOuvert, erreurPiece, LISTE_TYPES_PIECES, MAX_PIECES_EN_ATTENTE, nomPiece, OBJETS_PIECE, TAILLE_MAX_PIECE, tailleTexte, typeDuContenu, TYPES_PIECES, voitPiece,
 } from '../../shared/rules/pieces.ts';
 import { journaliser } from './comptes.ts';
+import { refusPiecesLocales } from './config.ts';
 import { espaceChange, identite, type Identite } from './connexion.ts';
 import { loadFull, scopeIds } from './dataset.ts';
 import type { Db } from './db.ts';
 import { tracerRefus } from './journal.ts';
 import { log } from './logs.ts';
 import { depotDe, depotEcriture, empreinte, type PieceEnregistree, stockagePieces } from './pieces.ts';
+import { PieceIndechiffrable } from './pieces-chiffrement.ts';
 
 export const PIECES_DESACTIVEES = 'Pièces justificatives désactivées : l’administrateur RH les active dans Paramètres → Pièces justificatives.';
 export const PIECE_TROP_VOLUMINEUSE = `Fichier trop volumineux : ${tailleTexte(TAILLE_MAX_PIECE)} au plus.`;
@@ -56,7 +58,11 @@ export function routesPieces(db: Db): Router {
     const id = await identite(db, req);
     if (!id) return res.status(401).json({ error: 'Connexion requise' });
     if (espaceChange(req, res, id)) return;
-    if (!depotOuvert(await stockagePieces(db))) return res.status(409).json({ error: PIECES_DESACTIVEES });
+    const stockage = await stockagePieces(db);
+    if (!depotOuvert(stockage)) return res.status(409).json({ error: PIECES_DESACTIVEES });
+    // Lot 8 : jamais de pièce écrite en clair dans le dossier local en production (CURSUS_PIECES_KEY).
+    const refus = stockage === 'local' ? refusPiecesLocales() : null;
+    if (refus) return res.status(409).json({ error: refus });
     const octets = Buffer.isBuffer(req.body) ? req.body : null;
     if (!octets) return res.status(415).json({ error: 'Format refusé : PDF, JPEG ou PNG seulement.' });
     // Type reconnu sur le contenu, seul gardé (c'est lui qui est servi ensuite) : une page HTML renommée en .pdf est
@@ -77,6 +83,7 @@ export function routesPieces(db: Db): Router {
       const piece = await db.tx(async () => {
         const p = await db.insert<PieceEnregistree>('pieces', {
           jeton, empId: null, objet: null, objetId: null, nom, type, taille: octets.length, empreinte: empreinte(octets), fichier,
+          chiffree: depot.chiffre === true,
           deposeLe: new Date().toISOString(), deposePar: id.user.nom, deposeCompteId: id.compte.id,
         });
         await journaliser(db, {
@@ -108,7 +115,14 @@ export function routesPieces(db: Db): Router {
       return res.status(404).json({ error: 'Pièce introuvable' });
     }
     if (p.retireeLe || !p.fichier) return res.status(410).json({ error: 'Pièce retirée du dossier : son fichier a été effacé' });
-    const octets = await depotDe(db, p.fichier).lire(p.fichier);
+    let octets: Buffer | null;
+    try {
+      octets = await depotDe(db, p.fichier).lire(p.fichier);
+    } catch (err) {
+      if (!(err instanceof PieceIndechiffrable)) throw err;
+      log.avertissement(`Pièce justificative n° ${p.id} : ${err.message}`);
+      return res.status(409).json({ error: 'Fichier chiffré illisible avec la clé du serveur : prévenez l’administrateur (clé CURSUS_PIECES_KEY)' });
+    }
     if (!octets) {
       log.avertissement(`Pièce justificative n° ${p.id} : fichier absent du dépôt`);
       return res.status(410).json({ error: 'Fichier introuvable dans le dossier des pièces : prévenez l’administrateur (restauration depuis les sauvegardes)' });

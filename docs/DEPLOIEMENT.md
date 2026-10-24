@@ -611,7 +611,9 @@ l'identifiant) : chacun se reconnecte une fois.
 5. **Sauvegardes** : `npm run backup`, `npm run restore` et `npm run reset-demo` refusent PostgreSQL ; la base est
    sauvegardée avec le serveur commun (rôle `epc2i_sauvegarde`, `infra/postgres/sauvegarde/` de Matrix). Les pièces
    justificatives restent des fichiers (`CURSUS_PIECES_DIR`, sinon `pieces/` à côté de `CURSUS_DB`, `/data/pieces` dans le conteneur), dans un volume partagé par toutes les instances : ce volume et
-   sa sauvegarde restent nécessaires.
+   sa sauvegarde restent nécessaires. Lot 8 : avant d'activer les pièces, poser `CURSUS_PIECES_KEY` (chiffrement au
+   repos, obligatoire en production) ; copie restic chiffrée du volume juste après le `pg_dump` du schéma, restauration
+   contrôlée par `npm run pieces:verifier` : `docs/SAUVEGARDE.md`, section 10.
 
 L'application de bureau (macOS) garde sa base SQLite : elle ignore `DATABASE_URL`.
 

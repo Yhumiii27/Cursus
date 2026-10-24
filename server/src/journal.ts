@@ -1227,7 +1227,7 @@ export async function exigerRh(db: Db, req: Request, res: Response, quoi: string
   const id = await identite(db, req);
   if (!id) { res.status(401).json({ error: 'Connexion requise' }); return null; }
   if (!autorise(id.user)) {
-    await tracerRefus(db, id, quoi, 'réservé au service RH');
+    await db.tx(async () => await tracerRefus(db, id, quoi, 'réservé au service RH'));
     res.status(403).json({ error: 'Réservé au service RH' });
     return null;
   }
@@ -1278,29 +1278,34 @@ const jourLocal = () => { const d = new Date(); return `${d.getFullYear()}-${Str
 export function routesJournal(db: Db): Router {
   const r = express.Router();
 
-  r.get('/api/journal', enSerie(db, async (req: Request, res: Response) => {
+  // Consultation et export : lecture hors du verrou d'écriture (`Db.lecture`), puis la trace dans sa propre courte
+  // transaction, écrite avant la réponse (lot 8, chantier E : la trace suit la lecture).
+  r.get('/api/journal', async (req: Request, res: Response) => {
     const id = await exigerRh(db, req, res, 'Journal des actions');
     if (!id) return;
     const f = lireFiltre(req.query as Record<string, unknown>);
     const page = Math.max(1, Math.floor(Number(req.query.page)) || 1);
     const taille = Math.min(TAILLE_MAX, Math.max(1, Math.floor(Number(req.query.taille)) || TAILLE_PAGE));
-    const out = await lireJournal(db, f, page, taille);
+    const out = await db.lecture(async () => await lireJournal(db, f, page, taille));
     // L'archive n'apparaît qu'à la demande : chaque consultation est tracée, quelle que soit la page lue.
-    if (f.vue === 'archive') await tracerArchive(db, id, f, page, out.total);
+    if (f.vue === 'archive') await db.tx(async () => await tracerArchive(db, id, f, page, out.total));
     res.json({ ...out, lignes: pourLecteur(id.user, out.lignes) });
-  }));
+  });
 
-  r.get('/api/journal/csv', enSerie(db, async (req: Request, res: Response) => {
+  r.get('/api/journal/csv', async (req: Request, res: Response) => {
     const id = await exigerRh(db, req, res, 'Export du journal');
     if (!id) return;
     const f = lireFiltre(req.query as Record<string, unknown>);
-    const { lignes, total } = await lireJournal(db, f, 1, EXPORT_MAX);
-    await journaliser(db, {
-      actor: id.user.nom, role: id.user.role, action: 'journal.export', compte: id.compte, salaries: f.salarie ? [f.salarie] : [],
-      message: `Export CSV du journal — ${plural(lignes.length, 'ligne', 'lignes')}${total > lignes.length ? ` sur ${total}` : ''} (${await filtresTexte(db, f)})`,
+    const { lignes, total, texte, csv } = await db.lecture(async () => {
+      const x = await lireJournal(db, f, 1, EXPORT_MAX);
+      return { ...x, texte: await filtresTexte(db, f), csv: await csvJournal(db, pourLecteur(id.user, x.lignes)) };
     });
-    fichierJoint(res, 'text/csv; charset=utf-8', `journal${f.vue === 'archive' ? '-archive-paie' : ''}-${jourLocal()}.csv`, await csvJournal(db, pourLecteur(id.user, lignes)));
-  }));
+    await db.tx(async () => await journaliser(db, {
+      actor: id.user.nom, role: id.user.role, action: 'journal.export', compte: id.compte, salaries: f.salarie ? [f.salarie] : [],
+      message: `Export CSV du journal — ${plural(lignes.length, 'ligne', 'lignes')}${total > lignes.length ? ` sur ${total}` : ''} (${texte})`,
+    }));
+    fichierJoint(res, 'text/csv; charset=utf-8', `journal${f.vue === 'archive' ? '-archive-paie' : ''}-${jourLocal()}.csv`, csv);
+  });
 
   // Exports et impressions produits par le navigateur (CSV des échéances, liste d'une session, passeport formation,
   // compte rendu d'entretien) : l'interface les signale ici pour qu'ils figurent au journal.

@@ -490,13 +490,35 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     requêtes s'exécutent sans attendre la file qu'elles détiennent, une transaction imbriquée rejoint l'englobante
     (comme avant), une tâche lancée depuis une transaction et poursuivie après sa fin repasse par la file.
   - *Même atomicité qu'avant.* Avec l'accès synchrone, toute suite d'appels sans attente s'exécutait d'un seul tenant :
-    les routes HTTP qui ne font qu'accéder à la base s'exécutent donc entières en `exclusif` (`enSerie(db, route)` :
-    `/api/data`, `/api/actions/:nom`, journal, exports, fichier de paie, API Keystone…), de même `identite`,
+    les routes HTTP qui ne font qu'accéder à la base s'exécutaient donc entières en `exclusif` (`enSerie(db, route)` :
+    fichier de paie, envois, connexion… ; depuis le lot 8, plus les lectures ni les actions : « La trace suit la
+    lecture » ci-dessous), de même `identite` (jusqu'au lot 8),
     `compterTentative`, la clé de session, `setSetting` et l'issue d'un envoi. Une route qui attend autre chose que la
     base (calcul du mot de passe à la connexion, échanges avec Microsoft) ne prend la file que pour les étapes d'avant et
     d'après l'attente. `loadFull` lit toutes les tables en `lecture` (même état de la base) ; l'instantané renvoyé après
     une action est lu avec la session relue, sur le même état. Un signal d'arrêt reçu pendant le démarrage (désormais
     asynchrone) attend sa fin (`Arret.demarrer`) ; `fermer` attend la transaction en cours.
+  - *La trace suit la lecture* (lot 8, chantier E, amendement de l'invariant ci-dessus). Sur PostgreSQL, `exclusif`
+    prend le verrou d'écriture : une route de lecture en `enSerie` faisait attendre toutes les autres requêtes, et une
+    fin de mois (validation groupée sous le verrou) figeait tout Cursus. Les routes qui lisent ne sont donc plus en
+    `enSerie` : `GET /api/data`, le journal et son CSV, les données personnelles (export RH, téléchargement par
+    l'intéressé), les variables de paie, le flux d'agenda et l'API Keystone en GET. Elles procèdent en trois temps :
+    1. l'identité (`identite`, `server/src/connexion.ts`) se lit dans une lecture stable (`examinerIdentite`), puis la
+       session écrit à part ce que sa lecture demande (`appliquerMajSession`, `server/src/auth.ts` : révocation,
+       espace, activité au plus une fois par minute), chacune une instruction conditionnelle atomique par elle-même,
+       sans le verrou d'écriture ;
+    2. la lecture se fait en `db.lecture` (transaction `REPEATABLE READ READ ONLY` sur PostgreSQL, sans verrou ; en
+       SQLite, à son tour dans la file et en `PRAGMA query_only`, pour qu'une écriture glissée dans une lecture échoue
+       aussi dans les tests) ;
+    3. la trace (consultation de l'archive paie, export CSV, `salarie.export`, `donnees.export`, `sage.variables`,
+       refus `acces.refuse`, `keystone.appel`, dernier accès d'un jeton d'agenda) s'écrit ensuite dans sa propre courte
+       transaction (`db.tx`), **avant la réponse** : un fichier ne part jamais sans sa trace, et un échec de la trace
+       (Cursus occupé) fait échouer la route. La trace n'est plus atomique avec la lecture : une écriture d'une autre
+       requête peut s'intercaler entre les deux, ce qui ne change ni ce qui a été lu ni ce qui est tracé.
+    Une action (`POST /api/actions/:nom`) lit l'identité de même, relit les droits dans sa transaction (un compte changé
+    entre-temps agit avec ses droits du moment : 401, 409), et l'instantané renvoyé se lit après, dans une lecture
+    stable, hors du verrou. Restent en `enSerie` les routes de la connexion et de la session, le fichier d'import Sage
+    (compteur de téléchargements), les envois, les pièces, le passeport de prévention et `/api/exports`.
   - *Garde-fou.* `npm run typecheck` lance aussi `scripts/verifier-await.mjs` (`npm run check:await`) : appel
     asynchrone du dépôt ou méthode de la base ni attendu, ni lâché par `void`, ni rassemblé par `Promise.all` ; rappel
     asynchrone passé à `forEach`, `filter`, `some`… ou à `assert.throws` ; `.sql` dans le code applicatif. TypeScript 7
@@ -511,8 +533,8 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     synchrones : quand l'une demande une donnée de la base par une fonction (`aDesDonnees` de `categoriesEchues` et
     `categoriesDroitEffacement`), la valeur est lue d'avance (`quantitesAEffacer` ; pour `dossiersEchus`, seulement pour
     les catégories échues sans regarder les données, comme le faisait l'appel à la demande). Le flux de l'agenda
-    (`GET /api/agenda/<jeton>.ics`) s'exécute en `enSerie` (jeton, fiche, compte, flux et date du dernier accès d'un seul
-    tenant) ; le passage quotidien de la conservation lit le jour du dernier passage dans la transaction qui le note
+    (`GET /api/agenda/<jeton>.ics`) lit jeton, fiche, compte et flux sur un même état (`lecture` ; jusqu'au lot 8 en
+    `enSerie`), puis note le dernier accès dans sa propre transaction ; le passage quotidien de la conservation lit le jour du dernier passage dans la transaction qui le note
     (deux passages simultanés n'en font qu'un). Le SQL brut de ces modules est commun aux deux moteurs (voir « Accès à la
     base : PostgreSQL ») : effacement des dossiers d'après le type déclaré de chaque colonne (valeur « renseignée »,
     case décochée à FALSE), balayage de l'identité ligne par ligne par la clé de la table (pas de `rowid`), clé d'une
@@ -527,6 +549,13 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     `date` rendu en chaîne `AAAA-MM-JJ`, `timestamptz` en ISO (`toISOString`), `numeric` et `bigint` en nombre, `json`
     décodé (`jsonLu` pour une colonne JSON lue en SQL brut, texte en SQLite, objet en PostgreSQL). Paramètres `?`
     réécrits en `$n` hors chaînes et commentaires ; `insert` par `RETURNING *`.
+  - *Délais* (lot 8, chantier E, `DELAIS_PG` de `server/src/db-pg.ts`), posés dans les options du pool : attente d'une
+    connexion libre (`connectionTimeoutMillis`, `CURSUS_PG_DELAI_CONNEXION_MS`, 5 s), d'un verrou (`lock_timeout`,
+    `CURSUS_PG_DELAI_VERROU_MS`, 30 s : il couvre `pg_advisory_lock` et `pg_advisory_xact_lock`), durée d'une requête
+    (`statement_timeout`, `CURSUS_PG_DELAI_REQUETE_MS`, 60 s) ; migrations du démarrage sans délai. Un dépassement
+    (`estOccupe` de `server/src/erreurs.ts` : 55P03, 57014, connexion du pool) annule la transaction et répond 503
+    « Cursus est occupé, réessayez » (`Retry-After: 5`) ; l'API Keystone répond `OCCUPE`. Règle : aucun traitement ne
+    tient le verrou plus de la moitié de `lock_timeout` (15 s) ; la validation groupée passe par tranches.
   - *Concurrence.* Plusieurs instances peuvent partager la base. Écritures : `tx` ouvre `BEGIN` et prend
     `pg_advisory_xact_lock(hashtext('cursus.ecritures'))` (écritures sérialisées, comme la file de SQLite) ; `exclusif`
     prend le même verrou au niveau de la session pour toute la suite, requêtes validées une à une (une réponse HTTP ne
@@ -620,6 +649,45 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   `client/src/state/derived.ts`, partagé par `useDomain` et la coque `layout/Shell.tsx`). Pas encore : chargement par
   périmètre en SQL dans `loadFull` et renvoi partiel de l'instantané (entité modifiée seule, action par action), à
   reprendre si la mesure dépasse la seconde.
+- **Essai de charge sur PostgreSQL** (lot 8, chantier E, `scripts/charge/`) : `npm run charge:generer -- --ans 5
+  --effectif 100 --interimaires 20 --seed 42` crée un schéma jetable `cursus_charge_<horodatage>` sur le serveur de test
+  de `CURSUS_TEST_DATABASE_URL` (serveur commun refusé : base `epc2i`, rôle `cursus_app` ou schéma d'un autre outil),
+  y applique les migrations et le référentiel de démonstration, puis insère en masse 5 ans de données reproductibles par
+  la graine : 120 fiches (8 managers, trois agences d'intérim), ≈ 28 000 feuilles, ≈ 7 700 absences, 59 lots mensuels
+  transmis par le vrai traitement (`temps.pushSage`) et 10 lots annulés (contenu de 100 Ko en moyenne), 300 000 lignes de
+  journal (un tiers d'archive paie), ≈ 41 000 envois, 680 relevés, 50 jetons d'agenda ; quatre semaines soumises pour
+  la fin de mois, le mois d'août en attente de lot (`--ans 1` : jeu réduit, 30 000 lignes de journal). `npm run charge
+  -- --scenario S1..S6 --duree N` monte `createApp` dans son processus sur un port libre, ouvre des sessions en base,
+  simule les utilisateurs avec un temps de réflexion (2 à 10 s) et relève par route p50, p95, p99, maximum et erreurs ;
+  toutes les 500 ms, une sonde relève `/api/health`, l'attente et la tenue du verrou d'écriture (`pg_locks`,
+  `pg_stat_activity`), l'attente du pool et la mémoire. Rapport JSON et Markdown dans `data/charge/rapports/`, verdicts
+  des seuils (`scripts/charge/seuils.ts`, `--marge 3` pour la CI ; invariants jamais assouplis : santé sous 5 s, aucune
+  5xx, verrou tenu moins de 15 s). Scénarios : S1 matinée (30 lecteurs), S2 vendredi après-midi (30 saisies et
+  soumissions), S3 fin de mois (6 managers valident ensemble 15 à 30 feuilles, intérimaires compris, avec 20 lecteurs,
+  Keystone chaque minute et les tâches du quart d'heure ; `--lot 200` : une validation de 200 feuilles en plus), S4 paie,
+  S5 exports, S6 tâches de fond.
+  - *Première mesure* (24 octobre 2026, avant les corrections, PostgreSQL 16 local, jeu de 5 ans) : S1 pendant 30 s,
+    `/api/data` p95 de 28 à 31 s quel que soit le profil (toutes les lectures passaient une à une sous le verrou,
+    environ 1,7 s chacune), `/api/health` sans réponse en 10 s pour 61 relevés sur 113 ; S3 pendant 120 s : échec sur la
+    sonde (360 relevés de santé sur 486 sans réponse en 10 s) et sur la tenue du verrou (35,7 s), validations groupées de
+    15 à 28 feuilles en 92 à 176 s, attente du verrou jusqu'à 71 s et 314 requêtes en attente d'une connexion du pool.
+    C'est le test de non-régression des deux blocages : la validation groupée qui fige tout Cursus, les lectures qui
+    attendent derrière les écritures.
+  - *Corrections de l'étape 1* : validation groupée sur une lecture de la base par tranche de 25 feuilles (« Actions
+    disponibles », `temps.validerLot`), routes de lecture hors du verrou (« Accès à la base : couche asynchrone », la
+    trace suit la lecture), délais et 503 (« Accès à la base : PostgreSQL »), lectures stables limitées à la moitié du
+    pool (`PlacesLecture` de `server/src/db-pg.ts`, l'identité en lecture courte hors de ces places).
+  - *Mesure après les corrections de l'étape 1* (même machine, jeu de 5 ans régénéré avec la même graine, S3 pendant
+    120 s) : verrou d'écriture tenu au plus 10,2 s (35,7 s avant) et attendu au plus 9,4 s (71 s avant), validations
+    groupées de 15 à 26 feuilles en 33 à 37 s de bout en bout (92 à 176 s avant), toutes faites ; `/api/health` médiane
+    0,3 s mais jusqu'à 10 s (sonde encore sous le verrou d'écriture : `server/src/supervision.ts`, chantier B), 3 réponses
+    503 « occupé » (connexion du pool attendue plus de 5 s). Les lectures ne s'attendent plus les unes les autres, mais
+    `/api/data` reste de 17 à 29 s (médiane et p95) : chaque instantané relit toute la base et recalcule le `Domain`
+    (environ 1 s de calcul dans le processus pour 5 ans, dont les 681 lectures des envois des relevés), et le processus
+    unique en sert trente à la fois. S2 (saisie) reste limité par le verrou : une action relit toute la base dans sa
+    transaction (environ 1 s), soit une à deux écritures par seconde. Suites prévues : requêtes N+1 des relevés et
+    tâches du quart d'heure (étape 2), cache de l'instantané par révision et fenêtre de lecture des années closes
+    (reportés après la première mesure).
 - **Réinitialisation de la démonstration** (`server/src/reset.ts`, garde-fous dans `server/src/reinitialisation.ts`) :
   refusée hors `CURSUS_DEMO=1`, avec `NODE_ENV=production` sauf l'application de bureau (`demoSurBoucleLocale`) et l'instance publiée (`demoPublique`), sur
   une base qu'un serveur en service n'a pas encore mise à jour (`controlerPourOutil`), sur une base qu'un serveur
@@ -643,7 +711,8 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   et d'arrêt gardent de vrais serveurs (`tests/exploitation.test.ts`).
 - **Erreurs** (`server/src/erreurs.ts`) : toujours `{ error }` en JSON, sans pile : `/api` inconnue 404, JSON illisible
   (`entity.parse.failed`) 400, corps au-delà de `LIMITE_CORPS` (2 Mo, `entity.too.large`) 413, autre refus 4xx d'un
-  module (encodage, adresse mal formée) son statut, sinon 500 `Erreur interne` ; `signalerErreur` écrit la pile dans
+  module (encodage, adresse mal formée) son statut, délai du serveur PostgreSQL dépassé (`estOccupe`) 503 « Cursus est
+  occupé, réessayez » avec `Retry-After`, sinon 500 `Erreur interne` ; `signalerErreur` écrit la pile dans
   les journaux (aussi pour une action qui jette autre chose qu'une `ActionError`). L'API Keystone garde son propre
   gestionnaire (codes d'erreur du contrat).
 - **Journaux du serveur** (`server/src/logs.ts`) : `log.info / avertissement / erreur`, une ligne JSON (`heure`, `niveau`,
@@ -1047,7 +1116,7 @@ aucun champ du paramètre n'est recopié.
 | `temps.validate` / `temps.reject` | empId, week, comment?, motif? | manager direct ou RH, jamais pour sa propre feuille (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence ; 24 h par jour au plus ; motif du dépassement exigé s'il manque, après une correction du valideur : celui du salarié n'est jamais remplacé ; majoration des fériés et contrepartie obligatoire en repos figées, `cor` au journal ; seuils de durée franchis rappelés dans le message) |
 | `temps.pushSage` | — ; simulation seulement : lot de toutes les feuilles en attente, aussitôt marqué transmis (référence « SIM-… », rien n'est envoyé, message qui le dit) ; en mode fichier, refus 503 sans rien marquer | administrateur RH, paie |
 | `temps.relancer` | empId? (sinon tout le périmètre) : feuilles des semaines suivies manquantes, en brouillon ou à corriger, échéance passée ; e-mail (ou récapitulatif) au salarié et à son valideur ; rien en retard : refus | manager direct (son équipe) ou RH |
-| `temps.validerLot` | feuilles [{empId, week}] (200 au plus) : chacune passe par `temps.validate` dans son point de reprise (SAVEPOINT) ; refus listés dans le message, les autres validées, avec les alertes de durée de chacune (5 au plus en entier) ; aucune validée : 403 si toutes l'étaient pour des droits, sinon 400 avec la liste | manager direct ou RH (comme `temps.validate`) |
+| `temps.validerLot` | feuilles [{empId, week}] (200 au plus) : chacune passe par `temps.validate` dans son point de reprise (SAVEPOINT), sur une seule lecture de la base (la feuille validée y est remplacée : contingent et contrepartie cumulés, relevé de l'agence sur le Domain de l'appelant) ; par tranches de 25 au plus, une transaction et une ligne de journal chacune (lot 8) ; une feuille déjà validée est sautée (reprise) ; refus listés dans le message, les autres validées, avec les alertes de durée de chacune (5 au plus en entier) ; tranche interrompue (Cursus occupé) : résultat partiel, `restantes` à relancer ; aucune validée ni déjà validée : 403 si toutes l'étaient pour des droits, sinon 400 avec la liste | manager direct ou RH (comme `temps.validate`) |
 | `paie.lotGenerer` | periode (AAAA-MM) : lot des feuilles validées en attente dont la période de destination vient au plus tard (rappels compris), contenu figé, clé d'idempotence (UUID), feuilles réservées (`feuilles.lotId`), libellé de chaque code Sage figé (`contenu.libelles`) ; hors simulation, refus si un salarié n'a pas de matricule de paie (liste) ou 409 si une rubrique émise et exportée n'a pas de code Sage confirmé (liste) ; en simulation, avertissement | administrateur RH, paie (écran Temps) |
 | `paie.lotConfirmer` | id, reference? (code de 40 caractères au plus) : confirmation de l'import dans Sage, datée et signée, qui seule marque les feuilles transmises ; lot de fichier : fichier téléchargé au moins une fois (409 sinon) ; lot de simulation refusé hors simulation ; déjà confirmé : rien n'est refait ; annulé : 409 | administrateur RH, paie |
 | `paie.lotAnnuler` | id : avant la confirmation seulement (409 ensuite : une feuille se corrige par `temps.rouvrir`, puis lot correctif) ; feuilles libérées | administrateur RH, paie |
@@ -1055,7 +1124,7 @@ aucun champ du paramètre n'est recopié.
 | `temps.pushSage` | — ; simulation seulement : lot de toutes les feuilles en attente (et des absences jusqu'à leur dernière période), aussitôt marqué transmis (référence « SIM-… », rien n'est envoyé, message qui le dit) ; en mode fichier, refus 503 sans rien marquer | administrateur RH, paie |
 | `temps.rouvrir` | empId, week, motif (obligatoire, 500 caractères ; gardé sur la feuille, `reouverture.motif` ; journal : seulement « renseigné »), renvoyer? (vrai : « à corriger », motif en commentaire, salarié prévenu ; sinon « soumise », corrigée par son valideur) : feuille validée seulement ; 409 si elle est dans un lot de paie généré (annuler d'abord le lot) ou si c'est celle d'un intérimaire dont le relevé est parti ; transmise, elle garde les rubriques parties (`reouverture.rubriques`) et, revalidée, son écart part dans le lot suivant (lot correctif) ; heures déjà renvoyées à Keystone gardées (`reouverture.keystone`) ; COR refigée à la revalidation | administrateur RH, jamais pour sa propre feuille |
 | `temps.relancer` | empId? (sinon tout le périmètre) : feuilles des semaines suivies manquantes, en brouillon ou à corriger, échéance passée ; e-mail (ou récapitulatif) au salarié et à son valideur ; rien en retard : refus | manager direct (son équipe) ou RH |
-| `temps.validerLot` | feuilles [{empId, week}] (200 au plus) : chacune passe par `temps.validate` dans son point de reprise (SAVEPOINT) ; refus listés dans le message, les autres validées ; aucune validée : 403 si toutes l'étaient pour des droits, sinon 400 avec la liste | manager direct ou RH (comme `temps.validate`) |
+| `temps.validerLot` | feuilles [{empId, week}] (200 au plus) : chacune passe par `temps.validate` dans son point de reprise (SAVEPOINT), sur une lecture de la base par tranche de 25 feuilles (une transaction chacune) ; déjà validée : sautée ; refus listés dans le message, les autres validées ; aucune validée ni déjà validée : 403 si toutes l'étaient pour des droits, sinon 400 avec la liste | manager direct ou RH (comme `temps.validate`) |
 | `paie.lotGenerer` | periode (AAAA-MM) : lot des feuilles validées en attente dont la période de destination vient au plus tard (rappels compris) et, réglage `absencesFichierPaie`, des absences validées ventilées par mois avec leurs régularisations (`shared/rules/absences-paie.ts` ; lot possible sans feuille), contenu figé, clé d'idempotence (UUID), feuilles et absences réservées (`feuilles.lotId`, `absences.lotId`), libellé de chaque code Sage figé (`contenu.libelles`) ; hors simulation, refus si un salarié n'a pas de matricule de paie (liste) ou 409 si une rubrique émise et exportée n'a pas de code Sage confirmé (liste) ; en simulation, avertissement ; « annule et remplace » (`negatifs` faux) avec des feuilles à régulariser : lot correctif des seules régularisations, 409 si un autre lot attend la confirmation de son import | administrateur RH, paie (écran Temps) |
 | `paie.lotConfirmer` | id, reference? (code de 40 caractères au plus) : confirmation de l'import dans Sage, datée et signée, qui seule marque les feuilles et les absences transmises (`absences.sage`) ; lot de fichier : fichier téléchargé au moins une fois (409 sinon) ; lot de simulation refusé hors simulation ; déjà confirmé : rien n'est refait ; annulé : 409 | administrateur RH, paie |
 | `paie.lotAnnuler` | id : avant la confirmation seulement (409 ensuite : une feuille se corrige par `temps.rouvrir`, puis lot correctif) ; feuilles et absences libérées (une absence reprend le dernier lot transmis qui l'a emportée) | administrateur RH, paie |

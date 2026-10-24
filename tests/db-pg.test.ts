@@ -269,3 +269,79 @@ test('vue pub_absences (demande CU-1 de Crucible) : qui est absent et quand, jam
   assert.equal(apres.au, '2026-11-03');
   assert.ok(String(apres.maj_le) > avant, 'maj_le avance à la modification');
 });
+
+// — Lot 8, chantier E : délais du serveur (connexion, verrou, requête) et réponse « Cursus est occupé » —
+
+test('délais PostgreSQL : valeurs par défaut (5 s, 30 s, 60 s), réglables par variable, 0 sans limite', async () => {
+  const { DELAIS_PG, delaisPg } = await import('../server/src/db-pg.ts');
+  assert.deepEqual(delaisPg({}), { connexion: 5000, verrou: 30_000, requete: 60_000 });
+  assert.deepEqual(delaisPg({}), { ...DELAIS_PG });
+  assert.deepEqual(delaisPg({ CURSUS_PG_DELAI_CONNEXION_MS: '2000', CURSUS_PG_DELAI_VERROU_MS: '0', CURSUS_PG_DELAI_REQUETE_MS: ' 90000 ' }), { connexion: 2000, verrou: 0, requete: 90_000 });
+  // Valeur illisible : le défaut (jamais « sans limite » par erreur de saisie).
+  assert.deepEqual(delaisPg({ CURSUS_PG_DELAI_VERROU_MS: '30s', CURSUS_PG_DELAI_REQUETE_MS: '-1' }), { connexion: 5000, verrou: 30_000, requete: 60_000 });
+  // Délai dépassé : verrou (55P03), requête (57014), connexion du pool ; le reste n'est pas « occupé ».
+  const { estOccupe } = await import('../server/src/erreurs.ts');
+  assert.ok(estOccupe({ code: '55P03' }) && estOccupe({ code: '57014' }) && estOccupe(new Error('timeout exceeded when trying to connect')));
+  assert.ok(!estOccupe(new Error('relation absente')) && !estOccupe({ code: '23505' }) && !estOccupe(null));
+});
+
+test('délais posés sur chaque connexion du pool (rétablis après les migrations) ; requête trop longue interrompue', SEUL, async () => {
+  const { estOccupe } = await import('../server/src/erreurs.ts');
+  const db = (await nouvelleBase({ CURSUS_PG_DELAI_VERROU_MS: '1500', CURSUS_PG_DELAI_REQUETE_MS: '300' })) as Pg;
+  // Connexion qui a servi aux migrations (délais levés pendant) : rendue avec les délais du pool.
+  assert.deepEqual(await db.one('SHOW lock_timeout'), { lock_timeout: '1500ms' });
+  assert.deepEqual(await db.one('SHOW statement_timeout'), { statement_timeout: '300ms' });
+  await assert.rejects(db.query('SELECT pg_sleep(1)'), (e: unknown) => estOccupe(e) && (e as { code: string }).code === '57014');
+  // Dans une transaction : annulée, rien d'écrit.
+  await assert.rejects(db.tx(async () => { await db.setSetting('essai', 1); await db.query('SELECT pg_sleep(1)'); }), estOccupe);
+  assert.equal(await db.getSetting('essai', 0), 0);
+});
+
+test('verrou d’écriture tenu par une autre instance au-delà de lock_timeout : suite exclusive et transaction refusées (55P03)', SEUL, async () => {
+  const { estOccupe } = await import('../server/src/erreurs.ts');
+  const { url, schema } = await schemaNeuf();
+  const a = await ouvrirPostgres(url, { schema, env: { CURSUS_PG_POOL: '2' } });
+  const b = await ouvrirPostgres(url, { schema, env: { CURSUS_PG_POOL: '2', CURSUS_PG_DELAI_VERROU_MS: '300' } });
+  try {
+    let rendre!: () => void;
+    const tenu = new Promise<void>(ok => { rendre = ok; });
+    const longue = a.exclusif(async () => { await tenu; });
+    await pause(50);
+    const t = Date.now();
+    await assert.rejects(b.exclusif(async () => await b.setSetting('essai', 1)), (e: unknown) => estOccupe(e) && (e as { code: string }).code === '55P03');
+    await assert.rejects(b.tx(async () => await b.setSetting('essai', 2)), estOccupe);
+    assert.ok(Date.now() - t < 5000, 'refus au bout de lock_timeout, pas d’attente sans fin');
+    // Lecture : servie malgré le verrou.
+    assert.equal(await b.lecture(async () => await b.getSetting('essai', 0)), 0);
+    rendre();
+    await longue;
+    await b.setSetting('essai', 3);
+    assert.equal(await a.getSetting('essai', 0), 3);
+  } finally {
+    await a.fermer();
+    await b.fermer();
+  }
+});
+
+test('lectures simultanées limitées à la moitié du pool : les écritures et les lectures courtes gardent leurs connexions', SEUL, async () => {
+  // Pool de 3 : une seule lecture stable à la fois, la suivante attend en mémoire ; une transaction passe pendant ce temps.
+  const db = (await nouvelleBase({ CURSUS_PG_POOL: '3', CURSUS_PG_DELAI_CONNEXION_MS: '500' })) as Pg;
+  let rendre!: () => void;
+  const fin = new Promise<void>(ok => { rendre = ok; });
+  const ordre: string[] = [];
+  const premiere = db.lecture(async () => { await db.count('journal'); await fin; ordre.push('première'); });
+  await pause(30);
+  const seconde = db.lecture(async () => { ordre.push('seconde'); return await db.count('journal'); });
+  await pause(30);
+  assert.equal(db.placesLecture.enAttente, 1);
+  // Les deux connexions restantes servent les écritures, sans attendre la fin des lectures.
+  await Promise.all([db.tx(async () => await db.setSetting('a', 1)), db.setSetting('b', 2)]);
+  // Lecture courte (identité de la requête) : sans place, elle passe aussi.
+  assert.equal(await db.lecture(async () => await db.getSetting('a', 0), { courte: true }), 1);
+  assert.deepEqual(ordre, []);
+  rendre();
+  await premiere;
+  await seconde;
+  assert.deepEqual(ordre, ['première', 'seconde']);
+  assert.equal(db.placesLecture.enAttente, 0);
+});

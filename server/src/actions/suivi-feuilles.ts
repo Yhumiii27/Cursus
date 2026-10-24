@@ -7,9 +7,9 @@ import { isoWeek, isValidDate, mondayOf } from '../../../shared/dates.ts';
 import { plural } from '../../../shared/format.ts';
 import { etatSemaines, maintenantParis, semainesSuivies } from '../../../shared/rules/suivi-feuilles.ts';
 import type { Employe } from '../../../shared/types.ts';
-import { loadFull } from '../dataset.ts';
 import { type FeuilleARelancer, notifierRelanceFeuilles, notifierRelanceSuppleants, notifierRelanceValideur } from '../notifications.ts';
-import { ActionError, type ActionHandler, type Ctx, decideParDelegation, isRh, makeCtx } from './context.ts';
+import { CURSUS_OCCUPE, ERREUR_INTERNE, estOccupe } from '../erreurs.ts';
+import { ActionError, type ActionHandler, type Ctx, decideParDelegation, isRh, isValidatorOf } from './context.ts';
 import { validerFeuille } from './temps.ts';
 
 /** Service RH (gestionnaire ou administrateur) ou manager ; ni le collaborateur, ni un profil restreint de l'espace RH. */
@@ -63,16 +63,34 @@ const relancer: ActionHandler = async (ctx, p) => {
 
 /** Feuilles validées en groupe au plus par appel. */
 const LOT_MAX = 200;
+/**
+ * Feuilles validées dans une même transaction au plus (lot 8, chantier E) : le verrou d'écriture n'est tenu que le temps
+ * d'une tranche, bien moins que la moitié du délai d'attente d'un verrou (`lock_timeout`, server/src/db-pg.ts).
+ */
+export const TRANCHE_MAX = 25;
 /** Alertes de durée détaillées au message d'une validation groupée ; au-delà, elles sont comptées. */
 const ALERTES_MAX = 5;
-
 /**
- * `feuilles` : [{ empId, week }] soumises. Chacune passe par temps.validate dans son propre point de reprise
- * (SAVEPOINT) : un refus annule ce qu'elle aurait écrit et s'ajoute à la liste, les autres sont validées. Aucune
- * validée : refus (403 si toutes l'étaient pour des droits, sinon 400 avec la liste).
+ * Marque d'une tranche posée par le serveur (`validerEnTranches`) : la tranche rend son bilan sans conclure (une tranche
+ * sans feuille validée n'est pas un refus de toute la validation). Un symbole : un corps JSON ne peut pas la porter.
  */
-const validerLot: ActionHandler = async (ctx, p) => {
-  exigerValideur(ctx, 'Validation des feuilles de temps');
+export const EN_TRANCHE = Symbol('tranche de validation groupée');
+
+type Feuille = { empId: number; week: string };
+/** Bilan d'une tranche (ou d'une validation entière) : de quoi composer le message final, sans le journaliser. */
+interface BilanLot {
+  validees: Feuille[];
+  /** Feuilles déjà validées, sautées : une validation reprise après une interruption ne les refuse pas. */
+  deja: Feuille[];
+  refus: (Feuille & { raison: string; status: number })[];
+  alertes: (Feuille & { texte: string })[];
+  noms: Record<number, string>;
+  /** Managers au nom desquels des feuilles ont été validées (délégation, t135), par leur nom. */
+  delegations: string[];
+}
+
+/** Feuilles demandées [{ empId, week }] (lundis), contrôlées ; refus 400 au moindre élément invalide, ou au-delà de 200. */
+export function feuillesDemandees(p: Record<string, any>): Feuille[] {
   const liste = Array.isArray(p.feuilles) ? p.feuilles as unknown[] : [];
   const demandees = liste.flatMap(x => {
     const o = (x && typeof x === 'object' ? x : {}) as { empId?: unknown; week?: unknown };
@@ -81,41 +99,144 @@ const validerLot: ActionHandler = async (ctx, p) => {
   });
   if (!demandees.length || demandees.length !== liste.length) throw new ActionError('Feuilles à valider invalides');
   if (demandees.length > LOT_MAX) throw new ActionError(`${LOT_MAX} feuilles au plus par validation groupée`);
-  const validees: { empId: number; week: string }[] = [];
-  const alertes: { empId: number; week: string; texte: string }[] = [];
-  const refus: { empId: number; week: string; raison: string; status: number }[] = [];
+  return demandees;
+}
+
+/**
+ * Valide les feuilles `demandees` dans la transaction en cours, sur une seule lecture complète de la base (`ctx.ds`) :
+ * chaque feuille validée y est remplacée par la ligne enregistrée (server/src/actions/temps.ts, `validerFeuille`), de
+ * sorte que la suivante voie ce que la précédente a changé (contingent et contrepartie en repos cumulés sur l'année,
+ * relevé d'une agence complet), comme si la base avait été relue. Chacune dans son point de reprise (SAVEPOINT) : un
+ * refus annule ce qu'elle aurait écrit et s'ajoute à la liste. Une feuille déjà validée, dont la personne est
+ * valideur, est sautée (reprise d'une validation interrompue).
+ */
+async function validerFeuilles(ctx: Ctx, demandees: Feuille[]): Promise<BilanLot> {
+  const b: BilanLot = { validees: [], deja: [], refus: [], alertes: [], noms: {}, delegations: [] };
   for (const f of demandees) {
+    const emp = ctx.d.emp(f.empId);
+    if (emp) b.noms[f.empId] = emp.nom;
+    const sh = ctx.ds.feuilles.find(x => x.empId === f.empId && x.week === f.week);
+    if (emp && sh?.statut === 'validee' && isValidatorOf(ctx, emp, 'feuilles')) { b.deja.push(f); continue; }
     await ctx.db.exec('SAVEPOINT validation_groupee');
+    // Contexte de la feuille : même lecture de la base ; sa signature « par délégation de » (t135) rejoint celle de la
+    // validation groupée, et l'état qu'elle a changé n'est repris qu'une fois la feuille validée.
+    const sous: Ctx = { ...ctx, parDelegation: new Set() };
     try {
-      // Instantané relu pour chaque feuille : la précédente a pu changer un relevé ou une feuille voisine.
-      // Contexte de la feuille, dont la signature « par délégation de » (t135) rejoint celle de la validation groupée.
-      const sous = makeCtx(ctx.db, ctx.user, await loadFull(ctx.db, ctx.user));
       const v = await validerFeuille(sous, f);
       await ctx.db.exec('RELEASE validation_groupee');
+      ctx.ds = sous.ds; ctx.d = sous.d;
       for (const m of sous.parDelegation) ctx.parDelegation.add(m);
-      validees.push(f);
-      alertes.push(...v.alertes.map(texte => ({ ...f, texte })));
+      b.validees.push(f);
+      b.alertes.push(...v.alertes.map(texte => ({ ...f, texte })));
     } catch (err) {
       await ctx.db.exec('ROLLBACK TO validation_groupee');
       await ctx.db.exec('RELEASE validation_groupee');
       if (!(err instanceof ActionError)) throw err;
-      refus.push({ ...f, raison: err.message, status: err.status });
+      b.refus.push({ ...f, raison: err.message, status: err.status });
     }
   }
-  const nom = (id: number) => ctx.d.emp(id)?.nom ?? `salarié n° ${id}`;
-  const refusTexte = refus.map(r => `${nom(r.empId)} S${isoWeek(r.week)} (${r.raison})`).join(' ; ');
-  if (!validees.length) {
-    if (refus.every(r => r.status === 403)) throw new ActionError(refus.length === 1 ? refus[0].raison : `Aucune feuille validée : ${refusTexte}`, 403);
-    throw new ActionError(`Aucune feuille validée — ${plural(refus.length, 'refus', 'refus')} : ${refusTexte}`);
+  b.delegations = [...ctx.parDelegation].map(id => ctx.d.personName(id));
+  return b;
+}
+
+/**
+ * Message et résultat d'une validation groupée, d'après son bilan (une seule passe, ou les tranches réunies). Aucune
+ * validée ni déjà validée : refus (403 si toutes l'étaient pour des droits, sinon 400 avec la liste). `interruption` :
+ * validation arrêtée avant la fin (Cursus occupé, erreur), les feuilles `restantes` sont à relancer.
+ */
+function conclureLot(b: BilanLot, interruption?: { motif: string; restantes: Feuille[] }): { message: string; result: unknown } {
+  const nom = (id: number) => b.noms[id] ?? `salarié n° ${id}`;
+  const refusTexte = b.refus.map(r => `${nom(r.empId)} S${isoWeek(r.week)} (${r.raison})`).join(' ; ');
+  if (!b.validees.length && !b.deja.length && !interruption) {
+    if (b.refus.every(r => r.status === 403)) throw new ActionError(b.refus.length === 1 ? b.refus[0].raison : `Aucune feuille validée : ${refusTexte}`, 403);
+    throw new ActionError(`Aucune feuille validée — ${plural(b.refus.length, 'refus', 'refus')} : ${refusTexte}`);
   }
   // Seuils franchis, comme à la validation d'une seule feuille : les premiers en entier, le reste compté.
-  const alertesTexte = alertes.slice(0, ALERTES_MAX).map(a => ` · ${nom(a.empId)} S${isoWeek(a.week)} : ${a.texte}`).join('')
-    + (alertes.length > ALERTES_MAX ? ` · ${plural(alertes.length - ALERTES_MAX, 'autre alerte', 'autres alertes')} de durée, sur les feuilles validées` : '');
+  const alertesTexte = b.alertes.slice(0, ALERTES_MAX).map(a => ` · ${nom(a.empId)} S${isoWeek(a.week)} : ${a.texte}`).join('')
+    + (b.alertes.length > ALERTES_MAX ? ` · ${plural(b.alertes.length - ALERTES_MAX, 'autre alerte', 'autres alertes')} de durée, sur les feuilles validées` : '');
+  const tete = b.validees.length || !b.deja.length ? plural(b.validees.length, 'feuille validée', 'feuilles validées') : 'Aucune nouvelle feuille validée';
+  const message = `${tete}${b.deja.length ? ` · ${plural(b.deja.length, 'feuille déjà validée', 'feuilles déjà validées')}, sautée${b.deja.length > 1 ? 's' : ''}` : ''}`
+    + `${b.refus.length ? ` · ${plural(b.refus.length, 'feuille non validée', 'feuilles non validées')}, à ouvrir une à une : ${refusTexte}` : ''}${alertesTexte}`
+    + (interruption ? ` · validation interrompue (${interruption.motif}) : ${plural(interruption.restantes.length, 'feuille restante', 'feuilles restantes')} à valider de nouveau, celles déjà validées seront sautées` : '');
   return {
-    message: `${plural(validees.length, 'feuille validée', 'feuilles validées')}${refus.length ? ` · ${plural(refus.length, 'feuille non validée', 'feuilles non validées')}, à ouvrir une à une : ${refusTexte}` : ''}${alertesTexte}`,
-    result: { validees, refus: refus.map(({ empId, week }) => ({ empId, week })) },
+    message,
+    result: {
+      validees: b.validees, refus: b.refus.map(({ empId, week }) => ({ empId, week })), deja: b.deja,
+      ...(interruption ? { restantes: interruption.restantes } : {}),
+    },
+  };
+}
+
+/** Rang de la tranche posé par le serveur (`EN_TRANCHE`), absent pour un appel ordinaire. */
+const trancheDe = (p: Record<string, any>) => (p as Record<symbol, unknown>)[EN_TRANCHE] as { rang: number; total: number } | undefined;
+
+/**
+ * Tranche sans feuille validée ni déjà validée : levée pour annuler sa transaction (aucune ligne de journal pour une
+ * tranche qui n'a rien fait), son bilan (refus) rejoignant celui de la validation.
+ */
+class TrancheVide extends Error {
+  readonly bilan: BilanLot;
+  constructor(bilan: BilanLot) { super('Tranche sans feuille validée'); this.bilan = bilan; }
+}
+
+/**
+ * `feuilles` : [{ empId, week }] soumises (200 au plus), validées sur une seule lecture de la base (`validerFeuilles`).
+ * Appelée par le serveur pour une tranche (`EN_TRANCHE`), elle rend son bilan (`result.bilan`, jamais journalisé : la
+ * règle du journal ne retient que les feuilles validées et le nombre de refus) au lieu de conclure.
+ */
+const validerLot: ActionHandler = async (ctx, p) => {
+  exigerValideur(ctx, 'Validation des feuilles de temps');
+  const b = await validerFeuilles(ctx, feuillesDemandees(p));
+  const tranche = trancheDe(p);
+  if (!tranche) return conclureLot(b);
+  if (!b.validees.length && !b.deja.length) throw new TrancheVide(b);
+  return {
+    message: `${plural(b.validees.length, 'feuille validée', 'feuilles validées')} (tranche ${tranche.rang} sur ${tranche.total} d’une validation groupée)`
+      + `${b.deja.length ? ` · ${plural(b.deja.length, 'feuille déjà validée', 'feuilles déjà validées')}` : ''}`
+      + `${b.refus.length ? ` · ${plural(b.refus.length, 'feuille non validée', 'feuilles non validées')}` : ''}`,
+    result: { validees: b.validees, refus: b.refus.map(({ empId, week }) => ({ empId, week })), bilan: b },
   };
 };
+
+/** Une passe de l'action dans sa transaction, journal compris (server/src/app.ts). */
+type Passe = (p: Record<string, any>) => Promise<{ message?: string | null; result?: unknown }>;
+
+/**
+ * Validation groupée par tranches (lot 8, chantier E) : au-delà de `TRANCHE_MAX` feuilles, une transaction par tranche
+ * (verrou d'écriture rendu entre deux tranches, chacune journalisée), puis un message pour l'ensemble. Une tranche qui
+ * échoue (Cursus occupé, erreur imprévue) arrête la validation : celles déjà faites restent validées, le résultat
+ * partiel nomme les feuilles restantes ; relancer la même validation saute les feuilles déjà validées. Rien de fait :
+ * l'erreur est rendue telle quelle (503 « occupé », 500). `signaler` : erreur imprévue d'une tranche, écrite aux
+ * journaux du serveur.
+ */
+export async function validerEnTranches(p: Record<string, any>, passe: Passe, signaler: (err: unknown) => void = () => {}): Promise<{ message?: string | null; result?: unknown }> {
+  const demandees = feuillesDemandees(p);
+  if (demandees.length <= TRANCHE_MAX) return await passe(p);
+  const tranches: Feuille[][] = [];
+  for (let i = 0; i < demandees.length; i += TRANCHE_MAX) tranches.push(demandees.slice(i, i + TRANCHE_MAX));
+  const b: BilanLot = { validees: [], deja: [], refus: [], alertes: [], noms: {}, delegations: [] };
+  let interruption: { motif: string; restantes: Feuille[] } | undefined;
+  const reunir = (t: BilanLot) => {
+    b.validees.push(...t.validees); b.deja.push(...t.deja); b.refus.push(...t.refus); b.alertes.push(...t.alertes);
+    Object.assign(b.noms, t.noms);
+    for (const n of t.delegations) if (!b.delegations.includes(n)) b.delegations.push(n);
+  };
+  for (const [i, feuilles] of tranches.entries()) {
+    try {
+      const o = await passe({ ...p, feuilles, [EN_TRANCHE]: { rang: i + 1, total: tranches.length } });
+      reunir((o.result as { bilan: BilanLot }).bilan);
+    } catch (err) {
+      if (err instanceof TrancheVide) { reunir(err.bilan); continue; }
+      // Refus de droits ou de saisie (première tranche : rien n'est fait) et rien de validé : rendu tel quel.
+      if (!b.validees.length && !b.deja.length) throw err;
+      if (!(err instanceof ActionError) && !estOccupe(err)) signaler(err);
+      interruption = { motif: err instanceof ActionError ? err.message : estOccupe(err) ? CURSUS_OCCUPE : ERREUR_INTERNE, restantes: tranches.slice(i).flat() };
+      break;
+    }
+  }
+  const o = conclureLot(b, interruption);
+  return { ...o, message: `${o.message}${b.delegations.length ? ` · par délégation de ${b.delegations.join(' et de ')}` : ''}` };
+}
 
 export const suiviFeuillesActions = {
   'temps.relancer': relancer,

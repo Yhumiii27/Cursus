@@ -1,5 +1,6 @@
 // Feuilles de temps : saisie, soumission, validation, transmission à Sage Paie (lots de paie : actions/paie.ts).
 import { addD, isFerie, isValidDate, isoWeek, joursSemaine, mondayOf } from '../../../shared/dates.ts';
+import { Domain } from '../../../shared/domain.ts';
 import { fH, num, plural } from '../../../shared/format.ts';
 import { fusionProposition } from '../../../shared/rules/formations-temps.ts';
 import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
@@ -211,6 +212,15 @@ function submitted(ctx: Ctx, p: Record<string, any>) {
 }
 
 /**
+ * Feuille `ligne`, telle qu'enregistrée, remplacée dans la lecture de la base du contexte (`ctx.ds`, puis un nouveau
+ * `Domain` : ses calculs mémorisés partent avec l'ancien).
+ */
+export function remplacerFeuille(ctx: Ctx, ligne: FeuilleTemps) {
+  ctx.ds = { ...ctx.ds, feuilles: ctx.ds.feuilles.map(f => (f.id === ligne.id ? ligne : f)) };
+  ctx.d = new Domain(ctx.ds);
+}
+
+/**
  * Validation d'une feuille soumise (temps.validate, et chaque feuille de temps.validerLot) : message de confirmation et,
  * à part, les seuils de durée franchis (`alertes`), repris par la validation groupée.
  */
@@ -250,10 +260,13 @@ export async function validerFeuille(ctx: Ctx, p: Record<string, any>): Promise<
   // Seuils franchis par cette feuille (moyenne sur 12 semaines, temps partiel, contingent) : signalés, sans blocage.
   const autres = ctx.ds.feuilles.filter(f => f.empId === emp.id && f.statut === 'validee' && f.id !== sh.id);
   const alertes = [...alertesValidation(ctx.d, emp, autres, [...autres, { ...validee, cor }], sh.week, corDeLaFeuille({ cor })), ...forfait.alertes];
+  // Feuille validée remplacée dans la lecture de l'appelant (lot 8, chantier E) : la feuille suivante d'une validation
+  // groupée et le relevé de l'agence voient cette validation sans relire toute la base.
+  remplacerFeuille(ctx, (await ctx.db.get<FeuilleTemps>('feuilles', sh.id))!);
 
   if (keystone) await sendToKeystone(ctx.db, { type: 'heures.validees', matricule: identifiantKeystone(ctx.ds.settings.identifiantKeystone, emp), semaine: sh.week, projets });
   // Intérimaire : la dernière feuille validée d'une semaine révolue fait partir le relevé de son agence.
-  const releve = emp.typeContrat === 'interim' && emp.agence ? (await relevesAutomatiques(ctx.db, { agence: emp.agence, semaine: sh.week })).length > 0 : false;
+  const releve = emp.typeContrat === 'interim' && emp.agence ? (await relevesAutomatiques(ctx.db, { agence: emp.agence, semaine: sh.week }, ctx.d)).length > 0 : false;
   return {
     message: `Semaine ${isoWeek(sh.week)} validée${keystone ? ' — heures des projets Keystone renvoyées à Keystone' : ''}${releve ? ` · relevé d’heures envoyé à l’agence ${emp.agence}` : ''}`
       + `${aRegulariser({ ...sh, statut: 'validee' }) ? ' · feuille déjà transmise à la paie : l’écart partira dans le prochain lot (lot correctif)' : ''}${alertes.map(a => ` · ${a}`).join('')}`,

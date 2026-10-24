@@ -9,11 +9,12 @@ import { libelleAction } from '../../shared/journal.ts';
 import { ACTIONS, changeVerdicts } from './actions/index.ts';
 import { ActionError, makeCtx } from './actions/context.ts';
 import { signerDelegation } from './actions/delegations-manager.ts';
-import { DEMO } from './auth.ts';
+import { validerEnTranches } from './actions/suivi-feuilles.ts';
+import { appliquerMajSession, DEMO } from './auth.ts';
 import { dossierInterface } from './chemins.ts';
 import { compression } from './compression.ts';
 import { compressionActive, configMail, demoPublique, enProduction, trustProxy } from './config.ts';
-import { espaceChange, identite, routesConnexion } from './connexion.ts';
+import { ESPACE_CHANGE, espaceChange, examinerIdentite, identite, routesConnexion } from './connexion.ts';
 import { routesConfidentialite } from './confidentialite.ts';
 import { buildSnapshot, loadFull } from './dataset.ts';
 import { type Db, enSerie } from './db.ts';
@@ -21,7 +22,7 @@ import { limiterDebit } from './debit.ts';
 import { routesDonnees } from './donnees.ts';
 import { type Cible, CIBLES, etatEnvois, listerEnvois } from './envois.ts';
 import { envoisPourLecteur } from './envois-lecteur.ts';
-import { apiInconnue, ERREUR_INTERNE, gestionnaireErreurs, LIMITE_CORPS, signalerErreur } from './erreurs.ts';
+import { apiInconnue, ERREUR_INTERNE, estOccupe, gestionnaireErreurs, LIMITE_CORPS, repondreOccupe, signalerErreur } from './erreurs.ts';
 import { routesFichierPaie } from './fichier-paie.ts';
 import { routesVariablesPaie } from './variables-paie.ts';
 import { routesPasseportPrevention } from './passeport-prevention.ts';
@@ -80,51 +81,68 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // Page Confidentialité : coordonnées du responsable et du DPO, lisibles sans connexion (server/src/confidentialite.ts).
   app.use(routesConfidentialite(db));
 
-  app.get('/api/data', enSerie(db, async (req: Request, res: Response) => {
+  // Lecture hors du verrou d'écriture (lot 8, chantier E) : identité (écritures de la session à part, courtes), puis
+  // instantané dans une lecture stable (`Db.lecture` : un seul état de la base, sans verrou sur PostgreSQL). Les lectures
+  // restent parallèles et n'attendent plus les écritures.
+  app.get('/api/data', async (req: Request, res: Response) => {
     const id = await identite(db, req);
     if (!id) return res.status(401).json({ error: 'Connexion requise' });
     if (espaceChange(req, res, id)) return;
-    res.json(await buildSnapshot(db, id.user));
-  }));
+    res.json(await db.lecture(async () => await buildSnapshot(db, id.user)));
+  });
 
-  app.post('/api/actions/:name', enSerie(db, async (req: Request, res: Response) => {
+  // Action : identité lue hors du verrou, puis l'action dans sa transaction (verrou d'écriture tenu le temps de la
+  // transaction seulement), puis l'instantané renvoyé dans une lecture stable, hors du verrou. La validation groupée des
+  // feuilles passe par tranches de 25 feuilles au plus, une transaction chacune (`validerEnTranches`).
+  app.post('/api/actions/:name', async (req: Request, res: Response) => {
     const id = await identite(db, req);
     if (!id) return res.status(401).json({ error: 'Connexion requise' });
     // Espace changé dans un autre onglet : l'action n'est pas faite avec les droits d'un autre espace.
     if (espaceChange(req, res, id)) return;
-    const { user, compte } = id;
+    const { compte } = id;
     const name = String(req.params.name);
     const handler = ACTIONS[name];
     if (!handler) return res.status(404).json({ error: `Action inconnue : ${name}` });
+    const corps = (req.body ?? {}) as Record<string, any>;
+    /** Une transaction : droits relus dans la transaction (un compte changé entre-temps agit avec ses droits du moment). */
+    const passe = async (p: Record<string, any>) => await db.tx(async () => {
+      const actuel = (await examinerIdentite(db, req)).id;
+      if (!actuel) throw new ActionError('Connexion requise', 401);
+      if (actuel.session.role !== id.session.role) throw new ActionError(ESPACE_CHANGE, 409);
+      const user = actuel.user;
+      const ctx = makeCtx(db, user, await loadFull(db, user));
+      const trace = await preparerTrace(db, name, p);
+      const r = await handler(ctx, p);
+      const o = signerDelegation(ctx, typeof r === 'object' && r !== null ? r : { message: r });
+      // Journal signé du nom de la personne connectée et de son compte : champs de la liste blanche de l'action,
+      // anciennes et nouvelles valeurs, salariés concernés (server/src/journal.ts) ; managers remplacés (t135).
+      await journaliserAction(db, trace, { user, compte, message: o.message ?? null, result: o.result, parDelegation: [...ctx.parDelegation] });
+      // Verdicts transmis à Keystone : un changement est mis en file avec l'action, dans la même transaction.
+      if (changeVerdicts(name)) await suivreVerdicts(db);
+      return o;
+    });
     try {
-      const out = await db.tx(async () => {
-        const ctx = makeCtx(db, user, await loadFull(db, user));
-        const trace = await preparerTrace(db, name, req.body ?? {});
-        const r = await handler(ctx, req.body ?? {});
-        const o = signerDelegation(ctx, typeof r === 'object' && r !== null ? r : { message: r });
-        // Journal signé du nom de la personne connectée et de son compte : champs de la liste blanche de l'action,
-        // anciennes et nouvelles valeurs, salariés concernés (server/src/journal.ts) ; managers remplacés (t135).
-        await journaliserAction(db, trace, { user, compte, message: o.message ?? null, result: o.result, parDelegation: [...ctx.parDelegation] });
-        // Verdicts transmis à Keystone : un changement est mis en file avec l'action, dans la même transaction.
-        if (changeVerdicts(name)) await suivreVerdicts(db);
-        return o;
-      });
+      const out = name === 'temps.validerLot' ? await validerEnTranches(corps, passe, err => signalerErreur(req, err)) : await passe(corps);
       // L'action a pu changer le compte (profil RH retiré, équipe confiée à un autre) : la session est relue,
       // et l'instantané est celui de l'espace où elle se trouve désormais ; aucun si elle ne vaut plus. Session et
-      // instantané sont lus sur le même état de la base (`lecture` : aucune transaction ne s'intercale).
-      const data = await db.lecture(async () => {
-        const apres = (await identite(db, req))?.user;
-        return apres ? await buildSnapshot(db, apres) : undefined;
+      // instantané sont lus sur le même état de la base (`lecture` : aucune transaction ne s'intercale), sans verrou ;
+      // les écritures de la session suivent.
+      const { data, maj } = await db.lecture(async () => {
+        const apres = await examinerIdentite(db, req);
+        return { data: apres.id ? await buildSnapshot(db, apres.id.user) : undefined, maj: apres.maj };
       });
+      await appliquerMajSession(db, maj);
       res.json({ message: out.message ?? null, result: out.result, data });
     } catch (err) {
-      // Refus d'accès : tracé hors de la transaction annulée (rien n'a été modifié).
-      if (err instanceof ActionError && err.status === 403) await tracerRefus(db, id, libelleAction(name), err.message, { action: name, p: req.body });
+      // Refus d'accès : tracé hors de la transaction annulée (rien n'a été modifié), dans sa propre transaction.
+      if (err instanceof ActionError && err.status === 403) await db.tx(async () => await tracerRefus(db, id, libelleAction(name), err.message, { action: name, p: req.body }));
       if (err instanceof ActionError) return res.status(err.status).json({ error: err.message });
+      // Délai du serveur dépassé (verrou, requête) : la transaction est annulée, rien n'est écrit.
+      if (estOccupe(err)) return repondreOccupe(req, res, err);
       signalerErreur(req, err);
       res.status(500).json({ error: ERREUR_INTERNE });
     }
-  }));
+  });
 
   // Journal des actions (consultation filtrée et paginée, export CSV, archive paie, exports de l'interface) et
   // données personnelles d'un salarié (export RH, téléchargement par l'intéressé) : server/src/journal.ts, donnees.ts.

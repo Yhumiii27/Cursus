@@ -13,7 +13,7 @@ import { matricule, plural } from '../../shared/format.ts';
 import { dossierComplet, libelleAction } from '../../shared/journal.ts';
 import { journaliser, type Compte } from './comptes.ts';
 import { identite } from './connexion.ts';
-import { enSerie, jsonLu, TABLES, type Db, type TableName } from './db.ts';
+import { jsonLu, TABLES, type Db, type TableName } from './db.ts';
 import { exigerRh, fichierJoint, tracerRefus } from './journal.ts';
 import { contenuLocal } from './pieces.ts';
 
@@ -140,34 +140,36 @@ const compter = (s: Record<string, unknown>) => Object.values(s).reduce<number>(
 export function routesDonnees(db: Db): Router {
   const r = express.Router();
 
-  r.get('/api/salaries/:id/donnees', enSerie(db, async (req: Request, res: Response) => {
+  // Lecture hors du verrou d'écriture (`Db.lecture`), puis la trace dans sa propre courte transaction, écrite avant
+  // l'envoi du fichier (lot 8, chantier E : la trace suit la lecture).
+  r.get('/api/salaries/:id/donnees', async (req: Request, res: Response) => {
     const id = await exigerRh(db, req, res, 'Export des données d’un salarié', dossierComplet);
     if (!id) return;
     const empId = Number(req.params.id);
-    const x = Number.isInteger(empId) ? await donneesSalarie(db, empId, { journal: true, par: id.user.nom }) : null;
+    const x = Number.isInteger(empId) ? await db.lecture(async () => await donneesSalarie(db, empId, { journal: true, par: id.user.nom })) : null;
     if (!x) return res.status(404).json({ error: 'Collaborateur introuvable' });
-    await journaliser(db, {
+    await db.tx(async () => await journaliser(db, {
       actor: id.user.nom, role: id.user.role, action: 'salarie.export', compte: id.compte, salaries: [empId],
       message: `Export des données personnelles de ${String(x.salarie.nom)} (droit d’accès) — ${plural(compter(x.sections), 'élément', 'éléments')}`,
-    });
+    }));
     fichierJoint(res, 'application/json; charset=utf-8', nomFichier(empId), JSON.stringify(x, null, 2));
-  }));
+  });
 
-  r.get('/api/mes-donnees', enSerie(db, async (req: Request, res: Response) => {
+  r.get('/api/mes-donnees', async (req: Request, res: Response) => {
     const id = await identite(db, req);
     if (!id) return res.status(401).json({ error: 'Connexion requise' });
     const empId = id.compte.empId;
     if (!empId || id.user.role === 'rh') {
-      await tracerRefus(db, id, 'Téléchargement de ses données', 'aucun dossier salarié dans cet espace');
+      await db.tx(async () => await tracerRefus(db, id, 'Téléchargement de ses données', 'aucun dossier salarié dans cet espace'));
       return res.status(403).json({ error: 'Vos données se téléchargent depuis votre espace collaborateur' });
     }
-    const x = (await donneesSalarie(db, empId, { journal: false, par: id.user.nom }))!;
-    await journaliser(db, {
+    const x = (await db.lecture(async () => await donneesSalarie(db, empId, { journal: false, par: id.user.nom })))!;
+    await db.tx(async () => await journaliser(db, {
       actor: id.user.nom, role: id.user.role, action: 'donnees.export', compte: id.compte, salaries: [empId],
       message: `Téléchargement de ses données personnelles — ${plural(compter(x.sections), 'élément', 'éléments')}`,
-    });
+    }));
     fichierJoint(res, 'application/json; charset=utf-8', nomFichier(empId), JSON.stringify(x, null, 2));
-  }));
+  });
 
   return r;
 }

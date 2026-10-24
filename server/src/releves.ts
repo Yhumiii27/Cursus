@@ -76,10 +76,12 @@ export async function envoyerReleve(db: Db, d: Domain, agence: string, semaine: 
  * semaines en arrière, pas avant l'enregistrement de l'adresse de l'agence), le relevé de chaque agence qui a une
  * adresse part dès que toutes les feuilles de ses intérimaires sont validées, s'il n'a pas encore été transmis, ou
  * si le dernier envoi était incomplet (feuilles alors en attente). `seulement` restreint à une agence et une
- * semaine (après une validation). Renvoie les relevés mis en file.
+ * semaine (après une validation, avec `domaine`, la lecture de l'appelant). Renvoie les relevés mis en file.
  */
-export async function relevesAutomatiques(db: Db, seulement?: { agence: string; semaine: string }): Promise<ReleveInterim[]> {
-  const d = new Domain(await loadFull(db, RELEVES));
+export async function relevesAutomatiques(db: Db, seulement?: { agence: string; semaine: string }, domaine?: Domain): Promise<ReleveInterim[]> {
+  // Après une validation (server/src/actions/temps.ts), le Domain de l'appelant, feuille validée comprise (lot 8,
+  // chantier E) : pas de seconde lecture complète de la base dans la transaction.
+  const d = domaine ?? new Domain(await loadFull(db, RELEVES));
   const m = await lireMessagerie(db);
   const agences = agencesInterim(d.ds.employes).filter(a => !seulement || key(a) === key(seulement.agence));
   const out: ReleveInterim[] = [];

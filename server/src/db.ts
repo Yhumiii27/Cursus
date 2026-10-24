@@ -556,9 +556,13 @@ export abstract class Db {
   abstract tx<T>(fn: () => Promise<T> | T): Promise<T>;
   /**
    * Exécute `fn` sur un état stable de la base, en lecture : aucune écriture d'une autre requête ne s'intercale entre
-   * ses lectures (instantané renvoyé au navigateur, export).
+   * ses lectures (instantané renvoyé au navigateur, export). Hors d'une transaction, aucune écriture n'y est admise
+   * (READ ONLY sur PostgreSQL, query_only sur SQLite) et elle ne prend pas le verrou d'écriture sur PostgreSQL : la
+   * trace d'une consultation s'écrit après, dans sa propre transaction (lot 8, chantier E). `courte` : lecture de
+   * quelques lignes (identité de la requête), qui n'attend pas son tour derrière les instantanés (places de lecture de
+   * PostgreSQL, server/src/db-pg.ts).
    */
-  abstract lecture<T>(fn: () => Promise<T> | T): Promise<T>;
+  abstract lecture<T>(fn: () => Promise<T> | T, options?: { courte?: boolean }): Promise<T>;
   /**
    * Exécute `fn` seule sur la base, sans transaction : aucune autre requête ne lit ni n'écrit entre ses étapes (lecture
    * puis écriture d'un compteur, d'un réglage, d'une session). C'est ce que garantissait d'office l'accès synchrone
@@ -697,8 +701,11 @@ class FileExclusive {
   }
 }
 
-/** Portée d'exclusivité en cours (transaction ou lecture) : valable tant que `active`, transaction ouverte si `tx`. */
-interface Portee { active: boolean; tx: boolean }
+/**
+ * Portée d'exclusivité en cours (transaction ou lecture) : valable tant que `active`, transaction ouverte si `tx`,
+ * lecture stable (`Db.lecture`) si `lecture` : aucune écriture, comme la transaction READ ONLY de PostgreSQL.
+ */
+interface Portee { active: boolean; tx: boolean; lecture?: boolean }
 
 /**
  * Adaptateur SQLite (node:sqlite, synchrone). Une seule connexion par processus, partagée par toutes les requêtes HTTP :
@@ -821,6 +828,7 @@ export class SqliteDb extends Db {
 
   tx<T>(fn: () => Promise<T> | T): Promise<T> {
     return this.aSonTour(async p => {
+      if (p.lecture) throw new Error('Transaction d’écriture demandée dans une lecture (Db.lecture) : ouvrir la transaction avant la lecture.');
       if (p.tx) return fn(); // transaction englobante déjà ouverte
       // IMMEDIATE : verrou d'écriture pris d'emblée, en attendant au besoin (busy_timeout) qu'une autre connexion libère la
       // base ; une transaction différée qui lit puis écrit échouerait sans attendre si une autre connexion a écrit entre-temps.
@@ -840,8 +848,23 @@ export class SqliteDb extends Db {
     });
   }
 
-  lecture<T>(fn: () => Promise<T> | T): Promise<T> {
-    return this.aSonTour(() => fn());
+  /**
+   * Lecture stable : à son tour dans la file, en lecture seule (`PRAGMA query_only`, lot 8, chantier E) comme la
+   * transaction READ ONLY de PostgreSQL, pour qu'une écriture glissée dans une lecture échoue aussi sur SQLite (tests).
+   * Dans une transaction ou une suite exclusive, elle en reprend la portée (et ses écritures).
+   */
+  lecture<T>(fn: () => Promise<T> | T, _options?: { courte?: boolean }): Promise<T> {
+    if (this.enCours()) return this.aSonTour(() => fn());
+    return this.aSonTour(async p => {
+      p.lecture = true;
+      this.sql.exec('PRAGMA query_only = ON');
+      try {
+        return await fn();
+      } finally {
+        p.lecture = false;
+        if (this.sql.isOpen) this.sql.exec('PRAGMA query_only = OFF');
+      }
+    });
   }
 
   exclusif<T>(fn: () => Promise<T> | T): Promise<T> {

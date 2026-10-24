@@ -30,7 +30,7 @@ import { optionsRegularisation } from './regularisation-paie.ts';
 import { journaliser } from './comptes.ts';
 import { identite } from './connexion.ts';
 import { loadFull } from './dataset.ts';
-import { type Db, enSerie } from './db.ts';
+import type { Db } from './db.ts';
 import { SAGE_DOSSIER, sageMode } from './integrations/sage.ts';
 import { fichierJoint, tracerRefus } from './journal.ts';
 import type { LotEnregistre } from './lots-paie.ts';
@@ -151,24 +151,26 @@ export const csvVariables = (lignes: readonly VariablePaie[]) =>
 export function routesVariablesPaie(db: Db): Router {
   const r = express.Router();
 
-  r.get('/api/paie/variables/:periode', enSerie(db, async (req: Request, res: Response) => {
+  // Lecture hors du verrou d'écriture (`Db.lecture`), puis le refus ou l'export tracé dans sa propre courte transaction,
+  // avant la réponse (lot 8, chantier E : la trace suit la lecture).
+  r.get('/api/paie/variables/:periode', async (req: Request, res: Response) => {
     const id = await identite(db, req);
     if (!id) return res.status(401).json({ error: 'Connexion requise' });
     if (!droitsRh(id.user).includes('paie')) {
-      await tracerRefus(db, id, 'Variables de paie de la période', 'réservé à l’administrateur RH et au gestionnaire de paie');
+      await db.tx(async () => await tracerRefus(db, id, 'Variables de paie de la période', 'réservé à l’administrateur RH et au gestionnaire de paie'));
       return res.status(403).json({ error: 'Variables de paie réservées à l’administrateur RH et au gestionnaire de paie' });
     }
     const periode = String(req.params.periode);
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(periode)) return res.status(400).json({ error: 'Période de paie invalide' });
-    const lignes = await variablesDeLaPeriode(db, id.user, periode);
-    await journaliser(db, {
+    const lignes = await db.lecture(async () => await variablesDeLaPeriode(db, id.user, periode));
+    await db.tx(async () => await journaliser(db, {
       actor: id.user.nom, role: id.user.role, action: 'sage.variables', compte: id.compte,
       salaries: [...new Set(lignes.flatMap(l => (l.empId != null ? [l.empId] : [])))],
       message: `Variables de paie ${/^[aeiou]/.test(periodeLabel(periode)) ? 'd’' : 'de '}${periodeLabel(periode)} exportées — ${plural(lignes.length, 'ligne', 'lignes')}`,
       payload: { periode, lignes: lignes.length },
-    });
+    }));
     fichierJoint(res, 'text/csv; charset=utf-8', `variables-paie-${periode}.csv`, csvVariables(lignes));
-  }));
+  });
 
   return r;
 }

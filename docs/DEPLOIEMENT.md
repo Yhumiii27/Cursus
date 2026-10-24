@@ -503,8 +503,20 @@ mot de passe de `cursus_app` connu de l'exploitant, Cursus en version 8.b au moi
 1. **Variables** (service systemd, ou onglet « Environment Variables » de Coolify) :
    `DATABASE_URL=postgres://cursus_app:<mot de passe>@<hôte>:5432/epc2i` (secret : jamais dans le dépôt ni dans les
    journaux, que Cursus réduit à l'hôte, au port et à la base), `CURSUS_PG_POOL` au besoin (10 connexions par
-   défaut, à multiplier par le nombre d'instances), les autres variables inchangées. `CURSUS_DEMO` absente en
+   défaut, à multiplier par le nombre d'instances), les délais au besoin (ci-dessous), les autres variables inchangées. `CURSUS_DEMO` absente en
    production : la base reste vide jusqu'à la reprise des données ou la création du premier administrateur.
+   **Délais du serveur** (lot 8, posés par Cursus sur chaque connexion de son pool, en millisecondes, 0 : sans limite) :
+   `CURSUS_PG_DELAI_CONNEXION_MS` (5 000 : attente d'une connexion libre du pool), `CURSUS_PG_DELAI_VERROU_MS`
+   (30 000 : `lock_timeout`, attente d'un verrou, verrou d'écriture de Cursus compris), `CURSUS_PG_DELAI_REQUETE_MS`
+   (60 000 : `statement_timeout`, durée d'une requête). Un dépassement répond 503 « Cursus est occupé, réessayez »
+   (en-tête `Retry-After: 5`) et n'écrit rien ; il est noté en avertissement dans les journaux du serveur
+   (« Base occupée »). Les migrations du démarrage n'ont pas de délai. Règle de cohérence : aucun traitement ne tient le
+   verrou d'écriture plus de la moitié de `lock_timeout` (validation groupée par tranches de 25 feuilles, lectures et
+   exports hors du verrou) ; ne baissez pas le délai du verrou sans refaire l'essai de charge (`npm run charge`,
+   `docs/ARCHITECTURE.md`, « Performances »). Derrière PgBouncer en mode transaction (qui refuse les options de
+   connexion), les délais se posent sur le rôle : `ALTER ROLE cursus_app SET lock_timeout = '30s'` et
+   `statement_timeout = '60s'`, à demander à Matrix. Le pool reste à 10 connexions par instance : les lectures n'en
+   gardent une que le temps de leur requête, sans attendre le verrou d'écriture.
 2. **Premier démarrage** : Cursus applique ses migrations (`server/migrations-pg/`, journal
    `cursus.schema_migrations`), contrôle le schéma et amorce une base neuve (activités internes, horaires de poste
    d'exemple). Le journal du démarrage affiche « base PostgreSQL <hôte>:<port>/epc2i, schéma cursus ». Un refus

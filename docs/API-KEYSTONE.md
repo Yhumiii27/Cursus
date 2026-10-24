@@ -390,6 +390,7 @@ Toute erreur est en JSON : `error` (message en français), `code` (stable, à te
 | 415 | `TYPE_NON_PRIS_EN_CHARGE` | en-tête `Content-Type` absent ou autre que JSON | ajouter `Content-Type: application/json` |
 | 500 | `ERREUR_INTERNE` | incident côté Cursus | rejouer plus tard (les `PUT` sont rejouables) |
 | 503 | `NON_CONFIGUREE` | intégration non configurée dans Cursus | prévenir l'exploitant de Cursus |
+| 503 | `OCCUPE` | Cursus momentanément occupé (délai de sa base dépassé) : rien n'est écrit | rappeler après le délai de l'en-tête `Retry-After` (les `PUT` sont rejouables) |
 
 ## Journal des appels
 

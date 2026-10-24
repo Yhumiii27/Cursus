@@ -1,4 +1,5 @@
-// Ouverture de la base pour l'aperçu à blanc de npm run purge-demo (server/src/purge-demo-cli.ts), sans rien y écrire.
+// Ouverture de la base pour npm run purge-demo (server/src/purge-demo-cli.ts) : aperçu à blanc, sans rien y écrire, et
+// purge elle-même, sur une base déjà à jour (l'aperçu relu par l'exploitant est celui de la purge).
 // Contrairement aux outils qui écrivent (npm run comptes, npm run reset-demo), l'aperçu ne met jamais la base au niveau
 // de cette version : mettreAJourBase (server/src/demarrage.ts) ferait une copie « avant-migration » de plus (données
 // fictives comprises), rejouerait les reprises historiques et les migrations nommées et poserait des réglages ; sur le
@@ -16,7 +17,8 @@ import { plural } from '../../shared/format.ts';
 import { type Db, dbFile, snake, SqliteDb, TABLES, type TableName, urlPostgres } from './db.ts';
 import { controlerMigrations, migrationsEnregistrees } from './migrations/cadre.ts';
 import { MIGRATIONS } from './migrations/liste.ts';
-import { PurgeRefusee } from './purge-demo.ts';
+import { type OptionsPurge, PurgeRefusee } from './purge-demo.ts';
+import type { Verrou } from './sauvegarde.ts';
 
 const REMEDE = 'démarrez une fois le service de cette version de Cursus (il met la base à jour), arrêtez-le, puis relancez l’aperçu ; '
   + 'l’aperçu à blanc n’écrit jamais dans la base.';
@@ -92,4 +94,16 @@ export async function ouvrirPourApercu(env: Record<string, string | undefined> =
   if (url) return await ouvrirPostgresSansMigrer(url, env, schema);
   controlerSqliteAJour(fichier);
   return new SqliteDb(fichier);
+}
+
+/**
+ * Serveur en service sur le fichier SQLite (d'après son verrou, `serveurActif`) : la purge est refusée sans --force,
+ * comme npm run reset-demo (server/src/reinitialisation.ts). Il garderait en mémoire sessions et révision, et ses tâches
+ * de fond (file d'envoi, e-mails planifiés, rechargement de la démonstration) réécriraient dans la base purgée.
+ */
+export function controlerServeurPurge(serveur: Pick<Verrou, 'pid'> | null, options: Pick<OptionsPurge, 'force'>) {
+  if (serveur && !options.force) {
+    throw new PurgeRefusee(`le serveur Cursus (processus ${serveur.pid}) utilise cette base. Arrêtez-le d’abord (service arrêté, ou Ctrl+C), `
+      + 'ou ajoutez --force si ce verrou est périmé ; ne le redémarrez ensuite que sans CURSUS_DEMO.');
+  }
 }

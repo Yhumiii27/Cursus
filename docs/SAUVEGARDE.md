@@ -54,6 +54,12 @@ dossier des copies. Les pièces confiées plus tard à l'espace documentaire de 
   dossiers anonymisés à la fin de leur durée de conservation (Paramètres → Conservation des dossiers) : restaurer une
   copie antérieure à l'anonymisation fait revenir le dossier nominatif, à anonymiser de nouveau aussitôt après la
   restauration (la liste des dossiers échus le propose de nouveau).
+- après la purge des données fictives (`npm run purge-demo`, `docs/DEPLOIEMENT.md`, « Passage de la démonstration à la
+  production »), toutes les copies antérieures (locales avec leur miroir `pieces-cursus/`, distantes restic, pg_dump de
+  Matrix) contiennent encore la démonstration : `--supprimer-copies-demo` retire les copies locales, sauf la copie
+  `avant-purge` ; les instantanés restic antérieurs à la date de la purge sont oubliés (`restic forget`), et Matrix
+  marque ses pg_dump antérieurs comme non restaurables en production. Aucune de ces copies ne se restaure sur la base de
+  production : elle y ramènerait les 24 salariés fictifs et leurs matricules EMP-0001 à EMP-0024.
 
 ## 2. `npm run backup`
 
@@ -87,6 +93,7 @@ Sauvegarde de /var/lib/cursus/cursus.db
 | `cursus-…Z-avant-migration.db` | le démarrage d'une nouvelle version qui doit modifier une base existante ou y enregistrer des migrations nommées (ou `npm run comptes` / `npm run reset-demo` lancés avant lui) |
 | `cursus-…Z-avant-reinitialisation.db` | `npm run reset-demo` et le bouton « Réinitialiser les données » (démonstration) |
 | `cursus-…Z-avant-restauration.db` | `npm run restore` (état remplacé, pour pouvoir revenir en arrière) |
+| `cursus-…Z-avant-purge.db` | `npm run purge-demo` (passage de la démonstration à la production) : dernier état de la démonstration, pièces comprises dans le miroir ; à garder jusqu'à la fin de la recette de janvier 2027, puis à supprimer à la main (il ne contient que des données fictives, mais ne doit jamais être restauré en production) |
 | `cursus-…Z-avant-restauration-brut/` | `npm run restore -- … --force` sur une base illisible : fichiers copiés tels quels, hors rotation |
 
 L'horodatage est en **UTC** (suffixe `Z`) pour rester dans l'ordre aux changements d'heure. Le préfixe

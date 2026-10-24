@@ -9,9 +9,10 @@
 // - Décision (`deciderPurge`) : déjà faite, refusée sans appel (base exploitée, sans preuve de démonstration…), ou
 //   possible, avec les points à lever avant d'exécuter (fiches ajoutées sans --inclure-ajouts, compte gardé inconnu).
 // - Plan par profil (`planPurge`) : sort de chaque table de TABLES et des réglages ; séquence des salariés
-//   (`prochainIdEmploye`), jamais remise à zéro, pour qu'aucun vrai salarié ne reprenne un matricule EMP-00xx déjà lu
+//   (`prochainIdEmploye`, EMP-1001 au plus tôt), jamais remise à zéro, pour qu'aucun vrai salarié ne reprenne un matricule EMP-00xx déjà lu
 //   par Keystone, Vigie, Codex ou Matrix.
 // - Aperçu à blanc (`apercuPurge`, `texteApercu`) : ce qui part et ce qui reste, sans rien écrire.
+// L'exécution (service arrêté, sauvegarde préalable, transaction, pièces, copies) : server/src/purge-demo-execution.ts.
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { matricule, plural } from '../../shared/format.ts';
@@ -330,16 +331,17 @@ export function planPurge(profil: ProfilPurge, comptesGardes = false): PlanPurge
 
 /** Premier identifiant d'un vrai salarié : EMP-1001 au plus tôt. */
 export const PREMIER_ID_PRODUCTION = 1001;
-/** Écart laissé au-delà du plus grand identifiant déjà attribué. */
-export const ECART_IDS = 1000;
 /** Dernier identifiant au format du matricule partagé sur 4 chiffres (EMP-9999, 0001_init.sql). */
 export const DERNIER_ID_4_CHIFFRES = 9999;
 
 /**
- * Identifiant du prochain salarié créé après la purge : max(1001, plus grand identifiant déjà attribué + 1000). Jamais
- * de remise à zéro : aucun vrai salarié ne reçoit un matricule EMP-00xx déjà vu par les autres outils.
+ * Identifiant du prochain salarié créé après la purge : max(1001, plus grand identifiant déjà attribué + 1), compteur de
+ * la séquence compris (décision du propriétaire pour l'étape 2 : les vrais salariés commencent à EMP-1001). Sur la
+ * démonstration standard (24 salariés), le premier vrai salarié est EMP-1001 ; des fiches créées par des visiteurs
+ * au-delà de 1000 sont suivies. Jamais de remise à zéro : aucun vrai salarié ne reçoit un matricule déjà vu par les
+ * autres outils.
  */
-export const prochainIdEmploye = (plusGrand: number): number => Math.max(PREMIER_ID_PRODUCTION, Math.max(0, plusGrand) + ECART_IDS);
+export const prochainIdEmploye = (plusGrand: number): number => Math.max(PREMIER_ID_PRODUCTION, Math.max(0, plusGrand) + 1);
 
 /** Plus grand identifiant de salarié déjà attribué : lignes présentes et compteur de la séquence (ids de fiches supprimées compris). */
 export async function plusGrandIdEmploye(db: Db): Promise<number> {

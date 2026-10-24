@@ -1,8 +1,9 @@
 // Tests : décisions refusées sur soi-même (lot 8, chantier C, S1 et S2). Un compte RH rattaché à sa propre fiche ne se
 // délivre ni titre ni certification, ne lève ni ne retire sa propre habilitation, ne décide pas de sa propre demande et ne
 // demande pas d'habilitation pour lui-même ; il ne modifie sur sa fiche que l'adresse e-mail et les jours non travaillés, ne
-// change pas sa propre affectation et ne tient pas son propre suivi médical. Se suspendre soi-même reste permis (cela
-// restreint). Chaque refus est contrôlé avec la même saisie par un autre membre habilité, qui aboutit.
+// change pas sa propre affectation ni son valideur (manager de son équipe ou d'une équipe parente) et ne tient pas son
+// propre suivi médical. Se suspendre soi-même reste permis (cela restreint). Chaque refus est contrôlé avec la même saisie
+// par un autre membre habilité, qui aboutit.
 // Réponse de l'entreprise du 24 octobre 2026 : aucune exception, même pour la seule personne habilitée ; un autre
 // administrateur RH, sinon la direction par un compte RH dédié.
 import { test } from 'node:test';
@@ -15,6 +16,8 @@ const { currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
 const { journaliserAction, preparerTrace } = await import('../server/src/journal.ts');
+const { champsAEnvoyer } = await import('../shared/rules/fiche-concurrente.ts');
+const { normaliserProfil, profilOf } = await import('../shared/rules/profil.ts');
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 
 // Sarah Cohen (fiche 23) : référente HSE / formation, habilitation travail en hauteur délivrée. Antoine Leroy (fiche 14) :
@@ -131,6 +134,28 @@ test('employe.modifier : sur sa propre fiche, seuls l’adresse e-mail et les jo
   assert.equal((await emp(ANTOINE)).matriculePaie, 'SAGE9001');
 });
 
+test('employe.modifier : la saisie du dialogue pour les seuls jours non travaillés passe, champs liés compris ; une heure changée est refusée', async () => {
+  const { run, refus, emp, GEST, ADMIN } = await fresh();
+  // L'administrateur RH passe Antoine à temps partiel, 28 h, jour off le mercredi.
+  await run(ADMIN, 'employe.modifier', { id: ANTOINE, temps: 'partiel', heures: 28, jourOff: [2], confirmerRtt: true });
+  /** Envoi du dialogue de fiche (client/src/dialogs/EmployeDialog.tsx) : champs modifiés et leur groupe, valeurs d'origine. */
+  const envoi = async (modif: Record<string, unknown>) => {
+    const origine = normaliserProfil(profilOf(await emp(ANTOINE)));
+    const saisie = normaliserProfil({ ...origine, ...modif });
+    // Changement des seuls jours non travaillés : pas de nouveau régime, la date d'effet ne part pas.
+    const champs = champsAEnvoyer(origine, saisie).filter(k => k !== 'tempsDepuis');
+    return { id: ANTOINE, ...Object.fromEntries(champs.map(k => [k, saisie[k]])), avant: Object.fromEntries(champs.map(k => [k, origine[k] ?? null])) };
+  };
+  const vendredi = await envoi({ jourOff: [4] });
+  assert.deepEqual(Object.keys(vendredi).filter(k => k !== 'id' && k !== 'avant'), ['temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff'], 'champs liés envoyés ensemble');
+  await run(GEST, 'employe.modifier', vendredi);
+  assert.deepEqual((await emp(ANTOINE)).jourOff, [4]);
+  // Dans le même envoi, une heure changée reste refusée, et seule elle est nommée.
+  await refus(GEST, 'employe.modifier', await envoi({ jourOff: [0], heures: 32 }), /^Vous ne pouvez pas modifier sur votre propre fiche : Heures \(seuls/);
+  const a = await emp(ANTOINE);
+  assert.deepEqual([a.heures, a.jourOff], [28, [4]], 'rien n’est écrit');
+});
+
 test('equipe.affecter : le service RH ne change pas sa propre affectation ; un autre membre du service RH le fait', async () => {
   const { run, refus, emp, GEST, ADMIN } = await fresh();
   await refus(GEST, 'equipe.affecter', { empId: ANTOINE, equipe: 'Qualité & HSE' }, /^Vous ne pouvez pas modifier votre propre affectation/);
@@ -138,6 +163,27 @@ test('equipe.affecter : le service RH ne change pas sa propre affectation ; un a
   assert.equal((await emp(ANTOINE)).equipe, 'Administration');
   await run(ADMIN, 'equipe.affecter', { empId: ANTOINE, equipe: 'Qualité & HSE' });
   assert.equal((await emp(ANTOINE)).equipe, 'Qualité & HSE');
+});
+
+test('equipe.manager, equipe.modifier et equipe.parente : le service RH ne change pas son propre valideur ; les autres équipes restent modifiables', async () => {
+  const { db, run, refus, GEST, ADMIN } = await fresh();
+  const manager = async (nom: string) => ((await db.all<{ nom: string; managerId: number | null; parente: string | null }>('equipes')).find(q => q.nom === nom))!;
+  // Antoine encadre l'équipe Administration, dont il est membre : son valideur est le service RH.
+  assert.equal((await manager('Administration')).managerId, ANTOINE);
+  const AICHA = 7;
+  await refus(GEST, 'equipe.manager', { nom: 'Administration', managerId: AICHA }, /^Vous ne pouvez pas changer votre propre valideur/);
+  await refus(GEST, 'equipe.modifier', { nom: 'Administration', managerId: AICHA }, /^Vous ne pouvez pas changer votre propre valideur/);
+  // Rattacher son équipe à une autre donne pour valideur le manager de celle-ci.
+  await refus(GEST, 'equipe.parente', { nom: 'Administration', parente: 'Production' }, /^Vous ne pouvez pas changer votre propre valideur/);
+  const adm = await manager('Administration');
+  assert.deepEqual([adm.managerId, adm.parente ?? null], [ANTOINE, null], 'rien n’est écrit');
+  // Une équipe dont il ne relève pas : permis.
+  assert.match((await run(GEST, 'equipe.parente', { nom: 'Logistique', parente: 'Production' })).message, /rattachée à l’équipe Production/);
+  // Un autre membre du service RH le fait.
+  assert.match((await run(ADMIN, 'equipe.parente', { nom: 'Administration', parente: 'Production' })).message, /rattachée à l’équipe Production/);
+  // Équipe parente dont le manager valide Antoine : son manager ne change pas non plus par lui.
+  await refus(GEST, 'equipe.manager', { nom: 'Production', managerId: AICHA }, /^Vous ne pouvez pas changer votre propre valideur/);
+  assert.equal((await manager('Production')).managerId, 3);
 });
 
 test('suivi médical : ni demande, ni annulation, ni avis, ni type de suivi pour soi-même ; un autre membre du service RH les enregistre', async () => {

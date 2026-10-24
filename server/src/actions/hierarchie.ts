@@ -8,11 +8,11 @@
 import { ABS_LABEL, ENT_TYPES } from '../../../shared/constants.ts';
 import { isoWeek } from '../../../shared/dates.ts';
 import { fmtIso, plural } from '../../../shared/format.ts';
-import { controleParente, croiseeNouvelle, elementsRediriges, type ElementRedirige } from '../../../shared/rules/hierarchie.ts';
+import { controleParente, croiseeNouvelle, elementsRediriges, valideurHierarchique, type ElementRedirige } from '../../../shared/rules/hierarchie.ts';
 import type { Employe, Equipe } from '../../../shared/types.ts';
 import { periodeLongue } from '../messagerie.ts';
 import { notifier } from '../notifications.ts';
-import { ActionError, type ActionHandler, type Ctx, requireRh, str } from './context.ts';
+import { ActionError, type ActionHandler, type Ctx, refuserSoiMeme, requireRh, REVIENT_RH, str } from './context.ts';
 
 /** Élément redirigé, tel qu'il est décrit au nouveau valideur et dans le message (jamais la nature d'une absence de santé : seuls les congés se demandent). */
 function decrire(ctx: Ctx, x: ElementRedirige): string {
@@ -65,6 +65,17 @@ export function refuserCroisee(ctx: Ctx, apres: { equipes?: readonly Equipe[]; e
 }
 
 /**
+ * Membre du service RH rattaché à sa fiche (lot 8, chantier C) : il ne change pas, par le manager d'une équipe ou par une
+ * équipe parente, qui valide ses propres feuilles, congés et entretiens (même refus que sa propre affectation,
+ * `equipe.affecter`). `apres` : équipes après la modification. Les autres équipes restent modifiables.
+ */
+export function refuserSonValideur(ctx: Ctx, apres: readonly Equipe[]) {
+  const moi = ctx.user.role === 'rh' && ctx.user.salarieId != null ? ctx.ds.employes.find(e => e.id === ctx.user.salarieId) : undefined;
+  if (!moi || valideurHierarchique(ctx.ds.referentiels.equipes, moi) === valideurHierarchique(apres, moi)) return;
+  refuserSoiMeme(ctx, moi, 'Vous ne pouvez pas changer votre propre valideur (manager de votre équipe ou d’une équipe dont elle relève)', REVIENT_RH);
+}
+
+/**
  * `nom` (équipe), `parente` (nom de l'équipe parente ; null ou vide : aucune). Refus : équipe parente inconnue, boucle,
  * profondeur au-delà de PROFONDEUR_MAX, ou deux salariés qui deviendraient chacun le valideur de l'autre.
  */
@@ -78,6 +89,7 @@ const parente: ActionHandler = async (ctx, p) => {
   const refus = controleParente(equipes, q.nom, cible);
   if (refus) throw new ActionError(refus);
   const apres: Equipe[] = equipes.map(x => (x.nom === q.nom ? { ...x, parente: cible } : x));
+  refuserSonValideur(ctx, apres);
   refuserCroisee(ctx, { equipes: apres });
   const elements = elementsRediriges(ctx.ds, equipes, apres);
   await ctx.db.update('equipes', q.nom, { parente: cible });

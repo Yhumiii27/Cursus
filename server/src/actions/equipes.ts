@@ -7,12 +7,12 @@ import { matriculesPris } from '../../../shared/rules/matricules.ts';
 import { adressesPrises } from '../../../shared/rules/messagerie.ts';
 import { posteDe } from '../../../shared/rules/exigences.ts';
 import { refusEquipeNuit } from '../../../shared/rules/mineurs.ts';
-import { champsEnConflit, LIBELLE_CHAMP_FICHE, messageConflit } from '../../../shared/rules/fiche-concurrente.ts';
+import { champsEnConflit, champsModifies, LIBELLE_CHAMP_FICHE, messageConflit } from '../../../shared/rules/fiche-concurrente.ts';
 import { MANAGER_FIELDS, PROFIL_FIELDS, profilOf, SOI_MEME_FIELDS, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import type { Employe, Equipe, FeuilleTemps } from '../../../shared/types.ts';
 import { elementsRediriges } from '../../../shared/rules/hierarchie.ts';
 import { dernierAuteurFiche } from './fiche-auteur.ts';
-import { prevenir, redirectionsResultat, refuserCroisee, suiteRedirection } from './hierarchie.ts';
+import { prevenir, redirectionsResultat, refuserCroisee, refuserSonValideur, suiteRedirection } from './hierarchie.ts';
 import { carences, carenceTexte } from '../../../shared/rules/cdd.ts';
 import { avenantProgramme, renouvellementsDe } from '../../../shared/rules/historique-contrat.ts';
 import { amorcer, inscrireLigne, refigerBrouillons } from '../avenants.ts';
@@ -109,8 +109,10 @@ const modifier: ActionHandler = async (ctx, p) => {
   const refused = patch.filter(k => !fields.includes(k));
   if (refused.length) throw new ActionError(`Champs réservés au service RH : ${refused.join(', ')}`, 403);
   // Sa propre fiche (lot 8, chantier C) : l'adresse e-mail et les jours non travaillés seulement ; heures, temps, contrat,
-  // matricule de paie, période d'essai, équipe… sont modifiés par un autre membre du service RH.
-  const reserves = estSoiMeme(ctx, emp.id) ? patch.filter(k => !SOI_MEME_FIELDS.includes(k)) : [];
+  // matricule de paie, période d'essai, équipe… sont modifiés par un autre membre du service RH. Seuls les champs dont la
+  // valeur change sont refusés : le dialogue envoie les champs liés ensemble (GROUPES_FICHE : les jours non travaillés
+  // partent avec l'organisation du temps et ses paramètres, renvoyés inchangés).
+  const reserves = estSoiMeme(ctx, emp.id) ? champsModifies(cur, p, patch.filter(k => !SOI_MEME_FIELDS.includes(k))) : [];
   if (reserves.length) refuserSoiMeme(ctx, emp, `Vous ne pouvez pas modifier sur votre propre fiche : ${reserves.map(k => LIBELLE_CHAMP_FICHE[k]).join(', ')} (seuls l’adresse e-mail et les jours non travaillés le sont)`, REVIENT_RH);
   // Modification concurrente : un champ dont la valeur d'origine (celle de l'ouverture du dialogue) n'est plus celle de la
   // fiche a été modifié entre-temps par quelqu'un d'autre ; rien n'est enregistré (412, distinct du 409 du changement
@@ -245,6 +247,8 @@ const designer: ActionHandler = async (ctx, p) => {
   // parente (actions/hierarchie.ts). Ceux des membres de l'équipe passent au nouveau manager, comme auparavant.
   const equipes = ctx.ds.referentiels.equipes;
   const apres: Equipe[] = equipes.map(x => (x.nom === q.nom ? { ...x, managerId: m?.id ?? null } : x));
+  // Sa propre équipe, ou une équipe dont elle relève : le membre du service RH ne choisit pas son valideur (lot 8, chantier C).
+  refuserSonValideur(ctx, apres);
   refuserCroisee(ctx, { equipes: apres });
   const elements = elementsRediriges(ctx.ds, equipes, apres).filter(x => ctx.d.emp(x.empId)?.equipe !== q.nom);
   await ctx.db.update('equipes', q.nom, { managerId: m?.id ?? null });

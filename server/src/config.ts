@@ -2,6 +2,8 @@
 // En production (NODE_ENV=production), une configuration dangereuse empêche le
 // démarrage ; ailleurs, elle est seulement signalée. Variables : .env.example.
 
+import { lireAdressesKeystone } from './filtre-keystone.ts';
+
 export type Env = Record<string, string | undefined>;
 
 /** Le mode démonstration (connexion libre, sélecteur de vue, réinitialisation) ne s'active qu'avec CURSUS_DEMO=1. */
@@ -207,10 +209,24 @@ function problemesOidc(env: Env): string[] {
  * avant (server/src/secret-microsoft.ts) : point de santé « degrade » et ligne du récapitulatif des échéances.
  */
 export function expirationSecretOidc(env: Env = process.env): string | null {
-  const v = (env.CURSUS_OIDC_SECRET_EXPIRE ?? '').trim();
+  return dateAaaaMmJj(env.CURSUS_OIDC_SECRET_EXPIRE);
+}
+
+/** Date AAAA-MM-JJ réelle (ni 2027-02-30, ni 27/01/2027), ou null. */
+function dateAaaaMmJj(valeur: string | undefined): string | null {
+  const v = (valeur ?? '').trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
   const d = new Date(`${v}T00:00:00Z`);
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v ? v : null;
+}
+
+/**
+ * Date d'expiration du secret propre à l'envoi des e-mails (CURSUS_MAIL_SECRET_EXPIRE, AAAA-MM-JJ, lot 8) : facultative,
+ * utile quand l'envoi passe par une application Entra distincte de la connexion (CURSUS_MAIL_CLIENT_SECRET). Le jour où
+ * ce secret expire, plus aucun e-mail ne part ; Cursus prévient 30 jours avant (server/src/secret-microsoft.ts).
+ */
+export function expirationSecretEnvoi(env: Env = process.env): string | null {
+  return dateAaaaMmJj(env.CURSUS_MAIL_SECRET_EXPIRE);
 }
 
 /** CURSUS_OIDC_SECRET_EXPIRE illisible (l'alerte ne partirait jamais), ou posée sans secret client à surveiller. */
@@ -219,6 +235,15 @@ function problemesExpirationSecret(env: Env): string[] {
   if (!v) return [];
   if (!expirationSecretOidc(env)) return [`CURSUS_OIDC_SECRET_EXPIRE doit être la date d’expiration du secret client, au format AAAA-MM-JJ (« ${v} » reçu) : sans elle, Cursus ne peut pas prévenir avant l’expiration.`];
   if (!(env.CURSUS_OIDC_CLIENT_SECRET ?? '').trim()) return ['CURSUS_OIDC_SECRET_EXPIRE est définie sans CURSUS_OIDC_CLIENT_SECRET : aucun secret client à surveiller. Retirez-la, ou complétez la connexion Microsoft 365.'];
+  return [];
+}
+
+/** CURSUS_MAIL_SECRET_EXPIRE illisible, ou posée sans secret d'envoi distinct (CURSUS_MAIL_CLIENT_SECRET) à surveiller. */
+function problemesExpirationSecretEnvoi(env: Env): string[] {
+  const v = (env.CURSUS_MAIL_SECRET_EXPIRE ?? '').trim();
+  if (!v) return [];
+  if (!expirationSecretEnvoi(env)) return [`CURSUS_MAIL_SECRET_EXPIRE doit être la date d’expiration du secret d’envoi des e-mails, au format AAAA-MM-JJ (« ${v} » reçu) : sans elle, Cursus ne peut pas prévenir avant l’expiration.`];
+  if (!(env.CURSUS_MAIL_CLIENT_SECRET ?? '').trim()) return ['CURSUS_MAIL_SECRET_EXPIRE est définie sans CURSUS_MAIL_CLIENT_SECRET : l’envoi passe par le secret de la connexion, surveillé par CURSUS_OIDC_SECRET_EXPIRE. Retirez-la.'];
   return [];
 }
 
@@ -378,6 +403,20 @@ function problemesDemoPublique(env: Env): string[] {
   return out;
 }
 
+/**
+ * Lot 8, étape 2 : fichier témoin des sauvegardes du serveur commun (CURSUS_SAUVEGARDE_TEMOIN, chemin absolu, lu par
+ * server/src/sauvegarde-temoin.ts) et filtre d'adresses de l'API Keystone (CURSUS_KEYSTONE_ADRESSES,
+ * server/src/filtre-keystone.ts) : une valeur illisible ne surveillerait ou ne filtrerait rien sans le dire.
+ */
+function problemesSurveillance(env: Env): string[] {
+  const out: string[] = [];
+  const temoin = (env.CURSUS_SAUVEGARDE_TEMOIN ?? '').trim();
+  if (temoin && !temoin.startsWith('/')) out.push(`CURSUS_SAUVEGARDE_TEMOIN doit être le chemin absolu du fichier témoin écrit par la sauvegarde du serveur commun (/sauvegardes/cursus.temoin) : « ${temoin} » reçu.`);
+  const { invalides } = lireAdressesKeystone(env.CURSUS_KEYSTONE_ADRESSES);
+  if (invalides.length) out.push(`CURSUS_KEYSTONE_ADRESSES : ${invalides.map(a => `« ${a} »`).join(', ')} ${invalides.length > 1 ? 'ne sont ni des adresses IP ni des réseaux' : 'n’est ni une adresse IP ni un réseau'} (10.0.1.5, 10.0.1.0/24, fd00::/8, séparés par des virgules).`);
+  return out;
+}
+
 export interface OptionsConfig {
   /**
    * false : règles propres à la démonstration écartées (démonstration exposée, CURSUS_TODAY, cookie sans Secure,
@@ -419,12 +458,14 @@ export function problemesConfig(env: Env = process.env, opts: OptionsConfig = {}
   }
   out.push(...problemesOidc(env));
   out.push(...problemesExpirationSecret(env));
+  out.push(...problemesExpirationSecretEnvoi(env));
   out.push(...problemesMail(env));
   out.push(...problemesSage(env));
   out.push(...problemesExploitation(env));
   out.push(...problemesBase(env));
   out.push(...problemesProduction(env));
   if (reglesDemo) out.push(...problemesDemoPublique(env));
+  out.push(...problemesSurveillance(env));
   if (env.CURSUS_OIDC_AUTORITE) out.push(`CURSUS_OIDC_AUTORITE est définie (${env.CURSUS_OIDC_AUTORITE}) : elle remplace le service de connexion de Microsoft et reste réservée aux tests.`);
   return out;
 }

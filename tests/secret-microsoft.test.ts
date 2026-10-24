@@ -135,3 +135,34 @@ test('ligne du secret : l’envoi des e-mails n’est cité que s’il passe par
   assert.match(texte({ ...OIDC, ...MAIL }, '2026-11-02'), /a expiré le 1 nov\. 2026\. Si ce message vous parvient, un nouveau secret est en place/);
   assert.match(texte(OIDC, '2026-11-02'), /a expiré le 1 nov\. 2026\. Le service informatique en crée un nouveau/);
 });
+
+test('secret propre à l’envoi des e-mails (lot 8) : échéance, ligne du récapitulatif à la boîte du service RH', async () => {
+  const { echeanceSecretEnvoi, relanceSecretEnvoi } = await import('../server/src/secret-microsoft.ts');
+  const env = (d: string) => ({ CURSUS_MAIL_CLIENT_SECRET: 'envoi', CURSUS_MAIL_SECRET_EXPIRE: d });
+  assert.equal(echeanceSecretEnvoi('2026-10-10', {}), null);
+  assert.equal(echeanceSecretEnvoi('2026-10-10', { CURSUS_MAIL_SECRET_EXPIRE: '2026-11-01' }), null, 'sans secret propre : celui de la connexion, suivi à part');
+  assert.deepEqual(echeanceSecretEnvoi('2026-10-10', env('2026-11-09')), { expireLe: '2026-11-09', jours: 30, alerte: true });
+  assert.equal(relanceSecretEnvoi('2026-10-10', env('2026-11-10')), null);
+  const r = relanceSecretEnvoi('2026-10-10', env('2026-11-09'))!;
+  assert.deepEqual([r.cle, r.palier], ['exploitation:secret-envoi:2026-11-09', '30']);
+  assert.match(r.texte, /^• Secret client de l’application d’envoi des e-mails dans Entra ID : il expire le 9 nov\. 2026\. .*CURSUS_MAIL_SECRET_EXPIRE/);
+  assert.match(relanceSecretEnvoi('2026-10-10', env('2026-10-09'))!.texte, /il a expiré le 9 oct\. 2026/);
+
+  // Récapitulatif : la ligne part à la seule boîte du service RH, une fois par palier.
+  const db = new Db(':memory:');
+  await seedDemo(db);
+  const compte = ((await db.one('SELECT id FROM comptes WHERE emp_id IS NULL')) as { id: number }).id;
+  const RH = await ((await currentUser(db, { compteId: compte, role: 'rh', methode: 'demo' }))!);
+  await db.tx(async () => ACTIONS['messagerie.regler'](makeCtx(db, RH, await loadFull(db, RH)), { rh: RH_MAIL }));
+  Object.assign(process.env, env('2026-11-01'));
+  try {
+    await db.tx(() => recapitulatifEcheances(db));
+    const rh = (await db.all<Ligne>('envois')).filter(x => x.type === 'echeances.recapitulatif' && x.contenu.a[0] === RH_MAIL);
+    assert.equal(rh.length, 1);
+    assert.match(rh[0].contenu.texte, /Exploitation :\n• Secret client de l’application d’envoi des e-mails dans Entra ID : il expire le 1 nov\. 2026/);
+    assert.deepEqual(await le('2026-10-11', async () => await db.tx(() => recapitulatifEcheances(db))), { emails: 0, relances: 0 }, 'même palier : rien ne repart');
+  } finally {
+    delete process.env.CURSUS_MAIL_CLIENT_SECRET;
+    delete process.env.CURSUS_MAIL_SECRET_EXPIRE;
+  }
+});

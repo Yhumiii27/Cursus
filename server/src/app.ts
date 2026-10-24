@@ -24,6 +24,7 @@ import { type Cible, CIBLES, etatEnvois, listerEnvois } from './envois.ts';
 import { envoisPourLecteur } from './envois-lecteur.ts';
 import { apiInconnue, ERREUR_INTERNE, estOccupe, gestionnaireErreurs, LIMITE_CORPS, repondreOccupe, signalerErreur } from './erreurs.ts';
 import { routesFichierPaie } from './fichier-paie.ts';
+import { filtreKeystone } from './filtre-keystone.ts';
 import { routesVariablesPaie } from './variables-paie.ts';
 import { routesPasseportPrevention } from './passeport-prevention.ts';
 import { routesPieces } from './pieces-routes.ts';
@@ -70,7 +71,8 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // limiteur de débit et les autres routes /api (server/src/supervision.ts).
   app.use(routeSante(db));
   // API Keystone (clé X-Api-Key, journal de chaque appel) : avant l'analyse JSON, faite après la vérification de la clé.
-  app.use('/api/integrations/keystone', keystoneRoutes(db));
+  // Filtre facultatif par adresse devant elle (CURSUS_KEYSTONE_ADRESSES, lot 8 : server/src/filtre-keystone.ts).
+  app.use('/api/integrations/keystone', filtreKeystone(), keystoneRoutes(db));
   // Débit limité par adresse IP et par compte (429, Retry-After), puis refus des requêtes qui modifient sans venir de Cursus (CSRF).
   app.use('/api', limiterDebit(db));
   app.use(protectionCsrf());

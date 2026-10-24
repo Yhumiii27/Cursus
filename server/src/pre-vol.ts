@@ -14,16 +14,19 @@ import { accessSync, constants, existsSync, statfsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { adminsActifs } from './comptes.ts';
 import {
-  avertissementsConfig, BASE_COMMUNE, cibleBase, configMail, configOidc, type Env, originePublique, problemesConfig, ROLE_CURSUS, trustProxy,
+  avertissementsConfig, BASE_COMMUNE, cibleBase, configMail, configOidc, demoActive, demoSurBaseCommune, enProduction, type Env, originePublique,
+  problemesConfig, ROLE_CURSUS, trustProxy,
 } from './config.ts';
 import { lireConfidentialite } from './confidentialite.ts';
 import type { Db } from './db.ts';
 import { controlerOrphelins } from './integrite.ts';
-import { echeanceSecret, ALERTE_SECRET_JOURS } from './secret-microsoft.ts';
-import { DOMAINE_DEMO } from './seed.ts';
+import { ACTION_PURGE_DEMO, type MarqueurExploitation, REGLAGE_EXPLOITATION } from './marqueurs.ts';
+import { lireTemoin, SAUVEGARDE_MAX_HEURES } from './sauvegarde-temoin.ts';
+import { echeanceSecret, echeanceSecretEnvoi, ALERTE_SECRET_JOURS, type EcheanceSecret } from './secret-microsoft.ts';
+import { CREE_PAR_DEMO, DOMAINE_DEMO, LOT_DEMO } from './seed.ts';
 
 export type Niveau = 'ok' | 'attention' | 'bloquant';
-export type Domaine = 'configuration' | 'base';
+export type Domaine = 'configuration' | 'base' | 'sauvegarde' | 'reseau';
 
 export interface Controle {
   /** Code stable du contrôle (config.secrets, base.demo…), repris dans la sortie --json. */
@@ -130,12 +133,11 @@ export function controlesConfig(envBrut: Env, aujourdhui: string): Controle[] {
   out.push(configMail(env)
     ? ok(C, 'config.mail', 'Envoi des e-mails par Microsoft Graph configuré.')
     : ko(C, 'config.mail', 'attention', 'E-mails en simulation : CURSUS_MAIL_FROM absente (ou application Entra incomplète), rien ne part.', 'Boîte d’envoi et autorisation Mail.Send : docs/EMAILS.md.'));
-  if (configOidc(env)) {
-    const e = echeanceSecret(aujourdhui, env);
-    if (!e) out.push(ko(C, 'config.secret-oidc', 'attention', 'CURSUS_OIDC_SECRET_EXPIRE absente : Cursus ne préviendra pas avant l’expiration du secret client Entra.', 'Relevez la date dans Entra (Certificats & secrets) et posez-la (AAAA-MM-JJ).'));
-    else if (e.jours < 0) out.push(ko(C, 'config.secret-oidc', 'bloquant', `Le secret client Entra a expiré le ${e.expireLe} : plus aucune connexion Microsoft ne passe.`, 'Créez un nouveau secret dans Entra, puis remplacez CURSUS_OIDC_CLIENT_SECRET et CURSUS_OIDC_SECRET_EXPIRE.'));
-    else if (e.jours <= ALERTE_SECRET_JOURS) out.push(ko(C, 'config.secret-oidc', 'attention', `Le secret client Entra expire le ${e.expireLe} (dans ${e.jours} jour${e.jours > 1 ? 's' : ''}).`, 'Renouvelez-le avant la mise en service.'));
-    else out.push(ok(C, 'config.secret-oidc', `Secret client Entra valable jusqu’au ${e.expireLe} (${e.jours} jours).`));
+  if (configOidc(env)) out.push(controleSecret('config.secret-oidc', echeanceSecret(aujourdhui, env), SECRET_OIDC));
+  // Envoi par une application Entra distincte (CURSUS_MAIL_CLIENT_SECRET propre) : son secret a sa propre échéance.
+  const mail = configMail(env);
+  if (mail && (env.CURSUS_MAIL_CLIENT_SECRET ?? '').trim() && mail.clientSecret !== (env.CURSUS_OIDC_CLIENT_SECRET ?? '').trim()) {
+    out.push(controleSecret('config.secret-envoi', echeanceSecretEnvoi(aujourdhui, env), SECRET_ENVOI));
   }
   out.push((env.CURSUS_SUPERVISION_TOKEN ?? '').trim()
     ? ok(C, 'config.supervision', 'Jeton de supervision posé (détail de /api/health).')
@@ -158,6 +160,42 @@ export function controlesConfig(envBrut: Env, aujourdhui: string): Controle[] {
   return out;
 }
 
+/** Libellés d'un secret Entra suivi par sa date d'expiration. */
+interface SecretSuivi { nom: string; variables: string; arret: string }
+const SECRET_OIDC: SecretSuivi = { nom: 'secret client Entra', variables: 'CURSUS_OIDC_CLIENT_SECRET et CURSUS_OIDC_SECRET_EXPIRE', arret: 'plus aucune connexion Microsoft ne passe' };
+const SECRET_ENVOI: SecretSuivi = { nom: 'secret d’envoi des e-mails', variables: 'CURSUS_MAIL_CLIENT_SECRET et CURSUS_MAIL_SECRET_EXPIRE', arret: 'plus aucun e-mail ne part' };
+
+/** Échéance d'un secret Entra : date absente ou proche (avertissement), dépassée (bloquant), lointaine (OK). */
+function controleSecret(code: string, e: EcheanceSecret | null, s: SecretSuivi): Controle {
+  const C = 'configuration' as const;
+  const variable = s.variables.split(' et ')[1];
+  const Nom = s.nom[0].toUpperCase() + s.nom.slice(1);
+  if (!e) return ko(C, code, 'attention', `${variable} absente : Cursus ne préviendra pas avant l’expiration du ${s.nom}.`, 'Relevez la date dans Entra (Certificats & secrets) et posez-la (AAAA-MM-JJ).');
+  if (e.jours < 0) return ko(C, code, 'bloquant', `Le ${s.nom} a expiré le ${e.expireLe} : ${s.arret}.`, `Créez un nouveau secret dans Entra, puis remplacez ${s.variables}.`);
+  if (e.jours <= ALERTE_SECRET_JOURS) return ko(C, code, 'attention', `Le ${s.nom} expire le ${e.expireLe} (dans ${e.jours} jour${e.jours > 1 ? 's' : ''}).`, 'Renouvelez-le avant la mise en service.');
+  return ok(C, code, `${Nom} valable jusqu’au ${e.expireLe} (${e.jours} jours).`);
+}
+
+// — Sauvegarde du serveur commun —
+
+/**
+ * Fraîcheur de la dernière sauvegarde, d'après le témoin écrit par la tâche de Matrix (CURSUS_SAUVEGARDE_TEMOIN,
+ * server/src/sauvegarde-temoin.ts). Sans témoin, avertissement seulement (choix du lot 8) : la vérification se fait à la
+ * main, comme le dit la procédure.
+ */
+export function controleSauvegarde(env: Env, maintenant = Date.now()): Controle {
+  const S = 'sauvegarde' as const;
+  const t = lireTemoin(env, maintenant);
+  if (!t) {
+    return ko(S, 'sauvegarde.temoin', 'attention', 'CURSUS_SAUVEGARDE_TEMOIN absente : Cursus ne peut pas vérifier que le serveur commun a été sauvegardé.',
+      `Vérifiez à la main la dernière sauvegarde du schéma cursus (${PROCEDURE}, « Sauvegardes »), ou montez le témoin écrit par la tâche de Matrix.`);
+  }
+  if ('erreur' in t) return ko(S, 'sauvegarde.temoin', 'attention', `Témoin de sauvegarde ${t.chemin} illisible : ${t.erreur}.`, 'Vérifiez le volume monté et la tâche de sauvegarde de Matrix.');
+  return t.enRetard
+    ? ko(S, 'sauvegarde.temoin', 'attention', `Dernière sauvegarde du serveur commun il y a ${t.heures} h (${t.le}), plus de ${SAUVEGARDE_MAX_HEURES} h.`, 'Vérifiez la tâche planifiée de Matrix (sauvegarder.sh) avant toute mise en service ou mise à jour.')
+    : ok(S, 'sauvegarde.temoin', `Dernière sauvegarde du serveur commun il y a ${t.heures} h (${t.le}).`);
+}
+
 // — Base —
 
 /**
@@ -171,15 +209,15 @@ export async function indicesDemo(db: Db): Promise<string[]> {
   const marqueur = await db.getSetting<{ chargeeLe?: string } | null>('demo', null);
   if (marqueur) out.push(`réglage demo (jeu chargé${marqueur.chargeeLe ? ` le ${marqueur.chargeeLe.slice(0, 10)}` : ''})`);
   const nombre = async (sql: string, params: string[] = []) => Number((await db.one<{ n: number }>(sql, params))?.n ?? 0);
-  const comptes = await nombre(`SELECT COUNT(*) AS n FROM comptes WHERE cree_par = 'Jeu de démonstration'`);
+  const comptes = await nombre('SELECT COUNT(*) AS n FROM comptes WHERE cree_par = ?', [CREE_PAR_DEMO]);
   if (comptes) out.push(`${comptes} compte${comptes > 1 ? 's' : ''} du jeu de démonstration`);
   const domaine = `%@${DOMAINE_DEMO}`;
   const fiches = await nombre('SELECT COUNT(*) AS n FROM employes WHERE email LIKE ?', [domaine]);
   if (fiches) out.push(`${fiches} fiche${fiches > 1 ? 's' : ''} à une adresse @${DOMAINE_DEMO}`);
   const identifiants = await nombre('SELECT COUNT(*) AS n FROM comptes WHERE identifiant LIKE ? OR adresse LIKE ?', [domaine, domaine]);
   if (identifiants && !comptes) out.push(`${identifiants} compte${identifiants > 1 ? 's' : ''} à une adresse @${DOMAINE_DEMO}`);
-  const lots = await nombre(`SELECT COUNT(*) AS n FROM lots_paie WHERE auteur = 'Démonstration'`);
-  if (lots) out.push(`lot de paie historique « Démonstration »`);
+  const lots = await nombre('SELECT COUNT(*) AS n FROM lots_paie WHERE auteur = ?', [LOT_DEMO]);
+  if (lots) out.push(`lot de paie historique « ${LOT_DEMO} »`);
   return out;
 }
 
@@ -385,6 +423,43 @@ async function controlesDonnees(db: Db, opts: OptionsBase): Promise<Controle[]> 
   return out;
 }
 
+// — Contrôle au démarrage du serveur —
+
+/**
+ * Contrôles bloquants du démarrage (server/src/index.ts, après les migrations, avant tout chargement ou marquage) :
+ * l'oubli de npm run verifier-production n'est pas fatal. Rend les motifs de refus, vide si le démarrage peut continuer.
+ * - En production hors démonstration : données du jeu de démonstration dans la base (`indicesDemo`), connexion au
+ *   serveur PostgreSQL en rôle postgres ou en superutilisateur, quelle que soit l'adresse (la configuration ne voit que
+ *   DATABASE_URL). C'est ici que le réglage `exploitation` serait posé à tort sur une base de démonstration.
+ * - Démonstration branchée sur la base epc2i (signalée seulement dans le lot 8) : refusée dès que la base porte le
+ *   réglage `exploitation` (elle a servi en production) ou la trace de la purge (`purge.demo`) : la démonstration
+ *   rechargerait ses salariés fictifs dans la base de production.
+ */
+export async function controlerDemarrage(db: Db, env: Env = process.env): Promise<string[]> {
+  const out: string[] = [];
+  if (enProduction(env) && !demoActive(env)) {
+    if (db.moteur === 'pg') {
+      const r = await db.one<{ role: string; superutilisateur: boolean }>('SELECT current_user AS role, COALESCE((SELECT rolsuper FROM pg_roles WHERE rolname = current_user), FALSE) AS superutilisateur');
+      if (r && (r.role === 'postgres' || r.superutilisateur)) {
+        out.push(`connecté au serveur PostgreSQL en « ${r.role} »${r.superutilisateur ? ' (superutilisateur)' : ''} : Cursus aurait tous les droits sur le serveur commun. Utilisez le rôle ${ROLE_CURSUS} du socle.`);
+      }
+    }
+    const indices = await indicesDemo(db);
+    if (indices.length) {
+      out.push(`la base contient des données de démonstration (${indices.join(', ')}) : videz-la (npm run purge-demo) ou démarrez sur un schéma ou un volume neuf (${PROCEDURE}).`);
+    }
+  }
+  if (demoSurBaseCommune(env)) {
+    const exploitation = await db.getSetting<MarqueurExploitation | null>(REGLAGE_EXPLOITATION, null);
+    const purge = await db.one<{ at: string }>('SELECT at FROM journal WHERE action = ? ORDER BY id LIMIT 1', [ACTION_PURGE_DEMO]);
+    if (exploitation || purge) {
+      const pourquoi = exploitation ? `a servi en production (depuis le ${exploitation.premierDemarrageHorsDemo.slice(0, 10)})` : `a été vidée de ses données fictives le ${purge!.at.slice(0, 10)}`;
+      out.push(`démonstration (CURSUS_DEMO=1) sur la base ${BASE_COMMUNE}, qui ${pourquoi} : elle y rechargerait ses salariés fictifs. Retirez CURSUS_DEMO, ou déplacez la démonstration sur une application à part, en SQLite (${PROCEDURE}).`);
+    }
+  }
+  return out;
+}
+
 // — Bilan —
 
 /** Code de sortie : 0 conforme, 1 au moins un bloquant (ou un avertissement avec --strict), 2 avertissements seulement. */
@@ -395,12 +470,12 @@ export function codeSortie(controles: readonly Controle[], strict = false): 0 | 
 }
 
 const ETIQUETTE: Record<Niveau, string> = { ok: 'OK', attention: 'ATTENTION', bloquant: 'BLOQUANT' };
-const TITRE: Record<Domaine, string> = { configuration: 'Configuration', base: 'Base' };
+const TITRE: Record<Domaine, string> = { configuration: 'Configuration', base: 'Base', sauvegarde: 'Sauvegarde', reseau: 'Réseau' };
 
 /** Rapport en texte, une ligne par contrôle (puis son remède), regroupé par domaine, et bilan. */
 export function rapportTexte(controles: readonly Controle[], entete: string, strict = false): string {
   const lignes = [entete];
-  for (const d of ['configuration', 'base'] as Domaine[]) {
+  for (const d of ['configuration', 'base', 'sauvegarde', 'reseau'] as Domaine[]) {
     const liste = controles.filter(c => c.domaine === d);
     if (!liste.length) continue;
     lignes.push('', TITRE[d]);

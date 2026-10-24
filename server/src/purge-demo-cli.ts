@@ -6,6 +6,7 @@
 // Code de sortie 0 : aperçu affiché ou purge déjà faite ; 1 : refus.
 // Image Docker : volume rendu au compte du service, droits root abandonnés (avant tout autre import).
 import './conteneur.ts';
+import { enProduction, verifierConfig } from './config.ts';
 import { dbFile, urlPostgres } from './db.ts';
 import { apercuPurge, controlerEnvironnementPurge, lireOptionsPurge, type OptionsPurge, PurgeRefusee, texteApercu } from './purge-demo.ts';
 import { controlerSqliteAJour, ouvrirPourApercu } from './purge-demo-ouverture.ts';
@@ -24,6 +25,11 @@ try {
 } catch (err) {
   refuser(err);
 }
+
+// Configuration contrôlée comme au démarrage du serveur (lot 8, chantier B), règles propres à la démonstration écartées :
+// la commande tourne dans l'environnement de la démonstration qu'elle prépare à la production. En production, refus
+// d'une configuration dangereuse (DATABASE_URL en rôle postgres…) avant d'ouvrir la base.
+if (enProduction()) verifierConfig(process.env, { reglesDemo: false, commande: 'npm run purge-demo' });
 
 // L'aperçu n'écrit rien, pas même la mise à jour de la base (server/src/purge-demo-ouverture.ts) : base introuvable,
 // mise à jour par une version plus récente ou pas encore par cette version, refusée avant d'être ouverte.

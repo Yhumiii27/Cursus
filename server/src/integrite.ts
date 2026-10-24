@@ -149,6 +149,21 @@ export async function etatIntegrite(db: Db, maintenant = Date.now()): Promise<In
 }
 
 /**
+ * Dernier contrôle connu, sans requête (point de santé, lot 8 : il ne lit plus la base au-delà d'un SELECT 1) ; undefined
+ * si aucun contrôle n'a encore été fait sur cette base.
+ */
+export function dernierControle(db: Db): Integrite | undefined {
+  return derniers.get(db);
+}
+
+/** Contrôle refait sans attendre l'heure (tâche horaire de la supervision, server/src/supervision.ts). */
+export async function refaireControle(db: Db): Promise<Integrite> {
+  const r = await controlerOrphelins(db);
+  derniers.set(db, r);
+  return r;
+}
+
+/**
  * Contrôle du démarrage (server/src/index.ts, après les migrations) : avertissement dans les journaux du serveur et ligne
  * `integrite.orphelins` au journal des actions s'il trouve des orphelins (références et nombres seulement) ; rien sinon.
  */

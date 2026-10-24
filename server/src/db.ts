@@ -573,6 +573,16 @@ export abstract class Db {
   /** Ferme la base (arrêt du serveur, fin d'un outil en ligne de commande). */
   abstract fermer(): Promise<void>;
 
+  /**
+   * Sonde du point de santé (lot 8, chantier B : server/src/supervision.ts) : la base répond-elle, sans attendre la fin
+   * d'une transaction ou d'une suite exclusive en cours ? PostgreSQL : requête isolée sur une connexion du pool, qui ne
+   * prend pas le verrou d'écriture (le schéma de Cursus est lisible). SQLite : redéfinie par `SqliteDb`, qui lit l'en-tête
+   * du fichier sur la connexion sans passer par la file.
+   */
+  async sonde(): Promise<void> {
+    await this.one('SELECT 1 FROM schema_migrations LIMIT 1');
+  }
+
   /** Recale les compteurs d'identifiants après des insertions à identifiant fixé (PostgreSQL ; rien à faire en SQLite). */
   async resyncIds(): Promise<void> {}
 
@@ -869,6 +879,14 @@ export class SqliteDb extends Db {
 
   exclusif<T>(fn: () => Promise<T> | T): Promise<T> {
     return this.aSonTour(() => fn());
+  }
+
+  /**
+   * Sonde du point de santé hors de la file : en-tête du fichier lu directement sur la connexion (synchrone, sans
+   * effet), même pendant une transaction en attente. Base fermée ou fichier perdu : la promesse est rejetée.
+   */
+  sonde(): Promise<void> {
+    return Promise.resolve().then(() => { this.sql.prepare('PRAGMA user_version').get(); });
   }
 
   /**

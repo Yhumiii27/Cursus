@@ -27,7 +27,7 @@ import { clePieces, refusPiecesLocales } from './config.ts';
 import type { Db, TableName } from './db.ts';
 import { DepotGed, estFichierGed } from './integrations/ged.ts';
 import { log } from './logs.ts';
-import { chiffrerPiece, contenuEnClair, SURCOUT_CHIFFREMENT } from './pieces-chiffrement.ts';
+import { chiffrerPiece, contenuEnClair, fichierChiffre, SURCOUT_CHIFFREMENT } from './pieces-chiffrement.ts';
 
 /** Ligne de la table `pieces`, telle qu'en base (le nom stocké et le jeton ne quittent jamais le serveur). */
 export interface PieceEnregistree extends Omit<Piece, 'empId' | 'objet' | 'objetId'> {
@@ -247,15 +247,19 @@ export async function demarrerPieces(db: Db): Promise<() => void> {
  * l'empreinte est vérifiée à chaque téléchargement). Nombres seulement, sous des clés lisibles du contrôle d'intégrité.
  */
 export async function controlerPieces(db: Db): Promise<Record<string, number>> {
-  const lignes = (await db.query('SELECT fichier, taille, chiffree FROM pieces WHERE fichier IS NOT NULL')) as { fichier: string; taille: number; chiffree: unknown }[];
+  const lignes = (await db.query('SELECT fichier, taille FROM pieces WHERE fichier IS NOT NULL')) as { fichier: string; taille: number }[];
   const locales = lignes.filter(l => !estFichierGed(l.fichier));
   if (!locales.length) return {};
   const dossier = dossierPiecesDe(db);
   let absents = 0, tailles = 0;
   for (const l of locales) {
     try {
-      // Fichier chiffré (lot 8) : la taille enregistrée est celle du clair, plus l'en-tête du chiffrement.
-      if (statSync(join(dossier, l.fichier)).size !== Number(l.taille) + (l.chiffree ? SURCOUT_CHIFFREMENT : 0)) tailles++;
+      // Fichier chiffré (lot 8) : la taille enregistrée est celle du clair, plus l'en-tête du chiffrement. L'en-tête du
+      // fichier fait foi, pas la colonne `chiffree` : une base restaurée d'avant le chiffrement (colonne à faux) sur un
+      // volume déjà chiffré, ou l'inverse, n'est pas une altération (npm run pieces:chiffrer remet la colonne d'accord).
+      const chemin = join(dossier, l.fichier);
+      const taille = statSync(chemin).size;
+      if (taille !== Number(l.taille) + (fichierChiffre(chemin) ? SURCOUT_CHIFFREMENT : 0)) tailles++;
     } catch { absents++; }
   }
   return { ...(absents ? { 'pieces.fichier → dossier des pièces (absent)': absents } : {}), ...(tailles ? { 'pieces.fichier → dossier des pièces (taille différente)': tailles } : {}) };

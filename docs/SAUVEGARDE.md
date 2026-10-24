@@ -34,8 +34,9 @@ compte système `cursus`, service `cursus.service`, variables dans `/etc/cursus/
 | Journaux du serveur | journald | **non** |
 
 **Pièces justificatives** (`server/src/pieces-sauvegarde.ts`) : chaque copie de la base emporte les fichiers qu'elle
-désigne. Un fichier de pièce ne change jamais une fois écrit : il est copié une seule fois dans `pieces-<base>/` du dossier
-des copies (`backups/pieces-cursus/`, en `700`, fichiers en `600`), avant que la copie de la base n'apparaisse sous son nom
+désigne. Un fichier de pièce ne change pas une fois écrit, sauf au chiffrement d'une pièce déposée en clair (section 10 :
+`npm run pieces:chiffrer` remplace alors sa copie en clair, la sauvegarde suivante à défaut) : il est copié une seule fois
+dans `pieces-<base>/` du dossier des copies (`backups/pieces-cursus/`, en `700`, fichiers en `600`), avant que la copie de la base n'apparaisse sous son nom
 définitif ; après la rotation, un fichier que plus aucune copie conservée ne désigne en est retiré. Ce dossier part avec
 les copies dans la copie externe (section 5 : restic sauvegarde tout le dossier des copies). `npm run backup` affiche le
 nombre de pièces désignées et copiées, et signale (sans échouer) un fichier absent du dossier des pièces. La
@@ -445,9 +446,10 @@ suit en est la part de Cursus, à valider avec l'exploitant du serveur et le DPO
 | Volume des pièces justificatives | service informatique (exploitant de Cursus) : copie restic ci-dessous | juste après la sauvegarde du schéma, chaque nuit (2 h 45 par exemple) | dépôt restic hors de la machine, en France ou dans l'UE, en ajout seul (section 5) |
 | `CURSUS_PIECES_KEY`, `CURSUS_SECRET`, mot de passe restic | service informatique | à chaque changement | coffre-fort de mots de passe, jamais avec les copies |
 
-Les pièces ne changent jamais une fois écrites (nom aléatoire, empreinte en base) : une copie du volume prise **après**
-le `pg_dump` contient tous les fichiers que ce dump désigne (une pièce déposée entre les deux y figure en plus, sans
-dommage). L'ordre inverse perdrait les pièces déposées entre la copie du volume et le dump.
+Un fichier de pièce n'est jamais supprimé ni renommé tant que la base le désigne (nom aléatoire, empreinte en base),
+et son contenu ne change qu'une fois, au chiffrement d'une pièce déposée en clair (ci-dessous) : une copie du volume
+prise **après** le `pg_dump` contient tous les fichiers que ce dump désigne (une pièce déposée entre les deux y figure
+en plus, sans dommage). L'ordre inverse perdrait les pièces déposées entre la copie du volume et le dump.
 
 ### Chiffrement des pièces au repos (lot 8)
 
@@ -463,14 +465,19 @@ Avant d'activer les pièces justificatives en production (Paramètres → Pièce
 3. Pièces déposées avant la clé (installation qui les avait déjà activées) : `npm run pieces:chiffrer -- --apercu`, puis
    `npm run pieces:chiffrer`, avec l'environnement du service (terminal du conteneur sous Coolify), une fois Cursus
    redémarré avec la clé. Le service peut rester en marche ; la commande peut être relancée sans dommage. Elle ne touche
-   jamais un fichier dont l'empreinte ne correspond plus (preuve gardée telle quelle, signalée). Les copies déjà prises
-   gardent leur version en clair jusqu'à leur expiration : à noter dans le registre d'exploitation.
+   jamais un fichier dont l'empreinte ne correspond plus (preuve gardée telle quelle, signalée). En SQLite, elle
+   remplace aussi par le fichier chiffré la copie en clair de chaque pièce dans le dossier commun des sauvegardes
+   (`pieces-cursus/`, section 5) ; à défaut (dossier déplacé), la sauvegarde suivante le fait. Seuls les instantanés
+   **déjà emportés par restic** gardent leur version en clair, jusqu'à leur oubli par `restic forget --prune` (selon la
+   conservation choisie, section 5) : à noter dans le registre d'exploitation, avec la date du chiffrement. Pour s'en
+   défaire plus tôt : `restic forget` des instantanés antérieurs à cette date, puis `restic prune`.
 4. La clé ne se change pas dans cette version : une nouvelle clé rendrait illisibles les fichiers chiffrés avec
    l'ancienne (`npm run pieces:verifier` les compte « illisibles »). Clé perdue : pièces chiffrées perdues.
 
-Les copies de sauvegarde (copie restic du volume ; en SQLite, dossier `pieces-cursus/` des copies) emportent les
-fichiers **chiffrés tels quels** : une copie volée ne livre aucune pièce sans la clé, et la restauration remet les
-fichiers à l'identique.
+Les copies de sauvegarde prises après le chiffrement (copie restic du volume ; en SQLite, dossier `pieces-cursus/` des
+copies) emportent les fichiers **chiffrés tels quels** : une copie volée ne livre aucune pièce sans la clé, et la
+restauration remet les fichiers à l'identique. Un fichier remis en clair par la restauration d'un instantané plus ancien
+reste lisible ; `npm run pieces:chiffrer` le chiffre à nouveau (étape 3 de la restauration ci-dessous).
 
 ### Copie restic du volume des pièces
 
@@ -514,7 +521,12 @@ du dump du schéma (les deux se restaurent ensemble).
    désigne la base restaurée est lu, déchiffré et comparé à l'empreinte de son envoi. Attendu : « N fichiers conformes
    sur N ». Un fichier absent : prendre une copie restic plus récente (`restic snapshots --tag cursus-pieces`) ; altéré
    ou illisible : vérifier la clé, puis prendre une autre copie. Le contrôle d'intégrité horaire de Cursus (état
-   « degrade » de `/api/health`) ne compare que les tailles.
+   « degrade » de `/api/health`) ne compare que les tailles (celle du document d'origine, plus l'en-tête du
+   chiffrement quand le fichier le porte).
+   Puis, si la clé est posée, `npm run pieces:chiffrer` : il note chiffrées les pièces dont le fichier l'est déjà (dump
+   pris avant le chiffrement, restauré sur un volume déjà chiffré), et chiffre à nouveau les fichiers remis en clair
+   (instantané restic pris avant le chiffrement). « aucune pièce à chiffrer » : rien n'était à reprendre. Un dernier
+   `npm run pieces:verifier` doit alors répondre « N fichiers conformes sur N », sans « dont … en clair ».
 4. Redémarrer Cursus, puis supprimer `/var/tmp/restauration-pieces` (données personnelles).
 
 Test de restauration : chaque trimestre, comme en section 8, sur un schéma d'essai d'un serveur d'essai (jamais le

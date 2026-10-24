@@ -7,11 +7,11 @@ import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { request, type IncomingHttpHeaders, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 process.env.CURSUS_TODAY = '2026-10-10';
 process.env.CURSUS_DEMO = '1';
 delete process.env.CURSUS_PIECES_KEY;
@@ -129,9 +129,17 @@ test('dépôt local : chiffré avec la clé, déchiffré à la lecture ; taille 
   const p = await db.insert<{ id: number }>('pieces', ligne(f, true, PDF.length));
   await db.insert('pieces', ligne(ancien, false, PNG.length));
   assert.deepEqual(await pieces.controlerPieces(db), {});
+  // L'en-tête du fichier fait foi, pas la colonne : base restaurée d'avant le chiffrement (colonne à faux) sur un volume
+  // déjà chiffré, ou fichier remis en clair sous une pièce notée chiffrée, ne sont pas des altérations.
   await db.update('pieces', p.id, { chiffree: false });
+  assert.deepEqual(await pieces.controlerPieces(db), {});
+  writeFileSync(join(dossier, f), PDF);
+  await db.update('pieces', p.id, { chiffree: true });
+  assert.deepEqual(await pieces.controlerPieces(db), {});
+  // Taille réellement différente : signalée, chiffré ou non.
+  writeFileSync(join(dossier, f), chiffrement.chiffrerPiece(Buffer.concat([PDF, Buffer.from('ajout')]), CLE, f));
   assert.deepEqual(await pieces.controlerPieces(db), { 'pieces.fichier → dossier des pièces (taille différente)': 1 });
-  assert.equal((await db.get<{ chiffree: boolean }>('pieces', p.id))!.chiffree, false);
+  assert.equal((await db.get<{ chiffree: boolean }>('pieces', p.id))!.chiffree, true);
 });
 
 test('chiffrement des pièces existantes : aperçu, fichiers en clair chiffrés, passe interrompue reprise, fichiers altérés laissés tels quels', async () => {
@@ -165,7 +173,7 @@ test('chiffrement des pièces existantes : aperçu, fichiers en clair chiffrés,
   assert.deepEqual(await verifierPieces(db, null), { designees: 6, conformes: 2, enClair: 2, absentes: 1, alterees: 1, illisibles: 2 });
   assert.deepEqual(await verifierPieces(db, CLE), { designees: 6, conformes: 3, enClair: 2, absentes: 1, alterees: 1, illisibles: 1 });
   const apercu = await chiffrerPiecesExistantes(db, CLE, { apercu: true });
-  assert.deepEqual(apercu, { aChiffrer: 6, chiffrees: 2, notees: 1, absentes: 1, alterees: 2 });
+  assert.deepEqual(apercu, { aChiffrer: 6, chiffrees: 2, notees: 1, absentes: 1, alterees: 2, copiesRemplacees: 0 });
   assert.deepEqual(instantane(), avant, 'aperçu : aucun fichier touché');
   assert.equal((await db.all<{ chiffree: boolean }>('pieces')).filter(p => p.chiffree).length, 0);
 
@@ -183,12 +191,13 @@ test('chiffrement des pièces existantes : aperçu, fichiers en clair chiffrés,
   assert.ok(!existsSync(join(dossier, `${fC}.partiel`)) && !existsSync(join(dossier, `${fA}.partiel`)));
   assert.deepEqual(instantane().slice(3), avant.slice(3), 'altérés : preuve gardée telle quelle');
   assert.deepEqual(await pieces.controlerPieces(db), {
-    'pieces.fichier → dossier des pièces (absent)': 1, 'pieces.fichier → dossier des pièces (taille différente)': 2,
+    // Fichier altéré (taille) ; celui chiffré avec une autre clé a la taille attendue : seul pieces:verifier le voit.
+    'pieces.fichier → dossier des pièces (absent)': 1, 'pieces.fichier → dossier des pièces (taille différente)': 1,
   });
   const journal = await db.query<{ actor: string; message: string; payload: unknown; salaries: unknown }>(`SELECT actor, message, payload, salaries FROM journal WHERE action = 'piece.chiffrer'`);
   assert.equal(journal.length, 1);
   assert.equal(journal[0].actor, 'Essai');
-  assert.deepEqual(json(journal[0].payload), { chiffrees: 2, notees: 1, absentes: 1, alterees: 2 });
+  assert.deepEqual(json(journal[0].payload), { chiffrees: 2, notees: 1, absentes: 1, alterees: 2, copiesRemplacees: 0 });
   assert.deepEqual(json(journal[0].salaries), []);
   assert.ok(JOURNAL_LABEL['piece.chiffrer'] && familleAction('piece.chiffrer')?.id === 'pieces');
   // Contrôle complet après : tout est chiffré, sauf les fichiers laissés tels quels ; rien n'est écrit.
@@ -198,9 +207,9 @@ test('chiffrement des pièces existantes : aperçu, fichiers en clair chiffrés,
   assert.equal(bilanVerificationTexte({ designees: 2, conformes: 2, enClair: 1, absentes: 0, alterees: 0, illisibles: 0 }), '2 fichiers conformes sur 2 (dont 1 en clair)');
   assert.equal(bilanVerificationTexte({ designees: 0, conformes: 0, enClair: 0, absentes: 0, alterees: 0, illisibles: 0 }), 'aucune pièce dans le dossier local');
   // Deuxième passe : rien de neuf, rien au journal.
-  assert.deepEqual(await chiffrerPiecesExistantes(db, CLE), { aChiffrer: 3, chiffrees: 0, notees: 0, absentes: 1, alterees: 2 });
+  assert.deepEqual(await chiffrerPiecesExistantes(db, CLE), { aChiffrer: 3, chiffrees: 0, notees: 0, absentes: 1, alterees: 2, copiesRemplacees: 0 });
   assert.equal((await db.query(`SELECT id FROM journal WHERE action = 'piece.chiffrer'`)).length, 1);
-  assert.equal(bilanChiffrementTexte({ aChiffrer: 0, chiffrees: 0, notees: 0, absentes: 0, alterees: 0 }), 'aucune pièce à chiffrer');
+  assert.equal(bilanChiffrementTexte({ aChiffrer: 0, chiffrees: 0, notees: 0, absentes: 0, alterees: 0, copiesRemplacees: 0 }), 'aucune pièce à chiffrer');
 });
 
 // — Parcours HTTP et réglage (fichier SQLite de démonstration) —
@@ -341,6 +350,69 @@ test('sauvegarde SQLite : fichiers chiffrés copiés tels quels, restaurés tels
     assert.deepEqual(r.pieces, { designees: 1, restaurees: 1, manquantes: 0 });
     assert.deepEqual(readFileSync(join(base, 'pieces', f)), stocke);
     assert.deepEqual(await depot.lire(f), PDF);
+  } finally {
+    try { autre.sql.close(); } catch { /* déjà fermée */ }
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('sauvegarde SQLite d’une pièce déposée en clair puis chiffrée : copie en clair remplacée, restauration réparée', { skip: PG && SQLITE_SEUL }, async () => {
+  const base = mkdtempSync(join(tmpdir(), 'cursus-pieces-chiffrees-miroir-'));
+  const file = join(base, 'cursus.db');
+  let autre = new SqliteDb(file);
+  try {
+    await seedDemo(autre);
+    const dossier = join(base, 'pieces'), miroir = join(base, 'backups', 'pieces-cursus');
+    // Deux pièces déposées en clair, avant la clé ; une sauvegarde les copie en clair.
+    const clair = new pieces.DepotLocal(dossier);
+    const fA = await clair.ecrire(PDF), fB = await clair.ecrire(PNG);
+    const ligne = (fichier: string, octets: Buffer) => ({ empId: 1, objet: 'certification', objetId: 1, nom: 'x.pdf', type: 'application/pdf', taille: octets.length, empreinte: pieces.empreinte(octets), fichier, chiffree: false, deposeLe: '2026-10-01T08:00:00.000Z', deposePar: 'x' });
+    const a = await autre.insert<{ id: number }>('pieces', ligne(fA, PDF));
+    await autre.insert('pieces', ligne(fB, PNG));
+    const s0 = sauvegarder(file, { date: new Date(Date.UTC(2026, 9, 1, 2, 15)), keep: 2 });
+    assert.deepEqual(readFileSync(join(miroir, fA)), PDF, 'copie en clair avant le chiffrement');
+    // Copie de la base gardée à part (la rotation la retirera du dossier des copies) : restaurée plus bas.
+    mkdirSync(join(base, 'garde'));
+    const ancienne = join(base, 'garde', basename(s0.fichier));
+    copyFileSync(s0.fichier, ancienne);
+    // Chiffrement : les copies en clair du dossier commun sont remplacées dans la foulée.
+    const b = await chiffrerPiecesExistantes(autre, CLE);
+    assert.deepEqual(b, { aChiffrer: 2, chiffrees: 2, notees: 0, absentes: 0, alterees: 0, copiesRemplacees: 2 });
+    for (const f of [fA, fB]) {
+      const copie = readFileSync(join(miroir, f));
+      assert.deepEqual(copie, readFileSync(join(dossier, f)), 'copie = fichier chiffré');
+      assert.ok(chiffrement.estChiffre(copie) && !copie.includes(Buffer.from('arrêt')));
+      assert.equal(statSync(join(miroir, f)).mode & 0o777, 0o600);
+    }
+    // Copie restée en clair (chiffrement d'avant ce correctif, miroir hors du dossier attendu) : la sauvegarde suivante
+    // la remplace, et les suivantes ne la recopient plus.
+    writeFileSync(join(miroir, fA), PDF, { mode: 0o600 });
+    const s1 = sauvegarder(file, { date: new Date(Date.UTC(2026, 9, 2, 2, 15)), keep: 2 });
+    assert.deepEqual(s1.pieces, { designees: 2, copiees: 1, manquantes: 0, retirees: 0 });
+    assert.ok(chiffrement.estChiffre(readFileSync(join(miroir, fA))));
+    for (let j = 3; j <= 6; j++) {
+      const s = sauvegarder(file, { date: new Date(Date.UTC(2026, 9, j, 2, 15)), keep: 2 });
+      assert.equal(s.pieces!.copiees, 0);
+    }
+    assert.ok(!readFileSync(join(miroir, fA)).includes(Buffer.from('arrêt')), 'aucune copie en clair ne survit à la rotation');
+    // Restauration d'une copie d'avant le chiffrement après la perte du fichier : fichier chiffré remis, colonne à faux ;
+    // le contrôle d'intégrité ne s'en alarme pas, pieces:chiffrer remet la colonne d'accord.
+    rmSync(join(dossier, fA));
+    autre.sql.close();
+    restaurer(ancienne, file, { keep: 5 });
+    autre = new SqliteDb(file);
+    assert.ok(chiffrement.estChiffre(readFileSync(join(dossier, fA))));
+    assert.equal((await autre.get<{ chiffree: boolean }>('pieces', a.id))!.chiffree, false);
+    assert.deepEqual(await pieces.controlerPieces(autre), {});
+    assert.deepEqual(await chiffrerPiecesExistantes(autre, CLE), { aChiffrer: 2, chiffrees: 0, notees: 2, absentes: 0, alterees: 0, copiesRemplacees: 0 });
+    // Fichier remis en clair (instantané restic d'avant le chiffrement) sous une pièce notée chiffrée : chiffré à nouveau.
+    writeFileSync(join(dossier, fA), PDF, { mode: 0o600 });
+    writeFileSync(join(miroir, fA), PDF, { mode: 0o600 });
+    assert.deepEqual(await verifierPieces(autre, CLE), { designees: 2, conformes: 2, enClair: 1, absentes: 0, alterees: 0, illisibles: 0 });
+    assert.deepEqual(await chiffrerPiecesExistantes(autre, CLE), { aChiffrer: 1, chiffrees: 1, notees: 0, absentes: 0, alterees: 0, copiesRemplacees: 1 });
+    assert.ok(chiffrement.estChiffre(readFileSync(join(dossier, fA))) && chiffrement.estChiffre(readFileSync(join(miroir, fA))));
+    assert.deepEqual(await new pieces.DepotLocal(dossier, CLE).lire(fA), PDF);
+    assert.deepEqual(await verifierPieces(autre, CLE), { designees: 2, conformes: 2, enClair: 0, absentes: 0, alterees: 0, illisibles: 0 });
   } finally {
     try { autre.sql.close(); } catch { /* déjà fermée */ }
     rmSync(base, { recursive: true, force: true });

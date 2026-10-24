@@ -38,7 +38,8 @@ export function Pieces({ s }: SectionProps) {
       </Fine>
       <Fine>
         Stockage : dossier « pieces » à côté de la base (volume des données), sous un nom aléatoire, chiffré par le serveur
-        (clé de chiffrement définie par le service informatique, obligatoire en production), avec l’empreinte SHA-256 de
+        quand le service informatique a défini la clé de chiffrement (obligatoire en production ; sans elle, hors production,
+        les fichiers sont écrits en clair), avec l’empreinte SHA-256 de
         chaque fichier, vérifiée à chaque ouverture et par le contrôle d’intégrité. Les sauvegardes emportent les fichiers que
         désigne chaque copie, et la restauration les remet en place. Une pièce retirée garde sa description, son fichier est
         effacé ; la durée de conservation suit celle du dossier qu’elle justifie. Désactiver la fonction n’efface rien : les

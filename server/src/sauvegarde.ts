@@ -231,6 +231,15 @@ export function sauvegarder(base: string, opts: OptionsSauvegarde = {}): Sauvega
   return { ...verification, fichier, pieces, conservees, supprimees, duree: Date.now() - t0 };
 }
 
+/**
+ * Dossier commun des pièces des copies de la base `base` (pieces-sauvegarde.ts), là où sauvegarder() les range :
+ * npm run pieces:chiffrer y remplace les copies en clair des fichiers qu'il chiffre (lot 8, chantier D).
+ */
+export function miroirPiecesDe(base: string): string {
+  const source = cheminReel(base);
+  return dossierMiroir(dossierSauvegardes(source), prefixe(source));
+}
+
 /** Sauvegarde de la base ouverte par `db` (null pour une base en mémoire, sans fichier). */
 export function sauvegarderBase(db: Db, motif: Motif): Sauvegarde | null {
   const file = db.emplacement;

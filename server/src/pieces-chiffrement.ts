@@ -17,6 +17,7 @@
 //   quels : la clé est à conserver à part, comme le mot de passe de restic (docs/SAUVEGARDE.md). Clé perdue : pièces
 //   chiffrées perdues.
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { closeSync, openSync, readSync } from 'node:fs';
 
 /** En-tête d'un fichier chiffré (version 1 du format). */
 export const ENTETE_CHIFFRE = Buffer.from('CURSUSP1', 'latin1');
@@ -30,6 +31,23 @@ export class PieceIndechiffrable extends Error {}
 
 /** Le contenu stocké est-il un fichier chiffré (en-tête du format) ? */
 export const estChiffre = (contenu: Buffer) => contenu.length >= SURCOUT_CHIFFREMENT && contenu.subarray(0, ENTETE_CHIFFRE.length).equals(ENTETE_CHIFFRE);
+
+/**
+ * Le fichier `chemin` est-il chiffré ? Seul l'en-tête est lu (contrôle d'intégrité horaire, copies de sauvegarde) ;
+ * null s'il est absent ou illisible.
+ */
+export function fichierChiffre(chemin: string): boolean | null {
+  let fd: number;
+  try { fd = openSync(chemin, 'r'); } catch { return null; }
+  try {
+    const debut = Buffer.alloc(SURCOUT_CHIFFREMENT);
+    return estChiffre(debut.subarray(0, readSync(fd, debut, 0, SURCOUT_CHIFFREMENT, 0)));
+  } catch {
+    return null;
+  } finally {
+    closeSync(fd);
+  }
+}
 
 /** Données authentifiées avec le contenu : l'en-tête et le nom stocké du fichier. */
 const authentifie = (fichier: string) => Buffer.concat([ENTETE_CHIFFRE, Buffer.from(fichier, 'utf8')]);

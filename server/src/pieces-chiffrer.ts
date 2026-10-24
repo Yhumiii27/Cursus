@@ -5,16 +5,22 @@
 // pièce est notée chiffrée (`pieces.chiffree`). Une commande interrompue se relance sans dommage : un fichier déjà
 // chiffré dont la pièce n'est pas encore notée l'est simplement (après contrôle de la clé). Le service peut rester en
 // marche : la lecture se fie à l'en-tête du fichier, pas à la colonne.
+// Le fichier fait foi, pas la colonne : une pièce notée chiffrée dont le fichier est en clair (fichier remis en clair
+// par une restauration d'une copie prise avant le chiffrement) est chiffrée à nouveau.
 // Jamais chiffré : un fichier dont l'empreinte ne correspond plus (altéré : la preuve est gardée telle quelle, signalée
 // au contrôle d'intégrité), ni un fichier chiffré avec une autre clé. Les pièces de la GED n'ont pas de fichier local.
-// Les copies de sauvegarde déjà faites gardent leur copie en clair jusqu'à leur rotation (docs/SAUVEGARDE.md).
+// Base SQLite : la copie en clair de chaque fichier dans le dossier commun des sauvegardes (pieces-<base>/,
+// server/src/pieces-sauvegarde.ts) est remplacée par le fichier chiffré dans la foulée ; seuls les instantanés déjà
+// emportés par la copie externe (restic) gardent leur version en clair, jusqu'à leur oubli (docs/SAUVEGARDE.md, § 10).
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { plural } from '../../shared/format.ts';
 import { journaliser } from './comptes.ts';
 import type { Db } from './db.ts';
 import { DepotLocal, dossierPiecesDe, empreinte, NOM_LOCAL, type PieceEnregistree } from './pieces.ts';
-import { chiffrerPiece, contenuEnClair, estChiffre, PieceIndechiffrable } from './pieces-chiffrement.ts';
+import { chiffrerPiece, contenuEnClair, estChiffre, fichierChiffre, PieceIndechiffrable } from './pieces-chiffrement.ts';
+import { remplacerCopiesEnClair } from './pieces-sauvegarde.ts';
+import { miroirPiecesDe } from './sauvegarde.ts';
 
 export interface BilanChiffrement {
   /** Pièces du dépôt local dont le fichier est encore à chiffrer (ou à noter chiffré). */
@@ -27,6 +33,8 @@ export interface BilanChiffrement {
   absentes: number;
   /** Fichiers laissés tels quels : empreinte différente de celle de l'envoi, ou chiffrés avec une autre clé. */
   alterees: number;
+  /** Copies en clair du dossier commun des sauvegardes SQLite remplacées par le fichier chiffré (0 en aperçu). */
+  copiesRemplacees: number;
 }
 
 /**
@@ -35,8 +43,10 @@ export interface BilanChiffrement {
  */
 export async function chiffrerPiecesExistantes(db: Db, cle: Buffer, o: { apercu?: boolean; auteur?: string } = {}): Promise<BilanChiffrement> {
   const depot = new DepotLocal(dossierPiecesDe(db), cle);
-  const lignes = (await db.all<PieceEnregistree>('pieces')).filter(p => !p.chiffree && typeof p.fichier === 'string' && NOM_LOCAL.test(p.fichier));
-  const b: BilanChiffrement = { aChiffrer: lignes.length, chiffrees: 0, notees: 0, absentes: 0, alterees: 0 };
+  const locales = (await db.all<PieceEnregistree>('pieces')).filter(p => typeof p.fichier === 'string' && NOM_LOCAL.test(p.fichier));
+  // Pièce notée chiffrée : reprise seulement si son fichier est en clair (absent ou chiffré : rien à faire ici).
+  const lignes = locales.filter(p => !p.chiffree || fichierChiffre(join(depot.dossier, p.fichier!)) === false);
+  const b: BilanChiffrement = { aChiffrer: lignes.length, chiffrees: 0, notees: 0, absentes: 0, alterees: 0, copiesRemplacees: 0 };
   for (const p of lignes) {
     const fichier = p.fichier!;
     const stocke = depot.brut(fichier);
@@ -59,14 +69,19 @@ export async function chiffrerPiecesExistantes(db: Db, cle: Buffer, o: { apercu?
       writeFileSync(`${chemin}.partiel`, chiffrerPiece(clair, cle, fichier), { mode: 0o600, flag: 'wx' });
       renameSync(`${chemin}.partiel`, chemin);
     }
-    await db.tx(async () => await db.update('pieces', p.id, { chiffree: true }));
+    if (!p.chiffree) await db.tx(async () => await db.update('pieces', p.id, { chiffree: true }));
     if (deja) b.notees++; else b.chiffrees++;
   }
-  if (!o.apercu && b.chiffrees + b.notees) {
+  // Copies des sauvegardes SQLite : toute copie en clair d'un fichier désormais chiffré (cette passe, ou une passe
+  // interrompue avant ce point) est remplacée, pour qu'aucune ne reste lisible dans le dossier des copies.
+  if (!o.apercu && db.emplacement) {
+    b.copiesRemplacees = remplacerCopiesEnClair(depot.dossier, locales.map(p => p.fichier!), [miroirPiecesDe(db.emplacement)]);
+  }
+  if (!o.apercu && b.chiffrees + b.notees + b.copiesRemplacees) {
     await db.tx(async () => await journaliser(db, {
       actor: o.auteur ?? 'Cursus', role: null, action: 'piece.chiffrer',
       message: `Pièces justificatives chiffrées sur disque : ${bilanChiffrementTexte(b)}`,
-      payload: { chiffrees: b.chiffrees, notees: b.notees, absentes: b.absentes, alterees: b.alterees },
+      payload: { chiffrees: b.chiffrees, notees: b.notees, absentes: b.absentes, alterees: b.alterees, copiesRemplacees: b.copiesRemplacees },
     }));
   }
   return b;
@@ -79,6 +94,7 @@ export function bilanChiffrementTexte(b: BilanChiffrement): string {
     b.notees && plural(b.notees, 'fichier déjà chiffré noté', 'fichiers déjà chiffrés notés'),
     b.absentes && plural(b.absentes, 'fichier absent', 'fichiers absents'),
     b.alterees && plural(b.alterees, 'fichier laissé tel quel (empreinte différente ou autre clé)', 'fichiers laissés tels quels (empreinte différente ou autre clé)'),
+    b.copiesRemplacees && plural(b.copiesRemplacees, 'copie de sauvegarde en clair remplacée', 'copies de sauvegarde en clair remplacées'),
   ].filter(Boolean);
   return parts.length ? parts.join(' · ') : 'aucune pièce à chiffrer';
 }

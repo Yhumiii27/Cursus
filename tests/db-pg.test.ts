@@ -5,6 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { type AddressInfo, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -268,4 +269,120 @@ test('vue pub_absences (demande CU-1 de Crucible) : qui est absent et quand, jam
   const apres = (await vue())[0];
   assert.equal(apres.au, '2026-11-03');
   assert.ok(String(apres.maj_le) > avant, 'maj_le avance à la modification');
+});
+
+// — Pré-vol de la mise en production (lot 8, chantier B : server/src/db-pg-lecture.ts, server/src/pre-vol.ts) —
+
+const { ConnexionImpossible, faitsServeur, ouvrirPgLecture } = await import('../server/src/db-pg-lecture.ts');
+const { controlerBase, vuesAttendues } = await import('../server/src/pre-vol.ts');
+const { creerCompte } = await import('../server/src/comptes.ts');
+
+test('pré-vol : serveur injoignable ou muet, refus sans afficher l’adresse', async () => {
+  // Port fermé : refus immédiat.
+  const ferme = await new Promise<number>(res => { const s = createServer().listen(0, '127.0.0.1', () => { const p = (s.address() as AddressInfo).port; s.close(() => res(p)); }); });
+  const refus = await ouvrirPgLecture(`postgres://cursus_app:S3cret@127.0.0.1:${ferme}/epc2i`).catch(e => e as Error);
+  assert.ok(refus instanceof ConnexionImpossible);
+  assert.match(refus.message, /^connexion au serveur PostgreSQL impossible \(/);
+  assert.ok(!refus.message.includes('S3cret'));
+  // Serveur qui accepte la connexion sans jamais répondre : abandon au bout du délai.
+  const sockets: import('node:net').Socket[] = [];
+  const muet = createServer(s => { sockets.push(s); }).listen(0, '127.0.0.1');
+  await new Promise(r => muet.once('listening', r));
+  try {
+    const port = (muet.address() as AddressInfo).port;
+    const e = await ouvrirPgLecture(`postgres://cursus_app:x@127.0.0.1:${port}/epc2i`, { delaiMs: 200 }).catch(x => x as Error);
+    assert.ok(e instanceof ConnexionImpossible);
+    assert.equal(e.message, 'aucune réponse du serveur PostgreSQL en 0.2 s');
+  } finally {
+    for (const s of sockets) s.destroy();
+    muet.close();
+  }
+});
+
+test('pré-vol : connexion en lecture seule, sans migration ; faits du serveur et vues conformes au contrat', SEUL, async () => {
+  const { url, schema } = await schemaNeuf();
+  // Schéma jamais migré : rien n'est créé (pas même le journal des migrations).
+  const lecture = await ouvrirPgLecture(url, { schema });
+  try {
+    const neuf = await faitsServeur(lecture.db, lecture.dureeConnexionMs);
+    assert.deepEqual([neuf.schemaCourant, neuf.migrations, neuf.vues], [schema, null, {}]);
+    assert.deepEqual((await surServeur(url, `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = $1`, [schema]))[0], { n: 0 });
+    // Toute écriture échoue.
+    await assert.rejects(lecture.db.exec('CREATE TABLE essai (id int)'), /read-only transaction/);
+  } finally {
+    await lecture.db.fermer();
+  }
+  const migree = await ouvrirPostgres(url, { schema, env: { CURSUS_PG_POOL: '2' } });
+  await migree.fermer();
+  const { db, dureeConnexionMs } = await ouvrirPgLecture(url, { schema });
+  try {
+    const f = await faitsServeur(db, dureeConnexionMs);
+    assert.deepEqual(f.migrations, migrationsPg().map(m => m.nom));
+    assert.equal(f.schemaIncomplet, null);
+    // Contrat des vues lu dans les migrations = colonnes réelles des vues créées par ces migrations.
+    assert.deepEqual(f.vues, vuesAttendues(migrationsPg()));
+    assert.ok(Math.abs(f.ecartHorlogeMs) < 5_000);
+    // Colonne retirée hors de Cursus : écart au code relevé par le contrôle du démarrage, en lecture.
+    await surServeur(url, `ALTER TABLE ${schema}.settings RENAME COLUMN value TO valeur`);
+    assert.match((await faitsServeur(db, 0)).schemaIncomplet!, /settings\.value/);
+    await surServeur(url, `ALTER TABLE ${schema}.settings RENAME COLUMN valeur TO value`);
+    // Rôle d'administration des tests : refusé (superutilisateur).
+    const cs = await controlerBase(db, { serveur: f, migrations: migrationsPg(), dossierPieces: tmpdir(), schema });
+    assert.deepEqual(cs.filter(c => c.niveau === 'bloquant').map(c => c.code), ['base.role', 'base.droits', 'base.admin']);
+    await assert.rejects(db.run('INSERT INTO settings (key, value) VALUES (?, ?)', ['essai', '1']), /read-only transaction/);
+  } finally {
+    await db.fermer();
+  }
+});
+
+test('pré-vol : schéma absent, et schéma cursus par défaut', SEUL, async () => {
+  const { url } = await schemaNeuf();
+  const absent = await ouvrirPgLecture(url, { schema: 'schema_absent' });
+  try {
+    const f = await faitsServeur(absent.db, absent.dureeConnexionMs);
+    assert.deepEqual([f.schemaCourant, f.migrations, f.schemaIncomplet, f.vues], [null, null, 'schéma absent', {}]);
+  } finally {
+    await absent.db.fermer();
+  }
+  // Options par défaut : schéma cursus (le premier schéma créé par tests/base.ts pour ce fichier).
+  const defaut = await ouvrirPgLecture(url);
+  try {
+    assert.equal(defaut.db.schema, 'cursus');
+  } finally {
+    await defaut.db.fermer();
+  }
+});
+
+test('pré-vol sur le serveur : base de démonstration chargée bloquante, base vide avec un administrateur conforme', SEUL, async () => {
+  const { url, schema } = await schemaNeuf();
+  const ecriture = await ouvrirPostgres(url, { schema, env: { CURSUS_PG_POOL: '2' } });
+  // Rôle propre au test, aux droits de cursus_app sur son schéma (lecture ici) : ni superutilisateur ni CREATE sur la base.
+  const role = `cursus_prevol_${process.pid}`, mdp = `mdp-${process.pid}-essai`;
+  const base = new URL(url).pathname.slice(1);
+  await surServeur(url, `CREATE ROLE ${role} LOGIN PASSWORD '${mdp}'`);
+  try {
+    await surServeur(url, `GRANT CONNECT ON DATABASE "${base}" TO ${role}; GRANT USAGE ON SCHEMA ${schema} TO ${role}; GRANT SELECT ON ALL TABLES IN SCHEMA ${schema} TO ${role}`);
+    const urlRole = new URL(url);
+    urlRole.username = role;
+    urlRole.password = mdp;
+    const controler = async () => {
+      const { db, dureeConnexionMs } = await ouvrirPgLecture(urlRole.toString(), { schema });
+      try {
+        return await controlerBase(db, { serveur: await faitsServeur(db, dureeConnexionMs), migrations: migrationsPg(), dossierPieces: tmpdir(), role, schema });
+      } finally {
+        await db.fermer();
+      }
+    };
+    await creerCompte(ecriture, { type: 'local', identifiant: 'admin', nom: 'Rachel Martin', adresse: 'rachel.martin@entreprise.fr', profilRh: 'rh_admin' }, null);
+    await ecriture.setSetting('confidentialite', { responsable: 'EPC France', dpo: 'dpo@entreprise.fr' });
+    const vide = await controler();
+    assert.deepEqual(vide.filter(c => c.niveau !== 'ok'), [], 'base vide avec un administrateur : conforme');
+    await seedDemo(ecriture);
+    const demo = await controler();
+    assert.deepEqual(demo.filter(c => c.niveau === 'bloquant').map(c => [c.code, c.message]),
+      [['base.demo', 'Données de démonstration présentes : 25 comptes du jeu de démonstration, 24 fiches à une adresse @entreprise.example, lot de paie historique « Démonstration ».']]);
+  } finally {
+    await ecriture.fermer();
+    await surServeur(url, `DROP OWNED BY ${role}; DROP ROLE ${role}`);
+  }
 });

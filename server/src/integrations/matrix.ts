@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import type { Env } from '../config.ts';
+import { type Env, liaisonsCoupees } from '../config.ts';
 import { type Db, SqliteDb } from '../db.ts';
 
 /**
@@ -162,6 +162,8 @@ export async function declarerSchema({ app, version, tables, env = process.env, 
  */
 export async function declarerBase(db: Db, version: string | null, env: Env = process.env, log: Journal = console): Promise<DocumentSchema | null> {
   if (!env.MATRIX_URL && !env.MATRIX_DECLARATIONS_DIR) return null;
+  // Démonstration publique sans CURSUS_DEMO_LIAISONS=1 (constat S3 du lot 8) : rien n'est déclaré au catalogue des bases.
+  if (liaisonsCoupees(env)) return null;
   let tables: TableDeclaree[];
   try {
     tables = db instanceof SqliteDb ? introspecterSqlite(db.sql) : await introspecterPostgres(async sql => await db.query<Ligne>(sql));

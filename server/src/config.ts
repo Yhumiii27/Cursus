@@ -40,6 +40,49 @@ export function demoPublique(env: Env = process.env): boolean {
   return demoActive(env) && env.CURSUS_DEMO_PUBLIQUE === '1';
 }
 
+/**
+ * Écoute sur la boucle locale posée explicitement (CURSUS_HOST ou HOST), démonstration ou non : application de bureau,
+ * essais locaux avec NODE_ENV=production. Même critère que demoSurBoucleLocale, sans exiger la démonstration.
+ */
+export function boucleLocaleExplicite(env: Env = process.env): boolean {
+  return BOUCLE_LOCALE.includes(env.CURSUS_HOST || env.HOST || '');
+}
+
+/**
+ * Liaisons sortantes d'une démonstration publique (constat S3 du lot 8) : envois à Keystone et déclaration à Matrix
+ * coupés, sauf CURSUS_DEMO_LIAISONS=1 posée explicitement (liaison voulue entre démonstrations, Keystone de démonstration).
+ * Une démonstration ouverte sans mot de passe n'écrit ainsi rien de fictif chez les autres outils par mégarde.
+ */
+export function liaisonsCoupees(env: Env = process.env): boolean {
+  return demoPublique(env) && env.CURSUS_DEMO_LIAISONS !== '1';
+}
+
+/** Base du serveur PostgreSQL commun EPC2I (socle de Matrix) : celle de la production, jamais d'une démonstration. */
+export const BASE_COMMUNE = 'epc2i';
+/** Rôle de Cursus sur le serveur commun (socle de Matrix, infra/postgres-socle/01-base-et-roles.sql). */
+export const ROLE_CURSUS = 'cursus_app';
+
+/** Rôle et base de DATABASE_URL (jamais le mot de passe), ou null si elle est absente ou illisible. */
+export function cibleBase(env: Env = process.env): { role: string; base: string; hote: string; sslmode: string | null } | null {
+  const url = env.DATABASE_URL?.trim();
+  if (!url || !/^postgres(ql)?:\/\//i.test(url) || !URL.canParse(url)) return null;
+  const u = new URL(url);
+  return {
+    role: decodeURIComponent(u.username), base: decodeURIComponent(u.pathname.replace(/^\//, '')), hote: u.hostname.replace(/^\[|\]$/g, ''),
+    sslmode: u.searchParams.get('sslmode'),
+  };
+}
+
+/**
+ * Démonstration branchée sur la base du serveur commun (epc2i) : ses salariés fictifs seraient publiés aux autres outils
+ * par les vues pub_. Dans le lot 8, signalée seulement (avertissement au démarrage, état « degrade » du point de santé),
+ * pour ne pas arrêter la démonstration en ligne avant la décision du propriétaire ; interdite au jour de la bascule
+ * (docs/BASCULE-PRODUCTION.md) et dès que la base porte la purge ou le réglage `exploitation` (server/src/index.ts).
+ */
+export function demoSurBaseCommune(env: Env = process.env): boolean {
+  return demoActive(env) && cibleBase(env)?.base === BASE_COMMUNE;
+}
+
 export function portEcoute(env: Env = process.env): number {
   return Number(env.CURSUS_API_PORT || env.PORT || 3210);
 }
@@ -126,18 +169,21 @@ export function configOidc(env: Env = process.env): ConfigOidc | null {
   };
 }
 
-/** Problèmes de la configuration Microsoft 365 : tout ou rien, locataire désigné par son GUID, adresse publique en https. */
+/**
+ * Problèmes de la configuration Microsoft 365 : tout ou rien, locataire désigné par son GUID, adresse publique en https.
+ * CURSUS_PUBLIC_URL seule n'est pas une connexion Microsoft incomplète : depuis le lot 8, elle est exigée en production
+ * pour elle-même (liens des e-mails, contrôle d'origine des requêtes : problemesProduction).
+ */
 function problemesOidc(env: Env): string[] {
   const out: string[] = [];
   const definies = VARIABLES_OIDC.filter(k => (env[k] ?? '').trim());
-  if (!definies.length) return out;
   const manquantes = VARIABLES_OIDC.filter(k => !definies.includes(k));
-  if (manquantes.length) out.push(`Connexion Microsoft 365 incomplète : définissez aussi ${manquantes.join(', ')} (les quatre variables, ou aucune).`);
+  if (definies.some(k => k !== 'CURSUS_PUBLIC_URL') && manquantes.length) out.push(`Connexion Microsoft 365 incomplète : définissez aussi ${manquantes.join(', ')} (les quatre variables, ou aucune).`);
   const tenant = (env.CURSUS_OIDC_TENANT ?? '').trim();
   if (tenant && !GUID.test(tenant.toLowerCase())) out.push(`CURSUS_OIDC_TENANT doit être l’ID de l’annuaire (locataire) Entra, au format GUID (« ${tenant} » reçu ; common, organizations et un nom de domaine ne conviennent pas).`);
   const url = (env.CURSUS_PUBLIC_URL ?? '').trim();
   if (url && !originePublique(url)) out.push(`CURSUS_PUBLIC_URL doit être l’adresse publique de Cursus, sans chemin (https://cursus.example.fr) : « ${url} » reçu.`);
-  else if (url && !url.startsWith('https://')) out.push(`CURSUS_PUBLIC_URL doit être en https (« ${url} » reçu) : Microsoft ne renvoie le code de connexion qu’à une adresse sûre.`);
+  else if (url && !url.startsWith('https://')) out.push(`CURSUS_PUBLIC_URL doit être en https (« ${url} » reçu) : liens des e-mails, contrôle d’origine des requêtes, et Microsoft ne renvoie le code de connexion qu’à une adresse sûre.`);
   return out;
 }
 
@@ -185,9 +231,11 @@ const mailOuOidc = (env: Env, k: 'TENANT' | 'CLIENT_ID' | 'CLIENT_SECRET') => (e
 
 /**
  * Envoi des e-mails : null (simulation : rien ne part, tout est tracé) sans CURSUS_MAIL_FROM, ou si l'application
- * Entra n'est pas entièrement désignée (locataire GUID, ID d'application, secret).
+ * Entra n'est pas entièrement désignée (locataire GUID, ID d'application, secret). Toujours null en démonstration
+ * (CURSUS_DEMO=1, constat S3 du lot 8) : aucun e-mail réel ne part d'une instance aux données fictives.
  */
 export function configMail(env: Env = process.env): ConfigMail | null {
+  if (demoActive(env)) return null;
   const from = (env.CURSUS_MAIL_FROM ?? '').trim().toLowerCase();
   const [tenant, clientId, clientSecret] = (['TENANT', 'CLIENT_ID', 'CLIENT_SECRET'] as const).map(k => mailOuOidc(env, k));
   if (!ADRESSE_MAIL.test(from) || !GUID.test(tenant.toLowerCase()) || !clientId || !clientSecret) return null;
@@ -247,9 +295,82 @@ export function problemesBase(env: Env = process.env): string[] {
   return out;
 }
 
-/** Problèmes de configuration : bloquants en production, simples avertissements ailleurs. */
-export function problemesConfig(env: Env = process.env): string[] {
+// — Lot 8 : configurations dangereuses en production et démonstration publique (docs/BASCULE-PRODUCTION.md) —
+
+/** Variables d'envoi des e-mails : propres à la boîte de l'entreprise, jamais sur une démonstration publique. */
+const VARIABLES_MAIL = ['CURSUS_MAIL_FROM', 'CURSUS_MAIL_TENANT', 'CURSUS_MAIL_CLIENT_ID', 'CURSUS_MAIL_CLIENT_SECRET', 'CURSUS_MAIL_SECRET_EXPIRE'] as const;
+/** Variables de la connexion Microsoft 365 (CURSUS_OIDC_AUTORITE, réservée aux tests, est refusée à part). */
+const VARIABLES_OIDC_DEMO = ['CURSUS_OIDC_TENANT', 'CURSUS_OIDC_CLIENT_ID', 'CURSUS_OIDC_CLIENT_SECRET', 'CURSUS_OIDC_SECRET_EXPIRE'] as const;
+const definies = (env: Env, noms: readonly string[]) => noms.filter(k => (env[k] ?? '').trim());
+const enListe = (noms: string[]) => `${noms.join(', ')} ${noms.length > 1 ? 'sont définies' : 'est définie'}`;
+
+/**
+ * Règles du lot 8, bloquantes en production : image sans base désignée, adresse publique manquante, superutilisateur
+ * PostgreSQL, proxys crus sans restriction (constat S7).
+ */
+function problemesProduction(env: Env): string[] {
   const out: string[] = [];
+  const demo = demoActive(env);
+  const url = env.DATABASE_URL?.trim();
+  // Image Docker (CURSUS_CONTENEUR=1, Dockerfile) : CURSUS_DB=/data/cursus.db y est posée ; sans DATABASE_URL, Cursus
+  // démarrerait sur un fichier SQLite vide du volume, sans que les autres outils voient rien. La démonstration y reste
+  // en SQLite (choix du lot 8).
+  const choix = (env.CURSUS_BASE ?? '').trim();
+  if (choix && !['sqlite', 'postgres'].includes(choix)) out.push(`CURSUS_BASE vaut « ${choix} » : indiquez postgres (serveur commun, avec DATABASE_URL) ou sqlite (fichier local, choisi explicitement).`);
+  else if (choix === 'postgres' && !url) out.push('CURSUS_BASE=postgres est définie sans DATABASE_URL : indiquez l’adresse du serveur PostgreSQL commun (rôle cursus_app, base epc2i).');
+  else if (choix === 'sqlite' && url) out.push('CURSUS_BASE=sqlite est définie avec DATABASE_URL : les deux se contredisent. Retirez l’une des deux.');
+  else if (env.CURSUS_CONTENEUR === '1' && !demo && !url && choix !== 'sqlite') {
+    out.push('Image Docker sans DATABASE_URL : Cursus démarrerait sur un fichier SQLite vide du volume (/data/cursus.db), que les autres outils ne voient pas. '
+      + 'Définissez DATABASE_URL (serveur commun, rôle cursus_app), ou CURSUS_BASE=sqlite pour garder volontairement le fichier.');
+  }
+  // Adresse publique : liens des e-mails et contrôle d'origine des requêtes (sans elle, il retombe sur l'en-tête Host
+  // relayé). Exemptées : la démonstration et l'écoute sur la boucle locale posée explicitement (application de bureau,
+  // essais locaux en NODE_ENV=production).
+  if (enProduction(env) && !demo && !boucleLocaleExplicite(env) && !(env.CURSUS_PUBLIC_URL ?? '').trim()) {
+    out.push('CURSUS_PUBLIC_URL est absente : indiquez l’adresse publique de Cursus, en https et sans chemin (https://cursus.entreprise.fr), pour les liens des e-mails et le contrôle d’origine des requêtes.');
+  }
+  if (cibleBase(env)?.role === 'postgres') {
+    out.push('DATABASE_URL se connecte avec le rôle postgres (superutilisateur) : Cursus aurait tous les droits sur le serveur commun. Utilisez le rôle cursus_app du socle.');
+  }
+  if (trustProxy(env) === true) {
+    out.push('CURSUS_TRUST_PROXY=true fait croire les en-têtes X-Forwarded-* de n’importe quel client : adresse du client (limites de débit, plafond des clés Keystone, journaux) et protocole falsifiables. '
+      + 'Indiquez l’adresse ou le réseau du proxy (par exemple celui de Traefik).');
+  }
+  return out;
+}
+
+/**
+ * Démonstration publique (constat S3) : l'espace RH s'y ouvre sans mot de passe, elle ne porte donc aucun secret ni
+ * réglage de l'entreprise. Refus des variables d'envoi des e-mails, de la connexion Microsoft 365 et de Sage Paie (hors
+ * simulation ; SAGE_URL est refusée partout par problemesSage).
+ */
+function problemesDemoPublique(env: Env): string[] {
+  if (!demoPublique(env)) return [];
+  const out: string[] = [];
+  const mail = definies(env, VARIABLES_MAIL);
+  if (mail.length) out.push(`Démonstration publique : ${enListe(mail)}. Retirez-les : les e-mails y restent simulés, et une instance ouverte sans mot de passe ne porte pas la boîte d’envoi ni les secrets Microsoft 365 de l’entreprise.`);
+  const oidc = definies(env, VARIABLES_OIDC_DEMO);
+  if (oidc.length) out.push(`Démonstration publique : ${enListe(oidc)}. Retirez-les : la connexion y est libre, et une instance ouverte sans mot de passe ne porte pas les secrets Microsoft 365 de l’entreprise.`);
+  const sage = [...((env.SAGE_MODE ?? '').trim() && env.SAGE_MODE!.trim() !== 'simulation' ? ['SAGE_MODE'] : []), ...definies(env, ['SAGE_DOSSIER'])];
+  if (sage.length) out.push(`Démonstration publique : ${enListe(sage)}. Retirez-les (ou SAGE_MODE=simulation) : la démonstration ne produit aucun fichier pour le dossier de paie réel.`);
+  return out;
+}
+
+export interface OptionsConfig {
+  /**
+   * false : règles propres à la démonstration écartées (démonstration exposée, CURSUS_TODAY, cookie sans Secure,
+   * démonstration publique et ses liaisons) ; pour une commande d'exploitation lancée dans l'environnement d'une
+   * démonstration qu'elle prépare à la production (vidage des données fictives).
+   */
+  reglesDemo?: boolean;
+  /** Commande d'exploitation qui fait le contrôle (« npm run comptes ») : nommée dans le message de refus. */
+  commande?: string;
+}
+
+/** Problèmes de configuration : bloquants en production, simples avertissements ailleurs. */
+export function problemesConfig(env: Env = process.env, opts: OptionsConfig = {}): string[] {
+  const out: string[] = [];
+  const reglesDemo = opts.reglesDemo !== false;
   const demo = demoActive(env), local = demoSurBoucleLocale(env);
   const hote = hoteEcoute(env) + (env.CURSUS_HOST || env.HOST ? '' : ' par défaut');
   const secret = env.CURSUS_SECRET ?? '';
@@ -268,27 +389,62 @@ export function problemesConfig(env: Env = process.env): string[] {
   // Jeton de supervision (détail du point de santé /api/health, server/src/supervision.ts) : aléatoire et assez long.
   const jeton = env.CURSUS_SUPERVISION_TOKEN?.trim();
   if (jeton && jeton.length < 32) out.push(`CURSUS_SUPERVISION_TOKEN est trop courte (${jeton.length} caractères) : 32 au minimum (openssl rand -hex 32).`);
-  if (env.CURSUS_TODAY) out.push(`CURSUS_TODAY est définie (${env.CURSUS_TODAY}) : elle fige la date du jour et reste réservée à la démonstration et aux tests.`);
-  if (demo && !local && !demoPublique(env)) out.push(`Le mode démonstration (CURSUS_DEMO=1) ouvre l’espace RH sans mot de passe : il n’est admis que sur la boucle locale posée explicitement (CURSUS_HOST=127.0.0.1, application de bureau), ou derrière le reverse proxy avec CURSUS_DEMO_PUBLIQUE=1 (instance de démonstration aux données fictives, accès restreint en amont) ; écoute actuelle : ${hote}.`);
-  if (env.CURSUS_DEMO_PUBLIQUE === '1' && !demo) out.push('CURSUS_DEMO_PUBLIQUE=1 est définie sans CURSUS_DEMO=1 : elle n’a d’effet qu’en démonstration. Retirez-la.');
-  if (env.CURSUS_INSECURE_COOKIE === '1' && !local) out.push('CURSUS_INSECURE_COOKIE=1 retire l’attribut Secure du cookie de session : réservé à l’application de bureau (démonstration sur la boucle locale).');
+  if (reglesDemo) {
+    if (env.CURSUS_TODAY) out.push(`CURSUS_TODAY est définie (${env.CURSUS_TODAY}) : elle fige la date du jour et reste réservée à la démonstration et aux tests.`);
+    if (demo && !local && !demoPublique(env)) out.push(`Le mode démonstration (CURSUS_DEMO=1) ouvre l’espace RH sans mot de passe : il n’est admis que sur la boucle locale posée explicitement (CURSUS_HOST=127.0.0.1, application de bureau), ou derrière le reverse proxy avec CURSUS_DEMO_PUBLIQUE=1 (instance de démonstration aux données fictives, accès restreint en amont) ; écoute actuelle : ${hote}.`);
+    if (env.CURSUS_DEMO_PUBLIQUE === '1' && !demo) out.push('CURSUS_DEMO_PUBLIQUE=1 est définie sans CURSUS_DEMO=1 : elle n’a d’effet qu’en démonstration. Retirez-la.');
+    if (env.CURSUS_INSECURE_COOKIE === '1' && !local) out.push('CURSUS_INSECURE_COOKIE=1 retire l’attribut Secure du cookie de session : réservé à l’application de bureau (démonstration sur la boucle locale).');
+  }
   out.push(...problemesOidc(env));
   out.push(...problemesExpirationSecret(env));
   out.push(...problemesMail(env));
   out.push(...problemesSage(env));
   out.push(...problemesExploitation(env));
   out.push(...problemesBase(env));
+  out.push(...problemesProduction(env));
+  if (reglesDemo) out.push(...problemesDemoPublique(env));
   if (env.CURSUS_OIDC_AUTORITE) out.push(`CURSUS_OIDC_AUTORITE est définie (${env.CURSUS_OIDC_AUTORITE}) : elle remplace le service de connexion de Microsoft et reste réservée aux tests.`);
   return out;
 }
 
-/** Contrôle exécuté au démarrage : en production, arrêt (code 1) tant qu'un problème subsiste. */
-export function verifierConfig(env: Env = process.env) {
-  const pbs = problemesConfig(env);
+/**
+ * Avertissements, jamais bloquants (même en production) : réglages à revoir sans danger immédiat, ou qu'il ne faut pas
+ * rendre bloquants avant une décision (démonstration branchée sur le serveur commun, lot 8).
+ */
+export function avertissementsConfig(env: Env = process.env, opts: OptionsConfig = {}): string[] {
+  const out: string[] = [];
+  const matrix = env.MATRIX_URL?.trim();
+  if (matrix && URL.canParse(matrix) && (new URL(matrix).username || new URL(matrix).password)) {
+    out.push('MATRIX_URL contient un identifiant ou un mot de passe (utilisateur:motdepasse@) : ils peuvent apparaître dans les messages d’erreur. Préférez l’appel par le réseau interne, avec MATRIX_TOKEN seul.');
+  }
+  if (opts.reglesDemo === false) return out;
+  if (demoSurBaseCommune(env)) {
+    out.push(`Démonstration (CURSUS_DEMO=1) branchée sur la base ${BASE_COMMUNE} du serveur commun : ses salariés fictifs sont publiés aux autres outils par les vues pub_. `
+      + 'Déplacez-la sur une application à part, en SQLite (docs/BASCULE-PRODUCTION.md) ; elle sera refusée au jour de la bascule.');
+  }
+  const liaisons = definies(env, ['KEYSTONE_URL', 'MATRIX_URL']);
+  if (liaisonsCoupees(env) && liaisons.length) {
+    out.push(`Démonstration publique : ${enListe(liaisons)} sans CURSUS_DEMO_LIAISONS=1 : envois à Keystone et déclaration à Matrix inactifs (simulation). `
+      + 'Posez CURSUS_DEMO_LIAISONS=1 pour une liaison voulue entre démonstrations, sinon retirez-les.');
+  }
+  if (env.CURSUS_DEMO_LIAISONS === '1' && !demoPublique(env)) out.push('CURSUS_DEMO_LIAISONS=1 est définie hors démonstration publique : elle n’a pas d’effet. Retirez-la.');
+  const mail = definies(env, VARIABLES_MAIL);
+  if (demoActive(env) && !demoPublique(env) && mail.length) out.push(`Démonstration : ${enListe(mail)}, mais les e-mails y restent simulés (rien ne part).`);
+  return out;
+}
+
+/**
+ * Contrôle exécuté au démarrage (et par les commandes d'exploitation) : en production, arrêt (code 1) tant qu'un
+ * problème subsiste ; les avertissements sont écrits sans arrêter.
+ */
+export function verifierConfig(env: Env = process.env, opts: OptionsConfig = {}) {
+  const avertissements = avertissementsConfig(env, opts);
+  if (avertissements.length) console.warn(`Configuration à revoir :\n${avertissements.map(p => `  – ${p}`).join('\n')}`);
+  const pbs = problemesConfig(env, opts);
   if (!pbs.length) return;
   const liste = pbs.map(p => `  – ${p}`).join('\n');
   if (enProduction(env)) {
-    console.error(`Cursus ne peut pas démarrer en production :\n${liste}\nVoir .env.example et docs/DEPLOIEMENT.md.`);
+    console.error(`${opts.commande ? `${opts.commande} refusée` : 'Cursus ne peut pas démarrer'} en production :\n${liste}\nVoir .env.example et docs/DEPLOIEMENT.md.`);
     process.exit(1);
   }
   console.warn(`Configuration à compléter avant une mise en production :\n${liste}`);

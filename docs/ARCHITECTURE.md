@@ -101,6 +101,8 @@ server/src/
   microsoft.ts     Connexion Microsoft 365 (OpenID Connect, PKCE) : /api/auth/microsoft et /api/auth/microsoft/retour
   comptes-cli.ts   npm run comptes -- admin <identifiant> : premier administrateur RH (docs/DEPLOIEMENT.md)
   config.ts        Variables d'environnement, contrôlées au démarrage (refus en production si dangereuses)
+  pre-vol.ts       Pré-vol de la mise en production (lot 8) : contrôles de configuration et de base, bilan ;
+                   verifier-production.ts (npm run verifier-production), db-pg-lecture.ts (serveur commun en lecture seule)
   chemins.ts       Racine du projet, interface (dist/) et base par défaut calculées depuis le code, version
   service.ts       Écoute du port (refus clair si pris, code 1) et arrêt ordonné sur SIGTERM / SIGINT
   protection.ts    Droits de la base sur le disque (600, dossier en 700, refus en production), clé de session retirée
@@ -340,7 +342,15 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   qui n'est pas une adresse, application Entra incomplète ou locataire autre qu'un GUID, variables `CURSUS_MAIL_*`
   sans `CURSUS_MAIL_FROM`), `CURSUS_SUPERVISION_TOKEN` de moins de 32 caractères, Sage Paie (`SAGE_MODE` inconnu, `api` compris,
   `SAGE_URL` définie, `SAGE_MODE=simulation` hors application de bureau : des feuilles seraient marquées transmises sans
-  que rien ne parte) ; puis, base accessible à d'autres comptes (« Exploitation »).
+  que rien ne parte) ; lot 8 : image Docker sans `DATABASE_URL` ni `CURSUS_BASE=sqlite`, `CURSUS_PUBLIC_URL` absente
+  (hors démonstration et hors boucle locale explicite, `boucleLocaleExplicite`), rôle `postgres` dans `DATABASE_URL`,
+  `CURSUS_TRUST_PROXY=true`, et en démonstration publique les variables `CURSUS_MAIL_*`, `CURSUS_OIDC_*`, `SAGE_MODE`
+  (hors simulation) et `SAGE_DOSSIER` ; puis, base accessible à d'autres comptes (« Exploitation »).
+  Avertissements jamais bloquants (`avertissementsConfig`) : `MATRIX_URL` avec identifiants, démonstration sur la base
+  `epc2i` (`demoSurBaseCommune`), liaisons d'une démonstration publique coupées sans `CURSUS_DEMO_LIAISONS=1`
+  (`liaisonsCoupees` : `keystoneSortant` et `declarerBase` inactifs). Les e-mails sont toujours simulés en démonstration
+  (`configMail` renvoie null). `npm run comptes` et `npm run reprise-postgres` appellent aussi `verifierConfig` ; une
+  commande qui prépare une démonstration à la production passe `{ reglesDemo: false }`.
   Le mode démonstration ne s'active qu'avec `CURSUS_DEMO=1` ; en production (application de bureau),
   `demoPosteLocal` (`server/src/securite.ts`) refuse en plus (403) toute requête relayée par un proxy
   ou adressée à un autre nom que la boucle locale, sauf instance de démonstration publiée explicitement

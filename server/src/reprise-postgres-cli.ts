@@ -7,6 +7,7 @@
 import './conteneur.ts';
 import { resolve } from 'node:path';
 import { plural } from '../../shared/format.ts';
+import { enProduction, verifierConfig } from './config.ts';
 import { dbFile, openDb, urlPostgres } from './db.ts';
 import type { PgDb } from './db-pg.ts';
 import { mettreAJourBase } from './demarrage.ts';
@@ -27,6 +28,11 @@ if (!urlPostgres()) {
   console.error(`Reprise impossible : DATABASE_URL (serveur PostgreSQL de destination) est absente.\n${USAGE}`);
   process.exit(1);
 }
+
+// Configuration contrôlée comme au démarrage du serveur (en production, refus sur une configuration dangereuse : rôle
+// postgres, base d'un autre outil…), avant toute connexion.
+// Hors production, la commande ne répète pas les avertissements que le serveur écrit déjà au démarrage.
+if (enProduction()) verifierConfig(process.env, { commande: 'npm run reprise-postgres' });
 
 const liste = (titre: string, r: Record<string, number>) => {
   const e = Object.entries(r);

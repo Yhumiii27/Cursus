@@ -137,13 +137,17 @@ async function cursus(dbFile: string, env: Record<string, string>, port?: number
 }
 
 test('configuration Microsoft 365 : tout ou rien, locataire désigné par son GUID, adresse publique en https', () => {
-  const PROD = { NODE_ENV: 'production', CURSUS_SECRET: 'x'.repeat(32), KEYSTONE_API_KEY: 'cle-keystone-de-test' };
+  const PROD = { NODE_ENV: 'production', CURSUS_SECRET: 'x'.repeat(32), KEYSTONE_API_KEY: 'cle-keystone-de-test',
+    // Exigée en production hors démonstration et hors boucle locale explicite depuis le lot 8.
+    CURSUS_PUBLIC_URL: 'https://cursus.example.fr' };
   const OIDC = { CURSUS_OIDC_TENANT: TENANT, CURSUS_OIDC_CLIENT_ID: CLIENT, CURSUS_OIDC_CLIENT_SECRET: SECRET, CURSUS_PUBLIC_URL: 'https://cursus.example.fr' };
   assert.deepEqual(problemesConfig({ ...PROD, ...OIDC }), []);
   assert.deepEqual(problemesConfig({ ...PROD, ...OIDC, CURSUS_PUBLIC_URL: 'https://cursus.example.fr/' }), [], 'barre finale admise');
+  // Lot 8 : l'adresse publique seule n'est plus une connexion Microsoft incomplète (exigée pour elle-même en production).
+  assert.deepEqual(problemesConfig(PROD), [], 'adresse publique seule');
   const cas: [string, Record<string, string | undefined>, RegExp][] = [
     ['secret client absent', { ...OIDC, CURSUS_OIDC_CLIENT_SECRET: undefined }, /incomplète : définissez aussi CURSUS_OIDC_CLIENT_SECRET/],
-    ['adresse publique seule', { CURSUS_PUBLIC_URL: 'https://cursus.example.fr' }, /CURSUS_OIDC_TENANT, CURSUS_OIDC_CLIENT_ID, CURSUS_OIDC_CLIENT_SECRET/],
+    ['locataire seul', { CURSUS_OIDC_TENANT: TENANT }, /CURSUS_OIDC_CLIENT_ID, CURSUS_OIDC_CLIENT_SECRET/],
     ['locataire « common »', { ...OIDC, CURSUS_OIDC_TENANT: 'common' }, /format GUID/],
     ['locataire nom de domaine', { ...OIDC, CURSUS_OIDC_TENANT: 'entreprise.onmicrosoft.com' }, /format GUID/],
     ['adresse publique en http', { ...OIDC, CURSUS_PUBLIC_URL: 'http://cursus.example.fr' }, /doit être en https/],

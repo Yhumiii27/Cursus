@@ -81,7 +81,9 @@ const cookieOf = (r: globalThis.Response) => r.headers.get('set-cookie')?.match(
 // Clé de la session en base : empreinte de l'identifiant du cookie (la table ne garde jamais l'identifiant en clair).
 const idOf = (cookie: string) => empreinteSession(cookie.split('=')[1].split('.')[0]);
 
-const PROD_OK = { NODE_ENV: 'production', CURSUS_SECRET: 'x'.repeat(32), KEYSTONE_API_KEY: 'cle-keystone-de-test' };
+const PROD_OK = { NODE_ENV: 'production', CURSUS_SECRET: 'x'.repeat(32), KEYSTONE_API_KEY: 'cle-keystone-de-test',
+  // Exigée en production hors démonstration et hors boucle locale explicite depuis le lot 8.
+  CURSUS_PUBLIC_URL: 'https://cursus.example.fr' };
 
 test('configuration de production : chaque cas dangereux est refusé', () => {
   assert.deepEqual(problemesConfig(PROD_OK), []);

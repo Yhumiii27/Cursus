@@ -471,7 +471,9 @@ test('simulation : statut « simulé » immédiat, message tracé dans le journa
 });
 
 test('configuration : en production, KEYSTONE_URL exige KEYSTONE_TOKEN et une adresse http(s)', () => {
-  const PROD = { NODE_ENV: 'production', CURSUS_SECRET: 'x'.repeat(32), KEYSTONE_API_KEY: 'cle-keystone-de-test' };
+  const PROD = { NODE_ENV: 'production', CURSUS_SECRET: 'x'.repeat(32), KEYSTONE_API_KEY: 'cle-keystone-de-test',
+    // Exigée en production hors démonstration et hors boucle locale explicite depuis le lot 8.
+    CURSUS_PUBLIC_URL: 'https://cursus.example.fr' };
   assert.deepEqual(problemesConfig({ ...PROD, KEYSTONE_URL: 'http://keystone.interne:8080', KEYSTONE_TOKEN: JETON }), []);
   const sansJeton = problemesConfig({ ...PROD, KEYSTONE_URL: 'http://keystone.interne:8080' });
   assert.equal(sansJeton.length, 1);

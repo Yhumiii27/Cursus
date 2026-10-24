@@ -11,6 +11,7 @@ import { normaliserIdentifiant } from '../../shared/rules/comptes.ts';
 import { ActionError } from './actions/context.ts';
 import { revokeSessionsDuCompte } from './auth.ts';
 import { attribuerProvisoire, compteParIdentifiant, creerCompte, journaliser, nomDuCompte, rattacherCompte, refusDuCompte, type Compte } from './comptes.ts';
+import { enProduction, verifierConfig } from './config.ts';
 import { dbFile, openDb, urlPostgres } from './db.ts';
 import { mettreAJourBase } from './demarrage.ts';
 import { adresseDuCompte } from './messagerie.ts';
@@ -37,6 +38,11 @@ for (let i = 0; i < reste.length; i++) {
   else if (['--nom', '--adresse', '--salarie'].includes(o) && reste[i + 1] !== undefined) options[o.slice(2)] = reste[++i];
   else arreter(`Option inconnue ou incomplète : ${o}\n${USAGE}`);
 }
+
+// Configuration contrôlée comme au démarrage du serveur (en production, refus sur une configuration dangereuse, par
+// exemple DATABASE_URL vers le mauvais rôle) : la commande tourne avec l'environnement de l'application.
+// Hors production, la commande ne répète pas les avertissements que le serveur écrit déjà au démarrage.
+if (enProduction()) verifierConfig(process.env, { commande: 'npm run comptes' });
 
 const identifiant = normaliserIdentifiant(identifiantBrut);
 /** « rachel.martin@… » → « Rachel Martin ». */

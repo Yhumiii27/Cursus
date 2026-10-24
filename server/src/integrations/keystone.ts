@@ -8,7 +8,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { ACTIVITES_INTERNES, GNG_CODE, type CodeMotif } from '../../../shared/constants.ts';
 import { matricule, num } from '../../../shared/format.ts';
 import type { Absence, ISODate, LigneTemps } from '../../../shared/types.ts';
-import { demoActive, KEYSTONE_CLE_DEMO, type Env } from '../config.ts';
+import { demoActive, KEYSTONE_CLE_DEMO, liaisonsCoupees, type Env } from '../config.ts';
 import type { Db } from '../db.ts';
 import { mettreEnFile, type Envoi, type Transport } from '../envois.ts';
 
@@ -24,8 +24,12 @@ export type KeystoneEvent =
   // Déplacement venu de Keystone modifié (dates) ou annulé par le service RH : jamais le motif de l'annulation (texte libre).
   | { type: 'deplacement.modifie' | 'deplacement.annule'; deplacement: number; demande: number | null; reference: string | null; matricule: string; chantier: string; destination: string; depart: ISODate; retour: ISODate; date: ISODate };
 
-/** Adresse et jeton des envois à Keystone ; null sans KEYSTONE_URL (simulation). */
+/**
+ * Adresse et jeton des envois à Keystone ; null sans KEYSTONE_URL (simulation), et en démonstration publique sans
+ * CURSUS_DEMO_LIAISONS=1 (constat S3 : file sortante inactive, avertissement au démarrage par config.ts).
+ */
 export function keystoneSortant(env: Env = process.env): { url: string; token: string | null } | null {
+  if (liaisonsCoupees(env)) return null;
   const base = env.KEYSTONE_URL?.trim();
   return base ? { url: `${base.replace(/\/+$/, '')}/api/cursus/v1/evenements`, token: env.KEYSTONE_TOKEN || null } : null;
 }

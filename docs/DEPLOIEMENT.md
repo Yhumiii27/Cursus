@@ -169,19 +169,54 @@ sudo nano /etc/cursus/cursus.env
 | `CURSUS_LOG_FORMAT` | à laisser vide : `json` en production, une ligne JSON par message et par requête, lue telle quelle par l'agrégateur du service informatique ; `texte` pour lire le journal à l'œil (« Exploitation courante ») |
 | `CURSUS_COMPRESSION` | à laisser vide (`1`) : Cursus compresse lui-même ses réponses (brotli, gzip) ; `0` si le proxy compresse déjà et qu'on préfère lui laisser ce travail |
 | `CURSUS_OIDC_TENANT`, `CURSUS_OIDC_CLIENT_ID`, `CURSUS_OIDC_CLIENT_SECRET` | connexion Microsoft 365 : ID de l'annuaire (GUID), ID d'application et secret client relevés dans Entra (`docs/CONNEXION-MICROSOFT.md`). Noter la date d'expiration du secret |
-| `CURSUS_PUBLIC_URL` | `https://cursus.example.fr` : adresse publique, sans chemin. URI de redirection à inscrire dans Entra : `https://cursus.example.fr/api/auth/microsoft/retour` |
+| `CURSUS_PUBLIC_URL` | `https://cursus.example.fr` : adresse publique, en https et sans chemin, **obligatoire en production** depuis le lot 8 (liens des e-mails, contrôle d'origine des requêtes), avec ou sans Microsoft 365 ; seules la démonstration et l'écoute sur la boucle locale posée explicitement (`CURSUS_HOST=127.0.0.1`) s'en passent. URI de redirection à inscrire dans Entra : `https://cursus.example.fr/api/auth/microsoft/retour` |
 | `CURSUS_OIDC_SECRET_EXPIRE` | facultative, conseillée : date d'expiration du secret client (`AAAA-MM-JJ`) ; 30 jours avant, le point de santé passe en `degrade` et le récapitulatif des échéances le signale au service RH (`docs/CONNEXION-MICROSOFT.md`, section 3) ; démarrage refusé si ce n'est pas une date ou sans `CURSUS_OIDC_CLIENT_SECRET` |
 | `CURSUS_OIDC_AUTORITE` | **jamais** : réservée aux tests automatiques, Cursus refuse de démarrer avec elle |
 | `CURSUS_MAIL_FROM` | boîte d'envoi des e-mails (`cursus@entreprise.fr`) ; sans elle, les e-mails sont simulés (`docs/EMAILS.md`) |
 | `CURSUS_MAIL_TENANT`, `CURSUS_MAIL_CLIENT_ID`, `CURSUS_MAIL_CLIENT_SECRET` | application Entra autorisée à envoyer (`Mail.Send`, restreinte à la boîte d'envoi) ; par défaut celle de la connexion Microsoft. Noter la date d'expiration du secret |
 | `KEYSTONE_URL`, `KEYSTONE_TOKEN` | envois à Keystone : adresse de base de Keystone sur le réseau interne (`http://keystone.interne:8080`) et jeton convenu avec lui. Cursus refuse de démarrer avec l'adresse sans le jeton, ou avec des identifiants dans l'adresse. Sans adresse, les messages ne sont que tracés dans le journal |
 | `SAGE_MODE`, `SAGE_DOSSIER` | transmission à Sage Paie : à laisser vide (fichier d'import, mode de production) ; dossier de paie (`CURSUS-CHIMIE` par défaut). **Jamais** `SAGE_MODE=api` ni `SAGE_MODE=simulation`, **jamais** `SAGE_URL` : Cursus refuse de démarrer avec eux (voir « Sage Paie ») |
-| `CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE` | **jamais** sur ce serveur (une instance de démonstration en ligne, séparée et aux données fictives : README.md, « Mise en ligne »). La démonstration ouvre l'espace RH sans mot de passe : Cursus refuse de démarrer avec elle, et refuserait de toute façon (403) chaque requête relayée par le proxy |
+| `CURSUS_BASE` | à laisser vide hors de l'image Docker. Dans l'image (`CURSUS_CONTENEUR=1`), la production exige `DATABASE_URL` (serveur commun), ou `CURSUS_BASE=sqlite` pour garder volontairement le fichier du volume : sans l'une ni l'autre, Cursus refuse de démarrer plutôt que d'ouvrir un fichier SQLite vide |
+| `CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE` | **jamais** sur ce serveur (une instance de démonstration en ligne, séparée et aux données fictives : README.md, « Mise en ligne »). La démonstration ouvre l'espace RH sans mot de passe : Cursus refuse de démarrer avec elle, et refuserait de toute façon (403) chaque requête relayée par le proxy |
 
 Au démarrage, Cursus contrôle cette configuration. S'il manque une valeur obligatoire ou si un
 réglage est dangereux, il refuse de démarrer, liste chaque problème dans le journal
 (`journalctl -u cursus`) et sort avec le code 1. La connexion Microsoft 365 est facultative mais
-entière : les quatre variables `CURSUS_OIDC_*` et `CURSUS_PUBLIC_URL` (en https), ou aucune.
+entière : les trois variables `CURSUS_OIDC_*` avec `CURSUS_PUBLIC_URL` (en https), ou aucune des trois.
+
+Refusés aussi en production depuis le lot 8 : `DATABASE_URL` avec le rôle `postgres` (superutilisateur), dans l'adresse,
+par `?user=` ou par `PGUSER` (signalé seulement en démonstration : une démonstration n'est jamais arrêtée pour cela ;
+le pré-vol le bloque), ou sans aucun rôle désigné (node-postgres prendrait le compte du système) ;
+`CURSUS_TRUST_PROXY=true` ou un réseau qui couvre toutes les adresses (`0.0.0.0/0`, `::/0`) : en-têtes X-Forwarded-*
+crus de n'importe quel client, indiquez l'adresse ou le réseau du proxy. Simples avertissements, jamais bloquants : `MATRIX_URL` qui porte un identifiant ou un mot de passe, et une
+démonstration branchée sur la base `epc2i` du serveur commun (voir « Vérification avant la mise en production »).
+`npm run comptes` et `npm run reprise-postgres` font le même contrôle avant d'ouvrir la base.
+
+### Vérification avant la mise en production
+
+`npm run verifier-production` dit en une page si l'instance est prête : à lancer avec exactement l'environnement de
+l'application (terminal du conteneur Coolify, `docker exec`, ou pour le service systemd
+`sudo -u cursus sh -c 'set -a; . /etc/cursus/cursus.env; cd /opt/cursus && npm run verifier-production'`). Elle ne modifie rien : configuration jugée comme en production (`NODE_ENV=production`
+forcé), base ouverte en lecture seule et sans migration (serveur commun : chaque connexion en
+`default_transaction_read_only`, abandon après 5 s sans réponse ; fichier SQLite : copie instantanée dans un dossier
+temporaire). Une ligne par contrôle (OK, ATTENTION, BLOQUANT) et son remède ; règles dans `server/src/pre-vol.ts`.
+
+```bash
+npm run verifier-production -- --config-seule   # application créée, pas encore démarrée (base non ouverte)
+npm run verifier-production                     # configuration et base
+npm run verifier-production -- --json --strict  # sortie à archiver avec la recette ; un avertissement compte comme bloquant
+```
+
+Code de sortie : 0 prête pour la production, 1 au moins un bloquant (ou un avertissement avec `--strict`), 2
+avertissements seulement.
+
+| Domaine | Contrôles |
+| --- | --- |
+| Configuration | règles du démarrage en production ; aucune variable de démonstration ni de test (`CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE`, `CURSUS_OIDC_AUTORITE`) ; `DATABASE_URL` en `cursus_app` sur la base `epc2i`, chiffrée (`sslmode=require` ou `verify-*`, `ssl=true`, ou `PGSSLMODE` quand l'adresse n'en dit rien) si le serveur n'est pas sur le réseau interne ; `CURSUS_PUBLIC_URL` en https, exigée même quand Cursus écoute sur la boucle locale derrière Caddy (exemptée au démarrage pour l'application de bureau seulement) ; connexion Microsoft 365 et e-mails configurés (sinon avertissement) ; secret client Entra valable plus de 30 jours ; jeton de supervision ; `TZ=Europe/Paris` ; secrets tous différents (seuls leurs noms sont affichés) ; `CURSUS_TRUST_PROXY` restreint au proxy (avertissement pour `uniquelocal`) ; `MATRIX_TOKEN` avec `MATRIX_URL` |
+| Base | serveur commun : rôle `cursus_app` sans superutilisateur, schéma courant `cursus`, ni `CREATE` sur la base ni `pg_read_all_data` / `pg_write_all_data`, migrations du code égales à `schema_migrations` (en attente : avertissement ; inconnues : bloquant), tables et colonnes conformes, vues `pub_` et leurs colonnes conformes à leur dernière définition dans `server/migrations-pg/`, horloge à moins de 60 s ; les deux moteurs : aucune donnée de démonstration (réglage `demo`, comptes du jeu, adresses `@entreprise.example`, lot « Démonstration »), au moins un administrateur RH actif, page Confidentialité renseignée (avertissement), aucune référence orpheline, dossier des pièces accessible en écriture au compte du service avec plus de 1 Go libre |
+
+Les contrôles réseau (`--url`) et la procédure de bascule complète (`docs/BASCULE-PRODUCTION.md`) arrivent avec
+l'étape suivante du lot 8.
 
 ## Service systemd
 
@@ -512,7 +547,9 @@ l'identifiant) : chacun se reconnecte une fois.
 1. **Variables** (service systemd, ou onglet « Environment Variables » de Coolify) :
    `DATABASE_URL=postgres://cursus_app:<mot de passe>@<hôte>:5432/epc2i` (secret : jamais dans le dépôt ni dans les
    journaux, que Cursus réduit à l'hôte, au port et à la base), `CURSUS_PG_POOL` au besoin (10 connexions par
-   défaut, à multiplier par le nombre d'instances), les autres variables inchangées. `CURSUS_DEMO` absente en
+   défaut, à multiplier par le nombre d'instances), les autres variables inchangées, sauf `CURSUS_BASE=sqlite` à retirer
+   (ou à remplacer par `CURSUS_BASE=postgres`) : avec `DATABASE_URL`, elle se contredit et le démarrage comme la
+   reprise sont refusés. `CURSUS_DEMO` absente en
    production : la base reste vide jusqu'à la reprise des données ou la création du premier administrateur.
 2. **Premier démarrage** : Cursus applique ses migrations (`server/migrations-pg/`, journal
    `cursus.schema_migrations`), contrôle le schéma et amorce une base neuve (activités internes, horaires de poste
@@ -522,7 +559,8 @@ l'identifiant) : chacun se reconnecte une fois.
    verrous du serveur.
    **Base SQLite existante à reprendre** (installation en service avant la bascule) : avant le premier démarrage avec
    `DATABASE_URL`, service SQLite arrêté (`systemctl stop cursus`, ou application arrêtée dans Coolify), avec la même
-   `DATABASE_URL` et `CURSUS_DB` pointant sur la base SQLite (`/data/cursus.db` dans le conteneur) :
+   `DATABASE_URL`, `CURSUS_BASE=sqlite` retirée (ou `CURSUS_BASE=postgres`) et `CURSUS_DB` pointant sur la base SQLite
+   (`/data/cursus.db` dans le conteneur) :
 
    ```sh
    npm run reprise-postgres -- --a-blanc     # contrôles et copie faits puis annulés : lire le compte rendu

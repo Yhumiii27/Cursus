@@ -9,6 +9,7 @@ import { configMail, type ConfigMail, type Env } from '../config.ts';
 import type { Db } from '../db.ts';
 import { ErreurEnvoi, mettreEnFile, type Envoi, type Transport } from '../envois.ts';
 
+// Toujours « simulation » en démonstration (CURSUS_DEMO=1) : configMail ne rend alors aucune configuration (lot 8, S3).
 export const emailMode = (env: Env = process.env) => (configMail(env) ? 'api' : 'simulation');
 
 /** Adresse publique de Cursus (lien des e-mails), sans « / » final ; null si elle n'est pas définie. */

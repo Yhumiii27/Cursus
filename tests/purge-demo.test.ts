@@ -230,7 +230,7 @@ test('plan par profil : chaque table a un sort ; données de personnes toujours 
   for (const t of ['formations', 'habilitations', 'destinations', 'postes', 'horaires'] as const) assert.equal(param.tables[t].sort, 'garder', t);
   for (const t of ['projets', 'chantiers', 'budgets', 'planActions', 'exercicesClos'] as const) assert.equal(param.tables[t].sort, 'supprimer', t);
   assert.deepEqual(param.tables.equipes.nulles, ['managerId']);
-  assert.deepEqual(param.tables.rubriquesPaie.nulles, ['confirmeLe', 'confirmePar']);
+  assert.deepEqual(param.tables.rubriquesPaie.nulles, ['confirmeLe', 'confirmePar', 'modifieLe', 'modifiePar'], 'confirmation et auteur fictifs effacés');
   assert.equal(param.tables.projets.amorcee, true);
   assert.deepEqual(param.reglagesSupprimes, REGLAGES_SUPPRIMES_PARAMETRAGE);
   assert.deepEqual([...REGLAGES_SUPPRIMES_PARAMETRAGE], ['secret', 'lastSagePush', 'journalExpurge', 'messagerie', 'demo', 'verdictsKeystoneMode',
@@ -593,6 +593,62 @@ test('purge : comptes gardés rendus externes, sessions toutes fermées', async 
   assert.equal(await db.count('connexions'), 0);
   assert.deepEqual(jsonDe((await lignesJournal(db))[0].payload).comptesGardes, [rh.id, salarie.id]);
   assert.ok(b.statut === 'faite' && texteBilan(b, db.moteur).some(l => l.includes('comptes gardés')));
+});
+
+test('purge : comptes gardés et pièce déposée par un compte supprimé (clé non différable pieces.depose_compte_id)', async () => {
+  const db = await demoPurge();
+  const [garde, depose] = await db.query<{ id: number; identifiant: string }>('SELECT id, identifiant FROM comptes ORDER BY id LIMIT 2');
+  await db.insert('pieces', { jeton: 'f'.repeat(32), empId: 1, objet: 'absence', objetId: null, nom: 'arret.pdf', type: 'application/pdf', taille: 3, empreinte: 'x',
+    fichier: 'ged:document-7', deposeLe: '2026-10-10T08:00:00.000Z', deposePar: 'Visiteur', deposeCompteId: depose.id });
+  const b = await executerPurge(db, { ...OUI, comptes: [garde.identifiant] }, SANS_COPIE);
+  assert.equal(b.statut, 'faite');
+  assert.deepEqual((await db.query<{ id: number }>('SELECT id FROM comptes')).map(c => Number(c.id)), [garde.id]);
+  assert.equal(await db.count('pieces'), 0);
+  assert.equal((await controlerOrphelins(db)).orphelins, 0);
+});
+
+test('purge : signataires fictifs du référentiel des habilitations vidés, auteur fictif des rubriques de paie effacé', async () => {
+  const db = await demoPurge();
+  await db.run(`UPDATE rubriques_paie SET modifie_le = ?, modifie_par = 'Sandrine Vidal'`, ['2026-10-09T08:00:00.000Z']);
+  await db.run(`UPDATE habilitations SET signataire = 'Responsable maintenance' WHERE id = 'aipr'`);
+  const a = await apercuPurge(db, OPTIONS);
+  assert.deepEqual(a.signataires, [
+    { id: 'ac486', signataire: 'Karim Haddad' }, { id: 'ac489', signataire: 'Olivier Marchal' }, { id: 'atex', signataire: 'Sarah Cohen' },
+    { id: 'hauteur', signataire: 'Sarah Cohen' }, { id: 'he', signataire: 'Karim Haddad' },
+  ], 'salariés du jeu et signataires du référentiel du jeu ; un signataire saisi par le service RH est gardé');
+  assert.match(texteApercu(a).join('\n'), /Signataires fictifs au référentiel des habilitations, vidés par la purge .* : ac486 \(Karim Haddad\), ac489 \(Olivier Marchal\)/);
+  const b = await executerPurge(db, OUI, SANS_COPIE);
+  assert.ok(b.statut === 'faite');
+  if (b.statut !== 'faite') return;
+  assert.deepEqual(b.signataires, ['ac486', 'ac489', 'atex', 'hauteur', 'he']);
+  assert.equal(b.ajustees.habilitations, 5);
+  const habs = await db.query<{ id: string; signataire: string }>('SELECT id, signataire FROM habilitations ORDER BY id');
+  assert.deepEqual(habs.map(h => [h.id, h.signataire]), [['ac486', ''], ['ac489', ''], ['aipr', 'Responsable maintenance'], ['atex', ''], ['hauteur', ''], ['he', '']]);
+  assert.equal(Number((await db.one<{ n: number }>('SELECT COUNT(*) AS n FROM rubriques_paie WHERE modifie_le IS NOT NULL OR modifie_par IS NOT NULL'))!.n), 0);
+  assert.deepEqual(jsonDe((await lignesJournal(db))[0].payload).signataires, ['ac486', 'ac489', 'atex', 'hauteur', 'he']);
+  const texte = texteBilan(b, db.moteur).join('\n');
+  assert.match(texte, /signataires fictifs vidés au référentiel des habilitations : ac486, ac489, atex, hauteur, he/);
+  assert.match(texte, /compléter à l’écran Référentiels le signataire par défaut des habilitations ac486, ac489, atex, hauteur, he .* avant la reprise Lucca/);
+  // Profil rien : le référentiel part avec ses signataires, rien à signaler.
+  assert.deepEqual((await apercuPurge(await demo(), { ...OPTIONS, garder: 'rien' })).signataires, []);
+});
+
+test('purge : un échec après la validation (compactage) est noté dans le bilan, sans être pris pour un refus', { skip: PG && 'compactage propre au fichier SQLite' }, async () => {
+  const db = await demoPurge();
+  const exec = db.exec.bind(db);
+  db.exec = async (sql: string) => {
+    if (sql === 'VACUUM') throw new Error('database or disk is full');
+    return await exec(sql);
+  };
+  const b = await executerPurge(db, OUI, SANS_COPIE);
+  assert.equal(b.statut, 'faite');
+  if (b.statut !== 'faite') return;
+  assert.equal(b.apres.length, 1);
+  assert.match(b.apres[0], /^compactage du fichier \(VACUUM.*\) : database or disk is full$/);
+  assert.equal(await db.count('employes'), 0, 'purge validée');
+  const texte = texteBilan(b, db.moteur);
+  assert.match(texte[0], /^Purge faite et validée, mais 1 opération suivante a échoué \(à reprendre à la main, ne relancez pas la purge\) :$/);
+  assert.ok(texte.some(l => /^Étapes suivantes :$/.test(l)), 'étapes suivantes affichées');
 });
 
 test('purge : fiches ajoutées par des visiteurs purgées seulement avec --inclure-ajouts ; reprise faite en démonstration admise', async () => {

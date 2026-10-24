@@ -9,14 +9,16 @@
 // 3. confirmation : --yes, ou le mot « PRODUCTION <nombre de salariés supprimés> » tapé dans un terminal ;
 // 4. sauvegarde préalable (`sauvegardePrealable`) : copie « avant-purge » du fichier SQLite, pièces comprises, ou pg_dump
 //    vérifié (--sauvegarde) sur le serveur ; un échec annule la purge, rien n'est écrit ;
-// 5. une seule transaction (`appliquer`) : colonnes remises à NULL sur les lignes gardées, réglages retirés, tables
-//    vidées (ordre des clés étrangères sur PostgreSQL), amorçages reposés (activités internes, horaires d'exemple),
-//    séquence des salariés placée au-delà de tout identifiant déjà attribué (jamais RESTART IDENTITY, les autres
-//    séquences gardées), journal vidé puis une seule ligne `purge.demo`, contrôle d'intégrité qui doit être vide :
-//    sinon tout est annulé ;
+// 5. une seule transaction (`appliquer`) : colonnes remises à NULL sur les lignes gardées, signataires fictifs du
+//    référentiel vidés, réglages retirés, tables vidées (ordre des clés étrangères sur PostgreSQL), comptes non gardés
+//    supprimés à leur rang dans cet ordre, amorçages reposés (activités internes, horaires d'exemple), séquence des salariés placée
+//    au-delà de tout identifiant déjà attribué (jamais RESTART IDENTITY, les autres séquences gardées), journal vidé
+//    puis une seule ligne `purge.demo`, contrôle d'intégrité qui doit être vide : sinon tout est annulé ;
 // 6. après la validation : fichiers des pièces effacés (un échec est noté sur la ligne purge.demo, sans annuler la
 //    purge), base SQLite compactée (VACUUM : les pages libérées ne gardent rien des données fictives), copies locales
-//    antérieures supprimées avec --supprimer-copies-demo, sauf la copie avant-purge.
+//    antérieures supprimées avec --supprimer-copies-demo, sauf la copie avant-purge ; un échec de l'une de ces
+//    opérations est noté dans le bilan (`apres`), jamais propagé : la purge est faite, le bilan et les étapes suivantes
+//    s'affichent toujours.
 // Sur PostgreSQL, l'aperçu à blanc rejoue toute la transaction puis l'annule (`simulerPurge`, comme le motif Annulee
 // de server/src/reprise-postgres.ts) : il montre les vrais décomptes et toute violation de clé, sans rien garder.
 import { closeSync, existsSync, openSync, readdirSync, readSync, rmSync, statSync } from 'node:fs';
@@ -162,6 +164,8 @@ export interface BilanPurge {
   plusGrandId: number;
   reglages: string[];
   comptesGardes: { id: number; identifiant: string }[];
+  /** Habilitations dont le signataire par défaut (nom du jeu) a été vidé, à compléter au référentiel. */
+  signataires: string[];
   /** Amorçages reposés (activités internes, horaires d'exemple). */
   amorcages: string[];
   sequence: { prochain: number; matricule: string };
@@ -172,6 +176,11 @@ export interface BilanPurge {
   /** Copies locales supprimées (--supprimer-copies-demo), et fichiers du miroir des pièces retirés. */
   copiesSupprimees: string[];
   miroirRetires: number;
+  /**
+   * Opérations postérieures à la validation qui ont échoué (note du journal, compactage, copies antérieures) : la purge
+   * est faite, elles sont à reprendre à la main.
+   */
+  apres: string[];
 }
 
 /** Simulation menée à son terme : la transaction est annulée, le bilan est rendu. */
@@ -272,7 +281,8 @@ async function appliquer(db: Db, options: OptionsPurge, attendus: number | null,
   const compter = (o: Record<string, number>, t: string, n: number) => { if (n) o[t] = (o[t] ?? 0) + n; };
 
   // 1. Lignes gardées : références vers les données fictives remises à NULL (avant les suppressions, pour les clés
-  //    étrangères) ; comptes gardés rendus externes, les autres supprimés.
+  //    étrangères) ; comptes gardés rendus externes (les autres partent avec les tables vidées, à l'étape 3) ;
+  //    signataires fictifs du référentiel vidés.
   const gardes = a.comptesGardes.map(c => c.id);
   for (const t of Object.keys(TABLES) as TableName[]) {
     const r = plan.tables[t];
@@ -281,10 +291,13 @@ async function appliquer(db: Db, options: OptionsPurge, attendus: number | null,
     if (t === 'comptes') {
       const n = (await db.run(`UPDATE comptes SET ${set}, echecs = 0 WHERE id IN (${gardes.map(() => '?').join(', ')})`, gardes)).changes;
       compter(ajustees, 'comptes', n);
-      compter(supprimees, 'comptes', (await db.run(`DELETE FROM comptes WHERE id NOT IN (${gardes.map(() => '?').join(', ')})`, gardes)).changes);
       continue;
     }
     compter(ajustees, snake(t), (await db.run(`UPDATE ${snake(t)} SET ${set} WHERE ${r.nulles.map(c => `${snake(c)} IS NOT NULL`).join(' OR ')}`)).changes);
+  }
+  const signataires = a.signataires.map(h => h.id);
+  if (signataires.length) {
+    compter(ajustees, 'habilitations', (await db.run(`UPDATE habilitations SET signataire = '' WHERE id IN (${signataires.map(() => '?').join(', ')})`, signataires)).changes);
   }
   // 2. Réglages retirés (remis à leur valeur par défaut).
   const cles = plan.reglagesSupprimes === '*' ? a.reglages.supprimes : a.reglages.supprimes.filter(k => plan.reglagesSupprimes.includes(k));
@@ -293,8 +306,16 @@ async function appliquer(db: Db, options: OptionsPurge, attendus: number | null,
   }
   // 3. Tables vidées ; les fichiers des pièces sont notés pour être effacés après la validation.
   const fichiers = (await db.query<{ fichier: string | null }>('SELECT fichier FROM pieces')).map(p => p.fichier).filter((f): f is string => !!f);
-  const aVider = (Object.keys(TABLES) as TableName[]).filter(t => plan.tables[t].sort === 'supprimer');
-  for (const t of await ordreSuppression(db, aVider)) compter(supprimees, snake(t), (await db.run(`DELETE FROM ${snake(t)}`)).changes);
+  //    Les comptes non gardés (--garder-compte) partent à leur rang dans l'ordre des clés : après les pièces qui les
+  //    désignent (pieces.depose_compte_id), avant les salariés qu'ils désignent (comptes.emp_id).
+  const partiel = plan.tables.comptes.sort === 'ajuster';
+  const aVider = (Object.keys(TABLES) as TableName[]).filter(t => plan.tables[t].sort === 'supprimer' || (partiel && t === 'comptes'));
+  for (const t of await ordreSuppression(db, aVider)) {
+    const r = t === 'comptes' && partiel
+      ? await db.run(`DELETE FROM comptes WHERE id NOT IN (${gardes.map(() => '?').join(', ')})`, gardes)
+      : await db.run(`DELETE FROM ${snake(t)}`);
+    compter(supprimees, snake(t), r.changes);
+  }
   // 4. Amorçages d'une base neuve, séquence des salariés.
   const amorcages = await reposerAmorcages(db, plan.tables);
   const prochain = a.sequence.prochain;
@@ -309,7 +330,7 @@ async function appliquer(db: Db, options: OptionsPurge, attendus: number | null,
       + `${plural(Object.values(supprimees).reduce((x, y) => x + y, 0), 'ligne supprimée', 'lignes supprimées')} dans ${plural(nTables, 'table', 'tables')}`,
     payload: {
       profil: options.garder, preuve, salaries: a.salaries, ajoutsPurges, supprimees, ajustees, reglages: cles,
-      comptesGardes: gardes, prochainId: prochain, plusGrandId: plusGrand, copie,
+      comptesGardes: gardes, signataires, prochainId: prochain, plusGrandId: plusGrand, copie,
     },
   });
   // 6. Contrôles différés (PostgreSQL) puis intégrité : aucune référence orpheline, sinon tout est annulé.
@@ -321,8 +342,8 @@ async function appliquer(db: Db, options: OptionsPurge, attendus: number | null,
   }
   const bilan: BilanPurge = {
     statut: simulation ? 'simulee' : 'faite', profil: options.garder, supprimees, ajustees, salaries: a.salaries, ajoutsPurges,
-    plusGrandId: plusGrand, reglages: cles, comptesGardes: a.comptesGardes, amorcages,
-    sequence: { prochain, matricule: matricule(prochain) }, copie, pieces: { effaces: 0, echecs: [] }, copiesSupprimees: [], miroirRetires: 0,
+    plusGrandId: plusGrand, reglages: cles, comptesGardes: a.comptesGardes, signataires, amorcages,
+    sequence: { prochain, matricule: matricule(prochain) }, copie, pieces: { effaces: 0, echecs: [] }, copiesSupprimees: [], miroirRetires: 0, apres: [],
   };
   if (simulation) throw new Annulee(bilan);
   return { bilan, fichiers };
@@ -422,21 +443,33 @@ export async function executerPurge(db: Db, options: OptionsPurge, deps: Dependa
   const copie = await (deps.sauvegarder ?? sauvegardePrealable)(db, options);
   const maintenant = deps.maintenant ?? new Date();
   const { bilan, fichiers } = await db.tx(async () => await appliquer(db, options, apercu.salaries, copie, false, maintenant));
-  bilan.pieces = await effacerPieces(db, fichiers);
+  // La purge est validée : un échec de ce qui suit est noté dans le bilan (« Purge faite, mais… »), jamais propagé, pour
+  // que la commande affiche le bilan et les étapes suivantes au lieu d'un refus trompeur.
+  const ensuite = async (quoi: string, f: () => Promise<void> | void) => {
+    try {
+      await f();
+    } catch (err) {
+      bilan.apres.push(`${quoi} : ${err instanceof Error ? err.message : err}`);
+    }
+  };
+  await ensuite('effacement des fichiers des pièces', async () => { bilan.pieces = await effacerPieces(db, fichiers); });
   if (bilan.pieces.echecs.length) {
     // Échec noté sur la ligne purge.demo (nombre seulement), sans annuler la purge : à effacer à la main.
-    await db.tx(async () => {
+    await ensuite('note des pièces non effacées au journal', async () => await db.tx(async () => {
       const l = await db.one<{ id: number }>('SELECT id FROM journal WHERE action = ? ORDER BY id DESC LIMIT 1', [ACTION_PURGE_DEMO]);
       const ligne = l ? await db.get<{ payload: Record<string, unknown> }>('journal', l.id) : undefined;
       if (l && ligne) await db.update('journal', l.id, { payload: { ...ligne.payload, piecesNonEffacees: bilan.pieces.echecs.length } });
-    });
+    }));
   }
-  // Fichier SQLite compacté : les pages libérées par les suppressions ne gardent rien des données fictives.
-  if (db.moteur === 'sqlite') await db.exec('VACUUM');
+  // Fichier SQLite compacté : les pages libérées par les suppressions ne gardent rien des données fictives (VACUUM demande
+  // à peu près la taille de la base en espace libre).
+  if (db.moteur === 'sqlite') await ensuite('compactage du fichier (VACUUM, à relancer quand de la place est libérée)', async () => { await db.exec('VACUUM'); });
   if (options.supprimerCopies) {
-    const c = supprimerCopies(db, copie);
-    bilan.copiesSupprimees = c.supprimees;
-    bilan.miroirRetires = c.miroir;
+    await ensuite('suppression des copies antérieures (--supprimer-copies-demo)', () => {
+      const c = supprimerCopies(db, copie);
+      bilan.copiesSupprimees = c.supprimees;
+      bilan.miroirRetires = c.miroir;
+    });
   }
   return bilan;
 }
@@ -455,11 +488,15 @@ export function texteSimulation(b: BilanPurge): string[] {
 /** Bilan de la purge faite, puis les étapes suivantes de la mise en production. */
 export function texteBilan(b: BilanPurge, moteur: Db['moteur']): string[] {
   const lignes = Object.values(b.supprimees).reduce((x, y) => x + y, 0);
-  const out = [
+  const out = b.apres.length
+    ? [`Purge faite et validée, mais ${plural(b.apres.length, 'opération suivante a échoué', 'opérations suivantes ont échoué')} (à reprendre à la main, ne relancez pas la purge) :`,
+      ...b.apres.map(m => `  - ${m}`)]
+    : [];
+  out.push(
     `Purge faite (profil ${b.profil}) : ${plural(b.salaries, 'salarié supprimé', 'salariés supprimés')}${b.ajoutsPurges ? `, dont ${plural(b.ajoutsPurges, 'fiche ajoutée', 'fiches ajoutées')} par des visiteurs` : ''} ; `
       + `${plural(lignes, 'ligne supprimée', 'lignes supprimées')} dans ${plural(Object.keys(b.supprimees).length, 'table', 'tables')}.`,
     `  - par table : ${Object.entries(b.supprimees).map(([t, n]) => `${t} ${n}`).join(', ')}`,
-  ];
+  );
   if (Object.keys(b.ajustees).length) out.push(`  - lignes gardées ajustées : ${Object.entries(b.ajustees).map(([t, n]) => `${t} ${n}`).join(', ')}`);
   out.push(`  - réglages remis à défaut : ${b.reglages.join(', ') || 'aucun'}`);
   if (b.amorcages.length) out.push(`  - amorçages reposés : ${b.amorcages.join(', ')}`);
@@ -467,6 +504,7 @@ export function texteBilan(b: BilanPurge, moteur: Db['moteur']): string[] {
   out.push(`Journal réduit à la seule ligne ${ACTION_PURGE_DEMO}. Prochain salarié : ${b.sequence.matricule}.`);
   out.push(`Pièces : ${plural(b.pieces.effaces, 'fichier effacé', 'fichiers effacés')}${b.pieces.echecs.length
     ? ` ; ${plural(b.pieces.echecs.length, 'fichier n’a pas pu être effacé', 'fichiers n’ont pas pu être effacés')} (${b.pieces.echecs.slice(0, 5).join(', ')}), à effacer à la main (noté au journal)` : ''}.`);
+  if (b.signataires.length) out.push(`  - signataires fictifs vidés au référentiel des habilitations : ${b.signataires.join(', ')}`);
   if (b.copiesSupprimees.length || b.miroirRetires) {
     out.push(`Copies antérieures supprimées : ${b.copiesSupprimees.join(', ') || 'aucune'} ; ${plural(b.miroirRetires, 'fichier retiré', 'fichiers retirés')} du miroir des pièces.`);
   }
@@ -482,6 +520,10 @@ export function texteBilan(b: BilanPurge, moteur: Db['moteur']): string[] {
       ? 'supprimer les copies antérieures à la purge (--supprimer-copies-demo, puis copies distantes : docs/SAUVEGARDE.md) ; reprise Lucca (docs/DEPLOIEMENT.md, « Mise en service : reprise depuis Lucca »).'
       : 'faire marquer par Matrix les pg_dump antérieurs à la purge comme non restaurables en production ; reprise Lucca (docs/DEPLOIEMENT.md, « Mise en service : reprise depuis Lucca »).',
   ];
+  if (b.signataires.length) {
+    etapes.splice(etapes.length - 1, 0, `compléter à l’écran Référentiels le signataire par défaut des habilitations ${b.signataires.join(', ')} (nom fictif retiré) `
+      + 'avant la reprise Lucca des habilitations : la reprise et la délivrance refusent un titre sans signataire ;');
+  }
   out.push('Étapes suivantes :', ...etapes.map((e, i) => `  ${i + 1}. ${e}`));
   return out;
 }

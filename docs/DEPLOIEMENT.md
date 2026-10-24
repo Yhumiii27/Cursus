@@ -841,12 +841,31 @@ l'entreprise du 24 octobre 2026) :
 - démonstration déjà sur le serveur commun : purge en place, toutes les instances arrêtées, pg_dump fait après l'arrêt.
   D'ici là, une démonstration branchée sur le serveur commun est seulement signalée (avertissement, état « degrade »).
 
+**Lancer la commande sur une instance arrêtée.** Le terminal de Coolify n'existe que pour un conteneur en marche, et
+redémarrer l'instance pour en retrouver un reposerait le verrou du serveur (la purge serait refusée) et relancerait
+les tâches de la démonstration. La commande se lance donc dans un conteneur ponctuel de la même image :
+- fichier SQLite : monté sur le volume `/data` de l'instance (nom du volume : Coolify, onglet « Storages », ou
+  `sudo docker volume ls`), avec l'environnement de l'application **sans** `CURSUS_DEMO_PUBLIQUE` ;
+  ```bash
+  sudo docker run --rm -it --env-file cursus-demo.env -e CURSUS_DB=/data/cursus.db -v <volume>:/data <image> \
+    node --disable-warning=ExperimentalWarning server/src/purge-demo-cli.ts --a-blanc
+  ```
+  (`cursus-demo.env` : les variables de l'application copiées depuis Coolify, `CURSUS_DEMO_PUBLIQUE` retirée ; même
+  commande pour la purge, avec les options de l'étape 5) ;
+- serveur commun : le même conteneur ponctuel sans volume, avec `DATABASE_URL`, ou toute machine qui a Node et le
+  dépôt et atteint le serveur.
+
+Un arrêt par « Stop » retire le verrou `cursus.db.pid`. `--force` n'est légitime que si le verrou est resté après un
+arrêt brutal (machine coupée, conteneur tué) et que l'instance est bien arrêtée dans Coolify : il ne lève que ce
+contrôle, jamais celui des connexions au serveur commun. Ne jamais l'employer pour purger sous une instance en marche.
+
 **Ce qui part, ce qui reste.** Partent toujours : salariés et tout leur dossier, temps, absences, compteurs, lots de
 paie, entretiens, demandes, déplacements, missions et verdicts Keystone, envois, notifications, relances, relevés,
 pièces (lignes et fichiers), comptes et sessions de connexion, jetons d'agenda, et tout le journal, remplacé par une
 seule ligne `purge.demo` (décompte par table, profil, copie préalable). Avec le profil `parametrage` (par défaut) restent
-les formations, habilitations, destinations, postes, horaires, équipes (sans leur responsable fictif), rubriques Sage
-(confirmation effacée : à revalider par le gestionnaire de paie) et les réglages, sauf la clé de session, l'état de la
+les formations, habilitations (le signataire par défaut qui est un nom de la démonstration est vidé : à compléter),
+destinations, postes, horaires, équipes (sans leur responsable fictif), rubriques Sage (confirmation et auteur de la
+dernière modification effacés : à revalider par le gestionnaire de paie) et les réglages, sauf la clé de session, l'état de la
 paie, la messagerie de démonstration et le marqueur `demo`. Projets et chantiers (Keystone simulé), budgets, plan de
 formation et exercices clos partent ; les activités internes et les horaires d'exemple sont reposés. `--garder catalogue`
 supprime en plus les postes et remet horaires et réglages à défaut ; `--garder rien` donne une base neuve. Les fiches
@@ -856,10 +875,15 @@ identifiant déjà attribué s'il dépasse 1000 : jamais un matricule EMP-0001 �
 
 **Procédure.**
 
-1. Faire relire le paramétrage par le service RH pendant que la démonstration tourne encore.
+1. Faire relire le paramétrage par le service RH pendant que la démonstration tourne encore, en particulier les
+   signataires par défaut des habilitations (écran Référentiels) : ce signataire est proposé à chaque délivrance et
+   repris par la reprise Lucca quand le fichier n'en donne pas. Ceux du jeu (Karim Haddad, Sarah Cohen, Olivier
+   Marchal…) sont des personnes fictives : la purge les vide et les liste, et ils sont à remplacer par les vrais
+   signataires avant la reprise des habilitations (la reprise refuse un titre sans signataire).
 2. Arrêter l'instance de démonstration (Coolify : « Stop » ; systemd : `sudo systemctl stop cursus`), et sur le
    serveur commun toutes ses instances. Ne pas la redémarrer avant la fin de la procédure.
-3. Ouvrir un terminal avec l'environnement de l'application, **sans** `CURSUS_DEMO_PUBLIQUE` (la commande la refuse) :
+3. Ouvrir un terminal avec l'environnement de l'application, **sans** `CURSUS_DEMO_PUBLIQUE` (la commande la refuse) ;
+   instance Coolify arrêtée : conteneur ponctuel de la même image (« Lancer la commande sur une instance arrêtée ») :
    ```bash
    npm run purge-demo -- --a-blanc
    ```
@@ -882,13 +906,17 @@ identifiant déjà attribué s'il dépasse 1000 : jamais un matricule EMP-0001 �
    d'abord la copie `cursus-…Z-avant-purge.db` (pièces comprises, `docs/SAUVEGARDE.md`) ; si la copie échoue, rien
    n'est fait. Une erreur pendant la transaction, ou une référence orpheline au contrôle final, annule tout.
    `--supprimer-copies-demo` supprime ensuite les copies locales antérieures (elles contiennent la démonstration), sauf
-   la copie avant-purge, gardée jusqu'à la fin de la recette de janvier 2027 puis supprimée à la main.
+   la copie avant-purge, gardée jusqu'à la fin de la recette de janvier 2027 puis supprimée à la main. Si une opération
+   qui suit la validation échoue (effacement des pièces, compactage du fichier, copies antérieures), la commande
+   affiche « Purge faite et validée, mais… » avec le bilan et les étapes, et sort avec le code 2 : la purge est faite,
+   ne pas la relancer ; reprendre à la main l'opération signalée.
 6. Suivre les étapes affichées à la fin :
    - retirer `CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_TODAY` et `CURSUS_INSECURE_COOKIE` de l'environnement ;
      le serveur refuse désormais de démarrer avec `CURSUS_DEMO=1` sur cette base (« base de production »), et
      `npm run reset-demo` de la recharger ;
    - poser un `CURSUS_SECRET` neuf ;
    - créer le premier administrateur RH (`npm run comptes -- admin <identifiant>`, « Premier administrateur RH ») ;
+   - compléter les signataires par défaut vidés (habilitations listées), avant la reprise Lucca des habilitations ;
    - prévenir Keystone, Vigie, Crucible, Codex et Matrix (journal unifié) de vider leurs copies des matricules
      EMP-0001 à EMP-0024 (pub_salaries, pub_titres_detenus, pub_absences) et des lignes de journal de Cursus
      antérieures à la purge ; faire oublier les copies distantes et pg_dump antérieurs (`docs/SAUVEGARDE.md`) ;

@@ -767,8 +767,12 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   4. sauvegarde préalable obligatoire : copie « avant-purge » du fichier (pièces comprises), ou pg_dump désigné par
      `--sauvegarde`, vérifié (en-tête `PGDMP`, écrit après la dernière ligne du journal et la dernière activité d'une
      session : `verifierPgDump`) ; un échec annule tout ;
-  5. une transaction : colonnes des lignes gardées remises à NULL, réglages retirés, tables vidées (ordre des clés
-     étrangères sur PostgreSQL), amorçages reposés (activités internes, horaires d'exemple), séquence placée par
+  5. une transaction : colonnes des lignes gardées remises à NULL (dont confirmation et auteur de la dernière
+     modification des rubriques de paie), signataire par défaut des habilitations vidé quand c'est un nom de la
+     démonstration (`signatairesFictifs` : salariés du jeu ou de la base, signataires du référentiel du jeu ; listés
+     dans l'aperçu, le bilan et les étapes suivantes), réglages retirés, tables vidées (ordre des clés étrangères sur
+     PostgreSQL ; les comptes non gardés par `--garder-compte` partent à leur rang, après `pieces` qui les désigne et
+     avant `employes`), amorçages reposés (activités internes, horaires d'exemple), séquence placée par
      `ALTER SEQUENCE … RESTART` (annulable, jamais `RESTART IDENTITY`) ou `sqlite_sequence`, journal vidé puis la seule
      ligne `purge.demo` (acteur « Ligne de commande (npm run purge-demo) » ; payload : profil, preuve, lignes supprimées
      et ajustées par table, salariés, fiches ajoutées purgées, comptes gardés, réglages retirés, prochain identifiant,
@@ -776,8 +780,9 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
      sinon annulation ;
   6. après la validation : fichiers des pièces effacés (un échec ajoute `piecesNonEffacees` à la ligne `purge.demo`,
      sans annuler), `VACUUM` du fichier SQLite, et avec `--supprimer-copies-demo` les copies locales antérieures
-     supprimées, sauf la copie avant-purge et les fichiers du miroir des pièces qu'elle désigne. La commande affiche
-     ensuite les étapes suivantes de la mise en production.
+     supprimées, sauf la copie avant-purge et les fichiers du miroir des pièces qu'elle désigne ; un échec de l'une de
+     ces opérations est noté dans le bilan (`apres`), jamais propagé : « Purge faite et validée, mais… », code de
+     sortie 2. La commande affiche ensuite les étapes suivantes de la mise en production.
   Garde-fous (`refusDemo`, `server/src/marqueurs.ts`) : `server/src/index.ts` refuse de démarrer avec `CURSUS_DEMO=1`
   sur une base qui porte `purge.demo` au journal ou le réglage `exploitation` (« base de production »), avant toute
   écriture ; `npm run reset-demo` refuse de la recharger. Procédure : `docs/DEPLOIEMENT.md`, « Passage de la

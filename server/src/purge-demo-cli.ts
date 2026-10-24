@@ -8,7 +8,8 @@
 //   sur le serveur PostgreSQL), confirmation (--yes, ou le mot « PRODUCTION <nombre> » tapé dans un terminal), sauvegarde
 //   préalable (copie avant-purge, ou pg_dump vérifié désigné par --sauvegarde), purge en une transaction, puis pièces et
 //   copies ; les étapes suivantes de la mise en production sont affichées à la fin.
-// Code de sortie 0 : aperçu affiché, purge faite ou déjà faite ; 1 : refus ou échec (rien n'a été modifié).
+// Code de sortie 0 : aperçu affiché, purge faite ou déjà faite ; 1 : refus ou échec (rien n'a été modifié) ; 2 : purge
+// faite et validée, mais une opération suivante (pièces, compactage, copies) a échoué : bilan et étapes affichés quand même.
 // Image Docker : volume rendu au compte du service, droits root abandonnés (avant tout autre import).
 import './conteneur.ts';
 import { createInterface } from 'node:readline/promises';
@@ -92,7 +93,10 @@ try {
   } else {
     const issue = await executerPurge(db, options, { confirmer: async a => await confirmer(a.salaries, a.ajouts.fiches.nombre) });
     if (issue.statut === 'deja-faite') console.log(`Purge déjà faite le ${issue.le}${issue.message ? ` : ${issue.message}` : ''}. Rien n’a été modifié.`);
-    else for (const l of texteBilan(issue, db.moteur)) console.log(l);
+    else {
+      for (const l of texteBilan(issue, db.moteur)) console.log(l);
+      if (issue.apres.length) process.exitCode = 2;
+    }
   }
 } catch (err) {
   await db?.fermer();

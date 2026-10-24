@@ -11,7 +11,7 @@ import { visitesDues } from '../../../shared/rules/visites-dues.ts';
 import type { DemandeVisite, Employe, HabTitre, HabType, SuiviMedical } from '../../../shared/types.ts';
 import { transmettreDemandeVisite } from '../notifications.ts';
 import { signaler } from './conformite.ts';
-import { ActionError, getEmp, requireRh, type ActionHandler, type Ctx } from './context.ts';
+import { ActionError, getEmp, refuserSoiMeme, requireRh, REVIENT_RH, type ActionHandler, type Ctx } from './context.ts';
 
 /**
  * Demande de visite au service de prévention et de santé au travail : enregistrée (date, motif, auteur) et suivie
@@ -22,6 +22,9 @@ import { ActionError, getEmp, requireRh, type ActionHandler, type Ctx } from './
 const demanderVisite: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.empId);
+  // Son propre suivi médical (demande, annulation, avis, type de suivi) : jamais par soi-même (lot 8, chantier C) ; l'aptitude
+  // décide des habilitations et du Go chantier.
+  refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas demander votre propre visite médicale', REVIENT_RH);
   // Salarié sorti : plus de visite à demander (une demande faite avant la date reste suivie jusqu'au départ).
   const hors = horsContratLe(emp, ctx.d.ti);
   if (hors) throw new ActionError(hors);
@@ -46,6 +49,7 @@ const annulerVisite: ActionHandler = async (ctx, p) => {
   const x = ctx.ds.demandesVisite.find(v => v.id === Number(p.id));
   if (!x || x.statut !== 'demandee') throw new ActionError('Demande de visite introuvable ou déjà close');
   const emp = getEmp(ctx, x.empId);
+  refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas annuler votre propre demande de visite médicale', REVIENT_RH);
   await ctx.db.update<DemandeVisite>('demandesVisite', x.id, { statut: 'annulee', closeLe: ctx.d.ti, closePar: ctx.user.nom });
   return `Demande de visite annulée — ${emp.nom}`;
 };
@@ -73,6 +77,7 @@ function titres(ctx: Ctx, emp: Employe, v: unknown): { hm: HabType; t: HabTitre 
 const enregistrerAvis: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.empId);
+  refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas enregistrer l’avis du médecin du travail vous concernant', REVIENT_RH);
   const { avis: a, errors } = controlerAvis(p, ctx.d.ti);
   if (errors.length) throw new ActionError(errors.join(' '));
   const motif = p.motif == null || p.motif === '' ? null : p.motif;
@@ -127,6 +132,7 @@ const enregistrerAvis: ActionHandler = async (ctx, p) => {
 const suiviMedical: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.empId);
+  refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas modifier votre propre type de suivi médical', REVIENT_RH);
   const recu: unknown = p.suivi == null || p.suivi === '' ? null : p.suivi;
   if (recu !== null && !estSuiviMedical(recu)) throw new ActionError('Type de suivi inconnu : VIP, VIP adaptée ou suivi individuel renforcé');
   if (p.expose !== undefined && typeof p.expose !== 'boolean') throw new ActionError('Exposition à des risques particuliers : oui ou non');

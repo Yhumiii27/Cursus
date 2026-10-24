@@ -13,7 +13,9 @@ import { loadFull } from '../dataset.ts';
 import { auteurDe, inscrireDelivrance } from '../delivrances.ts';
 import { suivreVerdicts } from '../integrations/keystone-verdicts.ts';
 import { annulerSiConvoque, convoquerFormation, notifierDecisionDemande } from '../notifications.ts';
-import { ActionError, type ActionHandler, aDroit, type Ctx, enriched, getEmp, isManagerOf, requireFormations, requireRh, str } from './context.ts';
+import {
+  ActionError, type ActionHandler, aDroit, type Ctx, enriched, getEmp, isManagerOf, refuserSoiMeme, requireFormations, requireRh, REVIENT_FORMATIONS, REVIENT_RH, str,
+} from './context.ts';
 import { clore } from './inscriptions-closes.ts';
 import { joindrePieces, retirerPiecesDe } from './pieces.ts';
 import { appliquerFormalite, retirerFormalite } from './voyages.ts';
@@ -91,6 +93,8 @@ const inscrire: ActionHandler = async (ctx, p) => {
 const ajouterCert: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const emp = getEmp(ctx, p.empId);
+  // Séparation des tâches (lot 8, chantier C) : une certification ouvre des habilitations et le Go chantier.
+  refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas ajouter une certification à votre propre dossier', REVIENT_FORMATIONS);
   const fm = ctx.d.fm(str(p.f));
   if (!fm) throw new ActionError('Formation inconnue');
   if (fm.archive) throw new ActionError(refusArchive(fm, 'Formation')!);
@@ -125,6 +129,7 @@ const ajouterCert: ActionHandler = async (ctx, p) => {
 const delivrerHab: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const emp = getEmp(ctx, p.empId);
+  refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas vous délivrer une habilitation', REVIENT_FORMATIONS);
   const hm = ctx.d.hm(str(p.h));
   const par = str(p.par);
   if (!hm) throw new ActionError('Habilitation inconnue');
@@ -160,6 +165,9 @@ function demandeADecider(ctx: Ctx, id: unknown): DemandeCollab {
   const r = ctx.ds.demandesCollab.find(x => x.id === Number(id));
   if (r?.type === 'document') requireRh(ctx);
   if (!r || r.statut !== 'attente') throw new ActionError('Demande introuvable ou déjà traitée');
+  // Sa propre demande (formation, habilitation, document déclaré) : jamais décidée par soi-même (lot 8, chantier C).
+  const emp = ctx.d.emp(r.empId);
+  if (emp) refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas décider de votre propre demande', r.type === 'document' ? REVIENT_RH : REVIENT_FORMATIONS);
   return r;
 }
 
@@ -395,6 +403,8 @@ const suspendreHab: ActionHandler = async (ctx, p) => {
 const leverHab: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const emp = getEmp(ctx, p.empId);
+  // Se suspendre soi-même reste permis (cela restreint) ; lever sa propre suspension rétablirait le Go chantier.
+  refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas lever la suspension de votre propre habilitation', REVIENT_FORMATIONS);
   const { hm, t } = titreDelivre(ctx, emp, p.h);
   if (t.mesure !== 'suspension') throw new ActionError(`${hm.nom} n’est pas suspendue pour ${emp.nom}`);
   const { apres, keystone } = await mesurer(ctx, emp, t, { mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null });
@@ -407,6 +417,8 @@ const leverHab: ActionHandler = async (ctx, p) => {
 const retirerHab: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const emp = getEmp(ctx, p.empId);
+  // Le retrait de son propre titre pourrait masquer une mesure (une suspension, son motif) : un autre la décide.
+  refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas retirer votre propre habilitation', REVIENT_FORMATIONS);
   const { hm, t } = titreDelivre(ctx, emp, p.h);
   if (t.mesure === 'retrait') throw new ActionError(`${hm.nom} déjà retirée à ${emp.nom}`);
   const { motif, date } = decision(ctx, p, t);

@@ -343,11 +343,12 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   sans `CURSUS_MAIL_FROM`), `CURSUS_SUPERVISION_TOKEN` de moins de 32 caractères, Sage Paie (`SAGE_MODE` inconnu, `api` compris,
   `SAGE_URL` définie, `SAGE_MODE=simulation` hors application de bureau : des feuilles seraient marquées transmises sans
   que rien ne parte) ; lot 8 : image Docker sans `DATABASE_URL` ni `CURSUS_BASE=sqlite`, `CURSUS_PUBLIC_URL` absente
-  (hors démonstration et hors boucle locale explicite, `boucleLocaleExplicite`), rôle `postgres` dans `DATABASE_URL`,
-  `CURSUS_TRUST_PROXY=true`, et en démonstration publique les variables `CURSUS_MAIL_*`, `CURSUS_OIDC_*`, `SAGE_MODE`
-  (hors simulation) et `SAGE_DOSSIER` ; puis, base accessible à d'autres comptes (« Exploitation »).
-  Avertissements jamais bloquants (`avertissementsConfig`) : `MATRIX_URL` avec identifiants, démonstration sur la base
-  `epc2i` (`demoSurBaseCommune`), liaisons d'une démonstration publique coupées sans `CURSUS_DEMO_LIAISONS=1`
+  (hors démonstration et hors boucle locale explicite, `boucleLocaleExplicite`), rôle `postgres` dans `DATABASE_URL`
+  (lu comme node-postgres par `cibleBase` : adresse, `?user=`, `PGUSER` ; hors démonstration, où il n'est qu'un
+  avertissement), rôle absent, `CURSUS_TRUST_PROXY=true` ou un réseau en `/0`, et en démonstration publique les
+  variables `CURSUS_MAIL_*`, `CURSUS_OIDC_*`, `SAGE_MODE` (hors simulation) et `SAGE_DOSSIER` ; puis, base accessible à d'autres comptes (« Exploitation »).
+  Avertissements jamais bloquants (`avertissementsConfig`) : `MATRIX_URL` avec identifiants, démonstration connectée
+  en rôle `postgres`, démonstration sur la base `epc2i` (`demoSurBaseCommune`), liaisons d'une démonstration publique coupées sans `CURSUS_DEMO_LIAISONS=1`
   (`liaisonsCoupees` : `keystoneSortant` et `declarerBase` inactifs). Les e-mails sont toujours simulés en démonstration
   (`configMail` renvoie null). `npm run comptes` et `npm run reprise-postgres` appellent aussi `verifierConfig` ; une
   commande qui prépare une démonstration à la production passe `{ reglesDemo: false }`.

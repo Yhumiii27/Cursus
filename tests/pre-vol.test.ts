@@ -8,8 +8,8 @@
 // Les contrôles sur un vrai serveur PostgreSQL (lecture seule, faits relevés) sont dans tests/db-pg.test.ts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,6 +54,14 @@ test('démonstration Coolify actuelle : aucun refus de démarrage, avertissement
   assert.equal(av.length, 2);
   assert.match(av[0], /branchée sur la base epc2i du serveur commun/);
   assert.match(av[1], /KEYSTONE_URL est définie sans CURSUS_DEMO_LIAISONS=1/);
+  // Base provisionnée par Coolify, en rôle postgres (base inconnue, réponse du 24 octobre) : signalée, jamais arrêtée.
+  for (const url of ['postgres://postgres:x@coolify-pg:5432/postgres', 'postgres://postgres:x@epc2i-postgres:5432/epc2i']) {
+    const pg = { ...DEMO_COOLIFY, DATABASE_URL: url };
+    assert.deepEqual(problemesConfig(pg), [], url);
+    assert.ok(avertissementsConfig(pg).some(a => /connectée au serveur PostgreSQL avec le rôle postgres \(superutilisateur\)/.test(a)), url);
+    // Le pré-vol, lui, le bloque.
+    assert.equal(code(controlesConfig(pg, JOUR), 'config.base.role')[0].niveau, 'bloquant', url);
+  }
   // Pré-vol : la démonstration n'est pas une production.
   const cs = controlesConfig(surEpc2i, JOUR);
   assert.match(code(cs, 'config.demo')[0].message, /CURSUS_DEMO, CURSUS_DEMO_PUBLIQUE/);
@@ -66,7 +74,7 @@ test('production cible : aucun bloquant ni avertissement de configuration', () =
   assert.deepEqual(niveaux(cs, 'bloquant'), []);
   assert.deepEqual(niveaux(cs, 'attention'), []);
   assert.equal(codeSortie(cs), 0);
-  assert.deepEqual(cs.map(c => c.code), ['config.demarrage', 'config.demo', 'config.base.role', 'config.base.nom', 'config.base.tls', 'config.oidc', 'config.mail',
+  assert.deepEqual(cs.map(c => c.code), ['config.demarrage', 'config.demo', 'config.base.role', 'config.base.nom', 'config.base.tls', 'config.public-url', 'config.oidc', 'config.mail',
     'config.secret-oidc', 'config.supervision', 'config.fuseau', 'config.secrets', 'config.proxy']);
   // NODE_ENV forcé : la commande lancée hors production juge comme en production.
   const horsProd = controlesConfig({ ...PRODUCTION, NODE_ENV: undefined, CURSUS_PUBLIC_URL: undefined }, JOUR);
@@ -88,11 +96,25 @@ test('configuration : chaque contrôle propre au pré-vol', () => {
   assert.equal(ligne({ DATABASE_URL: 'postgres://cursus_app:mdp@db.example.fr/epc2i' }, 'config.base.tls').niveau, 'bloquant');
   assert.equal(ligne({ DATABASE_URL: 'postgres://cursus_app:mdp@db.example.fr/epc2i?sslmode=prefer' }, 'config.base.tls').niveau, 'bloquant');
   assert.match(ligne({ DATABASE_URL: 'postgres://cursus_app:mdp@db.example.fr/epc2i?sslmode=verify-full' }, 'config.base.tls').message, /chiffrée \(sslmode=verify-full\)/);
+  // Chiffrement par ssl=true ou PGSSLMODE (node-postgres) : reconnu.
+  assert.match(ligne({ DATABASE_URL: 'postgres://cursus_app:mdp@db.example.fr/epc2i?ssl=true' }, 'config.base.tls').message, /chiffrée \(ssl=true\)/);
+  assert.match(ligne({ DATABASE_URL: 'postgres://cursus_app:mdp@db.example.fr/epc2i', PGSSLMODE: 'require' }, 'config.base.tls').message, /chiffrée \(PGSSLMODE=require\)/);
+  assert.equal(ligne({ DATABASE_URL: 'postgres://cursus_app:mdp@db.example.fr/epc2i', PGSSLMODE: 'disable' }, 'config.base.tls').niveau, 'bloquant');
+  // Rôle donné par ?user= : celui que prendrait node-postgres.
+  assert.equal(ligne({ DATABASE_URL: 'postgres://epc2i-postgres/epc2i?user=postgres&password=x' }, 'config.base.role').niveau, 'bloquant');
   assert.equal(ligne({ DATABASE_URL: undefined, CURSUS_BASE: 'sqlite' }, 'config.base').niveau, 'attention');
   assert.equal(code(controlesConfig({ ...PRODUCTION, DATABASE_URL: 'pas une adresse' }, JOUR), 'config.base.role').length, 0, 'adresse illisible : refusée par les règles de démarrage');
   // Connexion Microsoft, e-mails, échéance du secret.
   const sansOidc = { CURSUS_OIDC_TENANT: undefined, CURSUS_OIDC_CLIENT_ID: undefined, CURSUS_OIDC_CLIENT_SECRET: undefined, CURSUS_OIDC_SECRET_EXPIRE: undefined };
   assert.equal(ligne(sansOidc, 'config.oidc').niveau, 'attention');
+  // Adresse publique exigée même sur la boucle locale (production derrière Caddy, deploy/Caddyfile) : exemptée au
+  // démarrage pour l'application de bureau, pas pour une instance de production.
+  const caddy = { ...sansOidc, CURSUS_MAIL_FROM: undefined, CURSUS_HOST: '127.0.0.1', CURSUS_PUBLIC_URL: undefined };
+  assert.deepEqual(problemesConfig({ ...PRODUCTION, ...caddy }), [], 'démarrage : boucle locale exemptée');
+  assert.equal(ligne(caddy, 'config.public-url').niveau, 'bloquant');
+  assert.match(ligne(caddy, 'config.public-url').message, /CURSUS_PUBLIC_URL est absente/);
+  assert.equal(ligne({ ...caddy, CURSUS_PUBLIC_URL: 'http://cursus.entreprise.fr' }, 'config.public-url').niveau, 'bloquant');
+  assert.match(ligne({}, 'config.public-url').message, /Adresse publique : https:\/\/cursus\.entreprise\.fr\./);
   assert.equal(code(controlesConfig({ ...PRODUCTION, ...sansOidc }, JOUR), 'config.secret-oidc').length, 0, 'sans connexion Microsoft : sans objet');
   assert.match(ligne({ ...sansOidc, CURSUS_MAIL_FROM: undefined }, 'config.mail').message, /E-mails en simulation/);
   assert.equal(ligne({ CURSUS_OIDC_SECRET_EXPIRE: undefined }, 'config.secret-oidc').niveau, 'attention');
@@ -318,4 +340,33 @@ test('commande : options, configuration seule, base de démonstration refusée s
   mkdirSync(illisible);
   const ko = JSON.parse(commande({ ...PROD_SQLITE, CURSUS_DB: illisible }, '--json').stdout);
   assert.match(ko.controles.at(-1).message, /^Base SQLite .* illisible : /);
+});
+
+test('commande interrompue : la copie instantanée de la base SQLite ne reste pas dans le dossier temporaire', async () => {
+  const fichier = join(dossier, 'interrompue.db');
+  const db = new SqliteDb(fichier);
+  await seedDemo(db);
+  await db.fermer();
+  const temp = mkdtempSync(join(tmpdir(), 'cursus-pre-vol-tmp-'));
+  try {
+    for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) {
+      const enfant = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/verifier-production.ts', '--json'],
+        { cwd: ROOT, stdio: 'ignore', env: { PATH: process.env.PATH ?? '', ...PROD_SQLITE, CURSUS_DB: fichier, TMPDIR: temp } });
+      const fin = new Promise<number | null>(res => enfant.on('exit', c => res(c)));
+      // Signal envoyé dès que la copie existe (la commande seule en dispose).
+      let vue = false;
+      while (enfant.exitCode === null && !vue) {
+        vue = readdirSync(temp).some(n => n.startsWith('cursus-pre-vol-'));
+        if (!vue) await new Promise(r => setTimeout(r, 2));
+      }
+      if (vue) enfant.kill(signal);
+      const c = await fin;
+      // Sans gestionnaire, le signal tuerait le processus sur-le-champ (code null), copie laissée en place. Avec lui :
+      // arrêt par le gestionnaire, ou contrôles menés à leur terme avant qu'il soit traité (base de démonstration : 1).
+      if (vue) assert.ok([{ SIGTERM: 143, SIGINT: 130, SIGHUP: 129 }[signal], 1].includes(c!), `${signal} : code ${c}`);
+      assert.deepEqual(readdirSync(temp), [], `${signal} : copie supprimée`);
+    }
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
 });

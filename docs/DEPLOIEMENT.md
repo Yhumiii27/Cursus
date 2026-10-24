@@ -184,9 +184,11 @@ réglage est dangereux, il refuse de démarrer, liste chaque problème dans le j
 (`journalctl -u cursus`) et sort avec le code 1. La connexion Microsoft 365 est facultative mais
 entière : les trois variables `CURSUS_OIDC_*` avec `CURSUS_PUBLIC_URL` (en https), ou aucune des trois.
 
-Refusés aussi en production depuis le lot 8 : `DATABASE_URL` avec le rôle `postgres` (superutilisateur),
-`CURSUS_TRUST_PROXY=true` (en-têtes X-Forwarded-* crus de n'importe quel client : indiquez l'adresse ou le réseau du
-proxy). Simples avertissements, jamais bloquants : `MATRIX_URL` qui porte un identifiant ou un mot de passe, et une
+Refusés aussi en production depuis le lot 8 : `DATABASE_URL` avec le rôle `postgres` (superutilisateur), dans l'adresse,
+par `?user=` ou par `PGUSER` (signalé seulement en démonstration : une démonstration n'est jamais arrêtée pour cela ;
+le pré-vol le bloque), ou sans aucun rôle désigné (node-postgres prendrait le compte du système) ;
+`CURSUS_TRUST_PROXY=true` ou un réseau qui couvre toutes les adresses (`0.0.0.0/0`, `::/0`) : en-têtes X-Forwarded-*
+crus de n'importe quel client, indiquez l'adresse ou le réseau du proxy. Simples avertissements, jamais bloquants : `MATRIX_URL` qui porte un identifiant ou un mot de passe, et une
 démonstration branchée sur la base `epc2i` du serveur commun (voir « Vérification avant la mise en production »).
 `npm run comptes` et `npm run reprise-postgres` font le même contrôle avant d'ouvrir la base.
 
@@ -210,7 +212,7 @@ avertissements seulement.
 
 | Domaine | Contrôles |
 | --- | --- |
-| Configuration | règles du démarrage en production ; aucune variable de démonstration ni de test (`CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE`, `CURSUS_OIDC_AUTORITE`) ; `DATABASE_URL` en `cursus_app` sur la base `epc2i`, chiffrée (`sslmode=require` ou `verify-*`) si le serveur n'est pas sur le réseau interne ; connexion Microsoft 365 et e-mails configurés (sinon avertissement) ; secret client Entra valable plus de 30 jours ; jeton de supervision ; `TZ=Europe/Paris` ; secrets tous différents (seuls leurs noms sont affichés) ; `CURSUS_TRUST_PROXY` restreint au proxy (avertissement pour `uniquelocal`) ; `MATRIX_TOKEN` avec `MATRIX_URL` |
+| Configuration | règles du démarrage en production ; aucune variable de démonstration ni de test (`CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE`, `CURSUS_OIDC_AUTORITE`) ; `DATABASE_URL` en `cursus_app` sur la base `epc2i`, chiffrée (`sslmode=require` ou `verify-*`, `ssl=true`, ou `PGSSLMODE` quand l'adresse n'en dit rien) si le serveur n'est pas sur le réseau interne ; `CURSUS_PUBLIC_URL` en https, exigée même quand Cursus écoute sur la boucle locale derrière Caddy (exemptée au démarrage pour l'application de bureau seulement) ; connexion Microsoft 365 et e-mails configurés (sinon avertissement) ; secret client Entra valable plus de 30 jours ; jeton de supervision ; `TZ=Europe/Paris` ; secrets tous différents (seuls leurs noms sont affichés) ; `CURSUS_TRUST_PROXY` restreint au proxy (avertissement pour `uniquelocal`) ; `MATRIX_TOKEN` avec `MATRIX_URL` |
 | Base | serveur commun : rôle `cursus_app` sans superutilisateur, schéma courant `cursus`, ni `CREATE` sur la base ni `pg_read_all_data` / `pg_write_all_data`, migrations du code égales à `schema_migrations` (en attente : avertissement ; inconnues : bloquant), tables et colonnes conformes, vues `pub_` et leurs colonnes conformes à leur dernière définition dans `server/migrations-pg/`, horloge à moins de 60 s ; les deux moteurs : aucune donnée de démonstration (réglage `demo`, comptes du jeu, adresses `@entreprise.example`, lot « Démonstration »), au moins un administrateur RH actif, page Confidentialité renseignée (avertissement), aucune référence orpheline, dossier des pièces accessible en écriture au compte du service avec plus de 1 Go libre |
 
 Les contrôles réseau (`--url`) et la procédure de bascule complète (`docs/BASCULE-PRODUCTION.md`) arrivent avec
@@ -536,7 +538,9 @@ mot de passe de `cursus_app` connu de l'exploitant, Cursus en version 8.b au moi
 1. **Variables** (service systemd, ou onglet « Environment Variables » de Coolify) :
    `DATABASE_URL=postgres://cursus_app:<mot de passe>@<hôte>:5432/epc2i` (secret : jamais dans le dépôt ni dans les
    journaux, que Cursus réduit à l'hôte, au port et à la base), `CURSUS_PG_POOL` au besoin (10 connexions par
-   défaut, à multiplier par le nombre d'instances), les autres variables inchangées. `CURSUS_DEMO` absente en
+   défaut, à multiplier par le nombre d'instances), les autres variables inchangées, sauf `CURSUS_BASE=sqlite` à retirer
+   (ou à remplacer par `CURSUS_BASE=postgres`) : avec `DATABASE_URL`, elle se contredit et le démarrage comme la
+   reprise sont refusés. `CURSUS_DEMO` absente en
    production : la base reste vide jusqu'à la reprise des données ou la création du premier administrateur.
 2. **Premier démarrage** : Cursus applique ses migrations (`server/migrations-pg/`, journal
    `cursus.schema_migrations`), contrôle le schéma et amorce une base neuve (activités internes, horaires de poste
@@ -546,7 +550,8 @@ mot de passe de `cursus_app` connu de l'exploitant, Cursus en version 8.b au moi
    verrous du serveur.
    **Base SQLite existante à reprendre** (installation en service avant la bascule) : avant le premier démarrage avec
    `DATABASE_URL`, service SQLite arrêté (`systemctl stop cursus`, ou application arrêtée dans Coolify), avec la même
-   `DATABASE_URL` et `CURSUS_DB` pointant sur la base SQLite (`/data/cursus.db` dans le conteneur) :
+   `DATABASE_URL`, `CURSUS_BASE=sqlite` retirée (ou `CURSUS_BASE=postgres`) et `CURSUS_DB` pointant sur la base SQLite
+   (`/data/cursus.db` dans le conteneur) :
 
    ```sh
    npm run reprise-postgres -- --a-blanc     # contrôles et copie faits puis annulés : lire le compte rendu

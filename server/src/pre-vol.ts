@@ -14,7 +14,7 @@ import { accessSync, constants, existsSync, statfsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { adminsActifs } from './comptes.ts';
 import {
-  avertissementsConfig, BASE_COMMUNE, cibleBase, configMail, configOidc, type Env, problemesConfig, ROLE_CURSUS, trustProxy,
+  avertissementsConfig, BASE_COMMUNE, cibleBase, configMail, configOidc, type Env, originePublique, problemesConfig, ROLE_CURSUS, trustProxy,
 } from './config.ts';
 import { lireConfidentialite } from './confidentialite.ts';
 import type { Db } from './db.ts';
@@ -108,12 +108,21 @@ export function controlesConfig(envBrut: Env, aujourdhui: string): Controle[] {
     out.push(cible.base === BASE_COMMUNE
       ? ok(C, 'config.base.nom', `DATABASE_URL : base ${BASE_COMMUNE}.`)
       : ko(C, 'config.base.nom', 'bloquant', `DATABASE_URL désigne la base « ${cible.base || '(aucune)'} » au lieu de ${BASE_COMMUNE}.`, `Désignez la base ${BASE_COMMUNE} du serveur commun (schéma cursus).`));
-    const chiffre = !!cible.sslmode && !['disable', 'allow', 'prefer'].includes(cible.sslmode);
-    out.push(hoteInterne(cible.hote) || chiffre
-      ? ok(C, 'config.base.tls', chiffre ? `Connexion au serveur chiffrée (sslmode=${cible.sslmode}).` : `Serveur joint sur le réseau interne (${cible.hote}).`)
+    // Chiffrement lu comme node-postgres : sslmode, ssl=true ou PGSSLMODE (cibleBase).
+    out.push(hoteInterne(cible.hote) || cible.tls
+      ? ok(C, 'config.base.tls', cible.tls ? `Connexion au serveur chiffrée (${cible.tls}).` : `Serveur joint sur le réseau interne (${cible.hote}).`)
       : ko(C, 'config.base.tls', 'bloquant', `Le serveur PostgreSQL ${cible.hote} est joint hors du réseau Docker sans connexion chiffrée : le mot de passe et les données passeraient en clair.`,
         'Ajoutez ?sslmode=require (ou verify-full) à DATABASE_URL, ou joignez le serveur par le réseau interne (epc2i-postgres).'));
   }
+
+  // Adresse publique, quelle que soit l'adresse d'écoute : une instance de production derrière Caddy écoute sur la boucle
+  // locale (exemptée au démarrage pour l'application de bureau), mais ses e-mails et son contrôle d'origine en ont besoin.
+  const publique = (env.CURSUS_PUBLIC_URL ?? '').trim();
+  const origine = publique ? originePublique(publique) : null;
+  out.push(origine?.startsWith('https://')
+    ? ok(C, 'config.public-url', `Adresse publique : ${origine}.`)
+    : ko(C, 'config.public-url', 'bloquant', publique ? 'CURSUS_PUBLIC_URL n’est pas une adresse https sans chemin.' : 'CURSUS_PUBLIC_URL est absente : liens des e-mails impossibles, et le contrôle d’origine des requêtes retombe sur l’en-tête Host relayé par le proxy.',
+      'Posez l’adresse publique de Cursus, en https et sans chemin (https://cursus.entreprise.fr), même quand Cursus écoute sur la boucle locale derrière un proxy.'));
 
   out.push(configOidc(env)
     ? ok(C, 'config.oidc', 'Connexion Microsoft 365 configurée.')

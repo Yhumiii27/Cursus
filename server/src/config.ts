@@ -62,14 +62,28 @@ export const BASE_COMMUNE = 'epc2i';
 /** Rôle de Cursus sur le serveur commun (socle de Matrix, infra/postgres-socle/01-base-et-roles.sql). */
 export const ROLE_CURSUS = 'cursus_app';
 
-/** Rôle et base de DATABASE_URL (jamais le mot de passe), ou null si elle est absente ou illisible. */
-export function cibleBase(env: Env = process.env): { role: string; base: string; hote: string; sslmode: string | null } | null {
+/** Modes de chiffrement qui n'en garantissent aucun : la connexion peut passer en clair. */
+const SSL_NON_GARANTI = ['disable', 'allow', 'prefer'];
+
+/**
+ * Rôle et base de DATABASE_URL (jamais le mot de passe), ou null si elle est absente ou illisible. Lus comme node-postgres
+ * (pg-connection-string) : le paramètre ?user= de l'adresse l'emporte sur l'utilisateur, PGUSER en dernier recours (rôle
+ * vide : aucun des trois, node-postgres prendrait alors le compte du système). `tls` : le réglage qui chiffre la
+ * connexion (sslmode=…, ssl=true, ou PGSSLMODE quand l'adresse n'en dit rien), null si rien ne la garantit.
+ */
+export function cibleBase(env: Env = process.env): { role: string; base: string; hote: string; sslmode: string | null; tls: string | null } | null {
   const url = env.DATABASE_URL?.trim();
   if (!url || !/^postgres(ql)?:\/\//i.test(url) || !URL.canParse(url)) return null;
   const u = new URL(url);
+  const q = u.searchParams;
+  const sslmode = q.get('sslmode'), ssl = q.get('ssl'), pgsslmode = (env.PGSSLMODE ?? '').trim();
+  let tls: string | null = null;
+  if (sslmode) tls = SSL_NON_GARANTI.includes(sslmode) ? null : `sslmode=${sslmode}`;
+  else if (ssl) tls = ['true', '1', 'no-verify'].includes(ssl) ? `ssl=${ssl}` : null;
+  else if (pgsslmode && !SSL_NON_GARANTI.includes(pgsslmode)) tls = `PGSSLMODE=${pgsslmode}`;
   return {
-    role: decodeURIComponent(u.username), base: decodeURIComponent(u.pathname.replace(/^\//, '')), hote: u.hostname.replace(/^\[|\]$/g, ''),
-    sslmode: u.searchParams.get('sslmode'),
+    role: q.get('user') || decodeURIComponent(u.username) || (env.PGUSER ?? '').trim(),
+    base: decodeURIComponent(u.pathname.replace(/^\//, '')), hote: u.hostname.replace(/^\[|\]$/g, ''), sslmode, tls,
   };
 }
 
@@ -148,7 +162,7 @@ export interface ConfigOidc {
 }
 
 /** Adresse publique réduite à son origine (schéma, nom, port), ou null si elle n'en est pas une. */
-function originePublique(v: string): string | null {
+export function originePublique(v: string): string | null {
   try {
     const u = new URL(v);
     if ((u.protocol !== 'https:' && u.protocol !== 'http:') || u.pathname !== '/' || u.search || u.hash || u.username) return null;
@@ -318,7 +332,7 @@ function problemesProduction(env: Env): string[] {
   const choix = (env.CURSUS_BASE ?? '').trim();
   if (choix && !['sqlite', 'postgres'].includes(choix)) out.push(`CURSUS_BASE vaut « ${choix} » : indiquez postgres (serveur commun, avec DATABASE_URL) ou sqlite (fichier local, choisi explicitement).`);
   else if (choix === 'postgres' && !url) out.push('CURSUS_BASE=postgres est définie sans DATABASE_URL : indiquez l’adresse du serveur PostgreSQL commun (rôle cursus_app, base epc2i).');
-  else if (choix === 'sqlite' && url) out.push('CURSUS_BASE=sqlite est définie avec DATABASE_URL : les deux se contredisent. Retirez l’une des deux.');
+  else if (choix === 'sqlite' && url) out.push('CURSUS_BASE=sqlite est définie avec DATABASE_URL : les deux se contredisent. Pour passer au serveur commun, retirez CURSUS_BASE (ou posez CURSUS_BASE=postgres) ; sinon retirez DATABASE_URL.');
   else if (env.CURSUS_CONTENEUR === '1' && !demo && !url && choix !== 'sqlite') {
     out.push('Image Docker sans DATABASE_URL : Cursus démarrerait sur un fichier SQLite vide du volume (/data/cursus.db), que les autres outils ne voient pas. '
       + 'Définissez DATABASE_URL (serveur commun, rôle cursus_app), ou CURSUS_BASE=sqlite pour garder volontairement le fichier.');
@@ -329,11 +343,19 @@ function problemesProduction(env: Env): string[] {
   if (enProduction(env) && !demo && !boucleLocaleExplicite(env) && !(env.CURSUS_PUBLIC_URL ?? '').trim()) {
     out.push('CURSUS_PUBLIC_URL est absente : indiquez l’adresse publique de Cursus, en https et sans chemin (https://cursus.entreprise.fr), pour les liens des e-mails et le contrôle d’origine des requêtes.');
   }
-  if (cibleBase(env)?.role === 'postgres') {
+  // Rôle du serveur : hors démonstration seulement. Une démonstration branchée sur un serveur PostgreSQL (base inconnue,
+  // réponse du propriétaire du 24 octobre) est signalée par avertissementsConfig, jamais arrêtée ; le pré-vol le bloque.
+  const cible = cibleBase(env);
+  if (!demo && cible?.role === 'postgres') {
     out.push('DATABASE_URL se connecte avec le rôle postgres (superutilisateur) : Cursus aurait tous les droits sur le serveur commun. Utilisez le rôle cursus_app du socle.');
+  } else if (!demo && cible && !cible.role && enProduction(env)) {
+    out.push('DATABASE_URL ne désigne aucun rôle (ni utilisateur dans l’adresse, ni ?user=, ni PGUSER) : node-postgres prendrait le compte du système. Indiquez le rôle cursus_app du socle (postgres://cursus_app:<mot de passe>@<hôte>:5432/epc2i).');
   }
-  if (trustProxy(env) === true) {
-    out.push('CURSUS_TRUST_PROXY=true fait croire les en-têtes X-Forwarded-* de n’importe quel client : adresse du client (limites de débit, plafond des clés Keystone, journaux) et protocole falsifiables. '
+  // Constat S7 : true, ou un réseau qui couvre toutes les adresses (préfixe /0, 0.0.0.0/0, ::/0), revient au même.
+  const proxy = trustProxy(env);
+  const toutes = typeof proxy === 'string' ? proxy.split(',').map(p => p.trim()).filter(p => /\/0+$/.test(p)) : [];
+  if (proxy === true || toutes.length) {
+    out.push(`${proxy === true ? 'CURSUS_TRUST_PROXY=true' : `CURSUS_TRUST_PROXY couvre toutes les adresses (${toutes.join(', ')}) et`} fait croire les en-têtes X-Forwarded-* de n’importe quel client : adresse du client (limites de débit, plafond des clés Keystone, journaux) et protocole falsifiables. `
       + 'Indiquez l’adresse ou le réseau du proxy (par exemple celui de Traefik).');
   }
   return out;
@@ -418,6 +440,10 @@ export function avertissementsConfig(env: Env = process.env, opts: OptionsConfig
     out.push('MATRIX_URL contient un identifiant ou un mot de passe (utilisateur:motdepasse@) : ils peuvent apparaître dans les messages d’erreur. Préférez l’appel par le réseau interne, avec MATRIX_TOKEN seul.');
   }
   if (opts.reglesDemo === false) return out;
+  if (demoActive(env) && cibleBase(env)?.role === 'postgres') {
+    out.push('Démonstration (CURSUS_DEMO=1) connectée au serveur PostgreSQL avec le rôle postgres (superutilisateur) : elle a tous les droits sur ce serveur. '
+      + 'Utilisez un rôle propre à la démonstration, ou une application à part en SQLite (docs/BASCULE-PRODUCTION.md) ; refusé hors démonstration.');
+  }
   if (demoSurBaseCommune(env)) {
     out.push(`Démonstration (CURSUS_DEMO=1) branchée sur la base ${BASE_COMMUNE} du serveur commun : ses salariés fictifs sont publiés aux autres outils par les vues pub_. `
       + 'Déplacez-la sur une application à part, en SQLite (docs/BASCULE-PRODUCTION.md) ; elle sera refusée au jour de la bascule.');

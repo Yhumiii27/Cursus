@@ -65,14 +65,36 @@ test('DATABASE_URL : rôle postgres refusé, rôle et base lus sans le mot de pa
   seul({ ...PROD, DATABASE_URL: 'postgres://postgres:secret@epc2i-postgres:5432/epc2i' }, /rôle postgres \(superutilisateur\)/, 'postgres');
   assert.ok(!problemesConfig({ ...PROD, DATABASE_URL: 'postgres://postgres:secret@h/epc2i' }).join().includes('secret'), 'mot de passe jamais affiché');
   assert.deepEqual(problemesConfig({ ...PROD, DATABASE_URL: URL_PG }), []);
-  assert.deepEqual(cibleBase({ DATABASE_URL: 'postgresql://cursus%5Fapp:s%40cret@[::1]:5432/epc2i?sslmode=require' }), { role: 'cursus_app', base: 'epc2i', hote: '::1', sslmode: 'require' });
+  assert.deepEqual(cibleBase({ DATABASE_URL: 'postgresql://cursus%5Fapp:s%40cret@[::1]:5432/epc2i?sslmode=require' }), { role: 'cursus_app', base: 'epc2i', hote: '::1', sslmode: 'require', tls: 'sslmode=require' });
+  // Rôle lu comme node-postgres : ?user= l'emporte, PGUSER en dernier recours ; « POSTGRES » est un autre rôle.
+  seul({ ...PROD, DATABASE_URL: 'postgres://epc2i-postgres:5432/epc2i?user=postgres&password=x' }, /rôle postgres \(superutilisateur\)/, '?user=postgres');
+  seul({ ...PROD, DATABASE_URL: 'postgres://cursus_app:x@epc2i-postgres:5432/epc2i?user=postgres' }, /rôle postgres/, '?user= l’emporte');
+  seul({ ...PROD, DATABASE_URL: 'postgres://epc2i-postgres:5432/epc2i', PGUSER: 'postgres' }, /rôle postgres/, 'PGUSER=postgres');
+  assert.deepEqual(problemesConfig({ ...PROD, DATABASE_URL: 'postgres://epc2i-postgres:5432/epc2i', PGUSER: 'cursus_app' }), [], 'PGUSER=cursus_app');
+  assert.equal(cibleBase({ DATABASE_URL: 'postgres://POSTGRES:x@h/epc2i' })?.role, 'POSTGRES');
+  // Aucun rôle : node-postgres prendrait le compte du système ; refusé en production seulement.
+  seul({ ...PROD, DATABASE_URL: 'postgres://epc2i-postgres:5432/epc2i' }, /DATABASE_URL ne désigne aucun rôle/, 'sans rôle');
+  assert.deepEqual(problemesConfig({ ...PROD, NODE_ENV: undefined, DATABASE_URL: 'postgres://h/epc2i' }), [], 'hors production');
+  // Chiffrement lu comme node-postgres : sslmode, ssl=true, PGSSLMODE quand l'adresse n'en dit rien.
+  const tls = (url: string, env: Record<string, string> = {}) => cibleBase({ DATABASE_URL: url, ...env })?.tls;
+  assert.equal(tls('postgres://u@h/b?ssl=true'), 'ssl=true');
+  assert.equal(tls('postgres://u@h/b?ssl=1'), 'ssl=1');
+  assert.equal(tls('postgres://u@h/b?ssl=0'), null);
+  assert.equal(tls('postgres://u@h/b', { PGSSLMODE: 'require' }), 'PGSSLMODE=require');
+  assert.equal(tls('postgres://u@h/b', { PGSSLMODE: 'prefer' }), null);
+  assert.equal(tls('postgres://u@h/b?sslmode=disable', { PGSSLMODE: 'require' }), null, 'l’adresse l’emporte');
+  assert.equal(tls('postgres://u@h/b?sslmode=prefer'), null);
   assert.equal(cibleBase({ DATABASE_URL: 'pas une adresse' }), null);
   assert.equal(cibleBase({}), null);
 });
 
 test('CURSUS_TRUST_PROXY=true refusé (constat S7) ; liste de proxys admise', () => {
   seul({ ...PROD, CURSUS_TRUST_PROXY: 'true' }, /CURSUS_TRUST_PROXY=true fait croire les en-têtes X-Forwarded-\* de n’importe quel client/, 'true');
-  for (const v of ['loopback', 'loopback,uniquelocal', '10.0.1.5', '172.18.0.0/16', '1', 'false']) assert.deepEqual(problemesConfig({ ...PROD, CURSUS_TRUST_PROXY: v }), [], v);
+  for (const v of ['loopback', 'loopback,uniquelocal', '10.0.1.5', '172.18.0.0/16', '10.0.0.0/8', '1', 'false']) assert.deepEqual(problemesConfig({ ...PROD, CURSUS_TRUST_PROXY: v }), [], v);
+  // Réseaux qui couvrent toutes les adresses : même effet que true.
+  seul({ ...PROD, CURSUS_TRUST_PROXY: '0.0.0.0/0,::/0' }, /CURSUS_TRUST_PROXY couvre toutes les adresses \(0\.0\.0\.0\/0, ::\/0\) et fait croire/, '0.0.0.0/0,::/0');
+  seul({ ...PROD, CURSUS_TRUST_PROXY: 'loopback, ::/0' }, /couvre toutes les adresses \(::\/0\)/, '::/0 dans une liste');
+  seul({ ...PROD, CURSUS_TRUST_PROXY: '10.0.0.0/00' }, /couvre toutes les adresses/, 'préfixe /00');
 });
 
 test('démonstration publique (S3) : ni e-mails, ni connexion Microsoft, ni Sage hors simulation', () => {

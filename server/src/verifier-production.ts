@@ -66,8 +66,15 @@ async function controlesBase(): Promise<{ controles: Controle[]; cible: string }
   if (!existsSync(fichier)) return { cible: `fichier ${fichier}`, controles: [bloquant('base.fichier', `Base SQLite ${fichier} introuvable.`, 'Vérifiez CURSUS_DB (ou DATABASE_URL pour le serveur commun).')] };
   // Copie instantanée (VACUUM INTO, depuis une connexion en lecture seule) : l'ouverture par la classe Db compléterait
   // le schéma d'une base ancienne ; c'est la copie qui l'est, jamais le fichier en service.
+  // La copie porte toute la base RH (santé, titres de séjour, paie) hors de ses protections : supprimée à la fin, et
+  // aussi si la commande est interrompue (Ctrl-C, terminal fermé, arrêt du conteneur) ; dossier en 700 (mkdtemp).
   const dossier = mkdtempSync(join(tmpdir(), 'cursus-pre-vol-'));
   const copie = join(dossier, 'copie.db');
+  const nettoyer = () => rmSync(dossier, { recursive: true, force: true });
+  const SIGNAUX = { SIGINT: 130, SIGTERM: 143, SIGHUP: 129 } as const;
+  const surSignal = (signal: keyof typeof SIGNAUX) => { nettoyer(); process.exit(SIGNAUX[signal]); };
+  for (const sig of Object.keys(SIGNAUX) as (keyof typeof SIGNAUX)[]) process.once(sig, surSignal);
+  process.once('exit', nettoyer);
   // Pièces : celles du fichier réel (la copie est ailleurs).
   process.env.CURSUS_PIECES_DIR ||= dossierPieces(realpathSync(fichier));
   try {
@@ -82,7 +89,9 @@ async function controlesBase(): Promise<{ controles: Controle[]; cible: string }
   } catch (err) {
     return { cible: `fichier ${fichier}`, controles: [bloquant('base.fichier', `Base SQLite ${fichier} illisible : ${err instanceof Error ? err.message : String(err)}.`)] };
   } finally {
-    rmSync(dossier, { recursive: true, force: true });
+    nettoyer();
+    for (const sig of Object.keys(SIGNAUX) as (keyof typeof SIGNAUX)[]) process.off(sig, surSignal);
+    process.off('exit', nettoyer);
   }
 }
 

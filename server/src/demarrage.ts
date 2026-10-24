@@ -23,6 +23,8 @@ export async function mettreAJourBase(db: Db): Promise<void> {
   if (db instanceof SqliteDb) {
     await migrate(db);
     await appliquerMigrations(db);
+    // Déclencheurs de révision reposés : une migration nommée a pu reconstruire une table (lot 8, chantier E).
+    db.poserRevision();
     return;
   }
   if (db.neuve) {

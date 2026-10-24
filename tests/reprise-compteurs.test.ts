@@ -287,7 +287,9 @@ test('t072 migration nommée : compteurs et reports d’une base existante daté
     // Lot 7, chantier C, étape 2 (t121) : index des évaluations des formations.
     'lot7-formations-index-evaluations',
     // Lot 8, chantier D, étape 2 : pièces existantes notées en clair (chiffrement au repos).
-    'lot8-pieces-chiffrees']);
+    'lot8-pieces-chiffrees',
+    // Lot 8, chantier E, étape 2 : index du journal par compte et par action.
+    'lot8-index-journal']);
   const ds = await loadFull(db, ADMIN);
   assert.ok(ds.soldesReprise.every(s => s.arreteLe === '2026-10-10'), 'date de mise en service de cette version');
   const recu = ds.reports.find(r => r.empId === 6)!, accorde = ds.reports.find(r => r.empId === 2)!;

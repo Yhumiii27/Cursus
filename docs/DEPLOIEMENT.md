@@ -586,6 +586,14 @@ l'identifiant) : chacun se reconnecte une fois.
    de `server/src/db-pg.ts`), le reste sert les écritures, l'identité des requêtes et la santé. Gardez au moins
    4 connexions : avec 1 ou 2, une seule lecture à la fois, et l'identité des requêtes suivantes attend une connexion
    jusqu'au délai (5 s), puis reçoit 503.
+   **Cache de l'instantané** (lot 8, `CURSUS_CACHE_INSTANTANE`, actif par défaut ; `0` le désactive) : chaque instance
+   garde en mémoire la dernière lecture complète de la base et les vues calculées dessus (par profil RH, par manager,
+   par collaborateur), indexées par la révision de la base (table `cursus.revision`, augmentée par un déclencheur à
+   chaque écriture, migration `0013_index_journal`). Une écriture faite par une autre instance, une tâche de fond ou un
+   outil (reprise, purge) rend aussitôt le cache périmé. Mémoire : pour 5 ans de données, l'essai de charge relève
+   0,6 Go par instance en lecture (S1) et jusqu'à 1,1 Go pendant une fin de mois (validations groupées simultanées) ;
+   limite mémoire Coolify à 1,5 Go au moins. Les écritures d'une instance attendent leur tour en mémoire, sans garder de
+   connexion du pool, au plus le délai du verrou (puis 503).
 2. **Premier démarrage** : Cursus applique ses migrations (`server/migrations-pg/`, journal
    `cursus.schema_migrations`), contrôle le schéma et amorce une base neuve (activités internes, horaires de poste
    d'exemple). Le journal du démarrage affiche « base PostgreSQL <hôte>:<port>/epc2i, schéma cursus ». Un refus

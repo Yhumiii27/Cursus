@@ -11,10 +11,10 @@ import { texteCsv } from '../../shared/csv.ts';
 import { adresseAgence, agencesInterim } from '../../shared/rules/messagerie.ts';
 import { heuresTexte, releveAgence, releveCsv, semainesAutomatiques, type Releve } from '../../shared/rules/releves.ts';
 import type { CurrentUser, Messagerie, ReleveInterim } from '../../shared/types.ts';
-import { loadFull } from './dataset.ts';
 import type { Db } from './db.ts';
 import { envoyerEmail, pieceJointe } from './integrations/email.ts';
 import { courriel, lireMessagerie, periodeLongue } from './messagerie.ts';
+import { type Lecture, lectureDirecte } from './lecture-partagee.ts';
 
 /** Lecture du périmètre complet, comme le service RH. */
 const RELEVES: CurrentUser = { role: 'rh', empId: null, nom: 'Cursus', intitule: 'Relevés d’heures des intérimaires' };
@@ -79,11 +79,14 @@ export async function envoyerReleve(db: Db, d: Domain, agence: string, semaine: 
  * si le dernier envoi était incomplet (feuilles alors en attente). `seulement` restreint à une agence et une
  * semaine (après une validation, avec `domaine`, la lecture de l'appelant). Renvoie les relevés mis en file.
  */
-export async function relevesAutomatiques(db: Db, seulement?: { agence: string; semaine: string }, domaine?: Domain): Promise<ReleveInterim[]> {
-  // Après une validation (server/src/actions/temps.ts), le Domain de l'appelant, feuille validée comprise (lot 8,
-  // chantier E) : pas de seconde lecture complète de la base dans la transaction.
-  const d = domaine ?? new Domain(await loadFull(db, RELEVES));
+export async function relevesAutomatiques(db: Db, seulement?: { agence: string; semaine: string }, domaine?: Domain, lire: Lecture = lectureDirecte(db)): Promise<ReleveInterim[]> {
   const m = await lireMessagerie(db);
+  // Test rapide avant toute lecture complète (lot 8, chantier E, étape 2) : aucune agence avec une adresse, aucun envoi.
+  if (!m.agences.some(a => a.adresse)) return [];
+  // Après une validation (server/src/actions/temps.ts), le Domain de l'appelant, feuille validée comprise (lot 8,
+  // chantier E) : pas de seconde lecture complète de la base dans la transaction. Tâches du quart d'heure : la lecture
+  // partagée du passage (server/src/lecture-partagee.ts).
+  const d = domaine ?? new Domain(await lire(RELEVES));
   const agences = agencesInterim(d.ds.employes).filter(a => !seulement || key(a) === key(seulement.agence));
   const out: ReleveInterim[] = [];
   for (const agence of agences) {

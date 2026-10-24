@@ -507,6 +507,16 @@ export function jsonLu(v: unknown): unknown {
   return typeof v === 'string' ? JSON.parse(v) : v;
 }
 
+/**
+ * Tables sans déclencheur de révision (lot 8, chantier E) : écrites à chaque consultation ou connexion (trace au journal,
+ * activité d'une session, dernière connexion d'un compte, dernier accès d'un flux d'agenda), jamais lues par
+ * l'instantané en cache (`lireTout` de server/src/dataset.ts) : les comptes et l'abonnement à l'agenda sont relus à
+ * chaque requête (identité, `buildSnapshot`). Toute autre table de TABLES augmente la révision de la base à chaque
+ * écriture (table `revision` : `SqliteDb.poserRevision`, migration PostgreSQL 0013_index_journal), clé du cache de
+ * l'instantané (server/src/cache-instantane.ts). Une table ajoutée ici ne doit jamais être lue par `lireTout`.
+ */
+export const TABLES_SANS_REVISION: ReadonlySet<TableName> = new Set<TableName>(['journal', 'connexions', 'comptes', 'jetonsAgenda']);
+
 /** Valeur passée en paramètre d'une requête SQL brute (`query`, `one`, `run`). */
 export type SqlValeur = string | number | bigint | boolean | null | Uint8Array;
 /** Issue d'une écriture SQL brute (`run`) : lignes touchées, identifiant de la dernière insertion. */
@@ -540,6 +550,22 @@ export abstract class Db {
   get revision(): number { return this.rev; }
   /** Fichier de la base (null : base en mémoire, ou serveur de base de données). */
   abstract get emplacement(): string | null;
+  /**
+   * Vrai dans une lecture stable ouverte pour elle-même (`lecture` hors de toute transaction ou suite exclusive) : seul
+   * endroit où le cache de l'instantané se lit et se remplit (server/src/cache-instantane.ts). Dans une transaction, la
+   * révision lue compterait des écritures que l'annulation peut défaire.
+   */
+  abstract get lectureStable(): boolean;
+
+  /**
+   * Révision de la base tenue en base (lot 8, chantier E) : augmentée, dans la transaction de l'écriture, par un
+   * déclencheur de chaque table hors `TABLES_SANS_REVISION`, quelle que soit l'instance ou l'outil qui écrit. Clé du
+   * cache de l'instantané ; à lire au début d'une lecture stable, avant les données. Distincte de `revision`, propre à
+   * l'instance et renvoyée au navigateur.
+   */
+  async revisionBase(): Promise<number> {
+    return Number((await this.one<{ n: number }>('SELECT n FROM revision'))?.n ?? 0);
+  }
 
   /** Lignes brutes d'une requête SQL (noms de colonnes de la base, sans décodage). */
   abstract query<T = Row>(sql: string, params?: readonly SqlValeur[]): Promise<T[]>;
@@ -627,6 +653,21 @@ export abstract class Db {
     const def = this.def(table);
     const order = orderBy ?? def.pk;
     return (await this.query(`SELECT * FROM ${snake(table)} ORDER BY ${snake(order)}`)).map(r => this.decode<T>(table, r));
+  }
+
+  /**
+   * Lignes de `table`, dans l'ordre de sa clé, sans les colonnes `sans` (lot 8, chantier E : lots de paie lus sans leur
+   * contenu figé, un JSON de 50 à 300 Ko par lot que seul le fichier d'import lit). Les colonnes omises sont absentes des
+   * objets rendus.
+   */
+  async allSans<T>(table: TableName, sans: readonly string[]): Promise<T[]> {
+    const def = this.def(table);
+    const cols = Object.keys(def.cols).filter(c => !sans.includes(c));
+    return (await this.query(`SELECT ${cols.map(snake).join(', ')} FROM ${snake(table)} ORDER BY ${snake(def.pk)}`)).map(r => {
+      const o = this.decode<Row>(table, r);
+      for (const c of sans) delete o[c];
+      return o as T;
+    });
   }
 
   async where<T>(table: TableName, field: string, value: unknown): Promise<T[]> {
@@ -758,9 +799,34 @@ export class SqliteDb extends Db {
     this.neuve = !Object.keys(TABLES).some(n => tables.has(snake(n)));
     // Schéma créé à l'ouverture, avant toute requête : rien d'autre ne peut encore utiliser la connexion.
     this.createSchema();
+    this.poserRevision();
+  }
+
+  /**
+   * Révision de la base (lot 8, chantier E) : table `revision` (une ligne) et déclencheurs qui l'augmentent à chaque
+   * ligne écrite des tables lues par l'instantané (`TABLES_SANS_REVISION` exclues), y compris par un autre processus
+   * (npm run comptes) ou une écriture SQL directe. Posés à l'ouverture, puis de nouveau après les migrations nommées
+   * (server/src/demarrage.ts), qui peuvent reconstruire une table et ses déclencheurs avec elle ; une table ajoutée à
+   * TABLES reçoit ainsi les siens sans migration. Hors de TABLES, comme la table des migrations nommées.
+   */
+  poserRevision(): void {
+    const sql = ['CREATE TABLE IF NOT EXISTS revision (cle INTEGER PRIMARY KEY CHECK (cle = 1), n INTEGER NOT NULL)', 'INSERT OR IGNORE INTO revision (cle, n) VALUES (1, 0)'];
+    for (const name of Object.keys(TABLES) as TableName[]) {
+      // Table exclue : déclencheurs retirés s'ils avaient été posés (base d'essai d'une version antérieure de l'étape).
+      if (TABLES_SANS_REVISION.has(name)) {
+        for (const suffixe of ['i', 'u', 'd']) sql.push(`DROP TRIGGER IF EXISTS revision_${snake(name)}_${suffixe}`);
+        continue;
+      }
+      for (const [suffixe, evenement] of [['i', 'INSERT'], ['u', 'UPDATE'], ['d', 'DELETE']]) {
+        sql.push(`CREATE TRIGGER IF NOT EXISTS revision_${snake(name)}_${suffixe} AFTER ${evenement} ON ${snake(name)} BEGIN UPDATE revision SET n = n + 1; END`);
+      }
+    }
+    this.sql.exec(sql.join(';\n'));
   }
 
   get emplacement(): string | null { return this.sql.location(); }
+
+  get lectureStable(): boolean { return !!this.enCours()?.lecture; }
 
   private tablesSql(): Set<string> {
     return new Set((this.sql.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[]).map(t => t.name));

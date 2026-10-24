@@ -16,7 +16,8 @@ import { compression } from './compression.ts';
 import { compressionActive, configMail, demoPublique, enProduction, trustProxy } from './config.ts';
 import { ESPACE_CHANGE, espaceChange, examinerIdentite, identite, routesConnexion } from './connexion.ts';
 import { routesConfidentialite } from './confidentialite.ts';
-import { buildSnapshot, loadFull } from './dataset.ts';
+import { buildSnapshot, loadFull, todayIso } from './dataset.ts';
+import { donneesAction } from './cache-instantane.ts';
 import { type Db, enSerie } from './db.ts';
 import { limiterDebit } from './debit.ts';
 import { routesDonnees } from './donnees.ts';
@@ -113,7 +114,8 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
       if (!actuel) throw new ActionError('Connexion requise', 401);
       if (actuel.session.role !== id.session.role) throw new ActionError(ESPACE_CHANGE, 409);
       const user = actuel.user;
-      const ctx = makeCtx(db, user, await loadFull(db, user));
+      // Lecture partagée de l'instantané en cache si elle décrit l'état de la base vu ici (server/src/cache-instantane.ts).
+      const ctx = makeCtx(db, user, await donneesAction(db, user, todayIso(), async u => await loadFull(db, u)));
       const trace = await preparerTrace(db, name, p);
       const r = await handler(ctx, p);
       const o = signerDelegation(ctx, typeof r === 'object' && r !== null ? r : { message: r });

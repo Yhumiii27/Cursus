@@ -42,7 +42,7 @@ process.env.CURSUS_LOG_FORMAT ??= 'texte';
 
 const { ouvrirPostgres } = await import('../../server/src/db-pg.ts');
 const { createApp } = await import('../../server/src/app.ts');
-const { sign } = await import('../../server/src/auth.ts');
+const { empreinteSession, sign } = await import('../../server/src/auth.ts');
 const { tachesEmails } = await import('../../server/src/notifications.ts');
 const { appliquerConservation } = await import('../../server/src/journal.ts');
 const { relancerEcheances } = await import('../../server/src/relances.ts');
@@ -88,8 +88,9 @@ async function executer(): Promise<void> {
   const ouvrir = async (nom: string, role: Role, compteId: number, empId: number | null): Promise<Utilisateur> => {
     const id = randomBytes(32).toString('base64url');
     const maintenant = new Date();
+    // Table `connexions` : empreinte de l'identifiant seulement (lot 8, chantier D), comme `ouvrirSession`.
     await db.insert('connexions', {
-      id, compteId, role, methode: 'local', demoComptes: {}, creation: maintenant.toISOString(), expiration: new Date(maintenant.getTime() + 12 * 3600_000).toISOString(), activite: null,
+      id: empreinteSession(id), compteId, role, methode: 'local', demoComptes: {}, creation: maintenant.toISOString(), expiration: new Date(maintenant.getTime() + 12 * 3600_000).toISOString(), activite: null,
     });
     return { nom, role, compteId, empId, cookie: `cursus_session=${id}.${await sign(db, id)}` };
   };
@@ -148,22 +149,33 @@ async function executer(): Promise<void> {
 
   // — Sonde : santé, verrou d'écriture sur le serveur, pool, mémoire —
   const sante: Mesures = { durees: [], e4xx: 0, e5xx: 0, e503: 0, delais: 0 };
-  const etat = { attenteVerrouMax: 0, attentesMax: 0, tenueVerrouMax: 0, attentePoolMax: 0, poolAttenteMax: 0, lecturesAttenteMax: 0, rssMax: 0, tasMax: 0 };
+  const etat = { attenteVerrouMax: 0, attentesMax: 0, tenueVerrouMax: 0, attentePoolMax: 0, poolAttenteMax: 0, lecturesAttenteMax: 0, ecrituresAttenteMax: 0, attenteFileMax: 0, rssMax: 0, tasMax: 0 };
   const tenues = new Map<number, number>();
   let poolDepuis: number | null = null;
   let sondeEnCours = false;
   const chronologie: { t: number; sante: number | null; attente: number; tenue: number; pool: number }[] = [];
   const debut = performance.now();
+  // Attentes de la file des écritures comptées à partir d'ici (pas celles de la préparation du jeu).
+  db.fileEcritures.attenteMax = 0;
   const relever = async () => {
     const t0 = performance.now();
     const m = process.memoryUsage();
     etat.rssMax = Math.max(etat.rssMax, m.rss); etat.tasMax = Math.max(etat.tasMax, m.heapUsed);
     const attentePool = db.pool.waitingCount;
     etat.lecturesAttenteMax = Math.max(etat.lecturesAttenteMax, db.placesLecture.enAttente);
+    etat.ecrituresAttenteMax = Math.max(etat.ecrituresAttenteMax, db.fileEcritures.enAttente);
+    // Attente du verrou d'écriture dans l'instance : sur une instance, une seule écriture à la fois atteint
+    // pg_advisory_xact_lock ; les autres attendent leur tour en mémoire, sans connexion, et pg_stat_activity ne les voit
+    // pas. L'attente jugée est la plus longue des deux (file de l'instance, attente Advisory sur le serveur).
+    const attenteFile = Math.max(db.fileEcritures.attenteEnCours, db.fileEcritures.attenteMax);
+    etat.attenteFileMax = Math.max(etat.attenteFileMax, attenteFile);
+    etat.attenteVerrouMax = Math.max(etat.attenteVerrouMax, attenteFile);
     etat.poolAttenteMax = Math.max(etat.poolAttenteMax, attentePool);
     if (attentePool > 0) { poolDepuis ??= t0; etat.attentePoolMax = Math.max(etat.attentePoolMax, t0 - poolDepuis); } else poolDepuis = null;
-    // Santé : un appel par relevé ; au-delà de 10 s sans réponse, compté comme délai dépassé.
-    const sant = (async () => {
+    // Santé : un appel par relevé ; au-delà de 10 s sans réponse, compté comme délai dépassé. Lancé après le relevé du
+    // verrou : tant que la sonde de santé prend elle-même le verrou d'écriture (enSerie, server/src/supervision.ts), un
+    // relevé fait pendant son appel compterait comme tenu en continu le verrou de chaque appel de santé.
+    const sante1 = async () => {
       const t = performance.now();
       try {
         const res = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(10_000) });
@@ -176,9 +188,10 @@ async function executer(): Promise<void> {
         sante.delais++; sante.durees.push(performance.now() - t);
         return null;
       }
-    })();
-    if (sondeEnCours) return void await sant;
+    };
+    if (sondeEnCours) return void await sante1();
     sondeEnCours = true;
+    let sant: Promise<number | null> | null = null;
     try {
       const { rows } = await sonde.query<{ pid: number; granted: boolean; attente: number | null; tx: number | null }>(`SELECT l.pid, l.granted,
           EXTRACT(EPOCH FROM now() - a.query_start) * 1000 AS attente, EXTRACT(EPOCH FROM now() - a.xact_start) * 1000 AS tx
@@ -190,18 +203,23 @@ async function executer(): Promise<void> {
       const attenteMax = Math.max(0, ...attentes.map(x => Number(x.attente ?? 0)));
       etat.attenteVerrouMax = Math.max(etat.attenteVerrouMax, attenteMax);
       // Tenue : depuis le premier relevé où la session détient le verrou (suite exclusive), ou depuis le début de sa
-      // transaction s'il est plus ancien (verrou de transaction).
+      // transaction s'il est plus ancien (verrou de transaction). Une transaction commencée après ce premier relevé est
+      // une autre tenue (transactions qui se suivent sur la même connexion du pool, file des écritures de l'instance) :
+      // le décompte repart de son début. Une suite exclusive dont une requête est en cours peut ainsi être sous-estimée
+      // (elle ne tient le verrou qu'en dehors des transactions, pour les routes de la session : quelques millisecondes).
       const detenteurs = new Set(rows.filter(x => x.granted).map(x => x.pid));
       for (const pid of tenues.keys()) if (!detenteurs.has(pid)) tenues.delete(pid);
       let tenue = 0;
       for (const x of rows.filter(y => y.granted)) {
-        if (!tenues.has(x.pid)) tenues.set(x.pid, maintenant);
-        tenue = Math.max(tenue, maintenant - tenues.get(x.pid)!, Number(x.tx ?? 0));
+        const tx = x.tx === null ? null : Number(x.tx);
+        if (!tenues.has(x.pid) || (tx !== null && maintenant - tenues.get(x.pid)! > tx + 500)) tenues.set(x.pid, tx === null ? maintenant : maintenant - tx);
+        tenue = Math.max(tenue, maintenant - tenues.get(x.pid)!);
       }
       etat.tenueVerrouMax = Math.max(etat.tenueVerrouMax, tenue);
-      chronologie.push({ t: Math.round((t0 - debut) / 100) / 10, sante: null, attente: Math.round(attenteMax), tenue: Math.round(tenue), pool: attentePool });
+      chronologie.push({ t: Math.round((t0 - debut) / 100) / 10, sante: null, attente: Math.round(Math.max(attenteMax, db.fileEcritures.attenteEnCours)), tenue: Math.round(tenue), pool: attentePool });
     } finally {
       sondeEnCours = false;
+      sant = sante1();
     }
     const d = await sant;
     const dernier = chronologie.at(-1);
@@ -351,8 +369,8 @@ async function executer(): Promise<void> {
     ...Object.entries(routes).map(([n, x]) => `| ${n} | ${x.n} | ${ms(x.p50)} | ${ms(x.p95)} | ${ms(x.p99)} | ${ms(x.max)} | ${x.e4xx} | ${x.e5xx} (${x.e503}) | ${x.delais} |`), '',
     '## Sonde (toutes les 500 ms)', '',
     `- /api/health : ${stats.sante.n} relevés, p50 ${ms(stats.sante.p50)}, p95 ${ms(stats.sante.p95)}, p99 ${ms(stats.sante.p99)}, max ${ms(stats.sante.max)}, ${stats.sante.delais} sans réponse en 10 s`,
-    `- verrou d’écriture : attente au plus ${ms(stats.attenteVerrouMax)} (${stats.attentesMax} sessions en attente au plus), tenue au plus ${ms(stats.tenueVerrouMax)}`,
-    `- pool : ${stats.poolAttenteMax} appels en attente d’une connexion au plus, attente continue au plus ${ms(stats.attentePoolMax)} ; lectures stables en attente d’une place au plus : ${stats.lecturesAttenteMax}`,
+    `- verrou d’écriture : attente au plus ${ms(stats.attenteVerrouMax)} (file des écritures de l’instance : ${ms(stats.attenteFileMax)} au plus ; ${stats.attentesMax} sessions en attente sur le serveur au plus), tenue au plus ${ms(stats.tenueVerrouMax)}`,
+    `- pool : ${stats.poolAttenteMax} appels en attente d’une connexion au plus, attente continue au plus ${ms(stats.attentePoolMax)} ; lectures stables en attente d’une place au plus : ${stats.lecturesAttenteMax} ; écritures de l’instance en attente de leur tour au plus : ${stats.ecrituresAttenteMax}`,
     `- mémoire : RSS au plus ${Math.round(stats.rssMax / 1048576)} Mo, tas ${Math.round(stats.tasMax / 1048576)} Mo`, '',
     ...(Object.keys(scenariosFaits).length ? ['## Traitements', '', ...Object.entries(scenariosFaits).map(([k, v]) => `- ${k} : ${v}`), ''] : []),
     ...(erreurs.length ? ['## Erreurs (100 premières)', '', ...erreurs.slice(0, 100).map(e => `- ${e}`), ''] : []),

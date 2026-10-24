@@ -625,7 +625,12 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     `pg_advisory_xact_lock(hashtext('cursus.ecritures'))` (écritures sérialisées, comme la file de SQLite) ; `exclusif`
     prend le même verrou au niveau de la session pour toute la suite, requêtes validées une à une (une réponse HTTP ne
     part jamais avant la validation de ce qu'elle annonce) ; `lecture` : `REPEATABLE READ READ ONLY` (un seul état de
-    la base pour `loadFull`). Les requêtes d'une même portée passent l'une après l'autre sur sa connexion.
+    la base pour `loadFull`). Les requêtes d'une même portée passent l'une après l'autre sur sa connexion. Lot 8,
+    chantier E, étape 2 : les transactions et suites exclusives d'une instance attendent d'abord leur tour en mémoire
+    (`FileEcritures`), au plus le délai du verrou (au-delà : 55P03, donc 503), avant de prendre une connexion puis le
+    verrou commun : une écriture en attente ne garde plus une connexion du pool (trente saisies simultanées prenaient les
+    dix connexions, et les lectures comme la santé attendaient une connexion jusqu'au 503). La file mesure l'attente de
+    chaque écriture avant son tour (`attenteEnCours`, `attenteMax`), reprise par la sonde de l'essai de charge.
   - *Schéma.* `server/migrations-pg/` : `0001_init.sql` (50 tables, état final de `TABLES` avant l'étape 2 du lot 6),
     `0002_partage.sql` (vues `pub_` lues par Matrix et les autres outils, sans colonne sensible ni GRANT : les droits
     viennent du socle) et `0003_lot6_etape2.sql` (étape 2 du lot 6 : 7 tables, 57 en tout, colonnes ajoutées, nature
@@ -644,6 +649,10 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     `0010_evaluations_formation.sql` (lot 7, chantier C, étape 2 : évaluations des formations, table `evaluations_formation`,
     CHECK du type, du répondant, de la note et de l'efficacité, une seule formation évaluée ; aucune vue `pub_`). 62 tables
     en tout.
+    `0013_index_journal.sql` (lot 8, chantier E, étape 2 : index `journal(compte_id, action, id DESC)`, table technique
+    `revision` d'une ligne et déclencheur `revision` par instruction sur chaque table hors journal, sessions, comptes et
+    abonnements à l'agenda (`TABLES_SANS_REVISION`), clé du cache de l'instantané ; hors de `TABLES` et de la déclaration à Matrix ; aucune vue `pub_` touchée). Une table ajoutée
+    ensuite reçoit son déclencheur dans sa migration : `controlerSchema` refuse de démarrer sans lui.
     Appliquées au démarrage sous `pg_advisory_lock(hashtext('cursus.migrations'))`, pris avant de lire le journal
     `cursus.schema_migrations`, une transaction par fichier ; une migration du journal inconnue de ce code (base mise à
     jour par une version plus récente) ou un schéma `cursus` absent : refus de démarrer. Puis `TABLES` est comparé au
@@ -777,6 +786,78 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     transaction (environ 1 s), soit une à deux écritures par seconde. Suites prévues : requêtes N+1 des relevés et
     tâches du quart d'heure (étape 2), cache de l'instantané par révision et fenêtre de lecture des années closes
     (reportés après la première mesure).
+  - *Corrections de l'étape 2* :
+    - *cache de l'instantané* (`server/src/cache-instantane.ts`, `CURSUS_CACHE_INSTANTANE=0` pour le couper) : la
+      lecture complète de la base est gardée en mémoire, indexée par la **révision de la base** (table technique
+      `revision` d'une ligne, augmentée dans la transaction de chaque écriture par un déclencheur de chaque table hors
+      journal, sessions, comptes et abonnements à l'agenda — écrits à chaque consultation ou connexion (dernière
+      connexion d'un compte, dernier accès d'un flux d'agenda), jamais lus par l'instantané en cache, relus à chaque
+      requête — : migration PostgreSQL `0013_index_journal`, `SqliteDb.poserRevision` en SQLite, posés de
+      nouveau après les migrations nommées) et par la date du jour ; une écriture de n'importe quelle instance, tâche
+      de fond ou outil (reprise, purge, écriture SQL directe) la rend périmée, une transaction annulée ne change rien.
+      La révision se lit au début de chaque lecture stable (`Db.revisionBase`, `Db.lectureStable`), avant les données :
+      même état. Les vues (profil RH, manager, collaborateur : `vueDe` de `server/src/dataset.ts`) sont calculées une
+      fois par révision et par clé de vue (`cleVue` : profil pour l'espace RH, espace et salarié sinon ; jamais la vue
+      d'un autre profil ni d'une autre personne) ; l'utilisateur et la révision de la requête y sont reposés. Restent
+      lus à chaque requête : dossiers échus de la conservation (comptés aussi sur le journal) et abonnement à l'agenda.
+      Les absences et déplacements en attente du fichier de paie se calculent à la première demande d'un profil qui
+      voit la paie, sur le même état. Lectures simultanées d'une même révision : une seule lecture de la base ; lecture
+      commencée avant la dernière écriture : servie par l'entrée plus récente (état validé un instant plus tard). Une
+      action (transaction) reprend la lecture partagée quand la révision lue sous le verrou, avant toute écriture, est
+      celle de l'entrée (`donneesAction`), sinon lit directement ; rien n'est mis en cache depuis une transaction. Les
+      données partagées ne sont jamais modifiées : sous `node --test`, chaque entrée, chaque vue et chaque `loadFull`
+      sont gelés en profondeur (`geler`), et toute la suite passe ainsi ; pas de gel en production (170 ms par lecture
+      sur 5 ans). Tests : `tests/cache-instantane.test.ts` (même instantané avec et sans cache pour chaque compte et
+      chaque espace de la démonstration et chaque profil RH, cache périmé après une action, une tâche planifiée, l'API
+      Keystone, une écriture SQL directe et une remise à zéro, deux instances PostgreSQL sur la même base) ;
+    - *tâches du quart d'heure* (`tachesEmails`) : une transaction par tâche (relevés, annonce des délégations,
+      récapitulatif des échéances, évaluations, récapitulatif quotidien), une tâche en échec n'annulant pas les autres
+      (première erreur rendue à la fin) ; une lecture complète au plus par passage, partagée (`lecturePartagee`,
+      `server/src/lecture-partagee.ts`) ; tests rapides avant de lire : agences sans adresse (relevés), réglages seuls
+      (`loadSettings`) pour le récapitulatif des échéances et les évaluations désactivées ;
+    - *lots de paie* : `lireLots` sans la colonne `contenu` (`Db.allSans`) ; `emisEtReservees` ne lit que
+      `contenu->'absences'` des lots non annulés ; relevés des agences avec le statut de leur e-mail par des requêtes
+      `IN (…)` de 500 identifiants (681 lectures une à une avant) ;
+    - *index* `journal(compte_id, action, id DESC)` (migration PostgreSQL `0013_index_journal`, migration nommée SQLite
+      `lot8-index-journal`) ;
+    - *file des écritures de l'instance* (« Accès à la base : PostgreSQL », *Concurrence*) ;
+    - *essai* : sessions de l'exécuteur rangées sous l'empreinte de leur identifiant (chantier D), tenue du verrou
+      relevée par transaction (deux transactions qui se suivent sur une même connexion ne comptent plus comme une seule
+      tenue), relevé du verrou fait avant l'appel de santé (`/api/health` prend encore le verrou d'écriture : chantier B),
+      attente du verrou d'écriture jugée (seuil de 10 s) sur la plus longue de l'attente `Advisory` vue sur le serveur et
+      de l'attente d'un tour dans la file des écritures de l'instance (`FileEcritures.attenteMax` et `attenteEnCours`,
+      `attenteFileMax` du rapport) : sur une instance, une seule écriture à la fois atteint `pg_advisory_xact_lock`, les
+      autres attendent en mémoire, sans connexion, et `pg_stat_activity` ne les voit pas ;
+      étape « Essai de charge » du job `postgres` de la CI (non bloquante, seuils ×3, invariants entiers ; jeu d'un an
+      et S2, S3 pendant 60 s sur une pull request qui touche `server/src/db*.ts`, `dataset.ts`, `app.ts`,
+      `actions/suivi-feuilles.ts` ou `server/migrations-pg/` ; jeu de 5 ans et S1 à S3 sur « Run workflow » et le lundi ;
+      rapport publié ; `check` et `e2e` ne tournent pas au passage hebdomadaire).
+  - *Seconde mesure* (24 octobre 2026, même machine et même jeu de 5 ans, 120 s par scénario ; rapports
+    `data/charge/rapports/`, non versionnés) :
+    - S1 « matinée » (30 lecteurs) : `/api/data` médiane 27 ms (collaborateur), 110 ms (manager), 0,8 s (RH : 23 Mo de
+      JSON, 0,4 s de sérialisation et de compression) ; p95 2,7 à 4,8 s, tenu par la rafale du début (les trente
+      premières lectures arrivent en 3 s, avant que l'entrée et les vues ne soient calculées) ; santé p99 3,2 s,
+      maximum 3,6 s ; aucune 5xx ; révision inchangée pendant tout le scénario. Avant : p95 de 28 à 31 s.
+    - S2 « vendredi après-midi » (30 saisies) : aucune 5xx, verrou tenu au plus 1,4 s, attente du pool 2,7 à 3,9 s ;
+      mais `temps.setCell` p95 26 à 27 s et `/api/data` p95 1,8 à 2,6 s (collaborateur) : environ 1,3 écriture par
+      seconde. Chaque écriture rend la lecture partagée périmée, et la relire (0,6 s de lecture et de décodage, surtout
+      les 28 000 feuilles) puis recalculer les vues occupe le processus ; les saisies attendent leur tour dans la file
+      de l'instance. Seuil d'action (800 ms) non tenu. Attente du verrou d'écriture : 25,4 s au plus, toute dans la file
+      de l'instance (aucune session en attente sur le serveur, 69 écritures en file au plus ; S2 rejoué pendant 120 s
+      après la relecture, `temps.setCell` p95 25,6 s) : seuil de 10 s non tenu. La première version de la sonde ne
+      relevait que l'attente sur le serveur et marquait ce seuil tenu.
+    - S3 « fin de mois » (6 validations de 16 à 30 feuilles, 20 lecteurs, Keystone, tâches du quart d'heure) :
+      validations de 7,6 à 22 s de bout en bout (33 à 37 s à l'étape 1), toutes faites ; avec une validation de 200
+      feuilles en plus : 39,9 s pour celle-ci (seuil 60 s) ; verrou tenu au plus 2,2 à 5,8 s (10,2 s à l'étape 1), aucune
+      5xx ; mémoire jusqu'à 0,9 à 1,1 Go (seuil 1 Go dépassé avec la validation de 200 feuilles).
+    - Santé : tant que `/api/health` prend le verrou d'écriture (`enSerie`, `server/src/supervision.ts`, sortie du
+      verrou par le chantier B), elle attend son tour derrière les saisies : jusqu'à 10 s en S2 et S3 (invariant de 5 s
+      non tenu). Même essai avec la santé hors du verrou (modification d'essai, non livrée ici) : S1 à S3 tiennent les
+      trois invariants (santé au plus 4,4 s, p99 1,1 s ; aucune 5xx ; verrou tenu au plus 2,2 s).
+    - Restent hors seuil : la saisie simultanée (S2) et les lectures pendant une fin de mois, limitées par la relecture
+      complète après chaque écriture dans un seul processus. Suites proposées : relecture partielle de la lecture
+      partagée (journal des lignes changées par révision : seules les feuilles et absences modifiées relues),
+      fenêtre de lecture des années closes (règle par règle), ou plusieurs instances derrière le proxy.
 - **Réinitialisation de la démonstration** (`server/src/reset.ts`, garde-fous dans `server/src/reinitialisation.ts`) :
   refusée hors `CURSUS_DEMO=1`, avec `NODE_ENV=production` sauf l'application de bureau (`demoSurBoucleLocale`) et l'instance publiée (`demoPublique`), sur
   une base qu'un serveur en service n'a pas encore mise à jour (`controlerPourOutil`), sur une base qu'un serveur

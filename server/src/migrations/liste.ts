@@ -22,6 +22,7 @@ import { ASTREINTES_ACTIVITE_INDEX, ASTREINTES_PAIE_INDEX } from './lot7-astrein
 import { C2P_COLONNES, PASSEPORT_PREVENTION } from './lot7-prevention.ts';
 import { INDEX_ATTENTES, INDEX_EVALUATIONS } from './lot7-formations.ts';
 import { PIECES_CHIFFREES } from './lot8-pieces.ts';
+import { INDEX_JOURNAL_COMPTE } from './lot8-index-journal.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   INDEX_JOURNAL,
@@ -59,4 +60,5 @@ export const MIGRATIONS: readonly Migration[] = [
   PASSEPORT_PREVENTION,
   INDEX_EVALUATIONS,
   PIECES_CHIFFREES,
+  INDEX_JOURNAL_COMPTE,
 ];

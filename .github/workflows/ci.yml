@@ -99,6 +99,11 @@ jobs:
     name: Tests sur PostgreSQL 16 et socle du serveur commun
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # bash explicite : GitHub lance alors « bash -eo pipefail ». Sans lui (bash -e seul), un psql en échec suivi de
+    # « | tee fichier » laisse le fichier vide et l'étape passe : les contrôles « test ! -s » ci-dessous n'auraient pas tourné.
+    defaults:
+      run:
+        shell: bash
     services:
       postgres:
         image: postgres:16

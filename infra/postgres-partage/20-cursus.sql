@@ -10,7 +10,8 @@
 -- Décisions : D01 personnes, D08 catalogue des titres, D09 titres détenus, D15 organigramme (unite_code), D14 sites
 -- (site_code), D18 journal, D19 horizon d'alerte, CU-1 absences (Crucible). Hors de ce fichier : D06 et D07 (vues *_v1, migration echanges_rh).
 -- Lot 8 (24/10/2026) : pub_titres_detenus de la migration 0011_pub_titres_valides (certifications annulées retirées,
--- habilitation suspendue ou retirée bornée par sa mesure, colonnes mesure et mesure_le en fin). Copie à reporter chez
+-- habilitation suspendue ou retirée bornée par sa mesure, ou par un prérequis manquant, colonnes mesure et mesure_le en
+-- fin). Copie à reporter chez
 -- Matrix AVANT le déploiement de 0011 : l'ancienne copie échouerait ensuite au rejeu (CREATE OR REPLACE VIEW ne retire
 -- pas de colonne). Celle-ci ne lit que des colonnes présentes dès 0002 : elle se rejoue avant comme après 0011.
 -- Exécution : en tant que cursus_app (ou un administrateur membre de matrix_admin, SET ROLE cursus_app), après le
@@ -65,7 +66,7 @@ SELECT 'habilitation.' || h.id, 'habilitation'::text, h.id, h.nom, h.nom, h.vali
 FROM cursus.habilitations h;
 COMMENT ON VIEW cursus.pub_titres IS 'Contrat D08 v1 : formations et habilitations du catalogue Cursus. validite_mois NULL = sans échéance. Lecteurs : vigie_app, keystone_app, matrix_app.';
 -- D09 · Titres détenus : dernière obtention non annulée par (salarié, formation) ; habilitations délivrées, bornées par
--- une suspension ou un retrait (avenant du lot 8, migration 0011_pub_titres_valides de Cursus : colonnes mesure et
+-- une suspension, un retrait ou un prérequis manquant (avenant du lot 8, migration 0011_pub_titres_valides de Cursus : colonnes mesure et
 -- mesure_le ajoutées en fin). L'aptitude médicale n'est pas publiée (donnée de santé), ni le motif de la mesure.
 CREATE OR REPLACE VIEW cursus.pub_titres_detenus WITH (security_barrier) AS
 WITH cert AS (
@@ -107,8 +108,10 @@ SELECT 'hab_titre.' || h.id,
        h.delivre_le,
        x.expire_le,
        -- least ignore les NULL : échéance, prérequis, puis veille de la suspension ou du retrait (utilisable_jusqu_au
-       -- est inclus, comme expire_le : le titre n'est plus utilisable le jour de la mesure, comme dans Cursus).
-       least(x.expire_le, pr.prerequis_jusqu_au, (h.mesure_le - 1)),
+       -- est inclus, comme expire_le : le titre n'est plus utilisable le jour de la mesure, comme dans Cursus). Prérequis
+       -- manquant : jamais utilisable (veille de la délivrance), comme habInfo (prérequis non satisfait : « susp ») ; sans
+       -- cette borne, least ignorerait le NULL de prerequis_jusqu_au et rendrait l'échéance.
+       least(x.expire_le, pr.prerequis_jusqu_au, (h.mesure_le - 1), CASE WHEN pr.manquant THEN h.delivre_le - 1 END),
        coalesce(pr.manquant, false),
        NULL::text,
        h.par,
@@ -135,7 +138,7 @@ LEFT JOIN LATERAL (
     LIMIT 1
   ) dernier ON true
 ) pr ON true;
-COMMENT ON VIEW cursus.pub_titres_detenus IS 'Contrat D09 v1, avenant du lot 8 : titres détenus par salarié (dernière formation suivie non annulée, habilitations délivrées). utilisable_jusqu_au borné à la veille d''une suspension ou d''un retrait ; colonnes ajoutées en fin : mesure (suspension | retrait | null), mesure_le. Aucune donnée de santé : l''aptitude médicale n''est pas publiée ; motif de la mesure jamais publié. Lecteurs : vigie_app, keystone_app, matrix_app.';
+COMMENT ON VIEW cursus.pub_titres_detenus IS 'Contrat D09 v1, avenant du lot 8 : titres détenus par salarié (dernière formation suivie non annulée, habilitations délivrées). utilisable_jusqu_au borné à la veille d''une suspension ou d''un retrait, et à la veille de la délivrance quand un prérequis manque ; colonnes ajoutées en fin : mesure (suspension | retrait | null), mesure_le. Aucune donnée de santé : l''aptitude médicale n''est pas publiée ; motif de la mesure jamais publié. Lecteurs : vigie_app, keystone_app, matrix_app.';
 -- D19 · Horizon d'alerte : seule la clé app.horizonAlerte est lue (jamais secret ni les autres réglages).
 CREATE OR REPLACE VIEW cursus.pub_parametres WITH (security_barrier) AS
 SELECT coalesce((s.value ->> 'horizonAlerte')::integer, 90) AS horizon_alerte_jours

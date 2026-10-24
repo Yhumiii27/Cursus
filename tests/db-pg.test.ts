@@ -297,9 +297,11 @@ test('vue pub_titres_detenus (lot 8) : certification annulée jamais publiée, h
   // Certifications : l'annulée n'est pas publiée, ni pour CACES ni pour la formation prérequise.
   assert.deepEqual(lignes.filter(l => l.nature === 'formation').map(l => l.cursus_ref), [`certification.${ancienne.id}`]);
   assert.deepEqual([par(`certification.${ancienne.id}`)!.obtenu_le, par(`certification.${ancienne.id}`)!.expire_le, par(`certification.${ancienne.id}`)!.mesure], ['2022-03-01', '2027-03-01', null]);
-  // BR : prérequis manquant (sa seule certification est annulée) ; aucune mesure.
+  // BR : prérequis manquant (sa seule certification est annulée) ; aucune mesure. Jamais utilisable (veille de la
+  // délivrance), comme habInfo (« susp ») : un lecteur qui ne regarde que utilisable_jusqu_au ne le tient pas pour habilité.
   const br = lignes.find(l => l.code === 'br')!;
-  assert.deepEqual([br.prerequis_manquant, br.expire_le, br.utilisable_jusqu_au, br.mesure, br.mesure_le], [true, '2029-01-15', '2029-01-15', null, null]);
+  assert.deepEqual([br.prerequis_manquant, br.expire_le, br.utilisable_jusqu_au, br.mesure, br.mesure_le], [true, '2029-01-15', '2026-01-14', null, null]);
+  assert.equal((await db.one<{ n: number }>(`SELECT count(*)::int AS n FROM pub_titres_detenus WHERE prerequis_manquant AND utilisable_jusqu_au >= obtenu_le`))!.n, 0);
   // Suspension et retrait : utilisable jusqu'à la veille de la mesure (date incluse, comme expire_le), échéance
   // inchangée, mesure publiée sans son motif.
   assert.deepEqual([par(`hab_titre.${susp.id}`)!.expire_le, par(`hab_titre.${susp.id}`)!.utilisable_jusqu_au, par(`hab_titre.${susp.id}`)!.mesure, par(`hab_titre.${susp.id}`)!.mesure_le],

@@ -5,9 +5,12 @@
 --    par erreur) : jamais publiée, ni comptée comme prérequis d'une habilitation ; la dernière certification non annulée
 --    reprend sa place, comme dans Cursus (server/src/dataset.ts). Habilitation suspendue ou retirée (hab_titres.mesure,
 --    server/src/actions/conformite.ts) : utilisable_jusqu_au borné à la veille de la mesure (date incluse, comme
---    expire_le), comme shared/domain.ts (habInfo : la mesure prime sur l'échéance et les prérequis, dès son jour). Colonnes existantes inchangées et dans le même ordre ;
---    deux colonnes ajoutées en fin : mesure (suspension | retrait | null) et mesure_le (date de la mesure). Le motif de
---    la mesure n'est pas publié (texte libre).
+--    expire_le), comme shared/domain.ts (habInfo : la mesure prime sur l'échéance et les prérequis, dès son jour).
+--    Prérequis manquant (prerequis_manquant, plus fréquent depuis que les certifications annulées ne comptent plus) :
+--    utilisable_jusqu_au borné à la veille de la délivrance, comme habInfo (prérequis non satisfait : « susp ») ; un
+--    lecteur qui ne regarde que utilisable_jusqu_au ne tient donc jamais le titre pour utilisable. Colonnes existantes
+--    inchangées et dans le même ordre ; deux colonnes ajoutées en fin : mesure (suspension | retrait | null) et
+--    mesure_le (date de la mesure). Le motif de la mesure n'est pas publié (texte libre).
 -- 2. Commentaires « Sensible » sur les colonnes et tables que matrix_lecture ne doit pas lire (empreintes de mots de
 --    passe, sessions, données de santé, textes libres) : le contrôle de la CI (job postgres,
 --    scripts/colonnes-sensibles-pg.sql) les couvre ainsi toutes. La fermeture elle-même est faite par Matrix
@@ -60,8 +63,10 @@ SELECT 'hab_titre.' || h.id,
        h.delivre_le,
        x.expire_le,
        -- least ignore les NULL : échéance, prérequis, puis veille de la suspension ou du retrait (utilisable_jusqu_au
-       -- est inclus, comme expire_le : le titre n'est plus utilisable le jour de la mesure, comme dans Cursus).
-       least(x.expire_le, pr.prerequis_jusqu_au, (h.mesure_le - 1)),
+       -- est inclus, comme expire_le : le titre n'est plus utilisable le jour de la mesure, comme dans Cursus). Prérequis
+       -- manquant : jamais utilisable (veille de la délivrance), comme habInfo (prérequis non satisfait : « susp ») ; sans
+       -- cette borne, least ignorerait le NULL de prerequis_jusqu_au et rendrait l'échéance.
+       least(x.expire_le, pr.prerequis_jusqu_au, (h.mesure_le - 1), CASE WHEN pr.manquant THEN h.delivre_le - 1 END),
        coalesce(pr.manquant, false),
        NULL::text,
        h.par,
@@ -89,7 +94,7 @@ LEFT JOIN LATERAL (
   ) dernier ON true
 ) pr ON true;
 --> statement-breakpoint
-COMMENT ON VIEW "pub_titres_detenus" IS 'Contrat D09 v1, avenant du lot 8 : titres détenus par salarié (dernière formation suivie non annulée, habilitations délivrées). utilisable_jusqu_au borné à la veille d''une suspension ou d''un retrait ; colonnes ajoutées en fin : mesure (suspension | retrait | null), mesure_le. Aucune donnée de santé : l''aptitude médicale n''est pas publiée ; motif de la mesure jamais publié. Lecteurs : vigie_app, keystone_app, matrix_app.';
+COMMENT ON VIEW "pub_titres_detenus" IS 'Contrat D09 v1, avenant du lot 8 : titres détenus par salarié (dernière formation suivie non annulée, habilitations délivrées). utilisable_jusqu_au borné à la veille d''une suspension ou d''un retrait, et à la veille de la délivrance quand un prérequis manque ; colonnes ajoutées en fin : mesure (suspension | retrait | null), mesure_le. Aucune donnée de santé : l''aptitude médicale n''est pas publiée ; motif de la mesure jamais publié. Lecteurs : vigie_app, keystone_app, matrix_app.';
 --> statement-breakpoint
 -- ═══ Colonnes et tables à exclure de matrix_lecture ═══
 -- Marque lue par le contrôle de la CI : « Sensible » dans le commentaire de la colonne, ou de la table pour une table
@@ -130,6 +135,22 @@ COMMENT ON COLUMN "demandes_collab"."motif" IS 'Sensible : texte libre du salari
 --> statement-breakpoint
 COMMENT ON COLUMN "demandes_collab"."motif_refus" IS 'Sensible : texte libre du service RH, à exclure de matrix_lecture (Matrix).';
 --> statement-breakpoint
+COMMENT ON COLUMN "demandes_collab"."reponse" IS 'Sensible : texte libre de la réponse du service RH, à exclure de matrix_lecture (Matrix).';
+--> statement-breakpoint
+COMMENT ON COLUMN "demandes_collab"."rouverte_motif" IS 'Sensible : texte libre du service RH (motif de réouverture, jamais montré au salarié), à exclure de matrix_lecture (Matrix).';
+--> statement-breakpoint
+COMMENT ON COLUMN "demandes_collab"."declaration" IS 'Sensible (santé) : déclaration du salarié (vaccination, numéro de passeport, visa), à exclure de matrix_lecture (Matrix).';
+--> statement-breakpoint
+COMMENT ON COLUMN "absences"."motif_refus" IS 'Sensible : texte libre du manager ou du service RH (motif du refus), à exclure de matrix_lecture (Matrix).';
+--> statement-breakpoint
+COMMENT ON COLUMN "plan_actions"."corrige_motif" IS 'Sensible : texte libre du service RH, à exclure de matrix_lecture (Matrix).';
+--> statement-breakpoint
+COMMENT ON COLUMN "plan_actions"."annule_motif" IS 'Sensible : texte libre du service RH, à exclure de matrix_lecture (Matrix).';
+--> statement-breakpoint
+COMMENT ON COLUMN "pieces"."retiree_motif" IS 'Sensible : texte libre du service RH (retrait d''une pièce justificative), à exclure de matrix_lecture (Matrix).';
+--> statement-breakpoint
+COMMENT ON COLUMN "demandes_keystone"."motif_refus" IS 'Sensible : texte libre du service RH (refus d''une demande de Keystone), à exclure de matrix_lecture (Matrix).';
+--> statement-breakpoint
 COMMENT ON COLUMN "certifications"."corrige_motif" IS 'Sensible : texte libre du service RH, à exclure de matrix_lecture (Matrix).';
 --> statement-breakpoint
 COMMENT ON COLUMN "certifications"."annule_motif" IS 'Sensible : texte libre du service RH, à exclure de matrix_lecture (Matrix).';
@@ -167,3 +188,10 @@ COMMENT ON COLUMN "envois"."accuse" IS 'Sensible : accusé de réception du dest
 COMMENT ON COLUMN "notifications"."objet" IS 'Sensible : objet du message destiné au salarié, à exclure de matrix_lecture (Matrix).';
 --> statement-breakpoint
 COMMENT ON COLUMN "notifications"."texte" IS 'Sensible : texte du message destiné au salarié, à exclure de matrix_lecture (Matrix).';
+--> statement-breakpoint
+-- Paie : contenu figé et résumé des lots, nominatifs. Les rubriques d'absence révèlent la catégorie (ABS_IND_SANTE,
+-- ABS_MAINT_SANTE : arrêts de travail), absence par absence, avec matricule et dates ; Cursus les réserve au droit
+-- « paie » (shared/constants.ts, RUBRIQUES_PAIE ; server/src/dataset.ts).
+COMMENT ON COLUMN "lots_paie"."contenu" IS 'Sensible (santé) : contenu figé du lot de paie (matricule, rubrique d''absence révélant un arrêt de travail, dates), à exclure de matrix_lecture (Matrix).';
+--> statement-breakpoint
+COMMENT ON COLUMN "lots_paie"."resume" IS 'Sensible (santé) : résumé du lot de paie (éléments à saisir dans Sage, nominatifs, avec la rubrique d''absence), à exclure de matrix_lecture (Matrix).';

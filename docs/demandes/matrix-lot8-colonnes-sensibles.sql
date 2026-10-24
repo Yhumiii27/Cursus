@@ -27,6 +27,14 @@ INSERT INTO droits.colonnes_sensibles (schema_nom, table_nom, colonne_nom, motif
   ('cursus', 'demandes_collab', 'label', 'Santé (copie) : libellé de demande (« Vaccination Fièvre jaune déclarée »)', 'convention'),
   ('cursus', 'demandes_collab', 'motif', 'Texte libre : motif d''une demande', 'convention'),
   ('cursus', 'demandes_collab', 'motif_refus', 'Texte libre : motif d''un refus', 'convention'),
+  ('cursus', 'demandes_collab', 'reponse', 'Texte libre : réponse du service RH', 'convention'),
+  ('cursus', 'demandes_collab', 'rouverte_motif', 'Texte libre : motif d''une réouverture', 'convention'),
+  ('cursus', 'demandes_collab', 'declaration', 'Santé (copie) : déclaration du salarié (vaccination, passeport, visa)', 'convention'),
+  ('cursus', 'absences', 'motif_refus', 'Texte libre : motif du refus d''une absence', 'convention'),
+  ('cursus', 'plan_actions', 'corrige_motif', 'Texte libre : motif de correction', 'convention'),
+  ('cursus', 'plan_actions', 'annule_motif', 'Texte libre : motif d''annulation', 'convention'),
+  ('cursus', 'pieces', 'retiree_motif', 'Texte libre : motif du retrait d''une pièce justificative', 'convention'),
+  ('cursus', 'demandes_keystone', 'motif_refus', 'Texte libre : motif du refus d''une demande de Keystone', 'convention'),
   ('cursus', 'astreintes', 'motif', 'Texte libre : circonstances d''un délai de prévenance court', 'convention'),
   ('cursus', 'astreintes', 'annule_motif', 'Texte libre : motif d''annulation d''une astreinte', 'convention'),
   ('cursus', 'evaluations_formation', 'commentaire', 'Texte libre nominatif : avis du salarié ou du manager', 'convention'),
@@ -52,5 +60,8 @@ INSERT INTO droits.colonnes_sensibles (schema_nom, table_nom, colonne_nom, motif
   ('cursus', 'envois', 'erreur', 'Texte libre : réponse d''erreur du destinataire', 'convention'),
   ('cursus', 'envois', 'accuse', 'Texte libre : accusé de réception du destinataire', 'convention'),
   ('cursus', 'notifications', 'objet', 'Texte libre : objet d''un message au salarié', 'convention'),
-  ('cursus', 'notifications', 'texte', 'Texte libre : texte d''un message au salarié', 'convention')
+  ('cursus', 'notifications', 'texte', 'Texte libre : texte d''un message au salarié', 'convention'),
+  -- Paie : contenu figé et résumé des lots (rubriques d'absence santé, absence par absence, avec matricule et dates).
+  ('cursus', 'lots_paie', 'contenu', 'Santé : contenu figé du lot de paie (rubriques d''absence révélant un arrêt, matricule, dates)', 'convention'),
+  ('cursus', 'lots_paie', 'resume', 'Santé : résumé du lot de paie (éléments nominatifs à saisir dans Sage, rubrique d''absence)', 'convention')
 ON CONFLICT (schema_nom, table_nom, colonne_nom) DO UPDATE SET origine = 'convention', motif = EXCLUDED.motif;

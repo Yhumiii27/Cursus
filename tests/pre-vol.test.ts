@@ -32,7 +32,7 @@ const IMAGE = { NODE_ENV: 'production', TZ: 'Europe/Paris', CURSUS_HOST: '0.0.0.
 const DEMO_COOLIFY = { ...IMAGE, CURSUS_DEMO: '1', CURSUS_DEMO_PUBLIQUE: '1', CURSUS_SECRET: 'd'.repeat(40), KEYSTONE_API_KEY: 'demo-keystone' };
 /** Production cible : application cursus-prod (docs/BASCULE-PRODUCTION.md), toutes les variables posées. */
 const PRODUCTION = {
-  ...IMAGE, CURSUS_TRUST_PROXY: '10.0.1.0/24',
+  ...IMAGE, CURSUS_TRUST_PROXY: '10.0.1.3',
   DATABASE_URL: 'postgres://cursus_app:mdp-cursus-app@epc2i-postgres:5432/epc2i',
   CURSUS_SECRET: 'a'.repeat(64), KEYSTONE_API_KEY: 'b'.repeat(64), KEYSTONE_URL: 'http://keystone:3000', KEYSTONE_TOKEN: 'c'.repeat(64),
   CURSUS_SUPERVISION_TOKEN: 'e'.repeat(64), MATRIX_URL: 'http://matrix:3000', MATRIX_TOKEN: 'f'.repeat(64),
@@ -127,6 +127,15 @@ test('configuration : chaque contrôle propre au pré-vol', () => {
   assert.match(ligne({ TZ: 'UTC' }, 'config.fuseau').message, /Fuseau « UTC »/);
   assert.match(ligne({ TZ: undefined }, 'config.fuseau').message, /Fuseau non posé/);
   assert.equal(ligne({ CURSUS_TRUST_PROXY: 'loopback,uniquelocal' }, 'config.proxy').niveau, 'attention');
+  // Sous-réseau du réseau coolify partagé (Keystone, Vigie, Matrix, postgres y sont aussi) : aussi falsifiable que
+  // uniquelocal. Seule l'adresse du conteneur Traefik (ou la boucle locale) passe.
+  for (const v of ['10.0.1.0/24', '10.0.1.0/255.255.255.0', 'fd00:1::/64', '1', 'loopback,linklocal']) {
+    assert.equal(ligne({ CURSUS_TRUST_PROXY: v }, 'config.proxy').niveau, 'attention', v);
+  }
+  assert.match(ligne({ CURSUS_TRUST_PROXY: 'loopback,10.0.1.0/24' }, 'config.proxy').message, /10\.0\.1\.0\/24 désigne plus qu’une adresse/);
+  for (const v of ['10.0.1.3', '10.0.1.3/32', 'loopback,10.0.1.3', 'fd00:1::3/128', '10.0.1.3/255.255.255.255', 'loopback']) {
+    assert.equal(ligne({ CURSUS_TRUST_PROXY: v }, 'config.proxy').niveau, 'ok', v);
+  }
   assert.equal(ligne({ MATRIX_TOKEN: undefined }, 'config.matrix').niveau, 'attention');
   // Variables de démonstration et de test, une par une.
   for (const v of ['CURSUS_TODAY', 'CURSUS_INSECURE_COOKIE', 'CURSUS_OIDC_AUTORITE', 'CURSUS_DEMO_LIAISONS']) {

@@ -8,7 +8,7 @@
 // - l'adresse en http:// redirigée vers https:// (301 ou 308), ou fermée ;
 // - l'API Keystone fermée sans clé (401, ou 403 si la route publique est fermée par le proxy ou par
 //   CURSUS_KEYSTONE_ADRESSES).
-// Rien n'est écrit : des GET sans cookie ni clé. Chaque appel est abandonné au bout de 10 s. `fetch` est remplaçable
+// Rien n'est écrit : des GET sans cookie ni clé ; le jeton de supervision ne part que vers une adresse en https. Chaque appel est abandonné au bout de 10 s. `fetch` est remplaçable
 // (tests : serveur local en http, en-tête X-Forwarded-Proto ajouté comme le ferait le proxy).
 import type { Controle, Niveau } from './pre-vol.ts';
 import type { Sante } from './supervision.ts';
@@ -57,10 +57,12 @@ export async function controlesReseau(url: string, opts: OptionsReseau = {}): Pr
   const appel = (chemin: string, init: RequestInit = {}, depuis = base) => f(`${depuis}${chemin}`, { redirect: 'manual', ...init, signal: AbortSignal.timeout(delai) });
   if (!base.startsWith('https://')) out.push(ko('reseau.url', 'bloquant', `${base} n’est pas en https : cookies de session, mots de passe et données RH passeraient en clair.`, 'Publiez Cursus en https (certificat du proxy) et relancez avec l’adresse https.'));
 
-  // Point de santé, détail avec le jeton ; ses en-têtes servent au contrôle suivant.
+  // Point de santé, détail avec le jeton ; ses en-têtes servent au contrôle suivant. Jeton envoyé seulement en https :
+  // en clair, quiconque l'intercepte lirait ensuite le détail de /api/health.
+  const chiffre = base.startsWith('https://'), jeton = chiffre ? opts.jeton : undefined;
   let sante: Response | null = null;
   try {
-    sante = await appel('/api/health', opts.jeton ? { headers: { authorization: `Bearer ${opts.jeton}` } } : {});
+    sante = await appel('/api/health', jeton ? { headers: { authorization: `Bearer ${jeton}` } } : {});
   } catch (err) {
     out.push(ko('reseau.sante', 'bloquant', `${base}/api/health injoignable : ${raison(err)}.`, 'Vérifiez le nom de domaine, le certificat et le routage du proxy vers le conteneur.'));
   }
@@ -77,6 +79,8 @@ export async function controlesReseau(url: string, opts: OptionsReseau = {}): Pr
       out.push(corps.mode === 'production'
         ? ok('reseau.mode', 'Instance en mode production.')
         : ko('reseau.mode', 'bloquant', `Instance en mode « ${corps.mode} » au lieu de production.`, 'NODE_ENV=production, sans CURSUS_DEMO (déjà posé par l’image Docker).'));
+    } else if (opts.jeton && !chiffre) {
+      out.push(ko('reseau.mode', 'attention', 'Mode de l’instance non vérifié : détail de /api/health non demandé hors https (le jeton de supervision ne part jamais en clair).', 'Relancez avec l’adresse https de Cursus.'));
     } else {
       out.push(ko('reseau.mode', 'attention', 'Mode de l’instance non vérifié : /api/health ne donne le détail qu’avec le jeton de supervision.', 'Posez CURSUS_SUPERVISION_TOKEN dans l’environnement de la commande (le même que celui de l’instance).'));
     }

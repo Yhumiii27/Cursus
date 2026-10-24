@@ -62,10 +62,17 @@ variables de l'application `cursus-prod` (jamais dans le dépôt ni dans l'image
   `https://` (le pré-vol attend 301 ou 308, `reseau.http`).
 - **En-têtes de Cursus conservés** : aucun middleware qui réécrit `Content-Security-Policy`, `X-Frame-Options` ni
   `Strict-Transport-Security`. HSTS n'est posé par Cursus que si le proxy est cru et transmet `X-Forwarded-Proto: https`.
-- **Proxy cru restreint** : relever l'adresse ou le sous-réseau du conteneur Traefik sur le réseau `coolify`
-  (`docker network inspect coolify`), et le poser dans `CURSUS_TRUST_PROXY` (par exemple `10.0.1.0/24`) au lieu de
-  `loopback,uniquelocal` de l'image : sinon tout conteneur du réseau peut falsifier l'adresse du client et le protocole
-  (constat S7 ; avertissement `config.proxy` du pré-vol).
+- **Proxy cru restreint** : relever l'adresse IP du seul conteneur Traefik (`coolify-proxy`) sur le réseau
+  `coolify` (`docker inspect -f '{{(index .NetworkSettings.Networks "coolify").IPAddress}}' coolify-proxy`), et la
+  poser seule dans `CURSUS_TRUST_PROXY` (par exemple `10.0.1.3`, ou `10.0.1.3/32`) au lieu de `loopback,uniquelocal`
+  de l'image. **Jamais le sous-réseau du réseau `coolify`** (celui que donne `docker network inspect coolify`) :
+  Keystone, Vigie, Matrix et postgres y sont aussi, et le croire revient à `uniquelocal` pour ce réseau ; tout
+  conteneur du réseau pourrait alors falsifier l'adresse du client et le protocole, donc contourner
+  `CURSUS_KEYSTONE_ADRESSES` et faire bloquer Keystone par le plafond des clés invalides (constat S7). Le pré-vol
+  signale en avertissement (`config.proxy`) toute entrée qui couvre plus d'une adresse (`uniquelocal`, `linklocal`,
+  un nombre de proxys, un réseau plus large que /32 en IPv4 ou /128 en IPv6). Pour que l'adresse ne change pas à
+  chaque redémarrage du proxy, la fixer dans la configuration du proxy de Coolify (`ipv4_address`), ou placer Traefik
+  et cursus-prod sur un réseau dédié au proxy ; la relever de nouveau après toute mise à jour de Coolify.
 - **API Keystone fermée sur Internet** : Keystone appelle Cursus par le réseau interne Coolify
   (`http://<nom du service cursus-prod>:3000/api/integrations/keystone/v1/…`), et la route publique
   `/api/integrations/keystone` est fermée dans Traefik (routeur dédié avec un middleware `ipAllowList` vide, ou
@@ -84,14 +91,19 @@ variables de l'application `cursus-prod` (jamais dans le dépôt ni dans l'image
    chiffrée hors du serveur en place ; témoin de sauvegarde monté dans `cursus-prod` (`CURSUS_SAUVEGARDE_TEMOIN`, voir
    § 7) ; restauration complète d'essai du schéma `cursus`, du partage et des pièces sur un serveur d'essai, avec un
    compte rendu (README de Matrix, « Restaurer le schéma d'un outil »).
-3. Domaine définitif, certificat, réglages Traefik du § 3, adresse du proxy relevée pour `CURSUS_TRUST_PROXY`.
+3. Domaine définitif, certificat, réglages Traefik du § 3, adresse IP du seul conteneur Traefik relevée (et fixée) pour
+   `CURSUS_TRUST_PROXY`.
 4. Recette sur une instance de recette séparée (base ou schéma distincts : jamais `epc2i/cursus`).
 
 ### J-7 : application de production, sans la démarrer
 
 1. Créer l'application `cursus-prod` : même image, étiquetée (version et commit : `docker inspect`), volume `/data`
-   neuf, variables de production (docs/DEPLOIEMENT.md, tableau des variables) : `DATABASE_URL` en `cursus_app` sur
-   `epc2i`, `CURSUS_PUBLIC_URL` en https, `CURSUS_TRUST_PROXY` restreint, secrets du § 2, aucune variable de
+   neuf. Pour que les étiquettes ne valent pas « inconnue » : dans Coolify, cocher « Include Source Commit in Build »
+   (commit dans `SOURCE_COMMIT`) et déclarer `CURSUS_VERSION` en variable de construction (« Build Variable », valeur :
+   la version de `package.json`, à mettre à jour à chaque version) ; après le premier déploiement, vérifier
+   `docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }} {{ index .Config.Labels "org.opencontainers.image.revision" }}' <image>`.
+   Puis variables de production (docs/DEPLOIEMENT.md, tableau des variables) : `DATABASE_URL` en `cursus_app` sur
+   `epc2i`, `CURSUS_PUBLIC_URL` en https, `CURSUS_TRUST_PROXY` à la seule adresse de Traefik (§ 3), secrets du § 2, aucune variable de
    démonstration (`CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_TODAY`,
    `CURSUS_INSECURE_COOKIE`). Ne pas la démarrer.
 2. Dans un conteneur ponctuel de cette application : `npm run verifier-production -- --config-seule` → aucun bloquant.
@@ -126,7 +138,10 @@ variables de l'application `cursus-prod` (jamais dans le dépôt ni dans l'image
 4. `pg_dump --format=custom --schema=cursus` (§ 5) : sauvegarde « après reprise », point de retour arrière.
 5. `npm run verifier-production -- --json --url https://cursus.entreprise.fr > pre-vol-J0.json` : aucun bloquant ;
    archiver la sortie avec le compte rendu de la recette. `/api/health` doit répondre `ok` (détail avec le jeton :
-   `alertes` vide).
+   `alertes` vide). L'alerte `aucun-admin` tombe dès l'appel qui suit la création de l'administrateur de l'étape 2
+   (relue à chaque appel tant qu'elle est levée), sans redémarrage. Si `cursus-prod` est déjà derrière
+   l'authentification basique, ses appels reçoivent 401 du proxy : relancer cette commande juste après l'étape 7 et
+   archiver cette seconde sortie.
 6. Prévenir Keystone, Vigie, Crucible, Codex et Matrix : adresse interne de Cursus, clés du § 2 ; les vues `pub_` ne
    portent plus de données fictives.
 7. **Retirer l'authentification basique de Coolify seulement maintenant**, puis ouvrir au groupe pilote.

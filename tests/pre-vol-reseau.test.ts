@@ -164,6 +164,18 @@ test('instance injoignable ou muette, adresse refusée', async () => {
   const enClair = await controlesReseau('http://cursus.test', { fetch: proxy(personne, null) });
   assert.deepEqual(enClair.map(c => c.code), ['reseau.url', 'reseau.sante', 'reseau.session', 'reseau.keystone']);
   assert.match(enClair[0].message, /n’est pas en https/);
+  // Jeton de supervision : jamais envoyé en clair (détail non demandé, dit dans reseau.mode).
+  const autorisations: (string | null)[] = [];
+  const espion: typeof fetch = async (entree, init) => {
+    autorisations.push(new Headers(init?.headers).get('authorization'));
+    return new Response(JSON.stringify({ statut: 'ok', base: 'ok' }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const sansJeton = await controlesReseau('http://cursus.test', { jeton: 'j'.repeat(64), fetch: espion });
+  assert.deepEqual(autorisations.filter(Boolean), [], 'aucun en-tête Authorization en http');
+  assert.match(sansJeton.find(c => c.code === 'reseau.mode')!.message, /non demandé hors https/);
+  autorisations.length = 0;
+  await controlesReseau('https://cursus.test', { jeton: 'j'.repeat(64), fetch: espion, http: 'http://cursus.test' });
+  assert.deepEqual(autorisations.filter(Boolean), [`Bearer ${'j'.repeat(64)}`], 'en https : envoyé au seul /api/health');
 });
 
 test('commande : --url ajoute les contrôles réseau au rapport (JSON et texte)', async () => {

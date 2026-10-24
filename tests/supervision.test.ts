@@ -19,8 +19,8 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { DELAI_SANTE_MS, demarrerSurveillance, etatSante, rafraichirSurveillance, routeSante } = await import('../server/src/supervision.ts');
-const { lireTemoin, SAUVEGARDE_MAX_HEURES } = await import('../server/src/sauvegarde-temoin.ts');
+const { DELAI_SANTE_MS, demarrerSurveillance, etatSante, FRAICHEUR_DONNEES_MS, rafraichirSurveillance, routeSante } = await import('../server/src/supervision.ts');
+const { lireTemoin, SAUVEGARDE_MAX_HEURES, TEMOIN_MAX_OCTETS } = await import('../server/src/sauvegarde-temoin.ts');
 const { controlerDemarrage } = await import('../server/src/pre-vol.ts');
 const { creerCompte } = await import('../server/src/comptes.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
@@ -97,17 +97,46 @@ test('alertes de production : données de démonstration, aucun administrateur R
   assert.deepEqual((await sante(demo, { CURSUS_DEMO: '1', DATABASE_URL: EPC2I.replace('/epc2i', '/cursus_demo') })).alertes, [], 'autre base : rien');
 });
 
-test('état relu par la tâche horaire : cache entre deux passages, gardé si la base ne répond plus', async () => {
+test('état des données : alerte levée relue à chaque appel, sinon cache d’une minute ; gardé si la base ne répond plus', async () => {
   const db = await nouvelleBase();
   const retablir = reglerJournaux({ format: 'json', sortie: (l, n) => { if (n === 'avertissement') avertissements.push(l); } });
   const avertissements: string[] = [];
   try {
-    const arreter = await demarrerSurveillance(db, 60_000);
+    const arreter = await demarrerSurveillance(db, 3600_000);
     assert.deepEqual((await sante(db, PROD)).alertes, ['aucun-admin']);
+    // Premier administrateur créé hors du serveur (npm run comptes, J0-2 de la bascule) : l'alerte tombe dès l'appel
+    // suivant, sans attendre la tâche horaire (pré-vol --url de J0-5).
     await admin(db);
-    assert.deepEqual((await sante(db, PROD)).alertes, ['aucun-admin'], 'pas encore relu');
+    assert.deepEqual((await sante(db, PROD)).alertes, [], 'alerte levée : relue à l’appel');
+    const actif = async (v: boolean) => {
+      const [c] = await db.where<{ id: number }>('comptes', 'identifiant', 'admin');
+      await db.update('comptes', c.id, { actif: v });
+    };
+    // Sans alerte : cache gardé une minute (route publique), puis relu par l'appel suivant.
+    await actif(false);
+    assert.deepEqual((await sante(db, PROD)).alertes, [], 'moins d’une minute : cache');
+    assert.equal(FRAICHEUR_DONNEES_MS, 60_000);
+    const vieux = Date.now;
+    Date.now = () => vieux() + FRAICHEUR_DONNEES_MS + 1;
+    try {
+      assert.deepEqual((await sante(db, PROD)).alertes, ['aucun-admin'], 'dernier administrateur désactivé : vu dans la minute');
+    } finally {
+      Date.now = vieux;
+    }
+    await actif(true);
     await rafraichirSurveillance(db, { integrite: false });
-    assert.deepEqual((await sante(db, PROD)).alertes, [], 'relu au passage suivant (intégrité déjà contrôlée : seulement les données)');
+    assert.deepEqual((await sante(db, PROD)).alertes, [], 'relu par la tâche (intégrité déjà contrôlée : seulement les données)');
+    // Appels simultanés pendant une alerte : une seule relecture à la fois.
+    await actif(false);
+    await rafraichirSurveillance(db, { integrite: false });
+    let lectures = 0;
+    const compte = Object.assign(Object.create(db) as Db, {
+      // Relecture lente (300 ms) : les trois appels la trouvent en cours.
+      where: async (...a: Parameters<Db['where']>) => { lectures++; await new Promise(ok => setTimeout(ok, 300)); return await db.where(...a); },
+    });
+    const etats = await Promise.all([1, 2, 3].map(async () => await sante(compte, PROD)));
+    assert.deepEqual(etats.map(e => e.alertes), [['aucun-admin'], ['aucun-admin'], ['aucun-admin']]);
+    assert.equal(lectures, 1, 'relecture partagée');
     arreter();
     // Base injoignable au passage : avertissement, dernier état gardé.
     const cassee = Object.assign(Object.create(db) as Db, { query: () => Promise.reject(new Error('connexion perdue')) });
@@ -126,6 +155,10 @@ test('témoin de sauvegarde : date de la première ligne ou du fichier, plus de 
   assert.equal(lireTemoin({}), null, 'sans la variable : rien');
   assert.equal(SAUVEGARDE_MAX_HEURES, 26);
   writeFileSync(temoin, '2026-10-24T02:15:00Z\nsauvegarder.sh : 7 schémas\n');
+  assert.deepEqual(lireTemoin({ CURSUS_SAUVEGARDE_TEMOIN: temoin }, maintenant), { chemin: temoin, le: '2026-10-24T02:15:00.000Z', heures: 5, enRetard: false });
+  // Témoin posé par erreur sur un gros fichier (le dump lui-même) : seul son début est lu.
+  assert.equal(TEMOIN_MAX_OCTETS, 1024);
+  writeFileSync(temoin, `2026-10-24T02:15:00Z\n${'x'.repeat(8 * 1024 * 1024)}`);
   assert.deepEqual(lireTemoin({ CURSUS_SAUVEGARDE_TEMOIN: temoin }, maintenant), { chemin: temoin, le: '2026-10-24T02:15:00.000Z', heures: 5, enRetard: false });
   writeFileSync(temoin, '2026-10-23T05:59:00Z\n');
   assert.equal((lireTemoin({ CURSUS_SAUVEGARDE_TEMOIN: temoin }, maintenant) as { enRetard: boolean }).enRetard, true, '26 h et 1 min');

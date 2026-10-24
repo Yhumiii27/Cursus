@@ -674,7 +674,10 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   (PostgreSQL : requête isolée sur une connexion du pool, sans verrou ; SQLite : en-tête du fichier lu directement sur
   la connexion, hors de la file), abandonnée au bout de `DELAI_SANTE_MS` (2 s : 503). Orphelins, administrateurs RH et
   indices de démonstration sont lus dans un état mis en cache par `demarrerSurveillance` (au démarrage, puis toutes les
-  heures, `server/src/index.ts`) ; le décompte des envois du détail est abandonné après le même délai. Le détail porte
+  heures, `server/src/index.ts`). Administrateurs et indices de démonstration sont en plus relus par la route elle-même
+  (`FRAICHEUR_DONNEES_MS`) : à chaque appel tant que `aucun-admin` ou `donnees-demo` est levée (premier administrateur
+  créé par `npm run comptes`, dans un autre processus), sinon au plus une fois par minute ; une seule relecture à la
+  fois, sous le délai de la sonde, cache gardé si elle échoue ; le décompte des envois du détail est abandonné après le même délai. Le détail porte
   `alertes` (`orphelins`, `secret-microsoft`, `secret-envoi`, `demo-base-commune`, `sauvegarde`, et en production hors
   démonstration `donnees-demo`, `aucun-admin`, `emails-simulation`), `secretEnvoi` (`CURSUS_MAIL_SECRET_EXPIRE`, ligne
   `exploitation:secret-envoi:<date>` du récapitulatif) et `sauvegarde` (témoin `CURSUS_SAUVEGARDE_TEMOIN`,

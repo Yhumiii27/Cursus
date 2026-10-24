@@ -15,7 +15,9 @@
 #   (.github/dependabot.yml), à accepter après la vérification habituelle ; les deux lignes FROM portent la même.
 # - Étiquettes de l'image : version de Cursus et commit, pour retrouver l'image précédente au retour arrière
 #   (docs/BASCULE-PRODUCTION.md) : `docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' <image>`.
-#   Coolify passe le commit dans SOURCE_COMMIT (réglage « Include Source Commit in Build ») ; à la main :
+#   Coolify passe le commit dans SOURCE_COMMIT (réglage « Include Source Commit in Build ») et la version par la
+#   variable de construction CURSUS_VERSION (« Build Variable », docs/BASCULE-PRODUCTION.md, J-7) ; sinon toutes deux
+#   valent « inconnue » / « inconnu ». À la main :
 #   docker build --build-arg CURSUS_VERSION=$(node -p "require('./package.json').version") --build-arg SOURCE_COMMIT=$(git rev-parse HEAD) .
 
 # — Construction de l'interface (dépendances de développement : Vite, TypeScript) —

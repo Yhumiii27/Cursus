@@ -160,7 +160,7 @@ sudo nano /etc/cursus/cursus.env
 | `NODE_ENV` | `production` |
 | `CURSUS_API_PORT` | `3210` (port local, jamais ouvert au pare-feu) |
 | `CURSUS_HOST` | à laisser vide : 127.0.0.1 par défaut en production |
-| `CURSUS_TRUST_PROXY` | à laisser vide (`loopback`) quand le proxy est sur la même machine ; sinon, son adresse |
+| `CURSUS_TRUST_PROXY` | à laisser vide (`loopback`) quand le proxy est sur la même machine ; sinon, son adresse seule (sous Coolify, celle du conteneur Traefik, jamais le sous-réseau du réseau `coolify` : docs/BASCULE-PRODUCTION.md, « Réglages Traefik ») |
 | `CURSUS_DB` | `/var/lib/cursus/cursus.db` (chemin absolu ; un chemin relatif partirait du dossier de lancement) |
 | `CURSUS_PIECES_DIR` | à laisser vide : pièces justificatives dans `/var/lib/cursus/pieces` (à côté de la base, même disque chiffré, sauvegardées avec elle) ; ne les activer qu'après l'avis du DPO (Paramètres → Pièces justificatives) |
 | `CURSUS_SECRET` | 64 caractères aléatoires, propres à cette installation. La changer déconnecte tout le monde |
@@ -216,7 +216,7 @@ avertissements seulement.
 
 | Domaine | Contrôles |
 | --- | --- |
-| Configuration | règles du démarrage en production ; aucune variable de démonstration ni de test (`CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE`, `CURSUS_OIDC_AUTORITE`) ; `DATABASE_URL` en `cursus_app` sur la base `epc2i`, chiffrée (`sslmode=require` ou `verify-*`, `ssl=true`, ou `PGSSLMODE` quand l'adresse n'en dit rien) si le serveur n'est pas sur le réseau interne ; `CURSUS_PUBLIC_URL` en https, exigée même quand Cursus écoute sur la boucle locale derrière Caddy (exemptée au démarrage pour l'application de bureau seulement) ; connexion Microsoft 365 et e-mails configurés (sinon avertissement) ; secret client Entra valable plus de 30 jours ; jeton de supervision ; `TZ=Europe/Paris` ; secrets tous différents (seuls leurs noms sont affichés) ; `CURSUS_TRUST_PROXY` restreint au proxy (avertissement pour `uniquelocal`) ; `MATRIX_TOKEN` avec `MATRIX_URL` |
+| Configuration | règles du démarrage en production ; aucune variable de démonstration ni de test (`CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE`, `CURSUS_OIDC_AUTORITE`) ; `DATABASE_URL` en `cursus_app` sur la base `epc2i`, chiffrée (`sslmode=require` ou `verify-*`, `ssl=true`, ou `PGSSLMODE` quand l'adresse n'en dit rien) si le serveur n'est pas sur le réseau interne ; `CURSUS_PUBLIC_URL` en https, exigée même quand Cursus écoute sur la boucle locale derrière Caddy (exemptée au démarrage pour l'application de bureau seulement) ; connexion Microsoft 365 et e-mails configurés (sinon avertissement) ; secret client Entra valable plus de 30 jours ; jeton de supervision ; `TZ=Europe/Paris` ; secrets tous différents (seuls leurs noms sont affichés) ; `CURSUS_TRUST_PROXY` restreint au proxy (avertissement pour `uniquelocal`, `linklocal`, un nombre de proxys ou un réseau plus large qu'une adresse) ; `MATRIX_TOKEN` avec `MATRIX_URL` |
 | Base | serveur commun : rôle `cursus_app` sans superutilisateur, schéma courant `cursus`, ni `CREATE` sur la base ni `pg_read_all_data` / `pg_write_all_data`, migrations du code égales à `schema_migrations` (en attente : avertissement ; inconnues : bloquant), tables et colonnes conformes, vues `pub_` et leurs colonnes conformes à leur dernière définition dans `server/migrations-pg/`, horloge à moins de 60 s ; les deux moteurs : aucune donnée de démonstration (réglage `demo`, comptes du jeu, adresses `@entreprise.example`, lot « Démonstration »), au moins un administrateur RH actif, page Confidentialité renseignée (avertissement), aucune référence orpheline, dossier des pièces accessible en écriture au compte du service avec plus de 1 Go libre |
 
 | Sauvegarde | dernière sauvegarde du serveur commun de moins de 26 h d'après le témoin `CURSUS_SAUVEGARDE_TEMOIN` ; sans témoin, avertissement : vérification à la main (`docs/BASCULE-PRODUCTION.md`, section 7) |
@@ -520,7 +520,9 @@ sudo docker inspect --format '{{.State.Health.Status}}' cursus  # healthy
 
 - `CURSUS_TRUST_PROXY` : le proxy atteint le conteneur par le réseau Docker, pas par la boucle locale ;
   sans ce réglage (adresses privées, ou l'adresse exacte du proxy), Cursus ne croirait pas `X-Forwarded-*` :
-  ni HSTS, ni adresse du client pour la limite de débit.
+  ni HSTS, ni adresse du client pour la limite de débit. `uniquelocal` convient à une machine à soi où le conteneur
+  est seul sur son réseau Docker ; en production sous Coolify, remplacez-le par l'adresse du seul conteneur Traefik
+  (docs/BASCULE-PRODUCTION.md, « Réglages Traefik »).
 - `-e CURSUS_HOST=0.0.0.0`, `-e CURSUS_API_PORT=3000` et `-e CURSUS_DB` après `--env-file` : le fichier de la machine laisse l'écoute sur la boucle locale, qui
   dans un conteneur ne recevrait rien de l'extérieur.
 - `--stop-timeout 20` : `docker stop` envoie SIGTERM ; Cursus finit les requêtes en cours (10 s au plus) et ferme la
@@ -1019,7 +1021,8 @@ entrées, sorties et compteurs ne se tiennent plus dans Lucca.
   `demo-base-commune` (démonstration branchée sur la base `epc2i`), `sauvegarde` (témoin de plus de 26 h ou illisible,
   détail `sauvegarde`), et en production hors démonstration `donnees-demo`, `aucun-admin` et `emails-simulation`.
   Le point de santé ne prend plus le verrou d'écriture : il sonde la base (2 s au plus, sinon 503) et lit le reste
-  dans l'état relu au démarrage puis toutes les heures ; il répond donc aussi pendant une validation groupée ou la
+  dans l'état relu au démarrage puis toutes les heures (administrateurs RH et données de démonstration : relus à
+  chaque appel tant que leur alerte est levée, sinon au plus une fois par minute) ; il répond donc aussi pendant une validation groupée ou la
   génération d'un lot de paie. À examiner avec l'éditeur avant toute correction (restaurer une sauvegarde ou
   compléter la reprise) : Cursus ne supprime rien de lui-même. Aucune clé étrangère n'est encore imposée par la base ;
   elles le seront une fois la base de reprise du 1er janvier 2027 vérifiée sans orphelin.

@@ -4,7 +4,10 @@
 // répond pas. Il ne prend plus le verrou global (lot 8, chantier B) : une transaction longue (validation groupée,
 // génération d'un lot) ne le fait plus attendre ni passer pour une panne. Ce qui demande de lire la base (références
 // orphelines, administrateurs RH, données de démonstration) est lu dans un état mis en cache par la tâche horaire
-// (`demarrerSurveillance`, lancée par server/src/index.ts).
+// (`demarrerSurveillance`, lancée par server/src/index.ts). Administrateurs RH et données de démonstration sont en plus
+// relus par le point de santé lui-même : à chaque appel tant qu'une de leurs alertes est levée (premier administrateur
+// créé par `npm run comptes`, dans un autre processus : alerte levée dès l'appel suivant), sinon au plus une fois par
+// minute (dernier administrateur suspendu) ; une seule relecture à la fois, gardée sous le délai de la sonde.
 // « degrade » (200 : le service fonctionne, à examiner) quand l'une des alertes suivantes est levée :
 // - `orphelins` : références orphelines (server/src/integrite.ts) ;
 // - `secret-microsoft` : secret client Entra qui expire dans 30 jours ou moins (CURSUS_OIDC_SECRET_EXPIRE) ;
@@ -36,6 +39,8 @@ import { EN_TETES_PROXY } from './securite.ts';
 export const DELAI_SANTE_MS = 2_000;
 /** Intervalle de la tâche qui relit l'état de la base pour le point de santé. */
 export const INTERVALLE_SURVEILLANCE_MS = 3600_000;
+/** Âge au-delà duquel le point de santé relit lui-même administrateurs RH et données de démonstration (sans alerte levée). */
+export const FRAICHEUR_DONNEES_MS = 60_000;
 
 /** Alertes qui font passer l'état à « degrade » (détail réservé à la supervision). */
 export type AlerteSante = 'orphelins' | 'secret-microsoft' | 'secret-envoi' | 'demo-base-commune' | 'sauvegarde' | 'donnees-demo' | 'aucun-admin' | 'emails-simulation';
@@ -100,12 +105,35 @@ async function avecDelai<T>(fn: () => Promise<T>, ms: number): Promise<T> {
 /** Données de la base lues pour le point de santé : administrateurs RH actifs, indices du jeu de démonstration. */
 export interface EtatDonnees { admins: number; demo: string[]; le: string }
 const donnees = new WeakMap<Db, EtatDonnees>();
+/** Relecture en cours, partagée par les appels simultanés (route publique : jamais plusieurs relectures à la fois). */
+const enCours = new WeakMap<Db, Promise<EtatDonnees>>();
 
 /** Relit les données de la base pour le point de santé (sans les références orphelines, contrôlées à part). */
-async function lireDonnees(db: Db): Promise<EtatDonnees> {
-  const e = { admins: await adminsActifs(db), demo: await indicesDemo(db), le: new Date().toISOString() };
-  donnees.set(db, e);
-  return e;
+function lireDonnees(db: Db): Promise<EtatDonnees> {
+  const deja = enCours.get(db);
+  if (deja) return deja;
+  const p = (async () => {
+    try {
+      const e = { admins: await adminsActifs(db), demo: await indicesDemo(db), le: new Date().toISOString() };
+      donnees.set(db, e);
+      return e;
+    } finally {
+      enCours.delete(db);
+    }
+  })();
+  enCours.set(db, p);
+  return p;
+}
+
+/**
+ * État des données pour le point de santé : le cache s'il est récent et sans alerte, sinon relu (dans `delai` ; base
+ * lente ou en erreur : le cache, même ancien). Une alerte levée (aucun administrateur, données de démonstration) est
+ * relue à chaque appel, pour tomber dès que l'exploitant a corrigé (docs/BASCULE-PRODUCTION.md, J0).
+ */
+async function donneesSante(db: Db, delai: number, maintenant = Date.now()): Promise<EtatDonnees | undefined> {
+  const d = donnees.get(db);
+  if (d && d.admins && !d.demo.length && maintenant - Date.parse(d.le) < FRAICHEUR_DONNEES_MS) return d;
+  return await avecDelai(async () => await lireDonnees(db), delai).catch(() => d);
 }
 
 /**
@@ -161,7 +189,7 @@ export async function etatSante(db: Db, detail: boolean, depuis: string, env: En
   if (demoSurBaseCommune(env)) alertes.push('demo-base-commune');
   if (temoin && ('erreur' in temoin || temoin.enRetard)) alertes.push('sauvegarde');
   if (base === 'ok' && enProduction(env) && !demoActive(env)) {
-    const d = donnees.get(db) ?? await avecDelai(async () => await lireDonnees(db), delai).catch(() => undefined);
+    const d = await donneesSante(db, delai);
     if (d?.demo.length) alertes.push('donnees-demo');
     if (d && !d.admins) alertes.push('aucun-admin');
     if (!configMail(env)) alertes.push('emails-simulation');

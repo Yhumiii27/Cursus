@@ -8,7 +8,7 @@
 // Lu par le point de santé (état « degrade », server/src/supervision.ts) et par le pré-vol (npm run verifier-production).
 // Sans la variable, rien n'est lu : le pré-vol rappelle seulement l'étape manuelle de la procédure
 // (docs/BASCULE-PRODUCTION.md). Demande à Matrix pour l'écriture du témoin : même document, « Demandes aux autres outils ».
-import { readFileSync, statSync } from 'node:fs';
+import { closeSync, openSync, readSync, statSync } from 'node:fs';
 
 /** Âge maximal de la dernière sauvegarde, en heures. */
 export const SAUVEGARDE_MAX_HEURES = 26;
@@ -18,6 +18,23 @@ const AVANCE_TOLEREE_MS = 3600_000;
 export type Temoin =
   | { chemin: string; le: string; heures: number; enRetard: boolean }
   | { chemin: string; erreur: string };
+
+/** Taille lue au plus dans le témoin : il ne porte qu'une date, et le point de santé le relit à chaque appel. */
+export const TEMOIN_MAX_OCTETS = 1024;
+
+/**
+ * Début du fichier, `TEMOIN_MAX_OCTETS` au plus : un chemin posé par erreur sur le dump lui-même (plusieurs Go) ou sur un
+ * journal qui grossit ne bloque pas le serveur à chaque appel de /api/health.
+ */
+function debutDuFichier(chemin: string): string {
+  const fd = openSync(chemin, 'r');
+  try {
+    const tampon = Buffer.alloc(TEMOIN_MAX_OCTETS);
+    return tampon.toString('utf8', 0, readSync(fd, tampon, 0, TEMOIN_MAX_OCTETS, 0));
+  } finally {
+    closeSync(fd);
+  }
+}
 
 /** Date de la première ligne si elle est une date ISO 8601 complète (jour et heure), sinon null. */
 function dateLue(texte: string): number | null {
@@ -35,8 +52,7 @@ export function lireTemoin(env: Record<string, string | undefined> = process.env
   try {
     const st = statSync(chemin);
     if (!st.isFile()) return { chemin, erreur: 'ce n’est pas un fichier' };
-    // 1 Ko lus au plus : le témoin ne porte qu'une date.
-    t = dateLue(readFileSync(chemin, 'utf8').slice(0, 1024)) ?? st.mtimeMs;
+    t = dateLue(debutDuFichier(chemin)) ?? st.mtimeMs;
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     return { chemin, erreur: code === 'ENOENT' ? 'fichier absent' : code === 'EACCES' ? 'lecture refusée' : 'fichier illisible' };

@@ -25,6 +25,27 @@ import { lireTemoin, SAUVEGARDE_MAX_HEURES } from './sauvegarde-temoin.ts';
 import { echeanceSecret, echeanceSecretEnvoi, ALERTE_SECRET_JOURS, type EcheanceSecret } from './secret-microsoft.ts';
 import { CREE_PAR_DEMO, DOMAINE_DEMO, LOT_DEMO } from './seed.ts';
 
+/**
+ * Entrées de CURSUS_TRUST_PROXY qui couvrent plus qu'une adresse (constat S7) : réseaux nommés `uniquelocal` et
+ * `linklocal` (tout le réseau privé), nombre de proxys (le dernier relais est cru quel qu'il soit), réseau de préfixe
+ * inférieur à /32 en IPv4 ou /128 en IPv6 (masque pointé compris). `loopback` (la machine elle-même) et une adresse
+ * seule passent ; `true` et les réseaux en /0 sont déjà refusés par les règles de démarrage.
+ */
+export function proxysLarges(proxy: string): string[] {
+  if (proxy === 'true' || /^\d+$/.test(proxy)) return [proxy];
+  if (proxy === 'false') return [];
+  return proxy.split(',').map(p => p.trim()).filter(p => {
+    if (/^(uniquelocal|linklocal)$/i.test(p)) return true;
+    const m = /^([^/]+)\/(.+)$/.exec(p);
+    if (!m) return false;
+    const v6 = m[1].includes(':'), max = v6 ? 128 : 32;
+    if (/^\d+$/.test(m[2])) return Number(m[2]) < max;
+    // Masque pointé (255.255.255.0) : nombre de bits à 1.
+    const bits = m[2].split('.').reduce((n, o) => n + (Number(o) >>> 0).toString(2).replace(/0/g, '').length, 0);
+    return bits < max;
+  });
+}
+
 export type Niveau = 'ok' | 'attention' | 'bloquant';
 export type Domaine = 'configuration' | 'base' | 'sauvegarde' | 'reseau';
 
@@ -149,10 +170,10 @@ export function controlesConfig(envBrut: Env, aujourdhui: string): Controle[] {
   out.push(egaux.length
     ? ko(C, 'config.secrets', 'bloquant', `Secrets identiques : ${egaux.map(p => p.join(' = ')).join(' ; ')}.`, 'Générez une valeur distincte pour chacun (openssl rand -hex 32) : une fuite de l’un ne doit pas ouvrir les autres.')
     : ok(C, 'config.secrets', 'Secrets tous différents entre eux.'));
-  const proxy = String(trustProxy(env));
-  out.push(/uniquelocal/.test(proxy)
-    ? ko(C, 'config.proxy', 'attention', `CURSUS_TRUST_PROXY=${proxy} : les en-têtes X-Forwarded-* de tout conteneur du réseau privé sont crus (adresse du client falsifiable).`,
-      'Indiquez l’adresse ou le sous-réseau du proxy Traefik de Coolify, relevé au déploiement.')
+  const proxy = String(trustProxy(env)), larges = proxysLarges(proxy);
+  out.push(larges.length
+    ? ko(C, 'config.proxy', 'attention', `CURSUS_TRUST_PROXY=${proxy} : ${larges.join(', ')} ${larges.length > 1 ? 'désignent' : 'désigne'} plus qu’une adresse ; les en-têtes X-Forwarded-* de tout conteneur de ce réseau sont crus (adresse du client falsifiable : filtre CURSUS_KEYSTONE_ADRESSES, limites de débit, plafond des clés Keystone).`,
+      'Indiquez l’adresse IP du seul conteneur Traefik (10.0.1.3, ou 10.0.1.3/32), jamais le sous-réseau du réseau coolify partagé avec les autres outils (docs/BASCULE-PRODUCTION.md, « Réglages Traefik »).')
     : ok(C, 'config.proxy', `Proxys crus : ${proxy}.`));
   if ((env.MATRIX_URL ?? '').trim() && !(env.MATRIX_TOKEN ?? '').trim()) {
     out.push(ko(C, 'config.matrix', 'attention', 'MATRIX_URL est définie sans MATRIX_TOKEN : la déclaration à Matrix partirait sans jeton.', 'Posez le jeton partagé avec Matrix (MATRIX_TOKEN).'));

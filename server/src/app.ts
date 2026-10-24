@@ -35,7 +35,7 @@ import { suivreVerdicts } from './integrations/keystone-verdicts.ts';
 import { keystoneRoutes } from './integrations/keystone-routes.ts';
 import { cheminJournal, journalRequetes, log } from './logs.ts';
 import { recapitulatifEnAttente } from './notifications.ts';
-import { demoPosteLocal, protectionCsrf, securityHeaders } from './securite.ts';
+import { demoPosteLocal, exigerNavigationInterne, protectionCsrf, securityHeaders } from './securite.ts';
 import { routeSante } from './supervision.ts';
 
 export interface OptionsApp {
@@ -101,7 +101,8 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
     if (espaceChange(req, res, id)) return;
     const { compte } = id;
     const name = String(req.params.name);
-    const handler = ACTIONS[name];
+    // Registre lu sur ses seules clés (lot 8, S5) : « constructor », « __proto__ »… ne désignent pas une fonction héritée.
+    const handler = Object.hasOwn(ACTIONS, name) ? ACTIONS[name] : undefined;
     if (!handler) return res.status(404).json({ error: `Action inconnue : ${name}` });
     const corps = (req.body ?? {}) as Record<string, any>;
     /** Une transaction : droits relus dans la transaction (un compte changé entre-temps agit avec ses droits du moment). */
@@ -155,6 +156,13 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
     }
   });
 
+  // Lectures qui écrivent au journal, gardées contre une navigation provoquée depuis un autre site (lot 8, chantier C,
+  // S8 ; server/src/securite.ts) : pièce ouverte par lien (Sec-Fetch-Site), téléchargements faits par fetch (Sec-Fetch-Site
+  // et en-tête d'espace).
+  app.get('/api/pieces/:id', exigerNavigationInterne('lien'));
+  app.get('/api/paie/lots/:id/fichier', exigerNavigationInterne('appel'));
+  app.get('/api/salaries/:id/donnees', exigerNavigationInterne('appel'));
+  app.get('/api/journal', exigerNavigationInterne('appel', req => req.query.vue === 'archive'));
   // Journal des actions (consultation filtrée et paginée, export CSV, archive paie, exports de l'interface) et
   // données personnelles d'un salarié (export RH, téléchargement par l'intéressé) : server/src/journal.ts, donnees.ts.
   app.use(routesJournal(db));

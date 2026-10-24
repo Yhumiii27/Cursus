@@ -7,8 +7,9 @@
 import { Domain } from '../../shared/domain.ts';
 import { addD, isoWeek } from '../../shared/dates.ts';
 import { fmt, key, plural } from '../../shared/format.ts';
+import { texteCsv } from '../../shared/csv.ts';
 import { adresseAgence, agencesInterim } from '../../shared/rules/messagerie.ts';
-import { csvTexte, heuresTexte, releveAgence, releveCsv, semainesAutomatiques, type Releve } from '../../shared/rules/releves.ts';
+import { heuresTexte, releveAgence, releveCsv, semainesAutomatiques, type Releve } from '../../shared/rules/releves.ts';
 import type { CurrentUser, Messagerie, ReleveInterim } from '../../shared/types.ts';
 import { loadFull } from './dataset.ts';
 import type { Db } from './db.ts';
@@ -62,7 +63,7 @@ export async function envoyerReleve(db: Db, d: Domain, agence: string, semaine: 
   const suiteAuto = semainesAutomatiques(d.ti, m.agences.find(a => key(a.nom) === key(agence))?.depuis).includes(semaine);
   const texte = texteReleve(r, await dernierReleve(db, agence, semaine), suiteAuto);
   const e = await envoyerEmail(db, 'releve.interim', courriel(m, adresse, `Relevé d’heures des intérimaires — ${agence} — semaine ${isoWeek(semaine)}`, texte, {
-    pj: [pieceJointe(csv.fichier, 'text/csv; charset=utf-8', csvTexte(csv.head, csv.rows))],
+    pj: [pieceJointe(csv.fichier, 'text/csv; charset=utf-8', texteCsv(csv.head, csv.rows))],
   }));
   const releve = await db.insert<ReleveInterim>('releves', {
     agence, semaine, adresse, creation: e?.creation ?? new Date().toISOString(), par, envoiId: e?.id ?? null, interimaires: r.lignes.length, heures: r.heures,

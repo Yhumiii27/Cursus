@@ -303,6 +303,33 @@ test('soldes : un membre du service RH ne reprend pas ses propres soldes', async
   await assert.rejects(async () => await run('reprise.importer', { type: 'soldes', texte: 'Matricule;CET\nA0123;399', colonnes: ['matricule', 'cet'], dateReprise: '2026-10-01' }, soi), /Aucune ligne à importer/);
 });
 
+test('certifications, habilitations et visites : un membre du service RH ne reprend pas les siennes (lot 8, chantier C)', async () => {
+  const { importer, run, emp, domain } = await base();
+  await importer('salaries', SALARIES);
+  const julie = await emp('Julie Martin');
+  const soi = { ...ADMIN, salarieId: julie.id } as User;
+  const fichiers = {
+    certifications: { texte: 'Matricule;Formation;Date d\'obtention\nA0123;SST;14/03/2025\nA0456;SST;14/03/2025', colonnes: ['matricule', 'formation', 'date'] },
+    habilitations: { texte: 'Matricule;Habilitation;Date de délivrance;Signataire\nA0123;he;20/03/2025;Directeur du site\nA0456;he;20/03/2025;Directeur du site', colonnes: ['matricule', 'habilitation', 'date', 'signataire'] },
+    visites: { texte: 'Matricule;Date de visite;Avis\nA0123;10/06/2025;Apte\nA0456;10/06/2025;Apte', colonnes: ['matricule', 'date', 'avis'] },
+  } as const;
+  for (const [type, f] of Object.entries(fichiers) as [keyof typeof fichiers, typeof fichiers[keyof typeof fichiers]][]) {
+    // Aperçu de l'écran (même analyse) : sa propre ligne refusée, celle d'un autre salarié retenue.
+    const a = R.analyserReprise(await domain(), type, f.texte, { colonnes: [...f.colonnes], soiMeme: julie.id });
+    assert.deepEqual(a.lignes.map(l => [l.issue, l.erreurs[0] ?? '']), [['refus', R.REPRISE_SOI_MEME[type]], ['creation', '']], type);
+    const r = await run('reprise.importer', { type, texte: f.texte, colonnes: f.colonnes }, soi);
+    assert.deepEqual([r.result.crees, r.result.refusees], [1, 1], type);
+  }
+  const j = await emp('Julie Martin'), marc = await emp('Marc Petit');
+  assert.deepEqual([j.certs.length, j.habs.length, j.visite], [0, 0, null], 'rien sur sa propre fiche');
+  assert.deepEqual([marc.certs.length, marc.habs.length, marc.visite], [1, 1, '2025-06-10']);
+  assert.match(R.REPRISE_SOI_MEME.habilitations, /autre membre du service RH ou par le référent HSE/);
+  // Un autre administrateur RH reprend ses lignes.
+  for (const [type, f] of Object.entries(fichiers)) await run('reprise.importer', { type, texte: f.texte, colonnes: f.colonnes });
+  const apres = await emp('Julie Martin');
+  assert.deepEqual([apres.certs.length, apres.habs.length, apres.visite], [1, 1, '2025-06-10']);
+});
+
 test('visites : la négation d’abord (« non apte » : inapte, « apte sans restriction » : apte), avis jamais recopié', async () => {
   const { importer, domain, db } = await base();
   await importer('salaries', SALARIES);

@@ -316,16 +316,24 @@ test('conservation : 1 an, archive paie de 3 ans, envois anciens retirés de la 
   })).id;
   const anciens = [await envoi('envoye', '2026-09-01T08:00:00.000Z'), await envoi('simule', '2026-09-01T08:00:00.000Z'), await envoi('echec', '2026-09-01T08:00:00.000Z', '2026-09-02T08:00:00.000Z')];
   const gardes = [await envoi('echec', '2026-09-01T08:00:00.000Z'), await envoi('a_envoyer', '2026-09-01T08:00:00.000Z'), await envoi('envoye', '2027-10-01T08:00:00.000Z')];
+  // Notifications (lot 8, D7) : supprimées après la même durée que la file d'envoi une fois traitées par le récapitulatif
+  // (envoyées, ou closes sans envoi : 0) ; une notification en attente du récapitulatif reste.
+  await db.run('DELETE FROM notifications');
+  const notif = async (creation: string, envoiId: number | null) => (await db.insert<{ id: number }>('notifications', { empId: 2, adresse: 'mehdi.benali@entreprise.example', type: 'absence.decision', objet: 'Demande validée', texte: 'Bonjour', creation, envoiId })).id;
+  await notif('2026-09-01T08:00:00.000Z', anciens[0]);
+  await notif('2026-09-01T08:00:00.000Z', 0);
+  const notifsGardees = [await notif('2026-09-01T08:00:00.000Z', null), await notif('2027-10-01T08:00:00.000Z', gardes[2])];
   const maintenant = new Date('2027-11-01T00:00:00.000Z');
   const b = await appliquerConservation(db, maintenant);
-  assert.deepEqual(b, { supprimees: 2, archivees: 1, supprimeesArchive: 1, envois: 3 });
+  assert.deepEqual(b, { supprimees: 2, archivees: 1, supprimeesArchive: 1, envois: 3, notifications: 2 });
+  assert.deepEqual((await db.all<{ id: number }>('notifications')).map(n => n.id), notifsGardees);
   const ids = (await lignes()).map(l => l.id);
   assert.ok(!ids.includes(A) && !ids.includes(C) && !ids.includes(E) && ids.includes(B) && ids.includes(D));
   assert.equal((await db.get<Ligne>('journal', B))!.archivee, maintenant.toISOString());
   assert.deepEqual((await db.all<{ id: number }>('envois')).map(e => e.id), gardes);
   for (const x of anciens) assert.ok(!await db.get('envois', x));
   const resume = (await lignes()).find(l => l.action === 'journal.conservation')!;
-  assert.match(resume.message!, /2 lignes supprimées \(plus d’un an\) · 1 action liée à la paie archivée · 1 ligne supprimée de l’archive \(plus de 3 ans\) · 3 envois anciens retirés/);
+  assert.match(resume.message!, /2 lignes supprimées \(plus d’un an\) · 1 action liée à la paie archivée · 1 ligne supprimée de l’archive \(plus de 3 ans\) · 3 envois anciens retirés de la file d’envoi · 2 notifications anciennes supprimées$/);
   // L'archive n'apparaît pas dans le journal affiché ; elle se consulte à part.
   const vue = await lireJournal(db, { vue: 'tout', du: null, au: null, auteur: null, action: null, salarie: null });
   assert.ok(!vue.lignes.some(l => l.id === B));
@@ -485,12 +493,13 @@ async function serveur(db: string) {
     const timer = setInterval(() => { if (out.includes('Cursus — API sur')) { clearInterval(timer); res(); } }, 20);
     p.on('exit', code => { clearInterval(timer); rej(new Error(`Serveur arrêté (code ${code}) :\n${out}`)); });
   });
-  const brut = (path: string, init: { cookie?: string; body?: unknown } = {}) => fetch(`http://127.0.0.1:${port}${path}`, {
+  // `espace` : en-tête d'espace de l'interface, exigé par les lectures qui écrivent au journal (lot 8, S8).
+  const brut = (path: string, init: { cookie?: string; body?: unknown; espace?: string } = {}) => fetch(`http://127.0.0.1:${port}${path}`, {
     method: init.body !== undefined ? 'POST' : 'GET',
-    headers: { ...(init.cookie ? { cookie: init.cookie } : {}), ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}) },
+    headers: { ...(init.cookie ? { cookie: init.cookie } : {}), ...(init.espace ? { 'x-cursus-espace': init.espace } : {}), ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}) },
     body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
   });
-  const call = async (path: string, init: { cookie?: string; body?: unknown } = {}) => {
+  const call = async (path: string, init: { cookie?: string; body?: unknown; espace?: string } = {}) => {
     const r = await brut(path, init);
     const cookie = r.headers.get('set-cookie')?.match(/cursus_session=[^;]*/)?.[0] ?? null;
     return { status: r.status, cookie, json: await r.json().catch(() => ({})) };
@@ -507,7 +516,7 @@ test('serveur : journal consultable, filtré, paginé, exporté ; accès et expo
   const opts = s.json.loginOptions;
   const karim = opts.manager.find((o: { nom: string }) => o.nom.startsWith('Karim Haddad')).id;
   type Page = { lignes: (Omit<Ligne, 'salaries'> & { salaries: number[]; details: Record<string, any> })[]; total: number; page: number; taille: number };
-  const journal = async (q = '', cookie = rh) => (await srv.call(`/api/journal${q}`, { cookie })).json as Page;
+  const journal = async (q = '', cookie = rh) => (await srv.call(`/api/journal${q}`, { cookie, espace: 'rh' })).json as Page;
   let ck = '';
 
   await t.test('connexions, changements d’espace, refus d’accès et exports de l’interface', async () => {
@@ -517,7 +526,7 @@ test('serveur : journal consultable, filtré, paginé, exporté ; accès et expo
     ck = k.cookie!;
     assert.equal((await srv.call('/api/actions/temps.pushSage', { cookie: ck, body: {} })).status, 403);
     assert.equal((await srv.call('/api/journal', { cookie: ck })).status, 403);
-    assert.equal((await srv.call('/api/salaries/2/donnees', { cookie: ck })).status, 403);
+    assert.equal((await srv.call('/api/salaries/2/donnees', { cookie: ck, espace: 'manager' })).status, 403);
     assert.equal((await srv.call('/api/journal')).status, 401, 'sans session : rien de tracé');
     assert.equal((await srv.call('/api/mode', { cookie: ck, body: { role: 'collaborateur' } })).status, 200);
     assert.equal((await srv.brut('/api/exports', { cookie: ck, body: { nature: 'impression', titre: 'Entretien annuel — compte rendu', empId: 2 } })).status, 204);
@@ -611,7 +620,7 @@ test('serveur : journal consultable, filtré, paginé, exporté ; accès et expo
   });
 
   await t.test('export des données d’un salarié par le service RH (droit d’accès)', async () => {
-    const r = await srv.brut('/api/salaries/2/donnees', { cookie: rh });
+    const r = await srv.brut('/api/salaries/2/donnees', { cookie: rh, espace: 'rh' });
     assert.equal(r.status, 200);
     const x = await r.json() as { salarie: { nom: string }; par: string; sections: Record<string, any> };
     assert.deepEqual([x.salarie.nom, x.par], ['Mehdi Benali', 'Sandrine Vidal']);
@@ -621,7 +630,7 @@ test('serveur : journal consultable, filtré, paginé, exporté ; accès et expo
     const trace = (await db.all<Ligne>('journal')).findLast(l => l.action === 'salarie.export')!;
     assert.deepEqual([trace.actor, trace.salaries], ['Sandrine Vidal', [2]]);
     assert.match(trace.message!, /^Export des données personnelles de Mehdi Benali \(droit d’accès\) — \d+ éléments$/);
-    assert.equal((await srv.call('/api/salaries/999/donnees', { cookie: rh })).status, 404);
+    assert.equal((await srv.call('/api/salaries/999/donnees', { cookie: rh, espace: 'rh' })).status, 404);
     assert.ok((await journal('?salarie=2&action=salarie.export')).total === 1, 'visible dans l’historique de la fiche');
   });
 

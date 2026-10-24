@@ -24,6 +24,8 @@ const { CACHE_ASSETS, CACHE_PAGE, createApp } = await import('../server/src/app.
 const { encodageAccepte, SEUIL_COMPRESSION } = await import('../server/src/compression.ts');
 const { ADRESSE_INCONNUE, CORPS_TROP_VOLUMINEUX, ERREUR_INTERNE, JSON_ILLISIBLE, gestionnaireErreurs } = await import('../server/src/erreurs.ts');
 const { reglerJournaux } = await import('../server/src/logs.ts');
+const { regleDe } = await import('../server/src/journal.ts');
+const { refusNavigation } = await import('../server/src/securite.ts');
 
 const dir = mkdtempSync(join(tmpdir(), 'cursus-http-'));
 // Interface factice : index.html, un script haché assez gros pour être compressé, une police déjà compressée.
@@ -192,6 +194,59 @@ test('protections : sans session 401, cookie altéré 401, Origin étrangère 40
   assert.equal(refus.status, 403);
   assert.ok(refus.json().error);
   assert.equal((await appel('/api/data', { headers: { cookie } })).status, 401, 'session précédente révoquée par la nouvelle connexion');
+});
+
+// — Noms d'action et navigations provoquées (lot 8, chantier C) —
+
+const lignesJournal = async (action?: string) => Number(((await db.one(action ? 'SELECT COUNT(*) AS n FROM journal WHERE action = ?' : 'SELECT COUNT(*) AS n FROM journal', action ? [action] : [])) as { n: number }).n);
+
+test('registre des actions : un nom hérité (constructor, __proto__, toString…) est une action inconnue, rien n’est écrit au journal', async () => {
+  const cookie = await session();
+  const avant = await lignesJournal();
+  for (const nom of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf', '__defineGetter__']) {
+    const r = await appel(`/api/actions/${nom}`, json({}, { cookie }));
+    assert.equal(r.status, 404, nom);
+    assert.deepEqual(r.json(), { error: `Action inconnue : ${nom}` });
+  }
+  assert.equal(await lignesJournal(), avant, 'aucune ligne « constructor » au journal signé');
+  // Règle du journal lue de même sur ses seules clés.
+  for (const nom of ['constructor', '__proto__', 'toString']) assert.equal(regleDe(nom), undefined, nom);
+  assert.ok(regleDe('employe.modifier'));
+});
+
+test('navigation provoquée depuis un autre site : fichier de paie, données d’un salarié et archive paie exigent l’en-tête d’espace', async () => {
+  const cookie = await session();
+  const lot = (await db.one('SELECT MAX(id) AS id FROM lots_paie') as { id: number | null }).id ?? 1;
+  const espace = { cookie, 'x-cursus-espace': 'rh' };
+  for (const chemin of [`/api/paie/lots/${lot}/fichier`, '/api/salaries/2/donnees', '/api/journal?vue=archive']) {
+    const avant = await lignesJournal();
+    // Lien ou redirection depuis un autre site (cookie SameSite=Lax envoyé), ou navigation sans l'en-tête de l'interface.
+    for (const en of [{ cookie, 'sec-fetch-site': 'cross-site' }, { cookie, 'sec-fetch-site': 'same-site' }, { cookie, 'sec-fetch-site': 'none' }, { cookie }, { cookie, 'x-cursus-espace': 'admin' }, { ...espace, 'sec-fetch-site': 'cross-site' }] as Record<string, string>[]) {
+      const r = await appel(chemin, { headers: en });
+      assert.equal(r.status, 403, `${chemin} ${JSON.stringify(en)}`);
+      assert.match(r.json().error!, /^Requête refusée : /);
+    }
+    assert.equal(await lignesJournal(), avant, `${chemin} : refus sans trace`);
+    // Appel de l'interface (fetch de même origine, en-tête d'espace) : la route répond et trace.
+    const r = await appel(chemin, { headers: { ...espace, 'sec-fetch-site': 'same-origin' } });
+    assert.notEqual(r.status, 403, chemin);
+  }
+  assert.equal(await lignesJournal('salarie.export'), 1);
+  assert.equal(await lignesJournal('journal.archive'), 1);
+  // Le reste du journal (vue Tout) n'est pas concerné : il ne trace rien.
+  assert.equal((await appel('/api/journal', { headers: { cookie } })).status, 200);
+});
+
+test('refusNavigation : deux niveaux (lien : Sec-Fetch-Site ; appel : Sec-Fetch-Site et en-tête d’espace)', () => {
+  const req = (h: Record<string, string>) => ({ get: (k: string) => h[k.toLowerCase()] }) as never;
+  assert.equal(refusNavigation(req({}), 'lien'), null, 'navigateur sans Sec-Fetch-Site');
+  assert.equal(refusNavigation(req({ 'sec-fetch-site': 'same-origin' }), 'lien'), null);
+  assert.equal(refusNavigation(req({ 'sec-fetch-site': 'none' }), 'lien'), null, 'adresse tapée, favori');
+  assert.match(refusNavigation(req({ 'sec-fetch-site': 'cross-site' }), 'lien')!, /autre site/);
+  assert.match(refusNavigation(req({ 'sec-fetch-site': 'same-site' }), 'lien')!, /autre site/);
+  assert.match(refusNavigation(req({}), 'appel')!, /interface de Cursus/);
+  assert.match(refusNavigation(req({ 'x-cursus-espace': 'constructor' }), 'appel')!, /interface de Cursus/);
+  assert.equal(refusNavigation(req({ 'x-cursus-espace': 'collaborateur' }), 'appel'), null);
 });
 
 // — Compression et cache —

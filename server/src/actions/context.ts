@@ -2,6 +2,7 @@
 import { droitsRh, type DroitRh } from '../../../shared/constants.ts';
 import { Domain, type EmpX } from '../../../shared/domain.ts';
 import { delegationPour } from '../../../shared/rules/delegations-manager.ts';
+import { fichePropre } from '../../../shared/rules/soi-meme.ts';
 import type { CurrentUser, Dataset, Employe, PerimetreDelegation } from '../../../shared/types.ts';
 import type { Db } from '../db.ts';
 
@@ -66,9 +67,10 @@ export function requirePaie(ctx: Ctx) {
 
 /**
  * Membre du service RH sur sa propre fiche (compte rattaché à ce salarié) : comme tout salarié, il ne décide pas
- * de ses propres absences, feuilles de temps ou entretiens.
+ * de ses propres absences, feuilles de temps ou entretiens. Règle partagée avec l'interface (shared/rules/soi-meme.ts),
+ * qui masque sur sa propre fiche les boutons refusés ici.
  */
-export const estSoiMeme = (ctx: Ctx, empId: number) => ctx.user.role === 'rh' && ctx.user.salarieId != null && ctx.user.salarieId === empId;
+export const estSoiMeme = (ctx: Ctx, empId: number) => fichePropre(ctx.user, empId);
 
 /**
  * À qui revient une décision que le manager ne prend pas (lot 8, chantier C : titres et habilitations, suivi médical,

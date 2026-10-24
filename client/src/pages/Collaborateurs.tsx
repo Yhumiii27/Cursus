@@ -13,6 +13,7 @@ import { MOTIFS_SORTIE, sorti } from '../../../shared/rules/contrats.ts';
 import { convocationEnvoyee, etatInscription } from '../../../shared/rules/sessions.ts';
 import { JOURS_SEMAINE } from '../../../shared/rules/profil.ts';
 import { equipesDescendantes } from '../../../shared/rules/hierarchie.ts';
+import { AIDE_SOI_MEME, fichePropre, MESURES_SOI_MEME } from '../../../shared/rules/soi-meme.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
 import { Avatar, Bar, Btn, Chips, CloseButton, Empty, Fine, NoteAccent, Page, Panel, SectionLabel, Seg, Tag, Two } from '../components/ui.tsx';
 import { Ouvrir } from '../components/Cliquable.tsx';
@@ -249,8 +250,13 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
 }) {
   const { d, formIds } = useEnriched();
   // `formations` : service RH et référent HSE (sessions, certifications, habilitations) ; `rh` : le reste de la fiche.
-  const { espaceRh, rh, formations, manager, me } = useRole();
+  const { espaceRh, rh, formations, manager, me, user } = useRole();
   const permis = useIntentPermis();
+  /**
+   * Sa propre fiche, dans l'espace RH (lot 8, chantier C) : ni titre, ni certification, ni levée de suspension, ni suivi
+   * médical pour soi-même ; les boutons que le serveur refuserait sont remplacés par l'explication (shared/rules/soi-meme.ts).
+   */
+  const propre = fichePropre(user, e.id);
   const { setUi, openDialog, go, run, runIntent, notify } = useStore();
   /** Salarié sorti : fiche consultable (historique, passeport formation), sans action à planifier. */
   const parti = sorti(e, d.ti);
@@ -308,6 +314,8 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
    */
   const habProposal = (h: HabInfo): Proposal | null => {
     const a = parti ? null : d.habAction(e.id, h);
+    // Sa propre fiche : ni délivrance ni visite médicale proposées (refusées par le serveur).
+    if (a && propre && (a.intent.type === 'openHab' || a.intent.type === 'medical')) return null;
     if (!a || formations) return a && permis(a.intent) ? a : null;
     if (!membre) return null;
     if (a.intent.type === 'openPlan') return a;
@@ -360,12 +368,13 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
       {/* Manager : verdict et restrictions en vigueur seulement ; demandes de visite et avis : service RH. */}
       <SectionLabel>Aptitude médicale</SectionLabel>
       <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
-        <Aptitude e={e} d={d} horizon={horizon} actions={rh && !parti ? <>
+        <Aptitude e={e} d={d} horizon={horizon} actions={rh && !parti && !propre ? <>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'visite', empId: e.id })}>{e.med.demande ? 'Demande de visite' : 'Demander une visite'}</button>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'avis', empId: e.id })}>Avis du médecin du travail</button>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'suivi', empId: e.id })}>Type de suivi</button>
         </> : undefined} />
       </div>
+      {rh && !parti && propre && <Fine>{AIDE_SOI_MEME.medical}</Fine>}
 
       <SectionLabel>Certifications</SectionLabel>
       <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
@@ -494,8 +503,9 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
           {e.habs.map(h => {
             const a = habProposal(h);
             // Suspendre : RH, référent HSE ou manager direct ; lever la suspension, retirer, délivrer de nouveau : RH et référent HSE.
-            const mesures = (formations || membre) && !parti ? d.habMesures(h, formations) : [];
-            const redelivrer = formations && !parti && h.key === 'retiree';
+            // Sa propre habilitation : se suspendre seulement (MESURES_SOI_MEME).
+            const mesures = (formations || membre) && !parti ? d.habMesures(h, formations).filter(m => !propre || MESURES_SOI_MEME.includes(m)) : [];
+            const redelivrer = formations && !parti && !propre && h.key === 'retiree';
             return (
               <div key={h.hm.id} className="list-row stack">
                 <div className="item-head">
@@ -593,10 +603,11 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
 
       <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
         {(rh || membre) && <Btn variant="secondary" icon={<PencilSimpleIcon size={14} />} onClick={() => openDialog({ type: 'employe', empId: e.id })}>Modifier la fiche</Btn>}
-        {formations && !parti && <Btn variant="secondary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'cert', empId: e.id })}>Ajouter une certification</Btn>}
+        {formations && !parti && !propre && <Btn variant="secondary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'cert', empId: e.id })}>Ajouter une certification</Btn>}
         <Btn onClick={passeportFormation}>Passeport formation</Btn>
         {retirable && <Btn icon={<UserMinusIcon size={14} />} onClick={retirer}>Retirer de l’équipe</Btn>}
       </div>
+      {formations && !parti && propre && <Fine>{AIDE_SOI_MEME.titres}</Fine>}
     </aside>
   );
 }

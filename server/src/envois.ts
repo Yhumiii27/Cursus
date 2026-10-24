@@ -233,6 +233,16 @@ export async function purgerEnvois(db: Db, avant: string): Promise<number> {
   return Number((await db.run(`DELETE FROM envois WHERE (statut IN ('envoye', 'simule') AND COALESCE(envoi, creation) < ?) OR (statut = 'echec' AND classe IS NOT NULL AND classe < ?)`, [avant, avant])).changes);
 }
 
+/**
+ * Conservation des notifications (lot 8, D7), même durée que la file d'envoi (appelée avec `purgerEnvois`) : une
+ * notification créée avant `avant` (ISO) et déjà traitée par le récapitulatif — envoyée (`envoi_id` : son e-mail), ou
+ * close sans envoi (0 : destinataire sans adresse ou sorti) — est supprimée ; une notification en attente du
+ * récapitulatif (`envoi_id` NULL) reste, comme un message à envoyer reste en file. Renvoie le nombre supprimé.
+ */
+export async function purgerNotifications(db: Db, avant: string): Promise<number> {
+  return Number((await db.run('DELETE FROM notifications WHERE envoi_id IS NOT NULL AND creation < ?', [avant])).changes);
+}
+
 /** Derniers messages (les plus récents d'abord), filtrés par statut et par cible. */
 export async function listerEnvois(db: Db, filtre: { statut?: unknown; cible?: Cible } = {}, limite = 100): Promise<Envoi[]> {
   const statut = STATUTS_ENVOI.includes(filtre.statut as StatutEnvoi) ? filtre.statut as StatutEnvoi : null;

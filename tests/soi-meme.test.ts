@@ -209,3 +209,21 @@ test('refus « soi-même » : la transaction est annulée, aucune ligne d’acti
   await refus(HSE, 'hab.lever', { empId: SARAH, h: 'hauteur' }, /^Vous ne pouvez pas lever/);
   assert.equal((await db.all<{ action: string }>('journal')).length, avant, 'aucune ligne écrite par la transaction annulée');
 });
+
+// — Étape 2 : clôture d'une session de formation —
+
+test('session.cloturer : le service RH ne clôt pas une session qui lui délivre une certification ; absent de la session ou autre auteur, elle passe', async () => {
+  // Session 6 (EPI) : Antoine Leroy (gestionnaire RH, fiche 14) figure parmi les inscrits.
+  const participants = (antoine: boolean) => [{ empId: 5, present: true }, { empId: 11, present: true }, { empId: ANTOINE, present: antoine }, { empId: 17, present: true }, { empId: 20, present: false }];
+  const { db, run, refus, emp, GEST, HSE } = await fresh();
+  const certs = async () => (await emp(ANTOINE)).certs.length;
+  const avant = await certs();
+  await refus(GEST, 'session.cloturer', { id: 6, participants: participants(true) }, /^Vous ne pouvez pas clôturer une session qui vous délivre une certification : la décision revient à un autre membre du service RH ou au référent HSE/);
+  assert.equal(await certs(), avant, 'aucune certification écrite');
+  assert.equal((await db.get<{ statut: string }>('sessions', 6))!.statut, 'Confirmée', 'session non clôturée');
+  assert.match((await run(HSE, 'session.cloturer', { id: 6, participants: participants(true) })).message, /clôturée — 4 certifications enregistrées/);
+  assert.equal(await certs(), avant + 1, 'certification délivrée par la référente HSE');
+  // Absent de la session : rien ne lui est délivré, il peut la clôturer.
+  const y = await fresh();
+  assert.match((await y.run(y.GEST, 'session.cloturer', { id: 6, participants: participants(false) })).message, /clôturée — 3 certifications enregistrées/);
+});

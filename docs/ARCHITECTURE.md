@@ -478,8 +478,9 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   - `lien` — `GET /api/pieces/:id`, ouvert par un lien direct (`lienPiece`), qui ne peut porter aucun en-tête :
     `Sec-Fetch-Site` « cross-site » ou « same-site » refusé ; « same-origin », « none » (adresse tapée, favori) et un
     navigateur sans l'en-tête passent ;
-  - `appel` — `GET /api/paie/lots/:id/fichier`, `GET /api/salaries/:id/donnees` et `GET /api/journal?vue=archive`,
-    appelés par `fetch` : le même contrôle, plus l'en-tête d'espace `x-cursus-espace` (valeur d'un espace), qu'une
+  - `appel` — `GET /api/paie/lots/:id/fichier`, `GET /api/salaries/:id/donnees`, `GET /api/journal` en vue archive
+    (reconnue par `lireFiltre`, comme la route : `vue=archive` ou l'ancien `filtre=archive`) et l'export
+    `GET /api/journal/csv` (toutes vues : il trace toujours `journal.export`), appelés par `fetch` : le même contrôle, plus l'en-tête d'espace `x-cursus-espace` (valeur d'un espace), qu'une
     navigation ne pose jamais. Le client l'ajoute dans `telecharger()` et la lecture du journal (`definirEspaceOnglet`
     de `client/src/api.ts`, tenu par le store à chaque session lue) ; un script le pose lui-même.
 - **Registres par nom** (S5) : l'action de `POST /api/actions/:nom` et sa règle de journal sont lues sur les seules clés

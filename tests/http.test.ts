@@ -214,12 +214,22 @@ test('registre des actions : un nom hérité (constructor, __proto__, toString�
   assert.ok(regleDe('employe.modifier'));
 });
 
-test('navigation provoquée depuis un autre site : fichier de paie, données d’un salarié et archive paie exigent l’en-tête d’espace', async () => {
+test('navigation provoquée depuis un autre site : fichier de paie, données d’un salarié, archive paie et export du journal exigent l’en-tête d’espace', async () => {
   const cookie = await session();
-  const lot = (await db.one('SELECT MAX(id) AS id FROM lots_paie') as { id: number | null }).id ?? 1;
   const espace = { cookie, 'x-cursus-espace': 'rh' };
-  for (const chemin of [`/api/paie/lots/${lot}/fichier`, '/api/salaries/2/donnees', '/api/journal?vue=archive']) {
-    const avant = await lignesJournal();
+  // Lot de paie à télécharger (la démonstration n'en a pas d'autre qu'historique, sans fichier) : octobre 2026.
+  const genere = await appel('/api/actions/paie.lotGenerer', json({ periode: '2026-10' }, espace));
+  assert.equal(genere.status, 200, JSON.stringify(genere.json()));
+  const lot = (await db.one('SELECT MAX(id) AS id FROM lots_paie') as { id: number }).id;
+  const attendu: Record<string, string> = {
+    [`/api/paie/lots/${lot}/fichier`]: 'sage.fichier', '/api/salaries/2/donnees': 'salarie.export',
+    // Archive : par `vue`, ou par l'ancien paramètre `filtre` que la route accepte aussi (lireFiltre) ; autre filtre de
+    // salarié, sinon la seconde consultation se regroupe avec la première (même trace, 15 minutes).
+    '/api/journal?vue=archive': 'journal.archive', '/api/journal?filtre=archive&salarie=2': 'journal.archive',
+    '/api/journal/csv?vue=archive': 'journal.export', '/api/journal/csv?filtre=archive': 'journal.export', '/api/journal/csv': 'journal.export',
+  };
+  for (const [chemin, trace] of Object.entries(attendu)) {
+    const avant = await lignesJournal(), traces = await lignesJournal(trace);
     // Lien ou redirection depuis un autre site (cookie SameSite=Lax envoyé), ou navigation sans l'en-tête de l'interface.
     for (const en of [{ cookie, 'sec-fetch-site': 'cross-site' }, { cookie, 'sec-fetch-site': 'same-site' }, { cookie, 'sec-fetch-site': 'none' }, { cookie }, { cookie, 'x-cursus-espace': 'admin' }, { ...espace, 'sec-fetch-site': 'cross-site' }] as Record<string, string>[]) {
       const r = await appel(chemin, { headers: en });
@@ -227,12 +237,12 @@ test('navigation provoquée depuis un autre site : fichier de paie, données d�
       assert.match(r.json().error!, /^Requête refusée : /);
     }
     assert.equal(await lignesJournal(), avant, `${chemin} : refus sans trace`);
-    // Appel de l'interface (fetch de même origine, en-tête d'espace) : la route répond et trace.
+    // Appel de l'interface (fetch de même origine, en-tête d'espace) : la route sert le fichier et trace.
     const r = await appel(chemin, { headers: { ...espace, 'sec-fetch-site': 'same-origin' } });
-    assert.notEqual(r.status, 403, chemin);
+    assert.equal(r.status, 200, `${chemin} ${r.corps.toString('utf8').slice(0, 200)}`);
+    assert.equal(await lignesJournal(trace), traces + 1, `${chemin} : ${trace}`);
   }
-  assert.equal(await lignesJournal('salarie.export'), 1);
-  assert.equal(await lignesJournal('journal.archive'), 1);
+  assert.match(String((await appel(`/api/paie/lots/${lot}/fichier`, { headers: espace })).headers['content-disposition']), /^attachment; /);
   // Le reste du journal (vue Tout) n'est pas concerné : il ne trace rien.
   assert.equal((await appel('/api/journal', { headers: { cookie } })).status, 200);
 });

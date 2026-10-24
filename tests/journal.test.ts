@@ -32,6 +32,8 @@ const { donneesSalarie, TABLES_SALARIE } = await import('../server/src/donnees.t
 const { changementsTexte, dossierComplet, familleAction, JOURNAL_LABEL, lecteurJournal, libelleAction } = await import('../shared/journal.ts');
 const { PROFILS_RH } = await import('../shared/constants.ts');
 const { SAMPLE_TRIPS_CSV } = await import('../shared/rules/imports.ts');
+const { listerEnvois } = await import('../server/src/envois.ts');
+const { envoisPourLecteur } = await import('../server/src/envois-lecteur.ts');
 type Db = import('../server/src/db.ts').Db;
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 interface Ligne {
@@ -322,11 +324,25 @@ test('conservation : 1 an, archive paie de 3 ans, envois anciens retirés de la 
   const notif = async (creation: string, envoiId: number | null) => (await db.insert<{ id: number }>('notifications', { empId: 2, adresse: 'mehdi.benali@entreprise.example', type: 'absence.decision', objet: 'Demande validée', texte: 'Bonjour', creation, envoiId })).id;
   await notif('2026-09-01T08:00:00.000Z', anciens[0]);
   await notif('2026-09-01T08:00:00.000Z', 0);
-  const notifsGardees = [await notif('2026-09-01T08:00:00.000Z', null), await notif('2027-10-01T08:00:00.000Z', gardes[2])];
+  // Notification ancienne dont l'e-mail reste en file : récapitulatif de santé en échec non classé, ou parti après la
+  // date limite (créée la veille au soir, récapitulatif du matin). Gardée : c'est elle qui fait masquer le récapitulatif
+  // aux profils restreints (envoisPourLecteur).
+  const recap = async (statut: string, creation: string, envoi: string | null) => (await db.insert<{ id: number }>('envois', {
+    cible: 'email', type: 'recapitulatif', cle: `recap-${statut}-${creation}`, contenu: { a: ['rh@entreprise.example'], objet: 'Demande de visite médicale', texte: 'Demande de visite médicale de reprise pour Mehdi' },
+    statut, tentatives: 1, prochaine: null, erreur: null, accuse: null, creation, tentative: creation, envoi, classe: null,
+  })).id;
+  const recaps = [await recap('echec', '2026-09-02T07:00:00.000Z', null), await recap('envoye', '2026-11-01T07:00:00.000Z', '2026-11-01T07:00:00.000Z')];
+  gardes.push(...recaps);
+  const visite = async (creation: string, envoiId: number) => (await db.insert<{ id: number }>('notifications', { empId: 2, adresse: 'rh@entreprise.example', type: 'visite.demande', objet: 'Demande de visite médicale', texte: 'Visite de reprise', creation, envoiId })).id;
+  const notifsGardees = [await notif('2026-09-01T08:00:00.000Z', null), await notif('2027-10-01T08:00:00.000Z', gardes[2]),
+    await visite('2026-09-01T08:00:00.000Z', recaps[0]), await visite('2026-10-31T20:00:00.000Z', recaps[1])];
   const maintenant = new Date('2027-11-01T00:00:00.000Z');
   const b = await appliquerConservation(db, maintenant);
   assert.deepEqual(b, { supprimees: 2, archivees: 1, supprimeesArchive: 1, envois: 3, notifications: 2 });
   assert.deepEqual((await db.all<{ id: number }>('notifications')).map(n => n.id), notifsGardees);
+  // Le profil en lecture seule lit toujours ces récapitulatifs masqués.
+  const lus = await envoisPourLecteur(db, { role: 'rh', profilRh: 'lecture_seule' }, await listerEnvois(db, { cible: 'email' }));
+  assert.deepEqual(lus.filter(e => recaps.includes(e.id)).map(e => [e.id, (e.contenu as { texte: string }).texte]), recaps.toReversed().map(id => [id, DETAIL_RESERVE]));
   const ids = (await lignes()).map(l => l.id);
   assert.ok(!ids.includes(A) && !ids.includes(C) && !ids.includes(E) && ids.includes(B) && ids.includes(D));
   assert.equal((await db.get<Ligne>('journal', B))!.archivee, maintenant.toISOString());
@@ -584,7 +600,7 @@ test('serveur : journal consultable, filtré, paginé, exporté ; accès et expo
 
   await t.test('export CSV : toutes les lignes filtrées, formules neutralisées, export tracé', async () => {
     await db.insert('journal', { at: new Date().toISOString(), actor: '@pirate', role: 'rh', action: 'export', message: '=HYPERLINK("http://exemple.invalid")', payload: {}, salaries: [], paie: false });
-    const r = await srv.brut('/api/journal/csv?vue=operations', { cookie: rh });
+    const r = await srv.brut('/api/journal/csv?vue=operations', { cookie: rh, espace: 'rh' });
     assert.equal(r.status, 200);
     assert.match(r.headers.get('content-type')!, /^text\/csv/);
     assert.match(r.headers.get('content-disposition')!, /attachment; filename="journal-\d{4}-\d{2}-\d{2}\.csv"/);
@@ -597,7 +613,7 @@ test('serveur : journal consultable, filtré, paginé, exporté ; accès et expo
     assert.ok(corps.some(l => l.includes('Modification d’une fiche') && l.includes('Mehdi Benali (004102)') && l.includes('Poste : Technicien de maintenance → Technicien confirmé')));
     const trace = (await db.all<Ligne>('journal')).findLast(l => l.action === 'journal.export')!;
     assert.match(trace.message!, /^Export CSV du journal — \d+ lignes \(opérations\)$/);
-    assert.equal((await srv.call('/api/journal/csv', { cookie: ck })).status, 403);
+    assert.equal((await srv.call('/api/journal/csv', { cookie: ck, espace: 'manager' })).status, 403);
   });
 
   await t.test('archive paie : hors de l’écran, consultée sur demande (consultation tracée)', async () => {

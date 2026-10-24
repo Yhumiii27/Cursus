@@ -28,7 +28,7 @@ import { routesVariablesPaie } from './variables-paie.ts';
 import { routesPasseportPrevention } from './passeport-prevention.ts';
 import { routesPieces } from './pieces-routes.ts';
 import { routesAgenda } from './agenda.ts';
-import { journaliserAction, preparerTrace, routesJournal, tracerRefus } from './journal.ts';
+import { journaliserAction, lireFiltre, preparerTrace, routesJournal, tracerRefus } from './journal.ts';
 import { emailMode } from './integrations/email.ts';
 import { KEYSTONE_MODE } from './integrations/keystone.ts';
 import { suivreVerdicts } from './integrations/keystone-verdicts.ts';
@@ -162,7 +162,10 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   app.get('/api/pieces/:id', exigerNavigationInterne('lien'));
   app.get('/api/paie/lots/:id/fichier', exigerNavigationInterne('appel'));
   app.get('/api/salaries/:id/donnees', exigerNavigationInterne('appel'));
-  app.get('/api/journal', exigerNavigationInterne('appel', req => req.query.vue === 'archive'));
+  // Archive paie : reconnue comme la route la lit (`lireFiltre` : `vue`, ou l'ancien paramètre `filtre`). L'export CSV
+  // est gardé quelle que soit la vue (il trace toujours « journal.export » ; le client passe par `telecharger`).
+  app.get('/api/journal', exigerNavigationInterne('appel', req => lireFiltre(req.query as Record<string, unknown>).vue === 'archive'));
+  app.get('/api/journal/csv', exigerNavigationInterne('appel'));
   // Journal des actions (consultation filtrée et paginée, export CSV, archive paie, exports de l'interface) et
   // données personnelles d'un salarié (export RH, téléchargement par l'intéressé) : server/src/journal.ts, donnees.ts.
   app.use(routesJournal(db));

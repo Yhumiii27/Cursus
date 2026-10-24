@@ -1012,7 +1012,8 @@ export async function appliquerConservation(db: Db, maintenant = new Date()): Pr
     const archivees = await n('UPDATE journal SET archivee = ? WHERE paie = TRUE AND archivee IS NULL AND at < ?', maintenant.toISOString(), un);
     const supprimees = await n('DELETE FROM journal WHERE (paie IS NULL OR paie = FALSE) AND at < ?', un);
     const envois = await purgerEnvois(db, ilYa(maintenant, CONSERVATION_ENVOIS_MOIS));
-    // Notifications déjà traitées par le récapitulatif : même durée que la file d'envoi (lot 8, D7).
+    // Notifications déjà traitées par le récapitulatif : même durée que la file d'envoi (lot 8, D7), après les envois
+    // (une notification dont l'e-mail reste en file est gardée).
     const notifications = await purgerNotifications(db, ilYa(maintenant, CONSERVATION_ENVOIS_MOIS));
     const b = { supprimees, archivees, supprimeesArchive, envois, notifications };
     if (supprimees || archivees || supprimeesArchive || envois || notifications) {

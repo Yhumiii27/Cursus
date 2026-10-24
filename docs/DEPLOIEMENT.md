@@ -500,6 +500,15 @@ ni schéma ni rôle et n'y pose aucun droit.
 Prérequis : socle installé (`infra/postgres/init/01` à `03` de Matrix ; copie d'essai dans `infra/postgres-socle/`),
 mot de passe de `cursus_app` connu de l'exploitant, Cursus en version 8.b au moins.
 
+**Lot 8 (migration `0011_pub_titres_valides`)** : avant de déployer une version qui la contient, Matrix doit avoir
+remplacé son `partage/20-cursus.sql` par `infra/postgres-partage/20-cursus.sql` de Cursus (nouvelle `pub_titres_detenus`,
+colonnes `mesure` et `mesure_le` en fin), sinon son rejeu échoue ensuite. La fermeture à `matrix_lecture` des colonnes
+que Cursus déclare sensibles (empreintes de mots de passe, sessions, nature des absences, contenu des lots de paie,
+textes libres) est demandée à
+Matrix avant la reprise de Lucca. Textes des deux demandes, à valider avant envoi : `docs/DEMANDES-LOT8-DONNEES.md`.
+Au déploiement du lot 8, les sessions ouvertes sont fermées (la table `connexions` ne garde plus que l'empreinte de
+l'identifiant) : chacun se reconnecte une fois.
+
 1. **Variables** (service systemd, ou onglet « Environment Variables » de Coolify) :
    `DATABASE_URL=postgres://cursus_app:<mot de passe>@<hôte>:5432/epc2i` (secret : jamais dans le dépôt ni dans les
    journaux, que Cursus réduit à l'hôte, au port et à la base), `CURSUS_PG_POOL` au besoin (10 connexions par

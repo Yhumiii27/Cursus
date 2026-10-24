@@ -6,7 +6,9 @@
 // la connexion est libre (choix d'un compte, mot de passe quelconque) et une session peut
 // attendre, sans compte, le choix d'un compte pour l'espace demandé.
 // Connexion : routes de server/src/connexion.ts (compte local) et server/src/microsoft.ts (Microsoft 365).
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+// La table ne garde que l'empreinte SHA-256 de l'identifiant (lot 8, chantier D) : l'identifiant en clair n'existe que
+// dans le cookie et en mémoire (SessionInfo.id), jamais en base ni dans une sauvegarde, lisibles d'autres que Cursus.
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
 import type { Role } from '../../shared/types.ts';
 import { compteValide, espacesDuCompte } from './comptes.ts';
@@ -18,7 +20,7 @@ import { noterCompte } from './logs.ts';
 export type Methode = 'local' | 'demo' | 'microsoft';
 
 export interface SessionInfo {
-  /** Identifiant de la session (table `connexions`), absent tant qu'elle n'est pas ouverte. */
+  /** Identifiant de la session, en clair (celui du cookie ; la table `connexions` n'en garde que l'empreinte), absent tant qu'elle n'est pas ouverte. */
   id?: string;
   /** Compte connecté ; null seulement en démonstration, tant qu'aucun compte n'est choisi pour l'espace. */
   compteId: number | null;
@@ -54,6 +56,14 @@ async function secret(db: Db): Promise<string> {
   });
 }
 
+/**
+ * Clé de la session en base (colonne connexions.id, toujours du texte) : empreinte SHA-256 de l'identifiant du cookie.
+ * Un lecteur de la table (sauvegarde, rôle de lecture du serveur commun) ne peut donc pas en déduire un cookie, même
+ * avec la clé de signature. Les sessions ouvertes avant le lot 8 (identifiant en clair) ne se retrouvent plus : elles
+ * sont simplement fermées au déploiement, puis supprimées à leur expiration (purgeSessions).
+ */
+export const empreinteSession = (id: string) => createHash('sha256').update(id).digest('base64url');
+
 /** Signature HMAC d'une valeur de cookie (session, et état de l'aller-retour Microsoft dans microsoft.ts). */
 export const sign = async (db: Db, payload: string) => createHmac('sha256', await secret(db)).update(payload).digest('base64url');
 
@@ -87,7 +97,8 @@ async function cookieId(db: Db, req: Request): Promise<string | null> {
 export async function readSession(db: Db, req: Request): Promise<SessionInfo | null> {
   const id = await cookieId(db, req);
   if (!id) return null;
-  const row = await db.get<ConnexionRow>('connexions', id);
+  const cle = empreinteSession(id);
+  const row = await db.get<ConnexionRow>('connexions', cle);
   const now = new Date().toISOString();
   if (!row || row.revocation || row.expiration <= now) return null;
   if (!ROLES.includes(row.role)) return null;
@@ -98,16 +109,16 @@ export async function readSession(db: Db, req: Request): Promise<SessionInfo | n
   } else {
     const c = await compteValide(db, row.compteId);
     if (!c) {
-      await db.update('connexions', id, { revocation: now });
+      await db.update('connexions', cle, { revocation: now });
       return null;
     }
     const espaces = await espacesDuCompte(db, c);
     if (!espaces.includes(role)) {
       role = espaces[0];
-      await db.update('connexions', id, { role });
+      await db.update('connexions', cle, { role });
     }
   }
-  if (!row.activite || Date.parse(now) - Date.parse(row.activite) > ACTIVITE_MS) await db.update('connexions', id, { activite: now });
+  if (!row.activite || Date.parse(now) - Date.parse(row.activite) > ACTIVITE_MS) await db.update('connexions', cle, { activite: now });
   noterCompte(req, row.compteId); // compte inscrit sur la ligne de la requête (server/src/logs.ts)
   return { id, compteId: row.compteId, role, methode: row.methode ?? 'local', demoComptes: row.demoComptes ?? {}, expiration: row.expiration };
 }
@@ -118,7 +129,7 @@ export async function readSession(db: Db, req: Request): Promise<SessionInfo | n
  */
 export async function compteDeLaRequete(db: Db, req: Request): Promise<number | null> {
   const id = await cookieId(db, req);
-  const row = id ? await db.get<ConnexionRow>('connexions', id) : null;
+  const row = id ? await db.get<ConnexionRow>('connexions', empreinteSession(id)) : null;
   return row && !row.revocation && row.expiration > new Date().toISOString() ? row.compteId : null;
 }
 
@@ -142,7 +153,7 @@ export async function openSession(db: Db, res: Response, s: SessionInfo, expirat
   const fin = expiration ?? new Date(now.getTime() + SESSION_HEURES * 3600_000).toISOString();
   const id = randomBytes(32).toString('base64url');
   await db.insert('connexions', {
-    id, compteId: s.compteId, role: s.role, methode: s.methode, demoComptes: s.demoComptes ?? {},
+    id: empreinteSession(id), compteId: s.compteId, role: s.role, methode: s.methode, demoComptes: s.demoComptes ?? {},
     creation: now.toISOString(), expiration: fin, activite: now.toISOString(),
   });
   setCookie(res, `${id}.${await sign(db, id)}`, Math.max(0, Math.floor((Date.parse(fin) - now.getTime()) / 1000)));
@@ -151,17 +162,18 @@ export async function openSession(db: Db, res: Response, s: SessionInfo, expirat
 
 /** Met à jour une session ouverte (changement d'espace) sans changer son identifiant ni son échéance. */
 export async function updateSession(db: Db, s: SessionInfo): Promise<SessionInfo> {
-  if (s.id) await db.update('connexions', s.id, { compteId: s.compteId, role: s.role, methode: s.methode, demoComptes: s.demoComptes ?? {} });
+  if (s.id) await db.update('connexions', empreinteSession(s.id), { compteId: s.compteId, role: s.role, methode: s.methode, demoComptes: s.demoComptes ?? {} });
   return s;
 }
 
+/** Révoque la session d'identifiant `id` (celui du cookie, en clair). */
 export async function revokeSession(db: Db, id: string) {
-  await db.run('UPDATE connexions SET revocation = ? WHERE id = ? AND revocation IS NULL', [new Date().toISOString(), id]);
+  await db.run('UPDATE connexions SET revocation = ? WHERE id = ? AND revocation IS NULL', [new Date().toISOString(), empreinteSession(id)]);
 }
 
-/** Révoque toutes les sessions ouvertes d'un compte, sauf éventuellement `sauf`. Renvoie leur nombre. */
+/** Révoque toutes les sessions ouvertes d'un compte, sauf éventuellement `sauf` (identifiant du cookie). Renvoie leur nombre. */
 export async function revokeSessionsDuCompte(db: Db, compteId: number, sauf?: string): Promise<number> {
-  const r = await db.run('UPDATE connexions SET revocation = ? WHERE compte_id = ? AND id IS DISTINCT FROM ? AND revocation IS NULL', [new Date().toISOString(), compteId, sauf ?? null]);
+  const r = await db.run('UPDATE connexions SET revocation = ? WHERE compte_id = ? AND id IS DISTINCT FROM ? AND revocation IS NULL', [new Date().toISOString(), compteId, sauf ? empreinteSession(sauf) : null]);
   return Number(r.changes);
 }
 

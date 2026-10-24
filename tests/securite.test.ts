@@ -17,7 +17,7 @@ const { problemesConfig } = await import('../server/src/config.ts');
 const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
-const { openSession, purgeSessions, readSession, revokeSessionsOf } = await import('../server/src/auth.ts');
+const { empreinteSession, openSession, purgeSessions, readSession, revokeSessionsOf } = await import('../server/src/auth.ts');
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), 'cursus-securite-'));
@@ -78,7 +78,8 @@ async function startServer(name: string, env: Record<string, string>) {
 
 /** Valeur du cookie de session posé par la réponse (`cursus_session=…`), sinon null. */
 const cookieOf = (r: globalThis.Response) => r.headers.get('set-cookie')?.match(/cursus_session=[^;]*/)?.[0] ?? null;
-const idOf = (cookie: string) => cookie.split('=')[1].split('.')[0];
+// Clé de la session en base : empreinte de l'identifiant du cookie (la table ne garde jamais l'identifiant en clair).
+const idOf = (cookie: string) => empreinteSession(cookie.split('=')[1].split('.')[0]);
 
 const PROD_OK = { NODE_ENV: 'production', CURSUS_SECRET: 'x'.repeat(32), KEYSTONE_API_KEY: 'cle-keystone-de-test' };
 

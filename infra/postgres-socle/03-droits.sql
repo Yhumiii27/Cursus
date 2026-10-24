@@ -1,7 +1,7 @@
--- Copie du dépôt Matrix (github.com/Yhumiii27/Matrix, privé), infra/postgres/init/03-droits.sql au commit 0abe407
--- (dernier changement de infra/postgres/init : cdfd2e7). Sert seulement à l'intégration continue de Cursus
--- (.github/workflows/ci.yml, job postgres) et aux essais locaux : socle du serveur commun EPC2I. Ne pas modifier ici :
--- recopier le fichier depuis Matrix.
+-- Copie du dépôt Matrix (github.com/Yhumiii27/Matrix, privé), infra/postgres/init/03-droits.sql au commit 403ff37
+-- (recopie du lot 8, 24/10/2026 ; dernier changement de infra/postgres/init : 403ff37). Sert seulement à l'intégration
+-- continue de Cursus (.github/workflows/ci.yml, job postgres) et aux essais locaux : socle du serveur commun EPC2I. Ne
+-- pas modifier ici : recopier le fichier depuis Matrix (tests/socle-colonnes-sensibles.test.ts contrôle la copie).
 
 -- Serveur PostgreSQL commun EPC2I, étape 3 sur 3 : droits de Matrix et protection des colonnes sensibles.
 --
@@ -672,25 +672,27 @@ BEGIN
 
   -- Accès des rôles aux schémas : chaque outil chez soi, plus la convention de partage. Un outil peut avoir USAGE
   -- sur le schéma d'un autre (keystone, codex, cursus, vigie, matrix) s'il y lit au moins une vue pub_ ; ses autres
-  -- droits dans ce schéma sont contrôlés plus haut (droits croisés). CREATE croisé : toujours une erreur.
+  -- droits dans ce schéma sont contrôlés plus haut (droits croisés). CREATE croisé : toujours une erreur. Le schéma
+  -- extensions (init/02 : pg_trgm) n'est ouvert qu'à codex_app, et à epc2i_sauvegarde par pg_read_all_data ; CREATE
+  -- n'y est accordé à aucun de ces rôles.
   RETURN QUERY
   SELECT 'erreur', format('%s, schéma %s', r.nom, n.nspname),
          CASE WHEN p.priv = 'USAGE' AND r.lecteur AND n.nspname IN ('keystone', 'codex', 'cursus', 'vigie', 'matrix')
               THEN 'droit USAGE inattendu : aucune vue pub_ de ce schéma n''est accordée au rôle'
               ELSE format('droit %s inattendu', p.priv) END
   FROM (VALUES ('keystone_app', ARRAY['keystone'], ARRAY['keystone'], true),
-               ('codex_app', ARRAY['codex'], ARRAY['codex'], true),
+               ('codex_app', ARRAY['codex', 'extensions'], ARRAY['codex'], true),
                ('cursus_app', ARRAY['cursus'], ARRAY['cursus'], true),
                ('vigie_app', ARRAY['vigie'], ARRAY['vigie'], true),
                ('matrix_app', ARRAY['matrix', 'keystone', 'codex', 'cursus', 'vigie', 'droits'], ARRAY['matrix'], false),
                ('matrix_lecture', ARRAY['keystone', 'codex', 'cursus', 'vigie', 'droits'], ARRAY[]::text[], false),
                ('matrix_admin', ARRAY['keystone', 'codex', 'cursus', 'vigie', 'matrix', 'droits'], ARRAY[]::text[], false),
-               ('epc2i_sauvegarde', ARRAY['keystone', 'codex', 'cursus', 'vigie', 'matrix', 'droits', 'public'], ARRAY[]::text[], false)
+               ('epc2i_sauvegarde', ARRAY['keystone', 'codex', 'cursus', 'vigie', 'matrix', 'droits', 'public', 'extensions'], ARRAY[]::text[], false)
        ) AS r(nom, usage_ok, create_ok, lecteur)
   JOIN pg_roles x ON x.rolname = r.nom
   CROSS JOIN pg_namespace n
   CROSS JOIN (VALUES ('USAGE'), ('CREATE')) AS p(priv)
-  WHERE n.nspname IN ('keystone', 'codex', 'cursus', 'vigie', 'matrix', 'droits', 'public')
+  WHERE n.nspname IN ('keystone', 'codex', 'cursus', 'vigie', 'matrix', 'droits', 'public', 'extensions')
     AND NOT (n.nspname::text = ANY (CASE WHEN p.priv = 'USAGE' THEN r.usage_ok ELSE r.create_ok END))
     AND has_schema_privilege(x.oid, n.oid, p.priv)
     AND NOT (p.priv = 'USAGE' AND r.lecteur AND n.nspname IN ('keystone', 'codex', 'cursus', 'vigie', 'matrix')
@@ -786,6 +788,24 @@ INSERT INTO droits.colonnes_sensibles (schema_nom, table_nom, colonne_nom, motif
   ('cursus', 'visas', 'obtenu', 'Déplacement personnel : date d''obtention du visa', 'convention'),
   ('cursus', 'visas', 'expire', 'Déplacement personnel : fin de validité du visa', 'convention'),
   ('cursus', 'entretiens', 'cr', 'Vie professionnelle : compte rendu d''entretien', 'convention'),
+  -- Ajouts du 22/10/2026 (8.b de Cursus) : contact d'urgence et pièces justificatives (arrêts, déclarations…).
+  ('cursus', 'employes', 'urgence_nom', 'Vie privée : personne à prévenir en cas d''urgence', 'convention'),
+  ('cursus', 'employes', 'urgence_tel', 'Vie privée : téléphone de la personne à prévenir', 'convention'),
+  ('cursus', 'pieces', 'jeton', 'Sécurité : jeton de téléchargement d''une pièce justificative', 'convention'),
+  ('cursus', 'pieces', 'nom', 'Santé ou vie privée : nom du fichier d''une pièce justificative', 'convention'),
+  ('cursus', 'pieces', 'fichier', 'Santé ou vie privée : emplacement du fichier d''une pièce justificative', 'convention'),
+  -- Suivi médical et identité (colonnes de Cursus relevées au 22/10/2026), même convention : aucune donnée de santé
+  -- ni pièce d'identité lue par Matrix. Vaccinations et visas : tables fermées en entier.
+  ('cursus', 'employes', 'naissance_le', 'Identité : date de naissance', 'convention'),
+  ('cursus', 'employes', 'reprise_date', 'Santé ou vie privée : date de reprise après une absence longue', 'convention'),
+  ('cursus', 'employes', 'avis', 'Santé : avis d''aptitude de la médecine du travail', 'convention'),
+  ('cursus', 'employes', 'restrictions', 'Santé : restrictions d''aptitude', 'convention'),
+  ('cursus', 'employes', 'suivi', 'Santé : type de suivi médical (VIP, VIP adapté, SIR)', 'convention'),
+  ('cursus', 'employes', 'prochaine_visite', 'Santé : date de la prochaine visite médicale', 'convention'),
+  ('cursus', 'employes', 'examen_aptitude', 'Santé : date de l''examen d''aptitude', 'convention'),
+  ('cursus', 'employes', 'autorisation_travail', 'Identité : autorisation de travail (titre de séjour)', 'convention'),
+  ('cursus', 'vaccinations', '*', 'Santé : vaccinations (table entière)', 'convention'),
+  ('cursus', 'visas', '*', 'Déplacement personnel : visas (table entière)', 'convention'),
   ('vigie', 'events', 'injury', 'Santé : nature de la lésion (accident du travail)', 'convention'),
   ('vigie', 'events', 'lost_days', 'Santé : jours d''arrêt de travail', 'convention'),
   -- Données de santé d'un accident du travail (Vigie : HEALTH_LABELS de src/components/events/shared.ts, réservées à

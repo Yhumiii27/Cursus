@@ -167,12 +167,18 @@ function conclureLot(b: BilanLot, interruption?: { motif: string; restantes: Feu
   };
 }
 
-/** Rang de la tranche posé par le serveur (`EN_TRANCHE`), absent pour un appel ordinaire. */
-const trancheDe = (p: Record<string, any>) => (p as Record<symbol, unknown>)[EN_TRANCHE] as { rang: number; total: number } | undefined;
+/**
+ * Tranche posée par le serveur (`EN_TRANCHE`), absente pour un appel ordinaire : son rang ; `rienAvant` : aucune tranche
+ * précédente n'a validé (ni trouvé déjà validée) de feuille ; `refusEnAttente` : refus des tranches précédentes restés
+ * sans ligne de journal (tranches vides annulées), à compter dans la ligne de journal de cette tranche.
+ */
+interface Tranche { rang: number; total: number; rienAvant: boolean; refusEnAttente: Feuille[] }
+const trancheDe = (p: Record<string, any>) => (p as Record<symbol, unknown>)[EN_TRANCHE] as Tranche | undefined;
 
 /**
- * Tranche sans feuille validée ni déjà validée : levée pour annuler sa transaction (aucune ligne de journal pour une
- * tranche qui n'a rien fait), son bilan (refus) rejoignant celui de la validation.
+ * Tranche sans feuille validée ni déjà validée alors qu'aucune tranche n'a encore rien fait : levée pour annuler sa
+ * transaction (une validation dont tout est refusé n'a pas de ligne de journal, comme en une passe), son bilan (refus)
+ * rejoignant celui de la validation ; ses refus sont comptés dans la ligne de journal de la tranche suivante qui en a une.
  */
 class TrancheVide extends Error {
   readonly bilan: BilanLot;
@@ -189,12 +195,16 @@ const validerLot: ActionHandler = async (ctx, p) => {
   const b = await validerFeuilles(ctx, feuillesDemandees(p));
   const tranche = trancheDe(p);
   if (!tranche) return conclureLot(b);
-  if (!b.validees.length && !b.deja.length) throw new TrancheVide(b);
+  // Rien de fait jusqu'ici (première tranche, ou précédentes toutes vides) : tranche vide annulée. Après une tranche
+  // journalisée, une tranche vide est journalisée elle aussi (aucune feuille validée, ses refus comptés).
+  if (!b.validees.length && !b.deja.length && tranche.rienAvant) throw new TrancheVide(b);
+  const refus = [...tranche.refusEnAttente, ...b.refus.map(({ empId, week }) => ({ empId, week }))];
   return {
     message: `${plural(b.validees.length, 'feuille validée', 'feuilles validées')} (tranche ${tranche.rang} sur ${tranche.total} d’une validation groupée)`
       + `${b.deja.length ? ` · ${plural(b.deja.length, 'feuille déjà validée', 'feuilles déjà validées')}` : ''}`
-      + `${b.refus.length ? ` · ${plural(b.refus.length, 'feuille non validée', 'feuilles non validées')}` : ''}`,
-    result: { validees: b.validees, refus: b.refus.map(({ empId, week }) => ({ empId, week })), bilan: b },
+      + `${b.refus.length ? ` · ${plural(b.refus.length, 'feuille non validée', 'feuilles non validées')}` : ''}`
+      + `${tranche.refusEnAttente.length ? ` · ${plural(tranche.refusEnAttente.length, 'feuille non validée', 'feuilles non validées')} aux tranches précédentes` : ''}`,
+    result: { validees: b.validees, refus, bilan: b },
   };
 };
 
@@ -216,6 +226,8 @@ export async function validerEnTranches(p: Record<string, any>, passe: Passe, si
   for (let i = 0; i < demandees.length; i += TRANCHE_MAX) tranches.push(demandees.slice(i, i + TRANCHE_MAX));
   const b: BilanLot = { validees: [], deja: [], refus: [], alertes: [], noms: {}, delegations: [] };
   let interruption: { motif: string; restantes: Feuille[] } | undefined;
+  /** Refus des tranches vides annulées, pas encore comptés dans une ligne de journal. */
+  let refusEnAttente: Feuille[] = [];
   const reunir = (t: BilanLot) => {
     b.validees.push(...t.validees); b.deja.push(...t.deja); b.refus.push(...t.refus); b.alertes.push(...t.alertes);
     Object.assign(b.noms, t.noms);
@@ -223,10 +235,15 @@ export async function validerEnTranches(p: Record<string, any>, passe: Passe, si
   };
   for (const [i, feuilles] of tranches.entries()) {
     try {
-      const o = await passe({ ...p, feuilles, [EN_TRANCHE]: { rang: i + 1, total: tranches.length } });
+      const o = await passe({ ...p, feuilles, [EN_TRANCHE]: { rang: i + 1, total: tranches.length, rienAvant: !b.validees.length && !b.deja.length, refusEnAttente } satisfies Tranche });
       reunir((o.result as { bilan: BilanLot }).bilan);
+      refusEnAttente = [];
     } catch (err) {
-      if (err instanceof TrancheVide) { reunir(err.bilan); continue; }
+      if (err instanceof TrancheVide) {
+        reunir(err.bilan);
+        refusEnAttente = [...refusEnAttente, ...err.bilan.refus.map(({ empId, week }) => ({ empId, week }))];
+        continue;
+      }
       // Refus de droits ou de saisie (première tranche : rien n'est fait) et rien de validé : rendu tel quel.
       if (!b.validees.length && !b.deja.length) throw err;
       if (!(err instanceof ActionError) && !estOccupe(err)) signaler(err);

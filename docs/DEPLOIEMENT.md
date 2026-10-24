@@ -509,14 +509,19 @@ mot de passe de `cursus_app` connu de l'exploitant, Cursus en version 8.b au moi
    `CURSUS_PG_DELAI_CONNEXION_MS` (5 000 : attente d'une connexion libre du pool), `CURSUS_PG_DELAI_VERROU_MS`
    (30 000 : `lock_timeout`, attente d'un verrou, verrou d'écriture de Cursus compris), `CURSUS_PG_DELAI_REQUETE_MS`
    (60 000 : `statement_timeout`, durée d'une requête). Un dépassement répond 503 « Cursus est occupé, réessayez »
-   (en-tête `Retry-After: 5`) et n'écrit rien ; il est noté en avertissement dans les journaux du serveur
+   (en-tête `Retry-After: 5`) et n'écrit rien (une action déjà validée quand le délai survient rend son message,
+   l'interface relit ensuite ses données) ; il est noté en avertissement dans les journaux du serveur
    (« Base occupée »). Les migrations du démarrage n'ont pas de délai. Règle de cohérence : aucun traitement ne tient le
    verrou d'écriture plus de la moitié de `lock_timeout` (validation groupée par tranches de 25 feuilles, lectures et
    exports hors du verrou) ; ne baissez pas le délai du verrou sans refaire l'essai de charge (`npm run charge`,
    `docs/ARCHITECTURE.md`, « Performances »). Derrière PgBouncer en mode transaction (qui refuse les options de
    connexion), les délais se posent sur le rôle : `ALTER ROLE cursus_app SET lock_timeout = '30s'` et
-   `statement_timeout = '60s'`, à demander à Matrix. Le pool reste à 10 connexions par instance : les lectures n'en
-   gardent une que le temps de leur requête, sans attendre le verrou d'écriture.
+   `statement_timeout = '60s'`, à demander à Matrix. Le pool est de 10 connexions par instance par défaut. Chaque lecture
+   stable (instantané, exports, journal) garde sa connexion pendant toute sa lecture (environ 1 s pour un instantané sur
+   5 ans), sans attendre le verrou d'écriture ; la moitié du pool au plus est ouverte à ces lectures (`PlacesLecture`
+   de `server/src/db-pg.ts`), le reste sert les écritures, l'identité des requêtes et la santé. Gardez au moins
+   4 connexions : avec 1 ou 2, une seule lecture à la fois, et l'identité des requêtes suivantes attend une connexion
+   jusqu'au délai (5 s), puis reçoit 503.
 2. **Premier démarrage** : Cursus applique ses migrations (`server/migrations-pg/`, journal
    `cursus.schema_migrations`), contrôle le schéma et amorce une base neuve (activités internes, horaires de poste
    d'exemple). Le journal du démarrage affiche « base PostgreSQL <hôte>:<port>/epc2i, schéma cursus ». Un refus

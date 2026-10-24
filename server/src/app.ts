@@ -33,7 +33,7 @@ import { emailMode } from './integrations/email.ts';
 import { KEYSTONE_MODE } from './integrations/keystone.ts';
 import { suivreVerdicts } from './integrations/keystone-verdicts.ts';
 import { keystoneRoutes } from './integrations/keystone-routes.ts';
-import { journalRequetes } from './logs.ts';
+import { cheminJournal, journalRequetes, log } from './logs.ts';
 import { recapitulatifEnAttente } from './notifications.ts';
 import { demoPosteLocal, protectionCsrf, securityHeaders } from './securite.ts';
 import { routeSante } from './supervision.ts';
@@ -121,8 +121,21 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
       if (changeVerdicts(name)) await suivreVerdicts(db);
       return o;
     });
+    let out: { message?: string | null; result?: unknown };
     try {
-      const out = name === 'temps.validerLot' ? await validerEnTranches(corps, passe, err => signalerErreur(req, err)) : await passe(corps);
+      out = name === 'temps.validerLot' ? await validerEnTranches(corps, passe, err => signalerErreur(req, err)) : await passe(corps);
+    } catch (err) {
+      // Refus d'accès : tracé hors de la transaction annulée (rien n'a été modifié), dans sa propre transaction.
+      if (err instanceof ActionError && err.status === 403) await db.tx(async () => await tracerRefus(db, id, libelleAction(name), err.message, { action: name, p: req.body }));
+      if (err instanceof ActionError) return res.status(err.status).json({ error: err.message });
+      // Délai du serveur dépassé (verrou, requête) avant la validation : la transaction est annulée, rien n'est écrit.
+      if (estOccupe(err)) return repondreOccupe(req, res, err);
+      signalerErreur(req, err);
+      return res.status(500).json({ error: ERREUR_INTERNE });
+    }
+    // L'action est validée (journal et envois compris) : quoi qu'il arrive ensuite, la réponse rend son message et son
+    // résultat, jamais un 503 « rien n'est écrit » qui ferait refaire l'action (doublon).
+    try {
       // L'action a pu changer le compte (profil RH retiré, équipe confiée à un autre) : la session est relue,
       // et l'instantané est celui de l'espace où elle se trouve désormais ; aucun si elle ne vaut plus. Session et
       // instantané sont lus sur le même état de la base (`lecture` : aucune transaction ne s'intercale), sans verrou ;
@@ -134,13 +147,11 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
       await appliquerMajSession(db, maj);
       res.json({ message: out.message ?? null, result: out.result, data });
     } catch (err) {
-      // Refus d'accès : tracé hors de la transaction annulée (rien n'a été modifié), dans sa propre transaction.
-      if (err instanceof ActionError && err.status === 403) await db.tx(async () => await tracerRefus(db, id, libelleAction(name), err.message, { action: name, p: req.body }));
-      if (err instanceof ActionError) return res.status(err.status).json({ error: err.message });
-      // Délai du serveur dépassé (verrou, requête) : la transaction est annulée, rien n'est écrit.
-      if (estOccupe(err)) return repondreOccupe(req, res, err);
-      signalerErreur(req, err);
-      res.status(500).json({ error: ERREUR_INTERNE });
+      // Relecture de l'instantané impossible (Cursus occupé, erreur) : action faite, instantané à relire par
+      // GET /api/data (`relire`, client/src/state/run.ts).
+      if (estOccupe(err)) log.avertissement(`Instantané non relu après l'action : ${req.method} ${cheminJournal(req.originalUrl)}`, { cause: err instanceof Error ? err.message : String(err) });
+      else signalerErreur(req, err);
+      res.json({ message: out.message ?? null, result: out.result, relire: true });
     }
   });
 

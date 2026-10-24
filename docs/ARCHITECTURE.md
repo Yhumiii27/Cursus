@@ -513,11 +513,18 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     3. la trace (consultation de l'archive paie, export CSV, `salarie.export`, `donnees.export`, `sage.variables`,
        refus `acces.refuse`, `keystone.appel`, dernier accès d'un jeton d'agenda) s'écrit ensuite dans sa propre courte
        transaction (`db.tx`), **avant la réponse** : un fichier ne part jamais sans sa trace, et un échec de la trace
-       (Cursus occupé) fait échouer la route. La trace n'est plus atomique avec la lecture : une écriture d'une autre
+       (Cursus occupé) fait échouer la route. Pour l'API Keystone, la trace est écrite au moment de la réponse
+       (enrobage de `res.json`, `server/src/integrations/keystone-routes.ts`) : une lecture (GET) dont la trace échoue
+       reçoit 503 `OCCUPE` (ou 500) à la place de sa réponse ; une écriture déjà validée retente sa trace une fois, puis
+       répond quand même (un 503 la ferait refaire), l'absence de trace écrite en erreur dans les journaux du serveur.
+       La trace n'est plus atomique avec la lecture : une écriture d'une autre
        requête peut s'intercaler entre les deux, ce qui ne change ni ce qui a été lu ni ce qui est tracé.
     Une action (`POST /api/actions/:nom`) lit l'identité de même, relit les droits dans sa transaction (un compte changé
     entre-temps agit avec ses droits du moment : 401, 409), et l'instantané renvoyé se lit après, dans une lecture
-    stable, hors du verrou. Restent en `enSerie` les routes de la connexion et de la session, le fichier d'import Sage
+    stable, hors du verrou. Le 503 « Cursus est occupé » ne vient que d'un délai dépassé avant la validation de la
+    transaction (rien n'est écrit) ; une fois l'action validée, un échec de la relecture de l'instantané (ou des
+    écritures de la session) rend quand même le message et le résultat de l'action, sans instantané et avec
+    `relire: true` : le client relit `GET /api/data` (`client/src/state/run.ts`) et ne refait pas l'action. Restent en `enSerie` les routes de la connexion et de la session, le fichier d'import Sage
     (compteur de téléchargements), les envois, les pièces, le passeport de prévention et `/api/exports`.
   - *Garde-fou.* `npm run typecheck` lance aussi `scripts/verifier-await.mjs` (`npm run check:await`) : appel
     asynchrone du dépôt ou méthode de la base ni attendu, ni lâché par `void`, ni rassemblé par `Promise.all` ; rappel
@@ -554,7 +561,8 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     `CURSUS_PG_DELAI_VERROU_MS`, 30 s : il couvre `pg_advisory_lock` et `pg_advisory_xact_lock`), durée d'une requête
     (`statement_timeout`, `CURSUS_PG_DELAI_REQUETE_MS`, 60 s) ; migrations du démarrage sans délai. Un dépassement
     (`estOccupe` de `server/src/erreurs.ts` : 55P03, 57014, connexion du pool) annule la transaction et répond 503
-    « Cursus est occupé, réessayez » (`Retry-After: 5`) ; l'API Keystone répond `OCCUPE`. Règle : aucun traitement ne
+    « Cursus est occupé, réessayez » (`Retry-After: 5`) ; l'API Keystone répond `OCCUPE`. Pour une action, seul un
+    dépassement avant la validation donne ce 503 (voir « La trace suit la lecture »). Règle : aucun traitement ne
     tient le verrou plus de la moitié de `lock_timeout` (15 s) ; la validation groupée passe par tranches.
   - *Concurrence.* Plusieurs instances peuvent partager la base. Écritures : `tx` ouvre `BEGIN` et prend
     `pg_advisory_xact_lock(hashtext('cursus.ecritures'))` (écritures sérialisées, comme la file de SQLite) ; `exclusif`
@@ -1116,7 +1124,7 @@ aucun champ du paramètre n'est recopié.
 | `temps.validate` / `temps.reject` | empId, week, comment?, motif? | manager direct ou RH, jamais pour sa propre feuille (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence ; 24 h par jour au plus ; motif du dépassement exigé s'il manque, après une correction du valideur : celui du salarié n'est jamais remplacé ; majoration des fériés et contrepartie obligatoire en repos figées, `cor` au journal ; seuils de durée franchis rappelés dans le message) |
 | `temps.pushSage` | — ; simulation seulement : lot de toutes les feuilles en attente, aussitôt marqué transmis (référence « SIM-… », rien n'est envoyé, message qui le dit) ; en mode fichier, refus 503 sans rien marquer | administrateur RH, paie |
 | `temps.relancer` | empId? (sinon tout le périmètre) : feuilles des semaines suivies manquantes, en brouillon ou à corriger, échéance passée ; e-mail (ou récapitulatif) au salarié et à son valideur ; rien en retard : refus | manager direct (son équipe) ou RH |
-| `temps.validerLot` | feuilles [{empId, week}] (200 au plus) : chacune passe par `temps.validate` dans son point de reprise (SAVEPOINT), sur une seule lecture de la base (la feuille validée y est remplacée : contingent et contrepartie cumulés, relevé de l'agence sur le Domain de l'appelant) ; par tranches de 25 au plus, une transaction et une ligne de journal chacune (lot 8) ; une feuille déjà validée est sautée (reprise) ; refus listés dans le message, les autres validées, avec les alertes de durée de chacune (5 au plus en entier) ; tranche interrompue (Cursus occupé) : résultat partiel, `restantes` à relancer ; aucune validée ni déjà validée : 403 si toutes l'étaient pour des droits, sinon 400 avec la liste | manager direct ou RH (comme `temps.validate`) |
+| `temps.validerLot` | feuilles [{empId, week}] (200 au plus) : chacune passe par `temps.validate` dans son point de reprise (SAVEPOINT), sur une seule lecture de la base (la feuille validée y est remplacée : contingent et contrepartie cumulés, relevé de l'agence sur le Domain de l'appelant) ; par tranches de 25 au plus, une transaction et une ligne de journal chacune (lot 8 ; tranche sans feuille validée tant que rien ne l'est : annulée, ses refus comptés dans la ligne de journal suivante, aucun refus perdu) ; une feuille déjà validée est sautée (reprise) ; refus listés dans le message, les autres validées, avec les alertes de durée de chacune (5 au plus en entier) ; tranche interrompue (Cursus occupé) : résultat partiel, `restantes` à relancer ; aucune validée ni déjà validée : 403 si toutes l'étaient pour des droits, sinon 400 avec la liste | manager direct ou RH (comme `temps.validate`) |
 | `paie.lotGenerer` | periode (AAAA-MM) : lot des feuilles validées en attente dont la période de destination vient au plus tard (rappels compris), contenu figé, clé d'idempotence (UUID), feuilles réservées (`feuilles.lotId`), libellé de chaque code Sage figé (`contenu.libelles`) ; hors simulation, refus si un salarié n'a pas de matricule de paie (liste) ou 409 si une rubrique émise et exportée n'a pas de code Sage confirmé (liste) ; en simulation, avertissement | administrateur RH, paie (écran Temps) |
 | `paie.lotConfirmer` | id, reference? (code de 40 caractères au plus) : confirmation de l'import dans Sage, datée et signée, qui seule marque les feuilles transmises ; lot de fichier : fichier téléchargé au moins une fois (409 sinon) ; lot de simulation refusé hors simulation ; déjà confirmé : rien n'est refait ; annulé : 409 | administrateur RH, paie |
 | `paie.lotAnnuler` | id : avant la confirmation seulement (409 ensuite : une feuille se corrige par `temps.rouvrir`, puis lot correctif) ; feuilles libérées | administrateur RH, paie |

@@ -12,6 +12,7 @@ import { LimiteParIp } from '../auth.ts';
 import { loadFull, todayIso } from '../dataset.ts';
 import type { Db } from '../db.ts';
 import { ATTENTE_OCCUPE, CURSUS_OCCUPE, estOccupe } from '../erreurs.ts';
+import { cheminJournal, log } from '../logs.ts';
 import { KEYSTONE_API_KEY, keystoneKeyOk } from './keystone.ts';
 import { suivreVerdicts } from './keystone-verdicts.ts';
 import {
@@ -125,6 +126,13 @@ function champTrace(champ: string): string {
   return (m ? `${fixe}.${dateReelle(m[2]) ? '<date>' : '<clé invalide>'}` : fixe).slice(0, 64);
 }
 
+/** Réponse d'erreur envoyée à la place d'une réponse dont la trace a échoué, sans passer par la trace. */
+function erreurNonTracee(res: Response, json: Response['json'], status: number, code: string, message: string) {
+  res.locals.resultat = undefined;
+  res.status(status);
+  json({ error: message, code });
+}
+
 function erreur(res: Response, e: ErreurKeystone) {
   res.status(e.status).json({ error: e.message, code: e.code, ...(e.details.length ? { details: e.details } : {}), ...e.extra });
 }
@@ -207,11 +215,34 @@ export function keystoneRoutes(db: Db, { resumeRefus = 60_000, clesInvalides = n
   const compterRefus = refusResumes(db, resumeRefus);
   // Journal : chaque réponse à un appel authentifié ; les refus de clé sont comptés à part. La réponse part une fois
   // l'appel tracé (écriture asynchrone) : un appelant qui lit le journal aussitôt après la réponse y trouve son appel.
+  // Aucune réponse ne part sans sa trace (lot 8, chantier E) : trace impossible après une lecture (GET, rien d'écrit),
+  // la réponse prévue est remplacée par 503 `OCCUPE` (Cursus occupé, Retry-After) ou 500, sans retracer ; après une
+  // écriture validée, la trace est retentée une fois, puis, si elle échoue encore, la réponse part (l'écriture est
+  // faite : un 503 la ferait refaire) et l'absence de trace est écrite en erreur dans les journaux du serveur.
   router.use((req, res, next) => {
     const json = res.json.bind(res);
     res.json = ((body: unknown) => {
-      const trace = res.locals.cleValide ? tracer(db, req, res, body) : (compterRefus(res.statusCode), Promise.resolve()); // await-ok: attendue ci-dessous avant l'envoi
-      void trace.catch(err => console.error(err)).finally(() => json(body));
+      if (!res.locals.cleValide) {
+        compterRefus(res.statusCode);
+        return json(body);
+      }
+      void (async () => {
+        try {
+          await tracer(db, req, res, body);
+        } catch (err) {
+          if (req.method === 'GET') {
+            if (estOccupe(err)) return erreurNonTracee(res.set('Retry-After', String(ATTENTE_OCCUPE)), json, 503, 'OCCUPE', CURSUS_OCCUPE);
+            log.erreur(`API Keystone : appel non tracé, réponse refusée (${req.method} ${cheminJournal(req.originalUrl)})`, { cause: err instanceof Error ? err.message : String(err) });
+            return erreurNonTracee(res, json, 500, 'ERREUR_INTERNE', 'Erreur interne');
+          }
+          try {
+            await tracer(db, req, res, body);
+          } catch (err2) {
+            log.erreur(`API Keystone : écriture faite, appel non tracé (${req.method} ${cheminJournal(req.originalUrl)})`, { cause: err2 instanceof Error ? err2.message : String(err2) });
+          }
+        }
+        json(body);
+      })();
       return res;
     }) as Response['json'];
     next();

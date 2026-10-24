@@ -138,3 +138,17 @@ test('validerLot par tranches : refus sur toutes les tranches, sans ligne de jou
   await assert.rejects(validerEnTranches({ feuilles: [...LOT, { empId: 'x', week: 'y' }] }, passe(hugo, 'temps.validerLot')), (e: unknown) => e instanceof ActionError && e.status === 400);
   await assert.rejects(validerEnTranches({ feuilles: Array.from({ length: 201 }, () => LOT[0]) }, passe(hugo, 'temps.validerLot')), /200 feuilles au plus/);
 });
+
+test('validerLot par tranches : les refus d’une tranche sans feuille validée sont comptés au journal, avant comme après', async () => {
+  /** Semaines de 2027, sans feuille : chacune est refusée. */
+  const SANS = Array.from({ length: 25 }, (_, i) => ({ empId: SALARIE, week: addD('2027-01-04', 7 * i) }));
+  const VALIDES = SEMAINES.slice(0, 25).map(week => ({ empId: SALARIE, week }));
+  for (const lot of [[...VALIDES, ...SANS], [...SANS, ...VALIDES]]) {
+    const { db, rh, passe } = await base();
+    const r = await validerEnTranches({ feuilles: lot }, passe(rh, 'temps.validerLot'));
+    assert.match(String(r.message), /^25 feuilles validées · 25 feuilles non validées/);
+    const lignes = (await db.all<{ action: string; payload: { validees: unknown[]; refus: number } }>('journal')).filter(l => l.action === 'temps.validerLot');
+    assert.equal(lignes.reduce((n, l) => n + l.payload.validees.length, 0), 25);
+    assert.equal(lignes.reduce((n, l) => n + l.payload.refus, 0), 25, 'les 25 refus sont au journal');
+  }
+});

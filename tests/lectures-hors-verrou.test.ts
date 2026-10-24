@@ -115,6 +115,52 @@ test('identité : session révoquée et compte désactivé, écritures faites ho
   assert.equal((await appel(MEHDI, '/api/actions/temps.setCell', { method: 'POST', body: { empId: 2, week: '2026-10-05', li: 0, di: 0, value: '7' } })).status, 401);
 });
 
+test('action validée, instantané non relu ensuite (Cursus occupé) : message de l’action rendu, jamais 503, une seule trace', async () => {
+  const { db, appel, actions, MEHDI } = await monter();
+  // La lecture de l'instantané qui suit la transaction de l'action dépasse le délai de connexion du pool.
+  const tx = db.tx.bind(db), lecture = db.lecture.bind(db);
+  let commise = false;
+  db.tx = (async (fn: () => unknown) => { const r = await tx(fn); commise = true; return r; }) as typeof db.tx;
+  db.lecture = (async (fn: () => unknown) => {
+    if (commise) throw new Error('timeout exceeded when trying to connect');
+    return await lecture(fn);
+  }) as typeof db.lecture;
+  const r = await appel(MEHDI, '/api/actions/temps.addLine', { method: 'POST', body: LIGNE });
+  db.tx = tx; db.lecture = lecture;
+  assert.equal(r.status, 200, r.texte);
+  const o = r.json();
+  assert.equal(o.relire, true, 'instantané à relire par /api/data');
+  assert.equal(o.data, undefined);
+  assert.ok('message' in o, 'réponse de l’action rendue');
+  assert.equal(await actions('temps.addLine'), 1);
+  const feuille = await db.one<{ lignes: unknown }>('SELECT lignes FROM feuilles WHERE emp_id = ? AND week = ?', [LIGNE.empId, LIGNE.week]);
+  assert.match(JSON.stringify(feuille?.lignes), /INT-MAINT/);
+});
+
+test('API Keystone : aucune réponse sans sa trace ; lecture : 503 OCCUPE ; écriture faite : trace retentée', async () => {
+  const { db, appel, actions } = await monter();
+  const k = { 'x-api-key': process.env.KEYSTONE_API_KEY! };
+  const insert = db.insert.bind(db);
+  /** Les `n` prochaines traces de l'appel échouent sur le délai du verrou (55P03). */
+  let echecs = 0;
+  db.insert = (async (table: string, ligne: unknown) => {
+    if (table === 'journal' && echecs > 0) { echecs--; throw Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' }); }
+    return await insert(table as never, ligne as never);
+  }) as typeof db.insert;
+  echecs = 1;
+  const g = await appel(null, '/api/integrations/keystone/v1/chantiers/K-2620/go-no-go', { headers: k });
+  assert.equal(g.status, 503, g.texte);
+  assert.equal(g.json().code, 'OCCUPE');
+  assert.equal(g.headers.get('retry-after'), '5');
+  assert.equal(await actions('keystone.appel'), 0, 'ni verdict ni trace');
+  // Écriture (ici refusée, 404) : la trace manquée est retentée une fois, la réponse part avec sa trace.
+  echecs = 1;
+  const d = await appel(null, '/api/integrations/keystone/v1/affectations/A-INCONNUE', { method: 'DELETE', headers: k });
+  db.insert = insert;
+  assert.notEqual(d.status, 503, d.texte);
+  assert.equal(await actions('keystone.appel'), 1);
+});
+
 test('lecture stable : aucune écriture admise, transaction refusée, sur les deux moteurs', async () => {
   const db: Db = await nouvelleBase();
   await assert.rejects(db.lecture(async () => await db.insert('journal', { at: new Date().toISOString(), actor: 'x', action: 'essai', message: null, payload: {}, salaries: [] })));

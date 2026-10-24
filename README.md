@@ -203,6 +203,9 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `CURSUS_OIDC_AUTORITE` | Remplace `https://login.microsoftonline.com` : réservée aux tests automatiques (faux fournisseur local). Refusée en production |
 | `CURSUS_MAIL_FROM` | Boîte d'envoi dédiée des e-mails (`cursus@entreprise.fr`), envoyés par Microsoft Graph. Sans elle : simulation (e-mails tracés dans le journal et visibles dans Paramètres → Envois, rien ne part). Mise en service : `docs/EMAILS.md` |
 | `CURSUS_MAIL_TENANT`, `CURSUS_MAIL_CLIENT_ID`, `CURSUS_MAIL_CLIENT_SECRET` | Application Entra autorisée à envoyer (`Mail.Send`, restreinte à la boîte d'envoi) ; par défaut celle de la connexion Microsoft (`CURSUS_OIDC_*`) |
+| `CURSUS_MAIL_SECRET_EXPIRE` | Facultative, avec `CURSUS_MAIL_CLIENT_SECRET` seulement : date d'expiration (`AAAA-MM-JJ`) du secret de l'application d'envoi distincte. 30 jours avant, `/api/health` passe en `degrade` et le récapitulatif des échéances prévient la boîte du service RH |
+| `CURSUS_SAUVEGARDE_TEMOIN` | Facultative : chemin absolu du fichier témoin écrit par la sauvegarde du serveur commun ; plus de 26 h sans sauvegarde, `/api/health` passe en `degrade` (`docs/BASCULE-PRODUCTION.md`, section 7) |
+| `CURSUS_KEYSTONE_ADRESSES` | Facultative : adresses ou réseaux admis à appeler l'API Keystone (`10.0.1.0/24`) ; les autres reçoivent 403. Vide : aucun filtre |
 | `MATRIX_URL`, `MATRIX_TOKEN`, `MATRIX_DECLARATIONS_DIR` | Déclaration du schéma de la base à Matrix, le catalogue des bases : voir « Mise en ligne » ci-dessous |
 
 Les sessions durent 12 heures au plus depuis la connexion ; la déconnexion les révoque (pour un compte
@@ -503,6 +506,11 @@ gardant le paramétrage saisi pendant la démonstration (`npm run purge-demo -- 
 créer le premier administrateur (`docs/DEPLOIEMENT.md`, « Passage de la démonstration à la production » : nouvelle
 application Coolify « cursus-prod » sur un espace neuf, alimentée par la base purgée). Une base purgée ou exploitée
 refuse ensuite le mode démonstration.
+
+**Passage en production.** La bascule de la démonstration vers la production (nouvelle application Coolify
+`cursus-prod`, gel et purge de la démonstration, pré-vol `npm run verifier-production`, premier administrateur, reprise
+Lucca, retrait de l'authentification basique en dernier), le tableau des secrets, les réglages Traefik et le retour
+arrière sont décrits pas à pas dans `docs/BASCULE-PRODUCTION.md`.
 
 **Déclaration du schéma à Matrix.** Au démarrage, une fois les migrations faites, Cursus lit le schéma réel de sa base
 (tables, colonnes, clés, unicités) et l'envoie à Matrix, le catalogue des bases de Keystone, Codex, Cursus et Vigie

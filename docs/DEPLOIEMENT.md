@@ -160,7 +160,7 @@ sudo nano /etc/cursus/cursus.env
 | `NODE_ENV` | `production` |
 | `CURSUS_API_PORT` | `3210` (port local, jamais ouvert au pare-feu) |
 | `CURSUS_HOST` | à laisser vide : 127.0.0.1 par défaut en production |
-| `CURSUS_TRUST_PROXY` | à laisser vide (`loopback`) quand le proxy est sur la même machine ; sinon, son adresse |
+| `CURSUS_TRUST_PROXY` | à laisser vide (`loopback`) quand le proxy est sur la même machine ; sinon, son adresse seule (sous Coolify, celle du conteneur Traefik, jamais le sous-réseau du réseau `coolify` : docs/BASCULE-PRODUCTION.md, « Réglages Traefik ») |
 | `CURSUS_DB` | `/var/lib/cursus/cursus.db` (chemin absolu ; un chemin relatif partirait du dossier de lancement) |
 | `CURSUS_PIECES_DIR` | à laisser vide : pièces justificatives dans `/var/lib/cursus/pieces` (à côté de la base, même disque chiffré, sauvegardées avec elle) ; ne les activer qu'après l'avis du DPO (Paramètres → Pièces justificatives) |
 | `CURSUS_SECRET` | 64 caractères aléatoires, propres à cette installation. La changer déconnecte tout le monde |
@@ -174,6 +174,9 @@ sudo nano /etc/cursus/cursus.env
 | `CURSUS_OIDC_AUTORITE` | **jamais** : réservée aux tests automatiques, Cursus refuse de démarrer avec elle |
 | `CURSUS_MAIL_FROM` | boîte d'envoi des e-mails (`cursus@entreprise.fr`) ; sans elle, les e-mails sont simulés (`docs/EMAILS.md`) |
 | `CURSUS_MAIL_TENANT`, `CURSUS_MAIL_CLIENT_ID`, `CURSUS_MAIL_CLIENT_SECRET` | application Entra autorisée à envoyer (`Mail.Send`, restreinte à la boîte d'envoi) ; par défaut celle de la connexion Microsoft. Noter la date d'expiration du secret |
+| `CURSUS_MAIL_SECRET_EXPIRE` | facultative, conseillée si l'envoi passe par une application Entra distincte (`CURSUS_MAIL_CLIENT_SECRET` propre) : date d'expiration de ce secret (`AAAA-MM-JJ`) ; 30 jours avant, le point de santé passe en `degrade` (`secret-envoi`) et le récapitulatif des échéances le signale ; démarrage refusé si ce n'est pas une date ou sans `CURSUS_MAIL_CLIENT_SECRET` |
+| `CURSUS_SAUVEGARDE_TEMOIN` | facultative, avec le serveur PostgreSQL commun : chemin absolu du fichier témoin écrit par la sauvegarde de Matrix (volume en lecture seule) ; plus de 26 h sans sauvegarde, ou témoin illisible : point de santé en `degrade` (`sauvegarde`) (`docs/BASCULE-PRODUCTION.md`, section 7) |
+| `CURSUS_KEYSTONE_ADRESSES` | facultative : adresses ou réseaux admis à appeler `/api/integrations/keystone` (`10.0.1.5`, `10.0.1.0/24`, `fd00::/8`) ; les autres reçoivent 403 `ADRESSE_REFUSEE` avant même la lecture de la clé. Vide : aucun filtre. Fiable seulement si `CURSUS_TRUST_PROXY` désigne le seul proxy ; une entrée illisible refuse le démarrage |
 | `KEYSTONE_URL`, `KEYSTONE_TOKEN` | envois à Keystone : adresse de base de Keystone sur le réseau interne (`http://keystone.interne:8080`) et jeton convenu avec lui. Cursus refuse de démarrer avec l'adresse sans le jeton, ou avec des identifiants dans l'adresse. Sans adresse, les messages ne sont que tracés dans le journal |
 | `SAGE_MODE`, `SAGE_DOSSIER` | transmission à Sage Paie : à laisser vide (fichier d'import, mode de production) ; dossier de paie (`CURSUS-CHIMIE` par défaut). **Jamais** `SAGE_MODE=api` ni `SAGE_MODE=simulation`, **jamais** `SAGE_URL` : Cursus refuse de démarrer avec eux (voir « Sage Paie ») |
 | `CURSUS_BASE` | à laisser vide hors de l'image Docker. Dans l'image (`CURSUS_CONTENEUR=1`), la production exige `DATABASE_URL` (serveur commun), ou `CURSUS_BASE=sqlite` pour garder volontairement le fichier du volume : sans l'une ni l'autre, Cursus refuse de démarrer plutôt que d'ouvrir un fichier SQLite vide |
@@ -204,6 +207,7 @@ temporaire). Une ligne par contrôle (OK, ATTENTION, BLOQUANT) et son remède ; 
 ```bash
 npm run verifier-production -- --config-seule   # application créée, pas encore démarrée (base non ouverte)
 npm run verifier-production                     # configuration et base
+npm run verifier-production -- --url https://cursus.entreprise.fr   # et l'instance publiée, à travers le proxy
 npm run verifier-production -- --json --strict  # sortie à archiver avec la recette ; un avertissement compte comme bloquant
 ```
 
@@ -212,11 +216,19 @@ avertissements seulement.
 
 | Domaine | Contrôles |
 | --- | --- |
-| Configuration | règles du démarrage en production ; aucune variable de démonstration ni de test (`CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE`, `CURSUS_OIDC_AUTORITE`) ; `DATABASE_URL` en `cursus_app` sur la base `epc2i`, chiffrée (`sslmode=require` ou `verify-*`, `ssl=true`, ou `PGSSLMODE` quand l'adresse n'en dit rien) si le serveur n'est pas sur le réseau interne ; `CURSUS_PUBLIC_URL` en https, exigée même quand Cursus écoute sur la boucle locale derrière Caddy (exemptée au démarrage pour l'application de bureau seulement) ; connexion Microsoft 365 et e-mails configurés (sinon avertissement) ; secret client Entra valable plus de 30 jours ; jeton de supervision ; `TZ=Europe/Paris` ; secrets tous différents (seuls leurs noms sont affichés) ; `CURSUS_TRUST_PROXY` restreint au proxy (avertissement pour `uniquelocal`) ; `MATRIX_TOKEN` avec `MATRIX_URL` |
+| Configuration | règles du démarrage en production ; aucune variable de démonstration ni de test (`CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE`, `CURSUS_OIDC_AUTORITE`) ; `DATABASE_URL` en `cursus_app` sur la base `epc2i`, chiffrée (`sslmode=require` ou `verify-*`, `ssl=true`, ou `PGSSLMODE` quand l'adresse n'en dit rien) si le serveur n'est pas sur le réseau interne ; `CURSUS_PUBLIC_URL` en https, exigée même quand Cursus écoute sur la boucle locale derrière Caddy (exemptée au démarrage pour l'application de bureau seulement) ; connexion Microsoft 365 et e-mails configurés (sinon avertissement) ; secret client Entra valable plus de 30 jours ; jeton de supervision ; `TZ=Europe/Paris` ; secrets tous différents (seuls leurs noms sont affichés) ; `CURSUS_TRUST_PROXY` restreint au proxy (avertissement pour `uniquelocal`, `linklocal`, un nombre de proxys ou un réseau plus large qu'une adresse) ; `MATRIX_TOKEN` avec `MATRIX_URL` |
 | Base | serveur commun : rôle `cursus_app` sans superutilisateur, schéma courant `cursus`, ni `CREATE` sur la base ni `pg_read_all_data` / `pg_write_all_data`, migrations du code égales à `schema_migrations` (en attente : avertissement ; inconnues : bloquant), tables et colonnes conformes, vues `pub_` et leurs colonnes conformes à leur dernière définition dans `server/migrations-pg/`, horloge à moins de 60 s ; les deux moteurs : aucune donnée de démonstration (réglage `demo`, comptes du jeu, adresses `@entreprise.example`, lot « Démonstration »), au moins un administrateur RH actif, page Confidentialité renseignée (avertissement), aucune référence orpheline, dossier des pièces accessible en écriture au compte du service avec plus de 1 Go libre |
 
-Les contrôles réseau (`--url`) et la procédure de bascule complète (`docs/BASCULE-PRODUCTION.md`) arrivent avec
-l'étape suivante du lot 8.
+| Sauvegarde | dernière sauvegarde du serveur commun de moins de 26 h d'après le témoin `CURSUS_SAUVEGARDE_TEMOIN` ; sans témoin, avertissement : vérification à la main (`docs/BASCULE-PRODUCTION.md`, section 7) |
+| Réseau (`--url`) | `/api/health` en `ok` et mode production (détail lu avec `CURSUS_SUPERVISION_TOKEN` de l'environnement) ; en-têtes HSTS, CSP et X-Frame-Options présents à travers le proxy ; `/api/session` sans démonstration ; `http://` redirigé vers `https://` en 301 ou 308 (ou fermé) ; API Keystone en 401 ou 403 sans clé. Des GET sans cookie ni clé, rien n'est écrit |
+
+Au démarrage, en production hors démonstration, le serveur refait lui-même les contrôles bloquants rapides, après les
+migrations et avant tout chargement : une base qui porte des données de démonstration, ou une connexion au serveur
+PostgreSQL en `postgres` ou en superutilisateur, arrête le démarrage (« Démarrage impossible : … », code 1), avant que
+la base ne soit marquée `exploitation`. Une démonstration branchée sur la base `epc2i` n'est que signalée, sauf si
+cette base a déjà servi en production ou a été purgée : elle est alors refusée. L'oubli de la commande n'est donc pas
+fatal. Procédure de bascule complète, tableau des secrets, réglages Traefik et retour arrière :
+`docs/BASCULE-PRODUCTION.md`.
 
 ## Service systemd
 
@@ -401,6 +413,10 @@ local (`CURSUS_TRUST_PROXY=loopback`), sait que la requête est en HTTPS et ajou
   téléphone ou du domicile ; aller et retour de la connexion Microsoft, 300 puis 2 par seconde par adresse ; clés
   Keystone invalides, 60 en 5 minutes par adresse. Au-delà : `429 Too Many Requests` avec `Retry-After` (secondes) et
   un message en français. Compteurs en mémoire, remis à zéro au redémarrage, bornés à 10 000 adresses ou comptes.
+- **API Keystone par adresse** (lot 8, facultatif) : sans Caddy (Coolify, Traefik), `CURSUS_KEYSTONE_ADRESSES` restreint
+  `/api/integrations/keystone` aux adresses de Keystone dans Cursus même (403 `ADRESSE_REFUSEE` pour les autres) ; sous
+  Coolify, préférer l'appel par le réseau interne et la route publique fermée dans Traefik
+  (`docs/BASCULE-PRODUCTION.md`, section 3).
 
 ## Variante : nginx et certbot
 
@@ -504,7 +520,9 @@ sudo docker inspect --format '{{.State.Health.Status}}' cursus  # healthy
 
 - `CURSUS_TRUST_PROXY` : le proxy atteint le conteneur par le réseau Docker, pas par la boucle locale ;
   sans ce réglage (adresses privées, ou l'adresse exacte du proxy), Cursus ne croirait pas `X-Forwarded-*` :
-  ni HSTS, ni adresse du client pour la limite de débit.
+  ni HSTS, ni adresse du client pour la limite de débit. `uniquelocal` convient à une machine à soi où le conteneur
+  est seul sur son réseau Docker ; en production sous Coolify, remplacez-le par l'adresse du seul conteneur Traefik
+  (docs/BASCULE-PRODUCTION.md, « Réglages Traefik »).
 - `-e CURSUS_HOST=0.0.0.0`, `-e CURSUS_API_PORT=3000` et `-e CURSUS_DB` après `--env-file` : le fichier de la machine laisse l'écoute sur la boucle locale, qui
   dans un conteneur ne recevrait rien de l'extérieur.
 - `--stop-timeout 20` : `docker stop` envoie SIGTERM ; Cursus finit les requêtes en cours (10 s au plus) et ferme la
@@ -1035,7 +1053,9 @@ entrées, sorties et compteurs ne se tiennent plus dans Lucca.
 ## Mise à jour
 
 1. Recette de la nouvelle version (ci-dessus).
-2. Sauvegarde de la base juste avant l'opération (`docs/SAUVEGARDE.md`).
+2. Sauvegarde de la base juste avant l'opération (`docs/SAUVEGARDE.md`). Serveur PostgreSQL commun : Cursus ne fait
+   aucune copie avant ses migrations ; `pg_dump --format=custom --schema=cursus` juste avant chaque déploiement, et
+   étiquette de l'image en service notée pour le retour arrière (`docs/BASCULE-PRODUCTION.md`, sections 5 et 6).
 3. Installation :
 
    ```bash
@@ -1101,7 +1121,15 @@ entrées, sorties et compteurs ne se tiennent plus dans Lucca.
   au poste local ou au jeton (`"orphelins": 2, "references": {"feuilles.emp_id → employes": 2}`). `degrade` signale
   aussi un secret client Entra qui expire dans 30 jours ou moins (`CURSUS_OIDC_SECRET_EXPIRE`), détail
   `"secretMicrosoft": {"expireLe": "2027-03-31", "jours": 21}` : le renouveler (`docs/CONNEXION-MICROSOFT.md`, section 3). Le contrôle est
-  refait au plus une fois par heure. À examiner avec l'éditeur avant toute correction (restaurer une sauvegarde ou
+  refait au plus une fois par heure.
+  Depuis le lot 8, le détail porte la liste `alertes` des raisons de `degrade` : `orphelins`, `secret-microsoft`,
+  `secret-envoi` (secret propre à l'envoi des e-mails, `CURSUS_MAIL_SECRET_EXPIRE`, détail `secretEnvoi`),
+  `demo-base-commune` (démonstration branchée sur la base `epc2i`), `sauvegarde` (témoin de plus de 26 h ou illisible,
+  détail `sauvegarde`), et en production hors démonstration `donnees-demo`, `aucun-admin` et `emails-simulation`.
+  Le point de santé ne prend plus le verrou d'écriture : il sonde la base (2 s au plus, sinon 503) et lit le reste
+  dans l'état relu au démarrage puis toutes les heures (administrateurs RH et données de démonstration : relus à
+  chaque appel tant que leur alerte est levée, sinon au plus une fois par minute) ; il répond donc aussi pendant une validation groupée ou la
+  génération d'un lot de paie. À examiner avec l'éditeur avant toute correction (restaurer une sauvegarde ou
   compléter la reprise) : Cursus ne supprime rien de lui-même. Aucune clé étrangère n'est encore imposée par la base ;
   elles le seront une fois la base de reprise du 1er janvier 2027 vérifiée sans orphelin.
   Pièces justificatives (lot 6) : le même contrôle compte les pièces dont le fichier manque dans le dossier des pièces

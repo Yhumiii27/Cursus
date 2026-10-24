@@ -25,9 +25,11 @@ import { transportKeystone } from './integrations/keystone.ts';
 import { suivreVerdictsChaqueJour } from './integrations/keystone-verdicts.ts';
 import { declarerBase } from './integrations/matrix.ts';
 import { planifierEmails } from './notifications.ts';
+import { controlerDemarrage } from './pre-vol.ts';
 import { protegerBase, retirerSecretStocke } from './protection.ts';
 import { dossierSauvegardes, poserVerrou } from './sauvegarde.ts';
 import { Arret, hoteAffiche } from './service.ts';
+import { demarrerSurveillance } from './supervision.ts';
 import type { Db } from './db.ts';
 import { comptesDemo, seedDemo } from './seed.ts';
 
@@ -99,6 +101,12 @@ if (DEMO) {
   const refus = await refusDemo(db);
   if (refus) arret.echec(refus);
 }
+// Contrôle de la base au démarrage (lot 8, chantier B ; règles : server/src/pre-vol.ts, controlerDemarrage) : en
+// production hors démonstration, refus d'une base qui porte des données de démonstration ou d'une connexion en
+// superutilisateur ; démonstration sur la base epc2i refusée dès que la base a servi en production ou a été purgée.
+// Fait avant tout chargement et avant le marquage `exploitation`, qui ne doit jamais être posé sur une démonstration.
+const refusBase = await controlerDemarrage(db);
+if (refusBase.length) arret.echec(refusBase.join(' ; '));
 // Schéma de la base déclaré à Matrix (catalogue des bases), une fois les migrations faites : sans MATRIX_URL rien ne
 // part ; appel non attendu, un échec n'écrit qu'un avertissement (server/src/integrations/matrix.ts).
 void declarerBase(db, VERSION);
@@ -123,6 +131,9 @@ if (DEMO) await db.tx(async () => { if (await db.count('employes') > 0) await co
 // Références orphelines (salarié, session, formation… absents) : signalées dans les journaux, le journal des actions
 // et le point de santé, sans bloquer le démarrage (server/src/integrite.ts).
 await controlerIntegrite(db);
+// Point de santé (lot 8) : administrateurs RH, données de démonstration et références orphelines relus au démarrage
+// puis toutes les heures, pour que /api/health ne lise que la sonde de la base (server/src/supervision.ts).
+arret.tache(await demarrerSurveillance(db));
 if (!DEMO && !await adminsActifs(db)) log.info('Aucun administrateur RH : créez-le avec npm run comptes -- admin <identifiant> (docs/DEPLOIEMENT.md).');
 // Sessions expirées : purgées au démarrage puis toutes les heures.
 await purgeSessions(db);

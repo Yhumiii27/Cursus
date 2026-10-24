@@ -24,7 +24,7 @@ import { couvertureVueHse, loadFull, todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
 import { envoyerEmail } from './integrations/email.ts';
 import { adresseSalarie, courriel, lireMessagerie } from './messagerie.ts';
-import { relanceSecret } from './secret-microsoft.ts';
+import { relanceSecret, relanceSecretEnvoi } from './secret-microsoft.ts';
 
 /** Lecture du périmètre complet, comme le service RH. */
 const SUIVI: CurrentUser = { role: 'rh', empId: null, nom: 'Cursus', intitule: 'Relance des échéances' };
@@ -117,8 +117,9 @@ export async function recapitulatifEcheances(db: Db): Promise<{ emails: number; 
   const deja = new Set((await db.query('SELECT cle, palier FROM relances') as { cle: string; palier: string }[]).map(r => `${r.cle}|${r.palier}`));
   const nouvelles = dues.filter(r => !deja.has(`${r.cle}|${r.palier}`));
   // Secret client Entra : une ligne pour la boîte du service RH, une fois par palier et par date d'expiration.
-  const secret = relanceSecret(today);
-  const exploitation = secret && !deja.has(`${secret.cle}|${secret.palier}`) ? [secret] : [];
+  // Lot 8 : de même pour le secret propre à l'envoi des e-mails (CURSUS_MAIL_SECRET_EXPIRE).
+  type Ligne = NonNullable<ReturnType<typeof relanceSecret>>;
+  const exploitation = [relanceSecret(today), relanceSecretEnvoi(today)].filter((r): r is Ligne => !!r && !deja.has(`${r.cle}|${r.palier}`));
   let emails = 0;
   if (nouvelles.length || exploitation.length) {
     const m = await lireMessagerie(db), rh = m.rh!.toLowerCase();

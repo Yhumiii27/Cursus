@@ -103,11 +103,14 @@ server/src/
   comptes-cli.ts   npm run comptes -- admin <identifiant> : premier administrateur RH (docs/DEPLOIEMENT.md)
   config.ts        Variables d'environnement, contrôlées au démarrage (refus en production si dangereuses)
   pre-vol.ts       Pré-vol de la mise en production (lot 8) : contrôles de configuration et de base, bilan ;
-                   verifier-production.ts (npm run verifier-production), db-pg-lecture.ts (serveur commun en lecture seule)
+                   verifier-production.ts (npm run verifier-production), db-pg-lecture.ts (serveur commun en lecture seule),
+                   pre-vol-reseau.ts (contrôles --url), controlerDemarrage (contrôle de la base au démarrage)
   chemins.ts       Racine du projet, interface (dist/) et base par défaut calculées depuis le code, version
   service.ts       Écoute du port (refus clair si pris, code 1) et arrêt ordonné sur SIGTERM / SIGINT
   protection.ts    Droits de la base sur le disque (600, dossier en 700, refus en production), clé de session retirée
-  supervision.ts   Point de santé GET /api/health (état public ; détail en local ou avec le jeton de supervision)
+  supervision.ts   Point de santé GET /api/health (état public ; détail en local ou avec le jeton de supervision), sans
+                   verrou ; sauvegarde-temoin.ts : fraîcheur de la sauvegarde du serveur commun (lot 8)
+  filtre-keystone.ts  Filtre facultatif de l'API Keystone par adresse (CURSUS_KEYSTONE_ADRESSES, lot 8)
   securite.ts      En-têtes de sécurité HTTP (CSP, HSTS, anti-iframe…), protection CSRF des requêtes qui modifient
   debit.ts         Limitation du débit de l'API par adresse IP et par compte (429, Retry-After)
   actions/         Actions métier (POST /api/actions/:nom), contrôles d'accès et validations
@@ -670,6 +673,25 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   `relances`). Elle ne cite l'envoi des e-mails que s'il passe par ce secret (`envoiParSecretOidc`) ; dans ce cas, la
   ligne « expiré » échoue avec l'envoi, et seuls le point de santé et Paramètres → Envois signalent l'expiration.
   Seule, elle renvoie au guide au lieu des écrans de Cursus.
+  Lot 8 (chantier B, étape 2) : la route ne passe plus par `enSerie` (verrou d'écriture) ; elle appelle `Db.sonde()`
+  (PostgreSQL : requête isolée sur une connexion du pool, sans verrou ; SQLite : en-tête du fichier lu directement sur
+  la connexion, hors de la file), abandonnée au bout de `DELAI_SANTE_MS` (2 s : 503). Orphelins, administrateurs RH et
+  indices de démonstration sont lus dans un état mis en cache par `demarrerSurveillance` (au démarrage, puis toutes les
+  heures, `server/src/index.ts`). Administrateurs et indices de démonstration sont en plus relus par la route elle-même
+  (`FRAICHEUR_DONNEES_MS`) : à chaque appel tant que `aucun-admin` ou `donnees-demo` est levée (premier administrateur
+  créé par `npm run comptes`, dans un autre processus), sinon au plus une fois par minute ; une seule relecture à la
+  fois, sous le délai de la sonde, cache gardé si elle échoue ; le décompte des envois du détail est abandonné après le même délai. Le détail porte
+  `alertes` (`orphelins`, `secret-microsoft`, `secret-envoi`, `demo-base-commune`, `sauvegarde`, et en production hors
+  démonstration `donnees-demo`, `aucun-admin`, `emails-simulation`), `secretEnvoi` (`CURSUS_MAIL_SECRET_EXPIRE`, ligne
+  `exploitation:secret-envoi:<date>` du récapitulatif) et `sauvegarde` (témoin `CURSUS_SAUVEGARDE_TEMOIN`,
+  `server/src/sauvegarde-temoin.ts`).
+- **Contrôle au démarrage** (`controlerDemarrage`, `server/src/pre-vol.ts`, lot 8) : après les migrations et avant tout
+  chargement ou marquage `exploitation`, en production hors démonstration, refus d'une base qui porte des indices de
+  démonstration (`indicesDemo`) ou d'une connexion PostgreSQL en `postgres` ou en superutilisateur ; démonstration sur
+  la base `epc2i` refusée dès que la base porte le réglage `exploitation` ou la ligne `purge.demo` du journal.
+- **API Keystone par adresse** (`server/src/filtre-keystone.ts`, lot 8) : `CURSUS_KEYSTONE_ADRESSES` (adresses et
+  réseaux, `net.BlockList`) lue à la construction de l'application, monté devant `keystoneRoutes` ; 403
+  `ADRESSE_REFUSEE` hors liste, d'après `req.ip` (proxy de confiance). Vide : aucun filtre.
 - **Intégrité** (`server/src/integrite.ts`, t179 étape 1) : `REFERENCES` liste les colonnes qui désignent une autre
   table (tous les `emp_id`, `session_id`, formation, habilitation, destination, poste, équipe, manager, lot de paie,
   déplacement Keystone, certification d'une participation) ; `controlerOrphelins` compte, par référence, les valeurs

@@ -14,6 +14,7 @@
 import './conteneur.ts';
 import { createInterface } from 'node:readline/promises';
 import { plural } from '../../shared/format.ts';
+import { enProduction, verifierConfig } from './config.ts';
 import { dbFile, urlPostgres } from './db.ts';
 import { controlerPourOutil } from './migrations/cadre.ts';
 import { apercuPurge, controlerEnvironnementPurge, confirmationPurgeTapee, lireOptionsPurge, motConfirmationPurge, type OptionsPurge, PurgeRefusee, texteApercu } from './purge-demo.ts';
@@ -37,6 +38,11 @@ try {
   refuser(err);
 }
 if (serveurPg && options.force) console.error('Attention : --force est sans effet sur le serveur PostgreSQL (le contrôle des connexions Cursus ouvertes ne se lève jamais).');
+
+// Configuration contrôlée comme au démarrage du serveur (lot 8, chantier B), règles propres à la démonstration écartées :
+// la commande tourne dans l'environnement de la démonstration qu'elle prépare à la production. En production, refus
+// d'une configuration dangereuse (DATABASE_URL en rôle postgres…) avant d'ouvrir la base.
+if (enProduction()) verifierConfig(process.env, { reglesDemo: false, commande: 'npm run purge-demo' });
 
 // Fichier SQLite : base à jour pour cette version, contrôlée sans écriture (server/src/purge-demo-ouverture.ts), puis
 // serveur en service : signalé pour l'aperçu, refusé pour la purge (sauf --force).

@@ -202,8 +202,33 @@ test('npm run comptes et npm run reprise-postgres : refus en production avant d�
     const reprise = lancer('server/src/reprise-postgres-cli.ts', '--a-blanc');
     assert.equal(reprise.status, 1);
     assert.match(reprise.stderr, /^npm run reprise-postgres refusée en production :/);
-    assert.ok(!comptes.stderr.includes('secret') && !reprise.stderr.includes('secret'), 'mot de passe jamais affiché');
+    // Vidage des données fictives (lot 8) : même contrôle, sans les règles de la démonstration qu'il prépare à la production.
+    const purge = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/purge-demo-cli.ts', '--a-blanc'],
+      { cwd: ROOT, encoding: 'utf8', env: { ...env, CURSUS_TODAY: '2026-10-10', CURSUS_INSECURE_COOKIE: '1' } });
+    assert.equal(purge.status, 1);
+    assert.match(purge.stderr, /^npm run purge-demo refusée en production :\n {2}– DATABASE_URL se connecte avec le rôle postgres/);
+    assert.doesNotMatch(purge.stderr, /CURSUS_TODAY|CURSUS_INSECURE_COOKIE/, 'règles de la démonstration écartées');
+    assert.ok(!comptes.stderr.includes('secret') && !reprise.stderr.includes('secret') && !purge.stderr.includes('secret'), 'mot de passe jamais affiché');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('étape 2 : CURSUS_MAIL_SECRET_EXPIRE, CURSUS_SAUVEGARDE_TEMOIN et CURSUS_KEYSTONE_ADRESSES contrôlées au démarrage', () => {
+  const pbs = (env: Record<string, string>) => problemesConfig({ ...PROD, ...env });
+  const mail = { CURSUS_MAIL_FROM: 'cursus@entreprise.fr', CURSUS_MAIL_TENANT: GUID, CURSUS_MAIL_CLIENT_ID: 'app-envoi', CURSUS_MAIL_CLIENT_SECRET: 's'.repeat(40) };
+  assert.equal(config.expirationSecretEnvoi({ CURSUS_MAIL_SECRET_EXPIRE: ' 2027-03-31 ' }), '2027-03-31');
+  assert.equal(config.expirationSecretEnvoi({ CURSUS_MAIL_SECRET_EXPIRE: '2027-02-30' }), null);
+  assert.deepEqual(pbs({ ...mail, CURSUS_MAIL_SECRET_EXPIRE: '2027-03-31' }), []);
+  assert.deepEqual(pbs(mail), [], 'date facultative');
+  seul({ ...PROD, ...mail, CURSUS_MAIL_SECRET_EXPIRE: '31/03/2027' }, /^CURSUS_MAIL_SECRET_EXPIRE doit être la date d’expiration du secret d’envoi des e-mails, au format AAAA-MM-JJ \(« 31\/03\/2027 » reçu\)/, 'date illisible');
+  const { CURSUS_MAIL_CLIENT_SECRET: _s, ...sansSecret } = mail;
+  void _s;
+  const oidc = { CURSUS_OIDC_TENANT: GUID, CURSUS_OIDC_CLIENT_ID: 'app', CURSUS_OIDC_CLIENT_SECRET: 'o'.repeat(40) };
+  seul({ ...PROD, ...oidc, ...sansSecret, CURSUS_MAIL_SECRET_EXPIRE: '2027-03-31' }, /sans CURSUS_MAIL_CLIENT_SECRET : l’envoi passe par le secret de la connexion, surveillé par CURSUS_OIDC_SECRET_EXPIRE/, 'sans secret propre');
+  // Témoin de sauvegarde : chemin absolu (volume monté), rien d'autre n'est contrôlé au démarrage (fichier absent : alerte du point de santé).
+  assert.deepEqual(pbs({ CURSUS_SAUVEGARDE_TEMOIN: '/sauvegardes/cursus.temoin' }), []);
+  seul({ ...PROD, CURSUS_SAUVEGARDE_TEMOIN: 'sauvegardes/cursus.temoin' }, /^CURSUS_SAUVEGARDE_TEMOIN doit être le chemin absolu .* « sauvegardes\/cursus\.temoin » reçu\.$/, 'chemin relatif');
+  seul({ ...PROD, CURSUS_KEYSTONE_ADRESSES: '10.0.1.0/24, keystone.interne' }, /^CURSUS_KEYSTONE_ADRESSES : « keystone\.interne » n’est ni une adresse IP ni un réseau/, 'nom au lieu d’une adresse');
+  assert.deepEqual(pbs({ CURSUS_KEYSTONE_ADRESSES: '10.0.1.0/24' }), []);
 });

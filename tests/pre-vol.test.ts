@@ -9,13 +9,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const { avertissementsConfig, problemesConfig } = await import('../server/src/config.ts');
-const { codeSortie, colonnesSelect, controlerBase, controlesConfig, hoteInterne, indicesDemo, rapportTexte, secretsEgaux, vuesAttendues } = await import('../server/src/pre-vol.ts');
+const { codeSortie, colonnesSelect, controlerBase, controleSauvegarde, controlesConfig, hoteInterne, indicesDemo, rapportTexte, secretsEgaux, vuesAttendues } = await import('../server/src/pre-vol.ts');
 const { migrationsPg } = await import('../server/src/db-pg.ts');
 const { creerCompte } = await import('../server/src/comptes.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
@@ -32,7 +32,7 @@ const IMAGE = { NODE_ENV: 'production', TZ: 'Europe/Paris', CURSUS_HOST: '0.0.0.
 const DEMO_COOLIFY = { ...IMAGE, CURSUS_DEMO: '1', CURSUS_DEMO_PUBLIQUE: '1', CURSUS_SECRET: 'd'.repeat(40), KEYSTONE_API_KEY: 'demo-keystone' };
 /** Production cible : application cursus-prod (docs/BASCULE-PRODUCTION.md), toutes les variables posées. */
 const PRODUCTION = {
-  ...IMAGE, CURSUS_TRUST_PROXY: '10.0.1.0/24',
+  ...IMAGE, CURSUS_TRUST_PROXY: '10.0.1.3',
   DATABASE_URL: 'postgres://cursus_app:mdp-cursus-app@epc2i-postgres:5432/epc2i',
   CURSUS_SECRET: 'a'.repeat(64), KEYSTONE_API_KEY: 'b'.repeat(64), KEYSTONE_URL: 'http://keystone:3000', KEYSTONE_TOKEN: 'c'.repeat(64),
   CURSUS_SUPERVISION_TOKEN: 'e'.repeat(64), MATRIX_URL: 'http://matrix:3000', MATRIX_TOKEN: 'f'.repeat(64),
@@ -127,6 +127,15 @@ test('configuration : chaque contrôle propre au pré-vol', () => {
   assert.match(ligne({ TZ: 'UTC' }, 'config.fuseau').message, /Fuseau « UTC »/);
   assert.match(ligne({ TZ: undefined }, 'config.fuseau').message, /Fuseau non posé/);
   assert.equal(ligne({ CURSUS_TRUST_PROXY: 'loopback,uniquelocal' }, 'config.proxy').niveau, 'attention');
+  // Sous-réseau du réseau coolify partagé (Keystone, Vigie, Matrix, postgres y sont aussi) : aussi falsifiable que
+  // uniquelocal. Seule l'adresse du conteneur Traefik (ou la boucle locale) passe.
+  for (const v of ['10.0.1.0/24', '10.0.1.0/255.255.255.0', 'fd00:1::/64', '1', 'loopback,linklocal']) {
+    assert.equal(ligne({ CURSUS_TRUST_PROXY: v }, 'config.proxy').niveau, 'attention', v);
+  }
+  assert.match(ligne({ CURSUS_TRUST_PROXY: 'loopback,10.0.1.0/24' }, 'config.proxy').message, /10\.0\.1\.0\/24 désigne plus qu’une adresse/);
+  for (const v of ['10.0.1.3', '10.0.1.3/32', 'loopback,10.0.1.3', 'fd00:1::3/128', '10.0.1.3/255.255.255.255', 'loopback']) {
+    assert.equal(ligne({ CURSUS_TRUST_PROXY: v }, 'config.proxy').niveau, 'ok', v);
+  }
   assert.equal(ligne({ MATRIX_TOKEN: undefined }, 'config.matrix').niveau, 'attention');
   // Variables de démonstration et de test, une par une.
   for (const v of ['CURSUS_TODAY', 'CURSUS_INSECURE_COOKIE', 'CURSUS_OIDC_AUTORITE', 'CURSUS_DEMO_LIAISONS']) {
@@ -302,9 +311,15 @@ void _url;
 
 test('commande : options, configuration seule, base de démonstration refusée sans être modifiée, JSON', async () => {
   assert.equal(commande({}, '--aide').status, 0);
-  const inconnue = commande({}, '--url', 'https://cursus.example.fr');
+  const inconnue = commande({}, '--toutes');
   assert.equal(inconnue.status, 1);
-  assert.match(inconnue.stderr, /Option inconnue : --url https:\/\/cursus\.example\.fr/);
+  assert.match(inconnue.stderr, /Option inconnue : --toutes/);
+  // --url sans adresse (étape 2 : contrôles réseau, tests/pre-vol-reseau.test.ts).
+  for (const args of [['--url'], ['--url', '--json'], ['--url=']]) {
+    const r = commande({}, ...args);
+    assert.equal(r.status, 1, args.join(' '));
+    assert.match(r.stderr, /--url demande l’adresse publique/);
+  }
   // Configuration seule : production cible en fichier SQLite choisi, seul avertissement attendu (DATABASE_URL absente).
   const fichier = join(dossier, 'cursus.db');
   const conf = commande({ ...PROD_SQLITE, CURSUS_DB: fichier }, '--config-seule');
@@ -312,10 +327,17 @@ test('commande : options, configuration seule, base de démonstration refusée s
   assert.match(conf.stdout, /base : non ouverte \(--config-seule\)/);
   assert.match(conf.stdout, /ATTENTION {2}DATABASE_URL absente/);
   assert.equal(commande({ ...PROD_SQLITE, CURSUS_DB: fichier }, '--config-seule', '--strict').status, 1, '--strict : avertissement bloquant');
-  assert.equal(commande({ ...PROD_SQLITE, DATABASE_URL: PRODUCTION.DATABASE_URL, CURSUS_BASE: 'postgres', CURSUS_DB: fichier }, '--config-seule').status, 0, 'production cible : conforme');
+  // Production cible : conforme, sauvegarde du serveur commun vérifiée par son témoin (sans lui : avertissement).
+  const temoin = join(dossier, 'cursus.temoin');
+  writeFileSync(temoin, `${new Date().toISOString()}\n`);
+  const cibleProd = { ...PROD_SQLITE, DATABASE_URL: PRODUCTION.DATABASE_URL, CURSUS_BASE: 'postgres', CURSUS_DB: fichier };
+  assert.equal(commande({ ...cibleProd, CURSUS_SAUVEGARDE_TEMOIN: temoin }, '--config-seule').status, 0, 'production cible : conforme');
+  const sansTemoin = commande(cibleProd, '--config-seule');
+  assert.equal(sansTemoin.status, 2);
+  assert.match(sansTemoin.stdout, /Sauvegarde\n {2}ATTENTION {2}CURSUS_SAUVEGARDE_TEMOIN absente/);
   // Base absente.
   const absente = JSON.parse(commande({ ...PROD_SQLITE, CURSUS_DB: fichier }, '--json').stdout);
-  assert.deepEqual(absente.controles.at(-1), { code: 'base.fichier', domaine: 'base', niveau: 'bloquant', message: `Base SQLite ${fichier} introuvable.`, remede: 'Vérifiez CURSUS_DB (ou DATABASE_URL pour le serveur commun).' });
+  assert.deepEqual(absente.controles.find((c: Controle) => c.domaine === 'base'), { code: 'base.fichier', domaine: 'base', niveau: 'bloquant', message: `Base SQLite ${fichier} introuvable.`, remede: 'Vérifiez CURSUS_DB (ou DATABASE_URL pour le serveur commun).' });
   // Base de démonstration : bloquant, fichier intact (copie instantanée).
   const db = new SqliteDb(fichier);
   await seedDemo(db);
@@ -339,7 +361,7 @@ test('commande : options, configuration seule, base de démonstration refusée s
   rmSync(illisible, { force: true });
   mkdirSync(illisible);
   const ko = JSON.parse(commande({ ...PROD_SQLITE, CURSUS_DB: illisible }, '--json').stdout);
-  assert.match(ko.controles.at(-1).message, /^Base SQLite .* illisible : /);
+  assert.match(ko.controles.find((c: Controle) => c.code === 'base.fichier').message, /^Base SQLite .* illisible : /);
 });
 
 test('commande interrompue : la copie instantanée de la base SQLite ne reste pas dans le dossier temporaire', async () => {
@@ -369,4 +391,32 @@ test('commande interrompue : la copie instantanée de la base SQLite ne reste pa
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
+});
+
+test('étape 2 : secret d’envoi des e-mails distinct et fraîcheur de la sauvegarde du serveur commun', () => {
+  const C = (env: Record<string, string>) => code(controlesConfig({ ...PRODUCTION, ...env }, JOUR), 'config.secret-envoi');
+  assert.deepEqual(C({}), [], 'envoi par le secret de la connexion : déjà suivi');
+  assert.deepEqual(C({ CURSUS_MAIL_CLIENT_SECRET: PRODUCTION.CURSUS_OIDC_CLIENT_SECRET }), [], 'même secret que la connexion');
+  const propre = { CURSUS_MAIL_CLIENT_ID: 'app-envoi', CURSUS_MAIL_CLIENT_SECRET: 'm'.repeat(40) };
+  assert.deepEqual(C(propre).map(c => [c.niveau, c.message]), [['attention', 'CURSUS_MAIL_SECRET_EXPIRE absente : Cursus ne préviendra pas avant l’expiration du secret d’envoi des e-mails.']]);
+  assert.deepEqual(C({ ...propre, CURSUS_MAIL_SECRET_EXPIRE: '2027-06-30' }).map(c => [c.niveau, c.message]), [['ok', 'Secret d’envoi des e-mails valable jusqu’au 2027-06-30 (249 jours).']]);
+  assert.equal(C({ ...propre, CURSUS_MAIL_SECRET_EXPIRE: '2026-11-10' })[0].niveau, 'attention');
+  const echu = C({ ...propre, CURSUS_MAIL_SECRET_EXPIRE: '2026-10-01' })[0];
+  assert.deepEqual([echu.niveau, echu.message], ['bloquant', 'Le secret d’envoi des e-mails a expiré le 2026-10-01 : plus aucun e-mail ne part.']);
+  assert.match(echu.remede!, /CURSUS_MAIL_CLIENT_SECRET et CURSUS_MAIL_SECRET_EXPIRE/);
+
+  // Sauvegarde : témoin absent (avertissement seulement, choix du lot 8), récent, ancien, illisible.
+  const maintenant = Date.parse('2026-10-24T08:00:00Z');
+  const sans = controleSauvegarde({}, maintenant);
+  assert.deepEqual([sans.domaine, sans.code, sans.niveau], ['sauvegarde', 'sauvegarde.temoin', 'attention']);
+  assert.match(sans.remede!, /BASCULE-PRODUCTION\.md/);
+  const temoin = join(dossier, 'pre-vol.temoin');
+  writeFileSync(temoin, '2026-10-24T02:15:00Z\n');
+  assert.deepEqual([controleSauvegarde({ CURSUS_SAUVEGARDE_TEMOIN: temoin }, maintenant).niveau, controleSauvegarde({ CURSUS_SAUVEGARDE_TEMOIN: temoin }, maintenant).message],
+    ['ok', 'Dernière sauvegarde du serveur commun il y a 5 h (2026-10-24T02:15:00.000Z).']);
+  assert.match(controleSauvegarde({ CURSUS_SAUVEGARDE_TEMOIN: temoin }, maintenant + 24 * 3600_000).message, /il y a 29 h .*plus de 26 h/);
+  assert.match(controleSauvegarde({ CURSUS_SAUVEGARDE_TEMOIN: join(dossier, 'absent.temoin') }, maintenant).message, /illisible : fichier absent/);
+  // Rapport : domaines Sauvegarde et Réseau à la suite.
+  const t = rapportTexte([sans, { code: 'reseau.sante', domaine: 'reseau', niveau: 'ok', message: 'Santé.' }], 'T');
+  assert.match(t, /\nSauvegarde\n {2}ATTENTION {2}CURSUS_SAUVEGARDE_TEMOIN absente.*\n {13}→ .*\n\nRéseau\n {2}OK {9}Santé\./);
 });

@@ -625,6 +625,27 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   une base qu'un serveur en service n'a pas encore mise à jour (`controlerPourOutil`), sur une base qu'un serveur
   utilise (verrou, `serveurActif`) sauf `--force` ; confirmation par `--yes` ou par le mot `EFFACER` tapé dans un
   terminal (sans terminal ni `--yes` : refus). Base existante copiée (« avant-reinitialisation ») avant l'effacement.
+- **Marqueurs d'usage de la base et purge des données fictives** (lot 8, chantier A ; contrat commun avec le chantier B,
+  `server/src/marqueurs.ts`) : deux lignes de `settings`, sans migration. `demo` = `{ chargeeLe, version }`, posé par
+  `seedDemo` à chaque chargement du jeu ; `exploitation` = `{ premierDemarrageHorsDemo, version }`, posé une fois par
+  `server/src/index.ts` au premier démarrage avec `NODE_ENV=production` sans `CURSUS_DEMO` (base vide comprise ; jamais
+  en développement, en test, ni pour l'application de bureau ou la démonstration publiée). Code de journal `purge.demo` :
+  seule ligne laissée par la purge. `npm run purge-demo` (`server/src/purge-demo-cli.ts`, règles dans
+  `server/src/purge-demo.ts`, testées dans `tests/purge-demo.test.ts` sur les deux moteurs) : options inconnues refusées ;
+  refus avec `CURSUS_DEMO_PUBLIQUE` posée, sans appel avec le réglage `exploitation`, une ligne `migration.postgres`, un
+  compte Microsoft (`oid`) hors `entreprise.example`, ou sans preuve de démonstration (réglage `demo`, sinon faisceau :
+  au moins 20 des 24 salariés du jeu par identifiant et nom, comptes du jeu, domaine `entreprise.example`, lot
+  « Démonstration ») ; « déjà faite » avec `purge.demo` au journal. Ajouts des visiteurs (fiches hors du jeu, reprises,
+  lots de paie, fichiers Sage, comptes) listés avec nombre et dates ; les fiches ajoutées ne partent qu'avec
+  `--inclure-ajouts`. Plan par profil (`planPurge` : `parametrage` par défaut, `catalogue`, `rien`) : sort de chaque table
+  de `TABLES` et des réglages ; séquence `employes.id` à max(1001, plus grand identifiant attribué + 1000), jamais remise
+  à zéro. Réglages remis à défaut par `parametrage` : clé de session, état de la paie (dont les dates de départ des
+  absences et des déplacements dans le fichier de paie), expurgation, messagerie, `demo` et passages des traitements
+  quotidiens. `seedDemo` garde le réglage `exploitation` : une base exploitée reste refusée. Étape 1 : aperçu à blanc
+  seulement (`--a-blanc`, `apercuPurge`) ; l'exécution vient à l'étape 2. L'aperçu n'écrit rien, pas même la mise à
+  jour de la base (`server/src/purge-demo-ouverture.ts`) : une base qui n'est pas au niveau de cette version
+  (migrations nommées ou PostgreSQL en attente, colonnes manquantes) est refusée, avec pour remède de démarrer une fois
+  le service de cette version.
 - **Base sur le disque** (`server/src/protection.ts`) : `protegerBase` ramène la base et ses fichiers `-wal`, `-shm`
   en `600` et son dossier en `700` (créé ainsi ; un dossier partagé — bit sticky, racine du système ou du projet,
   dossier de lancement, autre propriétaire — n'est jamais modifié, avertissement ; le dossier personnel du compte de

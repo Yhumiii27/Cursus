@@ -3,8 +3,10 @@
 // L'interface compilée ne charge que ses propres fichiers : aucun script ni style en
 // ligne (l'impression utilise une feuille de style et un script servis, voir client/src/print.ts).
 import type { NextFunction, Request, Response } from 'express';
+import { ESPACE_LABEL } from '../../shared/constants.ts';
 import { LISTE_TYPES_PIECES } from '../../shared/rules/pieces.ts';
 import { BOUCLE_LOCALE } from './config.ts';
+import { EN_TETE_ESPACE } from './connexion.ts';
 
 export const CSP = [
   "default-src 'self'",
@@ -88,6 +90,39 @@ export function protectionCsrf() {
     const motif = refusCsrf(req);
     if (!motif) return next();
     res.status(403).json({ error: `Requête refusée : ${motif}. Ouvrez Cursus à son adresse habituelle et recommencez.` });
+  };
+}
+
+/**
+ * Lectures qui écrivent au journal (lot 8, chantier C, S8) : une navigation provoquée depuis un autre site (lien,
+ * redirection, formulaire GET) emporte le cookie de session (SameSite=Lax) et `protectionCsrf` ne contrôle pas les GET.
+ * Deux niveaux :
+ * - `lien` : adresse ouverte par un lien de l'interface (pièce justificative, `lienPiece` de client/src/api.ts), qui ne
+ *   peut porter aucun en-tête. Refus quand `Sec-Fetch-Site` dit « autre site » ou « sous-domaine voisin » (cross-site,
+ *   same-site) ; same-origin (lien de Cursus) et none (adresse tapée, favori) passent, comme un navigateur sans l'en-tête ;
+ * - `appel` : téléchargement fait par `fetch` (fichier de paie, données d'un salarié, archive paie du journal) : le même
+ *   contrôle, plus l'en-tête d'espace (`x-cursus-espace`, posé par `telecharger` et la lecture du journal), qu'une
+ *   navigation ne peut jamais poser. Un client sans navigateur (script) le pose lui-même.
+ * Motif du refus, sinon null. Le refus n'est pas tracé : la trace écrirait au journal ce que la garde veut en écarter.
+ */
+export type NiveauNavigation = 'lien' | 'appel';
+export function refusNavigation(req: Request, niveau: NiveauNavigation): string | null {
+  const site = req.get('sec-fetch-site');
+  if (site && site !== 'same-origin' && site !== 'none') return 'adresse ouverte depuis un autre site';
+  const espace = req.get(EN_TETE_ESPACE);
+  if (niveau === 'appel' && !(espace && Object.hasOwn(ESPACE_LABEL, espace))) return 'téléchargement à lancer depuis l’interface de Cursus';
+  return null;
+}
+
+/**
+ * Garde de navigation interne (voir `refusNavigation`) : 403 sans rien lire ni tracer. `quand` restreint la garde à
+ * une partie des requêtes de l'adresse (journal : vue « archive » seulement).
+ */
+export function exigerNavigationInterne(niveau: NiveauNavigation, quand: (req: Request) => boolean = () => true) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const motif = quand(req) ? refusNavigation(req, niveau) : null;
+    if (!motif) return next();
+    res.status(403).json({ error: `Requête refusée : ${motif}. Ouvrez Cursus à son adresse habituelle et recommencez depuis l’écran.` });
   };
 }
 

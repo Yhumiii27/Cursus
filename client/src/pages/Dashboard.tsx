@@ -19,6 +19,7 @@ import { LiensPieces } from '../components/PieceJointe.tsx';
 import { CouverturePanel } from '../components/Couverture.tsx';
 import { DossiersEchusPanel } from '../components/DossiersEchus.tsx';
 import { sessionDemandeeComplete } from '../../../shared/rules/liste-attente.ts';
+import { AIDE_SOI_MEME, fichePropre } from '../../../shared/rules/soi-meme.ts';
 
 /** Ligne d'échéance (tableau de bord, page Échéances). */
 export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; onAct: () => unknown }) {
@@ -63,7 +64,7 @@ export function Dashboard() {
   const { emps, upcoming, horizon, d } = useEnriched();
   const trips = useTrips();
   const { setUi, go, run, runIntent, openDialog } = useStore();
-  const { rh, formations } = useRole();
+  const { rh, formations, user } = useRole();
   const permis = useIntentPermis();
   const { occupe, agir } = useAgir();
   const data = d.ds;
@@ -160,7 +161,9 @@ export function Dashboard() {
                           : <td className="text-muted" style={{ fontSize: 13 }}>{detail || 'À contrôler dans le dossier voyageur'}</td>}
                         <td className="right">
                           {/* Documents déclarés : service RH ; formations et habilitations : aussi le référent HSE. */}
-                          {(r.type === 'document' ? rh : formations) && (
+                          {/* Sa propre demande (lot 8, chantier C) : décidée par un autre membre habilité, jamais par soi-même. */}
+                          {(r.type === 'document' ? rh : formations) && fichePropre(user, r.empId) && <span className="text-muted" style={{ fontSize: 13 }}>{AIDE_SOI_MEME.demande}</span>}
+                          {(r.type === 'document' ? rh : formations) && !fichePropre(user, r.empId) && (
                             <div className="actions-end">
                               {/* Refus : confirmation et motif, communiqué au collaborateur seul (le manager qui a fait la demande n'en voit rien). */}
                               <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={stop(() => openDialog({ type: 'confirmer', c: refusDemande(r, e?.nom ?? d.personName(r.empId),

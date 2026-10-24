@@ -132,11 +132,19 @@ async function request<T>(method: string, url: string, body?: unknown, espace?: 
  * Télécharge un fichier produit par le serveur (export CSV du journal, données personnelles d'un salarié) :
  * le nom vient de l'en-tête Content-Disposition. Le serveur trace l'export.
  */
+/**
+ * Espace affiché par l'onglet (tenu par le store à chaque session lue), envoyé avec les téléchargements et la lecture
+ * du journal : le serveur exige cet en-tête sur les lectures qui écrivent au journal (fichier de paie, données d'un
+ * salarié, archive paie), qu'une navigation provoquée depuis un autre site ne peut pas poser (lot 8, S8).
+ */
+let espaceOnglet: Role | undefined;
+export function definirEspaceOnglet(espace: Role | undefined) { espaceOnglet = espace; }
+
 /** Téléchargement d'un fichier produit par le serveur ; rend les en-têtes de la réponse (clés des lignes exportées…). */
 async function telecharger(url: string): Promise<Headers> {
   let res: Response;
   try {
-    res = await fetch(url, { credentials: 'same-origin' });
+    res = await fetch(url, { credentials: 'same-origin', headers: espaceOnglet ? { 'x-cursus-espace': espaceOnglet } : {} });
   } catch {
     throw Object.assign(new Error(MSG_RESEAU), { status: 0 });
   }
@@ -206,7 +214,7 @@ export const api = {
   /** Instantané de l'espace `espace` (409 si la session est passée à un autre espace entre-temps). */
   data: (espace?: Role) => request<Dataset>('GET', '/api/data', undefined, espace),
   /** Page du journal (les plus récentes d'abord) : filtres, numéro de page, lignes par page (50 par défaut). */
-  journal: (f: FiltreJournal = { vue: 'tout' }, page = 1, taille?: number) => request<PageJournal>('GET', `/api/journal${requeteJournal(f, page, taille)}`),
+  journal: (f: FiltreJournal = { vue: 'tout' }, page = 1, taille?: number) => request<PageJournal>('GET', `/api/journal${requeteJournal(f, page, taille)}`, undefined, espaceOnglet),
   /** Export CSV du journal filtré (toutes les pages). */
   journalCsv: (f: FiltreJournal) => telecharger(`/api/journal/csv${requeteJournal(f)}`),
   /** Service RH : données personnelles d'un salarié (droit d'accès), journal des actions le concernant compris. */

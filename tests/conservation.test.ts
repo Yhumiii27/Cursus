@@ -15,7 +15,7 @@ const { currentUser, loadFull, buildSnapshot, DEFAULT_SETTINGS } = await import(
 const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
 const { REFERENCES, controlerOrphelins } = await import('../server/src/integrite.ts');
-const { TRAITEMENTS, dossiersEchus, verifierConservation, aEffacer } = await import('../server/src/conservation.ts');
+const { TRAITEMENTS, dossiersEchus, verifierConservation, aEffacer, effacer, etapes, reouvertureSansMotif } = await import('../server/src/conservation.ts');
 const { journaliser } = await import('../server/src/comptes.ts');
 const { journaliserAction, preparerTrace } = await import('../server/src/journal.ts');
 const regles = await import('../shared/rules/conservation.ts');
@@ -130,6 +130,92 @@ test('cascade : chaque colonne de REFERENCES qui désigne un salarié a son trai
   for (const [nom, def] of Object.entries(TABLES)) {
     if ('empId' in def.cols && nom !== 'employes') assert.ok(TRAITEMENTS[`${snake(nom)}.emp_id`], `${nom}.empId traité`);
   }
+});
+
+/**
+ * Colonnes de texte (text, json) des tables gardées en mode « textes » qui ne sont pas du texte libre : codes, dates,
+ * statuts, documents calculés, et noms d'auteurs (retirés par le balayage de l'identité à l'anonymisation). Toute autre
+ * colonne de texte de ces tables doit être vidée (ou réécrite) par une étape de la conservation (lot 8, D4).
+ */
+const TEXTES_GARDES: Record<string, readonly string[]> = {
+  // Contrat : dates, nature et régime codés ; auteur (nom) balayé. La référence (texte libre) est vidée.
+  contrats_historique: ['effet', 'nature', 'regime', 'jusquau', 'signe_le', 'le', 'par', 'annule_le', 'fin'],
+  // Certification : code de formation, dates, inscriptions closes (identifiants) ; auteurs (noms) balayés.
+  certifications: ['f', 'obtenue', 'convoc', 'convoc_le', 'corrige_le', 'corrige_par', 'annule_le', 'annule_par', 'inscriptions_closes'],
+  // Titre d'habilitation : code, dates, mesure codée ; auteurs (noms) balayés. Le motif de la mesure est vidé.
+  hab_titres: ['h', 'delivree', 'par', 'demande', 'mesure', 'mesure_date', 'mesure_par'],
+  // Formation suivie : code, intitulé et organisme de la formation (pas une donnée sur la personne), dates, origine
+  // codée ; auteurs (noms) balayés.
+  formations_suivies: ['f', 'libelle', 'du', 'au', 'organisme', 'origine', 'le', 'auteur', 'corrige_le', 'corrige_par', 'annule_le', 'annule_par'],
+  // Déplacement : destination (code pays), dates, origine codée, référence et chantier du projet (Keystone) ; auteur
+  // de l'annulation balayé.
+  voyages: ['dest', 'depart', 'retour', 'origine', 'ref', 'chantier', 'detachement_le', 'information_le', 'annule_le', 'annule_par', 'ariane_le'],
+  // Demande de Keystone : chantier, destination, dates, référence, statut ; décideur (nom) balayé.
+  demandes_keystone: ['chantier', 'dest', 'depart', 'retour', 'recue', 'ref', 'statut', 'decidee', 'decideur'],
+  // Feuille : semaine, statut, heures et contrat figés, mode des heures supplémentaires, contrepartie en repos, horaires.
+  feuilles: ['week', 'statut', 'lignes', 'contrat', 'heures_sup', 'cor', 'horaires', 'horaires_figes'],
+  // Avenant de forfait : dates ; auteurs (noms) balayés.
+  avenants_forfait: ['signe_le', 'cree_le', 'cree_par', 'annule_le', 'annule_par'],
+  // Absence : type, dates, demi-journées et statut codés ; auteurs (noms) balayés.
+  absences: ['type', 'du', 'au', 'statut', 'signale_le', 'signale_par', 'justificatif_le', 'fin_initiale', 'annulee_le', 'annulee_par', 'debut_demi', 'fin_demi'],
+  // Report de congés : auteur (nom) balayé, date, sens, échéance et origine codés.
+  reports: ['par', 'date', 'sens', 'expire', 'origine'],
+  // Clôture de congés : type et décision codés, dates ; auteur (nom) balayé.
+  clotures: ['type', 'decision', 'expire', 'le', 'par'],
+  // Astreinte : équipe (code), dates et heures ; auteurs (noms) balayés.
+  astreintes: ['equipe', 'du', 'debut', 'au', 'fin', 'communique_le', 'cree_le', 'cree_par', 'modifie_le', 'modifie_par', 'annule_le', 'annule_par'],
+  // Liste d'attente : dates, statut et issue codés ; auteurs (noms) balayés.
+  attentes_session: ['le', 'par', 'statut', 'proposee_le', 'issue_le', 'issue_par', 'issue'],
+  // Évaluation de formation : type, répondant et efficacité codés, date ; auteur (nom) balayé.
+  evaluations_formation: ['type', 'repondant', 'efficacite', 'le', 'auteur'],
+};
+
+test('conservation : chaque colonne de texte libre d’une table gardée (mode « textes ») est vidée ou sur la liste blanche', async () => {
+  const db = await nouvelleBase();
+  const traitees = new Map<string, Set<string>>();
+  const cx = { ti: '2026-10-10', le: '', par: '' };
+  for (const c of regles.CATEGORIES) {
+    for (const e of etapes(db, c, cx, 2)) {
+      const s = traitees.get(e.table) ?? new Set<string>();
+      for (const col of [...e.vider ?? [], ...e.reecrire ? [e.reecrire.champ] : []]) s.add(col);
+      traitees.set(e.table, s);
+    }
+  }
+  const tables = [...new Set(Object.entries(TRAITEMENTS).filter(([, t]) => t.mode === 'textes').map(([k]) => k.split('.')[0]))];
+  assert.deepEqual(Object.keys(TEXTES_GARDES).sort(), [...tables].sort(), 'une liste blanche par table gardée');
+  for (const [nom, def] of Object.entries(TABLES) as [string, { cols: Record<string, string> }][]) {
+    const t = snake(nom);
+    if (!tables.includes(t)) continue;
+    const textes = Object.entries(def.cols).filter(([, type]) => type === 'text' || type === 'json').map(([c]) => snake(c));
+    const libres = textes.filter(c => !TEXTES_GARDES[t].includes(c) && !traitees.get(t)?.has(c));
+    assert.deepEqual(libres, [], `${t} : colonne de texte ni vidée par la conservation ni sur la liste blanche (TEXTES_GARDES)`);
+    const inconnues = TEXTES_GARDES[t].filter(c => !textes.includes(c));
+    assert.deepEqual(inconnues, [], `${t} : colonne de la liste blanche absente du schéma`);
+  }
+  assert.ok(traitees.get('feuilles')!.has('motif_forfait') && traitees.get('feuilles')!.has('reouverture'));
+});
+
+test('conservation des temps : motif du forfait jours vidé, réouvertures gardées sans leurs motifs (précédentes comprises)', async () => {
+  const db = await base();
+  const [f, g] = await db.where<Record<string, any>>('feuilles', 'empId', 2);
+  const reouverture = {
+    le: '2026-03-02T08:00:00.000Z', par: 'Sandrine Vidal', motif: 'Erreur de saisie signalée par Mehdi (arrêt du 3 mars)', renvoyee: false, transmise: true, lot: 4,
+    rubriques: { '2026-02': { HN: 35 } }, keystone: { 'HLT-026': 7 },
+    precedentes: [{ le: '2026-02-20T08:00:00.000Z', par: 'Sandrine Vidal', motif: 'Rappel de salaire demandé par Mehdi' }],
+  };
+  await db.update('feuilles', f.id, { motifForfait: 'Mehdi a dépassé son plafond pour la revue du client', reouverture });
+  // Réouverture sans précédente : rien d'ajouté.
+  await db.update('feuilles', g.id, { reouverture: { ...reouverture, precedentes: undefined } });
+  assert.equal(reouvertureSansMotif({ ...reouverture, precedentes: undefined }).precedentes, undefined);
+  const avant = await aEffacer(db, 2, 'temps');
+  assert.ok(avant >= 3, 'motif du forfait et deux réouvertures');
+  await db.tx(async () => await effacer(db, 2, ['temps'], { ti: '2026-10-10', le: '2026-10-10T08:00:00.000Z', par: 'Essai' }, { motif: 'Durée échue', avantEcheance: false }));
+  const apres = (await db.get<Record<string, any>>('feuilles', f.id))!;
+  assert.equal(apres.motifForfait, null);
+  assert.deepEqual(apres.reouverture, { ...reouverture, motif: '', precedentes: [{ ...reouverture.precedentes[0], motif: '' }] }, 'rubriques et heures Keystone gardées');
+  assert.equal((await db.get<Record<string, any>>('feuilles', g.id))!.reouverture.motif, '');
+  assert.equal(await aEffacer(db, 2, 'temps'), 0, 'rien de plus à effacer : étape idempotente');
+  assert.equal(await compter(db, `SELECT COUNT(*) AS n FROM feuilles WHERE CAST(reouverture AS text) LIKE '%Mehdi%'`), 0);
 });
 
 /** Dossier de Mehdi (2) garni : passeport, visa, vaccin, demande de visite, déclaration, demande de formation, journal, envoi. */

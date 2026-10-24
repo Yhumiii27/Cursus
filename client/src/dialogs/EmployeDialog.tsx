@@ -17,12 +17,14 @@ import { adressesPrises } from '../../../shared/rules/messagerie.ts';
 import { JOURS_SEMAINE, MANAGER_FIELDS, PROFIL_FIELDS, PROFIL_VIDE, normaliserProfil, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import { champsAEnvoyer, champsDifferents, champsEnConflit, LIBELLE_CHAMP_FICHE } from '../../../shared/rules/fiche-concurrente.ts';
 import { contratFige } from '../../../shared/rules/temps.ts';
+import { fichePropre } from '../../../shared/rules/soi-meme.ts';
 import { equipeDeNuit, finDerogationTravaux, mineurAu } from '../../../shared/rules/mineurs.ts';
 import type { MotifRecours, Statut, TempsTravail, TypeContrat } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Btn, Fine, NoteAccent, SectionLabel, Seg } from '../components/ui.tsx';
 import { NOUVEAU_POSTE, PosteChoix, PosteLibelle } from '../components/PosteChoix.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
+import { FichePropreDialog } from './FichePropreDialog.tsx';
 import { useStore } from '../state/store.tsx';
 
 /** État du formulaire : les nombres et dates restent des chaînes pendant la saisie. */
@@ -151,7 +153,7 @@ function JoursOff({ value, onChange }: { value: number[]; onChange: (v: number[]
 
 export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | null; equipe?: string | null }) {
   const d = useDomain();
-  const { rh, admin, manager, me } = useRole();
+  const { rh, admin, manager, me, user } = useRole();
   const { run, closeDialog, setUi, notify } = useStore();
   const emp = empId != null ? d.emp(empId) ?? null : null;
   const creation = empId == null;
@@ -177,6 +179,8 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const verif = useVerification();
 
   if ((creation && !rh) || (!creation && (!emp || !(rh || limited)))) return null;
+  // Sa propre fiche, dans l'espace RH (lot 8, chantier C) : adresse e-mail et jours non travaillés seulement.
+  if (emp && rh && fichePropre(user, emp.id)) return <FichePropreDialog emp={emp} />;
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) => { setF(s => ({ ...s, [k]: v })); setTouched(true); };
   /** Poste choisi dans la liste (son intitulé devient celui de la fiche), ou intitulé d'un nouveau poste. */

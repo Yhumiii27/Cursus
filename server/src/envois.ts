@@ -233,6 +233,19 @@ export async function purgerEnvois(db: Db, avant: string): Promise<number> {
   return Number((await db.run(`DELETE FROM envois WHERE (statut IN ('envoye', 'simule') AND COALESCE(envoi, creation) < ?) OR (statut = 'echec' AND classe IS NOT NULL AND classe < ?)`, [avant, avant])).changes);
 }
 
+/**
+ * Conservation des notifications (lot 8, D7), même durée que la file d'envoi (appelée après `purgerEnvois`) : une
+ * notification créée avant `avant` (ISO) et déjà traitée par le récapitulatif — close sans envoi (0 : destinataire sans
+ * adresse ou sorti), ou envoyée dans un e-mail qui a quitté la file — est supprimée. Restent une notification en attente
+ * du récapitulatif (`envoi_id` NULL), comme un message à envoyer reste en file, et celle dont l'e-mail est encore en
+ * file (échec non classé, envoi de moins d'1 an) : c'est elle qui fait reconnaître un récapitulatif de santé, masqué aux
+ * profils restreints (`recapitulatifsSante`, server/src/envois-lecteur.ts). Renvoie le nombre supprimé.
+ */
+export async function purgerNotifications(db: Db, avant: string): Promise<number> {
+  return Number((await db.run(`DELETE FROM notifications WHERE envoi_id IS NOT NULL AND creation < ?
+    AND (envoi_id = 0 OR NOT EXISTS (SELECT 1 FROM envois e WHERE e.id = notifications.envoi_id))`, [avant])).changes);
+}
+
 /** Derniers messages (les plus récents d'abord), filtrés par statut et par cible. */
 export async function listerEnvois(db: Db, filtre: { statut?: unknown; cible?: Cible } = {}, limite = 100): Promise<Envoi[]> {
   const statut = STATUTS_ENVOI.includes(filtre.statut as StatutEnvoi) ? filtre.statut as StatutEnvoi : null;

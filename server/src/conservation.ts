@@ -11,10 +11,10 @@
 // Les sauvegardes gardent les données effacées jusqu'à leur rotation (docs/SAUVEGARDE.md).
 import { fmtIso, plural } from '../../shared/format.ts';
 import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesEchues, conservationActive, nomAnonyme } from '../../shared/rules/conservation.ts';
-import type { CategorieConservation, DossierEchu, Employe, ISODate, Settings } from '../../shared/types.ts';
+import type { CategorieConservation, DossierEchu, Employe, ISODate, ReouvertureFeuille, Settings } from '../../shared/types.ts';
 import { journaliser } from './comptes.ts';
 import { loadSettings, todayIso } from './dataset.ts';
-import { snake, type SqlValeur, TABLES, type Db } from './db.ts';
+import { snake, type SqlValeur, TABLES, type Db, type TableName } from './db.ts';
 import { log } from './logs.ts';
 import { lireMessagerie } from './messagerie.ts';
 import { nettoyerBientot } from './pieces.ts';
@@ -96,7 +96,22 @@ export const TRAITEMENTS: Record<string, Traitement> = {
  * Une étape d'effacement : lignes visées (`ou`, chaque « ? » reçoit l'identifiant du salarié), supprimées, ou dont les
  * colonnes `vider` passent à NULL et les colonnes `poser` reçoivent une valeur (liée) ou une expression SQL (`sql`).
  */
-interface Etape { table: string; ou: string; supprimer?: true; vider?: readonly string[]; poser?: Record<string, unknown>; sql?: Record<string, string> }
+interface Etape { table: string; ou: string; supprimer?: true; vider?: readonly string[]; poser?: Record<string, unknown>; sql?: Record<string, string>; reecrire?: Reecriture }
+/**
+ * Valeur JSON réécrite en TypeScript (textes libres retirés d'un document gardé) : `champ` de la table (`table` est alors
+ * aussi le nom déclaré dans TABLES), lu et écrit par l'API de Db (même codage sur les deux moteurs) ; une ligne compte
+ * quand la réécriture change sa valeur (étape idempotente).
+ */
+interface Reecriture { champ: string; f: (v: any) => unknown }
+
+/**
+ * Réouverture d'une feuille (`feuilles.reouverture`, shared/types.ts) gardée sans ses motifs (textes de l'administrateur
+ * RH), précédentes comprises : les rubriques transmises et les heures envoyées à Keystone servent encore à la
+ * régularisation ; l'auteur (nom) est retiré par le balayage à l'anonymisation (lot 8, D4).
+ */
+export const reouvertureSansMotif = (r: ReouvertureFeuille): ReouvertureFeuille => ({
+  ...r, motif: '', ...(r.precedentes ? { precedentes: r.precedentes.map(x => ({ ...x, motif: '' })) } : {}),
+});
 
 /** Pièces retirées (fichier effacé après la validation, description gardée). */
 const retrait = (cx: Cx, ou: string): Etape => ({ table: 'pieces', ou: `${ou} AND retiree_le IS NULL`, poser: { retiree_le: cx.le, retiree_par: cx.par, retiree_motif: 'Durée de conservation échue' } });
@@ -107,7 +122,7 @@ const declarations = (db: Db, kinds: string) => `emp_id = ? AND type = 'document
 export interface Cx { ti: ISODate; le: string; par: string }
 
 /** Étapes propres à chaque catégorie, dans l'ordre (les pièces d'un objet avant l'objet). */
-function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number): Etape[] {
+export function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number): Etape[] {
   switch (cat) {
     case 'passeport': return [
       retrait(cx, `emp_id = ? AND objet = 'declaration' AND objet_id IN (SELECT id FROM demandes_collab WHERE ${declarations(db, `'passeport', 'visa'`)})`),
@@ -126,7 +141,10 @@ function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number): Etap
     case 'entretiens': return [{ table: 'entretiens', ou: 'emp_id = ?', supprimer: true }];
     case 'temps': return [
       retrait(cx, `emp_id = ? AND objet = 'absence'`),
-      { table: 'feuilles', ou: 'emp_id = ?', vider: ['comment', 'motif_depassement'] },
+      // Motif du dépassement du plafond d'un forfait jours (lot 6) et motifs des réouvertures : textes libres du valideur
+      // et de l'administrateur RH (lot 8, D4).
+      { table: 'feuilles', ou: 'emp_id = ?', vider: ['comment', 'motif_depassement', 'motif_forfait'] },
+      { table: 'feuilles', ou: 'emp_id = ? AND reouverture IS NOT NULL', reecrire: { champ: 'reouverture', f: reouvertureSansMotif } },
       { table: 'absences', ou: 'emp_id = ?', vider: ['motif_refus'] },
       { table: 'reports', ou: 'emp_id = ?', vider: ['motif'] },
       { table: 'clotures', ou: 'emp_id = ?', vider: ['motif'] },
@@ -193,14 +211,32 @@ function renseignee(table: string, c: string): string {
 }
 const lier = (ou: string, empId: number) => Array.from({ length: (ou.match(/\?/g) ?? []).length }, () => empId);
 
+/** Lignes dont la réécriture change la valeur, avec leur nouvelle valeur. */
+async function aReecrire(db: Db, e: Etape & { reecrire: Reecriture }, empId: number): Promise<{ id: number; v: unknown }[]> {
+  const out: { id: number; v: unknown }[] = [];
+  for (const { id } of await db.query<{ id: number }>(`SELECT id FROM ${e.table} WHERE ${e.ou} ORDER BY id`, lier(e.ou, empId))) {
+    const avant = (await db.get<Record<string, unknown>>(e.table as TableName, id))?.[e.reecrire.champ];
+    if (avant === null || typeof avant !== 'object') continue;
+    const v = e.reecrire.f(avant);
+    if (JSON.stringify(v) !== JSON.stringify(avant)) out.push({ id, v });
+  }
+  return out;
+}
+
 /** Lignes ou valeurs qu'une étape effacerait encore. */
 async function compter(db: Db, e: Etape, empId: number): Promise<number> {
+  if (e.reecrire) return (await aReecrire(db, { ...e, reecrire: e.reecrire }, empId)).length;
   const reste = e.vider && !e.poser && !e.sql ? ` AND (${e.vider.map(c => renseignee(e.table, c)).join(' OR ')})` : '';
   return Number((await db.one<{ n: number }>(`SELECT COUNT(*) AS n FROM ${e.table} WHERE ${e.ou}${reste}`, lier(e.ou, empId)))?.n ?? 0);
 }
 
 async function appliquer(db: Db, e: Etape, empId: number): Promise<number> {
   if (e.supprimer) return Number((await db.run(`DELETE FROM ${e.table} WHERE ${e.ou}`, lier(e.ou, empId))).changes);
+  if (e.reecrire) {
+    const lignes = await aReecrire(db, { ...e, reecrire: e.reecrire }, empId);
+    for (const l of lignes) await db.update(e.table as TableName, l.id, { [e.reecrire.champ]: l.v });
+    return lignes.length;
+  }
   const n = await compter(db, e, empId);
   if (!n) return 0;
   // Case à cocher vidée : décochée (FALSE ; colonne NOT NULL en PostgreSQL, lue faux comme NULL en SQLite).

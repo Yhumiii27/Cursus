@@ -496,6 +496,29 @@ test('export des données personnelles : description et contenu en base64, ni no
   assert.equal(JSON.parse(http.corps.toString()).sections['Pièces justificatives'].length, 1);
 });
 
+test('ouverture par lien (lot 8, S8) : lien de Cursus ou adresse tapée admis sans en-tête d’espace ; lien d’un autre site refusé, sans trace', async () => {
+  await regler('local');
+  const admin = await connexion(null, 'rh');
+  const a = await db.insert<{ id: number }>('absences', { empId: 4, type: 'ABSENCE', du: '2026-12-04', au: '2026-12-04', statut: 'signalee', keystone: true, justificatif: false });
+  const p = (await envoyer(admin, PDF, 'application/pdf', 'arret.pdf')).json();
+  await action(admin, 'piece.joindre', { jetons: [p.jeton], objet: 'absence', objetId: a.id });
+  const avant = (await journalDe('piece.consulter')).length;
+  // Le lien (`lienPiece`) n'emporte que le cookie : jamais l'en-tête d'espace.
+  const lien = { cookie: admin.cookie };
+  for (const site of ['cross-site', 'same-site']) {
+    const r = await appel(`/api/pieces/${p.id}`, { headers: { ...lien, 'sec-fetch-site': site } });
+    assert.equal(r.status, 403, site);
+    assert.match(r.json().error, /^Requête refusée : adresse ouverte depuis un autre site/);
+  }
+  assert.equal((await journalDe('piece.consulter')).length, avant, 'aucune consultation inscrite au nom de la victime');
+  for (const en of [{ 'sec-fetch-site': 'same-origin' }, { 'sec-fetch-site': 'none' }, {}] as Record<string, string>[]) {
+    const r = await appel(`/api/pieces/${p.id}?telecharger=1`, { headers: { ...lien, ...en } });
+    assert.equal(r.status, 200, JSON.stringify(en));
+    assert.equal(r.corps.compare(PDF), 0);
+  }
+  assert.equal((await journalDe('piece.consulter')).length, avant + 1, 'consultation tracée une fois');
+});
+
 test('nettoyage : pièces en attente de plus de 24 h et fichiers sans pièce effacés ; un envoi récent est gardé', async () => {
   const vieux = new Date(Date.now() - 25 * 3600_000);
   const depot = pieces.depotLocal(db);

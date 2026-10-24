@@ -100,7 +100,9 @@ test('efficacité à froid du manager : écran Formations, réponse obligatoire,
 
 test('clôture : avis à chaud des présents recueilli par le service RH, envoyé avec la présence', async () => {
   const { db, personne } = await baseDemo();
-  const b = await monter(db, await personne(14, 'rh'), () => createElement(ClotureDialog, { sessionId: 6 }));
+  // L'administratrice RH (sans fiche) : Antoine Leroy, inscrit et présent, ne clôt pas une session qui le certifie
+  // (lot 8, chantier C : refus « soi-même », tests/soi-meme.test.ts).
+  const b = await monter(db, await personne(null, 'rh'), () => createElement(ClotureDialog, { sessionId: 6 }));
   render(b.element);
   // Tous présents (session de validation par la présence).
   for (const nom of ['Antoine Leroy', 'Élodie Bernard', 'Fatou Ndiaye', 'Inès Dupont', 'Yanis Bouzid']) {

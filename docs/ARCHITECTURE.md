@@ -439,6 +439,14 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   manager : le refus renvoie à un autre membre habilité, à défaut à la direction par un compte RH dédié
   (`REVIENT_RH`, `REVIENT_FORMATIONS` de server/src/actions/context.ts). Réponse de l'entreprise du 24 octobre 2026 :
   aucune exception, même pour la seule personne habilitée sur son périmètre. Tests : `tests/soi-meme.test.ts`.
+  Étape 2 : la clôture d'une session (`session.cloturer`) est refusée à l'auteur qu'elle certifierait (présent, sans
+  certification en vigueur ; absent, il clôt) ; la reprise (`reprise.importer`) refuse ses propres lignes de
+  certifications, d'habilitations et de visites, comme ses soldes (`REPRISE_SOI_MEME` de shared/rules/reprise.ts, même
+  refus dans l'aperçu de Mise en service). L'interface suit la même règle (`fichePropre` de shared/rules/soi-meme.ts,
+  que `estSoiMeme` reprend) : sur sa propre fiche, « Ajouter une certification », la délivrance, « Lever la suspension »,
+  « Retirer » (« Suspendre » reste), les boutons du suivi médical et, au tableau de bord, « Accepter » et « Refuser » sur
+  sa propre demande sont remplacés par l'explication (`AIDE_SOI_MEME`) ; « Modifier la fiche » ouvre `FichePropreDialog`
+  (adresse e-mail et jours non travaillés, `SOI_MEME_FIELDS` ; le reste en lecture seule). Tests : `tests/client-soi-meme.test.ts`.
 - **Identité** : dans l'espace RH, `user.empId` reste null (la personne agit pour le service RH), mais
   `user.nom` est celui de la personne connectée : il signe le journal (avec `compteId` et `identifiant`)
   et les mesures (`mesurePar`, reports de CP). `rhNom` et `rhIntitule` ne sont plus des paramètres : le
@@ -469,6 +477,21 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   (déconnexion) passe ; un client sans navigateur n'envoie ni `Origin` ni `Sec-Fetch-Site`. L'API Keystone (clé, sans
   cookie) est montée avant ; la connexion Microsoft ne fait que des GET. En développement, le proxy de Vite garde le nom
   d'hôte de la page (`changeOrigin: false`), comme le reverse proxy de production.
+- **Lectures qui écrivent au journal** (lot 8, chantier C, S8 : `exigerNavigationInterne` de `server/src/securite.ts`,
+  montée dans `server/src/app.ts` devant les routes) : une navigation provoquée depuis un autre site (lien, redirection)
+  emporte le cookie (SameSite=Lax), et `protectionCsrf` ne contrôle pas les GET. Deux niveaux, refus 403 sans rien lire
+  ni tracer :
+  - `lien` — `GET /api/pieces/:id`, ouvert par un lien direct (`lienPiece`), qui ne peut porter aucun en-tête :
+    `Sec-Fetch-Site` « cross-site » ou « same-site » refusé ; « same-origin », « none » (adresse tapée, favori) et un
+    navigateur sans l'en-tête passent ;
+  - `appel` — `GET /api/paie/lots/:id/fichier`, `GET /api/salaries/:id/donnees`, `GET /api/journal` en vue archive
+    (reconnue par `lireFiltre`, comme la route : `vue=archive` ou l'ancien `filtre=archive`) et l'export
+    `GET /api/journal/csv` (toutes vues : il trace toujours `journal.export`), appelés par `fetch` : le même contrôle, plus l'en-tête d'espace `x-cursus-espace` (valeur d'un espace), qu'une
+    navigation ne pose jamais. Le client l'ajoute dans `telecharger()` et la lecture du journal (`definirEspaceOnglet`
+    de `client/src/api.ts`, tenu par le store à chaque session lue) ; un script le pose lui-même.
+- **Registres par nom** (S5) : l'action de `POST /api/actions/:nom` et sa règle de journal sont lues sur les seules clés
+  propres du registre (`Object.hasOwn` ; `regleDe` de `server/src/journal.ts`) : `constructor`, `__proto__`,
+  `toString`… sont des actions inconnues (404), rien n'est écrit au journal.
 - **Débit** (`server/src/debit.ts`, seau de jetons en mémoire, au plus 10 000 clés suivies par limiteur) : toute requête
   `/api` (hors Keystone) compte pour son adresse IP (1 200 d'avance, puis 20 par seconde : un atelier entier peut sortir
   par une adresse) et, si elle porte une session ouverte, pour son compte (240 d'avance, puis 2 par seconde), quelle que
@@ -3317,7 +3340,8 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
     (lien vers Cursus seulement, `server/src/actions/remise.ts`) : toujours aussitôt.
   - Relevés des intérimaires (`server/src/releves.ts`, règles `shared/rules/releves.ts`) : par agence et par
     semaine, heures des feuilles validées (par jour, normales, majorées), jours d'absence sans leur nature,
-    CSV joint, heures au centième. Envoi automatique (`semainesAutomatiques` : les cinq semaines précédentes, et la
+    CSV joint (`texteCsv` de shared/csv.ts, comme les autres exports : une cellule qui commence comme une formule est
+    neutralisée, lot 8), heures au centième. Envoi automatique (`semainesAutomatiques` : les cinq semaines précédentes, et la
     semaine en cours après son vendredi, sans remonter avant la semaine qui précède l'adresse de l'agence) quand
     toutes les feuilles de l'agence sont validées, à la validation de la dernière (`temps.validate`) et par les
     tâches de fond, si la semaine n'a pas été transmise ou si le dernier envoi était incomplet ; envoi (feuilles

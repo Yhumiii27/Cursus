@@ -85,9 +85,3 @@ export function releveCsv(r: Releve) {
     heuresTexte(l.normal), heuresTexte(l.maj10), heuresTexte(l.maj25), heuresTexte(l.maj50), String(l.absences)]);
   return { fichier: `releve-heures-${key(r.agence).replace(/ /g, '-') || 'agence'}-${r.semaine}.csv`, head, rows };
 }
-
-/** Texte d'un fichier CSV (séparateur « ; », fins de ligne CRLF, UTF-8 avec BOM pour Excel), comme les exports de l'interface. */
-export function csvTexte(head: string[], rows: (string | number)[][]): string {
-  const cell = (v: string | number) => { const s = String(v ?? ''); return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-  return '﻿' + [head, ...rows].map(r => r.map(cell).join(';')).join('\r\n');
-}

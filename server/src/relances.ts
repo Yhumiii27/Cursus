@@ -20,11 +20,12 @@ import { CATEGORIES_HSE, jourDEnvoi, relancesCouverture, relancesDues, titrePali
 import { delegationEnVigueur, delegationPour } from '../../shared/rules/delegations-manager.ts';
 import type { CurrentUser, Employe } from '../../shared/types.ts';
 import type { Compte } from './comptes.ts';
-import { couvertureVueHse, loadFull, todayIso } from './dataset.ts';
+import { couvertureVueHse, loadSettings, todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
 import { envoyerEmail } from './integrations/email.ts';
 import { adresseSalarie, courriel, lireMessagerie } from './messagerie.ts';
 import { relanceSecret } from './secret-microsoft.ts';
+import { type Lecture, lectureDirecte } from './lecture-partagee.ts';
 
 /** Lecture du périmètre complet, comme le service RH. */
 const SUIVI: CurrentUser = { role: 'rh', empId: null, nom: 'Cursus', intitule: 'Relance des échéances' };
@@ -104,10 +105,10 @@ async function destinataires(db: Db, d: Domain, relances: Relance[], today: stri
  * Un passage du récapitulatif des échéances : paliers atteints et pas encore relancés, un e-mail par destinataire
  * concerné, paliers notés envoyés. Renvoie le nombre d'e-mails et de relances nouvelles.
  */
-export async function recapitulatifEcheances(db: Db): Promise<{ emails: number; relances: number }> {
+export async function recapitulatifEcheances(db: Db, lire: Lecture = lectureDirecte(db)): Promise<{ emails: number; relances: number }> {
   // Boîte du service RH non renseignée (mise en service…) : rien n'est noté, rien ne se perd.
   if (!(await lireMessagerie(db)).rh) return { emails: 0, relances: 0 };
-  const full = await loadFull(db, SUIVI), d = new Domain(full), today = full.today;
+  const full = await lire(SUIVI), d = new Domain(full), today = full.today;
   const paliers = full.settings.relancesPaliers;
   const dues = [
     ...relancesDues(d, d.enrich(full.settings.horizonAlerte, full.settings.uniquementReglementaire), paliers),
@@ -141,11 +142,12 @@ export async function recapitulatifEcheances(db: Db): Promise<{ emails: number; 
  * Tâche de fond (appelée par `tachesEmails`, dans sa transaction) : à partir de 7 h, une fois par jour, le jour réglé,
  * si le récapitulatif est actif. Null : rien à faire à ce passage.
  */
-export async function relancerEcheances(db: Db, heure: number): Promise<{ emails: number; relances: number } | null> {
+export async function relancerEcheances(db: Db, heure: number, lire: Lecture = lectureDirecte(db)): Promise<{ emails: number; relances: number } | null> {
   const jour = todayIso();
   if (heure < HEURE_RECAPITULATIF || await db.getSetting<string | null>(DERNIERE_RELANCE, null) === jour) return null;
-  const s = (await loadFull(db, SUIVI)).settings;
+  // Réglages seuls (lot 8, chantier E, étape 2) : la base n'est lue en entier que si le récapitulatif part aujourd'hui.
+  const s = await loadSettings(db);
   await db.setSetting(DERNIERE_RELANCE, jour);
   if (!s.relancesActives || !jourDEnvoi(s, weekday(jour))) return null;
-  return await recapitulatifEcheances(db);
+  return await recapitulatifEcheances(db, lire);
 }

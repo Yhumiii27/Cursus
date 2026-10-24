@@ -19,6 +19,8 @@ export interface StatSonde {
   poolAttenteMax: number;
   /** Lectures stables en attente d'une place (server/src/db-pg.ts, `PlacesLecture`) au plus. */
   lecturesAttenteMax: number;
+  /** Écritures de l'instance en attente de leur tour en mémoire (server/src/db-pg.ts, `FileEcritures`) au plus. */
+  ecrituresAttenteMax: number;
   rssMax: number;
   tasMax: number;
 }

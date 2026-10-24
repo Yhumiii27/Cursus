@@ -8,7 +8,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import pg from 'pg';
 import { RACINE } from './chemins.ts';
-import { type ColType, Db, type Ecriture, snake, type SqlValeur, type TableDef, type TableName, TABLES, toDb } from './db.ts';
+import { type ColType, Db, type Ecriture, snake, type SqlValeur, type TableDef, type TableName, TABLES, TABLES_SANS_REVISION, toDb } from './db.ts';
 
 type Row = Record<string, unknown>;
 
@@ -135,6 +135,46 @@ class PlacesLecture {
   get enAttente(): number { return this.attente.length; }
 }
 
+/**
+ * File des écritures de l'instance (lot 8, chantier E, étape 2) : les transactions et suites exclusives de l'instance
+ * attendent leur tour en mémoire avant de prendre une connexion, puis le verrou d'écriture (commun aux instances). Sans
+ * elle, chaque écriture en attente du verrou gardait une connexion du pool : trente saisies simultanées prenaient les dix
+ * connexions, et les lectures, l'identité des requêtes et la sonde de santé attendaient une connexion jusqu'au délai
+ * (503). L'attente en mémoire est bornée par le délai du verrou (`lock_timeout`) : au-delà, la même erreur que le
+ * serveur (55P03), donc 503 « Cursus est occupé », sans rien écrire.
+ */
+class FileEcritures {
+  private fin: Promise<void> = Promise.resolve();
+  /** Écritures de l'instance en attente de leur tour (sonde de l'essai de charge). */
+  enAttente = 0;
+  async passer<T>(delai: number, fn: () => Promise<T>): Promise<T> {
+    const avant = this.fin;
+    let liberer!: () => void;
+    this.fin = new Promise<void>(ok => { liberer = ok; });
+    this.enAttente++;
+    let minuteur: NodeJS.Timeout | undefined;
+    try {
+      const tour = await Promise.race([
+        avant.then(() => true),
+        ...(delai > 0 ? [new Promise<false>(ok => { minuteur = setTimeout(() => ok(false), delai); })] : []),
+      ]);
+      if (!tour) {
+        // Place rendue à la suivante dès la fin de la précédente : l'ordre de la file est gardé.
+        void avant.then(liberer);
+        throw Object.assign(new Error('canceling statement due to lock timeout (file des écritures de l’instance)'), { code: '55P03' });
+      }
+    } finally {
+      clearTimeout(minuteur);
+      this.enAttente--;
+    }
+    try {
+      return await fn();
+    } finally {
+      liberer();
+    }
+  }
+}
+
 export interface OptionsPg {
   /** Schéma de travail (cursus ; un schéma par base dans les tests). */
   schema?: string;
@@ -167,6 +207,9 @@ export class PgDb extends Db {
   private ferme = false;
   /** Lectures stables simultanées : la moitié du pool, une au moins (`PlacesLecture`). */
   readonly placesLecture: PlacesLecture;
+  /** Écritures de l'instance, une à la fois, avant toute connexion (`FileEcritures`). */
+  readonly fileEcritures = new FileEcritures();
+  private readonly delaiVerrou: number;
 
   constructor(url: string, opts: OptionsPg = {}) {
     super();
@@ -176,6 +219,7 @@ export class PgDb extends Db {
     const max = Number(env.CURSUS_PG_POOL) > 0 ? Math.floor(Number(env.CURSUS_PG_POOL)) : 10;
     this.placesLecture = new PlacesLecture(Math.max(1, Math.floor(max / 2)));
     const delais = delaisPg(env);
+    this.delaiVerrou = delais.verrou;
     this.pool = new pg.Pool({
       connectionString: url,
       application_name: 'cursus',
@@ -195,6 +239,8 @@ export class PgDb extends Db {
   }
 
   get emplacement(): string | null { return null; }
+
+  get lectureStable(): boolean { return this.enCours()?.mode === 'lecture'; }
 
   private enCours(): PorteePg | null {
     const p = this.portee.getStore();
@@ -346,12 +392,12 @@ export class PgDb extends Db {
         p.tx = false;
       }
     }
-    return await this.avecConnexion(async client => {
+    return await this.fileEcritures.passer(this.delaiVerrou, async () => await this.avecConnexion(async client => {
       await client.query('BEGIN');
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [this.cleEcritures]);
       const q: PorteePg = { client, mode: 'tx', tx: true, active: true, file: Promise.resolve() };
       return await this.transaction(client, async () => await this.dans(q, fn));
-    });
+    }));
   }
 
   async lecture<T>(fn: () => Promise<T> | T, options: { courte?: boolean } = {}): Promise<T> {
@@ -379,14 +425,14 @@ export class PgDb extends Db {
    */
   async exclusif<T>(fn: () => Promise<T> | T): Promise<T> {
     if (this.enCours()) return await fn();
-    return await this.avecConnexion(async client => {
+    return await this.fileEcritures.passer(this.delaiVerrou, async () => await this.avecConnexion(async client => {
       await client.query('SELECT pg_advisory_lock(hashtext($1))', [this.cleEcritures]);
       try {
         return await this.dans({ client, mode: 'exclusif', tx: false, active: true, file: Promise.resolve() }, fn);
       } finally {
         await client.query('SELECT pg_advisory_unlock(hashtext($1))', [this.cleEcritures]);
       }
-    });
+    }));
   }
 
   async fermer(): Promise<void> {
@@ -467,6 +513,14 @@ export class PgDb extends Db {
       const cols = [...Object.keys(def.cols).map(snake), ...(TABLES_RANG.has(name) ? ['rang'] : [])];
       if (!lignes.some(l => l.t === snake(name))) manquantes.push(`table ${snake(name)}`);
       else for (const c of cols) if (!vues.has(`${snake(name)}.${c}`)) manquantes.push(`${snake(name)}.${c}`);
+    }
+    // Révision de la base (lot 8, chantier E, migration 0013_index_journal) : chaque table hors TABLES_SANS_REVISION porte
+    // son déclencheur, sinon le cache de l'instantané servirait un état périmé après une écriture de cette table.
+    const declencheurs = new Set((await this.query<{ t: string }>(`SELECT c.relname AS t FROM pg_trigger g JOIN pg_class c ON c.oid = g.tgrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = ? AND g.tgname = 'revision'`, [this.schema])).map(l => l.t));
+    if (!lignes.some(l => l.t === 'revision')) manquantes.push('table revision');
+    for (const name of Object.keys(TABLES) as TableName[]) {
+      if (!TABLES_SANS_REVISION.has(name) && lignes.some(l => l.t === snake(name)) && !declencheurs.has(snake(name))) manquantes.push(`déclencheur revision de ${snake(name)}`);
     }
     if (manquantes.length) {
       throw new SchemaPgError(`schéma ${this.schema} incomplet par rapport au code (${manquantes.length} manquante${manquantes.length > 1 ? 's' : ''} : `

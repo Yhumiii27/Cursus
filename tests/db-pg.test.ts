@@ -189,7 +189,7 @@ test('migrations : appliquées une fois sous verrou (deux démarrages simultané
     assert.ok(noms[0] === '0001_init' && noms.includes('0002_partage'));
     assert.deepEqual((await a.query<{ nom: string }>('SELECT nom FROM schema_migrations ORDER BY nom')).map(r => r.nom), noms);
     assert.equal([a.neuve, b.neuve].filter(Boolean).length, 1, 'une seule instance a créé le schéma');
-    assert.equal((await surServeur<{ n: number }>(url, `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = $1`, [schema]))[0].n, Object.keys(TABLES).length + 1);
+    assert.equal((await surServeur<{ n: number }>(url, `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = $1`, [schema]))[0].n, Object.keys(TABLES).length + 2, 'tables de TABLES, journal des migrations et révision');
     // Réouverture : rien à appliquer.
     const c = await ouvrirPostgres(url, { schema });
     assert.equal(c.neuve, false);
@@ -535,4 +535,30 @@ test('lectures simultanées limitées à la moitié du pool : les écritures et 
   await seconde;
   assert.deepEqual(ordre, ['première', 'seconde']);
   assert.equal(db.placesLecture.enAttente, 0);
+});
+
+// — Lot 8, chantier E, étape 2 : file des écritures de l'instance —
+
+test('écritures de l’instance une à une en mémoire, sans connexion en attente ; au-delà du délai du verrou : 55P03, rien d’écrit', SEUL, async () => {
+  const db = (await nouvelleBase({ CURSUS_PG_POOL: '4', CURSUS_PG_DELAI_VERROU_MS: '300' })) as Pg;
+  let rendre!: () => void;
+  const fin = new Promise<void>(ok => { rendre = ok; });
+  const longue = db.tx(async () => { await db.setSetting('longue', 1); await fin; });
+  await pause(30);
+  // Cinq écritures attendent leur tour en mémoire : le pool garde ses connexions pour les lectures.
+  const attente = Promise.all([1, 2, 3, 4, 5].map(async i => await db.tx(async () => await db.setSetting(`e${i}`, i)).then(() => 'faite', (e: { code?: string }) => e.code)));
+  await pause(30);
+  assert.equal(db.fileEcritures.enAttente, 5);
+  assert.equal(await db.lecture(async () => await db.count('journal')), 0, 'lecture servie');
+  assert.equal(db.pool.waitingCount, 0);
+  // Au-delà du délai du verrou (300 ms) : refus 55P03, comme le serveur (503 « Cursus est occupé »).
+  assert.deepEqual(await attente, ['55P03', '55P03', '55P03', '55P03', '55P03']);
+  assert.equal(db.fileEcritures.enAttente, 0);
+  rendre();
+  await longue;
+  for (const i of [1, 2, 3, 4, 5]) assert.equal(await db.getSetting(`e${i}`, 0), 0, 'rien d’écrit');
+  // Ordre gardé après les refus ; suite exclusive dans la même file.
+  const ordre: string[] = [];
+  await Promise.all([db.tx(async () => { ordre.push('a'); }), db.exclusif(async () => { ordre.push('b'); }), db.tx(async () => { ordre.push('c'); })]);
+  assert.deepEqual(ordre, ['a', 'b', 'c']);
 });

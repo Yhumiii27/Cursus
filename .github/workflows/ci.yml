@@ -9,6 +9,9 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  # Essai de charge sur 5 ans de données (job postgres, lot 8, chantier E), une fois par semaine : lundi, 4 h 17 UTC.
+  schedule:
+    - cron: '17 4 * * 1'
 
 permissions:
   contents: read
@@ -21,6 +24,8 @@ jobs:
   check:
     name: npm run check (Node ${{ matrix.nom }})
     runs-on: ubuntu-24.04
+    # Passage hebdomadaire : seulement l'essai de charge du job postgres (minutes d'Actions comptées).
+    if: github.event_name != 'schedule'
     # Les tests lancent de vrais serveurs (une dizaine de fichiers) : quelques minutes suffisent d'ordinaire.
     timeout-minutes: 20
     # Node 24 : essai pour anticiper la prochaine version, sans bloquer une modification.
@@ -73,6 +78,7 @@ jobs:
   e2e:
     name: Parcours de bout en bout (Playwright)
     runs-on: ubuntu-24.04
+    if: github.event_name != 'schedule'
     timeout-minutes: 30
     continue-on-error: true
     env:
@@ -143,6 +149,38 @@ jobs:
         env:
           CURSUS_TEST_DATABASE_URL: postgres://postgres:essai-ci-postgres@localhost:5432/postgres
         run: npm run test:coverage:pg
+      # Essai de charge (lot 8, chantier E ; docs/ARCHITECTURE.md, « Performances ») : jamais à chaque push. Jeu d'un an,
+      # S2 et S3 pendant 60 s, sur une pull request qui touche l'accès à la base, l'instantané, l'application, la
+      # validation groupée ou les migrations PostgreSQL ; jeu de 5 ans, S1 à S3, sur « Run workflow » et chaque semaine.
+      # Non bloquant au début : seuils ×3 (machines partagées bruyantes), invariants jamais assouplis (santé sous 5 s,
+      # aucune 5xx, verrou tenu moins de 15 s) ; rapport publié. Base jetable du job (schéma cursus_charge_*), jamais le
+      # serveur commun (refusé par l'outil).
+      - name: Essai de charge — déclenchement
+        id: charge
+        run: |
+          case "${{ github.event_name }}" in
+            workflow_dispatch|schedule) echo "ans=5" >> "$GITHUB_OUTPUT"; echo "scenarios=S1,S2,S3" >> "$GITHUB_OUTPUT" ;;
+            pull_request)
+              git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+              if git diff --name-only FETCH_HEAD HEAD | grep -qE '^server/src/(db[^/]*\.ts|dataset\.ts|app\.ts|actions/suivi-feuilles\.ts)$|^server/migrations-pg/'; then
+                echo "ans=1" >> "$GITHUB_OUTPUT"; echo "scenarios=S2,S3" >> "$GITHUB_OUTPUT"
+              fi ;;
+          esac
+      - name: Essai de charge (non bloquant)
+        if: steps.charge.outputs.ans
+        continue-on-error: true
+        env:
+          CURSUS_TEST_DATABASE_URL: postgres://postgres:essai-ci-postgres@localhost:5432/postgres
+        run: |
+          npm run charge:generer -- --ans ${{ steps.charge.outputs.ans }} --effectif 100 --interimaires 20 --seed 42
+          npm run charge -- --scenario ${{ steps.charge.outputs.scenarios }} --duree 60 --marge 3
+      - name: Publier le rapport de charge
+        if: ${{ !cancelled() && steps.charge.outputs.ans }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapport-charge-${{ github.sha }}
+          path: data/charge/rapports/
+          retention-days: 30
       # Cursus sur le socle, en cursus_app : migrations, démonstration, 57 tables dans cursus et rien dans public.
       - name: Démarrage sur le socle (cursus_app)
         env:

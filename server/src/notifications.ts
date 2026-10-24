@@ -25,6 +25,7 @@ import { relevesAutomatiques } from './releves.ts';
 import { relancerEcheances } from './relances.ts';
 import { annoncerDelegations } from './delegations.ts';
 import { evaluationsDuJour } from './evaluations-formation.ts';
+import { lecturePartagee } from './lecture-partagee.ts';
 
 /**
  * Ce dont une notification a besoin du contexte d'une action ; `parDelegation` : managers au nom desquels le suppléant a
@@ -431,26 +432,41 @@ export async function envoyerRecapitulatifs(db: Db): Promise<number> {
 const DERNIER_RECAPITULATIF = 'recapitulatifLe';
 
 /**
- * Un passage des tâches de fond des e-mails, dans une transaction : relevés d'heures des intérimaires dont toutes
- * les feuilles sont validées, puis, à partir de 7 h (`heure` : heure locale), le récapitulatif quotidien, une fois
- * par jour (réglage `recapitulatifLe`, gardé en base : un redémarrage ne le renvoie pas). Renvoie le nombre de
- * relevés et de récapitulatifs mis en file (null : pas l'heure, ou déjà fait aujourd'hui).
+ * Un passage des tâches de fond des e-mails : relevés d'heures des intérimaires dont toutes les feuilles sont validées,
+ * annonce des délégations qui commencent, récapitulatif des échéances et évaluations des formations, puis, à partir de
+ * 7 h (`heure` : heure locale), le récapitulatif quotidien, une fois par jour (réglage `recapitulatifLe`, gardé en base :
+ * un redémarrage ne le renvoie pas). Lot 8, chantier E : une transaction par tâche (le verrou d'écriture n'est tenu que
+ * le temps de chacune) et une lecture complète de la base au plus par passage, partagée (`lecturePartagee`) ; une tâche
+ * en échec n'empêche pas les suivantes, et la première erreur est rendue à la fin. Renvoie le nombre de relevés et de
+ * récapitulatifs mis en file (null : pas l'heure, ou déjà fait aujourd'hui).
  */
 export async function tachesEmails(db: Db, heure = new Date().getHours()): Promise<{ releves: number; recapitulatifs: number | null }> {
-  return await db.tx(async () => {
-    const releves = (await relevesAutomatiques(db)).length;
-    // Délégations des validations qui commencent (t135) : le suppléant reçoit les demandes déjà en attente (server/src/delegations.ts).
-    await annoncerDelegations(db);
-    // Récapitulatif des échéances par paliers (server/src/relances.ts) : sa propre date de passage, son propre réglage.
-    await relancerEcheances(db, heure);
-    // Évaluations des formations (lot 7, t121, server/src/evaluations-formation.ts) : demandes et relances du jour.
-    await evaluationsDuJour(db, heure);
+  const lire = lecturePartagee(db);
+  const erreurs: unknown[] = [];
+  const tache = async <T>(fn: () => Promise<T>, sinon: T): Promise<T> => {
+    try {
+      return await db.tx(fn);
+    } catch (err) {
+      erreurs.push(err);
+      return sinon;
+    }
+  };
+  const releves = (await tache(async () => await relevesAutomatiques(db, undefined, undefined, lire), [])).length;
+  // Délégations des validations qui commencent (t135) : le suppléant reçoit les demandes déjà en attente (server/src/delegations.ts).
+  await tache(async () => await annoncerDelegations(db, lire), 0);
+  // Récapitulatif des échéances par paliers (server/src/relances.ts) : sa propre date de passage, son propre réglage.
+  await tache(async () => await relancerEcheances(db, heure, lire), null);
+  // Évaluations des formations (lot 7, t121, server/src/evaluations-formation.ts) : demandes et relances du jour.
+  await tache(async () => await evaluationsDuJour(db, heure, lire), null);
+  const recapitulatifs = await tache(async () => {
     const jour = todayIso();
-    if (heure < HEURE_RECAPITULATIF || await db.getSetting<string | null>(DERNIER_RECAPITULATIF, null) === jour) return { releves, recapitulatifs: null };
-    const recapitulatifs = await envoyerRecapitulatifs(db);
+    if (heure < HEURE_RECAPITULATIF || await db.getSetting<string | null>(DERNIER_RECAPITULATIF, null) === jour) return null;
+    const n = await envoyerRecapitulatifs(db);
     await db.setSetting(DERNIER_RECAPITULATIF, jour);
-    return { releves, recapitulatifs };
-  });
+    return n;
+  }, null);
+  if (erreurs.length) throw erreurs[0];
+  return { releves, recapitulatifs };
 }
 
 /** Tâches de fond des e-mails (`tachesEmails`), au démarrage puis tous les quarts d'heure. */

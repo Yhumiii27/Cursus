@@ -26,6 +26,7 @@ import { relancerEcheances } from './relances.ts';
 import { annoncerDelegations } from './delegations.ts';
 import { evaluationsDuJour } from './evaluations-formation.ts';
 import { lecturePartagee } from './lecture-partagee.ts';
+import { purgerChangements } from './purge-changements.ts';
 
 /**
  * Ce dont une notification a besoin du contexte d'une action ; `parDelegation` : managers au nom desquels le suppléant a
@@ -465,6 +466,9 @@ export async function tachesEmails(db: Db, heure = new Date().getHours()): Promi
     await db.setSetting(DERNIER_RECAPITULATIF, jour);
     return n;
   }, null);
+  // Journal des changements (lot 9, chantier 1, server/src/purge-changements.ts) : changements des révisions anciennes
+  // effacés, au moins une heure et 20 000 révisions gardées. Sa propre transaction, après les autres tâches.
+  await tache(async () => await purgerChangements(db), null);
   if (erreurs.length) throw erreurs[0];
   return { releves, recapitulatifs };
 }

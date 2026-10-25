@@ -165,7 +165,12 @@ function description(p: PieceEnregistree): Piece {
 
 /** Pièces jointes à un objet (les pièces en attente, sans objet, n'en font pas partie), pour l'instantané complet. */
 export async function lirePieces(db: Db): Promise<Piece[]> {
-  return (await db.all<PieceEnregistree>('pieces')).filter(p => p.objet && p.objetId && p.empId).map(description);
+  return piecesDe(await db.all<PieceEnregistree>('pieces'));
+}
+
+/** Description des pièces jointes à un objet, tirée des lignes de la table (lecture brute de l'instantané, server/src/lecture-brute.ts). */
+export function piecesDe(lignes: readonly PieceEnregistree[]): Piece[] {
+  return lignes.filter(p => p.objet && p.objetId && p.empId).map(description);
 }
 
 /**

@@ -16,5 +16,10 @@ export async function lireLots(db: Db): Promise<LotPaie[]> {
 
 /** Format du fichier d'import en vigueur : le réglage enregistré, complété par le format par défaut. */
 export async function lireFormatFichier(db: Db): Promise<FormatFichierPaie> {
-  return { ...FORMAT_FICHIER_DEFAUT, ...await db.getSetting<Partial<FormatFichierPaie>>('formatFichierPaie', {}) };
+  return formatFichierDe(await db.getSetting<Partial<FormatFichierPaie>>('formatFichierPaie', {}));
+}
+
+/** Format du fichier d'import tiré du réglage enregistré (lecture brute de l'instantané, server/src/lecture-brute.ts). */
+export function formatFichierDe(reglage: Partial<FormatFichierPaie>): FormatFichierPaie {
+  return { ...FORMAT_FICHIER_DEFAUT, ...reglage };
 }

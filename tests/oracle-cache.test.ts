@@ -13,6 +13,10 @@ process.env.CURSUS_TODAY = '2026-10-10';
 process.env.CURSUS_SECRET = randomBytes(32).toString('hex');
 delete process.env.CURSUS_DEMO;
 delete process.env.CURSUS_CACHE_INSTANTANE;
+// Les compteurs vérifiés (entrées complètes, replis, vues reportées) supposent le cache incrémental et le report des vues
+// actifs, quel que soit le shell qui lance la suite (CURSUS_CACHE_INCREMENTAL=0 : mode de comparaison du README).
+delete process.env.CURSUS_CACHE_INCREMENTAL;
+delete process.env.CURSUS_VUES_REPORT;
 
 const { nouvelleBase } = await import('./base.ts');
 const { baseDemo, baseUnAn, rejouer, resumeRapport } = await import('./support/oracle.ts');

@@ -918,10 +918,14 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     écrit (SQL direct, upsert compris). Une transaction annulée n'y laisse rien. Une modification inscrit l'ancienne et la
     nouvelle clé (clé renommée). Clé NULL : marqueur « toute la table » (TRUNCATE, remise à zéro de la démonstration,
     instruction de plus de 1 000 lignes sur PostgreSQL ; plus de 1 000 clés d'une table dans un écart, `SEUIL_CHANGEMENTS`,
-    à la lecture sur les deux moteurs). Les tables fermées en entier à Matrix (`TABLES_CHANGEMENTS_SANS_CLE` : vaccinations,
-    visas, demandes de visite, informations CP, reprises) n'y sont jamais inscrites que par ce marqueur, et `changements`
-    elle-même est fermée à `matrix_lecture` : l'ordre des écritures rattacherait l'activité d'une table de santé à un
-    salarié. PostgreSQL : déclencheurs par instruction `revision_lignes_i/u/d` (tables de transition, un
+    à la lecture sur les deux moteurs). Les tables sensibles en entier (`TABLES_CHANGEMENTS_SANS_CLE` : vaccinations,
+    visas, demandes de visite, informations CP, reprises) n'y sont jamais inscrites que par ce marqueur : l'ordre des
+    écritures rattacherait l'activité d'une table de santé à un salarié. Seules vaccinations et visas sont aujourd'hui
+    fermées à `matrix_lecture` par le socle ; demandes de visite, informations CP et reprises, comme `changements`
+    elle-même (déclarée sensible par le commentaire de 0014), ne le seront qu'une fois appliquée la demande à Matrix
+    (`docs/demandes/matrix-lot8-colonnes-sensibles.sql`, `docs/DEMANDES-LOT8-DONNEES.md`) : jusque-là, elles restent
+    lisibles par `matrix_lecture` sur un serveur monté avec le socle actuel, et le contrôle des colonnes sensibles de la
+    CI le signale sans bloquer (ci-dessus). PostgreSQL : déclencheurs par instruction `revision_lignes_i/u/d` (tables de transition, un
     `INSERT … SELECT` par table généré dans la boucle de 0014, sans `to_jsonb`) et `revision_lignes_t` (TRUNCATE), qui
     passent après le déclencheur `revision` de 0013 par l'ordre alphabétique de leurs noms. SQLite : déclencheurs par ligne,
     `PRAGMA recursive_triggers = ON` (ligne remplacée par `INSERT OR REPLACE` inscrite), base du lot 8 reprise à

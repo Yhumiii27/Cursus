@@ -283,10 +283,13 @@ const attentesDe = memo((attentes: AttenteSession[]) => avecPositions(attentes))
 /**
  * Nombre d'inscrits calculé sur toutes les données, avant la restriction au périmètre. Session d'une base ancienne ou
  * écrite sans plage : un seul jour (completerSession). Places proposées à la liste d'attente (lot 7, t120), comptées
- * sur toute la file.
+ * sur toute la file. Les jours d'une session sans jours enregistrés sont ses jours ouvrés (joursOuvres, isFerie) : ils
+ * dépendent du calendrier des fériés réglé, entrée de la mémoïsation comme les tables, et posé avant le calcul.
  */
-const sessionsDe = memo((sessions: Omit<Session, 'inscrits'>[], certs: Certification[], inscriptions: Inscription[], participations: Participation[], attentes: AttenteSession[]) =>
-  avecProposees(avecInscrits(sessions.map(completerSession), certs, inscriptions, participations), attentes));
+const sessionsDe = memo((sessions: Omit<Session, 'inscrits'>[], certs: Certification[], inscriptions: Inscription[], participations: Participation[], attentes: AttenteSession[], feries: CalendrierFeries) => {
+  configurerFeries(feries);
+  return avecProposees(avecInscrits(sessions.map(completerSession), certs, inscriptions, participations), attentes);
+});
 
 const budgetsDe = memo((lignes: Brut['budgets']) => {
   const budgets: Dataset['budgets'] = {};
@@ -334,7 +337,7 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     referentiels: referentielsDe(brut.formations, brut.habilitations, brut.destinations, brut.postes, brut.equipes, brut.horaires, brut.projets, brut.chantiers),
     annuaire: annuaireDe(employes),
     employes,
-    sessions: sessionsDe(brut.sessions, certs, brut.inscriptions, brut.participations, attentesSession),
+    sessions: sessionsDe(brut.sessions, certs, brut.inscriptions, brut.participations, attentesSession, calendrierFeries),
     inscriptions: brut.inscriptions,
     participations: brut.participations,
     plan: planDe(brut.planActions),
@@ -385,20 +388,16 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
   };
 }
 
-/** Tables lues par les absences et déplacements en attente du fichier de paie (`resumeAbsencesPaie`, `resumeDeplacementsPaie`). */
-export const DEP_PAIE: readonly TableName[] = ['lotsPaie', 'deplacementsPaie', 'rubriquesPaie', 'settings'];
-
 /**
- * Registre des dépendances : pour chaque champ de l'instantané complet (`loadFull`, hors `today`, `revision` et `user`),
- * les tables lues pour le remplir. Un champ ne change que si l'une de ses tables a changé (cache incrémental, étape 2).
- * `absencesPaie` et `deplacementsPaie` ne sont lus que pour un profil qui voit la paie.
+ * Dépendances des champs assemblés (`assembler`) : pour chacun, les tables lues pour le remplir, y compris par ses
+ * calculs (`sessions` : calendrier des fériés, réglage de la table `settings`).
  */
-export const LECTURES = {
+const LECTURES_ASSEMBLEES = {
   settings: ['settings'],
   referentiels: ['formations', 'habilitations', 'destinations', 'postes', 'equipes', 'horaires', 'projets', 'chantiers'],
   annuaire: ['employes'],
   employes: ['employes', 'certifications', 'habTitres', 'visas', 'vaccinations'],
-  sessions: ['sessions', 'certifications', 'inscriptions', 'participations', 'attentesSession'],
+  sessions: ['sessions', 'certifications', 'inscriptions', 'participations', 'attentesSession', 'settings'],
   inscriptions: ['inscriptions'],
   participations: ['participations'],
   plan: ['planActions'],
@@ -442,14 +441,41 @@ export const LECTURES = {
   attentesSession: ['attentesSession'],
   declarationsPasseport: ['declarationsPasseport'],
   evaluationsFormation: ['evaluationsFormation'],
-  absencesPaie: ['lotsPaie', 'rubriquesPaie', 'settings'],
+} as const satisfies Partial<Record<keyof Dataset, readonly TableName[]>>;
+
+/**
+ * Tables lues directement en base par les absences et déplacements en attente du fichier de paie (`resumeAbsencesPaie`,
+ * server/src/absences-paie.ts ; `resumeDeplacementsPaie`, server/src/deplacements-paie.ts) : contenu figé des lots,
+ * éléments émis, rubriques, départs réglés, dernier identifiant et nombre d'absences, nombre de voyages et de missions.
+ */
+const PAIE_EN_BASE: readonly TableName[] = ['lotsPaie', 'deplacementsPaie', 'rubriquesPaie', 'settings', 'absences', 'voyages', 'missions'];
+
+/**
+ * Tables dont dépendent les résumés de la paie. Ils calculent aussi sur le Dataset assemblé (`new Domain(ds)` : feuilles en
+ * attente par sagePending, absences et fiches par elementsAbsences, missions, chantiers, réglages, calendrier des fériés
+ * par isFerie…), ce qu'aucun espion sur la base ne voit : faute d'un relevé champ par champ, ils dépendent de toutes les
+ * tables de l'instantané assemblé, plus celles qu'ils lisent en base. Le report de la paie (étape 2) n'a donc lieu que
+ * si seules des tables hors de l'instantané ont changé.
+ */
+export const DEP_PAIE: readonly TableName[] = [...new Set<TableName>([...Object.values(LECTURES_ASSEMBLEES).flat(), ...PAIE_EN_BASE])];
+
+/**
+ * Registre des dépendances : pour chaque champ de l'instantané complet (`loadFull`, hors `today`, `revision` et `user`),
+ * les tables dont il dépend, lues pour le remplir ou par ses calculs. Un champ ne change que si l'une de ses tables a
+ * changé (cache incrémental, étape 2). `absencesPaie` et `deplacementsPaie` ne sont lus que pour un profil qui voit la
+ * paie.
+ */
+export const LECTURES = {
+  ...LECTURES_ASSEMBLEES,
+  absencesPaie: DEP_PAIE,
   deplacementsPaie: DEP_PAIE,
 } as const satisfies Partial<Record<keyof Dataset, readonly TableName[]>>;
 
 /**
- * Tables à révision que l'instantané ne lit jamais : file d'envoi (seul le statut des envois des relevés est lu),
- * notifications en attente du récapitulatif, verdicts transmis à Keystone, relances déjà faites, effacements au titre
+ * Tables à révision que l'instantané ne lit jamais : notifications en attente du récapitulatif, verdicts transmis à Keystone, relances déjà faites, effacements au titre
  * de la conservation (registre du service RH, lu à part). Leur écriture augmente la révision sans changer l'instantané.
+ * La file d'envoi (`envois`) n'en est pas : elle est lue, pour le seul statut des envois désignés par `releves.envoiId`
+ * (`LECTURES.releves`).
  */
 export const HORS_INSTANTANE: ReadonlySet<TableName> = new Set<TableName>(['notifications', 'verdictsKeystone', 'relances', 'effacements']);
 

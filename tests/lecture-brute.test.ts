@@ -5,7 +5,10 @@
 // - `LECTURES` décrit chaque champ de l'instantané complet, et rien d'autre ;
 // - `assembler` est pur : il ne modifie pas la lecture brute (gelée), rend le même Dataset que `loadFull`, et reprend
 //   par identité les dérivés dont aucune entrée n'a changé ;
-// - jointure des employés et de leurs titres : la même que le filtre par salarié d'avant.
+// - jointure des employés et de leurs titres : la même que le filtre par salarié d'avant ;
+// - les jours des sessions suivent le calendrier des fériés (réglage), entrée de leur mémoïsation ;
+// - les résumés de la paie dépendent de toutes les tables de l'instantané (ils calculent sur le Dataset) et de celles
+//   qu'ils lisent en base : `DEP_PAIE`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
@@ -14,7 +17,9 @@ const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { loadFull } = await import('../server/src/dataset.ts');
 const { snake, TABLES, TABLES_SANS_REVISION } = await import('../server/src/db.ts');
-const { assembler, HORS_INSTANTANE, LECTURES, lireBrut, TABLES_LUES } = await import('../server/src/lecture-brute.ts');
+const { assembler, DEP_PAIE, HORS_INSTANTANE, LECTURES, lireBrut, TABLES_LUES } = await import('../server/src/lecture-brute.ts');
+const { resumeAbsencesPaie } = await import('../server/src/absences-paie.ts');
+const { resumeDeplacementsPaie } = await import('../server/src/deplacements-paie.ts');
 const { geler } = await import('../server/src/cache-instantane.ts');
 type Db = Awaited<ReturnType<typeof nouvelleBase>>;
 type User = Parameters<typeof loadFull>[1];
@@ -141,4 +146,53 @@ test('jointure des employés et de leurs titres : la même que le filtre par sal
   }
   // Statut de l'e-mail du relevé, lu par identifiant d'envoi.
   assert.deepEqual(ds.releves.map(r => r.envoi), ['a_envoyer']);
+});
+
+test('jours des sessions : un changement du seul calendrier des fériés les recalcule, comme la relecture complète', async () => {
+  const db = await demo();
+  // Session de trois jours sans jours enregistrés : ses jours sont les jours ouvrés, 11 novembre férié exclu.
+  const formation = (await db.all<{ formation: string }>('sessions'))[0].formation;
+  await db.tx(async () => { await db.insert('sessions', { formation, date: '2027-11-10', fin: '2027-11-12', jours: [], horaires: [], lieu: 'Site', places: 8, statut: 'À confirmer', planId: null, bilan: null }); });
+  const joursDe = (ds: { sessions: { date: string; jours: string[] }[] }) => ds.sessions.find(s => s.date === '2027-11-10')?.jours;
+  const brut = geler(await db.lecture(async () => await lireBrut(db)));
+  const a = assembler(brut, '2026-10-10', 1, HSE);
+  assert.deepEqual(joursDe(a), ['2027-11-10', '2027-11-12']);
+  // Delta qui ne touche que le réglage du calendrier (table `settings` relue) : 11 novembre 2027 non chômé.
+  const calendrierFeries = { 2027: { solidarite: 'pentecote_chomee' as const, solidariteFerie: null, nonChomes: ['11_novembre' as const], le: '2026-10-09T08:00:00.000Z', par: 'RH' } };
+  const b = assembler({ ...brut, reglages: { ...brut.reglages, calendrierFeries } }, '2026-10-10', 2, HSE);
+  assert.notEqual(b.sessions, a.sessions, 'sessions recalculées');
+  assert.deepEqual(joursDe(b), ['2027-11-10', '2027-11-11', '2027-11-12']);
+  await db.tx(async () => { await db.setSetting('calendrierFeries', calendrierFeries); });
+  assert.deepStrictEqual(b.sessions, (await loadFull(db, HSE)).sessions, 'égales à la relecture complète');
+  // Retour au calendrier d'avant : dérivé d'avant repris, avec ses jours.
+  assert.equal(assembler(brut, '2026-10-10', 3, HSE).sessions, a.sessions);
+  assert.ok(LECTURES.sessions.includes('settings'));
+});
+
+test('résumés de la paie : toutes les tables de l’instantané et celles qu’ils lisent en base sont dans DEP_PAIE', async () => {
+  const db = await demo();
+  // Ils calculent sur le Dataset assemblé (new Domain(ds)) : chaque table d'un champ assemblé en fait partie.
+  for (const [c, t] of Object.entries(LECTURES)) for (const x of t) assert.ok(DEP_PAIE.includes(x), `${c} : ${x} hors de DEP_PAIE`);
+  assert.deepEqual(trie(LECTURES.absencesPaie), trie(DEP_PAIE));
+  assert.deepEqual(trie(LECTURES.deplacementsPaie), trie(DEP_PAIE));
+  // Lectures directes en base des résumés, espionnées à part de la lecture brute.
+  const ds = await loadFull(db, RH_ADMIN);
+  for (const resume of [resumeAbsencesPaie, resumeDeplacementsPaie]) {
+    const { tables, inconnues } = await tablesLues(db, async () => await db.lecture(async () => await resume(db, RH_ADMIN, ds)));
+    assert.ok(tables.size > 0, resume.name);
+    for (const t of tables) assert.ok(DEP_PAIE.includes(t), `${resume.name} lit ${t}, hors de DEP_PAIE`);
+    assert.deepEqual(trie(inconnues), []);
+  }
+});
+
+test('résumés de la paie : une absence validée change les absences en attente, et sa table est dans DEP_PAIE', async () => {
+  const db = await demo();
+  const avant = await loadFull(db, RH_ADMIN);
+  const modele = avant.absences.find(a => a.statut === 'validee' && a.lotId == null);
+  assert.ok(modele, 'absence validée hors lot dans le jeu de démonstration');
+  const { id: _id, ...a } = modele;
+  await db.tx(async () => { await db.insert('absences', { ...a, du: '2026-10-07', au: '2026-10-07', lotId: null, sage: false }); });
+  const apres = await loadFull(db, RH_ADMIN);
+  assert.notDeepStrictEqual(apres.absencesPaie, avant.absencesPaie, 'absences en attente du fichier de paie changées');
+  assert.ok(DEP_PAIE.includes('absences'));
 });

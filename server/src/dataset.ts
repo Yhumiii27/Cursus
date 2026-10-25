@@ -32,7 +32,7 @@ import { resumeDeplacementsPaie } from './deplacements-paie.ts';
 import { dossiersEchus } from './conservation.ts';
 import { jetonActif } from './agenda.ts';
 import { geler, gelEnTest, vuePartagee } from './cache-instantane.ts';
-import { assembler, type EmpRow, lireBrut, REGLAGES_DEFAUT, reglagesDe } from './lecture-brute.ts';
+import { assembler, type EmpRow, lireBrut, REGLAGES_DEFAUT, reglagesDe, retenirBrut } from './lecture-brute.ts';
 import { corpsAvecTete, filtreIndexe, type FiltrePerimetre, JsonBrut } from './vues-cache.ts';
 import type { AttenteSession } from '../../shared/types.ts';
 import { exercicesEvaluation, indicateursEvaluation, SEUIL_ANONYMAT } from '../../shared/rules/evaluation-formation.ts';
@@ -75,8 +75,13 @@ export async function loadFull(db: Db, user: CurrentUser): Promise<Dataset> {
  * server/src/deplacements-paie.ts) : lit la table des éléments émis.
  */
 async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
-  const ds = assembler(await lireBrut(db), todayIso(), db.revision, user);
-  return { ...ds, absencesPaie: await resumeAbsencesPaie(db, user, ds), deplacementsPaie: await resumeDeplacementsPaie(db, user, ds) };
+  const brut = await lireBrut(db);
+  // Lecture brute gelée de même sous node --test : un delta (server/src/delta.ts) ne la modifie jamais, il en fait une autre.
+  if (gelEnTest()) geler(brut);
+  const ds = assembler(brut, todayIso(), db.revision, user);
+  // Lecture brute retenue avec l'instantané (étape 2) : l'entrée du cache, le jeu d'une action et le suivi des verdicts
+  // en dérivent l'état suivant par le seul delta des lignes changées (server/src/cache-instantane.ts).
+  return retenirBrut({ ...ds, absencesPaie: await resumeAbsencesPaie(db, user, ds), deplacementsPaie: await resumeDeplacementsPaie(db, user, ds) }, brut);
 }
 
 /**

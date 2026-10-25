@@ -10,7 +10,7 @@ import { adminsActifs } from './comptes.ts';
 import { demoPublique, enProduction, hoteEcoute, portEcoute, verifierConfig } from './config.ts';
 import { todayIso } from './dataset.ts';
 import { dbFile, openDb, urlPostgres } from './db.ts';
-import { mettreAJourBase } from './demarrage.ts';
+import { mettreAJourBase, prechaufferCache } from './demarrage.ts';
 import { demarrerEnvois, envoiEnCours } from './envois.ts';
 import { controlerIntegrite } from './integrite.ts';
 import { demarrerJournal } from './journal.ts';
@@ -153,6 +153,10 @@ await appliquerAvenants(db, todayIso());
 const avenants = setInterval(async () => await appliquerAvenants(db, todayIso()), 3600_000);
 avenants.unref();
 arret.tache(() => clearInterval(avenants));
+
+// Cache de l'instantané préchauffé (lot 9) : entrée de la révision courante lue en tâche de fond, avant les premières
+// requêtes, qui la trouvent prête ou attendent cette lecture (server/src/demarrage.ts).
+void prechaufferCache(db, m => log.avertissement(m));
 
 // Routes, protections, compression, cache des fichiers et interface compilée : server/src/app.ts.
 // dist/ du projet, quel que soit le dossier de lancement (CURSUS_DIST la remplace : server/src/chemins.ts).

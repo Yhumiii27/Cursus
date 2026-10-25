@@ -119,15 +119,17 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
       if (actuel.session.role !== id.session.role) throw new ActionError(ESPACE_CHANGE, 409);
       const user = actuel.user;
       // Lecture partagée de l'instantané en cache si elle décrit l'état de la base vu ici (server/src/cache-instantane.ts).
-      const ctx = makeCtx(db, user, await donneesAction(db, user, todayIso(), async u => await loadFull(db, u)));
+      const depart = await donneesAction(db, user, todayIso(), async u => await loadFull(db, u));
+      const ctx = makeCtx(db, user, depart);
       const trace = await preparerTrace(db, name, p);
       const r = await handler(ctx, p);
       const o = signerDelegation(ctx, typeof r === 'object' && r !== null ? r : { message: r });
       // Journal signé du nom de la personne connectée et de son compte : champs de la liste blanche de l'action,
       // anciennes et nouvelles valeurs, salariés concernés (server/src/journal.ts) ; managers remplacés (t135).
       await journaliserAction(db, trace, { user, compte, message: o.message ?? null, result: o.result, parDelegation: [...ctx.parDelegation] });
-      // Verdicts transmis à Keystone : un changement est mis en file avec l'action, dans la même transaction.
-      if (changeVerdicts(name)) await suivreVerdicts(db);
+      // Verdicts transmis à Keystone : un changement est mis en file avec l'action, dans la même transaction ; jeu des
+      // verdicts dérivé du jeu de l'action et du delta de ses écritures (lot 9), sans relire toute la base.
+      if (changeVerdicts(name)) await suivreVerdicts(db, { depart });
       return o;
     });
     let out: { message?: string | null; result?: unknown };

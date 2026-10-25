@@ -24,6 +24,7 @@ import { relevesAutomatiques } from '../releves.ts';
 import { ActionError, type ActionHandler, type Ctx, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, refuserSoiMeme, str } from './context.ts';
 import { pushSageSimulation } from './paie.ts';
 import { controleForfaitJours } from '../forfait-jours.ts';
+import { positionCle } from '../delta.ts';
 
 /** Ligne INT-AST (t049) : ses heures viennent des interventions d'astreinte déclarées (server/src/actions/astreintes.ts). */
 const INTERVENTION_A_DECLARER = 'Les heures d’une intervention d’astreinte se déclarent avec ses heures de début et de fin (« Déclarer une intervention »), pas dans la grille';
@@ -213,10 +214,13 @@ function submitted(ctx: Ctx, p: Record<string, any>) {
 
 /**
  * Feuille `ligne`, telle qu'enregistrée, remplacée dans la lecture de la base du contexte (`ctx.ds`, puis un nouveau
- * `Domain` : ses calculs mémorisés partent avec l'ancien).
+ * `Domain` : ses calculs mémorisés partent avec l'ancien, et restent ainsi exacts). La feuille est trouvée par dichotomie
+ * sur l'identifiant (lot 9 : feuilles dans l'ordre de leur clé, comme les lit la base), au lieu de comparer chaque
+ * feuille ; absente à sa place (jeu dans un autre ordre), parcours complet comme avant.
  */
 export function remplacerFeuille(ctx: Ctx, ligne: FeuilleTemps) {
-  ctx.ds = { ...ctx.ds, feuilles: ctx.ds.feuilles.map(f => (f.id === ligne.id ? ligne : f)) };
+  const feuilles = ctx.ds.feuilles, i = positionCle(feuilles, 'id', ligne.id);
+  ctx.ds = { ...ctx.ds, feuilles: feuilles[i]?.id === ligne.id ? feuilles.with(i, ligne) : feuilles.map(f => (f.id === ligne.id ? ligne : f)) };
   ctx.d = new Domain(ctx.ds);
 }
 

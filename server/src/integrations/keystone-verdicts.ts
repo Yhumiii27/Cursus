@@ -8,15 +8,31 @@
 import { GNG_CODE } from '../../../shared/constants.ts';
 import { Domain } from '../../../shared/domain.ts';
 import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
-import type { CurrentUser } from '../../../shared/types.ts';
+import type { CurrentUser, Dataset } from '../../../shared/types.ts';
+import { jeuApres } from '../cache-instantane.ts';
 import { loadFull, todayIso } from '../dataset.ts';
 import type { Db } from '../db.ts';
 import { keystoneSortant, sendToKeystone, type CodeGng, type MotifKeystone } from './keystone.ts';
 
 interface VerdictTransmis { id: number; chantier: string; empId: number; statut: CodeGng; motifs: MotifKeystone[]; date: string }
 
-/** Lecture du périmètre complet, comme le service RH. */
-const SUIVI: CurrentUser = { role: 'rh', empId: null, nom: 'Cursus', intitule: 'Suivi des verdicts' };
+/**
+ * Lecture du périmètre complet, comme le service RH, sans les résumés de la paie (lot 9, chantier 2, étape 2 : profil
+ * référent HSE, qui voit tout le jeu sauf les absences et déplacements en attente du fichier de paie) : aucun calcul des
+ * verdicts ne les lit (evaluateChantiers, enrich, tripsAll), et leur calcul, refait à chaque action d'absence, tiendrait
+ * le verrou d'écriture pour rien.
+ */
+export const SUIVI: CurrentUser = { role: 'rh', empId: null, nom: 'Cursus', intitule: 'Suivi des verdicts', profilRh: 'referent_hse' };
+
+/**
+ * Jeu des verdicts : l'instantané complet de `SUIVI` à l'état de la transaction en cours. Après une action (`depart` : le
+ * jeu remis à l'action par `donneesAction`), lecture brute de départ plus le delta des écritures de l'action
+ * (`jeuApres`, server/src/cache-instantane.ts) ; sinon, ou si ce départ est inconnu, `loadFull` (tâche du jour, API
+ * Keystone, jeu de démonstration).
+ */
+export async function jeuDeSuivi(db: Db, depart?: Dataset): Promise<Dataset> {
+  return (depart && await jeuApres(db, depart, SUIVI)) || await loadFull(db, SUIVI);
+}
 
 /** Forme comparable d'un verdict : l'ordre des exigences du chantier n'est pas un changement. */
 const empreinte = (statut: string, motifs: MotifKeystone[]) => `${statut}|${motifs.map(m => `${m.code}:${m.niveau}`).sort().join(',')}`;
@@ -39,11 +55,13 @@ async function oublierVerdictsSimules(db: Db) {
 /**
  * Compare le verdict de chaque ressource des chantiers actifs, en cours ou à venir, au dernier verdict
  * transmis, et met en file un événement pour chacun qui a changé, premier verdict compris. `initial` :
- * mémorise sans rien envoyer (jeu de démonstration). Renvoie les verdicts signalés.
+ * mémorise sans rien envoyer (jeu de démonstration). `depart` : jeu remis à l'action qui vient d'écrire, dans la même
+ * transaction (POST /api/actions, server/src/app.ts) ; le jeu des verdicts en est dérivé (`jeuDeSuivi`). Renvoie les
+ * verdicts signalés.
  */
-export async function suivreVerdicts(db: Db, { initial = false } = {}): Promise<{ chantier: string; empId: number }[]> {
+export async function suivreVerdicts(db: Db, { initial = false, depart }: { initial?: boolean; depart?: Dataset } = {}): Promise<{ chantier: string; empId: number }[]> {
   await oublierVerdictsSimules(db);
-  const full = await loadFull(db, SUIVI);
+  const full = await jeuDeSuivi(db, depart);
   const d = new Domain(full);
   const transmis = new Map((await db.all<VerdictTransmis>('verdictsKeystone')).map(v => [`${v.chantier}|${v.empId}`, v]));
   const suivis = new Set<number>(), signales: { chantier: string; empId: number }[] = [];

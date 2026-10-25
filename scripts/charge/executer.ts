@@ -15,9 +15,19 @@
 //   S5 « exports » : CSV du journal (100 000 lignes), données personnelles (RH et intéressé), 50 flux d'agenda, sur fond de S1 ;
 //   S6 « tâches de fond » : conservation du journal (décalée de --decalage jours, 30 par défaut), relances, évaluations,
 //      tâches du quart d'heure, sur fond de S1.
+// --verifier-exactitude [k] (lot 9, chantier 4 ; scripts/charge/verifier.ts) : toutes les k actions validées (50 par
+// défaut), et à la fin de chaque scénario, les écritures de l'essai (actions, Keystone, tâches) sont retenues à une porte le
+// temps de comparer l'entrée du cache, la vue et le jeu d'action de 30 collaborateurs, 8 managers et de chaque profil RH à
+// la relecture complète ; invariant « 0 divergence » (scripts/charge/seuils.ts). La lecture directe de l'oracle ne coupe
+// pas le cache : les GET /api/data des utilisateurs simulés, qui ne passent pas la porte, restent servis par le cache
+// pendant une comparaison et sont mesurés comme les autres ; les écritures retenues à la porte comptent leur attente,
+// et la comparaison occupe le processus (CPU, mémoire d'une relecture complète), à lire avec les durées. Relevés du
+// cache : relectures complètes (lectures de toute la table des feuilles, sauf celles de la comparaison elle-même), taille de la table `changements` quand elle existe, et, quand le cache les expose
+// (`statistiquesCache` de server/src/cache-instantane.ts), durée du delta, vues reportées ou recalculées, replis.
 // Chaque scénario remet d'abord en place ce qu'il consomme : feuilles soumises de la fin de mois (S3), semaine en cours
 // en brouillon (S2), lot ouvert de la période annulé (S4). La conservation (S6) supprime, elle, des lignes du journal : le
 // jeu s'en trouve allégé pour les essais suivants (regénérer au besoin).
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
@@ -28,6 +38,7 @@ import {
   aleatoire, DOSSIER_CHARGE, entier, horodatage, type JeuCharge, lancer, lireArguments, lireJeu, RefusCharge, refuserServeurCommun, urlAdministration, urlBase,
 } from './commun.ts';
 import { juger, statistiques, type StatRoute, type StatSonde, type Verdict } from './seuils.ts';
+import type { BilanExactitude, Divergence } from './verifier.ts';
 
 const args = lireArguments();
 const jeu: JeuCharge = lireJeu(args.get('jeu') || undefined);
@@ -47,6 +58,8 @@ const { tachesEmails } = await import('../../server/src/notifications.ts');
 const { appliquerConservation } = await import('../../server/src/journal.ts');
 const { relancerEcheances } = await import('../../server/src/relances.ts');
 const { demanderEvaluations } = await import('../../server/src/evaluations-formation.ts');
+const { lecteursDe, Porte, verifierExactitude } = await import('./verifier.ts');
+const moduleCache = await import('../../server/src/cache-instantane.ts') as Record<string, unknown>;
 
 type Role = 'rh' | 'manager' | 'collaborateur';
 interface Utilisateur { nom: string; role: Role; compteId: number; empId: number | null; cookie: string }
@@ -66,6 +79,8 @@ async function executer(): Promise<void> {
   if (!(marge >= 1)) throw new RefusCharge('--marge : nombre au moins égal à 1');
   const lotGrand = args.has('lot') ? entier(args, 'lot', 200) : null;
   const decalage = entier(args, 'decalage', 30);
+  // Comparaison à la relecture complète toutes les `k` actions validées (option sans valeur : 50).
+  const exactitude = args.has('verifier-exactitude') ? (args.get('verifier-exactitude') ? entier(args, 'verifier-exactitude', 50) : 50) : null;
   const r = aleatoire(jeu.graine);
 
   const url = urlBase(urlAdministration(), jeu.base);
@@ -73,6 +88,17 @@ async function executer(): Promise<void> {
   await sonde.connect();
   await refuserServeurCommun(sonde);
   const db = await ouvrirPostgres(url, { schema: jeu.schema, env: process.env });
+  // Relectures complètes : toute lecture de la table des feuilles sans condition (`loadFull`, repli d'un cache
+  // incrémental), sauf celles de la comparaison de --verifier-exactitude elle-même, qui relit tout par construction
+  // (repérées par leur contexte asynchrone, `parOracle`) ; les lectures des utilisateurs simulés faites pendant une
+  // comparaison sont comptées.
+  const cache = { relectures: 0 };
+  const parOracle = new AsyncLocalStorage<true>();
+  const query = db.query.bind(db);
+  db.query = (async (sql: string, params?: readonly never[]) => {
+    if (!parOracle.getStore() && /^\s*SELECT \* FROM feuilles\s+ORDER BY/i.test(sql)) cache.relectures++;
+    return await query(sql, params);
+  }) as typeof db.query;
   const app = createApp(db, { journalRequetes: false, production: false });
   const serveur = app.listen(0, '127.0.0.1');
   await new Promise<void>((ok, ko) => { serveur.once('listening', () => ok()); serveur.once('error', ko); });
@@ -134,18 +160,51 @@ async function executer(): Promise<void> {
       return { statut: 0, corps: null, octets: 0 };
     }
   };
-  const action = async (u: Utilisateur, nom: string, p: unknown, libelle = `POST ${nom}`) => await appel(u, libelle, `/api/actions/${nom}`, { method: 'POST', body: p });
+  // — Exactitude : porte des écritures de l'essai, comparaisons toutes les `exactitude` actions validées —
+  const porte = new Porte();
+  const bilans: BilanExactitude[] = [];
+  let lecteurs: Awaited<ReturnType<typeof lecteursDe>> = [];
+  if (exactitude) {
+    const collab = new Set(jeu.collaborateurs.slice(0, 30).map(c => c.compteId)), mgr = new Set(jeu.managers.map(m => m.compteId));
+    lecteurs = await lecteursDe(db, (c, espace) => (espace === 'collaborateur' && collab.has(c.id)) || (espace === 'manager' && mgr.has(c.id)));
+  }
+  let validees = 0;
+  let comparaison: Promise<void> | null = null;
+  /** Comparaison porte fermée : les écritures en cours finissent, les suivantes attendent la fin de la comparaison. */
+  // Comparaison levée (lecture refusée, délai dépassé) : un état non vérifié, compté dans `interrompues` et jugé par
+  // l'invariant (scripts/charge/seuils.ts), pas seulement rangé dans les erreurs.
+  let interrompues = 0;
+  const comparer = async () => {
+    await porte.fermer();
+    try {
+      bilans.push(await parOracle.run(true, async () => await verifierExactitude(db, lecteurs)));
+    } catch (err) {
+      interrompues++;
+      erreurs.push(`comparaison à la relecture complète → ${err instanceof Error ? err.message : err}`);
+    } finally {
+      porte.ouvrir();
+    }
+  };
+  /** Écriture de l'essai : passe la porte quand --verifier-exactitude est demandé. */
+  const ecriture = async <T>(fn: () => Promise<T>): Promise<T> => (exactitude ? await porte.passer(fn) : await fn());
+  const action = async (u: Utilisateur, nom: string, p: unknown, libelle = `POST ${nom}`) => {
+    const res = await ecriture(async () => await appel(u, libelle, `/api/actions/${nom}`, { method: 'POST', body: p }));
+    if (exactitude && res.statut === 200 && ++validees % exactitude === 0 && !comparaison) {
+      comparaison = comparer().finally(() => { comparaison = null; });
+    }
+    return res;
+  };
   const donnees = async (u: Utilisateur) => await appel(u, `GET /api/data (${u.role})`, '/api/data');
   const pause = (ms: number) => new Promise(ok => setTimeout(ok, ms));
   const reflexion = (min = 2000, max = 10_000) => pause(r.entre(min, max));
   /** Traitement en cours de ce processus (tâches de fond), chronométré comme une route. */
-  const tache = async (nom: string, fn: () => Promise<unknown>) => {
+  const tache = async (nom: string, fn: () => Promise<unknown>) => await ecriture(async () => {
     const t = performance.now();
     try { await fn(); noter(nom, performance.now() - t, 200); } catch (err) {
       noter(nom, performance.now() - t, 500);
       erreurs.push(`${nom} → ${err instanceof Error ? err.message : err}`);
     }
-  };
+  });
 
   // — Sonde : santé, verrou d'écriture sur le serveur, pool, mémoire —
   const sante: Mesures = { durees: [], e4xx: 0, e5xx: 0, e503: 0, delais: 0 };
@@ -243,6 +302,14 @@ async function executer(): Promise<void> {
     ...collaborateurs.slice(0, nCollab).map(lecteur), ...(autres ? [...managers.slice(0, 6), ...rhs].map(lecteur) : []),
   ];
   const scenariosFaits: Record<string, string> = {};
+  /** Relevés du cache à la fin de chaque scénario (cumulés depuis le début de l'essai). */
+  const releves: Record<string, { relectures: number; changements: number | null }> = {};
+  /** Lignes de la table `changements` (journal des changements, lot 9), null tant qu'elle n'existe pas. */
+  const tailleChangements = async (): Promise<number | null> => {
+    const { rows: [t] } = await sonde.query<{ ok: boolean }>('SELECT to_regclass($1) IS NOT NULL AS ok', [`${jeu.schema}.changements`]);
+    if (!t.ok) return null;
+    return Number((await sonde.query<{ n: string }>(`SELECT COUNT(*) AS n FROM ${jeu.schema}.changements`)).rows[0].n);
+  };
 
   for (const s of scenarios as Scenario[]) {
     console.log(`  ${s} « ${LIBELLES[s]} »…`);
@@ -276,7 +343,7 @@ async function executer(): Promise<void> {
       // Keystone : un appel par minute (verdict Go / No Go d'un chantier, qui lit toute la base).
       taches.push((async () => {
         while (actif()) {
-          await appel(null, 'GET Keystone /v1/chantiers/{id}/go-no-go', `/api/integrations/keystone/v1/chantiers/${jeu.chantier}/go-no-go`, { headers: { 'x-api-key': process.env.KEYSTONE_API_KEY! } });
+          await ecriture(async () => await appel(null, 'GET Keystone /v1/chantiers/{id}/go-no-go', `/api/integrations/keystone/v1/chantiers/${jeu.chantier}/go-no-go`, { headers: { 'x-api-key': process.env.KEYSTONE_API_KEY! } }));
           await pause(60_000);
         }
       })());
@@ -338,9 +405,18 @@ async function executer(): Promise<void> {
     }
     await Promise.all(taches);
     console.log(`    terminé en ${((performance.now() - t0) / 1000).toFixed(0)} s`);
+    // Comparaison de l'état final du scénario (après celle en cours, s'il y en a une).
+    if (exactitude) {
+      while (comparaison) await comparaison;
+      await comparer();
+      console.log(`    exactitude : ${bilans.length} comparaison(s) d'état, ${bilans.reduce((n, x) => n + x.divergences.length, 0)} divergence(s)${interrompues ? `, ${interrompues} interrompue(s)` : ''}`);
+    }
+    releves[s] = { relectures: cache.relectures, changements: await tailleChangements() };
   }
 
   clearInterval(minuteur);
+  // Statistiques exposées par le cache incrémental (lot 9, étape 2), absentes du cache par révision ; lues base ouverte.
+  const statsCache = typeof moduleCache.statistiquesCache === 'function' ? await (moduleCache.statistiquesCache as (db: unknown) => unknown)(db) : null;
   await pause(600);
   serveur.close();
   serveur.closeAllConnections();
@@ -351,10 +427,17 @@ async function executer(): Promise<void> {
   const routes: Record<string, StatRoute> = {};
   for (const [nom, m] of [...mesures].sort((a, b) => a[0].localeCompare(b[0]))) routes[nom] = statistiques(m.durees, m);
   const stats: StatSonde = { sante: statistiques(sante.durees, sante), ...etat };
-  const verdicts: Verdict[] = juger(routes, stats, { marge, sans503: scenarios.every(s => ['S1', 'S2', 'S3'].includes(s)) });
+  const divergences: Divergence[] = bilans.flatMap(b => b.divergences);
+  const exact = exactitude ? {
+    k: exactitude, etats: bilans.length, echecs: interrompues, comparaisons: bilans.reduce((n, b) => n + b.comparaisons, 0), triviales: bilans.reduce((n, b) => n + b.triviales, 0),
+    refaites: bilans.reduce((n, b) => n + b.refaites, 0),
+    divergences: divergences.length, dureeMs: Math.round(bilans.reduce((n, b) => n + b.dureeMs, 0)), detail: divergences.slice(0, 20),
+  } : null;
+  const verdicts: Verdict[] = juger(routes, stats, { marge, sans503: scenarios.every(s => ['S1', 'S2', 'S3'].includes(s)), exactitude: exact ?? undefined });
   const rapport = {
     date: new Date().toISOString(), jeu: { schema: jeu.schema, ans: jeu.ans, volumes: jeu.volumes }, scenarios, dureeS: duree / 1000, marge,
     routes, sonde: stats, verdicts, resultats: scenariosFaits, erreurs: erreurs.slice(0, 100), chronologie,
+    exactitude: exact, cache: { releves, statistiques: statsCache },
   };
   mkdirSync(dossier, { recursive: true, mode: 0o700 });
   writeFileSync(join(dossier, 'rapport.json'), JSON.stringify(rapport, null, 2));
@@ -372,6 +455,15 @@ async function executer(): Promise<void> {
     `- verrou d’écriture : attente au plus ${ms(stats.attenteVerrouMax)} (file des écritures de l’instance : ${ms(stats.attenteFileMax)} au plus ; ${stats.attentesMax} sessions en attente sur le serveur au plus), tenue au plus ${ms(stats.tenueVerrouMax)}`,
     `- pool : ${stats.poolAttenteMax} appels en attente d’une connexion au plus, attente continue au plus ${ms(stats.attentePoolMax)} ; lectures stables en attente d’une place au plus : ${stats.lecturesAttenteMax} ; écritures de l’instance en attente de leur tour au plus : ${stats.ecrituresAttenteMax}`,
     `- mémoire : RSS au plus ${Math.round(stats.rssMax / 1048576)} Mo, tas ${Math.round(stats.tasMax / 1048576)} Mo`, '',
+    '## Cache de l’instantané', '',
+    ...Object.entries(releves).map(([sc, v]) => `- après ${sc} : ${v.relectures} relecture${v.relectures > 1 ? 's' : ''} complète${v.relectures > 1 ? 's' : ''} (toute la table des feuilles, hors lectures de l’oracle) depuis le début ; `
+      + (v.changements === null ? 'table `changements` absente' : `${v.changements} lignes dans \`changements\``)),
+    `- durée du delta, vues reportées ou recalculées, replis : ${statsCache ? JSON.stringify(statsCache) : 'non exposés par ce cache (`statistiquesCache`, cache incrémental du lot 9)'}`, '',
+    ...(exact ? ['## Exactitude (--verifier-exactitude)', '',
+      `- ${exact.etats} état${exact.etats > 1 ? 's' : ''} comparé${exact.etats > 1 ? 's' : ''} (toutes les ${exact.k} actions validées et à la fin de chaque scénario), ${exact.comparaisons} comparaisons `
+        + `(${lecteurs.length} lecteurs : vues, entrée, jeux d'action ; ${exact.triviales} triviale${exact.triviales > 1 ? 's' : ''} à part), ${exact.refaites} refaite${exact.refaites > 1 ? 's' : ''} ; ${(exact.dureeMs / 1000).toFixed(1)} s de comparaison, écritures retenues pendant ce temps (lectures servies par le cache)`,
+      `- comparaisons d’état interrompues par une erreur : ${exact.echecs}`,
+      `- divergences : ${exact.divergences}`, ...exact.detail.map(d => `  - ${d.objet} ${d.cle} (révision ${d.revision}) : ${d.ecart}`), ''] : []),
     ...(Object.keys(scenariosFaits).length ? ['## Traitements', '', ...Object.entries(scenariosFaits).map(([k, v]) => `- ${k} : ${v}`), ''] : []),
     ...(erreurs.length ? ['## Erreurs (100 premières)', '', ...erreurs.slice(0, 100).map(e => `- ${e}`), ''] : []),
   ].join('\n');

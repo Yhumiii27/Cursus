@@ -264,8 +264,8 @@ const avecFinCarriere = (d: Domain, x: Entretien): Entretien => {
  * chaque requête : les dossiers échus de la conservation (administrateur RH, comptés aussi sur le journal) et
  * l'abonnement à l'agenda de la personne.
  */
-export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset> {
-  const { vue, tete } = await partiesInstantane(db, user);
+export async function buildSnapshot(db: Db, user: CurrentUser, { cache = true }: { cache?: boolean } = {}): Promise<Dataset> {
+  const { vue, tete } = await partiesInstantane(db, user, { cache });
   return { ...vue, ...tete };
 }
 
@@ -293,9 +293,11 @@ export function corpsDe({ vue, cle, tete }: PartiesInstantane): JsonBrut {
 }
 
 /** Parties de l'instantané de `user` (`PartiesInstantane`), lues dans la lecture stable de l'appelant. */
-export async function partiesInstantane(db: Db, user: CurrentUser): Promise<PartiesInstantane> {
+export async function partiesInstantane(db: Db, user: CurrentUser, { cache = true }: { cache?: boolean } = {}): Promise<PartiesInstantane> {
   const revision = db.revision;
-  const partagee = await vuePartagee(db, user, todayIso(), revision, async lecteur => await loadFull(db, lecteur), full => vueDe(full, user));
+  // `cache: false` : lecture directe pour cette seule requête (oracle d'exactitude, scripts/charge/verifier.ts), sans
+  // toucher CURSUS_CACHE_INSTANTANE, que les autres requêtes du processus continuent de lire.
+  const partagee = !cache ? null : await vuePartagee(db, user, todayIso(), revision, async lecteur => await loadFull(db, lecteur), full => vueDe(full, user));
   const vue = partagee?.vue ?? vueDe(await loadFull(db, user), user);
   // Vue partagée : utilisateur et révision de cette requête (ceux du premier calcul sinon).
   const tete: Partial<Dataset> = partagee ? { user, revision } : {};

@@ -142,7 +142,7 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 | `CURSUS_DEMO=1 npm run reset-demo -- --yes` | Recharge les données de démonstration : efface la base après l'avoir copiée. Refusé hors démonstration, avec `NODE_ENV=production` (sauf l'application de bureau) et si un serveur utilise la base (`--force` pour passer outre) ; sans `--yes`, le mot `EFFACER` est demandé dans un terminal |
 | `npm run audit` | Failles connues des dépendances de production (`npm audit`), en échec à partir de la gravité « high » |
 | `npm run mesure` | Taille de l'instantané et durée des actions sur une base temporaire de 100 salariés et 3 ans (`npm run mesure -- 200` : autre effectif) |
-| `npm run charge:generer -- --ans 5` puis `npm run charge -- --scenario S3 --duree 120` | Essai de charge sur PostgreSQL (`CURSUS_TEST_DATABASE_URL` : serveur de test, jamais le serveur commun) : jeu réaliste de 5 ans dans un schéma jetable, scénarios simultanés S1 à S6, rapport et seuils dans `data/charge/rapports/` (`docs/ARCHITECTURE.md`, « Performances ») ; `-- --supprimer` retire les schémas de l'essai |
+| `npm run charge:generer -- --ans 5` puis `npm run charge -- --scenario S3 --duree 120` | Essai de charge sur PostgreSQL (`CURSUS_TEST_DATABASE_URL` : serveur de test, jamais le serveur commun) : jeu réaliste de 5 ans dans un schéma jetable, scénarios simultanés S1 à S6, rapport et seuils dans `data/charge/rapports/` (`docs/ARCHITECTURE.md`, « Performances ») ; `-- --supprimer` retire les schémas de l'essai ; `--verifier-exactitude [k]` compare en plus, toutes les k actions validées, le cache à la relecture complète (invariant « 0 divergence ») |
 | `npm run backup` | Copie à chaud vérifiée de la base dans `data/backups`, avec rotation |
 | `npm run restore -- <fichier>` | Remplace la base par une sauvegarde (serveur arrêté) |
 | `DATABASE_URL=… npm run reprise-postgres -- [<base SQLite>] [--a-blanc]` | Reprise d'une base SQLite sur le serveur PostgreSQL commun, une fois, service arrêté ; `--a-blanc` : contrôles et compte rendu sans rien écrire (`docs/DEPLOIEMENT.md`) |
@@ -284,6 +284,13 @@ trois cas construits sur les règles légales et les réglages par défaut y son
 qu'une fois anonymisé (identité fictive, dates décalées, aucune nature d'absence médicale) ; celui qui garde une donnée
 de santé reste hors du dépôt et se rejoue par `CURSUS_CAS_PAIE=/chemin/absolu npm test`. Format et anonymisation :
 `tests/cas-paie/LISEZMOI.md`.
+
+Oracle d'exactitude du cache (lot 9) : `tests/oracle-cache.test.ts` rejoue une suite d'écritures aléatoire et
+reproductible (actions par des comptes tirés au hasard, SQL direct) sur la démonstration et sur le jeu de charge d'un an,
+et compare après chaque pas ce que sert le cache de l'instantané (vues de chaque compte et profil, jeu des actions) à la
+relecture complète ; `tests/regles-incrementales.test.ts` fait de même pour les règles de paie et de congés de chaque
+salarié. `CURSUS_ORACLE_GRAINES=1,2,3`, `CURSUS_ORACLE_PAS=300` ou `CURSUS_ORACLE_COMPLET=1` (passage long) allongent
+la suite (`docs/ARCHITECTURE.md`, « Oracle d'exactitude »).
 
 ## Ce qui reste simulé
 

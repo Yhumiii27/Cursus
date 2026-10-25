@@ -16,6 +16,9 @@ INSERT INTO droits.colonnes_sensibles (schema_nom, table_nom, colonne_nom, motif
   -- Santé au travail et absences (art. 9 du RGPD).
   ('cursus', 'demandes_visite', '*', 'Santé : demandes de visite médicale, dont les visites de reprise (table entière)', 'convention'),
   ('cursus', 'informations_cp', '*', 'Santé : informations sur les congés au retour d''un arrêt (table entière)', 'convention'),
+  -- Journal des lignes changées par révision (lot 9, migration 0014) : l'ordre des écritures rattache à un salarié
+  -- l'activité des tables fermées ci-dessus (vaccination, visite, retour d'arrêt).
+  ('cursus', 'changements', '*', 'Santé (activité) : journal des lignes changées par révision (table entière)', 'convention'),
   ('cursus', 'absences', 'type', 'Santé : nature de l''absence (maladie, accident du travail…)', 'convention'),
   ('cursus', 'absences', 'justificatif', 'Santé : justificatif d''absence reçu', 'convention'),
   ('cursus', 'employes', 'expose', 'Santé : exposition à des risques particuliers (suivi médical)', 'convention'),

@@ -497,6 +497,46 @@ function fromDb(t: ColType, v: unknown, jsonDecode: boolean): unknown {
   return v;
 }
 
+/** Colonne d'une table telle que la décode `Db.decode` : nom dans le code, nom dans la base, type. */
+type ColonneDecodee = readonly [colonne: string, nomSql: string, type: ColType];
+const DECODEURS = new WeakMap<TableDef, readonly ColonneDecodee[]>();
+/**
+ * Décodeur préparé d'une table (lot 9, chantier 1) : la liste [colonne, nom snake_case, type] est calculée une fois par
+ * définition de table, au lieu d'Object.entries et de la conversion en snake_case de chaque colonne à chaque ligne lue
+ * (28 000 feuilles de vingt colonnes à chaque lecture complète). Rangée par objet de définition : une table de TABLES
+ * redéfinie (essais) reçoit son propre décodeur.
+ */
+function decodeur(def: TableDef): readonly ColonneDecodee[] {
+  let cols = DECODEURS.get(def);
+  if (!cols) DECODEURS.set(def, cols = Object.entries(def.cols).map(([c, t]) => [c, snake(c), t] as const));
+  return cols;
+}
+
+/** Nom de code d'une table d'après son nom dans la base (`feuilles`, `contrats_historique` → `contratsHistorique`). */
+const TABLE_DE_SQL: ReadonlyMap<string, TableName> = new Map((Object.keys(TABLES) as TableName[]).map(t => [snake(t), t]));
+
+/**
+ * Au-delà de ce nombre de lignes d'une même table entre deux révisions (ou dans une seule instruction sur PostgreSQL,
+ * marqueur écrit par le déclencheur : migration 0014_changements), la table est à relire en entier (`'tout'`) : une
+ * relecture par paquets de clés coûterait plus qu'une lecture complète.
+ */
+export const SEUIL_CHANGEMENTS = 1000;
+/** Clés par requête de `Db.lireLignes` (paramètres d'une clause IN). */
+export const PAQUET_LIGNES = 500;
+
+/**
+ * État de la révision de la base (lot 9, chantier 1) : `n`, la révision (`Db.revisionBase`) ; `epoque`, changée quand
+ * la base est remplacée (un écart entre deux époques est inconnu) ; `purge`, plus haute révision dont les changements ont
+ * été effacés du journal (`changements`) : un écart qui part d'en deçà est inconnu.
+ */
+export interface EtatRevision { n: number; epoque: number; purge: number }
+/**
+ * Lignes changées entre deux révisions, par table : clés primaires (en texte, comme dans le journal `changements`), ou
+ * `'tout'` quand la table entière est à relire (TRUNCATE, remise à zéro, plus de `SEUIL_CHANGEMENTS` lignes). Une table
+ * absente n'a pas changé.
+ */
+export type Changements = Map<TableName, Set<string> | 'tout'>;
+
 /**
  * Valeur d'une colonne JSON lue par une requête brute : texte à décoder en SQLite, valeur déjà décodée par le pilote de
  * PostgreSQL (colonnes `json`). Les deux moteurs rendent ainsi la même valeur, sauf pour une colonne dont la valeur
@@ -513,9 +553,21 @@ export function jsonLu(v: unknown): unknown {
  * l'instantané en cache (`lireTout` de server/src/dataset.ts) : les comptes et l'abonnement à l'agenda sont relus à
  * chaque requête (identité, `buildSnapshot`). Toute autre table de TABLES augmente la révision de la base à chaque
  * écriture (table `revision` : `SqliteDb.poserRevision`, migration PostgreSQL 0013_index_journal), clé du cache de
- * l'instantané (server/src/cache-instantane.ts). Une table ajoutée ici ne doit jamais être lue par `lireTout`.
+ * l'instantané (server/src/cache-instantane.ts), et inscrit les clés de ses lignes changées au journal des changements
+ * (table `changements`, lot 9, chantier 1 : migration PostgreSQL 0014_changements). Une table ajoutée ici ne doit jamais
+ * être lue par `lireTout`.
  */
 export const TABLES_SANS_REVISION: ReadonlySet<TableName> = new Set<TableName>(['journal', 'connexions', 'comptes', 'jetonsAgenda']);
+
+/**
+ * Tables dont le journal des changements n'inscrit jamais les clés, seulement le marqueur « toute la table » (lot 9,
+ * chantier 1, migration PostgreSQL 0014_changements, même liste) : celles que Matrix ne lit pas du tout (colonne `*` de
+ * droits.colonnes_sensibles : `vaccinations`, `visas` dans le socle ; `demandes_visite`, `informations_cp`, `reprises`
+ * dans la demande du lot 8), parce que l'existence même d'une de leurs lignes est sensible. Leurs clés, rapprochées dans
+ * l'ordre des écritures des lignes lisibles du même salarié, la désigneraient. Petites tables : le cache les relit en
+ * entier dès qu'elles changent.
+ */
+export const TABLES_CHANGEMENTS_SANS_CLE: ReadonlySet<TableName> = new Set<TableName>(['vaccinations', 'visas', 'demandesVisite', 'informationsCp', 'reprises']);
 
 /** Valeur passée en paramètre d'une requête SQL brute (`query`, `one`, `run`). */
 export type SqlValeur = string | number | bigint | boolean | null | Uint8Array;
@@ -644,9 +696,63 @@ export abstract class Db {
   protected versBase(t: ColType, v: unknown): SqlValeur { return toDb(t, v); }
 
   protected decode<T>(table: TableName, r: Row): T {
-    const def = this.def(table), o: Row = {}, texte = this.moteur === 'sqlite';
-    for (const [c, t] of Object.entries(def.cols)) o[c] = fromDb(t, r[snake(c)], texte);
+    const o: Row = {}, texte = this.moteur === 'sqlite';
+    for (const [c, s, t] of decodeur(this.def(table))) o[c] = fromDb(t, r[s], texte);
     return o as T;
+  }
+
+  // — Journal des changements (lot 9, chantier 1 : table `changements`, déclencheurs de la migration PostgreSQL
+  //   0014_changements et de `SqliteDb.poserRevision`) : contrat de la relecture partielle du cache de l'instantané.
+  //   À lire dans une même lecture stable (ou sous le verrou d'écriture) que les données qu'on y rapporte. —
+
+  /** Révision, époque et purge de la base, lues ensemble (`EtatRevision`). */
+  async etatRevision(): Promise<EtatRevision> {
+    const r = await this.one<{ n: number; epoque: number; purge: number }>('SELECT n, epoque, purge FROM revision');
+    return { n: Number(r?.n ?? 0), epoque: Number(r?.epoque ?? 0), purge: Number(r?.purge ?? 0) };
+  }
+
+  /**
+   * Lignes changées par les révisions `de` (exclue) à `a` (comprise), par table (`Changements`), ou null quand l'écart
+   * est inconnu : `de` en deçà de la purge, époque différente de `epoque` (si elle est donnée), écart à rebours ou au-delà
+   * de la révision de la base. L'appelant relit alors tout. Une révision sans ligne changée (instruction qui ne touche
+   * aucune ligne) n'apporte rien.
+   */
+  async lireChangements(de: number, a: number, epoque?: number): Promise<Changements | null> {
+    const etat = await this.etatRevision();
+    if (de < etat.purge || de > a || a > etat.n || (epoque !== undefined && epoque !== etat.epoque)) return null;
+    const out: Changements = new Map();
+    if (de === a) return out;
+    for (const { tbl, pk } of await this.query<{ tbl: string; pk: string | null }>('SELECT tbl, pk FROM changements WHERE n > ? AND n <= ?', [de, a])) {
+      // Table que le code ne connaît pas (ajoutée par une version plus récente) : jamais lue par celle-ci.
+      const table = TABLE_DE_SQL.get(tbl);
+      if (!table) continue;
+      const deja = out.get(table);
+      if (deja === 'tout') continue;
+      if (pk === null) { out.set(table, 'tout'); continue; }
+      const cles = deja ?? new Set<string>();
+      cles.add(String(pk));
+      out.set(table, cles.size > SEUIL_CHANGEMENTS ? 'tout' : cles);
+    }
+    return out;
+  }
+
+  /**
+   * Lignes de `table` dont la clé primaire est dans `pks` (clés en texte, comme les rend `lireChangements`), décodées
+   * comme par `all`, par paquets de `PAQUET_LIGNES` clés ; triées par clé (ordre global pour une clé entière, dans chaque
+   * paquet pour une clé texte). Une clé disparue (ligne supprimée) ne rend rien.
+   */
+  async lireLignes<T>(table: TableName, pks: Iterable<string>): Promise<T[]> {
+    const def = this.def(table), type = def.cols[def.pk], entiere = type === 'int' || type === 'real';
+    const cles = [...new Set(pks)];
+    if (entiere) cles.sort((x, y) => Number(x) - Number(y)); else cles.sort();
+    const out: T[] = [];
+    for (let i = 0; i < cles.length; i += PAQUET_LIGNES) {
+      const paquet = cles.slice(i, i + PAQUET_LIGNES);
+      const lignes = await this.query(`SELECT * FROM ${snake(table)} WHERE ${snake(def.pk)} IN (${paquet.map(() => '?').join(', ')}) ORDER BY ${snake(def.pk)}`,
+        paquet.map(k => this.versBase(type, k)));
+      for (const r of lignes) out.push(this.decode<T>(table, r));
+    }
+    return out;
   }
 
   async all<T>(table: TableName, orderBy?: string): Promise<T[]> {
@@ -795,6 +901,10 @@ export class SqliteDb extends Db {
     this.sql = new DatabaseSync(file);
     // Base occupée par une autre connexion (npm run comptes, sauvegarde) : attente jusqu'à 5 s plutôt qu'un échec immédiat.
     this.sql.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+    // Journal des changements (lot 9, chantier 1) : une ligne remplacée par INSERT OR REPLACE (SQL direct) passe par les
+    // déclencheurs de suppression, comme une suppression ordinaire. Réglage propre à la connexion : une autre (client
+    // sqlite3, outil hors de Cursus) qui ne le pose pas n'inscrit pas la ligne remplacée (voir `poserRevision`).
+    this.sql.exec('PRAGMA recursive_triggers = ON');
     const tables = this.tablesSql();
     this.neuve = !Object.keys(TABLES).some(n => tables.has(snake(n)));
     // Schéma créé à l'ouverture, avant toute requête : rien d'autre ne peut encore utiliser la connexion.
@@ -808,19 +918,50 @@ export class SqliteDb extends Db {
    * (npm run comptes) ou une écriture SQL directe. Posés à l'ouverture, puis de nouveau après les migrations nommées
    * (server/src/demarrage.ts), qui peuvent reconstruire une table et ses déclencheurs avec elle ; une table ajoutée à
    * TABLES reçoit ainsi les siens sans migration. Hors de TABLES, comme la table des migrations nommées.
+   * Limite du SQL direct hors de Cursus (SQLite seulement) : une ligne supprimée par INSERT OR REPLACE parce qu'elle
+   * entre en conflit avec la nouvelle sur une unicité ne passe par les déclencheurs de suppression qu'avec
+   * `PRAGMA recursive_triggers = ON`, réglage de la connexion que Cursus pose sur les siennes. Une écriture à la main
+   * (client sqlite3) se fait donc sans INSERT OR REPLACE, ou après ce PRAGMA ; sinon seule la nouvelle clé est inscrite
+   * et le cache garderait l'ancienne ligne jusqu'à sa prochaine relecture complète (redémarrage).
    */
   poserRevision(): void {
-    const sql = ['CREATE TABLE IF NOT EXISTS revision (cle INTEGER PRIMARY KEY CHECK (cle = 1), n INTEGER NOT NULL)', 'INSERT OR IGNORE INTO revision (cle, n) VALUES (1, 0)'];
+    // Journal des changements (lot 9, chantier 1, comme la migration PostgreSQL 0014_changements) : purge et époque de la
+    // révision (`EtatRevision`), ajoutées à la table d'une base du lot 8, et table `changements` (révision, table, clé ;
+    // clé NULL : toute la table). L'époque part de l'heure de création de la table, ou de son passage à cette version.
+    const colonnes = new Set((this.sql.prepare('PRAGMA table_info(revision)').all() as { name: string }[]).map(c => c.name));
+    const existants = new Map((this.sql.prepare(`SELECT name, sql FROM sqlite_master WHERE type = 'trigger'`).all() as { name: string; sql: string }[]).map(d => [d.name, d.sql]));
+    const sql = ['SAVEPOINT poser_revision',
+      'CREATE TABLE IF NOT EXISTS revision (cle INTEGER PRIMARY KEY CHECK (cle = 1), n INTEGER NOT NULL, purge INTEGER NOT NULL DEFAULT 0, epoque INTEGER NOT NULL DEFAULT 0)'];
+    for (const c of ['purge', 'epoque']) if (colonnes.size && !colonnes.has(c)) sql.push(`ALTER TABLE revision ADD COLUMN ${c} INTEGER NOT NULL DEFAULT 0`);
+    sql.push('INSERT OR IGNORE INTO revision (cle, n) VALUES (1, 0)', `UPDATE revision SET epoque = ${Date.now()} WHERE epoque = 0`,
+      'CREATE TABLE IF NOT EXISTS changements (n INTEGER NOT NULL, tbl TEXT NOT NULL, pk TEXT)', 'CREATE INDEX IF NOT EXISTS changements_n ON changements (n)');
     for (const name of Object.keys(TABLES) as TableName[]) {
+      const t = snake(name), pk = snake(this.def(name).pk);
+      // Déclencheurs de l'étape précédente (lot 8 : révision seule) retirés, remplacés par `revision2_*`.
+      for (const suffixe of ['i', 'u', 'd']) sql.push(`DROP TRIGGER IF EXISTS revision_${t}_${suffixe}`);
       // Table exclue : déclencheurs retirés s'ils avaient été posés (base d'essai d'une version antérieure de l'étape).
       if (TABLES_SANS_REVISION.has(name)) {
-        for (const suffixe of ['i', 'u', 'd']) sql.push(`DROP TRIGGER IF EXISTS revision_${snake(name)}_${suffixe}`);
+        for (const suffixe of ['i', 'u', 'd']) sql.push(`DROP TRIGGER IF EXISTS revision2_${t}_${suffixe}`);
         continue;
       }
-      for (const [suffixe, evenement] of [['i', 'INSERT'], ['u', 'UPDATE'], ['d', 'DELETE']]) {
-        sql.push(`CREATE TRIGGER IF NOT EXISTS revision_${snake(name)}_${suffixe} AFTER ${evenement} ON ${snake(name)} BEGIN UPDATE revision SET n = n + 1; END`);
+      // Par ligne (SQLite n'a pas de déclencheur par instruction) : révision augmentée, puis la clé de la ligne inscrite
+      // à cette révision, dans le même corps ; une modification inscrit aussi l'ancienne clé si elle a changé.
+      const inscrire = (cle: string) => `INSERT INTO changements (n, tbl, pk) SELECT n, '${t}', ${cle} FROM revision`;
+      // Table fermée à Matrix (`TABLES_CHANGEMENTS_SANS_CLE`) : marqueur « toute la table » seul, comme sur PostgreSQL.
+      const corps = TABLES_CHANGEMENTS_SANS_CLE.has(name) ? { i: [inscrire('NULL')], u: [inscrire('NULL')], d: [inscrire('NULL')] } : {
+        i: [inscrire(`NEW.${pk}`)],
+        u: [inscrire(`NEW.${pk}`), `${inscrire(`OLD.${pk}`)} WHERE OLD.${pk} IS NOT NEW.${pk}`],
+        d: [inscrire(`OLD.${pk}`)],
+      };
+      for (const [suffixe, evenement] of [['i', 'INSERT'], ['u', 'UPDATE'], ['d', 'DELETE']] as const) {
+        // Recréé quand son texte diffère du code (liste des tables sans clé comprise), jamais sinon : une ouverture sur une
+        // base à jour n'écrit rien dans le fichier (commandes à blanc).
+        const nom = `revision2_${t}_${suffixe}`;
+        const voulu = `CREATE TRIGGER ${nom} AFTER ${evenement} ON ${t} BEGIN UPDATE revision SET n = n + 1; ${corps[suffixe].join('; ')}; END`;
+        if (existants.get(nom) !== voulu) sql.push(`DROP TRIGGER IF EXISTS ${nom}`, voulu);
       }
     }
+    sql.push('RELEASE poser_revision');
     this.sql.exec(sql.join(';\n'));
   }
 
@@ -897,10 +1038,28 @@ export class SqliteDb extends Db {
     return this.aSonTour(() => this.colonnesSync(table));
   }
 
+  /**
+   * Remise à zéro. Journal des changements (lot 9, chantier 1) : comme le TRUNCATE de PostgreSQL, un marqueur « toute la
+   * table » (clé NULL) par table vidée, à une révision de plus ; les lignes inscrites une à une par les suppressions sont
+   * retirées (le marqueur les couvre). D'un seul tenant (SAVEPOINT) : une remise à zéro interrompue ne laisse rien.
+   */
   clearAll(): Promise<void> {
     return this.aSonTour(() => {
-      for (const name of Object.keys(TABLES)) if (name !== 'connexions' && name !== 'journal') this.sql.exec(`DELETE FROM ${snake(name)}`);
-      this.sql.exec(`DELETE FROM sqlite_sequence WHERE name <> 'journal'`);
+      const noms = (Object.keys(TABLES) as TableName[]).filter(name => name !== 'connexions' && name !== 'journal');
+      this.sql.exec('SAVEPOINT remise_a_zero');
+      try {
+        const avant = Number((this.sql.prepare('SELECT n FROM revision').get() as { n: number }).n);
+        for (const name of noms) this.sql.exec(`DELETE FROM ${snake(name)}`);
+        this.sql.exec(`DELETE FROM sqlite_sequence WHERE name <> 'journal'`);
+        this.sql.prepare('DELETE FROM changements WHERE n > ?').run(avant);
+        this.sql.exec('UPDATE revision SET n = n + 1');
+        const marquer = this.sql.prepare('INSERT INTO changements (n, tbl, pk) SELECT n, ?, NULL FROM revision');
+        for (const name of noms) if (!TABLES_SANS_REVISION.has(name)) marquer.run(snake(name));
+        this.sql.exec('RELEASE remise_a_zero');
+      } catch (err) {
+        this.sql.exec('ROLLBACK TO remise_a_zero; RELEASE remise_a_zero');
+        throw err;
+      }
     });
   }
 

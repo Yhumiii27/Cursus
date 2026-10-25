@@ -8,7 +8,7 @@ validation explicite de Guillaume (réponse du 24/10/2026 : Cursus n'écrit jama
 ## [2026-10-24] Cursus → Matrix — Fermer à matrix_lecture les colonnes sensibles de Cursus (droits.colonnes_sensibles)
 - Statut : À VALIDER (rédigée, pas envoyée)
 - Demande : ajouter à `droits.colonnes_sensibles` (`infra/postgres/init/03-droits.sql`, bloc « Convention du
-  15/10/2026 », origine `convention`) les 53 lignes de `docs/demandes/matrix-lot8-colonnes-sensibles.sql` du dépôt
+  15/10/2026 », origine `convention`) les 54 lignes de `docs/demandes/matrix-lot8-colonnes-sensibles.sql` du dépôt
   Cursus, puis rejouer `03-droits.sql` (le déclencheur `colonnes_sensibles_appliquer` retire aussitôt les droits).
   `journal.payload`, `journal.message` et `demandes_collab.label` passent de `proposition` à `convention`.
 - Justification : Matrix ferme par liste d'exclusion. Le SELECT est accordé par défaut à `matrix_lecture` sur toutes les
@@ -16,6 +16,10 @@ validation explicite de Guillaume (réponse du 24/10/2026 : Cursus n'écrit jama
   administrateur qui fait `SET ROLE matrix_lecture` :
   - la nature des absences (`absences.type` : maladie, accident du travail…), les demandes de visite (visite de reprise
     = retour d'arrêt) et les informations de congés au retour d'un arrêt : données de santé (art. 9 du RGPD) ;
+  - le journal des lignes changées par révision (`changements`, lot 9, migration 0014) : il ne porte qu'un nom de table
+    et une clé, mais dans l'ordre des écritures ; rapproché des lignes lisibles voisines (fiche du salarié, journal des
+    actions), il révèle qu'une vaccination, une demande de visite ou une information de retour d'arrêt vient d'être
+    écrite pour un salarié (les tables fermées en entier y sont déjà inscrites sans clé) ;
   - les empreintes scrypt des mots de passe des comptes locaux (ouvriers, intérimaires), cassables hors ligne ;
   - les sessions (`connexions`) ;
   - le contenu et le résumé des lots de paie : absence par absence, le matricule, les dates et la rubrique, qui révèle un
@@ -29,7 +33,7 @@ validation explicite de Guillaume (réponse du 24/10/2026 : Cursus n'écrit jama
   - Lignes demandées (table entière : `*`) :
     - comptes et sessions : `comptes.mot_de_passe`, `oid`, `blocage_fin` ; `connexions` `*` ;
       `jetons_agenda.empreinte` ; `reprises` `*` ;
-    - santé : `demandes_visite` `*` ; `informations_cp` `*` ; `absences.type` et `justificatif` ;
+    - santé : `demandes_visite` `*` ; `informations_cp` `*` ; `changements` `*` ; `absences.type` et `justificatif` ;
       `employes.expose` et `motif_sortie` ;
     - journal : `journal.payload` et `message` ;
     - paie : `lots_paie.contenu` et `resume` ;

@@ -597,9 +597,10 @@ l'identifiant) : chacun se reconnecte une fois.
    **Cache incrémental** (lot 9, `CURSUS_CACHE_INCREMENTAL`, actif par défaut ; `0` revient à la relecture complète) :
    après une écriture, l'entrée de la révision suivante est dérivée de la précédente par les seules lignes changées,
    lues dans le journal `cursus.changements` (migration `0014_changements`), y compris celles écrites par une autre
-   instance ; un écart inconnu (journal purgé, base remplacée : époque différente) relit tout. L'entrée est lue dès le
-   démarrage (préchauffage), avant les premières requêtes. Après un rechargement des seules données (restauration sans
-   recréer les tables), redémarrez les instances.
+   instance ; un écart inconnu (journal purgé) relit tout. L'entrée est lue dès le démarrage (préchauffage), avant
+   les premières requêtes. Une restauration (`pg_restore`, rechargement des données) remet l'époque de la sauvegarde
+   et une révision plus basse, que les instances restées en service ne savent pas encore reconnaître : arrêtez Cursus
+   avant toute restauration (`docs/SAUVEGARDE.md`) et redémarrez ensuite **toutes** les instances.
 2. **Premier démarrage** : Cursus applique ses migrations (`server/migrations-pg/`, journal
    `cursus.schema_migrations`), contrôle le schéma et amorce une base neuve (activités internes, horaires de poste
    d'exemple). Le journal du démarrage affiche « base PostgreSQL <hôte>:<port>/epc2i, schéma cursus ». Un refus

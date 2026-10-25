@@ -436,9 +436,11 @@ async function tables(db: Db): Promise<Record<string, unknown[]>> {
 /**
  * Séquence d'actions scriptée, jouée par l'application (POST /api/actions) : saisie et soumission du salarié 2, validation
  * par son manager (alertes de validation), absences et certification par le service RH. Rend les réponses (statut,
- * message, résultat, erreur).
+ * message, résultat, erreur), les lectures complètes des feuilles faites par l'application pendant les actions et les
+ * instantanés qui les suivent (après un premier instantané lu avant la séquence), et le nombre d'entrées du cache
+ * dérivées par le delta : le chemin incrémental est bien celui qu'emprunte l'application.
  */
-async function sequence(db: Db): Promise<unknown[]> {
+async function sequence(db: Db): Promise<{ reponses: unknown[]; actions: number; relectures: number; derivees: number }> {
   // Contingent annuel abaissé : la validation dépasse le contingent (alerte, contrepartie obligatoire en repos).
   await db.setSetting('app', { ...await db.getSetting<object>('app', {}), contingentHeuresSup: 5 });
   const banc = await ouvrirBanc(db);
@@ -458,7 +460,14 @@ async function sequence(db: Db): Promise<unknown[]> {
     const rh = await acteur(u => u.role === 'rh' && u.profilRh === 'rh_admin');
     const semaine = '2026-10-05';
     const reponses: unknown[] = [];
+    // Premier instantané (entrée du cache de départ), puis espion : seules les lectures de l'application sont comptées,
+    // pas les `loadFull` du test qui tirent les paramètres.
+    await fetch(`${banc.base}/api/data`, { headers: { cookie: rh.cookie, 'x-cursus-espace': rh.role } });
+    const espion = compterRelectures(db);
+    let compte = 0, actions = 0, derivees = 0;
     const agir = async (a: typeof rh, nom: string, p: Record<string, unknown>) => {
+      const avant = espion.n();
+      actions++;
       const res = await fetch(`${banc.base}/api/actions/${nom}`, {
         method: 'POST', headers: { cookie: a.cookie, 'x-cursus-espace': a.role, 'content-type': 'application/json' }, body: JSON.stringify(p),
       });
@@ -466,6 +475,8 @@ async function sequence(db: Db): Promise<unknown[]> {
       reponses.push({ nom, statut: res.status, message: corps.message ?? null, result: corps.result ?? null, error: corps.error ?? null, feuilles: corps.data?.feuilles.length ?? null });
       // Instantané lu après l'action, comme le client.
       await fetch(`${banc.base}/api/data`, { headers: { cookie: a.cookie, 'x-cursus-espace': a.role } });
+      compte += espion.n() - avant;
+      if (await suiteEntree(db)) derivees++;
     };
     await agir(mehdi, 'temps.addLine', { empId: 2, week: semaine, projet: ds.referentiels.projets.find(x => x.statut !== 'archive' && !x.code.startsWith('INT'))!.code });
     for (let di = 0; di < 5; di++) await agir(mehdi, 'temps.setCell', { empId: 2, week: semaine, li: 0, di, value: '11' });
@@ -474,7 +485,8 @@ async function sequence(db: Db): Promise<unknown[]> {
     await agir(chef, 'temps.validate', { empId: 2, week: semaine, motif: 'Arrêt technique' });
     for (const [nom, p] of actionsAbsence(await loadFull(db, RH))) await agir(rh, nom, p);
     await agir(chef, 'temps.validerLot', { feuilles: (await loadFull(db, RH)).feuilles.filter(f => f.statut === 'soumise').slice(0, 3).map(f => ({ empId: f.empId, week: f.week })) });
-    return reponses;
+    espion.retirer();
+    return { reponses, actions, relectures: compte, derivees };
   } finally {
     banc.fermer();
   }
@@ -485,7 +497,7 @@ test('même séquence, cache incrémental et sans cache : mêmes réponses, aler
     Object.assign(process.env, env);
     try {
       const db = await demo();
-      return { reponses: await sequence(db), tables: await tables(db) };
+      return { ...await sequence(db), tables: await tables(db) };
     } finally {
       for (const k of Object.keys(env)) delete process.env[k];
     }
@@ -493,6 +505,13 @@ test('même séquence, cache incrémental et sans cache : mêmes réponses, aler
   const inc = await jouer({ CURSUS_CACHE_INCREMENTAL: '1' });
   const sans = await jouer({ CURSUS_CACHE_INSTANTANE: '0' });
   assert.deepStrictEqual(inc.reponses, sans.reponses);
+  // Chemin incrémental réellement emprunté par l'application : aucune relecture complète des feuilles (entrée, jeu de
+  // l'action, suivi des verdicts), chaque instantané d'après action dérivé par le delta ; sans cache, au moins une
+  // relecture par action.
+  assert.equal(inc.relectures, 0, 'cache incrémental : aucune relecture complète');
+  assert.equal(inc.derivees, inc.actions, 'cache incrémental : entrées dérivées par le delta');
+  assert.ok(sans.relectures >= sans.actions, `sans cache : ${sans.relectures} relectures pour ${sans.actions} actions`);
+  assert.equal(sans.derivees, 0);
   const valide = (inc.reponses as { nom: string; statut: number; message: string }[]).find(r => r.nom === 'temps.validate')!;
   assert.equal(valide.statut, 200, 'feuille validée');
   assert.match(valide.message, /contingent/i, 'alertes de validation (contingent dépassé)');

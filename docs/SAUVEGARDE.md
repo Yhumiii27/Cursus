@@ -541,12 +541,15 @@ d'une révision à l'autre par le journal des lignes changées (table `changemen
 reste la même. Un `pg_restore` qui recrée les tables (procédure ci-dessus, après `DROP SCHEMA cursus CASCADE`) change
 l'époque de lui-même : elle compte l'identifiant interne (OID) de la table `revision`, que la restauration renouvelle.
 Un **rechargement des données seules** (`pg_restore --data-only`, copie de tables d'un autre schéma, `COPY` à la main)
-garde au contraire l'OID et remet l'ancienne époque : redémarrer alors toutes les instances, ou lancer
-`npm run revision:epoque` dans le terminal de l'application (service en marche admis : une seule écriture), pour
-qu'elles relisent tout. Sans cela, une instance restée en service pourrait servir un instantané qui mêle l'état
-d'avant et celui d'après le rechargement. Le journal lui-même se purge tout seul avec les tâches du quart d'heure : il
-garde au moins une heure et 20 000 révisions de changements (`server/src/purge-changements.ts`) ; une instance dont le
-cache est plus ancien relit tout.
+garde au contraire l'OID et remet l'ancienne époque : redémarrer alors toutes les instances, pour qu'elles relisent
+tout. `npm run revision:epoque`, lancé dans le terminal de l'application (service en marche admis : une seule
+écriture), change l'époque ; il ne dispense du redémarrage que les instances dont le cache compare l'époque (cache
+incrémental du lot 9) : le cache qui n'a pour clé que la révision et le jour ne la lit pas. Sans cela, une instance
+restée en service pourrait servir un instantané qui mêle l'état d'avant et celui d'après le rechargement. Le journal
+lui-même se purge avec les tâches du quart d'heure (`server/src/purge-changements.ts`) : il garde au moins 20 000
+révisions de changements et, sur PostgreSQL, au moins une heure, mesurée par les relevés de l'instance, qui repartent à
+zéro à son démarrage (une instance ne purge donc qu'après une heure de marche) ; sur SQLite, une seule instance, la
+purge n'attend pas. Une instance dont le cache est plus ancien relit tout.
 
 Test de restauration : chaque trimestre, comme en section 8, sur un schéma d'essai d'un serveur d'essai (jamais le
 serveur commun en service), avec `npm run pieces:verifier` comme critère de réussite.

@@ -1,6 +1,7 @@
 // npm run revision:epoque : change l'époque de la base (lot 9, chantier 1, server/src/purge-changements.ts). Les
-// instances en service relisent alors tout l'instantané à leur prochaine lecture, au lieu de le mettre à jour par le
-// journal des changements. À lancer après un rechargement des données seules sur le serveur PostgreSQL
+// instances en service dont le cache compare l'époque (cache incrémental, chantier 2 du lot 9) relisent alors tout
+// l'instantané à leur prochaine lecture, au lieu de le mettre à jour par le journal des changements ; sans ce cache,
+// seul leur redémarrage les fait relire tout. À lancer après un rechargement des données seules sur le serveur PostgreSQL
 // (pg_restore --data-only, ou toute copie de données qui remet une ancienne table `revision`), si les instances n'ont pas
 // été redémarrées (docs/SAUVEGARDE.md). Un pg_restore qui recrée les tables change de lui-même l'époque (OID de la
 // table `revision`). Sans risque service démarré : une seule écriture, dans une transaction.
@@ -39,7 +40,8 @@ try {
 try {
   if (aMettreAJour) await mettreAJourBase(db);
   const { avant, apres } = await changerEpoque(db);
-  console.log(`Époque de la base changée (${avant} → ${apres}) : les instances de Cursus relisent tout à leur prochaine lecture.`);
+  console.log(`Époque de la base changée (${avant} → ${apres}) : les instances de Cursus dont le cache compare l'époque `
+    + `(cache incrémental) relisent tout à leur prochaine lecture ; sans lui, redémarrer les instances.`);
 } catch (err) {
   console.error(`Commande impossible : ${err instanceof Error ? err.message : err}`);
   process.exitCode = 1;

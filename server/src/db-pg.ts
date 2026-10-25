@@ -550,23 +550,26 @@ export class PgDb extends Db {
       else for (const c of cols) if (!vues.has(`${snake(name)}.${c}`)) manquantes.push(`${snake(name)}.${c}`);
     }
     // Révision de la base (lot 8, chantier E, migration 0013_index_journal) : chaque table hors TABLES_SANS_REVISION porte
-    // son déclencheur, sinon le cache de l'instantané servirait un état périmé après une écriture de cette table.
+    // son déclencheur, sinon le cache de l'instantané servirait un état périmé après une écriture de cette table. Un
+    // déclencheur ne compte que s'il s'exécute dans les sessions ordinaires (session_replication_role = origin) :
+    // tgenabled 'O' (ENABLE) ou 'A' (ENABLE ALWAYS) ; désactivé ('D') ou en mode réplication ('R', ENABLE REPLICA
+    // TRIGGER) compte comme manquant.
     const declencheurs = new Set((await this.query<{ t: string }>(`SELECT c.relname AS t FROM pg_trigger g JOIN pg_class c ON c.oid = g.tgrelid
-      JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = ? AND g.tgname = 'revision'`, [this.schema])).map(l => l.t));
+      JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = ? AND g.tgname = 'revision' AND g.tgenabled IN ('O', 'A')`, [this.schema])).map(l => l.t));
     if (!lignes.some(l => l.t === 'revision')) manquantes.push('table revision');
     for (const name of Object.keys(TABLES) as TableName[]) {
       if (!TABLES_SANS_REVISION.has(name) && lignes.some(l => l.t === snake(name)) && !declencheurs.has(snake(name))) manquantes.push(`déclencheur revision de ${snake(name)}`);
     }
     // Journal des changements (lot 9, chantier 1, migration 0014_changements) : la table `changements`, la purge et
     // l'époque de `revision`, et sur chaque table hors TABLES_SANS_REVISION ses quatre déclencheurs `revision_lignes_*`,
-    // actifs (insertion, modification, suppression, TRUNCATE). Sans eux, le cache passerait d'une révision à l'autre
+    // actifs au même sens (insertion, modification, suppression, TRUNCATE). Sans eux, le cache passerait d'une révision à l'autre
     // par un delta qui oublie les lignes de cette table. Une table ajoutée après 0014 les reçoit dans sa propre migration.
     for (const c of ['changements.n', 'changements.tbl', 'changements.pk', 'revision.purge', 'revision.epoque']) {
       if (!vues.has(c)) manquantes.push(lignes.some(l => l.t === c.split('.')[0]) ? c : `table ${c.split('.')[0]}`);
     }
     const lignesChangees = new Set((await this.query<{ t: string; g: string }>(`SELECT c.relname AS t, g.tgname AS g FROM pg_trigger g
       JOIN pg_class c ON c.oid = g.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = ? AND g.tgname LIKE 'revision_lignes_%' AND g.tgenabled <> 'D'`, [this.schema])).map(l => `${l.t}.${l.g}`));
+      WHERE n.nspname = ? AND g.tgname LIKE 'revision_lignes_%' AND g.tgenabled IN ('O', 'A')`, [this.schema])).map(l => `${l.t}.${l.g}`));
     for (const name of Object.keys(TABLES) as TableName[]) {
       if (TABLES_SANS_REVISION.has(name) || !lignes.some(l => l.t === snake(name))) continue;
       const absents = DECLENCHEURS_CHANGEMENTS.filter(g => !lignesChangees.has(`${snake(name)}.${g}`));

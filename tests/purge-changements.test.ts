@@ -1,11 +1,12 @@
 // Journal des changements en base (lot 9, chantier 1, étape 2), sur les deux moteurs :
 // - purge planifiée (`purgerChangements`, tâches du quart d'heure) : au moins une heure et 20 000 révisions gardées ;
 //   un delta parti d'en deçà de la purge rend null (repli : relecture complète), un delta parti d'au-delà reste exact ;
-//   la purge ne recule jamais et ne périme pas le cache (révision inchangée) ;
+//   la purge ne recule jamais et ne périme pas le cache (révision inchangée) ; sur SQLite (une seule instance), la
+//   purge n'attend pas de relevé d'une heure ;
 // - époque : `changerEpoque` (npm run revision:epoque) fait rendre null à tout écart qui la traverse ; sur PostgreSQL,
 //   l'époque compte l'OID de la table `revision` : une table recréée (pg_restore) change d'époque sans rien écrire ;
 // - controlerSchema refuse un schéma sans la table `changements`, sans les colonnes de `revision`, ou dont une table a
-//   perdu (ou désactivé) un de ses déclencheurs `revision_lignes_*` ;
+//   perdu (ou désactivé, ou passé en mode réplication) un de ses déclencheurs `revision_lignes_*` ou `revision` ;
 // - les migrations PostgreSQL publiées sont intactes (empreintes figées : une migration publiée ne se modifie jamais).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -36,21 +37,21 @@ const plusPetit = async (db: Db) => Number((await db.one<{ n: number | null }>('
 /** `k` révisions sans ligne changée (SQL direct sur `revision`, sans déclencheur) : une longue activité, en un instant. */
 const avancer = async (db: Db, k: number) => { await db.run('UPDATE revision SET n = n + ?', [k]); };
 
-test('purge : au moins une heure et 20 000 révisions gardées ; delta parti d’en deçà = repli, d’au-delà = exact', async () => {
+test('purge à plusieurs instances : au moins une heure et 20 000 révisions gardées ; delta parti d’en deçà = repli, d’au-delà = exact', async () => {
   const db = await nouvelleBase();
   const a = await db.insert<{ id: number }>('postes', { nom: 'A' });
   const r1 = await db.revisionBase();
   // Premier relevé : rien d'assez ancien, rien n'est purgé.
-  assert.deepEqual(await purgerChangements(db, T), { jusqua: null, lignes: 0 });
+  assert.deepEqual(await purgerChangements(db, T, false), { jusqua: null, lignes: 0 });
   const b = await db.insert<{ id: number }>('postes', { nom: 'B' });
   const r2 = await db.revisionBase();
   await avancer(db, GARDE_REVISIONS);
   const c = await db.insert<{ id: number }>('postes', { nom: 'C' });
   const r3 = await db.revisionBase();
-  assert.deepEqual(await purgerChangements(db, T + GARDE_MS - 1), { jusqua: null, lignes: 0 }, 'moins d’une heure');
+  assert.deepEqual(await purgerChangements(db, T + GARDE_MS - 1, false), { jusqua: null, lignes: 0 }, 'moins d’une heure');
   // Une heure après le premier relevé : purge jusqu'à la révision de ce relevé (la borne des 20 000 révisions est au-delà).
   const avant = await lignesJournal(db);
-  const p = await purgerChangements(db, T + GARDE_MS);
+  const p = await purgerChangements(db, T + GARDE_MS, false);
   assert.equal(p.jusqua, r1);
   assert.ok(p.lignes > 0 && p.lignes === avant - await lignesJournal(db), 'lignes effacées comptées');
   assert.ok(await plusPetit(db) > r1, 'changements jusqu’à la purge effacés');
@@ -61,15 +62,15 @@ test('purge : au moins une heure et 20 000 révisions gardées ; delta parti d�
   assert.equal(await db.lireChangements(r1 - 1, r3), null);
   assert.deepEqual(enClair(await db.lireChangements(r1, r3, etat.epoque)), { postes: [String(b.id), String(c.id)] }, 'parti de la purge : exact');
   // Deux heures après : le relevé d'une heure porte r3, mais 20 000 révisions restent gardées (borne r3 − 20 000 = r2 + 1).
-  const q = await purgerChangements(db, T + 2 * GARDE_MS);
+  const q = await purgerChangements(db, T + 2 * GARDE_MS, false);
   assert.equal(q.jusqua, r3 - GARDE_REVISIONS);
   assert.equal(q.jusqua, r2 + 1);
   assert.equal(await db.lireChangements(r2, r3), null, 'B purgé : repli');
   assert.deepEqual(enClair(await db.lireChangements(r2 + 1, r3)), { postes: [String(c.id)] });
   // Rien de plus à purger : la purge ne recule jamais, même avec une borne plus basse (autre instance, relevés anciens).
-  assert.deepEqual(await purgerChangements(db, T + 2 * GARDE_MS + 1), { jusqua: null, lignes: 0 });
+  assert.deepEqual(await purgerChangements(db, T + 2 * GARDE_MS + 1, false), { jusqua: null, lignes: 0 });
   await db.run('UPDATE revision SET purge = ?', [r3]);
-  assert.deepEqual(await purgerChangements(db, T + 3 * GARDE_MS), { jusqua: null, lignes: 0 });
+  assert.deepEqual(await purgerChangements(db, T + 3 * GARDE_MS, false), { jusqua: null, lignes: 0 });
   assert.equal((await db.etatRevision()).purge, r3);
   assert.equal(a.id, 1);
 });
@@ -81,10 +82,38 @@ test('purge : faite par les tâches du quart d’heure, dans sa propre transacti
   await avancer(db, GARDE_REVISIONS + 10);
   await tachesEmails(db, 6);
   const n = await db.revisionBase();
-  // Le relevé de ce passage sert au passage d'une heure plus tard.
-  const p = await purgerChangements(db, Date.now() + GARDE_MS + 60_000);
-  assert.ok(p.jusqua !== null && p.jusqua >= r1 && p.jusqua <= n - GARDE_REVISIONS, `purge jusqu’à ${p.jusqua}`);
+  if (!PG) {
+    // SQLite : purgé dès ce passage, 20 000 révisions gardées.
+    const { purge } = await db.etatRevision();
+    assert.ok(purge >= r1 && purge <= n - GARDE_REVISIONS, `purge jusqu’à ${purge}`);
+  } else {
+    // PostgreSQL : le relevé de ce passage sert au passage d'une heure plus tard.
+    assert.equal((await db.etatRevision()).purge, 0, 'instance qui vient de démarrer : rien de purgé');
+    const p = await purgerChangements(db, Date.now() + GARDE_MS + 60_000);
+    assert.ok(p.jusqua !== null && p.jusqua >= r1 && p.jusqua <= n - GARDE_REVISIONS, `purge jusqu’à ${p.jusqua}`);
+  }
   assert.equal(await db.lireChangements(0, n), null);
+});
+
+test('purge, instance récente au-delà de 20 000 révisions : SQLite purge tout de suite, PostgreSQL attend une heure', async () => {
+  const db = await nouvelleBase();
+  const a = await db.insert<{ id: number }>('postes', { nom: 'A' });
+  await avancer(db, GARDE_REVISIONS + 5);
+  const b = await db.insert<{ id: number }>('postes', { nom: 'B' });
+  const n = await db.revisionBase();
+  // Premier passage de l'instance (relevés vides, comme après chaque démarrage).
+  const p = await purgerChangements(db, T);
+  if (PG) {
+    assert.deepEqual(p, { jusqua: null, lignes: 0 }, 'aucun relevé d’une heure : les caches des autres instances sont gardés');
+    return;
+  }
+  assert.equal(p.jusqua, n - GARDE_REVISIONS);
+  assert.ok(p.lignes > 0);
+  assert.equal(await db.lireChangements(0, n), null, 'A purgé : repli');
+  assert.equal(a.id, 1);
+  assert.deepEqual(enClair(await db.lireChangements(n - GARDE_REVISIONS, n)), { postes: [String(b.id)] }, '20 000 révisions gardées');
+  // Un démarrage suivant (relevés perdus) reprend où la purge en était, sans reculer.
+  assert.deepEqual(await purgerChangements(db, T + 1), { jusqua: null, lignes: 0 });
 });
 
 test('époque : changée par npm run revision:epoque, tout écart qui la traverse rend null', async () => {
@@ -142,6 +171,20 @@ test('PostgreSQL : controlerSchema refuse une table sans ses déclencheurs revis
   await db.exec('ALTER TABLE postes DISABLE TRIGGER revision_lignes_t');
   await assert.rejects(db.controlerSchema(), /déclencheur revision_lignes_t de postes/);
   assert.deepEqual([...DECLENCHEURS_CHANGEMENTS], ['revision_lignes_i', 'revision_lignes_u', 'revision_lignes_d', 'revision_lignes_t']);
+
+  // Mode réplication (ENABLE REPLICA TRIGGER) : le déclencheur ne s'exécute pas dans les sessions ordinaires
+  // (session_replication_role = origin), refusé comme absent ; ENABLE ALWAYS est admis. De même pour `revision` (0013).
+  const replique = await nouvelleBase() as unknown as Pg;
+  await replique.exec('ALTER TABLE postes ENABLE ALWAYS TRIGGER revision_lignes_t; ALTER TABLE postes ENABLE ALWAYS TRIGGER revision');
+  await replique.controlerSchema();
+  await replique.exec('ALTER TABLE absences ENABLE REPLICA TRIGGER revision_lignes_u');
+  await assert.rejects(replique.controlerSchema(), /déclencheur revision_lignes_u de absences/);
+  await replique.exec('ALTER TABLE absences ENABLE TRIGGER revision_lignes_u');
+  await replique.controlerSchema();
+  await replique.exec('ALTER TABLE absences ENABLE REPLICA TRIGGER revision');
+  await assert.rejects(replique.controlerSchema(), /déclencheur revision de absences/);
+  await replique.exec('ALTER TABLE absences ENABLE TRIGGER revision; ALTER TABLE feuilles DISABLE TRIGGER revision');
+  await assert.rejects(replique.controlerSchema(), /déclencheur revision de feuilles/);
 
   const autre = await nouvelleBase() as unknown as Pg;
   await autre.exec('ALTER TABLE revision DROP COLUMN epoque');

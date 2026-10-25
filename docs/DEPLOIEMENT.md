@@ -1149,11 +1149,13 @@ entrées, sorties et compteurs ne se tiennent plus dans Lucca.
 - Journal des changements (lot 9, migration PostgreSQL `0014_changements`, `server/src/purge-changements.ts`) : la
   base inscrit, dans la transaction de chaque écriture, la table et la clé des lignes changées (table `changements`) ;
   chaque instance s'en sert pour mettre à jour son instantané en mémoire sans tout relire. Les tâches du quart d'heure
-  le purgent en gardant au moins une heure et 20 000 révisions. Au démarrage, Cursus refuse un schéma où manque la
+  le purgent en gardant au moins 20 000 révisions et, sur PostgreSQL, au moins une heure (relevés de l'instance :
+  une instance redémarrée ne purge qu'après une heure de marche ; SQLite, une seule instance, n'attend pas). Au démarrage, Cursus refuse un schéma où manque la
   table, une colonne `purge` ou `epoque` de `revision`, ou un des déclencheurs `revision_lignes_i`, `_u`, `_d`, `_t`
-  d'une table (désactivé compris) : une table ajoutée par une migration postérieure à 0014 les reçoit dans sa propre
-  migration. Après un rechargement des données seules (`pg_restore --data-only`) : redémarrer les instances ou lancer
-  `npm run revision:epoque` (`docs/SAUVEGARDE.md`, section 10).
+  d'une table (désactivé ou en mode réplication compris) : une table ajoutée par une migration postérieure à 0014 les reçoit dans sa propre
+  migration. Après un rechargement des données seules (`pg_restore --data-only`) : redémarrer les instances ;
+  `npm run revision:epoque` ne les dispense du redémarrage qu'avec le cache incrémental du lot 9, qui compare l'époque
+  (`docs/SAUVEGARDE.md`, section 10).
 - Journaux du serveur (`server/src/logs.ts`) : une ligne par message de démarrage, d'arrêt ou d'incident, et une ligne
   par requête : heure, méthode, chemin sans ses paramètres, statut, durée en millisecondes et numéro du compte connecté.
   Jamais le contenu d'une requête ni ses paramètres, qui portent des données personnelles ; la sonde de santé réussie

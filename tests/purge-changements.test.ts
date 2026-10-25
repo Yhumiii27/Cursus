@@ -1,0 +1,199 @@
+// Journal des changements en base (lot 9, chantier 1, étape 2), sur les deux moteurs :
+// - purge planifiée (`purgerChangements`, tâches du quart d'heure) : au moins une heure et 20 000 révisions gardées ;
+//   un delta parti d'en deçà de la purge rend null (repli : relecture complète), un delta parti d'au-delà reste exact ;
+//   la purge ne recule jamais et ne périme pas le cache (révision inchangée) ;
+// - époque : `changerEpoque` (npm run revision:epoque) fait rendre null à tout écart qui la traverse ; sur PostgreSQL,
+//   l'époque compte l'OID de la table `revision` : une table recréée (pg_restore) change d'époque sans rien écrire ;
+// - controlerSchema refuse un schéma sans la table `changements`, sans les colonnes de `revision`, ou dont une table a
+//   perdu (ou désactivé) un de ses déclencheurs `revision_lignes_*` ;
+// - les migrations PostgreSQL publiées sont intactes (empreintes figées : une migration publiée ne se modifie jamais).
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+process.env.CURSUS_TODAY = '2026-10-10';
+delete process.env.CURSUS_DEMO;
+
+const { PG, nouvelleBase } = await import('./base.ts');
+const { openSqlite } = await import('../server/src/db.ts');
+const { DECLENCHEURS_CHANGEMENTS, migrationsPg } = await import('../server/src/db-pg.ts');
+const { changerEpoque, GARDE_MS, GARDE_REVISIONS, purgerChangements } = await import('../server/src/purge-changements.ts');
+const { tachesEmails } = await import('../server/src/notifications.ts');
+const { RACINE } = await import('../server/src/chemins.ts');
+type Db = import('../server/src/db.ts').Db;
+type Pg = import('../server/src/db-pg.ts').PgDb;
+type Changements = import('../server/src/db.ts').Changements;
+
+const SEUL_PG = { skip: !PG && 'PostgreSQL seulement (CURSUS_TEST_ENGINE=pg)' };
+const T = Date.parse('2026-10-10T08:00:00Z');
+
+const enClair = (c: Changements | null) => c && Object.fromEntries([...c].sort(([a], [b]) => a.localeCompare(b)).map(([t, v]) => [t, v === 'tout' ? v : [...v].sort()]));
+const lignesJournal = async (db: Db) => Number((await db.one<{ c: number }>('SELECT COUNT(*) AS c FROM changements'))!.c);
+const plusPetit = async (db: Db) => Number((await db.one<{ n: number | null }>('SELECT MIN(n) AS n FROM changements'))?.n ?? 0);
+/** `k` révisions sans ligne changée (SQL direct sur `revision`, sans déclencheur) : une longue activité, en un instant. */
+const avancer = async (db: Db, k: number) => { await db.run('UPDATE revision SET n = n + ?', [k]); };
+
+test('purge : au moins une heure et 20 000 révisions gardées ; delta parti d’en deçà = repli, d’au-delà = exact', async () => {
+  const db = await nouvelleBase();
+  const a = await db.insert<{ id: number }>('postes', { nom: 'A' });
+  const r1 = await db.revisionBase();
+  // Premier relevé : rien d'assez ancien, rien n'est purgé.
+  assert.deepEqual(await purgerChangements(db, T), { jusqua: null, lignes: 0 });
+  const b = await db.insert<{ id: number }>('postes', { nom: 'B' });
+  const r2 = await db.revisionBase();
+  await avancer(db, GARDE_REVISIONS);
+  const c = await db.insert<{ id: number }>('postes', { nom: 'C' });
+  const r3 = await db.revisionBase();
+  assert.deepEqual(await purgerChangements(db, T + GARDE_MS - 1), { jusqua: null, lignes: 0 }, 'moins d’une heure');
+  // Une heure après le premier relevé : purge jusqu'à la révision de ce relevé (la borne des 20 000 révisions est au-delà).
+  const avant = await lignesJournal(db);
+  const p = await purgerChangements(db, T + GARDE_MS);
+  assert.equal(p.jusqua, r1);
+  assert.ok(p.lignes > 0 && p.lignes === avant - await lignesJournal(db), 'lignes effacées comptées');
+  assert.ok(await plusPetit(db) > r1, 'changements jusqu’à la purge effacés');
+  const etat = await db.etatRevision();
+  assert.equal(etat.purge, r1);
+  assert.equal(etat.n, r3, 'révision inchangée : cache non périmé');
+  assert.equal(await db.lireChangements(0, r3, etat.epoque), null, 'parti d’en deçà de la purge : repli');
+  assert.equal(await db.lireChangements(r1 - 1, r3), null);
+  assert.deepEqual(enClair(await db.lireChangements(r1, r3, etat.epoque)), { postes: [String(b.id), String(c.id)] }, 'parti de la purge : exact');
+  // Deux heures après : le relevé d'une heure porte r3, mais 20 000 révisions restent gardées (borne r3 − 20 000 = r2 + 1).
+  const q = await purgerChangements(db, T + 2 * GARDE_MS);
+  assert.equal(q.jusqua, r3 - GARDE_REVISIONS);
+  assert.equal(q.jusqua, r2 + 1);
+  assert.equal(await db.lireChangements(r2, r3), null, 'B purgé : repli');
+  assert.deepEqual(enClair(await db.lireChangements(r2 + 1, r3)), { postes: [String(c.id)] });
+  // Rien de plus à purger : la purge ne recule jamais, même avec une borne plus basse (autre instance, relevés anciens).
+  assert.deepEqual(await purgerChangements(db, T + 2 * GARDE_MS + 1), { jusqua: null, lignes: 0 });
+  await db.run('UPDATE revision SET purge = ?', [r3]);
+  assert.deepEqual(await purgerChangements(db, T + 3 * GARDE_MS), { jusqua: null, lignes: 0 });
+  assert.equal((await db.etatRevision()).purge, r3);
+  assert.equal(a.id, 1);
+});
+
+test('purge : faite par les tâches du quart d’heure, dans sa propre transaction', async () => {
+  const db = await nouvelleBase();
+  await db.insert('postes', { nom: 'A' });
+  const r1 = await db.revisionBase();
+  await avancer(db, GARDE_REVISIONS + 10);
+  await tachesEmails(db, 6);
+  const n = await db.revisionBase();
+  // Le relevé de ce passage sert au passage d'une heure plus tard.
+  const p = await purgerChangements(db, Date.now() + GARDE_MS + 60_000);
+  assert.ok(p.jusqua !== null && p.jusqua >= r1 && p.jusqua <= n - GARDE_REVISIONS, `purge jusqu’à ${p.jusqua}`);
+  assert.equal(await db.lireChangements(0, n), null);
+});
+
+test('époque : changée par npm run revision:epoque, tout écart qui la traverse rend null', async () => {
+  const db = await nouvelleBase();
+  await db.insert('postes', { nom: 'A' });
+  const etat = await db.etatRevision();
+  assert.deepEqual(enClair(await db.lireChangements(0, etat.n, etat.epoque)), { postes: ['1'] });
+  const { avant, apres } = await changerEpoque(db, T);
+  assert.equal(avant, etat.epoque);
+  assert.notEqual(apres, avant);
+  const nouvel = await db.etatRevision();
+  assert.equal(nouvel.epoque, apres);
+  assert.equal(nouvel.n, etat.n, 'révision inchangée');
+  assert.equal(await db.lireChangements(0, etat.n, etat.epoque), null, 'ancienne époque : repli');
+  assert.deepEqual(enClair(await db.lireChangements(0, etat.n, nouvel.epoque)), { postes: ['1'] });
+  // Horloge en retard sur l'époque posée : l'époque avance quand même.
+  const colonne = async () => Number((await db.one<{ epoque: number }>('SELECT epoque FROM revision'))!.epoque);
+  const c = await colonne();
+  await changerEpoque(db, c - 1000);
+  assert.equal(await colonne(), c + 1);
+  // SQLite : l'époque est la colonne ; PostgreSQL : la colonne augmentée de l'OID de la table `revision`.
+  if (!PG) assert.equal((await db.etatRevision()).epoque, c + 1);
+  else assert.ok((await db.etatRevision()).epoque > c + 1);
+});
+
+test('PostgreSQL : table revision recréée (pg_restore), même colonne mais autre OID : nouvelle époque', SEUL_PG, async () => {
+  const db = await nouvelleBase() as unknown as Pg;
+  await db.insert('postes', { nom: 'A' });
+  const etat = await db.etatRevision();
+  const colonne = Number((await db.one<{ epoque: number }>('SELECT epoque FROM revision'))!.epoque);
+  const oid = Number((await db.one<{ o: number }>(`SELECT CAST(CAST(to_regclass(?) AS oid) AS bigint) AS o`, [`${db.schema}.revision`]))!.o);
+  assert.equal(etat.epoque, colonne + oid);
+  // Comme un pg_restore qui recrée les tables : même contenu, nouvelle table.
+  await db.exec(`CREATE TABLE revision_copie (LIKE revision INCLUDING ALL);
+    INSERT INTO revision_copie SELECT * FROM revision; DROP TABLE revision; ALTER TABLE revision_copie RENAME TO revision`);
+  const apres = await db.etatRevision();
+  assert.equal(Number((await db.one<{ epoque: number }>('SELECT epoque FROM revision'))!.epoque), colonne, 'colonne restaurée telle quelle');
+  assert.equal(apres.n, etat.n);
+  assert.notEqual(apres.epoque, etat.epoque, 'époque changée par l’OID');
+  assert.equal(await db.lireChangements(0, etat.n, etat.epoque), null, 'écart à travers la restauration : repli');
+  // Les déclencheurs suivent la nouvelle table (désignée par son nom à chaque écriture).
+  await db.insert('postes', { nom: 'B' });
+  assert.deepEqual(enClair(await db.lireChangements(etat.n, await db.revisionBase(), apres.epoque)), { postes: ['2'] });
+  await db.controlerSchema();
+});
+
+test('PostgreSQL : controlerSchema refuse une table sans ses déclencheurs revision_lignes_*, et un journal incomplet', SEUL_PG, async () => {
+  const db = await nouvelleBase() as unknown as Pg;
+  await db.controlerSchema();
+  await db.exec('DROP TRIGGER revision_lignes_u ON absences');
+  await assert.rejects(db.controlerSchema(), /déclencheur revision_lignes_u de absences/);
+  await db.exec('DROP TRIGGER revision_lignes_i ON feuilles; DROP TRIGGER revision_lignes_d ON feuilles');
+  await assert.rejects(db.controlerSchema(), /déclencheurs revision_lignes_i, revision_lignes_d de feuilles/);
+  // Déclencheur désactivé : refusé comme absent.
+  await db.exec('ALTER TABLE postes DISABLE TRIGGER revision_lignes_t');
+  await assert.rejects(db.controlerSchema(), /déclencheur revision_lignes_t de postes/);
+  assert.deepEqual([...DECLENCHEURS_CHANGEMENTS], ['revision_lignes_i', 'revision_lignes_u', 'revision_lignes_d', 'revision_lignes_t']);
+
+  const autre = await nouvelleBase() as unknown as Pg;
+  await autre.exec('ALTER TABLE revision DROP COLUMN epoque');
+  await assert.rejects(autre.controlerSchema(), /revision\.epoque/);
+  await autre.exec('DROP TABLE changements');
+  await assert.rejects(autre.controlerSchema(), /table changements/);
+});
+
+test('migrations PostgreSQL publiées intactes (empreintes figées, 0001 à 0014)', () => {
+  // Une migration publiée ne se modifie jamais : une nouvelle migration reçoit le numéro suivant, et son empreinte
+  // s'ajoute ici une fois publiée. Fins de ligne normalisées (copie de travail sous Windows).
+  const PUBLIEES: Record<string, string> = {
+    '0001_init': 'f76d5fc31e823380b636b88b47dc5b4117926c0647e563773e288fed4d2493ac',
+    '0002_partage': '7d006de17005b1ff539fd3d48e39593a4437095af7d8a6e310c91165b37440eb',
+    '0003_lot6_etape2': 'f7da430064537fa870217b790b6be7ae2f2c0207f98fc1fda9e2e166986f7d01',
+    '0004_pub_absences': 'a7ce408c6d6efa44ed27f358798b160ac600931fb1bddb6b8cca27a2f2492769',
+    '0005_astreintes': 'e434feb942b67dde0c908d717dc7a8c5148317e2f08d43e3ba5b28d0d0a39e32',
+    '0006_prevention': '76e9af4a6cda95c346318115161293d45648d0ccab865f4d1c198b70d2761728',
+    '0007_formations': 'e623d26d400f5880ca7299e37589decf1e4429315c281236f7e051915c0d56eb',
+    '0008_astreintes_paie': '9af81a572510dac545fb9b48f4d8b7a2882bcc29a36bb8df6a81326d3a5b1fd8',
+    '0009_passeport_prevention': '2ff8f636a7c677975ce7a737bc2be98a49d9edd666e5483d7896b44bfb8e723f',
+    '0010_evaluations_formation': '5d61de7d56a961e1a5c0fe938353b314bfd2d4c196dfb80108ff1b38ec634a2f',
+    '0011_pub_titres_valides': '18e18f1393bcf1977b27c9222a5b72a9db9c7ca089c1740ff0c7c575d51433c2',
+    '0012_pieces_chiffrees': '55cbfe0e81ff61dadd96e54740152b872c216ac1a9b9c488beb3963082fd9aa9',
+    '0013_index_journal': 'c17ce42c9f43cc348dedbf22809497a4fc2419cd90f0304be252d495432de66a',
+    '0014_changements': '1a107a5e67d0a673ed9e4dddb04941932c55717f61d8a58af91e710cf19d2f45',
+  };
+  const lues = new Map(migrationsPg().map(m => [m.nom, createHash('sha256').update(m.sql.replace(/\r\n/g, '\n')).digest('hex')]));
+  for (const [nom, empreinte] of Object.entries(PUBLIEES)) assert.equal(lues.get(nom), empreinte, `${nom} modifiée ou absente`);
+  const suivantes = [...lues.keys()].filter(n => !(n in PUBLIEES));
+  assert.ok(suivantes.every(n => n > '0014'), `migrations nouvelles numérotées après 0014 : ${suivantes.join(', ')}`);
+});
+
+test('npm run revision:epoque : époque du fichier SQLite changée, option inconnue refusée', { skip: PG && 'commande lancée sur le fichier SQLite' }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cursus-epoque-'));
+  try {
+    const fichier = join(dir, 'cursus.db');
+    const avant = await openSqlite(fichier);
+    const e = (await avant.etatRevision()).epoque;
+    await avant.fermer();
+    const cli = (...args: string[]) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/revision-epoque-cli.ts', ...args],
+      { cwd: RACINE, encoding: 'utf8', env: { PATH: process.env.PATH ?? '', CURSUS_DB: fichier, CURSUS_TODAY: '2026-10-10' } });
+    const refus = cli('--force');
+    assert.equal(refus.status, 1);
+    assert.match(refus.stderr, /Usage : npm run revision:epoque/);
+    const r = cli();
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /Époque de la base changée \(\d+ → \d+\)/);
+    const apres = await openSqlite(fichier);
+    assert.ok((await apres.etatRevision()).epoque > e);
+    await apres.fermer();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

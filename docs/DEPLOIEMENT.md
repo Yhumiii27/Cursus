@@ -1146,6 +1146,14 @@ entrées, sorties et compteurs ne se tiennent plus dans Lucca.
   Pièce absente : la restaurer depuis les sauvegardes (`docs/SAUVEGARDE.md`, section 7). Toutes les heures, Cursus
   efface les pièces envoyées et jamais jointes depuis 24 h, les fichiers des pièces retirées et les fichiers que plus
   aucune pièce ne désigne depuis 24 h (bilan dans son journal).
+- Journal des changements (lot 9, migration PostgreSQL `0014_changements`, `server/src/purge-changements.ts`) : la
+  base inscrit, dans la transaction de chaque écriture, la table et la clé des lignes changées (table `changements`) ;
+  chaque instance s'en sert pour mettre à jour son instantané en mémoire sans tout relire. Les tâches du quart d'heure
+  le purgent en gardant au moins une heure et 20 000 révisions. Au démarrage, Cursus refuse un schéma où manque la
+  table, une colonne `purge` ou `epoque` de `revision`, ou un des déclencheurs `revision_lignes_i`, `_u`, `_d`, `_t`
+  d'une table (désactivé compris) : une table ajoutée par une migration postérieure à 0014 les reçoit dans sa propre
+  migration. Après un rechargement des données seules (`pg_restore --data-only`) : redémarrer les instances ou lancer
+  `npm run revision:epoque` (`docs/SAUVEGARDE.md`, section 10).
 - Journaux du serveur (`server/src/logs.ts`) : une ligne par message de démarrage, d'arrêt ou d'incident, et une ligne
   par requête : heure, méthode, chemin sans ses paramètres, statut, durée en millisecondes et numéro du compte connecté.
   Jamais le contenu d'une requête ni ses paramètres, qui portent des données personnelles ; la sonde de santé réussie

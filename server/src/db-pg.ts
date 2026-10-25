@@ -8,7 +8,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import pg from 'pg';
 import { RACINE } from './chemins.ts';
-import { type ColType, Db, type Ecriture, snake, type SqlValeur, type TableDef, type TableName, TABLES, TABLES_SANS_REVISION, toDb } from './db.ts';
+import { type ColType, Db, type Ecriture, type EtatRevision, snake, type SqlValeur, type TableDef, type TableName, TABLES, TABLES_SANS_REVISION, toDb } from './db.ts';
 
 type Row = Record<string, unknown>;
 
@@ -18,6 +18,11 @@ export const SCHEMA_PG = 'cursus';
 export const DOSSIER_MIGRATIONS_PG = join(RACINE, 'server', 'migrations-pg');
 /** Tables dont SQLite donne l'ordre par le rowid (référentiels, `Db.all(…, 'rowid')`) ou départage les tris : colonne `rang`. */
 export const TABLES_RANG: ReadonlySet<TableName> = new Set<TableName>(['formations', 'habilitations', 'destinations', 'projets', 'equipes', 'chantiers', 'horaires']);
+/**
+ * Déclencheurs du journal des changements posés sur chaque table hors `TABLES_SANS_REVISION` (migration
+ * 0014_changements) : insertion, modification, suppression, TRUNCATE. Exigés par `PgDb.controlerSchema`.
+ */
+export const DECLENCHEURS_CHANGEMENTS = ['revision_lignes_i', 'revision_lignes_u', 'revision_lignes_d', 'revision_lignes_t'] as const;
 
 /**
  * Lecture des types par le pilote, alignée sur ce que rendait SQLite et qu'attend le domaine (shared/) :
@@ -290,6 +295,19 @@ export class PgDb extends Db {
       WHERE a.attrelid = to_regclass(?) AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`, [`${this.schema}.${snake(table)}`])).map(r => r.c);
   }
 
+  /**
+   * État de la révision (lot 9, chantier 1, étape 2) : l'époque est celle de la colonne augmentée de l'OID de la table
+   * `revision`. Un pg_restore qui recrée les tables (procédure de docs/SAUVEGARDE.md) remet l'ancienne valeur de la
+   * colonne, mais pas l'OID : l'époque change, et tout écart qui la traverse est inconnu (relecture complète). Un
+   * rechargement des données seules garde l'OID : `npm run revision:epoque` (server/src/purge-changements.ts) ou le
+   * redémarrage des instances.
+   */
+  async etatRevision(): Promise<EtatRevision> {
+    const r = await this.one<{ n: number; epoque: number; purge: number; oid: number }>(
+      `SELECT n, epoque, purge, CAST(CAST(to_regclass(?) AS oid) AS bigint) AS oid FROM revision`, [`${this.schema}.revision`]);
+    return { n: Number(r?.n ?? 0), epoque: Number(r?.epoque ?? 0) + Number(r?.oid ?? 0), purge: Number(r?.purge ?? 0) };
+  }
+
   protected versBase(t: ColType, v: unknown): SqlValeur {
     // Booléens NOT NULL DEFAULT false : une valeur absente vaut faux, comme à la lecture de SQLite.
     if (t === 'bool') return !!v;
@@ -538,6 +556,21 @@ export class PgDb extends Db {
     if (!lignes.some(l => l.t === 'revision')) manquantes.push('table revision');
     for (const name of Object.keys(TABLES) as TableName[]) {
       if (!TABLES_SANS_REVISION.has(name) && lignes.some(l => l.t === snake(name)) && !declencheurs.has(snake(name))) manquantes.push(`déclencheur revision de ${snake(name)}`);
+    }
+    // Journal des changements (lot 9, chantier 1, migration 0014_changements) : la table `changements`, la purge et
+    // l'époque de `revision`, et sur chaque table hors TABLES_SANS_REVISION ses quatre déclencheurs `revision_lignes_*`,
+    // actifs (insertion, modification, suppression, TRUNCATE). Sans eux, le cache passerait d'une révision à l'autre
+    // par un delta qui oublie les lignes de cette table. Une table ajoutée après 0014 les reçoit dans sa propre migration.
+    for (const c of ['changements.n', 'changements.tbl', 'changements.pk', 'revision.purge', 'revision.epoque']) {
+      if (!vues.has(c)) manquantes.push(lignes.some(l => l.t === c.split('.')[0]) ? c : `table ${c.split('.')[0]}`);
+    }
+    const lignesChangees = new Set((await this.query<{ t: string; g: string }>(`SELECT c.relname AS t, g.tgname AS g FROM pg_trigger g
+      JOIN pg_class c ON c.oid = g.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = ? AND g.tgname LIKE 'revision_lignes_%' AND g.tgenabled <> 'D'`, [this.schema])).map(l => `${l.t}.${l.g}`));
+    for (const name of Object.keys(TABLES) as TableName[]) {
+      if (TABLES_SANS_REVISION.has(name) || !lignes.some(l => l.t === snake(name))) continue;
+      const absents = DECLENCHEURS_CHANGEMENTS.filter(g => !lignesChangees.has(`${snake(name)}.${g}`));
+      if (absents.length) manquantes.push(`déclencheur${absents.length > 1 ? 's' : ''} ${absents.join(', ')} de ${snake(name)}`);
     }
     if (manquantes.length) {
       throw new SchemaPgError(`schéma ${this.schema} incomplet par rapport au code (${manquantes.length} manquante${manquantes.length > 1 ? 's' : ''} : `

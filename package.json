@@ -22,6 +22,7 @@
     "purge-demo": "node --disable-warning=ExperimentalWarning server/src/purge-demo-cli.ts",
     "pieces:chiffrer": "node --disable-warning=ExperimentalWarning server/src/pieces-chiffrer-cli.ts",
     "pieces:verifier": "node --disable-warning=ExperimentalWarning server/src/pieces-chiffrer-cli.ts --verifier",
+    "revision:epoque": "node --disable-warning=ExperimentalWarning server/src/revision-epoque-cli.ts",
     "verifier-production": "node --disable-warning=ExperimentalWarning server/src/verifier-production.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && node scripts/verifier-await.mjs",
     "check:await": "node scripts/verifier-await.mjs",

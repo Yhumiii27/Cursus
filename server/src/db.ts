@@ -705,7 +705,10 @@ export abstract class Db {
   //   0014_changements et de `SqliteDb.poserRevision`) : contrat de la relecture partielle du cache de l'instantané.
   //   À lire dans une même lecture stable (ou sous le verrou d'écriture) que les données qu'on y rapporte. —
 
-  /** Révision, époque et purge de la base, lues ensemble (`EtatRevision`). */
+  /**
+   * Révision, époque et purge de la base, lues ensemble (`EtatRevision`). PostgreSQL (`PgDb.etatRevision`) ajoute à
+   * l'époque l'OID de la table `revision` : un pg_restore qui recrée les tables change d'époque.
+   */
   async etatRevision(): Promise<EtatRevision> {
     const r = await this.one<{ n: number; epoque: number; purge: number }>('SELECT n, epoque, purge FROM revision');
     return { n: Number(r?.n ?? 0), epoque: Number(r?.epoque ?? 0), purge: Number(r?.purge ?? 0) };

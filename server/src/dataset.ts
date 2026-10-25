@@ -41,7 +41,8 @@ import { lirePieces, piecesVisibles } from './pieces.ts';
 import { resumeDeplacementsPaie } from './deplacements-paie.ts';
 import { dossiersEchus } from './conservation.ts';
 import { jetonActif } from './agenda.ts';
-import { geler, gelEnTest, vueEnCache } from './cache-instantane.ts';
+import { geler, gelEnTest, vuePartagee } from './cache-instantane.ts';
+import { corpsAvecTete, filtreIndexe, type FiltrePerimetre, JsonBrut } from './vues-cache.ts';
 import { avecPositions, avecProposees } from '../../shared/rules/liste-attente.ts';
 import type { AttenteSession } from '../../shared/types.ts';
 import { exercicesEvaluation, indicateursEvaluation, SEUIL_ANONYMAT } from '../../shared/rules/evaluation-formation.ts';
@@ -411,20 +412,49 @@ const avecFinCarriere = (d: Domain, x: Entretien): Entretien => {
  * l'abonnement à l'agenda de la personne.
  */
 export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset> {
+  const { vue, tete } = await partiesInstantane(db, user);
+  return { ...vue, ...tete };
+}
+
+/**
+ * Corps JSON de l'instantané de `user` (lot 9 : GET /api/data et réponse d'une action, server/src/app.ts), octet pour
+ * octet `JSON.stringify(buildSnapshot(db, user))`. Vue partagée du cache : son corps est sérialisé une fois par entrée
+ * et par clé de vue, la tête de la requête recollée (server/src/vues-cache.ts) ; sinon sérialisé pour cette requête.
+ */
+export async function corpsInstantane(db: Db, user: CurrentUser): Promise<JsonBrut> {
+  const { vue, cle, tete } = await partiesInstantane(db, user);
+  return cle === null ? new JsonBrut(JSON.stringify({ ...vue, ...tete })) : corpsAvecTete(vue, cle, tete);
+}
+
+/**
+ * Parties de l'instantané : la vue (partagée par le cache avec sa clé, jamais modifiée ; ou calculée pour cette requête,
+ * `cle` null) et les champs de tête propres à la requête (`TETE` de server/src/vues-cache.ts), dans l'ordre où
+ * `buildSnapshot` les a toujours posés.
+ */
+async function partiesInstantane(db: Db, user: CurrentUser): Promise<{ vue: Dataset; cle: string | null; tete: Partial<Dataset> }> {
   const revision = db.revision;
-  const vue = await vueEnCache(db, user, todayIso(), revision, async lecteur => await loadFull(db, lecteur), full => vueDe(full, user))
-    ?? vueDe(await loadFull(db, user), user);
+  const partagee = await vuePartagee(db, user, todayIso(), revision, async lecteur => await loadFull(db, lecteur), full => vueDe(full, user));
+  const vue = partagee?.vue ?? vueDe(await loadFull(db, user), user);
+  // Vue partagée : utilisateur et révision de cette requête (ceux du premier calcul sinon).
+  const tete: Partial<Dataset> = partagee ? { user, revision } : {};
   if (user.role === 'rh') {
     const droits = droitsRh(user);
     // Dossiers des salariés sortis dont une durée de conservation est échue (t016) : administrateur RH seulement.
-    return droits.includes('rh') && droits.includes('admin') ? { ...vue, conservation: await dossiersEchus(db, vue.settings, vue.today) } : vue;
+    if (droits.includes('rh') && droits.includes('admin')) tete.conservation = await dossiersEchus(db, vue.settings, vue.today);
+  } else {
+    // Abonnement à l'agenda personnel (t036) : seulement le fait qu'il existe et sa date, jamais le jeton (haché en base).
+    const j = await jetonActif(db, user.empId!);
+    tete.agendaJeton = j ? { creeLe: j.creeLe } : null;
   }
-  // Abonnement à l'agenda personnel (t036) : seulement le fait qu'il existe et sa date, jamais le jeton (haché en base).
-  return { ...vue, agendaJeton: await (async () => { const j = await jetonActif(db, user.empId!); return j ? { creeLe: j.creeLe } : null; })() };
+  return { vue, cle: partagee?.cle ?? null, tete };
 }
 
-/** Vue de `user` sur les données `full` (lues pour lui, ou lecture partagée du cache) : calcul seul, sans lecture de la base. */
-function vueDe(full: Dataset, user: CurrentUser): Dataset {
+/**
+ * Vue de `user` sur les données `full` (lues pour lui, ou lecture partagée du cache) : calcul seul, sans lecture de la
+ * base. `filtre` trouve les lignes du périmètre (`mine`) : index par salarié (lot 9, server/src/vues-cache.ts), ou
+ * parcours complet de chaque tableau pour les tests d'exactitude (même résultat).
+ */
+export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre = filtreIndexe): Dataset {
   if (user.role === 'rh') {
     const droits = droitsRh(user);
     // Sans droit « paie » (gestionnaire RH), ni les rubriques d'absence en attente ni celles des lots : le code révèle la catégorie.
@@ -439,7 +469,7 @@ function vueDe(full: Dataset, user: CurrentUser): Dataset {
   }
   const d = new Domain(full);
   const ids = new Set(scopeIds(d, user));
-  const mine = <T extends { empId: number }>(list: T[]) => list.filter(x => ids.has(x.empId));
+  const mine = filtre(ids);
   const isMgr = user.role === 'manager';
   // Consultation N+2 (t136) : mêmes filtres que pour l'équipe directe, aptitude réduite au verdict (ni avis, ni
   // restrictions), ni entretiens ni demandes au service RH (affaires du valideur direct).

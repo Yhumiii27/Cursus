@@ -858,6 +858,62 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
       complète après chaque écriture dans un seul processus. Suites proposées : relecture partielle de la lecture
       partagée (journal des lignes changées par révision : seules les feuilles et absences modifiées relues),
       fenêtre de lecture des années closes (règle par règle), ou plusieurs instances derrière le proxy.
+- **Oracle d'exactitude** (lot 9, chantier 4, étape 1 ; `scripts/charge/verifier.ts`, `tests/support/oracle.ts`) : tout
+  ce que Cursus sert depuis sa lecture partagée doit être exactement ce que donne la relecture complète (`loadFull`,
+  `CURSUS_CACHE_INSTANTANE=0`), qui reste l'oracle et le repli de tout cache incrémental. Comparaison à l'identique
+  (`isDeepStrictEqual` : types, ordre des lignes, propriétés absentes ou indéfinies ; `ecart` rend le premier chemin qui
+  diffère) de quatre objets : la **vue** de chaque lecteur (chaque compte actif dans chacun de ses espaces, puis chaque
+  profil de `PROFILS_RH`, `aucun` compris : `lecteursDe`), servie par le cache dans une lecture stable contre la même
+  lecture cache coupé (`sansCache`) ; l'**entrée** du cache (jeu remis à une action du lecteur interne sans paie,
+  `donneesAction` dans une transaction, exigé servi par la lecture partagée de la révision courante) ; le **jeu
+  d'action** de chaque lecteur (`donneesAction` contre `loadFull` lu dans la même transaction) ; la **réponse** d'une
+  action (instantané renvoyé contre l'instantané lu directement pour le compte, relu après l'action). Une comparaison
+  pendant laquelle la révision de la base change est refaite (trois essais), puis comptée « état instable ».
+  - *Banc* (`rejouer`) : suite d'écritures tirée d'une graine (`aleatoire` de `scripts/charge/commun.ts` : même graine,
+    mêmes tirages, mêmes issues, sur les deux moteurs). Chaque pas est soit du SQL direct, comme une reprise ou un outil
+    (`UPDATE` d'une ou de plusieurs lignes, `INSERT`, `DELETE`, upsert `ON CONFLICT` sur les feuilles, les projets, les
+    équipes et les réglages ; une contrainte refusée par la base ne change rien), soit une action du registre `ACTIONS`
+    envoyée par `POST /api/actions/:nom` à l'application montée sur une boucle locale, par un compte tiré au hasard dans
+    l'un de ses espaces (service RH deux fois sur cinq, manager une fois sur quatre, sinon collaborateur). Paramètres :
+    tirages ciblés pour la saisie, les absences, les compteurs, les fiches, les sessions et les certifications ; pour les
+    autres actions, d'après les noms qu'elles lisent dans leur code (`p.empId`, `p.id`, `p.du`…), tirés des données du
+    moment. Sont exclues la remise à zéro de la démonstration, l'activation et la réinitialisation des comptes (les
+    sessions du banc deviendraient inutilisables) et la messagerie. Un refus (4xx) fait partie du jeu ; une 5xx est une
+    erreur. Avant chaque action : jeu de l'acteur ; après : réponse ; après chaque pas (ou tous les `verifierTous`) :
+    vues et entrée, et jeux d'action de tous les lecteurs tous les `jeux` pas et au dernier.
+  - *Jeux* : démonstration (`baseDemo`) et jeu de charge d'un an (`baseUnAn` : 120 fiches, 6 027 feuilles, 1 479
+    absences, 10 lots transmis et 10 annulés), sur SQLite (`npm test`) et PostgreSQL (`npm run test:pg`). Le jeu d'un an
+    vient de `scripts/charge/fabrique.ts` (`peuplerJeu`), que le générateur de l'essai de charge appelle aussi : le jeu
+    des tests est celui de `npm run charge:generer -- --ans 1` (vérifié à l'identique, feuilles, absences et fiches), hors
+    journal, envois, relevés et jetons d'agenda ; feuilles et absences y sont insérées en masse par le SQL commun aux deux
+    moteurs (`insererPortable`), le générateur gardant ses insertions par le pilote.
+  - *Tests* : `tests/oracle-cache.test.ts` (comparaison, porte, lecteurs, une divergence vue quand la révision est
+    ramenée en arrière après une écriture, reproductibilité ; démonstration, 40 pas, tout comparé après chaque pas ; jeu
+    d'un an, 4 pas sur un échantillon de lecteurs, puis les cinq profils RH, 4 managers et 4 collaborateurs) et
+    `tests/regles-incrementales.test.ts` (règles de chaque salarié sur le jeu de la lecture partagée et sur celui de la
+    relecture complète : `recupInfo`, `cpInfo`, `acquisitionPeriode` des périodes N-1 à N+1, `rttInfo`, `cetInfo`,
+    `contingentAnnuel`, `corAValider` de chaque feuille soumise, `moyenne12Semaines`, `requalificationPartiel`,
+    `cumulForfaitJours`, `syntheseC2p` des années suivies, `sagePending`, avant et après une suite d'écritures). Sur le
+    cache actuel (une entrée par révision), tout est identique. Réglages : `CURSUS_ORACLE_GRAINES` (graines séparées
+    par des virgules), `CURSUS_ORACLE_PAS`, `CURSUS_ORACLE_COMPLET=1` (300 pas et trois graines sur la démonstration,
+    60 pas sur le jeu d'un an, tous les lecteurs à chaque pas : plusieurs minutes par graine). Coût : une vue RH lue
+    directement prend 0,4 à 0,7 s sur le jeu d'un an (couverture, C2P, résumés de la paie), d'où l'échantillon par
+    défaut ; à refaire sur le cache incrémental à l'étape 2, avec 300 à 1 000 opérations et plusieurs graines.
+  - *Essai de charge* : `npm run charge -- … --verifier-exactitude [k]` (k = 50 par défaut). Toutes les k actions
+    validées et à la fin de chaque scénario, la porte des écritures de l'essai (`Porte` : actions, appels de Keystone,
+    tâches du quart d'heure et de fond) se ferme, les écritures en cours finissent, puis l'entrée, les vues et les jeux
+    d'action de 30 collaborateurs, 8 managers et de chaque profil RH sont comparés à la relecture complète ; les
+    écritures suivantes attendent la fin de la comparaison (les durées relevées ne comptent pas cette attente, mais les
+    scénarios durent plus longtemps : 24 s par comparaison sur le jeu d'un an). Invariant entier
+    « aucune divergence avec la relecture complète » (`juger` de `scripts/charge/seuils.ts`, au moins une comparaison),
+    section « Exactitude » du rapport (comparaisons, refaites, premières divergences). Relevés du cache, en plus :
+    relectures complètes (lectures de toute la table des feuilles hors comparaisons, comptées sur `db.query`), taille de
+    la table `changements` quand elle existe ; durée du delta, vues reportées ou recalculées et replis quand le cache les
+    expose (`statistiquesCache(db)` de `server/src/cache-instantane.ts`, cache incrémental de l'étape 2 ; « non exposés »
+    sinon). Essai du 25 octobre 2026 (jeu d'un an, S2 puis S3 pendant 40 s, `--verifier-exactitude 20`, PostgreSQL 16
+    local) : 4 états comparés, 356 comparaisons, 0 divergence ; 99 relectures complètes en S2 et 12 de plus en S3.
+    CI : sur une pull request qui touche aussi `server/src/cache-instantane.ts`, `delta.ts`, `lecture-brute.ts`,
+    `vues-cache.ts` ou `scripts/charge/`, l'essai du jeu d'un an (S2, S3) tourne avec `--verifier-exactitude`.
 - **Réinitialisation de la démonstration** (`server/src/reset.ts`, garde-fous dans `server/src/reinitialisation.ts`) :
   refusée hors `CURSUS_DEMO=1`, avec `NODE_ENV=production` sauf l'application de bureau (`demoSurBoucleLocale`) et l'instance publiée (`demoPublique`), sur
   une base qu'un serveur en service n'a pas encore mise à jour (`controlerPourOutil`), sur une base qu'un serveur

@@ -35,11 +35,15 @@ export interface Verdict { critere: string; mesure: string; seuil: string; ok: b
 
 const ms = (v: number) => (v >= 10_000 ? `${(v / 1000).toFixed(1)} s` : `${Math.round(v)} ms`);
 
+/** Comparaisons à la relecture complète (--verifier-exactitude, scripts/charge/verifier.ts) : nombre et divergences. */
+export interface StatExactitude { comparaisons: number; divergences: number }
+
 /**
  * Verdicts d'un essai : seuils des routes mesurées (absentes du scénario : non jugées) et de la sonde. `sans503` :
- * scénarios S1 à S3, où même un 503 de verrou est un échec.
+ * scénarios S1 à S3, où même un 503 de verrou est un échec. `exactitude` (essai avec --verifier-exactitude) : invariant
+ * entier « 0 divergence » avec la relecture complète, et au moins une comparaison.
  */
-export function juger(routes: Record<string, StatRoute>, sonde: StatSonde, { marge = 1, sans503 = false } = {}): Verdict[] {
+export function juger(routes: Record<string, StatRoute>, sonde: StatSonde, { marge = 1, sans503 = false, exactitude }: { marge?: number; sans503?: boolean; exactitude?: StatExactitude } = {}): Verdict[] {
   const out: Verdict[] = [];
   const duree = (critere: string, mesure: number | undefined, seuil: number) => {
     if (mesure === undefined) return;
@@ -68,6 +72,10 @@ export function juger(routes: Record<string, StatRoute>, sonde: StatSonde, { mar
   const e5xx = Object.values(routes).reduce((n, s) => n + s.e5xx - (sans503 ? 0 : s.e503), 0) + sonde.sante.e5xx;
   invariant(sans503 ? 'aucune erreur 5xx, 503 compris' : 'aucune erreur 5xx (hors 503 « occupé »)', e5xx === 0, String(e5xx), '0');
   invariant('verrou d’écriture tenu moins de 15 s', sonde.tenueVerrouMax < 15_000, ms(sonde.tenueVerrouMax), '< 15 s');
+  if (exactitude) {
+    invariant('aucune divergence avec la relecture complète', exactitude.comparaisons > 0 && exactitude.divergences === 0,
+      `${exactitude.divergences} sur ${exactitude.comparaisons} comparaisons`, '0 (au moins une comparaison)');
+  }
   return out;
 }
 

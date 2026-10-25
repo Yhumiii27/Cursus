@@ -150,8 +150,11 @@ jobs:
           CURSUS_TEST_DATABASE_URL: postgres://postgres:essai-ci-postgres@localhost:5432/postgres
         run: npm run test:coverage:pg
       # Essai de charge (lot 8, chantier E ; docs/ARCHITECTURE.md, « Performances ») : jamais à chaque push. Jeu d'un an,
-      # S2 et S3 pendant 60 s, sur une pull request qui touche l'accès à la base, l'instantané, l'application, la
-      # validation groupée ou les migrations PostgreSQL ; jeu de 5 ans, S1 à S3, sur « Run workflow » et chaque semaine.
+      # S2 et S3 pendant 60 s, sur une pull request qui touche l'accès à la base, l'instantané et son cache (lot 9 :
+      # cache-instantane.ts, delta.ts, lecture-brute.ts, vues-cache.ts), l'application, la validation groupée, les
+      # migrations PostgreSQL ou l'essai lui-même ; jeu de 5 ans, S1 à S3, sur « Run workflow » et chaque semaine.
+      # Sur la pull request, --verifier-exactitude (lot 9, chantier 4) : toutes les 50 actions validées et à la fin de
+      # chaque scénario, entrée du cache, vues et jeux d'action comparés à la relecture complète, invariant « 0 divergence ».
       # Non bloquant au début : seuils ×3 (machines partagées bruyantes), invariants jamais assouplis (santé sous 5 s,
       # aucune 5xx, verrou tenu moins de 15 s) ; rapport publié. Base jetable du job (schéma cursus_charge_*), jamais le
       # serveur commun (refusé par l'outil).
@@ -162,8 +165,8 @@ jobs:
             workflow_dispatch|schedule) echo "ans=5" >> "$GITHUB_OUTPUT"; echo "scenarios=S1,S2,S3" >> "$GITHUB_OUTPUT" ;;
             pull_request)
               git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
-              if git diff --name-only FETCH_HEAD HEAD | grep -qE '^server/src/(db[^/]*\.ts|dataset\.ts|app\.ts|actions/suivi-feuilles\.ts)$|^server/migrations-pg/'; then
-                echo "ans=1" >> "$GITHUB_OUTPUT"; echo "scenarios=S2,S3" >> "$GITHUB_OUTPUT"
+              if git diff --name-only FETCH_HEAD HEAD | grep -qE '^server/src/(db[^/]*\.ts|dataset\.ts|app\.ts|actions/suivi-feuilles\.ts|cache-instantane\.ts|delta\.ts|lecture-brute\.ts|vues-cache\.ts)$|^server/migrations-pg/|^scripts/charge/'; then
+                echo "ans=1" >> "$GITHUB_OUTPUT"; echo "scenarios=S2,S3" >> "$GITHUB_OUTPUT"; echo "exactitude=--verifier-exactitude" >> "$GITHUB_OUTPUT"
               fi ;;
           esac
       - name: Essai de charge (non bloquant)
@@ -173,7 +176,7 @@ jobs:
           CURSUS_TEST_DATABASE_URL: postgres://postgres:essai-ci-postgres@localhost:5432/postgres
         run: |
           npm run charge:generer -- --ans ${{ steps.charge.outputs.ans }} --effectif 100 --interimaires 20 --seed 42
-          npm run charge -- --scenario ${{ steps.charge.outputs.scenarios }} --duree 60 --marge 3
+          npm run charge -- --scenario ${{ steps.charge.outputs.scenarios }} --duree 60 --marge 3 ${{ steps.charge.outputs.exactitude }}
       - name: Publier le rapport de charge
         if: ${{ !cancelled() && steps.charge.outputs.ans }}
         uses: actions/upload-artifact@v4

@@ -410,9 +410,11 @@ const avecFinCarriere = (d: Domain, x: Entretien): Entretien => {
  * chaque requête : les dossiers échus de la conservation (administrateur RH, comptés aussi sur le journal) et
  * l'abonnement à l'agenda de la personne.
  */
-export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset> {
+export async function buildSnapshot(db: Db, user: CurrentUser, { cache = true }: { cache?: boolean } = {}): Promise<Dataset> {
   const revision = db.revision;
-  const vue = await vueEnCache(db, user, todayIso(), revision, async lecteur => await loadFull(db, lecteur), full => vueDe(full, user))
+  // `cache: false` : lecture directe pour cette seule requête (oracle d'exactitude, scripts/charge/verifier.ts), sans
+  // toucher CURSUS_CACHE_INSTANTANE, que les autres requêtes du processus continuent de lire.
+  const vue = (cache ? await vueEnCache(db, user, todayIso(), revision, async lecteur => await loadFull(db, lecteur), full => vueDe(full, user)) : null)
     ?? vueDe(await loadFull(db, user), user);
   if (user.role === 'rh') {
     const droits = droitsRh(user);

@@ -18,13 +18,16 @@
 // --verifier-exactitude [k] (lot 9, chantier 4 ; scripts/charge/verifier.ts) : toutes les k actions validées (50 par
 // défaut), et à la fin de chaque scénario, les écritures de l'essai (actions, Keystone, tâches) sont retenues à une porte le
 // temps de comparer l'entrée du cache, la vue et le jeu d'action de 30 collaborateurs, 8 managers et de chaque profil RH à
-// la relecture complète ; invariant « 0 divergence » (scripts/charge/seuils.ts). Les durées relevées ne comptent pas
-// l'attente à la porte. Relevés du cache : relectures complètes (lectures de toute la table des feuilles hors
-// comparaison), taille de la table `changements` quand elle existe, et, quand le cache les expose
+// la relecture complète ; invariant « 0 divergence » (scripts/charge/seuils.ts). La lecture directe de l'oracle ne coupe
+// pas le cache : les GET /api/data des utilisateurs simulés, qui ne passent pas la porte, restent servis par le cache
+// pendant une comparaison et sont mesurés comme les autres ; les écritures retenues à la porte comptent leur attente,
+// et la comparaison occupe le processus (CPU, mémoire d'une relecture complète), à lire avec les durées. Relevés du
+// cache : relectures complètes (lectures de toute la table des feuilles, sauf celles de la comparaison elle-même), taille de la table `changements` quand elle existe, et, quand le cache les expose
 // (`statistiquesCache` de server/src/cache-instantane.ts), durée du delta, vues reportées ou recalculées, replis.
 // Chaque scénario remet d'abord en place ce qu'il consomme : feuilles soumises de la fin de mois (S3), semaine en cours
 // en brouillon (S2), lot ouvert de la période annulé (S4). La conservation (S6) supprime, elle, des lignes du journal : le
 // jeu s'en trouve allégé pour les essais suivants (regénérer au besoin).
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
@@ -86,11 +89,14 @@ async function executer(): Promise<void> {
   await refuserServeurCommun(sonde);
   const db = await ouvrirPostgres(url, { schema: jeu.schema, env: process.env });
   // Relectures complètes : toute lecture de la table des feuilles sans condition (`loadFull`, repli d'un cache
-  // incrémental), hors des comparaisons de --verifier-exactitude, qui relisent tout par construction.
-  const cache = { relectures: 0, enComparaison: false };
+  // incrémental), sauf celles de la comparaison de --verifier-exactitude elle-même, qui relit tout par construction
+  // (repérées par leur contexte asynchrone, `parOracle`) ; les lectures des utilisateurs simulés faites pendant une
+  // comparaison sont comptées.
+  const cache = { relectures: 0 };
+  const parOracle = new AsyncLocalStorage<true>();
   const query = db.query.bind(db);
   db.query = (async (sql: string, params?: readonly never[]) => {
-    if (!cache.enComparaison && /^\s*SELECT \* FROM feuilles\s+ORDER BY/i.test(sql)) cache.relectures++;
+    if (!parOracle.getStore() && /^\s*SELECT \* FROM feuilles\s+ORDER BY/i.test(sql)) cache.relectures++;
     return await query(sql, params);
   }) as typeof db.query;
   const app = createApp(db, { journalRequetes: false, production: false });
@@ -165,15 +171,17 @@ async function executer(): Promise<void> {
   let validees = 0;
   let comparaison: Promise<void> | null = null;
   /** Comparaison porte fermée : les écritures en cours finissent, les suivantes attendent la fin de la comparaison. */
+  // Comparaison levée (lecture refusée, délai dépassé) : un état non vérifié, compté dans `interrompues` et jugé par
+  // l'invariant (scripts/charge/seuils.ts), pas seulement rangé dans les erreurs.
+  let interrompues = 0;
   const comparer = async () => {
     await porte.fermer();
-    cache.enComparaison = true;
     try {
-      bilans.push(await verifierExactitude(db, lecteurs));
+      bilans.push(await parOracle.run(true, async () => await verifierExactitude(db, lecteurs)));
     } catch (err) {
+      interrompues++;
       erreurs.push(`comparaison à la relecture complète → ${err instanceof Error ? err.message : err}`);
     } finally {
-      cache.enComparaison = false;
       porte.ouvrir();
     }
   };
@@ -401,7 +409,7 @@ async function executer(): Promise<void> {
     if (exactitude) {
       while (comparaison) await comparaison;
       await comparer();
-      console.log(`    exactitude : ${bilans.length} comparaison(s) d'état, ${bilans.reduce((n, x) => n + x.divergences.length, 0)} divergence(s)`);
+      console.log(`    exactitude : ${bilans.length} comparaison(s) d'état, ${bilans.reduce((n, x) => n + x.divergences.length, 0)} divergence(s)${interrompues ? `, ${interrompues} interrompue(s)` : ''}`);
     }
     releves[s] = { relectures: cache.relectures, changements: await tailleChangements() };
   }
@@ -421,7 +429,8 @@ async function executer(): Promise<void> {
   const stats: StatSonde = { sante: statistiques(sante.durees, sante), ...etat };
   const divergences: Divergence[] = bilans.flatMap(b => b.divergences);
   const exact = exactitude ? {
-    k: exactitude, etats: bilans.length, comparaisons: bilans.reduce((n, b) => n + b.comparaisons, 0), refaites: bilans.reduce((n, b) => n + b.refaites, 0),
+    k: exactitude, etats: bilans.length, echecs: interrompues, comparaisons: bilans.reduce((n, b) => n + b.comparaisons, 0), triviales: bilans.reduce((n, b) => n + b.triviales, 0),
+    refaites: bilans.reduce((n, b) => n + b.refaites, 0),
     divergences: divergences.length, dureeMs: Math.round(bilans.reduce((n, b) => n + b.dureeMs, 0)), detail: divergences.slice(0, 20),
   } : null;
   const verdicts: Verdict[] = juger(routes, stats, { marge, sans503: scenarios.every(s => ['S1', 'S2', 'S3'].includes(s)), exactitude: exact ?? undefined });
@@ -447,12 +456,13 @@ async function executer(): Promise<void> {
     `- pool : ${stats.poolAttenteMax} appels en attente d’une connexion au plus, attente continue au plus ${ms(stats.attentePoolMax)} ; lectures stables en attente d’une place au plus : ${stats.lecturesAttenteMax} ; écritures de l’instance en attente de leur tour au plus : ${stats.ecrituresAttenteMax}`,
     `- mémoire : RSS au plus ${Math.round(stats.rssMax / 1048576)} Mo, tas ${Math.round(stats.tasMax / 1048576)} Mo`, '',
     '## Cache de l’instantané', '',
-    ...Object.entries(releves).map(([sc, v]) => `- après ${sc} : ${v.relectures} relecture${v.relectures > 1 ? 's' : ''} complète${v.relectures > 1 ? 's' : ''} (toute la table des feuilles, hors comparaisons) depuis le début ; `
+    ...Object.entries(releves).map(([sc, v]) => `- après ${sc} : ${v.relectures} relecture${v.relectures > 1 ? 's' : ''} complète${v.relectures > 1 ? 's' : ''} (toute la table des feuilles, hors lectures de l’oracle) depuis le début ; `
       + (v.changements === null ? 'table `changements` absente' : `${v.changements} lignes dans \`changements\``)),
     `- durée du delta, vues reportées ou recalculées, replis : ${statsCache ? JSON.stringify(statsCache) : 'non exposés par ce cache (`statistiquesCache`, cache incrémental du lot 9)'}`, '',
     ...(exact ? ['## Exactitude (--verifier-exactitude)', '',
       `- ${exact.etats} état${exact.etats > 1 ? 's' : ''} comparé${exact.etats > 1 ? 's' : ''} (toutes les ${exact.k} actions validées et à la fin de chaque scénario), ${exact.comparaisons} comparaisons `
-        + `(${lecteurs.length} lecteurs : vues, entrée, jeux d'action), ${exact.refaites} refaite${exact.refaites > 1 ? 's' : ''} ; ${(exact.dureeMs / 1000).toFixed(1)} s de comparaison, écritures retenues pendant ce temps`,
+        + `(${lecteurs.length} lecteurs : vues, entrée, jeux d'action ; ${exact.triviales} triviale${exact.triviales > 1 ? 's' : ''} à part), ${exact.refaites} refaite${exact.refaites > 1 ? 's' : ''} ; ${(exact.dureeMs / 1000).toFixed(1)} s de comparaison, écritures retenues pendant ce temps (lectures servies par le cache)`,
+      `- comparaisons d’état interrompues par une erreur : ${exact.echecs}`,
       `- divergences : ${exact.divergences}`, ...exact.detail.map(d => `  - ${d.objet} ${d.cle} (révision ${d.revision}) : ${d.ecart}`), ''] : []),
     ...(Object.keys(scenariosFaits).length ? ['## Traitements', '', ...Object.entries(scenariosFaits).map(([k, v]) => `- ${k} : ${v}`), ''] : []),
     ...(erreurs.length ? ['## Erreurs (100 premières)', '', ...erreurs.slice(0, 100).map(e => `- ${e}`), ''] : []),

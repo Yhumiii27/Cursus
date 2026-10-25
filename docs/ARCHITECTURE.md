@@ -864,9 +864,12 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   (`isDeepStrictEqual` : types, ordre des lignes, propriétés absentes ou indéfinies ; `ecart` rend le premier chemin qui
   diffère) de quatre objets : la **vue** de chaque lecteur (chaque compte actif dans chacun de ses espaces, puis chaque
   profil de `PROFILS_RH`, `aucun` compris : `lecteursDe`), servie par le cache dans une lecture stable contre la même
-  lecture cache coupé (`sansCache`) ; l'**entrée** du cache (jeu remis à une action du lecteur interne sans paie,
+  lecture faite directement (`instantaneDirect` : `buildSnapshot(…, { cache: false })`, `loadFull` puis la vue, sans
+  toucher `CURSUS_CACHE_INSTANTANE` : le cache reste actif pour les autres requêtes du processus) ; l'**entrée** du cache (jeu remis à une action du lecteur interne sans paie,
   `donneesAction` dans une transaction, exigé servi par la lecture partagée de la révision courante) ; le **jeu
-  d'action** de chaque lecteur (`donneesAction` contre `loadFull` lu dans la même transaction) ; la **réponse** d'une
+  d'action** de chaque lecteur (`donneesAction` contre `loadFull` lu dans la même transaction ; quand l'entrée de la
+  révision courante manque, l'action reçoit `loadFull` lui-même : comparaison *triviale*, comptée à part dans
+  `triviales`, jamais dans `comparaisons`) ; la **réponse** d'une
   action (instantané renvoyé contre l'instantané lu directement pour le compte, relu après l'action). Une comparaison
   pendant laquelle la révision de la base change est refaite (trois essais), puis comptée « état instable ».
   - *Banc* (`rejouer`) : suite d'écritures tirée d'une graine (`aleatoire` de `scripts/charge/commun.ts` : même graine,
@@ -874,7 +877,11 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     (`UPDATE` d'une ou de plusieurs lignes, `INSERT`, `DELETE`, upsert `ON CONFLICT` sur les feuilles, les projets, les
     équipes et les réglages ; une contrainte refusée par la base ne change rien), soit une action du registre `ACTIONS`
     envoyée par `POST /api/actions/:nom` à l'application montée sur une boucle locale, par un compte tiré au hasard dans
-    l'un de ses espaces (service RH deux fois sur cinq, manager une fois sur quatre, sinon collaborateur). Paramètres :
+    l'un de ses espaces (service RH deux fois sur cinq, manager une fois sur quatre, sinon collaborateur). Pour la saisie,
+    la validation des feuilles et les absences, neuf fois sur dix, la ligne visée (feuille modifiable qui a des lignes,
+    feuille soumise, absence demandée ou signalée) est tirée d'abord, puis l'acteur parmi ceux qui en ont le droit
+    (salarié, son manager, service RH au droit « rh » ; administrateur RH pour une réouverture), et la cellule parmi les
+    lignes de la feuille ; l'upsert direct des feuilles crée une ligne de projet vide. Paramètres :
     tirages ciblés pour la saisie, les absences, les compteurs, les fiches, les sessions et les certifications ; pour les
     autres actions, d'après les noms qu'elles lisent dans leur code (`p.empId`, `p.id`, `p.du`…), tirés des données du
     moment. Sont exclues la remise à zéro de la démonstration, l'activation et la réinitialisation des comptes (les
@@ -888,8 +895,12 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     journal, envois, relevés et jetons d'agenda ; feuilles et absences y sont insérées en masse par le SQL commun aux deux
     moteurs (`insererPortable`), le générateur gardant ses insertions par le pilote.
   - *Tests* : `tests/oracle-cache.test.ts` (comparaison, porte, lecteurs, une divergence vue quand la révision est
-    ramenée en arrière après une écriture, reproductibilité ; démonstration, 40 pas, tout comparé après chaque pas ; jeu
-    d'un an, 4 pas sur un échantillon de lecteurs, puis les cinq profils RH, 4 managers et 4 collaborateurs) et
+    ramenée en arrière après une écriture, reproductibilité, lecture directe sans effet sur le cache des autres
+    lectures ; démonstration, 40 pas : vues de tous les lecteurs et entrée comparées après chaque pas, jeu de l'acteur
+    avant chaque action, jeux d'action de tous les lecteurs tous les 5 pas et au dernier ; au moins une saisie de
+    cellule, une soumission ou décision sur une feuille et une action d'absence validées, une action validée sur cinq
+    pas, au plus une comparaison triviale ; jeu d'un an, 4 pas sur un échantillon de lecteurs, puis les cinq profils
+    RH, 4 managers et 4 collaborateurs) et
     `tests/regles-incrementales.test.ts` (règles de chaque salarié sur le jeu de la lecture partagée et sur celui de la
     relecture complète : `recupInfo`, `cpInfo`, `acquisitionPeriode` des périodes N-1 à N+1, `rttInfo`, `cetInfo`,
     `contingentAnnuel`, `corAValider` de chaque feuille soumise, `moyenne12Semaines`, `requalificationPartiel`,
@@ -903,15 +914,24 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     validées et à la fin de chaque scénario, la porte des écritures de l'essai (`Porte` : actions, appels de Keystone,
     tâches du quart d'heure et de fond) se ferme, les écritures en cours finissent, puis l'entrée, les vues et les jeux
     d'action de 30 collaborateurs, 8 managers et de chaque profil RH sont comparés à la relecture complète ; les
-    écritures suivantes attendent la fin de la comparaison (les durées relevées ne comptent pas cette attente, mais les
-    scénarios durent plus longtemps : 24 s par comparaison sur le jeu d'un an). Invariant entier
-    « aucune divergence avec la relecture complète » (`juger` de `scripts/charge/seuils.ts`, au moins une comparaison),
-    section « Exactitude » du rapport (comparaisons, refaites, premières divergences). Relevés du cache, en plus :
-    relectures complètes (lectures de toute la table des feuilles hors comparaisons, comptées sur `db.query`), taille de
+    écritures suivantes attendent la fin de la comparaison (24 s par comparaison sur le jeu d'un an), et leur durée
+    relevée compte cette attente. Les lectures (`GET /api/data` des utilisateurs simulés) ne passent pas la porte :
+    elles restent servies par le cache pendant la comparaison, mesurées comme les autres, mais partagent le processus
+    avec elle (CPU, mémoire d'une relecture complète) : un essai avec `--verifier-exactitude` juge l'exactitude, ses
+    durées et sa mémoire se lisent avec cette réserve, et la mesure de référence se fait sans l'option. Invariant entier
+    « aucune divergence avec la relecture complète » (`juger` de `scripts/charge/seuils.ts` : au moins une comparaison,
+    aucune divergence, aucune comparaison d'état interrompue par une erreur, `echecs`), section « Exactitude » du
+    rapport (comparaisons, triviales, refaites, interrompues, premières divergences). Relevés du cache, en plus :
+    relectures complètes (lectures de toute la table des feuilles comptées sur `db.query`, sauf celles de la
+    comparaison elle-même, repérées par leur contexte asynchrone ; celles des utilisateurs pendant une comparaison
+    comptent), taille de
     la table `changements` quand elle existe ; durée du delta, vues reportées ou recalculées et replis quand le cache les
     expose (`statistiquesCache(db)` de `server/src/cache-instantane.ts`, cache incrémental de l'étape 2 ; « non exposés »
     sinon). Essai du 25 octobre 2026 (jeu d'un an, S2 puis S3 pendant 40 s, `--verifier-exactitude 20`, PostgreSQL 16
-    local) : 4 états comparés, 356 comparaisons, 0 divergence ; 99 relectures complètes en S2 et 12 de plus en S3.
+    local), refait après la relecture de l'étape 1 (lecture directe sans couper le cache, lectures des utilisateurs
+    pendant les comparaisons comptées) : 5 états comparés, 445 comparaisons, aucune triviale ni interrompue, 0
+    divergence ; 129 relectures complètes en S2 et 14 de plus en S3 ; `temps.setCell` p95 6,5 s, attente du verrou
+    6,9 s, écritures retenues à la porte comprises (113 s de comparaison en tout).
     CI : sur une pull request qui touche aussi `server/src/cache-instantane.ts`, `delta.ts`, `lecture-brute.ts`,
     `vues-cache.ts` ou `scripts/charge/`, l'essai du jeu d'un an (S2, S3) tourne avec `--verifier-exactitude`.
 - **Réinitialisation de la démonstration** (`server/src/reset.ts`, garde-fous dans `server/src/reinitialisation.ts`) :

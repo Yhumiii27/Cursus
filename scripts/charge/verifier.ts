@@ -1,6 +1,6 @@
 // Oracle d'exactitude (lot 9, chantier 4) : tout ce que Cursus sert depuis sa lecture partagée (entrée du cache de
 // l'instantané, jeu d'une action, vue de chaque compte, espace et profil) doit être exactement ce que donne la relecture
-// complète de la base (`loadFull`, CURSUS_CACHE_INSTANTANE=0). Le chemin complet reste l'oracle et le repli : toute mise
+// complète de la base (`loadFull`, ce que sert CURSUS_CACHE_INSTANTANE=0). Le chemin complet reste l'oracle et le repli : toute mise
 // à jour incrémentale du cache (journal des changements, delta fusionné, vues reportées) se juge ici, ligne pour ligne et
 // dans le même ordre (`isDeepStrictEqual`).
 // Employé par le banc d'oracle des tests (tests/support/oracle.ts : suite d'écritures aléatoire, comparaison après chaque
@@ -63,15 +63,14 @@ export function ecart(attendu: unknown, obtenu: unknown, chemin = '$'): string |
   return `${chemin} : prototypes différents`;
 }
 
-/** Exécute `fn` cache coupé (CURSUS_CACHE_INSTANTANE=0) : la lecture directe, l'oracle. */
-export async function sansCache<T>(fn: () => Promise<T>): Promise<T> {
-  const avant = process.env.CURSUS_CACHE_INSTANTANE;
-  process.env.CURSUS_CACHE_INSTANTANE = '0';
-  try {
-    return await fn();
-  } finally {
-    if (avant === undefined) delete process.env.CURSUS_CACHE_INSTANTANE; else process.env.CURSUS_CACHE_INSTANTANE = avant;
-  }
+/**
+ * Instantané de `u` lu directement, l'oracle : `loadFull` puis la vue, dans une lecture stable, sans passer par le cache
+ * (`buildSnapshot(…, { cache: false })`). Rien n'est coupé pour le reste du processus : pendant l'essai de charge, les
+ * GET /api/data des utilisateurs simulés continuent d'être servis par le cache pendant une comparaison (relecture du lot
+ * 9 : couper le cache par CURSUS_CACHE_INSTANTANE, lu à chaque requête, faussait leurs durées et la mémoire relevées).
+ */
+export async function instantaneDirect(db: Db, u: CurrentUser): Promise<Dataset> {
+  return await db.lecture(async () => await buildSnapshot(db, u, { cache: false }));
 }
 
 /**
@@ -94,37 +93,44 @@ export async function lecteursDe(db: Db, garder: (c: Compte, espace: CurrentUser
   return out;
 }
 
-/** Vue de `u` servie par le cache (lecture stable, comme GET /api/data) contre la vue lue directement, cache coupé. */
+/** Vue de `u` servie par le cache (lecture stable, comme GET /api/data) contre la vue lue directement (`instantaneDirect`). */
 export async function comparerVue(db: Db, u: CurrentUser): Promise<string | null> {
   const servie = await db.lecture(async () => await buildSnapshot(db, u));
-  const directe = await sansCache(async () => await db.lecture(async () => await buildSnapshot(db, u)));
-  return ecart(directe, servie);
+  return ecart(await instantaneDirect(db, u), servie);
 }
+
+/** Issue de la comparaison d'un jeu d'action : écart, et `directe` vrai si la lecture directe a servi l'action. */
+export interface ComparaisonJeu { ecart: string | null; directe: boolean }
 
 /**
  * Jeu de données remis à une action de `u` (`donneesAction`, dans sa transaction, avant toute écriture) contre
- * `loadFull(u)` lu dans la même transaction. `exigerCache` : la lecture partagée doit avoir servi (entrée de la révision
- * courante présente), sinon c'est un écart (le cache n'aurait rien prouvé).
+ * `loadFull(u)` lu dans la même transaction. `directe` : la lecture partagée n'a pas servi (cache coupé, ou entrée d'une
+ * autre révision) ; l'action a reçu `loadFull`, comparé alors à lui-même, et la comparaison ne prouve rien du cache.
+ * `exigerCache` : une telle lecture directe est un écart.
  */
-export async function comparerJeuAction(db: Db, u: CurrentUser, exigerCache: boolean): Promise<string | null> {
+export async function comparerJeuAction(db: Db, u: CurrentUser, exigerCache: boolean): Promise<ComparaisonJeu> {
   return await db.tx(async () => {
     let directes = 0;
     const ds = await donneesAction(db, u, todayIso(), async x => { directes++; return await loadFull(db, x); });
     const ref = await loadFull(db, u);
-    if (exigerCache && cacheActif() && directes) return 'lecture partagée absente : le jeu a été relu en entier';
-    return ecart(ref, ds);
+    if (exigerCache && cacheActif() && directes) return { ecart: 'lecture partagée absente : le jeu a été relu en entier', directe: true };
+    return { ecart: ecart(ref, ds), directe: directes > 0 };
   });
 }
 
 /** Instantané renvoyé après une action (`data` de la réponse) contre l'instantané lu directement pour le même compte. */
 export async function comparerReponse(db: Db, u: CurrentUser, data: Dataset): Promise<string | null> {
-  const directe = await sansCache(async () => await db.lecture(async () => await buildSnapshot(db, u)));
-  return ecart(JSON.parse(JSON.stringify(directe)), data);
+  return ecart(JSON.parse(JSON.stringify(await instantaneDirect(db, u))), data);
 }
 
 export interface BilanExactitude {
   /** Comparaisons faites (entrée, jeux d'action, vues), divergences constatées. */
   comparaisons: number;
+  /**
+   * Jeux d'action servis par la lecture directe (cache coupé, entrée d'une autre révision) : comparés à eux-mêmes, ils ne
+   * prouvent rien du cache et ne comptent pas dans `comparaisons`.
+   */
+  triviales: number;
   divergences: Divergence[];
   /** Comparaisons refaites parce qu'une révision a changé pendant la comparaison. */
   refaites: number;
@@ -141,15 +147,16 @@ export async function verifierExactitude(
   db: Db, lecteurs: readonly CurrentUser[], { jeux = true, essais = 3, apres }: { jeux?: boolean; essais?: number; apres?: () => Promise<void> } = {},
 ): Promise<BilanExactitude> {
   const t0 = performance.now();
-  const bilan: BilanExactitude = { comparaisons: 0, divergences: [], refaites: 0, dureeMs: 0 };
-  const stable = async (objet: Objet, cle: string, fn: () => Promise<string | null>) => {
+  const bilan: BilanExactitude = { comparaisons: 0, triviales: 0, divergences: [], refaites: 0, dureeMs: 0 };
+  const stable = async (objet: Objet, cle: string, fn: () => Promise<string | ComparaisonJeu | null>) => {
     for (let i = 0; ; i++) {
       const avant = await db.revisionBase();
-      const e = await fn();
+      const x = await fn();
       await apres?.();
       const n = await db.revisionBase();
       if (avant === n) {
-        bilan.comparaisons++;
+        const { ecart: e, directe } = typeof x === 'object' && x ? x : { ecart: x, directe: false };
+        if (directe && !e) bilan.triviales++; else bilan.comparaisons++;
         if (e) bilan.divergences.push({ objet, cle, revision: n, ecart: e });
         return;
       }

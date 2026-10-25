@@ -1,7 +1,7 @@
 // Oracle d'exactitude du cache de l'instantané (lot 9, chantier 4 ; banc : tests/support/oracle.ts, comparaisons :
 // scripts/charge/verifier.ts). Une suite d'écritures aléatoire et reproductible (actions du registre par des comptes tirés
 // au hasard, SQL direct), et après chaque pas : vue de chaque compte, espace et profil RH, entrée du cache et jeu d'action
-// de chaque lecteur, identiques (`isDeepStrictEqual`) à la relecture complète, cache coupé. Sur le moteur de la suite
+// de chaque lecteur, identiques (`isDeepStrictEqual`) à la relecture complète lue directement. Sur le moteur de la suite
 // (SQLite par défaut, PostgreSQL avec npm run test:pg), avec le jeu de démonstration et le jeu de charge d'un an.
 // Réglages : CURSUS_ORACLE_GRAINES (graines séparées par des virgules), CURSUS_ORACLE_PAS (pas de la démonstration),
 // CURSUS_ORACLE_COMPLET=1 (passage long : 300 pas, comparaison de tous les lecteurs à chaque pas, jeu d'un an compris).
@@ -15,7 +15,7 @@ delete process.env.CURSUS_CACHE_INSTANTANE;
 
 const { nouvelleBase } = await import('./base.ts');
 const { baseDemo, baseUnAn, rejouer, resumeRapport } = await import('./support/oracle.ts');
-const { cleLecteur, ecart, lecteursDe, LECTEUR_ENTREE, Porte, sansCache, verifierExactitude } = await import('../scripts/charge/verifier.ts');
+const { cleLecteur, comparerJeuAction, ecart, instantaneDirect, lecteursDe, LECTEUR_ENTREE, Porte, verifierExactitude } = await import('../scripts/charge/verifier.ts');
 const { buildSnapshot } = await import('../server/src/dataset.ts');
 const { cacheActif } = await import('../server/src/cache-instantane.ts');
 const { PROFILS_RH } = await import('../shared/constants.ts');
@@ -37,18 +37,30 @@ test('comparaison : premier écart en profondeur, à l’identique', () => {
   assert.equal(ecart(new Map([[1, 'a']]), new Map([[1, 'b']])), '$ : prototypes différents', 'Map : écart signalé à sa racine');
 });
 
-test('cache coupé le temps d’une lecture, rétabli après, même en échec', async () => {
+test('lecture directe de l’oracle : le cache reste actif pour les autres lectures, rien n’est coupé pour le processus', async () => {
+  // Relecture du lot 9 : couper le cache par CURSUS_CACHE_INSTANTANE pendant une comparaison faisait relire toute la base
+  // à chaque GET /api/data concurrent de l'essai de charge.
+  const db = await demo();
+  const u = (await lecteursDe(db)).find(x => x.role === 'collaborateur')!;
+  let relectures = 0;
+  const query = db.query.bind(db);
+  db.query = (async (sql: string, params?: readonly never[]) => {
+    if (/^\s*SELECT \* FROM feuilles\s+ORDER BY/i.test(sql)) relectures++;
+    return await query(sql, params);
+  }) as typeof db.query;
+  const servie = async () => await db.lecture(async () => await buildSnapshot(db, u));
+  await servie();
+  relectures = 0;
+  // La lecture directe relit tout, une seule fois ; la lecture servie en même temps vient du cache.
+  const [directe, enCache] = await Promise.all([instantaneDirect(db, u), servie()]);
+  assert.equal(relectures, 1, 'lecture directe seulement');
+  assert.equal(process.env.CURSUS_CACHE_INSTANTANE, undefined, 'variable d’environnement jamais posée');
   assert.equal(cacheActif(), true);
-  assert.equal(await sansCache(async () => cacheActif()), false);
-  await assert.rejects(sansCache(async () => { throw new Error('lecture'); }), /lecture/);
-  assert.equal(cacheActif(), true);
-  process.env.CURSUS_CACHE_INSTANTANE = '1';
-  try {
-    await sansCache(async () => assert.equal(process.env.CURSUS_CACHE_INSTANTANE, '0'));
-    assert.equal(process.env.CURSUS_CACHE_INSTANTANE, '1', 'valeur d’origine rétablie');
-  } finally {
-    delete process.env.CURSUS_CACHE_INSTANTANE;
-  }
+  assert.equal(ecart(directe, enCache), null);
+  // L'entrée du cache n'a été ni remplacée ni vidée : la lecture suivante n'en relit rien, et une action la reprend.
+  await servie();
+  assert.equal(relectures, 1);
+  assert.deepEqual(await comparerJeuAction(db, LECTEUR_ENTREE, true), { ecart: null, directe: false });
 });
 
 test('porte des écritures : fermée après les écritures en cours, les suivantes attendent l’ouverture', async () => {
@@ -77,10 +89,12 @@ test('porte des écritures : fermée après les écritures en cours, les suivant
 test('essai de charge : invariant entier « aucune divergence », jamais assoupli par la marge', () => {
   const route = statistiques([1], { e4xx: 0, e5xx: 0, e503: 0, delais: 0 });
   const sonde = { sante: route, attenteVerrouMax: 0, attentesMax: 0, tenueVerrouMax: 0, attentePoolMax: 0, poolAttenteMax: 0, lecturesAttenteMax: 0, ecrituresAttenteMax: 0, attenteFileMax: 0, rssMax: 0, tasMax: 0 };
-  const verdict = (exactitude?: { comparaisons: number; divergences: number }) => juger({}, sonde, { marge: 3, exactitude }).find(v => v.critere === 'aucune divergence avec la relecture complète');
+  const verdict = (exactitude?: { comparaisons: number; divergences: number; echecs?: number }) => juger({}, sonde, { marge: 3, exactitude }).find(v => v.critere === 'aucune divergence avec la relecture complète');
   assert.equal(verdict(), undefined, 'essai sans --verifier-exactitude : non jugé');
-  assert.deepEqual(verdict({ comparaisons: 356, divergences: 0 }), { critere: 'aucune divergence avec la relecture complète', mesure: '0 sur 356 comparaisons', seuil: '0 (au moins une comparaison)', ok: true, invariant: true });
+  assert.deepEqual(verdict({ comparaisons: 356, divergences: 0, echecs: 0 }), { critere: 'aucune divergence avec la relecture complète', mesure: '0 sur 356 comparaisons', seuil: '0 (au moins une comparaison, aucune interrompue)', ok: true, invariant: true });
   assert.equal(verdict({ comparaisons: 356, divergences: 1 })!.ok, false);
+  // Comparaison d'état levée (délai dépassé…) alors qu'une autre a abouti : un état n'a pas été vérifié, l'invariant échoue.
+  assert.deepEqual(verdict({ comparaisons: 356, divergences: 0, echecs: 1 }), { critere: 'aucune divergence avec la relecture complète', mesure: '0 sur 356 comparaisons, 1 comparaison d’état interrompue', seuil: '0 (au moins une comparaison, aucune interrompue)', ok: false, invariant: true });
   assert.equal(verdict({ comparaisons: 0, divergences: 0 })!.ok, false, 'aucune comparaison faite : rien n’est prouvé');
 });
 
@@ -102,6 +116,7 @@ test('l’oracle voit une divergence : cache resté sur un état que la base n�
   // État de référence : aucune divergence.
   const avant = await verifierExactitude(db, lecteurs);
   assert.deepEqual(avant.divergences, []);
+  assert.equal(avant.triviales, 0, 'entrée lue par les vues : chaque jeu d’action vient de la lecture partagée');
   assert.ok(avant.comparaisons >= lecteurs.length * 2 + 1);
   // Écriture qui contourne la révision (révision ramenée à sa valeur) : le cache sert l'ancien état, l'oracle le voit.
   const n = await db.revisionBase();
@@ -114,8 +129,15 @@ test('l’oracle voit une divergence : cache resté sur un état que la base n�
   // La révision avance de nouveau : plus d'écart.
   await db.run('UPDATE revision SET n = ?', [n + 1]);
   assert.deepEqual((await verifierExactitude(db, lecteurs)).divergences, []);
-  // Cache coupé : l'entrée n'est pas exigée, tout est lu directement.
-  await sansCache(async () => assert.deepEqual((await verifierExactitude(db, lecteurs.slice(0, 2))).divergences, []));
+  // Cache coupé : l'entrée n'est pas exigée, tout est lu directement ; les jeux d'action sont alors triviaux, à part.
+  process.env.CURSUS_CACHE_INSTANTANE = '0';
+  try {
+    const coupe = await verifierExactitude(db, lecteurs.slice(0, 2));
+    assert.deepEqual(coupe.divergences, []);
+    assert.equal(coupe.triviales, 3, 'entrée et deux jeux d’action lus directement');
+  } finally {
+    delete process.env.CURSUS_CACHE_INSTANTANE;
+  }
   // Comparaison pendant laquelle la révision change sans cesse : refaite, puis « état instable ».
   let k = 0;
   const instable = await verifierExactitude(db, [lecteurs[0]], { jeux: false, essais: 2, apres: async () => { await db.setSetting('essai', ++k); } });
@@ -140,11 +162,22 @@ for (const graine of GRAINES) {
     const resume = resumeRapport(x);
     assert.deepEqual(x.divergences, [], resume);
     assert.deepEqual(x.erreurs, [], resume);
-    // La suite a vraiment écrit, par des actions et par du SQL direct, et a tout comparé à chaque pas.
+    // La suite a vraiment écrit, par des actions et par du SQL direct, et a tout comparé à chaque pas. Elle a exercé la
+    // saisie, chemin que le cache incrémental doit tenir exact (relecture de l'étape 1 : sans acteur ni ligne adaptés,
+    // presque toutes les saisies étaient refusées) : au moins une saisie de cellule, une soumission ou une décision sur
+    // une feuille, et une action d'absence validées. Graine choisie qui n'y suffit pas en ${PAS} pas : allonger
+    // CURSUS_ORACLE_PAS.
     assert.ok(x.ecritures >= PAS / 10, resume);
-    assert.ok(Object.values(x.actions).reduce((n, s) => n + s.ok, 0) >= 3, resume);
+    const validees = (garder: (nom: string) => boolean) => Object.entries(x.actions).filter(([n]) => garder(n)).reduce((n, [, s]) => n + s.ok, 0);
+    assert.ok(validees(n => n === 'temps.setCell') >= 1, resume);
+    assert.ok(validees(n => ['temps.submit', 'temps.validate', 'temps.reject', 'temps.validerLot'].includes(n)) >= 1, resume);
+    assert.ok(validees(n => n.startsWith('absence.')) >= 1, resume);
+    assert.ok(validees(() => true) >= PAS / 5, resume);
     assert.ok(Object.keys(x.sql).length >= 3, resume);
     assert.equal(x.verifications, PAS, resume);
+    // Vérification après chaque pas : l'entrée de la révision courante est là quand l'action suivante la lit ; seule une
+    // action du premier pas, avant toute lecture, peut la trouver absente (comparaison triviale, comptée à part).
+    assert.ok(x.triviales <= 1, resume);
   });
 }
 

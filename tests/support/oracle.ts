@@ -7,16 +7,16 @@
 // - avant chaque action : jeu remis à l'action (`donneesAction`) contre `loadFull` de son compte, dans une même
 //   transaction ; après : instantané renvoyé contre l'instantané lu directement ;
 // - après chaque pas (ou tous les `verifierTous` pas) : vue de chaque compte, espace et profil RH (PROFILS_RH), entrée du
-//   cache et jeu d'action de chaque lecteur, contre la lecture cache coupé (CURSUS_CACHE_INSTANTANE=0).
+//   cache et jeu d'action de chaque lecteur, contre la lecture directe (`instantaneDirect`, `loadFull`).
 // Il tourne sur le cache tel qu'il est (une entrée par révision) et rejouera, sans changement, le cache incrémental.
 // Un appel refusé (4xx) fait partie du jeu : il ne doit rien changer. Une 5xx est une erreur du banc ou de Cursus.
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { addD, mondayOf } from '../../shared/dates.ts';
-import { ENT_TYPES, PROFILS_RH } from '../../shared/constants.ts';
+import { ACTIVITE_ASTREINTE, droitsRh, ENT_TYPES, PROFILS_RH } from '../../shared/constants.ts';
 import { contratFige } from '../../shared/rules/temps.ts';
-import type { CurrentUser, Dataset } from '../../shared/types.ts';
+import type { Absence, CurrentUser, Dataset, FeuilleTemps } from '../../shared/types.ts';
 import { ACTIONS } from '../../server/src/actions/index.ts';
 import { createApp } from '../../server/src/app.ts';
 import { empreinteSession, sign } from '../../server/src/auth.ts';
@@ -43,18 +43,23 @@ const EXCLUES = new Set(['demo.reinitialiser', 'compte.activer', 'compte.reiniti
 /** Lecteur interne des tirages : tout le jeu, paie comprise (aucune réponse n'en sort). */
 const TIRAGE: CurrentUser = { role: 'rh', empId: null, nom: 'Banc d’oracle', intitule: 'Tirages', profilRh: 'rh_admin' };
 
-/** Paramètres d'une action tirés de l'état du moment `ds`, pour `acteur` (salarié de l'acteur favorisé). */
-type Tirage = (x: { ds: Dataset; r: Aleatoire; empId: () => number; semaine: (empId: number, statut?: string) => string; date: (min: number, max: number) => string; user: CurrentUser }) => Record<string, unknown>;
+/**
+ * Paramètres d'une action tirés de l'état du moment `ds`, pour `acteur` (salarié de l'acteur favorisé). Saisie :
+ * `saisie` tire un salarié que l'acteur peut saisir (lui-même, son équipe ; tous pour le service RH), `modifiable`
+ * une feuille encore saisissable (brouillon, à corriger) de l'un d'eux qui vérifie `garder`, ou null, `soumises` une feuille soumise que l'acteur peut valider
+ * (`validables` : son équipe, tous pour le service RH, jamais lui-même) ; `cible` : feuille ou absence visée, tirée avec
+ * l'acteur (`acteurAdapte` de `rejouer`), ou null.
+ */
+type Tirage = (x: {
+  ds: Dataset; r: Aleatoire; empId: () => number; semaine: (empId: number, statut?: string) => string; date: (min: number, max: number) => string; user: CurrentUser;
+  saisie: () => number; modifiable: (garder: (f: FeuilleTemps) => boolean) => FeuilleTemps | null; validables: Set<number>; soumises: (r: Aleatoire) => { empId: number; week: string } | null;
+  cible: FeuilleTemps | Absence | null;
+}) => Record<string, unknown>;
 
 const KINDS = ['CP', 'RTT', 'RECUP'];
 const NATURES = ['MALADIE', 'ENFANT_MALADE', 'SANS_SOLDE', 'AT', 'MARIAGE'];
-/** Feuille soumise au hasard (validation, rejet), ou null. */
-const soumise = (ds: Dataset, r: Aleatoire) => {
-  const l = ds.feuilles.filter(f => f.statut === 'soumise');
-  if (!l.length) return null;
-  const f = r.choix(l);
-  return { empId: f.empId, week: f.week };
-};
+/** Élément de `l` au hasard, ou null si `l` est vide. */
+const parmi = <T>(r: Aleatoire, l: readonly T[]): T | null => (l.length ? r.choix(l) : null);
 /** Fiche du salarié `empId`, ou une autre si elle n'existe plus (anonymisée, retirée par un essai). */
 const fiche = (ds: Dataset, r: Aleatoire, empId: number) => ds.employes.find(x => x.id === empId) ?? r.choix(ds.employes);
 const id = <T extends { id: number }>(r: Aleatoire, l: readonly T[] | undefined, filtre: (x: T) => boolean = () => true) => {
@@ -67,29 +72,51 @@ const id = <T extends { id: number }>(r: Aleatoire, l: readonly T[] | undefined,
  * registre reçoivent des paramètres tirés d'après les noms qu'elles lisent (`tirageGenerique`).
  */
 const TIRAGES: Record<string, Tirage> = {
-  'temps.setCell': ({ r, empId, semaine, ds }) => {
-    const e = empId(), week = r.si(0.5) ? mondayOf(ds.today) : semaine(e, 'brouillon');
-    const sh = ds.feuilles.find(f => f.empId === e && f.week === week);
-    return { empId: e, week, li: r.entre(0, Math.max(0, (sh?.lignes.length ?? 1) - 1)), di: r.entre(0, 4), value: String(r.entre(0, 9)) };
+  // Saisie (lot 9, relecture de l'étape 1) : salarié parmi ceux que l'acteur peut saisir, feuille modifiable qui a des
+  // lignes et ligne prise parmi les siennes ; sinon presque toutes les saisies étaient refusées (« Cellule invalide »).
+  'temps.setCell': ({ r, saisie, modifiable, ds }) => {
+    const sh = r.si(0.9) ? modifiable(f => f.lignes.some(l => l.projet !== ACTIVITE_ASTREINTE.code)) : null;
+    if (!sh) return { empId: saisie(), week: mondayOf(ds.today), li: 0, di: r.entre(0, 4), value: String(r.entre(0, 9)) };
+    const lignes = sh.lignes.map((l, i) => [l, i] as const).filter(([l]) => l.projet !== ACTIVITE_ASTREINTE.code);
+    return { empId: sh.empId, week: sh.week, li: r.choix(lignes)[1], di: r.entre(0, 4), value: String(r.entre(0, 9)) };
   },
-  'temps.addLine': ({ r, empId, semaine, ds }) => { const e = empId(); return { empId: e, week: r.si(0.5) ? mondayOf(ds.today) : semaine(e, 'brouillon'), projet: r.choix(ds.referentiels.projets).code }; },
-  'temps.removeLine': ({ r, empId, semaine }) => { const e = empId(); return { empId: e, week: semaine(e), li: r.entre(0, 2) }; },
-  'temps.submit': ({ empId, semaine }) => { const e = empId(); return { empId: e, week: semaine(e, 'brouillon') }; },
-  'temps.validate': ({ r, ds, empId, semaine }) => soumise(ds, r) ?? { empId: empId(), week: semaine(empId(), 'soumise') },
-  'temps.reject': ({ r, ds, empId, semaine }) => ({ ...soumise(ds, r) ?? { empId: empId(), week: semaine(empId(), 'soumise') }, comment: 'Merci de vérifier' }),
-  'temps.rouvrir': ({ empId, semaine }) => { const e = empId(); return { empId: e, week: semaine(e, 'validee'), motif: 'Correction des heures (banc d’oracle)' }; },
-  'temps.validerLot': ({ r, ds }) => {
-    const soumises = ds.feuilles.filter(f => f.statut === 'soumise');
-    const lot = Array.from({ length: Math.min(soumises.length, r.entre(1, 4)) }, () => r.choix(soumises));
+  'temps.addLine': ({ r, saisie, modifiable, ds }) => {
+    const sh = r.si(0.7) ? modifiable(() => true) : null;
+    return { empId: sh?.empId ?? saisie(), week: sh?.week ?? mondayOf(ds.today), projet: r.choix(ds.referentiels.projets.filter(x => x.statut !== 'archive' && x.code !== ACTIVITE_ASTREINTE.code)).code };
+  },
+  'temps.removeLine': ({ r, saisie, modifiable, semaine }) => {
+    const sh = modifiable(f => f.lignes.length > 1);
+    if (!sh) { const e = saisie(); return { empId: e, week: semaine(e), li: r.entre(0, 2) }; }
+    const li = r.entre(0, sh.lignes.length - 1);
+    return { empId: sh.empId, week: sh.week, li, projet: sh.lignes[li].projet, tache: sh.lignes[li].tache, lignes: sh.lignes.length };
+  },
+  'temps.submit': ({ saisie, modifiable, semaine }) => {
+    const sh = modifiable(f => f.lignes.some(l => l.h.some(v => Number(v) > 0)));
+    if (sh) return { empId: sh.empId, week: sh.week };
+    const e = saisie();
+    return { empId: e, week: semaine(e, 'brouillon') };
+  },
+  'temps.validate': ({ r, soumises, empId, semaine, cible }) => (cible && 'week' in cible ? { empId: cible.empId, week: cible.week } : soumises(r) ?? { empId: empId(), week: semaine(empId(), 'soumise') }),
+  'temps.reject': ({ r, soumises, empId, semaine, cible }) => ({
+    ...cible && 'week' in cible ? { empId: cible.empId, week: cible.week } : soumises(r) ?? { empId: empId(), week: semaine(empId(), 'soumise') }, comment: 'Merci de vérifier',
+  }),
+  'temps.rouvrir': ({ r, ds, user, empId, semaine }) => {
+    const f = parmi(r, ds.feuilles.filter(x => x.statut === 'validee' && x.empId !== user.empId));
+    return f ? { empId: f.empId, week: f.week, motif: 'Correction des heures (banc d’oracle)' } : { empId: empId(), week: semaine(empId(), 'validee'), motif: 'Correction des heures (banc d’oracle)' };
+  },
+  'temps.validerLot': ({ r, ds, validables }) => {
+    const candidates = ds.feuilles.filter(f => f.statut === 'soumise' && validables.has(f.empId));
+    const lot = Array.from({ length: Math.min(candidates.length, r.entre(1, 4)) }, () => r.choix(candidates));
     return { feuilles: [...new Map(lot.map(f => [f.id, { empId: f.empId, week: f.week }])).values()] };
   },
-  'absence.demander': ({ r, empId, date }) => { const du = date(1, 60); return { empId: empId(), kind: r.choix(KINDS), du, au: addD(du, r.entre(0, 3)) }; },
-  'absence.decider': ({ r, ds }) => ({ id: id(r, ds.absences, a => a.statut === 'demandee'), ok: r.si(0.7), motif: 'Effectif insuffisant' }),
-  'absence.annuler': ({ r, ds }) => ({ id: id(r, ds.absences) }),
-  'absence.signaler': ({ empId, date }) => { const du = date(-3, 2); return { empId: empId(), du, au: du }; },
+  // Absences : salarié parmi ceux de l'acteur, absence visée tirée avec l'acteur (`cible`) quand elle existe.
+  'absence.demander': ({ r, saisie, date }) => { const du = date(1, 60); return { empId: saisie(), kind: r.choix(KINDS), du, au: addD(du, r.entre(0, 3)) }; },
+  'absence.decider': ({ r, ds, cible }) => ({ id: cible?.id ?? id(r, ds.absences, a => a.statut === 'demandee'), ok: r.si(0.7), motif: 'Effectif insuffisant' }),
+  'absence.annuler': ({ r, ds, cible }) => ({ id: cible?.id ?? id(r, ds.absences) }),
+  'absence.signaler': ({ saisie, date }) => { const du = date(-3, 2); return { empId: saisie(), du, au: du }; },
   'absence.saisir': ({ r, empId, date }) => { const du = date(-20, 20); return { empId: empId(), nature: r.choix(NATURES), du, au: addD(du, r.entre(0, 2)) }; },
-  'absence.qualifier': ({ r, ds }) => ({ id: id(r, ds.absences, a => a.statut === 'signalee'), nature: r.choix(NATURES) }),
-  'absence.prolonger': ({ r, ds, date }) => ({ id: id(r, ds.absences), au: date(0, 15) }),
+  'absence.qualifier': ({ r, ds, cible }) => ({ id: cible?.id ?? id(r, ds.absences, a => a.statut === 'signalee'), nature: r.choix(NATURES) }),
+  'absence.prolonger': ({ r, ds, date, cible }) => ({ id: cible?.id ?? id(r, ds.absences), au: date(0, 15) }),
   'cet.placer': ({ r, empId }) => ({ empId: empId(), kind: r.choix(['CP', 'RTT']), jours: r.entre(1, 2) }),
   'report.accorder': ({ r, empId }) => ({ empId: empId(), jours: r.entre(1, 2), motif: 'Report accordé (banc d’oracle)' }),
   'equipe.affecter': ({ r, empId, ds }) => ({ empId: empId(), equipe: r.choix(ds.referentiels.equipes).nom }),
@@ -211,7 +238,9 @@ export interface RapportOracle {
   motifs: Record<string, number>;
   /** Pas qui ont changé la révision de la base. */
   ecritures: number;
+  /** Comparaisons qui ont jugé la lecture partagée ; `triviales` : jeux d'action lus directement, comparés à eux-mêmes. */
   comparaisons: number;
+  triviales: number;
   verifications: number;
   divergences: Divergence[];
   /** Réponses 5xx (erreur de Cursus ou du banc). */
@@ -230,9 +259,12 @@ const SQL_DIRECT: Record<string, (db: Db, ds: Dataset, r: Aleatoire) => Promise<
   'INSERT cet': async (db, ds, r) => { await db.run('INSERT INTO cet (emp_id, type, jours, date, periode) VALUES (?, ?, ?, ?, ?)', [r.choix(ds.employes).id, 'RTT', 1, ds.today, ds.today.slice(0, 4)]); },
   'DELETE cet': async (db, ds, r) => { if (ds.cet.length) await db.run('DELETE FROM cet WHERE id = ?', [r.choix(ds.cet).id]); },
   'upsert feuilles': async (db, ds, r) => {
+    // Feuille créée avec une ligne de projet vide, comme une reprise : la saisie qui suit a une cellule où écrire.
     const e = r.choix(ds.employes), week = addD(mondayOf(ds.today), -7 * r.entre(0, 6));
-    await db.run(`INSERT INTO feuilles (emp_id, week, statut, comment, sage, keystone, lignes, contrat, heures_sup) VALUES (?, ?, 'brouillon', ?, FALSE, FALSE, '[]', ?, 'paiement')
-      ON CONFLICT (emp_id, week) DO UPDATE SET comment = excluded.comment`, [e.id, week, `Upsert ${r.entre(1, 99)}`, JSON.stringify(contratFige(e))]);
+    const pr = r.choix(ds.referentiels.projets.filter(x => x.statut !== 'archive' && x.code !== ACTIVITE_ASTREINTE.code));
+    await db.run(`INSERT INTO feuilles (emp_id, week, statut, comment, sage, keystone, lignes, contrat, heures_sup) VALUES (?, ?, 'brouillon', ?, FALSE, FALSE, ?, ?, 'paiement')
+      ON CONFLICT (emp_id, week) DO UPDATE SET comment = excluded.comment`,
+    [e.id, week, `Upsert ${r.entre(1, 99)}`, JSON.stringify([{ projet: pr.code, tache: pr.nom, ks: false, h: [0, 0, 0, 0, 0, 0, 0] }]), JSON.stringify(contratFige(e))]);
   },
   'upsert projets': async (db, ds, r) => {
     const code = r.si(0.5) ? r.choix(ds.referentiels.projets).code : `ORA-${r.entre(1, 20)}`;
@@ -272,35 +304,93 @@ export async function ouvrirBanc(db: Db): Promise<{ base: string; acteurs: Acteu
 export async function rejouer(db: Db, o: OptionsOracle): Promise<RapportOracle> {
   const r = aleatoire(o.graine);
   const banc = await ouvrirBanc(db);
-  const rapport: RapportOracle = { actions: {}, sql: {}, motifs: {}, ecritures: 0, comparaisons: 0, verifications: 0, divergences: [], erreurs: [] };
+  const rapport: RapportOracle = { actions: {}, sql: {}, motifs: {}, ecritures: 0, comparaisons: 0, triviales: 0, verifications: 0, divergences: [], erreurs: [] };
   const noms = Object.keys(ACTIONS).filter(n => !EXCLUES.has(n));
   // Saisie et absences plus souvent que le reste, comme dans la journée de travail.
-  const cibles = [...Object.keys(TIRAGES), 'temps.setCell', 'temps.setCell', 'temps.addLine', 'temps.submit', 'absence.demander', 'absence.decider'];
+  const cibles = [
+    ...Object.keys(TIRAGES), ...Array<string>(5).fill('temps.setCell'), 'temps.addLine', 'temps.submit', 'temps.submit', 'temps.validate', 'temps.validate',
+    'absence.demander', 'absence.demander', 'absence.decider', 'absence.decider',
+  ];
   const verifier = o.verifier ?? true;
   const noter = (divergences: Divergence[]) => { rapport.divergences.push(...divergences); };
   /**
-   * Une action tirée au hasard, faite par `acteur` (compte et espace) connecté comme `user`, paramètres tirés de l'état
-   * `ds` (révision `avant`), comparée avant et après.
+   * Acteur qui a le droit de faire l'action de temps ou d'absence `nom`, sur une ligne qui s'y prête (`cible`, tirée
+   * d'abord dans `ds`) : le salarié, son manager ou le service RH (droit « rh » : ni le référent HSE, ni la paie, ni la
+   * lecture seule) pour la saisie et les demandes ; son manager ou le service RH pour une validation ou une décision ; le
+   * service RH pour la saisie ou la qualification d'une absence ; un administrateur RH pour une réouverture ou une
+   * dérogation. Sans ligne qui s'y prête, n'importe quel acteur de ce droit ; null si aucun compte ne convient.
    */
-  const agir = async (acteur: Acteur, user: CurrentUser, ds: Dataset, avant: number) => {
+  const acteurAdapte = async (nom: string, ds: Dataset): Promise<{ acteur: Acteur; user: CurrentUser; cible: FeuilleTemps | Absence | null } | null> => {
+    const modifiable = (f: FeuilleTemps) => f.statut === 'brouillon' || f.statut === 'rejetee';
+    const feuilles: Record<string, (f: FeuilleTemps) => boolean> = {
+      'temps.setCell': f => modifiable(f) && f.lignes.some(l => l.projet !== ACTIVITE_ASTREINTE.code),
+      'temps.addLine': modifiable,
+      'temps.removeLine': f => modifiable(f) && f.lignes.length > 1,
+      'temps.submit': f => modifiable(f) && f.lignes.some(l => l.h.some(v => Number(v) > 0)),
+      'temps.validate': f => f.statut === 'soumise', 'temps.reject': f => f.statut === 'soumise', 'temps.validerLot': f => f.statut === 'soumise',
+      'temps.rouvrir': f => f.statut === 'validee',
+    };
+    const absences: Record<string, (a: Absence) => boolean> = {
+      'absence.decider': a => a.statut === 'demandee', 'absence.qualifier': a => a.statut === 'signalee',
+      'absence.annuler': a => a.statut === 'demandee' || a.statut === 'validee', 'absence.prolonger': a => a.statut === 'validee' || a.statut === 'signalee',
+    };
+    const reserve = ['temps.rouvrir', 'temps.derogationDominicale'].includes(nom) ? 'admin'
+      : ['absence.saisir', 'absence.qualifier'].includes(nom) ? 'rh'
+        : ['temps.validate', 'temps.reject', 'temps.validerLot', 'absence.decider'].includes(nom) ? 'valideur' : 'saisie';
+    const cible: FeuilleTemps | Absence | null = feuilles[nom] ? parmi(r, ds.feuilles.filter(feuilles[nom])) : absences[nom] ? parmi(r, ds.absences.filter(absences[nom])) : null;
+    const equipe = cible ? ds.employes.find(e => e.id === cible.empId)?.equipe : undefined;
+    const managers = new Set(ds.referentiels.equipes.filter(q => q.nom === equipe).map(q => q.managerId));
+    const candidats: { acteur: Acteur; user: CurrentUser; cible: FeuilleTemps | Absence | null }[] = [];
+    for (const a of banc.acteurs) {
+      if ((reserve === 'admin' || reserve === 'rh') && a.role !== 'rh') continue;
+      if (reserve === 'valideur' && a.role === 'collaborateur') continue;
+      const u = await currentUser(db, { id: 'oracle', compteId: a.compteId, role: a.role, methode: 'local' } as never);
+      if (!u) continue;
+      const droits = u.role === 'rh' ? droitsRh(u) : [];
+      if (u.role === 'rh' && !(droits.includes('rh') && (reserve !== 'admin' || droits.includes('admin')))) continue;
+      if (cible && u.role !== 'rh') {
+        const soi = u.empId === cible.empId;
+        if (reserve === 'valideur' ? soi || !managers.has(u.empId) : !soi && !(u.role === 'manager' && managers.has(u.empId))) continue;
+      }
+      if (cible && u.role === 'rh' && u.empId === cible.empId && reserve !== 'saisie') continue;
+      candidats.push({ acteur: a, user: u, cible });
+    }
+    return parmi(r, candidats);
+  };
+  const agir = async (acteurTire: Acteur, userTire: CurrentUser, ds: Dataset, avant: number) => {
     // Action ciblée sept fois sur dix, sinon n'importe quelle action du registre.
     const nom = r.si(0.7) ? r.choix(cibles) : r.choix(noms);
+    // Saisie, validation des feuilles et absences : acteur repris neuf fois sur dix parmi ceux qui en ont le droit (le
+    // chemin que le cache incrémental doit tenir exact) ; la dixième fois, l'acteur tiré, refusé le plus souvent.
+    const adapte = /^(temps|absence)\./.test(nom) && r.si(0.9) ? await acteurAdapte(nom, ds) : null;
+    const { acteur, user, cible } = adapte ?? { acteur: acteurTire, user: userTire, cible: null };
     const equipesGerees = new Set(ds.referentiels.equipes.filter(q => q.managerId === user.empId).map(q => q.nom));
     const equipiers = ds.employes.filter(e => e.equipe && equipesGerees.has(e.equipe)).map(e => e.id);
+    const rh = user.role === 'rh' && droitsRh(user).includes('rh');
+    const saisissables = rh ? ds.employes.map(e => e.id) : user.role === 'manager' ? [user.empId!, ...equipiers] : user.empId ? [user.empId] : ds.employes.map(e => e.id);
+    const peutSaisir = new Set(saisissables);
+    const validables = new Set((rh ? ds.employes.map(e => e.id) : user.role === 'manager' ? equipiers : []).filter(e => e !== user.empId));
     const x: Parameters<Tirage>[0] = {
-      ds, r, user,
+      ds, r, user, cible,
       empId: () => (user.empId && r.si(0.6) ? user.empId : equipiers.length && r.si(0.6) ? r.choix(equipiers) : r.choix(ds.employes).id),
       semaine: (empId, statut) => {
         const siennes = ds.feuilles.filter(f => f.empId === empId && (!statut || f.statut === statut)).sort((a, b) => b.week.localeCompare(a.week)).slice(0, 6);
         return siennes.length && r.si(0.8) ? r.choix(siennes).week : addD(mondayOf(ds.today), -7 * r.entre(-1, 5));
       },
       date: (min, max) => addD(ds.today, r.entre(min, max)),
+      saisie: () => r.choix(saisissables),
+      modifiable: garder => parmi(r, ds.feuilles.filter(f => peutSaisir.has(f.empId) && (f.statut === 'brouillon' || f.statut === 'rejetee') && garder(f))),
+      validables,
+      soumises: rr => { const f = parmi(rr, ds.feuilles.filter(y => y.statut === 'soumise' && validables.has(y.empId))); return f && { empId: f.empId, week: f.week }; },
     };
     const p = (TIRAGES[nom] ?? ((y: Parameters<Tirage>[0]) => tirageGenerique(nom, y)))(x);
     // Jeu remis à l'action : celui que sa transaction lirait (aucune autre écriture ne s'intercale ici).
-    const ecartJeu = verifier ? await comparerJeuAction(db, user, false) : null;
-    if (verifier) rapport.comparaisons++;
-    if (ecartJeu) noter([{ objet: 'action', cle: `${cleLecteur(user)} avant ${nom}`, revision: avant, ecart: ecartJeu }]);
+    // Entrée d'une révision dépassée (vérification sautée au pas précédent, `verifierTous` > 1) : l'action lit tout
+    // directement, la comparaison est triviale et comptée à part.
+    const jeu = verifier ? await comparerJeuAction(db, user, false) : null;
+    if (jeu?.directe && !jeu.ecart) rapport.triviales++;
+    else if (jeu) rapport.comparaisons++;
+    if (jeu?.ecart) noter([{ objet: 'action', cle: `${cleLecteur(user)} avant ${nom}`, revision: avant, ecart: jeu.ecart }]);
     const res = await fetch(`${banc.base}/api/actions/${nom}`, {
       method: 'POST', headers: { cookie: acteur.cookie, 'x-cursus-espace': acteur.role, 'content-type': 'application/json' }, body: JSON.stringify(p),
     });
@@ -351,6 +441,7 @@ export async function rejouer(db: Db, o: OptionsOracle): Promise<RapportOracle> 
         const b = await verifierExactitude(db, lecteurs, { jeux: dernier || (jeux > 0 && pas % jeux === 0) });
         rapport.verifications++;
         rapport.comparaisons += b.comparaisons;
+        rapport.triviales += b.triviales;
         noter(b.divergences.map(d => ({ ...d, cle: `${d.cle} (pas ${pas})` })));
       }
     }
@@ -383,7 +474,8 @@ export async function baseUnAn(nouvelle: () => Promise<Db>): Promise<{ db: Db; j
 export function resumeRapport(x: RapportOracle): string {
   const ok = Object.values(x.actions).reduce((n, s) => n + s.ok, 0), refus = Object.values(x.actions).reduce((n, s) => n + s.refus, 0);
   return [
-    `${x.ecritures} pas écrivants ; actions : ${ok} validées, ${refus} refusées ; SQL direct : ${Object.values(x.sql).reduce((n, v) => n + v, 0)} ; ${x.verifications} vérifications, ${x.comparaisons} comparaisons`,
+    `${x.ecritures} pas écrivants ; actions : ${ok} validées, ${refus} refusées ; SQL direct : ${Object.values(x.sql).reduce((n, v) => n + v, 0)} ; ${x.verifications} vérifications, ${x.comparaisons} comparaisons (${x.triviales} triviales à part)`,
+    `actions validées : ${Object.entries(x.actions).filter(([, s]) => s.ok).map(([n, s]) => `${n} ${s.ok}`).join(', ')}`,
     ...x.erreurs.slice(0, 5).map(e => `5xx : ${e}`),
     ...x.divergences.slice(0, 10).map(d => `divergence ${d.objet} ${d.cle} (révision ${d.revision}) : ${d.ecart}`),
   ].join('\n');

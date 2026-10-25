@@ -594,6 +594,12 @@ l'identifiant) : chacun se reconnecte une fois.
    0,6 Go par instance en lecture (S1) et jusqu'à 1,1 Go pendant une fin de mois (validations groupées simultanées) ;
    limite mémoire Coolify à 1,5 Go au moins. Les écritures d'une instance attendent leur tour en mémoire, sans garder de
    connexion du pool, au plus le délai du verrou (puis 503).
+   **Cache incrémental** (lot 9, `CURSUS_CACHE_INCREMENTAL`, actif par défaut ; `0` revient à la relecture complète) :
+   après une écriture, l'entrée de la révision suivante est dérivée de la précédente par les seules lignes changées,
+   lues dans le journal `cursus.changements` (migration `0014_changements`), y compris celles écrites par une autre
+   instance ; un écart inconnu (journal purgé, base remplacée : époque différente) relit tout. L'entrée est lue dès le
+   démarrage (préchauffage), avant les premières requêtes. Après un rechargement des seules données (restauration sans
+   recréer les tables), redémarrez les instances.
 2. **Premier démarrage** : Cursus applique ses migrations (`server/migrations-pg/`, journal
    `cursus.schema_migrations`), contrôle le schéma et amorce une base neuve (activités internes, horaires de poste
    d'exemple). Le journal du démarrage affiche « base PostgreSQL <hôte>:<port>/epc2i, schéma cursus ». Un refus

@@ -37,3 +37,23 @@ export async function mettreAJourBase(db: Db): Promise<void> {
   }
   await rattacherFiches(db);
 }
+
+/**
+ * Préchauffage du cache de l'instantané (lot 9, chantier 2, étape 2), après les migrations et le chargement de la base,
+ * au démarrage du serveur seulement (jamais pour les outils, qui n'appellent que `mettreAJourBase`, ni sous node --test) :
+ * l'entrée de la révision courante est lue avant les premières requêtes, qui la trouvent prête ou attendent cette même
+ * lecture, au lieu d'une rafale froide qui relirait toute la base. Non bloquant : un échec n'écrit qu'un avertissement
+ * (la première requête relira). Rend vrai si l'entrée a été lue.
+ */
+export async function prechaufferCache(db: Db, avertir: (message: string) => void = console.warn): Promise<boolean> {
+  if (process.env.NODE_TEST_CONTEXT) return false;
+  // Chargés ici seulement : les outils qui importent ce fichier n'en ont pas besoin.
+  const { prechauffer } = await import('./cache-instantane.ts');
+  const { loadFull, todayIso } = await import('./dataset.ts');
+  try {
+    return await prechauffer(db, todayIso(), async lecteur => await loadFull(db, lecteur));
+  } catch (err) {
+    avertir(`Préchauffage du cache de l’instantané impossible : ${err instanceof Error ? err.message : String(err)}`);
+    return false;
+  }
+}

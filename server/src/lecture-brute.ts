@@ -128,10 +128,34 @@ export const ORDRE_LECTURE: Partial<Record<TableName, string>> = {
 const PAR_REQUETE_IN = 500;
 
 /**
- * Statut des envois des relevés (lot 8, chantier E) : requêtes `IN (…)` de 500 identifiants au plus, au lieu d'une
- * lecture par relevé (680 relevés après 5 ans).
+ * Colonnes jamais lues par l'instantané : `contenu` des lots de paie (lot 8, chantier E : 70 à 90 lots de 50 à 300 Ko
+ * chacun après 5 ans, lu par le seul téléchargement du fichier). Absentes des lignes de la lecture brute, relecture
+ * complète ou delta (server/src/delta.ts).
  */
-async function statutsDesEnvois(db: Db, releves: readonly Pick<ReleveInterim, 'envoiId'>[]): Promise<Map<number, Envoi['statut']>> {
+export const COLONNES_OMISES: Partial<Record<TableName, readonly string[]>> = { lotsPaie: ['contenu'] };
+
+/** Lignes de la table `t` telles que les lit la lecture brute : ordre de sa clé ou de `ORDRE_LECTURE`, sans `COLONNES_OMISES`. */
+export async function lireTable<T>(db: Db, t: TableName): Promise<T[]> {
+  const sans = COLONNES_OMISES[t];
+  return sans ? await db.allSans<T>(t, sans) : await db.all<T>(t, ORDRE_LECTURE[t]);
+}
+
+/** Réglages lus par l'instantané (`ReglagesBruts`), tels qu'enregistrés. */
+export async function lireReglages(db: Db): Promise<ReglagesBruts> {
+  return {
+    app: await db.getSetting<ReglagesBruts['app']>('app', {}),
+    calendrierFeries: await db.getSetting<CalendrierFeries>('calendrierFeries', {}),
+    formatFichierPaie: await db.getSetting<Partial<FormatFichierPaie>>('formatFichierPaie', {}),
+    messagerie: await db.getSetting<Partial<Messagerie>>('messagerie', {}),
+    derogationsDominicales: await db.getSetting<DerogationDominicale[]>('derogationsDominicales', []),
+  };
+}
+
+/**
+ * Statut des envois des relevés (lot 8, chantier E) : requêtes `IN (…)` de 500 identifiants au plus, au lieu d'une
+ * lecture par relevé (680 relevés après 5 ans). Le delta (server/src/delta.ts) n'y passe que les relevés concernés.
+ */
+export async function statutsDesEnvois(db: Db, releves: readonly Pick<ReleveInterim, 'envoiId'>[]): Promise<Map<number, Envoi['statut']>> {
   const ids = [...new Set(releves.map(r => r.envoiId).filter((id): id is number => !!id))];
   const statuts = new Map<number, Envoi['statut']>();
   for (let i = 0; i < ids.length; i += PAR_REQUETE_IN) {
@@ -146,7 +170,7 @@ async function statutsDesEnvois(db: Db, releves: readonly Pick<ReleveInterim, 'e
  * et le statut des envois des relevés, tels quels.
  */
 export async function lireBrut(db: Db): Promise<Brut> {
-  const lire = async <T>(t: TableName) => await db.all<T>(t, ORDRE_LECTURE[t]);
+  const lire = async <T>(t: TableName) => await lireTable<T>(db, t);
   const releves = await lire<Omit<ReleveInterim, 'envoi'>>('releves');
   return {
     certifications: await lire('certifications'),
@@ -187,8 +211,8 @@ export async function lireBrut(db: Db): Promise<Brut> {
     entretiens: await lire('entretiens'),
     demandesCollab: await lire('demandesCollab'),
     demandesVisite: await lire('demandesVisite'),
-    // Colonne `contenu` jamais lue ici (lot 8, chantier E) : 70 à 90 lots de 50 à 300 Ko chacun après 5 ans.
-    lotsPaie: await db.allSans<LotPaie>('lotsPaie', ['contenu']),
+    // Colonne `contenu` jamais lue ici (`COLONNES_OMISES`).
+    lotsPaie: await lire<LotPaie>('lotsPaie'),
     rubriquesPaie: await lire('rubriquesPaie'),
     releves,
     reprises: await lire('reprises'),
@@ -201,13 +225,7 @@ export async function lireBrut(db: Db): Promise<Brut> {
     astreinteInterventions: await lire('astreinteInterventions'),
     declarationsPasseport: await lire('declarationsPasseport'),
     evaluationsFormation: await lire('evaluationsFormation'),
-    reglages: {
-      app: await db.getSetting<ReglagesBruts['app']>('app', {}),
-      calendrierFeries: await db.getSetting<CalendrierFeries>('calendrierFeries', {}),
-      formatFichierPaie: await db.getSetting<Partial<FormatFichierPaie>>('formatFichierPaie', {}),
-      messagerie: await db.getSetting<Partial<Messagerie>>('messagerie', {}),
-      derogationsDominicales: await db.getSetting<DerogationDominicale[]>('derogationsDominicales', []),
-    },
+    reglages: await lireReglages(db),
     statutsEnvoi: await statutsDesEnvois(db, releves),
   };
 }
@@ -481,3 +499,19 @@ export const HORS_INSTANTANE: ReadonlySet<TableName> = new Set<TableName>(['noti
 
 /** Tables lues par l'instantané complet : l'union de `LECTURES`. */
 export const TABLES_LUES: ReadonlySet<TableName> = new Set<TableName>(Object.values(LECTURES).flat());
+
+/**
+ * Lecture brute dont un instantané complet est tiré (`loadFull`, entrée du cache, jeu d'une action) : gardée à côté de
+ * lui, par identité, pour qu'un delta (server/src/delta.ts) en dérive l'état suivant sans tout relire. Rangée dans une
+ * WeakMap : rien n'est retenu au-delà de la vie de l'instantané.
+ */
+const BRUTS = new WeakMap<Dataset, Brut>();
+
+/** Retient `brut` comme la lecture brute de `ds`, et rend `ds`. */
+export function retenirBrut<T extends Dataset>(ds: T, brut: Brut): T {
+  BRUTS.set(ds, brut);
+  return ds;
+}
+
+/** Lecture brute de l'instantané `ds`, si elle a été retenue (`retenirBrut`). */
+export const brutDe = (ds: Dataset): Brut | undefined => BRUTS.get(ds);

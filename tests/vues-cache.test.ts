@@ -7,6 +7,12 @@
 // - le corps JSON d'une vue partagée, tête recollée, est octet pour octet JSON.stringify({ ...vue, ...tete }), calculé
 //   une fois par vue, jamais servi sous une autre clé ;
 // - corps décompressé de GET /api/data et de la réponse d'une action identique avec et sans cache, pour chaque compte.
+// Étape 2 (report des vues d'une révision à la suivante) :
+// - après une saisie de X, seules `collaborateur|X`, les vues manager dont le périmètre contient X et les vues RH sont
+//   recalculées ; les autres sont reportées (même objet, même corps), et chacune égale vueDe(loadFull) ;
+// - un champ commun changé (fiche), ou CURSUS_VUES_REPORT=0 : aucune vue reportée ;
+// - ni un manager N+2 ni un collaborateur ne reçoivent la ligne d'un autre salarié, vue reportée ou recalculée ;
+// - suite d'écritures aléatoire (banc d'oracle) : des vues reportées, aucune divergence avec la lecture directe.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
@@ -21,10 +27,13 @@ const { nouvelleBase } = await import('./base.ts');
 const { seedDemo, comptesDemo } = await import('../server/src/seed.ts');
 const { createApp } = await import('../server/src/app.ts');
 const { empreinteSession, sign } = await import('../server/src/auth.ts');
-const { buildSnapshot, corpsDe, currentUser, loadFull, partiesInstantane, vueDe } = await import('../server/src/dataset.ts');
-const { cleVue, donneesDe, geler, viderCache, vuePartagee } = await import('../server/src/cache-instantane.ts');
+const { buildSnapshot, corpsDe, currentUser, loadFull, partiesInstantane, scopeIds, vueDe } = await import('../server/src/dataset.ts');
+const { cleVue, donneesDe, geler, suiteEntree, viderCache, vuePartagee } = await import('../server/src/cache-instantane.ts');
+const { Domain } = await import('../shared/domain.ts');
+const { TABLES } = await import('../server/src/db.ts');
+const { LECTURES } = await import('../server/src/lecture-brute.ts');
 const vc = await import('../server/src/vues-cache.ts');
-const { corpsAvecTete, filtreComplet, filtreIndexe, JsonBrut, lignesDe, objetJson, TETE } = vc;
+const { CHAMPS_HORS_VUES, CHAMPS_PAR_SALARIE, communsInchanges, corpsAvecTete, filtreComplet, filtreIndexe, JsonBrut, lignesDe, objetJson, perimetreDe, TETE, vueReportable } = vc;
 const { compteValide, espacesDuCompte } = await import('../server/src/comptes.ts');
 const { creerJeton } = await import('../server/src/agenda.ts');
 const { PROFILS_RH } = await import('../shared/constants.ts');
@@ -275,4 +284,190 @@ test('HTTP : instantané sérialisé après la lecture stable (ni file des écri
       } finally { delete process.env.CURSUS_CACHE_INSTANTANE; }
     }
   } finally { JSON.stringify = stringify; }
+});
+
+// ——— Étape 2 : report des vues ———
+
+const TODAY = '2026-10-10';
+/** Vue partagée de `user` (lecture stable, cache), telle que le cache la garde. */
+const partagee = async (db: Db, user: User) => (await db.lecture(async () => await vuePartagee(db, user, TODAY, db.revision, async u => await loadFull(db, u), f => vueDe(f, user))))!;
+/** Vues partagées de tous les lecteurs, par clé de vue. */
+async function vuesDe(db: Db, users: User[]): Promise<Map<string, Dataset>> {
+  const out = new Map<string, Dataset>();
+  for (const u of users) out.set(cleVue(u), (await partagee(db, u)).vue);
+  return out;
+}
+/** Vue comparable : tête de la requête neutre (utilisateur et révision, recollés à chaque envoi). */
+const sansTete = (v: Dataset, user: User) => ({ ...v, user, revision: 0 });
+/** Salariés que lit la vue de `user` sur l'état actuel de la base, calculés à part : périmètre et membres des équipes encadrées. */
+async function lusPar(db: Db, user: User): Promise<Set<number>> {
+  const d = new Domain(await loadFull(db, { ...RH, profilRh: 'rh_admin' }));
+  const equipes = user.role === 'manager' ? d.teamsOf(user.empId) : [];
+  return new Set([...scopeIds(d, user), ...d.ds.employes.filter(e => !!e.equipe && equipes.includes(e.equipe)).map(e => e.id)]);
+}
+
+test('liste blanche : champs par salarié tirés de tables à colonne empId, aucun champ à la fois par salarié et hors des vues', () => {
+  for (const champ of CHAMPS_PAR_SALARIE) {
+    const tables = (LECTURES as Record<string, readonly string[]>)[champ];
+    assert.ok(tables?.length, `${champ} : tables lues connues`);
+    for (const t of tables) assert.ok('empId' in (TABLES as Record<string, { cols: Record<string, string> }>)[t].cols, `${champ} : table ${t} sans colonne empId`);
+    assert.ok(!CHAMPS_HORS_VUES.has(champ));
+  }
+  for (const commun of ['employes', 'annuaire', 'referentiels', 'sessions', 'settings', 'delegations', 'mandats', 'pieces', 'attentesSession', 'today', 'effectifCse', 'debutSaisieFeuilles'] as const) {
+    assert.ok(!CHAMPS_PAR_SALARIE.has(commun) && !CHAMPS_HORS_VUES.has(commun), `${commun} : champ commun`);
+  }
+  // Règle pure : vue RH jamais reportée ; salarié touché dans le périmètre ; champs communs changés.
+  const ids = new Set([2, 3]);
+  assert.equal(vueReportable('collaborateur|4', new Set([4]), true, new Set([2])), true);
+  assert.equal(vueReportable('manager|3', ids, true, new Set([2])), false);
+  assert.equal(vueReportable('manager|3', ids, true, new Set()), true);
+  assert.equal(vueReportable('manager|3', ids, false, new Set()), false);
+  assert.equal(vueReportable('rh|rh_admin', ids, true, new Set()), false);
+  assert.equal(vueReportable('collaborateur|4', undefined, true, new Set()), false, 'périmètre inconnu');
+  const avant = { today: TODAY, debutSaisieFeuilles: '2026-01-05', feuilles: [], employes: [] } as unknown as Dataset;
+  const memeDebut = { ...avant, feuilles: [] } as Dataset;
+  assert.equal(communsInchanges({ champsChanges: new Set(['feuilles', 'debutSaisieFeuilles', 'absencesPaie']), touches: new Set([2]) }, avant, memeDebut), true, 'date de début inchangée');
+  assert.equal(communsInchanges({ champsChanges: new Set(['feuilles', 'debutSaisieFeuilles']), touches: new Set([2]) }, avant, { ...memeDebut, debutSaisieFeuilles: '2025-12-29' } as Dataset), false);
+  assert.equal(communsInchanges({ champsChanges: new Set(['employes']), touches: new Set([2]) }, avant, { ...avant, employes: [] } as unknown as Dataset), false);
+  assert.equal(communsInchanges({ champsChanges: new Set(), touches: new Set() }, avant, { ...avant, today: '2026-10-11' } as Dataset), false);
+});
+
+test('report : après une saisie de X, seules collaborateur|X et les vues manager qui lisent X sont recalculées, chaque vue reportée égale vueDe(loadFull)', async () => {
+  const db = await demo();
+  const users = (await utilisateurs(db)).map(u => u.user);
+  viderCache(db);
+  const avant = await vuesDe(db, users);
+  // Corps des vues servis une fois : une vue reportée garde le sien.
+  for (const u of users) corpsAvecTete(avant.get(cleVue(u))!, cleVue(u), {});
+  // Saisie d'une cellule de la feuille en brouillon d'un collaborateur (X).
+  const full = await loadFull(db, RH);
+  const brouillons = full.feuilles.filter(f => f.statut === 'brouillon' && f.lignes.length);
+  const x = users.find(u => u.role === 'collaborateur' && brouillons.some(f => f.empId === u.empId))!.empId!;
+  const f = brouillons.find(b => b.empId === x)!;
+  await db.update('feuilles', f.id, { lignes: f.lignes.map((l, i) => (i === 0 ? { ...l, h: l.h.map((v, j) => (j === 0 ? Number(v || 0) + 1 : v)) } : l)) });
+  const reportees0 = vc.vuesReportees, corps0 = vc.corpsCalcules;
+  const apres = await vuesDe(db, users);
+  const suite = (await suiteEntree(db))!;
+  assert.ok(suite, 'entrée dérivée par le delta');
+  assert.deepEqual([...suite.touches], [x], 'seul X est touché');
+  assert.ok(suite.champsChanges.has('feuilles'));
+  let reportees = 0, managersRecalcules = 0, managersReportes = 0;
+  for (const u of users) {
+    const cle = cleVue(u), v = apres.get(cle)!, reportee = v === avant.get(cle);
+    const recalculer = u.role === 'rh' || (u.role === 'collaborateur' && u.empId === x) || (u.role === 'manager' && (await lusPar(db, u)).has(x));
+    assert.equal(reportee, !recalculer, `${cle} : ${recalculer ? 'à recalculer' : 'à reporter'}`);
+    if (u.role === 'manager') { if (reportee) managersReportes++; else managersRecalcules++; }
+    if (!reportee) continue;
+    reportees++;
+    assert.deepEqual(perimetreDe(v), await lusPar(db, u), `${cle} : périmètre retenu`);
+    assert.deepStrictEqual(sansTete(v, u), sansTete(vueDe(await loadFull(db, u), u), u), `${cle} : vue reportée égale à la vue relue`);
+  }
+  assert.ok(managersRecalcules > 0 && managersReportes > 0, `managers recalculés ${managersRecalcules}, reportés ${managersReportes}`);
+  assert.equal(vc.vuesReportees - reportees0, reportees, 'vues reportées comptées');
+  assert.ok(reportees >= 3, `${reportees} vues reportées`);
+  // Une vue recalculée égale aussi la vue relue ; la vue de X porte la saisie.
+  const vx = apres.get(`collaborateur|${x}`)!;
+  assert.deepStrictEqual(vx.feuilles.find(y => y.id === f.id)!.lignes[0].h[0], Number(f.lignes[0].h[0] || 0) + 1);
+  // Corps : seules les vues recalculées en reçoivent un nouveau, une vue reportée garde le sien sous sa seule clé.
+  for (const u of users) corpsAvecTete(apres.get(cleVue(u))!, cleVue(u), {});
+  assert.equal(vc.corpsCalcules - corps0, new Set(users.map(cleVue)).size - reportees);
+  const autre = users.find(u => u.role === 'collaborateur' && u.empId !== x && apres.get(cleVue(u)) === avant.get(cleVue(u)))!;
+  assert.throws(() => corpsAvecTete(apres.get(cleVue(autre))!, `collaborateur|${x}`, {}), /demandé pour la clé/);
+  // Corps HTTP de chaque compte inchangé : instantané servi égal à l'instantané sérialisé directement.
+  for (const u of users) {
+    assert.equal(corpsDe(await db.lecture(async () => await partiesInstantane(db, u))).json, JSON.stringify(await db.lecture(async () => await buildSnapshot(db, u))), `${cleVue(u)} : corps`);
+  }
+});
+
+test('report : un champ commun changé, ou CURSUS_VUES_REPORT=0, et toutes les vues sont recalculées', async () => {
+  const db = await demo();
+  const users = (await utilisateurs(db)).map(u => u.user);
+  viderCache(db);
+  let avant = await vuesDe(db, users);
+  // Fiche d'un salarié changée (champ commun : annuaire, fiches) : aucune vue reportée.
+  await db.update('employes', 2, { poste: 'Opérateur polyvalent' });
+  let apres = await vuesDe(db, users);
+  assert.ok((await suiteEntree(db))!.champsChanges.has('employes'));
+  for (const [cle, v] of apres) assert.notEqual(v, avant.get(cle), `${cle} : recalculée`);
+  // Report coupé : même une saisie sans rapport avec la vue la fait recalculer.
+  avant = apres;
+  process.env.CURSUS_VUES_REPORT = '0';
+  try {
+    const f = (await loadFull(db, RH)).feuilles.find(y => y.statut === 'brouillon')!;
+    await db.update('feuilles', f.id, { comment: 'Report coupé' });
+    apres = await vuesDe(db, users);
+    assert.deepEqual([...(await suiteEntree(db))!.touches], [f.empId]);
+    for (const [cle, v] of apres) assert.notEqual(v, avant.get(cle), `${cle} : recalculée (report coupé)`);
+  } finally { delete process.env.CURSUS_VUES_REPORT; }
+  // Écriture hors de l'instantané (aucun champ changé) : toutes les vues collaborateur et manager reportées.
+  avant = apres;
+  await db.insert('notifications', { empId: 2, adresse: 'mehdi@example.test', type: 'essai', objet: 'Essai', texte: 'Essai', creation: new Date().toISOString(), envoiId: null });
+  apres = await vuesDe(db, users);
+  assert.equal((await suiteEntree(db))!.champsChanges.size, 0, 'aucun champ de l’instantané changé');
+  for (const u of users) assert.equal(apres.get(cleVue(u)) === avant.get(cleVue(u)), u.role !== 'rh', `${cleVue(u)} : ${u.role === 'rh' ? 'vue RH recalculée' : 'reportée'}`);
+});
+
+test('non-fuite : ni un manager N+2 ni un collaborateur ne reçoivent la ligne d’un autre salarié, vue reportée ou recalculée', async () => {
+  const db = await demo();
+  // Consultation N+2 : Sophie Lemaire (Production) consulte la Maintenance de Karim Haddad, rattachée à son équipe.
+  await db.run(`UPDATE equipes SET parente = 'Production' WHERE nom = 'Maintenance'`);
+  await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), consultationN2: true });
+  const users = (await utilisateurs(db)).map(u => u.user);
+  const sophie = users.find(u => u.role === 'manager' && u.empId === 3)!;
+  assert.ok(sophie, 'Sophie Lemaire, manager');
+  viderCache(db);
+  let avant = await vuesDe(db, users);
+  assert.ok(avant.get('manager|3')!.lectureSeule!.includes(2), 'Mehdi Benali en consultation N+2');
+  const brut = await loadFull(db, RH);
+  const feuilleDe = (empId: number) => brut.feuilles.find(f => f.empId === empId && f.statut === 'brouillon') ?? brut.feuilles.find(f => f.empId === empId)!;
+  // Écritures sur plusieurs salariés : feuille et entretien du membre N+2, absence d'un autre, demande au service RH.
+  const ecritures: (() => Promise<unknown>)[] = [
+    async () => await db.update('feuilles', feuilleDe(2).id, { comment: 'Membre N+2' }),
+    async () => await db.insert('entretiens', { empId: 2, type: 'annuel', date: '2026-11-20', statut: 'planifie', cr: { bilan: 'Texte du valideur' }, info: false, signSal: null, signMgr: null }),
+    async () => await db.insert('absences', { empId: 12, type: 'CP', du: '2026-12-14', au: '2026-12-15', statut: 'demandee', keystone: false, justificatif: false }),
+    async () => await db.update('feuilles', feuilleDe(12).id, { comment: 'Manager de la Maintenance' }),
+    async () => await db.insert('cet', { empId: 2, type: 'RTT', jours: 1, date: TODAY, periode: '2026' }),
+  ];
+  let reportees = 0;
+  for (const ecrire of ecritures) {
+    await ecrire();
+    const apres = await vuesDe(db, users);
+    const d = new Domain(await loadFull(db, RH));
+    for (const u of users) {
+      if (u.role === 'rh') continue;
+      const cle = cleVue(u), v = apres.get(cle)!;
+      if (v === avant.get(cle)) reportees++;
+      // Lignes par salarié : les siennes (collaborateur), celles de son périmètre (manager), jamais d'un autre.
+      const permis = u.role === 'collaborateur' ? new Set([u.empId!]) : new Set(scopeIds(d, u));
+      for (const champ of CHAMPS_PAR_SALARIE) {
+        for (const l of ((v as unknown as Record<string, { empId: number }[] | undefined>)[champ] ?? [])) assert.ok(permis.has(l.empId), `${cle} : ligne de ${l.empId} dans ${champ}`);
+      }
+      assert.ok(v.employes.every(e => permis.has(e.id)), `${cle} : fiches du périmètre seulement`);
+      // Consultation N+2 : ni entretiens, ni demandes au service RH, ni avenants, ni avis de manager des membres consultés.
+      for (const id of v.lectureSeule ?? []) {
+        for (const champ of ['entretiens', 'demandesCollab', 'avenantsForfait', 'evaluationsFormation'] as const) {
+          assert.ok(!(v[champ] as { empId: number }[]).some(l => l.empId === id), `${cle} : ${champ} du membre consulté ${id}`);
+        }
+      }
+      assert.deepStrictEqual(sansTete(v, u), sansTete(vueDe(await loadFull(db, u), u), u), `${cle} : vue égale à la vue relue`);
+    }
+    avant = apres;
+  }
+  assert.ok(reportees > 0, 'des vues reportées pendant la suite');
+  // La vue de Sophie Lemaire, qui lit Mehdi Benali en consultation, est recalculée à chacune de ses écritures.
+  const v1 = avant.get('manager|3')!;
+  await db.update('feuilles', feuilleDe(2).id, { comment: 'Encore' });
+  assert.notEqual((await vuesDe(db, [sophie])).get('manager|3'), v1);
+  assert.ok(perimetreDe(v1)!.has(2));
+});
+
+test('oracle : suite d’écritures aléatoire, vues reportées, aucune divergence avec la lecture directe', async () => {
+  const { baseDemo, rejouer, resumeRapport } = await import('./support/oracle.ts');
+  const db = await baseDemo(nouvelleBase);
+  const avant = vc.vuesReportees;
+  const rapport = await rejouer(db, { graine: 9, pas: 12 });
+  assert.equal(rapport.erreurs.length, 0, rapport.erreurs.join('\n'));
+  assert.equal(rapport.divergences.length, 0, resumeRapport(rapport));
+  assert.ok(rapport.ecritures > 3, `${rapport.ecritures} écritures`);
+  assert.ok(vc.vuesReportees > avant, `${vc.vuesReportees - avant} vues reportées`);
 });

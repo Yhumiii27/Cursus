@@ -858,6 +858,264 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
       complète après chaque écriture dans un seul processus. Suites proposées : relecture partielle de la lecture
       partagée (journal des lignes changées par révision : seules les feuilles et absences modifiées relues),
       fenêtre de lecture des années closes (règle par règle), ou plusieurs instances derrière le proxy.
+  - *Corrections du lot 9* : cache incrémental de l'instantané (ci-dessous, « Cache incrémental de l'instantané ») :
+    journal des changements en base, entrée, jeu d'action et suivi des verdicts dérivés par le delta des lignes
+    changées, préchauffage, index par salarié, corps JSON en cache, report des vues collaborateur et manager.
+  - *Troisième mesure* (25 octobre 2026, PostgreSQL 16 local jetable, jeu de 5 ans régénéré avec la graine 42 : 120
+    fiches, 28 235 feuilles, 300 000 lignes de journal ; 120 s par scénario, `--lot 200`, sans marge ; S1, S2 et S3
+    joués chacun dans son propre essai, puis enchaînés dans un même essai, enfin enchaînés avec `--verifier-exactitude` ;
+    rapports `data/charge/rapports/`, non versionnés) :
+    - S2 « vendredi après-midi » (30 saisies) tient **tous ses seuils** : `temps.setCell` p50 64 ms, p95 117 ms (26 à
+      27 s à la seconde mesure), `temps.addLine` p95 119 ms, `temps.submit` p95 90 ms ; `/api/data` collaborateur p95
+      37 ms (1,8 à 2,6 s) ; attente du verrou d'écriture 80 ms au plus (25,4 s), tenu 31 ms au plus ; santé p99 18 ms ;
+      aucune attente du pool ; RSS 661 Mo ; aucune 5xx. Cache : 306 entrées dérivées par un delta, aucune relue en
+      entier ni aucun repli ; delta p50 3,6 ms, p95 9,1 ms, maximum 36 ms (une à quatre clés changées) ; jeux d'action
+      servis par la lecture partagée (314) ou dérivés (47), jamais relus ; 280 vues collaborateur recalculées (celle de
+      l'auteur de chaque saisie) et 8 407 reportées.
+    - S1 « matinée » (30 lecteurs, aucune écriture) : médianes inchangées (22 ms collaborateur, 79 ms manager, 0,5 s RH),
+      mais p95 1,3 s (collaborateur), 3,2 s (manager), 4,9 s (RH), santé p99 2,5 s, attente du pool 3,0 s : **seuils non
+      tenus**. Le préchauffage lit l'entrée (0,5 s) mais pas les vues : les trente premières lectures, arrivées en 3 s,
+      calculent chacune sa vue (2 RH, 6 managers, 22 collaborateurs) dans le même processus. Rejoué deux fois de suite
+      dans un même essai (`--scenario S1,S1`), le second passage ne recalcule aucune vue : sur les deux passages, p95
+      102 ms (collaborateur), 254 ms (manager), 0,8 s (RH), soit les seuils tenus hors de la rafale froide.
+    - S3 « fin de mois » (6 validations de 16 à 26 feuilles, une de 200, 20 lecteurs, Keystone, tâches du quart
+      d'heure) : validations de 16 à 26 feuilles en 6,8 s (médiane) à 14,2 s (7,6 à 22 s à la seconde mesure ; **seuil de
+      10 s non tenu** pour les plus longues), validation de 200 feuilles en 16,5 s (39,9 s ; seuil 60 s tenu ; 90 feuilles
+      validées, les 110 autres déjà validées par les managers, sautées) ; attente du verrou 8,6 s au plus, dans la file de
+      l'instance (seuil 10 s tenu de peu), tenu 4,5 s au plus ; RSS 833 Mo (0,9 à 1,1 Go ; seuil 1 Go tenu, validation de
+      200 feuilles comprise) ; aucune 5xx. Mais `/api/data` p95 1,7 s (collaborateur), 4,7 s (manager), 12,7 s pour la
+      seule lecture RH, santé p99 3,0 s, attente du pool 4,0 s : **seuils de lecture non tenus**. Les validations occupent
+      le processus (contrôles de chaque feuille, `remplacerFeuille` et un `Domain` neuf par feuille, une tranche de 25 par
+      transaction), et chaque validation touche les salariés d'une équipe : la vue de leur manager, et toute vue RH demandée,
+      sont recalculées à chaque tranche. Cache : 16 entrées dérivées, aucun repli ; delta p50 5,9 ms, p95 34 ms, maximum
+      222 ms (231 clés au plus, une tranche) ; 4 relectures de toute la table des feuilles en plus du préchauffage, faites
+      par l'API Keystone (verdict d'un chantier, `loadFull`) et les tâches du quart d'heure, hors du cache.
+    - Les trois enchaînés (même essai) : `temps.setCell` p95 144 ms, validations de 30 feuilles au plus en 16,0 s au pire,
+      200 feuilles en 23,0 s, verrou attendu 9,0 s et tenu 5,0 s au plus, RSS 892 Mo, aucune 5xx, santé au plus 2,6 s.
+    - Exactitude : avec `--verifier-exactitude` (k = 50), 5 états comparés pendant S1 à S3, 445 comparaisons (44
+      lecteurs), **aucune divergence**, aucune comparaison interrompue (327 s de comparaison, écritures retenues à la
+      porte : durées et mémoire de cet essai non comparables, RSS 1,5 Go avec les relectures de l'oracle). Jeu d'un an,
+      S2 et S3 pendant 60 s, `--marge 3`, comme la CI : 9 états, 445 comparaisons, aucune divergence, tous les seuils tenus.
+    - Journal des changements : 100 000 lignes après la génération du jeu (toutes ses insertions), environ 300 de plus
+      par S2 et 600 par S3 ; la purge ne passe pas pendant l'essai (sur PostgreSQL, elle attend un relevé d'une heure).
+    - Restent hors seuil : les lectures pendant la rafale froide du début de journée (S1) et pendant une fin de mois
+      (S3), et la validation groupée de 25 à 30 feuilles (14 à 16 s). Le seuil de l'écran RH n'est pas tenu en S3 (une
+      seule lecture RH mesurée, 12,7 s) : c'est le point que le propriétaire a demandé de signaler (écran RH toujours
+      exact, sans décalage, tant que la mesure ne montre pas le contraire). Pistes, non faites : préchauffer aussi les
+      vues RH et manager au démarrage et après une écriture (calcul hors des requêtes) ; rendre la validation groupée
+      moins coûteuse (garder le `Domain` entre deux feuilles d'une tranche, mémos par salarié) ; puis, si ce n'est pas
+      assez, le regroupement des écritures et l'instantané partiel renvoyé au client, gardés en réserve par le plan du
+      lot 9. La saisie simultanée (S2), objet du lot, tient ses seuils.
+- **Cache incrémental de l'instantané** (lot 9, performance de la saisie simultanée ; chantiers 1 à 3). La seconde
+  mesure le montrait : chaque écriture rendait la lecture partagée périmée, et la relire en entier (0,6 s sur 5 ans), deux
+  fois par écriture et trois pour une action d'absence, plafonnait la saisie à 1,3 écriture par seconde. Désormais, ce qui
+  a changé est tenu en base, et l'état suivant se dérive du précédent ; la relecture complète (`loadFull`) reste l'oracle
+  et le repli.
+  - *Journal des changements* (chantier 1 ; migration PostgreSQL `0014_changements`, déclencheurs `revision2_*` de
+    `SqliteDb.poserRevision` en SQLite). Table technique `changements (n, tbl, pk)` : pour chaque révision de la base
+    (`revision.n`, 0013), la table (nom SQL) et la clé primaire, en texte, de chaque ligne insérée, modifiée ou supprimée,
+    écrites par déclencheur dans la transaction de l'écriture, quelle que soit l'instance, la tâche de fond ou l'outil qui
+    écrit (SQL direct, upsert compris). Une transaction annulée n'y laisse rien. Une modification inscrit l'ancienne et la
+    nouvelle clé (clé renommée). Clé NULL : marqueur « toute la table » (TRUNCATE, remise à zéro de la démonstration,
+    instruction de plus de 1 000 lignes sur PostgreSQL ; plus de 1 000 clés d'une table dans un écart, `SEUIL_CHANGEMENTS`,
+    à la lecture sur les deux moteurs). Les tables sensibles en entier (`TABLES_CHANGEMENTS_SANS_CLE` : vaccinations,
+    visas, demandes de visite, informations CP, reprises) n'y sont jamais inscrites que par ce marqueur : l'ordre des
+    écritures rattacherait l'activité d'une table de santé à un salarié. Seules vaccinations et visas sont aujourd'hui
+    fermées à `matrix_lecture` par le socle ; demandes de visite, informations CP et reprises, comme `changements`
+    elle-même (déclarée sensible par le commentaire de 0014), ne le seront qu'une fois appliquée la demande à Matrix
+    (`docs/demandes/matrix-lot8-colonnes-sensibles.sql`, `docs/DEMANDES-LOT8-DONNEES.md`) : jusque-là, elles restent
+    lisibles par `matrix_lecture` sur un serveur monté avec le socle actuel, et le contrôle des colonnes sensibles de la
+    CI le signale sans bloquer (ci-dessus). PostgreSQL : déclencheurs par instruction `revision_lignes_i/u/d` (tables de transition, un
+    `INSERT … SELECT` par table généré dans la boucle de 0014, sans `to_jsonb`) et `revision_lignes_t` (TRUNCATE), qui
+    passent après le déclencheur `revision` de 0013 par l'ordre alphabétique de leurs noms. SQLite : déclencheurs par ligne,
+    `PRAGMA recursive_triggers = ON` (ligne remplacée par `INSERT OR REPLACE` inscrite), base du lot 8 reprise à
+    l'ouverture. Contrat (`server/src/db.ts`) : `etatRevision()` (révision `n`, époque, purge), `lireChangements(de, a,
+    epoque)` (clés changées par table, ou `'tout'` ; null si l'écart est inconnu : parti d'en deçà de la purge, à rebours,
+    au-delà de la base, ou d'une autre époque ; Map vide si `de = a`), `lireLignes(table, clés)` (lignes décodées par
+    paquets de 500, `PAQUET_LIGNES`), à lire dans la même lecture stable (ou transaction) que les données. Sur
+    PostgreSQL, une instruction qui ne touche aucune ligne augmente la révision sans rien inscrire, et un upsert
+    `ON CONFLICT DO UPDATE` l'augmente deux fois : ses lignes sont dans l'écart, pas toujours à la dernière révision.
+    Le décodage des lignes est préparé une fois par table (`[colonne, nom SQL, type]`), au lieu de parcourir la
+    déclaration à chaque ligne.
+  - *Époque* (chantier 1, étape 2) : colonne `revision.epoque` (heure de création), plus, sur PostgreSQL, l'OID de la
+    table `revision` : un `pg_restore` qui recrée les tables change l'OID, donc l'époque, et tout écart qui traverse la
+    restauration est inconnu (relecture complète). Un rechargement des données seules (`pg_restore --data-only`) garde
+    l'OID et remet l'ancienne époque : `npm run revision:epoque` (`server/src/revision-epoque-cli.ts`, service en marche
+    admis, SQLite et PostgreSQL) en pose une nouvelle, ou redémarrer toutes les instances (docs/SAUVEGARDE.md, section 10 ;
+    docs/DEPLOIEMENT.md). SQLite garde la colonne seule : une restauration du fichier se fait service arrêté, cache vide.
+  - *Purge* (`server/src/purge-changements.ts`, appelée par les tâches du quart d'heure, dans sa propre transaction) :
+    efface les changements des révisions anciennes et pose `revision.purge` (qui ne recule jamais) ; garde toujours au
+    moins `GARDE_REVISIONS` (20 000) révisions et, sur PostgreSQL, une heure (`GARDE_MS`, d'après les relevés (heure,
+    révision) que chaque instance tient en mémoire : une instance démarrée depuis moins d'une heure ne purge pas). Sans
+    déclencheur de révision : la purge ne périme pas le cache, seuls les écarts partis d'en deçà deviennent inconnus.
+  - *Contrôle du schéma* : au démarrage, `PgDb.controlerSchema` refuse un schéma sans la table `changements`, sans les
+    colonnes `purge` et `epoque`, ou dont une table de `TABLES` (hors `TABLES_SANS_REVISION`) n'a pas ses quatre
+    déclencheurs `revision_lignes_*` actifs. Toute table ajoutée par une migration postérieure à 0014 reçoit ses
+    déclencheurs dans sa propre migration. Les migrations publiées 0001 à 0014 sont figées par leur empreinte
+    (`tests/purge-changements.test.ts`).
+  - *Lecture brute et assemblage* (chantier 2, étape 1 ; `server/src/lecture-brute.ts`) : `loadFull` = `assembler(lireBrut(db),
+    …)` plus les résumés de la paie. `lireBrut` lit les tables telles quelles (ordre de leur clé, ou de la colonne de
+    `ORDRE_LECTURE`), cinq réglages et le statut des envois des relevés ; `assembler`, pur, en tire le Dataset (jointure
+    des fiches et de leurs titres, inscrits des sessions, files d'attente, annuaire, début de la saisie, effectif, budgets,
+    plan, reprises, lots, relevés, pièces), chaque dérivé mémoïsé sur l'identité de ses entrées. Registre `LECTURES`
+    (tables lues par champ de l'instantané), `DEP_PAIE` (tables des résumés de la paie), `HORS_INSTANTANE` : un espion sur
+    `db.query` vérifie que les tables lues par `loadFull` sont exactement l'union de `LECTURES`, et que chaque table de
+    `TABLES` est lue, hors de l'instantané ou sans révision (`tests/lecture-brute.test.ts`).
+  - *Delta fusionné et replis* (chantier 2, étape 2 ; `server/src/delta.ts`) : `lireDelta` relit, dans la lecture stable
+    ou la transaction où les changements ont été lus, les seules lignes changées (par clé), ou la table entière quand
+    une fusion par clé ne rendrait pas l'ordre de la lecture brute ou coûterait plus qu'elle : clé texte (petites tables :
+    formations, habilitations, équipes, projets, réglages…), table triée par une autre colonne (`ORDRE_LECTURE`),
+    marqueur « toute la table », plus de 2 000 clés (`SEUIL_RELECTURE`) ; plus les réglages si `settings` a changé et le
+    statut des seuls envois concernés. `appliquerDelta`, pur, rend une nouvelle lecture brute en partage structurel : seules
+    les tables dont une ligne a vraiment changé reçoivent un nouveau tableau (insertion par dichotomie sur la clé entière),
+    une ligne relue identique garde l'ancienne, rien n'est modifié (gel des tests) ; avec les champs de l'instantané
+    changés (`champsChanges`, d'après `LECTURES`), les salariés touchés (avant et après la modification) et si les
+    résumés de la paie peuvent être repris (aucune table de `DEP_PAIE` au journal, envois comptés seulement si le statut
+    d'un relevé change). Dans `server/src/cache-instantane.ts`, l'entrée d'une révision nouvelle (même jour, même époque)
+    est dérivée de l'entrée précédente (`deriverEntree`, `deriver` : changements, delta, fusion, `assembler`) ; replis sur
+    la lecture complète : écart inconnu (`lireChangements` rend null : purge, époque), entrée précédente en échec ou sans
+    lecture brute, autre jour, autre époque, première lecture. Le Dataset produit est celui de `loadFull`, ligne pour ligne
+    et dans le même ordre ; aucune règle de `shared/` ne change.
+  - *Jeu d'une action et suivi des verdicts* : `donneesAction` (sous le verrou, avant toute écriture) rend la lecture
+    partagée de la révision lue, ou l'entrée d'une révision plus ancienne de la même époque plus le delta, lus dans la
+    transaction ; jamais mis en cache (une annulation défait la révision). Son point de départ (lecture brute, révision,
+    époque) est retenu : `jeuApres` dérive l'état d'après l'action (delta des propres écritures de la transaction) pour le
+    suivi des verdicts Keystone (`suivreVerdicts(db, { depart })` dans `app.ts`, et les actions de conformité), au lieu de
+    deux `loadFull` sous le verrou ; lecteur `SUIVI` au profil référent HSE (aucune règle des verdicts ne lit les résumés
+    de la paie). `remplacerFeuille` (validation) trouve la feuille par dichotomie, et garde un `Domain` neuf (ses calculs
+    mémorisés restent exacts).
+  - *Préchauffage* (`prechaufferCache` de `server/src/demarrage.ts`, appelé par `server/src/index.ts` au démarrage, sans
+    bloquer ; jamais sous `node --test`) : l'entrée de la révision courante est lue avant les premières requêtes, qui la
+    trouvent ou attendent la même lecture (rafale froide du début de S1). L'essai de charge le fait avant son premier
+    scénario.
+  - *`CURSUS_CACHE_INCREMENTAL=0`* revient à la relecture complète à chaque révision (comparaison, dépannage) ;
+    `CURSUS_CACHE_INSTANTANE=0` coupe tout le cache.
+  - *Index par salarié* (chantier 3, étape 1 ; `server/src/vues-cache.ts`, `lignesDe`) : les lignes du périmètre d'une
+    vue collaborateur ou manager (`mine`) sont trouvées par un index par salarié, construit une fois par tableau partagé
+    (mémorisé par identité : un tableau que le delta n'a pas remplacé garde son index) ; même résultat que le filtre
+    d'origine (mêmes lignes, même ordre, tableau neuf) ; `filtreComplet` reste la référence des tests.
+  - *Corps JSON en cache* (chantier 3, étape 1) : le corps d'une vue partagée est calculé une fois par entrée et par clé
+    de vue (`corpsAvecTete`), les champs de tête propres à la requête (`TETE` : utilisateur, révision, dossiers échus,
+    abonnement à l'agenda) recollés à leur place à chaque envoi : octet pour octet `JSON.stringify({ ...vue, ...tete })`,
+    envoyé par `envoyerJson` (GET /api/data et réponse d'une action). Un corps n'est jamais servi sous une autre clé que
+    la sienne (refus explicite). La compression (brotli) reste faite à chaque requête. Hors cache, sérialisation à chaque
+    requête comme avant.
+  - *Report des vues* (chantier 3, étape 2 ; `reporterVues`, appelé par `avecReport` de `cache-instantane.ts`) : une
+    entrée dérivée par un delta reprend telles quelles (même objet, même corps JSON) les vues collaborateur et manager
+    résolues de la précédente quand chaque champ changé est fait de lignes par salarié (`CHAMPS_PAR_SALARIE`), hors des
+    vues (`CHAMPS_HORS_VUES`) ou de même valeur, et qu'aucun salarié touché n'est dans l'ensemble des salariés que la vue
+    lit (`perimetreDe`, retenu par `vueDe`, jamais envoyé au navigateur ; membres des équipes encadrées pour un manager).
+    Les vues RH sont toujours recalculées (l'écran RH reste toujours exact, décision du propriétaire) ; toute écriture d'un
+    champ commun (fiche, équipe, session, inscription, réglage, délégation, pièce, mandat) fait tout recalculer.
+    `CURSUS_VUES_REPORT=0` coupe le report.
+  - *Compteurs* (`statistiquesCache`, `remettreStatistiques` de `cache-instantane.ts`, chantier 4 ; propres au processus,
+    nombres seulement) : entrées lues en entier ou dérivées, replis et leur cause (écart inconnu, entrée précédente
+    indisponible), jeux d'action (lecture partagée, dérivés, lus en entier), jeux du suivi des verdicts (dérivés, relus),
+    durée de chaque delta (p50, p95, maximum) et clés changées, vues recalculées par espace, vues reportées
+    (`tests/statistiques-cache.test.ts`). Relevés par l'essai de charge et exigés par le banc d'oracle.
+  - *Preuves* : `tests/changements.test.ts` et `tests/purge-changements.test.ts` (journal sur les deux moteurs, annulation,
+    TRUNCATE et remise à zéro, upsert et SQL direct, purge, époque et OID, deux `PgDb` sur le même schéma, contrôle du
+    schéma) ; `tests/lecture-brute.test.ts` (registre des dépendances) ; `tests/lecture-incrementale.test.ts` (delta après
+    chaque écriture d'une suite scriptée et aléatoire, entrée et jeu d'action égaux à `loadFull`, suivi des verdicts égal à
+    `loadFull(SUIVI)`, même séquence d'actions avec `CURSUS_CACHE_INCREMENTAL=1` et avec `CURSUS_CACHE_INSTANTANE=0` :
+    mêmes messages, alertes, verdicts en file et tables finales) ; `tests/signaler-delta.test.ts` (actions de
+    conformité) ; `tests/vues-cache.test.ts` (index, corps, report, non-fuite pour un N+2 et les collaborateurs) ; banc
+    d'oracle et règles par salarié (ci-dessous). Sous `node --test`, entrées, lectures brutes, vues et `loadFull` sont
+    gelées en profondeur, et toute la suite passe.
+- **Oracle d'exactitude** (lot 9, chantier 4, étapes 1 et 2 ; `scripts/charge/verifier.ts`, `tests/support/oracle.ts`) : tout
+  ce que Cursus sert depuis sa lecture partagée doit être exactement ce que donne la relecture complète (`loadFull`,
+  `CURSUS_CACHE_INSTANTANE=0`), qui reste l'oracle et le repli de tout cache incrémental. Comparaison à l'identique
+  (`isDeepStrictEqual` : types, ordre des lignes, propriétés absentes ou indéfinies ; `ecart` rend le premier chemin qui
+  diffère) de quatre objets : la **vue** de chaque lecteur (chaque compte actif dans chacun de ses espaces, puis chaque
+  profil de `PROFILS_RH`, `aucun` compris : `lecteursDe`), servie par le cache dans une lecture stable contre la même
+  lecture faite directement (`instantaneDirect` : `buildSnapshot(…, { cache: false })`, `loadFull` puis la vue, sans
+  toucher `CURSUS_CACHE_INSTANTANE` : le cache reste actif pour les autres requêtes du processus) ; l'**entrée** du cache (jeu remis à une action du lecteur interne sans paie,
+  `donneesAction` dans une transaction, exigé servi par la lecture partagée de la révision courante) ; le **jeu
+  d'action** de chaque lecteur (`donneesAction` contre `loadFull` lu dans la même transaction ; quand l'entrée de la
+  révision courante manque, l'action reçoit `loadFull` lui-même : comparaison *triviale*, comptée à part dans
+  `triviales`, jamais dans `comparaisons`) ; la **réponse** d'une
+  action (instantané renvoyé contre l'instantané lu directement pour le compte, relu après l'action). Une comparaison
+  pendant laquelle la révision de la base change est refaite (trois essais), puis comptée « état instable ».
+  - *Banc* (`rejouer`) : suite d'écritures tirée d'une graine (`aleatoire` de `scripts/charge/commun.ts` : même graine,
+    mêmes tirages, mêmes issues, sur les deux moteurs). Chaque pas est soit du SQL direct, comme une reprise ou un outil
+    (`UPDATE` d'une ou de plusieurs lignes, `INSERT`, `DELETE`, upsert `ON CONFLICT` sur les feuilles, les projets, les
+    équipes et les réglages ; une contrainte refusée par la base ne change rien), soit une action du registre `ACTIONS`
+    envoyée par `POST /api/actions/:nom` à l'application montée sur une boucle locale, par un compte tiré au hasard dans
+    l'un de ses espaces (service RH deux fois sur cinq, manager une fois sur quatre, sinon collaborateur). Pour la saisie,
+    la validation des feuilles et les absences, neuf fois sur dix, la ligne visée (feuille modifiable qui a des lignes,
+    feuille soumise, absence demandée ou signalée) est tirée d'abord, puis l'acteur parmi ceux qui en ont le droit
+    (salarié, son manager, service RH au droit « rh » ; administrateur RH pour une réouverture), et la cellule parmi les
+    lignes de la feuille ; l'upsert direct des feuilles crée une ligne de projet vide. Paramètres :
+    tirages ciblés pour la saisie, les absences, les compteurs, les fiches, les sessions et les certifications ; pour les
+    autres actions, d'après les noms qu'elles lisent dans leur code (`p.empId`, `p.id`, `p.du`…), tirés des données du
+    moment. Sont exclues la remise à zéro de la démonstration, l'activation et la réinitialisation des comptes (les
+    sessions du banc deviendraient inutilisables) et la messagerie. Un refus (4xx) fait partie du jeu ; une 5xx est une
+    erreur. Avant chaque action : jeu de l'acteur ; après : réponse ; après chaque pas (ou tous les `verifierTous`) :
+    vues et entrée, et jeux d'action de tous les lecteurs tous les `jeux` pas et au dernier.
+  - *Jeux* : démonstration (`baseDemo`) et jeu de charge d'un an (`baseUnAn` : 120 fiches, 6 027 feuilles, 1 479
+    absences, 10 lots transmis et 10 annulés), sur SQLite (`npm test`) et PostgreSQL (`npm run test:pg`). Le jeu d'un an
+    vient de `scripts/charge/fabrique.ts` (`peuplerJeu`), que le générateur de l'essai de charge appelle aussi : le jeu
+    des tests est celui de `npm run charge:generer -- --ans 1` (vérifié à l'identique, feuilles, absences et fiches), hors
+    journal, envois, relevés et jetons d'agenda ; feuilles et absences y sont insérées en masse par le SQL commun aux deux
+    moteurs (`insererPortable`), le générateur gardant ses insertions par le pilote.
+  - *Tests* : `tests/oracle-cache.test.ts` (comparaison, porte, lecteurs, une divergence vue quand la révision est
+    ramenée en arrière après une écriture, reproductibilité, lecture directe sans effet sur le cache des autres
+    lectures ; démonstration, 40 pas : vues de tous les lecteurs et entrée comparées après chaque pas, jeu de l'acteur
+    avant chaque action, jeux d'action de tous les lecteurs tous les 5 pas et au dernier ; au moins une saisie de
+    cellule, une soumission ou décision sur une feuille et une action d'absence validées, une action validée sur cinq
+    pas, au plus une comparaison triviale ; jeu d'un an, 4 pas sur un échantillon de lecteurs, puis les cinq profils
+    RH, 4 managers et 4 collaborateurs) et
+    `tests/regles-incrementales.test.ts` (règles de chaque salarié sur le jeu de la lecture partagée et sur celui de la
+    relecture complète : `recupInfo`, `cpInfo`, `acquisitionPeriode` des périodes N-1 à N+1, `rttInfo`, `cetInfo`,
+    `contingentAnnuel`, `corAValider` de chaque feuille soumise, `moyenne12Semaines`, `requalificationPartiel`,
+    `cumulForfaitJours`, `syntheseC2p` des années suivies, `sagePending`, avant et après une suite d'écritures). À
+    l'étape 1, sur le cache par révision, tout était identique. Réglages : `CURSUS_ORACLE_GRAINES` (graines séparées
+    par des virgules), `CURSUS_ORACLE_PAS`, `CURSUS_ORACLE_COMPLET=1` (passage long : trois graines de 300 pas sur la
+    démonstration, tous les lecteurs à chaque pas ; 60 pas sur le jeu d'un an, avec à chaque pas les cinq profils RH,
+    les huit managers et six collaborateurs tirés au hasard, puis tous les lecteurs au dernier). Coût : une vue RH lue
+    directement prend 0,4 à 0,7 s sur le jeu d'un an (couverture, C2P, résumés de la paie), d'où l'échantillon.
+  - *Étape 2, sur le cache incrémental* : le banc juge désormais l'entrée dérivée par le delta, les vues reportées et les
+    jeux d'action dérivés. Il exige, par les compteurs du cache (`statistiquesCache`, remis à zéro au début de la suite),
+    que le chemin incrémental ait servi : une seule lecture complète (la première), aucun repli, une entrée pour chaque
+    révision écrite, des jeux d'action servis par la lecture partagée et des jeux dérivés (action ou suivi des verdicts),
+    des vues reportées ; le bilan de chaque suite est écrit dans la sortie des tests (`t.diagnostic`). Les règles par
+    salarié se comparent sur une entrée dérivée (aucune relecture complète après la suite d'écritures). Passage long du
+    25 octobre 2026 (`CURSUS_ORACLE_COMPLET=1`, graines 20261010, 42 et 7) : sur SQLite, 900 pas sur la démonstration et
+    60 sur le jeu d'un an, aucune divergence, aucune 5xx, 20 min ; sur PostgreSQL 16, même résultat en 40 min. Par
+    graine de la démonstration : 160 à 175 pas écrivants (93 à 104 actions validées, 69 à 75 écritures SQL directes),
+    25 200 comparaisons, 162 à 175 entrées dérivées pour une seule lecture complète, aucun repli, 13 000 jeux d'action
+    servis par la lecture partagée, 31 à 46 jeux du suivi des verdicts dérivés, 3 500 à 3 700 vues reportées, deltas de
+    1 ms en médiane (0,3 ms sur SQLite), 8 ms au plus. Jeu d'un an : 38 pas écrivants, 1 609 comparaisons, 38 entrées
+    dérivées, 845 vues reportées, aucune divergence. `npm test` et
+    `npm run test:pg` en jouent le passage court (40 pas, une graine). CI : job `oracle`, passage long sur les deux
+    moteurs, pour chaque pull request, « Run workflow » et chaque semaine (jamais à chaque push).
+  - *Essai de charge* : `npm run charge -- … --verifier-exactitude [k]` (k = 50 par défaut). Toutes les k actions
+    validées et à la fin de chaque scénario, la porte des écritures de l'essai (`Porte` : actions, appels de Keystone,
+    tâches du quart d'heure et de fond) se ferme, les écritures en cours finissent, puis l'entrée, les vues et les jeux
+    d'action de 30 collaborateurs, 8 managers et de chaque profil RH sont comparés à la relecture complète ; les
+    écritures suivantes attendent la fin de la comparaison (24 s par comparaison sur le jeu d'un an), et leur durée
+    relevée compte cette attente. Les lectures (`GET /api/data` des utilisateurs simulés) ne passent pas la porte :
+    elles restent servies par le cache pendant la comparaison, mesurées comme les autres, mais partagent le processus
+    avec elle (CPU, mémoire d'une relecture complète) : un essai avec `--verifier-exactitude` juge l'exactitude, ses
+    durées et sa mémoire se lisent avec cette réserve, et la mesure de référence se fait sans l'option. Invariant entier
+    « aucune divergence avec la relecture complète » (`juger` de `scripts/charge/seuils.ts` : au moins une comparaison,
+    aucune divergence, aucune comparaison d'état interrompue par une erreur, `echecs`), section « Exactitude » du
+    rapport (comparaisons, triviales, refaites, interrompues, premières divergences). Relevés du cache, en plus :
+    relectures complètes (lectures de toute la table des feuilles comptées sur `db.query`, sauf celles de la
+    comparaison elle-même, repérées par leur contexte asynchrone ; celles des utilisateurs pendant une comparaison
+    comptent), taille de
+    la table `changements` à la fin de chaque scénario, et compteurs du cache incrémental du scénario seul
+    (`statistiquesCache`, remis à zéro au début de chaque scénario, ceux des comparaisons de l'oracle retirés) : entrées
+    dérivées ou relues en entier, replis et leur cause, jeux d'action, durée du delta (p50, p95, maximum) et clés
+    changées, vues recalculées par espace et vues reportées. L'entrée du cache est préchauffée avant le premier scénario,
+    comme au démarrage du serveur. Essai du 25 octobre 2026 (jeu d'un an, S2 puis S3 pendant 40 s, `--verifier-exactitude 20`, PostgreSQL 16
+    local), refait après la relecture de l'étape 1 (lecture directe sans couper le cache, lectures des utilisateurs
+    pendant les comparaisons comptées) : 5 états comparés, 445 comparaisons, aucune triviale ni interrompue, 0
+    divergence ; 129 relectures complètes en S2 et 14 de plus en S3 ; `temps.setCell` p95 6,5 s, attente du verrou
+    6,9 s, écritures retenues à la porte comprises (113 s de comparaison en tout).
+    CI : sur une pull request qui touche aussi `server/src/cache-instantane.ts`, `delta.ts`, `lecture-brute.ts`,
+    `vues-cache.ts`, `demarrage.ts`, `purge-changements.ts` ou `scripts/charge/`, l'essai du jeu d'un an (S2, S3) tourne
+    avec `--verifier-exactitude`.
 - **Réinitialisation de la démonstration** (`server/src/reset.ts`, garde-fous dans `server/src/reinitialisation.ts`) :
   refusée hors `CURSUS_DEMO=1`, avec `NODE_ENV=production` sauf l'application de bureau (`demoSurBoucleLocale`) et l'instance publiée (`demoPublique`), sur
   une base qu'un serveur en service n'a pas encore mise à jour (`controlerPourOutil`), sur une base qu'un serveur

@@ -189,7 +189,7 @@ test('migrations : appliquées une fois sous verrou (deux démarrages simultané
     assert.ok(noms[0] === '0001_init' && noms.includes('0002_partage'));
     assert.deepEqual((await a.query<{ nom: string }>('SELECT nom FROM schema_migrations ORDER BY nom')).map(r => r.nom), noms);
     assert.equal([a.neuve, b.neuve].filter(Boolean).length, 1, 'une seule instance a créé le schéma');
-    assert.equal((await surServeur<{ n: number }>(url, `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = $1`, [schema]))[0].n, Object.keys(TABLES).length + 2, 'tables de TABLES, journal des migrations et révision');
+    assert.equal((await surServeur<{ n: number }>(url, `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = $1`, [schema]))[0].n, Object.keys(TABLES).length + 3, 'tables de TABLES, journal des migrations, révision et journal des changements');
     // Réouverture : rien à appliquer.
     const c = await ouvrirPostgres(url, { schema });
     assert.equal(c.neuve, false);

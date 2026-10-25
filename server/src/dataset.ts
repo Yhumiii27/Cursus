@@ -2,7 +2,7 @@
 // périmètre de l'utilisateur connecté (RH : tout ; profils restreints de l'espace RH :
 // ce que leurs droits ouvrent ; manager : son équipe ; collaborateur : ses propres données).
 import { Domain } from '../../shared/domain.ts';
-import { addD, configurerFeries, isoParis, isValidDate, mondayOf } from '../../shared/dates.ts';
+import { addD, isoParis, isValidDate, mondayOf } from '../../shared/dates.ts';
 import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.ts';
 import { acquisitionsCalculees } from '../../shared/rules/acquisition-cp.ts';
 import { aptitudeVueManager } from '../../shared/rules/sante.ts';
@@ -11,44 +11,35 @@ import { etatMineur, mineurDeLaSemaine, moins16DeLaSemaine, naissanceVueManager 
 import { statutNuit } from '../../shared/rules/repos-nuit.ts';
 import { needsFinCarriere } from '../../shared/rules/entretiens.ts';
 import { present, verdictAutorisation } from '../../shared/rules/contrats.ts';
-import { completerSession } from '../../shared/rules/plage-session.ts';
-import { avecInscrits } from '../../shared/rules/sessions.ts';
 import { finPeriodeCp, periodeReport } from '../../shared/rules/conges.ts';
-import { debutSaisieDe } from '../../shared/rules/suivi-feuilles.ts';
 import { reouvertureNeutre } from '../../shared/rules/regularisation.ts';
-import { effectifSite } from '../../shared/rules/delegation.ts';
 import { equipesDescendantes } from '../../shared/rules/hierarchie.ts';
 import { delegationEnVigueur, deleguesA, type Delegue } from '../../shared/rules/delegations-manager.ts';
-import { reglagesParDefaut } from '../../shared/reglages.ts';
 import { etatsCouverture } from '../../shared/rules/couverture.ts';
 import { entretienMiCarriere } from '../../shared/rules/entretien-mi-carriere.ts';
 import { anneesC2p, syntheseC2p } from '../../shared/rules/c2p.ts';
-import type { Astreinte, AvenantForfait, ContratHistorique, DeclarationPasseport, DelegationValidation, DemandeVisite, EtatCouverture, FormationSuivie, HabDelivrance, InterventionAstreinte, LotReprise, Personne } from '../../shared/types.ts';
+import type { Astreinte, AvenantForfait, ContratHistorique, DeclarationPasseport, DelegationValidation, EtatCouverture, FormationSuivie, HabDelivrance, Personne } from '../../shared/types.ts';
 import type {
-  Absence, Certification, Inscription, CetMouvement, Fractionnement, Chantier, ClotureConges, CurrentUser, InformationCp, Dataset, SoldeSortie, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
-  CalendrierFeries, DerogationDominicale, Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, Horaire, ISODate, Mandat, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim,
-  ReportCp, RubriquePaie, Session,
-  Settings, SoldeReprise, TacheKeystone, Vaccination, Visa, Voyage,
+  ClotureConges, CurrentUser, Dataset, DemandeCollab, Employe, Entretien, CalendrierFeries, Equipe, FeuilleTemps, ISODate, PlanAction, ReportCp, Settings, TacheKeystone, Voyage,
 } from '../../shared/types.ts';
 import { type DroitRh, droitsRh, PROFILS_RH } from '../../shared/constants.ts';
 import type { Db } from './db.ts';
 import type { SessionInfo } from './auth.ts';
 import { compteValide, espacesDuCompte, nomDuCompte } from './comptes.ts';
-import { lireFormatFichier, lireLots } from './lots-paie.ts';
 import { absenceSansPaie, resumeAbsencesPaie, sansCodesAbsences } from './absences-paie.ts';
-import { lireMessagerie } from './messagerie.ts';
-import { lirePieces, piecesVisibles } from './pieces.ts';
+import { piecesVisibles } from './pieces.ts';
 import { resumeDeplacementsPaie } from './deplacements-paie.ts';
 import { dossiersEchus } from './conservation.ts';
 import { jetonActif } from './agenda.ts';
-import { geler, gelEnTest, vueEnCache } from './cache-instantane.ts';
-import { avecPositions, avecProposees } from '../../shared/rules/liste-attente.ts';
+import { geler, gelEnTest, vuePartagee } from './cache-instantane.ts';
+import { assembler, type EmpRow, lireBrut, REGLAGES_DEFAUT, reglagesDe, retenirBrut } from './lecture-brute.ts';
+import { corpsAvecTete, filtreIndexe, type FiltrePerimetre, JsonBrut, retenirPerimetre } from './vues-cache.ts';
 import type { AttenteSession } from '../../shared/types.ts';
 import { exercicesEvaluation, indicateursEvaluation, SEUIL_ANONYMAT } from '../../shared/rules/evaluation-formation.ts';
 import type { EvaluationFormation } from '../../shared/types.ts';
 
 /** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
-export const DEFAULT_SETTINGS: Settings = reglagesParDefaut();
+export const DEFAULT_SETTINGS: Settings = REGLAGES_DEFAUT;
 
 /**
  * Date du jour à Paris, quel que soit le fuseau du serveur (souvent UTC chez l'hébergeur : entre minuit et 2 h,
@@ -61,11 +52,8 @@ export function todayIso(maintenant = new Date()): string {
 
 export async function loadSettings(db: Db): Promise<Settings> {
   // `rhNom` et `rhIntitule` (anciennes bases) désignaient le RH unique : l'identité vient désormais du compte connecté.
-  const { rhNom: _n, rhIntitule: _i, ...app } = await db.getSetting<Partial<Settings> & { rhNom?: string; rhIntitule?: string }>('app', {});
-  return { ...DEFAULT_SETTINGS, ...app };
+  return reglagesDe(await db.getSetting<Partial<Settings> & { rhNom?: string; rhIntitule?: string }>('app', {}));
 }
-
-type EmpRow = Omit<Employe, 'passeport' | 'certs' | 'habs' | 'visas' | 'vaccins'> & { passeportNumero: string | null; passeportExpire: string | null };
 
 /**
  * Données complètes vues par `user`, lues sur un même état de la base (`lecture` : aucune transaction d'une autre
@@ -80,149 +68,20 @@ export async function loadFull(db: Db, user: CurrentUser): Promise<Dataset> {
   return ds;
 }
 
-async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
-  // Certification annulée (saisie erronée, `cert.annuler`) : hors de tous les calculs, gardée à part pour le service RH.
-  const toutes = await db.all<Certification>('certifications');
-  const certs = toutes.filter(c => !c.annuleLe), annulees = toutes.filter(c => c.annuleLe);
-  const habs = await db.all<HabTitre>('habTitres');
-  const visas = await db.all<Visa>('visas');
-  const vaccins = await db.all<Vaccination>('vaccinations');
-  const inscriptions = await db.all<Inscription>('inscriptions');
-  const participations = await db.all<Participation>('participations');
-  // Listes d'attente des sessions complètes (lot 7, t120) : place de chacun dans sa file calculée sur toutes les attentes.
-  const attentesSession = avecPositions(await db.all<AttenteSession>('attentesSession'));
-  const employes: Employe[] = (await db.all<EmpRow>('employes')).map(({ passeportNumero, passeportExpire, ...e }) => ({
-    ...e,
-    jourOff: e.jourOff ?? [],
-    notifications: e.notifications === 'quotidien' ? 'quotidien' : 'immediat',
-    restrictions: e.restrictions ?? [],
-    passeport: passeportNumero && passeportExpire ? { numero: passeportNumero, expire: passeportExpire } : null,
-    certs: certs.filter(c => c.empId === e.id),
-    certsAnnulees: annulees.filter(c => c.empId === e.id),
-    habs: habs.filter(h => h.empId === e.id),
-    visas: visas.filter(v => v.empId === e.id),
-    vaccins: vaccins.filter(v => v.empId === e.id),
-  }));
-  const feuilles = await db.all<FeuilleTemps>('feuilles');
-  const budgets: Dataset['budgets'] = {};
-  // Jours fériés réglés par année (shared/rules/feries.ts) : posés avant tout calcul de l'instantané (isFerie).
-  const calendrierFeries = await db.getSetting<CalendrierFeries>('calendrierFeries', {});
-  configurerFeries(calendrierFeries);
-  (await db.all<{ exercice: number; equipe: string; montant: number }>('budgets')).forEach(b => {
-    (budgets[String(b.exercice)] ||= {})[b.equipe] = b.montant;
-  });
-  const ds: Dataset = {
-    today: todayIso(),
-    revision: db.revision,
-    user,
-    settings: await loadSettings(db),
-    // Formations, habilitations et destinations, archivées comprises (`archive`, date d'archivage) : transmises à tous les
-    // espaces, qui en ont besoin pour nommer les titres et écarter les archivées des listes ; aucune donnée personnelle.
-    referentiels: {
-      formations: await db.all<Formation>('formations', 'rowid'),
-      habilitations: await db.all<HabType>('habilitations', 'rowid'),
-      destinations: await db.all<Destination>('destinations', 'rowid'),
-      // Postes et exigences (shared/rules/exigences.ts) : aucune donnée personnelle, comme les équipes.
-      postes: await db.all<Poste>('postes', 'nom'),
-      equipes: await db.all<Equipe>('equipes', 'ordre'),
-      // Horaires de poste (shared/rules/horaires.ts), archivés compris : codes et heures, aucune donnée personnelle,
-      // transmis tels quels à tous les espaces (feuilles de temps), comme l'horaire par défaut de chaque équipe.
-      horaires: await db.all<Horaire>('horaires', 'rowid'),
-      projets: await db.all<Projet>('projets', 'rowid'),
-      chantiers: await db.all<Chantier>('chantiers', 'debut'),
-    },
-    annuaire: employes.map(e => ({ id: e.id, nom: e.nom, equipe: e.equipe, poste: e.poste })),
-    employes,
-    // Nombre d'inscrits calculé sur toutes les données, avant la restriction au périmètre.
-    // Session d'une base ancienne ou écrite sans plage : un seul jour (completerSession).
-    // Places proposées à la liste d'attente (lot 7, t120), comptées sur toute la file.
-    sessions: avecProposees(avecInscrits((await db.all<Omit<Session, 'inscrits'>>('sessions')).map(completerSession), certs, inscriptions, participations), attentesSession),
-    inscriptions,
-    participations,
-    // Ligne du plan supprimée (saisie erronée, `plan.supprimer`, demande rouverte) : hors de l'instantané et des calculs.
-    plan: (await db.all<PlanAction>('planActions')).filter(l => !l.annuleLe),
-    budgets,
-    exercicesClos: await db.all<ExerciceClos>('exercicesClos'),
-    voyages: await db.all<Voyage>('voyages'),
-    demandesKeystone: await db.all<DemandeKeystone>('demandesKeystone'),
-    missions: await db.all<Mission>('missions'),
-    taches: await db.all<TacheKeystone>('taches'),
-    feuilles,
-    absences: await db.all<Absence>('absences'),
-    cet: await db.all<CetMouvement>('cet'),
-    reports: await db.all<ReportCp>('reports'),
-    soldesReprise: await db.all<SoldeReprise>('soldesReprise'),
-    clotures: await db.all<ClotureConges>('clotures'),
-    // Informations au retour d'un arrêt (art. L3141-19-3) : elles désignent un arrêt de santé, service RH et intéressé.
-    informationsCp: await db.all<InformationCp>('informationsCp'),
-    // Jours de fractionnement décidés (t046) : crédit (report reçu, compté dans les droits) ou renonciation du salarié.
-    fractionnements: await db.all<Fractionnement>('fractionnements'),
-    // Soldes de sortie photographiés (t128) : compteurs du solde de tout compte, service RH, paie et lecture seule.
-    soldesSortie: await db.all<SoldeSortie>('soldesSortie'),
-    // Historique des contrats (t074) : régimes successifs, renouvellements des CDD, avenants programmés.
-    contratsHistorique: await db.all<ContratHistorique>('contratsHistorique'),
-    // Avenants de renonciation d'un forfait jours (t043) : service RH, paie et lecture seule ; manager et intéressé réduits.
-    avenantsForfait: await db.all<AvenantForfait>('avenantsForfait'),
-    entretiens: await db.all<Entretien>('entretiens'),
-    demandesCollab: await db.all<DemandeCollab>('demandesCollab'),
-    demandesVisite: await db.all<DemandeVisite>('demandesVisite'),
-    // Début de la saisie des feuilles, sur toutes les feuilles : transmis tel quel à tous les espaces (une date).
-    debutSaisieFeuilles: debutSaisieDe(feuilles),
-    // Lots de paie, sans leur contenu figé (lu par le téléchargement du fichier : server/src/fichier-paie.ts), et format
-    // du fichier d'import réglé par la paie (shared/rules/lots-paie.ts).
-    lotsPaie: await lireLots(db),
-    formatFichierPaie: await lireFormatFichier(db),
-    // Correspondance des rubriques avec le plan de paie Sage (lignes modifiées ; les autres : shared/rules/paie.ts).
-    rubriquesPaie: await db.all<RubriquePaie>('rubriquesPaie'),
-    // Messagerie (Paramètres → Messagerie) et relevés transmis aux agences d'intérim, avec le statut de leur e-mail.
-    messagerie: await lireMessagerie(db),
-    releves: await relevesAvecEnvoi(db),
-    // Lots importés à la mise en service (écran Mise en service) : compte rendu nominatif, service RH seulement.
-    reprises: (await db.all<LotReprise>('reprises')).reverse(),
-    // Dérogations au repos dominical par équipe (shared/rules/semaine.ts) et mandats au CSE (shared/rules/delegation.ts).
-    derogationsDominicales: await db.getSetting<DerogationDominicale[]>('derogationsDominicales', []),
-    calendrierFeries,
-    mandats: await db.all<Mandat>('mandats'),
-    // Effectif du site (un nombre) pour la limite de délégation d'un suppléant : calculé ici sur toutes les fiches, car
-    // l'instantané de l'élu ne contient que lui-même (ou son équipe).
-    effectifCse: effectifSite({ employes }, todayIso()),
-    // Pièces justificatives jointes (server/src/pieces.ts) : description seule, ni nom stocké ni jeton.
-    pieces: await lirePieces(db),
-    // Formations suivies (t116, annulées comprises) et délivrances des habilitations (t115) : filtrées hors du service RH.
-    formationsSuivies: await db.all<FormationSuivie>('formationsSuivies'),
-    habDelivrances: await db.all<HabDelivrance>('habDelivrances'),
-    // Délégations des validations (t135) : identifiants, dates et périmètre, jamais de motif.
-    delegations: await db.all<DelegationValidation>('delegations'),
-    // Astreintes (t049, lot 7) et interventions déclarées : filtrées hors du service RH (motifs : textes libres).
-    astreintes: await db.all<Astreinte>('astreintes'),
-    interventionsAstreinte: await db.all<InterventionAstreinte>('astreinteInterventions'),
-    attentesSession,
-    // Passeport de prévention (lot 7, t066) : lignes déclarées (identifiants, dates, auteur), filtrées hors du service RH.
-    declarationsPasseport: await db.all<DeclarationPasseport>('declarationsPasseport'),
-    // Évaluations des formations (lot 7, t121) : avis nominatifs, commentaires compris ; filtrées hors du service RH.
-    evaluationsFormation: await db.all<EvaluationFormation>('evaluationsFormation'),
-  };
-  // Absences en attente du fichier de paie par période (server/src/absences-paie.ts) : lit le contenu figé des lots.
-  // Déplacements en attente du fichier de paie (t031, server/src/deplacements-paie.ts) : lit la table des éléments émis.
-  return { ...ds, absencesPaie: await resumeAbsencesPaie(db, user, ds), deplacementsPaie: await resumeDeplacementsPaie(db, user, ds) };
-}
-
-/** Identifiants passés au plus par requête `IN (…)` (bien en deçà des limites de SQLite et de PostgreSQL). */
-const PAR_REQUETE_IN = 500;
-
 /**
- * Relevés transmis aux agences d'intérim, avec le statut de leur e-mail (lot 8, chantier E) : statuts des envois lus par
- * des requêtes `IN (…)` de 500 identifiants au plus, au lieu d'une lecture par relevé (680 relevés après 5 ans).
+ * Lecture complète (lot 9, chantier 2) : lecture brute des tables (`lireBrut`), puis assemblage pur de l'instantané
+ * (`assembler`, server/src/lecture-brute.ts). Absences en attente du fichier de paie par période
+ * (server/src/absences-paie.ts) : lit le contenu figé des lots. Déplacements en attente du fichier de paie (t031,
+ * server/src/deplacements-paie.ts) : lit la table des éléments émis.
  */
-async function relevesAvecEnvoi(db: Db): Promise<ReleveInterim[]> {
-  const releves = await db.all<Omit<ReleveInterim, 'envoi'>>('releves');
-  const ids = [...new Set(releves.map(r => r.envoiId).filter((id): id is number => !!id))];
-  const statuts = new Map<number, Envoi['statut']>();
-  for (let i = 0; i < ids.length; i += PAR_REQUETE_IN) {
-    const lot = ids.slice(i, i + PAR_REQUETE_IN);
-    for (const e of await db.query<{ id: number; statut: Envoi['statut'] }>(`SELECT id, statut FROM envois WHERE id IN (${lot.map(() => '?').join(', ')})`, lot)) statuts.set(Number(e.id), e.statut);
-  }
-  return releves.map(r => ({ ...r, envoi: r.envoiId ? statuts.get(r.envoiId) ?? null : null }));
+async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
+  const brut = await lireBrut(db);
+  // Lecture brute gelée de même sous node --test : un delta (server/src/delta.ts) ne la modifie jamais, il en fait une autre.
+  if (gelEnTest()) geler(brut);
+  const ds = assembler(brut, todayIso(), db.revision, user);
+  // Lecture brute retenue avec l'instantané (étape 2) : l'entrée du cache, le jeu d'une action et le suivi des verdicts
+  // en dérivent l'état suivant par le seul delta des lignes changées (server/src/cache-instantane.ts).
+  return retenirBrut({ ...ds, absencesPaie: await resumeAbsencesPaie(db, user, ds), deplacementsPaie: await resumeDeplacementsPaie(db, user, ds) }, brut);
 }
 
 /**
@@ -410,21 +269,62 @@ const avecFinCarriere = (d: Domain, x: Entretien): Entretien => {
  * chaque requête : les dossiers échus de la conservation (administrateur RH, comptés aussi sur le journal) et
  * l'abonnement à l'agenda de la personne.
  */
-export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset> {
+export async function buildSnapshot(db: Db, user: CurrentUser, { cache = true }: { cache?: boolean } = {}): Promise<Dataset> {
+  const { vue, tete } = await partiesInstantane(db, user, { cache });
+  return { ...vue, ...tete };
+}
+
+/**
+ * Parties de l'instantané de `user` (lot 9 : GET /api/data et réponse d'une action, server/src/app.ts) : la vue
+ * (partagée par le cache avec sa clé, jamais modifiée ; ou calculée pour cette requête, `cle` null) et les champs de
+ * tête propres à la requête (`TETE` de server/src/vues-cache.ts), dans l'ordre où `buildSnapshot` les a toujours posés.
+ * Seule cette lecture se fait dans `Db.lecture` : la sérialisation (`corpsDe`) vient après, une fois la lecture rendue
+ * (sur SQLite, la file unique des écritures ; sur PostgreSQL, la transaction et sa place de lecture).
+ */
+export interface PartiesInstantane {
+  vue: Dataset;
+  cle: string | null;
+  tete: Partial<Dataset>;
+}
+
+/**
+ * Corps JSON des parties d'un instantané, octet pour octet `JSON.stringify(buildSnapshot(db, user))` : vue partagée du
+ * cache, son corps sérialisé une fois par entrée et par clé de vue, la tête de la requête recollée
+ * (server/src/vues-cache.ts) ; sinon sérialisé pour cette requête. Calcul seul, sans accès à la base : à appeler hors
+ * de `Db.lecture`.
+ */
+export function corpsDe({ vue, cle, tete }: PartiesInstantane): JsonBrut {
+  return cle === null ? new JsonBrut(JSON.stringify({ ...vue, ...tete })) : corpsAvecTete(vue, cle, tete);
+}
+
+/** Parties de l'instantané de `user` (`PartiesInstantane`), lues dans la lecture stable de l'appelant. */
+export async function partiesInstantane(db: Db, user: CurrentUser, { cache = true }: { cache?: boolean } = {}): Promise<PartiesInstantane> {
   const revision = db.revision;
-  const vue = await vueEnCache(db, user, todayIso(), revision, async lecteur => await loadFull(db, lecteur), full => vueDe(full, user))
-    ?? vueDe(await loadFull(db, user), user);
+  // `cache: false` : lecture directe pour cette seule requête (oracle d'exactitude, scripts/charge/verifier.ts), sans
+  // toucher CURSUS_CACHE_INSTANTANE, que les autres requêtes du processus continuent de lire.
+  const partagee = !cache ? null : await vuePartagee(db, user, todayIso(), revision, async lecteur => await loadFull(db, lecteur), full => vueDe(full, user));
+  const vue = partagee?.vue ?? vueDe(await loadFull(db, user), user);
+  // Vue partagée : utilisateur et révision de cette requête (ceux du premier calcul sinon).
+  const tete: Partial<Dataset> = partagee ? { user, revision } : {};
   if (user.role === 'rh') {
     const droits = droitsRh(user);
     // Dossiers des salariés sortis dont une durée de conservation est échue (t016) : administrateur RH seulement.
-    return droits.includes('rh') && droits.includes('admin') ? { ...vue, conservation: await dossiersEchus(db, vue.settings, vue.today) } : vue;
+    if (droits.includes('rh') && droits.includes('admin')) tete.conservation = await dossiersEchus(db, vue.settings, vue.today);
+  } else {
+    // Abonnement à l'agenda personnel (t036) : seulement le fait qu'il existe et sa date, jamais le jeton (haché en base).
+    const j = await jetonActif(db, user.empId!);
+    tete.agendaJeton = j ? { creeLe: j.creeLe } : null;
   }
-  // Abonnement à l'agenda personnel (t036) : seulement le fait qu'il existe et sa date, jamais le jeton (haché en base).
-  return { ...vue, agendaJeton: await (async () => { const j = await jetonActif(db, user.empId!); return j ? { creeLe: j.creeLe } : null; })() };
+  return { vue, cle: partagee?.cle ?? null, tete };
 }
 
-/** Vue de `user` sur les données `full` (lues pour lui, ou lecture partagée du cache) : calcul seul, sans lecture de la base. */
-function vueDe(full: Dataset, user: CurrentUser): Dataset {
+/**
+ * Vue de `user` sur les données `full` (lues pour lui, ou lecture partagée du cache) : calcul seul, sans lecture de la
+ * base. `filtre` trouve les lignes du périmètre (`mine`) : index par salarié (lot 9, server/src/vues-cache.ts), ou
+ * parcours complet de chaque tableau pour les tests d'exactitude (même résultat). Vue collaborateur ou manager : les
+ * salariés qu'elle lit sont retenus à part (`perimetreDe`, server/src/vues-cache.ts), pour son report à la révision suivante.
+ */
+export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre = filtreIndexe): Dataset {
   if (user.role === 'rh') {
     const droits = droitsRh(user);
     // Sans droit « paie » (gestionnaire RH), ni les rubriques d'absence en attente ni celles des lots : le code révèle la catégorie.
@@ -439,7 +339,7 @@ function vueDe(full: Dataset, user: CurrentUser): Dataset {
   }
   const d = new Domain(full);
   const ids = new Set(scopeIds(d, user));
-  const mine = <T extends { empId: number }>(list: T[]) => list.filter(x => ids.has(x.empId));
+  const mine = filtre(ids);
   const isMgr = user.role === 'manager';
   // Consultation N+2 (t136) : mêmes filtres que pour l'équipe directe, aptitude réduite au verdict (ni avis, ni
   // restrictions), ni entretiens ni demandes au service RH (affaires du valideur direct).
@@ -488,7 +388,12 @@ function vueDe(full: Dataset, user: CurrentUser): Dataset {
     const emp = d.emp(v.empId);
     return emp ? { ...v, dossierStatut: d.readiness(emp, v).status } : v;
   });
-  return {
+  // Salariés que lit cette vue (lot 9, chantier 3, étape 2 : report d'une révision à la suivante, server/src/vues-cache.ts) :
+  // son périmètre (délégués et consultation N+2 compris) et, pour la couverture minimale, les membres des équipes
+  // encadrées. Retenus à part, jamais envoyés au navigateur.
+  const equipes = isMgr ? d.teamsOf(user.empId) : [];
+  const lues = new Set([...ids, ...full.employes.filter(e => !!e.equipe && equipes.includes(e.equipe)).map(e => e.id)]);
+  return retenirPerimetre<Dataset>({
     ...full,
     // Facteurs d'exposition du C2P cochés sur les postes : avec le poste d'un membre, ils diraient son exposition.
     referentiels: { ...full.referentiels, chantiers: [], postes: sansC2p(full.referentiels.postes) },
@@ -588,7 +493,7 @@ function vueDe(full: Dataset, user: CurrentUser): Dataset {
     // consultation N+2 ; interventions déclarées du périmètre, comme les feuilles de temps qui portent leurs heures.
     astreintes: mine(full.astreintes ?? []).map(a => (lecture.has(a.empId) ? astreinteSansMotif(a) : a)).map(a => (a.empId !== user.empId ? astreinteSansPaie(a) : a)),
     interventionsAstreinte: mine(full.interventionsAstreinte ?? []),
-  };
+  }, lues);
 }
 
 /**

@@ -594,6 +594,13 @@ l'identifiant) : chacun se reconnecte une fois.
    0,6 Go par instance en lecture (S1) et jusqu'à 1,1 Go pendant une fin de mois (validations groupées simultanées) ;
    limite mémoire Coolify à 1,5 Go au moins. Les écritures d'une instance attendent leur tour en mémoire, sans garder de
    connexion du pool, au plus le délai du verrou (puis 503).
+   **Cache incrémental** (lot 9, `CURSUS_CACHE_INCREMENTAL`, actif par défaut ; `0` revient à la relecture complète) :
+   après une écriture, l'entrée de la révision suivante est dérivée de la précédente par les seules lignes changées,
+   lues dans le journal `cursus.changements` (migration `0014_changements`), y compris celles écrites par une autre
+   instance ; un écart inconnu (journal purgé) relit tout. L'entrée est lue dès le démarrage (préchauffage), avant
+   les premières requêtes. Une restauration (`pg_restore`, rechargement des données) remet l'époque de la sauvegarde
+   et une révision plus basse, que les instances restées en service ne savent pas encore reconnaître : arrêtez Cursus
+   avant toute restauration (`docs/SAUVEGARDE.md`) et redémarrez ensuite **toutes** les instances.
 2. **Premier démarrage** : Cursus applique ses migrations (`server/migrations-pg/`, journal
    `cursus.schema_migrations`), contrôle le schéma et amorce une base neuve (activités internes, horaires de poste
    d'exemple). Le journal du démarrage affiche « base PostgreSQL <hôte>:<port>/epc2i, schéma cursus ». Un refus
@@ -1146,6 +1153,16 @@ entrées, sorties et compteurs ne se tiennent plus dans Lucca.
   Pièce absente : la restaurer depuis les sauvegardes (`docs/SAUVEGARDE.md`, section 7). Toutes les heures, Cursus
   efface les pièces envoyées et jamais jointes depuis 24 h, les fichiers des pièces retirées et les fichiers que plus
   aucune pièce ne désigne depuis 24 h (bilan dans son journal).
+- Journal des changements (lot 9, migration PostgreSQL `0014_changements`, `server/src/purge-changements.ts`) : la
+  base inscrit, dans la transaction de chaque écriture, la table et la clé des lignes changées (table `changements`) ;
+  chaque instance s'en sert pour mettre à jour son instantané en mémoire sans tout relire. Les tâches du quart d'heure
+  le purgent en gardant au moins 20 000 révisions et, sur PostgreSQL, au moins une heure (relevés de l'instance :
+  une instance redémarrée ne purge qu'après une heure de marche ; SQLite, une seule instance, n'attend pas). Au démarrage, Cursus refuse un schéma où manque la
+  table, une colonne `purge` ou `epoque` de `revision`, ou un des déclencheurs `revision_lignes_i`, `_u`, `_d`, `_t`
+  d'une table (désactivé ou en mode réplication compris) : une table ajoutée par une migration postérieure à 0014 les reçoit dans sa propre
+  migration. Après un rechargement des données seules (`pg_restore --data-only`) : redémarrer les instances ;
+  `npm run revision:epoque` ne les dispense du redémarrage qu'avec le cache incrémental du lot 9, qui compare l'époque
+  (`docs/SAUVEGARDE.md`, section 10).
 - Journaux du serveur (`server/src/logs.ts`) : une ligne par message de démarrage, d'arrêt ou d'incident, et une ligne
   par requête : heure, méthode, chemin sans ses paramètres, statut, durée en millisecondes et numéro du compte connecté.
   Jamais le contenu d'une requête ni ses paramètres, qui portent des données personnelles ; la sonde de santé réussie

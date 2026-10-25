@@ -228,8 +228,23 @@ test('action : lecture partagée du cache dans sa transaction quand elle décrit
     assert.deepEqual(json({ ...ds, revision: 0 }), json({ ...await loadFull(db, u), revision: 0 }), `${u.role} ${u.profilRh ?? ''}`);
   }
   assert.equal(directes, 1, 'aucune lecture directe');
-  // Écriture déjà faite dans la transaction, autre jour, cache désactivé : lecture directe.
-  await db.tx(async () => { await db.setSetting('essai', 1); await donneesAction(db, RH, today, lire); });
+  // Écriture déjà faite dans la transaction (lot 9, étape 2) : entrée + delta de cette écriture, lu dans la transaction,
+  // sans lecture directe ; comme loadFull au même instant.
+  await db.tx(async () => {
+    await db.update('employes', 2, { nom: 'Écrit dans la transaction' });
+    const ds = await donneesAction(db, RH, today, lire);
+    assert.deepEqual(json({ ...ds, revision: 0 }), json({ ...await loadFull(db, RH), revision: 0 }));
+    assert.equal(ds.employes.find(e => e.id === 2)!.nom, 'Écrit dans la transaction');
+    throw new Error('annulée');
+  }).catch(() => {});
+  assert.equal(directes, 1);
+  // Cache incrémental coupé (CURSUS_CACHE_INCREMENTAL=0), autre jour, cache désactivé : lecture directe.
+  process.env.CURSUS_CACHE_INCREMENTAL = '0';
+  try {
+    await db.tx(async () => { await db.setSetting('essai', 1); await donneesAction(db, RH, today, lire); });
+  } finally {
+    delete process.env.CURSUS_CACHE_INCREMENTAL;
+  }
   assert.equal(directes, 2);
   await db.tx(async () => await donneesAction(db, RH, '2026-10-11', lire));
   assert.equal(directes, 3);

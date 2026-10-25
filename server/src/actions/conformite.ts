@@ -9,6 +9,7 @@ import { finSession } from '../../../shared/rules/plage-session.ts';
 import { estAuDossier, relireDeclaration, retireeAuRefus } from '../../../shared/rules/formalites.ts';
 import { refusArchive } from '../../../shared/rules/referentiels.ts';
 import type { Certification, DemandeCollab, Employe, HabTitre, HabType, Inscription, PlanAction, SuiteDemande } from '../../../shared/types.ts';
+import { jeuApres } from '../cache-instantane.ts';
 import { loadFull } from '../dataset.ts';
 import { auteurDe, inscrireDelivrance } from '../delivrances.ts';
 import { suivreVerdicts } from '../integrations/keystone-verdicts.ts';
@@ -373,11 +374,14 @@ function decision(ctx: Ctx, p: Record<string, any>, t: HabTitre) {
 /**
  * Signale à Keystone les verdicts Go / No Go modifiés par l'écriture (suivi des verdicts transmis :
  * matricule et codes de motif uniquement). Renvoie l'état après l'écriture et le nombre de chantiers
- * signalés pour le collaborateur (aussi pour l'avis du médecin du travail : actions/sante.ts).
+ * signalés pour le collaborateur (aussi pour l'avis du médecin du travail : actions/sante.ts). Jeu des verdicts et état
+ * d'après l'écriture dérivés du jeu de l'action (`ctx.ds`) et du delta de ses écritures (lot 9, `jeuApres`), sans relire
+ * toute la base ; relecture complète si ce départ est inconnu (cache coupé, jeu remplacé).
  */
 export async function signaler(ctx: Ctx, emp: Employe) {
-  const signales = (await suivreVerdicts(ctx.db)).filter(v => v.empId === emp.id).length;
-  return { apres: new Domain(await loadFull(ctx.db, ctx.user)), keystone: signales ? ` · ${plural(signales, 'chantier signalé', 'chantiers signalés')} à Keystone` : '' };
+  const signales = (await suivreVerdicts(ctx.db, { depart: ctx.ds })).filter(v => v.empId === emp.id).length;
+  const apres = (await jeuApres(ctx.db, ctx.ds, ctx.user)) ?? await loadFull(ctx.db, ctx.user);
+  return { apres: new Domain(apres), keystone: signales ? ` · ${plural(signales, 'chantier signalé', 'chantiers signalés')} à Keystone` : '' };
 }
 
 /** Enregistre la mesure, puis signale à Keystone les verdicts qu'elle modifie. */

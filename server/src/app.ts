@@ -16,7 +16,7 @@ import { compression } from './compression.ts';
 import { compressionActive, configMail, demoPublique, enProduction, trustProxy } from './config.ts';
 import { ESPACE_CHANGE, espaceChange, examinerIdentite, identite, routesConnexion } from './connexion.ts';
 import { routesConfidentialite } from './confidentialite.ts';
-import { buildSnapshot, loadFull, todayIso } from './dataset.ts';
+import { corpsDe, loadFull, partiesInstantane, todayIso } from './dataset.ts';
 import { donneesAction } from './cache-instantane.ts';
 import { type Db, enSerie } from './db.ts';
 import { limiterDebit } from './debit.ts';
@@ -39,6 +39,7 @@ import { cheminJournal, journalRequetes, log } from './logs.ts';
 import { recapitulatifEnAttente } from './notifications.ts';
 import { demoPosteLocal, exigerNavigationInterne, protectionCsrf, securityHeaders } from './securite.ts';
 import { routeSante } from './supervision.ts';
+import { envoyerJson, objetJson } from './vues-cache.ts';
 
 export interface OptionsApp {
   /** Interface compilée servie (dist/ du projet ou CURSUS_DIST par défaut) ; dossier absent : API seule. */
@@ -91,7 +92,10 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
     const id = await identite(db, req);
     if (!id) return res.status(401).json({ error: 'Connexion requise' });
     if (espaceChange(req, res, id)) return;
-    res.json(await db.lecture(async () => await buildSnapshot(db, id.user)));
+    // Corps JSON de la vue gardé par le cache (lot 9, server/src/vues-cache.ts), tête de la requête recollée : sérialisé
+    // après la lecture, qui ne tient ni la file des écritures (SQLite) ni sa transaction (PostgreSQL) pendant ce temps.
+    const parties = await db.lecture(async () => await partiesInstantane(db, id.user));
+    envoyerJson(res, corpsDe(parties));
   });
 
   // Action : identité lue hors du verrou, puis l'action dans sa transaction (verrou d'écriture tenu le temps de la
@@ -115,15 +119,17 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
       if (actuel.session.role !== id.session.role) throw new ActionError(ESPACE_CHANGE, 409);
       const user = actuel.user;
       // Lecture partagée de l'instantané en cache si elle décrit l'état de la base vu ici (server/src/cache-instantane.ts).
-      const ctx = makeCtx(db, user, await donneesAction(db, user, todayIso(), async u => await loadFull(db, u)));
+      const depart = await donneesAction(db, user, todayIso(), async u => await loadFull(db, u));
+      const ctx = makeCtx(db, user, depart);
       const trace = await preparerTrace(db, name, p);
       const r = await handler(ctx, p);
       const o = signerDelegation(ctx, typeof r === 'object' && r !== null ? r : { message: r });
       // Journal signé du nom de la personne connectée et de son compte : champs de la liste blanche de l'action,
       // anciennes et nouvelles valeurs, salariés concernés (server/src/journal.ts) ; managers remplacés (t135).
       await journaliserAction(db, trace, { user, compte, message: o.message ?? null, result: o.result, parDelegation: [...ctx.parDelegation] });
-      // Verdicts transmis à Keystone : un changement est mis en file avec l'action, dans la même transaction.
-      if (changeVerdicts(name)) await suivreVerdicts(db);
+      // Verdicts transmis à Keystone : un changement est mis en file avec l'action, dans la même transaction ; jeu des
+      // verdicts dérivé du jeu de l'action et du delta de ses écritures (lot 9), sans relire toute la base.
+      if (changeVerdicts(name)) await suivreVerdicts(db, { depart });
       return o;
     });
     let out: { message?: string | null; result?: unknown };
@@ -145,12 +151,13 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
       // et l'instantané est celui de l'espace où elle se trouve désormais ; aucun si elle ne vaut plus. Session et
       // instantané sont lus sur le même état de la base (`lecture` : aucune transaction ne s'intercale), sans verrou ;
       // les écritures de la session suivent.
-      const { data, maj } = await db.lecture(async () => {
+      const { parties, maj } = await db.lecture(async () => {
         const apres = await examinerIdentite(db, req);
-        return { data: apres.id ? await buildSnapshot(db, apres.id.user) : undefined, maj: apres.maj };
+        return { parties: apres.id ? await partiesInstantane(db, apres.id.user) : undefined, maj: apres.maj };
       });
       await appliquerMajSession(db, maj);
-      res.json({ message: out.message ?? null, result: out.result, data });
+      // Comme res.json({ message, result, data }), l'instantané inséré déjà sérialisé, hors de la lecture.
+      envoyerJson(res, objetJson({ message: out.message ?? null, result: out.result, data: parties && corpsDe(parties) }));
     } catch (err) {
       // Relecture de l'instantané impossible (Cursus occupé, erreur) : action faite, instantané à relire par
       // GET /api/data (`relire`, client/src/state/run.ts).

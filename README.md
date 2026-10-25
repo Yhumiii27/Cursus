@@ -142,12 +142,13 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 | `CURSUS_DEMO=1 npm run reset-demo -- --yes` | Recharge les données de démonstration : efface la base après l'avoir copiée. Refusé hors démonstration, avec `NODE_ENV=production` (sauf l'application de bureau) et si un serveur utilise la base (`--force` pour passer outre) ; sans `--yes`, le mot `EFFACER` est demandé dans un terminal |
 | `npm run audit` | Failles connues des dépendances de production (`npm audit`), en échec à partir de la gravité « high » |
 | `npm run mesure` | Taille de l'instantané et durée des actions sur une base temporaire de 100 salariés et 3 ans (`npm run mesure -- 200` : autre effectif) |
-| `npm run charge:generer -- --ans 5` puis `npm run charge -- --scenario S3 --duree 120` | Essai de charge sur PostgreSQL (`CURSUS_TEST_DATABASE_URL` : serveur de test, jamais le serveur commun) : jeu réaliste de 5 ans dans un schéma jetable, scénarios simultanés S1 à S6, rapport et seuils dans `data/charge/rapports/` (`docs/ARCHITECTURE.md`, « Performances ») ; `-- --supprimer` retire les schémas de l'essai |
+| `npm run charge:generer -- --ans 5` puis `npm run charge -- --scenario S3 --duree 120` | Essai de charge sur PostgreSQL (`CURSUS_TEST_DATABASE_URL` : serveur de test, jamais le serveur commun) : jeu réaliste de 5 ans dans un schéma jetable, scénarios simultanés S1 à S6, rapport et seuils dans `data/charge/rapports/` (`docs/ARCHITECTURE.md`, « Performances ») ; `-- --supprimer` retire les schémas de l'essai ; `--verifier-exactitude [k]` compare en plus, toutes les k actions validées, le cache à la relecture complète (invariant « 0 divergence ») |
 | `npm run backup` | Copie à chaud vérifiée de la base dans `data/backups`, avec rotation |
 | `npm run restore -- <fichier>` | Remplace la base par une sauvegarde (serveur arrêté) |
 | `DATABASE_URL=… npm run reprise-postgres -- [<base SQLite>] [--a-blanc]` | Reprise d'une base SQLite sur le serveur PostgreSQL commun, une fois, service arrêté ; `--a-blanc` : contrôles et compte rendu sans rien écrire (`docs/DEPLOIEMENT.md`) |
 | `npm run pieces:chiffrer -- [--apercu]` | Chiffre les pièces justificatives déposées avant la clé `CURSUS_PIECES_KEY` (lot 8), une fois Cursus redémarré avec elle ; service en marche admis, relançable (`docs/SAUVEGARDE.md`, section 10) |
 | `npm run pieces:verifier` | Contrôle complet des pièces, sans rien écrire : chaque fichier lu, déchiffré et comparé à l'empreinte de son envoi (après une restauration) ; code 1 si un fichier est absent, altéré ou illisible |
+| `npm run revision:epoque` | Change l'époque de la base (journal des changements du lot 9) : les instances dont le cache compare l'époque (cache incrémental du lot 9) relisent alors l'instantané en entier ; sans ce cache, seul le redémarrage des instances le fait. À lancer après un rechargement des données seules sur le serveur PostgreSQL (`pg_restore --data-only`) ; service en marche admis (`docs/SAUVEGARDE.md`, section 10) |
 | `npm run comptes -- admin <identifiant> [--local]` | Crée le premier administrateur RH, ou rétablit son accès (voir `docs/DEPLOIEMENT.md`) |
 | `npm run verifier-production -- [--config-seule] [--json] [--strict]` | Pré-vol de la mise en production, avec l'environnement de l'application : configuration jugée comme en production et base en lecture seule ; code 0 prête, 1 bloquant, 2 avertissements (`docs/DEPLOIEMENT.md`, « Vérification avant la mise en production ») |
 
@@ -182,6 +183,8 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `CURSUS_PG_POOL` | Connexions au plus du pool PostgreSQL (10 par défaut) |
 | `CURSUS_PG_DELAI_CONNEXION_MS`, `CURSUS_PG_DELAI_VERROU_MS`, `CURSUS_PG_DELAI_REQUETE_MS` | Délais du serveur PostgreSQL, en millisecondes (0 : sans limite) : attente d'une connexion du pool (5 s), d'un verrou, verrou d'écriture compris (`lock_timeout`, 30 s), durée d'une requête (`statement_timeout`, 60 s). Un dépassement répond 503 « Cursus est occupé, réessayez », sans rien écrire. Voir `docs/DEPLOIEMENT.md` |
 | `CURSUS_CACHE_INSTANTANE` | Cache de l'instantané, indexé par la révision de la base (actif par défaut ; `0` le désactive : chaque instantané relit toute la base). Voir `docs/ARCHITECTURE.md`, « Performances » |
+| `CURSUS_CACHE_INCREMENTAL` | Cache incrémental (lot 9) : l'entrée d'une révision nouvelle, le jeu d'une action et celui du suivi des verdicts sont dérivés de la lecture précédente par le seul delta des lignes changées (journal `changements`), sans relire toute la base (actif par défaut ; `0` : relecture complète à chaque révision, pour comparer ou dépanner) |
+| `CURSUS_VUES_REPORT` | Report des vues (lot 9) : après une écriture, les vues collaborateur et manager dont le périmètre n'est pas touché, et qu'aucune donnée commune changée n'atteint, sont reprises telles quelles à la révision suivante, corps JSON compris ; les vues RH sont toujours recalculées (actif par défaut ; `0` : chaque vue est recalculée à chaque révision) |
 | `CURSUS_DIST` | Interface compilée servie (`dist/` du dossier du code par défaut) : pour les tests automatiques et une installation qui la place ailleurs |
 | `CURSUS_SUPERVISION_TOKEN` | Jeton (32 caractères au moins) de l'outil de supervision : avec `Authorization: Bearer <jeton>`, `/api/health` donne aussi la version, le mode et les envois en échec. Facultatif ; ce détail est toujours donné à un appel local fait sur la machine (dans le conteneur avec Docker : `docker exec`) |
 | `CURSUS_LOG_FORMAT` | Journaux du serveur : `json` (par défaut en production : une ligne JSON par message et par requête, pour l'agrégateur de Coolify ou du service informatique) ou `texte` (par défaut ailleurs). Jamais le corps ni les paramètres des requêtes |
@@ -284,6 +287,15 @@ trois cas construits sur les règles légales et les réglages par défaut y son
 qu'une fois anonymisé (identité fictive, dates décalées, aucune nature d'absence médicale) ; celui qui garde une donnée
 de santé reste hors du dépôt et se rejoue par `CURSUS_CAS_PAIE=/chemin/absolu npm test`. Format et anonymisation :
 `tests/cas-paie/LISEZMOI.md`.
+
+Oracle d'exactitude du cache (lot 9) : `tests/oracle-cache.test.ts` rejoue une suite d'écritures aléatoire et
+reproductible (actions par des comptes tirés au hasard, SQL direct) sur la démonstration et sur le jeu de charge d'un an,
+et compare après chaque pas ce que sert le cache de l'instantané (vues de chaque compte et profil, jeu des actions) à la
+relecture complète ; `tests/regles-incrementales.test.ts` fait de même pour les règles de paie et de congés de chaque
+salarié. `CURSUS_ORACLE_GRAINES=1,2,3`, `CURSUS_ORACLE_PAS=300` ou `CURSUS_ORACLE_COMPLET=1` (passage long : trois
+graines de 300 pas sur la démonstration, 60 pas sur le jeu d'un an ; job `oracle` de la CI sur les deux moteurs, pour
+chaque pull request) allongent la suite (`docs/ARCHITECTURE.md`, « Oracle d'exactitude »). Le banc exige que le cache
+incrémental ait servi (entrées dérivées par le delta, aucun repli : compteurs `statistiquesCache`).
 
 ## Ce qui reste simulé
 

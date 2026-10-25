@@ -16,7 +16,7 @@ import { compression } from './compression.ts';
 import { compressionActive, configMail, demoPublique, enProduction, trustProxy } from './config.ts';
 import { ESPACE_CHANGE, espaceChange, examinerIdentite, identite, routesConnexion } from './connexion.ts';
 import { routesConfidentialite } from './confidentialite.ts';
-import { corpsInstantane, loadFull, todayIso } from './dataset.ts';
+import { corpsDe, loadFull, partiesInstantane, todayIso } from './dataset.ts';
 import { donneesAction } from './cache-instantane.ts';
 import { type Db, enSerie } from './db.ts';
 import { limiterDebit } from './debit.ts';
@@ -92,8 +92,10 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
     const id = await identite(db, req);
     if (!id) return res.status(401).json({ error: 'Connexion requise' });
     if (espaceChange(req, res, id)) return;
-    // Corps JSON de la vue gardé par le cache (lot 9, server/src/vues-cache.ts), tête de la requête recollée.
-    envoyerJson(res, await db.lecture(async () => await corpsInstantane(db, id.user)));
+    // Corps JSON de la vue gardé par le cache (lot 9, server/src/vues-cache.ts), tête de la requête recollée : sérialisé
+    // après la lecture, qui ne tient ni la file des écritures (SQLite) ni sa transaction (PostgreSQL) pendant ce temps.
+    const parties = await db.lecture(async () => await partiesInstantane(db, id.user));
+    envoyerJson(res, corpsDe(parties));
   });
 
   // Action : identité lue hors du verrou, puis l'action dans sa transaction (verrou d'écriture tenu le temps de la
@@ -147,13 +149,13 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
       // et l'instantané est celui de l'espace où elle se trouve désormais ; aucun si elle ne vaut plus. Session et
       // instantané sont lus sur le même état de la base (`lecture` : aucune transaction ne s'intercale), sans verrou ;
       // les écritures de la session suivent.
-      const { data, maj } = await db.lecture(async () => {
+      const { parties, maj } = await db.lecture(async () => {
         const apres = await examinerIdentite(db, req);
-        return { data: apres.id ? await corpsInstantane(db, apres.id.user) : undefined, maj: apres.maj };
+        return { parties: apres.id ? await partiesInstantane(db, apres.id.user) : undefined, maj: apres.maj };
       });
       await appliquerMajSession(db, maj);
-      // Comme res.json({ message, result, data }), l'instantané inséré déjà sérialisé.
-      envoyerJson(res, objetJson({ message: out.message ?? null, result: out.result, data }));
+      // Comme res.json({ message, result, data }), l'instantané inséré déjà sérialisé, hors de la lecture.
+      envoyerJson(res, objetJson({ message: out.message ?? null, result: out.result, data: parties && corpsDe(parties) }));
     } catch (err) {
       // Relecture de l'instantané impossible (Cursus occupé, erreur) : action faite, instantané à relire par
       // GET /api/data (`relire`, client/src/state/run.ts).

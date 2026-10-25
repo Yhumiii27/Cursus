@@ -21,7 +21,7 @@ const { nouvelleBase } = await import('./base.ts');
 const { seedDemo, comptesDemo } = await import('../server/src/seed.ts');
 const { createApp } = await import('../server/src/app.ts');
 const { empreinteSession, sign } = await import('../server/src/auth.ts');
-const { buildSnapshot, corpsInstantane, currentUser, loadFull, vueDe } = await import('../server/src/dataset.ts');
+const { buildSnapshot, corpsDe, currentUser, loadFull, partiesInstantane, vueDe } = await import('../server/src/dataset.ts');
 const { cleVue, donneesDe, geler, viderCache, vuePartagee } = await import('../server/src/cache-instantane.ts');
 const vc = await import('../server/src/vues-cache.ts');
 const { corpsAvecTete, filtreComplet, filtreIndexe, JsonBrut, lignesDe, objetJson, TETE } = vc;
@@ -153,11 +153,11 @@ test('instantané : corps de la vue partagée gardé par clé de vue, égal à l
   const avant = vc.corpsCalcules;
   for (let passe = 0; passe < 2; passe++) {
     for (const { user } of users) {
-      const corps = await db.lecture(async () => await corpsInstantane(db, user));
+      const corps = corpsDe(await db.lecture(async () => await partiesInstantane(db, user)));
       const attendu = JSON.stringify(await db.lecture(async () => await buildSnapshot(db, user)));
       assert.equal(corps.json, attendu, `${user.role} ${user.profilRh ?? user.empId} (passage ${passe + 1})`);
       // Hors lecture stable (lecture directe), sérialisé pour la requête : même corps.
-      assert.equal((await corpsInstantane(db, user)).json, attendu);
+      assert.equal(corpsDe(await partiesInstantane(db, user)).json, attendu);
     }
   }
   const cles = new Set(users.map(u => cleVue(u.user)));
@@ -170,7 +170,7 @@ test('instantané : corps de la vue partagée gardé par clé de vue, égal à l
   // Nouvelle révision : nouvelle entrée, nouvelles vues, nouveaux corps.
   await db.update('employes', 2, { nom: 'Mehdi B.' });
   const n = vc.corpsCalcules;
-  const corps = (await db.lecture(async () => await corpsInstantane(db, mehdi))).json;
+  const corps = corpsDe(await db.lecture(async () => await partiesInstantane(db, mehdi))).json;
   assert.equal(vc.corpsCalcules, n + 1);
   assert.match(corps, /"nom":"Mehdi B\."/);
 });
@@ -238,4 +238,41 @@ test('HTTP : corps décompressé de GET /api/data et de la réponse d’action i
     assert.ok('message' in r && r.data.user, 'message et instantané');
     assert.equal(sansRevision(JSON.stringify(r)), sansRevision(enCache), 'mêmes octets que res.json');
   }
+});
+
+test('HTTP : instantané sérialisé après la lecture stable (ni file des écritures ni transaction tenues), avec et sans cache', async () => {
+  const db = await demo();
+  const app = createApp(db, { production: false, journalRequetes: false, compression: false });
+  const serveur = await new Promise<Server>(ok => { const s = app.listen(0, '127.0.0.1', () => ok(s)); });
+  serveurs.push(serveur);
+  const base = `http://127.0.0.1:${(serveur.address() as AddressInfo).port}`;
+  const compte = (await db.all<Compte>('comptes')).find(c => c.profilRh === 'rh_admin' && c.actif)!;
+  const id = randomBytes(32).toString('base64url');
+  await db.insert('connexions', { id: empreinteSession(id), compteId: compte.id, role: 'rh', methode: 'local', demoComptes: {}, creation: new Date().toISOString(), expiration: new Date(Date.now() + 3600_000).toISOString(), activite: new Date().toISOString() });
+  const headers = { cookie: `cursus_session=${id}.${await sign(db, id)}`, 'x-cursus-espace': 'rh', 'content-type': 'application/json' };
+  // Octets produits par JSON.stringify pendant une lecture stable (contexte asynchrone de la requête : `lectureStable`).
+  const stringify = JSON.stringify;
+  let enLecture = 0;
+  JSON.stringify = ((...a: Parameters<typeof stringify>) => {
+    const s = stringify(...a);
+    if (db.lectureStable && typeof s === 'string') enLecture += s.length;
+    return s;
+  }) as typeof stringify;
+  try {
+    for (const cache of [true, false]) {
+      if (!cache) process.env.CURSUS_CACHE_INSTANTANE = '0';
+      try {
+        viderCache(db);
+        for (const [chemin, init] of [['/api/data', { headers }], ['/api/actions/parametres.maj', { method: 'POST', headers, body: stringify({ relancesActives: true }) }]] as const) {
+          enLecture = 0;
+          const r = await fetch(base + chemin, init);
+          const texte = await r.text();
+          assert.equal(r.status, 200, texte.slice(0, 200));
+          assert.ok(texte.length > 100_000, 'instantané RH complet');
+          // Seuls de petits morceaux (lectures, session) passent par JSON.stringify dans la lecture, jamais le corps.
+          assert.ok(enLecture < texte.length / 20, `${chemin}, cache ${cache} : ${enLecture} octets sérialisés dans la lecture pour ${texte.length}`);
+        }
+      } finally { delete process.env.CURSUS_CACHE_INSTANTANE; }
+    }
+  } finally { JSON.stringify = stringify; }
 });

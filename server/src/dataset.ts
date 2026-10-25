@@ -417,21 +417,30 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
 }
 
 /**
- * Corps JSON de l'instantané de `user` (lot 9 : GET /api/data et réponse d'une action, server/src/app.ts), octet pour
- * octet `JSON.stringify(buildSnapshot(db, user))`. Vue partagée du cache : son corps est sérialisé une fois par entrée
- * et par clé de vue, la tête de la requête recollée (server/src/vues-cache.ts) ; sinon sérialisé pour cette requête.
+ * Parties de l'instantané de `user` (lot 9 : GET /api/data et réponse d'une action, server/src/app.ts) : la vue
+ * (partagée par le cache avec sa clé, jamais modifiée ; ou calculée pour cette requête, `cle` null) et les champs de
+ * tête propres à la requête (`TETE` de server/src/vues-cache.ts), dans l'ordre où `buildSnapshot` les a toujours posés.
+ * Seule cette lecture se fait dans `Db.lecture` : la sérialisation (`corpsDe`) vient après, une fois la lecture rendue
+ * (sur SQLite, la file unique des écritures ; sur PostgreSQL, la transaction et sa place de lecture).
  */
-export async function corpsInstantane(db: Db, user: CurrentUser): Promise<JsonBrut> {
-  const { vue, cle, tete } = await partiesInstantane(db, user);
-  return cle === null ? new JsonBrut(JSON.stringify({ ...vue, ...tete })) : corpsAvecTete(vue, cle, tete);
+export interface PartiesInstantane {
+  vue: Dataset;
+  cle: string | null;
+  tete: Partial<Dataset>;
 }
 
 /**
- * Parties de l'instantané : la vue (partagée par le cache avec sa clé, jamais modifiée ; ou calculée pour cette requête,
- * `cle` null) et les champs de tête propres à la requête (`TETE` de server/src/vues-cache.ts), dans l'ordre où
- * `buildSnapshot` les a toujours posés.
+ * Corps JSON des parties d'un instantané, octet pour octet `JSON.stringify(buildSnapshot(db, user))` : vue partagée du
+ * cache, son corps sérialisé une fois par entrée et par clé de vue, la tête de la requête recollée
+ * (server/src/vues-cache.ts) ; sinon sérialisé pour cette requête. Calcul seul, sans accès à la base : à appeler hors
+ * de `Db.lecture`.
  */
-async function partiesInstantane(db: Db, user: CurrentUser): Promise<{ vue: Dataset; cle: string | null; tete: Partial<Dataset> }> {
+export function corpsDe({ vue, cle, tete }: PartiesInstantane): JsonBrut {
+  return cle === null ? new JsonBrut(JSON.stringify({ ...vue, ...tete })) : corpsAvecTete(vue, cle, tete);
+}
+
+/** Parties de l'instantané de `user` (`PartiesInstantane`), lues dans la lecture stable de l'appelant. */
+export async function partiesInstantane(db: Db, user: CurrentUser): Promise<PartiesInstantane> {
   const revision = db.revision;
   const partagee = await vuePartagee(db, user, todayIso(), revision, async lecteur => await loadFull(db, lecteur), full => vueDe(full, user));
   const vue = partagee?.vue ?? vueDe(await loadFull(db, user), user);

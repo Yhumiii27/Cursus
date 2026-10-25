@@ -31,7 +31,8 @@ const { relevesAutomatiques } = await import('../server/src/releves.ts');
 const { suivreVerdicts } = await import('../server/src/integrations/keystone-verdicts.ts');
 const { Domain } = await import('../shared/domain.ts');
 const { inscritsDe } = await import('../shared/rules/sessions.ts');
-const { csvTexte, releveAgence, releveCsv, semainesAutomatiques } = await import('../shared/rules/releves.ts');
+const { releveAgence, releveCsv, semainesAutomatiques } = await import('../shared/rules/releves.ts');
+const { texteCsv } = await import('../shared/csv.ts');
 const { validerProfil, profilOf } = await import('../shared/rules/profil.ts');
 const { EMAIL_LABEL } = await import('../shared/constants.ts');
 type User = Parameters<typeof buildSnapshot>[1];
@@ -613,6 +614,19 @@ test('t113 : une convocation reçue est annulée dès que la personne quitte la 
 
 // — t030 : relevé des intérimaires —
 
+test('relevé envoyé aux agences : un nom ou un poste qui commence comme une formule n’est jamais évalué (lot 8, D8)', async () => {
+  const { db, run, mails } = await fresh();
+  // Fiche de l'intérimaire saisie ou importée avec un nom et un poste piégés : le fichier part chez un destinataire externe.
+  await db.update('employes', 15, { nom: '=HYPERLINK("https://exemple.invalid";"Léa")', poste: '@SOMME(1+1)' });
+  assert.match(String(await run(RH, 'releve.envoyer', { agence: 'Proman Lyon', semaine: '2026-09-21' })), /^Relevé de la semaine 39 envoyé/);
+  const [e] = await mails('releve.interim');
+  const lignes = texteDe(e.m.pj![0].base64).split('\r\n');
+  assert.equal(lignes.length, 2);
+  // Apostrophe en tête (texte affiché, jamais une formule), guillemets doublés ; les heures restent des nombres.
+  assert.match(lignes[1], /^Proman Lyon;2026-S39;2026-09-21;2026-09-27;"'=HYPERLINK\(""https:\/\/exemple\.invalid"";""Léa""\)";'@SOMME\(1\+1\);\d/);
+});
+
+
 test('t030 : relevé hebdomadaire des heures des intérimaires, par agence, automatique, consultable et renvoyable', async () => {
   const { db, run, forbidden, mails, domain } = await fresh();
   // Léa Girard, intérimaire (Proman Lyon) : semaine 39 validée, semaine 40 soumise, semaine 41 non saisie.
@@ -623,7 +637,7 @@ test('t030 : relevé hebdomadaire des heures des intérimaires, par agence, auto
   const csv = releveCsv(r39);
   assert.equal(csv.fichier, 'releve-heures-proman-lyon-2026-09-21.csv');
   assert.deepEqual(csv.rows[0].slice(0, 6), ['proman LYON', '2026-S39', '2026-09-21', '2026-09-27', 'Léa Girard', 'Opératrice']);
-  assert.ok(csvTexte(csv.head, csv.rows).startsWith('﻿Agence;Semaine;Du;Au;Intérimaire;Poste;Lundi'));
+  assert.ok(texteCsv(csv.head, csv.rows).startsWith('﻿Agence;Semaine;Du;Au;Intérimaire;Poste;Lundi'));
 
   // Aucun envoi automatique tant qu'une feuille de la semaine attend sa validation ; la semaine 39 précède
   // l'enregistrement de l'adresse de l'agence (5 octobre) : ses relevés lui parvenaient autrement.

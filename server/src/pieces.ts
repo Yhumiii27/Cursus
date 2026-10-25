@@ -10,6 +10,10 @@
 //   compte qui l'a envoyée le connaît. Une pièce restée en attente plus de 24 h est effacée.
 // - Un fichier n'est jamais effacé dans la transaction d'une action (elle peut être annulée) : la pièce est marquée
 //   retirée, et `nettoyerPieces` efface ensuite les fichiers des pièces retirées, après la validation.
+// - Chiffrement au repos (lot 8, chantier D) : avec CURSUS_PIECES_KEY, le dépôt local chiffre chaque nouveau fichier
+//   (AES-256-GCM, server/src/pieces-chiffrement.ts) et le déchiffre à la lecture ; `pieces.chiffree` le note. L'empreinte
+//   et la taille enregistrées restent celles du contenu en clair. Obligatoire en production (refusPiecesLocales de
+//   config.ts) ; les pièces d'avant restent lisibles, et npm run pieces:chiffrer les chiffre (server/src/pieces-chiffrer.ts).
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -19,9 +23,11 @@ import { plural } from '../../shared/format.ts';
 import { DELAI_PIECE_EN_ATTENTE_MS, voitPiece } from '../../shared/rules/pieces.ts';
 import type { CurrentUser, ObjetPiece, Piece, StockagePieces } from '../../shared/types.ts';
 import { dossierPieces, fichierBase } from './chemins.ts';
+import { clePieces, refusPiecesLocales } from './config.ts';
 import type { Db, TableName } from './db.ts';
 import { DepotGed, estFichierGed } from './integrations/ged.ts';
 import { log } from './logs.ts';
+import { chiffrerPiece, contenuEnClair, fichierChiffre, SURCOUT_CHIFFREMENT } from './pieces-chiffrement.ts';
 
 /** Ligne de la table `pieces`, telle qu'en base (le nom stocké et le jeton ne quittent jamais le serveur). */
 export interface PieceEnregistree extends Omit<Piece, 'empId' | 'objet' | 'objetId'> {
@@ -32,14 +38,18 @@ export interface PieceEnregistree extends Omit<Piece, 'empId' | 'objet' | 'objet
   fichier: string | null;
   deposeCompteId: number | null;
   retireeMotif: string | null;
+  /** Fichier chiffré au repos (lot 8) ; faux pour les pièces écrites avant, ou sans clé hors production. */
+  chiffree?: boolean | null;
 }
 
 /** Stockage des contenus : le même contrat pour le dossier local et pour la GED. */
 export interface DepotPieces {
   readonly mode: Exclude<StockagePieces, 'desactive'>;
+  /** Les fichiers écrits sont chiffrés par Cursus (dépôt local avec CURSUS_PIECES_KEY) : noté dans `pieces.chiffree`. */
+  readonly chiffre?: boolean;
   /** Enregistre le contenu, renvoie le nom stocké. */
   ecrire(octets: Buffer): Promise<string>;
-  /** Contenu, ou null s'il a disparu. */
+  /** Contenu en clair, ou null s'il a disparu (PieceIndechiffrable : fichier chiffré illisible). */
   lire(fichier: string): Promise<Buffer | null>;
   supprimer(fichier: string): Promise<void>;
 }
@@ -47,11 +57,16 @@ export interface DepotPieces {
 /** Nom d'un fichier du dépôt local : aléatoire, sans extension (le type est en base), jamais un chemin. */
 export const NOM_LOCAL = /^[0-9a-f]{32}$/;
 
-/** Dépôt local : un fichier par pièce, écrit sous un nom provisoire puis renommé (jamais de fichier à moitié écrit). */
+/**
+ * Dépôt local : un fichier par pièce, écrit sous un nom provisoire puis renommé (jamais de fichier à moitié écrit) ;
+ * chiffré avec la clé `cle` (CURSUS_PIECES_KEY), en clair sans elle.
+ */
 export class DepotLocal implements DepotPieces {
   readonly mode = 'local' as const;
   readonly dossier: string;
-  constructor(dossier: string) { this.dossier = dossier; }
+  readonly cle: Buffer | null;
+  constructor(dossier: string, cle: Buffer | null = null) { this.dossier = dossier; this.cle = cle; }
+  get chiffre() { return !!this.cle; }
   private chemin(fichier: string) {
     if (!NOM_LOCAL.test(fichier)) throw new Error(`Nom de pièce invalide : ${fichier}`);
     return join(this.dossier, fichier);
@@ -61,11 +76,16 @@ export class DepotLocal implements DepotPieces {
     const fichier = randomBytes(16).toString('hex');
     const partiel = `${this.chemin(fichier)}.partiel`;
     // Créé en 600 d'emblée : justificatifs d'absence, passeports, jamais lisibles par un autre compte de la machine.
-    writeFileSync(partiel, octets, { mode: 0o600, flag: 'wx' });
+    writeFileSync(partiel, this.cle ? chiffrerPiece(octets, this.cle, fichier) : octets, { mode: 0o600, flag: 'wx' });
     renameSync(partiel, this.chemin(fichier));
     return fichier;
   }
   async lire(fichier: string): Promise<Buffer | null> {
+    const stocke = this.brut(fichier);
+    return stocke && contenuEnClair(stocke, this.cle, fichier);
+  }
+  /** Contenu stocké tel quel (chiffré ou non), ou null s'il a disparu. */
+  brut(fichier: string): Buffer | null {
     try { return readFileSync(this.chemin(fichier)); } catch { return null; }
   }
   async supprimer(fichier: string): Promise<void> {
@@ -94,7 +114,8 @@ export function dossierPiecesDe(db: Db): string {
   return temporaires.get(db)!;
 }
 
-export const depotLocal = (db: Db) => new DepotLocal(dossierPiecesDe(db));
+/** Dépôt local de la base, avec la clé de chiffrement de l'environnement (CURSUS_PIECES_KEY). */
+export const depotLocal = (db: Db) => new DepotLocal(dossierPiecesDe(db), clePieces());
 
 /** Réglage en vigueur (clé `app` de la table settings, comme loadSettings de dataset.ts). */
 export const stockagePieces = async (db: Db): Promise<StockagePieces> => (await db.getSetting<{ piecesStockage?: StockagePieces }>('app', {})).piecesStockage ?? 'desactive';
@@ -114,7 +135,15 @@ export const depotDe = (db: Db, fichier: string): DepotPieces => (estFichierGed(
  */
 export function contenuLocal(db: Db, fichier: string): Buffer | null {
   if (estFichierGed(fichier) || !NOM_LOCAL.test(fichier)) return null;
-  try { return readFileSync(join(dossierPiecesDe(db), fichier)); } catch { return null; }
+  const depot = depotLocal(db);
+  const stocke = depot.brut(fichier);
+  try {
+    return stocke && contenuEnClair(stocke, depot.cle, fichier);
+  } catch (err) {
+    // Fichier chiffré illisible : l'export part sans son contenu, le contrôle se fait au téléchargement de la pièce.
+    log.avertissement(`Pièce justificative : ${err instanceof Error ? err.message : err}`);
+    return null;
+  }
 }
 
 export const empreinte = (octets: Buffer) => createHash('sha256').update(octets).digest('hex');
@@ -202,6 +231,9 @@ export function nettoyerBientot(db: Db) {
 
 /** Au démarrage puis toutes les heures (server/src/index.ts) ; renvoie la fonction d'arrêt. */
 export async function demarrerPieces(db: Db): Promise<() => void> {
+  // Pièces activées avant la règle du lot 8, sans clé en production : signalé au démarrage (les envois sont refusés).
+  const refus = (await stockagePieces(db)) === 'local' ? refusPiecesLocales() : null;
+  if (refus) log.avertissement(refus);
   await passer(db);
   const t = setInterval(async () => await passer(db), 3600_000);
   t.unref();
@@ -222,7 +254,12 @@ export async function controlerPieces(db: Db): Promise<Record<string, number>> {
   let absents = 0, tailles = 0;
   for (const l of locales) {
     try {
-      if (statSync(join(dossier, l.fichier)).size !== Number(l.taille)) tailles++;
+      // Fichier chiffré (lot 8) : la taille enregistrée est celle du clair, plus l'en-tête du chiffrement. L'en-tête du
+      // fichier fait foi, pas la colonne `chiffree` : une base restaurée d'avant le chiffrement (colonne à faux) sur un
+      // volume déjà chiffré, ou l'inverse, n'est pas une altération (npm run pieces:chiffrer remet la colonne d'accord).
+      const chemin = join(dossier, l.fichier);
+      const taille = statSync(chemin).size;
+      if (taille !== Number(l.taille) + (fichierChiffre(chemin) ? SURCOUT_CHIFFREMENT : 0)) tailles++;
     } catch { absents++; }
   }
   return { ...(absents ? { 'pieces.fichier → dossier des pièces (absent)': absents } : {}), ...(tailles ? { 'pieces.fichier → dossier des pièces (taille différente)': tailles } : {}) };

@@ -21,7 +21,9 @@ import { DESTS, FORMATIONS, HABILITATIONS } from '../seed.ts';
 import { enregistrerNuitEquipe } from './mineurs.ts';
 import { enregistrerCouvertureEquipe } from './couverture.ts';
 import { enregistrerHoraireEquipe } from './horaires.ts';
-import { ActionError, getEmp, isRh, type ActionHandler, type ActionOutput, type Ctx, requireFormations, requireRh, str } from './context.ts';
+import {
+  ActionError, getEmp, isRh, type ActionHandler, type ActionOutput, type Ctx, refuserSoiMeme, requireFormations, requireRh, REVIENT_FORMATIONS, str,
+} from './context.ts';
 import { devientDeconseillee } from '../../../shared/rules/vigilance.ts';
 import { alerterVigilance } from '../vigilance.ts';
 
@@ -302,6 +304,9 @@ const exigencesEquipeAction: ActionHandler = async (ctx, p) => {
 const demanderHab: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const emp = getEmp(ctx, p.empId);
+  // Demande faite par le service RH pour le compte du salarié : jamais pour soi-même (lot 8, chantier C), elle mettrait le
+  // titre « en attente » de délivrance sans demande décidée par un autre.
+  refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas demander une habilitation pour vous-même', REVIENT_FORMATIONS);
   const hm = ctx.d.hm(codeTitre(p.h));
   if (!hm) throw new ActionError('Habilitation inconnue');
   const refus = refusArchive(hm, 'Habilitation');

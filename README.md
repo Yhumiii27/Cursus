@@ -142,10 +142,14 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 | `CURSUS_DEMO=1 npm run reset-demo -- --yes` | Recharge les données de démonstration : efface la base après l'avoir copiée. Refusé hors démonstration, avec `NODE_ENV=production` (sauf l'application de bureau) et si un serveur utilise la base (`--force` pour passer outre) ; sans `--yes`, le mot `EFFACER` est demandé dans un terminal |
 | `npm run audit` | Failles connues des dépendances de production (`npm audit`), en échec à partir de la gravité « high » |
 | `npm run mesure` | Taille de l'instantané et durée des actions sur une base temporaire de 100 salariés et 3 ans (`npm run mesure -- 200` : autre effectif) |
+| `npm run charge:generer -- --ans 5` puis `npm run charge -- --scenario S3 --duree 120` | Essai de charge sur PostgreSQL (`CURSUS_TEST_DATABASE_URL` : serveur de test, jamais le serveur commun) : jeu réaliste de 5 ans dans un schéma jetable, scénarios simultanés S1 à S6, rapport et seuils dans `data/charge/rapports/` (`docs/ARCHITECTURE.md`, « Performances ») ; `-- --supprimer` retire les schémas de l'essai |
 | `npm run backup` | Copie à chaud vérifiée de la base dans `data/backups`, avec rotation |
 | `npm run restore -- <fichier>` | Remplace la base par une sauvegarde (serveur arrêté) |
 | `DATABASE_URL=… npm run reprise-postgres -- [<base SQLite>] [--a-blanc]` | Reprise d'une base SQLite sur le serveur PostgreSQL commun, une fois, service arrêté ; `--a-blanc` : contrôles et compte rendu sans rien écrire (`docs/DEPLOIEMENT.md`) |
+| `npm run pieces:chiffrer -- [--apercu]` | Chiffre les pièces justificatives déposées avant la clé `CURSUS_PIECES_KEY` (lot 8), une fois Cursus redémarré avec elle ; service en marche admis, relançable (`docs/SAUVEGARDE.md`, section 10) |
+| `npm run pieces:verifier` | Contrôle complet des pièces, sans rien écrire : chaque fichier lu, déchiffré et comparé à l'empreinte de son envoi (après une restauration) ; code 1 si un fichier est absent, altéré ou illisible |
 | `npm run comptes -- admin <identifiant> [--local]` | Crée le premier administrateur RH, ou rétablit son accès (voir `docs/DEPLOIEMENT.md`) |
+| `npm run verifier-production -- [--config-seule] [--json] [--strict]` | Pré-vol de la mise en production, avec l'environnement de l'application : configuration jugée comme en production et base en lecture seule ; code 0 prête, 1 bloquant, 2 avertissements (`docs/DEPLOIEMENT.md`, « Vérification avant la mise en production ») |
 
 ## Configuration (variables d'environnement)
 
@@ -176,6 +180,8 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `CURSUS_DB` | Fichier SQLite (`data/cursus.db` du dossier du code par défaut ; un chemin relatif part du dossier de lancement). Son chemin complet s'affiche au démarrage ; le fichier est réservé au compte du serveur (`600`, dossier en `700`) |
 | `DATABASE_URL` | Serveur PostgreSQL commun EPC2I (`postgres://cursus_app:<mot de passe>@<hôte>:5432/epc2i`) : Cursus y travaille dans le schéma `cursus` et y applique ses migrations (`server/migrations-pg/`). Absente ou vide : fichier SQLite `CURSUS_DB`. Voir `docs/ARCHITECTURE.md`, « Accès à la base : PostgreSQL » |
 | `CURSUS_PG_POOL` | Connexions au plus du pool PostgreSQL (10 par défaut) |
+| `CURSUS_PG_DELAI_CONNEXION_MS`, `CURSUS_PG_DELAI_VERROU_MS`, `CURSUS_PG_DELAI_REQUETE_MS` | Délais du serveur PostgreSQL, en millisecondes (0 : sans limite) : attente d'une connexion du pool (5 s), d'un verrou, verrou d'écriture compris (`lock_timeout`, 30 s), durée d'une requête (`statement_timeout`, 60 s). Un dépassement répond 503 « Cursus est occupé, réessayez », sans rien écrire. Voir `docs/DEPLOIEMENT.md` |
+| `CURSUS_CACHE_INSTANTANE` | Cache de l'instantané, indexé par la révision de la base (actif par défaut ; `0` le désactive : chaque instantané relit toute la base). Voir `docs/ARCHITECTURE.md`, « Performances » |
 | `CURSUS_DIST` | Interface compilée servie (`dist/` du dossier du code par défaut) : pour les tests automatiques et une installation qui la place ailleurs |
 | `CURSUS_SUPERVISION_TOKEN` | Jeton (32 caractères au moins) de l'outil de supervision : avec `Authorization: Bearer <jeton>`, `/api/health` donne aussi la version, le mode et les envois en échec. Facultatif ; ce détail est toujours donné à un appel local fait sur la machine (dans le conteneur avec Docker : `docker exec`) |
 | `CURSUS_LOG_FORMAT` | Journaux du serveur : `json` (par défaut en production : une ligne JSON par message et par requête, pour l'agrégateur de Coolify ou du service informatique) ou `texte` (par défaut ailleurs). Jamais le corps ni les paramètres des requêtes |
@@ -198,6 +204,9 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `CURSUS_OIDC_AUTORITE` | Remplace `https://login.microsoftonline.com` : réservée aux tests automatiques (faux fournisseur local). Refusée en production |
 | `CURSUS_MAIL_FROM` | Boîte d'envoi dédiée des e-mails (`cursus@entreprise.fr`), envoyés par Microsoft Graph. Sans elle : simulation (e-mails tracés dans le journal et visibles dans Paramètres → Envois, rien ne part). Mise en service : `docs/EMAILS.md` |
 | `CURSUS_MAIL_TENANT`, `CURSUS_MAIL_CLIENT_ID`, `CURSUS_MAIL_CLIENT_SECRET` | Application Entra autorisée à envoyer (`Mail.Send`, restreinte à la boîte d'envoi) ; par défaut celle de la connexion Microsoft (`CURSUS_OIDC_*`) |
+| `CURSUS_MAIL_SECRET_EXPIRE` | Facultative, avec `CURSUS_MAIL_CLIENT_SECRET` seulement : date d'expiration (`AAAA-MM-JJ`) du secret de l'application d'envoi distincte. 30 jours avant, `/api/health` passe en `degrade` et le récapitulatif des échéances prévient la boîte du service RH |
+| `CURSUS_SAUVEGARDE_TEMOIN` | Facultative : chemin absolu du fichier témoin écrit par la sauvegarde du serveur commun ; plus de 26 h sans sauvegarde, `/api/health` passe en `degrade` (`docs/BASCULE-PRODUCTION.md`, section 7) |
+| `CURSUS_KEYSTONE_ADRESSES` | Facultative : adresses ou réseaux admis à appeler l'API Keystone (`10.0.1.0/24`) ; les autres reçoivent 403. Vide : aucun filtre |
 | `MATRIX_URL`, `MATRIX_TOKEN`, `MATRIX_DECLARATIONS_DIR` | Déclaration du schéma de la base à Matrix, le catalogue des bases : voir « Mise en ligne » ci-dessous |
 
 Les sessions durent 12 heures au plus depuis la connexion ; la déconnexion les révoque (pour un compte
@@ -492,8 +501,17 @@ puis par Microsoft 365 une fois configuré (`docs/CONNEXION-MICROSOFT.md`).
 `CURSUS_DEMO_PUBLIQUE=1` admet la démonstration derrière le proxy : 24 salariés fictifs chargés dans une base vide, espace RH
 ouvert sans mot de passe à qui atteint l'adresse, avertissement à chaque démarrage. L'accès se restreint en amont
 (authentification HTTP de Coolify, liens diffusés à quelques personnes) ; `CURSUS_SECRET` et `KEYSTONE_API_KEY` restent
-exigées. Jamais avec de vraies données : au passage en production, retirer les deux variables et repartir d'une base vide
-(nouveau volume, ou fichier `/data/cursus.db` supprimé, conteneur arrêté), puis créer le premier administrateur.
+exigées. Jamais avec de vraies données : au passage en production, arrêter l'instance, vider les données fictives en
+gardant le paramétrage saisi pendant la démonstration (`npm run purge-demo -- --a-blanc`, puis `npm run purge-demo --
+--yes` : copie avant-purge, transaction, premier vrai salarié EMP-1001), retirer les variables de démonstration, puis
+créer le premier administrateur (`docs/DEPLOIEMENT.md`, « Passage de la démonstration à la production » : nouvelle
+application Coolify « cursus-prod » sur un espace neuf, alimentée par la base purgée). Une base purgée ou exploitée
+refuse ensuite le mode démonstration.
+
+**Passage en production.** La bascule de la démonstration vers la production (nouvelle application Coolify
+`cursus-prod`, gel et purge de la démonstration, pré-vol `npm run verifier-production`, premier administrateur, reprise
+Lucca, retrait de l'authentification basique en dernier), le tableau des secrets, les réglages Traefik et le retour
+arrière sont décrits pas à pas dans `docs/BASCULE-PRODUCTION.md`.
 
 **Déclaration du schéma à Matrix.** Au démarrage, une fois les migrations faites, Cursus lit le schéma réel de sa base
 (tables, colonnes, clés, unicités) et l'envoie à Matrix, le catalogue des bases de Keystone, Codex, Cursus et Vigie

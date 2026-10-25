@@ -207,7 +207,10 @@ export interface OptionsReprise {
    * case décochée. Une fiche déjà à jour sans compte devient alors une mise à jour (compte à créer).
    */
   avecCompte?: number[] | null;
-  /** Fiche rattachée au compte qui importe : ses propres soldes sont repris par un autre membre du service RH. */
+  /**
+   * Fiche rattachée au compte qui importe : ses propres soldes, certifications, habilitations et visites sont reprises
+   * par un autre membre habilité (lot 8, chantier C : aucune décision sur soi-même, réponse de l'entreprise du 24 octobre).
+   */
   soiMeme?: number | null;
 }
 
@@ -355,9 +358,9 @@ export function analyserReprise(d: Domain, type: TypeReprise, texte: string, o: 
   switch (type) {
     case 'salaries': return analyserSalaries(d, entetes, lignes, o.equipes ?? {}, confirmees, o.avecCompte ?? null);
     case 'soldes': return { entetes, bloquant: null, equipesInconnues: [], lignes: lignes.map(l => analyserSolde(d, l.n, l.v, dateReprise!, o.soiMeme ?? null)) };
-    case 'certifications': return { entetes, bloquant: null, equipesInconnues: [], lignes: analyserCertifications(d, lignes) };
-    case 'habilitations': return { entetes, bloquant: null, equipesInconnues: [], lignes: analyserHabilitations(d, lignes) };
-    case 'visites': return { entetes, bloquant: null, equipesInconnues: [], lignes: analyserVisites(d, lignes, confirmees) };
+    case 'certifications': return { entetes, bloquant: null, equipesInconnues: [], lignes: analyserCertifications(d, lignes, o.soiMeme ?? null) };
+    case 'habilitations': return { entetes, bloquant: null, equipesInconnues: [], lignes: analyserHabilitations(d, lignes, o.soiMeme ?? null) };
+    case 'visites': return { entetes, bloquant: null, equipesInconnues: [], lignes: analyserVisites(d, lignes, confirmees, o.soiMeme ?? null) };
   }
 }
 
@@ -600,12 +603,23 @@ function datePassee(d: Domain, l: LigneReprise, s: string | undefined, libelle: 
   return null;
 }
 
-function analyserCertifications(d: Domain, lignes: { n: number; v: Valeurs }[]): LigneReprise[] {
+/**
+ * Refus d'une ligne qui porte sur la fiche de la personne qui importe (lot 8, chantier C) : elle ne se délivre ni titre,
+ * ni certification, ni avis d'aptitude, même par la reprise ; un autre membre habilité importe ces lignes.
+ */
+export const REPRISE_SOI_MEME = {
+  certifications: 'Vos propres certifications sont reprises par un autre membre du service RH ou par le référent HSE / formation',
+  habilitations: 'Vos propres habilitations sont reprises par un autre membre du service RH ou par le référent HSE / formation',
+  visites: 'Votre propre suivi médical est repris par un autre membre du service RH',
+} as const;
+
+function analyserCertifications(d: Domain, lignes: { n: number; v: Valeurs }[], soiMeme: number | null): LigneReprise[] {
   const vus = new Map<string, number>();
   return lignes.map(({ n, v }) => {
     const { e, erreur } = trouverSalarie(d, v);
     const l = ligneVide(n, e?.nom ?? (nomDe(v) || v.matricule || '—'));
     if (!e) l.erreurs.push(erreur!);
+    else if (e.id === soiMeme) l.erreurs.push(REPRISE_SOI_MEME.certifications);
     const fm = v.formation?.trim() ? trouverFormation(d, v.formation) : undefined;
     if (!v.formation?.trim()) l.erreurs.push('Formation manquante');
     else if (!fm) l.erreurs.push(`Formation absente du catalogue : « ${v.formation} » (écran Référentiels)`);
@@ -642,13 +656,14 @@ function plusRecentes(lignes: LigneReprise[], cle: (l: LigneReprise) => string |
   });
 }
 
-function analyserHabilitations(d: Domain, lignes: { n: number; v: Valeurs }[]): LigneReprise[] {
+function analyserHabilitations(d: Domain, lignes: { n: number; v: Valeurs }[], soiMeme: number | null): LigneReprise[] {
   // Prérequis évalués sur le dossier enrichi (certifications en vigueur, aptitude), salariés sortis compris.
   const enrichis = new Map(d.enrich(d.ds.settings.horizonAlerte, false, { sortis: true }).map(x => [x.id, x]));
   const out = lignes.map(({ n, v }) => {
     const { e, erreur } = trouverSalarie(d, v);
     const l = ligneVide(n, e?.nom ?? (nomDe(v) || v.matricule || '—'));
     if (!e) l.erreurs.push(erreur!);
+    else if (e.id === soiMeme) l.erreurs.push(REPRISE_SOI_MEME.habilitations);
     const hm = v.habilitation?.trim() ? trouverHabilitation(d, v.habilitation) : undefined;
     if (!v.habilitation?.trim()) l.erreurs.push('Habilitation manquante');
     else if (!hm) l.erreurs.push(`Habilitation absente du référentiel : « ${v.habilitation} » (écran Référentiels)`);
@@ -676,11 +691,12 @@ function analyserHabilitations(d: Domain, lignes: { n: number; v: Valeurs }[]): 
   return plusRecentes(out, l => (l.ecriture?.type === 'habilitations' ? `${l.empId}|${l.ecriture.h}` : null), l => (l.ecriture as { date: string }).date);
 }
 
-function analyserVisites(d: Domain, lignes: { n: number; v: Valeurs }[], confirmees: Set<number>): LigneReprise[] {
+function analyserVisites(d: Domain, lignes: { n: number; v: Valeurs }[], confirmees: Set<number>, soiMeme: number | null): LigneReprise[] {
   const out = lignes.map(({ n, v }) => {
     const { e, erreur } = trouverSalarie(d, v);
     const l = ligneVide(n, e?.nom ?? (nomDe(v) || v.matricule || '—'));
     if (!e) l.erreurs.push(erreur!);
+    else if (e.id === soiMeme) l.erreurs.push(REPRISE_SOI_MEME.visites);
     const date = datePassee(d, l, v.date, 'Date de visite');
     const brut = (v.avis ?? '').trim();
     let avis = brut ? avisDe(brut) : null;

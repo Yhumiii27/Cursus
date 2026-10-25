@@ -74,6 +74,13 @@ export const PROFIL_FIELDS: (keyof ProfilInput)[] = [
  */
 export const MANAGER_FIELDS: (keyof ProfilInput)[] = ['poste', 'jourOff'];
 
+/**
+ * Champs qu'un membre du service RH modifie sur sa propre fiche (lot 8, chantier C) : l'adresse e-mail et les jours non
+ * travaillés seulement. Le contrat, le temps de travail, le matricule de paie, l'équipe, la période d'essai… passent par un
+ * autre membre du service RH (réponse de l'entreprise du 24 octobre 2026 : aucune exception pour soi-même).
+ */
+export const SOI_MEME_FIELDS: (keyof ProfilInput)[] = ['email', 'jourOff'];
+
 export const JOURS_SEMAINE = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'];
 
 export function profilOf(e: Employe): ProfilInput {

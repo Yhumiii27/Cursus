@@ -5,10 +5,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { type AddressInfo, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const { PG, nouvelleBase, schemaNeuf, surServeur } = await import('./base.ts');
+const { demandeMatrix } = await import('./colonnes-sensibles.ts');
 const { DOSSIER_MIGRATIONS_PG, migrationsPg, ouvrirPostgres, PgDb, SchemaPgError, TABLES_RANG, versDollar } = await import('../server/src/db-pg.ts');
 const { openDb, TABLES, urlPostgres } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
@@ -187,7 +189,7 @@ test('migrations : appliquées une fois sous verrou (deux démarrages simultané
     assert.ok(noms[0] === '0001_init' && noms.includes('0002_partage'));
     assert.deepEqual((await a.query<{ nom: string }>('SELECT nom FROM schema_migrations ORDER BY nom')).map(r => r.nom), noms);
     assert.equal([a.neuve, b.neuve].filter(Boolean).length, 1, 'une seule instance a créé le schéma');
-    assert.equal((await surServeur<{ n: number }>(url, `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = $1`, [schema]))[0].n, Object.keys(TABLES).length + 1);
+    assert.equal((await surServeur<{ n: number }>(url, `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = $1`, [schema]))[0].n, Object.keys(TABLES).length + 2, 'tables de TABLES, journal des migrations et révision');
     // Réouverture : rien à appliquer.
     const c = await ouvrirPostgres(url, { schema });
     assert.equal(c.neuve, false);
@@ -268,4 +270,295 @@ test('vue pub_absences (demande CU-1 de Crucible) : qui est absent et quand, jam
   const apres = (await vue())[0];
   assert.equal(apres.au, '2026-11-03');
   assert.ok(String(apres.maj_le) > avant, 'maj_le avance à la modification');
+});
+
+// ═══ Lot 8, chantier D : vue pub_titres_detenus (migration 0011_pub_titres_valides, avenant du contrat D09) ═══
+test('vue pub_titres_detenus (lot 8) : certification annulée jamais publiée, habilitation suspendue ou retirée bornée par sa mesure', SEUL, async () => {
+  const db = await pg();
+  await db.insert('employes', { id: 1, nom: 'Essai', entree: '2020-01-06' });
+  await db.insert('formations', { id: 'elec', nom: 'Habilitation électrique (formation)', validite: 36, organisme: 'Organisme A' });
+  await db.insert('formations', { id: 'caces', nom: 'CACES R489', validite: 60, organisme: 'Organisme B' });
+  await db.insert('habilitations', { id: 'br', nom: 'BR', prereqs: ['elec'], validite: 36 });
+  await db.insert('habilitations', { id: 'h0', nom: 'H0', prereqs: [], validite: 36 });
+  await db.insert('habilitations', { id: 'b1', nom: 'B1', prereqs: [], validite: 36 });
+  // CACES : la dernière obtention est annulée (saisie par erreur) ; la précédente, non annulée, reprend sa place.
+  const ancienne = await db.insert<{ id: number }>('certifications', { empId: 1, f: 'caces', obtenue: '2022-03-01' });
+  await db.insert('certifications', { empId: 1, f: 'caces', obtenue: '2026-09-01', annuleLe: '2026-09-15', annulePar: 'RH', annuleMotif: 'Erreur de saisie' });
+  // Formation prérequise de BR : seulement une certification annulée, qui ne compte jamais comme prérequis.
+  await db.insert('certifications', { empId: 1, f: 'elec', obtenue: '2026-01-10', annuleLe: '2026-02-01', annulePar: 'RH', annuleMotif: 'Doublon' });
+  await db.insert('habTitres', { empId: 1, h: 'br', delivree: '2026-01-15', par: 'Direction' });
+  const susp = await db.insert<{ id: number }>('habTitres', { empId: 1, h: 'h0', delivree: '2026-01-15', par: 'Direction', mesure: 'suspension', mesureDate: '2026-06-01', mesureMotif: 'Incident', mesurePar: 'RH' });
+  const ret = await db.insert<{ id: number }>('habTitres', { empId: 1, h: 'b1', delivree: '2026-01-15', par: 'Direction', mesure: 'retrait', mesureDate: '2026-07-01', mesureMotif: 'Restriction', mesurePar: 'RH' });
+
+  const lignes = await db.query<Record<string, unknown>>('SELECT * FROM pub_titres_detenus ORDER BY cursus_ref');
+  // Colonnes du contrat D09, dans l'ordre : celles d'avant le lot 8 inchangées, puis mesure et mesure_le en fin.
+  assert.deepEqual(Object.keys(lignes[0]), ['cursus_ref', 'matricule', 'titre_id', 'nature', 'code', 'obtenu_le', 'expire_le',
+    'utilisable_jusqu_au', 'prerequis_manquant', 'organisme', 'delivre_par', 'session_prevue_le', 'mesure', 'mesure_le']);
+  const par = (ref: string) => lignes.find(l => l.cursus_ref === ref);
+  // Certifications : l'annulée n'est pas publiée, ni pour CACES ni pour la formation prérequise.
+  assert.deepEqual(lignes.filter(l => l.nature === 'formation').map(l => l.cursus_ref), [`certification.${ancienne.id}`]);
+  assert.deepEqual([par(`certification.${ancienne.id}`)!.obtenu_le, par(`certification.${ancienne.id}`)!.expire_le, par(`certification.${ancienne.id}`)!.mesure], ['2022-03-01', '2027-03-01', null]);
+  // BR : prérequis manquant (sa seule certification est annulée) ; aucune mesure. Jamais utilisable (veille de la
+  // délivrance), comme habInfo (« susp ») : un lecteur qui ne regarde que utilisable_jusqu_au ne le tient pas pour habilité.
+  const br = lignes.find(l => l.code === 'br')!;
+  assert.deepEqual([br.prerequis_manquant, br.expire_le, br.utilisable_jusqu_au, br.mesure, br.mesure_le], [true, '2029-01-15', '2026-01-14', null, null]);
+  assert.equal((await db.one<{ n: number }>(`SELECT count(*)::int AS n FROM pub_titres_detenus WHERE prerequis_manquant AND utilisable_jusqu_au >= obtenu_le`))!.n, 0);
+  // Suspension et retrait : utilisable jusqu'à la veille de la mesure (date incluse, comme expire_le), échéance
+  // inchangée, mesure publiée sans son motif.
+  assert.deepEqual([par(`hab_titre.${susp.id}`)!.expire_le, par(`hab_titre.${susp.id}`)!.utilisable_jusqu_au, par(`hab_titre.${susp.id}`)!.mesure, par(`hab_titre.${susp.id}`)!.mesure_le],
+    ['2029-01-15', '2026-05-31', 'suspension', '2026-06-01']);
+  assert.deepEqual([par(`hab_titre.${ret.id}`)!.utilisable_jusqu_au, par(`hab_titre.${ret.id}`)!.mesure, par(`hab_titre.${ret.id}`)!.mesure_le], ['2026-06-30', 'retrait', '2026-07-01']);
+  // Lecture d'un autre outil le jour de la mesure : titre non utilisable.
+  assert.equal((await db.one<{ n: number }>(`SELECT count(*)::int AS n FROM pub_titres_detenus WHERE mesure IS NOT NULL AND utilisable_jusqu_au >= mesure_le`))!.n, 0);
+  // Mesure sans date (reprise d'un ancien système) : jamais utilisable (veille de la délivrance).
+  await db.update('habTitres', ret.id, { mesureDate: null });
+  const sansDate = (await db.query<Record<string, unknown>>('SELECT utilisable_jusqu_au, mesure_le FROM pub_titres_detenus WHERE cursus_ref = ?', [`hab_titre.${ret.id}`]))[0];
+  assert.deepEqual([sansDate.utilisable_jusqu_au, sansDate.mesure_le], ['2026-01-14', '2026-01-15']);
+  // Suspension levée (conformite.ts : mesure remise à null) : le titre redevient utilisable jusqu'à son échéance.
+  await db.update('habTitres', susp.id, { mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null });
+  const levee = (await db.query<Record<string, unknown>>('SELECT utilisable_jusqu_au, mesure FROM pub_titres_detenus WHERE cursus_ref = ?', [`hab_titre.${susp.id}`]))[0];
+  assert.deepEqual([levee.utilisable_jusqu_au, levee.mesure], ['2029-01-15', null]);
+  // Certification prérequise valide ajoutée : BR n'est plus en prérequis manquant, borné par l'échéance de la formation.
+  await db.insert('certifications', { empId: 1, f: 'elec', obtenue: '2026-02-10' });
+  const brOk = (await db.query<Record<string, unknown>>(`SELECT prerequis_manquant, utilisable_jusqu_au FROM pub_titres_detenus WHERE code = 'br'`))[0];
+  assert.deepEqual([brOk.prerequis_manquant, brOk.utilisable_jusqu_au], [false, '2029-01-15']);
+  // Jamais lus par la vue : motifs (textes libres), auteur de la mesure, aptitude médicale.
+  const lues = (await db.query<{ table_name: string; column_name: string }>(
+    `SELECT table_name, column_name FROM information_schema.view_column_usage WHERE view_name = 'pub_titres_detenus'`)).map(r => `${r.table_name}.${r.column_name}`);
+  for (const c of ['hab_titres.mesure_motif', 'hab_titres.mesure_par', 'certifications.annule_motif', 'certifications.corrige_motif', 'employes.avis', 'employes.visite']) assert.ok(!lues.includes(c), c);
+});
+
+test('colonnes déclarées sensibles (lot 8) : commentaire « Sensible » posé par les migrations sur chaque colonne de la demande à Matrix', SEUL, async () => {
+  const db = await pg();
+  // Colonnes et tables (« * ») de docs/demandes/matrix-lot8-colonnes-sensibles.sql : toutes couvertes par le contrôle de
+  // la CI (scripts/colonnes-sensibles-pg.sql), qui lit ces commentaires.
+  const marque = /Sensible|à exclure de matrix_lecture/;
+  for (const { table, colonne } of demandeMatrix()) {
+    const r = (await db.one<{ c: string | null; t: string | null }>(
+      `SELECT col_description(c.oid, a.attnum) AS c, obj_description(c.oid, 'pg_class') AS t
+       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace LEFT JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = ?
+       WHERE n.nspname = current_schema() AND c.relname = ?`, [colonne === '*' ? '' : colonne, table]))!;
+    assert.ok(r, `${table} existe`);
+    assert.match(colonne === '*' ? r.t ?? '' : r.c ?? '', marque, `${table}.${colonne}`);
+  }
+});
+
+// — Pré-vol de la mise en production (lot 8, chantier B : server/src/db-pg-lecture.ts, server/src/pre-vol.ts) —
+
+const { ConnexionImpossible, faitsServeur, ouvrirPgLecture } = await import('../server/src/db-pg-lecture.ts');
+const { controlerBase, vuesAttendues } = await import('../server/src/pre-vol.ts');
+const { creerCompte } = await import('../server/src/comptes.ts');
+
+test('pré-vol : serveur injoignable ou muet, refus sans afficher l’adresse', async () => {
+  // Port fermé : refus immédiat.
+  const ferme = await new Promise<number>(res => { const s = createServer().listen(0, '127.0.0.1', () => { const p = (s.address() as AddressInfo).port; s.close(() => res(p)); }); });
+  const refus = await ouvrirPgLecture(`postgres://cursus_app:S3cret@127.0.0.1:${ferme}/epc2i`).catch(e => e as Error);
+  assert.ok(refus instanceof ConnexionImpossible);
+  assert.match(refus.message, /^connexion au serveur PostgreSQL impossible \(/);
+  assert.ok(!refus.message.includes('S3cret'));
+  // Serveur qui accepte la connexion sans jamais répondre : abandon au bout du délai.
+  const sockets: import('node:net').Socket[] = [];
+  const muet = createServer(s => { sockets.push(s); }).listen(0, '127.0.0.1');
+  await new Promise(r => muet.once('listening', r));
+  try {
+    const port = (muet.address() as AddressInfo).port;
+    const e = await ouvrirPgLecture(`postgres://cursus_app:x@127.0.0.1:${port}/epc2i`, { delaiMs: 200 }).catch(x => x as Error);
+    assert.ok(e instanceof ConnexionImpossible);
+    assert.equal(e.message, 'aucune réponse du serveur PostgreSQL en 0.2 s');
+  } finally {
+    for (const s of sockets) s.destroy();
+    muet.close();
+  }
+});
+
+test('pré-vol : connexion en lecture seule, sans migration ; faits du serveur et vues conformes au contrat', SEUL, async () => {
+  const { url, schema } = await schemaNeuf();
+  // Schéma jamais migré : rien n'est créé (pas même le journal des migrations).
+  const lecture = await ouvrirPgLecture(url, { schema });
+  try {
+    const neuf = await faitsServeur(lecture.db, lecture.dureeConnexionMs);
+    assert.deepEqual([neuf.schemaCourant, neuf.migrations, neuf.vues], [schema, null, {}]);
+    assert.deepEqual((await surServeur(url, `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = $1`, [schema]))[0], { n: 0 });
+    // Toute écriture échoue.
+    await assert.rejects(lecture.db.exec('CREATE TABLE essai (id int)'), /read-only transaction/);
+  } finally {
+    await lecture.db.fermer();
+  }
+  const migree = await ouvrirPostgres(url, { schema, env: { CURSUS_PG_POOL: '2' } });
+  await migree.fermer();
+  const { db, dureeConnexionMs } = await ouvrirPgLecture(url, { schema });
+  try {
+    const f = await faitsServeur(db, dureeConnexionMs);
+    assert.deepEqual(f.migrations, migrationsPg().map(m => m.nom));
+    assert.equal(f.schemaIncomplet, null);
+    // Contrat des vues lu dans les migrations = colonnes réelles des vues créées par ces migrations.
+    assert.deepEqual(f.vues, vuesAttendues(migrationsPg()));
+    assert.ok(Math.abs(f.ecartHorlogeMs) < 5_000);
+    // Colonne retirée hors de Cursus : écart au code relevé par le contrôle du démarrage, en lecture.
+    await surServeur(url, `ALTER TABLE ${schema}.settings RENAME COLUMN value TO valeur`);
+    assert.match((await faitsServeur(db, 0)).schemaIncomplet!, /settings\.value/);
+    await surServeur(url, `ALTER TABLE ${schema}.settings RENAME COLUMN valeur TO value`);
+    // Rôle d'administration des tests : refusé (superutilisateur).
+    const cs = await controlerBase(db, { serveur: f, migrations: migrationsPg(), dossierPieces: tmpdir(), schema });
+    assert.deepEqual(cs.filter(c => c.niveau === 'bloquant').map(c => c.code), ['base.role', 'base.droits', 'base.admin']);
+    await assert.rejects(db.run('INSERT INTO settings (key, value) VALUES (?, ?)', ['essai', '1']), /read-only transaction/);
+  } finally {
+    await db.fermer();
+  }
+});
+
+test('pré-vol : schéma absent, et schéma cursus par défaut', SEUL, async () => {
+  const { url } = await schemaNeuf();
+  const absent = await ouvrirPgLecture(url, { schema: 'schema_absent' });
+  try {
+    const f = await faitsServeur(absent.db, absent.dureeConnexionMs);
+    assert.deepEqual([f.schemaCourant, f.migrations, f.schemaIncomplet, f.vues], [null, null, 'schéma absent', {}]);
+  } finally {
+    await absent.db.fermer();
+  }
+  // Options par défaut : schéma cursus (le premier schéma créé par tests/base.ts pour ce fichier).
+  const defaut = await ouvrirPgLecture(url);
+  try {
+    assert.equal(defaut.db.schema, 'cursus');
+  } finally {
+    await defaut.db.fermer();
+  }
+});
+
+test('pré-vol sur le serveur : base de démonstration chargée bloquante, base vide avec un administrateur conforme', SEUL, async () => {
+  const { url, schema } = await schemaNeuf();
+  const ecriture = await ouvrirPostgres(url, { schema, env: { CURSUS_PG_POOL: '2' } });
+  // Rôle propre au test, aux droits de cursus_app sur son schéma (lecture ici) : ni superutilisateur ni CREATE sur la base.
+  const role = `cursus_prevol_${process.pid}`, mdp = `mdp-${process.pid}-essai`;
+  const base = new URL(url).pathname.slice(1);
+  await surServeur(url, `CREATE ROLE ${role} LOGIN PASSWORD '${mdp}'`);
+  try {
+    await surServeur(url, `GRANT CONNECT ON DATABASE "${base}" TO ${role}; GRANT USAGE ON SCHEMA ${schema} TO ${role}; GRANT SELECT ON ALL TABLES IN SCHEMA ${schema} TO ${role}`);
+    const urlRole = new URL(url);
+    urlRole.username = role;
+    urlRole.password = mdp;
+    const controler = async () => {
+      const { db, dureeConnexionMs } = await ouvrirPgLecture(urlRole.toString(), { schema });
+      try {
+        return await controlerBase(db, { serveur: await faitsServeur(db, dureeConnexionMs), migrations: migrationsPg(), dossierPieces: tmpdir(), role, schema });
+      } finally {
+        await db.fermer();
+      }
+    };
+    await creerCompte(ecriture, { type: 'local', identifiant: 'admin', nom: 'Rachel Martin', adresse: 'rachel.martin@entreprise.fr', profilRh: 'rh_admin' }, null);
+    await ecriture.setSetting('confidentialite', { responsable: 'EPC France', dpo: 'dpo@entreprise.fr' });
+    const vide = await controler();
+    assert.deepEqual(vide.filter(c => c.niveau !== 'ok'), [], 'base vide avec un administrateur : conforme');
+    await seedDemo(ecriture);
+    const demo = await controler();
+    const bloquants = demo.filter(c => c.niveau === 'bloquant');
+    assert.deepEqual(bloquants.map(c => c.code), ['base.demo']);
+    // Réglage demo posé par le chargement (lot 8, chantier A), puis les indices du jeu fictif.
+    assert.match(bloquants[0].message, /^Données de démonstration présentes : réglage demo \(jeu chargé le \d{4}-\d{2}-\d{2}\), 25 comptes du jeu de démonstration, 24 fiches à une adresse @entreprise\.example, lot de paie historique « Démonstration »\.$/);
+  } finally {
+    await ecriture.fermer();
+    await surServeur(url, `DROP OWNED BY ${role}; DROP ROLE ${role}`);
+  }
+});
+
+// — Lot 8, chantier E : délais du serveur (connexion, verrou, requête) et réponse « Cursus est occupé » —
+
+test('délais PostgreSQL : valeurs par défaut (5 s, 30 s, 60 s), réglables par variable, 0 sans limite', async () => {
+  const { DELAIS_PG, delaisPg } = await import('../server/src/db-pg.ts');
+  assert.deepEqual(delaisPg({}), { connexion: 5000, verrou: 30_000, requete: 60_000 });
+  assert.deepEqual(delaisPg({}), { ...DELAIS_PG });
+  assert.deepEqual(delaisPg({ CURSUS_PG_DELAI_CONNEXION_MS: '2000', CURSUS_PG_DELAI_VERROU_MS: '0', CURSUS_PG_DELAI_REQUETE_MS: ' 90000 ' }), { connexion: 2000, verrou: 0, requete: 90_000 });
+  // Valeur illisible : le défaut (jamais « sans limite » par erreur de saisie).
+  assert.deepEqual(delaisPg({ CURSUS_PG_DELAI_VERROU_MS: '30s', CURSUS_PG_DELAI_REQUETE_MS: '-1' }), { connexion: 5000, verrou: 30_000, requete: 60_000 });
+  // Délai dépassé : verrou (55P03), requête (57014), connexion du pool ; le reste n'est pas « occupé ».
+  const { estOccupe } = await import('../server/src/erreurs.ts');
+  assert.ok(estOccupe({ code: '55P03' }) && estOccupe({ code: '57014' }) && estOccupe(new Error('timeout exceeded when trying to connect')));
+  assert.ok(!estOccupe(new Error('relation absente')) && !estOccupe({ code: '23505' }) && !estOccupe(null));
+});
+
+test('délais posés sur chaque connexion du pool (rétablis après les migrations) ; requête trop longue interrompue', SEUL, async () => {
+  const { estOccupe } = await import('../server/src/erreurs.ts');
+  const db = (await nouvelleBase({ CURSUS_PG_DELAI_VERROU_MS: '1500', CURSUS_PG_DELAI_REQUETE_MS: '300' })) as Pg;
+  // Connexion qui a servi aux migrations (délais levés pendant) : rendue avec les délais du pool.
+  assert.deepEqual(await db.one('SHOW lock_timeout'), { lock_timeout: '1500ms' });
+  assert.deepEqual(await db.one('SHOW statement_timeout'), { statement_timeout: '300ms' });
+  await assert.rejects(db.query('SELECT pg_sleep(1)'), (e: unknown) => estOccupe(e) && (e as { code: string }).code === '57014');
+  // Dans une transaction : annulée, rien d'écrit.
+  await assert.rejects(db.tx(async () => { await db.setSetting('essai', 1); await db.query('SELECT pg_sleep(1)'); }), estOccupe);
+  assert.equal(await db.getSetting('essai', 0), 0);
+});
+
+test('verrou d’écriture tenu par une autre instance au-delà de lock_timeout : suite exclusive et transaction refusées (55P03)', SEUL, async () => {
+  const { estOccupe } = await import('../server/src/erreurs.ts');
+  const { url, schema } = await schemaNeuf();
+  const a = await ouvrirPostgres(url, { schema, env: { CURSUS_PG_POOL: '2' } });
+  const b = await ouvrirPostgres(url, { schema, env: { CURSUS_PG_POOL: '2', CURSUS_PG_DELAI_VERROU_MS: '300' } });
+  try {
+    let rendre!: () => void;
+    const tenu = new Promise<void>(ok => { rendre = ok; });
+    const longue = a.exclusif(async () => { await tenu; });
+    await pause(50);
+    const t = Date.now();
+    await assert.rejects(b.exclusif(async () => await b.setSetting('essai', 1)), (e: unknown) => estOccupe(e) && (e as { code: string }).code === '55P03');
+    await assert.rejects(b.tx(async () => await b.setSetting('essai', 2)), estOccupe);
+    assert.ok(Date.now() - t < 5000, 'refus au bout de lock_timeout, pas d’attente sans fin');
+    // Lecture : servie malgré le verrou.
+    assert.equal(await b.lecture(async () => await b.getSetting('essai', 0)), 0);
+    rendre();
+    await longue;
+    await b.setSetting('essai', 3);
+    assert.equal(await a.getSetting('essai', 0), 3);
+  } finally {
+    await a.fermer();
+    await b.fermer();
+  }
+});
+
+test('lectures simultanées limitées à la moitié du pool : les écritures et les lectures courtes gardent leurs connexions', SEUL, async () => {
+  // Pool de 3 : une seule lecture stable à la fois, la suivante attend en mémoire ; une transaction passe pendant ce temps.
+  const db = (await nouvelleBase({ CURSUS_PG_POOL: '3', CURSUS_PG_DELAI_CONNEXION_MS: '500' })) as Pg;
+  let rendre!: () => void;
+  const fin = new Promise<void>(ok => { rendre = ok; });
+  const ordre: string[] = [];
+  const premiere = db.lecture(async () => { await db.count('journal'); await fin; ordre.push('première'); });
+  await pause(30);
+  const seconde = db.lecture(async () => { ordre.push('seconde'); return await db.count('journal'); });
+  await pause(30);
+  assert.equal(db.placesLecture.enAttente, 1);
+  // Les deux connexions restantes servent les écritures, sans attendre la fin des lectures.
+  await Promise.all([db.tx(async () => await db.setSetting('a', 1)), db.setSetting('b', 2)]);
+  // Lecture courte (identité de la requête) : sans place, elle passe aussi.
+  assert.equal(await db.lecture(async () => await db.getSetting('a', 0), { courte: true }), 1);
+  assert.deepEqual(ordre, []);
+  rendre();
+  await premiere;
+  await seconde;
+  assert.deepEqual(ordre, ['première', 'seconde']);
+  assert.equal(db.placesLecture.enAttente, 0);
+});
+
+// — Lot 8, chantier E, étape 2 : file des écritures de l'instance —
+
+test('écritures de l’instance une à une en mémoire, sans connexion en attente ; au-delà du délai du verrou : 55P03, rien d’écrit', SEUL, async () => {
+  const db = (await nouvelleBase({ CURSUS_PG_POOL: '4', CURSUS_PG_DELAI_VERROU_MS: '300' })) as Pg;
+  let rendre!: () => void;
+  const fin = new Promise<void>(ok => { rendre = ok; });
+  const longue = db.tx(async () => { await db.setSetting('longue', 1); await fin; });
+  await pause(30);
+  // Cinq écritures attendent leur tour en mémoire : le pool garde ses connexions pour les lectures.
+  const attente = Promise.all([1, 2, 3, 4, 5].map(async i => await db.tx(async () => await db.setSetting(`e${i}`, i)).then(() => 'faite', (e: { code?: string }) => e.code)));
+  await pause(30);
+  assert.equal(db.fileEcritures.enAttente, 5);
+  assert.equal(await db.lecture(async () => await db.count('journal')), 0, 'lecture servie');
+  assert.equal(db.pool.waitingCount, 0);
+  // Au-delà du délai du verrou (300 ms) : refus 55P03, comme le serveur (503 « Cursus est occupé »).
+  assert.deepEqual(await attente, ['55P03', '55P03', '55P03', '55P03', '55P03']);
+  assert.equal(db.fileEcritures.enAttente, 0);
+  rendre();
+  await longue;
+  for (const i of [1, 2, 3, 4, 5]) assert.equal(await db.getSetting(`e${i}`, 0), 0, 'rien d’écrit');
+  // Ordre gardé après les refus ; suite exclusive dans la même file.
+  const ordre: string[] = [];
+  await Promise.all([db.tx(async () => { ordre.push('a'); }), db.exclusif(async () => { ordre.push('b'); }), db.tx(async () => { ordre.push('c'); })]);
+  assert.deepEqual(ordre, ['a', 'b', 'c']);
 });

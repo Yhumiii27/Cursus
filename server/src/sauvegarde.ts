@@ -86,7 +86,9 @@ export function verifier(fichier: string, { cursus = true } = {}): Verification 
 // <base>-<horodatage UTC>[-n][-motif].db, par exemple cursus-2026-10-10T021500Z-avant-migration.db.
 // L'horodatage est en UTC pour rester dans l'ordre aux changements d'heure.
 
-export type Motif = 'avant-migration' | 'avant-reinitialisation' | 'avant-restauration';
+// `avant-purge` : copie faite par npm run purge-demo avant de vider les données fictives (server/src/purge-demo-execution.ts),
+// gardée jusqu'à la fin de la recette (janvier 2027) ; elle contient encore la démonstration.
+export type Motif = 'avant-migration' | 'avant-reinitialisation' | 'avant-restauration' | 'avant-purge';
 
 export interface Copie {
   fichier: string;
@@ -229,6 +231,15 @@ export function sauvegarder(base: string, opts: OptionsSauvegarde = {}): Sauvega
   const retirees = elaguerPieces(dossierMiroir(dir, prefixe(source)), listerSauvegardes(dir).filter(c => c.base === prefixe(source)).map(c => c.fichier));
   if (pieces) pieces.retirees = retirees;
   return { ...verification, fichier, pieces, conservees, supprimees, duree: Date.now() - t0 };
+}
+
+/**
+ * Dossier commun des pièces des copies de la base `base` (pieces-sauvegarde.ts), là où sauvegarder() les range :
+ * npm run pieces:chiffrer y remplace les copies en clair des fichiers qu'il chiffre (lot 8, chantier D).
+ */
+export function miroirPiecesDe(base: string): string {
+  const source = cheminReel(base);
+  return dossierMiroir(dossierSauvegardes(source), prefixe(source));
 }
 
 /** Sauvegarde de la base ouverte par `db` (null pour une base en mémoire, sans fichier). */

@@ -1,10 +1,12 @@
 // npm run reset-demo -- --yes [--force] : recharge les données de démonstration.
 // Efface toute la base : refusé hors mode démonstration (CURSUS_DEMO=1) et en production (sauf l'application de
 // bureau), refusé si un serveur en service utilise la base (sauf --force), et confirmé par --yes ou, dans un terminal,
-// par le mot EFFACER (server/src/reinitialisation.ts). La base existante est copiée avant d'être effacée.
+// par le mot EFFACER (server/src/reinitialisation.ts). La base existante est copiée avant d'être effacée. Une base de
+// production (purgée par npm run purge-demo, ou exploitée : server/src/marqueurs.ts) est refusée.
 import { existsSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
 import { dbFile, openSqlite, type SqliteDb, urlPostgres } from './db.ts';
+import { refusDemo } from './marqueurs.ts';
 import { migrate } from './migrate.ts';
 import { appliquerMigrations, controlerPourOutil } from './migrations/cadre.ts';
 import {
@@ -62,6 +64,9 @@ try {
     await migrate(db);
     await appliquerMigrations(db);
   }
+  // Base de production (données fictives purgées par npm run purge-demo, ou base exploitée) : jamais rechargée.
+  const refus = await refusDemo(db);
+  if (refus) throw new ReinitialisationRefusee(refus);
 } catch (err) {
   refuser(err);
 }

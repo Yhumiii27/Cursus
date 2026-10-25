@@ -10,9 +10,18 @@
 # - Écoute sur toutes les interfaces du conteneur (le proxy de l'hébergeur est dans un autre conteneur) ; en-têtes
 #   X-Forwarded-* crus des seules adresses privées du réseau Docker.
 # Hors conteneur, l'installation se fait par le service systemd (deploy/cursus.service, docs/DEPLOIEMENT.md).
+# - Image de base épinglée par son empreinte (lot 8) : une reconstruction le jour de la bascule ne change pas de Node
+#   (node:22-slim du 21 octobre 2026, Node 22.23.4). Dependabot propose chaque semaine la nouvelle empreinte
+#   (.github/dependabot.yml), à accepter après la vérification habituelle ; les deux lignes FROM portent la même.
+# - Étiquettes de l'image : version de Cursus et commit, pour retrouver l'image précédente au retour arrière
+#   (docs/BASCULE-PRODUCTION.md) : `docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' <image>`.
+#   Coolify passe le commit dans SOURCE_COMMIT (réglage « Include Source Commit in Build ») et la version par la
+#   variable de construction CURSUS_VERSION (« Build Variable », docs/BASCULE-PRODUCTION.md, J-7) ; sinon toutes deux
+#   valent « inconnue » / « inconnu ». À la main :
+#   docker build --build-arg CURSUS_VERSION=$(node -p "require('./package.json').version") --build-arg SOURCE_COMMIT=$(git rev-parse HEAD) .
 
 # — Construction de l'interface (dépendances de développement : Vite, TypeScript) —
-FROM node:22-slim AS construction
+FROM node:22-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d AS construction
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -20,7 +29,12 @@ COPY . .
 RUN npm run build
 
 # — Exécution : dépendances de production seulement, compte sans droits —
-FROM node:22-slim
+FROM node:22-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d
+ARG CURSUS_VERSION=inconnue
+ARG SOURCE_COMMIT=inconnu
+LABEL org.opencontainers.image.title="Cursus" \
+      org.opencontainers.image.version="${CURSUS_VERSION}" \
+      org.opencontainers.image.revision="${SOURCE_COMMIT}"
 ENV NODE_ENV=production \
     TZ=Europe/Paris \
     CURSUS_HOST=0.0.0.0 \

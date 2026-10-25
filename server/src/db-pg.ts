@@ -8,7 +8,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import pg from 'pg';
 import { RACINE } from './chemins.ts';
-import { type ColType, Db, type Ecriture, snake, type SqlValeur, type TableDef, type TableName, TABLES, toDb } from './db.ts';
+import { type ColType, Db, type Ecriture, snake, type SqlValeur, type TableDef, type TableName, TABLES, TABLES_SANS_REVISION, toDb } from './db.ts';
 
 type Row = Record<string, unknown>;
 
@@ -87,6 +87,111 @@ function enFile<T>(p: PorteePg, fn: () => Promise<T>): Promise<T> {
   return r;
 }
 
+/**
+ * Délais du serveur (lot 8, chantier E), posés dans les options du pool et réglables par variable, en millisecondes
+ * (0 : sans limite) :
+ * - connexion du pool (`connectionTimeoutMillis`, CURSUS_PG_DELAI_CONNEXION_MS, 5 s) : pool saturé ou serveur injoignable ;
+ * - attente d'un verrou (`lock_timeout`, CURSUS_PG_DELAI_VERROU_MS, 30 s), verrou d'écriture `pg_advisory_lock` compris ;
+ * - durée d'une requête (`statement_timeout`, CURSUS_PG_DELAI_REQUETE_MS, 60 s).
+ * Règle qui les rend cohérents : aucun traitement ne tient le verrou d'écriture plus de la moitié de `lock_timeout`
+ * (validation groupée découpée en tranches, lectures et exports hors du verrou : docs/ARCHITECTURE.md, « Accès à la
+ * base : PostgreSQL »). Un dépassement répond 503 « Cursus est occupé, réessayez » (server/src/erreurs.ts), sans rien écrire.
+ */
+export const DELAIS_PG = { connexion: 5_000, verrou: 30_000, requete: 60_000 } as const;
+
+export function delaisPg(env: Record<string, string | undefined> = process.env): { connexion: number; verrou: number; requete: number } {
+  const lire = (nom: string, defaut: number) => {
+    const v = env[nom]?.trim();
+    return v && /^\d+$/.test(v) ? Number(v) : defaut;
+  };
+  return {
+    connexion: lire('CURSUS_PG_DELAI_CONNEXION_MS', DELAIS_PG.connexion),
+    verrou: lire('CURSUS_PG_DELAI_VERROU_MS', DELAIS_PG.verrou),
+    requete: lire('CURSUS_PG_DELAI_REQUETE_MS', DELAIS_PG.requete),
+  };
+}
+
+/**
+ * Places de lecture (lot 8, chantier E) : une lecture stable garde sa connexion le temps de toutes ses requêtes (une
+ * seconde pour l'instantané complet sur 5 ans de données). Sans limite, des lectures simultanées prendraient toutes les
+ * connexions du pool : les écritures et la sonde de santé attendraient une connexion, puis échoueraient au bout de
+ * `connectionTimeoutMillis`. Les lectures en surnombre attendent donc leur tour en mémoire, sans délai : la moitié du
+ * pool au plus leur est ouverte (5 sur 10), le reste sert les écritures et les requêtes isolées (session, débit, santé).
+ * Le calcul de l'instantané occupe le processus : plus de lectures simultanées n'iraient pas plus vite.
+ */
+class PlacesLecture {
+  private libres: number;
+  private readonly attente: (() => void)[] = [];
+  constructor(places: number) { this.libres = places; }
+  async prendre(): Promise<void> {
+    if (this.libres > 0) { this.libres--; return; }
+    await new Promise<void>(ok => this.attente.push(ok));
+  }
+  rendre(): void {
+    const suivant = this.attente.shift();
+    if (suivant) suivant(); else this.libres++;
+  }
+  /** Lectures en attente d'une place (sonde de l'essai de charge). */
+  get enAttente(): number { return this.attente.length; }
+}
+
+/**
+ * File des écritures de l'instance (lot 8, chantier E, étape 2) : les transactions et suites exclusives de l'instance
+ * attendent leur tour en mémoire avant de prendre une connexion, puis le verrou d'écriture (commun aux instances). Sans
+ * elle, chaque écriture en attente du verrou gardait une connexion du pool : trente saisies simultanées prenaient les dix
+ * connexions, et les lectures, l'identité des requêtes et la sonde de santé attendaient une connexion jusqu'au délai
+ * (503). L'attente en mémoire est bornée par le délai du verrou (`lock_timeout`) : au-delà, la même erreur que le
+ * serveur (55P03), donc 503 « Cursus est occupé », sans rien écrire.
+ */
+export class FileEcritures {
+  private fin: Promise<void> = Promise.resolve();
+  /** Écritures de l'instance en attente de leur tour (sonde de l'essai de charge). */
+  enAttente = 0;
+  /**
+   * Plus longue attente d'un tour terminée (servie ou refusée), en millisecondes (sonde de l'essai de charge) : sur une
+   * instance, une seule écriture à la fois atteint `pg_advisory_xact_lock`, les autres attendent ici, sans connexion, et
+   * pg_stat_activity ne les voit pas. L'attente du verrou d'écriture se juge donc aussi sur cette valeur.
+   */
+  attenteMax = 0;
+  private readonly debuts = new Set<{ t: number }>();
+  /** Attente de la plus ancienne écriture encore dans la file (0 si la file est vide). */
+  get attenteEnCours(): number {
+    let plusAncien = Infinity;
+    for (const d of this.debuts) plusAncien = Math.min(plusAncien, d.t);
+    return plusAncien === Infinity ? 0 : performance.now() - plusAncien;
+  }
+  async passer<T>(delai: number, fn: () => Promise<T>): Promise<T> {
+    const avant = this.fin;
+    let liberer!: () => void;
+    this.fin = new Promise<void>(ok => { liberer = ok; });
+    this.enAttente++;
+    const debut = { t: performance.now() };
+    this.debuts.add(debut);
+    let minuteur: NodeJS.Timeout | undefined;
+    try {
+      const tour = await Promise.race([
+        avant.then(() => true),
+        ...(delai > 0 ? [new Promise<false>(ok => { minuteur = setTimeout(() => ok(false), delai); })] : []),
+      ]);
+      if (!tour) {
+        // Place rendue à la suivante dès la fin de la précédente : l'ordre de la file est gardé.
+        void avant.then(liberer);
+        throw Object.assign(new Error('canceling statement due to lock timeout (file des écritures de l’instance)'), { code: '55P03' });
+      }
+    } finally {
+      clearTimeout(minuteur);
+      this.enAttente--;
+      this.debuts.delete(debut);
+      this.attenteMax = Math.max(this.attenteMax, performance.now() - debut.t);
+    }
+    try {
+      return await fn();
+    } finally {
+      liberer();
+    }
+  }
+}
+
 export interface OptionsPg {
   /** Schéma de travail (cursus ; un schéma par base dans les tests). */
   schema?: string;
@@ -105,7 +210,8 @@ export interface OptionsPg {
  *   de lecture seule) ; une `tx` ouverte dedans est une vraie transaction sur la même connexion, validée à sa fin :
  *   son échec n'annule qu'elle, et une route ne répond jamais avant la validation de ce qu'elle a écrit ;
  * - `lecture` hors de toute portée : transaction REPEATABLE READ READ ONLY, sans verrou (les lectures restent
- *   parallèles et voient un même état) ; dans `tx` ou `exclusif`, elle réutilise la portée en cours ;
+ *   parallèles et voient un même état), la moitié du pool à la fois (`PlacesLecture`) ; dans `tx` ou
+ *   `exclusif`, elle réutilise la portée en cours ;
  * - une requête isolée passe par le pool, sans transaction (validée aussitôt) ;
  * - `insert` lit la ligne créée par `RETURNING *` et recale la séquence quand l'identifiant est fixé par l'appelant.
  */
@@ -116,6 +222,11 @@ export class PgDb extends Db {
   readonly pool: pg.Pool;
   private readonly portee = new AsyncLocalStorage<PorteePg>();
   private ferme = false;
+  /** Lectures stables simultanées : la moitié du pool, une au moins (`PlacesLecture`). */
+  readonly placesLecture: PlacesLecture;
+  /** Écritures de l'instance, une à la fois, avant toute connexion (`FileEcritures`). */
+  readonly fileEcritures = new FileEcritures();
+  private readonly delaiVerrou: number;
 
   constructor(url: string, opts: OptionsPg = {}) {
     super();
@@ -123,12 +234,17 @@ export class PgDb extends Db {
     if (!/^[a-z_][a-z0-9_]*$/.test(this.schema)) throw new SchemaPgError(`nom de schéma invalide : ${this.schema}`);
     const env = opts.env ?? process.env;
     const max = Number(env.CURSUS_PG_POOL) > 0 ? Math.floor(Number(env.CURSUS_PG_POOL)) : 10;
+    this.placesLecture = new PlacesLecture(Math.max(1, Math.floor(max / 2)));
+    const delais = delaisPg(env);
+    this.delaiVerrou = delais.verrou;
     this.pool = new pg.Pool({
       connectionString: url,
       application_name: 'cursus',
       // search_path aussi fixé sur le rôle par le socle (ALTER ROLE cursus_app SET search_path) : derrière PgBouncer en
-      // mode transaction, qui refuse `options`, retirer cette ligne suffit.
-      options: `-c search_path=${this.schema}`,
+      // mode transaction, qui refuse `options`, retirer cette ligne suffit (les délais sont alors à poser sur le rôle :
+      // ALTER ROLE cursus_app SET lock_timeout / statement_timeout, demande à Matrix).
+      options: `-c search_path=${this.schema} -c lock_timeout=${delais.verrou} -c statement_timeout=${delais.requete}`,
+      connectionTimeoutMillis: delais.connexion,
       max,
       types: TYPES,
       // Le processus peut s'arrêter sans fermer le pool (outils en ligne de commande, tests) une fois les connexions libres.
@@ -140,6 +256,8 @@ export class PgDb extends Db {
   }
 
   get emplacement(): string | null { return null; }
+
+  get lectureStable(): boolean { return this.enCours()?.mode === 'lecture'; }
 
   private enCours(): PorteePg | null {
     const p = this.portee.getStore();
@@ -291,23 +409,30 @@ export class PgDb extends Db {
         p.tx = false;
       }
     }
-    return await this.avecConnexion(async client => {
+    return await this.fileEcritures.passer(this.delaiVerrou, async () => await this.avecConnexion(async client => {
       await client.query('BEGIN');
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [this.cleEcritures]);
       const q: PorteePg = { client, mode: 'tx', tx: true, active: true, file: Promise.resolve() };
       return await this.transaction(client, async () => await this.dans(q, fn));
-    });
+    }));
   }
 
-  async lecture<T>(fn: () => Promise<T> | T): Promise<T> {
+  async lecture<T>(fn: () => Promise<T> | T, options: { courte?: boolean } = {}): Promise<T> {
     if (this.enCours()) return await fn();
-    return await this.avecConnexion(async client => {
-      await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-      const q: PorteePg = { client, mode: 'lecture', tx: true, active: true, file: Promise.resolve() };
-      const r = await this.dans(q, fn);
-      await client.query('COMMIT');
-      return r;
-    });
+    // Lecture courte (identité de la requête : quelques lignes) : sans place, elle n'attend pas les instantanés.
+    const place = !options.courte;
+    if (place) await this.placesLecture.prendre();
+    try {
+      return await this.avecConnexion(async client => {
+        await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+        const q: PorteePg = { client, mode: 'lecture', tx: true, active: true, file: Promise.resolve() };
+        const r = await this.dans(q, fn);
+        await client.query('COMMIT');
+        return r;
+      });
+    } finally {
+      if (place) this.placesLecture.rendre();
+    }
   }
 
   /**
@@ -317,14 +442,14 @@ export class PgDb extends Db {
    */
   async exclusif<T>(fn: () => Promise<T> | T): Promise<T> {
     if (this.enCours()) return await fn();
-    return await this.avecConnexion(async client => {
+    return await this.fileEcritures.passer(this.delaiVerrou, async () => await this.avecConnexion(async client => {
       await client.query('SELECT pg_advisory_lock(hashtext($1))', [this.cleEcritures]);
       try {
         return await this.dans({ client, mode: 'exclusif', tx: false, active: true, file: Promise.resolve() }, fn);
       } finally {
         await client.query('SELECT pg_advisory_unlock(hashtext($1))', [this.cleEcritures]);
       }
-    });
+    }));
   }
 
   async fermer(): Promise<void> {
@@ -352,6 +477,9 @@ export class PgDb extends Db {
           + '(Matrix, infra/postgres/init/02-schemas.sql), jamais par Cursus. Vérifiez DATABASE_URL (base epc2i, rôle cursus_app).');
       }
       if (s.courant !== this.schema) throw new SchemaPgError(`search_path inattendu (schéma courant : ${s.courant ?? 'aucun'}, attendu : ${this.schema}).`);
+      // Migrations sans délai : une instance qui démarre attend celle qui migre, et une migration longue (index sur le
+      // journal) n'est pas interrompue ; délais du pool rétablis avant de rendre la connexion.
+      await client.query('SET lock_timeout = 0; SET statement_timeout = 0');
       await client.query('SELECT pg_advisory_lock(hashtext($1))', [`${this.schema}.migrations`]);
       try {
         await client.query('CREATE TABLE IF NOT EXISTS schema_migrations (nom text PRIMARY KEY, appliquee_le timestamp with time zone DEFAULT now() NOT NULL)');
@@ -380,6 +508,7 @@ export class PgDb extends Db {
         return appliquees;
       } finally {
         await client.query('SELECT pg_advisory_unlock(hashtext($1))', [`${this.schema}.migrations`]);
+        await client.query('RESET lock_timeout; RESET statement_timeout');
       }
     } finally {
       client.release();
@@ -401,6 +530,14 @@ export class PgDb extends Db {
       const cols = [...Object.keys(def.cols).map(snake), ...(TABLES_RANG.has(name) ? ['rang'] : [])];
       if (!lignes.some(l => l.t === snake(name))) manquantes.push(`table ${snake(name)}`);
       else for (const c of cols) if (!vues.has(`${snake(name)}.${c}`)) manquantes.push(`${snake(name)}.${c}`);
+    }
+    // Révision de la base (lot 8, chantier E, migration 0013_index_journal) : chaque table hors TABLES_SANS_REVISION porte
+    // son déclencheur, sinon le cache de l'instantané servirait un état périmé après une écriture de cette table.
+    const declencheurs = new Set((await this.query<{ t: string }>(`SELECT c.relname AS t FROM pg_trigger g JOIN pg_class c ON c.oid = g.tgrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = ? AND g.tgname = 'revision'`, [this.schema])).map(l => l.t));
+    if (!lignes.some(l => l.t === 'revision')) manquantes.push('table revision');
+    for (const name of Object.keys(TABLES) as TableName[]) {
+      if (!TABLES_SANS_REVISION.has(name) && lignes.some(l => l.t === snake(name)) && !declencheurs.has(snake(name))) manquantes.push(`déclencheur revision de ${snake(name)}`);
     }
     if (manquantes.length) {
       throw new SchemaPgError(`schéma ${this.schema} incomplet par rapport au code (${manquantes.length} manquante${manquantes.length > 1 ? 's' : ''} : `

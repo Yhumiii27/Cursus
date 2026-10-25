@@ -53,6 +53,15 @@ test('action réussie : instantané reçu et message affiché, sauf en silence',
   assert.equal(j.relus + j.suivis, 0);
 });
 
+test('action faite sans instantané relu (`relire`, Cursus occupé après la validation) : message affiché et relecture, sans rejouer', async () => {
+  const { j, executer } = banc([{ ok: true, message: 'Demande envoyée', relire: true }]);
+  const r = await executer('temps.submit', { empId: 2 });
+  assert.equal(r.ok, true);
+  assert.deepEqual(j.messages, [['Demande envoyée', false]]);
+  assert.equal(j.relus, 1);
+  assert.equal(j.appels.length, 1, 'l’action n’est pas refaite');
+});
+
 test('refus : message d’erreur et relecture ; 409 : l’onglet suit la session sans relire', async () => {
   const { j, executer } = banc([
     { ok: false, message: null, error: 'Demande déjà traitée', status: 400 },

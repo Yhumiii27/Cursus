@@ -397,6 +397,8 @@ export const TABLES = {
     cols: {
       id: 'int', jeton: 'text', empId: 'int', objet: 'text', objetId: 'int', nom: 'text', type: 'text', taille: 'int', empreinte: 'text', fichier: 'text',
       deposeLe: 'text', deposePar: 'text', deposeCompteId: 'int', conserverJusquau: 'text', retireeLe: 'text', retireePar: 'text', retireeMotif: 'text',
+      // Fichier chiffré au repos (lot 8, chantier D, server/src/pieces-chiffrement.ts) : 0012_pieces_chiffrees.sql.
+      chiffree: 'bool',
     },
     unique: [['jeton'], ['fichier']],
   },
@@ -505,6 +507,16 @@ export function jsonLu(v: unknown): unknown {
   return typeof v === 'string' ? JSON.parse(v) : v;
 }
 
+/**
+ * Tables sans déclencheur de révision (lot 8, chantier E) : écrites à chaque consultation ou connexion (trace au journal,
+ * activité d'une session, dernière connexion d'un compte, dernier accès d'un flux d'agenda), jamais lues par
+ * l'instantané en cache (`lireTout` de server/src/dataset.ts) : les comptes et l'abonnement à l'agenda sont relus à
+ * chaque requête (identité, `buildSnapshot`). Toute autre table de TABLES augmente la révision de la base à chaque
+ * écriture (table `revision` : `SqliteDb.poserRevision`, migration PostgreSQL 0013_index_journal), clé du cache de
+ * l'instantané (server/src/cache-instantane.ts). Une table ajoutée ici ne doit jamais être lue par `lireTout`.
+ */
+export const TABLES_SANS_REVISION: ReadonlySet<TableName> = new Set<TableName>(['journal', 'connexions', 'comptes', 'jetonsAgenda']);
+
 /** Valeur passée en paramètre d'une requête SQL brute (`query`, `one`, `run`). */
 export type SqlValeur = string | number | bigint | boolean | null | Uint8Array;
 /** Issue d'une écriture SQL brute (`run`) : lignes touchées, identifiant de la dernière insertion. */
@@ -538,6 +550,22 @@ export abstract class Db {
   get revision(): number { return this.rev; }
   /** Fichier de la base (null : base en mémoire, ou serveur de base de données). */
   abstract get emplacement(): string | null;
+  /**
+   * Vrai dans une lecture stable ouverte pour elle-même (`lecture` hors de toute transaction ou suite exclusive) : seul
+   * endroit où le cache de l'instantané se lit et se remplit (server/src/cache-instantane.ts). Dans une transaction, la
+   * révision lue compterait des écritures que l'annulation peut défaire.
+   */
+  abstract get lectureStable(): boolean;
+
+  /**
+   * Révision de la base tenue en base (lot 8, chantier E) : augmentée, dans la transaction de l'écriture, par un
+   * déclencheur de chaque table hors `TABLES_SANS_REVISION`, quelle que soit l'instance ou l'outil qui écrit. Clé du
+   * cache de l'instantané ; à lire au début d'une lecture stable, avant les données. Distincte de `revision`, propre à
+   * l'instance et renvoyée au navigateur.
+   */
+  async revisionBase(): Promise<number> {
+    return Number((await this.one<{ n: number }>('SELECT n FROM revision'))?.n ?? 0);
+  }
 
   /** Lignes brutes d'une requête SQL (noms de colonnes de la base, sans décodage). */
   abstract query<T = Row>(sql: string, params?: readonly SqlValeur[]): Promise<T[]>;
@@ -556,9 +584,13 @@ export abstract class Db {
   abstract tx<T>(fn: () => Promise<T> | T): Promise<T>;
   /**
    * Exécute `fn` sur un état stable de la base, en lecture : aucune écriture d'une autre requête ne s'intercale entre
-   * ses lectures (instantané renvoyé au navigateur, export).
+   * ses lectures (instantané renvoyé au navigateur, export). Hors d'une transaction, aucune écriture n'y est admise
+   * (READ ONLY sur PostgreSQL, query_only sur SQLite) et elle ne prend pas le verrou d'écriture sur PostgreSQL : la
+   * trace d'une consultation s'écrit après, dans sa propre transaction (lot 8, chantier E). `courte` : lecture de
+   * quelques lignes (identité de la requête), qui n'attend pas son tour derrière les instantanés (places de lecture de
+   * PostgreSQL, server/src/db-pg.ts).
    */
-  abstract lecture<T>(fn: () => Promise<T> | T): Promise<T>;
+  abstract lecture<T>(fn: () => Promise<T> | T, options?: { courte?: boolean }): Promise<T>;
   /**
    * Exécute `fn` seule sur la base, sans transaction : aucune autre requête ne lit ni n'écrit entre ses étapes (lecture
    * puis écriture d'un compteur, d'un réglage, d'une session). C'est ce que garantissait d'office l'accès synchrone
@@ -568,6 +600,16 @@ export abstract class Db {
   abstract exclusif<T>(fn: () => Promise<T> | T): Promise<T>;
   /** Ferme la base (arrêt du serveur, fin d'un outil en ligne de commande). */
   abstract fermer(): Promise<void>;
+
+  /**
+   * Sonde du point de santé (lot 8, chantier B : server/src/supervision.ts) : la base répond-elle, sans attendre la fin
+   * d'une transaction ou d'une suite exclusive en cours ? PostgreSQL : requête isolée sur une connexion du pool, qui ne
+   * prend pas le verrou d'écriture (le schéma de Cursus est lisible). SQLite : redéfinie par `SqliteDb`, qui lit l'en-tête
+   * du fichier sur la connexion sans passer par la file.
+   */
+  async sonde(): Promise<void> {
+    await this.one('SELECT 1 FROM schema_migrations LIMIT 1');
+  }
 
   /** Recale les compteurs d'identifiants après des insertions à identifiant fixé (PostgreSQL ; rien à faire en SQLite). */
   async resyncIds(): Promise<void> {}
@@ -611,6 +653,21 @@ export abstract class Db {
     const def = this.def(table);
     const order = orderBy ?? def.pk;
     return (await this.query(`SELECT * FROM ${snake(table)} ORDER BY ${snake(order)}`)).map(r => this.decode<T>(table, r));
+  }
+
+  /**
+   * Lignes de `table`, dans l'ordre de sa clé, sans les colonnes `sans` (lot 8, chantier E : lots de paie lus sans leur
+   * contenu figé, un JSON de 50 à 300 Ko par lot que seul le fichier d'import lit). Les colonnes omises sont absentes des
+   * objets rendus.
+   */
+  async allSans<T>(table: TableName, sans: readonly string[]): Promise<T[]> {
+    const def = this.def(table);
+    const cols = Object.keys(def.cols).filter(c => !sans.includes(c));
+    return (await this.query(`SELECT ${cols.map(snake).join(', ')} FROM ${snake(table)} ORDER BY ${snake(def.pk)}`)).map(r => {
+      const o = this.decode<Row>(table, r);
+      for (const c of sans) delete o[c];
+      return o as T;
+    });
   }
 
   async where<T>(table: TableName, field: string, value: unknown): Promise<T[]> {
@@ -697,8 +754,11 @@ class FileExclusive {
   }
 }
 
-/** Portée d'exclusivité en cours (transaction ou lecture) : valable tant que `active`, transaction ouverte si `tx`. */
-interface Portee { active: boolean; tx: boolean }
+/**
+ * Portée d'exclusivité en cours (transaction ou lecture) : valable tant que `active`, transaction ouverte si `tx`,
+ * lecture stable (`Db.lecture`) si `lecture` : aucune écriture, comme la transaction READ ONLY de PostgreSQL.
+ */
+interface Portee { active: boolean; tx: boolean; lecture?: boolean }
 
 /**
  * Adaptateur SQLite (node:sqlite, synchrone). Une seule connexion par processus, partagée par toutes les requêtes HTTP :
@@ -739,9 +799,34 @@ export class SqliteDb extends Db {
     this.neuve = !Object.keys(TABLES).some(n => tables.has(snake(n)));
     // Schéma créé à l'ouverture, avant toute requête : rien d'autre ne peut encore utiliser la connexion.
     this.createSchema();
+    this.poserRevision();
+  }
+
+  /**
+   * Révision de la base (lot 8, chantier E) : table `revision` (une ligne) et déclencheurs qui l'augmentent à chaque
+   * ligne écrite des tables lues par l'instantané (`TABLES_SANS_REVISION` exclues), y compris par un autre processus
+   * (npm run comptes) ou une écriture SQL directe. Posés à l'ouverture, puis de nouveau après les migrations nommées
+   * (server/src/demarrage.ts), qui peuvent reconstruire une table et ses déclencheurs avec elle ; une table ajoutée à
+   * TABLES reçoit ainsi les siens sans migration. Hors de TABLES, comme la table des migrations nommées.
+   */
+  poserRevision(): void {
+    const sql = ['CREATE TABLE IF NOT EXISTS revision (cle INTEGER PRIMARY KEY CHECK (cle = 1), n INTEGER NOT NULL)', 'INSERT OR IGNORE INTO revision (cle, n) VALUES (1, 0)'];
+    for (const name of Object.keys(TABLES) as TableName[]) {
+      // Table exclue : déclencheurs retirés s'ils avaient été posés (base d'essai d'une version antérieure de l'étape).
+      if (TABLES_SANS_REVISION.has(name)) {
+        for (const suffixe of ['i', 'u', 'd']) sql.push(`DROP TRIGGER IF EXISTS revision_${snake(name)}_${suffixe}`);
+        continue;
+      }
+      for (const [suffixe, evenement] of [['i', 'INSERT'], ['u', 'UPDATE'], ['d', 'DELETE']]) {
+        sql.push(`CREATE TRIGGER IF NOT EXISTS revision_${snake(name)}_${suffixe} AFTER ${evenement} ON ${snake(name)} BEGIN UPDATE revision SET n = n + 1; END`);
+      }
+    }
+    this.sql.exec(sql.join(';\n'));
   }
 
   get emplacement(): string | null { return this.sql.location(); }
+
+  get lectureStable(): boolean { return !!this.enCours()?.lecture; }
 
   private tablesSql(): Set<string> {
     return new Set((this.sql.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[]).map(t => t.name));
@@ -821,6 +906,7 @@ export class SqliteDb extends Db {
 
   tx<T>(fn: () => Promise<T> | T): Promise<T> {
     return this.aSonTour(async p => {
+      if (p.lecture) throw new Error('Transaction d’écriture demandée dans une lecture (Db.lecture) : ouvrir la transaction avant la lecture.');
       if (p.tx) return fn(); // transaction englobante déjà ouverte
       // IMMEDIATE : verrou d'écriture pris d'emblée, en attendant au besoin (busy_timeout) qu'une autre connexion libère la
       // base ; une transaction différée qui lit puis écrit échouerait sans attendre si une autre connexion a écrit entre-temps.
@@ -840,12 +926,35 @@ export class SqliteDb extends Db {
     });
   }
 
-  lecture<T>(fn: () => Promise<T> | T): Promise<T> {
-    return this.aSonTour(() => fn());
+  /**
+   * Lecture stable : à son tour dans la file, en lecture seule (`PRAGMA query_only`, lot 8, chantier E) comme la
+   * transaction READ ONLY de PostgreSQL, pour qu'une écriture glissée dans une lecture échoue aussi sur SQLite (tests).
+   * Dans une transaction ou une suite exclusive, elle en reprend la portée (et ses écritures).
+   */
+  lecture<T>(fn: () => Promise<T> | T, _options?: { courte?: boolean }): Promise<T> {
+    if (this.enCours()) return this.aSonTour(() => fn());
+    return this.aSonTour(async p => {
+      p.lecture = true;
+      this.sql.exec('PRAGMA query_only = ON');
+      try {
+        return await fn();
+      } finally {
+        p.lecture = false;
+        if (this.sql.isOpen) this.sql.exec('PRAGMA query_only = OFF');
+      }
+    });
   }
 
   exclusif<T>(fn: () => Promise<T> | T): Promise<T> {
     return this.aSonTour(() => fn());
+  }
+
+  /**
+   * Sonde du point de santé hors de la file : en-tête du fichier lu directement sur la connexion (synchrone, sans
+   * effet), même pendant une transaction en attente. Base fermée ou fichier perdu : la promesse est rejetée.
+   */
+  sonde(): Promise<void> {
+    return Promise.resolve().then(() => { this.sql.prepare('PRAGMA user_version').get(); });
   }
 
   /**

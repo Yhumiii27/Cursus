@@ -274,6 +274,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'migration.coutReel': 'Reprise du coût réel des actions réalisées du plan',
   'migration.referencesDeplacements': 'Reprise : référence donnée aux déplacements importés sans référence',
   'migration.postgres': 'Reprise : base SQLite copiée sur le serveur PostgreSQL commun',
+  // Passage de la démonstration à la production (npm run purge-demo, lot 8) : seule ligne laissée au journal vidé.
+  'purge.demo': 'Purge des données de démonstration avant la mise en production',
   // Contrôle d'intégrité du démarrage (server/src/integrite.ts) : références orphelines, nombres seulement.
   'integrite.orphelins': 'Contrôle d’intégrité : références orphelines dans la base',
   // Pièces justificatives (server/src/pieces.ts) : identifiants, objet, type et taille ; jamais le nom du fichier.
@@ -281,6 +283,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'piece.joindre': 'Pièce justificative jointe',
   'piece.retirer': 'Pièce justificative retirée',
   'piece.consulter': 'Pièce justificative consultée',
+  'piece.chiffrer': 'Pièces justificatives chiffrées sur disque',
   // Conservation des dossiers (t016, server/src/conservation.ts) : identifiants et catégories seulement, jamais de nom.
   'employe.anonymiser': 'Dossier de salarié sorti : données échues effacées ou dossier anonymisé',
   'conservation.signalement': 'Dossiers de salariés sortis à effacer signalés au service RH',
@@ -325,7 +328,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
   { id: 'pieces', label: 'Pièces justificatives', prefixes: ['piece.'] },
   { id: 'conservation', label: 'Conservation et agendas', prefixes: ['conservation.', 'agenda.'] },
-  { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.', 'integrite.', 'migration.postgres'] },
+  { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.', 'integrite.', 'migration.postgres', 'purge.demo'] },
   { id: 'connexions', label: 'Connexions et accès', prefixes: ACTIONS_CONNEXION },
   {
     id: 'integrations', label: 'Intégrations (Keystone, e-mails)',

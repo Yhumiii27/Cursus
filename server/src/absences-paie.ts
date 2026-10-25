@@ -16,7 +16,7 @@ import { periodeOuverte, rubriquesPaie } from '../../shared/rules/paie.ts';
 import { sagePending } from '../../shared/rules/temps.ts';
 import type { Absence, AbsencesPaieAttente, CurrentUser, Dataset, ElementAbsencePaie, ISODate, LotPaie, RubriquePaie, Settings } from '../../shared/types.ts';
 import { journaliser } from './comptes.ts';
-import type { Db } from './db.ts';
+import { type Db, jsonLu } from './db.ts';
 import type { LotEnregistre } from './lots-paie.ts';
 
 /** Clé de la table settings : premier jour d'absence transmis par Cursus (null ou absente : tous). */
@@ -79,10 +79,15 @@ export async function joursAvantDepart(db: Db, s: Settings, a: Pick<Absence, 'id
 /** Éléments d'absence des lots non annulés, et absences réservées par un lot généré en attente de confirmation. */
 export async function emisEtReservees(db: Db): Promise<{ emis: ElementEmis[]; reservees: Set<number> }> {
   const emis: ElementEmis[] = [], reservees = new Set<number>();
-  for (const lot of await db.all<LotEnregistre>('lotsPaie')) {
-    if (lot.statut === 'annule' || !lot.contenu?.absences?.length) continue;
-    emis.push(...lot.contenu.absences);
-    if (lot.statut === 'genere') lot.contenu.absences.forEach(x => reservees.add(x.absence));
+  // Seulement la partie « absences » du contenu figé des lots non annulés (lot 8, chantier E) : lu à chaque instantané
+  // de la paie, du service RH et de la lecture seule, le contenu complet des lots pèserait des mégaoctets.
+  const lots = await db.query<{ statut: string; absences: unknown }>(
+    `SELECT statut, ${db.jsonCle('contenu', 'absences')} AS absences FROM lots_paie WHERE statut <> 'annule' ORDER BY id`);
+  for (const lot of lots) {
+    const absences = jsonLu(lot.absences) as ElementEmis[] | null;
+    if (!absences?.length) continue;
+    emis.push(...absences);
+    if (lot.statut === 'genere') absences.forEach(x => reservees.add(x.absence));
   }
   return { emis, reservees };
 }

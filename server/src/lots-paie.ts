@@ -10,7 +10,8 @@ export type LotEnregistre = LotPaie & { contenu: SagePush | null };
 
 /** Lots de paie, du plus récent au plus ancien, sans leur contenu. */
 export async function lireLots(db: Db): Promise<LotPaie[]> {
-  return (await db.all<LotEnregistre>('lotsPaie')).reverse().map(({ contenu: _contenu, ...l }) => l);
+  // Colonne `contenu` jamais lue ici (lot 8, chantier E) : 70 à 90 lots de 50 à 300 Ko chacun après 5 ans.
+  return (await db.allSans<LotPaie>('lotsPaie', ['contenu'])).reverse();
 }
 
 /** Format du fichier d'import en vigueur : le réglage enregistré, complété par le format par défaut. */

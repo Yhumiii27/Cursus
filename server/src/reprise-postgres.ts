@@ -280,6 +280,15 @@ export async function reprendreSurPostgres(source: string, cible: PgDb, opts: Op
           for (const nom of ordreTables) await inserer(cible, tables.find(t => t.table === nom)!);
           await cible.exec('SET CONSTRAINTS ALL IMMEDIATE');
           await cible.resyncIds();
+          // Séquence des salariés au-delà de tout identifiant déjà attribué dans le fichier (base purgée par npm run
+          // purge-demo : premier vrai salarié EMP-1001, server/src/purge-demo-execution.ts) ; ALTER SEQUENCE est annulé
+          // avec la transaction (reprise à blanc), contrairement à setval.
+          const seq = Number((await copie.one<{ seq: number }>(`SELECT seq FROM sqlite_sequence WHERE name = 'employes'`))?.seq ?? 0);
+          if (seq > Number((await cible.one<{ n: number | null }>('SELECT MAX(id) AS n FROM employes'))?.n ?? 0)) {
+            const s = (await cible.one<{ s: string }>(`SELECT pg_get_serial_sequence('employes', 'id') AS s`))!.s;
+            await cible.exec(`ALTER SEQUENCE ${s} RESTART WITH ${seq}`);
+            await cible.query(`SELECT nextval('${s}')`);
+          }
           // Comptes : chaque table de la cible a exactement les lignes de la copie.
           const ecarts: string[] = [];
           for (const t of tables) {

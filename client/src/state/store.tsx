@@ -18,7 +18,7 @@ import type { FormaliteKind, UiIntent } from '../../../shared/domain.ts';
 import type { ReferentielId } from '../../../shared/rules/referentiels.ts';
 import type { CompteSession, Dataset, EntretienType, ISODate, MotifVisite, ObjetPiece, PlanStatut, ProfilRh, Role, VaccinId } from '../../../shared/types.ts';
 import type { RepondantEvaluation, TypeEvaluation } from '../../../shared/types.ts';
-import { api, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type NomAction, type SessionState } from '../api.ts';
+import { api, definirEspaceOnglet, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type NomAction, type SessionState } from '../api.ts';
 import type { Tri } from '../components/tri.ts';
 import { AppelsEnCours } from './actions.ts';
 import type { Confirmation } from './confirmations.ts';
@@ -299,7 +299,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const enBascule = useRef(false);
   const champsRef = useRef<{ dialog: DialogState; champs: Champs } | null>(null);
 
-  const setSession = useCallback((s: SessionState | null) => { sessionRef.current = s; setSessionState(s); }, []);
+  // L'espace de l'onglet suit la session : il part avec les téléchargements et la lecture du journal (client/src/api.ts).
+  const setSession = useCallback((s: SessionState | null) => { sessionRef.current = s; definirEspaceOnglet(s?.role); setSessionState(s); }, []);
   const setData = useCallback((d: Dataset | null) => {
     generation.current++;
     recuLe.current = Date.now();

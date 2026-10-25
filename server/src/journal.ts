@@ -43,7 +43,7 @@ import { lireConfidentialite } from './confidentialite.ts';
 import { identite, type Identite } from './connexion.ts';
 import { loadFull, loadSettings, scopeIds } from './dataset.ts';
 import { type Db, enSerie, jsonLu, type TableName } from './db.ts';
-import { purgerEnvois } from './envois.ts';
+import { purgerEnvois, purgerNotifications } from './envois.ts';
 import { copieAvantMigration } from './sauvegarde.ts';
 
 type P = Record<string, any>;
@@ -815,6 +815,9 @@ export const REGLES: Record<string, Regle> = {
   },
 };
 
+/** Règle d'une action, lue sur les seules clés de REGLES (lot 8, S5) : « constructor », « toString »… n'en ont pas. */
+export const regleDe = (action: string): Regle | undefined => Object.hasOwn(REGLES, action) ? REGLES[action] : undefined;
+
 /** Participants d'une clôture (bornés : une session compte quelques dizaines d'inscrits). */
 const participants = (p: P): P[] => (Array.isArray(p.participants) ? p.participants.slice(0, 500) : []);
 
@@ -849,7 +852,7 @@ function propre(v: unknown): unknown {
 
 /** Champs du paramètre retenus par la règle de l'action (rien sans règle). */
 export function champsRetenus(action: string, p: P, avant: Ligne | null = null): Ligne {
-  const r = REGLES[action];
+  const r = regleDe(action);
   if (!r || !p || typeof p !== 'object') return {};
   const noms = typeof r.champs === 'function' ? r.champs(p) : r.champs ?? [];
   const out: Ligne = {};
@@ -920,7 +923,7 @@ export function expurgerMessage(m: string | null): string | null {
 export interface Trace { action: string; p: P; regle: Regle | undefined; avant: Ligne | null; etat: unknown }
 
 export async function preparerTrace(db: Db, action: string, p: unknown): Promise<Trace> {
-  const regle = REGLES[action];
+  const regle = regleDe(action);
   const params = p && typeof p === 'object' ? (p as P) : {};
   return { action, p: params, regle, avant: await lireCible(db, regle?.cible, params), etat: await regle?.etat?.(db, params) };
 }
@@ -981,7 +984,7 @@ export async function tracerRefus(db: Db, id: Pick<Identite, 'user' | 'compte'>,
 
 const ilYa = (maintenant: Date, mois: number) => { const d = new Date(maintenant); d.setMonth(d.getMonth() - mois); return d.toISOString(); };
 
-export interface BilanConservation { supprimees: number; archivees: number; supprimeesArchive: number; envois: number }
+export interface BilanConservation { supprimees: number; archivees: number; supprimeesArchive: number; envois: number; notifications: number }
 
 /** Bilan d'un ou plusieurs passages, en clair. */
 function bilanTexte(b: BilanConservation): string {
@@ -990,13 +993,15 @@ function bilanTexte(b: BilanConservation): string {
     b.archivees && `${plural(b.archivees, 'action liée à la paie archivée', 'actions liées à la paie archivées')}`,
     b.supprimeesArchive && `${plural(b.supprimeesArchive, 'ligne supprimée', 'lignes supprimées')} de l’archive (plus de 3 ans)`,
     b.envois && `${plural(b.envois, 'envoi ancien retiré', 'envois anciens retirés')} de la file d’envoi`,
+    b.notifications && `${plural(b.notifications, 'notification ancienne supprimée', 'notifications anciennes supprimées')}`,
   ].filter(Boolean).join(' · ');
 }
 
 /**
  * Applique les durées de conservation : au-delà de 3 ans, toute ligne est supprimée (archive comprise) ; au-delà
  * d'1 an, une action liée à la paie passe dans l'archive, les autres lignes (connexions comprises) sont supprimées.
- * Les envois réussis ou simulés de plus d'1 an quittent la file d'envoi. Une ligne par jour résume ce qui a été
+ * Les envois réussis ou simulés de plus d'1 an quittent la file d'envoi, les notifications déjà traitées de plus d'1 an
+ * sont supprimées. Une ligne par jour résume ce qui a été
  * fait : la tâche tourne toutes les heures, chaque passage s'ajoute au bilan du jour au lieu d'écrire une ligne.
  */
 export async function appliquerConservation(db: Db, maintenant = new Date()): Promise<BilanConservation> {
@@ -1007,15 +1012,18 @@ export async function appliquerConservation(db: Db, maintenant = new Date()): Pr
     const archivees = await n('UPDATE journal SET archivee = ? WHERE paie = TRUE AND archivee IS NULL AND at < ?', maintenant.toISOString(), un);
     const supprimees = await n('DELETE FROM journal WHERE (paie IS NULL OR paie = FALSE) AND at < ?', un);
     const envois = await purgerEnvois(db, ilYa(maintenant, CONSERVATION_ENVOIS_MOIS));
-    const b = { supprimees, archivees, supprimeesArchive, envois };
-    if (supprimees || archivees || supprimeesArchive || envois) {
+    // Notifications déjà traitées par le récapitulatif : même durée que la file d'envoi (lot 8, D7), après les envois
+    // (une notification dont l'e-mail reste en file est gardée).
+    const notifications = await purgerNotifications(db, ilYa(maintenant, CONSERVATION_ENVOIS_MOIS));
+    const b = { supprimees, archivees, supprimeesArchive, envois, notifications };
+    if (supprimees || archivees || supprimeesArchive || envois || notifications) {
       // Bilan du jour (heure locale du serveur) : la ligne déjà écrite aujourd'hui est complétée.
       const minuit = new Date(maintenant);
       minuit.setHours(0, 0, 0, 0);
       const du = await db.one('SELECT id, payload FROM journal WHERE action = ? AND at >= ? AND at <= ? ORDER BY id DESC LIMIT 1', ['journal.conservation', minuit.toISOString(), maintenant.toISOString()]) as { id: number; payload: string } | undefined;
       const prec = (du ? lireJson(du.payload) : null) as (BilanConservation & { passages?: number }) | null;
       const total = prec
-        ? { supprimees: num(prec.supprimees) + supprimees, archivees: num(prec.archivees) + archivees, supprimeesArchive: num(prec.supprimeesArchive) + supprimeesArchive, envois: num(prec.envois) + envois }
+        ? { supprimees: num(prec.supprimees) + supprimees, archivees: num(prec.archivees) + archivees, supprimeesArchive: num(prec.supprimeesArchive) + supprimeesArchive, envois: num(prec.envois) + envois, notifications: num(prec.notifications) + notifications }
         : b;
       const payload = { ...total, passages: prec ? (prec.passages ?? 1) + 1 : 1 };
       const message = `Durée de conservation : ${bilanTexte(total)}`;
@@ -1051,7 +1059,7 @@ export async function reprendreJournal(db: Db): Promise<number> {
     let reduites = 0;
     for (const l of lignes) {
       const p = (lireJson(l.payload) ?? {}) as P;
-      const regle = REGLES[l.action];
+      const regle = regleDe(l.action);
       let payload: Ligne = p, salaries: number[] = [];
       if (regle) {
         const ligne = await lireCible(db, regle.cible, p);
@@ -1227,7 +1235,7 @@ export async function exigerRh(db: Db, req: Request, res: Response, quoi: string
   const id = await identite(db, req);
   if (!id) { res.status(401).json({ error: 'Connexion requise' }); return null; }
   if (!autorise(id.user)) {
-    await tracerRefus(db, id, quoi, 'réservé au service RH');
+    await db.tx(async () => await tracerRefus(db, id, quoi, 'réservé au service RH'));
     res.status(403).json({ error: 'Réservé au service RH' });
     return null;
   }
@@ -1278,29 +1286,34 @@ const jourLocal = () => { const d = new Date(); return `${d.getFullYear()}-${Str
 export function routesJournal(db: Db): Router {
   const r = express.Router();
 
-  r.get('/api/journal', enSerie(db, async (req: Request, res: Response) => {
+  // Consultation et export : lecture hors du verrou d'écriture (`Db.lecture`), puis la trace dans sa propre courte
+  // transaction, écrite avant la réponse (lot 8, chantier E : la trace suit la lecture).
+  r.get('/api/journal', async (req: Request, res: Response) => {
     const id = await exigerRh(db, req, res, 'Journal des actions');
     if (!id) return;
     const f = lireFiltre(req.query as Record<string, unknown>);
     const page = Math.max(1, Math.floor(Number(req.query.page)) || 1);
     const taille = Math.min(TAILLE_MAX, Math.max(1, Math.floor(Number(req.query.taille)) || TAILLE_PAGE));
-    const out = await lireJournal(db, f, page, taille);
+    const out = await db.lecture(async () => await lireJournal(db, f, page, taille));
     // L'archive n'apparaît qu'à la demande : chaque consultation est tracée, quelle que soit la page lue.
-    if (f.vue === 'archive') await tracerArchive(db, id, f, page, out.total);
+    if (f.vue === 'archive') await db.tx(async () => await tracerArchive(db, id, f, page, out.total));
     res.json({ ...out, lignes: pourLecteur(id.user, out.lignes) });
-  }));
+  });
 
-  r.get('/api/journal/csv', enSerie(db, async (req: Request, res: Response) => {
+  r.get('/api/journal/csv', async (req: Request, res: Response) => {
     const id = await exigerRh(db, req, res, 'Export du journal');
     if (!id) return;
     const f = lireFiltre(req.query as Record<string, unknown>);
-    const { lignes, total } = await lireJournal(db, f, 1, EXPORT_MAX);
-    await journaliser(db, {
-      actor: id.user.nom, role: id.user.role, action: 'journal.export', compte: id.compte, salaries: f.salarie ? [f.salarie] : [],
-      message: `Export CSV du journal — ${plural(lignes.length, 'ligne', 'lignes')}${total > lignes.length ? ` sur ${total}` : ''} (${await filtresTexte(db, f)})`,
+    const { lignes, total, texte, csv } = await db.lecture(async () => {
+      const x = await lireJournal(db, f, 1, EXPORT_MAX);
+      return { ...x, texte: await filtresTexte(db, f), csv: await csvJournal(db, pourLecteur(id.user, x.lignes)) };
     });
-    fichierJoint(res, 'text/csv; charset=utf-8', `journal${f.vue === 'archive' ? '-archive-paie' : ''}-${jourLocal()}.csv`, await csvJournal(db, pourLecteur(id.user, lignes)));
-  }));
+    await db.tx(async () => await journaliser(db, {
+      actor: id.user.nom, role: id.user.role, action: 'journal.export', compte: id.compte, salaries: f.salarie ? [f.salarie] : [],
+      message: `Export CSV du journal — ${plural(lignes.length, 'ligne', 'lignes')}${total > lignes.length ? ` sur ${total}` : ''} (${texte})`,
+    }));
+    fichierJoint(res, 'text/csv; charset=utf-8', `journal${f.vue === 'archive' ? '-archive-paie' : ''}-${jourLocal()}.csv`, csv);
+  });
 
   // Exports et impressions produits par le navigateur (CSV des échéances, liste d'une session, passeport formation,
   // compte rendu d'entretien) : l'interface les signale ici pour qu'ils figurent au journal.

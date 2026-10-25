@@ -15,15 +15,15 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import type { Env } from '../config.ts';
+import { type Env, liaisonsCoupees } from '../config.ts';
 import { type Db, SqliteDb } from '../db.ts';
 
 /**
- * Tables techniques, hors catalogue : `migrations` (migrations nommées faites, server/src/migrations/cadre.ts) et
- * celles d'autres outils de migration, comme dans le module de référence. Les tables internes de SQLite
+ * Tables techniques, hors catalogue : `migrations` (migrations nommées faites, server/src/migrations/cadre.ts),
+ * `revision` (révision de la base, clé du cache de l'instantané : lot 8, chantier E) et celles d'autres outils de migration, comme dans le module de référence. Les tables internes de SQLite
  * (`sqlite_sequence`…) sont écartées par leur préfixe.
  */
-export const TABLES_TECHNIQUES: readonly string[] = ['migrations', '__drizzle_migrations', 'schema_migrations'];
+export const TABLES_TECHNIQUES: readonly string[] = ['migrations', '__drizzle_migrations', 'schema_migrations', 'revision'];
 
 export interface ColonneDeclaree { name: string; type: string; nullable: boolean; pk: boolean; default: string | null }
 export interface LienDeclare { columns: string[]; table: string; refColumns: string[]; onDelete: string; declared: true }
@@ -68,13 +68,13 @@ export function introspecterSqlite(db: DatabaseSync): TableDeclaree[] {
 }
 
 // Lecture du catalogue PostgreSQL, reprise du module de référence (introspecterPostgres) : tables de base du schéma
-// courant (search_path=cursus), sans les vues (pub_) ni le journal des migrations.
+// courant (search_path=cursus), sans les vues (pub_), ni le journal des migrations, ni la révision de la base.
 const PG_TABLES = `
   select c.table_name, c.column_name, c.data_type, c.udt_name, c.is_nullable, c.column_default
   from information_schema.columns c
   join information_schema.tables t on t.table_schema = c.table_schema and t.table_name = c.table_name
   where c.table_schema = current_schema() and t.table_type = 'BASE TABLE'
-    and c.table_name not in ('__drizzle_migrations', 'schema_migrations')
+    and c.table_name not in ('__drizzle_migrations', 'schema_migrations', 'revision')
   order by c.table_name, c.ordinal_position`;
 
 const PG_CONSTRAINTS = `
@@ -162,6 +162,8 @@ export async function declarerSchema({ app, version, tables, env = process.env, 
  */
 export async function declarerBase(db: Db, version: string | null, env: Env = process.env, log: Journal = console): Promise<DocumentSchema | null> {
   if (!env.MATRIX_URL && !env.MATRIX_DECLARATIONS_DIR) return null;
+  // Démonstration publique sans CURSUS_DEMO_LIAISONS=1 (constat S3 du lot 8) : rien n'est déclaré au catalogue des bases.
+  if (liaisonsCoupees(env)) return null;
   let tables: TableDeclaree[];
   try {
     tables = db instanceof SqliteDb ? introspecterSqlite(db.sql) : await introspecterPostgres(async sql => await db.query<Ligne>(sql));

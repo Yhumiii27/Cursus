@@ -12,7 +12,7 @@
 import { days, parse } from '../../shared/dates.ts';
 import { fmtIso } from '../../shared/format.ts';
 import { palierDe } from '../../shared/rules/relances.ts';
-import { type Env, configMail, expirationSecretOidc } from './config.ts';
+import { type Env, configMail, expirationSecretEnvoi, expirationSecretOidc } from './config.ts';
 
 /** Délai de l'alerte avant l'expiration du secret, en jours. */
 export const ALERTE_SECRET_JOURS = 30;
@@ -28,12 +28,25 @@ export interface EcheanceSecret {
   alerte: boolean;
 }
 
+/** Échéance d'une date d'expiration au jour `today`. */
+function echeance(today: string, expireLe: string): EcheanceSecret {
+  const jours = days(parse(today), parse(expireLe));
+  return { expireLe, jours, alerte: jours <= ALERTE_SECRET_JOURS };
+}
+
 /** Échéance du secret au jour `today` ; null sans date d'expiration lisible (rien à surveiller). */
 export function echeanceSecret(today: string, env: Env = process.env): EcheanceSecret | null {
   const expireLe = expirationSecretOidc(env);
-  if (!expireLe) return null;
-  const jours = days(parse(today), parse(expireLe));
-  return { expireLe, jours, alerte: jours <= ALERTE_SECRET_JOURS };
+  return expireLe ? echeance(today, expireLe) : null;
+}
+
+/**
+ * Échéance du secret propre à l'envoi des e-mails (CURSUS_MAIL_SECRET_EXPIRE, lot 8) au jour `today` ; null sans date,
+ * ou quand l'envoi passe par le secret de la connexion (déjà suivi par `echeanceSecret`).
+ */
+export function echeanceSecretEnvoi(today: string, env: Env = process.env): EcheanceSecret | null {
+  const expireLe = expirationSecretEnvoi(env);
+  return expireLe && (env.CURSUS_MAIL_CLIENT_SECRET ?? '').trim() ? echeance(today, expireLe) : null;
 }
 
 /**
@@ -61,5 +74,21 @@ export function relanceSecret(today: string, env: Env = process.env): { cle: str
   return {
     cle: `exploitation:secret-oidc:${e.expireLe}`, palier,
     texte: `• Secret client de l’application Cursus dans Entra ID (${parEnvoi ? 'connexion Microsoft 365, envoi des e-mails' : 'connexion Microsoft 365'}) : il ${quand}. ${suite}`,
+  };
+}
+
+/**
+ * Ligne du récapitulatif pour le secret propre à l'envoi des e-mails (lot 8) : mêmes paliers que celui de la connexion.
+ * Une fois ce secret expiré, l'e-mail lui-même ne part plus : seuls /api/health et Paramètres → Envois le signalent.
+ */
+export function relanceSecretEnvoi(today: string, env: Env = process.env): { cle: string; palier: string; texte: string } | null {
+  const e = echeanceSecretEnvoi(today, env);
+  const palier = e?.alerte ? palierDe(e.jours, PALIERS_SECRET) : null;
+  if (!e || !palier) return null;
+  const quand = e.jours < 0 ? `a expiré le ${fmtIso(e.expireLe)}` : `expire le ${fmtIso(e.expireLe)}`;
+  return {
+    cle: `exploitation:secret-envoi:${e.expireLe}`, palier,
+    texte: `• Secret client de l’application d’envoi des e-mails dans Entra ID : il ${quand}. Le service informatique en crée un nouveau, `
+      + 'le saisit dans Coolify avec sa date d’expiration (CURSUS_MAIL_CLIENT_SECRET, CURSUS_MAIL_SECRET_EXPIRE) et redéploie : docs/EMAILS.md.',
   };
 }

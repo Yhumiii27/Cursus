@@ -16,6 +16,7 @@ import { controlerIntegrite } from './integrite.ts';
 import { demarrerJournal } from './journal.ts';
 import { appliquerAvenants } from './avenants.ts';
 import { log, redirigerConsole } from './logs.ts';
+import { marquerExploitation, refusDemo } from './marqueurs.ts';
 import { demarrerConservation } from './conservation.ts';
 import { demarrerPieces } from './pieces.ts';
 import { controlerMigrations } from './migrations/cadre.ts';
@@ -24,9 +25,11 @@ import { transportKeystone } from './integrations/keystone.ts';
 import { suivreVerdictsChaqueJour } from './integrations/keystone-verdicts.ts';
 import { declarerBase } from './integrations/matrix.ts';
 import { planifierEmails } from './notifications.ts';
+import { controlerDemarrage } from './pre-vol.ts';
 import { protegerBase, retirerSecretStocke } from './protection.ts';
 import { dossierSauvegardes, poserVerrou } from './sauvegarde.ts';
 import { Arret, hoteAffiche } from './service.ts';
+import { demarrerSurveillance } from './supervision.ts';
 import type { Db } from './db.ts';
 import { comptesDemo, seedDemo } from './seed.ts';
 
@@ -92,6 +95,18 @@ try {
 } catch (err) {
   arret.echec(err instanceof Error ? err.message : String(err));
 }
+// Base de production (lot 8, chantier A) : données fictives purgées (npm run purge-demo) ou base exploitée. Démarrée avec
+// CURSUS_DEMO=1, elle rechargerait la démonstration dans une base vide : refus avant toute écriture (server/src/marqueurs.ts).
+if (DEMO) {
+  const refus = await refusDemo(db);
+  if (refus) arret.echec(refus);
+}
+// Contrôle de la base au démarrage (lot 8, chantier B ; règles : server/src/pre-vol.ts, controlerDemarrage) : en
+// production hors démonstration, refus d'une base qui porte des données de démonstration ou d'une connexion en
+// superutilisateur ; démonstration sur la base epc2i refusée dès que la base a servi en production ou a été purgée.
+// Fait avant tout chargement et avant le marquage `exploitation`, qui ne doit jamais être posé sur une démonstration.
+const refusBase = await controlerDemarrage(db);
+if (refusBase.length) arret.echec(refusBase.join(' ; '));
 // Schéma de la base déclaré à Matrix (catalogue des bases), une fois les migrations faites : sans MATRIX_URL rien ne
 // part ; appel non attendu, un échec n'écrit qu'un avertissement (server/src/integrations/matrix.ts).
 void declarerBase(db, VERSION);
@@ -106,6 +121,9 @@ const vide = await db.tx(async () => {
   return DEMO;
 });
 if (vide !== null) log.info(vide ? 'Base vide : données de démonstration chargées.' : 'Base vide : aucune donnée de démonstration chargée (mode démonstration inactif).');
+// Base passée en exploitation (lot 8, chantier A) : premier démarrage en production hors démonstration, base vide comprise,
+// noté une fois dans le réglage `exploitation` (server/src/marqueurs.ts). npm run purge-demo refuse ensuite cette base.
+if (await marquerExploitation(db, VERSION)) log.info('Premier démarrage en production hors démonstration : base marquée « exploitation » (npm run purge-demo la refusera).');
 // Instance de démonstration publiée derrière le proxy (CURSUS_DEMO_PUBLIQUE=1) : rappel à chaque démarrage.
 if (demoPublique()) log.avertissement('Démonstration publiée (CURSUS_DEMO_PUBLIQUE=1) : l’espace RH s’ouvre sans mot de passe à qui atteint cette adresse. Données fictives seulement ; restreignez l’accès en amont (authentification du proxy).');
 // Base de démonstration antérieure aux comptes : un compte par salarié et la RH de démonstration.
@@ -113,6 +131,9 @@ if (DEMO) await db.tx(async () => { if (await db.count('employes') > 0) await co
 // Références orphelines (salarié, session, formation… absents) : signalées dans les journaux, le journal des actions
 // et le point de santé, sans bloquer le démarrage (server/src/integrite.ts).
 await controlerIntegrite(db);
+// Point de santé (lot 8) : administrateurs RH, données de démonstration et références orphelines relus au démarrage
+// puis toutes les heures, pour que /api/health ne lise que la sonde de la base (server/src/supervision.ts).
+arret.tache(await demarrerSurveillance(db));
 if (!DEMO && !await adminsActifs(db)) log.info('Aucun administrateur RH : créez-le avec npm run comptes -- admin <identifiant> (docs/DEPLOIEMENT.md).');
 // Sessions expirées : purgées au démarrage puis toutes les heures.
 await purgeSessions(db);

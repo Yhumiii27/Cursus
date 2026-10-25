@@ -89,6 +89,7 @@ server/src/
                    santé-sécurité marquées pour le Passeport de prévention, index des déclarations)
                    lot7-prevention.ts (lot 7, chantier B : colonnes du C2P, rien à reprendre)
                    lot7-formations.ts (lot 7, chantier C : index de la liste d'attente, puis des évaluations des formations)
+                   lot8-pieces.ts (lot 8, chantier D : pièces existantes notées en clair, `lot8-pieces-chiffrees`)
   seed.ts          Données de démonstration
   avenants.ts      Historique des contrats : lignes écrites par la fiche, le renouvellement d'un CDD et la sortie, brouillons
                    refigés, avenants programmés appliqués à leur date (au démarrage puis toutes les heures)
@@ -101,10 +102,15 @@ server/src/
   microsoft.ts     Connexion Microsoft 365 (OpenID Connect, PKCE) : /api/auth/microsoft et /api/auth/microsoft/retour
   comptes-cli.ts   npm run comptes -- admin <identifiant> : premier administrateur RH (docs/DEPLOIEMENT.md)
   config.ts        Variables d'environnement, contrôlées au démarrage (refus en production si dangereuses)
+  pre-vol.ts       Pré-vol de la mise en production (lot 8) : contrôles de configuration et de base, bilan ;
+                   verifier-production.ts (npm run verifier-production), db-pg-lecture.ts (serveur commun en lecture seule),
+                   pre-vol-reseau.ts (contrôles --url), controlerDemarrage (contrôle de la base au démarrage)
   chemins.ts       Racine du projet, interface (dist/) et base par défaut calculées depuis le code, version
   service.ts       Écoute du port (refus clair si pris, code 1) et arrêt ordonné sur SIGTERM / SIGINT
   protection.ts    Droits de la base sur le disque (600, dossier en 700, refus en production), clé de session retirée
-  supervision.ts   Point de santé GET /api/health (état public ; détail en local ou avec le jeton de supervision)
+  supervision.ts   Point de santé GET /api/health (état public ; détail en local ou avec le jeton de supervision), sans
+                   verrou ; sauvegarde-temoin.ts : fraîcheur de la sauvegarde du serveur commun (lot 8)
+  filtre-keystone.ts  Filtre facultatif de l'API Keystone par adresse (CURSUS_KEYSTONE_ADRESSES, lot 8)
   securite.ts      En-têtes de sécurité HTTP (CSP, HSTS, anti-iframe…), protection CSRF des requêtes qui modifient
   debit.ts         Limitation du débit de l'API par adresse IP et par compte (429, Retry-After)
   actions/         Actions métier (POST /api/actions/:nom), contrôles d'accès et validations
@@ -123,7 +129,9 @@ server/src/
   conservation.ts  Conservation des dossiers (t016) : dossiers échus, effacement par catégorie et anonymisation en cascade
                    (REFERENCES), signalement quotidien au service RH ; agenda.ts : .ics des congés et flux d'agenda par jeton (t036)
   pieces.ts        Pièces justificatives : dépôt (local ou GED), description transmise, nettoyage, contrôle d'intégrité ;
-                   pieces-routes.ts (envoi et consultation) ; pieces-sauvegarde.ts (fichiers emportés par les sauvegardes)
+                   pieces-routes.ts (envoi et consultation) ; pieces-sauvegarde.ts (fichiers emportés par les sauvegardes) ;
+                   pieces-chiffrement.ts (chiffrement au repos, lot 8) ; pieces-chiffrer.ts et pieces-chiffrer-cli.ts
+                   (npm run pieces:chiffrer, npm run pieces:verifier)
   confidentialite.ts Coordonnées de la page Confidentialité : GET /api/confidentialite, lisible sans connexion
   messagerie.ts    Adresses (fiche, service RH, santé au travail, agences), forme commune des e-mails
   notifications.ts Notifications d'étapes (aussitôt ou récapitulatif quotidien), convocations .ics, tâches planifiées
@@ -340,7 +348,16 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   qui n'est pas une adresse, application Entra incomplète ou locataire autre qu'un GUID, variables `CURSUS_MAIL_*`
   sans `CURSUS_MAIL_FROM`), `CURSUS_SUPERVISION_TOKEN` de moins de 32 caractères, Sage Paie (`SAGE_MODE` inconnu, `api` compris,
   `SAGE_URL` définie, `SAGE_MODE=simulation` hors application de bureau : des feuilles seraient marquées transmises sans
-  que rien ne parte) ; puis, base accessible à d'autres comptes (« Exploitation »).
+  que rien ne parte) ; lot 8 : image Docker sans `DATABASE_URL` ni `CURSUS_BASE=sqlite`, `CURSUS_PUBLIC_URL` absente
+  (hors démonstration et hors boucle locale explicite, `boucleLocaleExplicite`), rôle `postgres` dans `DATABASE_URL`
+  (lu comme node-postgres par `cibleBase` : adresse, `?user=`, `PGUSER` ; hors démonstration, où il n'est qu'un
+  avertissement), rôle absent, `CURSUS_TRUST_PROXY=true` ou un réseau en `/0`, et en démonstration publique les
+  variables `CURSUS_MAIL_*`, `CURSUS_OIDC_*`, `SAGE_MODE` (hors simulation) et `SAGE_DOSSIER` ; puis, base accessible à d'autres comptes (« Exploitation »).
+  Avertissements jamais bloquants (`avertissementsConfig`) : `MATRIX_URL` avec identifiants, démonstration connectée
+  en rôle `postgres`, démonstration sur la base `epc2i` (`demoSurBaseCommune`), liaisons d'une démonstration publique coupées sans `CURSUS_DEMO_LIAISONS=1`
+  (`liaisonsCoupees` : `keystoneSortant` et `declarerBase` inactifs). Les e-mails sont toujours simulés en démonstration
+  (`configMail` renvoie null). `npm run comptes` et `npm run reprise-postgres` appellent aussi `verifierConfig` ; une
+  commande qui prépare une démonstration à la production passe `{ reglesDemo: false }`.
   Le mode démonstration ne s'active qu'avec `CURSUS_DEMO=1` ; en production (application de bureau),
   `demoPosteLocal` (`server/src/securite.ts`) refuse en plus (403) toute requête relayée par un proxy
   ou adressée à un autre nom que la boucle locale, sauf instance de démonstration publiée explicitement
@@ -408,13 +425,38 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   renvoie à son manager ou à un autre membre du service RH (`refuserSoiMeme`). Le contrôle porte sur la fiche
   rattachée au compte : un compte externe (le premier administrateur, créé avant les fiches) se rattache à la fiche
   de la personne par `compte.rattacher` ou `npm run comptes -- admin <identifiant> --salarie <n°>`.
+- **Sécurité au travail, paie et aptitude sur soi-même** (lot 8, chantier C) : le même compte ne se délivre ni
+  certification ni habilitation (`cert.ajouter`, `hab.delivrer`), ne lève ni ne retire sa propre habilitation
+  (`hab.lever`, `hab.retirer` ; `hab.suspendre` reste permis, car il restreint), ne décide pas de sa propre demande
+  (`demande.accepter`, `demande.refuser`), ne demande pas d'habilitation pour lui-même (`hab.demander`), ne modifie
+  sur sa fiche que l'adresse e-mail et les jours non travaillés (`employe.modifier`, `SOI_MEME_FIELDS` de
+  shared/rules/profil.ts ; seuls les champs dont la valeur change sont refusés, car le dialogue envoie les champs liés
+  ensemble : `champsModifies` de shared/rules/fiche-concurrente.ts), ne change pas sa propre affectation
+  (`equipe.affecter`) ni son propre valideur, par le manager de son équipe ou d'une équipe dont elle relève
+  (`equipe.manager`, `equipe.modifier`, `equipe.parente` : `refuserSonValideur` de server/src/actions/hierarchie.ts,
+  d'après `valideurHierarchique`), et ne tient pas son propre suivi
+  médical (`medical.demander`, `medical.annuler`, `medical.avis`, `medical.suivi`). Ces décisions ne reviennent pas au
+  manager : le refus renvoie à un autre membre habilité, à défaut à la direction par un compte RH dédié
+  (`REVIENT_RH`, `REVIENT_FORMATIONS` de server/src/actions/context.ts). Réponse de l'entreprise du 24 octobre 2026 :
+  aucune exception, même pour la seule personne habilitée sur son périmètre. Tests : `tests/soi-meme.test.ts`.
+  Étape 2 : la clôture d'une session (`session.cloturer`) est refusée à l'auteur qu'elle certifierait (présent, sans
+  certification en vigueur ; absent, il clôt) ; la reprise (`reprise.importer`) refuse ses propres lignes de
+  certifications, d'habilitations et de visites, comme ses soldes (`REPRISE_SOI_MEME` de shared/rules/reprise.ts, même
+  refus dans l'aperçu de Mise en service). L'interface suit la même règle (`fichePropre` de shared/rules/soi-meme.ts,
+  que `estSoiMeme` reprend) : sur sa propre fiche, « Ajouter une certification », la délivrance, « Lever la suspension »,
+  « Retirer » (« Suspendre » reste), les boutons du suivi médical et, au tableau de bord, « Accepter » et « Refuser » sur
+  sa propre demande sont remplacés par l'explication (`AIDE_SOI_MEME`) ; « Modifier la fiche » ouvre `FichePropreDialog`
+  (adresse e-mail et jours non travaillés, `SOI_MEME_FIELDS` ; le reste en lecture seule). Tests : `tests/client-soi-meme.test.ts`.
 - **Identité** : dans l'espace RH, `user.empId` reste null (la personne agit pour le service RH), mais
   `user.nom` est celui de la personne connectée : il signe le journal (avec `compteId` et `identifiant`)
   et les mesures (`mesurePar`, reports de CP). `rhNom` et `rhIntitule` ne sont plus des paramètres : le
   valideur d'un salarié sans manager est « le service RH ».
 - **Sessions** (`server/src/auth.ts`, table `connexions`) : le cookie `cursus_session` ne porte que
   l'identifiant de session signé ; la session porte le compte, l'espace actif et le mode de connexion
-  (`local`, `demo`, `microsoft`). Durée absolue de 12 h ;
+  (`local`, `demo`, `microsoft`). La table ne garde que l'empreinte SHA-256 de l'identifiant (`empreinteSession`,
+  lot 8) : toute lecture, mise à jour ou révocation passe par elle, et un lecteur de la table (sauvegarde,
+  `matrix_lecture`) ne peut pas en tirer un cookie, même avec la clé de signature ; les sessions d'avant le lot 8
+  (identifiant en clair) sont fermées au déploiement. Durée absolue de 12 h ;
   `/api/logout` révoque, `/api/mode` ne bascule que vers un espace du compte (403 sinon), une connexion
   en ouvre une nouvelle. Connexions (démonstration comprise), déconnexions, changements d'espace et refus
   d'accès sont tracés dans le journal (voir « Journal des actions »). `revokeSessionsOf(db, empId)` révoque toutes les sessions d'un salarié,
@@ -435,6 +477,21 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   (déconnexion) passe ; un client sans navigateur n'envoie ni `Origin` ni `Sec-Fetch-Site`. L'API Keystone (clé, sans
   cookie) est montée avant ; la connexion Microsoft ne fait que des GET. En développement, le proxy de Vite garde le nom
   d'hôte de la page (`changeOrigin: false`), comme le reverse proxy de production.
+- **Lectures qui écrivent au journal** (lot 8, chantier C, S8 : `exigerNavigationInterne` de `server/src/securite.ts`,
+  montée dans `server/src/app.ts` devant les routes) : une navigation provoquée depuis un autre site (lien, redirection)
+  emporte le cookie (SameSite=Lax), et `protectionCsrf` ne contrôle pas les GET. Deux niveaux, refus 403 sans rien lire
+  ni tracer :
+  - `lien` — `GET /api/pieces/:id`, ouvert par un lien direct (`lienPiece`), qui ne peut porter aucun en-tête :
+    `Sec-Fetch-Site` « cross-site » ou « same-site » refusé ; « same-origin », « none » (adresse tapée, favori) et un
+    navigateur sans l'en-tête passent ;
+  - `appel` — `GET /api/paie/lots/:id/fichier`, `GET /api/salaries/:id/donnees`, `GET /api/journal` en vue archive
+    (reconnue par `lireFiltre`, comme la route : `vue=archive` ou l'ancien `filtre=archive`) et l'export
+    `GET /api/journal/csv` (toutes vues : il trace toujours `journal.export`), appelés par `fetch` : le même contrôle, plus l'en-tête d'espace `x-cursus-espace` (valeur d'un espace), qu'une
+    navigation ne pose jamais. Le client l'ajoute dans `telecharger()` et la lecture du journal (`definirEspaceOnglet`
+    de `client/src/api.ts`, tenu par le store à chaque session lue) ; un script le pose lui-même.
+- **Registres par nom** (S5) : l'action de `POST /api/actions/:nom` et sa règle de journal sont lues sur les seules clés
+  propres du registre (`Object.hasOwn` ; `regleDe` de `server/src/journal.ts`) : `constructor`, `__proto__`,
+  `toString`… sont des actions inconnues (404), rien n'est écrit au journal.
 - **Débit** (`server/src/debit.ts`, seau de jetons en mémoire, au plus 10 000 clés suivies par limiteur) : toute requête
   `/api` (hors Keystone) compte pour son adresse IP (1 200 d'avance, puis 20 par seconde : un atelier entier peut sortir
   par une adresse) et, si elle porte une session ouverte, pour son compte (240 d'avance, puis 2 par seconde), quelle que
@@ -490,13 +547,42 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     requêtes s'exécutent sans attendre la file qu'elles détiennent, une transaction imbriquée rejoint l'englobante
     (comme avant), une tâche lancée depuis une transaction et poursuivie après sa fin repasse par la file.
   - *Même atomicité qu'avant.* Avec l'accès synchrone, toute suite d'appels sans attente s'exécutait d'un seul tenant :
-    les routes HTTP qui ne font qu'accéder à la base s'exécutent donc entières en `exclusif` (`enSerie(db, route)` :
-    `/api/data`, `/api/actions/:nom`, journal, exports, fichier de paie, API Keystone…), de même `identite`,
+    les routes HTTP qui ne font qu'accéder à la base s'exécutaient donc entières en `exclusif` (`enSerie(db, route)` :
+    fichier de paie, envois, connexion… ; depuis le lot 8, plus les lectures ni les actions : « La trace suit la
+    lecture » ci-dessous), de même `identite` (jusqu'au lot 8),
     `compterTentative`, la clé de session, `setSetting` et l'issue d'un envoi. Une route qui attend autre chose que la
     base (calcul du mot de passe à la connexion, échanges avec Microsoft) ne prend la file que pour les étapes d'avant et
     d'après l'attente. `loadFull` lit toutes les tables en `lecture` (même état de la base) ; l'instantané renvoyé après
     une action est lu avec la session relue, sur le même état. Un signal d'arrêt reçu pendant le démarrage (désormais
     asynchrone) attend sa fin (`Arret.demarrer`) ; `fermer` attend la transaction en cours.
+  - *La trace suit la lecture* (lot 8, chantier E, amendement de l'invariant ci-dessus). Sur PostgreSQL, `exclusif`
+    prend le verrou d'écriture : une route de lecture en `enSerie` faisait attendre toutes les autres requêtes, et une
+    fin de mois (validation groupée sous le verrou) figeait tout Cursus. Les routes qui lisent ne sont donc plus en
+    `enSerie` : `GET /api/data`, le journal et son CSV, les données personnelles (export RH, téléchargement par
+    l'intéressé), les variables de paie, le flux d'agenda et l'API Keystone en GET. Elles procèdent en trois temps :
+    1. l'identité (`identite`, `server/src/connexion.ts`) se lit dans une lecture stable (`examinerIdentite`), puis la
+       session écrit à part ce que sa lecture demande (`appliquerMajSession`, `server/src/auth.ts` : révocation,
+       espace, activité au plus une fois par minute), chacune une instruction conditionnelle atomique par elle-même,
+       sans le verrou d'écriture ;
+    2. la lecture se fait en `db.lecture` (transaction `REPEATABLE READ READ ONLY` sur PostgreSQL, sans verrou ; en
+       SQLite, à son tour dans la file et en `PRAGMA query_only`, pour qu'une écriture glissée dans une lecture échoue
+       aussi dans les tests) ;
+    3. la trace (consultation de l'archive paie, export CSV, `salarie.export`, `donnees.export`, `sage.variables`,
+       refus `acces.refuse`, `keystone.appel`, dernier accès d'un jeton d'agenda) s'écrit ensuite dans sa propre courte
+       transaction (`db.tx`), **avant la réponse** : un fichier ne part jamais sans sa trace, et un échec de la trace
+       (Cursus occupé) fait échouer la route. Pour l'API Keystone, la trace est écrite au moment de la réponse
+       (enrobage de `res.json`, `server/src/integrations/keystone-routes.ts`) : une lecture (GET) dont la trace échoue
+       reçoit 503 `OCCUPE` (ou 500) à la place de sa réponse ; une écriture déjà validée retente sa trace une fois, puis
+       répond quand même (un 503 la ferait refaire), l'absence de trace écrite en erreur dans les journaux du serveur.
+       La trace n'est plus atomique avec la lecture : une écriture d'une autre
+       requête peut s'intercaler entre les deux, ce qui ne change ni ce qui a été lu ni ce qui est tracé.
+    Une action (`POST /api/actions/:nom`) lit l'identité de même, relit les droits dans sa transaction (un compte changé
+    entre-temps agit avec ses droits du moment : 401, 409), et l'instantané renvoyé se lit après, dans une lecture
+    stable, hors du verrou. Le 503 « Cursus est occupé » ne vient que d'un délai dépassé avant la validation de la
+    transaction (rien n'est écrit) ; une fois l'action validée, un échec de la relecture de l'instantané (ou des
+    écritures de la session) rend quand même le message et le résultat de l'action, sans instantané et avec
+    `relire: true` : le client relit `GET /api/data` (`client/src/state/run.ts`) et ne refait pas l'action. Restent en `enSerie` les routes de la connexion et de la session, le fichier d'import Sage
+    (compteur de téléchargements), les envois, les pièces, le passeport de prévention et `/api/exports`.
   - *Garde-fou.* `npm run typecheck` lance aussi `scripts/verifier-await.mjs` (`npm run check:await`) : appel
     asynchrone du dépôt ou méthode de la base ni attendu, ni lâché par `void`, ni rassemblé par `Promise.all` ; rappel
     asynchrone passé à `forEach`, `filter`, `some`… ou à `assert.throws` ; `.sql` dans le code applicatif. TypeScript 7
@@ -511,8 +597,8 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     synchrones : quand l'une demande une donnée de la base par une fonction (`aDesDonnees` de `categoriesEchues` et
     `categoriesDroitEffacement`), la valeur est lue d'avance (`quantitesAEffacer` ; pour `dossiersEchus`, seulement pour
     les catégories échues sans regarder les données, comme le faisait l'appel à la demande). Le flux de l'agenda
-    (`GET /api/agenda/<jeton>.ics`) s'exécute en `enSerie` (jeton, fiche, compte, flux et date du dernier accès d'un seul
-    tenant) ; le passage quotidien de la conservation lit le jour du dernier passage dans la transaction qui le note
+    (`GET /api/agenda/<jeton>.ics`) lit jeton, fiche, compte et flux sur un même état (`lecture` ; jusqu'au lot 8 en
+    `enSerie`), puis note le dernier accès dans sa propre transaction ; le passage quotidien de la conservation lit le jour du dernier passage dans la transaction qui le note
     (deux passages simultanés n'en font qu'un). Le SQL brut de ces modules est commun aux deux moteurs (voir « Accès à la
     base : PostgreSQL ») : effacement des dossiers d'après le type déclaré de chaque colonne (valeur « renseignée »,
     case décochée à FALSE), balayage de l'identité ligne par ligne par la clé de la table (pas de `rowid`), clé d'une
@@ -527,11 +613,24 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     `date` rendu en chaîne `AAAA-MM-JJ`, `timestamptz` en ISO (`toISOString`), `numeric` et `bigint` en nombre, `json`
     décodé (`jsonLu` pour une colonne JSON lue en SQL brut, texte en SQLite, objet en PostgreSQL). Paramètres `?`
     réécrits en `$n` hors chaînes et commentaires ; `insert` par `RETURNING *`.
+  - *Délais* (lot 8, chantier E, `DELAIS_PG` de `server/src/db-pg.ts`), posés dans les options du pool : attente d'une
+    connexion libre (`connectionTimeoutMillis`, `CURSUS_PG_DELAI_CONNEXION_MS`, 5 s), d'un verrou (`lock_timeout`,
+    `CURSUS_PG_DELAI_VERROU_MS`, 30 s : il couvre `pg_advisory_lock` et `pg_advisory_xact_lock`), durée d'une requête
+    (`statement_timeout`, `CURSUS_PG_DELAI_REQUETE_MS`, 60 s) ; migrations du démarrage sans délai. Un dépassement
+    (`estOccupe` de `server/src/erreurs.ts` : 55P03, 57014, connexion du pool) annule la transaction et répond 503
+    « Cursus est occupé, réessayez » (`Retry-After: 5`) ; l'API Keystone répond `OCCUPE`. Pour une action, seul un
+    dépassement avant la validation donne ce 503 (voir « La trace suit la lecture »). Règle : aucun traitement ne
+    tient le verrou plus de la moitié de `lock_timeout` (15 s) ; la validation groupée passe par tranches.
   - *Concurrence.* Plusieurs instances peuvent partager la base. Écritures : `tx` ouvre `BEGIN` et prend
     `pg_advisory_xact_lock(hashtext('cursus.ecritures'))` (écritures sérialisées, comme la file de SQLite) ; `exclusif`
     prend le même verrou au niveau de la session pour toute la suite, requêtes validées une à une (une réponse HTTP ne
     part jamais avant la validation de ce qu'elle annonce) ; `lecture` : `REPEATABLE READ READ ONLY` (un seul état de
-    la base pour `loadFull`). Les requêtes d'une même portée passent l'une après l'autre sur sa connexion.
+    la base pour `loadFull`). Les requêtes d'une même portée passent l'une après l'autre sur sa connexion. Lot 8,
+    chantier E, étape 2 : les transactions et suites exclusives d'une instance attendent d'abord leur tour en mémoire
+    (`FileEcritures`), au plus le délai du verrou (au-delà : 55P03, donc 503), avant de prendre une connexion puis le
+    verrou commun : une écriture en attente ne garde plus une connexion du pool (trente saisies simultanées prenaient les
+    dix connexions, et les lectures comme la santé attendaient une connexion jusqu'au 503). La file mesure l'attente de
+    chaque écriture avant son tour (`attenteEnCours`, `attenteMax`), reprise par la sonde de l'essai de charge.
   - *Schéma.* `server/migrations-pg/` : `0001_init.sql` (50 tables, état final de `TABLES` avant l'étape 2 du lot 6),
     `0002_partage.sql` (vues `pub_` lues par Matrix et les autres outils, sans colonne sensible ni GRANT : les droits
     viennent du socle) et `0003_lot6_etape2.sql` (étape 2 du lot 6 : 7 tables, 57 en tout, colonnes ajoutées, nature
@@ -550,6 +649,10 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     `0010_evaluations_formation.sql` (lot 7, chantier C, étape 2 : évaluations des formations, table `evaluations_formation`,
     CHECK du type, du répondant, de la note et de l'efficacité, une seule formation évaluée ; aucune vue `pub_`). 62 tables
     en tout.
+    `0013_index_journal.sql` (lot 8, chantier E, étape 2 : index `journal(compte_id, action, id DESC)`, table technique
+    `revision` d'une ligne et déclencheur `revision` par instruction sur chaque table hors journal, sessions, comptes et
+    abonnements à l'agenda (`TABLES_SANS_REVISION`), clé du cache de l'instantané ; hors de `TABLES` et de la déclaration à Matrix ; aucune vue `pub_` touchée). Une table ajoutée
+    ensuite reçoit son déclencheur dans sa migration : `controlerSchema` refuse de démarrer sans lui.
     Appliquées au démarrage sous `pg_advisory_lock(hashtext('cursus.migrations'))`, pris avant de lire le journal
     `cursus.schema_migrations`, une transaction par fichier ; une migration du journal inconnue de ce code (base mise à
     jour par une version plus récente) ou un schéma `cursus` absent : refus de démarrer. Puis `TABLES` est comparé au
@@ -583,7 +686,12 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     PostgreSQL 16 de test) rejoue la même suite, une base par fichier, un schéma par `nouvelleBase()` (`tests/base.ts`) ;
     les tests des migrations nommées (SQL propre à SQLite) y sont ignorés. Job CI `postgres` : socle de Matrix copié
     dans `infra/postgres-socle/`, couverture de `db-pg.ts`, démarrage en `cursus_app`, rejeu de
-    `infra/postgres-partage/20-cursus.sql` et contrôle des colonnes sensibles.
+    `infra/postgres-partage/20-cursus.sql` et contrôle des colonnes sensibles. Contrôle complémentaire (lot 8) : aucune
+    colonne de `cursus` dont le commentaire contient « Sensible » ou « à exclure de matrix_lecture » ne doit être
+    lisible par `matrix_lecture` (`scripts/colonnes-sensibles-pg.sql`) ; non bloquant tant que Matrix n'a pas ajouté
+    ces colonnes à `droits.colonnes_sensibles` (demande dans `docs/DEMANDES-LOT8-DONNEES.md`), bloquant ensuite.
+    `tests/socle-colonnes-sensibles.test.ts` vérifie que la copie du socle liste bien les colonnes que Cursus déclare
+    sensibles.
 - **Santé** (`server/src/supervision.ts`) : `GET /api/health`, monté avant le limiteur de débit et les autres routes
   `/api`, sans connexion. `SELECT 1` et `PRAGMA user_version` ; 200 `{statut: 'ok', base: 'ok'}`, 503
   `{statut: 'indisponible', base: 'erreur'}`. Appel local non relayé (boucle locale, aucun en-tête `X-Forwarded-*`) ou
@@ -597,6 +705,25 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   `relances`). Elle ne cite l'envoi des e-mails que s'il passe par ce secret (`envoiParSecretOidc`) ; dans ce cas, la
   ligne « expiré » échoue avec l'envoi, et seuls le point de santé et Paramètres → Envois signalent l'expiration.
   Seule, elle renvoie au guide au lieu des écrans de Cursus.
+  Lot 8 (chantier B, étape 2) : la route ne passe plus par `enSerie` (verrou d'écriture) ; elle appelle `Db.sonde()`
+  (PostgreSQL : requête isolée sur une connexion du pool, sans verrou ; SQLite : en-tête du fichier lu directement sur
+  la connexion, hors de la file), abandonnée au bout de `DELAI_SANTE_MS` (2 s : 503). Orphelins, administrateurs RH et
+  indices de démonstration sont lus dans un état mis en cache par `demarrerSurveillance` (au démarrage, puis toutes les
+  heures, `server/src/index.ts`). Administrateurs et indices de démonstration sont en plus relus par la route elle-même
+  (`FRAICHEUR_DONNEES_MS`) : à chaque appel tant que `aucun-admin` ou `donnees-demo` est levée (premier administrateur
+  créé par `npm run comptes`, dans un autre processus), sinon au plus une fois par minute ; une seule relecture à la
+  fois, sous le délai de la sonde, cache gardé si elle échoue ; le décompte des envois du détail est abandonné après le même délai. Le détail porte
+  `alertes` (`orphelins`, `secret-microsoft`, `secret-envoi`, `demo-base-commune`, `sauvegarde`, et en production hors
+  démonstration `donnees-demo`, `aucun-admin`, `emails-simulation`), `secretEnvoi` (`CURSUS_MAIL_SECRET_EXPIRE`, ligne
+  `exploitation:secret-envoi:<date>` du récapitulatif) et `sauvegarde` (témoin `CURSUS_SAUVEGARDE_TEMOIN`,
+  `server/src/sauvegarde-temoin.ts`).
+- **Contrôle au démarrage** (`controlerDemarrage`, `server/src/pre-vol.ts`, lot 8) : après les migrations et avant tout
+  chargement ou marquage `exploitation`, en production hors démonstration, refus d'une base qui porte des indices de
+  démonstration (`indicesDemo`) ou d'une connexion PostgreSQL en `postgres` ou en superutilisateur ; démonstration sur
+  la base `epc2i` refusée dès que la base porte le réglage `exploitation` ou la ligne `purge.demo` du journal.
+- **API Keystone par adresse** (`server/src/filtre-keystone.ts`, lot 8) : `CURSUS_KEYSTONE_ADRESSES` (adresses et
+  réseaux, `net.BlockList`) lue à la construction de l'application, monté devant `keystoneRoutes` ; 403
+  `ADRESSE_REFUSEE` hors liste, d'après `req.ip` (proxy de confiance). Vide : aucun filtre.
 - **Intégrité** (`server/src/integrite.ts`, t179 étape 1) : `REFERENCES` liste les colonnes qui désignent une autre
   table (tous les `emp_id`, `session_id`, formation, habilitation, destination, poste, équipe, manager, lot de paie,
   déplacement Keystone, certification d'une participation) ; `controlerOrphelins` compte, par référence, les valeurs
@@ -620,11 +747,175 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   `client/src/state/derived.ts`, partagé par `useDomain` et la coque `layout/Shell.tsx`). Pas encore : chargement par
   périmètre en SQL dans `loadFull` et renvoi partiel de l'instantané (entité modifiée seule, action par action), à
   reprendre si la mesure dépasse la seconde.
+- **Essai de charge sur PostgreSQL** (lot 8, chantier E, `scripts/charge/`) : `npm run charge:generer -- --ans 5
+  --effectif 100 --interimaires 20 --seed 42` crée un schéma jetable `cursus_charge_<horodatage>` sur le serveur de test
+  de `CURSUS_TEST_DATABASE_URL` (serveur commun refusé : base `epc2i`, rôle `cursus_app` ou schéma d'un autre outil),
+  y applique les migrations et le référentiel de démonstration, puis insère en masse 5 ans de données reproductibles par
+  la graine : 120 fiches (8 managers, trois agences d'intérim), ≈ 28 000 feuilles, ≈ 7 700 absences, 59 lots mensuels
+  transmis par le vrai traitement (`temps.pushSage`) et 10 lots annulés (contenu de 100 Ko en moyenne), 300 000 lignes de
+  journal (un tiers d'archive paie), ≈ 41 000 envois, 680 relevés, 50 jetons d'agenda ; quatre semaines soumises pour
+  la fin de mois, le mois d'août en attente de lot (`--ans 1` : jeu réduit, 30 000 lignes de journal). `npm run charge
+  -- --scenario S1..S6 --duree N` monte `createApp` dans son processus sur un port libre, ouvre des sessions en base,
+  simule les utilisateurs avec un temps de réflexion (2 à 10 s) et relève par route p50, p95, p99, maximum et erreurs ;
+  toutes les 500 ms, une sonde relève `/api/health`, l'attente et la tenue du verrou d'écriture (`pg_locks`,
+  `pg_stat_activity`), l'attente du pool et la mémoire. Rapport JSON et Markdown dans `data/charge/rapports/`, verdicts
+  des seuils (`scripts/charge/seuils.ts`, `--marge 3` pour la CI ; invariants jamais assouplis : santé sous 5 s, aucune
+  5xx, verrou tenu moins de 15 s). Scénarios : S1 matinée (30 lecteurs), S2 vendredi après-midi (30 saisies et
+  soumissions), S3 fin de mois (6 managers valident ensemble 15 à 30 feuilles, intérimaires compris, avec 20 lecteurs,
+  Keystone chaque minute et les tâches du quart d'heure ; `--lot 200` : une validation de 200 feuilles en plus), S4 paie,
+  S5 exports, S6 tâches de fond.
+  - *Première mesure* (24 octobre 2026, avant les corrections, PostgreSQL 16 local, jeu de 5 ans) : S1 pendant 30 s,
+    `/api/data` p95 de 28 à 31 s quel que soit le profil (toutes les lectures passaient une à une sous le verrou,
+    environ 1,7 s chacune), `/api/health` sans réponse en 10 s pour 61 relevés sur 113 ; S3 pendant 120 s : échec sur la
+    sonde (360 relevés de santé sur 486 sans réponse en 10 s) et sur la tenue du verrou (35,7 s), validations groupées de
+    15 à 28 feuilles en 92 à 176 s, attente du verrou jusqu'à 71 s et 314 requêtes en attente d'une connexion du pool.
+    C'est le test de non-régression des deux blocages : la validation groupée qui fige tout Cursus, les lectures qui
+    attendent derrière les écritures.
+  - *Corrections de l'étape 1* : validation groupée sur une lecture de la base par tranche de 25 feuilles (« Actions
+    disponibles », `temps.validerLot`), routes de lecture hors du verrou (« Accès à la base : couche asynchrone », la
+    trace suit la lecture), délais et 503 (« Accès à la base : PostgreSQL »), lectures stables limitées à la moitié du
+    pool (`PlacesLecture` de `server/src/db-pg.ts`, l'identité en lecture courte hors de ces places).
+  - *Mesure après les corrections de l'étape 1* (même machine, jeu de 5 ans régénéré avec la même graine, S3 pendant
+    120 s) : verrou d'écriture tenu au plus 10,2 s (35,7 s avant) et attendu au plus 9,4 s (71 s avant), validations
+    groupées de 15 à 26 feuilles en 33 à 37 s de bout en bout (92 à 176 s avant), toutes faites ; `/api/health` médiane
+    0,3 s mais jusqu'à 10 s (sonde encore sous le verrou d'écriture : `server/src/supervision.ts`, chantier B), 3 réponses
+    503 « occupé » (connexion du pool attendue plus de 5 s). Les lectures ne s'attendent plus les unes les autres, mais
+    `/api/data` reste de 17 à 29 s (médiane et p95) : chaque instantané relit toute la base et recalcule le `Domain`
+    (environ 1 s de calcul dans le processus pour 5 ans, dont les 681 lectures des envois des relevés), et le processus
+    unique en sert trente à la fois. S2 (saisie) reste limité par le verrou : une action relit toute la base dans sa
+    transaction (environ 1 s), soit une à deux écritures par seconde. Suites prévues : requêtes N+1 des relevés et
+    tâches du quart d'heure (étape 2), cache de l'instantané par révision et fenêtre de lecture des années closes
+    (reportés après la première mesure).
+  - *Corrections de l'étape 2* :
+    - *cache de l'instantané* (`server/src/cache-instantane.ts`, `CURSUS_CACHE_INSTANTANE=0` pour le couper) : la
+      lecture complète de la base est gardée en mémoire, indexée par la **révision de la base** (table technique
+      `revision` d'une ligne, augmentée dans la transaction de chaque écriture par un déclencheur de chaque table hors
+      journal, sessions, comptes et abonnements à l'agenda — écrits à chaque consultation ou connexion (dernière
+      connexion d'un compte, dernier accès d'un flux d'agenda), jamais lus par l'instantané en cache, relus à chaque
+      requête — : migration PostgreSQL `0013_index_journal`, `SqliteDb.poserRevision` en SQLite, posés de
+      nouveau après les migrations nommées) et par la date du jour ; une écriture de n'importe quelle instance, tâche
+      de fond ou outil (reprise, purge, écriture SQL directe) la rend périmée, une transaction annulée ne change rien.
+      La révision se lit au début de chaque lecture stable (`Db.revisionBase`, `Db.lectureStable`), avant les données :
+      même état. Les vues (profil RH, manager, collaborateur : `vueDe` de `server/src/dataset.ts`) sont calculées une
+      fois par révision et par clé de vue (`cleVue` : profil pour l'espace RH, espace et salarié sinon ; jamais la vue
+      d'un autre profil ni d'une autre personne) ; l'utilisateur et la révision de la requête y sont reposés. Restent
+      lus à chaque requête : dossiers échus de la conservation (comptés aussi sur le journal) et abonnement à l'agenda.
+      Les absences et déplacements en attente du fichier de paie se calculent à la première demande d'un profil qui
+      voit la paie, sur le même état. Lectures simultanées d'une même révision : une seule lecture de la base ; lecture
+      commencée avant la dernière écriture : servie par l'entrée plus récente (état validé un instant plus tard). Une
+      action (transaction) reprend la lecture partagée quand la révision lue sous le verrou, avant toute écriture, est
+      celle de l'entrée (`donneesAction`), sinon lit directement ; rien n'est mis en cache depuis une transaction. Les
+      données partagées ne sont jamais modifiées : sous `node --test`, chaque entrée, chaque vue et chaque `loadFull`
+      sont gelés en profondeur (`geler`), et toute la suite passe ainsi ; pas de gel en production (170 ms par lecture
+      sur 5 ans). Tests : `tests/cache-instantane.test.ts` (même instantané avec et sans cache pour chaque compte et
+      chaque espace de la démonstration et chaque profil RH, cache périmé après une action, une tâche planifiée, l'API
+      Keystone, une écriture SQL directe et une remise à zéro, deux instances PostgreSQL sur la même base) ;
+    - *tâches du quart d'heure* (`tachesEmails`) : une transaction par tâche (relevés, annonce des délégations,
+      récapitulatif des échéances, évaluations, récapitulatif quotidien), une tâche en échec n'annulant pas les autres
+      (première erreur rendue à la fin) ; une lecture complète au plus par passage, partagée (`lecturePartagee`,
+      `server/src/lecture-partagee.ts`) ; tests rapides avant de lire : agences sans adresse (relevés), réglages seuls
+      (`loadSettings`) pour le récapitulatif des échéances et les évaluations désactivées ;
+    - *lots de paie* : `lireLots` sans la colonne `contenu` (`Db.allSans`) ; `emisEtReservees` ne lit que
+      `contenu->'absences'` des lots non annulés ; relevés des agences avec le statut de leur e-mail par des requêtes
+      `IN (…)` de 500 identifiants (681 lectures une à une avant) ;
+    - *index* `journal(compte_id, action, id DESC)` (migration PostgreSQL `0013_index_journal`, migration nommée SQLite
+      `lot8-index-journal`) ;
+    - *file des écritures de l'instance* (« Accès à la base : PostgreSQL », *Concurrence*) ;
+    - *essai* : sessions de l'exécuteur rangées sous l'empreinte de leur identifiant (chantier D), tenue du verrou
+      relevée par transaction (deux transactions qui se suivent sur une même connexion ne comptent plus comme une seule
+      tenue), relevé du verrou fait avant l'appel de santé (`/api/health` prend encore le verrou d'écriture : chantier B),
+      attente du verrou d'écriture jugée (seuil de 10 s) sur la plus longue de l'attente `Advisory` vue sur le serveur et
+      de l'attente d'un tour dans la file des écritures de l'instance (`FileEcritures.attenteMax` et `attenteEnCours`,
+      `attenteFileMax` du rapport) : sur une instance, une seule écriture à la fois atteint `pg_advisory_xact_lock`, les
+      autres attendent en mémoire, sans connexion, et `pg_stat_activity` ne les voit pas ;
+      étape « Essai de charge » du job `postgres` de la CI (non bloquante, seuils ×3, invariants entiers ; jeu d'un an
+      et S2, S3 pendant 60 s sur une pull request qui touche `server/src/db*.ts`, `dataset.ts`, `app.ts`,
+      `actions/suivi-feuilles.ts` ou `server/migrations-pg/` ; jeu de 5 ans et S1 à S3 sur « Run workflow » et le lundi ;
+      rapport publié ; `check` et `e2e` ne tournent pas au passage hebdomadaire).
+  - *Seconde mesure* (24 octobre 2026, même machine et même jeu de 5 ans, 120 s par scénario ; rapports
+    `data/charge/rapports/`, non versionnés) :
+    - S1 « matinée » (30 lecteurs) : `/api/data` médiane 27 ms (collaborateur), 110 ms (manager), 0,8 s (RH : 23 Mo de
+      JSON, 0,4 s de sérialisation et de compression) ; p95 2,7 à 4,8 s, tenu par la rafale du début (les trente
+      premières lectures arrivent en 3 s, avant que l'entrée et les vues ne soient calculées) ; santé p99 3,2 s,
+      maximum 3,6 s ; aucune 5xx ; révision inchangée pendant tout le scénario. Avant : p95 de 28 à 31 s.
+    - S2 « vendredi après-midi » (30 saisies) : aucune 5xx, verrou tenu au plus 1,4 s, attente du pool 2,7 à 3,9 s ;
+      mais `temps.setCell` p95 26 à 27 s et `/api/data` p95 1,8 à 2,6 s (collaborateur) : environ 1,3 écriture par
+      seconde. Chaque écriture rend la lecture partagée périmée, et la relire (0,6 s de lecture et de décodage, surtout
+      les 28 000 feuilles) puis recalculer les vues occupe le processus ; les saisies attendent leur tour dans la file
+      de l'instance. Seuil d'action (800 ms) non tenu. Attente du verrou d'écriture : 25,4 s au plus, toute dans la file
+      de l'instance (aucune session en attente sur le serveur, 69 écritures en file au plus ; S2 rejoué pendant 120 s
+      après la relecture, `temps.setCell` p95 25,6 s) : seuil de 10 s non tenu. La première version de la sonde ne
+      relevait que l'attente sur le serveur et marquait ce seuil tenu.
+    - S3 « fin de mois » (6 validations de 16 à 30 feuilles, 20 lecteurs, Keystone, tâches du quart d'heure) :
+      validations de 7,6 à 22 s de bout en bout (33 à 37 s à l'étape 1), toutes faites ; avec une validation de 200
+      feuilles en plus : 39,9 s pour celle-ci (seuil 60 s) ; verrou tenu au plus 2,2 à 5,8 s (10,2 s à l'étape 1), aucune
+      5xx ; mémoire jusqu'à 0,9 à 1,1 Go (seuil 1 Go dépassé avec la validation de 200 feuilles).
+    - Santé : tant que `/api/health` prend le verrou d'écriture (`enSerie`, `server/src/supervision.ts`, sortie du
+      verrou par le chantier B), elle attend son tour derrière les saisies : jusqu'à 10 s en S2 et S3 (invariant de 5 s
+      non tenu). Même essai avec la santé hors du verrou (modification d'essai, non livrée ici) : S1 à S3 tiennent les
+      trois invariants (santé au plus 4,4 s, p99 1,1 s ; aucune 5xx ; verrou tenu au plus 2,2 s).
+    - Restent hors seuil : la saisie simultanée (S2) et les lectures pendant une fin de mois, limitées par la relecture
+      complète après chaque écriture dans un seul processus. Suites proposées : relecture partielle de la lecture
+      partagée (journal des lignes changées par révision : seules les feuilles et absences modifiées relues),
+      fenêtre de lecture des années closes (règle par règle), ou plusieurs instances derrière le proxy.
 - **Réinitialisation de la démonstration** (`server/src/reset.ts`, garde-fous dans `server/src/reinitialisation.ts`) :
   refusée hors `CURSUS_DEMO=1`, avec `NODE_ENV=production` sauf l'application de bureau (`demoSurBoucleLocale`) et l'instance publiée (`demoPublique`), sur
   une base qu'un serveur en service n'a pas encore mise à jour (`controlerPourOutil`), sur une base qu'un serveur
   utilise (verrou, `serveurActif`) sauf `--force` ; confirmation par `--yes` ou par le mot `EFFACER` tapé dans un
   terminal (sans terminal ni `--yes` : refus). Base existante copiée (« avant-reinitialisation ») avant l'effacement.
+- **Marqueurs d'usage de la base et purge des données fictives** (lot 8, chantier A ; contrat commun avec le chantier B,
+  `server/src/marqueurs.ts`) : deux lignes de `settings`, sans migration. `demo` = `{ chargeeLe, version }`, posé par
+  `seedDemo` à chaque chargement du jeu ; `exploitation` = `{ premierDemarrageHorsDemo, version }`, posé une fois par
+  `server/src/index.ts` au premier démarrage avec `NODE_ENV=production` sans `CURSUS_DEMO` (base vide comprise ; jamais
+  en développement, en test, ni pour l'application de bureau ou la démonstration publiée). Code de journal `purge.demo` :
+  seule ligne laissée par la purge. `npm run purge-demo` (`server/src/purge-demo-cli.ts`, règles dans
+  `server/src/purge-demo.ts`, testées dans `tests/purge-demo.test.ts` sur les deux moteurs) : options inconnues refusées ;
+  refus avec `CURSUS_DEMO_PUBLIQUE` posée, sans appel avec le réglage `exploitation`, une ligne `migration.postgres`, un
+  compte Microsoft (`oid`) hors `entreprise.example`, ou sans preuve de démonstration (réglage `demo`, sinon faisceau :
+  au moins 20 des 24 salariés du jeu par identifiant et nom, comptes du jeu, domaine `entreprise.example`, lot
+  « Démonstration ») ; « déjà faite » avec `purge.demo` au journal. Ajouts des visiteurs (fiches hors du jeu, reprises,
+  lots de paie, fichiers Sage, comptes) listés avec nombre et dates ; les fiches ajoutées ne partent qu'avec
+  `--inclure-ajouts`. Plan par profil (`planPurge` : `parametrage` par défaut, `catalogue`, `rien`) : sort de chaque table
+  de `TABLES` et des réglages ; séquence `employes.id` à max(1001, plus grand identifiant attribué + 1), compteur de la
+  séquence compris, jamais remise à zéro (décision du propriétaire : le premier vrai salarié est EMP-1001 sur la
+  démonstration standard). Réglages remis à défaut par `parametrage` : clé de session, état de la paie (dont les dates
+  de départ des absences et des déplacements dans le fichier de paie), expurgation, messagerie, `demo` et passages des
+  traitements quotidiens. `seedDemo` garde le réglage `exploitation` : une base exploitée reste refusée. L'aperçu à
+  blanc (`--a-blanc`, `apercuPurge`) n'écrit rien, pas même la mise à jour de la base
+  (`server/src/purge-demo-ouverture.ts`) : une base qui n'est pas au niveau de cette version (migrations nommées ou
+  PostgreSQL en attente, colonnes manquantes) est refusée, purge comprise, avec pour remède de démarrer une fois le
+  service de cette version ; sur PostgreSQL, il rejoue en plus toute la purge dans une transaction annulée
+  (`simulerPurge`).
+- **Exécution de la purge** (lot 8, chantier A, étape 2 ; `server/src/purge-demo-execution.ts`, `executerPurge`) :
+  1. décision refaite (déjà faite, refus, points à lever) ;
+  2. service arrêté : fichier SQLite, verrou du serveur (`controlerPourOutil` puis `controlerServeurPurge`, seul contrôle
+     que `--force` lève) ; PostgreSQL, aucune autre connexion `application_name = 'cursus'` sur la base
+     (`pg_stat_activity`, `controlerConnexionsPg`), la commande n'ouvrant qu'une connexion, contrôlé avant la
+     confirmation puis dans la transaction, sous le verrou `hashtext('cursus.ecritures')` ;
+  3. confirmation `--yes` ou « PRODUCTION <nombre de salariés supprimés> » tapé dans un terminal ;
+  4. sauvegarde préalable obligatoire : copie « avant-purge » du fichier (pièces comprises), ou pg_dump désigné par
+     `--sauvegarde`, vérifié (en-tête `PGDMP`, écrit après la dernière ligne du journal et la dernière activité d'une
+     session : `verifierPgDump`) ; un échec annule tout ;
+  5. une transaction : colonnes des lignes gardées remises à NULL (dont confirmation et auteur de la dernière
+     modification des rubriques de paie), signataire par défaut des habilitations vidé quand c'est un nom de la
+     démonstration (`signatairesFictifs` : salariés du jeu ou de la base, signataires du référentiel du jeu ; listés
+     dans l'aperçu, le bilan et les étapes suivantes), réglages retirés, tables vidées (ordre des clés étrangères sur
+     PostgreSQL ; les comptes non gardés par `--garder-compte` partent à leur rang, après `pieces` qui les désigne et
+     avant `employes`), amorçages reposés (activités internes, horaires d'exemple), séquence placée par
+     `ALTER SEQUENCE … RESTART` (annulable, jamais `RESTART IDENTITY`) ou `sqlite_sequence`, journal vidé puis la seule
+     ligne `purge.demo` (acteur « Ligne de commande (npm run purge-demo) » ; payload : profil, preuve, lignes supprimées
+     et ajustées par table, salariés, fiches ajoutées purgées, comptes gardés, réglages retirés, prochain identifiant,
+     plus grand identifiant attribué, chemin de la copie ; jamais de donnée de personne), `controlerOrphelins` vide,
+     sinon annulation ;
+  6. après la validation : fichiers des pièces effacés (un échec ajoute `piecesNonEffacees` à la ligne `purge.demo`,
+     sans annuler), `VACUUM` du fichier SQLite, et avec `--supprimer-copies-demo` les copies locales antérieures
+     supprimées, sauf la copie avant-purge et les fichiers du miroir des pièces qu'elle désigne ; un échec de l'une de
+     ces opérations est noté dans le bilan (`apres`), jamais propagé : « Purge faite et validée, mais… », code de
+     sortie 2. La commande affiche ensuite les étapes suivantes de la mise en production.
+  Garde-fous (`refusDemo`, `server/src/marqueurs.ts`) : `server/src/index.ts` refuse de démarrer avec `CURSUS_DEMO=1`
+  sur une base qui porte `purge.demo` au journal ou le réglage `exploitation` (« base de production »), avant toute
+  écriture ; `npm run reset-demo` refuse de la recharger. Procédure : `docs/DEPLOIEMENT.md`, « Passage de la
+  démonstration à la production ».
 - **Base sur le disque** (`server/src/protection.ts`) : `protegerBase` ramène la base et ses fichiers `-wal`, `-shm`
   en `600` et son dossier en `700` (créé ainsi ; un dossier partagé — bit sticky, racine du système ou du projet,
   dossier de lancement, autre propriétaire — n'est jamais modifié, avertissement ; le dossier personnel du compte de
@@ -643,7 +934,8 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   et d'arrêt gardent de vrais serveurs (`tests/exploitation.test.ts`).
 - **Erreurs** (`server/src/erreurs.ts`) : toujours `{ error }` en JSON, sans pile : `/api` inconnue 404, JSON illisible
   (`entity.parse.failed`) 400, corps au-delà de `LIMITE_CORPS` (2 Mo, `entity.too.large`) 413, autre refus 4xx d'un
-  module (encodage, adresse mal formée) son statut, sinon 500 `Erreur interne` ; `signalerErreur` écrit la pile dans
+  module (encodage, adresse mal formée) son statut, délai du serveur PostgreSQL dépassé (`estOccupe`) 503 « Cursus est
+  occupé, réessayez » avec `Retry-After`, sinon 500 `Erreur interne` ; `signalerErreur` écrit la pile dans
   les journaux (aussi pour une action qui jette autre chose qu'une `ActionError`). L'API Keystone garde son propre
   gestionnaire (codes d'erreur du contrat).
 - **Journaux du serveur** (`server/src/logs.ts`) : `log.info / avertissement / erreur`, une ligne JSON (`heure`, `niveau`,
@@ -958,7 +1250,7 @@ aucun champ du paramètre n'est recopié.
 | Action | Paramètres | Droits |
 | --- | --- | --- |
 | `employe.creer` | fiche complète (`ProfilInput` de `shared/rules/profil.ts`, matricule de paie compris : unique), reutiliserMatricule? (réembauche : matricule d'un salarié sorti) | RH ; réutiliser un matricule : administrateur RH |
-| `employe.modifier` | id + champs de la fiche (l'écran n'envoie que ceux modifiés), avant? (valeur à l'ouverture de chaque champ envoyé, et d'eux seuls, sinon 400 : un champ changé entre-temps fait tout refuser, 412, rien n'est enregistré ; auteur nommé au service RH seul ; jamais recopié au journal), reutiliserMatricule?, `confirmerRtt` (changement de régime qui ne laisse aucun RTT acquis dans l'année ou rend le solde négatif), tempsDepuis futur (avenant programmé, organisation du temps seulement, un seul à la fois : historique des contrats), motifRecours, cddFinInitiale (CDD) ; ni le motif ni la date d'une sortie enregistrée | RH : tous ; manager : `poste` (intitulé précisé ; le poste du référentiel, `posteId`, reste au RH), `jourOff` (temps partiel) des membres de son équipe ; changer ou retirer un matricule de paie déjà enregistré, réutiliser celui d'un salarié sorti : administrateur RH |
+| `employe.modifier` | id + champs de la fiche (l'écran n'envoie que ceux modifiés), avant? (valeur à l'ouverture de chaque champ envoyé, et d'eux seuls, sinon 400 : un champ changé entre-temps fait tout refuser, 412, rien n'est enregistré ; auteur nommé au service RH seul ; jamais recopié au journal), reutiliserMatricule?, `confirmerRtt` (changement de régime qui ne laisse aucun RTT acquis dans l'année ou rend le solde négatif), tempsDepuis futur (avenant programmé, organisation du temps seulement, un seul à la fois : historique des contrats), motifRecours, cddFinInitiale (CDD) ; ni le motif ni la date d'une sortie enregistrée | RH : tous ; manager : `poste` (intitulé précisé ; le poste du référentiel, `posteId`, reste au RH), `jourOff` (temps partiel) des membres de son équipe ; changer ou retirer un matricule de paie déjà enregistré, réutiliser celui d'un salarié sorti : administrateur RH ; sur sa propre fiche, `email` et `jourOff` seulement |
 | `employe.sortie` | id, date (dernier jour du contrat), motif (`MOTIFS_SORTIE`) ; refusée tant que le salarié encadre une équipe, qu'une feuille porte des heures après la date, qu'une absence est à cheval sur elle, au-delà de la fin prévue du contrat ou quand aucun autre administrateur RH ne reste en place après la date ; une sortie enregistrée se modifie par la même action ; solde des compteurs à la date photographié (`soldesSortie`), refait à la modification sauf s'il est déjà transmis (même date ; à une autre date, l'ancien est remplacé et un nouveau photographié) ; 409 tant que ce solde est dans un lot de paie à confirmer | RH (jamais pour lui-même) ; administrateur RH seul pour un salarié dont le compte ouvre l'espace RH |
 | `employe.autorisationTravail` | id, requise (faux : ressortissant français, de l'UE, de l'EEE ou de la Suisse, titre effacé), type (`TYPES_TITRE_SEJOUR`), numero, expire (sauf résident permanent), demandeLe (envoi de la demande d'authentification) et verifieLe (réponse de la préfecture), jamais futures ; avertissements sans blocage (titre expiré, demande d'authentification non tracée ou tardive) ; journal : codes et dates validés seulement ; refusée pour un salarié sorti | RH (jamais pour lui-même) |
 | `employe.renouvelerCdd` | id, jusquau (nouveau terme, après la fin actuelle), signeLe? (signature de l'avenant, aujourd'hui par défaut, jamais future), reference? (60 caractères ; gardée dans l'historique, jamais au journal) : ligne `renouvellement` de l'historique des contrats, fin du contrat repoussée, terme initial gardé (`cddFinInitiale`) ; durée maximale et renouvellements admis signalés sans blocage ; CDD en cours seulement, sans sortie enregistrée | RH (jamais pour lui-même) |
@@ -966,16 +1258,16 @@ aucun champ du paramètre n'est recopié.
 | `employe.annulerSortie` | id : fin prévue au contrat rétablie (aucune pour un CDI, même devenu CDI depuis la sortie) ; ce que la sortie a annulé ne l'est pas ; solde de sortie photographié retiré, ou, s'il est transmis à la paie, gardé pour l'historique et marqué remplacé ; 409 tant qu'il est dans un lot à confirmer | RH (jamais pour lui-même) ; administrateur RH seul pour un salarié dont le compte ouvre l'espace RH |
 | `equipe.creer` / `equipe.renommer` | nom, managerId? / nom, nouveau | RH |
 | `equipe.supprimer` | nom | administrateur RH |
-| `equipe.manager` | nom, managerId (null = aucun) | RH |
-| `equipe.modifier` | nom, nouveau? (absent : inchangé), managerId? (null = aucun ; absent : inchangé) : renommage puis manager dans une seule transaction, avec les contrôles de `equipe.renommer` et `equipe.manager` ; un refus n'enregistre rien (dialogue de l'équipe) | RH |
+| `equipe.manager` | nom, managerId (null = aucun) | RH ; jamais pour changer son propre valideur |
+| `equipe.modifier` | nom, nouveau? (absent : inchangé), managerId? (null = aucun ; absent : inchangé) : renommage puis manager dans une seule transaction, avec les contrôles de `equipe.renommer` et `equipe.manager` ; un refus n'enregistre rien (dialogue de l'équipe) | RH ; jamais pour changer son propre valideur |
 | `equipe.delegation` | managerId (service RH ; le manager : lui-même, espace manager ou collaborateur), suppleantId (défaut : son N+1), du, au (bornes comprises), perimetre (`absences`, `feuilles` ; `entretiens` si le réglage `delegationEntretiens` l'ouvre) : contrôles de `controleDelegation` (shared/rules/delegations-manager.ts : manager d'une équipe, suppléant présent sur toute la période et autre que lui, 92 jours au plus, fin à partir d'aujourd'hui, aucun chevauchement avec une autre délégation du manager, ni délégation transmise, ni validation croisée nouvelle), suppléant avec un compte actif ; suppléant prévenu (e-mail `delegation.debut` avec les demandes déjà en attente si elle commence aujourd'hui, sinon `delegation.prevue` puis `delegation.debut` le premier jour) ; manager prévenu si le service RH l'enregistre ; journal : identifiants, dates, codes du périmètre | RH, manager (pour lui-même) |
 | `equipe.revoquerDelegation` | id : délégation en cours ou à venir, révoquée aussitôt (`revoqueeLe`, horodatage) ; suppléant prévenu (`delegation.fin`) ; une délégation terminée est refusée | RH, manager qui a délégué |
-| `equipe.parente` | nom, parente (nom d'une autre équipe ; null ou vide : aucune) : contrôles de `shared/rules/hierarchie.ts` (équipe existante, ni elle-même ni une équipe qui lui est rattachée, 4 niveaux au plus), refus si deux salariés devenaient chacun le valideur de l'autre ; demandes de congés, feuilles soumises et entretiens planifiés dont le valideur change listés dans le message, nouveau valideur prévenu (e-mail `hierarchie.redirection`), journal : identifiants, ancien et nouveau valideur ; renommer l'équipe parente met à jour ses équipes rattachées, la supprimer est refusé tant qu'une équipe y est rattachée | RH |
-| `equipe.affecter` | empId, equipe (null = à affecter) | RH ; manager : ajout à une équipe qu'il encadre d'un salarié « à affecter » (libéré par son manager) ou d'un membre d'une autre de ses équipes, retrait d'un membre — jamais le membre d'une autre équipe : sa mutation relève du RH ; jamais un salarié mineur dans une équipe de nuit ou en continu |
+| `equipe.parente` | nom, parente (nom d'une autre équipe ; null ou vide : aucune) : contrôles de `shared/rules/hierarchie.ts` (équipe existante, ni elle-même ni une équipe qui lui est rattachée, 4 niveaux au plus), refus si deux salariés devenaient chacun le valideur de l'autre ; demandes de congés, feuilles soumises et entretiens planifiés dont le valideur change listés dans le message, nouveau valideur prévenu (e-mail `hierarchie.redirection`), journal : identifiants, ancien et nouveau valideur ; renommer l'équipe parente met à jour ses équipes rattachées, la supprimer est refusé tant qu'une équipe y est rattachée | RH ; jamais pour changer son propre valideur |
+| `equipe.affecter` | empId, equipe (null = à affecter) | RH ; manager : ajout à une équipe qu'il encadre d'un salarié « à affecter » (libéré par son manager) ou d'un membre d'une autre de ses équipes, retrait d'un membre — jamais le membre d'une autre équipe : sa mutation relève du RH ; jamais un salarié mineur dans une équipe de nuit ou en continu ; jamais sa propre affectation |
 | `plan.inscrire` | empId, certId (recyclage) ou inscriptionId (formation initiale à replanifier), sessionId, conv (`now`/`later`) ; refusé depuis une session passée non clôturée, et si le salarié est absent ou inscrit à une autre session ce jour-là ; convocation reçue pour l'ancienne session à venir annulée par e-mail | RH, référent HSE, manager direct |
 | `convocation.envoyer` | sessionId, empIds? (sans liste : toutes les convocations « à envoyer » ; avec : envoi ou renvoi) ; session à venir ; e-mail avec `.ics`, date d'envoi `convocLe` | RH, référent HSE ; manager direct pour les membres de son équipe |
 | `plan.desinscrire` | empId, sessionId (session à venir) : place libérée, recyclage de nouveau à planifier ou inscription initiale retirée, convocation reçue (même remise « à renvoyer ») annulée par e-mail | RH, référent HSE, manager direct |
-| `cert.ajouter` | empId, f, date | RH, référent HSE |
+| `cert.ajouter` | empId, f, date | RH, référent HSE ; jamais pour soi-même |
 | `cert.modifier` | id, f?, date? (pas future), motif (obligatoire, 500 caractères ; `corrigeMotif`, service RH seul) ; refusée si une habilitation délivrée s'appuie sur elle sans autre certification valide (la suspendre d'abord) ; nouvelle formation : session ouverte quittée (convocation annulée par e-mail), résultat de clôture détaché, inscription initiale à la nouvelle close (gardée sur la certification), celles closes à l'ancienne rendues ; une certification devenue remplacée libère sa place | RH, référent HSE (jamais la sienne) |
 | `cert.annuler` | id, motif (obligatoire) : `annuleLe`, `annulePar`, `annuleMotif` ; gardée en base, hors de tous les calculs (la précédente redevient en vigueur), place de session libérée, résultat de clôture détaché, inscription en formation initiale qu'elle avait close rendue si sa session l'accueille encore (sinon : à réinscrire) ; même refus que `cert.modifier` | administrateur RH (jamais la sienne) |
 | `session.creer` | f, date (premier jour, postérieur à aujourd’hui), fin? (dernier jour, la date par défaut ; 92 jours au plus après), jours? (dates entre les deux, premier et dernier compris, 20 au plus ; ouvrés par défaut), horaires? ([] : journées entières ; un seul {debut, fin, pause} pour tous les jours, ou un par jour), lieu, places (entier ≥ 1), planId? (action « prévue » de la même formation) | RH, référent HSE |
@@ -987,13 +1279,13 @@ aucun champ du paramètre n'est recopié.
 | `evaluation.enregistrer` | participationId (présente, session clôturée) ou formationSuivieId, type (`chaud` : note 1 à 5 ; `froid` : efficacite `efficace`, `partielle` ou `non`), commentaire? (1 000 caractères), repondant? (`salarie` par défaut ou `manager`, service RH seulement) ; fenêtres et formations concernées : `refusEvaluation` (lot 7, t121) ; remplace l'avis précédent du même répondant ; journal sans note, efficacité ni commentaire | le salarié pour lui-même (son avis), son manager direct (à froid, avis de manager), RH (avis recueilli, à chaud sans limite de temps) |
 | `evaluation.retirer` | id : avis supprimé (tracé : formation, type, répondant) | l'auteur de l'avis (le salarié pour le sien, le manager pour le sien), RH |
 | `attente.retirer` | id : retrait de la liste d'attente (`issue` : `salarie`, `manager` ou `rh`) ; demande mise à jour, salarié prévenu s'il ne s'est pas retiré lui-même ; place qui lui était proposée proposée au suivant | le salarié pour lui-même, son manager direct, RH, référent HSE |
-| `hab.delivrer` | empId, h, date, par, mode ; renouvellement : délivrance précédente close à l'historique (`habDelivrances`, mesure figée, jamais le motif) | RH, référent HSE |
+| `hab.delivrer` | empId, h, date, par, mode ; renouvellement : délivrance précédente close à l'historique (`habDelivrances`, mesure figée, jamais le motif) | RH, référent HSE ; jamais pour soi-même |
 | `formationSuivie.enregistrer` | empId, f (code du catalogue) ou libelle (hors catalogue, 120 caractères), du, au? (du par défaut ; ni l'un ni l'autre à venir), duree? (heures, 0,25 à 2 000), organisme?, obligatoire? (défaut : formation « Réglementaire » du catalogue ; hors catalogue : non), demandeId? (demande hors catalogue acceptée du même salarié, une fois : origine `demande`) ; même formation ou même intitulé le même premier jour : refus ; journal : codes, dates, durée, case, jamais l'intitulé ni l'organisme | RH, référent HSE |
 | `formationSuivie.modifier` | id, champs d'`enregistrer` (absents : inchangés), motif (obligatoire, 500 caractères, jamais au journal) | RH, référent HSE (jamais la sienne) |
 | `formationSuivie.annuler` | id, motif (obligatoire) : gardée en base, hors des calculs ; une demande qu'elle clôt redevient à clore | administrateur RH (jamais la sienne) |
 | `hab.suspendre` | empId, h, motif, date? (aujourd’hui par défaut) | RH, référent HSE ; manager pour un membre de son équipe (jamais lui-même) |
-| `hab.lever` | empId, h | RH, référent HSE |
-| `hab.retirer` | empId, h, motif, date? | RH, référent HSE |
+| `hab.lever` | empId, h | RH, référent HSE ; jamais pour soi-même |
+| `hab.retirer` | empId, h, motif, date? | RH, référent HSE ; jamais pour soi-même |
 | `referentiel.formation.enregistrer` | code (création) ou id (modification : le code ne change pas), nom, court, type, validite (mois, 1 à 240), duree?, dureeHeures? (t122 : 0,25 à 2 000 ; absente : inchangée, vide : effacée), organisme?, cout?, validation (`presence`/`evaluation`) ; message : titres devenus échus si la validité change, ligne du journal rattachée à leurs titulaires | RH, référent HSE |
 | `referentiel.formation.archiver` | id, archive? (faux : rétablie) ; refusé tant qu'une habilitation en vigueur l'exige en prérequis ou qu'une session est ouverte ; message : demandes des collaborateurs restées en attente | RH, référent HSE |
 | `referentiel.habilitation.enregistrer` | code ou id, nom, detail?, prereqs (formations du catalogue en vigueur ; une habilitation archivée garde ceux déjà inscrits, archivés depuis), medical, validite, signataire (proposé à la délivrance), modele? (t115 : `generique`/`electrique`/`conduite`, titre imprimé ; absent : inchangé, générique à la création) ; message : titres devenus échus, ligne du journal rattachée à leurs titulaires | RH, référent HSE |
@@ -1009,13 +1301,13 @@ aucun champ du paramètre n'est recopié.
 | `referentiel.horaire.alternant` | id (code de l'horaire), alternant (vrai : équipes successives alternantes ; faux : non ; null ou « » : à qualifier) ; vaut pour toutes les nuits comptées sous cet horaire ; journal : code, valeur avant et après | RH, référent HSE |
 | `passeport.declarer` | cles [« cert:<id> », « suivie:<id> » : lignes du Passeport de prévention, 2 000 au plus], le (jour de la déclaration sur la plateforme : ni à venir, ni avant le dernier jour d'une formation) ; ligne inconnue, annulée, d'une formation plus marquée ou déjà déclarée : refus, rien d'écrit (lot 7, `shared/rules/passeport-prevention.ts`) ; journal : jour, nombre de lignes, salariés concernés | RH, référent HSE |
 | `passeport.retirer` | cle (ligne marquée déclarée) : marque posée par erreur retirée, ligne de nouveau proposée à l'export ; journal : la clé, le salarié | RH, référent HSE |
-| `hab.demander` | empId, h : habilitation exigée jamais délivrée, titre « en attente » de délivrance (déjà demandée : rien n'est refait ; déjà délivrée ou archivée : refus) | RH, référent HSE |
+| `hab.demander` | empId, h : habilitation exigée jamais délivrée, titre « en attente » de délivrance (déjà demandée : rien n'est refait ; déjà délivrée ou archivée : refus) | RH, référent HSE ; jamais pour soi-même |
 | `referentiel.charger` | referentiel (`formations`/`habilitations`/`destinations`) : référentiel type (celui de la démonstration) chargé dans un référentiel vide, archivés compris ; habilitations après les formations (prérequis présents et en vigueur) | RH, référent HSE (destinations : RH) |
-| `medical.demander` | empId, motif? (`periodique`/`embauche`/`reprise`/`employeur`/`mi_carriere`/`fin_carriere` ; par défaut celui de la visite due la plus proche, sinon embauche sans visite enregistrée, sinon périodique) ; e-mail au service de santé au travail | RH (une demande en cours par collaborateur) |
-| `medical.annuler` | id | RH (demande de visite en cours) |
-| `medical.avis` | empId, date (passée), avis (`apte`/`restrictions`/`inapte`), motif? (motif de visite : clôt la demande en cours de ce motif quelle que soit sa date ; `mi_carriere`/`fin_carriere` sans demande : visite réalisée de ce motif enregistrée, qui clôt la visite due ; absent du journal), restrictions [{texte, jusquau?}] (avis avec restrictions), prochaineVisite? (fixée par le médecin, après la visite, 5 ans au plus ; ignorée pour un avis d’inaptitude), examen? (examen médical d’aptitude du suivi renforcé), suspendre [h]?, lever [h]? | RH (suspensions « Restriction d’aptitude » ; levée des seules suspensions d’un avis précédent, jamais pour un avis d’inaptitude) |
-| `medical.suivi` | empId, suivi (`vip`/`vip_adapte`/`sir`, vide : VIP par défaut), expose? (booléen, absent : inchangé : exposé à des risques particuliers, visite post-exposition à la sortie) ; journal : `empId` seul | RH (un suivi renforcé déduit du référentiel prime) |
-| `demande.accepter` / `demande.refuser` | id ; refus : motif? (500 caractères, `motifRefus`, montré au collaborateur seul, même quand son manager a fait la demande) ; acceptation refusée quand la formation ou l'habilitation demandée a été archivée depuis (à refuser, ou à rétablir d'abord) | RH ; référent HSE pour une demande de formation ou d'habilitation (document déclaré : RH) |
+| `medical.demander` | empId, motif? (`periodique`/`embauche`/`reprise`/`employeur`/`mi_carriere`/`fin_carriere` ; par défaut celui de la visite due la plus proche, sinon embauche sans visite enregistrée, sinon périodique) ; e-mail au service de santé au travail | RH (une demande en cours par collaborateur) ; jamais pour soi-même |
+| `medical.annuler` | id | RH (demande de visite en cours) ; jamais pour soi-même |
+| `medical.avis` | empId, date (passée), avis (`apte`/`restrictions`/`inapte`), motif? (motif de visite : clôt la demande en cours de ce motif quelle que soit sa date ; `mi_carriere`/`fin_carriere` sans demande : visite réalisée de ce motif enregistrée, qui clôt la visite due ; absent du journal), restrictions [{texte, jusquau?}] (avis avec restrictions), prochaineVisite? (fixée par le médecin, après la visite, 5 ans au plus ; ignorée pour un avis d’inaptitude), examen? (examen médical d’aptitude du suivi renforcé), suspendre [h]?, lever [h]? | RH (suspensions « Restriction d’aptitude » ; levée des seules suspensions d’un avis précédent, jamais pour un avis d’inaptitude) ; jamais pour soi-même |
+| `medical.suivi` | empId, suivi (`vip`/`vip_adapte`/`sir`, vide : VIP par défaut), expose? (booléen, absent : inchangé : exposé à des risques particuliers, visite post-exposition à la sortie) ; journal : `empId` seul | RH (un suivi renforcé déduit du référentiel prime) ; jamais pour soi-même |
+| `demande.accepter` / `demande.refuser` | id ; refus : motif? (500 caractères, `motifRefus`, montré au collaborateur seul, même quand son manager a fait la demande) ; acceptation refusée quand la formation ou l'habilitation demandée a été archivée depuis (à refuser, ou à rétablir d'abord) | RH ; référent HSE pour une demande de formation ou d'habilitation (document déclaré : RH) ; jamais pour sa propre demande |
 | `demande.annuler` | id : demande de formation ou d'habilitation en attente, passée « retirée » | son auteur : le collaborateur pour la sienne, le manager pour celle qu'il a faite pour un membre de son équipe |
 | `demande.reouvrir` | id, motif (obligatoire ; `rouverteMotif`, service RH seul) : demande de formation ou d'habilitation acceptée ou refusée, de nouveau « en attente » ; ce que l'acceptation a créé (`suite`) est défait : inscription à la session (convocation annulée par e-mail, session quittée retrouvée si elle l'accueille encore : sinon recyclage à planifier, inscription initiale retirée), ligne du plan prévue supprimée, titre en attente retiré ou demande effacée du titre ; refus si la session a commencé ou est clôturée, la ligne engagée, l'exercice clos, l'habilitation délivrée depuis | RH, référent HSE (jamais la sienne) |
 | `demande.formation` | f (ou `autre`), libelle, sessionId, motif, empId (manager) ; refusée si une demande identique attend (même formation, ou même intitulé hors catalogue), si le salarié est déjà inscrit à une session à venir, ou absent le jour de la session souhaitée | collaborateur pour lui-même, manager pour un membre de son équipe |
@@ -1047,7 +1339,7 @@ aucun champ du paramètre n'est recopié.
 | `temps.validate` / `temps.reject` | empId, week, comment?, motif? | manager direct ou RH, jamais pour sa propre feuille (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence ; 24 h par jour au plus ; motif du dépassement exigé s'il manque, après une correction du valideur : celui du salarié n'est jamais remplacé ; majoration des fériés et contrepartie obligatoire en repos figées, `cor` au journal ; seuils de durée franchis rappelés dans le message) |
 | `temps.pushSage` | — ; simulation seulement : lot de toutes les feuilles en attente, aussitôt marqué transmis (référence « SIM-… », rien n'est envoyé, message qui le dit) ; en mode fichier, refus 503 sans rien marquer | administrateur RH, paie |
 | `temps.relancer` | empId? (sinon tout le périmètre) : feuilles des semaines suivies manquantes, en brouillon ou à corriger, échéance passée ; e-mail (ou récapitulatif) au salarié et à son valideur ; rien en retard : refus | manager direct (son équipe) ou RH |
-| `temps.validerLot` | feuilles [{empId, week}] (200 au plus) : chacune passe par `temps.validate` dans son point de reprise (SAVEPOINT) ; refus listés dans le message, les autres validées, avec les alertes de durée de chacune (5 au plus en entier) ; aucune validée : 403 si toutes l'étaient pour des droits, sinon 400 avec la liste | manager direct ou RH (comme `temps.validate`) |
+| `temps.validerLot` | feuilles [{empId, week}] (200 au plus) : chacune passe par `temps.validate` dans son point de reprise (SAVEPOINT), sur une seule lecture de la base (la feuille validée y est remplacée : contingent et contrepartie cumulés, relevé de l'agence sur le Domain de l'appelant) ; par tranches de 25 au plus, une transaction et une ligne de journal chacune (lot 8 ; tranche sans feuille validée tant que rien ne l'est : annulée, ses refus comptés dans la ligne de journal suivante, aucun refus perdu) ; une feuille déjà validée est sautée (reprise) ; refus listés dans le message, les autres validées, avec les alertes de durée de chacune (5 au plus en entier) ; tranche interrompue (Cursus occupé) : résultat partiel, `restantes` à relancer ; aucune validée ni déjà validée : 403 si toutes l'étaient pour des droits, sinon 400 avec la liste | manager direct ou RH (comme `temps.validate`) |
 | `paie.lotGenerer` | periode (AAAA-MM) : lot des feuilles validées en attente dont la période de destination vient au plus tard (rappels compris), contenu figé, clé d'idempotence (UUID), feuilles réservées (`feuilles.lotId`), libellé de chaque code Sage figé (`contenu.libelles`) ; hors simulation, refus si un salarié n'a pas de matricule de paie (liste) ou 409 si une rubrique émise et exportée n'a pas de code Sage confirmé (liste) ; en simulation, avertissement | administrateur RH, paie (écran Temps) |
 | `paie.lotConfirmer` | id, reference? (code de 40 caractères au plus) : confirmation de l'import dans Sage, datée et signée, qui seule marque les feuilles transmises ; lot de fichier : fichier téléchargé au moins une fois (409 sinon) ; lot de simulation refusé hors simulation ; déjà confirmé : rien n'est refait ; annulé : 409 | administrateur RH, paie |
 | `paie.lotAnnuler` | id : avant la confirmation seulement (409 ensuite : une feuille se corrige par `temps.rouvrir`, puis lot correctif) ; feuilles libérées | administrateur RH, paie |
@@ -1055,7 +1347,7 @@ aucun champ du paramètre n'est recopié.
 | `temps.pushSage` | — ; simulation seulement : lot de toutes les feuilles en attente (et des absences jusqu'à leur dernière période), aussitôt marqué transmis (référence « SIM-… », rien n'est envoyé, message qui le dit) ; en mode fichier, refus 503 sans rien marquer | administrateur RH, paie |
 | `temps.rouvrir` | empId, week, motif (obligatoire, 500 caractères ; gardé sur la feuille, `reouverture.motif` ; journal : seulement « renseigné »), renvoyer? (vrai : « à corriger », motif en commentaire, salarié prévenu ; sinon « soumise », corrigée par son valideur) : feuille validée seulement ; 409 si elle est dans un lot de paie généré (annuler d'abord le lot) ou si c'est celle d'un intérimaire dont le relevé est parti ; transmise, elle garde les rubriques parties (`reouverture.rubriques`) et, revalidée, son écart part dans le lot suivant (lot correctif) ; heures déjà renvoyées à Keystone gardées (`reouverture.keystone`) ; COR refigée à la revalidation | administrateur RH, jamais pour sa propre feuille |
 | `temps.relancer` | empId? (sinon tout le périmètre) : feuilles des semaines suivies manquantes, en brouillon ou à corriger, échéance passée ; e-mail (ou récapitulatif) au salarié et à son valideur ; rien en retard : refus | manager direct (son équipe) ou RH |
-| `temps.validerLot` | feuilles [{empId, week}] (200 au plus) : chacune passe par `temps.validate` dans son point de reprise (SAVEPOINT) ; refus listés dans le message, les autres validées ; aucune validée : 403 si toutes l'étaient pour des droits, sinon 400 avec la liste | manager direct ou RH (comme `temps.validate`) |
+| `temps.validerLot` | feuilles [{empId, week}] (200 au plus) : chacune passe par `temps.validate` dans son point de reprise (SAVEPOINT), sur une lecture de la base par tranche de 25 feuilles (une transaction chacune) ; déjà validée : sautée ; refus listés dans le message, les autres validées ; aucune validée ni déjà validée : 403 si toutes l'étaient pour des droits, sinon 400 avec la liste | manager direct ou RH (comme `temps.validate`) |
 | `paie.lotGenerer` | periode (AAAA-MM) : lot des feuilles validées en attente dont la période de destination vient au plus tard (rappels compris) et, réglage `absencesFichierPaie`, des absences validées ventilées par mois avec leurs régularisations (`shared/rules/absences-paie.ts` ; lot possible sans feuille), contenu figé, clé d'idempotence (UUID), feuilles et absences réservées (`feuilles.lotId`, `absences.lotId`), libellé de chaque code Sage figé (`contenu.libelles`) ; hors simulation, refus si un salarié n'a pas de matricule de paie (liste) ou 409 si une rubrique émise et exportée n'a pas de code Sage confirmé (liste) ; en simulation, avertissement ; « annule et remplace » (`negatifs` faux) avec des feuilles à régulariser : lot correctif des seules régularisations, 409 si un autre lot attend la confirmation de son import | administrateur RH, paie (écran Temps) |
 | `paie.lotConfirmer` | id, reference? (code de 40 caractères au plus) : confirmation de l'import dans Sage, datée et signée, qui seule marque les feuilles et les absences transmises (`absences.sage`) ; lot de fichier : fichier téléchargé au moins une fois (409 sinon) ; lot de simulation refusé hors simulation ; déjà confirmé : rien n'est refait ; annulé : 409 | administrateur RH, paie |
 | `paie.lotAnnuler` | id : avant la confirmation seulement (409 ensuite : une feuille se corrige par `temps.rouvrir`, puis lot correctif) ; feuilles et absences libérées (une absence reprend le dernier lot transmis qui l'a emportée) | administrateur RH, paie |
@@ -2229,6 +2521,17 @@ fonction n'efface rien et laisse les pièces jointes consultables.
 - **Sauvegarde, restauration, intégrité, export** : voir `docs/SAUVEGARDE.md` (dossier `pieces-<base>/` des copies,
   remise en place à la restauration), « Exploitation » (contrôle d'intégrité) et « Journal des actions » (l'export des
   données d'un salarié joint le contenu de ses pièces en base64, sans nom stocké ni jeton).
+- **Chiffrement au repos** (lot 8, chantier D, `server/src/pieces-chiffrement.ts`) : avec `CURSUS_PIECES_KEY` (32 octets,
+  `clePieces` de `config.ts`, jamais en base), `DepotLocal` chiffre chaque nouveau fichier en AES-256-GCM (en-tête
+  `CURSUSP1`, vecteur aléatoire, étiquette ; le nom stocké est authentifié avec le contenu) et le déchiffre à la lecture ;
+  `pieces.chiffree` le note (migrations `0012_pieces_chiffrees.sql` et `lot8-pieces-chiffrees`). L'empreinte et la taille
+  enregistrées restent celles du clair : l'empreinte est vérifiée après déchiffrement, le contrôle d'intégrité ajoute
+  `SURCOUT_CHIFFREMENT` à la taille attendue. La lecture se fie à l'en-tête, pas à la colonne : les pièces d'avant restent
+  lisibles, et une passe de `npm run pieces:chiffrer` interrompue ne rend rien illisible. Fichier chiffré illisible (clé
+  absente ou autre, contenu altéré) : 409 à la consultation, export sans le contenu. En production (hors application de
+  bureau), `refusPiecesLocales` refuse sans clé l'activation des pièces locales (`parametres.maj`, 409) et chaque envoi,
+  et le démarrage le signale. Les copies de sauvegarde emportent les fichiers chiffrés tels quels. Journal :
+  `piece.chiffrer` (nombres seulement), écrit par la commande.
 
 ## Conservation des dossiers (t016, lot 6 chantier 7 étape 2)
 
@@ -3118,7 +3421,8 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
     (lien vers Cursus seulement, `server/src/actions/remise.ts`) : toujours aussitôt.
   - Relevés des intérimaires (`server/src/releves.ts`, règles `shared/rules/releves.ts`) : par agence et par
     semaine, heures des feuilles validées (par jour, normales, majorées), jours d'absence sans leur nature,
-    CSV joint, heures au centième. Envoi automatique (`semainesAutomatiques` : les cinq semaines précédentes, et la
+    CSV joint (`texteCsv` de shared/csv.ts, comme les autres exports : une cellule qui commence comme une formule est
+    neutralisée, lot 8), heures au centième. Envoi automatique (`semainesAutomatiques` : les cinq semaines précédentes, et la
     semaine en cours après son vendredi, sans remonter avant la semaine qui précède l'adresse de l'agence) quand
     toutes les feuilles de l'agence sont validées, à la validation de la dernière (`temps.validate`) et par les
     tâches de fond, si la semaine n'a pas été transmise ou si le dernier envoi était incomplet ; envoi (feuilles

@@ -180,7 +180,7 @@ test('texte de la page : durées décidées reprises, mentions « à compléter 
   assert.ok(texte.includes(A_COMPLETER), 'ce que l’entreprise n’a pas tranché est signalé');
   for (const r of INFO_CONFIDENTIALITE) assert.ok(r.points.length > 0, r.id);
   const doc = readFileSync(new URL('../docs/RGPD.md', import.meta.url), 'utf8');
-  for (const d of ['Keystone', 'Sage Paie', 'Microsoft 365', 'Agences d\'intérim', 'santé au travail', 'Hébergeur', 'référent HSE', 'Gestionnaire de paie', 'Manager']) {
+  for (const d of ['Keystone', 'Sage Paie', 'Microsoft 365', 'Agences d\'intérim', 'santé au travail', 'Hébergeur', 'référent HSE', 'Gestionnaire de paie', 'Manager', 'Vigie', 'Codex', 'Crucible', 'Matrix', 'matrix_lecture', 'epc2i_sauvegarde']) {
     assert.ok(doc.toLowerCase().includes(d.toLowerCase()), `destinataire décrit dans docs/RGPD.md : ${d}`);
   }
   assert.match(doc, /1 an ; les actions liées à la paie/);

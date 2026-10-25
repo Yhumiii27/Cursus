@@ -22,6 +22,8 @@ data/*.db-*
 data/backups/
 data/*.db.pid
 data/*.db.restauration
+# Essai de charge (npm run charge:generer, npm run charge) : description des jeux et rapports
+data/charge/
 *.sqlite
 *.sqlite3
 

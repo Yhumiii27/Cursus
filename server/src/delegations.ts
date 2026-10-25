@@ -8,10 +8,11 @@ import { isoWeek } from '../../shared/dates.ts';
 import { fmtIso, plural } from '../../shared/format.ts';
 import { delegationEnVigueur, delegationPour, perimetreEffectif, perimetreTexte } from '../../shared/rules/delegations-manager.ts';
 import type { CurrentUser, Dataset, DelegationValidation } from '../../shared/types.ts';
-import { loadFull, todayIso } from './dataset.ts';
+import { todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
 import { periodeLongue } from './messagerie.ts';
 import { notifier } from './notifications.ts';
+import { type Lecture, lectureDirecte } from './lecture-partagee.ts';
 
 /** Lecture du périmètre complet, comme le service RH (tâche de fond). */
 const SUIVI: CurrentUser = { role: 'rh', empId: null, nom: 'Cursus', intitule: 'Délégations des validations' };
@@ -59,11 +60,12 @@ export async function annoncerDelegation(cx: { db: Db; ds: Dataset; user: Curren
  * Tâche de fond (dans la transaction de `tachesEmails`) : délégations en vigueur aujourd'hui pas encore annoncées.
  * Renvoie le nombre de suppléants prévenus.
  */
-export async function annoncerDelegations(db: Db): Promise<number> {
+export async function annoncerDelegations(db: Db, lire: Lecture = lectureDirecte(db)): Promise<number> {
   const jour = todayIso();
   const a = (await db.all<DelegationValidation>('delegations')).filter(g => !g.annonceeLe && delegationEnVigueur(g, jour));
   if (!a.length) return 0;
-  const ds = await loadFull(db, SUIVI);
+  // Lecture partagée du passage du quart d'heure (server/src/lecture-partagee.ts) : noms et demandes en attente.
+  const ds = await lire(SUIVI);
   for (const g of a) await annoncerDelegation({ db, ds, user: SUIVI }, g);
   return a.length;
 }

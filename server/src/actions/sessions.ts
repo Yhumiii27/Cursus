@@ -12,7 +12,7 @@ import { NOTE_MAX, NOTE_MIN } from '../../../shared/rules/evaluation-formation.t
 import type { Certification, EvaluationFormation, Inscription, Participation, PlanAction, Session, SessionBilan } from '../../../shared/types.ts';
 import { annulerSiConvoque } from '../notifications.ts';
 import { ajusterPropositions, promouvoirAttente, purgerAttente, retirerInscription } from '../liste-attente.ts';
-import { ActionError, type ActionHandler, type Ctx, isRh, requireFormations, str } from './context.ts';
+import { ActionError, type ActionHandler, type Ctx, getEmp, isRh, refuserSoiMeme, requireFormations, REVIENT_FORMATIONS, str } from './context.ts';
 
 /** Session désignée par `id` ; refusée si elle est clôturée ou annulée (sauf `toutes`). */
 function sessionOf(ctx: Ctx, id: unknown, toutes = false): Session {
@@ -222,6 +222,11 @@ const cloturer: ActionHandler = async (ctx, p) => {
     return { i, present: x.present, reussi, ok: x.present && reussi !== false, avis: avisRecueilli(ctx, i.nom, x.present, x.note) };
   });
 
+  // Certification de l'auteur de la clôture, s'il est parmi les présents (lot 8, chantier C) : refusée comme cert.ajouter
+  // sur son propre dossier ; un autre membre du service RH ou le référent HSE / formation clôt la session.
+  for (const l of lignes) {
+    if (!l.i.dejaObtenue && l.ok) refuserSoiMeme(ctx, getEmp(ctx, l.i.empId), 'Vous ne pouvez pas clôturer une session qui vous délivre une certification', REVIENT_FORMATIONS);
+  }
   let obtenues = 0, avis = 0;
   const aReplanifier: string[] = [];
   for (const l of lignes) {

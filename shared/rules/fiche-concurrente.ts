@@ -6,7 +6,7 @@
 // l'ensemble. Le serveur ne compare que les champs envoyés (une valeur d'origine pour un autre champ est refusée). Les
 // autres appelants (import, appel ancien) n'envoient pas `avant` et ne sont pas contrôlés.
 import type { ProfilInput } from './profil.ts';
-import { PROFIL_FIELDS } from './profil.ts';
+import { normaliserProfil, PROFIL_FIELDS } from './profil.ts';
 
 type Champ = keyof ProfilInput;
 
@@ -57,6 +57,16 @@ export function champsEnConflit(avant: unknown, actuelle: ProfilInput): Champ[] 
   if (!avant || typeof avant !== 'object' || Array.isArray(avant)) return [];
   const a = avant as Record<string, unknown>;
   return PROFIL_FIELDS.filter(k => Object.hasOwn(a, k) && !egal(a[k], actuelle[k]));
+}
+
+/**
+ * Champs envoyés (`envoi`, parmi `champs`) dont la valeur change la fiche enregistrée (`actuelle`), comparés après
+ * normalisation (normaliserProfil, comme à l'enregistrement) : un champ lié renvoyé inchangé n'en fait pas partie.
+ */
+export function champsModifies(actuelle: ProfilInput, envoi: Record<string, unknown>, champs: readonly Champ[]): Champ[] {
+  const avant = normaliserProfil(actuelle);
+  const apres = normaliserProfil({ ...actuelle, ...Object.fromEntries(champs.map(k => [k, envoi[k]])) } as ProfilInput);
+  return champs.filter(k => !egal(avant[k], apres[k]));
 }
 
 /** Message du refus : champs modifiés entre-temps, et par qui quand le journal le dit. */

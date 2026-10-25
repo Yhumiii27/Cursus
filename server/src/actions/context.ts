@@ -2,6 +2,7 @@
 import { droitsRh, type DroitRh } from '../../../shared/constants.ts';
 import { Domain, type EmpX } from '../../../shared/domain.ts';
 import { delegationPour } from '../../../shared/rules/delegations-manager.ts';
+import { fichePropre } from '../../../shared/rules/soi-meme.ts';
 import type { CurrentUser, Dataset, Employe, PerimetreDelegation } from '../../../shared/types.ts';
 import type { Db } from '../db.ts';
 
@@ -66,13 +67,26 @@ export function requirePaie(ctx: Ctx) {
 
 /**
  * Membre du service RH sur sa propre fiche (compte rattaché à ce salarié) : comme tout salarié, il ne décide pas
- * de ses propres absences, feuilles de temps ou entretiens.
+ * de ses propres absences, feuilles de temps ou entretiens. Règle partagée avec l'interface (shared/rules/soi-meme.ts),
+ * qui masque sur sa propre fiche les boutons refusés ici.
  */
-export const estSoiMeme = (ctx: Ctx, empId: number) => ctx.user.role === 'rh' && ctx.user.salarieId != null && ctx.user.salarieId === empId;
+export const estSoiMeme = (ctx: Ctx, empId: number) => fichePropre(ctx.user, empId);
 
-/** Refus clair d'une décision sur soi-même : elle revient au manager du salarié ou à un autre membre du service RH. */
-export function refuserSoiMeme(ctx: Ctx, e: Employe, refus: string) {
+/**
+ * À qui revient une décision que le manager ne prend pas (lot 8, chantier C : titres et habilitations, suivi médical,
+ * contrat et affectation). Réponse de l'entreprise du 24 octobre 2026 : aucune exception pour soi-même, même pour la seule
+ * personne habilitée sur son périmètre ; un autre membre habilité, sinon la direction par un compte RH dédié.
+ */
+export const REVIENT_RH = 'la décision revient à un autre membre du service RH — à défaut, à la direction, par un compte RH dédié';
+export const REVIENT_FORMATIONS = 'la décision revient à un autre membre du service RH ou au référent HSE / formation — à défaut, à la direction, par un compte RH dédié';
+
+/**
+ * Refus clair d'une décision sur soi-même : elle revient au manager du salarié ou à un autre membre du service RH ;
+ * `revient` : décision qui ne revient pas au manager (REVIENT_RH, REVIENT_FORMATIONS).
+ */
+export function refuserSoiMeme(ctx: Ctx, e: Employe, refus: string, revient?: string) {
   if (!estSoiMeme(ctx, e.id)) return;
+  if (revient) throw new ActionError(`${refus} : ${revient}`, 403);
   const m = ctx.d.mgrOf(e);
   throw new ActionError(`${refus} : la décision revient ${m ? `à votre manager (${ctx.d.personName(m)}) ou ` : ''}à un autre membre du service RH`, 403);
 }

@@ -168,7 +168,12 @@ test('t130 validation groupée : contrôles feuille par feuille, refus listés s
   assert.ok(estActionPaie('temps.validerLot'));
   // Plus rien de validable : refus avec la liste.
   await refus(KARIM, 'temps.validerLot', { feuilles: [{ empId: 6, week: W }] }, 400, /^Aucune feuille validée — 1 refus : Thomas Garnier S41/);
-  await refus(KARIM, 'temps.validerLot', { feuilles: [{ empId: 2, week: W }] }, 400, /Aucune feuille en attente de validation/);
+  // Feuille déjà validée (validation reprise après une interruption, lot 8) : sautée, sans refus ni nouvelle écriture.
+  assert.equal(await run(KARIM, 'temps.validerLot', { feuilles: [{ empId: 2, week: W }] }), 'Aucune nouvelle feuille validée · 1 feuille déjà validée, sautée');
+  assert.match(String(await run(KARIM, 'temps.validerLot', { feuilles: [{ empId: 2, week: W }, { empId: 6, week: W }] })),
+    /^Aucune nouvelle feuille validée · 1 feuille déjà validée, sautée · 1 feuille non validée, à ouvrir une à une : Thomas Garnier S41/);
+  // Hors de son périmètre, une feuille validée n'est pas « déjà validée » : refusée comme avant.
+  await refus(HUGO, 'temps.validerLot', { feuilles: [{ empId: 2, week: W }] }, 400, /Aucune feuille en attente de validation/);
   // Le service RH valide ce que le manager ne pouvait pas.
   assert.equal(await run(ADMIN, 'temps.validerLot', { feuilles: [{ empId: 3, week: W }] }), '1 feuille validée');
 });

@@ -9,32 +9,35 @@ import { libelleAction } from '../../shared/journal.ts';
 import { ACTIONS, changeVerdicts } from './actions/index.ts';
 import { ActionError, makeCtx } from './actions/context.ts';
 import { signerDelegation } from './actions/delegations-manager.ts';
-import { DEMO } from './auth.ts';
+import { validerEnTranches } from './actions/suivi-feuilles.ts';
+import { appliquerMajSession, DEMO } from './auth.ts';
 import { dossierInterface } from './chemins.ts';
 import { compression } from './compression.ts';
 import { compressionActive, configMail, demoPublique, enProduction, trustProxy } from './config.ts';
-import { espaceChange, identite, routesConnexion } from './connexion.ts';
+import { ESPACE_CHANGE, espaceChange, examinerIdentite, identite, routesConnexion } from './connexion.ts';
 import { routesConfidentialite } from './confidentialite.ts';
-import { buildSnapshot, loadFull } from './dataset.ts';
+import { buildSnapshot, loadFull, todayIso } from './dataset.ts';
+import { donneesAction } from './cache-instantane.ts';
 import { type Db, enSerie } from './db.ts';
 import { limiterDebit } from './debit.ts';
 import { routesDonnees } from './donnees.ts';
 import { type Cible, CIBLES, etatEnvois, listerEnvois } from './envois.ts';
 import { envoisPourLecteur } from './envois-lecteur.ts';
-import { apiInconnue, ERREUR_INTERNE, gestionnaireErreurs, LIMITE_CORPS, signalerErreur } from './erreurs.ts';
+import { apiInconnue, ERREUR_INTERNE, estOccupe, gestionnaireErreurs, LIMITE_CORPS, repondreOccupe, signalerErreur } from './erreurs.ts';
 import { routesFichierPaie } from './fichier-paie.ts';
+import { filtreKeystone } from './filtre-keystone.ts';
 import { routesVariablesPaie } from './variables-paie.ts';
 import { routesPasseportPrevention } from './passeport-prevention.ts';
 import { routesPieces } from './pieces-routes.ts';
 import { routesAgenda } from './agenda.ts';
-import { journaliserAction, preparerTrace, routesJournal, tracerRefus } from './journal.ts';
+import { journaliserAction, lireFiltre, preparerTrace, routesJournal, tracerRefus } from './journal.ts';
 import { emailMode } from './integrations/email.ts';
 import { KEYSTONE_MODE } from './integrations/keystone.ts';
 import { suivreVerdicts } from './integrations/keystone-verdicts.ts';
 import { keystoneRoutes } from './integrations/keystone-routes.ts';
-import { journalRequetes } from './logs.ts';
+import { cheminJournal, journalRequetes, log } from './logs.ts';
 import { recapitulatifEnAttente } from './notifications.ts';
-import { demoPosteLocal, protectionCsrf, securityHeaders } from './securite.ts';
+import { demoPosteLocal, exigerNavigationInterne, protectionCsrf, securityHeaders } from './securite.ts';
 import { routeSante } from './supervision.ts';
 
 export interface OptionsApp {
@@ -69,7 +72,8 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // limiteur de débit et les autres routes /api (server/src/supervision.ts).
   app.use(routeSante(db));
   // API Keystone (clé X-Api-Key, journal de chaque appel) : avant l'analyse JSON, faite après la vérification de la clé.
-  app.use('/api/integrations/keystone', keystoneRoutes(db));
+  // Filtre facultatif par adresse devant elle (CURSUS_KEYSTONE_ADRESSES, lot 8 : server/src/filtre-keystone.ts).
+  app.use('/api/integrations/keystone', filtreKeystone(), keystoneRoutes(db));
   // Débit limité par adresse IP et par compte (429, Retry-After), puis refus des requêtes qui modifient sans venir de Cursus (CSRF).
   app.use('/api', limiterDebit(db));
   app.use(protectionCsrf());
@@ -80,52 +84,92 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // Page Confidentialité : coordonnées du responsable et du DPO, lisibles sans connexion (server/src/confidentialite.ts).
   app.use(routesConfidentialite(db));
 
-  app.get('/api/data', enSerie(db, async (req: Request, res: Response) => {
+  // Lecture hors du verrou d'écriture (lot 8, chantier E) : identité (écritures de la session à part, courtes), puis
+  // instantané dans une lecture stable (`Db.lecture` : un seul état de la base, sans verrou sur PostgreSQL). Les lectures
+  // restent parallèles et n'attendent plus les écritures.
+  app.get('/api/data', async (req: Request, res: Response) => {
     const id = await identite(db, req);
     if (!id) return res.status(401).json({ error: 'Connexion requise' });
     if (espaceChange(req, res, id)) return;
-    res.json(await buildSnapshot(db, id.user));
-  }));
+    res.json(await db.lecture(async () => await buildSnapshot(db, id.user)));
+  });
 
-  app.post('/api/actions/:name', enSerie(db, async (req: Request, res: Response) => {
+  // Action : identité lue hors du verrou, puis l'action dans sa transaction (verrou d'écriture tenu le temps de la
+  // transaction seulement), puis l'instantané renvoyé dans une lecture stable, hors du verrou. La validation groupée des
+  // feuilles passe par tranches de 25 feuilles au plus, une transaction chacune (`validerEnTranches`).
+  app.post('/api/actions/:name', async (req: Request, res: Response) => {
     const id = await identite(db, req);
     if (!id) return res.status(401).json({ error: 'Connexion requise' });
     // Espace changé dans un autre onglet : l'action n'est pas faite avec les droits d'un autre espace.
     if (espaceChange(req, res, id)) return;
-    const { user, compte } = id;
+    const { compte } = id;
     const name = String(req.params.name);
-    const handler = ACTIONS[name];
+    // Registre lu sur ses seules clés (lot 8, S5) : « constructor », « __proto__ »… ne désignent pas une fonction héritée.
+    const handler = Object.hasOwn(ACTIONS, name) ? ACTIONS[name] : undefined;
     if (!handler) return res.status(404).json({ error: `Action inconnue : ${name}` });
+    const corps = (req.body ?? {}) as Record<string, any>;
+    /** Une transaction : droits relus dans la transaction (un compte changé entre-temps agit avec ses droits du moment). */
+    const passe = async (p: Record<string, any>) => await db.tx(async () => {
+      const actuel = (await examinerIdentite(db, req)).id;
+      if (!actuel) throw new ActionError('Connexion requise', 401);
+      if (actuel.session.role !== id.session.role) throw new ActionError(ESPACE_CHANGE, 409);
+      const user = actuel.user;
+      // Lecture partagée de l'instantané en cache si elle décrit l'état de la base vu ici (server/src/cache-instantane.ts).
+      const ctx = makeCtx(db, user, await donneesAction(db, user, todayIso(), async u => await loadFull(db, u)));
+      const trace = await preparerTrace(db, name, p);
+      const r = await handler(ctx, p);
+      const o = signerDelegation(ctx, typeof r === 'object' && r !== null ? r : { message: r });
+      // Journal signé du nom de la personne connectée et de son compte : champs de la liste blanche de l'action,
+      // anciennes et nouvelles valeurs, salariés concernés (server/src/journal.ts) ; managers remplacés (t135).
+      await journaliserAction(db, trace, { user, compte, message: o.message ?? null, result: o.result, parDelegation: [...ctx.parDelegation] });
+      // Verdicts transmis à Keystone : un changement est mis en file avec l'action, dans la même transaction.
+      if (changeVerdicts(name)) await suivreVerdicts(db);
+      return o;
+    });
+    let out: { message?: string | null; result?: unknown };
     try {
-      const out = await db.tx(async () => {
-        const ctx = makeCtx(db, user, await loadFull(db, user));
-        const trace = await preparerTrace(db, name, req.body ?? {});
-        const r = await handler(ctx, req.body ?? {});
-        const o = signerDelegation(ctx, typeof r === 'object' && r !== null ? r : { message: r });
-        // Journal signé du nom de la personne connectée et de son compte : champs de la liste blanche de l'action,
-        // anciennes et nouvelles valeurs, salariés concernés (server/src/journal.ts) ; managers remplacés (t135).
-        await journaliserAction(db, trace, { user, compte, message: o.message ?? null, result: o.result, parDelegation: [...ctx.parDelegation] });
-        // Verdicts transmis à Keystone : un changement est mis en file avec l'action, dans la même transaction.
-        if (changeVerdicts(name)) await suivreVerdicts(db);
-        return o;
-      });
+      out = name === 'temps.validerLot' ? await validerEnTranches(corps, passe, err => signalerErreur(req, err)) : await passe(corps);
+    } catch (err) {
+      // Refus d'accès : tracé hors de la transaction annulée (rien n'a été modifié), dans sa propre transaction.
+      if (err instanceof ActionError && err.status === 403) await db.tx(async () => await tracerRefus(db, id, libelleAction(name), err.message, { action: name, p: req.body }));
+      if (err instanceof ActionError) return res.status(err.status).json({ error: err.message });
+      // Délai du serveur dépassé (verrou, requête) avant la validation : la transaction est annulée, rien n'est écrit.
+      if (estOccupe(err)) return repondreOccupe(req, res, err);
+      signalerErreur(req, err);
+      return res.status(500).json({ error: ERREUR_INTERNE });
+    }
+    // L'action est validée (journal et envois compris) : quoi qu'il arrive ensuite, la réponse rend son message et son
+    // résultat, jamais un 503 « rien n'est écrit » qui ferait refaire l'action (doublon).
+    try {
       // L'action a pu changer le compte (profil RH retiré, équipe confiée à un autre) : la session est relue,
       // et l'instantané est celui de l'espace où elle se trouve désormais ; aucun si elle ne vaut plus. Session et
-      // instantané sont lus sur le même état de la base (`lecture` : aucune transaction ne s'intercale).
-      const data = await db.lecture(async () => {
-        const apres = (await identite(db, req))?.user;
-        return apres ? await buildSnapshot(db, apres) : undefined;
+      // instantané sont lus sur le même état de la base (`lecture` : aucune transaction ne s'intercale), sans verrou ;
+      // les écritures de la session suivent.
+      const { data, maj } = await db.lecture(async () => {
+        const apres = await examinerIdentite(db, req);
+        return { data: apres.id ? await buildSnapshot(db, apres.id.user) : undefined, maj: apres.maj };
       });
+      await appliquerMajSession(db, maj);
       res.json({ message: out.message ?? null, result: out.result, data });
     } catch (err) {
-      // Refus d'accès : tracé hors de la transaction annulée (rien n'a été modifié).
-      if (err instanceof ActionError && err.status === 403) await tracerRefus(db, id, libelleAction(name), err.message, { action: name, p: req.body });
-      if (err instanceof ActionError) return res.status(err.status).json({ error: err.message });
-      signalerErreur(req, err);
-      res.status(500).json({ error: ERREUR_INTERNE });
+      // Relecture de l'instantané impossible (Cursus occupé, erreur) : action faite, instantané à relire par
+      // GET /api/data (`relire`, client/src/state/run.ts).
+      if (estOccupe(err)) log.avertissement(`Instantané non relu après l'action : ${req.method} ${cheminJournal(req.originalUrl)}`, { cause: err instanceof Error ? err.message : String(err) });
+      else signalerErreur(req, err);
+      res.json({ message: out.message ?? null, result: out.result, relire: true });
     }
-  }));
+  });
 
+  // Lectures qui écrivent au journal, gardées contre une navigation provoquée depuis un autre site (lot 8, chantier C,
+  // S8 ; server/src/securite.ts) : pièce ouverte par lien (Sec-Fetch-Site), téléchargements faits par fetch (Sec-Fetch-Site
+  // et en-tête d'espace).
+  app.get('/api/pieces/:id', exigerNavigationInterne('lien'));
+  app.get('/api/paie/lots/:id/fichier', exigerNavigationInterne('appel'));
+  app.get('/api/salaries/:id/donnees', exigerNavigationInterne('appel'));
+  // Archive paie : reconnue comme la route la lit (`lireFiltre` : `vue`, ou l'ancien paramètre `filtre`). L'export CSV
+  // est gardé quelle que soit la vue (il trace toujours « journal.export » ; le client passe par `telecharger`).
+  app.get('/api/journal', exigerNavigationInterne('appel', req => lireFiltre(req.query as Record<string, unknown>).vue === 'archive'));
+  app.get('/api/journal/csv', exigerNavigationInterne('appel'));
   // Journal des actions (consultation filtrée et paginée, export CSV, archive paie, exports de l'interface) et
   // données personnelles d'un salarié (export RH, téléchargement par l'intéressé) : server/src/journal.ts, donnees.ts.
   app.use(routesJournal(db));

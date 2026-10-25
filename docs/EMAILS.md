@@ -140,8 +140,10 @@ variables `CURSUS_MAIL_*` ou `CURSUS_OIDC_*`), si le locataire n'est pas un GUID
 
 **Expiration du secret** : quand l'envoi utilise l'application de la connexion Microsoft (cas par défaut), la date posée
 dans `CURSUS_OIDC_SECRET_EXPIRE` fait prévenir 30 jours avant (point de santé `degrade`, ligne du récapitulatif des
-échéances : `docs/CONNEXION-MICROSOFT.md`, section 3). Un secret propre à l'envoi (`CURSUS_MAIL_CLIENT_SECRET`) n'est
-pas surveillé : noter sa date au calendrier d'exploitation. Un secret expiré fait échouer chaque envoi (refus du
+échéances : `docs/CONNEXION-MICROSOFT.md`, section 3). Un secret propre à l'envoi (`CURSUS_MAIL_CLIENT_SECRET`) se
+surveille depuis le lot 8 par sa propre date, `CURSUS_MAIL_SECRET_EXPIRE` (`AAAA-MM-JJ`) : 30 jours avant, point de santé
+`degrade` (alerte `secret-envoi`) et ligne « Exploitation » du récapitulatif des échéances, à la boîte du service RH ;
+sans cette date, rien ne prévient. Un secret expiré fait échouer chaque envoi (refus du
 service de jetons, échec définitif, visible dans Paramètres → Envois).
 
 **Réseau** : la machine de Cursus doit joindre en HTTPS (443, sortant) `login.microsoftonline.com` et

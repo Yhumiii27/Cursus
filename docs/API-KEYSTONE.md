@@ -31,6 +31,8 @@ La clé est définie côté Cursus par la variable `KEYSTONE_API_KEY` (voir `doc
 transmise par un canal sûr. Elle est comparée en temps constant.
 
 - En-tête absent ou clé fausse : `401` (`CLE_INVALIDE`).
+- Filtre facultatif par adresse (`CURSUS_KEYSTONE_ADRESSES`, lot 8) : un appel venu d'une autre adresse que celles de
+  Keystone reçoit `403` (`ADRESSE_REFUSEE`), avant que la clé soit lue. Vide par défaut (aucun filtre).
 - Plus de 60 appels sans clé valide en 5 minutes depuis une même adresse : `429` (`TROP_DE_CLES_INVALIDES`) pour
   tout appel de cette adresse, sans que la clé soit lue, jusqu'à la fin de la période (en-tête `Retry-After`, en
   secondes). Un appel avec la bonne clé n'y compte jamais.
@@ -381,6 +383,7 @@ Toute erreur est en JSON : `error` (message en français), `code` (stable, à te
 | 400 | `VALIDATION` | champs refusés, détaillés dans `details` | corriger l'envoi ; ne pas rejouer tel quel |
 | 400 | `JSON_INVALIDE`, `CORPS_INVALIDE` | corps illisible | corriger l'envoi |
 | 401 | `CLE_INVALIDE` | clé absente ou fausse | vérifier la clé |
+| 403 | `ADRESSE_REFUSEE` | appel venu d'une adresse hors de `CURSUS_KEYSTONE_ADRESSES` | appeler par le réseau interne, ou faire ajouter l'adresse |
 | 429 | `TROP_DE_CLES_INVALIDES` | plus de 60 appels sans clé valide en 5 minutes depuis cette adresse | corriger la clé, puis rejouer après `Retry-After` |
 | 404 | `CHANTIER_INCONNU`, `AFFECTATION_INCONNUE`, `TACHE_INCONNUE`, `DEMANDE_INCONNUE` | objet jamais reçu (ou déjà supprimé) | sur un `DELETE` : rien à faire |
 | 404 | `ROUTE_INCONNUE` | adresse inconnue | vérifier la route |
@@ -390,6 +393,7 @@ Toute erreur est en JSON : `error` (message en français), `code` (stable, à te
 | 415 | `TYPE_NON_PRIS_EN_CHARGE` | en-tête `Content-Type` absent ou autre que JSON | ajouter `Content-Type: application/json` |
 | 500 | `ERREUR_INTERNE` | incident côté Cursus | rejouer plus tard (les `PUT` sont rejouables) |
 | 503 | `NON_CONFIGUREE` | intégration non configurée dans Cursus | prévenir l'exploitant de Cursus |
+| 503 | `OCCUPE` | Cursus momentanément occupé (délai de sa base dépassé, ou appel en lecture qui n'a pas pu être tracé au journal) : rien n'est écrit | rappeler après le délai de l'en-tête `Retry-After` (les `PUT` sont rejouables) |
 
 ## Journal des appels
 

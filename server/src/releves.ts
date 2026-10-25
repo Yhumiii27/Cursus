@@ -7,13 +7,14 @@
 import { Domain } from '../../shared/domain.ts';
 import { addD, isoWeek } from '../../shared/dates.ts';
 import { fmt, key, plural } from '../../shared/format.ts';
+import { texteCsv } from '../../shared/csv.ts';
 import { adresseAgence, agencesInterim } from '../../shared/rules/messagerie.ts';
-import { csvTexte, heuresTexte, releveAgence, releveCsv, semainesAutomatiques, type Releve } from '../../shared/rules/releves.ts';
+import { heuresTexte, releveAgence, releveCsv, semainesAutomatiques, type Releve } from '../../shared/rules/releves.ts';
 import type { CurrentUser, Messagerie, ReleveInterim } from '../../shared/types.ts';
-import { loadFull } from './dataset.ts';
 import type { Db } from './db.ts';
 import { envoyerEmail, pieceJointe } from './integrations/email.ts';
 import { courriel, lireMessagerie, periodeLongue } from './messagerie.ts';
+import { type Lecture, lectureDirecte } from './lecture-partagee.ts';
 
 /** Lecture du périmètre complet, comme le service RH. */
 const RELEVES: CurrentUser = { role: 'rh', empId: null, nom: 'Cursus', intitule: 'Relevés d’heures des intérimaires' };
@@ -62,7 +63,7 @@ export async function envoyerReleve(db: Db, d: Domain, agence: string, semaine: 
   const suiteAuto = semainesAutomatiques(d.ti, m.agences.find(a => key(a.nom) === key(agence))?.depuis).includes(semaine);
   const texte = texteReleve(r, await dernierReleve(db, agence, semaine), suiteAuto);
   const e = await envoyerEmail(db, 'releve.interim', courriel(m, adresse, `Relevé d’heures des intérimaires — ${agence} — semaine ${isoWeek(semaine)}`, texte, {
-    pj: [pieceJointe(csv.fichier, 'text/csv; charset=utf-8', csvTexte(csv.head, csv.rows))],
+    pj: [pieceJointe(csv.fichier, 'text/csv; charset=utf-8', texteCsv(csv.head, csv.rows))],
   }));
   const releve = await db.insert<ReleveInterim>('releves', {
     agence, semaine, adresse, creation: e?.creation ?? new Date().toISOString(), par, envoiId: e?.id ?? null, interimaires: r.lignes.length, heures: r.heures,
@@ -76,11 +77,16 @@ export async function envoyerReleve(db: Db, d: Domain, agence: string, semaine: 
  * semaines en arrière, pas avant l'enregistrement de l'adresse de l'agence), le relevé de chaque agence qui a une
  * adresse part dès que toutes les feuilles de ses intérimaires sont validées, s'il n'a pas encore été transmis, ou
  * si le dernier envoi était incomplet (feuilles alors en attente). `seulement` restreint à une agence et une
- * semaine (après une validation). Renvoie les relevés mis en file.
+ * semaine (après une validation, avec `domaine`, la lecture de l'appelant). Renvoie les relevés mis en file.
  */
-export async function relevesAutomatiques(db: Db, seulement?: { agence: string; semaine: string }): Promise<ReleveInterim[]> {
-  const d = new Domain(await loadFull(db, RELEVES));
+export async function relevesAutomatiques(db: Db, seulement?: { agence: string; semaine: string }, domaine?: Domain, lire: Lecture = lectureDirecte(db)): Promise<ReleveInterim[]> {
   const m = await lireMessagerie(db);
+  // Test rapide avant toute lecture complète (lot 8, chantier E, étape 2) : aucune agence avec une adresse, aucun envoi.
+  if (!m.agences.some(a => a.adresse)) return [];
+  // Après une validation (server/src/actions/temps.ts), le Domain de l'appelant, feuille validée comprise (lot 8,
+  // chantier E) : pas de seconde lecture complète de la base dans la transaction. Tâches du quart d'heure : la lecture
+  // partagée du passage (server/src/lecture-partagee.ts).
+  const d = domaine ?? new Domain(await lire(RELEVES));
   const agences = agencesInterim(d.ds.employes).filter(a => !seulement || key(a) === key(seulement.agence));
   const out: ReleveInterim[] = [];
   for (const agence of agences) {

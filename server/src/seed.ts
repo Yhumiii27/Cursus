@@ -11,8 +11,10 @@ import type {
   AutorisationTravail, AvisMedical, Dataset, Employe, EntretienType, Messagerie, ProfilRh, Restriction, Statut, TempsTravail, TypeContrat, VaccinId,
 } from '../../shared/types.ts';
 import { ACTIVITE_FORMATION, MOTIF_RESTRICTION } from '../../shared/constants.ts';
+import { VERSION } from './chemins.ts';
 import type { Db } from './db.ts';
 import { DEFAULT_SETTINGS, loadFull } from './dataset.ts';
+import { marqueurDemo, REGLAGE_DEMO, REGLAGE_EXPLOITATION } from './marqueurs.ts';
 import { contexte, enregistrerAffectation, enregistrerChantier, enregistrerProjet, enregistrerTache } from './integrations/keystone-entrant.ts';
 import { suivreVerdicts } from './integrations/keystone-verdicts.ts';
 import { figerFeuilles } from './migrate.ts';
@@ -166,6 +168,12 @@ const EMPLOYES: { id: number; nom: string; equipe: string; poste: string; certs:
   { id: 23, nom: 'Sarah Cohen', equipe: 'Qualité & HSE', poste: 'Responsable HSE', certs: [{ f: 'sst', obtenue: '2026-05-11' }, { f: 'epi', obtenue: '2026-09-01' }, { f: 'hauteur', obtenue: '2025-04-22' }] },
   { id: 24, nom: 'Bastien Morel', equipe: 'Maintenance', poste: 'Apprenti électromécanicien', certs: [{ f: 'elec', obtenue: '2026-01-15' }, { f: 'sst', obtenue: '2026-03-12' }] },
 ];
+
+/**
+ * Identifiants et noms des salariés du jeu : indices d'une base de démonstration chargée avant le marqueur `demo`
+ * (npm run purge-demo, server/src/purge-demo.ts).
+ */
+export const SALARIES_DEMO: readonly { id: number; nom: string }[] = EMPLOYES.map(({ id, nom }) => ({ id, nom }));
 
 interface Extra {
   visite?: string; certsPlus?: C[]; habs?: { h: string; delivree?: string; par?: string; demande?: string; restriction?: boolean }[];
@@ -448,10 +456,15 @@ async function exigencesDemo(db: Db) {
 export async function seedDemo(db: Db) {
   await db.tx(async () => {
     const secret = await db.getSetting<string | null>('secret', null); // conserve les sessions ouvertes
+    // Marqueur d'exploitation (server/src/marqueurs.ts) : jamais effacé, la base reste refusée par npm run purge-demo.
+    const exploitation = await db.getSetting<unknown>(REGLAGE_EXPLOITATION, null);
     await db.clearAll();
     if (secret) await db.setSetting('secret', secret);
+    if (exploitation) await db.setSetting(REGLAGE_EXPLOITATION, exploitation);
     await db.setSetting('app', DEFAULT_SETTINGS);
     await db.setSetting('messagerie', MESSAGERIE_DEMO);
+    // Marqueur de base de démonstration (server/src/marqueurs.ts) : la purge des données fictives s'appuie dessus.
+    await db.setSetting(REGLAGE_DEMO, marqueurDemo(VERSION));
     for (const f of FORMATIONS) await db.insert('formations', f);
     for (const h of HABILITATIONS) await db.insert('habilitations', h);
     for (const d of DESTS) await db.insert('destinations', d);
@@ -527,7 +540,7 @@ export async function seedDemo(db: Db) {
     for (const l of PLAN) await db.insert('planActions', { exercice: 2026, ...(l.statut === 'realise' ? { coutReel: l.cout, effectifReel: l.effectif } : {}), ...l });
     for (const f of feuilles(taches)) await db.insert('feuilles', f);
     // Feuilles déjà transmises de la démonstration : réunies en un lot de paie historique, comme une base reprise.
-    await lotHistorique(db, 'Démonstration', '2026-10-02T15:00:00.000Z');
+    await lotHistorique(db, LOT_DEMO, '2026-10-02T15:00:00.000Z');
     await figerFeuilles(db);
     for (const e of entretiens()) await db.insert('entretiens', e);
     await comptesDemo(db);
@@ -562,6 +575,10 @@ export async function seedDemo(db: Db) {
  * tout juste embauché, à saisir (Paramètres → Matricules de paie).
  */
 const matriculePaieDemo = (id: number, typeContrat: string) => typeContrat === 'interim' || id === 24 ? null : String(4100 + id).padStart(6, '0');
+/** Auteur du lot de paie historique de la démonstration. */
+export const LOT_DEMO = 'Démonstration';
+/** Auteur des comptes de démonstration (`comptes.creePar`). */
+export const CREE_PAR_DEMO = 'Jeu de démonstration';
 /** Domaine des adresses Microsoft 365 de démonstration (réservé à la documentation, jamais routé). */
 export const DOMAINE_DEMO = 'entreprise.example';
 /** Date des convocations déjà envoyées du jeu de démonstration. */
@@ -604,7 +621,7 @@ export async function comptesDemo(db: Db) {
   const rhNom = (await db.getSetting<{ rhNom?: string }>('app', {})).rhNom || RH_DEMO;
   const base = {
     oid: null, actif: true, motDePasse: null, changerMotDePasse: false, echecs: 0, blocageFin: null,
-    creation: new Date().toISOString(), creePar: 'Jeu de démonstration', derniereConnexion: null,
+    creation: new Date().toISOString(), creePar: CREE_PAR_DEMO, derniereConnexion: null,
   };
   const pris = new Set<string>();
   const unique = (id: string) => {

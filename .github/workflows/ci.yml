@@ -9,6 +9,9 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  # Essai de charge sur 5 ans de données (job postgres, lot 8, chantier E), une fois par semaine : lundi, 4 h 17 UTC.
+  schedule:
+    - cron: '17 4 * * 1'
 
 permissions:
   contents: read
@@ -21,6 +24,8 @@ jobs:
   check:
     name: npm run check (Node ${{ matrix.nom }})
     runs-on: ubuntu-24.04
+    # Passage hebdomadaire : seulement l'essai de charge du job postgres (minutes d'Actions comptées).
+    if: github.event_name != 'schedule'
     # Les tests lancent de vrais serveurs (une dizaine de fichiers) : quelques minutes suffisent d'ordinaire.
     timeout-minutes: 20
     # Node 24 : essai pour anticiper la prochaine version, sans bloquer une modification.
@@ -73,6 +78,7 @@ jobs:
   e2e:
     name: Parcours de bout en bout (Playwright)
     runs-on: ubuntu-24.04
+    if: github.event_name != 'schedule'
     timeout-minutes: 30
     continue-on-error: true
     env:
@@ -99,6 +105,11 @@ jobs:
     name: Tests sur PostgreSQL 16 et socle du serveur commun
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # bash explicite : GitHub lance alors « bash -eo pipefail ». Sans lui (bash -e seul), un psql en échec suivi de
+    # « | tee fichier » laisse le fichier vide et l'étape passe : les contrôles « test ! -s » ci-dessous n'auraient pas tourné.
+    defaults:
+      run:
+        shell: bash
     services:
       postgres:
         image: postgres:16
@@ -138,6 +149,38 @@ jobs:
         env:
           CURSUS_TEST_DATABASE_URL: postgres://postgres:essai-ci-postgres@localhost:5432/postgres
         run: npm run test:coverage:pg
+      # Essai de charge (lot 8, chantier E ; docs/ARCHITECTURE.md, « Performances ») : jamais à chaque push. Jeu d'un an,
+      # S2 et S3 pendant 60 s, sur une pull request qui touche l'accès à la base, l'instantané, l'application, la
+      # validation groupée ou les migrations PostgreSQL ; jeu de 5 ans, S1 à S3, sur « Run workflow » et chaque semaine.
+      # Non bloquant au début : seuils ×3 (machines partagées bruyantes), invariants jamais assouplis (santé sous 5 s,
+      # aucune 5xx, verrou tenu moins de 15 s) ; rapport publié. Base jetable du job (schéma cursus_charge_*), jamais le
+      # serveur commun (refusé par l'outil).
+      - name: Essai de charge — déclenchement
+        id: charge
+        run: |
+          case "${{ github.event_name }}" in
+            workflow_dispatch|schedule) echo "ans=5" >> "$GITHUB_OUTPUT"; echo "scenarios=S1,S2,S3" >> "$GITHUB_OUTPUT" ;;
+            pull_request)
+              git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+              if git diff --name-only FETCH_HEAD HEAD | grep -qE '^server/src/(db[^/]*\.ts|dataset\.ts|app\.ts|actions/suivi-feuilles\.ts)$|^server/migrations-pg/'; then
+                echo "ans=1" >> "$GITHUB_OUTPUT"; echo "scenarios=S2,S3" >> "$GITHUB_OUTPUT"
+              fi ;;
+          esac
+      - name: Essai de charge (non bloquant)
+        if: steps.charge.outputs.ans
+        continue-on-error: true
+        env:
+          CURSUS_TEST_DATABASE_URL: postgres://postgres:essai-ci-postgres@localhost:5432/postgres
+        run: |
+          npm run charge:generer -- --ans ${{ steps.charge.outputs.ans }} --effectif 100 --interimaires 20 --seed 42
+          npm run charge -- --scenario ${{ steps.charge.outputs.scenarios }} --duree 60 --marge 3
+      - name: Publier le rapport de charge
+        if: ${{ !cancelled() && steps.charge.outputs.ans }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapport-charge-${{ github.sha }}
+          path: data/charge/rapports/
+          retention-days: 30
       # Cursus sur le socle, en cursus_app : migrations, démonstration, 57 tables dans cursus et rien dans public.
       - name: Démarrage sur le socle (cursus_app)
         env:
@@ -148,10 +191,31 @@ jobs:
           node --disable-warning=ExperimentalWarning scripts/schema-pg.ts
       # Fichier de partage de Cursus (copie qualifiée des vues pub_, à reporter dans Matrix), rejoué sans effet ; puis
       # contrôle des droits du socle et des colonnes sensibles, jamais lisibles par matrix_lecture.
+      # Relation qualifiée par son propre schéma : le planificateur peut évaluer has_column_privilege avant le filtre du
+      # schéma (lignes de pg_catalog, avec les tables entières « * » du socle recopié au lot 8).
       - name: Partage et droits
         run: |
           PGUSER=cursus_app PGPASSWORD="$CURSUS_APP_PASSWORD" psql -d epc2i -v ON_ERROR_STOP=1 -q -1 -f infra/postgres-partage/20-cursus.sql
           psql -d epc2i -v ON_ERROR_STOP=1 -At -c "SELECT gravite, objet, constat FROM droits.verifier() WHERE gravite = 'erreur'" | tee erreurs.txt
           test ! -s erreurs.txt
-          psql -d epc2i -v ON_ERROR_STOP=1 -At -c "SELECT format('%s.%s lisible par matrix_lecture', c.table_nom, c.colonne_nom) FROM droits.colonnes_sensibles c JOIN information_schema.columns i ON i.table_schema = c.schema_nom AND i.table_name = c.table_nom AND (c.colonne_nom = '*' OR i.column_name = c.colonne_nom) WHERE c.schema_nom = 'cursus' AND has_column_privilege('matrix_lecture', format('cursus.%I', i.table_name), i.column_name, 'SELECT')" | tee lisibles.txt
+          psql -d epc2i -v ON_ERROR_STOP=1 -At -c "SELECT format('%s.%s lisible par matrix_lecture', c.table_nom, c.colonne_nom) FROM droits.colonnes_sensibles c JOIN information_schema.columns i ON i.table_schema = c.schema_nom AND i.table_name = c.table_nom AND (c.colonne_nom = '*' OR i.column_name = c.colonne_nom) WHERE c.schema_nom = 'cursus' AND has_column_privilege('matrix_lecture', format('%I.%I', i.table_schema, i.table_name), i.column_name, 'SELECT')" | tee lisibles.txt
           test ! -s lisibles.txt
+      # Lot 8, chantier D : aucune colonne que Cursus déclare sensible (commentaire « Sensible » ou « à exclure de
+      # matrix_lecture » de la colonne ou de sa table, migrations de server/migrations-pg/) ne reste lisible par
+      # matrix_lecture. Non bloquant tant que Matrix n'a pas ajouté ces colonnes à droits.colonnes_sensibles (demande :
+      # docs/DEMANDES-LOT8-DONNEES.md) ; à rendre bloquant (retirer continue-on-error) dès la recopie du socle qui les
+      # contient (tests/socle-colonnes-sensibles.test.ts le signale).
+      - name: Colonnes déclarées sensibles fermées à matrix_lecture (non bloquant jusqu'à la demande à Matrix)
+        continue-on-error: true
+        run: |
+          psql -d epc2i -v ON_ERROR_STOP=1 -At -f scripts/colonnes-sensibles-pg.sql | tee sensibles.txt
+          test ! -s sensibles.txt
+      # La demande à Matrix rejouée sur ce socle jetable (jamais sur le serveur commun) : une fois appliquée, plus aucune
+      # colonne déclarée sensible n'est lisible et droits.verifier() ne signale aucune erreur (vues pub_ comprises).
+      - name: Demande à Matrix appliquée au socle d'essai
+        run: |
+          psql -d epc2i -v ON_ERROR_STOP=1 -q -1 -f docs/demandes/matrix-lot8-colonnes-sensibles.sql
+          psql -d epc2i -v ON_ERROR_STOP=1 -At -c "SELECT gravite, objet, constat FROM droits.verifier() WHERE gravite = 'erreur'" | tee erreurs-demande.txt
+          test ! -s erreurs-demande.txt
+          psql -d epc2i -v ON_ERROR_STOP=1 -At -f scripts/colonnes-sensibles-pg.sql | tee sensibles-demande.txt
+          test ! -s sensibles-demande.txt

@@ -14,10 +14,11 @@ import { Domain } from '../../shared/domain.ts';
 import { fmtIso, plural } from '../../shared/format.ts';
 import { type DemandeEvaluation, demandesEvaluation } from '../../shared/rules/evaluation-formation.ts';
 import type { CurrentUser } from '../../shared/types.ts';
-import { loadFull, todayIso } from './dataset.ts';
+import { loadSettings, todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
 import { envoyerEmail } from './integrations/email.ts';
 import { adresseSalarie, courriel, lireMessagerie } from './messagerie.ts';
+import { type Lecture, lectureDirecte } from './lecture-partagee.ts';
 
 /** Lecture du périmètre complet, comme le service RH. */
 const SUIVI: CurrentUser = { role: 'rh', empId: null, nom: 'Cursus', intitule: 'Évaluation des formations' };
@@ -57,9 +58,10 @@ function texte(d: Domain, liste: DemandeEvaluation[], manager: boolean, envoyees
  * Un passage : demandes et relances dues pas encore envoyées, un e-mail par destinataire, paliers notés. Renvoie le nombre
  * d'e-mails et d'évaluations demandées ou relancées.
  */
-export async function demanderEvaluations(db: Db): Promise<{ emails: number; demandes: number }> {
-  const full = await loadFull(db, SUIVI);
-  if (!full.settings.evaluationsActives) return { emails: 0, demandes: 0 };
+export async function demanderEvaluations(db: Db, lire: Lecture = lectureDirecte(db)): Promise<{ emails: number; demandes: number }> {
+  // Réglages d'abord (lot 8, chantier E, étape 2) : évaluations désactivées, aucune lecture complète de la base.
+  if (!(await loadSettings(db)).evaluationsActives) return { emails: 0, demandes: 0 };
+  const full = await lire(SUIVI);
   const d = new Domain(full), today = full.today;
   const notes = await db.query('SELECT cle, palier FROM relances WHERE cle LIKE ?', ['evaluation:%']) as { cle: string; palier: string }[];
   const deja = new Set(notes.map(r => `${r.cle}|${r.palier}`)), envoyees = new Set(notes.map(r => r.cle));
@@ -90,9 +92,9 @@ export async function demanderEvaluations(db: Db): Promise<{ emails: number; dem
  * Tâche de fond (appelée par `tachesEmails`, dans sa transaction) : à partir de 7 h, une fois par jour. Null : rien à
  * faire à ce passage (heure, déjà passé aujourd'hui).
  */
-export async function evaluationsDuJour(db: Db, heure: number): Promise<{ emails: number; demandes: number } | null> {
+export async function evaluationsDuJour(db: Db, heure: number, lire: Lecture = lectureDirecte(db)): Promise<{ emails: number; demandes: number } | null> {
   const jour = todayIso();
   if (heure < HEURE_RECAPITULATIF || await db.getSetting<string | null>(DERNIER_PASSAGE, null) === jour) return null;
   await db.setSetting(DERNIER_PASSAGE, jour);
-  return await demanderEvaluations(db);
+  return await demanderEvaluations(db, lire);
 }

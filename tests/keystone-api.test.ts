@@ -474,7 +474,7 @@ test('production : base vide alimentée par l’API, Go / No Go servi, appels tr
   const port = await new Promise<number>(res => { const s = express().listen(0, '127.0.0.1', () => { const p = (s.address() as AddressInfo).port; s.close(() => res(p)); }); });
   const p: ChildProcess = spawn(process.execPath, [join(ROOT, 'server/src/index.ts')], {
     cwd: dir, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { PATH: process.env.PATH ?? '', NODE_ENV: 'production', CURSUS_SECRET: 'x'.repeat(32), KEYSTONE_API_KEY: CLE, CURSUS_API_PORT: String(port), CURSUS_DB: fichier },
+    env: { PATH: process.env.PATH ?? '', NODE_ENV: 'production', CURSUS_SECRET: 'x'.repeat(32), KEYSTONE_API_KEY: CLE, CURSUS_PUBLIC_URL: 'https://cursus.example.fr', CURSUS_API_PORT: String(port), CURSUS_DB: fichier },
   });
   let out = '';
   p.stdout!.on('data', d => { out += d; });

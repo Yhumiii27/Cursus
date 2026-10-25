@@ -41,6 +41,7 @@ import { lirePieces, piecesVisibles } from './pieces.ts';
 import { resumeDeplacementsPaie } from './deplacements-paie.ts';
 import { dossiersEchus } from './conservation.ts';
 import { jetonActif } from './agenda.ts';
+import { geler, gelEnTest, vueEnCache } from './cache-instantane.ts';
 import { avecPositions, avecProposees } from '../../shared/rules/liste-attente.ts';
 import type { AttenteSession } from '../../shared/types.ts';
 import { exercicesEvaluation, indicateursEvaluation, SEUIL_ANONYMAT } from '../../shared/rules/evaluation-formation.ts';
@@ -71,7 +72,12 @@ type EmpRow = Omit<Employe, 'passeport' | 'certs' | 'habs' | 'visas' | 'vaccins'
  * requête ne s'intercale entre les lectures des tables, comme avec l'accès synchrone d'avant).
  */
 export async function loadFull(db: Db, user: CurrentUser): Promise<Dataset> {
-  return await db.lecture(async () => await lireTout(db, user));
+  const ds = await db.lecture(async () => await lireTout(db, user));
+  // Sous node --test, données gelées (sauf l'objet de tête, que les actions remplacent par une copie) : une action ou une
+  // vue qui modifierait les données reçues échoue, car celles du cache de l'instantané sont partagées
+  // (server/src/cache-instantane.ts).
+  if (gelEnTest()) for (const v of Object.values(ds)) geler(v);
+  return ds;
 }
 
 async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
@@ -170,7 +176,7 @@ async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
     rubriquesPaie: await db.all<RubriquePaie>('rubriquesPaie'),
     // Messagerie (Paramètres → Messagerie) et relevés transmis aux agences d'intérim, avec le statut de leur e-mail.
     messagerie: await lireMessagerie(db),
-    releves: await Promise.all((await db.all<Omit<ReleveInterim, 'envoi'>>('releves')).map(async r => ({ ...r, envoi: r.envoiId ? (await db.get<Envoi>('envois', r.envoiId))?.statut ?? null : null }))),
+    releves: await relevesAvecEnvoi(db),
     // Lots importés à la mise en service (écran Mise en service) : compte rendu nominatif, service RH seulement.
     reprises: (await db.all<LotReprise>('reprises')).reverse(),
     // Dérogations au repos dominical par équipe (shared/rules/semaine.ts) et mandats au CSE (shared/rules/delegation.ts).
@@ -199,6 +205,24 @@ async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
   // Absences en attente du fichier de paie par période (server/src/absences-paie.ts) : lit le contenu figé des lots.
   // Déplacements en attente du fichier de paie (t031, server/src/deplacements-paie.ts) : lit la table des éléments émis.
   return { ...ds, absencesPaie: await resumeAbsencesPaie(db, user, ds), deplacementsPaie: await resumeDeplacementsPaie(db, user, ds) };
+}
+
+/** Identifiants passés au plus par requête `IN (…)` (bien en deçà des limites de SQLite et de PostgreSQL). */
+const PAR_REQUETE_IN = 500;
+
+/**
+ * Relevés transmis aux agences d'intérim, avec le statut de leur e-mail (lot 8, chantier E) : statuts des envois lus par
+ * des requêtes `IN (…)` de 500 identifiants au plus, au lieu d'une lecture par relevé (680 relevés après 5 ans).
+ */
+async function relevesAvecEnvoi(db: Db): Promise<ReleveInterim[]> {
+  const releves = await db.all<Omit<ReleveInterim, 'envoi'>>('releves');
+  const ids = [...new Set(releves.map(r => r.envoiId).filter((id): id is number => !!id))];
+  const statuts = new Map<number, Envoi['statut']>();
+  for (let i = 0; i < ids.length; i += PAR_REQUETE_IN) {
+    const lot = ids.slice(i, i + PAR_REQUETE_IN);
+    for (const e of await db.query<{ id: number; statut: Envoi['statut'] }>(`SELECT id, statut FROM envois WHERE id IN (${lot.map(() => '?').join(', ')})`, lot)) statuts.set(Number(e.id), e.statut);
+  }
+  return releves.map(r => ({ ...r, envoi: r.envoiId ? statuts.get(r.envoiId) ?? null : null }));
 }
 
 /**
@@ -379,8 +403,28 @@ const avecFinCarriere = (d: Domain, x: Entretien): Entretien => {
   return e ? { ...x, finCarriere: needsFinCarriere(d, e, x) } : x;
 };
 
+/**
+ * Instantané envoyé au navigateur : données du périmètre de `user`, filtrées par espace et par profil. Dans une lecture
+ * stable (GET /api/data, instantané renvoyé après une action), la vue vient du cache de l'instantané, calculée une fois
+ * par révision de la base et par clé de vue (server/src/cache-instantane.ts) ; ailleurs, lecture directe. Restent lus à
+ * chaque requête : les dossiers échus de la conservation (administrateur RH, comptés aussi sur le journal) et
+ * l'abonnement à l'agenda de la personne.
+ */
 export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset> {
-  const full = await loadFull(db, user);
+  const revision = db.revision;
+  const vue = await vueEnCache(db, user, todayIso(), revision, async lecteur => await loadFull(db, lecteur), full => vueDe(full, user))
+    ?? vueDe(await loadFull(db, user), user);
+  if (user.role === 'rh') {
+    const droits = droitsRh(user);
+    // Dossiers des salariés sortis dont une durée de conservation est échue (t016) : administrateur RH seulement.
+    return droits.includes('rh') && droits.includes('admin') ? { ...vue, conservation: await dossiersEchus(db, vue.settings, vue.today) } : vue;
+  }
+  // Abonnement à l'agenda personnel (t036) : seulement le fait qu'il existe et sa date, jamais le jeton (haché en base).
+  return { ...vue, agendaJeton: await (async () => { const j = await jetonActif(db, user.empId!); return j ? { creeLe: j.creeLe } : null; })() };
+}
+
+/** Vue de `user` sur les données `full` (lues pour lui, ou lecture partagée du cache) : calcul seul, sans lecture de la base. */
+function vueDe(full: Dataset, user: CurrentUser): Dataset {
   if (user.role === 'rh') {
     const droits = droitsRh(user);
     // Sans droit « paie » (gestionnaire RH), ni les rubriques d'absence en attente ni celles des lots : le code révèle la catégorie.
@@ -388,8 +432,6 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
     return droits.includes('rh')
       ? {
         ...full, taches: tachesProches(full.taches, full.today), ...(droits.includes('paie') ? {} : sansCodesAbsences(full)), couverture: etatsCouverture(full, full.settings.horizonAlerte),
-        // Dossiers des salariés sortis dont une durée de conservation est échue (t016) : administrateur RH seulement.
-        ...(droits.includes('admin') ? { conservation: await dossiersEchus(db, full.settings, full.today) } : {}),
         // Compte professionnel de prévention (t052) : synthèse calculée ici sur toutes les feuilles validées.
         c2p: c2pDe(full),
       }
@@ -546,8 +588,6 @@ export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset>
     // consultation N+2 ; interventions déclarées du périmètre, comme les feuilles de temps qui portent leurs heures.
     astreintes: mine(full.astreintes ?? []).map(a => (lecture.has(a.empId) ? astreinteSansMotif(a) : a)).map(a => (a.empId !== user.empId ? astreinteSansPaie(a) : a)),
     interventionsAstreinte: mine(full.interventionsAstreinte ?? []),
-    // Abonnement à l'agenda personnel (t036) : seulement le fait qu'il existe et sa date, jamais le jeton (haché en base).
-    agendaJeton: await (async () => { const j = await jetonActif(db, user.empId!); return j ? { creeLe: j.creeLe } : null; })(),
   };
 }
 

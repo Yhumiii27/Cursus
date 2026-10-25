@@ -27,6 +27,9 @@
 // Report des vues (lot 9, chantier 3, étape 2) : une entrée dérivée par un delta reprend les vues collaborateur et manager
 // de la précédente dont le périmètre n'est pas touché et qu'aucun champ commun changé n'atteint (`avecReport`,
 // server/src/vues-cache.ts). Les vues RH sont toujours recalculées. CURSUS_VUES_REPORT=0 coupe le report.
+// Compteurs (lot 9, chantier 4, étape 2) : `statistiquesCache` relève, pour l'essai de charge et le banc d'oracle, les
+// entrées lues en entier ou dérivées, les replis, les jeux d'action, la durée des deltas et les vues recalculées ou reportées.
+import { performance } from 'node:perf_hooks';
 import { configurerFeries } from '../../shared/dates.ts';
 import { droitsRh } from '../../shared/constants.ts';
 import type { CurrentUser, Dataset } from '../../shared/types.ts';
@@ -35,7 +38,7 @@ import { type Db, type EtatRevision } from './db.ts';
 import { appliquerDelta, type Fusion, lireDelta } from './delta.ts';
 import { resumeDeplacementsPaie } from './deplacements-paie.ts';
 import { assembler, type Brut, brutDe, retenirBrut } from './lecture-brute.ts';
-import { reporterVues, retenirResolue } from './vues-cache.ts';
+import { reporterVues, retenirResolue, vuesReportees } from './vues-cache.ts';
 
 /**
  * Lecteurs internes de la lecture partagée : la lecture complète se fait sans les résumés de la paie (référent HSE :
@@ -71,6 +74,49 @@ interface Entree {
 }
 
 const entrees = new WeakMap<Db, Entree>();
+
+/**
+ * Compteurs du cache pour les mesures (lot 9, chantier 4 : essai de charge, banc d'oracle), propres au processus et
+ * cumulés depuis son démarrage ou `remettreStatistiques` : entrées lues en entier ou dérivées par un delta, replis
+ * complets et leur cause, jeux d'action (lecture partagée, dérivés, lus directement), jeux du suivi des verdicts, durée
+ * de chaque delta (lecture des changements et des lignes, fusion, assemblage) et nombre de clés changées, vues calculées
+ * par espace et vues reportées (server/src/vues-cache.ts). Aucune donnée, seulement des nombres.
+ */
+const STATS = {
+  entreesCompletes: 0, entreesDerivees: 0,
+  replis: { ecartInconnu: 0, precedenteIndisponible: 0 },
+  jeuxAction: { partages: 0, derives: 0, directs: 0 }, jeuxSuivi: { derives: 0, replis: 0 },
+  deltas: [] as number[], clesDelta: 0, clesDeltaMax: 0,
+  vuesCalculees: { rh: 0, manager: 0, collaborateur: 0 }, reporteesAuDepart: 0,
+};
+/** Durées de delta gardées au plus (les dernières), pour les quantiles. */
+const DELTAS_GARDES = 100_000;
+
+/** Remet les compteurs du cache à zéro (début d'un scénario d'essai, tests). */
+export function remettreStatistiques(): void {
+  Object.assign(STATS, {
+    entreesCompletes: 0, entreesDerivees: 0, replis: { ecartInconnu: 0, precedenteIndisponible: 0 }, jeuxAction: { partages: 0, derives: 0, directs: 0 },
+    jeuxSuivi: { derives: 0, replis: 0 }, deltas: [], clesDelta: 0, clesDeltaMax: 0, vuesCalculees: { rh: 0, manager: 0, collaborateur: 0 }, reporteesAuDepart: vuesReportees,
+  });
+}
+
+/** Quantile `q` (0 à 1) de `l`, en millisecondes arrondies au dixième. */
+const quantileMs = (l: readonly number[], q: number) => {
+  if (!l.length) return 0;
+  const tri = [...l].sort((a, b) => a - b);
+  return Math.round(tri[Math.min(tri.length - 1, Math.max(0, Math.ceil(q * tri.length) - 1))] * 10) / 10;
+};
+
+/** Relevé des compteurs du cache (`STATS`), copie que l'appelant peut garder ; le paramètre est accepté pour l'essai de charge. */
+export function statistiquesCache(_db?: Db) {
+  const d = STATS.deltas;
+  return {
+    entreesCompletes: STATS.entreesCompletes, entreesDerivees: STATS.entreesDerivees, replis: { ...STATS.replis },
+    jeuxAction: { ...STATS.jeuxAction }, jeuxSuivi: { ...STATS.jeuxSuivi },
+    delta: { n: d.length, p50Ms: quantileMs(d, 0.5), p95Ms: quantileMs(d, 0.95), maxMs: quantileMs(d, 1), cles: STATS.clesDelta, clesMax: STATS.clesDeltaMax },
+    vuesCalculees: { ...STATS.vuesCalculees }, vuesReportees: vuesReportees - STATS.reporteesAuDepart,
+  };
+}
 
 /** Cache actif : CURSUS_CACHE_INSTANTANE vaut autre chose que « 0 ». */
 export const cacheActif = (env: Record<string, string | undefined> = process.env) => env.CURSUS_CACHE_INSTANTANE?.trim() !== '0';
@@ -138,6 +184,7 @@ function poserPaie(e: Entree, p: Promise<ResumesPaie>): void {
  * (`loadFull` : `retenirBrut`) pour les deltas suivants.
  */
 async function lireEntree(lire: (lecteur: CurrentUser) => Promise<Dataset>): Promise<Lu> {
+  STATS.entreesCompletes++;
   const ds = await lire(LECTEUR);
   return { ds: gelEnTest() ? geler(ds) : ds, brut: incrementalActif() ? brutDe(ds) : undefined };
 }
@@ -149,12 +196,19 @@ async function lireEntree(lire: (lecteur: CurrentUser) => Promise<Dataset>): Pro
  * (`lireChangements`) : l'appelant relit tout.
  */
 async function deriver(db: Db, brut: Brut, de: number, epoque: number, a: number, today: string, lecteur: CurrentUser): Promise<(Lu & { paieReportee: boolean }) | null> {
+  const t0 = performance.now();
   const changements = await db.lireChangements(de, a, epoque);
-  if (!changements) return null;
+  if (!changements) { STATS.replis.ecartInconnu++; return null; }
+  let cles = 0;
+  for (const ch of changements.values()) cles += ch === 'tout' ? 1 : ch.size;
   const f = appliquerDelta(brut, await lireDelta(db, brut, changements));
   if (gelEnTest()) geler(f.brut);
   const ds0 = assembler(f.brut, today, db.revision, lecteur);
   const ds = retenirBrut({ ...ds0, absencesPaie: await resumeAbsencesPaie(db, lecteur, ds0), deplacementsPaie: await resumeDeplacementsPaie(db, lecteur, ds0) }, f.brut);
+  if (STATS.deltas.length >= DELTAS_GARDES) STATS.deltas.shift();
+  STATS.deltas.push(performance.now() - t0);
+  STATS.clesDelta += cles;
+  STATS.clesDeltaMax = Math.max(STATS.clesDeltaMax, cles);
   return { ds: gelEnTest() ? geler(ds) : ds, brut: f.brut, suite: { de, champsChanges: f.champsChanges, touches: f.touches }, paieReportee: f.paieReportee };
 }
 
@@ -165,8 +219,10 @@ async function deriver(db: Db, brut: Brut, de: number, epoque: number, a: number
  */
 async function deriverEntree(db: Db, prec: Entree, nouvelle: Entree, lire: (lecteur: CurrentUser) => Promise<Dataset>): Promise<Lu> {
   const avant = await prec.lu.catch(() => null);
+  if (!avant?.brut) STATS.replis.precedenteIndisponible++;
   const x = avant?.brut ? await deriver(db, avant.brut, prec.n, prec.epoque, nouvelle.n, nouvelle.today, LECTEUR) : null;
   if (!x) return await lireEntree(lire);
+  STATS.entreesDerivees++;
   if (x.paieReportee && prec.paie && !nouvelle.paie) poserPaie(nouvelle, prec.paie);
   return { ds: x.ds, brut: x.brut, suite: x.suite };
 }
@@ -233,6 +289,7 @@ export async function vuePartagee(
   const cle = cleVue(user);
   let vue = e.vues.get(cle) as Promise<Dataset> | undefined;
   if (!vue) {
+    STATS.vuesCalculees[user.role]++;
     const p: Promise<Dataset> = paieDe(db, e, base, user).then(paie => calculer(donneesDe(base, user, revision, paie))).then(v => (gelEnTest() ? geler(v) : v));
     vue = p;
     // Vue résolue retenue pour le report à l'entrée suivante (server/src/vues-cache.ts, `reporterVues`).
@@ -276,17 +333,20 @@ export async function donneesAction(db: Db, user: CurrentUser, today: string, li
     let avant: Lu | null = null;
     try { avant = await e.lu; } catch { /* lecture partagée en échec : lecture directe */ }
     if (avant && e.n === etat.n) {
+      STATS.jeuxAction.partages++;
       configurerFeries(avant.ds.calendrierFeries);
       return depart(donneesDe(avant.ds, user, db.revision, await paieDe(db, e, avant.ds, user)), avant.brut, etat, today);
     }
     // Entrée d'une révision plus ancienne : entrée + delta, lus dans la transaction ; jamais mis en cache.
     const x = avant?.brut && incrementalActif() ? await deriver(db, avant.brut, e.n, e.epoque, etat.n, today, LECTEUR) : null;
     if (x) {
+      STATS.jeuxAction.derives++;
       const reprise = x.paieReportee && e.paie ? await e.paie.catch(() => null) : null;
       const paie = voitPaie(user) ? reprise ?? await calculerPaie(db, x.ds) : null;
       return depart(donneesDe(x.ds, user, db.revision, paie), x.brut, etat, today);
     }
   }
+  STATS.jeuxAction.directs++;
   const ds = await lire(user);
   return depart(ds, brutDe(ds), etat, today);
 }
@@ -313,9 +373,12 @@ function depart(ds: Dataset, brut: Brut | undefined, etat: EtatRevision, today: 
  */
 export async function jeuApres(db: Db, jeu: Dataset, lecteur: CurrentUser): Promise<Dataset | null> {
   const d = DEPARTS.get(jeu);
-  if (!d || !cacheActif() || !incrementalActif()) return null;
+  if (!cacheActif() || !incrementalActif()) return null;
+  if (!d) { STATS.jeuxSuivi.replis++; return null; }
   const { n } = await db.etatRevision();
-  return (await deriver(db, d.brut, d.n, d.epoque, n, d.today, lecteur))?.ds ?? null;
+  const x = await deriver(db, d.brut, d.n, d.epoque, n, d.today, lecteur);
+  if (x) STATS.jeuxSuivi.derives++; else STATS.jeuxSuivi.replis++;
+  return x?.ds ?? null;
 }
 
 /**

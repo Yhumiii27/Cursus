@@ -22,8 +22,10 @@
 // pas le cache : les GET /api/data des utilisateurs simulés, qui ne passent pas la porte, restent servis par le cache
 // pendant une comparaison et sont mesurés comme les autres ; les écritures retenues à la porte comptent leur attente,
 // et la comparaison occupe le processus (CPU, mémoire d'une relecture complète), à lire avec les durées. Relevés du
-// cache : relectures complètes (lectures de toute la table des feuilles, sauf celles de la comparaison elle-même), taille de la table `changements` quand elle existe, et, quand le cache les expose
-// (`statistiquesCache` de server/src/cache-instantane.ts), durée du delta, vues reportées ou recalculées, replis.
+// cache, par scénario : relectures complètes (lectures de toute la table des feuilles, sauf celles de la comparaison
+// elle-même), taille de la table `changements`, et les compteurs du cache incrémental (`statistiquesCache` de
+// server/src/cache-instantane.ts) : entrées dérivées par un delta ou relues en entier, replis et leur cause, jeux
+// d'action, durée du delta et clés changées, vues recalculées par espace et vues reportées (hors comparaisons de l'oracle).
 // Chaque scénario remet d'abord en place ce qu'il consomme : feuilles soumises de la fin de mois (S3), semaine en cours
 // en brouillon (S2), lot ouvert de la période annulé (S4). La conservation (S6) supprime, elle, des lignes du journal : le
 // jeu s'en trouve allégé pour les essais suivants (regénérer au besoin).
@@ -59,7 +61,9 @@ const { appliquerConservation } = await import('../../server/src/journal.ts');
 const { relancerEcheances } = await import('../../server/src/relances.ts');
 const { demanderEvaluations } = await import('../../server/src/evaluations-formation.ts');
 const { lecteursDe, Porte, verifierExactitude } = await import('./verifier.ts');
-const moduleCache = await import('../../server/src/cache-instantane.ts') as Record<string, unknown>;
+const { prechaufferCache } = await import('../../server/src/demarrage.ts');
+const { remettreStatistiques, statistiquesCache } = await import('../../server/src/cache-instantane.ts');
+type StatsCache = ReturnType<typeof statistiquesCache>;
 
 type Role = 'rh' | 'manager' | 'collaborateur';
 interface Utilisateur { nom: string; role: Role; compteId: number; empId: number | null; cookie: string }
@@ -70,6 +74,24 @@ type Scenario = typeof SCENARIOS[number];
 const LIBELLES: Record<Scenario, string> = {
   S1: 'matinée', S2: 'vendredi après-midi', S3: 'fin de mois', S4: 'paie', S5: 'exports', S6: 'tâches de fond',
 };
+
+type StatsCacheBrutes = ReturnType<typeof statistiquesCache>;
+/** Compteurs du cache à zéro (même forme que `statistiquesCache`). */
+function zeroStats(): StatsCacheBrutes {
+  return combiner(statistiquesCache(), statistiquesCache(), -1);
+}
+/**
+ * `a + signe × b`, compteur par compteur (entrées, replis, jeux, vues) ; la durée du delta et ses clés restent celles de
+ * `a` (quantiles, non additifs).
+ */
+function combiner(a: StatsCacheBrutes, b: StatsCacheBrutes, signe: 1 | -1): StatsCacheBrutes {
+  const somme = <T extends Record<string, number>>(x: T, y: T) => Object.fromEntries(Object.entries(x).map(([k, v]) => [k, v + signe * y[k]])) as T;
+  return {
+    entreesCompletes: a.entreesCompletes + signe * b.entreesCompletes, entreesDerivees: a.entreesDerivees + signe * b.entreesDerivees,
+    replis: somme(a.replis, b.replis), jeuxAction: somme(a.jeuxAction, b.jeuxAction), jeuxSuivi: somme(a.jeuxSuivi, b.jeuxSuivi),
+    delta: a.delta, vuesCalculees: somme(a.vuesCalculees, b.vuesCalculees), vuesReportees: a.vuesReportees + signe * b.vuesReportees,
+  };
+}
 
 async function executer(): Promise<void> {
   const scenarios = (args.get('scenario') ?? 'S1').split(',').map(s => s.trim().toUpperCase());
@@ -99,6 +121,11 @@ async function executer(): Promise<void> {
     if (!parOracle.getStore() && /^\s*SELECT \* FROM feuilles\s+ORDER BY/i.test(sql)) cache.relectures++;
     return await query(sql, params);
   }) as typeof db.query;
+  // Préchauffage de l'entrée du cache, comme au démarrage du serveur (server/src/index.ts, lot 9) : en service, Cursus a
+  // démarré bien avant la première rafale de lectures.
+  const t0Prechauffage = performance.now();
+  const prechauffe = await prechaufferCache(db, m => console.warn(`  ${m}`));
+  const dureePrechauffage = performance.now() - t0Prechauffage;
   const app = createApp(db, { journalRequetes: false, production: false });
   const serveur = app.listen(0, '127.0.0.1');
   await new Promise<void>((ok, ko) => { serveur.once('listening', () => ok()); serveur.once('error', ko); });
@@ -109,6 +136,7 @@ async function executer(): Promise<void> {
   const base = `http://127.0.0.1:${port}`;
   const dossier = join(DOSSIER_CHARGE, 'rapports', `${horodatage()}-${scenarios.join('-')}`);
   console.log(`Essai de charge — jeu ${jeu.schema} (${jeu.ans} an${jeu.ans > 1 ? 's' : ''}), application sur ${base}, ${scenarios.map(s => `${s} « ${LIBELLES[s as Scenario]} »`).join(', ')}, ${duree / 1000} s chacun`);
+  console.log(`  préchauffage du cache : ${prechauffe ? `${(dureePrechauffage / 1000).toFixed(1)} s` : 'non fait'}`);
 
   // — Sessions : ouvertes en base, cookie signé par la clé de l'essai —
   const ouvrir = async (nom: string, role: Role, compteId: number, empId: number | null): Promise<Utilisateur> => {
@@ -174,14 +202,20 @@ async function executer(): Promise<void> {
   // Comparaison levée (lecture refusée, délai dépassé) : un état non vérifié, compté dans `interrompues` et jugé par
   // l'invariant (scripts/charge/seuils.ts), pas seulement rangé dans les erreurs.
   let interrompues = 0;
+  // Compteurs du cache dus aux comparaisons elles-mêmes (vues et jeux d'action que l'oracle demande au cache), retirés des
+  // relevés du scénario ; les durées de delta n'en sont pas retirées (l'entrée qu'une comparaison dérive aurait été
+  // dérivée par la requête suivante).
+  let parComparaisons = zeroStats();
   const comparer = async () => {
     await porte.fermer();
+    const avant = statistiquesCache(db);
     try {
       bilans.push(await parOracle.run(true, async () => await verifierExactitude(db, lecteurs)));
     } catch (err) {
       interrompues++;
       erreurs.push(`comparaison à la relecture complète → ${err instanceof Error ? err.message : err}`);
     } finally {
+      parComparaisons = combiner(parComparaisons, combiner(statistiquesCache(db), avant, -1), 1);
       porte.ouvrir();
     }
   };
@@ -302,8 +336,11 @@ async function executer(): Promise<void> {
     ...collaborateurs.slice(0, nCollab).map(lecteur), ...(autres ? [...managers.slice(0, 6), ...rhs].map(lecteur) : []),
   ];
   const scenariosFaits: Record<string, string> = {};
-  /** Relevés du cache à la fin de chaque scénario (cumulés depuis le début de l'essai). */
-  const releves: Record<string, { relectures: number; changements: number | null }> = {};
+  /**
+   * Relevés du cache de chaque scénario : relectures complètes (cumulées depuis le début de l'essai), lignes de la table
+   * `changements` à la fin, compteurs du cache incrémental du scénario seul, comparaisons de l'oracle retirées.
+   */
+  const releves: Record<string, { relectures: number; changements: number | null; cache: StatsCache }> = {};
   /** Lignes de la table `changements` (journal des changements, lot 9), null tant qu'elle n'existe pas. */
   const tailleChangements = async (): Promise<number | null> => {
     const { rows: [t] } = await sonde.query<{ ok: boolean }>('SELECT to_regclass($1) IS NOT NULL AS ok', [`${jeu.schema}.changements`]);
@@ -315,6 +352,8 @@ async function executer(): Promise<void> {
     console.log(`  ${s} « ${LIBELLES[s]} »…`);
     const t0 = performance.now();
     fin.t = t0 + duree;
+    remettreStatistiques();
+    parComparaisons = zeroStats();
     const taches: Promise<unknown>[] = [];
     if (s === 'S1') taches.push(...fond());
     if (s === 'S2') {
@@ -411,12 +450,10 @@ async function executer(): Promise<void> {
       await comparer();
       console.log(`    exactitude : ${bilans.length} comparaison(s) d'état, ${bilans.reduce((n, x) => n + x.divergences.length, 0)} divergence(s)${interrompues ? `, ${interrompues} interrompue(s)` : ''}`);
     }
-    releves[s] = { relectures: cache.relectures, changements: await tailleChangements() };
+    releves[s] = { relectures: cache.relectures, changements: await tailleChangements(), cache: combiner(statistiquesCache(db), parComparaisons, -1) };
   }
 
   clearInterval(minuteur);
-  // Statistiques exposées par le cache incrémental (lot 9, étape 2), absentes du cache par révision ; lues base ouverte.
-  const statsCache = typeof moduleCache.statistiquesCache === 'function' ? await (moduleCache.statistiquesCache as (db: unknown) => unknown)(db) : null;
   await pause(600);
   serveur.close();
   serveur.closeAllConnections();
@@ -437,7 +474,7 @@ async function executer(): Promise<void> {
   const rapport = {
     date: new Date().toISOString(), jeu: { schema: jeu.schema, ans: jeu.ans, volumes: jeu.volumes }, scenarios, dureeS: duree / 1000, marge,
     routes, sonde: stats, verdicts, resultats: scenariosFaits, erreurs: erreurs.slice(0, 100), chronologie,
-    exactitude: exact, cache: { releves, statistiques: statsCache },
+    exactitude: exact, cache: { prechauffageMs: prechauffe ? Math.round(dureePrechauffage) : null, releves },
   };
   mkdirSync(dossier, { recursive: true, mode: 0o700 });
   writeFileSync(join(dossier, 'rapport.json'), JSON.stringify(rapport, null, 2));
@@ -456,9 +493,15 @@ async function executer(): Promise<void> {
     `- pool : ${stats.poolAttenteMax} appels en attente d’une connexion au plus, attente continue au plus ${ms(stats.attentePoolMax)} ; lectures stables en attente d’une place au plus : ${stats.lecturesAttenteMax} ; écritures de l’instance en attente de leur tour au plus : ${stats.ecrituresAttenteMax}`,
     `- mémoire : RSS au plus ${Math.round(stats.rssMax / 1048576)} Mo, tas ${Math.round(stats.tasMax / 1048576)} Mo`, '',
     '## Cache de l’instantané', '',
-    ...Object.entries(releves).map(([sc, v]) => `- après ${sc} : ${v.relectures} relecture${v.relectures > 1 ? 's' : ''} complète${v.relectures > 1 ? 's' : ''} (toute la table des feuilles, hors lectures de l’oracle) depuis le début ; `
-      + (v.changements === null ? 'table `changements` absente' : `${v.changements} lignes dans \`changements\``)),
-    `- durée du delta, vues reportées ou recalculées, replis : ${statsCache ? JSON.stringify(statsCache) : 'non exposés par ce cache (`statistiquesCache`, cache incrémental du lot 9)'}`, '',
+    `- préchauffage de l’entrée avant le premier scénario : ${prechauffe ? ms(dureePrechauffage) : 'non fait'}`,
+    ...Object.entries(releves).flatMap(([sc, v]) => [
+      `- après ${sc} : ${v.relectures} relecture${v.relectures > 1 ? 's' : ''} complète${v.relectures > 1 ? 's' : ''} (toute la table des feuilles, hors lectures de l’oracle) depuis le début ; `
+        + (v.changements === null ? 'table `changements` absente' : `${v.changements} lignes dans \`changements\``),
+      `  - ${sc} seul : entrées dérivées par un delta ${v.cache.entreesDerivees}, relues en entier ${v.cache.entreesCompletes} (replis : écart inconnu ${v.cache.replis.ecartInconnu}, entrée précédente indisponible ${v.cache.replis.precedenteIndisponible}) ; `
+        + `jeux d’action : lecture partagée ${v.cache.jeuxAction.partages}, dérivés ${v.cache.jeuxAction.derives}, lus en entier ${v.cache.jeuxAction.directs} ; suivi des verdicts : dérivés ${v.cache.jeuxSuivi.derives}, relus ${v.cache.jeuxSuivi.replis}`,
+      `  - delta : ${v.cache.delta.n} (p50 ${v.cache.delta.p50Ms} ms, p95 ${v.cache.delta.p95Ms} ms, max ${v.cache.delta.maxMs} ms ; ${v.cache.delta.cles} clés changées, ${v.cache.delta.clesMax} au plus) ; `
+        + `vues recalculées : RH ${v.cache.vuesCalculees.rh}, manager ${v.cache.vuesCalculees.manager}, collaborateur ${v.cache.vuesCalculees.collaborateur} ; vues reportées : ${v.cache.vuesReportees}`,
+    ]), '',
     ...(exact ? ['## Exactitude (--verifier-exactitude)', '',
       `- ${exact.etats} état${exact.etats > 1 ? 's' : ''} comparé${exact.etats > 1 ? 's' : ''} (toutes les ${exact.k} actions validées et à la fin de chaque scénario), ${exact.comparaisons} comparaisons `
         + `(${lecteurs.length} lecteurs : vues, entrée, jeux d'action ; ${exact.triviales} triviale${exact.triviales > 1 ? 's' : ''} à part), ${exact.refaites} refaite${exact.refaites > 1 ? 's' : ''} ; ${(exact.dureeMs / 1000).toFixed(1)} s de comparaison, écritures retenues pendant ce temps (lectures servies par le cache)`,

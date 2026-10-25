@@ -292,8 +292,10 @@ Oracle d'exactitude du cache (lot 9) : `tests/oracle-cache.test.ts` rejoue une s
 reproductible (actions par des comptes tirés au hasard, SQL direct) sur la démonstration et sur le jeu de charge d'un an,
 et compare après chaque pas ce que sert le cache de l'instantané (vues de chaque compte et profil, jeu des actions) à la
 relecture complète ; `tests/regles-incrementales.test.ts` fait de même pour les règles de paie et de congés de chaque
-salarié. `CURSUS_ORACLE_GRAINES=1,2,3`, `CURSUS_ORACLE_PAS=300` ou `CURSUS_ORACLE_COMPLET=1` (passage long) allongent
-la suite (`docs/ARCHITECTURE.md`, « Oracle d'exactitude »).
+salarié. `CURSUS_ORACLE_GRAINES=1,2,3`, `CURSUS_ORACLE_PAS=300` ou `CURSUS_ORACLE_COMPLET=1` (passage long : trois
+graines de 300 pas sur la démonstration, 60 pas sur le jeu d'un an ; job `oracle` de la CI sur les deux moteurs, pour
+chaque pull request) allongent la suite (`docs/ARCHITECTURE.md`, « Oracle d'exactitude »). Le banc exige que le cache
+incrémental ait servi (entrées dérivées par le delta, aucun repli : compteurs `statistiquesCache`).
 
 ## Ce qui reste simulé
 

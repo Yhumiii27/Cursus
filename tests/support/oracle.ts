@@ -8,7 +8,8 @@
 //   transaction ; après : instantané renvoyé contre l'instantané lu directement ;
 // - après chaque pas (ou tous les `verifierTous` pas) : vue de chaque compte, espace et profil RH (PROFILS_RH), entrée du
 //   cache et jeu d'action de chaque lecteur, contre la lecture directe (`instantaneDirect`, `loadFull`).
-// Il tourne sur le cache tel qu'il est (une entrée par révision) et rejouera, sans changement, le cache incrémental.
+// Il juge le cache tel qu'il est : depuis l'étape 2 du lot 9, le cache incrémental (entrée dérivée par le delta des lignes
+// changées, vues reportées ; compteurs `statistiquesCache` de server/src/cache-instantane.ts).
 // Un appel refusé (4xx) fait partie du jeu : il ne doit rien changer. Une 5xx est une erreur du banc ou de Cursus.
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';

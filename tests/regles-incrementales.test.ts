@@ -1,7 +1,7 @@
 // Règles du droit du travail et de la paie sur la lecture partagée (lot 9, chantier 4) : pour chaque salarié, les règles
 // de shared/ qui dépendent de l'historique ou de la période en cours donnent exactement le même résultat sur le jeu
-// remis aux actions par la lecture partagée (aujourd'hui l'entrée du cache de l'instantané ; demain l'entrée mise à jour
-// par le delta) et sur le jeu de la relecture complète (`loadFull`) : repos compensateur (recupInfo), congés (cpInfo,
+// remis aux actions par la lecture partagée (entrée du cache de l'instantané, dérivée d'une révision à la suivante par le
+// delta des lignes changées depuis le lot 9) et sur le jeu de la relecture complète (`loadFull`) : repos compensateur (recupInfo), congés (cpInfo,
 // acquisitionPeriode des périodes de référence encadrant aujourd'hui), RTT (rttInfo), CET (cetInfo), contingent annuel,
 // COR à valider de chaque feuille soumise, moyenne sur 12 semaines, requalification d'un temps partiel, cumul du forfait
 // jours, synthèse du C2P (années suivies), feuilles en attente de la paie (sagePending). Sur le jeu de démonstration et sur
@@ -14,11 +14,15 @@ process.env.CURSUS_TODAY = '2026-10-10';
 process.env.CURSUS_SECRET = randomBytes(32).toString('hex');
 delete process.env.CURSUS_DEMO;
 delete process.env.CURSUS_CACHE_INSTANTANE;
+// Les compteurs vérifiés (entrées complètes, replis, vues reportées) supposent le cache incrémental et le report des vues
+// actifs, quel que soit le shell qui lance la suite (CURSUS_CACHE_INCREMENTAL=0 : mode de comparaison du README).
+delete process.env.CURSUS_CACHE_INCREMENTAL;
+delete process.env.CURSUS_VUES_REPORT;
 
 const { nouvelleBase } = await import('./base.ts');
 const { baseDemo, baseUnAn, rejouer } = await import('./support/oracle.ts');
 const { buildSnapshot, loadFull, todayIso } = await import('../server/src/dataset.ts');
-const { donneesAction } = await import('../server/src/cache-instantane.ts');
+const { donneesAction, remettreStatistiques, statistiquesCache } = await import('../server/src/cache-instantane.ts');
 const { Domain } = await import('../shared/domain.ts');
 const { cetInfo, cpInfo, recupInfo, rttInfo } = await import('../shared/rules/conges.ts');
 const { acquisitionPeriode } = await import('../shared/rules/acquisition-cp.ts');
@@ -85,10 +89,14 @@ test('démonstration : règles de chaque salarié identiques sur la lecture part
   const { partage, complet } = await deuxJeux(db);
   const n = comparer(partage, complet);
   assert.ok(n >= complet.employes.length * 10, `${n} résultats`);
-  // Après des écritures (saisies, absences, compteurs, SQL direct) : nouvelle entrée, mêmes règles.
+  // Après des écritures (saisies, absences, compteurs, SQL direct) : nouvelle entrée, dérivée par le delta des lignes
+  // changées (lot 9, étape 2) et jamais relue en entier, mêmes règles.
+  remettreStatistiques();
   const x = await rejouer(db, { graine: 11, pas: 40, sql: 0.3, verifier: false });
   assert.ok(x.ecritures > 0);
   const apres = await deuxJeux(db);
+  const stats = statistiquesCache(db);
+  assert.ok(stats.entreesDerivees > 0 && stats.entreesCompletes === 0, JSON.stringify(stats));
   comparer(apres.partage, apres.complet);
   // Le jeu a bien changé (sinon la comparaison n'apprend rien de neuf).
   assert.notDeepEqual(JSON.parse(JSON.stringify({ ...apres.complet, revision: 0 })), JSON.parse(JSON.stringify({ ...complet, revision: 0 })));
@@ -96,8 +104,11 @@ test('démonstration : règles de chaque salarié identiques sur la lecture part
 
 test('jeu de charge d’un an : règles des 120 salariés identiques sur la lecture partagée et la relecture complète', async () => {
   const { db, jeu } = await baseUnAn(nouvelleBase);
+  remettreStatistiques();
   await rejouer(db, { graine: 12, pas: 15, sql: 0.3, verifier: false });
   const { partage, complet } = await deuxJeux(db);
+  const stats = statistiquesCache(db);
+  assert.ok(stats.entreesDerivees > 0 && stats.entreesCompletes === 1, `jeu de la lecture partagée dérivé par le delta : ${JSON.stringify(stats)}`);
   assert.ok(complet.employes.length >= 120 && complet.feuilles.length > 5000, `${complet.employes.length} fiches, ${complet.feuilles.length} feuilles`);
   assert.ok(complet.feuilles.some(f => f.statut === 'soumise') && sagePending(new Domain(complet)).length > 0, 'feuilles soumises et en attente de paie');
   assert.ok(jeu.lots >= 10);

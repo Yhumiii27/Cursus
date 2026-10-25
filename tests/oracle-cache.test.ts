@@ -4,7 +4,8 @@
 // de chaque lecteur, identiques (`isDeepStrictEqual`) à la relecture complète lue directement. Sur le moteur de la suite
 // (SQLite par défaut, PostgreSQL avec npm run test:pg), avec le jeu de démonstration et le jeu de charge d'un an.
 // Réglages : CURSUS_ORACLE_GRAINES (graines séparées par des virgules), CURSUS_ORACLE_PAS (pas de la démonstration),
-// CURSUS_ORACLE_COMPLET=1 (passage long : 300 pas, comparaison de tous les lecteurs à chaque pas, jeu d'un an compris).
+// CURSUS_ORACLE_COMPLET=1 (passage long : trois graines de 300 pas sur la démonstration, tous les lecteurs à chaque pas ;
+// 60 pas sur le jeu d'un an, échantillon élargi à chaque pas et tous les lecteurs au dernier).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
@@ -12,12 +13,16 @@ process.env.CURSUS_TODAY = '2026-10-10';
 process.env.CURSUS_SECRET = randomBytes(32).toString('hex');
 delete process.env.CURSUS_DEMO;
 delete process.env.CURSUS_CACHE_INSTANTANE;
+// Les compteurs vérifiés (entrées complètes, replis, vues reportées) supposent le cache incrémental et le report des vues
+// actifs, quel que soit le shell qui lance la suite (CURSUS_CACHE_INCREMENTAL=0 : mode de comparaison du README).
+delete process.env.CURSUS_CACHE_INCREMENTAL;
+delete process.env.CURSUS_VUES_REPORT;
 
 const { nouvelleBase } = await import('./base.ts');
 const { baseDemo, baseUnAn, rejouer, resumeRapport } = await import('./support/oracle.ts');
 const { cleLecteur, comparerJeuAction, ecart, instantaneDirect, lecteursDe, LECTEUR_ENTREE, Porte, verifierExactitude } = await import('../scripts/charge/verifier.ts');
 const { buildSnapshot } = await import('../server/src/dataset.ts');
-const { cacheActif } = await import('../server/src/cache-instantane.ts');
+const { cacheActif, remettreStatistiques, statistiquesCache } = await import('../server/src/cache-instantane.ts');
 const { PROFILS_RH } = await import('../shared/constants.ts');
 const { juger, statistiques } = await import('../scripts/charge/seuils.ts');
 
@@ -155,11 +160,15 @@ test('suite d’écritures reproductible : même graine, mêmes tirages et même
 });
 
 for (const graine of GRAINES) {
-  test(`démonstration, graine ${graine} : ${PAS} pas, lecture partagée identique à la relecture complète après chaque pas`, async () => {
+  test(`démonstration, graine ${graine} : ${PAS} pas, lecture partagée identique à la relecture complète après chaque pas`, async t => {
     const db = await demo();
+    remettreStatistiques();
     // Jeux d'action de tous les lecteurs tous les 5 pas (celui de l'acteur avant chaque action, toujours) ; tout au dernier pas.
     const x = await rejouer(db, { graine, pas: PAS, verifierTous: 1, jeux: COMPLET ? 1 : 5, sql: 0.25 });
-    const resume = resumeRapport(x);
+    const stats = statistiquesCache(db);
+    const resume = `${resumeRapport(x)}\ncache : ${JSON.stringify(stats)}`;
+    // Bilan dans la sortie des tests (journal de la CI), même quand tout passe.
+    t.diagnostic(resume.split('\n').filter(l => !l.startsWith('actions validées')).join(' · '));
     assert.deepEqual(x.divergences, [], resume);
     assert.deepEqual(x.erreurs, [], resume);
     // La suite a vraiment écrit, par des actions et par du SQL direct, et a tout comparé à chaque pas. Elle a exercé la
@@ -178,28 +187,46 @@ for (const graine of GRAINES) {
     // Vérification après chaque pas : l'entrée de la révision courante est là quand l'action suivante la lit ; seule une
     // action du premier pas, avant toute lecture, peut la trouver absente (comparaison triviale, comptée à part).
     assert.ok(x.triviales <= 1, resume);
+    // Comparaisons faites sur le cache incrémental (lot 9, étape 2) : une seule lecture complète, la première ; chaque
+    // révision suivante dérivée de la précédente par le delta des lignes changées, sans repli ; jeux d'action servis par
+    // la lecture partagée ou dérivés ; vues collaborateur ou manager reportées d'une révision à la suivante.
+    assert.equal(stats.entreesCompletes, 1, resume);
+    assert.deepEqual(stats.replis, { ecartInconnu: 0, precedenteIndisponible: 0 }, resume);
+    // Chaque révision écrite a son entrée : la première lue en entier (pas écrivant avant toute lecture), les autres dérivées.
+    assert.ok(stats.entreesDerivees + stats.entreesCompletes >= x.ecritures, resume);
+    assert.ok(stats.jeuxAction.partages > 0 && stats.jeuxAction.derives + stats.jeuxSuivi.derives > 0, resume);
+    assert.ok(stats.vuesReportees > 0, resume);
   });
 }
 
-test('jeu de charge d’un an : suite d’écritures, lecture partagée identique à la relecture complète', async () => {
+test('jeu de charge d’un an : suite d’écritures, lecture partagée identique à la relecture complète', async t => {
   const { db, jeu } = await baseUnAn(nouvelleBase);
   assert.ok(jeu.employes.length >= 120 && (await db.count('feuilles')) > 5000, `${jeu.employes.length} fiches`);
+  remettreStatistiques();
   // Chaque pas : deux profils RH et deux autres lecteurs tirés au hasard ; au dernier : les cinq profils RH, 4 managers
-  // et 4 collaborateurs, vues et jeux d'action (une vue RH coûte 0,4 à 0,7 s sur ce jeu). CURSUS_ORACLE_COMPLET=1 : tous
-  // les lecteurs à chaque pas.
+  // et 4 collaborateurs, vues et jeux d'action (une vue RH coûte 0,4 à 0,7 s sur ce jeu). CURSUS_ORACLE_COMPLET=1 : 60
+  // pas ; à chaque pas, les cinq profils RH, les huit managers et six collaborateurs tirés au hasard ; au dernier, tous
+  // les lecteurs (près de 140 : tous à chaque pas prendrait près d'une heure).
   type Lecteurs = Awaited<ReturnType<typeof lecteursDe>>;
   const echantillon = (tous: Lecteurs, r: { choix: <T>(l: readonly T[]) => T }) => {
     const rh = tous.filter(u => u.role === 'rh'), autres = tous.filter(u => u.role !== 'rh');
-    return [r.choix(rh), r.choix(rh), r.choix(autres), r.choix(autres)];
+    if (!COMPLET) return [r.choix(rh), r.choix(rh), r.choix(autres), r.choix(autres)];
+    const collaborateurs = tous.filter(u => u.role === 'collaborateur');
+    return [...rh.slice(-5), ...tous.filter(u => u.role === 'manager'), ...new Set(Array.from({ length: 6 }, () => r.choix(collaborateurs)))];
   };
   const x = await rejouer(db, {
-    graine: GRAINES[0], pas: COMPLET ? 60 : 4, verifierTous: 1, sql: 0.3, jeux: COMPLET ? 5 : 0, lecteurs: COMPLET ? undefined : echantillon,
+    graine: GRAINES[0], pas: COMPLET ? 60 : 4, verifierTous: 1, sql: 0.3, jeux: COMPLET ? 10 : 0, lecteurs: echantillon,
     lecteursFinaux: COMPLET ? undefined : tous => [
       ...tous.filter(u => u.role === 'rh').slice(-5), ...tous.filter(u => u.role === 'manager').slice(0, 4), ...tous.filter(u => u.role === 'collaborateur').slice(0, 4),
     ],
   });
-  const resume = resumeRapport(x);
+  const stats = statistiquesCache(db);
+  const resume = `${resumeRapport(x)}\ncache : ${JSON.stringify(stats)}`;
+  t.diagnostic(resume.split('\n').filter(l => !l.startsWith('actions validées')).join(' · '));
   assert.deepEqual(x.divergences, [], resume);
   assert.deepEqual(x.erreurs, [], resume);
   assert.ok(x.ecritures >= 1, resume);
+  // Cache incrémental exercé : chaque révision écrite dérivée par un delta, une seule lecture complète.
+  assert.equal(stats.entreesCompletes, 1, resume);
+  assert.ok(stats.entreesDerivees + stats.entreesCompletes >= x.ecritures, resume);
 });

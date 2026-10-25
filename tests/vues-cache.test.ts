@@ -10,6 +10,9 @@
 // Étape 2 (report des vues d'une révision à la suivante) :
 // - après une saisie de X, seules `collaborateur|X`, les vues manager dont le périmètre contient X et les vues RH sont
 //   recalculées ; les autres sont reportées (même objet, même corps), et chacune égale vueDe(loadFull) ;
+// - liste blanche vérifiée par la valeur : un champ de CHAMPS_HORS_VUES remplacé, ou les lignes de CHAMPS_PAR_SALARIE
+//   d'un salarié hors du périmètre retenu retirées ou ajoutées, ne changent aucune vue collaborateur ou manager
+//   (consultation N+2 et délégation comprises) ;
 // - un champ commun changé (fiche), ou CURSUS_VUES_REPORT=0 : aucune vue reportée ;
 // - ni un manager N+2 ni un collaborateur ne reçoivent la ligne d'un autre salarié, vue reportée ou recalculée ;
 // - suite d'écritures aléatoire (banc d'oracle) : des vues reportées, aucune divergence avec la lecture directe.
@@ -330,6 +333,69 @@ test('liste blanche : champs par salarié tirés de tables à colonne empId, auc
   assert.equal(communsInchanges({ champsChanges: new Set(['feuilles', 'debutSaisieFeuilles']), touches: new Set([2]) }, avant, { ...memeDebut, debutSaisieFeuilles: '2025-12-29' } as Dataset), false);
   assert.equal(communsInchanges({ champsChanges: new Set(['employes']), touches: new Set([2]) }, avant, { ...avant, employes: [] } as unknown as Dataset), false);
   assert.equal(communsInchanges({ champsChanges: new Set(), touches: new Set() }, avant, { ...avant, today: '2026-10-11' } as Dataset), false);
+});
+
+/**
+ * Valeur de remplacement non vide et différente de `v`, pour un champ que la vue ne doit pas lire : tableau vidé ou
+ * doublé (lignes recopiées sous un autre salarié et un autre identifiant), objet complété d'une clé, null remplacé.
+ */
+function variantes(v: unknown, autre: number): unknown[] {
+  const copie = (x: unknown, k: number) => (x && typeof x === 'object'
+    ? { ...x, ...('empId' in x ? { empId: autre } : {}), ...(typeof (x as { id?: unknown }).id === 'number' ? { id: 900_000 + k } : {}) }
+    : x);
+  if (Array.isArray(v)) return v.length ? [[], [...v, ...v.map(copie)]] : [[{ id: 900_000, empId: autre }]];
+  if (v && typeof v === 'object') {
+    const un = Object.values(v)[0];
+    return [{}, { ...v, essai: un && typeof un === 'object' ? { ...un } : { id: 900_000, empId: autre } }];
+  }
+  return [{ id: 900_000, empId: autre }];
+}
+
+test('liste blanche, par la valeur : un champ hors des vues ou une ligne d’un salarié hors du périmètre ne change aucune vue collaborateur ou manager', async () => {
+  const db = await demo();
+  // Configurations : démonstration seule, puis consultation N+2 (Maintenance rattachée à la Production) et délégation
+  // active (Karim Haddad à Sophie Lemaire), qui élargissent les périmètres lus.
+  const configurations: (() => Promise<unknown>)[] = [
+    async () => {},
+    async () => {
+      await db.run(`UPDATE equipes SET parente = 'Production' WHERE nom = 'Maintenance'`);
+      await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), consultationN2: true });
+      await db.insert('delegations', { managerId: 12, suppleantId: 3, du: '2026-10-05', au: '2026-10-20', perimetre: ['absences'], creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Karim Haddad' });
+    },
+  ];
+  let essais = 0, lignesAjoutees = 0;
+  for (const configurer of configurations) {
+    await configurer();
+    const partage = await loadFull(db, RH);
+    const users = (await utilisateurs(db)).map(u => u.user).filter(u => u.role !== 'rh');
+    for (const u of users) {
+      const full = donneesDe(partage, u, 1, null);
+      const vue = vueDe(full, u);
+      const ids = perimetreDe(vue)!;
+      assert.ok(ids, `${cleVue(u)} : périmètre retenu`);
+      const dehors = full.employes.map(e => e.id).filter(id => !ids.has(id));
+      assert.ok(dehors.length, `${cleVue(u)} : salariés hors du périmètre`);
+      const meme = (modifie: Dataset, quoi: string) => {
+        essais++;
+        assert.deepStrictEqual(vueDe(modifie, u), vue, `${cleVue(u)} : ${quoi}`);
+      };
+      // Champs hors des vues : toute autre valeur, la vue ne change pas.
+      for (const champ of CHAMPS_HORS_VUES) {
+        for (const autre of variantes(full[champ], dehors[0])) meme({ ...full, [champ]: autre } as Dataset, `${champ} remplacé`);
+      }
+      // Lignes par salarié : celles des salariés hors du périmètre retirées, ou recopiées sous un salarié hors du périmètre.
+      for (const champ of CHAMPS_PAR_SALARIE) {
+        const lignes = (full[champ] ?? []) as unknown as { empId: number; id?: unknown }[];
+        meme({ ...full, [champ]: lignes.filter(l => ids.has(l.empId)) } as Dataset, `${champ} sans les lignes hors du périmètre`);
+        for (const [k, autre] of dehors.slice(0, 3).entries()) {
+          const ajout = lignes.slice(0, 5).map((l, i) => ({ ...l, empId: autre, ...(typeof l.id === 'number' ? { id: 900_000 + 10 * k + i } : {}) }));
+          lignesAjoutees += ajout.length;
+          meme({ ...full, [champ]: [...lignes, ...ajout] } as Dataset, `${champ} avec des lignes du salarié ${autre}`);
+        }
+      }
+    }
+  }
+  assert.ok(essais > 1000 && lignesAjoutees > 1000, `${essais} vues comparées, ${lignesAjoutees} lignes ajoutées`);
 });
 
 test('report : après une saisie de X, seules collaborateur|X et les vues manager qui lisent X sont recalculées, chaque vue reportée égale vueDe(loadFull)', async () => {

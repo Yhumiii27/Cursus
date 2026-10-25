@@ -128,6 +128,19 @@ export async function vueEnCache(
   db: Db, user: CurrentUser, today: string, revision: number,
   lire: (lecteur: CurrentUser) => Promise<Dataset>, calculer: (full: Dataset) => Dataset,
 ): Promise<Dataset | null> {
+  const x = await vuePartagee(db, user, today, revision, lire, calculer);
+  return x && { ...x.vue, user, revision };
+}
+
+/**
+ * Vue partagée de la clé de `user`, telle que le cache la garde (sans la tête de cette requête : utilisateur et
+ * révision restent ceux du premier calcul), avec sa clé : le corps JSON lui est attaché par clé de vue (lot 9,
+ * server/src/vues-cache.ts). Jamais modifiée par l'appelant. Null hors d'une lecture stable ou cache désactivé.
+ */
+export async function vuePartagee(
+  db: Db, user: CurrentUser, today: string, revision: number,
+  lire: (lecteur: CurrentUser) => Promise<Dataset>, calculer: (full: Dataset) => Dataset,
+): Promise<{ vue: Dataset; cle: string } | null> {
   const x = await entree(db, today, lire);
   if (!x) return null;
   const { e, memeEtat } = x;
@@ -144,7 +157,7 @@ export async function vueEnCache(
     e.vues.set(cle, vue);
     vue.catch(() => { if (e.vues.get(cle) === vue) e.vues.delete(cle); });
   }
-  return { ...await vue, user, revision };
+  return { vue: await vue, cle };
 }
 
 /**

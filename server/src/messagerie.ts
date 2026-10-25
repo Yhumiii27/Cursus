@@ -12,7 +12,11 @@ import { lienCursus } from './integrations/email.ts';
 
 /** Réglage `messagerie` (Paramètres → Messagerie), complété des valeurs par défaut. */
 export async function lireMessagerie(db: Db): Promise<Messagerie> {
-  const m = await db.getSetting<Partial<Messagerie>>('messagerie', {});
+  return messagerieDe(await db.getSetting<Partial<Messagerie>>('messagerie', {}));
+}
+
+/** Messagerie tirée du réglage enregistré (lecture brute de l'instantané, server/src/lecture-brute.ts). */
+export function messagerieDe(m: Partial<Messagerie>): Messagerie {
   return { ...MESSAGERIE_VIDE, ...m, agences: Array.isArray(m.agences) ? m.agences : [] };
 }
 

@@ -559,6 +559,16 @@ export function jsonLu(v: unknown): unknown {
  */
 export const TABLES_SANS_REVISION: ReadonlySet<TableName> = new Set<TableName>(['journal', 'connexions', 'comptes', 'jetonsAgenda']);
 
+/**
+ * Tables dont le journal des changements n'inscrit jamais les clés, seulement le marqueur « toute la table » (lot 9,
+ * chantier 1, migration PostgreSQL 0014_changements, même liste) : celles que Matrix ne lit pas du tout (colonne `*` de
+ * droits.colonnes_sensibles : `vaccinations`, `visas` dans le socle ; `demandes_visite`, `informations_cp`, `reprises`
+ * dans la demande du lot 8), parce que l'existence même d'une de leurs lignes est sensible. Leurs clés, rapprochées dans
+ * l'ordre des écritures des lignes lisibles du même salarié, la désigneraient. Petites tables : le cache les relit en
+ * entier dès qu'elles changent.
+ */
+export const TABLES_CHANGEMENTS_SANS_CLE: ReadonlySet<TableName> = new Set<TableName>(['vaccinations', 'visas', 'demandesVisite', 'informationsCp', 'reprises']);
+
 /** Valeur passée en paramètre d'une requête SQL brute (`query`, `one`, `run`). */
 export type SqlValeur = string | number | bigint | boolean | null | Uint8Array;
 /** Issue d'une écriture SQL brute (`run`) : lignes touchées, identifiant de la dernière insertion. */
@@ -892,7 +902,8 @@ export class SqliteDb extends Db {
     // Base occupée par une autre connexion (npm run comptes, sauvegarde) : attente jusqu'à 5 s plutôt qu'un échec immédiat.
     this.sql.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     // Journal des changements (lot 9, chantier 1) : une ligne remplacée par INSERT OR REPLACE (SQL direct) passe par les
-    // déclencheurs de suppression, comme une suppression ordinaire.
+    // déclencheurs de suppression, comme une suppression ordinaire. Réglage propre à la connexion : une autre (client
+    // sqlite3, outil hors de Cursus) qui ne le pose pas n'inscrit pas la ligne remplacée (voir `poserRevision`).
     this.sql.exec('PRAGMA recursive_triggers = ON');
     const tables = this.tablesSql();
     this.neuve = !Object.keys(TABLES).some(n => tables.has(snake(n)));
@@ -907,12 +918,18 @@ export class SqliteDb extends Db {
    * (npm run comptes) ou une écriture SQL directe. Posés à l'ouverture, puis de nouveau après les migrations nommées
    * (server/src/demarrage.ts), qui peuvent reconstruire une table et ses déclencheurs avec elle ; une table ajoutée à
    * TABLES reçoit ainsi les siens sans migration. Hors de TABLES, comme la table des migrations nommées.
+   * Limite du SQL direct hors de Cursus (SQLite seulement) : une ligne supprimée par INSERT OR REPLACE parce qu'elle
+   * entre en conflit avec la nouvelle sur une unicité ne passe par les déclencheurs de suppression qu'avec
+   * `PRAGMA recursive_triggers = ON`, réglage de la connexion que Cursus pose sur les siennes. Une écriture à la main
+   * (client sqlite3) se fait donc sans INSERT OR REPLACE, ou après ce PRAGMA ; sinon seule la nouvelle clé est inscrite
+   * et le cache garderait l'ancienne ligne jusqu'à sa prochaine relecture complète (redémarrage).
    */
   poserRevision(): void {
     // Journal des changements (lot 9, chantier 1, comme la migration PostgreSQL 0014_changements) : purge et époque de la
     // révision (`EtatRevision`), ajoutées à la table d'une base du lot 8, et table `changements` (révision, table, clé ;
     // clé NULL : toute la table). L'époque part de l'heure de création de la table, ou de son passage à cette version.
     const colonnes = new Set((this.sql.prepare('PRAGMA table_info(revision)').all() as { name: string }[]).map(c => c.name));
+    const existants = new Map((this.sql.prepare(`SELECT name, sql FROM sqlite_master WHERE type = 'trigger'`).all() as { name: string; sql: string }[]).map(d => [d.name, d.sql]));
     const sql = ['SAVEPOINT poser_revision',
       'CREATE TABLE IF NOT EXISTS revision (cle INTEGER PRIMARY KEY CHECK (cle = 1), n INTEGER NOT NULL, purge INTEGER NOT NULL DEFAULT 0, epoque INTEGER NOT NULL DEFAULT 0)'];
     for (const c of ['purge', 'epoque']) if (colonnes.size && !colonnes.has(c)) sql.push(`ALTER TABLE revision ADD COLUMN ${c} INTEGER NOT NULL DEFAULT 0`);
@@ -930,13 +947,18 @@ export class SqliteDb extends Db {
       // Par ligne (SQLite n'a pas de déclencheur par instruction) : révision augmentée, puis la clé de la ligne inscrite
       // à cette révision, dans le même corps ; une modification inscrit aussi l'ancienne clé si elle a changé.
       const inscrire = (cle: string) => `INSERT INTO changements (n, tbl, pk) SELECT n, '${t}', ${cle} FROM revision`;
-      const corps = {
+      // Table fermée à Matrix (`TABLES_CHANGEMENTS_SANS_CLE`) : marqueur « toute la table » seul, comme sur PostgreSQL.
+      const corps = TABLES_CHANGEMENTS_SANS_CLE.has(name) ? { i: [inscrire('NULL')], u: [inscrire('NULL')], d: [inscrire('NULL')] } : {
         i: [inscrire(`NEW.${pk}`)],
         u: [inscrire(`NEW.${pk}`), `${inscrire(`OLD.${pk}`)} WHERE OLD.${pk} IS NOT NEW.${pk}`],
         d: [inscrire(`OLD.${pk}`)],
       };
       for (const [suffixe, evenement] of [['i', 'INSERT'], ['u', 'UPDATE'], ['d', 'DELETE']] as const) {
-        sql.push(`CREATE TRIGGER IF NOT EXISTS revision2_${t}_${suffixe} AFTER ${evenement} ON ${t} BEGIN UPDATE revision SET n = n + 1; ${corps[suffixe].join('; ')}; END`);
+        // Recréé quand son texte diffère du code (liste des tables sans clé comprise), jamais sinon : une ouverture sur une
+        // base à jour n'écrit rien dans le fichier (commandes à blanc).
+        const nom = `revision2_${t}_${suffixe}`;
+        const voulu = `CREATE TRIGGER ${nom} AFTER ${evenement} ON ${t} BEGIN UPDATE revision SET n = n + 1; ${corps[suffixe].join('; ')}; END`;
+        if (existants.get(nom) !== voulu) sql.push(`DROP TRIGGER IF EXISTS ${nom}`, voulu);
       }
     }
     sql.push('RELEASE poser_revision');

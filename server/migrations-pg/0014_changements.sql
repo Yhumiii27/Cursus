@@ -14,8 +14,14 @@
 -- Les déclencheurs `revision_lignes_*` passent après le déclencheur `revision` de la même table (ordre alphabétique des
 -- noms, même moment, même niveau) : ils lisent la révision que l'instruction vient d'augmenter. Tables exclues : celles de
 -- la migration 0013 (journal des actions, sessions de connexion, comptes, abonnements à l'agenda, journal des
--- migrations, révision) et `changements` elle-même. Table technique, sans donnée personnelle (identifiants seulement),
--- hors de TABLES et de la déclaration à Matrix.
+-- migrations, révision) et `changements` elle-même. Table technique (identifiants et noms de tables seulement), hors de
+-- TABLES et de la déclaration à Matrix, mais qui révèle l'activité des tables, dans l'ordre des écritures : rapprochée des
+-- lignes voisines d'une même transaction (fiche du salarié, journal), l'écriture d'une vaccination ou d'une demande de
+-- visite désigne une donnée de santé. D'où, contre la lecture de matrix_lecture (droits par défaut du socle) :
+-- - tables fermées en entier à Matrix (`vaccinations`, `visas` : socle ; `demandes_visite`, `informations_cp`,
+--   `reprises` : demande du lot 8) inscrites sans clé, par le seul marqueur « toute la table » (petites tables, relues en
+--   entier par le cache) ; même liste que `TABLES_CHANGEMENTS_SANS_CLE` (server/src/db.ts) ;
+-- - `changements` elle-même fermée en entier (commentaire « Sensible », ligne de docs/demandes/matrix-lot8-colonnes-sensibles.sql).
 --> statement-breakpoint
 CREATE TABLE "changements" (
   "n" bigint NOT NULL,
@@ -23,7 +29,7 @@ CREATE TABLE "changements" (
   "pk" text
 );
 --> statement-breakpoint
-COMMENT ON TABLE "changements" IS 'Journal des lignes changées par révision de la base de Cursus (table, clé primaire ; clé NULL : toute la table) : relecture partielle du cache de l''instantané. Aucune donnée personnelle.';
+COMMENT ON TABLE "changements" IS 'Système : journal des lignes changées par révision de la base de Cursus (table, clé primaire ; clé NULL : toute la table), relecture partielle du cache de l''instantané. Sensible (table entière : l''ordre des écritures rattache l''activité des tables de santé à un salarié) : à exclure de matrix_lecture (Matrix).';
 --> statement-breakpoint
 CREATE INDEX "changements_n" ON "changements" USING btree ("n");
 --> statement-breakpoint
@@ -44,12 +50,17 @@ $$;
 -- Par table : trois fonctions (insertion, modification, suppression) écrites pour sa clé primaire, sans to_jsonb, et
 -- leurs déclencheurs par instruction avec la table de transition (`nouvelles`, `anciennes`). Une modification inscrit
 -- l'ancienne et la nouvelle clé (clé changée : la ligne quitte l'une et arrive à l'autre). Au-delà de 1 000 lignes dans
--- une instruction, un seul marqueur NULL. Une table sans clé primaire simple arrête la migration.
+-- une instruction, un seul marqueur NULL ; table fermée à Matrix : le marqueur NULL seul. Le nom inscrit est celui de la
+-- table au moment de l'écriture (TG_TABLE_NAME), pas celui de la création : une table renommée plus tard garde des
+-- déclencheurs justes. Une table sans clé primaire simple arrête la migration.
 DO $$
 DECLARE
   t text;
   k text;
   corps text;
+  i_cles text;
+  u_cles text;
+  d_cles text;
 BEGIN
   FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = current_schema()
     AND tablename NOT IN ('journal', 'connexions', 'comptes', 'jetons_agenda', 'schema_migrations', 'revision', 'changements') ORDER BY tablename
@@ -59,26 +70,35 @@ BEGIN
     IF k IS NULL THEN
       RAISE EXCEPTION 'table % sans clé primaire simple : journal des changements impossible', t;
     END IF;
-    -- %1$L : nom de la table ; %2$s : lignes à inscrire (requête sur la table de transition) ; %3$s : table compteuse.
+    IF t IN ('vaccinations', 'visas', 'demandes_visite', 'informations_cp', 'reprises') THEN
+      i_cles := 'SELECT NULL::text AS k';
+      u_cles := i_cles;
+      d_cles := i_cles;
+    ELSE
+      i_cles := format('SELECT (%I)::text AS k FROM nouvelles', k);
+      u_cles := format('SELECT (%1$I)::text AS k FROM nouvelles UNION SELECT (%1$I)::text FROM anciennes', k);
+      d_cles := format('SELECT (%I)::text AS k FROM anciennes', k);
+    END IF;
+    -- %1$s : lignes à inscrire (requête sur la table de transition) ; %2$s : table compteuse.
     corps := $f$
 DECLARE r bigint; c bigint;
 BEGIN
   SELECT n INTO r FROM revision;
-  SELECT count(*) INTO c FROM (SELECT 1 FROM %3$s LIMIT 1001) x;
+  SELECT count(*) INTO c FROM (SELECT 1 FROM %2$s LIMIT 1001) x;
   IF c > 1000 THEN
-    INSERT INTO changements (n, tbl, pk) VALUES (r, %1$L, NULL);
+    INSERT INTO changements (n, tbl, pk) VALUES (r, TG_TABLE_NAME, NULL);
   ELSIF c > 0 THEN
-    INSERT INTO changements (n, tbl, pk) SELECT r, %1$L, x.k FROM (%2$s) x;
+    INSERT INTO changements (n, tbl, pk) SELECT r, TG_TABLE_NAME, x.k FROM (%1$s) x;
   END IF;
   RETURN NULL;
 END
 $f$;
     EXECUTE format('CREATE FUNCTION %I() RETURNS trigger LANGUAGE plpgsql SET search_path FROM CURRENT AS %L', 'revision_lignes_' || t || '_i',
-      format(corps, t, format('SELECT (%I)::text AS k FROM nouvelles', k), 'nouvelles'));
+      format(corps, i_cles, 'nouvelles'));
     EXECUTE format('CREATE FUNCTION %I() RETURNS trigger LANGUAGE plpgsql SET search_path FROM CURRENT AS %L', 'revision_lignes_' || t || '_u',
-      format(corps, t, format('SELECT (%1$I)::text AS k FROM nouvelles UNION SELECT (%1$I)::text FROM anciennes', k), 'nouvelles'));
+      format(corps, u_cles, 'nouvelles'));
     EXECUTE format('CREATE FUNCTION %I() RETURNS trigger LANGUAGE plpgsql SET search_path FROM CURRENT AS %L', 'revision_lignes_' || t || '_d',
-      format(corps, t, format('SELECT (%I)::text AS k FROM anciennes', k), 'anciennes'));
+      format(corps, d_cles, 'anciennes'));
     EXECUTE format('CREATE TRIGGER revision_lignes_i AFTER INSERT ON %I REFERENCING NEW TABLE AS nouvelles FOR EACH STATEMENT EXECUTE FUNCTION %I()', t, 'revision_lignes_' || t || '_i');
     EXECUTE format('CREATE TRIGGER revision_lignes_u AFTER UPDATE ON %I REFERENCING OLD TABLE AS anciennes NEW TABLE AS nouvelles FOR EACH STATEMENT EXECUTE FUNCTION %I()', t, 'revision_lignes_' || t || '_u');
     EXECUTE format('CREATE TRIGGER revision_lignes_d AFTER DELETE ON %I REFERENCING OLD TABLE AS anciennes FOR EACH STATEMENT EXECUTE FUNCTION %I()', t, 'revision_lignes_' || t || '_d');

@@ -8,13 +8,16 @@
 // - un écart inconnu (purge, époque, écart à rebours) rend null : l'appelant relit tout ;
 // - appliquer le delta à une copie des tables redonne la relecture complète, y compris entre deux instances (deux PgDb
 //   sur le même schéma, et une écriture faite hors de Cursus) ;
-// - le décodeur préparé par table rend les mêmes objets que l'ancien décodage colonne par colonne.
+// - le décodeur préparé par table rend les mêmes objets que l'ancien décodage colonne par colonne ;
+// - les tables fermées en entier à Matrix ne sont inscrites que par le marqueur « toute la table », et le journal
+//   lui-même est demandé fermé à Matrix ; une table renommée inscrit son nouveau nom (PostgreSQL).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 
 const { PG, nouvelleBase, sqlite, SQLITE_SEUL } = await import('./base.ts');
-const { PAQUET_LIGNES, SEUIL_CHANGEMENTS, snake, TABLES, TABLES_SANS_REVISION } = await import('../server/src/db.ts');
+const { PAQUET_LIGNES, SEUIL_CHANGEMENTS, snake, TABLES, TABLES_CHANGEMENTS_SANS_CLE, TABLES_SANS_REVISION } = await import('../server/src/db.ts');
+const { demandeMatrix, lire, socleCursus } = await import('./colonnes-sensibles.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { ouvrirPostgres } = await import('../server/src/db-pg.ts');
 type Db = import('../server/src/db.ts').Db;
@@ -150,6 +153,67 @@ test('SQLite : une ligne remplacée par INSERT OR REPLACE (autre clé, même uni
   const nouvelle = (await db.where<{ id: number }>('feuilles', 'empId', 1))[0];
   assert.notEqual(nouvelle.id, f.id);
   assert.deepEqual(enClair(await db.lireChangements(avant, await db.revisionBase())), { feuilles: [String(f.id), String(nouvelle.id)].sort() });
+});
+
+test('tables fermées en entier à Matrix : marqueur « toute la table » seul, jamais leurs clés', async () => {
+  const db = await nouvelleBase();
+  await db.insert('employes', { id: 42, nom: 'Essai' });
+  const v = await db.insert<{ id: number }>('vaccinations', { empId: 42, v: 'fj', date: '2026-10-01' });
+  await ecrire(db, async () => await db.insert('vaccinations', { empId: 42, v: 'dtp', date: '2026-10-02' }), { vaccinations: 'tout' }, 'insertion');
+  await ecrire(db, async () => await db.update('vaccinations', v.id, { date: '2026-10-03' }), { vaccinations: 'tout' }, 'modification');
+  await ecrire(db, async () => await db.tx(async () => {
+    await db.update('employes', 42, { nom: 'Essai bis' });
+    await db.insert('demandesVisite', { empId: 42, motif: 'reprise', le: '2026-10-05', statut: 'demandee' });
+  }), { demandesVisite: 'tout', employes: ['42'] }, 'transaction : la fiche par sa clé, la visite sans clé');
+  await ecrire(db, async () => await db.remove('vaccinations', v.id), { vaccinations: 'tout' }, 'suppression');
+  const tables = [...TABLES_CHANGEMENTS_SANS_CLE].map(t => snake(t));
+  const cles = await db.query<{ tbl: string; pk: string | null }>(`SELECT tbl, pk FROM changements WHERE tbl IN (${tables.map(() => '?').join(', ')})`, tables);
+  assert.ok(cles.length >= 4);
+  assert.deepEqual(cles.filter(c => c.pk !== null), [], 'aucune clé inscrite pour une table fermée');
+});
+
+test('SQLite : déclencheur d’une version antérieure (clé inscrite) remplacé à l’ouverture, base à jour laissée telle quelle', { skip: PG && SQLITE_SEUL }, async () => {
+  const db = sqlite(await nouvelleBase());
+  const texte = () => (db.sql.prepare(`SELECT sql FROM sqlite_master WHERE name = 'revision2_vaccinations_i'`).get() as { sql: string }).sql;
+  const avant = texte();
+  db.sql.exec(`DROP TRIGGER revision2_vaccinations_i; CREATE TRIGGER revision2_vaccinations_i AFTER INSERT ON vaccinations BEGIN
+    UPDATE revision SET n = n + 1; INSERT INTO changements (n, tbl, pk) SELECT n, 'vaccinations', NEW.id FROM revision; END`);
+  db.poserRevision();
+  assert.equal(texte(), avant, 'corps du code reposé');
+  const version = () => Number((db.sql.prepare('PRAGMA schema_version').get() as { schema_version: number }).schema_version);
+  const v = version();
+  db.poserRevision();
+  assert.equal(version(), v, 'base à jour : aucun déclencheur recréé');
+  const n = await db.revisionBase();
+  await db.insert('vaccinations', { empId: 1, v: 'fj', date: '2026-10-01' });
+  assert.deepEqual(enClair(await db.lireChangements(n, await db.revisionBase())), { vaccinations: 'tout' });
+});
+
+test('tables inscrites sans clé : exactement les tables fermées en entier à Matrix (socle et demande), même liste dans 0014', () => {
+  const fermees = new Set([...socleCursus().values(), ...demandeMatrix()].filter(c => c.colonne === '*').map(c => c.table));
+  // `changements` est elle-même fermée (demande du lot 8) : l'ordre de ses lignes rattache l'activité des tables de santé.
+  assert.ok(fermees.has('changements'), 'journal des changements fermé à matrix_lecture');
+  const suivies = new Set(TABLES_SUIVIES.map(t => snake(t)));
+  const attendues = [...fermees].filter(t => suivies.has(t)).sort();
+  assert.deepEqual([...TABLES_CHANGEMENTS_SANS_CLE].map(t => snake(t)).sort(), attendues);
+  const migration = lire('server/migrations-pg/0014_changements.sql');
+  const liste = /IF t IN \(([^)]*)\) THEN/.exec(migration)?.[1];
+  assert.ok(liste, 'liste des tables sans clé dans 0014');
+  assert.deepEqual(liste.split(',').map(t => t.trim().replace(/'/g, '')).sort(), attendues);
+  assert.match(migration, /COMMENT ON TABLE "changements" IS '[^\n]*Sensible \(table entière/);
+  // Nom inscrit à l'écriture, jamais figé à la création des fonctions.
+  assert.doesNotMatch(migration, /%1\$L/);
+});
+
+test('PostgreSQL : table renommée, le journal inscrit son nouveau nom', SEUL_PG, async () => {
+  const db = await nouvelleBase();
+  await assert.rejects(db.tx(async () => {
+    await db.exec('ALTER TABLE postes RENAME TO postes_renommes');
+    await db.run(`INSERT INTO postes_renommes (nom) VALUES ('Opérateur')`);
+    const r = await db.one<{ tbl: string }>('SELECT tbl FROM changements ORDER BY n DESC LIMIT 1');
+    assert.equal(r?.tbl, 'postes_renommes');
+    throw new Error('annulée');
+  }), /annulée/);
 });
 
 test('remise à zéro, TRUNCATE et instruction de plus de 1 000 lignes : toute la table', async () => {

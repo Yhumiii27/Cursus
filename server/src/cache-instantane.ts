@@ -24,6 +24,9 @@
 // différente), quand l'entrée précédente est en échec ou n'a pas de lecture brute, ou quand la révision lue est plus
 // ancienne que l'entrée alors que l'époque a changé. Les résumés de la paie sont repris tant qu'aucune table dont ils
 // dépendent (`DEP_PAIE`) n'a changé. CURSUS_CACHE_INCREMENTAL=0 revient à la relecture complète à chaque révision.
+// Report des vues (lot 9, chantier 3, étape 2) : une entrée dérivée par un delta reprend les vues collaborateur et manager
+// de la précédente dont le périmètre n'est pas touché et qu'aucun champ commun changé n'atteint (`avecReport`,
+// server/src/vues-cache.ts). Les vues RH sont toujours recalculées. CURSUS_VUES_REPORT=0 coupe le report.
 import { configurerFeries } from '../../shared/dates.ts';
 import { droitsRh } from '../../shared/constants.ts';
 import type { CurrentUser, Dataset } from '../../shared/types.ts';
@@ -32,6 +35,7 @@ import { type Db, type EtatRevision } from './db.ts';
 import { appliquerDelta, type Fusion, lireDelta } from './delta.ts';
 import { resumeDeplacementsPaie } from './deplacements-paie.ts';
 import { assembler, type Brut, brutDe, retenirBrut } from './lecture-brute.ts';
+import { reporterVues, retenirResolue } from './vues-cache.ts';
 
 /**
  * Lecteurs internes de la lecture partagée : la lecture complète se fait sans les résumés de la paie (référent HSE :
@@ -187,7 +191,8 @@ async function entree(db: Db, today: string, lire: (lecteur: CurrentUser) => Pro
   // Révision plus récente de la même époque et du même jour : dérivée de l'entrée précédente par le delta des lignes
   // changées ; sinon (première lecture, autre jour, autre époque, cache incrémental coupé) lecture complète.
   nouvelle.lu = e && e.today === today && e.epoque === epoque && incrementalActif() ? deriverEntree(db, e, nouvelle, lire) : lireEntree(lire);
-  nouvelle.base = nouvelle.lu.then(x => x.ds);
+  // Vues de l'entrée précédente que le delta ne touche pas : reportées avant que la nouvelle ne serve (lot 9, chantier 3).
+  nouvelle.base = nouvelle.lu.then(async x => (e ? await avecReport(e, nouvelle, x) : x.ds));
   entrees.set(db, nouvelle);
   // Lecture échouée (Cursus occupé, délai dépassé) : l'entrée est retirée, la suivante relira.
   nouvelle.base.catch(() => { if (entrees.get(db) === nouvelle) entrees.delete(db); });
@@ -228,11 +233,28 @@ export async function vuePartagee(
   const cle = cleVue(user);
   let vue = e.vues.get(cle) as Promise<Dataset> | undefined;
   if (!vue) {
-    vue = paieDe(db, e, base, user).then(paie => calculer(donneesDe(base, user, revision, paie))).then(v => (gelEnTest() ? geler(v) : v));
+    const p: Promise<Dataset> = paieDe(db, e, base, user).then(paie => calculer(donneesDe(base, user, revision, paie))).then(v => (gelEnTest() ? geler(v) : v));
+    vue = p;
+    // Vue résolue retenue pour le report à l'entrée suivante (server/src/vues-cache.ts, `reporterVues`).
+    p.then(v => retenirResolue(p, v), () => {});
     e.vues.set(cle, vue);
     vue.catch(() => { if (e.vues.get(cle) === vue) e.vues.delete(cle); });
   }
   return { vue: await vue, cle };
+}
+
+/**
+ * Instantané de l'entrée `nouvelle`, lue (`x`) : si elle est dérivée de l'entrée précédente `prec` par un delta, les vues
+ * collaborateur et manager de `prec` que ce delta ne touche pas y sont reportées (lot 9, chantier 3, étape 2 ;
+ * `reporterVues`, server/src/vues-cache.ts). Fait avant que `nouvelle.base` ne soit tenue : aucune vue de la nouvelle
+ * entrée n'est encore demandée ni calculée.
+ */
+async function avecReport(prec: Entree, nouvelle: Entree, x: Lu): Promise<Dataset> {
+  if (x.suite && x.suite.de === prec.n) {
+    const avant = await prec.lu.catch(() => null);
+    if (avant) reporterVues({ ds: avant.ds, vues: prec.vues }, { ds: x.ds, vues: nouvelle.vues }, x.suite);
+  }
+  return x.ds;
 }
 
 /**

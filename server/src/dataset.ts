@@ -33,7 +33,7 @@ import { dossiersEchus } from './conservation.ts';
 import { jetonActif } from './agenda.ts';
 import { geler, gelEnTest, vuePartagee } from './cache-instantane.ts';
 import { assembler, type EmpRow, lireBrut, REGLAGES_DEFAUT, reglagesDe, retenirBrut } from './lecture-brute.ts';
-import { corpsAvecTete, filtreIndexe, type FiltrePerimetre, JsonBrut } from './vues-cache.ts';
+import { corpsAvecTete, filtreIndexe, type FiltrePerimetre, JsonBrut, retenirPerimetre } from './vues-cache.ts';
 import type { AttenteSession } from '../../shared/types.ts';
 import { exercicesEvaluation, indicateursEvaluation, SEUIL_ANONYMAT } from '../../shared/rules/evaluation-formation.ts';
 import type { EvaluationFormation } from '../../shared/types.ts';
@@ -321,7 +321,8 @@ export async function partiesInstantane(db: Db, user: CurrentUser, { cache = tru
 /**
  * Vue de `user` sur les données `full` (lues pour lui, ou lecture partagée du cache) : calcul seul, sans lecture de la
  * base. `filtre` trouve les lignes du périmètre (`mine`) : index par salarié (lot 9, server/src/vues-cache.ts), ou
- * parcours complet de chaque tableau pour les tests d'exactitude (même résultat).
+ * parcours complet de chaque tableau pour les tests d'exactitude (même résultat). Vue collaborateur ou manager : les
+ * salariés qu'elle lit sont retenus à part (`perimetreDe`, server/src/vues-cache.ts), pour son report à la révision suivante.
  */
 export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre = filtreIndexe): Dataset {
   if (user.role === 'rh') {
@@ -387,7 +388,12 @@ export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre 
     const emp = d.emp(v.empId);
     return emp ? { ...v, dossierStatut: d.readiness(emp, v).status } : v;
   });
-  return {
+  // Salariés que lit cette vue (lot 9, chantier 3, étape 2 : report d'une révision à la suivante, server/src/vues-cache.ts) :
+  // son périmètre (délégués et consultation N+2 compris) et, pour la couverture minimale, les membres des équipes
+  // encadrées. Retenus à part, jamais envoyés au navigateur.
+  const equipes = isMgr ? d.teamsOf(user.empId) : [];
+  const lues = new Set([...ids, ...full.employes.filter(e => !!e.equipe && equipes.includes(e.equipe)).map(e => e.id)]);
+  return retenirPerimetre<Dataset>({
     ...full,
     // Facteurs d'exposition du C2P cochés sur les postes : avec le poste d'un membre, ils diraient son exposition.
     referentiels: { ...full.referentiels, chantiers: [], postes: sansC2p(full.referentiels.postes) },
@@ -487,7 +493,7 @@ export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre 
     // consultation N+2 ; interventions déclarées du périmètre, comme les feuilles de temps qui portent leurs heures.
     astreintes: mine(full.astreintes ?? []).map(a => (lecture.has(a.empId) ? astreinteSansMotif(a) : a)).map(a => (a.empId !== user.empId ? astreinteSansPaie(a) : a)),
     interventionsAstreinte: mine(full.interventionsAstreinte ?? []),
-  };
+  }, lues);
 }
 
 /**

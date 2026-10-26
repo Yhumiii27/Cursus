@@ -2,25 +2,27 @@
 
 Audit du 10 octobre 2026 (branche `main-n9x7ps`). Chaque point a été relevé dans le code puis contre-vérifié par une seconde lecture qui a écarté ce qui était déjà fait ou inexact. Les preuves renvoient aux fichiers et lignes à cette date.
 
-**179 tâches** (172 faites au 23 octobre 2026 ; suivi à jour : https://claude.ai/artifact/8Dn4CRz3fcHgew8RzbNGEc) : 26 bloquantes pour une mise en production, 98 importantes, 55 souhaitables.
+**190 tâches** (172 faites au 23 octobre 2026 ; suivi à jour : https://claude.ai/artifact/8Dn4CRz3fcHgew8RzbNGEc) : 26 bloquantes pour une mise en production, 104 importantes, 60 souhaitables.
 
 Légende — priorité : 🔴 **Bloquant** (empêche un usage réel : sécurité, données faussées, obligation légale) · 🟠 **Important** (attendu par les utilisateurs) · 🟢 **Souhaitable** (confort). Effort : **S** moins d’une journée · **M** 1 à 3 jours · **L** plus de 3 jours.
+
+**26 octobre 2026** — Analyse comparative avec les SIRH du commerce (Lucca, Kelio, Horoquartz, Eurécia, Factorial, Skillup, Cegid Talentsoft, Nibelis, Silae), réalisée le 25 octobre 2026 : 11 tâches ajoutées (6 importantes, 5 souhaitables ; aucune bloquante nouvelle), 7 tâches existantes annotées « *Analyse comparative du 25/10/2026* ». Les tâches ajoutées sont à valider avec les utilisateurs avant tout développement.
 
 | Thème | 🔴 | 🟠 | 🟢 | Total |
 | --- | ---: | ---: | ---: | ---: |
 | Mise en production & sécurité | 6 | 3 | 3 | 12 |
 | Données personnelles & traçabilité | 0 | 4 | 2 | 6 |
-| Intégrations (Keystone, Sage, e-mails) | 6 | 10 | 2 | 18 |
+| Intégrations (Keystone, Sage, e-mails) | 6 | 11 | 2 | 19 |
 | Conformité droit du travail : temps et congés | 2 | 11 | 4 | 17 |
 | Conformité : santé, sécurité et obligations employeur | 2 | 12 | 2 | 16 |
 | Bugs à corriger (calculs et données) | 5 | 14 | 6 | 25 |
 | Bugs de l'interface | 0 | 7 | 7 | 14 |
-| Fonctions métier : formations, habilitations, sessions | 2 | 9 | 3 | 14 |
-| Fonctions métier : collaborateurs, temps, absences, déplacements | 2 | 9 | 3 | 14 |
-| Ergonomie & accessibilité | 0 | 9 | 10 | 19 |
+| Fonctions métier : formations, habilitations, sessions | 2 | 10 | 4 | 16 |
+| Fonctions métier : collaborateurs, temps, absences, déplacements | 2 | 12 | 5 | 19 |
+| Ergonomie & accessibilité | 0 | 10 | 12 | 22 |
 | Tests & qualité | 0 | 5 | 5 | 10 |
 | Exploitation | 1 | 5 | 8 | 14 |
-| **Total** | **26** | **98** | **55** | **179** |
+| **Total** | **26** | **104** | **60** | **190** |
 
 ## Avant toute mise en production
 
@@ -117,6 +119,7 @@ Les tâches 🔴, toutes thématiques confondues :
 
 - [ ] **Coder l'envoi réel à Sage Paie et ne marquer « transmis » qu'après accusé** — 🔴 Bloquant · M
   Dès que SAGE_URL est défini, l'écran annonce l'envoi, mais rien ne part et les feuilles sont marquées transmises à la paie. En attendant, lever une erreur en mode API ; ensuite faire l'appel HTTP hors transaction, contrôler et conserver l'accusé.
+  <br>*Analyse comparative du 25/10/2026 : prérequis bloquant pour la mise en service. Les SIRH du marché (Lucca, Kelio, Silae, Nibelis) livrent un export de variables de paie dont chaque rubrique est confirmée avec le service paie avant la première période. Dans Cursus, les codes JREN (jours de repos rachetés), HNUIT et MAJ_NUIT (heures de nuit), CET et AST_* (astreintes) restent à confirmer : les éléments concernés partent aujourd'hui sans code, sur la liste « à saisir dans Sage » du résumé du lot (server/src/actions/paie.ts:100, server/src/regularisation-paie.ts:50, server/src/astreintes-paie.ts:2-5, server/src/actions/forfait-jours.ts:5). Obtenir la confirmation des codes avec le service paie et les activer dans la correspondance des rubriques avant le premier lot réel.*
   <br><sub>Preuves : server/src/integrations/sage.ts:7 et :10-15 (branche api vide) · server/src/actions/temps.ts:105-108 (sage: true) · client/src/pages/Parametres.tsx:167 · server/src/actions/context.ts:23 (handler synchrone ; asynchrone depuis la sous-étape 8.a, mais toujours dans la transaction exclusive de l'action : l'appel HTTP se fait hors d'elle)</sub>
 - [x] **Coder l'envoi HTTP sortant vers Keystone** — 🔴 Bloquant · M
   En mode API, sendToKeystone n'envoie rien et journalise « (simulation) » alors que Paramètres affiche « API connectée ». Faire le POST avec gestion des erreurs et trancher le contrat (heures sur projets internes INT-* et ECOLE).
@@ -126,6 +129,7 @@ Les tâches 🔴, toutes thématiques confondues :
   <br><sub>Preuves : shared/format.ts:21 · server/src/db.ts:17-23 · shared/rules/temps.ts:136 · server/src/index.ts:150</sub>
 - [x] **Rendre paramétrable la correspondance des rubriques de paie Sage** — 🔴 Bloquant · M
   Les codes HN, HS25, RCR_ACQUIS… sont écrits en dur ; l'interface indique elle-même « à paramétrer ». Créer une table de correspondance modifiable par le RH et bloquer la transmission d'une rubrique sans correspondance.
+  <br>*Analyse comparative du 25/10/2026 : la table de correspondance existe, mais les rubriques JREN, HNUIT, MAJ_NUIT, CET et AST_* y sont inactives faute de codes confirmés par la paie ; leurs éléments sont listés « à saisir dans Sage ». À compléter dès la confirmation des codes (voir la tâche bloquante « Coder l'envoi réel à Sage Paie »).*
   <br><sub>Preuves : shared/rules/temps.ts:102-117 · client/src/pages/Parametres.tsx:180 et :20-28 (HSF25/HSF50 absentes de la liste) · client/src/pages/Temps.tsx:200</sub>
 - [x] **Alimenter depuis Keystone les chantiers, projets, missions et tâches** — 🔴 Bloquant · L
   Ces données ne viennent que du jeu de démo : en production, le Go / No Go répond 404, les demandes Keystone sont rejetées et aucune ligne de temps ne peut être saisie (projet inconnu). Ajouter des routes entrantes protégées (ou une synchronisation) et rattacher la ressource au chantier quand une demande est acceptée.
@@ -169,6 +173,10 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Proposer un export calendrier (.ics)** — 🟢 Souhaitable · M
   Sessions, entretiens, absences et déplacements ne peuvent pas aller dans Outlook. Générer des fichiers .ics joints aux convocations et un flux personnel par abonnement à jeton révocable.
   <br><sub>Preuves : grep vcalendar\|.ics → aucun résultat · server/src/actions/entretiens.ts:22 · server/src/actions/conformite.ts:23</sub>
+- [ ] **Déposer les pièces justificatives et les titres dans la GED Codex** — 🟠 Important · M
+  Les pièces (attestations, cartes CACES, titres signés, passeports) ne sont conservées que dans le dossier local de Cursus ; le réglage « GED » est refusé et l'adaptateur DepotGed lève une erreur à chaque appel. Dès que l'interface de la GED développée avec Codex est connue : coder l'adaptateur (compte de service, classement par salarié et par objet, durée de conservation transmise), reprendre les pièces du dossier local et déposer aussi les titres d'habilitation et comptes rendus d'entretien signés. Attente du marché : standard (Lucca, Factorial, Eurécia archivent les documents du salarié dans un coffre ou une GED).
+  <br>*Ajoutée le 26/10/2026 (analyse comparative) ; à valider avant de développer : dépend de l'interface et de la date de mise en service de la GED.*
+  <br><sub>Preuves : server/src/integrations/ged.ts:17-22 (DepotGed : chaque appel lève GED_NON_RACCORDEE) · server/src/pieces.ts:126, :130 · shared/reglages.ts (réglage « GED » refusé)</sub>
 
 ## Conformité droit du travail : temps et congés
 
@@ -195,6 +203,7 @@ Les tâches 🔴, toutes thématiques confondues :
   <br><sub>Preuves : client/src/pages/Temps.tsx:50, :75 · shared/rules/temps.ts:79, :104 · shared/rules/profil.ts:132</sub>
 - [ ] **Forfait annuel en heures : calculer la régularisation de fin d'année** — 🟠 Important · M
   L'écran signale des « heures à régulariser » mais rien ne les calcule ni ne les transmet. Ajouter une clôture annuelle produisant les rubriques Sage (heures au-delà du forfait, heures complémentaires).
+  <br>*Analyse comparative du 25/10/2026 : standard GTA (Kelio, Horoquartz) : la clôture annuelle compare les heures validées au forfait et produit automatiquement les heures excédentaires majorées pour la paie de décembre ou de janvier. Priorité suggérée : 🟠 Important (P2), à livrer avant la première clôture annuelle d'un salarié au forfait heures (décembre 2026).*
   <br><sub>Preuves : shared/rules/temps.ts:105 · client/src/pages/Temps.tsx:95</sub>
 - [x] **Stocker la date de naissance complète et appliquer les règles d'âge** — 🟠 Important · M
   Seule l'année est saisie : +5 CP à 59 ans et sections fin de carrière à 58 ans tombent jusqu'à un an trop tôt ou trop tard, et aucune règle mineurs n'existe. Passer à une date de naissance, puis appliquer aux moins de 18 ans les limites de durée, l'interdiction de nuit, les repos et la dérogation travaux réglementés.
@@ -211,6 +220,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Gérer les astreintes** — 🟠 Important · L
   Aucune notion d'astreinte n'existe alors qu'elle est courante en maintenance. Ajouter le planning communiqué 15 jours avant, la saisie des interventions comme travail effectif, la compensation transmise à Sage et le récapitulatif mensuel.
   <br>*Lot 7 (23 octobre 2026) : planning, interventions, récapitulatif mensuel et famille de paie livrés ; reste le montant ou la durée de la compensation et les codes Sage, qui attendent l'accord sur les astreintes et la paie (rubriques AST_* inactives).*
+  <br>*Analyse comparative du 25/10/2026 : prérequis bloquant pour la mise en service d'un service de maintenance. Le marché (Kelio, Horoquartz) calcule la compensation d'astreinte (prime par période ou repos) et l'envoie à la paie sous rubrique dédiée ; dans Cursus, AST_H et AST_PER partent sans code et la compensation n'est ni calculée ni transmise (server/src/astreintes-paie.ts:2-5). Fixer la compensation (accord d'entreprise) et activer les codes AST_* avant le premier lot de paie réel.*
   <br><sub>Preuves : grep astreinte → aucun résultat · shared/types.ts:100-105</sub>
 - [x] **Temps partiel : plafond d'heures complémentaires paramétrable et avenants** — 🟢 Souhaitable · M
   Le code suppose un plafond au tiers, valable seulement avec accord ; sinon c'est le dixième. Paramétrer le plafond et gérer les avenants de complément d'heures.
@@ -443,6 +453,14 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Exporter le plan de formation et les indicateurs du bilan social** — 🟢 Souhaitable · M
   Le plan n'a aucun export et la durée d'une formation est du texte. Ajouter une durée en heures et des exports par exercice et par catégorie.
   <br><sub>Preuves : shared/types.ts:27 · client/src/pages/Budget.tsx:43-47</sub>
+- [ ] **Suivre les dossiers OPCO : prises en charge, conventions, pièces et remboursements** — 🟠 Important · M
+  Le plan de formation ne connaît que le coût et l'enveloppe par équipe : aucune demande de prise en charge auprès de l'OPCO, aucune convention ni pièce, aucun suivi des remboursements attendus et reçus. Ajouter sur chaque action du plan un dossier OPCO (demande, accord, montant pris en charge, pièces jointes, remboursement) et un état des montants à récupérer par exercice. Attente du marché : avancé (Skillup, Cegid Talentsoft).
+  <br>*Ajoutée le 26/10/2026 (analyse comparative) ; à valider avant de développer : volume de dossiers OPCO et circuit actuel à confirmer avec le service RH.*
+  <br><sub>Preuves : grep -i opco server shared client → aucun résultat · shared/rules/budget.ts · client/src/pages/Budget.tsx</sub>
+- [ ] **Catalogue d'organismes externes avec évaluations partagées et suivi e-learning** — 🟢 Souhaitable · L
+  L'organisme d'une formation est un texte libre du référentiel interne, sans fiche (contacts, agréments, Qualiopi, tarifs) ni consolidation des évaluations à chaud et à froid par organisme au-delà de l'exercice ; aucune formation en ligne n'est suivie. Créer un référentiel d'organismes, y rattacher sessions et évaluations, et ajouter un suivi de complétion des modules e-learning (lien ou SCORM/xAPI) alimentant les certifications. Attente du marché : avancé (Skillup, Cegid Talentsoft).
+  <br>*Ajoutée le 26/10/2026 (analyse comparative) ; à valider avant de développer : la part de formations en ligne et le besoin d'un LMS sont à confirmer.*
+  <br><sub>Preuves : shared/types.ts:69 (organisme : string) · shared/types.ts:565 (indicateurs par organisme limités à un exercice) · grep -i scorm\|xapi\|e-learning → aucun résultat</sub>
 
 ## Fonctions métier : collaborateurs, temps, absences, déplacements
 
@@ -460,6 +478,7 @@ Les tâches 🔴, toutes thématiques confondues :
   <br><sub>Preuves : server/src/actions/voyages.ts:90-96 · server/src/actions/entretiens.ts:15-23, :60-65 · shared/rules/entretiens.ts:25-26</sub>
 - [ ] **Utiliser et liquider les jours épargnés sur le CET** — 🟠 Important · M
   Le CET ne fait que se remplir. Ajouter un congé pris sur le CET, la monétisation et la liquidation à la sortie.
+  <br>*Analyse comparative du 25/10/2026 : standard des modules GTA du marché (Kelio, Horoquartz, Lucca) : monétisation des jours épargnés (rubrique de paie sous code CET, plafonds de l'accord) et liquidation automatique à la sortie, reprise dans le solde de tout compte. Priorité suggérée : 🟠 Important (P2), à livrer avec les codes Sage confirmés ; l'absence de liquidation à la sortie fausse le solde de tout compte dès le premier départ d'un salarié ayant épargné.*
   <br><sub>Preuves : shared/types.ts:15, :106 · server/src/actions/absences.ts:38-48</sub>
 - [x] **Calculer l'état des compteurs à la date de sortie** — 🟠 Important · M
   À la sortie, seule une phrase annonce l'indemnité compensatrice. Calculer CP restants et en cours, RTT au prorata, repos et CET, puis les éditer et les transmettre à la paie.
@@ -488,6 +507,26 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Gérer une hiérarchie à plusieurs niveaux** — 🟢 Souhaitable · L
   Un responsable ne voit pas les équipes de ses chefs d'équipe. Ajouter une équipe parente et une consultation N+2 en lecture.
   <br><sub>Preuves : shared/types.ts:30 · server/src/dataset.ts:98-105</sub>
+- [ ] **Badgeage : badgeuse physique ou virtuelle, pointage géolocalisé et compteurs débit-crédit en temps réel** — 🟠 Important · L
+  Le temps n'est connu que par les feuilles déclaratives hebdomadaires (et la saisie par jour) : aucun pointage à l'entrée et à la sortie, donc pas de compteur débit-crédit au fil de la journée ni de contrôle du temps de présence réel. Ajouter un pointage (badgeuse physique via import ou API, badgeuse virtuelle sur navigateur ou mobile avec géolocalisation facultative), le rapprochement pointages ↔ feuille avec anomalies à justifier, et des compteurs débit-crédit mis à jour en temps réel. Attente du marché : avancé (Kelio, Horoquartz), standard dans l'industrie.
+  <br>*Ajoutée le 26/10/2026 (analyse comparative) ; à valider avant de développer : le choix badgeage ou déclaratif relève de l'accord d'entreprise et du CSE.*
+  <br><sub>Preuves : server/src/actions/temps.ts (feuilles déclaratives seulement) · client/src/pages/SaisieJour.tsx · grep -i pointage\|badgeuse server shared → aucun résultat (« geolocation » n'apparaît que dans la Permissions-Policy, server/src/securite.ts:25)</sub>
+- [ ] **Planning d'équipe : cycles 2x8/3x8, échanges de poste et alerte si habilitation manquante sur un créneau** — 🟠 Important · L
+  Les horaires de poste sont rattachés au salarié (référentiel des horaires) ; il n'existe pas de planning de postes par équipe et par semaine : pas de cycles 2x8/3x8 avec rotation, pas d'échange de poste entre salariés, et une personne peut être prévue sur un créneau exigeant une habilitation qu'elle n'a pas ou plus. Ajouter un planning d'équipe (cycles, affectation par créneau, demandes d'échange validées par le manager) qui alimente les horaires de la feuille et vérifie les exigences du poste et les absences validées. Attente du marché : avancé (Horoquartz, Kelio).
+  <br>*Ajoutée le 26/10/2026 (analyse comparative) ; à valider avant de développer : à distinguer du planning des missions (client/src/pages/PlanningMissions.tsx), qui place les ressources sur les chantiers.*
+  <br><sub>Preuves : client/src/pages/ReferentielsHoraires.tsx (horaires par salarié) · shared/rules/repos-nuit.ts · grep -i 3x8\|rotation\|echange.*poste → aucun résultat</sub>
+- [ ] **Notes de frais : saisie mobile avec OCR, barèmes kilométriques et archivage à valeur probante** — 🟠 Important · L
+  Cursus calcule les jours de déplacement, nuits et trajets pour la paie des grands déplacements, mais aucune note de frais n'est saisie : pas de justificatif photographié, pas de barème kilométrique, pas de circuit de validation ni d'export comptable. Ajouter la note de frais (saisie depuis le téléphone avec lecture du reçu, barème kilométrique de l'année, plafonds, validation manager puis RH, export vers la comptabilité ou la paie) et l'archivage des justificatifs à valeur probante. Attente du marché : standard (Lucca, Factorial).
+  <br>*Ajoutée le 26/10/2026 (analyse comparative) ; à valider avant de développer : vérifier que les notes de frais ne sont pas déjà traitées par l'outil comptable du groupe.*
+  <br><sub>Preuves : server/src/deplacements-paie.ts (jours, nuits, trajets seulement) · grep -i "note de frais\|kilom\|ocr" server shared client → aucun résultat</sub>
+- [ ] **Entretiens : objectifs suivis d'une période à l'autre, feedback 360° et souhaits d'évolution versés au plan de formation** — 🟢 Souhaitable · L
+  Les entretiens obligatoires (annuel, professionnel, état des lieux à 8 ans) produisent un compte rendu signé, sans objectifs réutilisés à l'entretien suivant, sans avis de pairs ou de collègues, et les souhaits de formation exprimés ne rejoignent pas le plan. Ajouter des objectifs datés repris et évalués d'un entretien à l'autre, un retour 360° facultatif (pairs, N+2, collaborateurs encadrés), et la création d'une demande ou ligne de plan à partir d'un souhait d'évolution. Attente du marché : avancé (Eurécia, Skillup).
+  <br>*Ajoutée le 26/10/2026 (analyse comparative) ; à valider avant de développer : le 360° suppose l'accord des représentants du personnel.*
+  <br><sub>Preuves : shared/rules/entretiens.ts · client/src/dialogs/EntDialog.tsx · grep -i objectif\|360 server/src/actions/entretiens.ts → aucun résultat</sub>
+- [ ] **Organigramme interactif multi-entités** — 🟢 Souhaitable · M
+  Équipes et hiérarchie ne se consultent qu'en tableau ; il n'existe ni vue graphique ni notion d'entité (société, site, filiale pays) au-dessus des équipes. Ajouter un organigramme navigable (entité → équipe → salarié, manager et suppléant, effectif, sortis exclus) imprimable et exportable. Attente du marché : standard (Lucca).
+  <br>*Ajoutée le 26/10/2026 (analyse comparative) ; à valider avant de développer.*
+  <br><sub>Preuves : client/src/pages/Equipes.tsx (tableau) · shared/types.ts:30 (équipe parente seulement) · grep -i organigramme → aucun résultat</sub>
 
 ## Ergonomie & accessibilité
 
@@ -548,6 +587,18 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Rédiger un guide utilisateur par rôle** — 🟢 Souhaitable · M
   Seule une documentation technique existe. Rédiger un guide court pour RH, manager et collaborateur et la procédure mensuelle de transmission à Sage.
   <br><sub>Preuves : ls docs → ARCHITECTURE.md uniquement</sub>
+- [ ] **Application mobile dédiée (congés, pointage, relevés) avec mode hors ligne** — 🟠 Important · L
+  Cursus n'est accessible que par le site web adapté aux petits écrans : pas d'application installée, pas de notifications sur le téléphone, et rien ne fonctionne sans réseau (ateliers, chantiers, déplacements). Fournir une application mobile (PWA installable d'abord, puis application native si besoin) couvrant demandes et validations d'absence, saisie du jour ou pointage, relevés et convocations, avec notifications et saisie hors ligne synchronisée au retour du réseau. Attente du marché : standard (Factorial, Lucca).
+  <br>*Ajoutée le 26/10/2026 (analyse comparative) ; à valider avant de développer : une PWA (manifeste, service worker, file de synchronisation) couvre la plupart des usages sans magasin d'applications.*
+  <br><sub>Preuves : client/index.html (aucun manifeste) · grep -i "service.worker\|manifest\|offline" client → aucun résultat · client/src/layout/Shell.tsx (navigation mobile seulement)</sub>
+- [ ] **Tableaux de bord légaux (BDESE, absentéisme, égalité, effectifs) et export vers un outil de BI** — 🟢 Souhaitable · M
+  Les indicateurs sont des exports CSV ciblés par écran (échéances, habilitations, soldes, plan) : aucune vue consolidée pour la BDESE, l'absentéisme, l'index d'égalité professionnelle ou les effectifs par catégorie, ni d'export régulier vers un outil de BI. Ajouter une page d'indicateurs par période et par entité (taux d'absentéisme, effectifs ETP, heures de formation par catégorie, pyramide des âges) avec export, et un export plat ou une vue de lecture pour la BI du groupe. Attente du marché : avancé (Nibelis, Silae, Kelio).
+  <br>*Ajoutée le 26/10/2026 (analyse comparative) ; à valider avant de développer : liste des indicateurs à arrêter avec le service RH et le CSE.*
+  <br><sub>Preuves : grep -i bdese\|absentéisme\|égalité client server → aucun résultat · client/src/print.ts:39-48 (exports CSV par écran)</sub>
+- [ ] **Interface multilingue pour les filiales pays** — 🟢 Souhaitable · L
+  Tous les libellés de l'interface, des e-mails et des documents imprimés sont en français en dur dans le code ; une filiale anglophone ou hispanophone ne peut pas utiliser Cursus. Extraire les libellés dans des fichiers de langue (interface, e-mails, impressions, messages d'erreur du serveur), ajouter la langue au compte et aux paramètres d'entité, et garder le français comme langue de référence. Attente du marché : standard.
+  <br>*Ajoutée le 26/10/2026 (analyse comparative) ; à valider avant de développer : ne se justifie que si Cursus est déployé hors des sites francophones (les règles de droit du travail restent françaises).*
+  <br><sub>Preuves : grep -rl i18n\|lang= client/src → client/src/print.ts seulement · client/index.html (lang fr) · server/src/integrations/email.ts (textes français en dur)</sub>
 
 ## Tests & qualité
 
@@ -601,6 +652,7 @@ Les tâches 🔴, toutes thématiques confondues :
   <br><sub>Preuves : server/src/db.ts:83-97 · server/src/migrate.ts:24-27 · PRAGMA user_version → 0</sub>
 - [x] **Charger les données par périmètre et ne renvoyer que ce qui change** — 🟠 Important · L
   Chaque action relit deux fois toute la base et renvoie tout l'instantané (26 Mo et ~1 s bloquante pour 500 salariés sur 3 ans), y compris pour chaque cellule d'heures. Filtrer en SQL par périmètre et période, ajouter des index, renvoyer seulement l'entité modifiée et partager un Domain unique côté client.
+  <br>*Analyse comparative du 25/10/2026 : dette d'architecture à surveiller. Le lot 9 a livré le cache incrémental de l'instantané (server/src/cache-instantane.ts, docs/ARCHITECTURE.md « Cache incrémental de l'instantané »), qui règle la saisie simultanée sur un site. Le modèle « instantané complet » de GET /api/data reste toutefois éloigné des SIRH du marché (chargement par écran et pagination côté serveur) : au-delà d'un site ou d'une filiale (plusieurs centaines de salariés sur plusieurs années), mesurer la taille de l'instantané et le temps de première ouverture avant d'étendre Cursus, et prévoir un chargement par écran si les seuils sont dépassés. Priorité suggérée : 🟢 Souhaitable (P3) tant que Cursus reste mono-site.*
   <br><sub>Preuves : server/src/index.ts:107, :115 · server/src/dataset.ts:31-80, :107-145 · client/src/state/store.tsx:164 · mesure : 504 salariés → instantané RH 26,1 Mo en ~1 s</sub>
 - [x] **Structurer les logs et répondre en JSON aux erreurs** — 🟢 Souhaitable · S
   Quelques console.log sans contexte, et un JSON invalide ou une route /api inconnue renvoient une page HTML avec la pile d'appels. Ajouter des logs JSON (requête, durée, statut) et un gestionnaire d'erreurs JSON final.
@@ -626,4 +678,5 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Déclarer clés étrangères et contraintes dans le schéma** — 🟢 Souhaitable · M
   Aucune clé étrangère ni contrainte n'est déclarée : une référence orpheline ferait planter le chargement. Ajouter clés étrangères, CHECK et index.
   <br>*Lot 7 : la production tourne sur le serveur PostgreSQL commun, dont les migrations (`server/migrations-pg/`) déclarent clés étrangères, CHECK et index. Reste éventuellement la base SQLite (démonstration, tests, application de bureau).*
+  <br>*Analyse comparative du 25/10/2026 : point de robustesse relevé pour l'application de bureau, dont la base SQLite reste sans clé étrangère ni CHECK : une référence orpheline (salarié supprimé, formation archivée) y fait échouer le chargement sans message exploitable. Priorité suggérée : 🟢 Souhaitable (P3), à traiter si l'application de bureau est conservée hors démonstration ; sinon documenter qu'elle n'est pas destinée à des données réelles.*
   <br><sub>Preuves : server/src/db.ts:10-49, :79 · shared/domain.ts:101</sub>

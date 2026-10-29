@@ -216,19 +216,25 @@ function submitted(ctx: Ctx, p: Record<string, any>) {
  * Feuille `ligne`, telle qu'enregistrée, remplacée dans la lecture de la base du contexte (`ctx.ds`, puis un nouveau
  * `Domain` : ses calculs mémorisés partent avec l'ancien, et restent ainsi exacts). La feuille est trouvée par dichotomie
  * sur l'identifiant (lot 9 : feuilles dans l'ordre de leur clé, comme les lit la base), au lieu de comparer chaque
- * feuille ; absente à sa place (jeu dans un autre ordre), parcours complet comme avant.
+ * feuille ; absente à sa place (jeu dans un autre ordre), parcours complet comme avant. Validation groupée (lot 10,
+ * chantier B : `Domain` à mémos par salarié) : le nouveau `Domain` reprend les mémos des autres salariés
+ * (`avecFeuillesDe`), ceux du salarié de la feuille repartent de zéro.
  */
 export function remplacerFeuille(ctx: Ctx, ligne: FeuilleTemps) {
   const feuilles = ctx.ds.feuilles, i = positionCle(feuilles, 'id', ligne.id);
+  const ancienne = feuilles[i]?.id === ligne.id ? feuilles[i] : feuilles.find(f => f.id === ligne.id);
   ctx.ds = { ...ctx.ds, feuilles: feuilles[i]?.id === ligne.id ? feuilles.with(i, ligne) : feuilles.map(f => (f.id === ligne.id ? ligne : f)) };
-  ctx.d = new Domain(ctx.ds);
+  // Salarié de la feuille, avant et après (une feuille ne change pas de salarié ; prudence s'il le faisait).
+  ctx.d = ctx.d.memoParSalarie ? ctx.d.avecFeuillesDe(ctx.ds, [...new Set([ligne.empId, ancienne?.empId ?? ligne.empId])]) : new Domain(ctx.ds);
 }
 
 /**
  * Validation d'une feuille soumise (temps.validate, et chaque feuille de temps.validerLot) : message de confirmation et,
- * à part, les seuils de durée franchis (`alertes`), repris par la validation groupée.
+ * à part, les seuils de durée franchis (`alertes`), repris par la validation groupée. `relevesEnFin` (validation groupée,
+ * lot 10, chantier B) : le relevé de l'agence d'un intérimaire n'est pas cherché ici, son agence et sa semaine y sont
+ * notées pour la fin de la tranche (`relevesDeFinDeTranche` de server/src/actions/suivi-feuilles.ts).
  */
-export async function validerFeuille(ctx: Ctx, p: Record<string, any>): Promise<{ message: string; alertes: string[] }> {
+export async function validerFeuille(ctx: Ctx, p: Record<string, any>, relevesEnFin?: Map<string, { agence: string; semaine: string }>): Promise<{ message: string; alertes: string[] }> {
   const { emp, sh } = submitted(ctx, p);
   // Soumise sans heure parce que la semaine était couverte : l'absence a pu être annulée ou raccourcie depuis.
   const total = sh.lignes.reduce((n, l) => n + l.h.reduce((a, b) => a + num(b), 0), 0);
@@ -270,7 +276,9 @@ export async function validerFeuille(ctx: Ctx, p: Record<string, any>): Promise<
 
   if (keystone) await sendToKeystone(ctx.db, { type: 'heures.validees', matricule: identifiantKeystone(ctx.ds.settings.identifiantKeystone, emp), semaine: sh.week, projets });
   // Intérimaire : la dernière feuille validée d'une semaine révolue fait partir le relevé de son agence.
-  const releve = emp.typeContrat === 'interim' && emp.agence ? (await relevesAutomatiques(ctx.db, { agence: emp.agence, semaine: sh.week }, ctx.d)).length > 0 : false;
+  const interim = emp.typeContrat === 'interim' && emp.agence ? { agence: emp.agence, semaine: sh.week } : null;
+  if (interim && relevesEnFin) relevesEnFin.set(`${interim.agence}|${interim.semaine}`, interim);
+  const releve = interim && !relevesEnFin ? (await relevesAutomatiques(ctx.db, interim, ctx.d)).length > 0 : false;
   return {
     message: `Semaine ${isoWeek(sh.week)} validée${keystone ? ' — heures des projets Keystone renvoyées à Keystone' : ''}${releve ? ` · relevé d’heures envoyé à l’agence ${emp.agence}` : ''}`
       + `${aRegulariser({ ...sh, statut: 'validee' }) ? ' · feuille déjà transmise à la paie : l’écart partira dans le prochain lot (lot correctif)' : ''}${alertes.map(a => ` · ${a}`).join('')}`,

@@ -601,6 +601,9 @@ l'identifiant) : chacun se reconnecte une fois.
    les premières requêtes. Une restauration (`pg_restore`, rechargement des données) remet l'époque de la sauvegarde
    et une révision plus basse, que les instances restées en service ne savent pas encore reconnaître : arrêtez Cursus
    avant toute restauration (`docs/SAUVEGARDE.md`) et redémarrez ensuite **toutes** les instances.
+   **Validation groupée** (lot 10, `CURSUS_VALIDATION_DOMAIN_PARTAGE`, actif par défaut ; `0` revient à la méthode
+   d'avant, plus lente) : une tranche de 25 feuilles tient le verrou d'écriture environ une seconde sur le jeu de 5 ans ;
+   les tâches du quart d'heure reprennent la lecture du cache au lieu de relire toute la base sous le verrou.
 2. **Premier démarrage** : Cursus applique ses migrations (`server/migrations-pg/`, journal
    `cursus.schema_migrations`), contrôle le schéma et amorce une base neuve (activités internes, horaires de poste
    d'exemple). Le journal du démarrage affiche « base PostgreSQL <hôte>:<port>/epc2i, schéma cursus ». Un refus

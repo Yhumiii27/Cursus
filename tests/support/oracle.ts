@@ -229,6 +229,8 @@ export interface OptionsOracle {
   jeux?: number;
   /** Faux : écritures seules, sans aucune comparaison (reproductibilité du tirage, préparation d'un état). */
   verifier?: boolean;
+  /** Actions ajoutées aux cibles, tirées d'autant plus souvent (lot 10, chantier B : validation groupée). */
+  renfort?: string[];
 }
 
 export interface RapportOracle {
@@ -310,7 +312,7 @@ export async function rejouer(db: Db, o: OptionsOracle): Promise<RapportOracle> 
   // Saisie et absences plus souvent que le reste, comme dans la journée de travail.
   const cibles = [
     ...Object.keys(TIRAGES), ...Array<string>(5).fill('temps.setCell'), 'temps.addLine', 'temps.submit', 'temps.submit', 'temps.validate', 'temps.validate',
-    'absence.demander', 'absence.demander', 'absence.decider', 'absence.decider',
+    'absence.demander', 'absence.demander', 'absence.decider', 'absence.decider', ...o.renfort ?? [],
   ];
   const verifier = o.verifier ?? true;
   const noter = (divergences: Divergence[]) => { rapport.divergences.push(...divergences); };

@@ -1179,6 +1179,24 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
       `--verifier-exactitude` : 445 comparaisons, aucune divergence, tous les seuils tenus. Les lectures de S3
       (`/api/data` manager et RH, santé, attente du pool) restent hors seuil : vues recalculées après chaque tranche,
       objet du chantier A.
+  - *Quatrième mesure* (29 octobre 2026, après la fusion des chantiers A et B du lot 10 ; PostgreSQL 16 local jetable,
+    jeu de 5 ans régénéré avec la graine 42 : 28 235 feuilles, 300 000 lignes de journal ; 120 s par scénario,
+    `--lot 200 --client-brut` ; préchauffage de 133 vues, dont 108 corps compressés, en 6,4 à 7,4 s ; rapports
+    `data/charge/rapports/`, non versionnés) : **tous les seuils sont tenus**, pour chaque scénario seul et enchaînés.
+    - S1 « matinée » : `/api/data` p95 51 ms (collaborateur), 62 ms (manager), 176 ms (RH) ; santé p99 217 ms ;
+      aucune attente du pool ; RSS 711 Mo (troisième mesure : 1,3 s, 3,2 s et 4,9 s, rafale froide).
+    - S2 « vendredi après-midi » : `temps.setCell` p95 134 ms, `addLine` 116 ms, `submit` 115 ms ; `/api/data`
+      collaborateur 33 ms ; attente du verrou 80 ms, tenu 520 ms au plus ; RSS 673 Mo.
+    - S3 « fin de mois » : `/api/data` p95 293 ms (collaborateur), 366 ms (manager), 692 ms (RH) ; validation de 30
+      feuilles au plus en 5,8 s (14,2 s à la troisième mesure), de 200 feuilles en 10,9 s (16,5 s) ; santé p99 1,2 s ;
+      attente du pool 1,0 s ; verrou attendu 3,5 s et tenu 1,3 s au plus ; RSS 693 Mo.
+    - S1, S2 et S3 enchaînés : `/api/data` p95 52, 102 et 199 ms ; `setCell` 142 ms ; validations 5,0 s et 9,1 s ;
+      santé p99 25 ms ; verrou attendu 2,9 s, tenu 0,8 s ; RSS 810 Mo ; aucune 5xx.
+    - Exactitude (jeu d'un an, S1 à S3 enchaînés, 60 s, `--marge 3 --verifier-exactitude --client-brut`) : 0 divergence
+      sur 623 comparaisons, tous les seuils tenus.
+    - Mesures faites avec `--client-brut` (temps du serveur) : avec le client `fetch` par défaut, qui décode les
+      réponses dans la boucle de Cursus, la lecture RH de S3 paraît plus lente de plusieurs secondes sans que le serveur
+      le soit (« Lot 10, chantier A »).
 - **Oracle d'exactitude** (lot 9, chantier 4, étapes 1 et 2 ; `scripts/charge/verifier.ts`, `tests/support/oracle.ts`) : tout
   ce que Cursus sert depuis sa lecture partagée doit être exactement ce que donne la relecture complète (`loadFull`,
   `CURSUS_CACHE_INSTANTANE=0`), qui reste l'oracle et le repli de tout cache incrémental. Comparaison à l'identique

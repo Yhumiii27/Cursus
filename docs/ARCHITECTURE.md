@@ -1113,6 +1113,72 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
       - Restent hors seuil : les lectures collaborateur et manager au démarrage brutal de S3 (p95 0,8 à 1 s) et la santé
         dans ces mêmes secondes (p99 2,1 s), qui tiennent au calcul des validations dans le processus (chantier B) ; la
         validation groupée de 25 à 30 feuilles (chantier B).
+  - *Lot 10, chantier B : validation groupée de fin de mois* (`server/src/actions/suivi-feuilles.ts`, `temps.ts`,
+    `shared/domain.ts` ; mécanisme de mémo seulement, aucune règle changée). Profil d'une tranche de 25 feuilles sur le
+    jeu de 5 ans (avant) : 75 à 107 ms par feuille, presque tout dans le décompte des feuilles (`calcSheet`) refait à
+    chaque appel : contingent de l'année (toutes les feuilles validées du salarié, cinq fois par validation : COR,
+    alertes avant et après), moyenne sur 12 semaines, forfait, et dans chaque décompte l'index de toutes les feuilles
+    (feuille de la veille, refait à chaque feuille remplacée), les jours de la semaine et l'âge (dates analysées) ; puis
+    le filtre de toutes les absences à chaque contrôle d'absence. Contrôles de la feuille, journal (une ligne par
+    tranche) et écritures : quelques millisecondes.
+    - *Mémos par salarié* : `new Domain(ds, { memoParSalarie: true })` tient, pour chaque salarié, des calculs déclarés
+      par `memoSalarie(empId, table, clé, clé2, calcul)` (identité des objets) : décompte d'une feuille (`calcSheet`,
+      sous la feuille et la fiche), feuilles du salarié où chercher la veille (`veilleDe`), ses absences en vigueur
+      (`joursAbsence`, `demiJoursAbsence`). Un calcul ne s'y déclare que s'il ne lit, de l'instantané, que des données
+      communes et celles du seul salarié : le décompte lit réglages, référentiels, dérogations de l'équipe, historique
+      des contrats, interventions d'astreinte et feuille de la semaine précédente du salarié, jamais la feuille d'un
+      autre. `remplacerFeuille` fait alors `avecFeuillesDe(ds, [empId])` : un `Domain` neuf sur l'instantané où la
+      feuille validée est remplacée, qui reprend les mémos des autres salariés et oublie ceux du salarié de la feuille
+      (contingent, COR et veille recalculés) ; l'instantané d'avant garde les siens (feuille refusée : point de reprise
+      annulé, contexte inchangé). Les calculs transversaux (relevé d'une agence, alertes, contingent) ne sont pas
+      mémorisés : ils relisent les décomptes, mémorisés ou non. Hors validation groupée, aucun `Domain` ne tient de mémo
+      par salarié (`memoSalarie` calcule à chaque appel). Les jours d'une semaine (`joursSemaine`, `shared/dates.ts`)
+      sont mémorisés par lundi pour tout Cursus (copie rendue à chaque appel, 4 096 semaines au plus).
+    - *Relevés en fin de tranche* : les agences et semaines des intérimaires validés sont notées, et
+      `relevesAutomatiques` passe une fois par agence et semaine à la fin de la tranche, sur la lecture où toutes ses
+      feuilles validées sont remplacées. Même résultat : un relevé ne part que complet, et une feuille validée ne change
+      plus dans la tranche. Le journal était déjà d'une ligne par tranche ; la validation n'écrit aucune notification.
+    - *Tâches du quart d'heure* : leur lecture partagée (`lecturePartagee(db, { enTransaction: true })`, première tâche
+      qui lit, dans sa transaction) passe par `donneesAction` comme une action (lecture du cache de la révision vue
+      sous le verrou, ou dérivée par le delta), au lieu d'une lecture complète sous le verrou d'écriture : c'était,
+      après les tranches, la plus longue tenue du verrou de S3 (4,4 à 5,3 s au début du scénario). Sans cache
+      (`CURSUS_CACHE_INSTANTANE=0`) ou sans entrée du même jour et de la même époque : lecture complète comme avant.
+    - *Taille et ordre des tranches* : 25 gardé (`TRANCHE_MAX`). Mesuré en S3 : tranches de 10, validations de 30
+      feuilles au plus en 5,8 s au pire et de 200 en 14,2 s (plus de tranches : plus de deltas et de vues recalculées),
+      verrou tenu 1,2 s au plus ; de 25, 5,1 s, 7,7 s et 1,0 s ; de 50, 5,8 s, 6,7 s et 1,2 s. Toutes sous 2 s par
+      tranche ; 25 a la tenue la plus courte et garde la marge pour un serveur plus lent. L'ordre demandé est gardé : la contrepartie en
+      repos est portée par la feuille validée qui franchit le contingent, la changer d'ordre changerait la feuille qui la
+      porte.
+    - *Repli* : `CURSUS_VALIDATION_DOMAIN_PARTAGE=0` revient à un `Domain` neuf, sans mémo, après chaque feuille, et au
+      relevé cherché après chaque feuille d'intérimaire (`domainePartageActif`). Il ne couvre pas la lecture des tâches
+      du quart d'heure, dont le seul repli est `CURSUS_CACHE_INSTANTANE=0` (tout le cache coupé).
+    - *Preuves* : `tests/validation-domaine-partage.test.ts` : mécanisme (`memoSalarie`, `avecFeuillesDe`) ; décompte
+      de chaque feuille égal avec et sans mémos, et après une feuille remplacée (dimanche de nuit retiré : le repos
+      quotidien du lundi suivant change) ; 52 feuilles en trois tranches (contingent franchi hors de l'ordre
+      chronologique, deux intérimaires d'une agence dans deux tranches, dimanche de nuit et repos du lundi, feuille
+      refusée au milieu des semaines d'un salarié, temps partiel) : même base, même message, mêmes lignes de journal
+      avec le Domain partagé, avec le repli et feuille par feuille (`temps.validate`) ; banc d'oracle (jeu d'un an,
+      même graine, validations groupées renforcées et tirées par salarié, `lotsGroupes` : toutes les feuilles soumises
+      de trois à huit salariés, semaines consécutives comprises, dans l'ordre ou à rebours, 15 lots et environ 300
+      feuilles en 40 pas) : mêmes tirages, mêmes issues, mêmes feuilles et relevés dans les deux modes. Ce banc compare
+      les deux modes entre eux (pas à la relecture complète) : c'est un contrôle de non-régression. Une validation ne
+      change ni les heures ni les horaires d'une feuille, seulement ce qui est figé : un mémo gardé à tort pour le
+      salarié de la feuille validée y donnerait le même décompte, et ni ce banc ni le lot de 52 feuilles ne le
+      détectent (essai : oubli des mémos neutralisé, seuls les deux premiers tests échouent). La preuve que l'oubli
+      ciblé est exact repose sur le test de `calcSheet` (feuille de la veille modifiée : décompte de la suivante
+      recalculé, mémos des autres salariés repris tels quels) ; tâches du quart d'heure : mêmes relevés et envois avec et sans cache, aucune relecture complète avec
+      le cache. `tests/validation-groupee.test.ts` (lot 8) passe inchangé.
+    - *Mesure* (29 octobre 2026, PostgreSQL 16 local jetable, jeu de 5 ans régénéré avec la graine 42, 120 s, `--lot
+      200` ; même machine, partagée avec l'autre chantier du lot : chiffres à ±20 %) : tranche de 25 seule, 14 à 22 ms
+      par feuille (75 à 107 avant) ; S3 seul, code de départ : validations de 30 feuilles au plus en 12,2 s au pire,
+      200 en 16,6 s, verrou attendu 8,3 s et tenu 4,4 s ; après : 5,1 s, 7,7 s, attendu 3,3 s, tenu 1,0 s (tranches
+      de 0,4 à 1,1 s, dont 0,25 à 0,6 s pour le jeu de l'action dérivé par le delta), aucune 5xx ; repli seul
+      (`CURSUS_VALIDATION_DOMAIN_PARTAGE=0`) : 11,7 s et 16,9 s, tranches de 2,4 à 2,7 s. S2 puis S3 enchaînés : 6,3 s
+      et 9,9 s (16,0 et 23,0 s à la troisième mesure), verrou attendu 2,9 s et tenu 1,0 s (9,0 et 5,0 s), saisie
+      `temps.setCell` p95 154 ms, RSS 788 Mo, aucune 5xx. Jeu d'un an, S2 puis S3 pendant 60 s, `--marge 3`,
+      `--verifier-exactitude` : 445 comparaisons, aucune divergence, tous les seuils tenus. Les lectures de S3
+      (`/api/data` manager et RH, santé, attente du pool) restent hors seuil : vues recalculées après chaque tranche,
+      objet du chantier A.
 - **Oracle d'exactitude** (lot 9, chantier 4, étapes 1 et 2 ; `scripts/charge/verifier.ts`, `tests/support/oracle.ts`) : tout
   ce que Cursus sert depuis sa lecture partagée doit être exactement ce que donne la relecture complète (`loadFull`,
   `CURSUS_CACHE_INSTANTANE=0`), qui reste l'oracle et le repli de tout cache incrémental. Comparaison à l'identique

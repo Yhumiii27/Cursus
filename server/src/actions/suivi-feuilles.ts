@@ -6,9 +6,11 @@
 import { isoWeek, isValidDate, mondayOf } from '../../../shared/dates.ts';
 import { plural } from '../../../shared/format.ts';
 import { etatSemaines, maintenantParis, semainesSuivies } from '../../../shared/rules/suivi-feuilles.ts';
+import { Domain } from '../../../shared/domain.ts';
 import type { Employe } from '../../../shared/types.ts';
 import { type FeuilleARelancer, notifierRelanceFeuilles, notifierRelanceSuppleants, notifierRelanceValideur } from '../notifications.ts';
 import { CURSUS_OCCUPE, ERREUR_INTERNE, estOccupe } from '../erreurs.ts';
+import { relevesAutomatiques } from '../releves.ts';
 import { ActionError, type ActionHandler, type Ctx, decideParDelegation, isRh, isValidatorOf } from './context.ts';
 import { validerFeuille } from './temps.ts';
 
@@ -61,6 +63,12 @@ const relancer: ActionHandler = async (ctx, p) => {
   };
 };
 
+/**
+ * `Domain` partagé entre les feuilles d'une validation groupée (lot 10, chantier B) : actif sauf si
+ * CURSUS_VALIDATION_DOMAIN_PARTAGE vaut « 0 » (repli : un `Domain` neuf, sans mémo, après chaque feuille validée).
+ */
+export const domainePartageActif = (env: Record<string, string | undefined> = process.env) => env.CURSUS_VALIDATION_DOMAIN_PARTAGE?.trim() !== '0';
+
 /** Feuilles validées en groupe au plus par appel. */
 const LOT_MAX = 200;
 /**
@@ -112,6 +120,12 @@ export function feuillesDemandees(p: Record<string, any>): Feuille[] {
  */
 async function validerFeuilles(ctx: Ctx, demandees: Feuille[]): Promise<BilanLot> {
   const b: BilanLot = { validees: [], deja: [], refus: [], alertes: [], noms: {}, delegations: [] };
+  // Lot 10, chantier B : un `Domain` à mémos par salarié, repris d'une feuille à l'autre (`remplacerFeuille`), et les
+  // relevés des agences cherchés une fois en fin de tranche ; CURSUS_VALIDATION_DOMAIN_PARTAGE=0 revient à un `Domain`
+  // neuf, sans mémo, après chaque feuille validée, et au relevé cherché après chaque feuille d'intérimaire.
+  const partage = domainePartageActif();
+  if (partage) ctx.d = new Domain(ctx.ds, { memoParSalarie: true });
+  const releves = partage ? new Map<string, { agence: string; semaine: string }>() : undefined;
   for (const f of demandees) {
     const emp = ctx.d.emp(f.empId);
     if (emp) b.noms[f.empId] = emp.nom;
@@ -122,7 +136,10 @@ async function validerFeuilles(ctx: Ctx, demandees: Feuille[]): Promise<BilanLot
     // validation groupée, et l'état qu'elle a changé n'est repris qu'une fois la feuille validée.
     const sous: Ctx = { ...ctx, parDelegation: new Set() };
     try {
-      const v = await validerFeuille(sous, f);
+      // Agences et semaines des intérimaires de la feuille : notées à part, gardées seulement si elle est validée.
+      const siens = releves && new Map<string, { agence: string; semaine: string }>();
+      const v = await validerFeuille(sous, f, siens);
+      for (const [k, x] of siens ?? []) releves!.set(k, x);
       await ctx.db.exec('RELEASE validation_groupee');
       ctx.ds = sous.ds; ctx.d = sous.d;
       for (const m of sous.parDelegation) ctx.parDelegation.add(m);
@@ -135,8 +152,19 @@ async function validerFeuilles(ctx: Ctx, demandees: Feuille[]): Promise<BilanLot
       b.refus.push({ ...f, raison: err.message, status: err.status });
     }
   }
+  if (releves) await relevesDeFinDeTranche(ctx, releves);
   b.delegations = [...ctx.parDelegation].map(id => ctx.d.personName(id));
   return b;
+}
+
+/**
+ * Relevés des agences d'intérim en fin de tranche (lot 10, chantier B), dans sa transaction, sur la lecture où toutes ses
+ * feuilles validées sont remplacées : une recherche par agence et semaine touchées, au lieu d'une par feuille
+ * d'intérimaire. Même résultat : un relevé ne part que complet (toutes les feuilles de ses intérimaires validées), et une
+ * feuille validée ne change plus dans la tranche ; celui qu'une feuille rendait complet part donc ici, identique.
+ */
+async function relevesDeFinDeTranche(ctx: Ctx, releves: Map<string, { agence: string; semaine: string }>): Promise<void> {
+  for (const x of releves.values()) await relevesAutomatiques(ctx.db, x, ctx.d);
 }
 
 /**

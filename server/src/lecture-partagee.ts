@@ -17,19 +17,20 @@ export type Lecture = (lecteur: CurrentUser) => Promise<Dataset>;
 export const lectureDirecte = (db: Db): Lecture => async lecteur => await loadFull(db, lecteur);
 
 /**
- * Lecture partagée d'un passage : la base est lue au premier appel (dans la transaction de la tâche qui appelle, avant ses
- * écritures : par le cache de l'instantané depuis le lot 10, comme le jeu d'une action), puis rendue telle quelle aux
- * appels suivants avec leur lecteur. Une lecture échouée n'est pas gardée. `faites` : lectures complètes faites (0 ou 1
- * par passage réussi).
+ * Lecture partagée d'un passage : la base est lue au premier appel (dans la transaction de la tâche qui appelle), puis
+ * rendue telle quelle aux appels suivants avec leur lecteur. Une lecture échouée n'est pas gardée. `faites` : lectures
+ * faites (0 ou 1 par passage réussi). `enTransaction` (tâches du quart d'heure, lot 10, chantier B) : le premier appel
+ * est toujours fait dans la transaction d'une tâche ; il reprend alors, comme une action, la lecture partagée du cache de
+ * l'instantané ou la dérive par le delta des lignes changées (`donneesAction`, server/src/cache-instantane.ts : même
+ * état que `loadFull`, lu sous le verrou), au lieu de relire toute la base en tenant le verrou d'écriture ; sans cache
+ * (CURSUS_CACHE_INSTANTANE=0), ou sans entrée de la même époque et du même jour, lecture complète comme avant.
  */
-export function lecturePartagee(db: Db): Lecture & { faites: () => number } {
+export function lecturePartagee(db: Db, o: { enTransaction?: boolean } = {}): Lecture & { faites: () => number } {
   let ds: Promise<Dataset> | null = null, faites = 0;
   const lire = async (lecteur: CurrentUser) => {
     if (!ds) {
       faites++;
-      // Jeu remis comme à une action (lot 10, chantier A) : lecture partagée du cache, ou entrée plus delta, lus dans la
-      // transaction de la tâche, avant ses écritures ; sinon loadFull (server/src/cache-instantane.ts, `donneesAction`).
-      const p = donneesAction(db, lecteur, todayIso(), async u => await loadFull(db, u));
+      const p = o.enTransaction ? donneesAction(db, lecteur, todayIso(), async u => await loadFull(db, u)) : loadFull(db, lecteur);
       ds = p;
       p.catch(() => { if (ds === p) ds = null; });
     }

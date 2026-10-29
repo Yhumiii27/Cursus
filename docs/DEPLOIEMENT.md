@@ -605,6 +605,12 @@ l'identifiant) : chacun se reconnecte une fois.
    comptes actifs sont calculées en tâche de fond (quelques secondes, une à une ; les premières requêtes passent entre
    deux), puis de nouveau au changement de jour ; les grandes vues RH gardent leur version compressée
    (`CURSUS_CORPS_COMPRESSES`). Une instance redémarrée sert donc ses premiers lecteurs sans rafale de calculs.
+   **Validation groupée** (lot 10, `CURSUS_VALIDATION_DOMAIN_PARTAGE`, actif par défaut ; `0` revient à la méthode
+   d'avant, plus lente) : une tranche de 25 feuilles tient le verrou d'écriture environ une seconde sur le jeu de 5 ans.
+   **Tâches du quart d'heure** (relevés des agences, délégations, relances, évaluations ; lot 10) : elles reprennent la
+   lecture du cache de l'instantané au lieu de relire toute la base sous le verrou. Ce chemin ne dépend pas de
+   `CURSUS_VALIDATION_DOMAIN_PARTAGE` : son seul repli est `CURSUS_CACHE_INSTANTANE=0`, qui coupe tout le cache (chaque
+   lecture relit alors toute la base, plus lent).
 2. **Premier démarrage** : Cursus applique ses migrations (`server/migrations-pg/`, journal
    `cursus.schema_migrations`), contrôle le schéma et amorce une base neuve (activités internes, horaires de poste
    d'exemple). Le journal du démarrage affiche « base PostgreSQL <hôte>:<port>/epc2i, schéma cursus ». Un refus

@@ -169,7 +169,7 @@ test('API Keystone et tâches du quart d’heure : jeu de la lecture partagée �
   assert.equal(directes, 1);
   // Tâches du quart d'heure : la première lecture, dans sa transaction, reprend la lecture partagée du cache.
   await db.lecture(async () => await buildSnapshot(db, RH));
-  const partagee = lecturePartagee(db);
+  const partagee = lecturePartagee(db, { enTransaction: true });
   const [jeu, ref] = await db.tx(async () => [await partagee(RH), await loadFull(db, RH)]);
   assert.equal(ecart(ref, jeu), null, 'tâches : égal à loadFull');
   assert.equal(partagee.faites(), 1);

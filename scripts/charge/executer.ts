@@ -15,6 +15,11 @@
 //   S5 « exports » : CSV du journal (100 000 lignes), données personnelles (RH et intéressé), 50 flux d'agenda, sur fond de S1 ;
 //   S6 « tâches de fond » : conservation du journal (décalée de --decalage jours, 30 par défaut), relances, évaluations,
 //      tâches du quart d'heure, sur fond de S1.
+// --client-brut (lot 10, chantier A) : les utilisateurs simulés lisent chaque réponse d'un bloc par node:http et la
+// décompressent en une seule opération (`requeteBrute`), au lieu de fetch qui la décompresse par petits morceaux dans la
+// boucle d'événements partagée avec Cursus (voir `requeteBrute`).
+// --sans-prechauffage-vues (lot 10, chantier A) : l'entrée du cache seule est préchauffée avant le premier scénario, pas les
+// vues des comptes actifs (comparaison avec le lot 9).
 // --verifier-exactitude [k] (lot 9, chantier 4 ; scripts/charge/verifier.ts) : toutes les k actions validées (50 par
 // défaut), et à la fin de chaque scénario, les écritures de l'essai (actions, Keystone, tâches) sont retenues à une porte le
 // temps de comparer l'entrée du cache, la vue et le jeu d'action de 30 collaborateurs, 8 managers et de chaque profil RH à
@@ -30,6 +35,9 @@
 // en brouillon (S2), lot ouvert de la période annulé (S4). La conservation (S6) supprime, elle, des lignes du journal : le
 // jeu s'en trouve allégé pour les essais suivants (regénérer au besoin).
 import { AsyncLocalStorage } from 'node:async_hooks';
+import http from 'node:http';
+import { promisify } from 'node:util';
+import { brotliDecompress, gunzip } from 'node:zlib';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
@@ -62,6 +70,7 @@ const { relancerEcheances } = await import('../../server/src/relances.ts');
 const { demanderEvaluations } = await import('../../server/src/evaluations-formation.ts');
 const { lecteursDe, Porte, verifierExactitude } = await import('./verifier.ts');
 const { prechaufferCache } = await import('../../server/src/demarrage.ts');
+const { prechaufferVues } = await import('../../server/src/prechauffage-vues.ts');
 const { remettreStatistiques, statistiquesCache } = await import('../../server/src/cache-instantane.ts');
 type StatsCache = ReturnType<typeof statistiquesCache>;
 
@@ -93,6 +102,37 @@ function combiner(a: StatsCacheBrutes, b: StatsCacheBrutes, signe: 1 | -1): Stat
   };
 }
 
+/** Agent des requêtes brutes : connexions gardées (comme le client d'un navigateur), sans plafond. */
+const agentBrut = new http.Agent({ keepAlive: true, keepAliveMsecs: 65_000 });
+const decompresser = { br: promisify(brotliDecompress), gzip: promisify(gunzip) } as const;
+
+/**
+ * Requête de l'utilisateur simulé par node:http, réponse lue d'un bloc puis décompressée en une seule opération de zlib
+ * hors de la boucle d'événements, sortie en morceaux de 4 Mo (--client-brut, lot 10, chantier A). Avec fetch, le corps
+ * compressé est décompressé par morceaux de 16 Ko, chacun rendu par un tour de la boucle d'événements de ce processus,
+ * qui est aussi celui de Cursus : pendant une validation groupée (boucle chargée), la lecture des 23 Mo d'une vue RH
+ * prenait 6 à 8 s de plus que la réponse du serveur (1 400 tours de boucle). Un navigateur décompresse sur son propre
+ * poste : ce client mesure le temps du serveur, l'attente du réseau local et un seul décodage. Même interface que la
+ * réponse de fetch pour ce que l'essai en lit.
+ */
+async function requeteBrute(url: string, o: { method: string; headers: Record<string, string>; body?: string; delai: number }) {
+  const { statut, entetes, octets } = await new Promise<{ statut: number; entetes: http.IncomingHttpHeaders; octets: Buffer }>((ok, ko) => {
+    const req = http.request(url, { method: o.method, agent: agentBrut, headers: { 'accept-encoding': 'br, gzip', ...o.headers }, timeout: o.delai }, res => {
+      const morceaux: Buffer[] = [];
+      res.on('data', (m: Buffer) => morceaux.push(m));
+      res.on('end', () => ok({ statut: res.statusCode ?? 0, entetes: res.headers, octets: Buffer.concat(morceaux) }));
+      res.on('error', ko);
+    });
+    req.on('timeout', () => req.destroy(new Error('délai dépassé')));
+    req.on('error', ko);
+    req.end(o.body);
+  });
+  const enc = String(entetes['content-encoding'] ?? '');
+  // Sortie de zlib en morceaux de 4 Mo : avec 16 Ko, chaque morceau attendrait son tour de boucle (voir plus haut).
+  const brut = enc === 'br' || enc === 'gzip' ? await decompresser[enc](octets, { chunkSize: 4 * 1024 * 1024 }) : octets;
+  return { status: statut, headers: { get: (nom: string) => { const v = entetes[nom.toLowerCase()]; return v === undefined ? null : String(v); } }, text: async () => brut.toString('utf8') };
+}
+
 async function executer(): Promise<void> {
   const scenarios = (args.get('scenario') ?? 'S1').split(',').map(s => s.trim().toUpperCase());
   for (const s of scenarios) if (!(SCENARIOS as readonly string[]).includes(s)) throw new RefusCharge(`scénario inconnu : ${s} (S1 à S6)`);
@@ -101,6 +141,7 @@ async function executer(): Promise<void> {
   if (!(marge >= 1)) throw new RefusCharge('--marge : nombre au moins égal à 1');
   const lotGrand = args.has('lot') ? entier(args, 'lot', 200) : null;
   const decalage = entier(args, 'decalage', 30);
+  const clientBrut = args.has('client-brut');
   // Comparaison à la relecture complète toutes les `k` actions validées (option sans valeur : 50).
   const exactitude = args.has('verifier-exactitude') ? (args.get('verifier-exactitude') ? entier(args, 'verifier-exactitude', 50) : 50) : null;
   const r = aleatoire(jeu.graine);
@@ -155,6 +196,11 @@ async function executer(): Promise<void> {
   const rhs: Utilisateur[] = [];
   for (const id of jeu.rh.slice(0, 2)) rhs.push(await ouvrir(`RH ${id}`, 'rh', id, null));
   const paie = jeu.paie.length ? await ouvrir('paie', 'rh', jeu.paie[0], null) : rhs[0];
+  // Préchauffage des vues des comptes actifs (lot 10, chantier A), comme au démarrage du serveur après l'entrée : en
+  // service, Cursus a démarré bien avant la première rafale (--sans-prechauffage-vues : l'entrée seule, comme au lot 9).
+  const vuesPrechauffees = prechauffe && !args.has('sans-prechauffage-vues')
+    ? await prechaufferVues(db, { compression: true, avertir: m => console.warn(`  ${m}`) }) : null;
+  if (vuesPrechauffees) console.log(`  préchauffage des vues : ${vuesPrechauffees.vues} vues, ${vuesPrechauffees.corps} corps compressés, ${(vuesPrechauffees.ms / 1000).toFixed(1)} s`);
 
   // — Mesures —
   const mesures = new Map<string, Mesures>();
@@ -170,12 +216,14 @@ async function executer(): Promise<void> {
   const appel = async (u: Utilisateur | null, nom: string, chemin: string, init: { method?: string; body?: unknown; headers?: Record<string, string>; delai?: number } = {}) => {
     const t = performance.now();
     try {
-      const res = await fetch(`${base}${chemin}`, {
+      const requete = {
         method: init.method ?? 'GET',
         headers: { ...(u ? { cookie: u.cookie, 'x-cursus-espace': u.role } : {}), ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}), ...init.headers },
         body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
-        signal: AbortSignal.timeout(init.delai ?? 180_000),
-      });
+        delai: init.delai ?? 180_000,
+      };
+      const res = clientBrut ? await requeteBrute(`${base}${chemin}`, requete)
+        : await fetch(`${base}${chemin}`, { ...requete, signal: AbortSignal.timeout(requete.delai) });
       const texte = await res.text();
       noter(nom, performance.now() - t, res.status);
       let corps: any = null;
@@ -474,7 +522,7 @@ async function executer(): Promise<void> {
   const rapport = {
     date: new Date().toISOString(), jeu: { schema: jeu.schema, ans: jeu.ans, volumes: jeu.volumes }, scenarios, dureeS: duree / 1000, marge,
     routes, sonde: stats, verdicts, resultats: scenariosFaits, erreurs: erreurs.slice(0, 100), chronologie,
-    exactitude: exact, cache: { prechauffageMs: prechauffe ? Math.round(dureePrechauffage) : null, releves },
+    exactitude: exact, cache: { prechauffageMs: prechauffe ? Math.round(dureePrechauffage) : null, prechauffageVues: vuesPrechauffees, releves },
   };
   mkdirSync(dossier, { recursive: true, mode: 0o700 });
   writeFileSync(join(dossier, 'rapport.json'), JSON.stringify(rapport, null, 2));
@@ -494,6 +542,7 @@ async function executer(): Promise<void> {
     `- mémoire : RSS au plus ${Math.round(stats.rssMax / 1048576)} Mo, tas ${Math.round(stats.tasMax / 1048576)} Mo`, '',
     '## Cache de l’instantané', '',
     `- préchauffage de l’entrée avant le premier scénario : ${prechauffe ? ms(dureePrechauffage) : 'non fait'}`,
+    `- préchauffage des vues (lot 10) : ${vuesPrechauffees ? `${vuesPrechauffees.vues} vues, ${vuesPrechauffees.corps} corps compressés en ${ms(vuesPrechauffees.ms)}` : 'non fait'}`,
     ...Object.entries(releves).flatMap(([sc, v]) => [
       `- après ${sc} : ${v.relectures} relecture${v.relectures > 1 ? 's' : ''} complète${v.relectures > 1 ? 's' : ''} (toute la table des feuilles, hors lectures de l’oracle) depuis le début ; `
         + (v.changements === null ? 'table `changements` absente' : `${v.changements} lignes dans \`changements\``),

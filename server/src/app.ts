@@ -16,7 +16,8 @@ import { compression } from './compression.ts';
 import { compressionActive, configMail, demoPublique, enProduction, trustProxy } from './config.ts';
 import { ESPACE_CHANGE, espaceChange, examinerIdentite, identite, routesConnexion } from './connexion.ts';
 import { routesConfidentialite } from './confidentialite.ts';
-import { corpsDe, loadFull, partiesInstantane, todayIso } from './dataset.ts';
+import { corpsDe, lireParties, loadFull, partiesInstantane, todayIso } from './dataset.ts';
+import { corpsCompresse, encodageGarde, envoyerCompresse } from './corps-compresses.ts';
 import { donneesAction } from './cache-instantane.ts';
 import { type Db, enSerie } from './db.ts';
 import { limiterDebit } from './debit.ts';
@@ -39,7 +40,7 @@ import { cheminJournal, journalRequetes, log } from './logs.ts';
 import { recapitulatifEnAttente } from './notifications.ts';
 import { demoPosteLocal, exigerNavigationInterne, protectionCsrf, securityHeaders } from './securite.ts';
 import { routeSante } from './supervision.ts';
-import { envoyerJson, objetJson } from './vues-cache.ts';
+import { corpsEnOctets, envoyerJson, envoyerOctets, grandCorps, objetJson } from './vues-cache.ts';
 
 export interface OptionsApp {
   /** Interface compilée servie (dist/ du projet ou CURSUS_DIST par défaut) ; dossier absent : API seule. */
@@ -64,7 +65,8 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   app.set('trust proxy', trustProxy());
   // Journal des requêtes en premier : il voit aussi les refus des protections qui suivent (403, 429).
   if (options.journalRequetes ?? true) app.use(journalRequetes());
-  if (options.compression ?? compressionActive()) app.use(compression());
+  const compresser = options.compression ?? compressionActive();
+  if (compresser) app.use(compression());
   app.use(securityHeaders(production));
   // Démonstration en production (application de bureau) : requêtes de ce poste uniquement, jamais via le proxy.
   // Démonstration en production : poste local seulement, sauf instance publiée explicitement (CURSUS_DEMO_PUBLIQUE=1).
@@ -94,7 +96,16 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
     if (espaceChange(req, res, id)) return;
     // Corps JSON de la vue gardé par le cache (lot 9, server/src/vues-cache.ts), tête de la requête recollée : sérialisé
     // après la lecture, qui ne tient ni la file des écritures (SQLite) ni sa transaction (PostgreSQL) pendant ce temps.
-    const parties = await db.lecture(async () => await partiesInstantane(db, id.user));
+    // Lot 10 : la vue elle-même est calculée hors de la lecture, une fois par révision et par clé de vue, la dernière
+    // révision atteinte servie pendant une suite d'écritures (`lireParties`) ; grand corps (vue RH) envoyé compressé tel
+    // que gardé avec la vue (server/src/corps-compresses.ts).
+    const parties = await lireParties(db, id.user);
+    const { vue, cle, tete } = parties;
+    if (cle !== null && grandCorps(vue, cle)) {
+      const enc = encodageGarde(req, compresser);
+      if (enc) return envoyerCompresse(res, await corpsCompresse(vue, tete, () => corpsEnOctets(vue, cle, tete), enc), enc);
+      return envoyerOctets(res, corpsEnOctets(vue, cle, tete));
+    }
     envoyerJson(res, corpsDe(parties));
   });
 

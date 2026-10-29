@@ -21,6 +21,11 @@
 // (`CHAMPS_HORS_VUES`), et aucun des salariés touchés n'est dans l'ensemble des salariés que la vue lit (`perimetreDe`,
 // posé par `vueDe`, jamais envoyé au navigateur). Une vue reportée garde son corps JSON. Les vues RH ne sont jamais
 // reportées. CURSUS_VUES_REPORT=0 coupe le report (chaque vue est recalculée à chaque révision).
+// Lot 10, chantier A : un grand corps (vues RH, grandes vues manager) est gardé en octets UTF-8 (`SEUIL_CORPS_OCTETS`) et
+// servi en octets (`corpsEnOctets`), compressé au besoin une fois par tête de requête (server/src/corps-compresses.ts) ;
+// les lignes d'un grand tableau (`LIGNES_MEMO`) sont sérialisées une par une, et le JSON de chaque ligne partagée gardé
+// tant qu'elle vit : d'une révision à la suivante, seules les lignes changées sont resérialisées. CURSUS_CORPS_OCTETS=0
+// revient à la sérialisation du lot 9 (`corpsOctetsActif`).
 import type { Response } from 'express';
 import type { Dataset } from '../../shared/types.ts';
 
@@ -121,17 +126,83 @@ interface Emplacement {
 interface Corps {
   /** Clé de vue du corps : jamais servi sous une autre. */
   cle: string;
-  morceaux: (string | Emplacement)[];
+  /**
+   * Suites de champs sérialisées : en texte, ou en octets UTF-8 pour un grand corps (`SEUIL_CORPS_OCTETS`, lot 10 : la
+   * moitié de la mémoire d'une chaîne JavaScript à deux octets par caractère, et rien à convertir à l'envoi).
+   */
+  morceaux: (string | Octets | Emplacement)[];
   /** Champs de la vue, tête comprise : un champ de tête absent de la vue va à la fin, comme dans `{ ...vue, ...tete }`. */
   champs: ReadonlySet<string>;
+  /** Longueur du corps sans la tête, en caractères (texte) ou en octets. */
+  taille: number;
 }
+
+/**
+ * Taille (caractères JSON) à partir de laquelle le corps d'une vue est gardé en octets UTF-8 plutôt qu'en texte (lot 10,
+ * chantier A) : les vues RH sur 5 ans (23 Mo, des caractères hors Latin-1 dans les données : 47 Mo par chaîne en mémoire)
+ * et les grandes vues manager ; servi en octets par GET /api/data (`corpsEnOctets`), décodé pour la réponse d'une action.
+ */
+export const SEUIL_CORPS_OCTETS = 256 * 1024;
 
 /** Corps par vue partagée : la vue du cache est propre à son entrée et à sa clé, le corps vit et meurt avec elle. */
 const corps = new WeakMap<object, Corps>();
 
+/**
+ * Suite d'octets UTF-8 d'un grand corps, en morceaux jamais recopiés : JSON des lignes partagées (gardé par ligne,
+ * `ligneOctets`), virgules et noms de champs. Le corps d'une vue RH tient ainsi en une liste de références vers le JSON
+ * de ses lignes, que les vues de la même entrée et des entrées suivantes partagent, au lieu d'une copie de 23 Mo par vue.
+ */
+class Octets {
+  readonly morceaux: Buffer[];
+  readonly length: number;
+  constructor(morceaux: Buffer[]) {
+    this.morceaux = morceaux;
+    let n = 0;
+    for (const b of morceaux) n += b.length;
+    this.length = n;
+  }
+}
+
+/**
+ * Corps en octets actif (lot 10) : CURSUS_CORPS_OCTETS vaut autre chose que « 0 ». À « 0 », chaque corps est sérialisé
+ * en texte d'un bloc, comme au lot 9 : ni JSON gardé par ligne (`membreLignes`), ni corps en octets (`grandCorps` faux,
+ * donc ni corps compressés gardés ni préchauffage de leur compression ; le module de compression compresse la réponse).
+ * Réglage de repli et de comparaison : le corps servi est le même octet pour octet.
+ */
+export const corpsOctetsActif = (env: Record<string, string | undefined> = process.env) => env.CURSUS_CORPS_OCTETS?.trim() !== '0';
+
 function preparer(vue: object, cle: string): Corps {
+  if (!corpsOctetsActif()) return preparerTexte(vue, cle);
+  const morceaux: (string | Octets | Emplacement)[] = [];
+  let suite: (string | Octets)[] = [];
+  let enOctets = false, taille = 0;
+  const clore = () => { if (suite.length) morceaux.push(joindre(suite)); suite = []; };
+  for (const [k, v] of Object.entries(vue)) {
+    if (TETE.has(k)) {
+      clore();
+      morceaux.push({ cle: k, membre: membre(k, v) });
+      continue;
+    }
+    // Grand tableau (feuilles, absences) : sérialisé ligne par ligne, chaque ligne partagée gardée en octets (lot 10).
+    const m = Array.isArray(v) && v.length >= LIGNES_MEMO ? membreLignes(k, v) : membre(k, v);
+    if (m === undefined) continue;
+    if (m instanceof Octets) enOctets = true;
+    taille += m.length;
+    suite.push(m);
+  }
+  clore();
+  // Grand corps : suites gardées en octets UTF-8 (les chaînes, temporaires, sont libérées).
+  if (enOctets || taille >= SEUIL_CORPS_OCTETS) {
+    const octets = morceaux.map(m => (typeof m === 'string' ? new Octets([Buffer.from(m, 'utf8')]) : m));
+    return { cle, morceaux: octets, champs: new Set(Object.keys(vue)), taille: octets.reduce((n, m) => n + (m instanceof Octets ? m.length : 0), 0) };
+  }
+  return { cle, morceaux, champs: new Set(Object.keys(vue)), taille };
+}
+
+/** Corps en texte, champ par champ (`membre`) : la préparation du lot 9 (CURSUS_CORPS_OCTETS=0). */
+function preparerTexte(vue: object, cle: string): Corps {
   const morceaux: (string | Emplacement)[] = [];
-  let suite: string[] = [];
+  let suite: string[] = [], taille = 0;
   const clore = () => { if (suite.length) morceaux.push(suite.join(',')); suite = []; };
   for (const [k, v] of Object.entries(vue)) {
     if (TETE.has(k)) {
@@ -140,11 +211,70 @@ function preparer(vue: object, cle: string): Corps {
       continue;
     }
     const m = membre(k, v);
-    if (m !== undefined) suite.push(m);
+    if (m === undefined) continue;
+    taille += m.length;
+    suite.push(m);
   }
   clore();
-  return { cle, morceaux, champs: new Set(Object.keys(vue)) };
+  return { cle, morceaux, champs: new Set(Object.keys(vue)), taille };
 }
+
+/** Membres d'une suite réunis par des virgules : en texte, ou en octets dès que l'un d'eux en est. */
+function joindre(suite: (string | Octets)[]): string | Octets {
+  if (suite.every(m => typeof m === 'string')) return suite.join(',');
+  const octets: Buffer[] = [];
+  suite.forEach((m, i) => {
+    if (i) octets.push(VIRGULE);
+    if (typeof m === 'string') octets.push(Buffer.from(m, 'utf8'));
+    else for (const b of m.morceaux) octets.push(b);
+  });
+  return new Octets(octets);
+}
+
+// ——— Lignes sérialisées une fois (lot 10, chantier A) ———
+// Le corps d'une vue RH sur 5 ans (23 Mo, dont 19 Mo de feuilles) était resérialisé en entier à chaque révision, alors
+// qu'une tranche de validation ne change que quelques dizaines de feuilles. Les lignes d'un grand tableau sont désormais
+// sérialisées une par une, et le JSON (en octets UTF-8) de chaque ligne partagée gardé tant qu'elle vit (WeakMap) : la
+// vue suivante, ou celle d'un autre profil, qui reprend la même ligne (même objet : le delta ne remplace que les lignes
+// changées, server/src/delta.ts) reprend son JSON. Les données partagées ne sont jamais modifiées (gel sous node --test) ;
+// seules les lignes faites d'un objet ordinaire (ou d'un tableau) sont gardées, les autres valeurs sont sérialisées à
+// chaque fois. Le résultat est, octet pour octet, celui de JSON.stringify sur le tableau entier.
+
+/** Longueur à partir de laquelle un tableau d'une vue est sérialisé ligne par ligne. */
+export const LIGNES_MEMO = 256;
+
+const lignesJson = new WeakMap<object, Buffer>();
+
+/** Lignes sérialisées réutilisées (tests, mesures). */
+export const LIGNES = { reprises: 0, serialisees: 0 };
+
+/** JSON d'un élément de tableau, comme JSON.stringify l'écrit dans le tableau (null pour ce qu'il omet). */
+function ligneOctets(x: unknown): Buffer {
+  const ordinaire = x !== null && typeof x === 'object' && (Array.isArray(x) || Object.getPrototypeOf(x) === Object.prototype || Object.getPrototypeOf(x) === null);
+  if (ordinaire) {
+    const connu = lignesJson.get(x);
+    if (connu) { LIGNES.reprises++; return connu; }
+  }
+  LIGNES.serialisees++;
+  const b = Buffer.from(JSON.stringify(x) ?? 'null', 'utf8');
+  if (ordinaire) lignesJson.set(x as object, b);
+  return b;
+}
+
+/**
+ * Membre `"cle":[…]` d'un grand tableau, en octets : JSON.stringify(v), ligne par ligne (trous et undefined : null),
+ * sans recopier le JSON des lignes.
+ */
+function membreLignes(cle: string, v: readonly unknown[]): Octets {
+  const octets: Buffer[] = [Buffer.from(`${JSON.stringify(cle)}:[`, 'utf8')];
+  for (let i = 0; i < v.length; i++) {
+    if (i) octets.push(VIRGULE);
+    octets.push(ligneOctets(v[i]));
+  }
+  octets.push(CROCHET);
+  return new Octets(octets);
+}
+const CROCHET = Buffer.from(']');
 
 /** Nombre de corps calculés (tests : un corps par vue partagée, réutilisé ensuite). */
 export let corpsCalcules = 0;
@@ -155,6 +285,12 @@ export let corpsCalcules = 0;
  * ne porte que des champs de `TETE`.
  */
 export function corpsAvecTete(vue: object, cle: string, tete: Record<string, unknown>): JsonBrut {
+  const parties = partiesDuCorps(vue, cle, tete).map(m => (typeof m === 'string' ? m : Buffer.concat(m.morceaux, m.length).toString('utf8')));
+  return new JsonBrut(`{${parties.join(',')}}`);
+}
+
+/** Corps de la vue partagée `vue` (clé `cle`) préparé une fois, puis retrouvé ; refus sous une autre clé. */
+function corpsDe(vue: object, cle: string): Corps {
   let c = corps.get(vue);
   if (!c) {
     c = preparer(vue, cle);
@@ -163,10 +299,16 @@ export function corpsAvecTete(vue: object, cle: string, tete: Record<string, unk
   } else if (c.cle !== cle) {
     throw new Error(`Corps de la vue ${c.cle} demandé pour la clé ${cle}`);
   }
+  return c;
+}
+
+/** Membres du corps, tête de la requête recollée, dans l'ordre de `{ ...vue, ...tete }` (texte ou octets). */
+function partiesDuCorps(vue: object, cle: string, tete: Record<string, unknown>): (string | Octets)[] {
+  const c = corpsDe(vue, cle);
   for (const k of Object.keys(tete)) if (!TETE.has(k)) throw new Error(`Champ ${k} hors de la tête de l’instantané`);
-  const parties: string[] = [];
+  const parties: (string | Octets)[] = [];
   for (const m of c.morceaux) {
-    const s = typeof m === 'string' ? m : Object.hasOwn(tete, m.cle) ? membre(m.cle, tete[m.cle]) : m.membre;
+    const s = typeof m === 'string' || m instanceof Octets ? m : Object.hasOwn(tete, m.cle) ? membre(m.cle, tete[m.cle]) : m.membre;
     if (s !== undefined) parties.push(s);
   }
   for (const [k, v] of Object.entries(tete)) {
@@ -174,7 +316,38 @@ export function corpsAvecTete(vue: object, cle: string, tete: Record<string, unk
     const s = membre(k, v);
     if (s !== undefined) parties.push(s);
   }
-  return new JsonBrut(`{${parties.join(',')}}`);
+  return parties;
+}
+
+/**
+ * Vrai si le corps de la vue partagée `vue` (clé `cle`) est gardé en octets (`SEUIL_CORPS_OCTETS`) : GET /api/data
+ * l'envoie alors en octets (`corpsEnOctets`), compressé tel que gardé avec la vue s'il y a lieu. Prépare le corps.
+ */
+export function grandCorps(vue: object, cle: string): boolean {
+  return corpsDe(vue, cle).morceaux.some(m => m instanceof Octets);
+}
+
+/**
+ * Corps en octets UTF-8 de la vue partagée `vue`, tête de la requête recollée : octet pour octet
+ * `Buffer.from(JSON.stringify({ ...vue, ...tete }))`, sans passer par une chaîne de la taille du corps (lot 10).
+ */
+export function corpsEnOctets(vue: object, cle: string, tete: Record<string, unknown>): Buffer {
+  const parties = partiesDuCorps(vue, cle, tete);
+  const octets: Buffer[] = [ACCOLADE_OUVRANTE];
+  parties.forEach((m, i) => {
+    if (i) octets.push(VIRGULE);
+    if (typeof m === 'string') octets.push(Buffer.from(m, 'utf8'));
+    else for (const b of m.morceaux) octets.push(b);
+  });
+  octets.push(ACCOLADE_FERMANTE);
+  return Buffer.concat(octets);
+}
+const VIRGULE = Buffer.from(','), ACCOLADE_OUVRANTE = Buffer.from('{'), ACCOLADE_FERMANTE = Buffer.from('}');
+
+/** Envoie un corps JSON déjà en octets UTF-8 (type application/json, jeu utf-8 déclaré). */
+export function envoyerOctets(res: Response, octets: Buffer): void {
+  res.set('Content-Type', 'application/json; charset=utf-8');
+  res.send(octets);
 }
 
 /** Envoie un corps déjà sérialisé, comme `res.json` (type application/json, jeu utf-8 ajouté par `res.send`). */

@@ -3,8 +3,10 @@
 // de la feuille validée ; relevés des agences cherchés en fin de tranche. Référence : la méthode d'avant, un `Domain` neuf
 // après chaque feuille (CURSUS_VALIDATION_DOMAIN_PARTAGE=0), et chaque feuille validée seule (`temps.validate`) sur une
 // lecture complète de la base. Même état de la base, même message attendus ; puis le banc d'oracle (même graine, les deux
-// méthodes : mêmes tirages, mêmes issues, même base). Enfin les tâches du quart d'heure, dont la lecture reprend le cache
-// de l'instantané dans leur transaction (`lecturePartagee(db, { enTransaction: true })`) : mêmes relevés qu'en relisant tout.
+// méthodes, lots groupés par salarié : mêmes tirages, mêmes issues, même base ; les deux modes y sont comparés entre eux,
+// la comparaison avec chaque feuille validée seule est celle du lot de 52 feuilles). Enfin les tâches du quart d'heure,
+// dont la lecture reprend le cache de l'instantané dans leur transaction (`lecturePartagee(db, { enTransaction: true })`) :
+// mêmes relevés qu'en relisant tout.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
@@ -208,12 +210,16 @@ test('validerLot : Domain partagé, Domain neuf par feuille et validation une à
 test('banc d’oracle : même graine, Domain partagé ou neuf par feuille, mêmes issues et même base', async () => {
   const jouer = async (repli: boolean) => {
     const { db } = await baseUnAn(nouvelleBase);
+    const soumises = async () => Number((await db.one<{ n: number }>("SELECT COUNT(*) AS n FROM feuilles WHERE statut = 'soumise'"))!.n);
+    const avant = await soumises();
     if (repli) process.env.CURSUS_VALIDATION_DOMAIN_PARTAGE = '0';
     try {
-      const x = await rejouer(db, { graine: 20261029, pas: 60, verifier: false, sql: 0.1, renfort: Array<string>(40).fill('temps.validerLot') });
+      // Lots groupés par salarié (`lotsGroupes`) : toutes les feuilles soumises de trois à huit salariés, semaines
+      // consécutives comprises (environ quatre par salarié sur le jeu d'un an), sur une ou deux tranches.
+      const x = await rejouer(db, { graine: 20261029, pas: 40, verifier: false, sql: 0.1, renfort: Array<string>(40).fill('temps.validerLot'), lotsGroupes: true });
       const feuilles = await db.query('SELECT id, emp_id, week, statut, keystone, contrat, heures_sup, maj_dimanche, maj_ferie, maj_nuit, cor, horaires, horaires_figes, motif_depassement, motif_forfait, lignes FROM feuilles ORDER BY id');
       const releves = await db.query('SELECT agence, semaine, interimaires, heures, en_attente FROM releves ORDER BY id');
-      return { rapport: [x.actions, x.sql, x.motifs, x.ecritures, x.erreurs], base: JSON.parse(JSON.stringify({ feuilles, releves })) };
+      return { rapport: [x.actions, x.sql, x.motifs, x.ecritures, x.erreurs], base: JSON.parse(JSON.stringify({ feuilles, releves })), validees: avant - await soumises() };
     } finally {
       delete process.env.CURSUS_VALIDATION_DOMAIN_PARTAGE;
     }
@@ -221,6 +227,9 @@ test('banc d’oracle : même graine, Domain partagé ou neuf par feuille, même
   const partage = await jouer(false), repli = await jouer(true);
   const lots = (partage.rapport[0] as Record<string, { ok: number }>)['temps.validerLot'];
   assert.ok(lots && lots.ok >= 5, `validations groupées faites : ${JSON.stringify(lots)}`);
+  // Des lots de plusieurs salariés et semaines, pas quelques feuilles éparses : la reprise et l'oubli des mémos comptent.
+  assert.ok(partage.validees >= 10 * lots.ok, `feuilles validées : ${partage.validees} en ${lots.ok} validations groupées`);
+  assert.equal(partage.validees, repli.validees);
   assert.deepEqual(partage.rapport, repli.rapport);
   assert.deepEqual(partage.base, repli.base);
 });

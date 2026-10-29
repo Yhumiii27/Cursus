@@ -55,6 +55,8 @@ type Tirage = (x: {
   ds: Dataset; r: Aleatoire; empId: () => number; semaine: (empId: number, statut?: string) => string; date: (min: number, max: number) => string; user: CurrentUser;
   saisie: () => number; modifiable: (garder: (f: FeuilleTemps) => boolean) => FeuilleTemps | null; validables: Set<number>; soumises: (r: Aleatoire) => { empId: number; week: string } | null;
   cible: FeuilleTemps | Absence | null;
+  /** Validations groupées par salarié (`OptionsOracle.lotsGroupes`). */
+  lotsGroupes: boolean;
 }) => Record<string, unknown>;
 
 const KINDS = ['CP', 'RTT', 'RECUP'];
@@ -105,8 +107,23 @@ const TIRAGES: Record<string, Tirage> = {
     const f = parmi(r, ds.feuilles.filter(x => x.statut === 'validee' && x.empId !== user.empId));
     return f ? { empId: f.empId, week: f.week, motif: 'Correction des heures (banc d’oracle)' } : { empId: empId(), week: semaine(empId(), 'validee'), motif: 'Correction des heures (banc d’oracle)' };
   },
-  'temps.validerLot': ({ r, ds, validables }) => {
+  'temps.validerLot': ({ r, ds, validables, lotsGroupes }) => {
     const candidates = ds.feuilles.filter(f => f.statut === 'soumise' && validables.has(f.empId));
+    if (lotsGroupes) {
+      // Lot de fin de mois (lot 10, chantier B) : toutes les feuilles soumises de trois à huit salariés, semaines
+      // consécutives comprises, dans l'ordre des semaines ou à rebours, salariés à la suite ou entremêlés : c'est là que
+      // les mémos par salarié du Domain partagé sont repris (autres salariés) ou oubliés (feuille de la veille, contingent).
+      const salaries = [...new Set(candidates.map(f => f.empId))];
+      const choisis = Array.from({ length: Math.min(salaries.length, r.entre(3, 8)) }, () => salaries.splice(r.entre(0, salaries.length - 1), 1)[0]);
+      const parSalarie = choisis.map(e => {
+        const siennes = candidates.filter(f => f.empId === e).sort((a, b) => a.week.localeCompare(b.week));
+        return r.si(0.5) ? siennes : siennes.reverse();
+      });
+      const lot: FeuilleTemps[] = [];
+      if (r.si(0.5)) lot.push(...parSalarie.flat());
+      else for (let i = 0; parSalarie.some(l => i < l.length); i++) for (const l of parSalarie) if (i < l.length) lot.push(l[i]);
+      return { feuilles: lot.slice(0, 30).map(f => ({ empId: f.empId, week: f.week })) };
+    }
     const lot = Array.from({ length: Math.min(candidates.length, r.entre(1, 4)) }, () => r.choix(candidates));
     return { feuilles: [...new Map(lot.map(f => [f.id, { empId: f.empId, week: f.week }])).values()] };
   },
@@ -231,6 +248,11 @@ export interface OptionsOracle {
   verifier?: boolean;
   /** Actions ajoutées aux cibles, tirées d'autant plus souvent (lot 10, chantier B : validation groupée). */
   renfort?: string[];
+  /**
+   * Validations groupées tirées par salarié (toutes les feuilles soumises de quelques salariés, 30 au plus) plutôt que
+   * de une à quatre feuilles prises au hasard dans toute la base (lot 10, chantier B).
+   */
+  lotsGroupes?: boolean;
 }
 
 export interface RapportOracle {
@@ -374,7 +396,7 @@ export async function rejouer(db: Db, o: OptionsOracle): Promise<RapportOracle> 
     const peutSaisir = new Set(saisissables);
     const validables = new Set((rh ? ds.employes.map(e => e.id) : user.role === 'manager' ? equipiers : []).filter(e => e !== user.empId));
     const x: Parameters<Tirage>[0] = {
-      ds, r, user, cible,
+      ds, r, user, cible, lotsGroupes: o.lotsGroupes ?? false,
       empId: () => (user.empId && r.si(0.6) ? user.empId : equipiers.length && r.si(0.6) ? r.choix(equipiers) : r.choix(ds.employes).id),
       semaine: (empId, statut) => {
         const siennes = ds.feuilles.filter(f => f.empId === empId && (!statut || f.statut === statut)).sort((a, b) => b.week.localeCompare(a.week)).slice(0, 6);

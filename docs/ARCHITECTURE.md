@@ -1059,15 +1059,23 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
       repos est portée par la feuille validée qui franchit le contingent, la changer d'ordre changerait la feuille qui la
       porte.
     - *Repli* : `CURSUS_VALIDATION_DOMAIN_PARTAGE=0` revient à un `Domain` neuf, sans mémo, après chaque feuille, et au
-      relevé cherché après chaque feuille d'intérimaire (`domainePartageActif`).
+      relevé cherché après chaque feuille d'intérimaire (`domainePartageActif`). Il ne couvre pas la lecture des tâches
+      du quart d'heure, dont le seul repli est `CURSUS_CACHE_INSTANTANE=0` (tout le cache coupé).
     - *Preuves* : `tests/validation-domaine-partage.test.ts` : mécanisme (`memoSalarie`, `avecFeuillesDe`) ; décompte
       de chaque feuille égal avec et sans mémos, et après une feuille remplacée (dimanche de nuit retiré : le repos
       quotidien du lundi suivant change) ; 52 feuilles en trois tranches (contingent franchi hors de l'ordre
       chronologique, deux intérimaires d'une agence dans deux tranches, dimanche de nuit et repos du lundi, feuille
       refusée au milieu des semaines d'un salarié, temps partiel) : même base, même message, mêmes lignes de journal
       avec le Domain partagé, avec le repli et feuille par feuille (`temps.validate`) ; banc d'oracle (jeu d'un an,
-      même graine, validations groupées renforcées) : mêmes tirages, mêmes issues, mêmes feuilles et relevés dans les
-      deux modes ; tâches du quart d'heure : mêmes relevés et envois avec et sans cache, aucune relecture complète avec
+      même graine, validations groupées renforcées et tirées par salarié, `lotsGroupes` : toutes les feuilles soumises
+      de trois à huit salariés, semaines consécutives comprises, dans l'ordre ou à rebours, 15 lots et environ 300
+      feuilles en 40 pas) : mêmes tirages, mêmes issues, mêmes feuilles et relevés dans les deux modes. Ce banc compare
+      les deux modes entre eux (pas à la relecture complète) : c'est un contrôle de non-régression. Une validation ne
+      change ni les heures ni les horaires d'une feuille, seulement ce qui est figé : un mémo gardé à tort pour le
+      salarié de la feuille validée y donnerait le même décompte, et ni ce banc ni le lot de 52 feuilles ne le
+      détectent (essai : oubli des mémos neutralisé, seuls les deux premiers tests échouent). La preuve que l'oubli
+      ciblé est exact repose sur le test de `calcSheet` (feuille de la veille modifiée : décompte de la suivante
+      recalculé, mémos des autres salariés repris tels quels) ; tâches du quart d'heure : mêmes relevés et envois avec et sans cache, aucune relecture complète avec
       le cache. `tests/validation-groupee.test.ts` (lot 8) passe inchangé.
     - *Mesure* (29 octobre 2026, PostgreSQL 16 local jetable, jeu de 5 ans régénéré avec la graine 42, 120 s, `--lot
       200` ; même machine, partagée avec l'autre chantier du lot : chiffres à ±20 %) : tranche de 25 seule, 14 à 22 ms

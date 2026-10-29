@@ -6,7 +6,8 @@
 // dans sa propre transaction. Les écritures d'une tâche (relevé, annonce, relances notées) ne changent rien à ce que lisent
 // les suivantes : elles relisent en base ce qui les concerne (relevés transmis, relances déjà notées).
 import type { CurrentUser, Dataset } from '../../shared/types.ts';
-import { loadFull } from './dataset.ts';
+import { donneesAction } from './cache-instantane.ts';
+import { loadFull, todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
 
 /** Lecture complète de la base pour un lecteur interne du service RH (tâche de fond). */
@@ -16,16 +17,19 @@ export type Lecture = (lecteur: CurrentUser) => Promise<Dataset>;
 export const lectureDirecte = (db: Db): Lecture => async lecteur => await loadFull(db, lecteur);
 
 /**
- * Lecture partagée d'un passage : la base est lue au premier appel (dans la transaction de la tâche qui appelle), puis
- * rendue telle quelle aux appels suivants avec leur lecteur. Une lecture échouée n'est pas gardée. `faites` : lectures
- * complètes faites (0 ou 1 par passage réussi).
+ * Lecture partagée d'un passage : la base est lue au premier appel (dans la transaction de la tâche qui appelle, avant ses
+ * écritures : par le cache de l'instantané depuis le lot 10, comme le jeu d'une action), puis rendue telle quelle aux
+ * appels suivants avec leur lecteur. Une lecture échouée n'est pas gardée. `faites` : lectures complètes faites (0 ou 1
+ * par passage réussi).
  */
 export function lecturePartagee(db: Db): Lecture & { faites: () => number } {
   let ds: Promise<Dataset> | null = null, faites = 0;
   const lire = async (lecteur: CurrentUser) => {
     if (!ds) {
       faites++;
-      const p = loadFull(db, lecteur);
+      // Jeu remis comme à une action (lot 10, chantier A) : lecture partagée du cache, ou entrée plus delta, lus dans la
+      // transaction de la tâche, avant ses écritures ; sinon loadFull (server/src/cache-instantane.ts, `donneesAction`).
+      const p = donneesAction(db, lecteur, todayIso(), async u => await loadFull(db, u));
       ds = p;
       p.catch(() => { if (ds === p) ds = null; });
     }

@@ -1022,6 +1022,92 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     conformité) ; `tests/vues-cache.test.ts` (index, corps, report, non-fuite pour un N+2 et les collaborateurs) ; banc
     d'oracle et règles par salarié (ci-dessous). Sous `node --test`, entrées, lectures brutes, vues et `loadFull` sont
     gelées en profondeur, et toute la suite passe.
+  - *Lot 10, chantier A : vues prêtes au démarrage et lectures pendant une fin de mois.* La troisième mesure laissait
+    deux lenteurs de lecture : la rafale froide du début de S1 (chaque première lecture calculait sa vue) et les lectures
+    de S3 pendant les validations groupées (vues manager et RH recalculées à chaque tranche, dans la lecture stable). Le
+    profilage du jeu de 5 ans a précisé les coûts : vue d'un manager 0,3 à 0,4 s, dont 90 % pour l'indication « mineur »
+    de chaque feuille de son équipe ; vues des profils paie et lecture seule 2,2 à 3 s (la même indication sur toutes les
+    feuilles) ; synthèse du C2P 0,2 s, refaite par chaque profil RH ; corps JSON de la vue RH (23 Mo) 0,25 s, et sa
+    compression brotli 0,22 s, refaite à chaque requête.
+    - *Préchauffage des vues* (`server/src/prechauffage-vues.ts`, appelé par `prechaufferDemarrage` de
+      `server/src/demarrage.ts` après l'entrée, au démarrage du serveur et, par `prechaufferChaqueJour`, au changement de
+      jour ; jamais sous `node --test` ni par les outils) : vues des comptes actifs, un compte RH par profil d'abord, puis
+      les autres comptes RH, les managers et les collaborateurs, chacun par dernière connexion ; une vue à la fois, par le
+      chemin même de GET /api/data, un tour de boucle (`setImmediate`) rendu entre deux ; corps brotli des grandes vues
+      préparé pour la tête du compte. `CURSUS_PRECHAUFFAGE_VUES=0` le coupe. L'essai de charge le fait avant son premier
+      scénario, après l'ouverture des sessions (`--sans-prechauffage-vues` : l'entrée seule, comme au lot 9).
+    - *Vue calculée hors de la lecture stable et coalescence* (`preparerVue`, `vueHorsLecture` de
+      `server/src/cache-instantane.ts`, `lireParties` de `server/src/dataset.ts`) : GET /api/data ne garde sa connexion et
+      sa place de lecture que le temps de l'entrée (si la requête la crée : les autres la rendent aussitôt et attendent
+      l'entrée dehors), des résumés de la paie et de la tête ; la vue se calcule ensuite, une seule évaluation par (entrée,
+      clé de vue), rangée dans l'entrée dès son début et partagée. Une requête qui trouve en cours le calcul de sa clé sur
+      une autre révision l'attend une fois, puis relit l'état de la base et sert la dernière révision atteinte, calculée
+      une fois pour toutes les requêtes qui attendaient : au plus le calcul en cours, puis celui de la dernière révision,
+      jamais les révisions intermédiaires. Vue et tête sont lues sur le même état (une entrée plus récente que la lecture
+      fait relire une fois) ; la révision de la réponse est au moins celle de sa lecture. La réponse d'une action et
+      l'oracle gardent le calcul dans la lecture (`vuePartagee`).
+    - *Mémos des calculs de vue* (`server/src/memo-vues.ts`, `CURSUS_MEMO_VUES=0` pour les couper) : feuille d'une vue sans
+      la date de naissance (`feuilleSansNaissance`) gardée par feuille et par ce que les règles d'âge lisent de la fiche ;
+      synthèse du C2P gardée par instantané (tous les profils RH qui la reçoivent), et recalculée d'un instantané au
+      suivant pour les seuls salariés dont une feuille a changé (`server/src/c2p-incremental.ts` : `ligneC2p` gardée par
+      fiche, année, référentiels et liste de ses feuilles ; nuits à qualifier gardées par feuille). Aucune règle de
+      `shared/` ne change. Sur le jeu de 5 ans, après une tranche de 25 feuilles : vue RH 20 à 60 ms (0,3 s), vue d'un
+      manager 70 à 160 ms (0,3 à 0,5 s) ; une vue paie ou lecture seule à chaud 0,3 s (2,2 à 3 s).
+    - *Grands corps en octets et lignes sérialisées une fois* (`server/src/vues-cache.ts`) : un corps d'au moins 256 Ko
+      (`SEUIL_CORPS_OCTETS`), ou qui contient un tableau d'au moins 256 lignes (`LIGNES_MEMO`), est gardé en octets UTF-8
+      (moitié de la mémoire d'une chaîne à deux octets par caractère) et servi en octets (`corpsEnOctets`, octet pour octet
+      `JSON.stringify({ ...vue, ...tete })`) ; le JSON de chaque ligne partagée d'un grand tableau est gardé tant qu'elle
+      vit, et le corps n'en garde que des références (`Octets`), assemblées à l'envoi : corps de la vue RH 50 à 100 ms après
+      une tranche (0,25 s), aucune copie de 23 Mo par vue gardée (une première version, qui en gardait une, montait à
+      1,1 Go en S1 avec toutes les vues préchauffées).
+    - *Corps compressés gardés avec la vue* (`server/src/corps-compresses.ts`, `CURSUS_CORPS_COMPRESSES=0` pour le couper) :
+      le corps brotli (gzip pour un client sans brotli) d'un grand corps est calculé une fois par vue, par tête de requête
+      et par encodage, hors de la boucle d'événements, en morceaux de sortie de 1 Mo (en morceaux de 16 Ko, chacun
+      attendait son tour de boucle : 1,1 s pour une compression de 0,12 s sous charge), niveau 4 au-delà de 8 Mo, puis
+      renvoyé tel quel avec Content-Encoding et Vary (le module de compression ne compresse pas une seconde fois). Sans
+      encodage accepté, ou compression coupée, le corps part en octets.
+    - *Lectures complètes de fin de mois par le cache* : le verdict d'un chantier pour l'API Keystone lit l'entrée de la
+      lecture en cours (`jeuEnLecture`) et la lecture partagée des tâches du quart d'heure reçoit le jeu d'une action
+      (`donneesAction`, dans la transaction de la tâche), au lieu de deux `loadFull` qui tenaient une connexion (et, pour
+      les tâches, le verrou d'écriture) plusieurs secondes.
+    - *Essai de charge* : `--client-brut` fait lire chaque réponse d'un bloc par `node:http` et la décompresser en une
+      seule opération (`requeteBrute`). Avec `fetch`, le client de l'essai, qui partage la boucle d'événements de Cursus,
+      décompressait les 23 Mo de la vue RH par morceaux de 16 Ko : 6 à 8 s de lecture en plus de la réponse du serveur
+      pendant une validation groupée (1 400 tours de boucle). Un navigateur décompresse sur son poste ; à retenir pour
+      juger les seuils de lecture des vues RH et manager.
+    - *Preuves* : banc d'oracle (la lecture directe calcule désormais sa vue sans aucun mémo, `sansMemo`, et compare aussi
+      la vue de GET /api/data, `lireParties`), `tests/memo-vues.test.ts` (vues avec et sans mémo pour chaque compte et
+      chaque profil, avant et après des écritures ; C2P incrémental égal à `syntheseC2p`), `tests/corps-compresses.test.ts`
+      (octets, lignes reprises, corps compressés décompressés égaux au corps sans cache, brotli, gzip, sans encodage),
+      `tests/coalescence-vues.test.ts` (une évaluation par clé, attente puis dernière révision exacte, lecture rendue tôt
+      sur PostgreSQL, API Keystone et tâches égales à `loadFull`), `tests/prechauffage-vues.test.ts` (ordre, aucune vue
+      recalculée après le préchauffage, santé servie pendant, réglages et arrêt).
+    - *Mesure ciblée* (29 octobre 2026, PostgreSQL 16 local jetable, jeu de 5 ans régénéré avec la graine 42 : 120
+      fiches, 28 235 feuilles, 300 000 lignes de journal ; 120 s par scénario, `--lot 200`, sans marge ; machine partagée
+      avec un autre chantier qui lançait ses propres tests : chiffres à prendre comme des ordres de grandeur ; la quatrième
+      mesure officielle reste à faire). Code du lot 9 rejoué dans les mêmes conditions pour comparer :
+      - S1 seul : préchauffage des 133 vues en 6,5 à 9,5 s avant le scénario ; aucune vue calculée pendant S1 ;
+        `/api/data` p95 57 ms (collaborateur), 191 ms (manager), 0,80 s (RH) avec `fetch`, 47 ms, 63 ms et 251 ms avec
+        `--client-brut` ; santé p99 21 et 26 ms ; aucune attente du pool ; RSS 907 et 792 Mo : **tous les seuils tenus**.
+        Lot 9, même jeu, `fetch` (deux essais) : p95 0,98 à 1,16 s, 2,3 à 3,5 s, 3,8 à 5,3 s, santé p99 2,2 à 2,8 s, pool
+        2,6 s.
+      - S3 seul, `--client-brut` : `/api/data` p95 0,79 s (collaborateur), 1,02 s (manager), 0,84 s (une lecture RH),
+        santé p99 2,1 s (maximum 2,6 s), attente du pool 1,5 s, RSS 855 Mo ; validations de 30 feuilles au plus en 13,8 s,
+        200 feuilles en 23,4 s, verrou attendu 9,3 s ; aucune 5xx. Lot 9, même client : 3,3 s, 3,3 s, 6,7 s, santé p99
+        4,5 s (maximum 5,0 s), pool 9,2 s, validations 24,1 s et 35,6 s, verrou 15,9 s, une 5xx. Les lectures lentes
+        restantes et la santé se concentrent dans les 5 à 7 premières secondes de S3, quand l'écriture de remise en place
+        du scénario (480 feuilles) invalide toutes les vues et que trente lecteurs, sept validations, Keystone et les
+        tâches du quart d'heure démarrent ensemble ; ensuite, aucune attente du pool.
+      - S3 seul, `fetch` : 0,71 s, 2,05 s, 5,7 s (lecture RH, dont 4 à 5 s de décompression dans le client), santé p99
+        1,6 s, pool 0, RSS 1 022 Mo (le client `fetch` compte dans la mémoire du processus).
+      - S1 puis S3 enchaînés, `--client-brut` : p95 386 ms (collaborateur, seuil de 300 ms dépassé), 390 ms (manager),
+        183 ms (RH) ; santé p99 94 ms ; pool 0 ; RSS 898 Mo ; validations 12,9 s (30 feuilles au plus) et 22,4 s (200).
+      - Exactitude : jeu d'un an, S1, S2 et S3 enchaînés pendant 60 s, `--marge 3 --verifier-exactitude --client-brut` :
+        6 états, 534 comparaisons (44 lecteurs ; vues des deux chemins, entrée, jeux d'action), **aucune divergence**,
+        tous les seuils tenus.
+      - Restent hors seuil : les lectures collaborateur et manager au démarrage brutal de S3 (p95 0,8 à 1 s) et la santé
+        dans ces mêmes secondes (p99 2,1 s), qui tiennent au calcul des validations dans le processus (chantier B) ; la
+        validation groupée de 25 à 30 feuilles (chantier B).
 - **Oracle d'exactitude** (lot 9, chantier 4, étapes 1 et 2 ; `scripts/charge/verifier.ts`, `tests/support/oracle.ts`) : tout
   ce que Cursus sert depuis sa lecture partagée doit être exactement ce que donne la relecture complète (`loadFull`,
   `CURSUS_CACHE_INSTANTANE=0`), qui reste l'oracle et le repli de tout cache incrémental. Comparaison à l'identique

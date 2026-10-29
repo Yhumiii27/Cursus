@@ -601,6 +601,10 @@ l'identifiant) : chacun se reconnecte une fois.
    les premières requêtes. Une restauration (`pg_restore`, rechargement des données) remet l'époque de la sauvegarde
    et une révision plus basse, que les instances restées en service ne savent pas encore reconnaître : arrêtez Cursus
    avant toute restauration (`docs/SAUVEGARDE.md`) et redémarrez ensuite **toutes** les instances.
+   **Vues prêtes au démarrage** (lot 10, `CURSUS_PRECHAUFFAGE_VUES`, actif par défaut) : après l'entrée, les vues des
+   comptes actifs sont calculées en tâche de fond (quelques secondes, une à une ; les premières requêtes passent entre
+   deux), puis de nouveau au changement de jour ; les grandes vues RH gardent leur version compressée
+   (`CURSUS_CORPS_COMPRESSES`). Une instance redémarrée sert donc ses premiers lecteurs sans rafale de calculs.
 2. **Premier démarrage** : Cursus applique ses migrations (`server/migrations-pg/`, journal
    `cursus.schema_migrations`), contrôle le schéma et amorce une base neuve (activités internes, horaires de poste
    d'exemple). Le journal du démarrage affiche « base PostgreSQL <hôte>:<port>/epc2i, schéma cursus ». Un refus

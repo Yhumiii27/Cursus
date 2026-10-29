@@ -7,10 +7,10 @@ import { createApp } from './app.ts';
 import { DEMO, purgeSessions } from './auth.ts';
 import { dossierInterface, VERSION } from './chemins.ts';
 import { adminsActifs } from './comptes.ts';
-import { demoPublique, enProduction, hoteEcoute, portEcoute, verifierConfig } from './config.ts';
+import { compressionActive, demoPublique, enProduction, hoteEcoute, portEcoute, verifierConfig } from './config.ts';
 import { todayIso } from './dataset.ts';
 import { dbFile, openDb, urlPostgres } from './db.ts';
-import { mettreAJourBase, prechaufferCache } from './demarrage.ts';
+import { mettreAJourBase, prechaufferChaqueJour, prechaufferDemarrage } from './demarrage.ts';
 import { demarrerEnvois, envoiEnCours } from './envois.ts';
 import { controlerIntegrite } from './integrite.ts';
 import { demarrerJournal } from './journal.ts';
@@ -155,8 +155,13 @@ avenants.unref();
 arret.tache(() => clearInterval(avenants));
 
 // Cache de l'instantané préchauffé (lot 9) : entrée de la révision courante lue en tâche de fond, avant les premières
-// requêtes, qui la trouvent prête ou attendent cette lecture (server/src/demarrage.ts).
-void prechaufferCache(db, m => log.avertissement(m));
+// requêtes, qui la trouvent prête ou attendent cette lecture ; puis (lot 10) vues des comptes actifs, une à une, et au
+// changement de jour (server/src/demarrage.ts, server/src/prechauffage-vues.ts).
+let arrete = false;
+arret.tache(() => { arrete = true; });
+const optionsPrechauffage = { compression: compressionActive(), arrete: () => arrete, avertir: (m: string) => log.avertissement(m), info: (m: string) => log.info(m) };
+void prechaufferDemarrage(db, optionsPrechauffage);
+arret.tache(prechaufferChaqueJour(db, { ...optionsPrechauffage, jour: () => todayIso() }));
 
 // Routes, protections, compression, cache des fichiers et interface compilée : server/src/app.ts.
 // dist/ du projet, quel que soit le dossier de lancement (CURSUS_DIST la remplace : server/src/chemins.ts).

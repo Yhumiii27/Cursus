@@ -6,7 +6,8 @@
 // - une ligne partagée par deux vues n'est sérialisée qu'une fois ;
 // - GET /api/data d'une grande vue : brotli gardé avec la vue (une seule compression pour deux requêtes de la même
 //   tête), gzip pour un client sans brotli, corps tel quel sans Accept-Encoding ; décompressé, égal au corps lu sans
-//   cache ; CURSUS_CORPS_COMPRESSES=0 et compression coupée : même corps.
+//   cache ; CURSUS_CORPS_COMPRESSES=0 et compression coupée : même corps ;
+// - CURSUS_CORPS_OCTETS=0 : corps en texte d'un bloc, comme au lot 9 (repli), même corps.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
@@ -16,6 +17,7 @@ process.env.CURSUS_SECRET = randomBytes(32).toString('hex');
 delete process.env.CURSUS_DEMO;
 delete process.env.CURSUS_CACHE_INSTANTANE;
 delete process.env.CURSUS_CORPS_COMPRESSES;
+delete process.env.CURSUS_CORPS_OCTETS;
 
 const { grosseDemo, lecteurs, serveur, session } = await import('./support/vues-lot10.ts');
 const vc = await import('../server/src/vues-cache.ts');
@@ -62,6 +64,26 @@ test('corps en octets : JSON.stringify({ ...vue, ...tete }) octet pour octet, gr
   assert.equal(LIGNES.serialisees - avant.serialisees, 0, 'aucune ligne resérialisée');
   assert.equal(LIGNES.reprises - avant.reprises, lignes.length);
   assert.ok(new JsonBrut('{}'));
+});
+
+test('CURSUS_CORPS_OCTETS=0 : corps en texte comme au lot 9, sans JSON gardé par ligne, même corps', () => {
+  const lignes = Array.from({ length: LIGNES_MEMO * 2 }, (_, i) => ({ id: i, nom: `Ligne ${i} — l’essai` }));
+  const vue = { user: null, revision: 1, feuilles: lignes, texte: 'x'.repeat(SEUIL_CORPS_OCTETS) };
+  const tete = { user: { nom: 'B' }, revision: 7 };
+  assert.equal(vc.corpsOctetsActif({ CURSUS_CORPS_OCTETS: '0' }), false);
+  assert.equal(vc.corpsOctetsActif({}), true);
+  process.env.CURSUS_CORPS_OCTETS = '0';
+  try {
+    const avant = { ...LIGNES };
+    assert.equal(grandCorps(vue, 'rh|repli'), false, 'grand corps servi en texte (ni octets ni corps compressé gardé)');
+    assert.equal(corpsAvecTete(vue, 'rh|repli', tete).json, JSON.stringify({ ...vue, ...tete }));
+    assert.equal(LIGNES.serialisees - avant.serialisees, 0, 'aucune ligne sérialisée à part');
+    assert.equal(LIGNES.reprises - avant.reprises, 0, 'aucune ligne reprise');
+  } finally {
+    delete process.env.CURSUS_CORPS_OCTETS;
+  }
+  // Réglage lu à la préparation du corps : une autre vue reprend le chemin du lot 10.
+  assert.equal(grandCorps({ ...vue }, 'rh|repli2'), true);
 });
 
 /** GET /api/data de la session, encodage demandé ; corps décompressé et en-têtes. */

@@ -74,7 +74,10 @@ interface Entree {
   paie?: Promise<ResumesPaie>;
   /** Vues calculées sur `base`, par clé de vue. */
   vues: Map<string, Promise<unknown>>;
-  /** Révision de l'instance (`Db.revision`) à la création de l'entrée (lot 10 : révision portée par la réponse qui la sert). */
+  /**
+   * Révision de l'instance (`Db.revision`) relevée avant la lecture de l'état de l'entrée (lot 10 : révision portée par la
+   * réponse qui la sert) : au plus celle de l'état qu'elle reflète.
+   */
   rev: number;
 }
 
@@ -242,13 +245,17 @@ async function deriverEntree(db: Db, prec: Entree, nouvelle: Entree, lire: (lect
  */
 async function entree(db: Db, today: string, lire: (lecteur: CurrentUser) => Promise<Dataset>): Promise<{ e: Entree; memeEtat: boolean; cree?: boolean } | null> {
   if (!cacheActif() || !db.lectureStable) return null;
+  // Révision de l'instance relevée avant l'état de la base : une écriture validée par une autre connexion pendant
+  // `etatRevision` (PostgreSQL) l'avancerait sans que l'entrée, lue sur l'état d'avant, en contienne les lignes. Relevée
+  // avant, elle ne dépasse jamais l'état que l'entrée reflète (comme au lot 9).
+  const rev = db.revision;
   const { n, epoque } = await db.etatRevision();
   const e = entrees.get(db);
   if (e && e.today === today && e.epoque === epoque) {
     if (e.n === n) return { e, memeEtat: true };
     if (n < e.n) return { e, memeEtat: false };
   }
-  const nouvelle = { n, epoque, today, vues: new Map(), rev: db.revision } as unknown as Entree;
+  const nouvelle = { n, epoque, today, vues: new Map(), rev } as unknown as Entree;
   // Révision plus récente de la même époque et du même jour : dérivée de l'entrée précédente par le delta des lignes
   // changées ; sinon (première lecture, autre jour, autre époque, cache incrémental coupé) lecture complète.
   nouvelle.lu = e && e.today === today && e.epoque === epoque && incrementalActif() ? deriverEntree(db, e, nouvelle, lire) : lireEntree(lire);

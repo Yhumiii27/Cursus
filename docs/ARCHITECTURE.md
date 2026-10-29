@@ -1044,7 +1044,9 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
       une autre révision l'attend une fois, puis relit l'état de la base et sert la dernière révision atteinte, calculée
       une fois pour toutes les requêtes qui attendaient : au plus le calcul en cours, puis celui de la dernière révision,
       jamais les révisions intermédiaires. Vue et tête sont lues sur le même état (une entrée plus récente que la lecture
-      fait relire une fois) ; la révision de la réponse est au moins celle de sa lecture. La réponse d'une action et
+      fait relire une fois) ; la révision de la réponse est au moins celle de sa lecture, et au plus celle de l'état servi :
+      la révision de l'instance est relevée avant l'état de la base (une écriture validée par une autre connexion pendant
+      cette lecture ne prête pas sa révision à une vue qui ne la contient pas). La réponse d'une action et
       l'oracle gardent le calcul dans la lecture (`vuePartagee`).
     - *Mémos des calculs de vue* (`server/src/memo-vues.ts`, `CURSUS_MEMO_VUES=0` pour les couper) : feuille d'une vue sans
       la date de naissance (`feuilleSansNaissance`) gardée par feuille et par ce que les règles d'âge lisent de la fiche ;
@@ -1053,7 +1055,8 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
       fiche, année, référentiels et liste de ses feuilles ; nuits à qualifier gardées par feuille). Aucune règle de
       `shared/` ne change. Sur le jeu de 5 ans, après une tranche de 25 feuilles : vue RH 20 à 60 ms (0,3 s), vue d'un
       manager 70 à 160 ms (0,3 à 0,5 s) ; une vue paie ou lecture seule à chaud 0,3 s (2,2 à 3 s).
-    - *Grands corps en octets et lignes sérialisées une fois* (`server/src/vues-cache.ts`) : un corps d'au moins 256 Ko
+    - *Grands corps en octets et lignes sérialisées une fois* (`server/src/vues-cache.ts`, `CURSUS_CORPS_OCTETS=0` pour
+      revenir au corps en texte d'un bloc du lot 9, sans JSON gardé par ligne ni corps compressé gardé) : un corps d'au moins 256 Ko
       (`SEUIL_CORPS_OCTETS`), ou qui contient un tableau d'au moins 256 lignes (`LIGNES_MEMO`), est gardé en octets UTF-8
       (moitié de la mémoire d'une chaîne à deux octets par caractère) et servi en octets (`corpsEnOctets`, octet pour octet
       `JSON.stringify({ ...vue, ...tete })`) ; le JSON de chaque ligne partagée d'un grand tableau est gardé tant qu'elle
@@ -1076,11 +1079,13 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
       pendant une validation groupée (1 400 tours de boucle). Un navigateur décompresse sur son poste ; à retenir pour
       juger les seuils de lecture des vues RH et manager.
     - *Preuves* : banc d'oracle (la lecture directe calcule désormais sa vue sans aucun mémo, `sansMemo`, et compare aussi
-      la vue de GET /api/data, `lireParties`), `tests/memo-vues.test.ts` (vues avec et sans mémo pour chaque compte et
+      la vue de GET /api/data, `lireParties`, et les octets qu'elle en envoie à la sérialisation neuve de cette vue), `tests/memo-vues.test.ts` (vues avec et sans mémo pour chaque compte et
       chaque profil, avant et après des écritures ; C2P incrémental égal à `syntheseC2p`), `tests/corps-compresses.test.ts`
-      (octets, lignes reprises, corps compressés décompressés égaux au corps sans cache, brotli, gzip, sans encodage),
+      (octets, lignes reprises, corps compressés décompressés égaux au corps sans cache, brotli, gzip, sans encodage,
+      `CURSUS_CORPS_OCTETS=0`),
       `tests/coalescence-vues.test.ts` (une évaluation par clé, attente puis dernière révision exacte, lecture rendue tôt
-      sur PostgreSQL, API Keystone et tâches égales à `loadFull`), `tests/prechauffage-vues.test.ts` (ordre, aucune vue
+      sur PostgreSQL, révision de la réponse jamais celle d'une écriture validée pendant la lecture, API Keystone et tâches
+      égales à `loadFull`), `tests/prechauffage-vues.test.ts` (ordre, aucune vue
       recalculée après le préchauffage, santé servie pendant, réglages et arrêt).
     - *Mesure ciblée* (29 octobre 2026, PostgreSQL 16 local jetable, jeu de 5 ans régénéré avec la graine 42 : 120
       fiches, 28 235 feuilles, 300 000 lignes de journal ; 120 s par scénario, `--lot 200`, sans marge ; machine partagée

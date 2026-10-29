@@ -6,7 +6,7 @@
 // - une requête qui trouve en cours le calcul de sa clé sur une révision plus ancienne l'attend, puis relit l'état de la
 //   base et sert la dernière révision atteinte (exacte), sans calculer les révisions intermédiaires ;
 // - une requête qui ne crée pas l'entrée rend sa lecture sans attendre que l'entrée soit lue ;
-// - la réponse porte une révision au moins égale à celle de sa lecture ;
+// - la réponse porte une révision au moins égale à celle de sa lecture, jamais celle d'une écriture qu'elle ne contient pas ;
 // - verdict de l'API Keystone (`jeuEnLecture`) et lecture partagée des tâches du quart d'heure (`lecturePartagee`, par
 //   `donneesAction`) : égaux à loadFull.
 import { test } from 'node:test';
@@ -54,6 +54,30 @@ test('lireParties : vue et tête égales à la lecture directe pour chaque compt
     }
     await db.run('UPDATE feuilles SET comment = ? WHERE emp_id = ?', ['Écriture', 8]);
   }
+});
+
+test('révision portée par la réponse : jamais celle d’une écriture validée pendant la lecture de l’état et absente de la vue', async () => {
+  const db = await grosseDemo();
+  viderCache(db);
+  const u: User = { ...RH, profilRh: 'rh_gestionnaire' };
+  // Sur PostgreSQL, une autre connexion peut valider une écriture après que la lecture a fixé son état et avant que
+  // `entree` ne reprenne : la suite de cette transaction avance `db.revision`. Simulé ici : la révision de l'instance
+  // avance pendant `etatRevision`, sans écriture en base.
+  const etat = db.etatRevision.bind(db);
+  let une = true;
+  const instance = db as unknown as { rev: number };
+  let ecriture = 0;
+  db.etatRevision = async () => {
+    const r = await etat();
+    if (une) { une = false; ecriture = instance.rev = instance.rev + 1000; }
+    return r;
+  };
+  const avant = db.revision;
+  const { vue, tete } = await lireParties(db, u);
+  assert.ok(ecriture > avant, 'écriture simulée pendant la lecture');
+  assert.ok(tete.revision! >= avant, 'au moins la révision de la lecture');
+  assert.ok(tete.revision! < ecriture, 'jamais la révision d’une écriture que la vue ne contient pas');
+  assert.equal(ecart(await instantaneDirect(db, u), { ...vue, ...tete, revision: db.revision }), null, 'vue exacte');
 });
 
 test('requêtes simultanées d’une même révision : une évaluation par clé de vue', async () => {

@@ -24,7 +24,8 @@
 // Lot 10, chantier A : un grand corps (vues RH, grandes vues manager) est gardé en octets UTF-8 (`SEUIL_CORPS_OCTETS`) et
 // servi en octets (`corpsEnOctets`), compressé au besoin une fois par tête de requête (server/src/corps-compresses.ts) ;
 // les lignes d'un grand tableau (`LIGNES_MEMO`) sont sérialisées une par une, et le JSON de chaque ligne partagée gardé
-// tant qu'elle vit : d'une révision à la suivante, seules les lignes changées sont resérialisées.
+// tant qu'elle vit : d'une révision à la suivante, seules les lignes changées sont resérialisées. CURSUS_CORPS_OCTETS=0
+// revient à la sérialisation du lot 9 (`corpsOctetsActif`).
 import type { Response } from 'express';
 import type { Dataset } from '../../shared/types.ts';
 
@@ -162,7 +163,16 @@ class Octets {
   }
 }
 
+/**
+ * Corps en octets actif (lot 10) : CURSUS_CORPS_OCTETS vaut autre chose que « 0 ». À « 0 », chaque corps est sérialisé
+ * en texte d'un bloc, comme au lot 9 : ni JSON gardé par ligne (`membreLignes`), ni corps en octets (`grandCorps` faux,
+ * donc ni corps compressés gardés ni préchauffage de leur compression ; le module de compression compresse la réponse).
+ * Réglage de repli et de comparaison : le corps servi est le même octet pour octet.
+ */
+export const corpsOctetsActif = (env: Record<string, string | undefined> = process.env) => env.CURSUS_CORPS_OCTETS?.trim() !== '0';
+
 function preparer(vue: object, cle: string): Corps {
+  if (!corpsOctetsActif()) return preparerTexte(vue, cle);
   const morceaux: (string | Octets | Emplacement)[] = [];
   let suite: (string | Octets)[] = [];
   let enOctets = false, taille = 0;
@@ -186,6 +196,26 @@ function preparer(vue: object, cle: string): Corps {
     const octets = morceaux.map(m => (typeof m === 'string' ? new Octets([Buffer.from(m, 'utf8')]) : m));
     return { cle, morceaux: octets, champs: new Set(Object.keys(vue)), taille: octets.reduce((n, m) => n + (m instanceof Octets ? m.length : 0), 0) };
   }
+  return { cle, morceaux, champs: new Set(Object.keys(vue)), taille };
+}
+
+/** Corps en texte, champ par champ (`membre`) : la préparation du lot 9 (CURSUS_CORPS_OCTETS=0). */
+function preparerTexte(vue: object, cle: string): Corps {
+  const morceaux: (string | Emplacement)[] = [];
+  let suite: string[] = [], taille = 0;
+  const clore = () => { if (suite.length) morceaux.push(suite.join(',')); suite = []; };
+  for (const [k, v] of Object.entries(vue)) {
+    if (TETE.has(k)) {
+      clore();
+      morceaux.push({ cle: k, membre: membre(k, v) });
+      continue;
+    }
+    const m = membre(k, v);
+    if (m === undefined) continue;
+    taille += m.length;
+    suite.push(m);
+  }
+  clore();
   return { cle, morceaux, champs: new Set(Object.keys(vue)), taille };
 }
 

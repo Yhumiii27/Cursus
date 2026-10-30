@@ -252,9 +252,14 @@ function feuilleDe(feuilles: readonly FeuilleTemps[], empId: number, week: ISODa
 /** Heures de chaque jour d'une feuille, toutes lignes cumulées. */
 const heuresParJour = (sh: Pick<FeuilleTemps, 'lignes'>) => Array.from({ length: JOURS_FEUILLE }, (_, i) => sh.lignes.reduce((n, l) => n + num(l.h[i]), 0));
 
-/** Horaire et heures du dimanche qui précède la semaine `week` (feuille de la semaine précédente), null sans feuille. */
-export function veilleDe(ds: Pick<Dataset, 'feuilles' | 'referentiels'>, e: Pick<Employe, 'id' | 'equipe'>, week: ISODate): Veille | null {
-  const sh = feuilleDe(ds.feuilles, e.id, addD(week, -7));
+/**
+ * Horaire et heures du dimanche qui précède la semaine `week` (feuille de la semaine précédente), null sans feuille.
+ * `feuilles` : celles où la chercher, toutes celles de l'instantané par défaut, ou les seules du salarié (lot 10,
+ * chantier B : `calcSheet` d'un `Domain` à mémos par salarié), qui donnent la même feuille.
+ */
+export function veilleDe(ds: Pick<Dataset, 'feuilles' | 'referentiels'>, e: Pick<Employe, 'id' | 'equipe'>, week: ISODate,
+  feuilles: readonly FeuilleTemps[] = ds.feuilles): Veille | null {
+  const sh = feuilleDe(feuilles, e.id, addD(week, -7));
   if (!sh) return null;
   const perDay = heuresParJour(sh);
   return { horaire: horairesDeLaFeuille(ds.referentiels, e.equipe, sh, perDay)[DIMANCHE].horaire, heures: perDay[DIMANCHE] };

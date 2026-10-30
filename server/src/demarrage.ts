@@ -57,3 +57,48 @@ export async function prechaufferCache(db: Db, avertir: (message: string) => voi
     return false;
   }
 }
+
+/**
+ * Préchauffage complet au démarrage du serveur (lot 10, chantier A) : l'entrée (`prechaufferCache`), puis les vues des
+ * comptes actifs en tâche de fond (server/src/prechauffage-vues.ts, CURSUS_PRECHAUFFAGE_VUES=0 pour le couper). Jamais
+ * sous node --test ni pour les outils. Non bloquant : un échec n'écrit qu'un avertissement. Rend le bilan des vues, ou
+ * null si rien n'a été préchauffé.
+ */
+export async function prechaufferDemarrage(
+  db: Db, o: { compression: boolean; arrete?: () => boolean; avertir?: (message: string) => void; info?: (message: string) => void },
+): Promise<import('./prechauffage-vues.ts').BilanPrechauffage | null> {
+  if (process.env.NODE_TEST_CONTEXT) return null;
+  const avertir = o.avertir ?? console.warn;
+  if (!await prechaufferCache(db, avertir)) return null;
+  const { prechaufferVues, prechauffageVuesActif } = await import('./prechauffage-vues.ts');
+  if (!prechauffageVuesActif()) return null;
+  const bilan = await prechaufferVues(db, { compression: o.compression, arrete: o.arrete, avertir });
+  o.info?.(`Vues préchauffées : ${bilan.vues} (${bilan.corps} corps compressés) en ${(bilan.ms / 1000).toFixed(1)} s${bilan.interrompu ? ', interrompu' : ''}.`);
+  return bilan;
+}
+
+/** Intervalle du contrôle du changement de jour (millisecondes). */
+export const CONTROLE_JOUR_MS = 60_000;
+
+/**
+ * Préchauffage au changement de jour (lot 10, chantier A) : l'entrée du cache est propre à la date du jour, et la
+ * première lecture d'un jour nouveau relisait toute la base puis calculait sa vue ; chaque minute, si la date du jour a
+ * changé, l'entrée et les vues du nouveau jour sont préchauffées en tâche de fond (`prechaufferDemarrage`). Rend la
+ * fonction d'arrêt du minuteur. Jamais sous node --test.
+ */
+export function prechaufferChaqueJour(
+  db: Db, o: Parameters<typeof prechaufferDemarrage>[1] & { jour: () => string },
+): () => void {
+  if (process.env.NODE_TEST_CONTEXT) return () => {};
+  let dernier = o.jour();
+  let enCours = false;
+  const minuteur = setInterval(() => {
+    const jour = o.jour();
+    if (jour === dernier || enCours) return;
+    dernier = jour;
+    enCours = true;
+    void prechaufferDemarrage(db, o).catch(() => null).finally(() => { enCours = false; });
+  }, CONTROLE_JOUR_MS);
+  minuteur.unref();
+  return () => clearInterval(minuteur);
+}

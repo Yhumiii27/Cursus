@@ -15,8 +15,9 @@ import { PROFILS_RH } from '../../shared/constants.ts';
 import type { CurrentUser, Dataset } from '../../shared/types.ts';
 import { cacheActif, donneesAction } from '../../server/src/cache-instantane.ts';
 import { espacesDuCompte, type Compte } from '../../server/src/comptes.ts';
-import { buildSnapshot, currentUser, loadFull, todayIso } from '../../server/src/dataset.ts';
+import { buildSnapshot, corpsDe, currentUser, lireParties, loadFull, todayIso } from '../../server/src/dataset.ts';
 import type { Db } from '../../server/src/db.ts';
+import { corpsEnOctets, grandCorps } from '../../server/src/vues-cache.ts';
 
 /** Ce qui est comparé : entrée du cache, jeu d'une action, vue servie à un compte, instantané renvoyé après une action. */
 export type Objet = 'entrée' | 'action' | 'vue' | 'réponse';
@@ -93,10 +94,25 @@ export async function lecteursDe(db: Db, garder: (c: Compte, espace: CurrentUser
   return out;
 }
 
-/** Vue de `u` servie par le cache (lecture stable, comme GET /api/data) contre la vue lue directement (`instantaneDirect`). */
+/**
+ * Vue de `u` servie par le cache contre la vue lue directement (`instantaneDirect`, calculée sans mémo : lot 10) : celle
+ * que sert la réponse d'une action (calculée dans la lecture stable, `buildSnapshot`), puis celle de GET /api/data
+ * (calculée hors de la lecture, `lireParties`, lot 10), et les octets que GET /api/data en envoie.
+ */
 export async function comparerVue(db: Db, u: CurrentUser): Promise<string | null> {
   const servie = await db.lecture(async () => await buildSnapshot(db, u));
-  return ecart(await instantaneDirect(db, u), servie);
+  const directe = await instantaneDirect(db, u);
+  const e = ecart(directe, servie);
+  if (e) return e;
+  const parties = await lireParties(db, u);
+  const { vue, cle, tete } = parties;
+  const e2 = ecart(directe, { ...vue, ...tete });
+  if (e2) return e2;
+  // Octets servis par GET /api/data (lot 10 : JSON gardé par ligne, grand corps en octets, server/src/vues-cache.ts)
+  // contre la sérialisation neuve de la vue servie, égale à la lecture directe ci-dessus : un JSON de ligne périmé se
+  // verrait ici, pas dans la comparaison des objets.
+  const servis = cle !== null && grandCorps(vue, cle) ? corpsEnOctets(vue, cle, tete) : Buffer.from(corpsDe(parties).json, 'utf8');
+  return servis.equals(Buffer.from(JSON.stringify({ ...vue, ...tete }), 'utf8')) ? null : 'corps servi : octets différents de la sérialisation de la vue';
 }
 
 /** Issue de la comparaison d'un jeu d'action : écart, et `directe` vrai si la lecture directe a servi l'action. */

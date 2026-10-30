@@ -7,7 +7,7 @@ import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.
 import { acquisitionsCalculees } from '../../shared/rules/acquisition-cp.ts';
 import { aptitudeVueManager } from '../../shared/rules/sante.ts';
 import { visiteAProgrammer } from '../../shared/rules/visites-dues.ts';
-import { etatMineur, mineurDeLaSemaine, moins16DeLaSemaine, naissanceVueManager } from '../../shared/rules/mineurs.ts';
+import { etatMineur, mineurDeLaSemaine, moins16DeLaSemaine, type Naissance, naissanceVueManager } from '../../shared/rules/mineurs.ts';
 import { statutNuit } from '../../shared/rules/repos-nuit.ts';
 import { needsFinCarriere } from '../../shared/rules/entretiens.ts';
 import { present, verdictAutorisation } from '../../shared/rules/contrats.ts';
@@ -17,7 +17,8 @@ import { equipesDescendantes } from '../../shared/rules/hierarchie.ts';
 import { delegationEnVigueur, deleguesA, type Delegue } from '../../shared/rules/delegations-manager.ts';
 import { etatsCouverture } from '../../shared/rules/couverture.ts';
 import { entretienMiCarriere } from '../../shared/rules/entretien-mi-carriere.ts';
-import { anneesC2p, syntheseC2p } from '../../shared/rules/c2p.ts';
+import { anneesC2p } from '../../shared/rules/c2p.ts';
+import { syntheseC2pIncrementale } from './c2p-incremental.ts';
 import type { Astreinte, AvenantForfait, ContratHistorique, DeclarationPasseport, DelegationValidation, EtatCouverture, FormationSuivie, HabDelivrance, Personne } from '../../shared/types.ts';
 import type {
   ClotureConges, CurrentUser, Dataset, DemandeCollab, Employe, Entretien, CalendrierFeries, Equipe, FeuilleTemps, ISODate, PlanAction, ReportCp, Settings, TacheKeystone, Voyage,
@@ -31,9 +32,10 @@ import { piecesVisibles } from './pieces.ts';
 import { resumeDeplacementsPaie } from './deplacements-paie.ts';
 import { dossiersEchus } from './conservation.ts';
 import { jetonActif } from './agenda.ts';
-import { geler, gelEnTest, vuePartagee } from './cache-instantane.ts';
+import { geler, gelEnTest, preparerVue, vueHorsLecture, type VuePreparee, vuePartagee } from './cache-instantane.ts';
 import { assembler, type EmpRow, lireBrut, REGLAGES_DEFAUT, reglagesDe, retenirBrut } from './lecture-brute.ts';
 import { corpsAvecTete, filtreIndexe, type FiltrePerimetre, JsonBrut, retenirPerimetre } from './vues-cache.ts';
+import { memoParEntrees, memoParObjet, sansMemo } from './memo-vues.ts';
 import type { AttenteSession } from '../../shared/types.ts';
 import { exercicesEvaluation, indicateursEvaluation, SEUIL_ANONYMAT } from '../../shared/rules/evaluation-formation.ts';
 import type { EvaluationFormation } from '../../shared/types.ts';
@@ -303,19 +305,73 @@ export async function partiesInstantane(db: Db, user: CurrentUser, { cache = tru
   // `cache: false` : lecture directe pour cette seule requête (oracle d'exactitude, scripts/charge/verifier.ts), sans
   // toucher CURSUS_CACHE_INSTANTANE, que les autres requêtes du processus continuent de lire.
   const partagee = !cache ? null : await vuePartagee(db, user, todayIso(), revision, async lecteur => await loadFull(db, lecteur), full => vueDe(full, user));
-  const vue = partagee?.vue ?? vueDe(await loadFull(db, user), user);
+  // Lecture directe demandée (`cache: false`, oracle) : la vue calculée sans aucun mémo (lot 10, server/src/memo-vues.ts).
+  const full = partagee ? null : await loadFull(db, user);
+  const vue = partagee?.vue ?? (cache ? vueDe(full!, user) : sansMemo(() => vueDe(full!, user)));
   // Vue partagée : utilisateur et révision de cette requête (ceux du premier calcul sinon).
   const tete: Partial<Dataset> = partagee ? { user, revision } : {};
+  Object.assign(tete, await teteLue(db, user, async () => vue));
+  return { vue, cle: partagee?.cle ?? null, tete };
+}
+
+/**
+ * Vrai si la tête de `user` se lit sur l'état de la base de sa vue (dossiers échus de la conservation : administrateur
+ * RH), qui attend alors l'instantané dans sa lecture ; l'abonnement à l'agenda ne dépend pas de la révision (table hors
+ * de l'instantané).
+ */
+const teteSurEtat = (user: CurrentUser): boolean => {
+  const droits = user.role === 'rh' ? droitsRh(user) : [];
+  return droits.includes('rh') && droits.includes('admin');
+};
+
+/**
+ * Champs de tête lus en base à chaque requête, sur l'état de la lecture en cours : dossiers échus de la conservation
+ * (administrateur RH), abonnement à l'agenda (manager, collaborateur). `vue` : réglages et date du jour de la vue servie.
+ */
+async function teteLue(db: Db, user: CurrentUser, vue: () => Promise<Pick<Dataset, 'settings' | 'today'>>): Promise<Partial<Dataset>> {
+  const tete: Partial<Dataset> = {};
   if (user.role === 'rh') {
-    const droits = droitsRh(user);
     // Dossiers des salariés sortis dont une durée de conservation est échue (t016) : administrateur RH seulement.
-    if (droits.includes('rh') && droits.includes('admin')) tete.conservation = await dossiersEchus(db, vue.settings, vue.today);
+    if (teteSurEtat(user)) {
+      const { settings, today } = await vue();
+      tete.conservation = await dossiersEchus(db, settings, today);
+    }
   } else {
     // Abonnement à l'agenda personnel (t036) : seulement le fait qu'il existe et sa date, jamais le jeton (haché en base).
     const j = await jetonActif(db, user.empId!);
     tete.agendaJeton = j ? { creeLe: j.creeLe } : null;
   }
-  return { vue, cle: partagee?.cle ?? null, tete };
+  return tete;
+}
+
+/**
+ * Parties de l'instantané de `user` pour GET /api/data (lot 10, chantier A), comme `partiesInstantane` lu dans une
+ * lecture stable, mais la vue calculée hors de la lecture : la lecture stable (`Db.lecture`) ne couvre que l'entrée du
+ * cache, les résumés de la paie et la tête de la requête (lectures en base, toutes sur le même état) ; la connexion et la
+ * place de lecture sont rendues avant le calcul de la vue (`vueHorsLecture`, server/src/cache-instantane.ts). Un calcul
+ * de la même clé en cours sur une autre révision est attendu une fois, puis l'état de la base est relu : la vue servie
+ * est celle de la dernière révision atteinte, partagée par toutes les requêtes qui l'attendaient. Vue et tête reflètent
+ * toujours la même révision. Hors du cache (désactivé, ou entrée plus récente sans résumés de la paie deux fois de
+ * suite), lecture directe comme `partiesInstantane`.
+ */
+export async function lireParties(db: Db, user: CurrentUser): Promise<PartiesInstantane> {
+  const lire = async (lecteur: CurrentUser) => await loadFull(db, lecteur);
+  for (let attendre = true; ; attendre = false) {
+    const lu = await db.lecture(async (): Promise<{ p: VuePreparee; tete: Partial<Dataset> } | { parties: PartiesInstantane }> => {
+      // Lecture tenue le temps de l'entrée (si cette requête la crée), des résumés de la paie et de la tête seulement.
+      const p = await preparerVue(db, user, todayIso(), db.revision, lire, teteSurEtat(user));
+      // Entrée plus récente que cette lecture : relue une fois (la lecture suivante voit au moins son état), sinon servie
+      // comme au lot 9 (`partiesInstantane`).
+      if (p && (!p.relire || attendre)) return { p, tete: p.relire ? {} : await teteLue(db, user, async () => await p.base) };
+      // Seconde lecture encore en deçà de l'entrée (écritures en rafale) : servie par l'entrée plus récente, ou lue
+      // directement si ses résumés de la paie manquent, dans cette lecture, comme au lot 9.
+      return { parties: await partiesInstantane(db, user) };
+    });
+    if ('parties' in lu) return lu.parties;
+    const v = await vueHorsLecture(db, lu.p, full => vueDe(full, user), attendre);
+    if (v === 'relire') continue;
+    return { vue: v.vue, cle: v.cle, tete: { user, revision: v.revision, ...lu.tete } };
+  }
 }
 
 /**
@@ -501,7 +557,15 @@ export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre 
  * l'instantané complet (toutes les feuilles validées) ; service RH, référent HSE (qui ne reçoit pas les feuilles) et
  * lecture seule. Ni le manager, ni le collaborateur, ni la paie.
  */
-const c2pDe = (full: Dataset) => anneesC2p(full.today).map(a => syntheseC2p(full, a));
+const c2pDe = (full: Dataset) => c2pMemo(full.referentiels, full.employes, full.feuilles, full.today, full.calendrierFeries);
+/**
+ * Synthèse du C2P mémoïsée par identité de ce qu'elle lit (lot 10, server/src/memo-vues.ts) : calculée une fois par
+ * instantané pour tous les profils qui la reçoivent, et, d'un instantané au suivant, pour les seuls salariés dont une
+ * feuille a changé (server/src/c2p-incremental.ts). Le calendrier des fériés, état de module reposé avant chaque calcul
+ * de vue, fait partie de la clé.
+ */
+const c2pMemo = memoParEntrees((referentiels: Dataset['referentiels'], employes: Dataset['employes'], feuilles: Dataset['feuilles'], today: ISODate, _feries: unknown) =>
+  anneesC2p(today).map(a => syntheseC2pIncrementale({ referentiels, employes, feuilles, today }, a)));
 /** Postes sans les facteurs d'exposition du C2P (manager, collaborateur, paie). */
 const sansC2p = (postes: Dataset['referentiels']['postes']) => postes.map(p => (p.c2p ? { ...p, c2p: null } : p));
 
@@ -519,8 +583,13 @@ const sansExigences = (r: Dataset['referentiels']): Pick<Dataset['referentiels']
  */
 function feuilleSansNaissance(d: Domain, sh: FeuilleTemps): FeuilleTemps {
   const e = d.emp(sh.empId);
-  return e ? { ...sh, mineur: mineurDeLaSemaine(e, sh.week), ...(moins16DeLaSemaine(e, sh.week) ? { moins16: true } : {}) } : sh;
+  // Mémo par feuille et par naissance (lot 10, server/src/memo-vues.ts) : les indications ne dépendent que de la semaine
+  // de la feuille et de ce que les règles d'âge lisent de la fiche ; la feuille partagée n'est jamais modifiée.
+  return e ? memoParObjet('feuilleSansNaissance', sh, cleNaissance(e), () => ({ ...sh, mineur: mineurDeLaSemaine(e, sh.week), ...(moins16DeLaSemaine(e, sh.week) ? { moins16: true } : {}) })) : sh;
 }
+
+/** Ce que les règles d'âge lisent d'une fiche (`Naissance`, shared/rules/mineurs.ts), sérialisé : clé du mémo d'une feuille. */
+const cleNaissance = (e: Naissance): string => JSON.stringify([e.naissance, e.naissanceLe ?? null, e.mineur ?? null, e.moins16 ?? null]);
 
 /**
  * Instantané d'un profil restreint de l'espace RH (sans le droit `rh`) : seulement ce que ses droits ouvrent,

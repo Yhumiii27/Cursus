@@ -52,8 +52,16 @@ export function wDays(w: ISODate): ISODate[] {
  * (0 = lundi … 5 = samedi, 6 = dimanche ; shared/rules/semaine.ts). `wDays` garde les cinq jours ouvrés (congés, contrats).
  */
 export function joursSemaine(w: ISODate): ISODate[] {
-  return [0, 1, 2, 3, 4, 5, 6].map(i => addD(w, i));
+  // Mémorisés par lundi (lot 10, chantier B : le contingent de l'année relit les jours de chaque feuille validée à chaque
+  // validation) ; une copie à chaque appel, que l'appelant peut modifier. Au plus 4 096 semaines gardées.
+  let jours = SEPT_JOURS.get(w);
+  if (!jours) {
+    if (SEPT_JOURS.size >= 4096) SEPT_JOURS.clear();
+    SEPT_JOURS.set(w, jours = [0, 1, 2, 3, 4, 5, 6].map(i => addD(w, i)));
+  }
+  return [...jours];
 }
+const SEPT_JOURS = new Map<ISODate, readonly ISODate[]>();
 /** Année de la semaine ISO de `s` : celle de son jeudi (la semaine du lundi 29 décembre 2025 est la semaine 1 de 2026). */
 export function isoWeekYear(s: ISODate): number {
   return Number(addD(mondayOf(s), 3).slice(0, 4));

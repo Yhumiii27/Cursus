@@ -1,7 +1,7 @@
 // Feuilles de temps : décompte des heures, majorations, variables de paie.
 import { horodatageParis, isFerie, isoWeek, isoWeekYear, joursSemaine, parse } from '../dates.ts';
 import { fH, num, r1 } from '../format.ts';
-import type { Domain } from '../domain.ts';
+import type { Domain, MemoTable } from '../domain.ts';
 import type { Absence, AbsenceType, ContratFige, DemiJournee, ElementASaisir, Employe, FeuilleTemps, ISODate, LigneTemps, ModeHeuresSupFige, SageMode, SagePush, TacheKeystone } from '../types.ts';
 import { absenceBloque, jourHorsContrat, natureDef, natureMedicale } from './absences.ts';
 import { DEMI_LABEL, heuresDemiJournee, moities } from './demi-journees.ts';
@@ -93,6 +93,27 @@ export interface SheetCalc {
  * majoration (`mai1`, `ferie`).
  */
 export function calcSheet(d: Domain, e: Employe, sh: FeuilleCalcul | null): SheetCalc {
+  // Mémorisé par salarié (lot 10, chantier B : validation groupée, `Domain.memoSalarie`), sous la feuille et la fiche :
+  // le décompte ne lit, de l'instantané, que des données communes (réglages, référentiels, dérogations de l'équipe) et
+  // celles du salarié `e` (historique de ses contrats, ses interventions d'astreinte, sa feuille de la semaine précédente
+  // par `veilleDe`), jamais les feuilles d'un autre.
+  return sh ? d.memoSalarie(e.id, DECOMPTE, sh, e, () => decompter(d, e, sh)) : decompter(d, e, null);
+}
+/** Mémo du décompte d'une feuille (`calcSheet`). */
+const DECOMPTE: MemoTable = Symbol('décompte d’une feuille');
+/** Mémo des feuilles d'un salarié (`feuillesCherchees`). */
+const FEUILLES_DU_SALARIE: MemoTable = Symbol('feuilles d’un salarié');
+
+/**
+ * Feuilles où chercher celle de la semaine précédente (`veilleDe`) : avec des mémos par salarié, les seules du salarié,
+ * extraites une fois par liste de feuilles (une feuille validée remplacée fait une liste neuve : l'index de toutes les
+ * feuilles serait refait à chaque feuille d'une validation groupée) ; sinon toutes, comme avant.
+ */
+const feuillesCherchees = (d: Domain, empId: number): readonly FeuilleTemps[] => (d.memoParSalarie
+  ? d.memoSalarie(empId, FEUILLES_DU_SALARIE, d.ds.feuilles, d.ds.feuilles, () => d.ds.feuilles.filter(f => f.empId === empId))
+  : d.ds.feuilles);
+
+function decompter(d: Domain, e: Employe, sh: FeuilleCalcul | null): SheetCalc {
   const c = d.contratOf(employeDeLaFeuille(e, sh, d));
   // Une ligne de 5 valeurs (enregistrée avant la semaine à 7 jours) se lit avec un samedi et un dimanche vides.
   const perDay = Array.from({ length: JOURS_FEUILLE }, (_, i) => (sh ? sh.lignes : []).reduce((n, l) => n + num(l.h[i]), 0));
@@ -111,7 +132,7 @@ export function calcSheet(d: Domain, e: Employe, sh: FeuilleCalcul | null): Shee
   // Horaires de poste du jour (shared/rules/repos-nuit.ts) : repos quotidien et pause, à motiver ; nuit d'un mineur, refusée.
   const rn = controlesReposNuit(horairesDeLaFeuille(d.ds.referentiels, e.equipe, sh ? { statut: sh.statut ?? (sh.horairesFiges ? 'validee' : 'brouillon'), horaires: sh.horaires, horairesFiges: sh.horairesFiges } : null, perDay).map(j => j.horaire),
     perDay, sh?.week, {
-      s: d.ds.settings, naissance: naissanceDeLaFeuille(e, sh), veille: sh?.week ? veilleDe(d.ds, e, sh.week) : null, exclu: c.dirigeant,
+      s: d.ds.settings, naissance: naissanceDeLaFeuille(e, sh), veille: sh?.week ? veilleDe(d.ds, e, sh.week, feuillesCherchees(d, e.id)) : null, exclu: c.dirigeant,
       // Interventions d'astreinte (t049) : plages exactes, repos dû en entier après leur fin (shared/rules/astreintes.ts).
       interventions: plagesInterventions(d.ds.interventionsAstreinte, e.id, sh?.week),
     });
@@ -224,13 +245,25 @@ export type AbsenceJour = Pick<Absence, 'empId' | 'type' | 'du' | 'au'> & Partia
  * Demi-journée de congé (shared/rules/demi-journees.ts) : le jour n'est couvert que si ses deux moitiés le sont (CP le
  * matin, RTT l'après-midi) ; sinon il est rendu par `demiJoursAbsence`, et une demi-journée de travail y reste saisissable.
  */
-export function joursAbsence(d: Domain, empId: number, w: ISODate, absences: AbsenceJour[] = d.ds.absences.filter(absenceBloque)): (AbsenceJour | null)[] {
+export function joursAbsence(d: Domain, empId: number, w: ISODate, absences: AbsenceJour[] = absencesBloquantes(d, empId)): (AbsenceJour | null)[] {
   return joursSemaine(w).map(day => {
     const ce = absences.filter(a => a.empId === empId && a.du <= day && a.au >= day);
     const m = ce.map(a => moities(a, day));
     return m.some(x => x.matin) && m.some(x => x.apres_midi) ? ce.find((_, i) => m[i].matin && m[i].apres_midi) ?? ce[0] : null;
   });
 }
+
+/** Mémo des absences en vigueur d'un salarié (`absencesBloquantes`). */
+const ABSENCES_DU_SALARIE: MemoTable = Symbol('absences en vigueur d’un salarié');
+
+/**
+ * Absences en vigueur où chercher celles du salarié `empId` (`joursAbsence`, `demiJoursAbsence`, qui ne retiennent que les
+ * siennes, dans le même ordre) : avec des mémos par salarié (lot 10, chantier B), les seules siennes, extraites une fois par
+ * liste d'absences ; sinon toutes, comme avant.
+ */
+const absencesBloquantes = (d: Domain, empId: number): AbsenceJour[] => (d.memoParSalarie
+  ? d.memoSalarie(empId, ABSENCES_DU_SALARIE, d.ds.absences, d.ds.absences, () => d.ds.absences.filter(a => a.empId === empId && absenceBloque(a)))
+  : d.ds.absences.filter(absenceBloque));
 
 /** Demi-journée d'absence d'un jour : l'absence, la moitié qu'elle occupe et la durée de travail admise ce jour-là. */
 export interface DemiJourAbsence { absence: AbsenceJour; demi: DemiJournee; max: number }
@@ -239,7 +272,7 @@ export interface DemiJourAbsence { absence: AbsenceJour; demi: DemiJournee; max:
  * Jours de la semaine `w` couverts par une seule demi-journée d'absence (même source que `joursAbsence`) ; null les
  * autres jours. Ce jour-là, au plus une demi-journée de travail (`heuresDemiJournee`).
  */
-export function demiJoursAbsence(d: Domain, empId: number, w: ISODate, absences: AbsenceJour[] = d.ds.absences.filter(absenceBloque)): (DemiJourAbsence | null)[] {
+export function demiJoursAbsence(d: Domain, empId: number, w: ISODate, absences: AbsenceJour[] = absencesBloquantes(d, empId)): (DemiJourAbsence | null)[] {
   const pleins = joursAbsence(d, empId, w, absences), e = d.emp(empId);
   const max = heuresDemiJournee(e ? d.dayH(e) : 7);
   return joursSemaine(w).map((day, i) => {

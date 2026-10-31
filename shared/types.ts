@@ -15,6 +15,13 @@ export type SecuDetachement = 'a1' | 'convention' | 'hors_convention';
 /** Catégories de la CCN Industries chimiques. */
 export type Statut = 'ouvrier' | 'technicien' | 'cadre';
 export type TypeContrat = 'cdi' | 'cdd' | 'interim' | 'alternance';
+/** lot 11 — indicateurs : sexe de la DSN (F : féminin, M : masculin) ; aucune autre valeur juridique à ce jour. */
+export type Sexe = 'F' | 'M';
+/**
+ * lot 11 — indicateurs : catégorie d'emploi de la BDESE et de l'index d'égalité (ouvriers, employés, techniciens et
+ * agents de maîtrise, cadres), distincte du statut à 3 valeurs, qui ne sépare pas ouvriers et employés.
+ */
+export type CategorieEmploi = 'ouvrier' | 'employe' | 'tam' | 'cadre';
 /** Motif de sortie de l'entreprise (liste fermée, sans texte libre : MOTIFS_SORTIE de shared/rules/contrats.ts). */
 export type MotifSortie = 'demission' | 'rupture_conventionnelle' | 'licenciement' | 'fin_cdd' | 'fin_periode_essai' | 'retraite' | 'deces' | 'fin_mission' | 'autre';
 /** Motif de recours au CDD ou à l'intérim (art. L1242-2, L1242-3, L1251-6), liste fermée MOTIFS_RECOURS de shared/rules/cdd.ts. */
@@ -423,6 +430,14 @@ export interface Employe {
    * par « Salarié anonymisé n° X », date du jour de l'anonymisation ; null tant que le dossier est nominatif.
    */
   anonymiseLe?: ISODate | null;
+  /**
+   * lot 11 — indicateurs (shared/rules/indicateurs-legaux.ts) : sexe aligné sur la DSN et catégorie d'emploi à 4 valeurs
+   * (BDESE, index d'égalité), saisis par le service RH ou repris de Lucca ou de Sage ; null : à compléter. Service RH et
+   * intéressé seulement : retirés des vues du manager et des profils restreints (server/src/dataset.ts), qui n'en ont
+   * que les agrégats masqués (GET /api/indicateurs). Au journal, le nom du champ seulement, jamais sa valeur.
+   */
+  sexe?: Sexe | null;
+  categorie?: CategorieEmploi | null;
   /** Date de la dernière visite d'aptitude — réservée au service RH. */
   visite: ISODate | null;
   /**
@@ -1260,6 +1275,12 @@ export interface Settings {
   evaluationFroidDelai: number;
   evaluationFroidPar: RepondantsFroid;
   evaluationFroidCategories: CategorieEvaluee[];
+  /**
+   * lot 11 — indicateurs (shared/rules/indicateurs-legaux.ts) : seuil d'anonymat des agrégats (3 à 10, 5 par défaut) et
+   * natures d'absence comptées dans l'absentéisme (santé, enfant malade, sans solde, injustifiée par défaut).
+   */
+  indicateursSeuil: number;
+  absenteismeNatures: NatureAbsence[];
 }
 /** Catégorie d'une formation pour l'évaluation à froid : type du catalogue, ou formation hors catalogue. */
 export type CategorieEvaluee = FormationType | 'Hors catalogue';
@@ -1799,6 +1820,24 @@ export interface Dataset {
    * moins de 3 réponses n'a ni moyenne ni taux (`masque`). Absent ailleurs : calcul sur l'instantané (service RH).
    */
   indicateursEvaluation?: IndicateursEvaluation[];
+  /**
+   * lot 11 — indicateurs : arrêtés annuels des indicateurs sociaux (BDESE), sans leurs agrégats (lus par
+   * GET /api/indicateurs?arrete=) ; service RH (tous) et lecture seule (sans auteurs ni motif d'annulation) ; vide ailleurs.
+   */
+  indicateursArretes?: ArreteIndicateurs[];
+}
+
+/**
+ * lot 11 — indicateurs : arrêté annuel des indicateurs sociaux (table `indicateurs_arretes`, jamais supprimée) : année,
+ * périmètre (`global` tant qu'un seul employeur), période, version des règles, seuil d'anonymat appliqué, date et auteur
+ * de l'arrêté, mise à disposition du CSE, annulation (motif : texte du service RH, jamais au journal ni hors du service
+ * RH). Les agrégats figés (`donnees`, déjà masqués) ne font pas partie de l'instantané.
+ */
+export interface ArreteIndicateurs {
+  id: number; annee: number; perimetre: string; du: ISODate; au: ISODate; reglesVersion: string; seuil: number;
+  arreteLe: string; arretePar: string | null;
+  cseLe: ISODate | null; csePar: string | null;
+  annuleLe: string | null; annulePar: string | null; annuleMotif: string | null;
 }
 
 /** Catégorie de données d'un dossier, avec sa durée de conservation après la sortie (shared/rules/conservation.ts). */

@@ -29,6 +29,8 @@ import { routesFichierPaie } from './fichier-paie.ts';
 import { filtreKeystone } from './filtre-keystone.ts';
 import { routesVariablesPaie } from './variables-paie.ts';
 import { routesPasseportPrevention } from './passeport-prevention.ts';
+// lot 11 — indicateurs
+import { routesIndicateurs } from './indicateurs.ts';
 import { routesPieces } from './pieces-routes.ts';
 import { routesAgenda } from './agenda.ts';
 import { journaliserAction, lireFiltre, preparerTrace, routesJournal, tracerRefus } from './journal.ts';
@@ -188,6 +190,9 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // est gardé quelle que soit la vue (il trace toujours « journal.export » ; le client passe par `telecharger`).
   app.get('/api/journal', exigerNavigationInterne('appel', req => lireFiltre(req.query as Record<string, unknown>).vue === 'archive'));
   app.get('/api/journal/csv', exigerNavigationInterne('appel'));
+  // lot 11 — indicateurs : indicateurs sociaux et leur export, lus par fetch depuis l'écran (en-tête d'espace exigé).
+  app.get('/api/indicateurs', exigerNavigationInterne('appel'));
+  app.get('/api/indicateurs/csv', exigerNavigationInterne('appel'));
   // Journal des actions (consultation filtrée et paginée, export CSV, archive paie, exports de l'interface) et
   // données personnelles d'un salarié (export RH, téléchargement par l'intéressé) : server/src/journal.ts, donnees.ts.
   app.use(routesJournal(db));
@@ -199,6 +204,9 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // Passeport de prévention (lot 7, t066) : lignes à déclarer, export CSV tracé (droit « formations ») :
   // server/src/passeport-prevention.ts.
   app.use(routesPasseportPrevention(db));
+  // lot 11 — indicateurs : indicateurs sociaux légaux (BDESE, préparation de l'index d'égalité), agrégats masqués calculés
+  // hors de l'instantané, arrêtés figés, export CSV tracé (droit « consultation ») : server/src/indicateurs.ts.
+  app.use(routesIndicateurs(db));
   // Pièces justificatives : envoi (corps brut, 10 Mo au plus) et consultation contrôlée par les droits, tracées :
   // server/src/pieces-routes.ts.
   app.use(routesPieces(db));

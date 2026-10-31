@@ -508,7 +508,20 @@ const MATRICE: Ligne[] = [
   // Astreinte d'un autre salarié (Thomas) : Mehdi reçoit le même refus qu'un identifiant inconnu, avant tout contrôle.
   { action: 'astreinte.intervention', variante: 'astreinte de Thomas', droits: 'O    O    O    -    -    O    -    -    -', p: async () => ({ astreinteId: await astreinte('2026-10-05', '2026-10-07', 6), jour: '2026-10-05', debut: '22:00', fin: '23:30' }) },
   { action: 'astreinte.retirerIntervention', droits: '    O    O    O    -    O    -    -    -    -', p: async () => ({ id: await intervention() }) },
+  // lot 11 — indicateurs : sexe et catégorie d'emploi, service RH seulement (jamais le manager) ; arrêté annuel et son
+  // annulation, administrateur RH ; mise à disposition du CSE, service RH.
+  { action: 'employe.modifier', variante: 'sexe et catégorie', droits: 'O    O    -    -    -    -    -    -    -', p: () => ({ id: 2, sexe: 'M', categorie: 'tam' }) },
+  { action: 'indicateurs.arreter', droits: '                  O    -    -    -    -    -    -    -    -', p: () => ({ annee: 2025 }) },
+  { action: 'indicateurs.annulerArrete', droits: '            O    -    -    -    -    -    -    -    -', p: async () => ({ id: await arreteEssai(), motif: 'Absences de décembre corrigées' }) },
+  { action: 'indicateurs.marquerCse', droits: '               O    O    -    -    -    -    -    -    -', p: async () => ({ id: await arreteEssai(), le: '2026-10-05' }) },
 ];
+/** Arrêté des indicateurs 2025 (lot 11), inséré dans la transaction annulée de la ligne. */
+async function arreteEssai() {
+  return (await db.insert<{ id: number }>('indicateursArretes', {
+    annee: 2025, perimetre: 'global', du: '2025-01-01', au: '2025-12-31', reglesVersion: 'essai', seuil: 5, donnees: {}, arreteLe: '2026-01-15T09:00:00.000Z',
+    arretePar: 'Sandrine Vidal', cseLe: null, csePar: null, annuleLe: null, annulePar: null, annuleMotif: null,
+  })).id;
+}
 
 const ANNULER = Symbol('annuler');
 /** Exécute l'action dans une transaction toujours annulée : « O », « - » (refus 403), ou l'erreur inattendue. */

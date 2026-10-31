@@ -87,6 +87,9 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // Lot 7, chantier C (t121) : évaluation des formations activée ; à froid 90 jours après, par le salarié et son manager
     // (réponse de l'entreprise du 23 octobre 2026), formations réglementaires et recommandées.
     evaluationsActives: true, evaluationFroidDelai: 90, evaluationFroidPar: 'les_deux', evaluationFroidCategories: ['Réglementaire', 'Recommandée'],
+    // lot 11 — indicateurs : seuil d'anonymat de 5 ; absentéisme sur la santé, l'enfant malade, le sans solde et
+    // l'injustifiée (choix par défaut du chantier, à arrêter avec le CSE).
+    indicateursSeuil: 5, absenteismeNatures: ['MALADIE', 'ALD', 'AT', 'TRAJET', 'MP', 'ENFANT_MALADE', 'SANS_SOLDE', 'INJUSTIFIEE'],
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(await loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

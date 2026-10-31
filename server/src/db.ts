@@ -75,6 +75,9 @@ export const TABLES = {
       motifRecours: 'text', cddFinInitiale: 'text',
       // Dossier anonymisé à la fin de sa durée de conservation (t016, server/src/conservation.ts) : date ; null : nominatif.
       anonymiseLe: 'text',
+      // lot 11 — indicateurs (shared/rules/indicateurs-legaux.ts, migration PostgreSQL 0018_indicateurs.sql) : sexe (F, M) et
+      // catégorie d'emploi ; null : à compléter. Service RH et intéressé seulement (server/src/dataset.ts).
+      sexe: 'text', categorie: 'text',
     },
   },
   // Historique des contrats (t074, shared/rules/historique-contrat.ts) : régime en vigueur à compter de chaque date d'effet
@@ -461,6 +464,18 @@ export const TABLES = {
       commentaire: 'text', le: 'text', auteur: 'text', auteurId: 'int',
     },
     unique: [['participationId', 'type', 'repondant'], ['formationSuivieId', 'type', 'repondant']],
+  },
+  // lot 11 — indicateurs (t197, server/src/actions/indicateurs.ts ; migration PostgreSQL 0018_indicateurs.sql). Arrêtés
+  // annuels des indicateurs sociaux (BDESE) : année, périmètre (`global`), période, version des règles et seuil appliqués,
+  // agrégats déjà masqués (`donnees`, JSON par groupement, jamais lus par l'instantané : COLONNES_OMISES), arrêté (instant,
+  // auteur), mise à disposition du CSE (jour, auteur), annulation (instant, auteur, motif : texte du service RH, jamais au
+  // journal). Jamais supprimés : un arrêté annulé reste, un nouveau peut être arrêté pour la même année.
+  indicateursArretes: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', annee: 'int', perimetre: 'text', du: 'text', au: 'text', reglesVersion: 'text', seuil: 'int', donnees: 'json',
+      arreteLe: 'text', arretePar: 'text', cseLe: 'text', csePar: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+    },
   },
 } satisfies Record<string, TableDef>;
 

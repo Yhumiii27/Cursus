@@ -14,7 +14,7 @@ import { TYPES_CONTRAT } from '../constants.ts';
 import { addMonths, isValidDate, parse, toIso } from '../dates.ts';
 import type { Domain } from '../domain.ts';
 import { fJ, fmt, fmtIso, key, plural } from '../format.ts';
-import type { AvisMedical, Employe, Formation, HabType, ISODate, MotifSortie, Statut, TempsTravail, TypeContrat } from '../types.ts';
+import type { AvisMedical, CategorieEmploi, Employe, Formation, HabType, ISODate, MotifSortie, Sexe, Statut, TempsTravail, TypeContrat } from '../types.ts';
 import { lireCsv } from './imports.ts';
 import { MOTIFS_SORTIE } from './contrats.ts';
 import { matriculesPris, normaliserMatricule } from './matricules.ts';
@@ -60,6 +60,10 @@ export const REPRISES: Record<TypeReprise, { label: string; court: string; aide:
       { id: 'naissance', label: 'Naissance', noms: ['date de naissance', 'naissance', 'annee de naissance'], aide: 'Date ou année' },
       { id: 'agence', label: 'Agence d’intérim', noms: ['agence d interim', 'agence', 'entreprise de travail temporaire'] },
       { id: 'email', label: 'Adresse e-mail', noms: ['adresse e mail', 'e mail', 'email', 'mail', 'courriel', 'adresse e mail professionnelle', 'email professionnel', 'adresse professionnelle'] },
+      // lot 11 — indicateurs (shared/rules/indicateurs-legaux.ts) : sexe de la DSN et catégorie d'emploi à 4 valeurs, repris
+      // de Lucca ou de Sage ; facultatifs (vides : à compléter). « Catégorie » seule reste le statut (ancien rapprochement).
+      { id: 'sexe', label: 'Sexe', noms: ['sexe', 'genre', 'code sexe', 'sexe dsn'], aide: 'F ou M, Femme ou Homme, Féminin ou Masculin, 2 ou 1 (DSN)' },
+      { id: 'categorie', label: 'Catégorie d’emploi', noms: ['categorie d emploi', 'categorie emploi', 'categorie egalite', 'categorie index', 'categorie bdese', 'categorie insee'], aide: 'Ouvrier, employé, technicien ou agent de maîtrise (TAM), cadre' },
     ],
     requis: ['nom', 'entree'],
     exemple: [
@@ -280,6 +284,25 @@ const avisDe = (s: string): AvisMedical | null => {
   if (/\bapte\b/.test(k)) return 'apte';
   return null;
 };
+/**
+ * lot 11 — indicateurs : sexe d'une cellule (codes de la DSN : 1 masculin, 2 féminin ; lettres ou mots) ; null : illisible.
+ */
+const sexeDe = (s: string): Sexe | null => {
+  const k = key(s);
+  if (/^(f|2|02|femme|feminin|madame|mme)$/.test(k)) return 'F';
+  if (/^(m|1|01|homme|masculin|monsieur|mr)$/.test(k)) return 'M';
+  return null;
+};
+/** lot 11 — indicateurs : catégorie d'emploi d'une cellule (codes ou libellés) ; null : illisible. */
+const categorieDe = (s: string): CategorieEmploi | null => {
+  const k = key(s);
+  if (/\b(cadres?|ingenieurs?|ic)\b/.test(k)) return 'cadre';
+  if (/\b(techn\w*|maitrise|tam|etam|am)\b/.test(k)) return 'tam';
+  // « Ouvrier / employé » (statut de Cursus) ne tranche pas : à préciser par le service RH.
+  const employe = /\b(employes?|employees?)\b/.test(k), ouvrier = /\b(ouvriers?|ouvrieres?)\b/.test(k);
+  if (employe !== ouvrier) return employe ? 'employe' : 'ouvrier';
+  return null;
+};
 /** Naissance d'une cellule : date complète (JJ/MM/AAAA ou AAAA-MM-JJ), gardée telle quelle, ou année seule. */
 const naissanceDe = (s: string): { le: ISODate | null; annee: number } | null => {
   const v = s.trim();
@@ -453,6 +476,9 @@ function analyserSalaries(d: Domain, entetes: string[], lignes: { n: number; v: 
     lire('motifSortie', motifSortieDe, 'Motif de sortie', x => { p.motifSortie = x; });
     if (v.agence?.trim()) p.agence = v.agence.trim();
     if (v.email?.trim()) p.email = v.email.trim();
+    // lot 11 — indicateurs : sexe et catégorie repris seulement s'ils sont dans le fichier (jamais effacés d'une fiche).
+    lire('sexe', sexeDe, 'Sexe', x => { p.sexe = x; });
+    lire('categorie', categorieDe, 'Catégorie d’emploi', x => { p.categorie = x; });
     if (m) p.matriculePaie = m;
     let equipeACreer: string | null = null;
     if (v.equipe?.trim()) {

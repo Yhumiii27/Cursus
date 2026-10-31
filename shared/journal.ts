@@ -291,6 +291,12 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'agenda.creerJeton': 'Abonnement à l’agenda personnel créé',
   'agenda.revoquerJeton': 'Abonnement à l’agenda personnel révoqué',
   'agenda.revoquerTout': 'Tous les abonnements aux agendas révoqués',
+  // lot 11 — indicateurs (server/src/actions/indicateurs.ts, server/src/indicateurs.ts) : année, périmètre, identifiant de
+  // l'arrêté ; export : période, groupement et nombre de lignes. Jamais une valeur d'indicateur, ni le motif d'annulation.
+  'indicateurs.arreter': 'Indicateurs sociaux de l’année arrêtés (BDESE)',
+  'indicateurs.annulerArrete': 'Arrêté des indicateurs sociaux annulé',
+  'indicateurs.marquerCse': 'Arrêté des indicateurs sociaux mis à disposition du CSE',
+  'indicateurs.export': 'Indicateurs sociaux exportés (CSV)',
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
@@ -328,7 +334,8 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
   { id: 'pieces', label: 'Pièces justificatives', prefixes: ['piece.'] },
   { id: 'conservation', label: 'Conservation et agendas', prefixes: ['conservation.', 'agenda.'] },
-  { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.', 'integrite.', 'migration.postgres', 'purge.demo'] },
+  { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.', 'integrite.', 'migration.postgres', 'purge.demo',
+    /* lot 11 — indicateurs */ 'indicateurs.'] },
   { id: 'connexions', label: 'Connexions et accès', prefixes: ACTIONS_CONNEXION },
   {
     id: 'integrations', label: 'Intégrations (Keystone, e-mails)',
@@ -442,6 +449,9 @@ export const CHAMP_LABEL: Record<string, string> = {
   astreinteDelaiPrevenance: 'Astreintes : délai de prévenance (jours)', astreinteCompensation: 'Astreintes : forme de la compensation',
   astreinteMineurs: 'Astreintes : salariés mineurs admis', astreinteAccord: 'Référence de l’accord sur les astreintes',
   communiqueLe: 'Communiquée le',
+  // lot 11 — indicateurs : réglages, champs de la fiche (nommés au journal, jamais leur valeur) et colonnes d'un arrêté.
+  indicateursSeuil: 'Indicateurs sociaux : seuil d’anonymat', absenteismeNatures: 'Absentéisme : natures comptées',
+  sexe: 'Sexe', categorie: 'Catégorie d’emploi', cseLe: 'Mis à disposition du CSE le',
 };
 
 const valeur = (v: unknown): string => {

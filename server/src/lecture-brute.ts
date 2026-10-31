@@ -27,6 +27,7 @@ import type {
   Equipe, EvaluationFormation, ExerciceClos, FeuilleTemps, Formation, FormationSuivie, FormatFichierPaie, Fractionnement, HabDelivrance, HabTitre, HabType,
   Horaire, InformationCp, Inscription, InterventionAstreinte, LotPaie, LotReprise, Mandat, Messagerie, Mission, Participation, PlanAction, Poste, Projet,
   ReleveInterim, ReportCp, RubriquePaie, Session, Settings, SoldeReprise, SoldeSortie, TacheKeystone, Vaccination, Visa, Voyage,
+  ArreteIndicateurs,
 } from '../../shared/types.ts';
 import type { Db, TableName } from './db.ts';
 import { formatFichierDe } from './lots-paie.ts';
@@ -114,6 +115,8 @@ export interface Brut {
   astreinteInterventions: InterventionAstreinte[];
   declarationsPasseport: DeclarationPasseport[];
   evaluationsFormation: EvaluationFormation[];
+  // lot 11 — indicateurs : arrêtés annuels, sans leurs agrégats (`COLONNES_OMISES`).
+  indicateursArretes: ArreteIndicateurs[];
   reglages: ReglagesBruts;
   /** Statut de l'e-mail de chaque relevé (envois désignés par `releves.envoiId` seulement). */
   statutsEnvoi: ReadonlyMap<number, Envoi['statut']>;
@@ -132,7 +135,9 @@ const PAR_REQUETE_IN = 500;
  * chacun après 5 ans, lu par le seul téléchargement du fichier). Absentes des lignes de la lecture brute, relecture
  * complète ou delta (server/src/delta.ts).
  */
-export const COLONNES_OMISES: Partial<Record<TableName, readonly string[]>> = { lotsPaie: ['contenu'] };
+export const COLONNES_OMISES: Partial<Record<TableName, readonly string[]>> = { lotsPaie: ['contenu'],
+  // lot 11 — indicateurs : agrégats figés d'un arrêté annuel, lus par la seule route GET /api/indicateurs?arrete=.
+  indicateursArretes: ['donnees'] };
 
 /** Lignes de la table `t` telles que les lit la lecture brute : ordre de sa clé ou de `ORDRE_LECTURE`, sans `COLONNES_OMISES`. */
 export async function lireTable<T>(db: Db, t: TableName): Promise<T[]> {
@@ -225,6 +230,8 @@ export async function lireBrut(db: Db): Promise<Brut> {
     astreinteInterventions: await lire('astreinteInterventions'),
     declarationsPasseport: await lire('declarationsPasseport'),
     evaluationsFormation: await lire('evaluationsFormation'),
+    // lot 11 — indicateurs
+    indicateursArretes: await lire<ArreteIndicateurs>('indicateursArretes'),
     reglages: await lireReglages(db),
     statutsEnvoi: await statutsDesEnvois(db, releves),
   };
@@ -403,6 +410,8 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     attentesSession,
     declarationsPasseport: brut.declarationsPasseport,
     evaluationsFormation: brut.evaluationsFormation,
+    // lot 11 — indicateurs : arrêtés annuels (sans agrégats), filtrés par espace et par profil dans server/src/dataset.ts.
+    indicateursArretes: brut.indicateursArretes,
   };
 }
 
@@ -459,6 +468,8 @@ const LECTURES_ASSEMBLEES = {
   attentesSession: ['attentesSession'],
   declarationsPasseport: ['declarationsPasseport'],
   evaluationsFormation: ['evaluationsFormation'],
+  // lot 11 — indicateurs
+  indicateursArretes: ['indicateursArretes'],
 } as const satisfies Partial<Record<keyof Dataset, readonly TableName[]>>;
 
 /**

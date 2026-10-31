@@ -291,6 +291,19 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'agenda.creerJeton': 'Abonnement à l’agenda personnel créé',
   'agenda.revoquerJeton': 'Abonnement à l’agenda personnel révoqué',
   'agenda.revoquerTout': 'Tous les abonnements aux agendas révoqués',
+  // lot 11 — organigramme (server/src/actions/entites.ts) : codes, type, SIREN, SIRET et IDCC (données publiques), équipe,
+  // avant et après ; impression et export : entité et nombre de lignes seulement, jamais un nom.
+  'entite.creer': 'Entité créée (société ou établissement)',
+  'entite.modifier': 'Entité modifiée',
+  'entite.fermer': 'Entité fermée',
+  'entite.rouvrir': 'Entité rouverte',
+  'entite.amorcer': 'Entité amorcée au démarrage (équipes racines rattachées)',
+  'site.enregistrer': 'Site de rattachement créé ou modifié',
+  'equipe.entite': 'Entité d’une équipe racine',
+  'equipe.site': 'Site de rattachement d’une équipe',
+  'equipe.unite': 'Unité Matrix d’une équipe',
+  'organigramme.imprimer': 'Organigramme imprimé',
+  'organigramme.exporter': 'Organigramme exporté (CSV)',
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
@@ -316,7 +329,7 @@ export const dossierComplet = (u: Pick<CurrentUser, 'role' | 'profilRh'>) => dro
 
 /** Familles du filtre « Action » : codes commençant par l'un des préfixes (ou égaux à l'un d'eux). */
 export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly string[] }[] = [
-  { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.', 'migration.contratsHistorique'] },
+  { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.', 'migration.contratsHistorique', /* lot 11 — organigramme */ 'entite.', 'site.', 'organigramme.'] },
   { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel', 'attente.', 'passeport.', 'evaluation.', 'migration.passeportPrevention'] },
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.', 'migration.habDelivrances'] },
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes'] },
@@ -442,6 +455,9 @@ export const CHAMP_LABEL: Record<string, string> = {
   astreinteDelaiPrevenance: 'Astreintes : délai de prévenance (jours)', astreinteCompensation: 'Astreintes : forme de la compensation',
   astreinteMineurs: 'Astreintes : salariés mineurs admis', astreinteAccord: 'Référence de l’accord sur les astreintes',
   communiqueLe: 'Communiquée le',
+  // lot 11 — organigramme : réglage, colonnes d'une entité, d'un site et d'une équipe.
+  organigrammeOuvert: 'Organigramme ouvert à', entite: 'Entité', siteCode: 'Site', uniteCode: 'Unité Matrix', siren: 'SIREN', siret: 'SIRET',
+  idcc: 'IDCC', fermeLe: 'Fermée le',
 };
 
 const valeur = (v: unknown): string => {

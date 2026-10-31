@@ -508,7 +508,33 @@ const MATRICE: Ligne[] = [
   // Astreinte d'un autre salarié (Thomas) : Mehdi reçoit le même refus qu'un identifiant inconnu, avant tout contrôle.
   { action: 'astreinte.intervention', variante: 'astreinte de Thomas', droits: 'O    O    O    -    -    O    -    -    -', p: async () => ({ astreinteId: await astreinte('2026-10-05', '2026-10-07', 6), jour: '2026-10-05', debut: '22:00', fin: '23:30' }) },
   { action: 'astreinte.retirerIntervention', droits: '    O    O    O    -    O    -    -    -    -', p: async () => ({ id: await intervention() }) },
+  // lot 11 — organigramme : entités, sites et rattachements d'équipe, service RH ; fermeture et réouverture,
+  // administrateur RH ; impression et export de l'organigramme, ouvert à tous par défaut (réglage organigrammeOuvert).
+  { action: 'entite.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ code: 'epc2i', nom: 'EPC2I', type: 'societe', siren: '552100554', idcc: '44' }) },
+  { action: 'entite.modifier', droits: '                     O    O    -    -    -    -    -    -    -', p: async () => { await entiteEssai(); return { code: 'essai', nom: 'Essai SAS', idcc: '0044' }; } },
+  { action: 'entite.fermer', droits: '                       O    -    -    -    -    -    -    -    -', p: async () => { await entiteEssai(); return { code: 'essai' }; } },
+  { action: 'entite.rouvrir', droits: '                      O    -    -    -    -    -    -    -    -', p: async () => { await entiteEssai(false); return { code: 'essai' }; } },
+  { action: 'site.enregistrer', droits: '                    O    O    -    -    -    -    -    -    -', p: () => ({ code: 'lab67', libelle: 'Laboratoire 67' }) },
+  { action: 'equipe.entite', droits: '                       O    O    -    -    -    -    -    -    -', p: async () => { await entiteEssai(); return { nom: 'Maintenance', entite: 'essai' }; } },
+  { action: 'equipe.site', droits: '                         O    O    -    -    -    -    -    -    -', p: async () => { await db.insert('sites', { code: 'lab67', libelle: 'Laboratoire 67', actif: true, ordre: 0 }); return { nom: 'Maintenance', siteCode: 'lab67' }; } },
+  { action: 'equipe.unite', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Maintenance', uniteCode: 'PRD-MAINT' }) },
+  { action: 'organigramme.imprimer', droits: '               O    O    O    O    O    O    O    O    O', p: () => ({ lignes: 24 }) },
+  { action: 'organigramme.exporter', droits: '               O    O    O    O    O    O    O    O    O', p: () => ({ lignes: 24 }) },
+  // Réglage restreint aux managers et au service RH : le collaborateur ne l'imprime plus ; tout l'espace RH, si.
+  { action: 'organigramme.imprimer', variante: 'réservé aux managers', droits: 'O    O    O    O    -    -    O    O    O', p: async () => { await reglerOrganigramme('managers'); return { lignes: 24 }; } },
+  { action: 'organigramme.exporter', variante: 'réservé au service RH', droits: 'O    O    -    -    -    -    O    O    O', p: async () => { await reglerOrganigramme('rh'); return { lignes: 24 }; } },
 ];
+/** Entité d'essai (lot 11), ouverte ou fermée, insérée dans la transaction annulée de la ligne. */
+async function entiteEssai(ouverte = true) {
+  await db.insert('entites', {
+    code: 'essai', nom: 'Essai', type: 'societe', parente: null, siren: null, siret: null, idcc: null, siteCode: null, ordre: 0, actif: ouverte,
+    fermeLe: ouverte ? null : '2026-10-01', source: 'local',
+  });
+}
+/** Réglage de l'organigramme posé dans la transaction annulée de la ligne (lu par loadFull). */
+async function reglerOrganigramme(v: string) {
+  await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), organigrammeOuvert: v });
+}
 
 const ANNULER = Symbol('annuler');
 /** Exécute l'action dans une transaction toujours annulée : « O », « - » (refus 403), ou l'erreur inattendue. */

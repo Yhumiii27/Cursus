@@ -180,6 +180,16 @@ export interface Equipe {
    * shared/rules/horaires.ts) ; null ou absent : aucun, la feuille se tient sans horaire.
    */
   horaire?: string | null;
+  // lot 11 — organigramme
+  /**
+   * Entité (société ou établissement, `Entite.code`) portée par une équipe racine (sans équipe parente) ; ses équipes
+   * rattachées en héritent (shared/rules/entites.ts, `entiteEquipe`). null : équipe racine sans entité (anomalie).
+   */
+  entite?: string | null;
+  /** Site de rattachement (D14, code de matrix.pub_sites, cache `sites`) ; null : celui d'une équipe au-dessus ou de l'entité. */
+  siteCode?: string | null;
+  /** Unité de l'organigramme de Matrix (D15, code saisi à la main, unique) ; null : celle d'une équipe au-dessus. */
+  uniteCode?: string | null;
 }
 /**
  * Horaire de poste du référentiel (écran Référentiels → Horaires, shared/rules/horaires.ts), distinct des postes et de
@@ -225,6 +235,11 @@ export interface Referentiels {
   horaires?: Horaire[];
   projets: Projet[];
   chantiers: Chantier[];
+  // lot 11 — organigramme
+  /** Entités juridiques (société, établissement), fermées comprises : données publiques, transmises à tous. */
+  entites?: Entite[];
+  /** Sites de rattachement (cache de matrix.pub_sites), inactifs compris. */
+  sites?: Site[];
 }
 
 // — Collaborateurs —
@@ -423,6 +438,13 @@ export interface Employe {
    * par « Salarié anonymisé n° X », date du jour de l'anonymisation ; null tant que le dossier est nominatif.
    */
   anonymiseLe?: ISODate | null;
+  // lot 11 — organigramme
+  /**
+   * Site (D14) et unité (D15) de rattachement, tirés de l'équipe (shared/rules/entites.ts, `rattachementSalarie`) et
+   * publiés à Matrix par pub_salaries ; null : non renseignés.
+   */
+  siteCode?: string | null;
+  uniteCode?: string | null;
   /** Date de la dernière visite d'aptitude — réservée au service RH. */
   visite: ISODate | null;
   /**
@@ -1260,6 +1282,13 @@ export interface Settings {
   evaluationFroidDelai: number;
   evaluationFroidPar: RepondantsFroid;
   evaluationFroidCategories: CategorieEvaluee[];
+  // lot 11 — organigramme
+  /**
+   * Organigramme (lot 11, t195, shared/rules/organigramme.ts) : ouvert à tous les salariés par défaut, limité à l'annuaire
+   * (nom, poste, équipe, manager) ; l'administrateur RH peut le réserver aux managers et au service RH, ou au seul
+   * service RH (tous les profils de l'espace RH).
+   */
+  organigrammeOuvert: OrganigrammeOuvert;
 }
 /** Catégorie d'une formation pour l'évaluation à froid : type du catalogue, ou formation hors catalogue. */
 export type CategorieEvaluee = FormationType | 'Hors catalogue';
@@ -1799,6 +1828,13 @@ export interface Dataset {
    * moins de 3 réponses n'a ni moyenne ni taux (`masque`). Absent ailleurs : calcul sur l'instantané (service RH).
    */
   indicateursEvaluation?: IndicateursEvaluation[];
+  // lot 11 — organigramme
+  /**
+   * Salariés de l'annuaire présents aujourd'hui (entrée passée, fin à venir) et non anonymisés, calculés sur toutes les
+   * fiches (shared/rules/organigramme.ts, `presentsDe`) : l'organigramme ne montre qu'eux, sans transmettre les dates
+   * d'entrée et de sortie. Vide pour un espace auquel le réglage `organigrammeOuvert` ferme l'organigramme.
+   */
+  presentsOrganigramme?: number[];
 }
 
 /** Catégorie de données d'un dossier, avec sa durée de conservation après la sortie (shared/rules/conservation.ts). */
@@ -1920,3 +1956,22 @@ export interface LignePasseport {
   interim: boolean;
   declareLe: ISODate | null;
 }
+
+// lot 11 — organigramme
+/** Entité juridique (shared/rules/entites.ts) : société (SIREN), ou établissement (SIRET) d'une société. */
+export type TypeEntite = 'societe' | 'etablissement';
+/** Tenue de l'entité : `local` (service RH, en attendant Matrix), `matrix` (copie du contrat pub_entites demandé). */
+export type SourceEntite = 'local' | 'matrix';
+/**
+ * Entité au-dessus des équipes : code stable (jamais modifié), nom (raison sociale ou libellé de l'établissement), type,
+ * société parente d'un établissement, SIREN (société), SIRET, IDCC (convention collective), site de rattachement, ordre
+ * d'affichage, ouverture (`actif`, `fermeLe` : jamais supprimée) et source. Aucune donnée personnelle.
+ */
+export interface Entite {
+  code: string; nom: string; type: TypeEntite; parente: string | null; siren: string | null; siret: string | null; idcc: string | null;
+  siteCode: string | null; ordre: number; actif: boolean; fermeLe: ISODate | null; source: SourceEntite;
+}
+/** Site de rattachement (D14) : cache de matrix.pub_sites, tenu à la main tant que Matrix ne le fournit pas. */
+export interface Site { code: string; libelle: string; actif: boolean; ordre: number }
+/** Réglage `organigrammeOuvert` : espaces auxquels l'organigramme est ouvert (l'espace RH l'a toujours). */
+export type OrganigrammeOuvert = 'rh' | 'managers' | 'tous';

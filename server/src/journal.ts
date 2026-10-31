@@ -29,6 +29,7 @@ import { CODE_PAYS, CODE_TITRE, codeDestination, codeTitre, type ReferentielId }
 import { estTypeReprise } from '../../shared/rules/reprise.ts';
 import { CODE_ACTIVITE, normaliserCodeActivite } from '../../shared/rules/activites.ts';
 import { CODE_HORAIRE, normaliserCodeHoraire } from '../../shared/rules/horaires.ts';
+import { CODE_ENTITE, normaliserCodeEntite } from '../../shared/rules/entites.ts';
 import { reglageAnnee } from '../../shared/rules/feries.ts';
 import { estTypeDerogation, JOURS_FEUILLE } from '../../shared/rules/semaine.ts';
 import { controlesMineur } from '../../shared/rules/mineurs.ts';
@@ -95,6 +96,16 @@ interface Regle {
   /** Modifications successives du même objet par le même compte regroupées sur une ligne pendant N minutes. */
   regrouper?: number;
 }
+
+// lot 11 — organigramme
+/** Code d'entité ou de site reçu, recopié seulement s'il en a la forme (jamais un texte libre). */
+const codeEntite = (v: unknown) => { const c = normaliserCodeEntite(v); return CODE_ENTITE.test(c) ? c : null; };
+/** Entité désignée par `code` : son code, et ses colonnes avant et après (le nom masqué). */
+const regleEntite = (colonnes: readonly string[]): Regle => ({
+  extra: p => ({ code: codeEntite(p.code) }), cible: { table: 'entites', cle: p => codeEntite(p.code), colonnes, masques: ['nom'] },
+});
+/** Impression ou export de l'organigramme : entité filtrée (code) et nombre de lignes. */
+const signalementOrganigramme = (p: P): Ligne => ({ entite: codeEntite(p.entite), lignes: Number.isInteger(p.lignes) && p.lignes >= 0 ? p.lignes : null });
 
 /** Bénéficiaires enregistrés par `plan.avancer` (t116), lus dans son résultat. */
 const beneficiairesDe = (result: unknown): number[] =>
@@ -337,7 +348,7 @@ export const REGLES: Record<string, Regle> = {
   // Équipe parente (t136) : avant et après, et éléments en attente redirigés (type, identifiant, ancien et nouveau valideur,
   // 0 pour le service RH) ; salariés concernés : ceux des éléments redirigés.
   'equipe.parente': {
-    champs: ['nom', 'parente'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['parente'] },
+    champs: ['nom', 'parente'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['parente', /* lot 11 — organigramme */ 'entite'] },
     bilan: (_p, x) => bilanRedirections(x.result),
     salaries: (_p, x) => salariesRediriges(x.result),
   },
@@ -813,6 +824,22 @@ export const REGLES: Record<string, Regle> = {
     },
     salaries: (_p, x) => salariesTouches(x),
   },
+  // lot 11 — organigramme (server/src/actions/entites.ts) : codes, type, SIREN, SIRET et IDCC (données d'entreprise
+  // publiques), site et unité, avant et après ; le nom d'une entité ou d'un site n'est tracé que comme « renseigné ».
+  // Impression et export : entité et nombre de lignes seulement, jamais un nom de salarié.
+  'entite.creer': regleEntite(['nom', 'type', 'parente', 'siren', 'siret', 'idcc', 'siteCode']),
+  'entite.modifier': regleEntite(['nom', 'parente', 'siren', 'siret', 'idcc', 'siteCode']),
+  'entite.fermer': regleEntite(['actif', 'fermeLe']),
+  'entite.rouvrir': regleEntite(['actif', 'fermeLe']),
+  'site.enregistrer': {
+    extra: p => ({ code: codeEntite(p.id != null && p.id !== '' ? p.id : p.code) }),
+    cible: { table: 'sites', cle: p => codeEntite(p.id != null && p.id !== '' ? p.id : p.code), colonnes: ['libelle', 'actif'], masques: ['libelle'] },
+  },
+  'equipe.entite': { champs: ['nom'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['entite'] } },
+  'equipe.site': { champs: ['nom'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['siteCode'] } },
+  'equipe.unite': { champs: ['nom'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['uniteCode'] } },
+  'organigramme.imprimer': { extra: signalementOrganigramme },
+  'organigramme.exporter': { extra: signalementOrganigramme },
 };
 
 /** Règle d'une action, lue sur les seules clés de REGLES (lot 8, S5) : « constructor », « toString »… n'en ont pas. */

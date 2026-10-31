@@ -10,6 +10,7 @@ import { isoWeek } from '../../../shared/dates.ts';
 import { fmtIso, plural } from '../../../shared/format.ts';
 import { controleParente, croiseeNouvelle, elementsRediriges, valideurHierarchique, type ElementRedirige } from '../../../shared/rules/hierarchie.ts';
 import type { Employe, Equipe } from '../../../shared/types.ts';
+import { entiteEquipe } from '../../../shared/rules/entites.ts';
 import { periodeLongue } from '../messagerie.ts';
 import { notifier } from '../notifications.ts';
 import { ActionError, type ActionHandler, type Ctx, refuserSoiMeme, requireRh, REVIENT_RH, str } from './context.ts';
@@ -92,7 +93,9 @@ const parente: ActionHandler = async (ctx, p) => {
   refuserSonValideur(ctx, apres);
   refuserCroisee(ctx, { equipes: apres });
   const elements = elementsRediriges(ctx.ds, equipes, apres);
-  await ctx.db.update('equipes', q.nom, { parente: cible });
+  // lot 11 — organigramme : une équipe rattachée hérite de l'entité de son équipe racine (la sienne n'est plus lue, elle
+  // est retirée) ; détachée, elle devient racine et garde l'entité dont elle relevait (shared/rules/entites.ts).
+  await ctx.db.update('equipes', q.nom, { parente: cible, entite: cible ? null : entiteEquipe(equipes, q.nom) });
   await prevenir(ctx, q.nom, cible ? `L’équipe ${q.nom} est désormais rattachée à l’équipe ${cible}` : `L’équipe ${q.nom} n’est plus rattachée à une équipe parente`, elements);
   return {
     message: `${cible ? `L’équipe ${q.nom} est rattachée à l’équipe ${cible}` : `L’équipe ${q.nom} n’a plus d’équipe parente`}${suiteRedirection(ctx, elements)}`,

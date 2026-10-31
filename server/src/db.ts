@@ -33,7 +33,10 @@ export const TABLES = {
   // case pas encore renseignée, distincte de « non ».
   // `couverture` : minimum de membres formés (SST, EPI incendie…), shared/rules/couverture.ts ; null : aucun seuil.
   // `parente` : équipe parente (hiérarchie des managers, shared/rules/hierarchie.ts).
-  equipes: { pk: 'nom', cols: { nom: 'text', managerId: 'int', ordre: 'int', exigences: 'json', nuit: 'json', couverture: 'json', parente: 'text', horaire: 'text' } },
+  equipes: { pk: 'nom', cols: { nom: 'text', managerId: 'int', ordre: 'int', exigences: 'json', nuit: 'json', couverture: 'json', parente: 'text', horaire: 'text',
+    // lot 11 — organigramme (shared/rules/entites.ts) : entité de l'équipe racine (héritée par les équipes rattachées), site
+    // de rattachement (D14) et unité de l'organigramme de Matrix (D15, unique quand elle est renseignée).
+    entite: 'text', siteCode: 'text', uniteCode: 'text' } },
   // Horaires de poste (shared/rules/horaires.ts, server/src/actions/horaires.ts) : code choisi une fois pour toutes,
   // début et fin « HH:MM » (fin avant le début : le lendemain), pause en minutes ; `horaire` d'une équipe : proposé par défaut.
   // `alternant` : horaire d'un roulement en équipes successives alternantes (C2P, shared/rules/c2p.ts, lot 7) ; JSON pour
@@ -75,6 +78,9 @@ export const TABLES = {
       motifRecours: 'text', cddFinInitiale: 'text',
       // Dossier anonymisé à la fin de sa durée de conservation (t016, server/src/conservation.ts) : date ; null : nominatif.
       anonymiseLe: 'text',
+      // lot 11 — organigramme : site (D14) et unité (D15) de rattachement, tirés de l'équipe (`rattachementSalarie`) ; colonnes
+      // posées en PostgreSQL par 0002_partage.sql (publiées par pub_salaries), créées en SQLite par cette déclaration.
+      siteCode: 'text', uniteCode: 'text',
     },
   },
   // Historique des contrats (t074, shared/rules/historique-contrat.ts) : régime en vigueur à compter de chaque date d'effet
@@ -462,6 +468,19 @@ export const TABLES = {
     },
     unique: [['participationId', 'type', 'repondant'], ['formationSuivieId', 'type', 'repondant']],
   },
+  // lot 11 — organigramme (t195, shared/rules/entites.ts, server/src/actions/entites.ts ; migration PostgreSQL 0016_entites.sql).
+  // Entités juridiques au-dessus des équipes : code stable, nom, type (société, établissement), société parente d'un
+  // établissement, SIREN, SIRET, IDCC, site, ordre, ouverture (jamais supprimée : fermée) et source (`local`, `matrix` :
+  // cache du contrat pub_entites demandé à Matrix). Aucune donnée personnelle.
+  entites: {
+    pk: 'code',
+    cols: {
+      code: 'text', nom: 'text', type: 'text', parente: 'text', siren: 'text', siret: 'text', idcc: 'text', siteCode: 'text', ordre: 'int', actif: 'bool',
+      fermeLe: 'text', source: 'text',
+    },
+  },
+  // Sites de rattachement (D14) : cache de matrix.pub_sites, tenu à la main tant que Matrix ne le fournit pas.
+  sites: { pk: 'code', cols: { code: 'text', libelle: 'text', actif: 'bool', ordre: 'int' } },
 } satisfies Record<string, TableDef>;
 
 export type TableName = keyof typeof TABLES;

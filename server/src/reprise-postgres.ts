@@ -22,7 +22,7 @@ import { serveurActif, verifier } from './sauvegarde.ts';
 /** Action du journal qui marque la reprise (une ligne, écrite dans la base cible). */
 export const ACTION_REPRISE = 'migration.postgres';
 /** Tables qu'un premier démarrage sur une base neuve remplit déjà (amorçages de server/src/demarrage.ts) : remplacées. */
-export const TABLES_AMORCEES: readonly TableName[] = ['projets', 'horaires', 'settings'];
+export const TABLES_AMORCEES: readonly TableName[] = ['projets', 'horaires', 'settings', /* lot 11 — organigramme */ 'entites'];
 /** Lignes au plus par INSERT (et 60 000 paramètres au plus : le protocole de PostgreSQL en admet 65 535). */
 const LOT = 1000;
 const MAX_PARAMETRES = 60_000;

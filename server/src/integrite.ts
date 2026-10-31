@@ -64,6 +64,10 @@ export const REFERENCES: readonly Reference[] = [
   ref('avenants_forfait', 'lot_id', 'lots_paie'),
   // Horaire de poste par défaut d'une équipe (lot 6) ; ceux des feuilles (JSON, archivés gardés) ne sont jamais supprimés.
   ref('equipes', 'horaire', 'horaires', 'code'),
+  // lot 11 — organigramme : entité d'une équipe racine, société parente d'un établissement (0016_entites.sql). Les codes de
+  // site (D14) ne sont pas des références : le cache `sites` peut être rechargé depuis Matrix.
+  ref('equipes', 'entite', 'entites', 'code'),
+  ref('entites', 'parente', 'entites', 'code'),
   // Jours de fractionnement (t046) : salarié et report reçu qui porte le crédit.
   ref('fractionnements', 'emp_id', 'employes'),
   ref('fractionnements', 'report_id', 'reports'),

@@ -9,7 +9,7 @@ import { nuitHorsLoi, refusPlageNuit } from './rules/repos-nuit.ts';
 import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesTexte, DOSSIER_MIN_ANS, DUREE_MAX_ANS } from './rules/conservation.ts';
 import { DELAI_JOUR_FRANC, DELAI_PREVENANCE_LEGAL } from './rules/astreintes.ts';
 import { COLONNES_PASSEPORT_DEFAUT, COLONNES_PASSEPORT_IDS } from './rules/passeport-prevention.ts';
-import type { CategorieEvaluee, ColonnePasseport, CompensationAstreinte, ContenuAgenda, ModeAttente, RepondantsFroid, Settings, StockagePieces } from './types.ts';
+import type { CategorieEvaluee, ColonnePasseport, CompensationAstreinte, ContenuAgenda, ModeAttente, OrganigrammeOuvert, RepondantsFroid, Settings, StockagePieces } from './types.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
 export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
@@ -276,6 +276,9 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   evaluationFroidDelai: { defaut: 90, controle: entier(30, 365) },
   evaluationFroidPar: { defaut: 'les_deux', controle: choix<RepondantsFroid>(['les_deux', 'salarie', 'manager']) },
   evaluationFroidCategories: { defaut: ['Réglementaire', 'Recommandée'], controle: parmi<CategorieEvaluee>(['Réglementaire', 'Recommandée', 'Interne', 'Hors catalogue']) },
+  // lot 11 — organigramme (shared/rules/organigramme.ts, t195) : ouvert à tous les salariés, limité à l'annuaire (choix par
+  //   défaut du chantier, réponse de l'entreprise du 31 octobre 2026) ; l'administrateur RH peut le restreindre —
+  organigrammeOuvert: { defaut: 'tous', controle: choix<OrganigrammeOuvert>(['rh', 'managers', 'tous']) },
 };
 
 /**

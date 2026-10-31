@@ -39,6 +39,8 @@ import { memoParEntrees, memoParObjet, sansMemo } from './memo-vues.ts';
 import type { AttenteSession } from '../../shared/types.ts';
 import { exercicesEvaluation, indicateursEvaluation, SEUIL_ANONYMAT } from '../../shared/rules/evaluation-formation.ts';
 import type { EvaluationFormation } from '../../shared/types.ts';
+// lot 11 — organigramme
+import { organigrammeOuvertA } from '../../shared/rules/organigramme.ts';
 
 /** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
 export const DEFAULT_SETTINGS: Settings = REGLAGES_DEFAUT;
@@ -549,6 +551,9 @@ export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre 
     // consultation N+2 ; interventions déclarées du périmètre, comme les feuilles de temps qui portent leurs heures.
     astreintes: mine(full.astreintes ?? []).map(a => (lecture.has(a.empId) ? astreinteSansMotif(a) : a)).map(a => (a.empId !== user.empId ? astreinteSansPaie(a) : a)),
     interventionsAstreinte: mine(full.interventionsAstreinte ?? []),
+    // lot 11 — organigramme : présents de l'annuaire (identifiants), seulement si le réglage ouvre l'organigramme à cet
+    // espace (shared/rules/organigramme.ts) ; l'annuaire lui-même ne change pas.
+    presentsOrganigramme: organigrammeOuvertA(full.settings.organigrammeOuvert, user.role) ? full.presentsOrganigramme : [],
   }, lues);
 }
 

@@ -1834,6 +1834,13 @@ aucun champ du paramètre n'est recopié.
 | `employe.anonymiser` | ids (1 à 100), motif (obligatoire, 500 caractères ; gardé dans la table `effacements`, jamais au journal), avantEcheance? (droit à l'effacement : un seul salarié, sorti, même fonction désactivée ; catégories sans obligation légale ou échues effacées, identité, titre de séjour, santé et temps gardés jusqu'à leur échéance, 409 si rien à effacer) ; sans `avantEcheance`, fonction activée avec la décision du DPO (409 sinon) et dossiers proposés seulement (409 sinon) : catégories échues effacées, fiche anonymisée à l'échéance du dossier ; 409 tant qu'un solde de sortie est dans un lot à confirmer ; message et journal sans nom | administrateur RH (jamais son propre dossier) |
 | `agenda.creerJeton` / `agenda.revoquerJeton` | — : nouveau jeton (le précédent révoqué), renvoyé une seule fois dans `result`, jamais au journal ; flux désactivé : 409 / révocation de son abonnement | le salarié pour lui-même, depuis l'espace collaborateur ou manager |
 | `agenda.revoquerTout` | — : tous les abonnements révoqués | administrateur RH |
+| `temps.saisir` | empId, week, projet, tache? (première ligne de ce projet, et de cette tâche si elle est donnée), di (0 à 6), value, base (valeur vue à la saisie) : cellule désignée par la ligne et non par son indice (file hors ligne, lot 11) ; valeur déjà écrite : rien n'est refait ; cellule changée depuis (ni `base` ni la nouvelle valeur) : 409 avec les deux valeurs ; ligne absente : 409 ; toutes les règles de `temps.setCell` | comme `temps.setCell` |
+| `temps.addLine` (`siAbsente`) | siAbsente: true (lot 11, file hors ligne) : rien n'est ajouté si le projet est déjà sur la feuille | comme `temps.addLine` |
+| `push.abonner` | endpoint (service de push connu, https), p256dh (65 octets), auth (16 octets) en base64url, systeme, navigateur (codes : libellé d'appareil, jamais saisi) ; adresse déjà abonnée : reprise par ce compte ; notifications désactivées (sans clés VAPID) : 409 | chaque compte, depuis tout espace |
+| `push.desabonner` | endpoint, motif (`utilisateur`/`deconnexion`) : cet appareil ; appareil d'un autre compte ou inconnu : rien | chaque compte |
+| `push.preferences` | types (liste, `TYPES_PUSH` de `shared/notifications-push.ts`) : tous les appareils du compte ; aucun appareil : 409 | chaque compte |
+| `push.desabonnerAppareil` | id (un de ses appareils ; un autre : 404) ; ou tout: true (tous les abonnements de tous les comptes) | chaque compte ; `tout` : administrateur RH |
+| `push.tester` | — : notification d'essai à tous ses appareils, aussitôt (plage de silence ignorée) ; aucun appareil : 409 | chaque compte |
 | `reprise.importer` | type (`salaries`/`soldes`/`certifications`/`visites`/`habilitations`), texte (CSV), colonnes (champ de chaque colonne), dateReprise (soldes), equipes (rapprochement), confirmations (lignes cochées : réembauche sur un matricule, visite sans avis), comptes (comptes Microsoft 365, y compris pour une fiche déjà à jour), fichier ; analyse de `shared/rules/reprise.ts`, seules les lignes retenues par l'aperçu sont écrites ; ses propres soldes refusés (fiche rattachée au compte) ; lot conservé (table `reprises`) ; journal `reprise.<type>` | administrateur RH |
 
 ## Journal des actions
@@ -3927,3 +3934,75 @@ objet en parallèle. Aucun comportement ni type TypeScript ne change.
 - **Migrations PostgreSQL attribuées** : 0016_entites (C1), 0017_pwa (C2), 0018_indicateurs (C3), 0019_dossiers_opco (C4),
   0020_notes_frais (C5). Une base applique les migrations manquantes même avec un trou ; l'empreinte de chacune s'ajoute à
   `PUBLIEES` (`tests/purge-changements.test.ts`) à sa fusion.
+
+## Lot 11 : application mobile (C2), étape 1 — idempotence, saisie hors ligne, notifications
+
+Réponses du propriétaire du 31 octobre 2026 : hors ligne seulement pour une application déjà ouverte avec du réseau
+(aucun instantané gardé sur le téléphone) ; notifications génériques (sans nom ni date), coupées par défaut, jamais de
+20 h à 7 h ni le week-end ; aucune dépendance (ni Workbox, ni web-push). Le manifeste, les icônes, le service worker,
+CURSUS_PWA et les écrans viennent avec l'étape 2.
+
+- **Idempotence** (`server/src/idempotence.ts`) : en-tête `Idempotency-Key` (16 à 100 caractères sûrs, UUID) lu sur
+  `POST /api/actions/:nom` (`server/src/app.ts`) et `POST /api/pieces` (`server/src/pieces-routes.ts`). Table
+  `idempotence` (TABLES_SANS_REVISION) : `cle` = SHA-256 du compte et de la clé reçue, empreinte du corps (JSON aux clés
+  triées, ou octets de la pièce) précédée de l'opération, statut, message, résultat réduit (nombres et booléens
+  seulement : jamais un jeton ni un nom). Écrite dans la transaction de l'action, après le journal : une action refusée
+  ou annulée ne garde rien. Même clé et même corps : réponse gardée, en-tête `idempotent-replayed`, `relire: true`
+  (le client relit l'instantané), l'action n'est pas refaite ; autre corps ou autre action : 422 ; clé illisible : 400.
+  Vérifiée dans la transaction (écritures sérialisées) : deux envois simultanés ne font l'action qu'une fois. Pièce :
+  la même pièce rendue avec son jeton tant qu'elle attend d'être jointe (410 ensuite) ; le fichier d'un second envoi
+  simultané est effacé. `temps.validerLot` (plusieurs transactions) ignore la clé. Purge à 30 jours par la tâche du quart
+  d'heure (`tachesEmails`).
+- **Registre hors ligne** (`shared/hors-ligne.ts`) : `ACTIONS_HORS_LIGNE` = `temps.saisir`, `temps.addLine`,
+  `absence.demander`. Un rejeu porte l'en-tête `x-cursus-hors-ligne: 1` ; `refusHorsLigne` (422) : action hors du
+  registre, salarié autre que celui du compte (jamais pour son équipe : le manager qui pose valide du même coup), absence
+  autre que CP, RTT ou récupération, pièce jointe à une demande de congé. L'action fait ensuite tous ses contrôles. Au
+  journal, l'action garde ses champs, plus `horsLigne: true`. Jamais une validation ni une action de `ACTIONS_PAIE`
+  (test).
+- **`temps.saisir`** (`server/src/actions/temps.ts`) : cellule désignée par `projet`, `tache` et `di`, avec la valeur vue
+  (`base`) ; écriture par `ecrireCellule`, commune avec `temps.setCell` (mêmes règles) ; conflit 409 avec les deux valeurs,
+  qui place la saisie dans « À reprendre ». Journal : règle de `temps.setCell`, indice de ligne retrouvé dans la feuille
+  lue avant l'action. `temps.addLine` reçoit `siAbsente` pour qu'un rejeu ne double pas une ligne ajoutée entre-temps.
+- **File chiffrée** (`client/src/state/hors-ligne.ts`, testée sans navigateur : `tests/client-hors-ligne.test.ts`) :
+  IndexedDB (`magasinIndexedDb`), AES-GCM 256 avec une CryptoKey non extractible rangée avec la file ; en clair seulement
+  le compte, l'espace, la date, l'état et le nombre de tentatives. Rejeu (`rejouer`) en série, dans l'ordre, pause de
+  `PAUSE_REJEU_MS`, une relecture à la fin, seulement pour le compte et l'espace de la session ; clé d'idempotence =
+  identifiant de l'entrée. Pièces envoyées d'abord avec leur propre clé, jetons gardés (jamais renvoyées après un arrêt),
+  passés à l'action ; au plus `MAX_PIECES_EN_ATTENTE`. Refus → « À reprendre » avec le motif ; réseau, 401, 408, 429, 5xx
+  → arrêt. Purges : `purger` (déconnexion, appareil partagé), `purgerAutreCompte`, `purgerAnciennes` (7 jours). Envoi par
+  l'API : `envoyeurApi` (`api.action(…, { cle })`, `api.envoyerPiece(…, cle)`). La relecture périodique de
+  `client/src/state/store.tsx` se tait hors ligne (`navigator.onLine`).
+- **Web Push maison** (`server/src/integrations/push.ts`) : RFC 8291 (ECDH P-256, HKDF), RFC 8188 (aes128gcm, un
+  enregistrement de 4096), RFC 8292 (JWT ES256, audience = origine du service, 12 h) ; vecteurs de l'annexe A de la
+  RFC 8291 et vérification du jeton dans `tests/push.test.ts`. Services admis seulement (`HOTES_PUSH` : FCM, Apple,
+  Mozilla, Microsoft), https sans port ni identifiant : le serveur n'envoie jamais à une adresse interne.
+- **Clés VAPID** : `CURSUS_VAPID_PUBLIC`, `CURSUS_VAPID_PRIVATE`, `CURSUS_VAPID_SUJET` (`configVapid`,
+  `problemesVapid` de `server/src/config.ts`) ; absentes en production : push désactivé (actions 409) ; démonstration :
+  paire en mémoire (`clesPush`, `server/src/push.ts`), rien en base.
+- **Abonnements** (table `abonnementsPush`, TABLES_SANS_REVISION, par compte et par appareil, sans colonne de salarié) :
+  `endpoint`, `p256dh`, `auth` chiffrés (AES-256-GCM, clé des pièces, préfixe `pc1:`, authentifiés par colonne ; en clair
+  sans `CURSUS_PIECES_KEY`), commentés « Sensible » (0017_pwa.sql) ; `cleEndpoint` = SHA-256 de l'adresse (unique) ;
+  types choisis (préférences par compte, coupées par défaut) ; 10 appareils au plus par compte. Lus par
+  `GET /api/push/cle` et `GET /api/push/appareils` (`server/src/push-routes.ts`, compte connecté seulement, jamais
+  l'adresse ni les clés) ; jamais par l'instantané.
+- **Mise en file** : `notifier()` (`server/src/notifications.ts`) appelle `mettreEnFilePush` dans la transaction de
+  l'action, en plus de l'e-mail : appareils des comptes actifs du salarié destinataire (jamais la boîte du service RH)
+  qui ont choisi ce type ; registre `NOTIFICATIONS_PUSH` (`shared/notifications-push.ts`, textes fixes ; les
+  informations au retour d'un arrêt n'en ont pas) ; envoi au premier instant admis (`prochainEnvoiAdmis` : du lundi au
+  vendredi, 7 h – 20 h, heure de Paris), valable 24 h ensuite.
+- **File d'envoi push** (table `envoisPush`, TABLES_SANS_REVISION ; `server/src/envois-push.ts`, processus de fond
+  propre démarré par `server/src/index.ts` avec des clés seulement) : `envois`, `envois.ts` et `envois_cible_check` ne
+  changent pas. Chaque message indépendant (pas de blocage en tête), 50 par passage toutes les 5 s ; charge utile
+  `{ type, titre, corps, url }` recalculée à l'envoi (rien de nominatif en base ni chez le service de push), TTL 24 h,
+  Urgency normal ; 2xx envoyé ; 404/410 abonnement supprimé ; 408, 429, 5xx, réseau : nouvelle tentative (`attente`,
+  Retry-After, 10 au plus) ; autre 4xx : échec ; périmée : `expire`. Compteurs `compteursPush` (supervision). Purge
+  (`purgerPush`, tâche du quart d'heure) : messages clos de plus de 30 jours, abonnements sans succès depuis 90 jours ou
+  d'un compte désactivé (départ du salarié).
+- **Journal** : `push.abonner` { appareil }, `push.desabonner` { motif, appareil, retires }, `push.preferences` { types },
+  `push.desabonnerAppareil` { id, tout, appareil, retires }, `push.tester` { appareils } ; jamais l'adresse ni les clés ;
+  famille « Application mobile et notifications ».
+- **PostgreSQL** : `server/migrations-pg/0017_pwa.sql` (trois tables sans déclencheur de révision, clés étrangères vers
+  `comptes` et `abonnements_push` en cascade, aucune vue pub_). Demande à Matrix : `docs/demandes/matrix-lot11-pwa.sql`
+  (endpoint, p256dh, auth ; tables `idempotence` et `envois_push` entières), lue par `tests/colonnes-sensibles.ts` et
+  appliquée par la CI au socle d'essai avec les autres demandes `docs/demandes/matrix-*.sql`.
+

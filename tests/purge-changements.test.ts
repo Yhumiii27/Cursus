@@ -213,6 +213,8 @@ test('migrations PostgreSQL publiées intactes (empreintes figées, 0001 à 0015
     '0014_changements': '1a107a5e67d0a673ed9e4dddb04941932c55717f61d8a58af91e710cf19d2f45',
     // lot 11 — socle commun
     '0015_lot11_socle': 'fc8a1ea20f790c7d060eede504a9a74ca23c4e80ad7f4552247d11a76b811634',
+    // lot 11 — pwa
+    '0017_pwa': '75d0b9975f1280466821e313e77eeb40f371b175edac5b305cc64cef4232b9c9',
   };
   const lues = new Map(migrationsPg().map(m => [m.nom, createHash('sha256').update(m.sql.replace(/\r\n/g, '\n')).digest('hex')]));
   for (const [nom, empreinte] of Object.entries(PUBLIEES)) assert.equal(lues.get(nom), empreinte, `${nom} modifiée ou absente`);

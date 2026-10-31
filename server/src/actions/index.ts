@@ -51,6 +51,7 @@ import { c2pActions } from './c2p.ts';
 import { listeAttenteActions } from './liste-attente.ts';
 import { passeportPreventionActions } from './passeport-prevention.ts';
 import { evaluationsFormationActions } from './evaluations-formation.ts';
+import { pushActions } from './push.ts';
 
 /**
  * Registre typé (t164) : chaque famille est déclarée avec « satisfies Record<string, ActionHandler> », ce qui garde ses
@@ -109,6 +110,8 @@ const REGISTRE = {
   ...listeAttenteActions,
   ...passeportPreventionActions,
   ...evaluationsFormationActions,
+  // lot 11 — pwa
+  ...pushActions,
 } satisfies Record<string, ActionHandler>;
 
 /** Nom d'une action exposée par POST /api/actions/:nom. */
@@ -123,5 +126,5 @@ export const ACTIONS: Record<string, ActionHandler> = REGISTRE;
  * après toute autre action, les verdicts transmis à Keystone sont recalculés (integrations/keystone-verdicts.ts).
  * Les actions d'absence en font partie : une absence pendant la présence sur un chantier bloque la ressource.
  */
-const SANS_EFFET_VERDICT = ['temps.', 'cet.', 'report.', 'conges.', 'entretien.', 'budget.', 'equipe.', 'envoi.', 'convocation.', 'messagerie.', 'notification.', 'releve.', 'paie.', 'confidentialite.', 'mandat.', 'piece.', 'forfait.', 'formationSuivie.', 'agenda.'];
+const SANS_EFFET_VERDICT = ['temps.', 'cet.', 'report.', 'conges.', 'entretien.', 'budget.', 'equipe.', 'envoi.', 'convocation.', 'messagerie.', 'notification.', 'releve.', 'paie.', 'confidentialite.', 'mandat.', 'piece.', 'forfait.', 'formationSuivie.', 'agenda.', 'push.'];
 export const changeVerdicts = (nom: string) => !SANS_EFFET_VERDICT.some(p => nom.startsWith(p));

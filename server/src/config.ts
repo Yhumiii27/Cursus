@@ -3,6 +3,7 @@
 // démarrage ; ailleurs, elle est seulement signalée. Variables : .env.example.
 
 import { lireAdressesKeystone } from './filtre-keystone.ts';
+import { type ClesVapid, clesVapidValides } from './integrations/push.ts';
 
 export type Env = Record<string, string | undefined>;
 
@@ -499,6 +500,8 @@ export function problemesConfig(env: Env = process.env, opts: OptionsConfig = {}
   out.push(...problemesProduction(env));
   if (reglesDemo) out.push(...problemesDemoPublique(env));
   out.push(...problemesSurveillance(env));
+  // lot 11 — pwa
+  out.push(...problemesVapid(env));
   if (env.CURSUS_OIDC_AUTORITE) out.push(`CURSUS_OIDC_AUTORITE est définie (${env.CURSUS_OIDC_AUTORITE}) : elle remplace le service de connexion de Microsoft et reste réservée aux tests.`);
   return out;
 }
@@ -548,4 +551,25 @@ export function verifierConfig(env: Env = process.env, opts: OptionsConfig = {})
     process.exit(1);
   }
   console.warn(`Configuration à compléter avant une mise en production :\n${liste}`);
+}
+
+// — lot 11 — pwa : clés VAPID des notifications sur le téléphone (server/src/push.ts, server/src/integrations/push.ts) —
+
+/**
+ * Clés VAPID de production (CURSUS_VAPID_PUBLIC, CURSUS_VAPID_PRIVATE en base64url, CURSUS_VAPID_SUJET en mailto: ou
+ * https:), ou null si l'une manque ou ne convient pas : les notifications sur le téléphone sont alors désactivées.
+ * Changer de clé invalide tous les abonnements (chacun se réabonne depuis l'application).
+ */
+export function configVapid(env: Env = process.env): ClesVapid | null {
+  const publique = (env.CURSUS_VAPID_PUBLIC ?? '').trim(), privee = (env.CURSUS_VAPID_PRIVATE ?? '').trim(), sujet = (env.CURSUS_VAPID_SUJET ?? '').trim();
+  if (!publique || !privee || !/^(mailto:\S+@\S+|https:\/\/\S+)$/.test(sujet) || !clesVapidValides({ publique, privee })) return null;
+  return { publique, privee, sujet };
+}
+
+/** Clés VAPID posées mais incomplètes ou illisibles : les notifications resteraient coupées sans que rien ne le dise. */
+export function problemesVapid(env: Env = process.env): string[] {
+  const posees = definies(env, ['CURSUS_VAPID_PUBLIC', 'CURSUS_VAPID_PRIVATE', 'CURSUS_VAPID_SUJET']);
+  if (!posees.length || configVapid(env)) return [];
+  return ['CURSUS_VAPID_PUBLIC, CURSUS_VAPID_PRIVATE et CURSUS_VAPID_SUJET vont ensemble : paire de clés P-256 en base64url (la publique dérivée de la privée) '
+    + 'et sujet en mailto: ou https: (docs/DEPLOIEMENT.md). Sans elles, les notifications sur le téléphone restent désactivées.'];
 }

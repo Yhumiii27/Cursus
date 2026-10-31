@@ -27,6 +27,9 @@ import { annoncerDelegations } from './delegations.ts';
 import { evaluationsDuJour } from './evaluations-formation.ts';
 import { lecturePartagee } from './lecture-partagee.ts';
 import { purgerChangements } from './purge-changements.ts';
+import { purgerIdempotence } from './idempotence.ts';
+import { mettreEnFilePush } from './push.ts';
+import { purgerPush } from './envois-push.ts';
 
 /**
  * Ce dont une notification a besoin du contexte d'une action ; `parDelegation` : managers au nom desquels le suppléant a
@@ -54,6 +57,9 @@ const messagerie = async (cx: Contexte): Promise<Messagerie> => cx.ds.messagerie
  */
 export async function notifier(cx: Contexte, dest: number, n: Notification, boitePartagee = false): Promise<'immediat' | 'quotidien' | null> {
   if (soiMeme(cx.user, dest) && !(boitePartagee && dest === 0)) return null;
+  // Lot 11 (C2) : notification sur le téléphone en plus de l'e-mail, aux appareils du salarié qui l'ont choisie (texte
+  // fixe, plage de silence), dans la même transaction ; jamais à la boîte du service RH.
+  if (dest !== 0) await mettreEnFilePush(cx.db, { empId: dest }, n.type);
   const m = await messagerie(cx);
   const d = dest === 0 ? (m.rh ? { nom: null, adresse: m.rh, mode: m.rhMode } : null) : await adresseSalarie(cx.db, dest, cx.ds.today);
   if (!d) return null;
@@ -470,6 +476,9 @@ export async function tachesEmails(db: Db, heure = new Date().getHours()): Promi
   // Journal des changements (lot 9, chantier 1, server/src/purge-changements.ts) : changements des révisions anciennes
   // effacés, au moins une heure et 20 000 révisions gardées. Sa propre transaction, après les autres tâches.
   await tache(async () => await purgerChangements(db), null);
+  // Lot 11 (C2) : réponses gardées des actions rejouées (30 jours), notifications push closes et abonnements morts.
+  await tache(async () => await purgerIdempotence(db), 0);
+  await tache(async () => await purgerPush(db), null);
   if (erreurs.length) throw erreurs[0];
   return { releves, recapitulatifs };
 }

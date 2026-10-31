@@ -100,6 +100,11 @@ export const REFERENCES: readonly Reference[] = [
   ref('evaluations_formation', 'auteur_id', 'employes'),
   ref('evaluations_formation', 'participation_id', 'participations'),
   ref('evaluations_formation', 'formation_suivie_id', 'formations_suivies'),
+  // lot 11 — pwa (chantier C2 ; clés étrangères de 0017_pwa.sql) : compte des réponses gardées et des abonnements push,
+  // abonnement de chaque notification en file.
+  ref('idempotence', 'compte_id', 'comptes'),
+  ref('abonnements_push', 'compte_id', 'comptes'),
+  ref('envois_push', 'abonnement_id', 'abonnements_push'),
 ];
 
 export interface Integrite {

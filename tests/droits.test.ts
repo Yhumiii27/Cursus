@@ -20,6 +20,7 @@ const { currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
 const { PROFIL_VIDE } = await import('../shared/rules/profil.ts');
+const { createECDH } = await import('node:crypto');
 const { SAMPLE_PLAN_CSV, SAMPLE_TRIPS_CSV } = await import('../shared/rules/imports.ts');
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Role = User['role'];
@@ -161,6 +162,12 @@ const sortiLe = async (fin: string) => {
   await db.update('employes', 2, { fin, motifSortie: 'demission' });
   return 2;
 };
+/** Abonnement push d'un appareil de la personne qui agit (lot 11, C2), pour les actions qui en demandent un. */
+const P256DH = (() => { const e = createECDH('prime256v1'); e.generateKeys(); return e.getPublicKey().toString('base64url'); })();
+const abonnementPush = async (u: User) => (await db.insert<{ id: number }>('abonnementsPush', {
+  compteId: u.compteId, cleEndpoint: `essai-${u.compteId}`, endpoint: 'https://fcm.googleapis.com/fcm/send/essai', p256dh: P256DH, auth: 'AAAAAAAAAAAAAAAAAAAAAA',
+  appareil: 'Android, Chrome', types: [], creation: '2026-10-01T08:00:00.000Z', dernierSucces: null, dernierEchec: null, echecs: 0,
+})).id;
 // `p` reçoit la personne qui agit (pièce justificative envoyée par son compte) ; les autres lignes l'ignorent.
 interface Ligne { action: string; variante?: string; droits: string; p: (u: User) => Record<string, unknown> | Promise<Record<string, unknown>>; env?: Record<string, string> }
 
@@ -346,6 +353,8 @@ const MATRICE: Ligne[] = [
   { action: 'temps.setCell', droits: '                       O    O    O    -    O    -    -    -    -', p: async () => { await feuille('brouillon'); return { empId: 2, week: WEEK, li: 0, di: 0, value: '7' }; } },
   // Horaire du jour (lot 6) : mêmes droits que la saisie des heures.
   { action: 'temps.horaire', droits: '                       O    O    O    -    O    -    -    -    -', p: async () => { await feuille('brouillon'); return { empId: 2, week: WEEK, di: 0, code: 'J' }; } },
+  // lot 11 — pwa : saisie du jour désignée par projet et tâche (file hors ligne), mêmes droits que temps.setCell.
+  { action: 'temps.saisir', droits: '                        O    O    O    -    O    -    -    -    -', p: async () => { await feuille('brouillon'); return { empId: 2, week: WEEK, projet: 'INT-MAINT', tache: 'Maintenance interne', di: 0, value: '7', base: '0' }; } },
   { action: 'temps.addLine', droits: '                       O    O    O    -    O    -    -    -    -', p: () => ({ empId: 2, week: WEEK, projet: 'INT-MAINT' }) },
   { action: 'temps.removeLine', droits: '                    O    O    O    -    O    -    -    -    -', p: async () => { await feuille('brouillon'); return { empId: 2, week: WEEK, li: 0 }; } },
   { action: 'temps.suggest', droits: '                       O    O    O    -    O    -    -    -    -', p: async () => ({ empId: 2, week: WEEK }) },
@@ -498,6 +507,14 @@ const MATRICE: Ligne[] = [
   { action: 'agenda.creerJeton', droits: '                       -    -    O    O    O    O    -    -    -', p: async () => { await reglages({ agendaFluxActif: true }); return {}; } },
   { action: 'agenda.revoquerJeton', droits: '                    -    -    O    O    O    O    -    -    -', p: () => ({}) },
   { action: 'agenda.revoquerTout', droits: '                     O    -    -    -    -    -    -    -    -', p: () => ({}) },
+  // lot 11 — pwa : notifications sur le téléphone, chaque compte pour ses appareils, depuis tout espace (démonstration :
+  // clé VAPID en mémoire) ; révocation de tous les abonnements, administrateur RH.
+  { action: 'push.abonner', droits: '                         O    O    O    O    O    O    O    O    O', p: () => ({ endpoint: 'https://fcm.googleapis.com/fcm/send/nouvel-appareil', p256dh: P256DH, auth: 'AAAAAAAAAAAAAAAAAAAAAA', systeme: 'android', navigateur: 'chrome' }) },
+  { action: 'push.desabonner', droits: '                      O    O    O    O    O    O    O    O    O', p: () => ({ endpoint: 'https://fcm.googleapis.com/fcm/send/essai', motif: 'utilisateur' }) },
+  { action: 'push.preferences', droits: '                     O    O    O    O    O    O    O    O    O', p: async u => { await abonnementPush(u); return { types: ['absence.demande'] }; } },
+  { action: 'push.desabonnerAppareil', droits: '              O    O    O    O    O    O    O    O    O', p: async u => ({ id: await abonnementPush(u) }) },
+  { action: 'push.desabonnerAppareil', variante: 'tous les comptes', droits: 'O    -    -    -    -    -    -    -    -', p: () => ({ tout: true }) },
+  { action: 'push.tester', droits: '                          O    O    O    O    O    O    O    O    O', p: async u => { await abonnementPush(u); return {}; } },
   // Astreintes (t049, lot 7) : planning par le manager direct ou le service RH (jamais pour soi-même) ; interventions
   // déclarées sur la feuille de temps comme la saisie d'heures (salarié, manager direct, service RH).
   { action: 'astreinte.planifier', droits: '              O    O    O    -    -    -    -    -    -', p: () => ({ empId: 2, du: '2026-11-06', debut: '18:00', au: '2026-11-13', fin: '08:00' }) },

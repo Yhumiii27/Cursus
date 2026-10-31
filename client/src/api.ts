@@ -1,6 +1,7 @@
 // Appels à l'API Cursus.
 import type { CibleEnvoi, CompteSession, CompteVue, CurrentUser, Dataset, Envoi, EtatEnvois, Role, SageMode, StatutEnvoi } from '../../shared/types.ts';
 import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
+import { EN_TETE_HORS_LIGNE, EN_TETE_IDEMPOTENCE } from '../../shared/hors-ligne.ts';
 // Noms des actions du serveur (t164) : import de type seulement, effacé à la compilation (aucun code serveur dans
 // l'interface) ; une faute dans un nom d'action est signalée par tsc.
 import type { NomAction } from '../../server/src/actions/index.ts';
@@ -99,9 +100,9 @@ export function surSessionExpiree(f: (() => void) | null) { auRefus = f; }
  * partagent la session ; si l'espace a changé dans un autre, le serveur refuse (409) au lieu d'agir
  * avec les droits de l'autre espace.
  */
-async function request<T>(method: string, url: string, body?: unknown, espace?: Role): Promise<T> {
+async function request<T>(method: string, url: string, body?: unknown, espace?: Role, entetes: Record<string, string> = {}): Promise<T> {
   let res: Response;
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...entetes };
   if (body !== undefined) headers['content-type'] = 'application/json';
   if (espace) headers['x-cursus-espace'] = espace;
   // Sans réponse dans le délai, l'appel est abandonné : l'écran ne reste pas sur « Chargement… ».
@@ -170,12 +171,13 @@ export interface PieceEnvoyee { id: number; jeton: string; nom: string; type: st
  * Envoie un fichier comme pièce justificative (corps brut, type du fichier, nom d'origine encodé dans un en-tête) ; lève
  * une erreur au message de Cursus (format refusé, trop volumineux, fonction désactivée).
  */
-async function envoyerPiece(fichier: File, espace?: Role): Promise<PieceEnvoyee> {
+async function envoyerPiece(fichier: File, espace?: Role, cle?: string): Promise<PieceEnvoyee> {
   let res: Response;
   try {
     res = await fetch('/api/pieces', {
       method: 'POST', credentials: 'same-origin', body: fichier,
-      headers: { 'content-type': fichier.type, 'x-nom-fichier': encodeURIComponent(fichier.name), ...(espace ? { 'x-cursus-espace': espace } : {}) },
+      // Lot 11 : clé d'idempotence de la file hors ligne (le même fichier renvoyé rend la même pièce).
+      headers: { 'content-type': fichier.type, 'x-nom-fichier': encodeURIComponent(fichier.name), ...(espace ? { 'x-cursus-espace': espace } : {}), ...(cle ? { [EN_TETE_IDEMPOTENCE]: cle } : {}) },
       signal: AbortSignal.timeout(DELAI_ACTION_MS),
     });
   } catch (err) {
@@ -257,9 +259,14 @@ export const api = {
     if (cible) q.set('cible', cible);
     return request<EnvoisState>('GET', `/api/envois${q.size ? `?${q}` : ''}`);
   },
-  async action(name: NomAction, payload: Record<string, unknown>, espace?: Role): Promise<ActionResponse> {
+  /**
+   * `rejeu` (lot 11, file hors ligne : client/src/state/hors-ligne.ts) : clé d'idempotence de la saisie et marque du
+   * rejeu hors ligne ; une réponse déjà donnée pour cette clé est rendue sans refaire l'action (`relire`).
+   */
+  async action(name: NomAction, payload: Record<string, unknown>, espace?: Role, rejeu?: { cle: string }): Promise<ActionResponse> {
     try {
-      const r = await request<{ message: string | null; result?: unknown; data?: Dataset; relire?: boolean }>('POST', `/api/actions/${name}`, payload, espace);
+      const entetes: Record<string, string> = rejeu ? { [EN_TETE_IDEMPOTENCE]: rejeu.cle, [EN_TETE_HORS_LIGNE]: '1' } : {};
+      const r = await request<{ message: string | null; result?: unknown; data?: Dataset; relire?: boolean }>('POST', `/api/actions/${name}`, payload, espace, entetes);
       return { ok: true, ...r };
     } catch (err) {
       return { ok: false, message: null, error: (err as Error).message, status: (err as ApiError).status };

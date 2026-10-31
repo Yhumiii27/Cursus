@@ -10,6 +10,7 @@ import { plural } from '../../../shared/format.ts';
 import type { Chantier, CurrentUser, DemandeKeystone, Destination, Formation, HabType } from '../../../shared/types.ts';
 import { LimiteParIp } from '../auth.ts';
 import { loadFull, todayIso } from '../dataset.ts';
+import { jeuEnLecture } from '../cache-instantane.ts';
 import type { Db } from '../db.ts';
 import { ATTENTE_OCCUPE, CURSUS_OCCUPE, estOccupe } from '../erreurs.ts';
 import { cheminJournal, log } from '../logs.ts';
@@ -48,7 +49,8 @@ async function evaluer(db: Db, id: string) {
   const c = await db.get<Chantier>('chantiers', id);
   if (!c) throw new ErreurKeystone(404, 'CHANTIER_INCONNU', 'Chantier inconnu');
   if (c.statut === 'archive') throw new ErreurKeystone(410, 'CHANTIER_ARCHIVE', 'Chantier archivé : plus de verdict Go / No Go');
-  const full = await loadFull(db, KEYSTONE);
+  // Lecture partagée du cache dans la lecture stable de la route (lot 10, chantier A), comme loadFull(db, KEYSTONE).
+  const full = await jeuEnLecture(db, KEYSTONE, todayIso(), async u => await loadFull(db, u));
   const d = new Domain(full);
   const ch = d.evaluateChantiers(d.enrich(full.settings.horizonAlerte, false), d.tripsAll()).find(x => x.c.id === id)!;
   return { d, ch, detail: full.settings.partageKeystone === 'detaille', evalueLe: new Date().toISOString() };

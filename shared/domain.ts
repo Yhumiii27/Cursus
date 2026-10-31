@@ -204,17 +204,71 @@ export function certEnVigueur<T extends Pick<Certification, 'id' | 'f' | 'obtenu
   return certs.filter(c => c.f === f && !(c as Partial<Certification>).annuleLe).sort(plusRecente)[0] ?? null;
 }
 
+/**
+ * Mémos par salarié d'un `Domain` (lot 10, chantier B) : pour chaque salarié, une table par calcul (`MemoTable`), où le
+ * résultat est rangé sous deux objets de l'instantané (la feuille, puis la fiche), comparés par identité. Absents par
+ * défaut : seuls les instantanés créés avec `memoParSalarie` les tiennent (validation groupée des feuilles).
+ */
+type MemosSalarie = Map<symbol, WeakMap<object, WeakMap<object, unknown>>>;
+/** Calcul mémorisé par salarié : son nom (symbole propre au module qui le déclare). */
+export type MemoTable = symbol;
+
 export class Domain {
   ds: Dataset;
   today: Date;
   ti: ISODate;
+  /** Mémos par salarié (`memoSalarie`), null sans `memoParSalarie` : chaque appel calcule. */
+  readonly #memos: Map<number, MemosSalarie> | null;
 
-  constructor(ds: Dataset) {
+  /**
+   * `memoParSalarie` (lot 10, chantier B) : les calculs déclarés par salarié (`memoSalarie`) sont mémorisés pour la vie
+   * de l'instantané, et repris par `avecFeuillesDe` pour les salariés dont les feuilles n'ont pas changé. Réservé à un
+   * instantané qu'on ne modifie jamais en place (ni `ds`, ni ses lignes) : c'est le cas sur le serveur.
+   */
+  constructor(ds: Dataset, o: { memoParSalarie?: boolean } = {}) {
     this.ds = ds;
     this.ti = ds.today;
     this.today = parse(ds.today);
+    this.#memos = o.memoParSalarie ? new Map() : null;
     // Jours fériés de l'établissement réglés par année (shared/rules/feries.ts) : suivis par `isFerie`, état de module.
     configurerFeries(ds.calendrierFeries);
+  }
+
+  /** Mémos par salarié tenus (`memoParSalarie`). */
+  get memoParSalarie(): boolean { return this.#memos !== null; }
+
+  /**
+   * Résultat de `calcul`, mémorisé pour le salarié `empId` sous `cle` puis `cle2` (identité des objets) quand l'instantané
+   * tient des mémos par salarié ; calculé à chaque appel sinon. Ne s'y déclare qu'un calcul qui ne lit, de l'instantané,
+   * que des données communes (réglages, référentiels, calendrier…) et celles du seul salarié `empId` : c'est ce qui permet
+   * à `avecFeuillesDe` de garder les mémos des autres salariés. Le résultat est partagé entre appelants : jamais modifié.
+   */
+  memoSalarie<R>(empId: number, table: MemoTable, cle: object, cle2: object, calcul: () => R): R {
+    if (!this.#memos) return calcul();
+    let parSalarie = this.#memos.get(empId);
+    if (!parSalarie) this.#memos.set(empId, parSalarie = new Map());
+    let t = parSalarie.get(table);
+    if (!t) parSalarie.set(table, t = new WeakMap());
+    let t2 = t.get(cle);
+    if (!t2) t.set(cle, t2 = new WeakMap());
+    if (t2.has(cle2)) return t2.get(cle2) as R;
+    const r = calcul();
+    t2.set(cle2, r);
+    return r;
+  }
+
+  /**
+   * Instantané `ds` (lot 10, chantier B), qui ne diffère de celui-ci que par des feuilles de temps des salariés `empIds`
+   * (feuille validée remplacée par la ligne enregistrée) : un `Domain` neuf, comme `new Domain(ds)`, qui reprend les mémos
+   * par salarié de tous les autres (leurs calculs ne lisent ni ces feuilles ni rien d'autre qui ait changé) et oublie ceux
+   * de `empIds`. Sans mémos par salarié : `new Domain(ds)`. Celui-ci reste valable pour son propre instantané.
+   */
+  avecFeuillesDe(ds: Dataset, empIds: readonly number[]): Domain {
+    const d = new Domain(ds, { memoParSalarie: this.memoParSalarie });
+    if (this.#memos && d.#memos) {
+      for (const [empId, m] of this.#memos) if (!empIds.includes(empId)) d.#memos.set(empId, m);
+    }
+    return d;
   }
 
   get year() { return this.today.getFullYear(); }

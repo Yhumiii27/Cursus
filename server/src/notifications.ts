@@ -442,7 +442,8 @@ const DERNIER_RECAPITULATIF = 'recapitulatifLe';
  * récapitulatifs mis en file (null : pas l'heure, ou déjà fait aujourd'hui).
  */
 export async function tachesEmails(db: Db, heure = new Date().getHours()): Promise<{ releves: number; recapitulatifs: number | null }> {
-  const lire = lecturePartagee(db);
+  // Lecture faite dans la transaction d'une tâche : reprise du cache de l'instantané (lot 10, chantier B).
+  const lire = lecturePartagee(db, { enTransaction: true });
   const erreurs: unknown[] = [];
   const tache = async <T>(fn: () => Promise<T>, sinon: T): Promise<T> => {
     try {

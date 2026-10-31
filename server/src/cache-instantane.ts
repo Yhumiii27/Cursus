@@ -29,6 +29,9 @@
 // server/src/vues-cache.ts). Les vues RH sont toujours recalculées. CURSUS_VUES_REPORT=0 coupe le report.
 // Compteurs (lot 9, chantier 4, étape 2) : `statistiquesCache` relève, pour l'essai de charge et le banc d'oracle, les
 // entrées lues en entier ou dérivées, les replis, les jeux d'action, la durée des deltas et les vues recalculées ou reportées.
+// Lot 10, chantier A : GET /api/data calcule sa vue hors de la lecture stable (`preparerVue`, `vueHorsLecture`), une
+// seule évaluation par entrée et par clé de vue, la dernière révision atteinte servie pendant une suite d'écritures ;
+// verdict de l'API Keystone par l'entrée de la lecture en cours (`jeuEnLecture`).
 import { performance } from 'node:perf_hooks';
 import { configurerFeries } from '../../shared/dates.ts';
 import { droitsRh } from '../../shared/constants.ts';
@@ -71,6 +74,11 @@ interface Entree {
   paie?: Promise<ResumesPaie>;
   /** Vues calculées sur `base`, par clé de vue. */
   vues: Map<string, Promise<unknown>>;
+  /**
+   * Révision de l'instance (`Db.revision`) relevée avant la lecture de l'état de l'entrée (lot 10 : révision portée par la
+   * réponse qui la sert) : au plus celle de l'état qu'elle reflète.
+   */
+  rev: number;
 }
 
 const entrees = new WeakMap<Db, Entree>();
@@ -235,15 +243,19 @@ async function deriverEntree(db: Db, prec: Entree, nouvelle: Entree, lire: (lect
  * déjà lue, la sert (`memeEtat` faux : un état validé plus récent, comme si la requête était arrivée un instant plus tard ;
  * rien n'y est lu en base). Null hors d'une lecture stable ou cache désactivé : l'appelant lit directement.
  */
-async function entree(db: Db, today: string, lire: (lecteur: CurrentUser) => Promise<Dataset>): Promise<{ e: Entree; memeEtat: boolean } | null> {
+async function entree(db: Db, today: string, lire: (lecteur: CurrentUser) => Promise<Dataset>): Promise<{ e: Entree; memeEtat: boolean; cree?: boolean } | null> {
   if (!cacheActif() || !db.lectureStable) return null;
+  // Révision de l'instance relevée avant l'état de la base : une écriture validée par une autre connexion pendant
+  // `etatRevision` (PostgreSQL) l'avancerait sans que l'entrée, lue sur l'état d'avant, en contienne les lignes. Relevée
+  // avant, elle ne dépasse jamais l'état que l'entrée reflète (comme au lot 9).
+  const rev = db.revision;
   const { n, epoque } = await db.etatRevision();
   const e = entrees.get(db);
   if (e && e.today === today && e.epoque === epoque) {
     if (e.n === n) return { e, memeEtat: true };
     if (n < e.n) return { e, memeEtat: false };
   }
-  const nouvelle = { n, epoque, today, vues: new Map() } as unknown as Entree;
+  const nouvelle = { n, epoque, today, vues: new Map(), rev } as unknown as Entree;
   // Révision plus récente de la même époque et du même jour : dérivée de l'entrée précédente par le delta des lignes
   // changées ; sinon (première lecture, autre jour, autre époque, cache incrémental coupé) lecture complète.
   nouvelle.lu = e && e.today === today && e.epoque === epoque && incrementalActif() ? deriverEntree(db, e, nouvelle, lire) : lireEntree(lire);
@@ -252,7 +264,7 @@ async function entree(db: Db, today: string, lire: (lecteur: CurrentUser) => Pro
   entrees.set(db, nouvelle);
   // Lecture échouée (Cursus occupé, délai dépassé) : l'entrée est retirée, la suivante relira.
   nouvelle.base.catch(() => { if (entrees.get(db) === nouvelle) entrees.delete(db); });
-  return { e: nouvelle, memeEtat: true };
+  return { e: nouvelle, memeEtat: true, cree: true };
 }
 
 /**
@@ -271,33 +283,152 @@ export async function vueEnCache(
 /**
  * Vue partagée de la clé de `user`, telle que le cache la garde (sans la tête de cette requête : utilisateur et
  * révision restent ceux du premier calcul), avec sa clé : le corps JSON lui est attaché par clé de vue (lot 9,
- * server/src/vues-cache.ts). Jamais modifiée par l'appelant. Null hors d'une lecture stable ou cache désactivé.
+ * server/src/vues-cache.ts). Jamais modifiée par l'appelant. Null hors d'une lecture stable ou cache désactivé. Calculée
+ * dans la lecture stable de l'appelant (réponse d'une action, banc d'oracle) ; GET /api/data calcule la sienne hors de
+ * la lecture (`preparerVue`, puis `vueHorsLecture` : lot 10).
  */
 export async function vuePartagee(
   db: Db, user: CurrentUser, today: string, revision: number,
   lire: (lecteur: CurrentUser) => Promise<Dataset>, calculer: (full: Dataset) => Dataset,
 ): Promise<{ vue: Dataset; cle: string } | null> {
+  const p = await preparerVue(db, user, today, revision, lire);
+  // Entrée plus récente que la lecture en cours, résumés de la paie pas encore calculés : ils se lisent en base sur l'état
+  // de l'entrée, que cette lecture ne voit pas ; lecture directe.
+  if (!p || p.paieManquante) return null;
+  const cle = cleVue(user);
+  return { vue: await vueSurEntree(db, p, cle, calculer), cle };
+}
+
+// ——— Vues calculées hors de la lecture stable, coalescence (lot 10, chantier A) ———
+// Au lot 9, la vue d'une requête se calculait dans sa lecture stable : sur PostgreSQL, une connexion du pool et une place
+// de lecture restaient prises pendant tout le calcul (jusqu'à plusieurs secondes pour une vue RH sous charge), et les
+// autres lectures, santé comprise, attendaient le pool. GET /api/data sépare désormais :
+// - dans la lecture stable (`preparerVue`) : l'entrée de la révision lue, les résumés de la paie si le profil les voit
+//   (lus en base sur ce même état) et la tête de la requête (server/src/dataset.ts, `lireParties`) ;
+// - hors de la lecture (`vueHorsLecture`) : la vue elle-même, calcul pur sur l'entrée.
+// Une seule évaluation par (entrée, clé de vue) : la promesse est rangée dans l'entrée dès le début du calcul et partagée
+// par toutes les requêtes de cette révision. Pendant une suite d'écritures (tranches d'une validation groupée), une
+// requête qui trouve en cours le calcul de sa clé sur une autre révision l'attend (une fois), puis relit l'état de la base
+// : elle sert alors la dernière révision atteinte, calculée une fois pour toutes les requêtes qui attendaient, au lieu de
+// calculer chaque révision intermédiaire. La réponse reflète toujours une révision réellement atteinte, la sienne ou une
+// plus récente, avec la tête lue sur ce même état.
+
+/**
+ * Vue préparée dans une lecture stable : entrée de la révision lue, son instantané et les résumés de la paie si `user` les
+ * voit, en promesses : celle qui a créé l'entrée, ou qui calcule les résumés de la paie, les attend dans sa lecture (ses
+ * lectures en base se font sur sa connexion) ; les autres sortent de la lecture aussitôt, sans tenir de connexion pendant
+ * que la première dérive l'entrée (rafale de lectures après une écriture), et les attendent ensuite.
+ */
+export interface VuePreparee {
+  e: Entree;
+  base: Promise<Dataset>;
+  paie: Promise<ResumesPaie | null>;
+  user: CurrentUser;
+  revision: number;
+  /**
+   * Vrai si l'entrée trouvée est plus récente que la révision lue par la lecture en cours (`entree`, `memeEtat` faux) :
+   * la tête de la requête, lue sur l'état de la lecture, ne serait pas celle de l'entrée.
+   */
+  relire: boolean;
+  /**
+   * Entrée plus récente que la lecture, sans les résumés de la paie que `user` voit : ils se lisent en base sur l'état de
+   * l'entrée, que la lecture ne voit pas (`relire` est vrai ; rien n'est à attendre).
+   */
+  paieManquante: boolean;
+}
+
+/**
+ * Préparation de la vue de `user` dans la lecture stable en cours : entrée du cache, instantané, résumés de la paie (lus
+ * en base sur l'état de l'entrée, que la lecture voit quand `relire` est faux). `attendre` : instantané et résumés
+ * attendus dans la lecture quoi qu'il arrive (calcul de la vue dans la lecture, `vuePartagee`) ; sinon, seulement par la
+ * lecture qui crée l'entrée ou calcule les résumés. Null hors d'une lecture stable ou cache désactivé : l'appelant lit
+ * directement.
+ */
+export async function preparerVue(
+  db: Db, user: CurrentUser, today: string, revision: number, lire: (lecteur: CurrentUser) => Promise<Dataset>, attendre = true,
+): Promise<VuePreparee | null> {
   const x = await entree(db, today, lire);
   if (!x) return null;
   const { e, memeEtat } = x;
-  // Entrée plus récente que la lecture en cours, résumés de la paie pas encore calculés : ils se lisent en base sur l'état
-  // de l'entrée, que cette lecture ne voit pas ; lecture directe.
-  if (!memeEtat && voitPaie(user) && !e.paie) return null;
-  const base = await e.base;
-  // Jours fériés réglés de l'établissement : état de module que la lecture pose (shared/dates.ts), reposé pour les calculs.
-  configurerFeries(base.calendrierFeries);
-  const cle = cleVue(user);
-  let vue = e.vues.get(cle) as Promise<Dataset> | undefined;
-  if (!vue) {
-    STATS.vuesCalculees[user.role]++;
-    const p: Promise<Dataset> = paieDe(db, e, base, user).then(paie => calculer(donneesDe(base, user, revision, paie))).then(v => (gelEnTest() ? geler(v) : v));
-    vue = p;
-    // Vue résolue retenue pour le report à l'entrée suivante (server/src/vues-cache.ts, `reporterVues`).
-    p.then(v => retenirResolue(p, v), () => {});
-    e.vues.set(cle, vue);
-    vue.catch(() => { if (e.vues.get(cle) === vue) e.vues.delete(cle); });
+  if (!memeEtat && voitPaie(user) && !e.paie) {
+    const rien = Promise.resolve(null);
+    return { e, base: e.base, paie: rien, user, revision, relire: true, paieManquante: true };
   }
-  return { vue: await vue, cle };
+  const base = e.base;
+  let paie: Promise<ResumesPaie | null>;
+  if (voitPaie(user) && !e.paie) {
+    // Résumés de la paie à lire sur cet état, dans cette lecture.
+    const b = await base;
+    paie = paieDe(db, e, b, user);
+    await paie;
+  } else {
+    paie = voitPaie(user) ? e.paie! : Promise.resolve(null);
+  }
+  if (attendre || x.cree) { await base; await paie; }
+  return { e, base, paie, user, revision, relire: !memeEtat, paieManquante: false };
+}
+
+/** Calculs de vue en cours, par base et par clé de vue : entrée calculée et promesse (coalescence, lot 10). */
+const calculsEnCours = new WeakMap<Db, Map<string, { e: Entree; p: Promise<Dataset> }>>();
+
+/** Attentes d'un calcul de la même clé sur une autre révision, suivies d'une relecture (tests, mesures). */
+export const COALESCENCE = { attentes: 0 };
+
+/**
+ * Vue de clé `cle` sur l'entrée préparée `p` : celle de l'entrée si elle est calculée ou en cours (partagée), sinon
+ * calculée maintenant et rangée dans l'entrée avant le calcul. Le calendrier des jours fériés de l'entrée est reposé
+ * juste avant le calcul, dans le même tour de la boucle d'événements.
+ */
+function vueSurEntree(db: Db, p: VuePreparee, cle: string, calculer: (full: Dataset) => Dataset): Promise<Dataset> {
+  const { e, user, revision } = p;
+  const deja = e.vues.get(cle) as Promise<Dataset> | undefined;
+  if (deja) return deja;
+  STATS.vuesCalculees[user.role]++;
+  const vue: Promise<Dataset> = (async () => {
+    const base = await p.base, paie = await p.paie;
+    // Jours fériés réglés de l'établissement : état de module que la lecture pose (shared/dates.ts), reposé pour les
+    // calculs, juste avant le calcul (aucune autre vue ne s'intercale entre les deux).
+    configurerFeries(base.calendrierFeries);
+    const v = calculer(donneesDe(base, user, revision, paie));
+    return gelEnTest() ? geler(v) : v;
+  })();
+  // Vue résolue retenue pour le report à l'entrée suivante (server/src/vues-cache.ts, `reporterVues`).
+  vue.then(v => retenirResolue(vue, v), () => {});
+  e.vues.set(cle, vue);
+  let calculs = calculsEnCours.get(db);
+  if (!calculs) calculsEnCours.set(db, calculs = new Map());
+  const enCours = calculs;
+  enCours.set(cle, { e, p: vue });
+  const fin = () => { if (enCours.get(cle)?.p === vue) enCours.delete(cle); };
+  vue.then(fin, () => { fin(); if (e.vues.get(cle) === vue) e.vues.delete(cle); });
+  return vue;
+}
+
+/**
+ * Vue de la préparation `p`, calculée hors de la lecture stable (GET /api/data, lot 10). `attendre` vrai : si un calcul
+ * de la même clé est en cours sur une autre entrée (révision plus ancienne, ou plus récente que celle de cette lecture),
+ * il est attendu, puis l'appelant relit l'état de la base (`'relire'`) pour servir la dernière révision atteinte ; faux
+ * (seconde lecture) : la vue de l'entrée préparée est servie, calculée au besoin. `'relire'` aussi pour une préparation
+ * marquée `relire` quand `attendre` est vrai. Rend la vue, sa clé et la révision de l'instance que porte la réponse.
+ */
+export async function vueHorsLecture(
+  db: Db, p: VuePreparee, calculer: (full: Dataset) => Dataset, attendre: boolean,
+): Promise<{ vue: Dataset; cle: string; revision: number } | 'relire'> {
+  if (p.relire && attendre) return 'relire';
+  const cle = cleVue(p.user);
+  const servir = async (x: Promise<Dataset>) => ({ vue: await x, cle, revision: Math.max(p.revision, p.e.rev) });
+  const deja = p.e.vues.get(cle) as Promise<Dataset> | undefined;
+  if (deja) return await servir(deja);
+  const autre = calculsEnCours.get(db)?.get(cle);
+  if (attendre && autre && autre.e !== p.e) {
+    COALESCENCE.attentes++;
+    await autre.p.catch(() => {});
+    return 'relire';
+  }
+  // Un tour de la boucle d'événements avant un calcul : santé, actions et lectures déjà arrivées passent devant.
+  await new Promise<void>(ok => setImmediate(ok));
+  const calcul = vueSurEntree(db, p, cle, calculer);
+  return await servir(calcul);
 }
 
 /**
@@ -349,6 +480,21 @@ export async function donneesAction(db: Db, user: CurrentUser, today: string, li
   STATS.jeuxAction.directs++;
   const ds = await lire(user);
   return depart(ds, brutDe(ds), etat, today);
+}
+
+/**
+ * Jeu complet de `user` lu dans la lecture stable en cours, comme `loadFull(db, user)` (lot 10, chantier A : verdict d'un
+ * chantier pour l'API Keystone, qui relisait toute la base à chaque appel, une connexion tenue plusieurs secondes pendant
+ * une fin de mois) : l'entrée du cache de la révision lue, avec les résumés de la paie si `user` les voit, lus sur ce
+ * même état. Entrée plus récente que la lecture, hors d'une lecture stable ou cache désactivé : `lire(user)`. Les données
+ * rendues sont partagées : jamais modifiées par l'appelant (gel sous node --test).
+ */
+export async function jeuEnLecture(db: Db, user: CurrentUser, today: string, lire: (u: CurrentUser) => Promise<Dataset>): Promise<Dataset> {
+  const x = await entree(db, today, lire);
+  if (!x?.memeEtat) return await lire(user);
+  const base = await x.e.base;
+  configurerFeries(base.calendrierFeries);
+  return donneesDe(base, user, db.revision, await paieDe(db, x.e, base, user));
 }
 
 /**

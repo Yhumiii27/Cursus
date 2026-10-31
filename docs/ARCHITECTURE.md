@@ -653,6 +653,9 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     `revision` d'une ligne et déclencheur `revision` par instruction sur chaque table hors journal, sessions, comptes et
     abonnements à l'agenda (`TABLES_SANS_REVISION`), clé du cache de l'instantané ; hors de `TABLES` et de la déclaration à Matrix ; aucune vue `pub_` touchée). Une table ajoutée
     ensuite reçoit son déclencheur dans sa migration : `controlerSchema` refuse de démarrer sans lui.
+    `0015_lot11_socle.sql` (lot 11, socle commun : `pieces_objet_check` élargi d'avance aux objets `dossierOpco`,
+    `ligneFrais`, `ligneFraisSante` et `vehiculePerso` des chantiers C4 et C5 ; aucune table, aucune colonne, aucune vue
+    `pub_` ; voir « Lot 11 : socle commun »).
     Appliquées au démarrage sous `pg_advisory_lock(hashtext('cursus.migrations'))`, pris avant de lire le journal
     `cursus.schema_migrations`, une transaction par fichier ; une migration du journal inconnue de ce code (base mise à
     jour par une version plus récente) ou un schéma `cursus` absent : refus de démarrer. Puis `TABLES` est comparé au
@@ -951,7 +954,7 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   - *Contrôle du schéma* : au démarrage, `PgDb.controlerSchema` refuse un schéma sans la table `changements`, sans les
     colonnes `purge` et `epoque`, ou dont une table de `TABLES` (hors `TABLES_SANS_REVISION`) n'a pas ses quatre
     déclencheurs `revision_lignes_*` actifs. Toute table ajoutée par une migration postérieure à 0014 reçoit ses
-    déclencheurs dans sa propre migration. Les migrations publiées 0001 à 0014 sont figées par leur empreinte
+    déclencheurs dans sa propre migration. Les migrations publiées (0001 à 0015) sont figées par leur empreinte
     (`tests/purge-changements.test.ts`).
   - *Lecture brute et assemblage* (chantier 2, étape 1 ; `server/src/lecture-brute.ts`) : `loadFull` = `assembler(lireBrut(db),
     …)` plus les résumés de la paie. `lireBrut` lit les tables telles quelles (ordre de leur clé, ou de la colonne de
@@ -3898,3 +3901,29 @@ procédure dans `docs/DEPLOIEMENT.md` (« Procédure de reprise »).
   restreints) ; « Rejouer » reprend colonnes, rapprochements et date avec un fichier rechargé.
 - **Journal** : code `reprise.<type>` (`code` de la règle), type, date de reprise, case des comptes, décompte, salariés
   concernés, comptes Microsoft 365 ouverts (`comptesOuverts` : fiche et identifiant de chacun, comme `compte.creer`) ; `reprise.soldes` dans `ACTIONS_PAIE`, `reprise.visites` masqué pour la lecture seule (`ACTIONS_SANTE`).
+
+## Lot 11 : socle commun (S0)
+
+Posé seul sur `main` avant les cinq chantiers du lot 11 (C1 organigramme et entités, C2 application mobile, C3 tableaux de
+bord légaux et BDESE, C4 dossiers OPCO, C5 notes de frais), pour que deux chantiers ne créent ni ne réécrivent le même
+objet en parallèle. Aucun comportement ni type TypeScript ne change.
+
+- **Objets de pièce en PostgreSQL** (`server/migrations-pg/0015_lot11_socle.sql`) : `pieces_objet_check` admet, en plus des
+  objets existants, `dossierOpco` (C4), `ligneFrais`, `ligneFraisSante` (dépense médicale en mission, objet distinct parce
+  que la nature « santé » est portée par l'objet dans `OBJETS_PIECE`) et `vehiculePerso` (C5). Côté code, l'union
+  `ObjetPiece`, `OBJETS_PIECE` et `TABLE_OBJET` (un `Record` complet) restent inchangés : `estObjetPiece` refuse encore ces
+  objets à l'API, et chaque chantier les ajoute dans son bloc le jour où sa table existe. Aucune migration SQLite : les
+  tables y sont créées d'après `TABLES`, sans CHECK sur `objet`. `tests/lot11-socle.test.ts` vérifie que tout objet de
+  `OBJETS_PIECE` est admis par la dernière définition de la contrainte dans la chaîne des migrations.
+- **Registres vides**, remplis par les chantiers dans un bloc « // lot 11 — <module> » :
+  - `shared/hors-ligne.ts`, `ACTIONS_HORS_LIGNE` : actions que l'application, ouverte en ligne, met en file quand elle
+    perd le réseau (C2) ; chaque nom est une action du registre du serveur (contrôlé par le test) ;
+  - `shared/notifications-push.ts`, `NOTIFICATIONS_PUSH` : notifications sur le téléphone, textes fixes sans nom ni date
+    (réponse du propriétaire du 31 octobre 2026 ; le test refuse un gabarit ou un chiffre), vue ouverte connue. La table
+    `envois`, sa cible et sa file ne changent pas : le push a sa propre table (C2) ;
+  - `shared/rules/export-comptable.ts` : types du gabarit du fichier d'écritures comptables (`LigneEcriture`,
+    `GabaritExportComptable`, mêmes conventions que le fichier d'import Sage) ; le calcul et les réglages viennent avec
+    C5. Rien du plan de comptes n'y est figé : la comptabilité doit le fournir.
+- **Migrations PostgreSQL attribuées** : 0016_entites (C1), 0017_pwa (C2), 0018_indicateurs (C3), 0019_dossiers_opco (C4),
+  0020_notes_frais (C5). Une base applique les migrations manquantes même avec un trou ; l'empreinte de chacune s'ajoute à
+  `PUBLIEES` (`tests/purge-changements.test.ts`) à sa fusion.

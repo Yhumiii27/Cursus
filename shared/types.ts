@@ -1260,6 +1260,17 @@ export interface Settings {
   evaluationFroidDelai: number;
   evaluationFroidPar: RepondantsFroid;
   evaluationFroidCategories: CategorieEvaluee[];
+  // lot 11 — dossiers OPCO
+  /**
+   * Dossiers OPCO (lot 11, chantier C4, shared/rules/opco.ts) : OPCO proposé à la création (OPCO 2i), subrogation proposée,
+   * délais des échéances en jours — dépôt avant le début de la formation, justificatifs après la fin, relance d'un
+   * remboursement attendu après l'envoi des justificatifs (30, 90 et 60 par défaut, à confirmer avec le service RH).
+   */
+  opcoDefaut: CodeOpco;
+  opcoSubrogation: boolean;
+  opcoDelaiDepot: number;
+  opcoDelaiJustificatifs: number;
+  opcoDelaiRemboursement: number;
 }
 /** Catégorie d'une formation pour l'évaluation à froid : type du catalogue, ou formation hors catalogue. */
 export type CategorieEvaluee = FormationType | 'Hors catalogue';
@@ -1799,6 +1810,14 @@ export interface Dataset {
    * moins de 3 réponses n'a ni moyenne ni taux (`masque`). Absent ailleurs : calcul sur l'instantané (service RH).
    */
   indicateursEvaluation?: IndicateursEvaluation[];
+  // lot 11 — dossiers OPCO
+  /**
+   * Dossiers de prise en charge OPCO (lot 11, chantier C4, shared/rules/opco.ts) et leurs versements : complets pour le
+   * service RH ; sans motif (refus, correction, suppression, annulation d'un versement) pour la lecture seule ; rien ailleurs
+   * (server/src/dataset.ts). Absent : aucun.
+   */
+  dossiersOpco?: DossierOpco[];
+  versementsOpco?: VersementOpco[];
 }
 
 /** Catégorie de données d'un dossier, avec sa durée de conservation après la sortie (shared/rules/conservation.ts). */
@@ -1827,7 +1846,9 @@ export interface ActionResult { message: string | null; data: Dataset; result?: 
 /** Stockage des pièces justificatives (réglage `piecesStockage`). */
 export type StockagePieces = 'desactive' | 'local' | 'ged';
 /** Objet auquel une pièce est jointe : absence, certification, titre d'habilitation, document déclaré, déplacement. */
-export type ObjetPiece = 'absence' | 'certification' | 'habTitre' | 'declaration' | 'voyage';
+export type ObjetPiece = 'absence' | 'certification' | 'habTitre' | 'declaration' | 'voyage'
+  // lot 11 — dossiers OPCO : pièce d'un dossier de prise en charge, sans salarié (`empId` null).
+  | 'dossierOpco';
 /** Type de fichier accepté (contrôlé sur le contenu, pas seulement sur l'extension). */
 export type TypePiece = 'application/pdf' | 'image/jpeg' | 'image/png';
 /**
@@ -1837,7 +1858,8 @@ export type TypePiece = 'application/pdf' | 'image/jpeg' | 'image/png';
  */
 export interface Piece {
   id: number;
-  empId: number;
+  /** Salarié du dossier ; null pour la pièce d'un dossier OPCO (lot 11), qui n'est pas nominative. */
+  empId: number | null;
   objet: ObjetPiece;
   objetId: number;
   nom: string;
@@ -1851,6 +1873,8 @@ export interface Piece {
   conserverJusquau: ISODate | null;
   retireeLe: string | null;
   retireePar: string | null;
+  /** Nature de la pièce d'un dossier OPCO (lot 11 : facture, accord, convention…) ; absente pour les autres objets. */
+  nature?: NaturePiece | null;
 }
 
 // — Compte professionnel de prévention (t052, shared/rules/c2p.ts) —
@@ -1919,4 +1943,59 @@ export interface LignePasseport {
   /** Intérimaire : la déclaration revient en principe à l'entreprise de travail temporaire (à vérifier avec elle). */
   interim: boolean;
   declareLe: ISODate | null;
+}
+
+// lot 11 — dossiers OPCO (chantier C4, shared/rules/opco.ts)
+/** Opérateurs de compétences agréés (onze depuis 2019) ; OPCO 2i pour les industries chimiques (IDCC 0044). */
+export type CodeOpco = 'opco2i' | 'atlas' | 'akto' | 'afdas' | 'constructys' | 'ocapiat' | 'opcoep' | 'mobilites' | 'sante' | 'uniformation' | 'commerce';
+/** Dispositif de prise en charge. */
+export type DispositifOpco = 'plan' | 'pro_a' | 'contrat_pro' | 'apprentissage' | 'tutorat' | 'versement_volontaire' | 'autre';
+/** État d'un dossier : à déposer → déposé → accordé ou refusé → facturé → remboursé → soldé ; abandonné à tout moment avant. */
+export type StatutOpco = 'a_deposer' | 'depose' | 'accorde' | 'refuse' | 'facture' | 'rembourse' | 'solde' | 'abandonne';
+/** Motif codé d'un refus de l'OPCO (jamais de texte libre). */
+export type MotifRefusOpco = 'hors_criteres' | 'delai_depasse' | 'budget_epuise' | 'organisme_non_certifie' | 'autre';
+/** Motif codé d'un abandon du dossier. */
+export type MotifAbandonOpco = 'formation_annulee' | 'non_eligible' | 'hors_delai' | 'renonciation' | 'autre';
+/** Écart accordé − reçu figé au solde : aucun, perte (accord perdu), prise en charge partielle. */
+export type EcartSoldeOpco = 'aucun' | 'perte' | 'partiel';
+/** Destinataire d'un versement : l'entreprise (remboursement), ou l'organisme de formation (subrogation). */
+export type DestinataireVersementOpco = 'entreprise' | 'organisme';
+/** Nature d'une pièce d'un dossier OPCO (colonne `pieces.nature`). */
+export type NaturePiece = 'demande' | 'accord' | 'convention' | 'programme' | 'convocation' | 'emargement' | 'certificat_realisation' | 'facture' | 'avis_paiement' | 'autre';
+/**
+ * Dossier de prise en charge par l'OPCO, rattaché à une action du plan de formation (`planActionId`) ; `empId` est réservé
+ * aux dossiers d'alternance et Pro-A (plus tard) : null aujourd'hui, dossier non nominatif. Montants en euros, dates
+ * « AAAA-MM-JJ ». Les motifs (`refusMotif` codé, `corrigeMotif`, `annuleMotif` : textes du service RH) ne sont transmis
+ * qu'au service RH. Supprimé (`annuleLe`, saisie erronée) : gardé en base, hors de l'instantané.
+ */
+export interface DossierOpco {
+  id: number; planActionId: number | null; empId: number | null; exercice: number;
+  opco: CodeOpco; dispositif: DispositifOpco; statut: StatutOpco;
+  /** Numéro du dossier chez l'OPCO (identifiant administratif). */
+  reference: string | null;
+  /** Dates prévues de la formation et heures. */
+  du: ISODate | null; au: ISODate | null; heures: number | null; effectif: number | null;
+  /** Montant demandé : coûts pédagogiques et, si le dispositif le prévoit, frais annexes ou rémunération. */
+  montantDemande: number | null; montantDemandeAnnexes: number | null;
+  /** Paiement direct de l'organisme par l'OPCO (subrogation) : rien n'est à récupérer par l'entreprise. */
+  subrogation: boolean;
+  /** Organisme de formation, saisi sur le dossier en attendant un référentiel : SIRET, déclaration d'activité, Qualiopi. */
+  organismeSiret: string | null; organismeNda: string | null; organismeQualiopi: boolean;
+  deposeLe: ISODate | null;
+  accordLe: ISODate | null; montantAccorde: number | null; accordReference: string | null; plafondHoraire: number | null;
+  refusLe: ISODate | null; refusMotif: MotifRefusOpco | null;
+  /** Justificatifs envoyés (demande de remboursement) : date et montant facturé. */
+  factureLe: ISODate | null; montantFacture: number | null;
+  /** Solde : écart accordé − reçu figé et qualifié. */
+  soldeLe: ISODate | null; soldeEcart: number | null; soldeNature: EcartSoldeOpco | null;
+  abandonLe: ISODate | null; abandonMotif: MotifAbandonOpco | null;
+  creeLe: string; creePar: string;
+  corrigeLe?: ISODate | null; corrigePar?: string | null; corrigeMotif?: string | null;
+  annuleLe?: ISODate | null; annulePar?: string | null; annuleMotif?: string | null;
+}
+/** Versement de l'OPCO (acompte, solde) ; annulé avec un motif quand il a été saisi par erreur (hors des sommes). */
+export interface VersementOpco {
+  id: number; dossierId: number; le: ISODate; montant: number; destinataire: DestinataireVersementOpco; reference: string | null;
+  saisiLe: string; saisiPar: string;
+  annuleLe?: string | null; annulePar?: string | null; annuleMotif?: string | null;
 }

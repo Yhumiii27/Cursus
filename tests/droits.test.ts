@@ -153,6 +153,18 @@ const evaluationDonnee = async () => (await db.insert<{ id: number }>('evaluatio
   empId: 2, participationId: await participationClose(), formationSuivieId: null, type: 'froid', repondant: 'salarie', note: null, efficacite: 'efficace',
   commentaire: 'Utile sur le terrain', le: '2026-10-01', auteur: 'Mehdi Benali', auteurId: 2,
 })).id;
+// lot 11 — dossiers OPCO
+/** Dossier OPCO de la ligne prévue du plan (FCO de la Logistique), dans l'état voulu ; renvoie son identifiant. */
+const dossierOpco = async (statut = 'a_deposer', champs: Record<string, unknown> = {}) => (await db.insert<{ id: number }>('dossiersOpco', {
+  planActionId: await lignePrevue(), empId: null, exercice: 2026, opco: 'opco2i', dispositif: 'plan', statut, du: '2026-11-16', au: '2026-11-17', subrogation: false,
+  organismeQualiopi: true, creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Sandrine Vidal',
+  ...(statut === 'a_deposer' ? {} : { deposeLe: '2026-10-01' }), ...(['accorde', 'facture', 'rembourse'].includes(statut) ? { accordLe: '2026-10-02', montantAccorde: 1200 } : {}),
+  ...(['facture', 'rembourse'].includes(statut) ? { factureLe: '2026-10-05', montantFacture: 1200 } : {}), ...champs,
+})).id;
+/** Versement de 600 € reçu le 6 octobre sur un dossier remboursé ; renvoie son identifiant. */
+const versementOpco = async () => (await db.insert<{ id: number }>('versementsOpco', {
+  dossierId: await dossierOpco('rembourse'), le: '2026-10-06', montant: 600, destinataire: 'entreprise', reference: null, saisiLe: '2026-10-06T08:00:00.000Z', saisiPar: 'Sandrine Vidal',
+})).id;
 /** Réglages modifiés pour l'essai (transaction annulée ensuite). */
 const reglages = async (r: Record<string, unknown>) => await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), ...r });
 /** Mehdi sorti à la date (démission), conservation des dossiers activée avec la décision du DPO ; renvoie son identifiant. */
@@ -259,6 +271,22 @@ const MATRICE: Ligne[] = [
   // de l'avis (ici le salarié) et le service RH.
   { action: 'evaluation.enregistrer', droits: '              O    O    O    -    O    -    -    -    -', p: async () => ({ participationId: await participationClose(), type: 'froid', efficacite: 'efficace', repondant: 'salarie' }) },
   { action: 'evaluation.retirer', droits: '                  O    O    -    -    O    -    -    -    -', p: async () => ({ id: await evaluationDonnee() }) },
+  // lot 11 — dossiers OPCO : service RH ; retour d'un cran, annulation d'un versement et suppression, administrateur RH ;
+  // ni le manager, ni le collaborateur, ni les profils restreints (lecture seule : consultation sans action).
+  { action: 'opco.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: async () => ({ planActionId: await lignePrevue(), dispositif: 'plan', du: '2026-11-16', au: '2026-11-17' }) },
+  { action: 'opco.modifier', droits: '                     O    O    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco(), heures: 14 }) },
+  { action: 'opco.deposer', droits: '                      O    O    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco(), de: 'a_deposer', reference: 'OPCO2I-2026-001' }) },
+  { action: 'opco.accorder', droits: '                     O    O    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco('depose'), de: 'depose', montantAccorde: 1200 }) },
+  { action: 'opco.refuser', droits: '                      O    O    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco('depose'), de: 'depose', motif: 'budget_epuise' }) },
+  { action: 'opco.facturer', droits: '                     O    O    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco('accorde'), de: 'accorde', montantFacture: 1200 }) },
+  { action: 'opco.versement', droits: '                    O    O    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco('facture'), montant: 1200, le: '2026-10-06' }) },
+  { action: 'opco.annulerVersement', droits: '            O    -    -    -    -    -    -    -    -', p: async () => ({ id: await versementOpco(), motif: 'Versement saisi deux fois' }) },
+  { action: 'opco.solder', droits: '                       O    O    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco('facture'), de: 'facture', nature: 'perte' }) },
+  { action: 'opco.abandonner', droits: '                   O    O    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco(), de: 'a_deposer', motif: 'formation_annulee' }) },
+  { action: 'opco.rouvrir', droits: '                      O    -    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco('depose'), de: 'depose', motif: 'Dépôt enregistré par erreur' }) },
+  { action: 'opco.supprimer', droits: '                    O    -    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco(), motif: 'Dossier créé deux fois' }) },
+  // Pièce d'un dossier OPCO (lot 11), sans salarié : service RH seulement.
+  { action: 'piece.joindre', variante: 'dossier OPCO', droits: '  O    O    -    -    -    -    -    -    -', p: async u => await ({ jetons: [await pieceEnvoyee(u)], objet: 'dossierOpco', objetId: await dossierOpco(), nature: 'convention' }) },
   { action: 'demande.refuser', droits: '                     O    O    -    -    -    -    O    -    -', p: async () => ({ id: await demande('aipr') }) },
   // Demande retirée par son auteur seul (Mehdi pour la sienne, Karim pour celle qu'il a faite pour Mehdi), tant qu'elle
   // attend ; rouverte par le service RH ou le référent HSE.

@@ -399,6 +399,8 @@ export const TABLES = {
       deposeLe: 'text', deposePar: 'text', deposeCompteId: 'int', conserverJusquau: 'text', retireeLe: 'text', retireePar: 'text', retireeMotif: 'text',
       // Fichier chiffré au repos (lot 8, chantier D, server/src/pieces-chiffrement.ts) : 0012_pieces_chiffrees.sql.
       chiffree: 'bool',
+      // lot 11 — dossiers OPCO : nature d'une pièce de dossier (facture, accord…), shared/rules/opco.ts ; 0019_dossiers_opco.sql.
+      nature: 'text',
     },
     unique: [['jeton'], ['fichier']],
   },
@@ -461,6 +463,29 @@ export const TABLES = {
       commentaire: 'text', le: 'text', auteur: 'text', auteurId: 'int',
     },
     unique: [['participationId', 'type', 'repondant'], ['formationSuivieId', 'type', 'repondant']],
+  },
+  // lot 11 — dossiers OPCO (chantier C4, server/src/actions/opco.ts, shared/rules/opco.ts ; migration PostgreSQL
+  // 0019_dossiers_opco.sql) : dossier de prise en charge rattaché à une action du plan (`planActionId`), `empId` réservé aux
+  // dossiers d'alternance (plus tard, jamais rempli aujourd'hui) ; états datés, montants, organisme (SIRET, déclaration
+  // d'activité, Qualiopi) ; motif de refus codé ; correction et suppression (saisie erronée) datées, signées et motivées
+  // (textes du service RH, jamais au journal). Versements de l'OPCO (`dossierId`), annulés avec un motif, jamais supprimés.
+  dossiersOpco: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', planActionId: 'int', empId: 'int', exercice: 'int', opco: 'text', dispositif: 'text', statut: 'text', reference: 'text',
+      du: 'text', au: 'text', heures: 'real', effectif: 'int', montantDemande: 'real', montantDemandeAnnexes: 'real', subrogation: 'bool',
+      organismeSiret: 'text', organismeNda: 'text', organismeQualiopi: 'bool',
+      deposeLe: 'text', accordLe: 'text', montantAccorde: 'real', accordReference: 'text', plafondHoraire: 'real', refusLe: 'text', refusMotif: 'text',
+      factureLe: 'text', montantFacture: 'real', soldeLe: 'text', soldeEcart: 'real', soldeNature: 'text', abandonLe: 'text', abandonMotif: 'text',
+      creeLe: 'text', creePar: 'text', corrigeLe: 'text', corrigePar: 'text', corrigeMotif: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+    },
+  },
+  versementsOpco: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', dossierId: 'int', le: 'text', montant: 'real', destinataire: 'text', reference: 'text', saisiLe: 'text', saisiPar: 'text',
+      annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+    },
   },
 } satisfies Record<string, TableDef>;
 

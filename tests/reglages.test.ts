@@ -87,6 +87,9 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // Lot 7, chantier C (t121) : évaluation des formations activée ; à froid 90 jours après, par le salarié et son manager
     // (réponse de l'entreprise du 23 octobre 2026), formations réglementaires et recommandées.
     evaluationsActives: true, evaluationFroidDelai: 90, evaluationFroidPar: 'les_deux', evaluationFroidCategories: ['Réglementaire', 'Recommandée'],
+    // lot 11 — dossiers OPCO : OPCO 2i, sans subrogation ; dépôt 30 jours avant, justificatifs 90 jours après, relance du
+    // remboursement à 60 jours (à confirmer avec le service RH).
+    opcoDefaut: 'opco2i', opcoSubrogation: false, opcoDelaiDepot: 30, opcoDelaiJustificatifs: 90, opcoDelaiRemboursement: 60,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(await loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

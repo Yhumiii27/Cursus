@@ -1763,8 +1763,13 @@ aucun champ du paramètre n'est recopié.
 | `budget.enveloppes` | exercice, enveloppes {équipe: montant} ; exercice clos refusé | RH |
 | `plan.avancer` | id, de? (statut affiché : déjà dépassé, rien n'est refait ; revenu à « prévue », refus), coutReel (vers « réalisé », exigé : euros, 0 accepté), effectifReel?, beneficiaires? [empId] avec du, au?, duree? (t116 : formation suivie d'origine `plan` pour chacun, membre de l'équipe de la ligne ou demandeur d'une demande acceptée qui l'a créée ; refus si une session clôturée réalise la ligne) ; exercice clos ou action reportée refusés | RH |
 | `plan.modifier` | id, f? (vide : hors catalogue), libelle?, equipe?, periode? (`T1`…`T4`), effectif? (1 à 1 000), cout? (0 à 1 000 000 €), motif (obligatoire) ; ligne prévue ou engagée d'un exercice ouvert ; une session ouverte rattachée fige la formation | RH |
-| `plan.supprimer` | id, motif (obligatoire) : ligne prévue ou engagée d'un exercice ouvert, sans session ouverte rattachée (l'annuler d'abord) ; gardée en base (`annuleLe`…), hors de l'instantané et des sommes | administrateur RH |
+| `plan.supprimer` | id, motif (obligatoire) : ligne prévue ou engagée d'un exercice ouvert, sans session ouverte rattachée (l'annuler d'abord) ni dossier OPCO actif (lot 11) ; gardée en base (`annuleLe`…), hors de l'instantané et des sommes | administrateur RH |
 | `plan.cloturerExercice` | exercice (passé et ouvert : jamais l'exercice en cours), reporter [id] (actions prévues ou engagées à reporter sur l'exercice suivant) | administrateur RH |
+| `opco.creer` | planActionId (action du plan non reportée ; exercice clos admis), dispositif? (`plan` par défaut), opco? et subrogation? (réglages `opcoDefaut`, `opcoSubrogation`), reference? (code sans espace, 40 caractères), du?, au?, heures?, effectif?, montantDemande?, montantDemandeAnnexes? (dispositifs qui les prévoient), organismeSiret? (clé de Luhn), organismeNda? (11 chiffres), organismeQualiopi? : dossier « à déposer » (lot 11, `controlerSaisieOpco` de shared/rules/opco.ts) | RH |
+| `opco.modifier` | id + champs de `opco.creer` envoyés ; motif exigé une fois le dossier déposé (correction : `corrigeLe`…) ; soldé, refusé ou abandonné : rouvrir d'abord | RH |
+| `opco.deposer` / `opco.accorder` / `opco.refuser` / `opco.facturer` / `opco.solder` / `opco.abandonner` | id, de? (état affiché : transition déjà faite, rien n'est refait ; autre état, refus), date du fait (aujourd'hui par défaut, jamais future ni avant l'étape précédente) ; accorder : montantAccorde, accordReference?, plafondHoraire? ; refuser, abandonner : motif codé (`MOTIFS_REFUS_OPCO`, `MOTIFS_ABANDON_OPCO`) ; facturer (justificatifs envoyés) : montantFacture, facture et certificat de réalisation (ou émargement) joints quand les pièces sont activées ; solder : écart accordé − reçu figé, nature (`perte` ou `partiel`) s'il en reste un ; jamais de refus pour un exercice clos | RH |
+| `opco.versement` | id (dossier accordé, justificatifs envoyés ou remboursé), montant (> 0), le?, destinataire? (`entreprise`, ou `organisme` par défaut en subrogation), reference?, versements? (nombre affiché : au-delà, double clic, rien n'est enregistré) → « remboursé » | RH |
+| `opco.annulerVersement` / `opco.rouvrir` / `opco.supprimer` | id (versement ou dossier), de? (retour d'un cran), motif (obligatoire, jamais au journal) : versement gardé hors des sommes (dernier annulé : état d'avant) ; retour d'un cran (`statutPrecedent`, champs de l'état quitté effacés ; remboursé : annuler le versement d'abord) ; dossier saisi par erreur gardé hors de l'instantané, refusé avec un versement ou une pièce en vigueur | administrateur RH |
 | `temps.setCell` | empId, week, li, di (0 = lundi … 5 = samedi, 6 = dimanche), value ; une ligne de 5 valeurs est complétée à 7 | salarié, manager direct ou RH (feuille soumise : valideur uniquement) ; aucune heure un jour d’absence validée ou signalée, ni hors contrat, vider la cellule reste possible ; pas de feuille pour une semaine hors contrat ; samedi et dimanche saisissables, repos hebdomadaire signalé sans blocage ; jour férié saisissable si `feriesTravaillesAutorises` (par défaut), saisie tracée (`temps.ferie`, ou `temps.correction` par autrui) |
 | `temps.derogationDominicale` | equipe, type (`aucune`/`feu_continu`/`suppleance`), reference (exigée hors `aucune`, 120 caractères ; journal : seulement « renseignée ») : clé `derogationsDominicales` de la table settings, suit l'équipe renommée et disparaît avec l'équipe supprimée | administrateur RH |
 | `temps.horaire` | empId, week, di (0 = lundi … 6 = dimanche), code (« » : aucun horaire ; un horaire archivé ne se choisit plus) : horaire de poste du jour, au niveau de la feuille ; seuls les choix y sont inscrits ; l'horaire retenu, avec ses heures, est figé à part à la soumission et à la validation (`horairesAFiger`, `FeuilleTemps.horairesFiges` : les jours non choisis qui portent des heures reçoivent l'horaire de l'équipe) ; tracé quand il est choisi par autrui | comme `temps.setCell` (salarié, manager direct ou RH ; feuille soumise : valideur) |
@@ -3927,3 +3932,53 @@ objet en parallèle. Aucun comportement ni type TypeScript ne change.
 - **Migrations PostgreSQL attribuées** : 0016_entites (C1), 0017_pwa (C2), 0018_indicateurs (C3), 0019_dossiers_opco (C4),
   0020_notes_frais (C5). Une base applique les migrations manquantes même avec un trou ; l'empreinte de chacune s'ajoute à
   `PUBLIEES` (`tests/purge-changements.test.ts`) à sa fusion.
+
+## Lot 11 : dossiers OPCO (C4, étape 1)
+
+Suivi des prises en charge de l'OPCO (OPCO 2i par défaut) rattachées aux actions du plan de formation, en version allégée
+(réponse de l'entreprise du 31 octobre 2026 : quelques dossiers par an ; ni export comptable des versements, ni aide au
+montage, ni dossiers d'alternance). Règles pures : `shared/rules/opco.ts` ; actions : `server/src/actions/opco.ts` ; tables
+`dossiersOpco` et `versementsOpco` (`server/src/db.ts`, migration PostgreSQL `0019_dossiers_opco.sql`). Les écrans (Plan &
+budget, Paramètres, Échéances) et l'export CSV viennent avec l'étape 2.
+
+- **Dossier** : action du plan (`planActionId`, FK `restrict`), exercice de l'action (les montants y sont comptés), OPCO et
+  dispositif (listes fermées), numéro de dossier, dates et heures prévues, effectif, montants demandés (frais annexes pour
+  les seuls dispositifs qui les prévoient), subrogation, organisme (SIRET, déclaration d'activité, Qualiopi) saisi sur le
+  dossier en attendant un référentiel. `empId` est réservé aux dossiers d'alternance (plus tard) : null aujourd'hui, dossier
+  non nominatif ; ses pièces seraient refusées tant qu'ils ne sont pas cadrés.
+- **États** : à déposer → déposé → accordé ou refusé → justificatifs envoyés → remboursé (au moins un versement, un acompte
+  peut suivre l'accord) → soldé ; abandonné avant le solde. Transitions contrôlées par `controleTransition` avec l'état
+  affiché (`de`) ; retour d'un cran par l'administrateur RH (`statutPrecedent`, motif gardé comme une correction). **Un
+  exercice clos ne bloque rien** (pas de `refuserExerciceClos`) : les remboursements arrivent après la clôture.
+- **Montants calculés, jamais stockés** (`montantsOpco`) : attendu = accordé, ou facturé s'il est plus bas ; à récupérer =
+  attendu − reçu par l'entreprise (rien en subrogation : le paiement de l'organisme est suivi à part) ; reste à charge =
+  coût retenu de l'action − prise en charge (`resteACharge`) ; écart au solde figé et qualifié (`ecartAuSolde`) ; synthèse
+  par exercice, OPCO, dispositif, équipe et trimestre (`syntheseOpco`).
+- **Ligne du plan** : `plan.supprimer` (et la réouverture d'une demande qui avait créé la ligne) est refusé tant qu'un dossier
+  actif (ni refusé, ni abandonné, ni supprimé) y est rattaché (`refusLigneAvecDossier`) ; au report d'une action par la
+  clôture de l'exercice, ses dossiers actifs suivent la nouvelle ligne et son exercice (`transfererDossiers`).
+- **Pièces sans salarié** : objet `dossierOpco` (`OBJETS_PIECE`, `TABLE_OBJET`, `OBJETS_SANS_SALARIE` de
+  `shared/rules/pieces.ts`), `pieces.emp_id` NULL et `pieces.nature` (facture, accord, convention…) exigée à `piece.joindre`
+  (service RH). `voitPiece` : service RH seulement (droit « rh »), jamais par l'égalité de deux identifiants absents ;
+  `piecesDe` garde ces pièces malgré l'absence de salarié ; les pièces des autres objets gardent leurs règles
+  (`tests/opco-actions.test.ts`). Facture et accord : `conserverJusquau` à 10 ans après la fin de l'exercice
+  (`conservationPieceOpco`, art. L123-22 du Code de commerce). Avec les pièces activées, la demande de remboursement attend la
+  facture et le certificat de réalisation (à défaut, les feuilles d'émargement) ; les autres pièces attendues
+  (`piecesAttendues`) sont signalées, jamais exigées.
+- **Instantané** : `dossiersOpco` et `versementsOpco` (dossier supprimé écarté avec ses versements) complets pour le droit
+  « rh » ; la lecture seule les reçoit sans aucun motif (refus, correction, suppression, annulation d'un versement) ; rien
+  pour le référent HSE, la paie, le manager et le collaborateur (`CHAMPS_HORS_VUES`). Cache incrémental : deux tables à
+  révision, `LECTURES` (`versementsOpco` dépend aussi de `dossiersOpco`), déclencheurs `revision_lignes_*` posés par 0019,
+  banc d'oracle étendu (tirages des actions OPCO, acteur du service RH, SQL direct sur les deux tables).
+- **Journal** (famille « Formations, plan et budget », hors `ACTIONS_PAIE`) : dossier, action du plan, exercice, états avant
+  et après, dates, codes, référence contrôlée ; montants des seuls dossiers non nominatifs (sinon `[montant modifié]`) ;
+  jamais un motif (codes de refus et d'abandon compris, ni dans le message), ni le nom d'une pièce (sa nature seulement).
+- **Relances** (`relancesOpco`, server/src/relances.ts) : une par dossier en cours et par étape, clé `opco:<id>:<étape>`
+  (`depot`, `accord`, `justificatifs`, `remboursement`), aux paliers réglés puis échue, à la seule boîte du service RH
+  (`rhSeul`) : l'action du plan et l'échéance, ni montant ni nom. Délais réglables (`opcoDelaiDepot` 30 jours avant le début,
+  accord attendu 7 jours avant, `opcoDelaiJustificatifs` 90 jours après la fin, `opcoDelaiRemboursement` 60 jours après
+  l'envoi des justificatifs), à confirmer avec le service RH.
+- **Matrix** : aucune vue `pub_` ; motifs commentés « Sensible » dans 0019 et demande de fermeture
+  `docs/demandes/matrix-lot11-opco.sql` (lue par `tests/colonnes-sensibles.ts` avec les autres demandes du lot 11, rejouée
+  par la CI sur le socle d'essai).
+

@@ -18,6 +18,7 @@ import type { Certification, DemandeCollab, Employe, HabTitre, Inscription, Part
 import { annulerSiConvoque } from '../notifications.ts';
 import { defaireAttente, promouvoirAttentes, retirerInscription } from '../liste-attente.ts';
 import { refuserExerciceClos } from './budget.ts';
+import { refusLigneAvecDossier } from './opco.ts';
 import { attendCloture, signaler } from './conformite.ts';
 import { clore, rendre } from './inscriptions-closes.ts';
 import { ActionError, type ActionHandler, type Ctx, getEmp, refuserSoiMeme, requireFormations, requireRh, requireRhAdmin, str } from './context.ts';
@@ -212,6 +213,9 @@ const supprimerLigne: ActionHandler = async (ctx, p) => {
   const l = ligneOf(ctx, p.id);
   const refus = refusSuppressionLigne(ctx.d, l);
   if (refus) throw new ActionError(`${nomLigne(ctx, l)} : ${refus}`);
+  // lot 11 — dossiers OPCO : une ligne qui porte un dossier actif ne se supprime pas.
+  const opco = await refusLigneAvecDossier(ctx, l.id);
+  if (opco) throw new ActionError(`${nomLigne(ctx, l)} : ${opco}`);
   refuserExerciceClos(ctx, l.exercice);
   const motif = motifDe(p);
   await ctx.db.update<PlanAction>('planActions', l.id, marque(ctx, 'annule', motif));
@@ -309,6 +313,9 @@ async function defaireAcceptation(ctx: Ctx, r: DemandeCollab, emp: Employe, moti
     if (l.statut !== 'prevu' || sessionsDeLaLigne(ctx.d, l).length) {
       throw new ActionError(`La ligne du plan ${l.exercice} ajoutée par l’acceptation est déjà ${l.statut === 'prevu' ? 'rattachée à une session' : l.statut === 'engage' ? 'engagée' : l.statut === 'realise' ? 'réalisée' : 'reportée'} : la demande ne se rouvre plus`);
     }
+    // lot 11 — dossiers OPCO : la ligne retirée ne doit porter aucun dossier actif.
+    const opco = await refusLigneAvecDossier(ctx, l.id);
+    if (opco) throw new ActionError(`La ligne du plan ${l.exercice} ajoutée par l’acceptation porte un dossier OPCO : ${opco}`);
     await ctx.db.update<PlanAction>('planActions', l.id, marque(ctx, 'annule', motif));
     return { texte: `ligne retirée du plan de formation ${l.exercice}`, defait: { planId: l.id } };
   }

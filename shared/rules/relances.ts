@@ -45,7 +45,9 @@ export function palierDe(jours: number, paliers: readonly number[]): string | nu
 /** Intitulé d'un palier dans le récapitulatif. */
 export const titrePalier = (palier: string) => (palier === 'echu' ? 'Échéances dépassées' : `Sous ${palier} jours`);
 
-export type CategorieRelance = 'formation' | 'habilitation' | 'visite' | 'formalite' | 'sanitaire' | 'deplacement' | 'entretien' | 'contrat' | 'couverture';
+export type CategorieRelance = 'formation' | 'habilitation' | 'visite' | 'formalite' | 'sanitaire' | 'deplacement' | 'entretien' | 'contrat' | 'couverture'
+  // lot 11 — dossiers OPCO (shared/rules/opco.ts, `relancesOpco`)
+  | 'opco';
 
 /** Objet relancé : clé stable (avec la date de l'échéance : un renouvellement repart de zéro), salarié, libellé neutre. */
 export interface Relance {
@@ -62,6 +64,9 @@ export interface Relance {
   equipe?: string;
   /** Couverture calculée pour le référent HSE, sans les absences hors chantiers (clé `hse:couverture:…`) : à lui seul. */
   hse?: boolean;
+  // lot 11 — dossiers OPCO
+  /** Échéance propre au service RH, sans salarié (`empId` 0) : dossier OPCO (`opco:<id>:<étape>`), à sa seule boîte. */
+  rhSeul?: boolean;
 }
 
 /**

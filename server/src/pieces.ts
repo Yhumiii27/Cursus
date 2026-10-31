@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { droitsRh } from '../../shared/constants.ts';
 import { plural } from '../../shared/format.ts';
-import { DELAI_PIECE_EN_ATTENTE_MS, voitPiece } from '../../shared/rules/pieces.ts';
+import { DELAI_PIECE_EN_ATTENTE_MS, OBJETS_SANS_SALARIE, voitPiece } from '../../shared/rules/pieces.ts';
 import type { CurrentUser, ObjetPiece, Piece, StockagePieces } from '../../shared/types.ts';
 import { dossierPieces, fichierBase } from './chemins.ts';
 import { clePieces, refusPiecesLocales } from './config.ts';
@@ -153,13 +153,17 @@ export const empreinte = (octets: Buffer) => createHash('sha256').update(octets)
 /** Table de chaque objet : la pièce y désigne une ligne par son identifiant (contrôle d'intégrité, server/src/integrite.ts). */
 export const TABLE_OBJET: Record<ObjetPiece, TableName> = {
   absence: 'absences', certification: 'certifications', habTitre: 'habTitres', declaration: 'demandesCollab', voyage: 'voyages',
+  // lot 11 — dossiers OPCO
+  dossierOpco: 'dossiersOpco',
 };
 
 /** Description transmise au navigateur : ni nom stocké, ni jeton, ni motif du retrait. */
 function description(p: PieceEnregistree): Piece {
   return {
-    id: p.id, empId: p.empId!, objet: p.objet!, objetId: p.objetId!, nom: p.nom, type: p.type, taille: p.taille, empreinte: p.empreinte,
+    id: p.id, empId: p.empId ?? null, objet: p.objet!, objetId: p.objetId!, nom: p.nom, type: p.type, taille: p.taille, empreinte: p.empreinte,
     deposeLe: p.deposeLe, deposePar: p.deposePar, conserverJusquau: p.conserverJusquau ?? null, retireeLe: p.retireeLe ?? null, retireePar: p.retireePar ?? null,
+    // Nature d'une pièce de dossier OPCO (lot 11) : seulement quand elle est renseignée, les autres pièces restant telles quelles.
+    ...(p.nature ? { nature: p.nature } : {}),
   };
 }
 
@@ -170,7 +174,8 @@ export async function lirePieces(db: Db): Promise<Piece[]> {
 
 /** Description des pièces jointes à un objet, tirée des lignes de la table (lecture brute de l'instantané, server/src/lecture-brute.ts). */
 export function piecesDe(lignes: readonly PieceEnregistree[]): Piece[] {
-  return lignes.filter(p => p.objet && p.objetId && p.empId).map(description);
+  // Une pièce jointe désigne le salarié de son objet, sauf celle d'un objet sans salarié (dossier OPCO, lot 11).
+  return lignes.filter(p => p.objet && p.objetId && (p.empId || OBJETS_SANS_SALARIE.has(p.objet))).map(description);
 }
 
 /**

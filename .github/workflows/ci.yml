@@ -260,6 +260,8 @@ jobs:
       - name: Demande à Matrix appliquée au socle d'essai
         run: |
           psql -d epc2i -v ON_ERROR_STOP=1 -q -1 -f docs/demandes/matrix-lot8-colonnes-sensibles.sql
+          # Demandes des chantiers du lot 11, une par fichier (docs/demandes/matrix-lot11-*.sql).
+          for f in docs/demandes/matrix-lot11-*.sql; do [ -e "$f" ] && psql -d epc2i -v ON_ERROR_STOP=1 -q -1 -f "$f"; done
           psql -d epc2i -v ON_ERROR_STOP=1 -At -c "SELECT gravite, objet, constat FROM droits.verifier() WHERE gravite = 'erreur'" | tee erreurs-demande.txt
           test ! -s erreurs-demande.txt
           psql -d epc2i -v ON_ERROR_STOP=1 -At -f scripts/colonnes-sensibles-pg.sql | tee sensibles-demande.txt

@@ -291,6 +291,19 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'agenda.creerJeton': 'Abonnement à l’agenda personnel créé',
   'agenda.revoquerJeton': 'Abonnement à l’agenda personnel révoqué',
   'agenda.revoquerTout': 'Tous les abonnements aux agendas révoqués',
+  // lot 11 — dossiers OPCO (server/src/actions/opco.ts) : famille « Formations, plan et budget ».
+  'opco.creer': 'Dossier OPCO créé',
+  'opco.modifier': 'Dossier OPCO modifié',
+  'opco.deposer': 'Dossier OPCO déposé',
+  'opco.accorder': 'Accord de l’OPCO enregistré',
+  'opco.refuser': 'Refus de l’OPCO enregistré',
+  'opco.facturer': 'Justificatifs envoyés à l’OPCO',
+  'opco.versement': 'Versement de l’OPCO enregistré',
+  'opco.annulerVersement': 'Versement de l’OPCO annulé (saisie erronée)',
+  'opco.solder': 'Dossier OPCO soldé',
+  'opco.abandonner': 'Dossier OPCO abandonné',
+  'opco.rouvrir': 'Dossier OPCO rouvert (retour d’un cran)',
+  'opco.supprimer': 'Dossier OPCO supprimé (saisie erronée)',
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
@@ -317,7 +330,7 @@ export const dossierComplet = (u: Pick<CurrentUser, 'role' | 'profilRh'>) => dro
 /** Familles du filtre « Action » : codes commençant par l'un des préfixes (ou égaux à l'un d'eux). */
 export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly string[] }[] = [
   { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.', 'migration.contratsHistorique'] },
-  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel', 'attente.', 'passeport.', 'evaluation.', 'migration.passeportPrevention'] },
+  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel', 'attente.', 'passeport.', 'evaluation.', 'migration.passeportPrevention', 'opco.'] },
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.', 'migration.habDelivrances'] },
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
@@ -442,6 +455,14 @@ export const CHAMP_LABEL: Record<string, string> = {
   astreinteDelaiPrevenance: 'Astreintes : délai de prévenance (jours)', astreinteCompensation: 'Astreintes : forme de la compensation',
   astreinteMineurs: 'Astreintes : salariés mineurs admis', astreinteAccord: 'Référence de l’accord sur les astreintes',
   communiqueLe: 'Communiquée le',
+  // lot 11 — dossiers OPCO : réglages et colonnes d'un dossier (montants des seuls dossiers non nominatifs).
+  opcoDefaut: 'OPCO proposé', opcoSubrogation: 'Subrogation proposée', opcoDelaiDepot: 'OPCO : dépôt avant le début (jours)',
+  opcoDelaiJustificatifs: 'OPCO : justificatifs après la fin (jours)', opcoDelaiRemboursement: 'OPCO : relance du remboursement (jours)',
+  opco: 'OPCO', dispositif: 'Dispositif', reference: 'Numéro de dossier', montantDemande: 'Montant demandé', montantDemandeAnnexes: 'Frais annexes demandés',
+  subrogation: 'Subrogation', organismeSiret: 'SIRET de l’organisme', organismeNda: 'Déclaration d’activité de l’organisme', organismeQualiopi: 'Organisme certifié Qualiopi',
+  deposeLe: 'Déposé le', accordLe: 'Accordé le', montantAccorde: 'Montant accordé', accordReference: 'Référence de l’accord', plafondHoraire: 'Plafond horaire',
+  refusLe: 'Refusé le', refusMotif: 'Motif du refus', factureLe: 'Justificatifs envoyés le', montantFacture: 'Montant facturé', soldeLe: 'Soldé le',
+  soldeEcart: 'Écart au solde', soldeNature: 'Nature de l’écart', abandonLe: 'Abandonné le', abandonMotif: 'Motif de l’abandon', planActionId: 'Action du plan',
 };
 
 const valeur = (v: unknown): string => {

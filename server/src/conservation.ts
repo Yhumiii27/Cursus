@@ -90,6 +90,9 @@ export const TRAITEMENTS: Record<string, Traitement> = {
   // formations suivies qu'elles désignent ; l'auteur (nom) retiré par le balayage des textes.
   'declarations_passeport.emp_id': { mode: 'gardee' },
   'declarations_passeport.auteur_id': { mode: 'auteur' },
+  // lot 11 — dossiers OPCO : colonne réservée aux dossiers d'alternance (plus tard), jamais remplie aujourd'hui ; un dossier
+  // est une pièce comptable de l'entreprise, gardé (montants sans nom une fois la fiche anonymisée).
+  'dossiers_opco.emp_id': { mode: 'gardee' },
 };
 
 /**

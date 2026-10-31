@@ -39,6 +39,8 @@ import { memoParEntrees, memoParObjet, sansMemo } from './memo-vues.ts';
 import type { AttenteSession } from '../../shared/types.ts';
 import { exercicesEvaluation, indicateursEvaluation, SEUIL_ANONYMAT } from '../../shared/rules/evaluation-formation.ts';
 import type { EvaluationFormation } from '../../shared/types.ts';
+// lot 11 — dossiers OPCO
+import type { DossierOpco } from '../../shared/types.ts';
 
 /** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
 export const DEFAULT_SETTINGS: Settings = REGLAGES_DEFAUT;
@@ -549,6 +551,9 @@ export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre 
     // consultation N+2 ; interventions déclarées du périmètre, comme les feuilles de temps qui portent leurs heures.
     astreintes: mine(full.astreintes ?? []).map(a => (lecture.has(a.empId) ? astreinteSansMotif(a) : a)).map(a => (a.empId !== user.empId ? astreinteSansPaie(a) : a)),
     interventionsAstreinte: mine(full.interventionsAstreinte ?? []),
+    // lot 11 — dossiers OPCO : service RH et lecture seule seulement (CHAMPS_HORS_VUES, server/src/vues-cache.ts).
+    dossiersOpco: [],
+    versementsOpco: [],
   }, lues);
 }
 
@@ -750,7 +755,15 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // indicateurs agrégés, calculés ici sur toutes les données, sans moyenne ni taux sous 3 réponses ; rien pour la paie.
     evaluationsFormation: [],
     ...(formations ? { indicateursEvaluation: exercicesEvaluation(d).map(ex => indicateursEvaluation(d, ex, SEUIL_ANONYMAT)) } : {}),
+    // lot 11 — dossiers OPCO : avec le plan et le budget (lecture seule), sans aucun motif (refus, correction, suppression,
+    // annulation d'un versement) ; rien pour le référent HSE et la paie.
+    dossiersOpco: lecture ? (full.dossiersOpco ?? []).map(dossierOpcoSansMotif) : [],
+    versementsOpco: lecture ? (full.versementsOpco ?? []).map(v => (v.annuleMotif ? { ...v, annuleMotif: null } : v)) : [],
   };
 }
+
+// lot 11 — dossiers OPCO
+/** Dossier OPCO transmis à la lecture seule : sans le motif codé d'un refus, ni ceux d'une correction ou d'une suppression. */
+const dossierOpcoSansMotif = (x: DossierOpco): DossierOpco => (x.refusMotif || x.corrigeMotif || x.annuleMotif ? { ...x, refusMotif: null, corrigeMotif: null, annuleMotif: null } : x);
 
 

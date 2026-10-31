@@ -27,6 +27,8 @@ import type {
   Equipe, EvaluationFormation, ExerciceClos, FeuilleTemps, Formation, FormationSuivie, FormatFichierPaie, Fractionnement, HabDelivrance, HabTitre, HabType,
   Horaire, InformationCp, Inscription, InterventionAstreinte, LotPaie, LotReprise, Mandat, Messagerie, Mission, Participation, PlanAction, Poste, Projet,
   ReleveInterim, ReportCp, RubriquePaie, Session, Settings, SoldeReprise, SoldeSortie, TacheKeystone, Vaccination, Visa, Voyage,
+  // lot 11 — dossiers OPCO
+  DossierOpco, VersementOpco,
 } from '../../shared/types.ts';
 import type { Db, TableName } from './db.ts';
 import { formatFichierDe } from './lots-paie.ts';
@@ -114,6 +116,9 @@ export interface Brut {
   astreinteInterventions: InterventionAstreinte[];
   declarationsPasseport: DeclarationPasseport[];
   evaluationsFormation: EvaluationFormation[];
+  // lot 11 — dossiers OPCO (supprimés compris : `assembler` les écarte)
+  dossiersOpco: DossierOpco[];
+  versementsOpco: VersementOpco[];
   reglages: ReglagesBruts;
   /** Statut de l'e-mail de chaque relevé (envois désignés par `releves.envoiId` seulement). */
   statutsEnvoi: ReadonlyMap<number, Envoi['statut']>;
@@ -225,6 +230,9 @@ export async function lireBrut(db: Db): Promise<Brut> {
     astreinteInterventions: await lire('astreinteInterventions'),
     declarationsPasseport: await lire('declarationsPasseport'),
     evaluationsFormation: await lire('evaluationsFormation'),
+    // lot 11 — dossiers OPCO
+    dossiersOpco: await lire('dossiersOpco'),
+    versementsOpco: await lire('versementsOpco'),
     reglages: await lireReglages(db),
     statutsEnvoi: await statutsDesEnvois(db, releves),
   };
@@ -329,6 +337,12 @@ const piecesDeBrut = memo((lignes: PieceEnregistree[]) => piecesDe(lignes));
 const settingsDe = memo((app: ReglagesBruts['app']) => reglagesDe(app));
 const formatDe = memo((f: Partial<FormatFichierPaie>) => formatFichierDe(f));
 const messagerieDeBrut = memo((m: Partial<Messagerie>) => messagerieDe(m));
+// lot 11 — dossiers OPCO : un dossier supprimé (saisie erronée, `opco.supprimer`) sort de l'instantané, avec ses versements.
+const dossiersOpcoDe = memo((lignes: DossierOpco[]) => lignes.filter(d => !d.annuleLe));
+const versementsOpcoDe = memo((lignes: VersementOpco[], dossiers: DossierOpco[]) => {
+  const supprimes = new Set(dossiers.filter(d => d.annuleLe).map(d => d.id));
+  return supprimes.size ? lignes.filter(v => !supprimes.has(v.dossierId)) : lignes;
+});
 const referentielsDe = memo((formations: Formation[], habilitations: HabType[], destinations: Destination[], postes: Poste[], equipes: Equipe[], horaires: Horaire[], projets: Projet[], chantiers: Chantier[]) =>
   ({ formations, habilitations, destinations, postes, equipes, horaires, projets, chantiers }));
 
@@ -403,6 +417,9 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     attentesSession,
     declarationsPasseport: brut.declarationsPasseport,
     evaluationsFormation: brut.evaluationsFormation,
+    // lot 11 — dossiers OPCO
+    dossiersOpco: dossiersOpcoDe(brut.dossiersOpco),
+    versementsOpco: versementsOpcoDe(brut.versementsOpco, brut.dossiersOpco),
   };
 }
 
@@ -459,6 +476,9 @@ const LECTURES_ASSEMBLEES = {
   attentesSession: ['attentesSession'],
   declarationsPasseport: ['declarationsPasseport'],
   evaluationsFormation: ['evaluationsFormation'],
+  // lot 11 — dossiers OPCO
+  dossiersOpco: ['dossiersOpco'],
+  versementsOpco: ['versementsOpco', 'dossiersOpco'],
 } as const satisfies Partial<Record<keyof Dataset, readonly TableName[]>>;
 
 /**

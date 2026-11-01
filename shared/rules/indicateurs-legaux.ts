@@ -245,6 +245,13 @@ export const presentA = (e: Pick<Employe, 'entree' | 'fin'>, date: ISODate) => e
 const presentDurant = (e: Pick<Employe, 'entree' | 'fin'>, du: ISODate, au: ISODate) => e.entree <= au && (!e.fin || e.fin >= du);
 /** Intérimaire : salarié de l'entreprise de travail temporaire, hors des effectifs de l'entreprise utilisatrice (sauf L1111-2). */
 const interim = (e: Employe) => e.typeContrat === 'interim';
+
+/**
+ * Fiche à compléter pour les indicateurs (étape 2) : salarié présent à `date`, hors intérimaires (absents des tableaux par
+ * sexe et par catégorie), sans sexe ou sans catégorie d'emploi. Une seule échéance agrégée pour le service RH (« N fiches
+ * sans sexe ou catégorie », écran Échéances) et le filtre « À compléter » de l'annuaire, jamais une échéance par fiche.
+ */
+export const aCompleterIndicateurs = (e: Employe, date: ISODate) => presentA(e, date) && !interim(e) && (!e.sexe || !e.categorie);
 /** CDD ou mission de remplacement d'un salarié absent : exclu de l'effectif L1111-2. */
 const remplacement = (e: Employe) => e.motifRecours === 'remplacement' || e.motifRecours === 'remplacement_suppression';
 

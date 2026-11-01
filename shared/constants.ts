@@ -566,7 +566,9 @@ export const TRIMESTRES = ['T1', 'T2', 'T3', 'T4'] as const;
 export const ALLOWED_VIEWS = {
   // `miseEnService` : reprise depuis Lucca, ouverte depuis Paramètres (hors du menu ; imports réservés à l'administrateur RH).
   // `prevention` : compte professionnel de prévention (lot 7, shared/rules/c2p.ts), service RH, référent HSE et lecture seule.
-  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'miseEnService', 'prevention'],
+  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'miseEnService', 'prevention',
+    // lot 11 — indicateurs : indicateurs sociaux légaux (BDESE, index d'égalité), droit « consultation » (service RH et lecture seule).
+    'indicateurs'],
   manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions'],
   collaborateur: ['portail', 'temps', 'absences', 'entretiens'],
 } as const;
@@ -616,7 +618,9 @@ export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits:
   lecture_seule: {
     label: 'Lecture seule', espace: 'Lecture', droits: ['consultation'],
     aide: 'Direction, DPO, auditeur : tableaux de bord, alertes et journal des actions, sans rien modifier ; ni données de santé détaillées, ni dossiers de voyage',
-    vues: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'echeances', 'budget', 'chantiers', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'prevention'],
+    vues: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'echeances', 'budget', 'chantiers', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'prevention',
+      // lot 11 — indicateurs
+      'indicateurs'],
   },
   // lot 11 — notes de frais : réponse du propriétaire du 31 octobre 2026 (contrôle après le manager par un nouveau profil
   // « Comptabilité », accès limité aux frais, frais médicaux compris). L'écran des frais vient à l'étape 2 du chantier.

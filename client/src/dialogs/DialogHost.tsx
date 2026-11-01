@@ -70,6 +70,8 @@ import { AstreinteDialog } from './AstreinteDialog.tsx';
 import { InterventionAstreinteDialog } from './InterventionAstreinteDialog.tsx';
 import { SuiviDialog } from './SuiviDialog.tsx';
 import { VisiteDialog } from './VisiteDialog.tsx';
+// lot 11 — indicateurs
+import { ArreteCseDialog } from './ArreteCseDialog.tsx';
 
 export function DialogHost() {
   const { dialog: d } = useStore();
@@ -151,5 +153,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'interventionAstreinte': return <InterventionAstreinteDialog {...d} />;
     case 'evaluation': return <EvaluationDialog {...d} />;
     case 'confirmer': return <ConfirmerDialog c={d.c} />;
+    // lot 11 — indicateurs
+    case 'arreteCse': return <ArreteCseDialog {...d} />;
   }
 }

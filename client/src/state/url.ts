@@ -11,6 +11,9 @@
 import { isValidDate, weekday } from '../../../shared/dates.ts';
 import type { Dataset } from '../../../shared/types.ts';
 import type { UiState, View } from './store.tsx';
+// lot 11 — indicateurs
+import { anneeIndicateursValide, GROUPES_INDICATEURS } from '../../../shared/rules/indicateurs-legaux.ts';
+import { ONGLETS_INDICATEURS } from '../pages/indicateurs-onglets.ts';
 
 /** Paramètre de l'adresse : champ de UiState, nom affiché, valeur par défaut (absente de l'adresse), lecture contrôlée. */
 interface Param<K extends keyof UiState = keyof UiState> {
@@ -84,7 +87,7 @@ export const PARAMS_URL: Partial<Record<View, Param[]>> = {
   collaborateurs: [
     identifiant('selectedId', 'fiche', d => d.employes),
     equipe,
-    choix('statut', 'statut', 'tous', { ok: 'a-jour', due: 'a-renouveler', exp: 'non-conforme', sortis: 'sortis' }),
+    choix('statut', 'statut', 'tous', { ok: 'a-jour', due: 'a-renouveler', exp: 'non-conforme', sortis: 'sortis', /* lot 11 — indicateurs */ acompleter: 'a-completer' }),
   ],
   temps: [identifiant('tsEmp', 'salarie', d => d.employes), semaine],
   formations: [
@@ -104,6 +107,16 @@ export const PARAMS_URL: Partial<Record<View, Param[]>> = {
     formations: 'formations', habilitations: 'habilitations', postes: 'postes', destinations: 'destinations', activites: 'activites',
   })],
   budget: [exercice, choix('planFilter', 'statut', 'tous', { prevu: 'prevu', engage: 'engage', realise: 'realise', reporte: 'reporte' })],
+  // lot 11 — indicateurs : onglet, année civile et groupement (jamais de date libre : l'année seulement).
+  indicateurs: [
+    choix('indOnglet', 'onglet', 'effectifs', Object.fromEntries(ONGLETS_INDICATEURS.map(o => [o, o]))),
+    param<'indAnnee'>({
+      cle: 'indAnnee', nom: 'annee', defaut: null,
+      lire: brut => { const a = entier(brut); return a != null && anneeIndicateursValide(a) ? a : undefined; },
+      ecrire: v => String(v),
+    }),
+    choix('indGroupe', 'groupe', 'aucun', Object.fromEntries(Object.keys(GROUPES_INDICATEURS).map(g => [g, g]))),
+  ],
 };
 
 /**

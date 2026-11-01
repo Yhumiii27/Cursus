@@ -337,6 +337,30 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
   réservés au service RH. Le contact d'urgence est sur la fiche du salarié (« Contact d’urgence »), qu'il saisit depuis son
   espace.
 
+### Indicateurs sociaux et BDESE
+
+- Écran « Indicateurs sociaux » (service RH et lecture seule ; ni manager, ni référent HSE, ni paie) : effectifs (fin
+  d'année, moyen de la Sécurité sociale, ETP, Code du travail), mouvements et rotation, absentéisme, formation, âges et
+  ancienneté de l'année civile, sans groupement ou par sexe, catégorie d'emploi, statut, contrat ou équipe. Chaque tableau
+  donne la définition retenue et sa complétude (fiches sans sexe ou catégorie, absences à qualifier, durées inconnues).
+- Seuil d'anonymat : une case qui porte sur moins de 5 personnes (réglable de 3 à 10) s'affiche « < 5 », et une autre
+  l'est aussi quand un total permettrait de la retrouver par différence. Jamais de liste nominative ; le calcul se fait
+  sur le serveur.
+- Onglet « BDESE » : rubriques 1° (investissement social) et 2° (égalité professionnelle) de l'article R2312-9 sur les
+  années N-2, N-1 et N ; les rubriques 3° à 10° (finances, rémunérations, activités sociales, environnement) sont listées
+  avec leur source (Sage, comptabilité, Vigie). Le CSE n'a pas d'accès à Cursus : « Imprimer » ou « Exporter (CSV) », puis
+  déposez le document dans la BDESE.
+- Onglet « Égalité » : effectifs pris en compte pour l'index par catégorie et par sexe, groupes valides, retours de congé
+  de maternité. Les indicateurs 1, 2 et 4 (rémunérations, augmentations) se calculent dans Sage ou sur Egapro.
+- Onglet « Arrêtés » : en janvier, l'administrateur RH arrête l'année close ; ses chiffres sont figés (« Chiffres
+  arrêtés », ou « Calcul du jour » au choix) et les purges de conservation ne les changent plus. Une erreur : annuler
+  l'arrêté avec un motif (lu par le service RH seulement), puis en prendre un nouveau. Après le dépôt, « Mis à disposition
+  du CSE » note la date.
+- Fiche : sexe et catégorie d'emploi (ouvrier, employé, technicien ou agent de maîtrise, cadre), saisis par le service RH
+  ou repris de Lucca ou de Sage, visibles du service RH et du salarié seulement. Les fiches incomplètes forment une seule
+  ligne des Échéances (« Compléter les fiches », filtre « Indicateurs à compléter » de l'annuaire). Seuil et absences
+  comptées : Paramètres → Indicateurs sociaux (administrateur RH).
+
 ## Gestionnaire de paie
 
 Profil « Gestionnaire de paie » (interne ou cabinet extérieur, compte externe) ou administrateur RH : écrans Feuilles de

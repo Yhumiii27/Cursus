@@ -4161,6 +4161,61 @@ masquage. Écrans, BDESE, égalité, impression, saisie sur la fiche et échéan
   catégorie des 24 fiches, une sans sexe et une sans catégorie.
 - **Réglages** : `indicateursSeuil` (entier de 3 à 10, 5) et `absenteismeNatures` (natures cochées, au moins une ; défaut :
   maladie, longue maladie, AT, trajet, MP, enfant malade, sans solde, injustifiée), section de Paramètres à l'étape 2.
+## Lot 11 : indicateurs sociaux légaux et BDESE (C3, t197), étape 2
+
+Écrans, BDESE et égalité, impression et export, saisie sur la fiche, échéance agrégée, réglages, essai de charge et
+demandes ; le calcul et les données sont ceux de l'étape 1 (section précédente), inchangés.
+
+- **Écran** `indicateurs` (`client/src/pages/Indicateurs.tsx`, menu Pilotage → « Indicateurs sociaux ») : ouvert par
+  `ALLOWED_VIEWS.rh` et les `vues` de la lecture seule (droit « consultation ») ; ni le manager, ni le référent HSE, ni la
+  paie, ni la comptabilité. Adresse (`PARAMS_URL.indicateurs`) : `?onglet=&annee=&groupe=` (`indOnglet`, `indAnnee` — null :
+  l'année en cours —, `indGroupe` de `UiState`) ; onglets de `pages/indicateurs-onglets.ts` : Effectifs, Mouvements,
+  Absentéisme, Formation, Âges et ancienneté, BDESE, Égalité, Arrêtés. Jamais de date libre : l'année civile seulement.
+- **Lecture** (`client/src/indicateurs-api.ts`, à part de `api.ts`, propriété du chantier C2) : `GET /api/indicateurs` avec
+  l'en-tête d'espace (garde `exigerNavigationInterne('appel')`), relue quand l'instantané change de révision ; les réponses
+  précédentes restent affichées pendant une relecture. Le navigateur n'additionne ni ne soustrait rien : chaque chiffre est
+  une case de la réponse, « < k » (`<abbr>` expliqué) quand elle est masquée. Une année qui a un arrêté en vigueur
+  s'affiche d'après lui (`?arrete=`), « Calcul du jour » au choix ; le groupement par équipe n'est jamais figé.
+- **Graphiques** (`client/src/components/graphiques/`) : barres horizontales et pyramide en SVG faits maison, sans
+  bibliothèque, couleurs par les classes `graph-*` de `styles/app.css` (CSP `style-src 'self'`), `role="img"` avec `<title>`
+  et `<desc>` qui donne toutes les valeurs ; une case masquée n'a jamais de longueur (cadre en pointillé et « < k »).
+  Tableaux : légende, `th scope`, total en gras, défilement horizontal sur téléphone.
+- **BDESE** (onglet, `pages/indicateurs-vue.ts`) : années N-2, N-1, N, chacune lue sur son arrêté en vigueur s'il existe
+  (`GROUPES_BDESE` : ensemble, sexe, catégorie, contrat, tous figés par l'arrêté) ; rubrique 1° (effectifs, contrats,
+  catégories, âges, ancienneté, mouvements, formation, absentéisme) et 2° (par sexe : effectif, embauches, sorties,
+  formation, absentéisme ; effectifs de l'index par catégorie) ; ce que ces rubriques demandent et que Cursus n'a pas
+  (`MANQUES_BDESE` : handicap, stagiaires, temps partiel, accidents, perspectives, promotions, rémunérations) et les
+  rubriques 3° à 10° (`RUBRIQUES_HORS_CURSUS`) listés avec leur source. **Égalité** : effectifs pris en compte, groupes
+  valides, retours de congé de maternité, indicateurs 1, 2 et 4 « Hors Cursus » (état « données manquantes »).
+- **Arrêtés** (onglet) : « Arrêter <année close> » (administrateur RH, confirmation `confirmationArreter` par le dialogue
+  « confirmer »), « Annuler » (motif obligatoire, `confirmationAnnuler` : le motif reste avec l'arrêté, jamais au journal),
+  « Mis à disposition du CSE » (service RH, `dialogs/ArreteCseDialog.tsx` : date contrôlée comme le serveur, ni future ni
+  avant l'arrêté). La lecture seule consulte sans bouton, sans auteurs ni motif (déjà filtrés par `dataset.ts`).
+- **Impression et export** : « Imprimer » (`printDocument`, impression signalée au journal par son titre seul) de l'onglet,
+  de la BDESE (`sectionsBdese`) ou de l'Égalité (`sectionsEgalite`) ; « Exporter (CSV) » télécharge le fichier produit et
+  tracé par le serveur (`indicateurs.export`), jamais `downloadCsv`.
+- **Fiche** (`dialogs/EmployeDialog.tsx`, section « Indicateurs sociaux ») : sexe et catégorie en listes fermées, service RH
+  seulement (le formulaire du manager ne les a pas) ; catégorie proposée d'après le statut par un bouton « Reprendre »,
+  jamais remplie d'office. **Échéance agrégée** : une seule ligne des Échéances (`components/IndicateursACompleter.tsx`,
+  service RH) « N fiches sans sexe ou catégorie d'emploi », règle `aCompleterIndicateurs` (présent à la date, hors
+  intérimaires), bouton « Compléter les fiches » vers l'annuaire filtré « Indicateurs à compléter » (`statut=a-completer`).
+  Renvoi depuis le panneau de formation de Plan & budget (`IndicateursFormation.tsx`).
+- **Paramètres → Indicateurs sociaux** (`pages/parametres/Indicateurs.tsx`) : seuil (3 à 10) et natures comptées dans
+  l'absentéisme, par catégorie d'absence ; modifiables par l'administrateur RH, au moins une nature gardée.
+- **Essai de charge** (`npm run charge:indicateurs`, `scripts/charge/mesure-indicateurs.ts`, base SQLite temporaire, jeu de
+  la fabrique sur 3 ans, sexe et catégorie tirés) — budgets : premier calcul d'une année < 800 ms, réponse mémorisée
+  < 20 ms, onglet BDESE à froid (12 calculs) < 6 s, arrêté < 4 s. Mesuré le 1er novembre 2026 (conteneur de développement) :
+  120 fiches : premier calcul 471 ms (lecture de l'instantané comprise), par sexe ensuite 101 ms, mémoire 0 ms, BDESE
+  1 355 ms, arrêté 535 ms, réponse 14 ko, arrêté 79 ko — budgets tenus. 600 fiches (marge) : 3 118 ms, 517 ms, 0 ms,
+  6 977 ms, 2 660 ms — premier calcul et BDESE au-delà du budget, pour cinq fois l'effectif du site : à remesurer si
+  l'effectif dépasse 300 (calcul des quatre groupements en un passage, ou arrêtés précalculés).
+- **Demandes** (`docs/demandes/matrix-lot11-indicateurs.md`) : fermeture des colonnes sensibles (prioritaire, lignes SQL
+  dans `matrix-lot11-indicateurs.sql`), vue future `pub_indicateurs_rh` (agrégats d'arrêtés), heures travaillées pour Vigie
+  et accidents avec arrêt ; aucune n'est écrite dans un autre dépôt.
+- **Tests** : `tests/client-indicateurs.test.ts` (écran avec le vrai calcul du serveur derrière un fetch remplacé, arrêtés
+  selon le profil, dialogue du CSE, fiche, échéance, section de Paramètres, adresse, mise en forme),
+  `tests/indicateurs-legaux.test.ts` (`aCompleterIndicateurs`).
+
 ## Lot 11 : dossiers OPCO (C4, étape 1)
 
 Suivi des prises en charge de l'OPCO (OPCO 2i par défaut) rattachées aux actions du plan de formation, en version allégée

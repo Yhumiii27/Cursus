@@ -16,6 +16,9 @@ import { VUES_COMMUNES, vuesDe, type ALLOWED_VIEWS, type HabMesureAction } from 
 import { mondayOf } from '../../../shared/dates.ts';
 import type { FormaliteKind, UiIntent } from '../../../shared/domain.ts';
 import type { ReferentielId } from '../../../shared/rules/referentiels.ts';
+// lot 11 — indicateurs
+import type { GroupeIndicateurs } from '../../../shared/rules/indicateurs-legaux.ts';
+import type { OngletIndicateurs } from '../pages/indicateurs-onglets.ts';
 import type { CompteSession, Dataset, EntretienType, ISODate, MotifVisite, ObjetPiece, PlanStatut, ProfilRh, Role, VaccinId } from '../../../shared/types.ts';
 import type { RepondantEvaluation, TypeEvaluation } from '../../../shared/types.ts';
 import { api, definirEspaceOnglet, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type NomAction, type SessionState } from '../api.ts';
@@ -35,7 +38,9 @@ export interface UiState {
   search: string;
   equipe: string;
   /** Statut de conformité affiché dans Collaborateurs, ou les salariés sortis (`sortis`). */
-  statut: 'tous' | 'ok' | 'due' | 'exp' | 'sortis';
+  statut: 'tous' | 'ok' | 'due' | 'exp' | 'sortis'
+    // lot 11 — indicateurs : fiches sans sexe ou catégorie d'emploi (service RH, échéance agrégée des Échéances).
+    | 'acompleter';
   selectedId: number | null;
   typeForm: 'toutes' | 'reg' | 'rec' | 'int';
   formationFilter: string | null;
@@ -55,6 +60,11 @@ export interface UiState {
   tsJour: number | null;
   /** Tri choisi par un clic sur un en-tête, par liste (components/tri.ts) ; absent : l'ordre par défaut de l'écran. */
   tris: Partial<Record<string, Tri | null>>;
+  // lot 11 — indicateurs
+  /** Écran Indicateurs sociaux (pages/Indicateurs.tsx) : onglet, année civile (null : l'année en cours) et groupement. */
+  indOnglet: OngletIndicateurs;
+  indAnnee: number | null;
+  indGroupe: GroupeIndicateurs;
 }
 
 const INITIAL_UI: UiState = {
@@ -63,6 +73,8 @@ const INITIAL_UI: UiState = {
   refOnglet: 'formations',
   tsJour: null,
   tris: {},
+  // lot 11 — indicateurs
+  indOnglet: 'effectifs', indAnnee: null, indGroupe: 'aucun',
 };
 
 /** Dialogues ouverts depuis plusieurs écrans — rendus par <DialogHost />. */
@@ -162,7 +174,9 @@ export type DialogState =
   /** Évaluation d'une formation (lot 7, t121) : `cle` de shared/rules/evaluation-formation.ts, à chaud ou à froid, avis de qui. */
   | { type: 'evaluation'; cle: string; quand: TypeEvaluation; repondant?: RepondantEvaluation }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
-  | { type: 'confirmer'; c: Confirmation };
+  | { type: 'confirmer'; c: Confirmation }
+  // lot 11 — indicateurs : mise à disposition du CSE d'un arrêté annuel des indicateurs sociaux.
+  | { type: 'arreteCse'; id: number };
 
 /** Dialogue « Planifier » : rouvert après la création d'une session (t107). */
 export type DialogePlan = { type: 'plan'; empId: number; certId?: number; inscriptionId?: number };

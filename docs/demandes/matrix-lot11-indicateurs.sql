@@ -4,7 +4,7 @@
 -- droits_ddl du socle les donnerait à matrix_lecture. Ce fichier n'est jamais exécuté sur le serveur commun par Cursus :
 -- il propose les lignes à reporter dans infra/postgres/init/03-droits.sql de Matrix (bloc « Convention du 15/10/2026 »),
 -- et la CI de Cursus le rejoue sur son socle d'essai. Le reste de la demande (vue future pub_indicateurs_rh, heures
--- travaillées pour Vigie) est écrit à l'étape 2 du chantier, sans rien écrire dans le dépôt de Matrix.
+-- travaillées pour Vigie) est dans matrix-lot11-indicateurs.md, sans rien écrire dans le dépôt de Matrix.
 --   psql -d epc2i -v ON_ERROR_STOP=1 -1 -f docs/demandes/matrix-lot11-indicateurs.sql   (superutilisateur)
 INSERT INTO droits.colonnes_sensibles (schema_nom, table_nom, colonne_nom, motif, origine) VALUES
   -- Données de la fiche réservées au service RH et à l'intéressé (index d'égalité, BDESE) ; jamais dans une vue pub_.

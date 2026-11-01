@@ -31,6 +31,8 @@ import { amorcerHoraires } from './migrations/lot6-horaires.ts';
 import { amorcerActiviteAstreinte } from './migrations/lot7-astreintes.ts';
 // lot 12 — C4 (organismes de formation et e-learning)
 import { organismesDemo } from './seed-organismes.ts';
+// lot 12 — C5 (planning d'équipe)
+import { amorcerCycles } from './migrations/lot12-planning.ts';
 
 // Mode de validation : évaluation réussie pour les habilitations électriques, CACES, SST, ATEX, AIPR et PRAP ;
 // la présence suffit pour les sensibilisations et formations d'information.
@@ -535,6 +537,8 @@ export async function seedDemo(db: Db) {
     // l'Administration, équipe du matin à la Production (2x8 : l'après-midi se choisit sur la feuille).
     await amorcerHoraires(db);
     for (const [nom, horaire] of [['Maintenance', 'J'], ['Administration', 'J'], ['Production', 'M']]) await db.update('equipes', nom, { horaire });
+    // lot 12 — C5 (planning d'équipe) : modèles de cycles (Journée, 2x8, 3x8, 5x8), comme la migration d'une base neuve.
+    await amorcerCycles(db);
     // Mandat au CSE de Julien Moreau : titulaire, crédit de la table R2314-1 pour une centaine de salariés.
     await db.insert('mandats', { empId: 8, role: 'titulaire', du: '2025-11-01', au: null, credit: 21 });
 

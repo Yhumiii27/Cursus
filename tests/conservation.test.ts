@@ -183,6 +183,10 @@ const TEXTES_GARDES: Record<string, readonly string[]> = {
   // (noms) balayés.
   inscriptions_elearning: ['inscrit_le', 'inscrit_par', 'echeance', 'statut', 'avancement_source', 'avancement_le', 'declare_le', 'termine_le', 'reussi',
     'abandon_le', 'corrige_le', 'corrige_par', 'annule_le', 'annule_par'],
+  // lot 12 — C5 (planning d'équipe) : jour, équipe, horaire et heures, statut et origine codés, dates ; auteurs (noms) balayés.
+  creneaux: ['jour', 'equipe', 'horaire', 'debut', 'fin', 'source', 'statut', 'publie_le', 'publie_par', 'communique_le', 'cree_le', 'cree_par', 'modifie_le', 'modifie_par', 'annule_le', 'annule_par'],
+  roulements: ['cycle', 'groupe', 'du', 'au', 'equipe', 'cree_le', 'cree_par', 'fin_le', 'fin_par'],
+  echanges_poste: ['statut', 'cree_le', 'accepte_le', 'decide_le', 'decide_par'],
 };
 
 test('conservation : chaque colonne de texte libre d’une table gardée (mode « textes ») est vidée ou sur la liste blanche', async () => {

@@ -25,6 +25,8 @@ export function DelegationDialog({ managerId }: { managerId: number }) {
   const entretiens = d.ds.settings.delegationEntretiens;
   // lot 11 — notes de frais : périmètre proposé seulement le module activé.
   const frais = !!d.ds.settings.notesFraisActives;
+  // lot 12 — C5 (planning d'équipe)
+  const planning = !!d.ds.settings.planningActif;
   const [perimetre, setPerimetre] = useState<PerimetreDelegation[]>(['absences', 'feuilles']);
   const [busy, setBusy] = useState(false);
   const v = useVerification();
@@ -61,7 +63,7 @@ export function DelegationDialog({ managerId }: { managerId: number }) {
         </div>
         <Field label="Le suppléant valide" erreur={v.erreur(erreurPerimetre)}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
-            {(Object.keys(PERIMETRES_DELEGATION) as PerimetreDelegation[]).filter(p => (p !== 'entretiens' || entretiens) && (p !== 'frais' || frais) && /* lot 12 — C5 (planning d'équipe) : fermé au socle */ p !== 'planning').map(p => (
+            {(Object.keys(PERIMETRES_DELEGATION) as PerimetreDelegation[]).filter(p => (p !== 'entretiens' || entretiens) && (p !== 'frais' || frais) && /* lot 12 — C5 (planning d'équipe) : module activé */ (p !== 'planning' || planning)).map(p => (
               <label key={p} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14, cursor: 'pointer' }}>
                 <input type="checkbox" checked={perimetre.includes(p)} onChange={ev => basculer(p, ev.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
                 {PERIMETRES_DELEGATION[p].label}

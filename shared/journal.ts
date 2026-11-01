@@ -401,7 +401,24 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'elearning.abandonner': 'Inscription à un module d’e-learning abandonnée',
   'elearning.corriger': 'Inscription à un module d’e-learning corrigée',
   'elearning.annuler': 'Inscription à un module d’e-learning supprimée (saisie erronée)',
-  // lot 12 — C5 (planning d'équipe)
+  'planning.cycle.creer': 'Cycle de roulement créé',
+  'planning.cycle.modifier': 'Cycle de roulement modifié',
+  'planning.cycle.archiver': 'Cycle de roulement archivé ou rétabli',
+  'planning.besoin.creer': 'Besoin par poste enregistré',
+  'planning.besoin.modifier': 'Besoin par poste modifié',
+  'planning.besoin.archiver': 'Besoin par poste archivé',
+  'planning.roulement.affecter': 'Salarié affecté à un cycle de roulement',
+  'planning.roulement.terminer': 'Affectation au roulement terminée',
+  'planning.generer': 'Planning d’équipe généré (brouillon)',
+  'planning.creneau.ajouter': 'Créneau ajouté au planning',
+  'planning.creneau.modifier': 'Créneau du planning modifié',
+  'planning.creneau.annuler': 'Créneau du planning annulé ou retiré',
+  'planning.publier': 'Planning d’équipe publié',
+  'planning.echange.proposer': 'Échange de poste proposé',
+  'planning.echange.accepter': 'Échange de poste accepté par le collègue',
+  'planning.echange.valider': 'Échange de poste validé',
+  'planning.echange.refuser': 'Échange de poste refusé',
+  'planning.echange.annuler': 'Échange de poste retiré',
   // lot 12 — C6 (badgeage virtuel)
 };
 
@@ -436,7 +453,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes', /* lot 12 — C4 */ 'organisme.', 'migration.organismes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
   { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement', 'migration.referencesDeplacements', 'chantier.', 'migration.deplacementsPaie'] },
-  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'forfait.', 'astreinte.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie', 'migration.rubriquesFeuilles'] },
+  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'forfait.', 'astreinte.', /* lot 12 — C5 (planning d'équipe) */ 'planning.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie', 'migration.rubriquesFeuilles'] },
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.', /* lot 12 — C3 (entretiens suivis et 360°) */ 'objectif.', 'feedback360.'] },
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
@@ -603,7 +620,13 @@ export const CHAMP_LABEL: Record<string, string> = {
   montantHt: 'Montant HT', valableDu: 'Valable du', valableAu: 'Valable jusqu’au', url: 'Lien d’accès', intitule: 'Intitulé', langue: 'Langue',
   coutLicence: 'Coût d’une licence', accesMois: 'Validité de l’accès (mois)', attestationRequise: 'Attestation exigée', declareLe: 'Fin déclarée le',
   termineLe: 'Terminé le', suivieId: 'Formation suivie', certId: 'Certification',
-  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C5 (planning d'équipe) : réglages, colonnes d'un cycle, d'un besoin par poste et d'une affectation.
+  planningActif: 'Planning d’équipe activé', planningDelaiPrevenance: 'Planning : délai de prévenance (jours)',
+  planningReposQuotidienAccord: 'Planning : repos quotidien de l’accord (heures)', planningNuitJour: 'Planning : durée d’un poste de nuit (heures)',
+  planningNuitMoyenne: 'Planning : moyenne du travailleur de nuit sur 12 semaines (heures)', planningAccord: 'Référence de l’accord sur le planning',
+  planningCollegues: 'Planning des collègues visible du salarié',
+  longueur: 'Longueur du cycle (jours)', sequence: 'Séquence des horaires', groupes: 'Groupes et décalages', origine: 'Jour d’origine du cycle',
+  effectifMin: 'Effectif minimal', posteId: 'Poste', exigences: 'Exigences du créneau',
   // lot 12 — C6 (badgeage virtuel)
 };
 

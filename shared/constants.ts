@@ -295,6 +295,9 @@ export const EMAIL_LABEL: Record<string, string> = {
   // au salarié, efficacité à froid demandée au manager pour son équipe ; demandes puis relances, sans note ni commentaire.
   'evaluation.demande': 'Évaluation d’une formation à donner',
   'evaluation.manager': 'Efficacité des formations de l’équipe à évaluer',
+  // lot 12 — C5 (planning d'équipe, server/src/planning-envois.ts) : au salarié, aussitôt ; étapes d'un échange de poste.
+  'planning.publie': 'Planning publié', 'planning.modifie': 'Planning modifié', 'planning.annule': 'Poste annulé',
+  'planning.echange.demande': 'Échange de poste à traiter', 'planning.echange.decision': 'Décision sur un échange de poste',
 };
 export const CIBLE_LABEL = { keystone: 'Keystone', sage: 'Sage Paie', email: 'E-mail' } as const;
 export const MODE_NOTIFICATION_LABEL = { immediat: 'Aussitôt', quotidien: 'Récapitulatif quotidien' } as const;

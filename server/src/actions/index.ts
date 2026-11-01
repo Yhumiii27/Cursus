@@ -71,6 +71,7 @@ import { souhaitsActions } from './souhaits.ts';
 import { organismesActions } from './organismes.ts';
 import { elearningActions } from './elearning.ts';
 // lot 12 — C5 (planning d'équipe)
+import { planningActions } from './planning.ts';
 // lot 12 — C6 (badgeage virtuel)
 
 /**
@@ -152,6 +153,7 @@ const REGISTRE = {
   ...organismesActions,
   ...elearningActions,
   // lot 12 — C5 (planning d'équipe)
+  ...planningActions,
   // lot 12 — C6 (badgeage virtuel)
 } satisfies Record<string, ActionHandler>;
 

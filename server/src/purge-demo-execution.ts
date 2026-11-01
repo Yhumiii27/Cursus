@@ -31,6 +31,8 @@ import { ACTION_PURGE_DEMO } from './marqueurs.ts';
 import { amorcerActiviteFormation } from './migrations/formations.ts';
 import { amorcerHoraires } from './migrations/lot6-horaires.ts';
 import { amorcerActiviteAstreinte } from './migrations/lot7-astreintes.ts';
+// lot 12 — C5 (planning d'équipe)
+import { amorcerCycles } from './migrations/lot12-planning.ts';
 import { amorcerActivites } from './migrations/temps.ts';
 import { depotDe, dossierPiecesDe, NOM_LOCAL } from './pieces.ts';
 import { dossierMiroir, elaguerPieces } from './pieces-sauvegarde.ts';
@@ -249,6 +251,8 @@ async function reposerAmorcages(db: Db, tables: Record<TableName, RegleTable>): 
     out.push(...(await db.query<{ code: string }>('SELECT code FROM projets ORDER BY code')).map(p => p.code));
   }
   if (tables.horaires.amorcee) out.push(...await amorcerHoraires(db));
+  // lot 12 — C5 (planning d'équipe) : modèles de cycles, après les horaires d'exemple qu'ils enchaînent.
+  if (tables.cycles.amorcee) out.push(...await amorcerCycles(db));
   return out;
 }
 

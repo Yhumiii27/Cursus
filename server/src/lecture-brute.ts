@@ -50,6 +50,9 @@ import { borneFrais } from '../../shared/rules/frais-fenetre.ts';
 import type { InscriptionElearning, ModuleElearning, Organisme, OrganismeContact, OrganismeTarif } from '../../shared/types-organismes.ts';
 import { organismePublie, resumeOrganisme } from '../../shared/rules/organismes.ts';
 import type { Db, Fenetre, TableName } from './db.ts';
+// lot 12 — C5 (planning d'équipe)
+import type { BesoinPoste, Creneau, Cycle, EchangePoste, PublicationPlanning, Roulement } from '../../shared/types-planning.ts';
+import { creneauxAPourvoir, creneauxNominatifs, fenetreCreneaux } from './planning-lecture.ts';
 import { formatFichierDe } from './lots-paie.ts';
 import { messagerieDe } from './messagerie.ts';
 import { type PieceEnregistree, piecesDe } from './pieces.ts';
@@ -166,7 +169,13 @@ export interface Brut {
   organismeTarifs: OrganismeTarif[];
   modulesElearning: ModuleElearning[];
   inscriptionsElearning: InscriptionElearning[];
-  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C5 (planning d'équipe) : créneaux dans leur fenêtre de lecture (`FENETRES`), « à pourvoir » compris.
+  cycles: Cycle[];
+  roulements: Roulement[];
+  besoinsPoste: BesoinPoste[];
+  creneaux: Creneau[];
+  publicationsPlanning: PublicationPlanning[];
+  echangesPoste: EchangePoste[];
   // lot 12 — C6 (badgeage virtuel)
   reglages: ReglagesBruts;
   /** Statut de l'e-mail de chaque relevé (envois désignés par `releves.envoiId` seulement). */
@@ -214,7 +223,8 @@ export const FENETRES: Partial<Record<TableName, (today: string) => Fenetre>> = 
       + ` WHERE l.id = pieces.objet_id AND n.statut = 'payee' AND n.payee_le < ?))`,
     params: [borneFrais(today)],
   }),
-  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C5 (planning d'équipe) : de 8 semaines passées à 12 semaines à venir (server/src/planning-lecture.ts).
+  creneaux: fenetreCreneaux,
 };
 
 /** Fenêtre de lecture de la table `t` au jour `today`, s'il y en a une. */
@@ -347,6 +357,12 @@ export async function lireBrut(db: Db, today: string): Promise<Brut> {
     modulesElearning: await lire('modulesElearning'),
     inscriptionsElearning: await lire('inscriptionsElearning'),
     // lot 12 — C5 (planning d'équipe)
+    cycles: await lire('cycles'),
+    roulements: await lire('roulements'),
+    besoinsPoste: await lire('besoinsPoste'),
+    creneaux: await lire('creneaux'),
+    publicationsPlanning: await lire('publicationsPlanning'),
+    echangesPoste: await lire('echangesPoste'),
     // lot 12 — C6 (badgeage virtuel)
     reglages: await lireReglages(db),
     statutsEnvoi: await statutsDesEnvois(db, releves),
@@ -575,7 +591,15 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     organismeTarifs: brut.organismeTarifs,
     modulesElearning: brut.modulesElearning,
     inscriptionsElearning: brut.inscriptionsElearning,
-    // lot 12 — C5 (planning d'équipe)
+    // lot 12 — C5 (planning d'équipe) : filtrés par espace et par profil dans server/src/vues-planning.ts. Les créneaux « à
+    // pourvoir » (sans salarié) forment un champ commun, rattaché aux équipes (server/src/planning-lecture.ts).
+    cycles: brut.cycles,
+    besoinsPoste: brut.besoinsPoste,
+    publicationsPlanning: brut.publicationsPlanning,
+    roulements: brut.roulements,
+    creneaux: creneauxNominatifs(brut.creneaux),
+    creneauxAPourvoir: creneauxAPourvoir(brut.creneaux),
+    echangesPoste: brut.echangesPoste,
     // lot 12 — C6 (badgeage virtuel)
   };
 }
@@ -660,6 +684,13 @@ const LECTURES_ASSEMBLEES = {
   modulesElearning: ['modulesElearning'],
   inscriptionsElearning: ['inscriptionsElearning'],
   // lot 12 — C5 (planning d'équipe)
+  cycles: ['cycles'],
+  besoinsPoste: ['besoinsPoste'],
+  publicationsPlanning: ['publicationsPlanning'],
+  roulements: ['roulements'],
+  creneaux: ['creneaux'],
+  creneauxAPourvoir: ['creneaux'],
+  echangesPoste: ['echangesPoste'],
   // lot 12 — C6 (badgeage virtuel)
 } as const satisfies Partial<Record<keyof Dataset, readonly TableName[]>>;
 

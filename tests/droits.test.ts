@@ -236,6 +236,21 @@ const exportFrais = async () => (await db.insert<{ id: number }>('exportsFrais',
   contenu: { lignes: [], ecritures: 0, debit: 0, credit: 0 }, telechargements: 0,
 })).id;
 
+// lot 12 — C5 (planning d'équipe) : module activé pour la transaction du cas ; créneaux et échanges de Mehdi (Maintenance)
+// et de Thomas, son collègue.
+const planningActif = async () => await reglages({ planningActif: true });
+const creneauPlanning = async (statut: string, jour: string, empId: number | null = 2, horaire: string | null = 'J') => (await db.insert<{ id: number }>('creneaux', {
+  empId, jour, equipe: 'Maintenance', horaire, debut: horaire ? '08:00' : null, fin: horaire ? '16:00' : null, pause: horaire ? 60 : 0,
+  source: 'manuel', statut, version: statut === 'publie' ? 1 : null, publieLe: statut === 'publie' ? '2026-10-01T08:00:00.000Z' : null, communiqueLe: statut === 'publie' ? '2026-10-01' : null,
+  horsDelai: false, creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Karim Haddad',
+})).id;
+const echangePlanning = async (statut: string) => {
+  await planningActif();
+  const a = await creneauPlanning('publie', '2026-11-20');
+  return (await db.insert<{ id: number }>('echangesPoste', { demandeurId: 2, partenaireId: 6, creneauDemandeur: a, creneauPartenaire: null, statut, creeLe: '2026-10-06T08:00:00.000Z' })).id;
+};
+const roulementPlanning = async () => (await db.insert<{ id: number }>('roulements', { empId: 2, cycle: 'JOUR', groupe: 'A', du: '2026-11-02', au: null, equipe: 'Maintenance', creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Karim Haddad' })).id;
+
 const MATRICE: Ligne[] = [
   // lot 12 — C4 : organismes — droit « formations » (service RH, référent HSE) pour la fiche et les contacts ; service RH pour
   // les conditions et les tarifs ; administrateur RH pour la fusion. Modules et inscriptions : droit « formations » ; fin
@@ -695,6 +710,35 @@ const MATRICE: Ligne[] = [
   { action: 'forfaitHeures.cloturer', droits: '       O    -    -    -    -    -    -    -    -', p: async () => ({ lignes: [await plageForfaitHeures()] }) },
   { action: 'forfaitHeures.rouvrir', droits: '        O    -    -    -    -    -    -    -    -', p: async () => ({ id: await ligneForfaitHeures(), motif: 'Feuille corrigée' }) },
   { action: 'forfaitHeures.annuler', droits: '        O    -    -    -    -    -    -    -    -', p: async () => ({ id: await ligneForfaitHeures(), motif: 'Clôture faite trop tôt' }) },
+  // lot 12 — C5 (planning d'équipe) : cycles et besoins, service RH ; roulement, génération, créneaux et publication, le
+  // planificateur (manager direct ou service RH, jamais pour soi-même) ; échanges : le salarié propose et retire, le collègue
+  // accepte ou refuse, le manager des deux (ou le service RH) valide ou refuse.
+  { action: 'planning.cycle.creer', droits: '          O    O    -    -    -    -    -    -    -', p: () => ({ code: 'ESSAI', nom: 'Essai', longueur: 7, sequence: ['J', 'J', 'J', 'J', 'J', '', ''], groupes: [{ code: 'A', decalage: 0 }], origine: '2027-01-04' }) },
+  { action: 'planning.cycle.modifier', droits: '       O    O    -    -    -    -    -    -    -', p: () => ({ code: '2X8', nom: '2x8 de l’atelier' }) },
+  { action: 'planning.cycle.archiver', droits: '       O    O    -    -    -    -    -    -    -', p: () => ({ code: '5X8' }) },
+  { action: 'planning.besoin.creer', droits: '         O    O    -    -    -    -    -    -    -', p: () => ({ equipe: 'Maintenance', horaire: 'J', jours: [0, 1, 2, 3, 4], effectifMin: 2, du: '2026-11-02' }) },
+  { action: 'planning.besoin.modifier', droits: '      O    O    -    -    -    -    -    -    -', p: async () => ({ id: (await db.insert<{ id: number }>('besoinsPoste', { equipe: 'Maintenance', horaire: 'J', jours: [0], effectifMin: 1, exigences: { formations: [], habilitations: [] }, du: '2026-11-02' })).id, effectifMin: 3 }) },
+  { action: 'planning.besoin.archiver', droits: '      O    O    -    -    -    -    -    -    -', p: async () => ({ id: (await db.insert<{ id: number }>('besoinsPoste', { equipe: 'Maintenance', horaire: 'J', jours: [0], effectifMin: 1, exigences: { formations: [], habilitations: [] }, du: '2026-11-02' })).id }) },
+  { action: 'planning.roulement.affecter', droits: '   O    O    O    -    -    -    -    -    -', p: async () => { await planningActif(); return { empId: 2, cycle: 'JOUR', groupe: 'A', du: '2026-11-02' }; } },
+  { action: 'planning.roulement.affecter', variante: 'roulement du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: async () => { await planningActif(); return { empId: 14, cycle: 'JOUR', groupe: 'A', du: '2026-11-02' }; } },
+  { action: 'planning.roulement.terminer', droits: '   O    O    O    -    -    -    -    -    -', p: async () => { await planningActif(); return { id: await roulementPlanning(), au: '2026-12-31' }; } },
+  { action: 'planning.generer', droits: '              O    O    O    -    -    -    -    -    -', p: async () => { await planningActif(); await roulementPlanning(); return { equipe: 'Maintenance', du: '2026-11-02', au: '2026-11-29' }; } },
+  { action: 'planning.creneau.ajouter', droits: '      O    O    O    -    -    -    -    -    -', p: async () => { await planningActif(); return { equipe: 'Maintenance', jour: '2026-11-03', horaire: 'J', empId: 2 }; } },
+  { action: 'planning.creneau.modifier', droits: '     O    O    O    -    -    -    -    -    -', p: async () => { await planningActif(); return { id: await creneauPlanning('brouillon', '2026-11-03'), horaire: 'M' }; } },
+  { action: 'planning.creneau.annuler', droits: '      O    O    O    -    -    -    -    -    -', p: async () => { await planningActif(); return { id: await creneauPlanning('publie', '2026-11-03'), motif: 'Arrêt technique reporté' }; } },
+  { action: 'planning.publier', droits: '              O    O    O    -    -    -    -    -    -', p: async () => {
+    await planningActif();
+    // Un repos : la publication ne bute sur aucune habilitation (celle de Mehdi est expirée, refus éprouvé par
+    // tests/planning-actions.test.ts).
+    await creneauPlanning('brouillon', '2026-11-17', 2, null);
+    return { equipe: 'Maintenance', du: '2026-11-16', au: '2026-11-22' };
+  } },
+  { action: 'planning.echange.proposer', droits: '     -    -    -    -    O    -    -    -    -', p: async () => { await planningActif(); return { creneauId: await creneauPlanning('publie', '2026-11-20'), partenaireId: 6 }; } },
+  { action: 'planning.echange.accepter', droits: '     -    -    -    -    -    O    -    -    -', p: async () => ({ id: await echangePlanning('propose') }) },
+  { action: 'planning.echange.valider', droits: '      O    O    O    -    -    -    -    -    -', p: async () => ({ id: await echangePlanning('accepte'), motifAlertes: 'Habilitations en cours de renouvellement' }) },
+  { action: 'planning.echange.refuser', droits: '      -    -    -    -    -    O    -    -    -', p: async () => ({ id: await echangePlanning('propose') }) },
+  { action: 'planning.echange.refuser', variante: 'échange accepté', droits: 'O    O    O    -    -    -    -    -    -', p: async () => ({ id: await echangePlanning('accepte') }) },
+  { action: 'planning.echange.annuler', droits: '       -    -    -    -    O    -    -    -    -', p: async () => ({ id: await echangePlanning('propose') }) },
 ];
 // lot 12 — C1 (forfait annuel en heures)
 /**

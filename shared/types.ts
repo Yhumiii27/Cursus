@@ -8,6 +8,8 @@ import type { ClotureForfaitHeures, ElementForfaitHeuresPaie, EmissionForfaitHeu
 export type { ClotureForfaitHeures, ElementForfaitHeuresPaie, EmissionForfaitHeures } from './rules/forfait-heures.ts';
 // lot 12 — C4 : organismes de formation et e-learning (shared/types-organismes.ts).
 import type { InscriptionElearning, ModuleElearning, Organisme, OrganismeContact, OrganismeResume, OrganismeTarif } from './types-organismes.ts';
+// lot 12 — C5 (planning d'équipe) : modèle du planning (shared/types-planning.ts).
+import type { BesoinPoste, Creneau, Cycle, EchangePoste, PublicationPlanning, Roulement } from './types-planning.ts';
 
 export type ISODate = string;
 export type Role = 'rh' | 'manager' | 'collaborateur';
@@ -1498,6 +1500,21 @@ export interface Settings {
    */
   elearningFinAutoImport: boolean;
   // lot 12 — C5 (planning d'équipe)
+  /**
+   * Planning d'équipe (shared/rules/planning*.ts) : module désactivé jusqu'à l'avis du CSE ; délai de prévenance d'une
+   * publication ou d'une modification (7 jours, art. L3121-47 à défaut d'accord) ; repos quotidien réduit par l'accord en
+   * travail posté (11 h : la loi ; 9 h au moins, art. D3131-1 et suivants, jamais pour un mineur) ; durées du travailleur de
+   * nuit (8 h par jour, 40 h en moyenne sur 12 semaines, art. L3122-6 et L3122-7 ; jusqu'à 12 h et 44 h par accord) ;
+   * référence de l'accord, exigée dès qu'une valeur s'écarte de la loi ; planning des collègues visible du collaborateur
+   * (leurs seuls postes planifiés, jamais leurs absences), fermé par défaut.
+   */
+  planningActif: boolean;
+  planningDelaiPrevenance: number;
+  planningReposQuotidienAccord: number;
+  planningNuitJour: number;
+  planningNuitMoyenne: number;
+  planningAccord: string;
+  planningCollegues: boolean;
   // lot 12 — C6 (badgeage virtuel)
 }
 /** Catégorie d'une formation pour l'évaluation à froid : type du catalogue, ou formation hors catalogue. */
@@ -2137,6 +2154,20 @@ export interface Dataset {
    */
   inscriptionsElearning?: InscriptionElearning[];
   // lot 12 — C5 (planning d'équipe)
+  /**
+   * Planning d'équipe (server/src/vues-planning.ts) : cycles, besoins par poste et publications (champs communs) ;
+   * affectations au roulement et créneaux nominatifs (8 semaines passées à 12 semaines à venir : `FENETRES`, l'historique
+   * par GET /api/planning/historique) ; créneaux « à pourvoir » (sans salarié, rattachés à l'équipe) ; échanges de poste.
+   * Complets pour le service RH ; le manager, ceux de son périmètre (sans motifs en consultation N+2) ; le collaborateur,
+   * ses créneaux publiés (et les postes planifiés de ses collègues si le réglage l'ouvre). Absent : aucun.
+   */
+  cycles?: Cycle[];
+  besoinsPoste?: BesoinPoste[];
+  publicationsPlanning?: PublicationPlanning[];
+  roulements?: Roulement[];
+  creneaux?: Creneau[];
+  creneauxAPourvoir?: Creneau[];
+  echangesPoste?: EchangePoste[];
   // lot 12 — C6 (badgeage virtuel)
 }
 

@@ -36,6 +36,7 @@
     "charge": "node --disable-warning=ExperimentalWarning scripts/charge/executer.ts",
     "charge:frais": "node --disable-warning=ExperimentalWarning scripts/charge/mesure-frais.ts",
     "charge:indicateurs": "node --disable-warning=ExperimentalWarning scripts/charge/mesure-indicateurs.ts",
+    "charge:planning": "node --disable-warning=ExperimentalWarning scripts/charge/mesure-planning.ts",
     "check": "npm run lint && npm run typecheck && npm run test:coverage && npm run test:client && npm run build",
     "app": "bash desktop/build-app.sh",
     "test:pg": "node scripts/tests-pg.mjs",

@@ -152,6 +152,19 @@ export const REFERENCES: readonly Reference[] = [
   ref('inscriptions_elearning', 'plan_action_id', 'plan_actions'),
   ref('inscriptions_elearning', 'cert_id', 'certifications'),
   ref('inscriptions_elearning', 'suivie_id', 'formations_suivies'),
+  // lot 12 — C5 (planning d'équipe ; clés étrangères de 0026_planning_equipe.sql) : salarié d'une affectation, d'un créneau
+  // (vide : à pourvoir) et des deux côtés d'un échange, suppléant qui l'a validé ; cycle, besoin, créneau remplacé, poste.
+  ref('roulements', 'emp_id', 'employes'),
+  ref('roulements', 'cycle', 'cycles', 'code'),
+  ref('creneaux', 'emp_id', 'employes'),
+  ref('creneaux', 'besoin_id', 'besoins_poste'),
+  ref('creneaux', 'remplace_id', 'creneaux'),
+  ref('besoins_poste', 'poste_id', 'postes'),
+  ref('echanges_poste', 'demandeur_id', 'employes'),
+  ref('echanges_poste', 'partenaire_id', 'employes'),
+  ref('echanges_poste', 'par_delegation_de', 'employes'),
+  ref('echanges_poste', 'creneau_demandeur', 'creneaux'),
+  ref('echanges_poste', 'creneau_partenaire', 'creneaux'),
 ];
 
 export interface Integrite {

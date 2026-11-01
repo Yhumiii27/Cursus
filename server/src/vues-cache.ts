@@ -388,7 +388,11 @@ export const CHAMPS_PAR_SALARIE: ReadonlySet<keyof Dataset> = new Set<keyof Data
   // périmètre (server/src/vues-organismes.ts). Fiches et modules (`referentiels.organismes`, `modulesElearning`) : champs
   // communs, leur écriture, rare, recalcule toutes les vues.
   'inscriptionsElearning',
-  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C5 (planning d'équipe) : créneaux nominatifs et affectations au roulement, lus à travers le périmètre de la vue
+  // (collègues compris quand le réglage `planningCollegues` les ouvre au collaborateur : ajoutés aux salariés lus par
+  // server/src/dataset.ts). Les créneaux « à pourvoir », les échanges (deux salariés), les cycles, les besoins et les
+  // publications sont des champs communs.
+  'creneaux', 'roulements',
   // lot 12 — C6 (badgeage virtuel)
 ]);
 

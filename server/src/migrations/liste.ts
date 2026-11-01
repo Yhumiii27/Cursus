@@ -31,6 +31,8 @@ import { INDEX_FRAIS_FENETRE } from './lot12-frais.ts';
 import { ENTRETIENS_SUIVIS_INDEX } from './lot12-entretiens.ts';
 // lot 12 — C4 (organismes de formation et e-learning)
 import { ELEARNING_INDEX, ORGANISMES } from './lot12-organismes.ts';
+// lot 12 — C5 (planning d'équipe)
+import { PLANNING_EQUIPE } from './lot12-planning.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   INDEX_JOURNAL,
@@ -78,4 +80,6 @@ export const MIGRATIONS: readonly Migration[] = [
   // lot 12 — C4 (organismes de formation et e-learning)
   ORGANISMES,
   ELEARNING_INDEX,
+  // lot 12 — C5 (planning d'équipe)
+  PLANNING_EQUIPE,
 ];

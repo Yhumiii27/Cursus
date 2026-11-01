@@ -708,7 +708,42 @@ export const TABLES = {
       corrigeLe: 'text', corrigePar: 'text', corrigeMotif: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
     },
   },
-  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C5 (planning d'équipe, shared/types-planning.ts, server/src/actions/planning.ts ; migration PostgreSQL
+  // 0026_planning_equipe.sql, SQLite lot12-planning) : cycles de roulement (référentiel commun, archivés jamais supprimés),
+  // affectations au roulement (sans chevauchement), besoins par poste (communs), créneaux (un par salarié et par jour
+  // planifié, repos compris ; `empId` null : « à pourvoir », rattaché à l'équipe ; jamais supprimés une fois publiés :
+  // remplacés ou annulés), publications versionnées (registre pour l'inspection du travail), échanges de poste. Motifs et
+  // alertes acceptées : textes libres et codes jamais journalisés.
+  cycles: { pk: 'code', cols: { code: 'text', nom: 'text', longueur: 'int', sequence: 'json', groupes: 'json', origine: 'text', archive: 'text', creeLe: 'text', creePar: 'text' } },
+  roulements: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', empId: 'int', cycle: 'text', groupe: 'text', du: 'text', au: 'text', equipe: 'text', creeLe: 'text', creePar: 'text', finLe: 'text', finPar: 'text', finMotif: 'text' },
+  },
+  besoinsPoste: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', equipe: 'text', horaire: 'text', jours: 'json', effectifMin: 'int', posteId: 'int', activite: 'text', exigences: 'json', du: 'text', au: 'text', archive: 'text' },
+  },
+  creneaux: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', jour: 'text', equipe: 'text', horaire: 'text', debut: 'text', fin: 'text', pause: 'int', besoinId: 'int',
+      source: 'text', statut: 'text', remplaceId: 'int', version: 'int', publieLe: 'text', publiePar: 'text', communiqueLe: 'text',
+      horsDelai: 'bool', motif: 'text', motifAlertes: 'text', alertesAcceptees: 'json',
+      creeLe: 'text', creePar: 'text', modifieLe: 'text', modifiePar: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+    },
+  },
+  publicationsPlanning: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', equipe: 'text', du: 'text', au: 'text', version: 'int', publieLe: 'text', publiePar: 'text', communiqueLe: 'text', creneaux: 'int', horsDelai: 'int' },
+    unique: [['equipe', 'version']],
+  },
+  echangesPoste: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', demandeurId: 'int', partenaireId: 'int', creneauDemandeur: 'int', creneauPartenaire: 'int', statut: 'text', creeLe: 'text', accepteLe: 'text',
+      decideLe: 'text', decidePar: 'text', parDelegationDe: 'int', motifRefus: 'text', alertesAcceptees: 'json',
+    },
+  },
   // lot 12 — C6 (badgeage virtuel)
 } satisfies Record<string, TableDef>;
 

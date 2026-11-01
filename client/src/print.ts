@@ -14,6 +14,9 @@ export interface PrintSection {
   title: string; rows?: [string, string][]; table?: { head: string[]; rows: string[][] }; text?: string;
   // lot 11 — organigramme : sous-titre, arbre en listes imbriquées (traits de print.css), saut de page avant la section.
   sub?: string; arbre?: PrintArbre[]; saut?: boolean;
+  // lot 12 — C7 (organigramme) : arbre vertical (boîtes reliées de haut en bas) et son échelle en pour cent (`echelle-NN`
+  // de print.css, par dizaines de 30 à 100 : ni style ni script en ligne).
+  vertical?: boolean; echelle?: number;
 }
 /** Nœud d'un arbre imprimé (organigramme) : libellé, précision, nœuds rattachés ; `groupe` : nœud d'entité ou d'équipe. */
 export interface PrintArbre { libelle: string; detail?: string; enfants?: PrintArbre[]; groupe?: boolean }
@@ -22,6 +25,22 @@ export interface OptionsImpression { paysage?: boolean; journal?: boolean }
 
 /** Listes imbriquées d'un arbre imprimé. */
 const arbreHtml = (noeuds: PrintArbre[]): string => `<ul>${noeuds.map(n => `<li${n.groupe ? ' class="groupe"' : ''}><span class="libelle">${esc(n.libelle)}</span>${n.detail ? ` <span class="detail">${esc(n.detail)}</span>` : ''}${n.enfants?.length ? arbreHtml(n.enfants) : ''}</li>`).join('')}</ul>`;
+
+// lot 12 — C7 (organigramme)
+/**
+ * Arbre vertical imprimé : chaque nœud `groupe` est une boîte (libellé, précision, puis ses nœuds simples en liste
+ * compacte), ses nœuds `groupe` dessous, reliés par les traits de print.css.
+ */
+const boiteHtml = (n: PrintArbre): string => {
+  const membres = (n.enfants ?? []).filter(x => !x.groupe), groupes = (n.enfants ?? []).filter(x => x.groupe);
+  return `<li><div class="boite"><span class="libelle">${esc(n.libelle)}</span>${n.detail ? `<span class="detail">${esc(n.detail)}</span>` : ''}${membres.length
+    ? `<ul class="membres">${membres.map(m => `<li>${esc(m.libelle)}${m.detail ? ` <span class="detail">${esc(m.detail)}</span>` : ''}</li>`).join('')}</ul>` : ''}</div>${groupes.length
+    ? `<ul class="enfants">${groupes.map(boiteHtml).join('')}</ul>` : ''}</li>`;
+};
+export const arbreVerticalHtml = (noeuds: PrintArbre[], echelle = 100): string => {
+  const e = Math.min(100, Math.max(30, Math.round(echelle / 10) * 10));
+  return `<div class="arbre-vertical${e < 100 ? ` echelle-${e}` : ''}"><ul class="racines">${noeuds.map(boiteHtml).join('')}</ul></div>`;
+};
 
 /** Script servi tel quel (client/public) : il lance l'impression depuis le document ouvert. */
 const PRINT_JS = '/imprimer.js';
@@ -55,7 +74,8 @@ function documentHtml(title: string, subtitle: string, sections: PrintSection[],
     <section${s.saut ? ' class="saut"' : ''}>
       <h2>${esc(s.title)}</h2>
       ${s.sub ? `<div class="sub">${esc(s.sub)}</div>` : ''}
-      ${s.arbre ? `<div class="arbre">${arbreHtml(s.arbre)}</div>` : ''}
+      ${s.arbre && !s.vertical ? `<div class="arbre">${arbreHtml(s.arbre)}</div>` : ''}
+      ${s.arbre && s.vertical ? arbreVerticalHtml(s.arbre, s.echelle) : ''}
       ${s.rows ? `<dl>${s.rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}
       ${s.table ? `<table><thead><tr>${s.table.head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${s.table.rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>` : ''}
       ${s.text ? `<p class="text">${esc(s.text)}</p>` : ''}

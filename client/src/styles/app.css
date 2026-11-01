@@ -557,3 +557,77 @@ th.right .th-tri, th.center .th-tri { justify-content: inherit; }
 @media (max-width: 600px) {
   .frais-actions > .btn { flex: 1 1 100%; justify-content: center; }
 }
+
+/* — lot 12 — C7 organigramme (pages/Organigramme.tsx, components/organigramme/ArbreGraphique.tsx) : choix d'un service,
+   fil d'Ariane, vue graphique en arbre vertical. Boîtes reliées par des traits en pseudo-éléments (technique classique
+   d'arbre en CSS), sans SVG ni style en ligne ; le zoom passe par la prop `style` de React (transform), permise. — */
+.org-service { position: relative; display: inline-flex; align-items: center; flex: 1 1 220px; max-width: 320px; }
+.org-service > svg { position: absolute; left: 10px; color: var(--color-neutral-400); pointer-events: none; }
+.org-service .input { width: 100%; min-width: 0; padding-left: 30px; padding-right: 30px; }
+.org-service-effacer {
+  position: absolute; right: 4px; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+  border: 0; border-radius: var(--radius-sm); background: none; color: var(--color-neutral-400); cursor: pointer;
+}
+.org-service-effacer:hover { color: var(--color-text); background: color-mix(in srgb, var(--color-text) 8%, transparent); }
+.org-service-effacer:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 0; }
+.org-seg { display: inline-flex; align-items: center; gap: 6px; }
+.org-ariane ol { list-style: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 var(--space-3); padding: 0; font-size: 13px; }
+.org-ariane li + li::before { content: '›'; color: var(--color-neutral-400); margin-right: 4px; }
+.org-ariane-lien { border: 0; padding: 2px; background: none; color: var(--color-accent-300); font: inherit; text-decoration: underline; cursor: pointer; border-radius: var(--radius-sm); }
+.org-ariane-lien:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.org-ariane-entite { color: var(--color-neutral-400); }
+.org-ariane-courant { font-weight: 500; }
+.org-proposition {
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--color-surface); font-size: 13px;
+}
+.org-note { margin: 0 0 var(--space-3); color: var(--color-neutral-400); font-size: 13px; }
+.org-panel { min-width: 0; }
+/* Vue graphique : cadre défilant (la page ne déborde pas), arbre centré, zoom. */
+.orgg { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.orgg-zoom { display: flex; align-items: center; gap: var(--space-2); }
+.orgg-zoom-valeur { min-width: 48px; text-align: center; color: var(--color-neutral-400); font-size: 13px; font-variant-numeric: tabular-nums; }
+.orgg-cadre { max-width: 100%; overflow: auto; padding: var(--space-4); border: 1px solid var(--color-divider); border-radius: var(--radius-md); }
+.orgg-echelle { margin: 0 auto; }
+.orgg-plan { width: max-content; transform-origin: top left; }
+.orgg-arbre, .orgg-enfants, .orgg-membres { list-style: none; margin: 0; padding: 0; }
+.orgg-arbre { display: flex; align-items: flex-start; justify-content: center; gap: var(--space-6); font-size: 13px; }
+.orgg-noeud { position: relative; display: flex; flex-direction: column; align-items: center; outline: none; }
+/* Traits : descente du parent (::before du groupe), barre horizontale et descente vers chaque enfant (::before, ::after). */
+.orgg-enfants { position: relative; display: flex; align-items: flex-start; justify-content: center; padding-top: 20px; }
+.orgg-enfants::before { content: ''; position: absolute; top: 0; left: 50%; height: 20px; border-left: 1px solid var(--color-neutral-500); }
+.orgg-enfants > .orgg-noeud { padding: 20px var(--space-2) 0; }
+.orgg-enfants > .orgg-noeud::before, .orgg-enfants > .orgg-noeud::after {
+  content: ''; position: absolute; top: 0; width: 50%; height: 20px; border-top: 1px solid var(--color-neutral-500);
+}
+.orgg-enfants > .orgg-noeud::before { right: 50%; }
+.orgg-enfants > .orgg-noeud::after { left: 50%; border-left: 1px solid var(--color-neutral-500); }
+.orgg-enfants > .orgg-noeud:first-child::before, .orgg-enfants > .orgg-noeud:last-child::after { border-top: 0; }
+.orgg-boite {
+  width: 232px; box-sizing: border-box; border: 1px solid var(--color-neutral-600); border-radius: var(--radius-md);
+  background: var(--color-surface); text-align: left; overflow: hidden;
+}
+.orgg-entite { border-color: var(--color-accent-500); box-shadow: inset 0 3px 0 var(--color-accent-500); }
+.orgg-equipe.trouve { box-shadow: 0 0 0 2px var(--color-accent); }
+.orgg-tete { display: flex; flex-direction: column; gap: 2px; padding: var(--space-2) var(--space-3); cursor: pointer; }
+.orgg-tete:hover { background: color-mix(in srgb, var(--color-text) 6%, transparent); }
+.orgg-noeud:focus-visible > .orgg-boite { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.orgg-titre { display: flex; align-items: center; gap: 6px; }
+.orgg-nom { font-weight: 600; font-size: 14px; overflow-wrap: break-word; min-width: 0; }
+.orgg-detail { color: var(--color-neutral-400); font-size: 12px; overflow-wrap: break-word; }
+.orgg-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.orgg-effectif { color: var(--color-neutral-400); font-size: 12px; }
+.orgg-membres { display: flex; flex-direction: column; border-top: 1px solid var(--color-divider); }
+.orgg-membres-replies { border-top: 0; }
+.orgg-personne, .orgg-replie { outline: none; }
+.orgg-personne-ligne, .orgg-replie-ligne { display: flex; align-items: center; gap: var(--space-2); padding: 4px var(--space-3); cursor: default; }
+.orgg-replie-ligne { cursor: pointer; color: var(--color-accent-300); }
+.orgg-personne.ouvrable > .orgg-personne-ligne { cursor: pointer; }
+.orgg-personne-ligne:hover, .orgg-replie-ligne:hover { background: color-mix(in srgb, var(--color-text) 6%, transparent); }
+.orgg-personne:focus-visible > .orgg-personne-ligne, .orgg-replie:focus-visible > .orgg-replie-ligne { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.orgg-personne.trouve > .orgg-personne-ligne { background: color-mix(in srgb, var(--color-accent) 18%, transparent); box-shadow: inset 2px 0 0 var(--color-accent); }
+.orgg-personne-texte { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.orgg-personne-nom { overflow-wrap: break-word; }
+@media (max-width: 600px) {
+  .org-service { max-width: none; flex-basis: 100%; }
+}

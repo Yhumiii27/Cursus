@@ -4701,3 +4701,38 @@ du 1er novembre 2026) : aucun socle i18n, les textes restent en français. Aucun
 - **Échanges avec les autres outils** : règles R2 à R5 de M-17 (section « Échanges avec les autres outils » ci-dessus),
   inventaire `docs/ECHANGES.md`. Les demandes du lot aux autres dépôts se rédigent dans `docs/demandes/` et attendent la
   validation du propriétaire.
+
+## Lot 12 : organigramme graphique et choix d'un service (C7)
+
+Demande du propriétaire du 1er novembre 2026 : vue de l'organigramme en arbre vertical et choix d'un service. Chantier
+100 % client : aucune table, aucune migration, aucune action ni donnée nouvelle envoyée au navigateur ; mêmes droits que
+l'écran du lot 11 (réglage `organigrammeOuvert`, étiquettes de contrat, anomalies et salariés à affecter au service RH).
+
+- **Règles** (`client/src/organigramme-vue.ts`, bloc « lot 12 — C7 », testées par `tests/organigramme-service.test.ts`) :
+  `restreindreAuService(arbre, equipes, service)` garde l'équipe et ses sous-équipes (`sousArbre` : `equipesDescendantes`),
+  ses équipes parentes et son entité vidées de membres (chemin du CSV et de l'impression) ; service inconnu ou absent de
+  l'arbre : l'arbre entier. `filtrerArbre` l'applique d'abord (`FiltreOrganigramme.service`), puis entité, site et
+  recherche, qui ne porte donc que sur le service. `noeudService`, `choixServices` (équipes de l'arbre filtré par entité
+  et site, chemin `cheminEquipe`, triées par chemin), `filAriane`, `clesDepliablesGraphique` (nœuds « N personnes »,
+  clé `m:<équipe>`, au-delà de `SEUIL_MEMBRES` = 8), `sectionsImpressionGraphique` et `echelleImpression` (boîtes au
+  niveau le plus large × 48 mm contre 273 mm de page paysage, par dizaines, `ECHELLE_MIN` = 30 %).
+- **État et adresse** : `ui.orgService` (paramètre `service`, nom d'une équipe de `referentiels.equipes`, sinon la valeur
+  par défaut) et `ui.orgVue` (`liste` par défaut, `vue=graphique`), à la suite de `orgEntite` / `orgSite` dans
+  `UiState`, `INITIAL_UI` et `PARAMS_URL`.
+- **Écran** (`pages/Organigramme.tsx`) : champ « Service » (`input` + `datalist`, libellé ou nom exact ; texte inconnu
+  refusé au départ du champ), fil d'Ariane `nav` (entité, équipes parentes cliquables, « Tous les services »), bandeau
+  « Voir ce service seul » pour l'équipe touchée (clic ou focus : aucun bouton dans les nœuds de l'arbre), contrôle
+  segmenté « Liste / Graphique ». Sous 600 px (`useMedia`), la liste à la place du graphique, avec un message.
+- **Vue graphique** (`components/organigramme/ArbreGraphique.tsx`) : listes imbriquées `role="tree"` / `treeitem` /
+  `group`, boîtes `.orgg-*` reliées par des pseudo-éléments (`styles/app.css`, bloc « lot 12 — C7 ») ; membres dans la
+  boîte (groupe), sous-équipes dessous (groupe) ; clavier commun aux deux vues (`components/organigramme/clavier.ts`,
+  `toucheArbre`). Cadre défilant ; zoom de 50 à 150 % par `transform: scale` (prop `style` de React, permise par la
+  CSP), la taille du cadre intérieur suit l'échelle (mesure par `ResizeObserver`).
+- **Impression** (`print.ts`) : section `vertical` (`arbreVerticalHtml` : boîtes et traits de `styles/print.css`),
+  `echelle` appliquée par une classe `echelle-NN` (`zoom`), ni style ni script en ligne ; avertissement dans le
+  sous-titre et à l'écran quand l'arbre est réduit. En liste, un service choisi s'imprime seul. Journal inchangé :
+  `organigramme.imprimer` / `organigramme.exporter` gardent l'entité et le nombre de lignes, sans le nom du service
+  (REGLES n'admet que des codes et identifiants, le nom d'une équipe est saisi librement).
+- **Tests** : `tests/organigramme-service.test.ts` (règles, adresse, échelle), `tests/client-organigramme-graphique.test.ts`
+  (boîtes, traits, ARIA, clavier, « N personnes », zoom, service, export, collaborateur, téléphone, HTML imprimé),
+  `e2e/organigramme.spec.ts` (service, vue graphique, dépliage ; liste sur le téléphone).

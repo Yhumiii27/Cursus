@@ -11,7 +11,8 @@
 //   équipes, manager, valideur) ; ni contrat, ni étiquette, ni sortie, ni santé, même pour le service RH.
 import { norm } from '../../shared/format.ts';
 import { entiteDe, rattachementSalarie, societeDe } from '../../shared/rules/entites.ts';
-import type { Arbre, MembreArbre, NoeudEntite, NoeudEquipe } from '../../shared/rules/organigramme.ts';
+import { ancetres } from '../../shared/rules/hierarchie.ts';
+import { cheminEquipe, sousArbre, type Arbre, type MembreArbre, type NoeudEntite, type NoeudEquipe } from '../../shared/rules/organigramme.ts';
 import type { Entite, Equipe, ISODate, Site } from '../../shared/types.ts';
 import type { PrintArbre } from './print.ts';
 
@@ -20,7 +21,11 @@ export const cleEntite = (code: string) => `e:${code}`;
 export const cleEquipe = (nom: string) => `q:${nom}`;
 export const clePersonne = (id: number) => `p:${id}`;
 
-export interface FiltreOrganigramme { entite: string | null; site: string | null; recherche: string }
+export interface FiltreOrganigramme {
+  entite: string | null; site: string | null; recherche: string;
+  // lot 12 — C7 (organigramme) : service choisi (nom d'équipe) ; la recherche ne porte alors que sur lui.
+  service?: string | null;
+}
 
 /** Arbre filtré, avec les nœuds à déplier pour montrer les résultats de la recherche et les personnes trouvées. */
 export interface ArbreFiltre extends Arbre {
@@ -41,9 +46,11 @@ const effectifDe = (q: NoeudEquipe): number => q.membres.length + q.equipes.redu
  * Filtre l'arbre (entité, site, recherche). Les effectifs sont recomptés sur ce qui reste affiché. Sans filtre ni
  * recherche, l'arbre est rendu tel quel (chemins et résultats vides).
  */
-export function filtrerArbre(a: Arbre, equipes: readonly Equipe[], entites: readonly Entite[], f: FiltreOrganigramme): ArbreFiltre {
+export function filtrerArbre(brut: Arbre, equipes: readonly Equipe[], entites: readonly Entite[], f: FiltreOrganigramme): ArbreFiltre {
   const q = norm(f.recherche.trim());
   const chemins = new Set<string>(), trouves = new Set<number>(), equipesTrouvees = new Set<string>();
+  // lot 12 — C7 (organigramme) : le service choisi d'abord, les autres filtres ensuite, sur ce qui en reste.
+  const a = restreindreAuService(brut, equipes, f.service ?? null);
   if (!f.entite && !f.site && !q) return { ...a, chemins, trouves, equipesTrouvees };
   const personne = (m: Pick<MembreArbre, 'nom' | 'poste'>) => norm(`${m.nom} ${m.poste}`).includes(q);
 
@@ -189,3 +196,152 @@ export function sectionsImpression(a: Pick<Arbre, 'entites' | 'sansEntite' | 'aA
 
 /** Mention des documents de l'organigramme : document interne, état du jour (JJ/MM/AAAA). */
 export const mentionEtat = (today: ISODate) => `Document interne — état au ${today.split('-').reverse().join('/')}`;
+
+// lot 12 — C7 (organigramme) : choix d'un service (une équipe et ses sous-équipes), vue graphique en arbre vertical et
+// son impression (pages/Organigramme.tsx, components/organigramme/ArbreGraphique.tsx). Rien de neuf n'est lu : l'arbre
+// de shared/rules/organigramme.ts, réduit ou dessiné autrement.
+
+/** Clé du nœud « N personnes » d'une équipe de plus de `SEUIL_MEMBRES` membres (vue graphique : replié par défaut). */
+export const cleMembres = (nom: string) => `m:${nom}`;
+/** Au-delà de ce nombre de membres, la vue graphique les replie derrière « N personnes ». */
+export const SEUIL_MEMBRES = 8;
+
+/** Service proposé au choix : nom de l'équipe, chemin depuis son équipe racine et libellé (« Production › Maintenance »). */
+export interface ChoixService { nom: string; chemin: string[]; libelle: string }
+
+/** Équipe nommée dans l'arbre (entités, établissements, équipes sans entité), ou null. */
+export function noeudService(a: Pick<Arbre, 'entites' | 'sansEntite'>, nom: string | null | undefined): NoeudEquipe | null {
+  if (!nom) return null;
+  const equipe = (n: NoeudEquipe): NoeudEquipe | null => (n.nom === nom ? n : n.equipes.reduce<NoeudEquipe | null>((r, f) => r ?? equipe(f), null));
+  const entite = (n: NoeudEntite): NoeudEquipe | null => n.equipes.reduce<NoeudEquipe | null>((r, q) => r ?? equipe(q), null) ?? n.etablissements.reduce<NoeudEquipe | null>((r, e) => r ?? entite(e), null);
+  return a.entites.reduce<NoeudEquipe | null>((r, n) => r ?? entite(n), null) ?? a.sansEntite.reduce<NoeudEquipe | null>((r, q) => r ?? equipe(q), null);
+}
+
+/**
+ * Arbre réduit au service `service` et à ses sous-équipes (`sousArbre` : equipesDescendantes) : ses équipes parentes et
+ * son entité restent, vides de membres, pour garder le chemin (CSV, impression) ; ni autre équipe, ni salarié à affecter.
+ * Service absent, inconnu ou hors de l'arbre : l'arbre tel quel (comme l'adresse, qui ramène la valeur par défaut).
+ */
+export function restreindreAuService(a: Arbre, equipes: readonly Equipe[], service: string | null): Arbre {
+  if (!service || !noeudService(a, service)) return a;
+  const dessous = new Set(sousArbre(equipes, [service]));
+  const dessus = new Set(ancetres(equipes, service).map(q => q.nom));
+  const equipe = (n: NoeudEquipe): NoeudEquipe | null => {
+    if (n.nom === service || dessous.has(n.nom)) return n;
+    if (!dessus.has(n.nom)) return null;
+    const filles = n.equipes.map(equipe).filter((x): x is NoeudEquipe => !!x);
+    return filles.length ? { ...n, membres: [], equipes: filles, effectif: filles.reduce((s, x) => s + x.effectif, 0) } : null;
+  };
+  const entite = (n: NoeudEntite): NoeudEntite | null => {
+    const eq = n.equipes.map(equipe).filter((x): x is NoeudEquipe => !!x);
+    const etablissements = n.etablissements.map(entite).filter((x): x is NoeudEntite => !!x);
+    if (!eq.length && !etablissements.length) return null;
+    return { ...n, equipes: eq, etablissements, effectif: eq.reduce((s, x) => s + x.effectif, 0) + etablissements.reduce((s, x) => s + x.effectif, 0) };
+  };
+  const entites = a.entites.map(entite).filter((x): x is NoeudEntite => !!x);
+  const sansEntite = a.sansEntite.map(equipe).filter((x): x is NoeudEquipe => !!x);
+  const effectif = entites.reduce((s, x) => s + x.effectif, 0) + sansEntite.reduce((s, x) => s + x.effectif, 0);
+  return { entites, sansEntite, aAffecter: [], anomalies: a.anomalies, effectif };
+}
+
+/** Comparaison de deux chemins d'équipes, niveau par niveau (« Production » avant « Production › Maintenance »). */
+const parChemin = (x: string[], y: string[]): number => {
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    const c = x[i].localeCompare(y[i], 'fr');
+    if (c) return c;
+  }
+  return x.length - y.length;
+};
+
+/**
+ * Services proposés : les équipes présentes dans l'arbre `a` (déjà réduit par l'entité et le site : aucune équipe de plus
+ * que celles que la personne voit), avec leur chemin, triées par chemin.
+ */
+export function choixServices(a: Pick<Arbre, 'entites' | 'sansEntite'>, equipes: readonly Equipe[]): ChoixService[] {
+  const noms: string[] = [];
+  const equipe = (n: NoeudEquipe) => { noms.push(n.nom); n.equipes.forEach(equipe); };
+  const entite = (n: NoeudEntite) => { n.equipes.forEach(equipe); n.etablissements.forEach(entite); };
+  a.entites.forEach(entite);
+  a.sansEntite.forEach(equipe);
+  return [...new Set(noms)].map(nom => { const chemin = cheminEquipe(equipes, nom).chemin; return { nom, chemin, libelle: chemin.join(' › ') }; })
+    .sort((x, y) => parChemin(x.chemin, y.chemin));
+}
+
+/** Élément du fil d'Ariane d'un service : son entité (`service: null` : revenir à tous les services), puis ses équipes parentes. */
+export interface EtapeAriane { libelle: string; service: string | null }
+
+/** Fil d'Ariane du service choisi : entité (si l'équipe racine en a une), puis équipes au-dessus, de la plus haute à la plus proche. */
+export function filAriane(equipes: readonly Equipe[], entites: readonly Entite[], service: string): EtapeAriane[] {
+  const { chemin, entite } = cheminEquipe(equipes, service);
+  const nomEntite = entite ? entiteDe(entites, entite)?.nom ?? null : null;
+  return [...(nomEntite ? [{ libelle: nomEntite, service: null }] : []), ...chemin.slice(0, -1).map(nom => ({ libelle: nom, service: nom }))];
+}
+
+/** Clés dépliables de la vue graphique : celles de la liste, plus les « N personnes » des équipes nombreuses. */
+export function clesDepliablesGraphique(a: Pick<Arbre, 'entites' | 'sansEntite'>): string[] {
+  const out = clesDepliables(a);
+  const equipe = (n: NoeudEquipe) => { if (n.membres.length > SEUIL_MEMBRES) out.push(cleMembres(n.nom)); n.equipes.forEach(equipe); };
+  const entite = (n: NoeudEntite) => { n.equipes.forEach(equipe); n.etablissements.forEach(entite); };
+  a.entites.forEach(entite);
+  a.sansEntite.forEach(equipe);
+  return out;
+}
+
+/** Largeur utile d'une page A4 en paysage (marges de 12 mm) et largeur d'une boîte de l'arbre imprimé, écart compris (mm). */
+const LARGEUR_PAGE_MM = 273, LARGEUR_BOITE_MM = 48;
+/** Échelle minimale de l'arbre imprimé (en dessous, illisible) : au-delà, des boîtes débordent, l'avertissement le dit. */
+export const ECHELLE_MIN = 30;
+
+/** Nombre de boîtes côte à côte au niveau le plus large de l'arbre imprimé (une boîte par nœud `groupe`). */
+export function boitesEnLargeur(noeuds: readonly PrintArbre[]): number {
+  const largeur = (n: PrintArbre): number => Math.max(1, (n.enfants ?? []).filter(x => x.groupe).reduce((s, x) => s + largeur(x), 0));
+  return Math.max(1, noeuds.reduce((s, n) => s + largeur(n), 0));
+}
+
+/**
+ * Échelle de l'arbre vertical imprimé, en pour cent (de 100 à `ECHELLE_MIN`, par dizaines) : l'arbre tient dans la
+ * largeur d'une page en paysage. Une classe `echelle-NN` de styles/print.css l'applique (ni style ni script en ligne).
+ */
+export function echelleImpression(noeuds: readonly PrintArbre[]): number {
+  const besoin = boitesEnLargeur(noeuds) * LARGEUR_BOITE_MM;
+  if (besoin <= LARGEUR_PAGE_MM) return 100;
+  return Math.max(ECHELLE_MIN, Math.floor((LARGEUR_PAGE_MM / besoin) * 10) * 10);
+}
+
+/**
+ * Sections de l'arbre vertical imprimé : le service choisi seul (une page : sa boîte en haut, sous-titre de son chemin),
+ * sinon une page par entité (sa boîte en haut, ses équipes racines dessous ; établissements sur leur propre page), puis
+ * les équipes sans entité et les salariés à affecter. Chaque section porte son échelle (`echelleImpression`).
+ */
+export function sectionsImpressionGraphique(a: Pick<Arbre, 'entites' | 'sansEntite' | 'aAffecter'>, c: Contexte, service?: string | null): (SectionOrganigramme & { echelle: number })[] {
+  const membre = (m: MembreArbre): PrintArbre => ({ libelle: m.nom, detail: [m.poste, m.manager ? 'manager' : ''].filter(Boolean).join(' · ') });
+  const equipe = (n: NoeudEquipe): PrintArbre => ({
+    libelle: n.nom,
+    detail: [n.manager ? `manager : ${n.manager}` : 'sans manager', n.suppleant ? `suppléant : ${n.suppleant.nom}` : '', `${n.effectif} pers.`].filter(Boolean).join(' · '),
+    enfants: [...n.membres.map(membre), ...n.equipes.map(equipe)], groupe: true,
+  });
+  const avecEchelle = (s: SectionOrganigramme) => ({ ...s, echelle: echelleImpression(s.arbre) });
+  const choisi = noeudService(a, service);
+  if (choisi) {
+    const { chemin } = cheminEquipe(c.equipes, choisi.nom);
+    const ariane = filAriane(c.equipes, c.entites, choisi.nom).map(x => x.libelle);
+    return [avecEchelle({ titre: `Service ${chemin.join(' › ')}`, sousTitre: ariane.length ? `Rattachement : ${ariane.join(' › ')}` : 'Équipe racine', arbre: [equipe(choisi)] })];
+  }
+  const sections: SectionOrganigramme[] = [];
+  const section = (n: NoeudEntite, societe: string) => {
+    if (n.equipes.length) {
+      const detail = [n.type === 'societe' ? 'Société' : 'Établissement', n.siret ? `SIRET ${formaterSiren(n.siret)}` : '', `${n.effectif} pers.`].filter(Boolean).join(' · ');
+      sections.push({
+        titre: n.type === 'etablissement' && societe ? `${n.nom} (${societe})` : n.nom, sousTitre: detail,
+        arbre: [{ libelle: n.nom, detail, enfants: n.equipes.map(equipe), groupe: true }],
+      });
+    }
+    for (const x of n.etablissements) section(x, n.nom);
+  };
+  for (const n of a.entites) section(n, societeHaut(c, n));
+  if (a.sansEntite.length) sections.push({ titre: 'Équipes sans entité', sousTitre: '', arbre: a.sansEntite.map(equipe) });
+  if (a.aAffecter.length) {
+    sections.push({ titre: 'À affecter', sousTitre: 'Salariés sans équipe : validations par le service RH', arbre: [{ libelle: 'À affecter', detail: `${a.aAffecter.length} pers.`, enfants: a.aAffecter.map(membre), groupe: true }] });
+  }
+  return sections.map(avecEchelle);
+}

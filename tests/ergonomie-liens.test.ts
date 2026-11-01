@@ -26,6 +26,8 @@ const UI: UiState = {
   refOnglet: 'formations', tsJour: null, tris: {},
   // lot 11 — organigramme
   orgEntite: null, orgSite: null,
+  // lot 12 — C7 (organigramme)
+  orgService: null, orgVue: 'liste',
   // lot 11 — indicateurs
   indOnglet: 'effectifs', indAnnee: null, indGroupe: 'aucun',
   // lot 11 — dossiers OPCO

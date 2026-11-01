@@ -83,6 +83,10 @@ export interface UiState {
   /** Organigramme : entité (code) et site (code) filtrés ; null : tous. */
   orgEntite: string | null;
   orgSite: string | null;
+  // lot 12 — C7 (organigramme)
+  /** Organigramme : service choisi (nom d'équipe ; null : tous) et présentation (liste indentée ou arbre vertical). */
+  orgService: string | null;
+  orgVue: 'liste' | 'graphique';
   // lot 11 — indicateurs
   /** Écran Indicateurs sociaux (pages/Indicateurs.tsx) : onglet, année civile (null : l'année en cours) et groupement. */
   indOnglet: OngletIndicateurs;
@@ -122,6 +126,8 @@ const INITIAL_UI: UiState = {
   tris: {},
   // lot 11 — organigramme
   orgEntite: null, orgSite: null,
+  // lot 12 — C7 (organigramme)
+  orgService: null, orgVue: 'liste',
   // lot 11 — indicateurs
   indOnglet: 'effectifs', indAnnee: null, indGroupe: 'aucun',
   // lot 11 — dossiers OPCO

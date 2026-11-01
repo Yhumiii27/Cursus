@@ -92,6 +92,10 @@ import { FraisVehiculeDialog } from './FraisVehiculeDialog.tsx';
 // lot 12 — C1 (forfait annuel en heures)
 // lot 12 — C2 (notes de frais : activation)
 // lot 12 — C3 (entretiens suivis et 360°)
+import { ObjectifAvancerDialog } from './ObjectifAvancerDialog.tsx';
+import { ObjectifDialog } from './ObjectifDialog.tsx';
+import { ObjectifEvaluerDialog } from './ObjectifEvaluerDialog.tsx';
+import { SouhaitDialog } from './SouhaitDialog.tsx';
 // lot 12 — C4 (organismes de formation et e-learning)
 // lot 12 — C5 (planning d'équipe)
 // lot 12 — C6 (badgeage virtuel)
@@ -202,6 +206,10 @@ function Dialogue({ d }: { d: DialogState }) {
     // lot 12 — C1 (forfait annuel en heures)
     // lot 12 — C2 (notes de frais : activation)
     // lot 12 — C3 (entretiens suivis et 360°)
+    case 'objectif': return <ObjectifDialog {...d} />;
+    case 'objectifAvancer': return <ObjectifAvancerDialog {...d} />;
+    case 'objectifEvaluer': return <ObjectifEvaluerDialog {...d} />;
+    case 'souhait': return <SouhaitDialog {...d} />;
     // lot 12 — C4 (organismes de formation et e-learning)
     // lot 12 — C5 (planning d'équipe)
     // lot 12 — C6 (badgeage virtuel)

@@ -4933,6 +4933,53 @@ imprimé, les indicateurs et rappels, le guide et le RGPD viennent à l'étape 2
   tirages des actions `objectif.*` et des souhaits dans `tests/support/oracle.ts`. Tests : `tests/entretiens-suivis.test.ts`
   (règles, types interdits, cycle d'un objectif, doublons de versement, annulation, vues par profil, journal, point de
   mi-année), `tests/conservation.test.ts` (cascade), empreinte de 0024 dans `PUBLIEES`.
+
+## Lot 12 : entretiens suivis (C3, t194), étape 2 — écrans, compte rendu, indicateurs, rappels
+
+Aucune table, colonne, action ni migration nouvelle : l'étape 2 met à l'écran ce que l'étape 1 a posé au serveur. Le
+feedback 360° reste désactivé (étape 3).
+
+- **Compte rendu** (`dialogs/EntDialog.tsx`, blocs de `components/EntretienSuivi.tsx`, sous les sections rédigées) :
+  entretien annuel : « Objectifs de la période précédente » (`objectifsARevoir`, « Évaluer » ou « Modifier
+  l’évaluation » tant que l'entretien est planifié), « Objectifs de la période à venir » (« Fixer un objectif », « Valider
+  ou reformuler » une proposition, « Proposer un objectif » pour le salarié, « Retirer ma proposition »), avec le nombre
+  au plus et le poids réparti ; mi-année et point : « Objectifs en cours » (« Avancement », « Ajuster »). Souhaits de
+  formation : avis du manager dans une liste (`entretien.avisSouhait`, aussitôt), « Ajouter un souhait », état après la
+  clôture (demande en attente, acceptée, refusée ; raison `nonVerse`). Mêmes droits que le serveur : évaluateur = service
+  RH hors soi-même, manager valideur ou suppléant « entretiens » (`useEvaluateur`, `decideur`). Chaque saisie s'ouvre
+  dans son dialogue (`ObjectifDialog` : ajouter, proposer, modifier, ajuster avec motif, retrait confirmé à la place des
+  boutons ; `ObjectifAvancerDialog` ; `ObjectifEvaluerDialog` ; `SouhaitDialog`), après l'enregistrement des sections en
+  cours, et rouvre le compte rendu (`retour`, prop `fermer` de `Dialog`). Point de suivi : signature du salarié facultative
+  (statut affiché, jamais dans « À faire »).
+- **Écran Entretiens** (espaces RH et manager) : onglets « Échéances et comptes rendus », « Objectifs », « Points de
+  suivi » (`pages/entretiens-onglets.ts`, `pages/EntretiensSuivi.tsx`), dans l'adresse (`?onglet=objectifs&statut=en-cours
+  &echeance=sous-30-jours`). Objectifs : indicateurs de campagne, « À arbitrer avant la clôture » (`aArbitrer` : souhaits
+  sans avis, propositions), objectifs du périmètre filtrés, résultats par équipe ; lecture seule et consultation N+2 :
+  compteurs par équipe seulement (`compteursObjectifs` de l'instantané). Points de suivi : membres (dernier point,
+  prochain, objectifs en cours, « Planifier un point ») et points de l'année.
+- **Mes objectifs** (vue `objectifs`, espace collaborateur, fermée sans `objectifsActifs` : `state/store.tsx`) :
+  `pages/MesObjectifs.tsx` — en cours (« Mettre à jour l’avancement »), en préparation (propositions, « Proposer un
+  objectif »), évalués, souhaits de formation et leur suite. Lecture seule hors ligne : aucune action dans la file de
+  l'appareil. Entrée du menu « Mon espace » (`ENTREES_LOT12` de `layout/Shell.tsx`), pastille des objectifs à mettre à jour.
+- **Paramètres → Objectifs et points de suivi** (`pages/parametres/ObjectifsSuivis.tsx`) : `objectifsActifs`,
+  `objectifsFacultatifs`, `objectifsMax`, `pointMiAnneeActif` et sa fenêtre (enregistrée d'un bloc) ; rappel du versement
+  des souhaits (favorables seulement, sans réglage) et du 360° désactivé (référence de l'avis du CSE et AIPD à l'étape 3).
+- **Compte rendu imprimé** (`dialogs/compteRendu-suivi.ts`, appelé par `imprimerCompteRendu`) : objectifs repris et leur
+  évaluation, objectifs fixés, objectifs en cours (mi-année, point), souhaits avec l'avis et la suite donnée.
+- **Indicateurs** (`shared/rules/objectifs-suivi.ts`, calculés à l'affichage, jamais stockés) : `indicateursSuivi` (taux
+  d'entretiens annuels avec objectifs, taux d'objectifs évalués, résultats par équipe masqués sous 3 salariés évalués,
+  souhaits exprimés, favorables, versés, acceptés, réalisés), `souhaitsVersesDeLExercice` (Plan & budget, indicateurs
+  de formation) ; badge « Entretien du … » des demandes versées (`components/OrigineEntretien.tsx` : tableau de bord,
+  fiche, accueil du salarié) et « issue d’un entretien » sur la ligne du plan.
+- **Rappels** : objectifs en cours à échéance sans mise à jour depuis 30 jours (`objectifsSansMiseAJour`) — « À faire »
+  du collaborateur (`aFaireCollaborateur().objectifs`, horizon 30 jours) et récapitulatif des échéances du manager et du
+  service RH (catégorie `objectif`, clé `objectif:<id>:<échéance>`, libellé fixe « Objectif à échéance, avancement à
+  mettre à jour », jamais le texte) ; point de mi-année obligatoire : par `obligations()` (étape 1), donc échéances,
+  relances et pastille comme les autres entretiens ; souhaits sans avis : encart « À arbitrer » et note du compte rendu.
+- **Documents** : `docs/RGPD.md` (finalité, catégories, destinataires, points ouverts), guide (`shared/aide.ts`,
+  `docs/GUIDE-UTILISATEUR.md`), demande à Matrix commentée (`docs/demandes/matrix-lot12-entretiens.md`). Tests :
+  `tests/entretiens-suivis-ecrans.test.ts`.
+
 ## Lot 12 : organismes de formation et e-learning (C4, t190), étape 1
 
 L'organisme de formation n'est plus un simple texte recopié : un référentiel de fiches (identité, SIRET, déclaration

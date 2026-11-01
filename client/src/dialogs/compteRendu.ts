@@ -8,15 +8,23 @@ import { needsFinCarriere, obligations } from '../../../shared/rules/entretiens.
 import { texteRemise } from '../../../shared/rules/remise.ts';
 import type { Entretien } from '../../../shared/types.ts';
 import { matriculesImprimes, printDocument, type PrintSection } from '../print.ts';
+// lot 12 — C3 (entretiens suivis) : objectifs et souhaits de formation imprimés après les sections rédigées.
+import { sectionsSuivi } from './compteRendu-suivi.ts';
+import { TYPES_FIXATION } from '../../../shared/rules/objectifs.ts';
 
 export const FIN_CARRIERE: EntSection = ['fincarriere', 'Fin de carrière : maintien dans l’emploi, aménagements souhaités', 'sal'];
 export const INFO_LABEL = 'Information remise : CPF, VAE, conseil en évolution professionnelle (CEP), abondement employeur';
 export const whoLabel = (who: EntSection[2]) => who === 'mgr' ? 'Évaluateur' : 'Salarié';
 
-/** Sections du compte rendu : celles du type d'entretien, plus « fin de carrière » à partir de 58 ans. */
+/**
+ * Sections du compte rendu : celles du type d'entretien, plus « fin de carrière » à partir de 58 ans. lot 12 — C3
+ * (entretiens suivis) : objectifs suivis, la section en texte libre « Objectifs de l’année à venir » de l'entretien annuel
+ * laisse la place aux objectifs structurés (components/EntretienSuivi.tsx), sauf si elle a déjà été rédigée.
+ */
 export function sectionsDe(d: Domain, x: Entretien): EntSection[] {
   const e = d.emp(x.empId);
-  return e ? [...ENT_TYPES[x.type].sections, ...(needsFinCarriere(d, e, x) ? [FIN_CARRIERE] : [])] : [];
+  const remplacee = (k: string) => k === 'objectifs' && d.ds.settings.objectifsActifs && TYPES_FIXATION.includes(x.type) && !x.cr.objectifs?.trim();
+  return e ? [...ENT_TYPES[x.type].sections.filter(([k]) => !remplacee(k)), ...(needsFinCarriere(d, e, x) ? [FIN_CARRIERE] : [])] : [];
 }
 
 /** Ouvre le compte rendu à imprimer ; faux si le navigateur bloque la fenêtre. */
@@ -38,6 +46,8 @@ export function imprimerCompteRendu(d: Domain, x: Entretien): boolean {
     ...sectionsDe(d, x).map(([k, label, who]) => ({ title: `${label} · ${whoLabel(who)}`, text: x.cr[k]?.trim() || 'Non renseigné' })),
     ...(['epp', 'reprise'].includes(x.type)
       ? [{ title: 'Information du salarié', text: x.info ? `${INFO_LABEL}.` : 'Information sur le CPF, la VAE, le CEP et l’abondement employeur non remise.' }] : []),
+    // lot 12 — C3 (entretiens suivis)
+    ...sectionsSuivi(d, x),
     { title: 'Signatures', rows: [
       ['Évaluateur', x.signMgr ? `${evaluateur} — signé le ${fmtIso(x.signMgr)}` : 'Non signé'],
       ['Salarié', x.signSal ? `${e.nom} — signé le ${fmtIso(x.signSal)}` : 'Non signé par le salarié'],

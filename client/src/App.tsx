@@ -52,7 +52,8 @@ const PAGES: Record<View, ComponentType> = {
   // lot 12 — blocs réservés (socle) : page de chaque vue nouvelle (shared/constants.ts, ALLOWED_VIEWS), chargée à la demande.
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)
-  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C3 (entretiens suivis et 360°) : « Mes objectifs » (espace collaborateur).
+  objectifs: aLaDemande(() => import('./pages/MesObjectifs.tsx'), 'MesObjectifs'),
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)

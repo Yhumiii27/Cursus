@@ -15,6 +15,8 @@ import { present } from './contrats.ts';
 import { obligations } from './entretiens.ts';
 import { ECHEANCE_18_ANS, ECHEANCE_DEROGATION } from './mineurs.ts';
 import { debutManque, etatsCouverture } from './couverture.ts';
+// lot 12 — C3 (entretiens suivis)
+import { objectifsSansMiseAJour } from './objectifs-suivi.ts';
 
 /** Paliers proposés (jours avant l'échéance) ; « échu » s'y ajoute toujours. */
 export const PALIERS_POSSIBLES = [90, 60, 30, 15, 7] as const;
@@ -47,7 +49,9 @@ export const titrePalier = (palier: string) => (palier === 'echu' ? 'Échéances
 
 export type CategorieRelance = 'formation' | 'habilitation' | 'visite' | 'formalite' | 'sanitaire' | 'deplacement' | 'entretien' | 'contrat' | 'couverture'
   // lot 11 — dossiers OPCO (shared/rules/opco.ts, `relancesOpco`)
-  | 'opco';
+  | 'opco'
+  // lot 12 — C3 (entretiens suivis) : objectif en cours à échéance sans mise à jour (shared/rules/objectifs-suivi.ts)
+  | 'objectif';
 
 /** Objet relancé : clé stable (avec la date de l'échéance : un renouvellement repart de zéro), salarié, libellé neutre. */
 export interface Relance {
@@ -132,6 +136,14 @@ export function relancesDues(d: Domain, emps: EmpX[], paliers: readonly number[]
   // Couverture minimale des équipes (SST, EPI incendie…) : relancée à l'approche du premier jour sous le minimum, sans nom
   // ni nature d'absence.
   out.push(...relancesCouverture(d, etatsCouverture(d.ds, Math.max(...paliers, 90)), paliers));
+  // lot 12 — C3 (entretiens suivis) : objectifs en cours qui approchent de leur échéance sans mise à jour depuis 30 jours,
+  // sous une clé par objectif et par échéance (un ajustement de l'échéance repart de zéro) ; jamais le texte de l'objectif,
+  // une échéance de travail n'étant pas une donnée de santé (manager et service RH).
+  if (d.ds.settings.objectifsActifs) {
+    for (const o of objectifsSansMiseAJour((d.ds.objectifs ?? []).filter(x => ids.has(x.empId)), d.ds.entretiens, d.ti)) {
+      ajouter({ cle: `objectif:${o.id}:${o.echeance}`, empId: o.empId, echeance: o.echeance!, categorie: 'objectif', sante: false, libelle: 'Objectif à échéance, avancement à mettre à jour' });
+    }
+  }
   // Fins de contrat prévues (CDD, mission, alternance), tant qu'aucune sortie n'est enregistrée.
   for (const e of presents) {
     if (!e.fin || e.motifSortie) continue;

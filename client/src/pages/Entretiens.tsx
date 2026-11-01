@@ -14,6 +14,10 @@ import { Ouvrir } from '../components/Cliquable.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { decideur } from '../state/delegues.ts';
+// lot 12 — C3 (entretiens suivis) : onglets Objectifs et Points de suivi (espaces RH et manager).
+import { Seg } from '../components/ui.tsx';
+import { OngletObjectifs, OngletPoints } from './EntretiensSuivi.tsx';
+import type { OngletEntretiens } from './entretiens-onglets.ts';
 
 const RISK_TEXT = 'Conditions non remplies — abondement correctif de 3 000 € sur le CPF (entreprises de 50 salariés et plus)';
 
@@ -21,7 +25,7 @@ export function Entretiens() {
   const d = useDomain();
   // Lecture seule : obligations et calendrier, sans les comptes rendus (non transmis).
   const { rh, manager, collab, me, soi } = useRole();
-  const { openDialog, switchMode, go, bascule } = useStore();
+  const { openDialog, switchMode, go, bascule, ui, setUi } = useStore();
   const data = d.ds;
   const year = d.year;
   const compteRendu = rh || manager || collab;
@@ -70,8 +74,11 @@ export function Entretiens() {
       ? `Prochain entretien de parcours professionnel : avant le ${fmt(parse(nextEpp.due))}`
       : 'Code du travail · loi n° 2025-989 du 24 octobre 2025';
 
-    return { obligRows, entRows, k, kicker };
+    return { obligRows, entRows, k, kicker, scopeIds };
   }, [d, data, year, rh, manager, collab, me, soi]);
+
+  // lot 12 — C3 (entretiens suivis) : onglet de l'écran ; le collaborateur n'a que les échéances et ses comptes rendus.
+  const onglet: OngletEntretiens = collab ? 'echeances' : ui.entOnglet;
 
   // Le manager a aussi un espace collaborateur (tout compte manager est salarié) : ses propres entretiens s'y trouvent.
   const versMesEntretiens = async () => {
@@ -87,6 +94,12 @@ export function Entretiens() {
           <Btn variant="secondary" small disabled={bascule} onClick={versMesEntretiens}>Mes entretiens</Btn>
         </div>
       )}
+      {/* lot 12 — C3 (entretiens suivis) : onglets, hors de l'espace collaborateur (« Mes objectifs » y a sa page). */}
+      {!collab && (
+        <Seg name="entOnglet" label="Onglet d’Entretiens" value={onglet} onChange={o => setUi({ entOnglet: o })} style={{ alignSelf: 'flex-start', flexWrap: 'wrap' }}
+          options={[['echeances', 'Échéances et comptes rendus'], ['objectifs', 'Objectifs'], ['points', 'Points de suivi']]} />
+      )}
+      {onglet === 'objectifs' ? <OngletObjectifs ids={v.scopeIds} /> : onglet === 'points' ? <OngletPoints ids={v.scopeIds} /> : <>
       {!collab && (
         <Kpis>
           <Kpi kicker="Parcours pro en retard" value={v.k.late} sub="premier dans l’année, puis tous les 4 ans" />
@@ -140,6 +153,7 @@ export function Entretiens() {
           <Fine>L’entretien de parcours professionnel ne porte pas sur l’évaluation du travail : comptes rendus distincts de l’entretien annuel.</Fine>
         </Panel>
       </div>
+      </>}
     </Page>
   );
 }

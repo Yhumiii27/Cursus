@@ -19,6 +19,8 @@ import { LiensPieces } from '../components/PieceJointe.tsx';
 import { CouverturePanel } from '../components/Couverture.tsx';
 import { DossiersEchusPanel } from '../components/DossiersEchus.tsx';
 import { sessionDemandeeComplete } from '../../../shared/rules/liste-attente.ts';
+// lot 12 — C3 (entretiens suivis)
+import { BadgeEntretien } from '../components/OrigineEntretien.tsx';
 import { AIDE_SOI_MEME, fichePropre } from '../../../shared/rules/soi-meme.ts';
 
 /** Ligne d'échéance (tableau de bord, page Échéances). */
@@ -150,7 +152,8 @@ export function Dashboard() {
                     return (
                       <tr key={r.id} className="clickable" onClick={() => openEmp(r.empId)}>
                         <td><Two main={<Ouvrir onOpen={() => openEmp(r.empId)}>{e?.nom ?? d.personName(r.empId)}</Ouvrir>} sub={`${equipeLabel(e)} · Reçue le ${fmtShort(parse(r.date))}`} nowrap /></td>
-                        <td><Two main={reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom)} sub={sub} /></td>
+                        {/* lot 12 — C3 (entretiens suivis) : badge d'origine d'un souhait versé à la clôture d'un entretien. */}
+                        <td><Two main={<>{reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom)}<BadgeEntretien d={d} r={r} /></>} sub={sub} /></td>
                         {x && e
                           // Document déclaré : contenu saisi et valeur du dossier qu'il remplacera à la validation
                           // (sauf déclaration reprise d'une ancienne base, encore au dossier : un refus l'en retire).

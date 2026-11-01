@@ -18,6 +18,8 @@ import { anneeIndicateursValide, GROUPES_INDICATEURS } from '../../../shared/rul
 import { ONGLETS_INDICATEURS } from '../pages/indicateurs-onglets.ts';
 // lot 12 — socle
 import { ONGLETS_TEMPS } from '../pages/temps-onglets.ts';
+// lot 12 — C3 (entretiens suivis)
+import { ONGLETS_ENTRETIENS } from '../pages/entretiens-onglets.ts';
 
 /** Paramètre de l'adresse : champ de UiState, nom affiché, valeur par défaut (absente de l'adresse), lecture contrôlée. */
 interface Param<K extends keyof UiState = keyof UiState> {
@@ -155,6 +157,12 @@ export const PARAMS_URL: Partial<Record<View, Param[]>> = {
       ecrire: v => String(v),
     }),
     choix('indGroupe', 'groupe', 'aucun', Object.fromEntries(Object.keys(GROUPES_INDICATEURS).map(g => [g, g]))),
+  ],
+  // lot 12 — C3 (entretiens suivis) : onglet de l'écran, filtres de l'onglet Objectifs (statut, échéance).
+  entretiens: [
+    choix('entOnglet', 'onglet', 'echeances', Object.fromEntries(ONGLETS_ENTRETIENS.map(o => [o, o]))),
+    choix('objStatut', 'statut', 'tous', { ouverts: 'en-cours', proposes: 'proposes', evalues: 'evalues' }),
+    choix('objEcheance', 'echeance', 'toutes', { proches: 'sous-30-jours', depassees: 'depassees' }),
   ],
   // lot 11 — notes de frais : onglet et note ouverte (identifiant d'une note du jeu de données du rôle).
   frais: [

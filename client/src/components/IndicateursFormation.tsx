@@ -17,6 +17,8 @@ import { Btn, Fine, NoteAccent, Panel } from './ui.tsx';
 import { IndicateursEvaluationPanel } from './Evaluations.tsx';
 // lot 11 — indicateurs
 import { droitsRh } from '../../../shared/constants.ts';
+// lot 12 — C3 (entretiens suivis)
+import { souhaitsVersesDeLExercice } from '../../../shared/rules/objectifs-suivi.ts';
 
 function Tableau({ titre, lignes }: { titre: string; lignes: LigneIndicateur[] }) {
   const visibles = lignes.filter(l => l.realisations > 0);
@@ -44,6 +46,8 @@ export function IndicateursFormationPanel({ exercice }: { exercice: number }) {
   // Écran Indicateurs sociaux : droit « consultation » (service RH et lecture seule).
   const versIndicateurs = droitsRh(d.ds.user).includes('consultation');
   const x = useMemo(() => indicateursFormation(d, exercice), [d, exercice]);
+  // lot 12 — C3 (entretiens suivis) : demandes versées depuis les souhaits exprimés en entretien, et leur suite.
+  const souhaits = useMemo(() => souhaitsVersesDeLExercice(d.ds, exercice), [d, exercice]);
   const exporter = () => {
     const c = csvIndicateurs(d, x);
     downloadCsv(c.fichier, c.head, c.rows);
@@ -64,6 +68,12 @@ export function IndicateursFormationPanel({ exercice }: { exercice: number }) {
         {' '}· {x.tauxRealisation == null ? 'aucune action au plan' : `${x.actionsRealisees} / ${x.actions} actions du plan réalisées (${x.tauxRealisation} %)`}
         {' '}· coût prévu {fmtEur(x.coutPrevu)}, réalisé {fmtEur(x.coutRealise)}
       </div>
+      {souhaits.versees > 0 && (
+        <div className="text-muted sub">
+          Issues des entretiens : {plural(souhaits.versees, 'demande versée', 'demandes versées')} depuis un souhait à avis favorable · {souhaits.acceptees} acceptées
+          {' '}· {plural(souhaits.lignesPlan, 'ligne du plan', 'lignes du plan')} d’origine « entretien »
+        </div>
+      )}
       <div className="scroll-x"><Tableau titre="Catégorie" lignes={x.parCategorie} /></div>
       <div className="scroll-x"><Tableau titre="Équipe" lignes={x.parEquipe} /></div>
       <div className="scroll-x"><Tableau titre="Statut" lignes={x.parStatut} /></div>

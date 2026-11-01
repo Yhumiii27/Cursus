@@ -112,6 +112,12 @@ les traite dans Sage. Les frais engagés pendant un déplacement se déclarent d
   « Astreinte » : jour, heures de début et de fin) ; ses heures vont sur la ligne « Intervention d'astreinte », qui ne se
   saisit pas à la main. Une intervention déclarée par erreur se retire tant que la feuille se saisit.
 
+### Mes objectifs et souhaits de formation
+
+- Menu « Mes objectifs » : les objectifs fixés à votre entretien annuel. « Mettre à jour l'avancement » en cours d'année (de 0 à 100 %, avec un court commentaire) ; un objectif proche de son échéance sans mise à jour depuis un mois apparaît dans « À faire ».
+- Entretien annuel prévu : « Proposer un objectif » ; votre évaluateur le valide ou le reformule avant la clôture. Dans le compte rendu, « Ajouter un souhait » de formation : avec l'avis favorable de votre manager, il devient à la clôture une demande au service RH, dont vous suivez la réponse.
+- Un objectif décrit un résultat de travail : jamais de donnée de santé. L'entretien de parcours professionnel ne porte pas d'objectif (il ne sert pas à évaluer le travail).
+
 ### Organigramme
 
 - Menu « Organigramme » : sociétés, établissements, équipes et leurs membres présents ce jour, avec le manager de chaque
@@ -206,6 +212,12 @@ Les feuilles validées partent à la paie avec le lot du mois : le manager n'a r
 - Après l'entretien : rédiger ses sections, indiquer la date à laquelle il a eu lieu, puis « Clore et signer ». Le salarié
   relit et signe à son tour ; « Remettre la copie » trace la remise (main propre, refus de signer, mise à disposition).
 - Ses propres entretiens, menés par son responsable, se préparent dans l'espace collaborateur.
+
+### Objectifs et souhaits de formation
+
+- Entretien annuel : « Fixer un objectif » (mesure, échéance, poids facultatif), valider ou reformuler ceux proposés par le salarié ; les objectifs de l'année passée s'évaluent (« Évaluer » : atteint, partiellement, non atteint, sans objet, reconduit).
+- Souhaits de formation : donnez votre avis sur chacun dans le compte rendu ; à la clôture, seuls les souhaits à avis favorable deviennent une demande au service RH. Onglet « Objectifs » : les objectifs de l'équipe, ce qui reste à arbitrer avant la clôture, et « Ajuster » en cours d'année avec un motif.
+- Onglet « Points de suivi » : « Planifier un point » de mi-année ou de suivi, facultatif sauf réglage du service RH ; il porte l'avancement des objectifs, pas leur évaluation.
 
 ### Évaluer les formations de l'équipe
 
@@ -479,6 +491,11 @@ pièces et échéances, sans export comptable ni connexion au portail de l'OPCO 
 - Menu « Notes de frais » (service RH et profil Comptabilité) : onglet « À contrôler » ; dans la note, « Montant retenu » ramène une dépense au plafond, « Refuser » l'écarte avec un motif, puis « Contrôler la note » : elle part dans le prochain lot de paie (colonne « montant » du fichier Sage).
 - Onglet « Exports comptables » : « Générer l'export comptable » fige les écritures des notes contrôlées, puis « Télécharger » le fichier pour la comptabilité (frais médicaux au compte générique). Une note déjà exportée ne se renvoie ni ne s'annule : annulez d'abord l'export, ses notes redeviennent à exporter. Onglet « Tableau de bord » : notes en attente, délai, dépenses par mois et par catégorie, taux des devises.
 - Paramètres → Notes de frais (administrateur RH) : activation, circuit, plafonds, barème kilométrique de l'année, limites d'exonération URSSAF, comptes et format du fichier d'écritures, à confirmer par la comptabilité et la paie.
+
+### Entretiens suivis
+
+- Paramètres → Objectifs et points de suivi (administrateur RH) : objectifs suivis ou non, « Objectifs facultatifs (première année) » (la clôture n'exige pas l'évaluation), nombre au plus par entretien, point de mi-année obligatoire et sa fenêtre.
+- Les demandes de formation nées d'un entretien portent le badge « Entretien » (tableau de bord, fiche) ; acceptées, la ligne du plan porte l'origine « issue d'un entretien ». Le feedback 360° reste désactivé jusqu'à l'avis du CSE et l'analyse d'impact.
 
 ## Gestionnaire de paie
 

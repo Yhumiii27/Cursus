@@ -171,10 +171,11 @@ test('vue « organigramme » : trois espaces et profils restreints (sauf Comptab
   for (const vues of Object.values(ALLOWED_VIEWS)) assert.ok((vues as readonly string[]).includes('organigramme'));
   for (const profil of ['referent_hse', 'paie', 'lecture_seule'] as const) assert.ok(vuesDe('rh', profil).includes('organigramme'), profil);
   assert.ok(!(PROFILS_RH.comptabilite.vues as readonly string[]).includes('organigramme'), 'Comptabilité : frais seulement');
-  assert.deepEqual(PARAMS_URL.organigramme!.map(x => x.nom), ['entite', 'site']);
-  const data = { referentiels: { entites: ENTITES, sites: SITES } } as never;
-  assert.deepEqual(lireUrl('organigramme', '?entite=lyon&site=lab67', data), { orgEntite: 'lyon', orgSite: 'lab67' });
-  assert.deepEqual(lireUrl('organigramme', '?entite=inconnue&site=x', data), { orgEntite: null, orgSite: null });
+  // lot 12 — C7 (organigramme) : service et présentation s'ajoutent à l'entité et au site (tests/organigramme-service.test.ts).
+  assert.deepEqual(PARAMS_URL.organigramme!.map(x => x.nom), ['entite', 'site', 'service', 'vue']);
+  const data = { referentiels: { entites: ENTITES, sites: SITES, equipes: EQUIPES } } as never;
+  assert.deepEqual(lireUrl('organigramme', '?entite=lyon&site=lab67', data), { orgEntite: 'lyon', orgSite: 'lab67', orgService: null, orgVue: 'liste' });
+  assert.deepEqual(lireUrl('organigramme', '?entite=inconnue&site=x', data), { orgEntite: null, orgSite: null, orgService: null, orgVue: 'liste' });
   assert.deepEqual(lireUrl('referentiels', '?onglet=entites', data), { refOnglet: 'entites' });
   assert.match(adresse('organigramme', { orgEntite: 'lyon', orgSite: null } as never), /^\/organigramme\?entite=lyon$/);
 });

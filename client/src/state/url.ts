@@ -96,6 +96,14 @@ function codeEntite<K extends keyof UiState>(cle: K, nom: string, liste: (data: 
   });
 }
 
+// lot 12 — C7 (organigramme)
+/** Service de l'organigramme : nom d'une équipe du référentiel reçu (déjà limité au périmètre), sinon tous les services. */
+const serviceOrganigramme = param<'orgService'>({
+  cle: 'orgService', nom: 'service', defaut: null,
+  lire: (brut, data) => data.referentiels.equipes.some(e => e.nom === brut) ? brut : undefined,
+  ecrire: v => String(v),
+});
+
 /** Paramètres de chaque vue ; une vue absente n'a rien dans l'adresse. */
 export const PARAMS_URL: Partial<Record<View, Param[]>> = {
   collaborateurs: [
@@ -127,7 +135,9 @@ export const PARAMS_URL: Partial<Record<View, Param[]>> = {
     entites: 'entites',
   })],
   // lot 11 — organigramme : entité et site filtrés (codes du référentiel).
-  organigramme: [codeEntite('orgEntite', 'entite', d => d.referentiels.entites ?? []), codeEntite('orgSite', 'site', d => d.referentiels.sites ?? [])],
+  organigramme: [codeEntite('orgEntite', 'entite', d => d.referentiels.entites ?? []), codeEntite('orgSite', 'site', d => d.referentiels.sites ?? []),
+    // lot 12 — C7 (organigramme) : service choisi (nom d'une équipe du référentiel reçu) et présentation (liste par défaut).
+    serviceOrganigramme, choix('orgVue', 'vue', 'liste', { graphique: 'graphique' })],
   budget: [exercice, choix('planFilter', 'statut', 'tous', { prevu: 'prevu', engage: 'engage', realise: 'realise', reporte: 'reporte' }),
     // lot 11 — dossiers OPCO : onglet, filtres (état, OPCO, dispositif) et dossier ouvert.
     choix('budgetOnglet', 'onglet', 'plan', { opco: 'dossiers-opco' }),

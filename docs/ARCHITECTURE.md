@@ -1742,7 +1742,7 @@ aucun champ du paramètre n'est recopié.
 | `site.enregistrer` | code (création, format de matrix.pub_sites) ou id (le code), libelle (80 caractères), actif? : cache de matrix.pub_sites tenu à la main | RH |
 | `equipe.entite` | nom (équipe racine seulement : une équipe rattachée hérite de son équipe racine), entite (code d'une entité ouverte ; vide : aucune) ; aucun valideur ne change | RH |
 | `equipe.site` / `equipe.unite` | nom, siteCode (site connu et actif ; vide : celui d'une équipe au-dessus ou de l'entité) / uniteCode (format de l'organigramme de Matrix, `PRD-MAINT`, unique ; vide : aucun) | RH |
-| `organigramme.imprimer` / `organigramme.exporter` | entite? (code), lignes (entier) : rien n'est écrit en base, le journal garde l'entité et le nombre de lignes, jamais un nom | qui voit l'organigramme (réglage `organigrammeOuvert` : l'espace RH toujours ; managers sauf « rh » ; collaborateurs si « tous », par défaut) |
+| `organigramme.imprimer` / `organigramme.exporter` | entite? (code), lignes (entier), service? (nom d'une équipe du référentiel, lot 12 — C7) : rien n'est écrit en base, le journal garde l'entité, le nombre de lignes et le service choisi, jamais le nom d'une personne | qui voit l'organigramme (réglage `organigrammeOuvert` : l'espace RH toujours ; managers sauf « rh » ; collaborateurs si « tous », par défaut) |
 | `passeport.declarer` | cles [« cert:<id> », « suivie:<id> » : lignes du Passeport de prévention, 2 000 au plus], le (jour de la déclaration sur la plateforme : ni à venir, ni avant le dernier jour d'une formation) ; ligne inconnue, annulée, d'une formation plus marquée ou déjà déclarée : refus, rien d'écrit (lot 7, `shared/rules/passeport-prevention.ts`) ; journal : jour, nombre de lignes, salariés concernés | RH, référent HSE |
 | `passeport.retirer` | cle (ligne marquée déclarée) : marque posée par erreur retirée, ligne de nouveau proposée à l'export ; journal : la clé, le salarié | RH, référent HSE |
 | `hab.demander` | empId, h : habilitation exigée jamais délivrée, titre « en attente » de délivrance (déjà demandée : rien n'est refait ; déjà délivrée ou archivée : refus) | RH, référent HSE ; jamais pour soi-même |
@@ -5183,3 +5183,42 @@ géolocalisation à l'étape 3.
 - **Essai de charge** (`npm run charge:pointages`, base SQLite temporaire, 100 salariés, 3 ans) : 275 492 pointages (91 800
   par an), 53 Mo de base ; instantané inchangé (lecture brute 111 → 120 ms, bruit de mesure ; vue RH 2 ms) ; six semaines
   d'un salarié 15 ms, état du jour 2 ms, présences d'une équipe de 19 salariés 19 ms, insertion 0,5 ms, purge 0,4 ms.
+## Lot 12 : organigramme graphique et choix d'un service (C7)
+
+Demande du propriétaire du 1er novembre 2026 : vue de l'organigramme en arbre vertical et choix d'un service. Chantier
+100 % client : aucune table, aucune migration, aucune action ni donnée nouvelle envoyée au navigateur ; mêmes droits que
+l'écran du lot 11 (réglage `organigrammeOuvert`, étiquettes de contrat, anomalies et salariés à affecter au service RH).
+
+- **Règles** (`client/src/organigramme-vue.ts`, bloc « lot 12 — C7 », testées par `tests/organigramme-service.test.ts`) :
+  `restreindreAuService(arbre, equipes, service)` garde l'équipe et ses sous-équipes (`sousArbre` : `equipesDescendantes`),
+  ses équipes parentes et son entité vidées de membres (chemin du CSV et de l'impression) ; service inconnu ou absent de
+  l'arbre : l'arbre entier. `filtrerArbre` l'applique d'abord (`FiltreOrganigramme.service`), puis entité, site et
+  recherche, qui ne porte donc que sur le service. `noeudService`, `choixServices` (équipes de l'arbre filtré par entité
+  et site, chemin `cheminEquipe`, triées par chemin), `filAriane`, `clesDepliablesGraphique` (nœuds « N personnes »,
+  clé `m:<équipe>`, au-delà de `SEUIL_MEMBRES` = 8), `sectionsImpressionGraphique` et `echelleImpression` (boîtes au
+  niveau le plus large × 48 mm contre 273 mm de page paysage, par dizaines, `ECHELLE_MIN` = 30 %).
+- **État et adresse** : `ui.orgService` (paramètre `service`, nom d'une équipe de `referentiels.equipes`, sinon la valeur
+  par défaut) et `ui.orgVue` (`liste` par défaut, `vue=graphique`), à la suite de `orgEntite` / `orgSite` dans
+  `UiState`, `INITIAL_UI` et `PARAMS_URL`.
+- **Écran** (`pages/Organigramme.tsx`) : champ « Service » (`input` + `datalist`, libellé ou nom exact ; texte inconnu
+  refusé au départ du champ), fil d'Ariane `nav` (entité, équipes parentes cliquables, « Tous les services »), bandeau
+  « Voir ce service seul » pour l'équipe touchée (clic ou focus : aucun bouton dans les nœuds de l'arbre), contrôle
+  segmenté « Liste / Graphique ». Sous 600 px (`useMedia`), la liste à la place du graphique, avec un message.
+- **Vue graphique** (`components/organigramme/ArbreGraphique.tsx`) : listes imbriquées `role="tree"` / `treeitem` /
+  `group`, boîtes `.orgg-*` reliées par des pseudo-éléments (`styles/app.css`, bloc « lot 12 — C7 ») ; membres dans la
+  boîte (groupe), sous-équipes dessous (groupe) ; clavier commun aux deux vues (`components/organigramme/clavier.ts`,
+  `toucheArbre`). Cadre défilant ; zoom de 50 à 150 % par `transform: scale` (prop `style` de React, permise par la
+  CSP), la taille du cadre intérieur suit l'échelle (mesure par `ResizeObserver`).
+- **Impression** (`print.ts`) : section `vertical` (`arbreVerticalHtml` : boîtes et traits de `styles/print.css`),
+  `echelle` appliquée par une classe `echelle-NN` (`zoom`), ni style ni script en ligne ; avertissement dans le
+  sous-titre et à l'écran quand l'arbre est réduit. En liste, un service choisi s'imprime seul. Journal :
+  `organigramme.imprimer` / `organigramme.exporter` gardent l'entité et le nombre de lignes et reçoivent, quand un
+  service est choisi, `service` (nom d'une équipe, clé de la table `equipes`, déjà tracée par `equipe.creer`,
+  `equipe.affecter`… ; l'action refuse un nom absent du référentiel, « Service introuvable ») : l'export d'un service se
+  distingue ainsi de celui de l'organigramme entier.
+- **Service choisi déplié** : l'équipe choisie (champ, adresse, fil d'Ariane, « Voir ce service seul ») et ses
+  sous-équipes directes s'ajoutent aux nœuds dépliés, comme les équipes racines au départ ; en vue graphique, la marque
+  `trouve` d'une équipe est posée aussi sur son treeitem (Entrée dans la recherche y place le focus, comme en liste).
+- **Tests** : `tests/organigramme-service.test.ts` (règles, adresse, échelle), `tests/client-organigramme-graphique.test.ts`
+  (boîtes, traits, ARIA, clavier, « N personnes », zoom, service, export, collaborateur, téléphone, HTML imprimé),
+  `e2e/organigramme.spec.ts` (service, vue graphique, dépliage ; liste sur le téléphone).

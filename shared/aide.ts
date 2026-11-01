@@ -75,6 +75,9 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           'Menu « Organigramme » (si l’entreprise l’a ouvert à tous, ce qui est le réglage par défaut ; managers et collaborateurs le voient aussi) : sociétés, établissements, équipes et leurs membres présents ce jour, avec le manager de chaque équipe.',
           'Il ne montre que l’annuaire : nom, poste, équipe, manager. Ni contrat, ni absence, ni santé ; le suppléant d’un manager absent n’apparaît que pour qui voit déjà sa délégation, sans les dates.',
           'Cherchez un nom, un poste ou une équipe : les résultats sont surlignés et Entrée y place le curseur. Au clavier : flèches pour parcourir, droite et gauche pour déplier ou replier ; « Tout déplier » ouvre tout l’arbre. « Imprimer » (en paysage, une entité par page) et « Exporter (CSV) » reprennent les personnes affichées.',
+          // lot 12 — C7 (organigramme)
+          'Champ « Service » : choisissez une équipe dans la liste (son chemin, par exemple « Production › Maintenance ») pour n’afficher qu’elle et ses sous-équipes ; la recherche ne porte plus que sur elle. Le fil d’Ariane rappelle son rattachement et remonte d’un niveau ; un clic sur une équipe de l’arbre propose « Voir ce service seul ».',
+          'Présentation « Liste » ou « Graphique » : la vue graphique dessine l’arbre de haut en bas, une boîte par équipe avec son manager, ses présents et ses membres (au-delà de huit, derrière « N personnes »). « Réduire » et « Agrandir » changent sa taille ; sur un téléphone, la liste s’affiche à sa place. En vue graphique, « Imprimer » imprime l’arbre vertical, réduit s’il est trop large pour la page.',
         ],
       },
       // lot 11 — pwa : application installée, saisie sans réseau, notifications, appareil partagé.

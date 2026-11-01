@@ -126,6 +126,18 @@ les traite dans Sage. Les frais engagés pendant un déplacement se déclarent d
 - « Imprimer » : document en paysage, une entité par page, « Document interne — état au » jour de l'impression.
   « Exporter (CSV) » : une ligne par personne affichée (société, établissement, site, chemin des équipes, nom, poste,
   manager, valideur). L'impression et l'export sont notés au journal avec l'entité et le nombre de lignes, jamais un nom.
+- **Choisir un service** (lot 12) : le champ « Service » propose les équipes de l'arbre avec leur chemin (« Production ›
+  Maintenance ») ; on peut y taper pour filtrer la liste. Le service choisi s'affiche seul, avec ses sous-équipes ; le fil
+  d'Ariane au-dessus rappelle son entité et ses équipes parentes (un clic remonte d'un niveau, « Tous les services »
+  revient à l'arbre entier). La recherche ne porte alors que sur ce service ; l'impression et l'export aussi. Un clic sur
+  une équipe de l'arbre propose « Voir ce service seul ». Le service choisi reste dans l'adresse de la page.
+- **Vue graphique** (lot 12) : « Liste » ou « Graphique ». La vue graphique dessine l'arbre de haut en bas : l'entité (ou
+  le service choisi) en haut, ses équipes dessous, reliées par des traits ; chaque boîte donne le manager (et son
+  suppléant, aux mêmes conditions que la liste), le nombre de présents et, dépliée, les membres (au-delà de huit,
+  derrière « N personnes », à déplier). Un arbre large défile dans son cadre ; « Réduire » et « Agrandir » changent sa
+  taille (de 50 à 150 %). Le clavier fonctionne comme dans la liste. Sous 600 px (téléphone), la liste s'affiche à sa
+  place, avec un message ; le choix est gardé. En vue graphique, « Imprimer » imprime l'arbre vertical (le service
+  choisi, ou une page par entité), réduit à l'échelle de la page s'il est trop large, ce que le document signale.
 ### Sur le téléphone
 
 - Cursus s'installe sans magasin d'applications. Android : « Installer l'application » (accueil, aide ou menu).

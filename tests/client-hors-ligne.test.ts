@@ -140,6 +140,35 @@ test('pièces : envoyées d’abord avec leur propre clé, jetons passés à l�
   assert.equal((await c.f.lister(MEHDI))[0].motif, 'Format refusé : PDF, JPEG ou PNG seulement.');
 });
 
+test('pièces : jeton de plus de 23 h ou saisie reprise → pièce renvoyée avec une nouvelle clé, jamais le jeton périmé', async () => {
+  // Photo envoyée, puis le réseau coupe avant l'action ; deux jours plus tard (jeton expiré sur le serveur après 24 h).
+  const b = banc(['pieceOk', { ok: false, message: null, error: 'Réseau indisponible', status: 0 }, 'pieceOk', ok]);
+  const id = await b.f.ajouter(MEHDI, 'temps.saisir', saisie(0), { pieces: [{ nom: 'a.jpg', type: 'image/jpeg', octets: new Uint8Array([1]) }] });
+  assert.equal((await b.f.rejouer(MEHDI, b.envoyeur, b.relire)).arret, 'reseau');
+  b.avancer(2);
+  assert.equal((await b.f.rejouer(MEHDI, b.envoyeur, b.relire)).envoyees, 1);
+  assert.deepEqual(b.j.pieces.map(p => p.nom), ['a.jpg', 'a.jpg'], 'pièce renvoyée');
+  assert.notEqual(b.j.pieces[0].cle, b.j.pieces[1].cle, 'nouvelle clé (l’ancienne rendrait 410)');
+  assert.deepEqual(b.j.actions.map(a => a.payload.pieces), [['jeton-1'], ['jeton-2']]);
+  assert.equal(b.j.actions[1].cle, id);
+  // Moins de 23 h : le jeton est réutilisé tel quel.
+  const c = banc(['pieceOk', { ok: false, message: null, error: 'Réseau indisponible', status: 0 }, ok]);
+  await c.f.ajouter(MEHDI, 'temps.saisir', saisie(0), { pieces: [{ nom: 'a.jpg', type: 'image/jpeg', octets: new Uint8Array([1]) }] });
+  await c.f.rejouer(MEHDI, c.envoyeur, c.relire);
+  c.avancer(0.5);
+  assert.equal((await c.f.rejouer(MEHDI, c.envoyeur, c.relire)).envoyees, 1);
+  assert.equal(c.j.pieces.length, 1);
+  // Action refusée (pièce introuvable : jeton consommé ou effacé) puis reprise : la pièce repart, avec une nouvelle clé.
+  const d = banc(['pieceOk', { ok: false, message: null, error: 'Pièce introuvable ou expirée', status: 422 }, 'pieceOk', ok]);
+  const e = await d.f.ajouter(MEHDI, 'temps.saisir', saisie(0), { pieces: [{ nom: 'a.jpg', type: 'image/jpeg', octets: new Uint8Array([1]) }] });
+  assert.equal((await d.f.rejouer(MEHDI, d.envoyeur, d.relire)).aReprendre, 1);
+  await d.f.reprendre(e);
+  assert.deepEqual(await d.f.rejouer(MEHDI, d.envoyeur, d.relire), { envoyees: 1, aReprendre: 0, restantes: 0, arret: null });
+  assert.equal(d.j.pieces.length, 2);
+  assert.notEqual(d.j.pieces[0].cle, d.j.pieces[1].cle);
+  assert.deepEqual(d.j.actions.map(a => a.payload.pieces), [['jeton-1'], ['jeton-2']]);
+});
+
 test('purges : complète (clé comprise), session d’un autre compte, saisies de plus de 7 jours', async () => {
   const b = banc();
   await b.f.ajouter(MEHDI, 'temps.saisir', saisie(0));

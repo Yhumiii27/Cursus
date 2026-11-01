@@ -8,10 +8,14 @@
 //   celle demandée par Retry-After), jusqu'à 10 tentatives.
 // - Autre statut (400, 403 : clé VAPID refusée, 413…) : échec définitif.
 // - Au-delà de sa validité (24 h après l'heure d'envoi admise) : expirée sans envoi.
+// - Plage de silence (jamais de 20 h à 7 h ni le week-end, sauf l'essai) contrôlée aussi à l'envoi et pour chaque nouvelle
+//   tentative : une notification due pendant la plage est reportée au premier instant admis, sans compter de tentative,
+//   ou expire si cet instant dépasse sa validité.
+// - L'appel au service de push se fait hors de la base : seules la décision et l'issue sont écrites sous le verrou.
 // Le titre et le corps sont recalculés à l'envoi depuis le type (texte fixe, shared/notifications-push.ts) : rien de
 // nominatif n'est en base ni chez le service de push. Purge : notifications closes depuis 30 jours, abonnements sans
 // succès depuis 90 jours (tâche du quart d'heure, server/src/notifications.ts).
-import { NOTIFICATIONS_PUSH, TTL_PUSH_S } from '../../shared/notifications-push.ts';
+import { NOTIFICATIONS_PUSH, prochainEnvoiAdmis, TTL_PUSH_S } from '../../shared/notifications-push.ts';
 import type { Db } from './db.ts';
 import { attente, TENTATIVES_MAX } from './envois.ts';
 import { requetePush, type RequetePush } from './integrations/push.ts';
@@ -60,44 +64,100 @@ export function chargePush(type: string): { type: string; titre: string; corps: 
   return n ? { type, titre: n.titre, corps: n.corps, url: n.vue ? `/${n.vue}` : '/' } : null;
 }
 
-/** Envoie une notification et enregistre son issue. */
-async function envoyerUne(db: Db, e: EnvoiPush, transport: TransportPush, maintenant: Date): Promise<void> {
-  const at = maintenant.toISOString();
-  if (e.expire && e.expire <= at) {
-    compteurs.expirees++;
-    await db.update('envoisPush', e.id, { statut: 'expire', prochaine: null });
-    return;
-  }
-  const abo = await db.get<AbonnementPush>('abonnementsPush', e.abonnementId);
-  const cles = clesPush(), charge = chargePush(e.type), navigateur = abo ? navigateurDe(abo) : null;
-  if (!abo || !cles || !charge || !navigateur) {
-    compteurs.echecs++;
-    await db.update('envoisPush', e.id, { statut: 'echec', prochaine: null, erreur: !abo ? 'Abonnement retiré' : !cles ? 'Notifications désactivées' : !charge ? 'Type inconnu' : 'Abonnement illisible (clé des pièces absente ou changée)' });
-    return;
-  }
-  const r = await transport(requetePush(navigateur, charge, cles, { ttl: TTL_PUSH_S, maintenant }));
-  const tentatives = e.tentatives + 1;
-  if (r.status >= 200 && r.status < 300) {
-    compteurs.envoyees++;
-    await db.update('envoisPush', e.id, { statut: 'envoye', tentatives, envoi: at, prochaine: null, erreur: null });
-    await db.update('abonnementsPush', abo.id, { dernierSucces: at, echecs: 0 });
-    return;
-  }
-  if (r.status === 404 || r.status === 410) {
-    compteurs.supprimes++;
-    await supprimerAbonnements(db, [abo.id]);
-    return;
-  }
-  const erreur = r.status ? `HTTP ${r.status}` : r.erreur ?? 'Erreur réseau';
-  await db.update('abonnementsPush', abo.id, { dernierEchec: at, echecs: (abo.echecs ?? 0) + 1 });
-  const temporaire = r.status === 0 || r.status === 408 || r.status === 429 || r.status >= 500;
-  if (!temporaire || tentatives >= TENTATIVES_MAX) {
-    compteurs.echecs++;
-    await db.update('envoisPush', e.id, { statut: 'echec', tentatives, prochaine: null, erreur });
-    return;
-  }
-  const delai = Math.min(HEURE, Math.max(attente(tentatives), r.apres ?? 0));
-  await db.update('envoisPush', e.id, { tentatives, prochaine: new Date(maintenant.getTime() + delai).toISOString(), erreur });
+/** La notification d'essai (push.tester) part aussitôt ; toutes les autres respectent la plage de silence. */
+const ESSAI = 'push.essai';
+
+/**
+ * Prochaine heure d'envoi d'une notification à partir de `d` : premier instant admis (plage de silence), sauf pour
+ * l'essai. Null si cet instant dépasse la validité de la notification : elle expire sans envoi.
+ */
+function heureAdmise(e: Pick<EnvoiPush, 'type' | 'expire'>, d: Date): Date | null {
+  const h = e.type === ESSAI ? d : prochainEnvoiAdmis(d);
+  return e.expire && h.toISOString() >= e.expire ? null : h;
+}
+
+/** Notification encore à envoyer telle qu'on l'a lue (ni traitée ni retirée entre-temps), relue sous le verrou. */
+async function inchangee(db: Db, e: EnvoiPush): Promise<boolean> {
+  const x = await db.get<EnvoiPush>('envoisPush', e.id);
+  return !!x && x.statut === 'a_envoyer' && x.tentatives === e.tentatives && x.abonnementId === e.abonnementId;
+}
+
+/**
+ * Envoie une notification et enregistre son issue, en trois temps pour ne jamais tenir la base pendant l'appel réseau
+ * (comme `envoyer` de server/src/envois.ts) : (1) relecture et décision sous le verrou (expirée, hors plage de silence :
+ * reportée sans compter de tentative, abonnement inutilisable), (2) requête au service de push hors de la base, (3) issue
+ * écrite d'un seul tenant sous le verrou, après relecture (notification ou abonnement retirés pendant l'envoi : rien).
+ */
+async function envoyerUne(db: Db, id: number, transport: TransportPush, horloge: () => Date): Promise<boolean> {
+  // Faux : notification disparue ou plus due ; vrai : traitée (envoyée, reportée, expirée ou en échec).
+  const avant = await db.exclusif(async () => {
+    const e = await db.get<EnvoiPush>('envoisPush', id);
+    const maintenant = horloge(), at = maintenant.toISOString();
+    if (!e || e.statut !== 'a_envoyer' || !e.prochaine || e.prochaine > at) return false;
+    if (e.expire && e.expire <= at) {
+      compteurs.expirees++;
+      await db.update('envoisPush', e.id, { statut: 'expire', prochaine: null });
+      return true;
+    }
+    // Plage de silence vérifiée à l'envoi aussi : serveur arrêté le soir, file en retard, tentative reprogrammée.
+    const admis = heureAdmise(e, maintenant);
+    if (!admis) {
+      compteurs.expirees++;
+      await db.update('envoisPush', e.id, { statut: 'expire', prochaine: null });
+      return true;
+    }
+    if (admis.getTime() > maintenant.getTime()) {
+      await db.update('envoisPush', e.id, { prochaine: admis.toISOString() });
+      return true;
+    }
+    const abo = await db.get<AbonnementPush>('abonnementsPush', e.abonnementId);
+    const cles = clesPush(), charge = chargePush(e.type), navigateur = abo ? navigateurDe(abo) : null;
+    if (!abo || !cles || !charge || !navigateur) {
+      compteurs.echecs++;
+      await db.update('envoisPush', e.id, { statut: 'echec', prochaine: null, erreur: !abo ? 'Abonnement retiré' : !cles ? 'Notifications désactivées' : !charge ? 'Type inconnu' : 'Abonnement illisible (clé des pièces absente ou changée)' });
+      return true;
+    }
+    return { e, abo, requete: requetePush(navigateur, charge, cles, { ttl: TTL_PUSH_S, maintenant }) };
+  });
+  if (typeof avant === 'boolean') return avant;
+  const { e, abo, requete } = avant;
+  // La requête part hors de la base : un service de push lent ou injoignable (délai de 10 s) ne bloque personne.
+  const r = await transport(requete);
+  await db.exclusif(async () => {
+    if (!(await inchangee(db, e)) || !(await db.get('abonnementsPush', abo.id))) return;
+    const maintenant = horloge(), at = maintenant.toISOString(), tentatives = e.tentatives + 1;
+    if (r.status >= 200 && r.status < 300) {
+      compteurs.envoyees++;
+      await db.update('envoisPush', e.id, { statut: 'envoye', tentatives, envoi: at, prochaine: null, erreur: null });
+      await db.update('abonnementsPush', abo.id, { dernierSucces: at, echecs: 0 });
+      return;
+    }
+    if (r.status === 404 || r.status === 410) {
+      compteurs.supprimes++;
+      await supprimerAbonnements(db, [abo.id]);
+      return;
+    }
+    const erreur = r.status ? `HTTP ${r.status}` : r.erreur ?? 'Erreur réseau';
+    const echecs = Number((await db.get<AbonnementPush>('abonnementsPush', abo.id))?.echecs ?? 0);
+    await db.update('abonnementsPush', abo.id, { dernierEchec: at, echecs: echecs + 1 });
+    const temporaire = r.status === 0 || r.status === 408 || r.status === 429 || r.status >= 500;
+    if (!temporaire || tentatives >= TENTATIVES_MAX) {
+      compteurs.echecs++;
+      await db.update('envoisPush', e.id, { statut: 'echec', tentatives, prochaine: null, erreur });
+      return;
+    }
+    // Nouvelle tentative, elle aussi hors de la plage de silence (sauf l'essai) : un 503 à 19 h 59 repart au jour ouvré
+    // suivant à 7 h, ou expire si cet instant dépasse la validité de 24 h.
+    const delai = Math.min(HEURE, Math.max(attente(tentatives), r.apres ?? 0));
+    const prochaine = heureAdmise(e, new Date(maintenant.getTime() + delai));
+    if (!prochaine) {
+      compteurs.expirees++;
+      await db.update('envoisPush', e.id, { statut: 'expire', tentatives, prochaine: null, erreur });
+      return;
+    }
+    await db.update('envoisPush', e.id, { tentatives, prochaine: prochaine.toISOString(), erreur });
+  });
+  return true;
 }
 
 let enCours = false;
@@ -105,8 +165,9 @@ let enCours = false;
 export const envoiPushEnCours = () => enCours;
 
 /**
- * Un passage : notifications dues (prochaine tentative atteinte), au plus 50, chacune indépendamment ; l'issue de chacune
- * est écrite seule sur la base (`exclusif`), après la réponse du service de push. Renvoie le nombre traité.
+ * Un passage : notifications dues (prochaine tentative atteinte), au plus 50, chacune indépendamment ; la requête part
+ * hors de la base et l'issue de chacune est écrite seule (`exclusif`) après la réponse du service de push. Renvoie le
+ * nombre traité.
  */
 export async function traiterFilePush(db: Db, transport: TransportPush = transportFetch, horloge = () => new Date()): Promise<number> {
   if (enCours) return 0;
@@ -114,13 +175,7 @@ export async function traiterFilePush(db: Db, transport: TransportPush = transpo
   try {
     const dues = await db.query<{ id: number }>(`SELECT id FROM envois_push WHERE statut = 'a_envoyer' AND prochaine <= ? ORDER BY prochaine, id LIMIT ${PAQUET}`, [horloge().toISOString()]);
     let n = 0;
-    for (const { id } of dues) {
-      const e = await db.get<EnvoiPush>('envoisPush', Number(id));
-      if (!e || e.statut !== 'a_envoyer') continue;
-      // La requête part hors de la base ; son issue est écrite d'un seul tenant.
-      await db.exclusif(async () => await envoyerUne(db, e, transport, horloge()));
-      n++;
-    }
+    for (const { id } of dues) if (await envoyerUne(db, Number(id), transport, horloge)) n++;
     return n;
   } finally {
     enCours = false;

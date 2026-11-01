@@ -216,6 +216,13 @@ test('plan par profil : chaque table a un sort ; données de personnes toujours 
         if (r.nulles) for (const c of r.nulles) assert.ok(c in TABLES[t].cols, `${t}.${c}`);
         if (personnelles.has(t.replace(/[A-Z]/g, m => '_' + m.toLowerCase())) && t !== 'comptes') assert.equal(r.sort, 'supprimer', `${profil} ${t}`);
       }
+      // Toute table qui désigne une table vidée est vidée aussi, ou voit la colonne effacée (SQLite n'a pas de clé
+      // étrangère : une ligne gardée deviendrait orpheline et l'intégrité refuserait la purge).
+      for (const r of REFERENCES) {
+        const cible = p.tables[camel(r.cible)], source = p.tables[camel(r.table)];
+        if (cible?.sort !== 'supprimer' || !source) continue;
+        assert.ok(source.sort === 'supprimer' || (source.sort === 'ajuster' && source.nulles?.includes(camel(r.colonne))), `${profil} ${r.table}.${r.colonne} → ${r.cible}`);
+      }
       assert.equal(p.tables.journal.sort, 'supprimer');
       assert.equal(p.tables.connexions.sort, 'supprimer');
       assert.equal(p.tables.employes.sort, 'supprimer');
@@ -559,6 +566,26 @@ test('purge : décompte par table, journal réduit à purge.demo, intégrité vi
 });
 
 /** Nom SQL d'une table de TABLES, et l'inverse. */
+test('purge : réponses gardées, appareils abonnés et notifications en file des comptes fictifs partent avec eux (lot 11, pwa)', async () => {
+  const db = await demoPurge();
+  const compte = (await db.one<{ id: number }>('SELECT id FROM comptes WHERE emp_id IS NOT NULL ORDER BY id LIMIT 1'))!.id;
+  const at = '2026-10-10T08:00:00.000Z';
+  await db.insert('idempotence', { cle: 'a'.repeat(64), compteId: compte, action: 'temps.saisir', empreinteCorps: 'b'.repeat(64), statut: 200, message: 'Heures enregistrées', resultat: null, creation: at });
+  const abo = await db.insert<{ id: number }>('abonnementsPush', {
+    compteId: compte, cleEndpoint: 'c'.repeat(64), endpoint: 'https://fcm.googleapis.com/fcm/send/x', p256dh: 'p', auth: 'a', appareil: 'Android, Chrome',
+    types: ['absence.demande'], creation: at, dernierSucces: null, dernierEchec: null, echecs: 0,
+  });
+  await db.insert('envoisPush', { abonnementId: abo.id, type: 'absence.demande', statut: 'a_envoyer', tentatives: 0, prochaine: at, expire: '2026-10-11T08:00:00.000Z', erreur: null, creation: at, envoi: null });
+  const plan = planPurge('parametrage');
+  for (const t of ['idempotence', 'abonnementsPush', 'envoisPush'] as const) assert.equal(plan.tables[t].sort, 'supprimer', t);
+  const apercu = await apercuPurge(db, OUI);
+  for (const t of ['idempotence', 'abonnementsPush', 'envoisPush']) assert.equal(apercu.tables.find(x => x.table === t)?.partent, 1, t);
+  const b = await executerPurge(db, OUI, { ...SANS_COPIE, maintenant: new Date('2026-12-15T08:00:00Z') });
+  assert.equal(b.statut, 'faite', JSON.stringify(b));
+  for (const t of ['idempotence', 'abonnementsPush', 'envoisPush'] as const) assert.equal(await db.count(t), 0, t);
+  assert.equal((await controlerOrphelins(db)).orphelins, 0);
+});
+
 function snakeDe(t: string) { return t.replace(/[A-Z]/g, m => '_' + m.toLowerCase()); }
 function camel(t: string) { return t.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()) as TableName; }
 

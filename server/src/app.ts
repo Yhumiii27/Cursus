@@ -157,7 +157,7 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
       // verdicts dérivé du jeu de l'action et du delta de ses écritures (lot 9), sans relire toute la base.
       if (changeVerdicts(name)) await suivreVerdicts(db, { depart });
       // Réponse gardée dans la même transaction (lot 11) : une action annulée ne garde rien.
-      if (envoi) await garderReponse(db, envoi, { message: o.message ?? null, resultat: o.result });
+      if (envoi) await garderReponse(db, envoi, { resultat: o.result });
       return o;
     });
     let out: { message?: string | null; result?: unknown; rejoue?: boolean };

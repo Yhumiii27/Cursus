@@ -110,6 +110,7 @@ test('idempotence : même clé et même corps → réponse gardée sans refaire 
   assert.equal(r2.status, 200);
   assert.equal(r2.headers['idempotent-replayed'], 'true');
   assert.equal(r2.json().relire, true);
+  assert.equal(r2.json().message, idem.MESSAGE_REJOUE, 'message fixe : celui de l’action n’est pas gardé');
   assert.equal(r2.json().data, undefined);
   assert.equal(await cellule(0), 6, 'l’action n’est pas refaite');
   assert.equal(await lignesIdem(), avant);
@@ -259,4 +260,19 @@ test('routes des notifications : clé publique et appareils du seul compte conne
   assert.equal(a.status, 200);
   assert.deepEqual(a.json().appareils.map((x: Record<string, unknown>) => [x.appareil, x.empreinte, x.types]), [['Android, Chrome', 'cle-a', ['absence.decision']]]);
   assert.doesNotMatch(JSON.stringify(a.json()), /fcm|"p256dh"|"auth"|endpoint/);
+});
+
+test('idempotence : aucun message gardé (nom du salarié, nature d’absence), sur toute action qui porte une clé', async () => {
+  const s = await collaborateur();
+  const k = cle();
+  const p = { empId: 2, kind: 'RTT', du: '2026-12-28', au: '2026-12-28' };
+  const r1 = await action(s, 'absence.demander', p, { 'idempotency-key': k });
+  assert.equal(r1.status, 200, JSON.stringify(r1.json()));
+  assert.ok(r1.json().message, 'message rendu au premier envoi');
+  const l = await db.one<{ message: string | null; resultat: unknown }>('SELECT message, resultat FROM idempotence WHERE action = ? ORDER BY creation DESC LIMIT 1', ['absence.demander']);
+  assert.equal(l!.message, null);
+  assert.doesNotMatch(JSON.stringify(l), /Benali|Mehdi|RTT/);
+  const r2 = await action(s, 'absence.demander', p, { 'idempotency-key': k });
+  assert.equal(r2.headers['idempotent-replayed'], 'true');
+  assert.equal(r2.json().message, idem.MESSAGE_REJOUE);
 });

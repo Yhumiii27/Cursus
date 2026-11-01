@@ -26,6 +26,7 @@ const wp = await import('../server/src/integrations/push.ts');
 const push = await import('../server/src/push.ts');
 const file = await import('../server/src/envois-push.ts');
 const { configVapid, problemesConfig } = await import('../server/src/config.ts');
+const { controlerOrphelins } = await import('../server/src/integrite.ts');
 const np = await import('../shared/notifications-push.ts');
 const { familleAction, JOURNAL_LABEL } = await import('../shared/journal.ts');
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
@@ -363,6 +364,108 @@ test('file d’envoi : pas de blocage en tête, 404/410 → abonnement supprimé
   assert.ok((await db.tx(async () => await file.purgerPush(db, t0))).abonnements >= 1, 'compte désactivé');
   assert.equal(Number((await db.one<{ n: number }>('SELECT COUNT(*) AS n FROM abonnements_push WHERE compte_id = ?', [karim.compteId!]))!.n), 0);
   await db.tx(async () => { await db.update('comptes', karim.compteId, { actif: true }); });
+});
+
+/** Notification posée directement dans la file (type, heure prévue, validité de 24 h). */
+async function enFile(abonnementId: number, type: string, prochaine: string): Promise<number> {
+  return await db.tx(async () => (await db.insert<{ id: number }>('envoisPush', {
+    abonnementId, type, statut: 'a_envoyer', tentatives: 0, prochaine, expire: new Date(Date.parse(prochaine) + 24 * 3600_000).toISOString(),
+    erreur: null, creation: prochaine, envoi: null,
+  })).id);
+}
+const ligne = async (id: number) => (await db.get<Record<string, any>>('envoisPush', id))!;
+
+test('file d’envoi : la base n’est jamais tenue pendant l’appel au service de push (service lent ou injoignable)', async () => {
+  const u = await personne(5, 'collaborateur');
+  const ab = (await agir(u, 'push.abonner', essai('lent-1'))).result.id;
+  const t0 = '2026-10-12T08:00:00.000Z'; // lundi, 10 h à Paris
+  const id = await enFile(ab, 'temps.soumise', t0);
+  let appele!: () => void, liberer!: () => void;
+  const enAppel = new Promise<void>(ok => { appele = ok; });
+  const transport: TransportPush = async () => {
+    appele();
+    await new Promise<void>(ok => { liberer = ok; });
+    return { status: 201 };
+  };
+  const passage = file.traiterFilePush(db, transport, () => new Date(t0));
+  await enAppel;
+  // Pendant l'appel : une transaction et une écriture passent aussitôt (elles attendaient tout le délai auparavant).
+  const debut = Date.now();
+  await db.tx(async () => { await db.update('abonnementsPush', ab, { appareil: 'Android, Chrome' }); });
+  assert.ok(Date.now() - debut < 500, `transaction attendue ${Date.now() - debut} ms`);
+  assert.equal((await ligne(id)).statut, 'a_envoyer', 'issue pas encore écrite');
+  liberer();
+  assert.equal(await passage, 1);
+  assert.equal((await ligne(id)).statut, 'envoye');
+  // Abonnement retiré pendant l'appel : rien n'est écrit sur la notification emportée, ni sur l'abonnement.
+  const id2 = await enFile(ab, 'temps.soumise', t0);
+  const enAppel2 = new Promise<void>(ok => { appele = ok; });
+  const passage2 = file.traiterFilePush(db, transport, () => new Date(t0));
+  await enAppel2;
+  await db.tx(async () => { await push.supprimerAbonnements(db, [ab]); });
+  liberer();
+  assert.equal(await passage2, 1);
+  assert.equal(await db.get('envoisPush', id2), undefined);
+  assert.equal(await db.get('abonnementsPush', ab), undefined);
+});
+
+test('plage de silence tenue à l’envoi : nouvelle tentative, redémarrage tardif ; l’essai part aussitôt', async () => {
+  const u = await personne(6, 'collaborateur');
+  const ab = (await agir(u, 'push.abonner', essai('silence-1'))).result.id;
+  let statut = 503, appels = 0;
+  const transport: TransportPush = async () => { appels++; return { status: statut }; };
+  // Mardi 13 octobre 2026, 19 h 59 à Paris (17 h 59 UTC) : 503 ; la tentative suivante tomberait à 20 h → mercredi 7 h.
+  const mardi = await enFile(ab, 'temps.soumise', '2026-10-13T17:59:00.000Z');
+  assert.equal(await file.traiterFilePush(db, transport, () => new Date('2026-10-13T17:59:00Z')), 1);
+  let e = await ligne(mardi);
+  assert.deepEqual([e.statut, e.tentatives, e.prochaine], ['a_envoyer', 1, '2026-10-14T05:00:00.000Z']);
+  statut = 201;
+  assert.equal(await file.traiterFilePush(db, transport, () => new Date('2026-10-14T05:00:00Z')), 1);
+  assert.equal((await ligne(mardi)).statut, 'envoye');
+  // Vendredi 16 octobre, 19 h 59 : le jour ouvré suivant (lundi 7 h) dépasse la validité de 24 h → expirée sans envoi.
+  statut = 503;
+  const vendredi = await enFile(ab, 'temps.soumise', '2026-10-16T17:59:00.000Z');
+  await file.traiterFilePush(db, transport, () => new Date('2026-10-16T17:59:00Z'));
+  e = await ligne(vendredi);
+  assert.deepEqual([e.statut, e.prochaine], ['expire', null]);
+  // Serveur arrêté de 19 h à 23 h (mardi 20 octobre) : la notification due à 19 h ne part pas à 23 h ; reportée à
+  // mercredi 7 h sans compter de tentative.
+  statut = 201;
+  appels = 0;
+  const tard = await enFile(ab, 'temps.soumise', '2026-10-20T17:00:00.000Z');
+  assert.equal(await file.traiterFilePush(db, transport, () => new Date('2026-10-20T21:00:00Z')), 1);
+  e = await ligne(tard);
+  assert.deepEqual([e.statut, e.tentatives, e.prochaine], ['a_envoyer', 0, '2026-10-21T05:00:00.000Z']);
+  assert.equal(appels, 0, 'rien n’est parti pendant la plage de silence');
+  assert.equal(await file.traiterFilePush(db, transport, () => new Date('2026-10-21T05:00:00Z')), 1);
+  assert.equal((await ligne(tard)).statut, 'envoye');
+  // Samedi : jamais d'envoi ; le lundi 7 h dépasse la validité.
+  appels = 0;
+  const samedi = await enFile(ab, 'absence.decision', '2026-10-24T08:00:00.000Z');
+  await file.traiterFilePush(db, transport, () => new Date('2026-10-24T08:00:00Z'));
+  assert.equal((await ligne(samedi)).statut, 'expire');
+  assert.equal(appels, 0);
+  // Essai demandé à 23 h : il part aussitôt (la personne l'a demandé), et ses nouvelles tentatives aussi.
+  const essaiTard = await enFile(ab, 'push.essai', '2026-10-21T21:00:00.000Z');
+  statut = 503;
+  await file.traiterFilePush(db, transport, () => new Date('2026-10-21T21:00:00Z'));
+  e = await ligne(essaiTard);
+  assert.deepEqual([e.statut, e.tentatives, e.prochaine], ['a_envoyer', 1, '2026-10-21T21:01:00.000Z']);
+  await db.tx(async () => { await push.supprimerAbonnements(db, [ab]); });
+});
+
+test('11e appareil : le plus ancien est retiré avec ses notifications en file, sans référence orpheline', async () => {
+  const u = await personne(7, 'collaborateur');
+  const premier = (await agir(u, 'push.abonner', essai('onze-0'))).result.id;
+  const n = await enFile(premier, 'temps.soumise', '2026-10-21T05:00:00.000Z');
+  for (let i = 1; i <= 10; i++) await agir(u, 'push.abonner', essai(`onze-${i}`));
+  assert.equal(await db.get('abonnementsPush', premier), undefined);
+  assert.equal(await db.get('envoisPush', n), undefined, 'notification emportée');
+  assert.equal((await db.where('abonnementsPush', 'compteId', u.compteId)).length, 10);
+  const integrite = await controlerOrphelins(db);
+  assert.equal(integrite.parReference['envois_push.abonnement_id → abonnements_push'], undefined);
+  const ids = (await db.where<{ id: number }>('abonnementsPush', 'compteId', u.compteId)).map(a => a.id);
+  await db.tx(async () => { await push.supprimerAbonnements(db, ids); });
 });
 
 test('transport fetch : statut et Retry-After lus, erreur réseau → 0 ; processus de fond démarré seulement avec des clés', async () => {

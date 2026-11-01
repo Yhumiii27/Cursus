@@ -15,12 +15,14 @@
 // - Rejeu en série, dans l'ordre de saisie, avec une pause entre deux envois et une seule relecture de l'instantané à la
 //   fin. Chaque envoi porte sa clé d'idempotence (l'identifiant de l'entrée) : une saisie dont la réponse s'est perdue
 //   n'est jamais faite deux fois. Les pièces partent d'abord, avec leur propre clé, puis l'action qui les joint ; au plus
-//   20 pièces envoyées et pas encore jointes (MAX_PIECES_EN_ATTENTE, shared/rules/pieces.ts).
+//   20 pièces envoyées et pas encore jointes (MAX_PIECES_EN_ATTENTE, shared/rules/pieces.ts). Un jeton n'est valable que
+//   24 h sur le serveur (DELAI_PIECE_EN_ATTENTE_MS) : au-delà de 23 h, ou quand la personne reprend une saisie refusée,
+//   la pièce encore gardée sur l'appareil est renvoyée avec une nouvelle clé (l'ancienne rendrait 410).
 // - Refus du serveur (conflit, règle, droit) : l'entrée passe dans « À reprendre » avec le motif ; réseau, session expirée,
 //   serveur occupé : le rejeu s'arrête, l'entrée reste en attente.
 // - Purge : à la déconnexion, au changement de compte, après 7 jours (CONSERVATION_FILE_JOURS) et sur « appareil partagé ».
 import { ACTIONS_HORS_LIGNE, CONSERVATION_FILE_JOURS, PAUSE_REJEU_MS } from '../../../shared/hors-ligne.ts';
-import { MAX_PIECES_EN_ATTENTE } from '../../../shared/rules/pieces.ts';
+import { DELAI_PIECE_EN_ATTENTE_MS, MAX_PIECES_EN_ATTENTE } from '../../../shared/rules/pieces.ts';
 import type { Role } from '../../../shared/types.ts';
 import { type ActionResponse, api, type NomAction } from '../api.ts';
 
@@ -96,8 +98,11 @@ export interface BilanRejeu { envoyees: number; aReprendre: number; restantes: n
 /** Partie chiffrée d'une entrée. */
 interface Contenu {
   nom: NomAction; payload: Record<string, unknown>; motif: string | null;
-  /** Pièces : clé d'idempotence de leur envoi, nom, type, jeton une fois envoyées ; contenu dans `piece:<cle>`. */
-  pieces: { cle: string; nom: string; type: string; jeton: string | null }[];
+  /**
+   * Pièces : contenu dans `piece:<cle>` ; clé d'idempotence de leur envoi (`cleEnvoi`, `cle` à défaut, renouvelée quand
+   * le jeton est abandonné), nom, type, jeton une fois envoyées et heure de cet envoi.
+   */
+  pieces: { cle: string; cleEnvoi?: string; nom: string; type: string; jeton: string | null; envoiLe?: string | null }[];
   /** Champ du paramètre qui reçoit les jetons des pièces. */
   champPieces: string;
 }
@@ -106,6 +111,8 @@ interface Stockee { id: string; rang: number; compteId: number; espace: Role; cr
 interface Chiffre { iv: Uint8Array; donnees: ArrayBuffer }
 
 const CLE = 'cle', ENTREE = 'entree:', PIECE = 'piece:';
+/** Âge au-delà duquel un jeton de pièce n'est plus utilisé : une heure de marge sur sa validité côté serveur (24 h). */
+const JETON_PERIME_MS = DELAI_PIECE_EN_ATTENTE_MS - 3600_000;
 const attendre = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 /** Statut d'une réponse qui demande d'attendre (réseau, session, serveur occupé) au lieu de classer la saisie « À reprendre ». */
 const arretDe = (status: number | undefined): BilanRejeu['arret'] => status === 0 || status === undefined ? 'reseau' : status === 401 ? 'session'
@@ -192,12 +199,30 @@ export class FileHorsLigne {
     await this.magasin.effacer(ENTREE + id);
   }
 
-  /** Remet une saisie « À reprendre » en attente (renvoyée telle quelle au prochain rejeu). */
+  /**
+   * Remet une saisie « À reprendre » en attente (renvoyée au prochain rejeu). Ses pièces encore gardées sur l'appareil
+   * seront renvoyées : le refus peut venir d'un jeton expiré ou déjà consommé, qu'il ne sert à rien de présenter de nouveau.
+   */
   async reprendre(id: string): Promise<void> {
     const s = await this.magasin.lire(ENTREE + id) as Stockee | undefined;
     if (!s || s.etat !== 'a_reprendre') return;
     const c = await this.contenu(s);
+    await this.oublierJetons(c, () => true);
     await this.garder({ ...s, etat: 'attente' }, { ...c, motif: null });
+  }
+
+  /**
+   * Abandonne le jeton des pièces choisies dont le contenu est encore sur l'appareil, avec une nouvelle clé d'envoi (la
+   * précédente rendrait la réponse gardée, ou 410). Renvoie vrai si au moins une a changé.
+   */
+  private async oublierJetons(c: Contenu, choisir: (p: Contenu['pieces'][number]) => boolean): Promise<boolean> {
+    let change = false;
+    for (const p of c.pieces) {
+      if (!p.jeton || !choisir(p) || !(await this.magasin.lire(PIECE + p.cle))) continue;
+      Object.assign(p, { jeton: null, envoiLe: null, cleEnvoi: crypto.randomUUID() });
+      change = true;
+    }
+    return change;
   }
 
   /** Purge complète (clé comprise) : déconnexion, appareil partagé. */
@@ -252,13 +277,17 @@ export class FileHorsLigne {
   /** Une saisie : ses pièces (jetons gardés au fur et à mesure), puis l'action. */
   private async envoyer(s: Stockee, c: Contenu, envoyeur: Envoyeur): Promise<'envoyee' | 'a_reprendre' | NonNullable<BilanRejeu['arret']>> {
     const aReprendre = async (motif: string) => { await this.garder({ ...s, etat: 'a_reprendre' }, { ...c, motif }); return 'a_reprendre' as const; };
+    // Jeton de plus de 23 h (rejeu après une longue coupure) : la pièce est renvoyée plutôt que de faire échouer l'action.
+    const limite = this.maintenant().getTime() - JETON_PERIME_MS;
+    if (await this.oublierJetons(c, p => !p.envoiLe || Date.parse(p.envoiLe) < limite)) await this.garder(s, c);
     if (c.pieces.filter(p => !p.jeton).length > MAX_PIECES_EN_ATTENTE) return 'pieces';
     for (const p of c.pieces) {
       if (p.jeton) continue;
       const chiffre = await this.magasin.lire(PIECE + p.cle) as Chiffre | undefined;
       if (!chiffre) return await aReprendre('Pièce introuvable sur cet appareil : refaites la saisie');
       try {
-        p.jeton = (await envoyeur.piece({ nom: p.nom, type: p.type, octets: await this.dechiffrer(chiffre) }, p.cle)).jeton;
+        p.jeton = (await envoyeur.piece({ nom: p.nom, type: p.type, octets: await this.dechiffrer(chiffre) }, p.cleEnvoi ?? p.cle)).jeton;
+        p.envoiLe = this.maintenant().toISOString();
       } catch (err) {
         const status = (err as { status?: number }).status;
         const arret = arretDe(status);

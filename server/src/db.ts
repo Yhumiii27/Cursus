@@ -465,8 +465,8 @@ export const TABLES = {
   // lot 11 — pwa (chantier C2, t196 ; migration PostgreSQL 0017_pwa.sql). Trois tables techniques, dans
   // TABLES_SANS_REVISION : jamais lues par l'instantané (lireTout), lues par des routes et des tâches dédiées.
   // Réponses des actions rejouées (server/src/idempotence.ts) : `cle`, empreinte SHA-256 du compte et de la clé
-  // Idempotency-Key ; empreinte du corps reçu ; statut, message et résultat réduit (identifiants et compteurs) rendus à
-  // un nouvel envoi de la même requête. Purgées à 30 jours.
+  // Idempotency-Key ; empreinte du corps reçu ; statut et résultat réduit (identifiants et compteurs) rendus à un nouvel
+  // envoi de la même requête ; `message` toujours vide (jamais le message de l'action). Purgées à 30 jours.
   idempotence: {
     pk: 'cle',
     cols: { cle: 'text', compteId: 'int', action: 'text', empreinteCorps: 'text', statut: 'int', message: 'text', resultat: 'json', creation: 'text' },

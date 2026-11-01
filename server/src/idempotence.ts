@@ -8,7 +8,9 @@
 //   l'instantané). Même clé, autre corps ou autre action : refus 422, jamais l'une à la place de l'autre.
 // - La clé est propre au compte : `cle` est l'empreinte SHA-256 du compte et de la clé reçue (une clé devinée ne rend
 //   jamais la réponse d'un autre compte). Le résultat gardé est réduit aux identifiants et compteurs (jamais de texte :
-//   un jeton d'abonnement, un nom) ; le message est celui de l'action, déjà rendu à la personne.
+//   un jeton d'abonnement, un nom) ; le message de l'action n'est pas gardé (il peut nommer un salarié ou la nature d'une
+//   absence, et la table n'entre ni dans la conservation ni dans l'anonymisation) : un rejeu rend un message fixe
+//   (MESSAGE_REJOUE), le client relit l'instantané.
 // - Conservation : 30 jours, purge par la tâche du quart d'heure (server/src/notifications.ts, `tachesEmails`).
 import { createHash } from 'node:crypto';
 import type { Request } from 'express';
@@ -19,6 +21,8 @@ import type { Db } from './db.ts';
 export const CONSERVATION_IDEMPOTENCE_JOURS = 30;
 export const CLE_INVALIDE = 'Clé d’idempotence invalide : 16 à 100 lettres, chiffres, tirets ou soulignés';
 export const CLE_REUTILISEE = 'Clé d’idempotence déjà utilisée pour un autre envoi : cette saisie n’est pas rejouée';
+/** Message rendu à un nouvel envoi d'une requête déjà faite (le message d'origine n'est jamais gardé). */
+export const MESSAGE_REJOUE = 'Déjà enregistré : cet envoi avait abouti, il n’a pas été refait';
 
 /** Réponse gardée, rendue à un nouvel envoi de la même requête. */
 export interface ReponseGardee { statut: number; message: string | null; resultat: unknown }
@@ -81,14 +85,17 @@ export async function reponseGardee(db: Db, e: Envoi): Promise<ReponseGardee | n
   const l = await db.get<LigneIdempotence>('idempotence', cleStockee(e.compteId, e.cle));
   if (!l) return null;
   if (l.action !== e.operation || l.empreinteCorps !== e.empreinte) throw new CleReutilisee();
-  return { statut: Number(l.statut), message: l.message, resultat: l.resultat ?? null };
+  return { statut: Number(l.statut), message: l.message ?? MESSAGE_REJOUE, resultat: l.resultat ?? null };
 }
 
-/** Garde la réponse d'un envoi abouti, dans la transaction de l'action (annulée, elle ne garde rien). */
-export async function garderReponse(db: Db, e: Envoi, r: { statut?: number; message: string | null; resultat?: unknown }): Promise<void> {
+/**
+ * Garde la réponse d'un envoi abouti, dans la transaction de l'action (annulée, elle ne garde rien) : statut et résultat
+ * réduit, jamais le message (colonne laissée vide : il peut nommer un salarié ou la nature d'une absence).
+ */
+export async function garderReponse(db: Db, e: Envoi, r: { statut?: number; resultat?: unknown }): Promise<void> {
   await db.insert('idempotence', {
     cle: cleStockee(e.compteId, e.cle), compteId: e.compteId, action: e.operation, empreinteCorps: e.empreinte,
-    statut: r.statut ?? 200, message: r.message, resultat: resultatReduit(r.resultat), creation: new Date().toISOString(),
+    statut: r.statut ?? 200, message: null, resultat: resultatReduit(r.resultat), creation: new Date().toISOString(),
   });
 }
 

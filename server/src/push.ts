@@ -109,7 +109,8 @@ export async function enregistrerAbonnement(db: Db, o: { compteId: number; navig
     return { id: deja.id, nouveau: false };
   }
   const anciens = autres.sort((a, b) => a.id - b.id).slice(0, Math.max(0, autres.length - MAX_ABONNEMENTS_PUSH + 1));
-  for (const a of anciens) await db.remove('abonnementsPush', a.id);
+  // Retirés avec leurs notifications encore en file (sans clé étrangère en SQLite, rien ne les emporterait).
+  await supprimerAbonnements(db, anciens.map(a => a.id));
   const a = await db.insert<AbonnementPush>('abonnementsPush', { ...champs, cleEndpoint: cle, types, creation: new Date().toISOString(), dernierSucces: null, dernierEchec: null, echecs: 0 });
   return { id: a.id, nouveau: true };
 }

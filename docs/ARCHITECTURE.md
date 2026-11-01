@@ -1677,7 +1677,8 @@ aux sections ; `tests/reglages.test.ts` vérifie que chaque fichier de section e
 ## Actions disponibles
 
 « RH » : administrateur et gestionnaires RH ; « administrateur RH » : profil `rh_admin` seulement ; « référent HSE »,
-« paie » : profils restreints `referent_hse` et `paie` (la lecture seule n'exécute aucune action). Un membre du RH ne
+« paie » : profils restreints `referent_hse` et `paie` (la lecture seule n'exécute aucune action, sauf la gestion des
+notifications sur ses propres appareils, `push.*` : abonnement, préférences, essai, retrait). Un membre du RH ne
 décide jamais pour lui-même (« Décision sur soi-même »). `tests/droits.test.ts` vérifie chaque action pour neuf
 profils et échoue si une action n'y a pas sa ligne.
 Une nouvelle action déclare aussi ce que le journal en retient (`REGLES` de `server/src/journal.ts`) : sans règle,
@@ -3945,8 +3946,9 @@ CURSUS_PWA et les écrans viennent avec l'étape 2.
 - **Idempotence** (`server/src/idempotence.ts`) : en-tête `Idempotency-Key` (16 à 100 caractères sûrs, UUID) lu sur
   `POST /api/actions/:nom` (`server/src/app.ts`) et `POST /api/pieces` (`server/src/pieces-routes.ts`). Table
   `idempotence` (TABLES_SANS_REVISION) : `cle` = SHA-256 du compte et de la clé reçue, empreinte du corps (JSON aux clés
-  triées, ou octets de la pièce) précédée de l'opération, statut, message, résultat réduit (nombres et booléens
-  seulement : jamais un jeton ni un nom). Écrite dans la transaction de l'action, après le journal : une action refusée
+  triées, ou octets de la pièce) précédée de l'opération, statut, résultat réduit (nombres et booléens
+  seulement : jamais un jeton ni un nom) ; jamais le message de l'action (il peut nommer un salarié ou la nature d'une
+  absence ; colonne `message` laissée vide), un rejeu rend le message fixe `MESSAGE_REJOUE`. Écrite dans la transaction de l'action, après le journal : une action refusée
   ou annulée ne garde rien. Même clé et même corps : réponse gardée, en-tête `idempotent-replayed`, `relire: true`
   (le client relit l'instantané), l'action n'est pas refaite ; autre corps ou autre action : 422 ; clé illisible : 400.
   Vérifiée dans la transaction (écritures sérialisées) : deux envois simultanés ne font l'action qu'une fois. Pièce :
@@ -3968,7 +3970,8 @@ CURSUS_PWA et les écrans viennent avec l'étape 2.
   le compte, l'espace, la date, l'état et le nombre de tentatives. Rejeu (`rejouer`) en série, dans l'ordre, pause de
   `PAUSE_REJEU_MS`, une relecture à la fin, seulement pour le compte et l'espace de la session ; clé d'idempotence =
   identifiant de l'entrée. Pièces envoyées d'abord avec leur propre clé, jetons gardés (jamais renvoyées après un arrêt),
-  passés à l'action ; au plus `MAX_PIECES_EN_ATTENTE`. Refus → « À reprendre » avec le motif ; réseau, 401, 408, 429, 5xx
+  passés à l'action ; jeton de plus de 23 h (valable 24 h sur le serveur) ou saisie reprise après un refus : pièce encore
+  sur l'appareil renvoyée avec une nouvelle clé d'envoi ; au plus `MAX_PIECES_EN_ATTENTE`. Refus → « À reprendre » avec le motif ; réseau, 401, 408, 429, 5xx
   → arrêt. Purges : `purger` (déconnexion, appareil partagé), `purgerAutreCompte`, `purgerAnciennes` (7 jours). Envoi par
   l'API : `envoyeurApi` (`api.action(…, { cle })`, `api.envoyerPiece(…, cle)`). La relecture périodique de
   `client/src/state/store.tsx` se tait hors ligne (`navigator.onLine`).
@@ -3994,10 +3997,15 @@ CURSUS_PWA et les écrans viennent avec l'étape 2.
   propre démarré par `server/src/index.ts` avec des clés seulement) : `envois`, `envois.ts` et `envois_cible_check` ne
   changent pas. Chaque message indépendant (pas de blocage en tête), 50 par passage toutes les 5 s ; charge utile
   `{ type, titre, corps, url }` recalculée à l'envoi (rien de nominatif en base ni chez le service de push), TTL 24 h,
-  Urgency normal ; 2xx envoyé ; 404/410 abonnement supprimé ; 408, 429, 5xx, réseau : nouvelle tentative (`attente`,
+  Urgency normal ; appel au service de push hors de la base (décision puis issue écrites sous `exclusif`, après
+  relecture : un service lent ne bloque aucune action) ; plage de silence contrôlée aussi à l'envoi et pour chaque
+  nouvelle tentative (sauf `push.essai`) : notification due pendant la plage reportée au premier instant admis sans
+  compter de tentative, ou expirée si cet instant dépasse sa validité de 24 h ; 2xx envoyé ; 404/410 abonnement supprimé ; 408, 429, 5xx, réseau : nouvelle tentative (`attente`,
   Retry-After, 10 au plus) ; autre 4xx : échec ; périmée : `expire`. Compteurs `compteursPush` (supervision). Purge
   (`purgerPush`, tâche du quart d'heure) : messages clos de plus de 30 jours, abonnements sans succès depuis 90 jours ou
-  d'un compte désactivé (départ du salarié).
+  d'un compte désactivé (départ du salarié). Au-delà de 10 appareils, le plus ancien est retiré avec ses notifications en
+  file (`supprimerAbonnements`). Purge de démonstration (`server/src/purge-demo.ts`) : les trois tables sont toujours
+  vidées avec les comptes.
 - **Journal** : `push.abonner` { appareil }, `push.desabonner` { motif, appareil, retires }, `push.preferences` { types },
   `push.desabonnerAppareil` { id, tout, appareil, retires }, `push.tester` { appareils } ; jamais l'adresse ni les clés ;
   famille « Application mobile et notifications ».

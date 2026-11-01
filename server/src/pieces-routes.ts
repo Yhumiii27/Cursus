@@ -119,7 +119,7 @@ export function routesPieces(db: Db): Router {
           message: `Pièce justificative envoyée (${TYPES_PIECES[type].label}, ${tailleTexte(octets.length)}), en attente d’être jointe`,
           payload: { piece: p.id, type, taille: octets.length },
         });
-        if (envoi) await garderReponse(db, envoi, { statut: 201, message: null, resultat: { id: p.id } });
+        if (envoi) await garderReponse(db, envoi, { statut: 201, resultat: { id: p.id } });
         return p;
       });
       if ('statut' in piece) {

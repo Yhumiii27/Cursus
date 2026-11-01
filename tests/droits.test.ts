@@ -760,7 +760,7 @@ const MATRICE: Ligne[] = [
   { action: 'pointage.pointer', droits: '            -    -    -    -    O    -    -    -    -', p: async () => { await badgeageActif(); return { empId: 2 }; } },
   { action: 'pointage.corriger', droits: '           O    O    O    -    O    -    -    -    -', p: async () => {
     await badgeageActif();
-    return { empId: 2, nature: 'ajout', horodatage: '2026-10-07T05:00:00.000Z', sens: 'E', motif: 'oubli' };
+    return { empId: 2, nature: 'ajout', horodatage: '2026-10-06T05:00:00.000Z', sens: 'E', motif: 'oubli' };
   } },
   { action: 'pointage.validerCorrection', droits: '   O    O    O    -    -    -    -    -    -', p: async () => ({ id: await correctionPointage() }) },
   { action: 'pointage.refuserCorrection', droits: '   O    O    O    -    -    -    -    -    -', p: async () => ({ id: await correctionPointage(), motif: 'Présence non constatée' }) },

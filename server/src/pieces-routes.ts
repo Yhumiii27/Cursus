@@ -11,6 +11,7 @@
 import { randomBytes } from 'node:crypto';
 import express, { type NextFunction, type Request, type Response, type Router } from 'express';
 import { Domain } from '../../shared/domain.ts';
+import { decap } from '../../shared/format.ts';
 import {
   depotOuvert, erreurPiece, LISTE_TYPES_PIECES, MAX_PIECES_EN_ATTENTE, nomPiece, OBJETS_PIECE, TAILLE_MAX_PIECE, tailleTexte, typeDuContenu, TYPES_PIECES, voitPiece,
 } from '../../shared/rules/pieces.ts';
@@ -168,7 +169,7 @@ export function routesPieces(db: Db): Router {
     if (p.objet && !(await dejaTracee(db, id.compte.id, p.id))) {
       await journaliser(db, {
         actor: id.user.nom, role: id.user.role, action: 'piece.consulter', compte: id.compte, salaries: p.empId ? [p.empId] : [],
-        message: `Pièce justificative consultée (${OBJETS_PIECE[p.objet].label.toLowerCase()})`,
+        message: `Pièce justificative consultée (${decap(OBJETS_PIECE[p.objet].label)})`,
         payload: { piece: p.id, objet: p.objet, objetId: p.objetId },
       });
     }

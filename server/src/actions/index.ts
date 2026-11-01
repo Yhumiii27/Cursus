@@ -56,6 +56,8 @@ import { entitesActions } from './entites.ts';
 import { pushActions } from './push.ts';
 // lot 11 — indicateurs
 import { indicateursActions } from './indicateurs.ts';
+// lot 11 — dossiers OPCO
+import { opcoActions } from './opco.ts';
 
 /**
  * Registre typé (t164) : chaque famille est déclarée avec « satisfies Record<string, ActionHandler> », ce qui garde ses
@@ -120,6 +122,8 @@ const REGISTRE = {
   ...pushActions,
   // lot 11 — indicateurs
   ...indicateursActions,
+  // lot 11 — dossiers OPCO
+  ...opcoActions,
 } satisfies Record<string, ActionHandler>;
 
 /** Nom d'une action exposée par POST /api/actions/:nom. */

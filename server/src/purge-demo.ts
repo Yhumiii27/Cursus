@@ -277,6 +277,8 @@ const TOUJOURS: Partial<Record<TableName, string>> = {
   // lot 11 — pwa : réponses gardées des actions rejouées, appareils abonnés et notifications en file, liés aux comptes
   // (supprimés ci-dessous) : en SQLite, sans clé étrangère, ils resteraient orphelins et l'intégrité refuserait la purge.
   ...Object.fromEntries(['idempotence', 'abonnementsPush', 'envoisPush'].map(t => [t, 'actions rejouées et notifications sur le téléphone'])),
+  // lot 11 — dossiers OPCO : rattachés au plan de formation fictif (et, plus tard, à des salariés).
+  ...Object.fromEntries(['dossiersOpco', 'versementsOpco'].map(t => [t, 'dossiers OPCO du plan de formation fictif'])),
   connexions: 'sessions de connexion',
   comptes: 'comptes de connexion',
   journal: 'journal des actions fictives (remplacé par la seule ligne purge.demo)',

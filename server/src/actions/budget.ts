@@ -6,6 +6,8 @@ import { parsePlan } from '../../../shared/rules/imports.ts';
 import type { PlanAction, PlanStatut } from '../../../shared/types.ts';
 import { ActionError, type Ctx, requireRh, requireRhAdmin, str, type ActionHandler } from './context.ts';
 import { controlerBeneficiaires } from './formations-suivies.ts';
+// lot 11 — dossiers OPCO
+import { ligneAvecDossier, nomActionPlan, refusLigneAvecDossier } from './opco.ts';
 
 /** Refus d'une modification du plan ou des enveloppes d'un exercice clos. */
 export function refuserExerciceClos(ctx: Ctx, ex: number) {
@@ -16,6 +18,7 @@ export function refuserExerciceClos(ctx: Ctx, ex: number) {
 /**
  * Import du plan : en mode « remplacer » (administrateur RH), les lignes prévues de l'exercice issues d'un import sont
  * supprimées ; celles issues d'une demande acceptée, d'un report ou sans origine connue (ancienne base) sont conservées.
+ * Lot 11 : refusé si l'une d'elles porte un dossier OPCO actif ; celles qui ne portent qu'un dossier clos sont gardées.
  */
 const importer: ActionHandler = async (ctx, p) => {
   if (p.mode === 'replace') requireRhAdmin(ctx);
@@ -25,11 +28,25 @@ const importer: ActionHandler = async (ctx, p) => {
   refuserExerciceClos(ctx, ex);
   const rows = parsePlan(ctx.d, str(p.texte)).filter(r => r.ok);
   if (!rows.length) throw new ActionError('Aucune ligne valide à importer');
-  if (p.mode === 'replace') for (const l of ctx.ds.plan.filter(l => l.exercice === ex && l.statut === 'prevu' && l.origine === 'import')) await ctx.db.remove('planActions', l.id);
+  let gardees = 0;
+  if (p.mode === 'replace') {
+    const visees = ctx.ds.plan.filter(l => l.exercice === ex && l.statut === 'prevu' && l.origine === 'import');
+    // lot 11 — dossiers OPCO : refus, avant toute suppression, si une ligne visée porte un dossier actif ; une ligne qui
+    // ne porte qu'un dossier refusé, abandonné ou supprimé est gardée (le dossier la désigne toujours).
+    for (const l of visees) {
+      const opco = await refusLigneAvecDossier(ctx, l.id);
+      if (opco) throw new ActionError(`Import « remplacer » refusé — ${nomActionPlan(ctx, l)} : ${opco}`);
+    }
+    for (const l of visees) {
+      if (await ligneAvecDossier(ctx, l.id)) gardees++;
+      else await ctx.db.remove('planActions', l.id);
+    }
+  }
   for (const r of rows) await ctx.db.insert<PlanAction>('planActions', {
     exercice: ex, f: r.f, libelle: r.libelle, equipe: r.equipe!, periode: r.periode!, effectif: r.effectif, cout: r.cout, statut: 'prevu', origine: 'import',
   });
-  return `${plural(rows.length, 'ligne importée', 'lignes importées')} dans le plan ${ex} — ${fmtEur(rows.reduce((n, r) => n + r.cout, 0))} prévisionnels`;
+  return `${plural(rows.length, 'ligne importée', 'lignes importées')} dans le plan ${ex} — ${fmtEur(rows.reduce((n, r) => n + r.cout, 0))} prévisionnels${
+    gardees ? ` · ${plural(gardees, 'ligne gardée', 'lignes gardées')} (dossier OPCO refusé ou abandonné)` : ''}`;
 };
 
 const enveloppes: ActionHandler = async (ctx, p) => {

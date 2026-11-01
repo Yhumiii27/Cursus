@@ -42,7 +42,8 @@ import type { EvaluationFormation } from '../../shared/types.ts';
 // lot 11 — organigramme
 import { organigrammeOuvertA } from '../../shared/rules/organigramme.ts';
 // lot 11 — indicateurs
-import type { ArreteIndicateurs } from '../../shared/types.ts';
+import type { ArreteIndicateurs, DossierOpco } from '../../shared/types.ts';
+// lot 11 — dossiers OPCO
 
 /** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
 export const DEFAULT_SETTINGS: Settings = REGLAGES_DEFAUT;
@@ -560,6 +561,9 @@ export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre 
     presentsOrganigramme: organigrammeOuvertA(full.settings.organigrammeOuvert, user.role) ? full.presentsOrganigramme : [],
     // lot 11 — indicateurs : arrêtés annuels de la BDESE, service RH et lecture seule ; rien hors de l'espace RH.
     indicateursArretes: [],
+    // lot 11 — dossiers OPCO : service RH et lecture seule seulement (CHAMPS_HORS_VUES, server/src/vues-cache.ts).
+    dossiersOpco: [],
+    versementsOpco: [],
   }, lues);
 }
 
@@ -766,10 +770,22 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     ...(formations ? { indicateursEvaluation: exercicesEvaluation(d).map(ex => indicateursEvaluation(d, ex, SEUIL_ANONYMAT)) } : {}),
     // lot 11 — indicateurs : arrêtés annuels pour la lecture seule, sans auteurs ni motif d'annulation ; rien ailleurs.
     indicateursArretes: lecture ? (full.indicateursArretes ?? []).map(arreteNeutre) : [],
+    // lot 11 — dossiers OPCO : avec le plan et le budget (lecture seule), sans aucun motif (refus, abandon, correction,
+    // suppression, annulation d'un versement) ; rien pour le référent HSE et la paie.
+    dossiersOpco: lecture ? (full.dossiersOpco ?? []).map(dossierOpcoSansMotif) : [],
+    versementsOpco: lecture ? (full.versementsOpco ?? []).map(v => (v.annuleMotif ? { ...v, annuleMotif: null } : v)) : [],
   };
 }
 
 /** lot 11 — indicateurs : arrêté vu par la lecture seule, sans les noms du service RH ni le motif d'une annulation. */
 const arreteNeutre = (a: ArreteIndicateurs): ArreteIndicateurs => ({ ...a, arretePar: null, csePar: null, annulePar: null, annuleMotif: null });
+
+// lot 11 — dossiers OPCO
+/**
+ * Dossier OPCO transmis à la lecture seule : sans le motif codé d'un refus ou d'un abandon, ni ceux d'une correction ou
+ * d'une suppression.
+ */
+const dossierOpcoSansMotif = (x: DossierOpco): DossierOpco => (x.refusMotif || x.abandonMotif || x.corrigeMotif || x.annuleMotif
+  ? { ...x, refusMotif: null, abandonMotif: null, corrigeMotif: null, annuleMotif: null } : x);
 
 

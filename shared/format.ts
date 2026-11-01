@@ -8,6 +8,8 @@ export const fmtIso = (s: ISODate) => fmt(parse(s));
 export const fmtIsoShort = (s: ISODate) => fmtShort(parse(s));
 export const monthShort = (d: Date) => d.toLocaleDateString('fr-FR', { month: 'short' }).replace('.', '');
 export const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+/** Initiale en minuscule seulement (« Pièce d’un dossier OPCO » → « pièce d’un dossier OPCO ») : les sigles restent intacts. */
+export const decap = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 export const rel = (n: number) => n < 0 ? `dépassée depuis ${-n} j` : n === 0 ? 'aujourd’hui' : n === 1 ? 'demain' : `dans ${n} j`;
 export const ini = (nom: string) => nom.split(/[\s-]+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
 export const validiteLabel = (m: number) => m % 12 === 0 ? `${m / 12} an${m >= 24 ? 's' : ''}` : `${m} mois`;

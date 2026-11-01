@@ -9,9 +9,10 @@ import { nuitHorsLoi, refusPlageNuit } from './rules/repos-nuit.ts';
 import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesTexte, DOSSIER_MIN_ANS, DUREE_MAX_ANS } from './rules/conservation.ts';
 import { DELAI_JOUR_FRANC, DELAI_PREVENANCE_LEGAL } from './rules/astreintes.ts';
 import { COLONNES_PASSEPORT_DEFAUT, COLONNES_PASSEPORT_IDS } from './rules/passeport-prevention.ts';
-import type { CategorieEvaluee, ColonnePasseport, CompensationAstreinte, ContenuAgenda, ModeAttente, OrganigrammeOuvert, RepondantsFroid, Settings, StockagePieces } from './types.ts';
+import type { CategorieEvaluee, CodeOpco, ColonnePasseport, CompensationAstreinte, ContenuAgenda, ModeAttente, OrganigrammeOuvert, RepondantsFroid, Settings, StockagePieces } from './types.ts';
 // lot 11 — indicateurs
 import { NATURES_ABSENTEISME_DEFAUT, NATURES_ABSENTEISME_POSSIBLES, SEUIL_INDICATEURS_DEFAUT, SEUIL_INDICATEURS_MAX, SEUIL_INDICATEURS_MIN } from './rules/indicateurs-legaux.ts';
+import { CODES_OPCO } from './rules/opco.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
 export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
@@ -290,6 +291,14 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
     if (!n.length) throw new ReglageInvalide('Absentéisme : gardez au moins une nature d’absence comptée');
     return n;
   } },
+  // lot 11 — dossiers OPCO (shared/rules/opco.ts, chantier C4) : OPCO 2i proposé, sans subrogation ; dépôt 30 jours avant le
+  //   début, justificatifs 90 jours après la fin, relance du remboursement 60 jours après leur envoi (valeurs à confirmer avec
+  //   le service RH d'après les conditions de l'OPCO de l'année) —
+  opcoDefaut: { defaut: 'opco2i', controle: choix<CodeOpco>(CODES_OPCO) },
+  opcoSubrogation: { defaut: false, controle: booleen },
+  opcoDelaiDepot: { defaut: 30, controle: entier(0, 180) },
+  opcoDelaiJustificatifs: { defaut: 90, controle: entier(15, 365) },
+  opcoDelaiRemboursement: { defaut: 60, controle: entier(15, 365) },
 };
 
 /**

@@ -92,6 +92,9 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // lot 11 — indicateurs : seuil d'anonymat de 5 ; absentéisme sur la santé, l'enfant malade, le sans solde et
     // l'injustifiée (choix par défaut du chantier, à arrêter avec le CSE).
     indicateursSeuil: 5, absenteismeNatures: ['MALADIE', 'ALD', 'AT', 'TRAJET', 'MP', 'ENFANT_MALADE', 'SANS_SOLDE', 'INJUSTIFIEE'],
+    // lot 11 — dossiers OPCO : OPCO 2i, sans subrogation ; dépôt 30 jours avant, justificatifs 90 jours après, relance du
+    // remboursement à 60 jours (à confirmer avec le service RH).
+    opcoDefaut: 'opco2i', opcoSubrogation: false, opcoDelaiDepot: 30, opcoDelaiJustificatifs: 90, opcoDelaiRemboursement: 60,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(await loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

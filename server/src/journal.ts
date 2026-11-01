@@ -21,6 +21,7 @@ import { matriculeAffiche } from '../../shared/rules/matricules.ts';
 import { estTypeTitre } from '../../shared/rules/contrats.ts';
 import { estDemi } from '../../shared/rules/demi-journees.ts';
 import { estObjetPiece } from '../../shared/rules/pieces.ts';
+import { estNaturePiece } from '../../shared/rules/opco.ts';
 import {
   ACTION_APPEL_KEYSTONE, ACTIONS_CONNEXION, ACTIONS_PAIE, changementsTexte, CONSERVATION_ARCHIVE_PAIE_MOIS, CONSERVATION_ENVOIS_MOIS,
   CONSERVATION_JOURNAL_MOIS, dossierComplet, estActionPaie, familleAction, FAMILLES_JOURNAL, JOURNAL_LABEL, lecteurJournal, libelleAction,
@@ -591,7 +592,11 @@ export const REGLES: Record<string, Regle> = {
   // Pièces justificatives (server/src/actions/pieces.ts) : objet et identifiants, nombre de pièces ; jamais le nom du fichier
   // (il peut nommer une donnée de santé), ni les jetons, ni le motif d'un retrait.
   'piece.joindre': {
-    extra: p => ({ objet: estObjetPiece(p.objet) ? p.objet : null, objetId: Number(p.objetId) || null, pieces: (Array.isArray(p.jetons) ? p.jetons.length : 0) || (p.jeton ? 1 : 0) }),
+    extra: p => ({
+      objet: estObjetPiece(p.objet) ? p.objet : null, objetId: Number(p.objetId) || null, pieces: (Array.isArray(p.jetons) ? p.jetons.length : 0) || (p.jeton ? 1 : 0),
+      // lot 11 — pièce d'un dossier OPCO : sa nature (code), jamais le nom du fichier.
+      ...(p.objet === 'dossierOpco' && estNaturePiece(p.nature) ? { nature: p.nature } : {}),
+    }),
     salaries: (_p, x) => [(x.result as { empId?: number } | null)?.empId],
   },
   'piece.retirer': {
@@ -877,6 +882,74 @@ Object.assign(REGLES, {
   'push.desabonnerAppareil': { champs: ['id', 'tout'], bilan: (_p: P, x: Contexte) => ({ appareil: resultatPush(x).appareil ?? null, retires: resultatPush(x).retires ?? 0 }) },
   'push.tester': { bilan: (_p: P, x: Contexte) => ({ appareils: resultatPush(x).appareils ?? 0 }) },
 } satisfies Record<string, Regle>);
+Object.assign(REGLES, {
+  // lot 11 — dossiers OPCO (server/src/actions/opco.ts) : dossier, action du plan, états avant et après, dates, codes (OPCO,
+  // dispositif, nature de l'écart), référence administrative contrôlée, organisme (SIRET, déclaration d'activité) ; montants
+  // des seuls dossiers non nominatifs (`empId` null : tous aujourd'hui), sinon « [montant modifié] » ; jamais un motif (refus et
+  // abandon codés compris, correction, suppression, annulation d'un versement), ni le nom d'une pièce. Hors ACTIONS_PAIE.
+  'opco.creer': {
+    champs: ['planActionId'],
+    bilan: async (_p, x) => {
+      const d = await x.db.get<Ligne>('dossiersOpco', Number((x.result as { id?: number } | null)?.id));
+      return d ? {
+        dossier: d.id, statut: d.statut, opco: d.opco, dispositif: d.dispositif, du: d.du, au: d.au, heures: d.heures, effectif: d.effectif, subrogation: d.subrogation,
+        reference: d.reference, ...(d.empId == null ? { montantDemande: d.montantDemande, montantDemandeAnnexes: d.montantDemandeAnnexes } : {}),
+      } : {};
+    },
+  },
+  'opco.modifier': {
+    champs: ['id'],
+    ...dossierOpco(['opco', 'dispositif', 'reference', 'du', 'au', 'heures', 'effectif', 'montantDemande', 'montantDemandeAnnexes', 'subrogation', 'organismeSiret', 'organismeNda', 'organismeQualiopi', 'corrigeLe']),
+  },
+  'opco.deposer': { champs: ['id'], ...dossierOpco(['statut', 'deposeLe', 'reference']) },
+  'opco.accorder': { champs: ['id'], ...dossierOpco(['statut', 'accordLe', 'montantAccorde', 'accordReference', 'plafondHoraire']) },
+  'opco.refuser': { champs: ['id'], ...dossierOpco(['statut', 'refusLe']) },
+  'opco.facturer': { champs: ['id'], ...dossierOpco(['statut', 'factureLe', 'montantFacture']) },
+  'opco.versement': {
+    champs: ['id'], ...dossierOpco(['statut']),
+    bilan: async (_p, x) => {
+      const v = await x.db.get<Ligne>('versementsOpco', Number((x.result as { id?: number } | null)?.id));
+      return v ? { versement: v.id, le: v.le, destinataire: v.destinataire, reference: v.reference, ...(x.apres?.empId == null ? { montant: v.montant } : {}) } : {};
+    },
+  },
+  'opco.annulerVersement': {
+    champs: ['id'], cible: parId('versementsOpco', ['annuleLe']),
+    bilan: async (_p, x) => {
+      const d = x.avant ? await x.db.get<Ligne>('dossiersOpco', x.avant.dossierId) : null;
+      return d ? { dossier: d.id, le: x.avant!.le, statut: d.statut, ...(d.empId == null ? { montant: x.avant!.montant } : {}) } : {};
+    },
+  },
+  'opco.solder': { champs: ['id'], ...dossierOpco(['statut', 'soldeLe', 'soldeEcart', 'soldeNature']) },
+  'opco.abandonner': { champs: ['id'], ...dossierOpco(['statut', 'abandonLe']) },
+  'opco.rouvrir': {
+    champs: ['id'],
+    ...dossierOpco(['statut', 'deposeLe', 'accordLe', 'montantAccorde', 'accordReference', 'plafondHoraire', 'refusLe', 'factureLe', 'montantFacture', 'soldeLe', 'soldeEcart', 'soldeNature', 'abandonLe', 'corrigeLe']),
+  },
+  'opco.supprimer': { champs: ['id'], ...dossierOpco(['annuleLe']) },
+} satisfies Record<string, Regle>);
+
+// lot 11 — dossiers OPCO
+/** Montants d'un dossier OPCO : recopiés pour un dossier non nominatif seulement. */
+const MONTANTS_OPCO = ['montantDemande', 'montantDemandeAnnexes', 'montantAccorde', 'montantFacture', 'soldeEcart', 'plafondHoraire'];
+export const MENTION_MONTANT = '[montant modifié]';
+/**
+ * Règle d'une action sur un dossier OPCO (`id`) : colonnes avant et après, dossier, action du plan et exercice ; montants
+ * remplacés par MENTION_MONTANT pour un dossier nominatif (alternance, plus tard).
+ */
+function dossierOpco(colonnes: readonly string[]): Partial<Regle> {
+  const cible: Cible = { table: 'dossiersOpco', cle: p => Number(p.id) || null, colonnes };
+  return {
+    cible,
+    extra: (_p, av) => (av ? { dossier: av.id, planActionId: av.planActionId, exercice: av.exercice } : {}),
+    changements: (_p, x) => {
+      const diff = comparer(cible, x.avant, x.apres);
+      if (diff && (x.apres ?? x.avant)?.empId != null) {
+        for (const k of MONTANTS_OPCO) if (k in diff.avant) { diff.avant[k] = MENTION_MONTANT; diff.apres[k] = MENTION_MONTANT; }
+      }
+      return diff;
+    },
+  };
+}
 
 /** Règle d'une action, lue sur les seules clés de REGLES (lot 8, S5) : « constructor », « toString »… n'en ont pas. */
 export const regleDe = (action: string): Regle | undefined => Object.hasOwn(REGLES, action) ? REGLES[action] : undefined;

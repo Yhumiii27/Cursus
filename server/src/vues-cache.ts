@@ -387,6 +387,8 @@ export const CHAMPS_HORS_VUES: ReadonlySet<keyof Dataset> = new Set<keyof Datase
   'reprises', 'declarationsPasseport',
   // lot 11 — indicateurs : arrêtés annuels, vides hors de l'espace RH.
   'indicateursArretes',
+  // lot 11 — dossiers OPCO : service RH et lecture seule seulement.
+  'dossiersOpco', 'versementsOpco',
 ]);
 
 /** Salariés lus par chaque vue collaborateur ou manager calculée par `vueDe` (jamais une propriété de la vue : rien n'en part au navigateur). */

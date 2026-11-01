@@ -109,6 +109,11 @@ export const REFERENCES: readonly Reference[] = [
   ref('idempotence', 'compte_id', 'comptes'),
   ref('abonnements_push', 'compte_id', 'comptes'),
   ref('envois_push', 'abonnement_id', 'abonnements_push'),
+  // lot 11 — dossiers OPCO (clés étrangères de 0019_dossiers_opco.sql) : action du plan, salarié (réservé à l'alternance,
+  // plus tard), dossier de chaque versement.
+  ref('dossiers_opco', 'plan_action_id', 'plan_actions'),
+  ref('dossiers_opco', 'emp_id', 'employes'),
+  ref('versements_opco', 'dossier_id', 'dossiers_opco'),
 ];
 
 export interface Integrite {

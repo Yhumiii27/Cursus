@@ -39,7 +39,14 @@ export const OBJETS_PIECE: Record<ObjetPiece, { label: string; sante: boolean }>
   habTitre: { label: 'Titre d’habilitation signé', sante: false },
   declaration: { label: 'Document déclaré', sante: true },
   voyage: { label: 'Pièce du dossier de déplacement', sante: false },
+  // lot 11 — dossiers OPCO : pièce d'un dossier de prise en charge (convention, accord, facture…), sans salarié.
+  dossierOpco: { label: 'Pièce d’un dossier OPCO', sante: false },
 };
+/**
+ * Objets dont les pièces ne sont pas nominatives (`empId` null) : seul le dossier OPCO (lot 11), réservé au service RH.
+ * Toute autre pièce désigne le salarié de son objet.
+ */
+export const OBJETS_SANS_SALARIE: ReadonlySet<ObjetPiece> = new Set<ObjetPiece>(['dossierOpco']);
 export const estObjetPiece = (o: unknown): o is ObjetPiece => typeof o === 'string' && o in OBJETS_PIECE;
 
 /** Libellés du réglage `piecesStockage` (Paramètres → Pièces justificatives). */
@@ -107,10 +114,14 @@ export const depotOuvert = (s: StockagePieces | undefined) => s === 'local';
  */
 export function voitPiece(user: CurrentUser, p: Pick<Piece, 'empId' | 'objet'>, equipe: (empId: number) => boolean): boolean {
   const titre = p.objet === 'certification' || p.objet === 'habTitre';
+  // Pièce sans salarié (dossier OPCO, lot 11) : service RH seulement (droit « rh »), jamais par l'égalité de deux
+  // identifiants absents (compte externe sans fiche).
+  if (OBJETS_SANS_SALARIE.has(p.objet)) return user.role === 'rh' && droitsRh(user).includes('rh');
   if (user.role === 'rh') {
     const droits = droitsRh(user);
     return droits.includes('rh') || (droits.includes('formations') && titre);
   }
+  if (p.empId == null) return false;
   if (p.empId === user.empId) return true;
   return user.role === 'manager' && titre && equipe(p.empId);
 }

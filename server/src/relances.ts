@@ -7,6 +7,8 @@
 //   délégation des entretiens (t135), son suppléant reçoit aussi les entretiens dus des membres dont il décide ;
 // - chaque référent HSE (compte actif) : formations et habilitations, et la couverture minimale des équipes calculée
 //   comme à son écran, sans les absences hors chantiers (`couvertureVueHse`), sous des clés à part (`hse:couverture:…`).
+// - lot 11 : les échéances des dossiers OPCO (`opco:<id>:<étape>:<échéance>`, shared/rules/opco.ts) vont à la seule boîte
+//   du service RH : l'action du plan et l'échéance, sans montant ni nom de salarié.
 // Seuls les paliers franchis depuis le dernier envoi partent (table `relances`, clé de l'objet et palier) : un objet n'est
 // relancé qu'une fois par palier. Tant que la boîte du service RH, destinataire de tout le périmètre, n'est pas renseignée,
 // le passage n'envoie ni ne note rien : les paliers franchis partiront au premier passage qui suit son réglage. Règles et contenu :
@@ -25,6 +27,9 @@ import type { Db } from './db.ts';
 import { envoyerEmail } from './integrations/email.ts';
 import { adresseSalarie, courriel, lireMessagerie } from './messagerie.ts';
 import { relanceSecret, relanceSecretEnvoi } from './secret-microsoft.ts';
+// lot 11 — dossiers OPCO
+import { relancesOpco } from '../../shared/rules/opco.ts';
+import { nomActionPlan } from './actions/opco.ts';
 import { type Lecture, lectureDirecte } from './lecture-partagee.ts';
 
 /** Lecture du périmètre complet, comme le service RH. */
@@ -49,6 +54,8 @@ function texteRecapitulatif(d: Domain, relances: Relance[], exploitation: string
       // Couverture minimale d'une équipe : aucun salarié désigné.
       // Manque déjà là : depuis son début (ou « en cours », sans cause datée) ; à venir : à partir de sa date.
       if (r.equipe) return `• Équipe ${r.equipe} — ${r.libelle} : ${r.cle.endsWith(':en-cours') ? 'en cours' : `${r.palier === 'echu' ? 'depuis le' : 'à partir du'} ${fmtIso(r.echeance)}`}`;
+      // lot 11 — dossier OPCO : l'action du plan et l'échéance, ni montant ni salarié.
+      if (r.rhSeul) return `• ${r.libelle} : ${r.jours < 0 ? 'dépassée depuis le' : 'échéance le'} ${fmtIso(r.echeance)}`;
       const e = d.emp(r.empId)!;
       return `• ${e.nom} (${equipeLabel(e)}) — ${r.libelle} : ${r.jours < 0 ? 'dépassée depuis le' : 'échéance le'} ${fmtIso(r.echeance)}`;
     }),
@@ -79,18 +86,20 @@ async function destinataires(db: Db, d: Domain, relances: Relance[], today: stri
   // Couverture calculée pour le référent HSE : à lui seul.
   const communes = relances.filter(r => !r.hse);
   ajouter((await lireMessagerie(db)).rh, null, communes);
+  // lot 11 — échéances propres au service RH (dossiers OPCO) : à sa seule boîte, ni aux managers, ni aux suppléants.
+  const parSalarie = communes.filter(r => !r.rhSeul);
   // Managers : équipes encadrées par un salarié présent, chacun pour ses membres (lui-même relève de son responsable).
   const managers = new Set(d.ds.referentiels.equipes.map(q => q.managerId).filter((m): m is number => !!m));
   for (const m of managers) {
     const a = await adresseSalarie(db, m, today);
-    ajouter(a?.adresse, a?.nom ?? null, communes.filter(r => (r.equipe ? d.teamsOf(m).includes(r.equipe) : !r.sante && r.empId !== m && d.mgrOf(d.emp(r.empId) as Employe) === m
+    ajouter(a?.adresse, a?.nom ?? null, parSalarie.filter(r => (r.equipe ? d.teamsOf(m).includes(r.equipe) : !r.sante && r.empId !== m && d.mgrOf(d.emp(r.empId) as Employe) === m
       && !(r.categorie === 'entretien' && r.cle.split(':')[2] === 'reprise'))));
   }
   // Suppléant d'un manager absent (t135), pendant une délégation qui comprend les entretiens : les entretiens dus des
   // membres dont il décide, avec les mêmes exclusions que pour le manager (reprise, santé).
   for (const g of (d.ds.delegations ?? []).filter(x => delegationEnVigueur(x, today))) {
     const a = await adresseSalarie(db, g.suppleantId, today);
-    ajouter(a?.adresse, a?.nom ?? null, communes.filter(r => !r.equipe && !r.sante && r.categorie === 'entretien' && r.cle.split(':')[2] !== 'reprise'
+    ajouter(a?.adresse, a?.nom ?? null, parSalarie.filter(r => !r.equipe && !r.sante && r.categorie === 'entretien' && r.cle.split(':')[2] !== 'reprise'
       && delegationPour(d.ds, d.emp(r.empId) as Employe, g.suppleantId, today, 'entretiens')?.id === g.id));
   }
   // Référents HSE : formations et habilitations de tous, couverture sans les absences hors chantiers.
@@ -114,6 +123,8 @@ export async function recapitulatifEcheances(db: Db, lire: Lecture = lectureDire
     ...relancesDues(d, d.enrich(full.settings.horizonAlerte, full.settings.uniquementReglementaire), paliers),
     // Couverture du référent HSE, calculée sans les absences hors chantiers qu'il ne reçoit pas (server/src/dataset.ts).
     ...relancesCouverture(d, couvertureVueHse({ ...full, settings: { ...full.settings, horizonAlerte: Math.max(...paliers, 90) } }), paliers, 'hse:'),
+    // lot 11 — dossiers OPCO en cours (`opco:<id>:<étape>:<échéance>`) : boîte du service RH seulement, sans montant ni nom.
+    ...relancesOpco(full.dossiersOpco ?? [], full.versementsOpco, full.plan, full.settings, today, paliers, l => nomActionPlan({ d }, l)),
   ];
   const deja = new Set((await db.query('SELECT cle, palier FROM relances') as { cle: string; palier: string }[]).map(r => `${r.cle}|${r.palier}`));
   const nouvelles = dues.filter(r => !deja.has(`${r.cle}|${r.palier}`));

@@ -30,6 +30,8 @@ import type {
   ReleveInterim, ReportCp, RubriquePaie, Session, Settings, SoldeReprise, SoldeSortie, TacheKeystone, Vaccination, Visa, Voyage,
   Entite, Site,
   ArreteIndicateurs,
+  // lot 11 — dossiers OPCO
+  DossierOpco, VersementOpco,
 } from '../../shared/types.ts';
 import type { Db, TableName } from './db.ts';
 import { formatFichierDe } from './lots-paie.ts';
@@ -122,6 +124,9 @@ export interface Brut {
   sites: Site[];
   // lot 11 — indicateurs : arrêtés annuels, sans leurs agrégats (`COLONNES_OMISES`).
   indicateursArretes: ArreteIndicateurs[];
+  // lot 11 — dossiers OPCO (supprimés compris : `assembler` les écarte)
+  dossiersOpco: DossierOpco[];
+  versementsOpco: VersementOpco[];
   reglages: ReglagesBruts;
   /** Statut de l'e-mail de chaque relevé (envois désignés par `releves.envoiId` seulement). */
   statutsEnvoi: ReadonlyMap<number, Envoi['statut']>;
@@ -242,6 +247,9 @@ export async function lireBrut(db: Db): Promise<Brut> {
     sites: await lire('sites'),
     // lot 11 — indicateurs
     indicateursArretes: await lire<ArreteIndicateurs>('indicateursArretes'),
+    // lot 11 — dossiers OPCO
+    dossiersOpco: await lire('dossiersOpco'),
+    versementsOpco: await lire('versementsOpco'),
     reglages: await lireReglages(db),
     statutsEnvoi: await statutsDesEnvois(db, releves),
   };
@@ -351,6 +359,12 @@ const referentielsDe = memo((formations: Formation[], habilitations: HabType[], 
   ({ formations, habilitations, destinations, postes, equipes, horaires, projets, chantiers, entites, sites }));
 /** lot 11 — organigramme : présents du jour et non anonymisés (`presentsDe`), sur les fiches telles qu'enregistrées. */
 const presentsOrganigrammeDe = memo((lignes: EmpRow[], today: string) => presentsDe(lignes, today));
+// lot 11 — dossiers OPCO : un dossier supprimé (saisie erronée, `opco.supprimer`) sort de l'instantané, avec ses versements.
+const dossiersOpcoDe = memo((lignes: DossierOpco[]) => lignes.filter(d => !d.annuleLe));
+const versementsOpcoDe = memo((lignes: VersementOpco[], dossiers: DossierOpco[]) => {
+  const supprimes = new Set(dossiers.filter(d => d.annuleLe).map(d => d.id));
+  return supprimes.size ? lignes.filter(v => !supprimes.has(v.dossierId)) : lignes;
+});
 
 /**
  * Instantané complet tiré de la lecture brute, sans lire la base ni modifier `brut` : le Dataset de `loadFull`, ligne
@@ -430,6 +444,9 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     presentsOrganigramme: presentsOrganigrammeDe(brut.employes, today),
     // lot 11 — indicateurs : arrêtés annuels (sans agrégats), filtrés par espace et par profil dans server/src/dataset.ts.
     indicateursArretes: brut.indicateursArretes,
+    // lot 11 — dossiers OPCO
+    dossiersOpco: dossiersOpcoDe(brut.dossiersOpco),
+    versementsOpco: versementsOpcoDe(brut.versementsOpco, brut.dossiersOpco),
   };
 }
 
@@ -490,6 +507,9 @@ const LECTURES_ASSEMBLEES = {
   presentsOrganigramme: ['employes'],
   // lot 11 — indicateurs
   indicateursArretes: ['indicateursArretes'],
+  // lot 11 — dossiers OPCO
+  dossiersOpco: ['dossiersOpco'],
+  versementsOpco: ['versementsOpco', 'dossiersOpco'],
 } as const satisfies Partial<Record<keyof Dataset, readonly TableName[]>>;
 
 /**

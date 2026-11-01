@@ -287,6 +287,11 @@ const TOUJOURS: Partial<Record<TableName, string>> = {
   cloturesForfaitHeures: 'paie et compteurs',
   // lot 12 — C3 (entretiens suivis et 360°) : objectifs et feedback 360° des entretiens fictifs.
   ...Object.fromEntries(['objectifs', 'feedbackSollicitations', 'feedbackTampon', 'feedbackReponses'].map(t => [t, 'entretiens, demandes et agenda'])),
+  // lot 12 — C4 : inscriptions des salariés fictifs aux modules d'e-learning ; contacts (personnes fictives) et tarifs de
+  // démonstration ; modules de démonstration (liens fictifs en « .example »). Les fiches des organismes, reprises du
+  // catalogue gardé, restent sans leurs valeurs fictives et « à vérifier » (`ORGANISMES_FICTIFS`).
+  ...Object.fromEntries(['inscriptionsElearning', 'organismeContacts', 'organismeTarifs', 'modulesElearning']
+    .map(t => [t, 'inscriptions e-learning, contacts, tarifs et modules de démonstration'])),
   connexions: 'sessions de connexion',
   comptes: 'comptes de connexion',
   journal: 'journal des actions fictives (remplacé par la seule ligne purge.demo)',
@@ -311,6 +316,17 @@ export const REGLAGES_SUPPRIMES_PARAMETRAGE: readonly string[] = [
   CLE_DEPUIS, CLE_JUSQUA, CLE_DEPUIS_DEPLACEMENTS,
 ];
 
+/**
+ * lot 12 — C4 : valeurs fictives des fiches d'organismes gardées (SIRET et déclarations d'activité inventés, Qualiopi et ses
+ * dates, adresse et site en « .example », conditions), remises à NULL ; la purge remet aussi chaque fiche « à vérifier »,
+ * sans Qualiopi ni subrogation (server/src/purge-demo-execution.ts) : le service RH les complète avant le premier dossier
+ * OPCO, qui préremplit SIRET, déclaration d'activité et Qualiopi depuis la fiche.
+ */
+export const ORGANISMES_FICTIFS: readonly string[] = [
+  'raisonSociale', 'siret', 'nda', 'ndaRegion', 'qualiopiCertificateur', 'qualiopiNumero', 'qualiopiValideJusquau', 'qualiopiVerifieLe', 'adresse', 'siteWeb',
+  'delaiAnnulationJours', 'conditions', 'fusionneMotif',
+];
+
 /** Sort de chaque table et des réglages selon le profil ; `comptesGardes` : des comptes restent (rendus externes). */
 export function planPurge(profil: ProfilPurge, comptesGardes = false): PlanPurge {
   const tables = {} as Record<TableName, RegleTable>;
@@ -331,6 +347,7 @@ export function planPurge(profil: ProfilPurge, comptesGardes = false): PlanPurge
     // Confirmation et dernière modification : faites pendant la démonstration, sous le nom d'un utilisateur fictif.
     tables.rubriquesPaie = { sort: 'ajuster', nulles: ['confirmeLe', 'confirmePar', 'modifieLe', 'modifiePar'], pourquoi: 'confirmation et auteur effacés, à revalider par la paie' };
     tables.settings = { sort: 'ajuster', pourquoi: 'réglages fictifs ou techniques retirés' };
+    tables.organismes = { sort: 'ajuster', nulles: [...ORGANISMES_FICTIFS], pourquoi: 'SIRET, Qualiopi et coordonnées fictifs effacés, fiches à vérifier' };
   }
   if (profil === 'catalogue') {
     tables.postes = supprimer('postes déduits des intitulés fictifs');

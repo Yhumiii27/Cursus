@@ -12,6 +12,8 @@ import { dureeValide } from './heures-formation.ts';
 
 export const ORIGINE_SUIVIE_LABEL: Record<OrigineFormationSuivie, string> = {
   demande: 'Demande hors catalogue', plan: 'Plan de formation', session: 'Session', saisie: 'Saisie du service RH',
+  // lot 12 — C4 : fin d'un module d'e-learning validée par le service RH.
+  elearning: 'Module d’e-learning',
 };
 
 /** Intitulé d'une formation hors catalogue et organisme : longueurs maximales. */

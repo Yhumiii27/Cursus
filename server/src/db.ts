@@ -18,7 +18,9 @@ export const TABLES = {
   // du titre imprimé (t115, client/src/titre-habilitation.ts).
   // `passeportPrevention` : formation santé-sécurité à déclarer au Passeport de prévention (lot 7, t066), amorcée par la
   // migration lot7-prevention-passeport.
-  formations: { pk: 'id', cols: { id: 'text', nom: 'text', court: 'text', type: 'text', validite: 'int', duree: 'text', organisme: 'text', cout: 'real', validation: 'text', archive: 'text', dureeHeures: 'real', passeportPrevention: 'bool' } },
+  formations: { pk: 'id', cols: { id: 'text', nom: 'text', court: 'text', type: 'text', validite: 'int', duree: 'text', organisme: 'text', cout: 'real', validation: 'text', archive: 'text', dureeHeures: 'real', passeportPrevention: 'bool',
+    // lot 12 — C4 : organisme par défaut (fiche) ; `organisme` reste son nom usuel, tenu à jour (contrat pub_titres_detenus).
+    organismeId: 'int' } },
   habilitations: { pk: 'id', cols: { id: 'text', nom: 'text', detail: 'text', prereqs: 'json', medical: 'bool', validite: 'int', signataire: 'text', archive: 'text', sir: 'bool', modele: 'text' } },
   // `secu` : formalité de sécurité sociale du détachement (null : déduite du code pays, shared/constants.ts).
   destinations: { pk: 'code', cols: { code: 'text', pays: 'text', visa: 'text', visaSub: 'text', oblig: 'json', rec: 'json', passMois: 'int', secu: 'text', archive: 'text',
@@ -107,6 +109,8 @@ export const TABLES = {
       corrigeLe: 'text', corrigePar: 'text', corrigeMotif: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
       // Inscriptions en formation initiale closes par la certification, rendues à son annulation (actions/inscriptions-closes.ts).
       inscriptionsCloses: 'json',
+      // lot 12 — C4 : organisme saisi par un autre outil (Vigie) ; colonne du serveur commun (0002_partage), alignée en SQLite.
+      organisme: 'text',
     },
   },
   habTitres: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', h: 'text', delivree: 'text', par: 'text', demande: 'text', mesure: 'text', mesureDate: 'text', mesureMotif: 'text', mesurePar: 'text' } },
@@ -123,13 +127,17 @@ export const TABLES = {
       id: 'int', empId: 'int', f: 'text', libelle: 'text', du: 'text', au: 'text', duree: 'real', organisme: 'text', obligatoire: 'bool', origine: 'text',
       planActionId: 'int', demandeId: 'int', le: 'text', auteur: 'text', auteurId: 'int',
       corrigeLe: 'text', corrigePar: 'text', corrigeMotif: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+      // lot 12 — C4 : fiche de l'organisme.
+      organismeId: 'int',
     },
   },
   visas: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', dest: 'text', type: 'text', obtenu: 'text', expire: 'text' } },
   vaccinations: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', v: 'text', date: 'text' } },
   // Le nombre d'inscrits n'est pas stocké : il est calculé au chargement (server/src/dataset.ts).
   // `fin`, `jours`, `horaires` : session sur plusieurs jours (shared/rules/plage-session.ts ; migrations/formations.ts).
-  sessions: { pk: 'id', auto: true, cols: { id: 'int', formation: 'text', date: 'text', lieu: 'text', places: 'int', statut: 'text', planId: 'int', bilan: 'json', fin: 'text', jours: 'json', horaires: 'json' } },
+  sessions: { pk: 'id', auto: true, cols: { id: 'int', formation: 'text', date: 'text', lieu: 'text', places: 'int', statut: 'text', planId: 'int', bilan: 'json', fin: 'text', jours: 'json', horaires: 'json',
+    // lot 12 — C4 : organisme figé à la création depuis le catalogue.
+    organismeId: 'int' } },
   inscriptions: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', sessionId: 'int', convoc: 'text', date: 'text', convocLe: 'text' }, unique: [['empId', 'sessionId']] },
   // `reussi` peut rester indéterminé (null) : stocké en JSON pour garder true / false / null.
   participations: { pk: 'id', auto: true, cols: { id: 'int', sessionId: 'int', empId: 'int', parcours: 'text', present: 'bool', reussi: 'json', certId: 'int' }, unique: [['sessionId', 'empId']] },
@@ -141,6 +149,8 @@ export const TABLES = {
       coutReel: 'real', effectifReel: 'int', reportDe: 'int',
       // Correction et suppression d'une ligne saisie par erreur (actions/corrections.ts) ; supprimée, hors des calculs.
       corrigeLe: 'text', corrigePar: 'text', corrigeMotif: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+      // lot 12 — C4 : organisme prévu (fiche) ; null : celui du catalogue.
+      organismeId: 'int',
     },
   },
   budgets: { pk: 'id', auto: true, cols: { id: 'int', exercice: 'int', equipe: 'text', montant: 'real' }, unique: [['exercice', 'equipe']] },
@@ -552,6 +562,8 @@ export const TABLES = {
       deposeLe: 'text', accordLe: 'text', montantAccorde: 'real', accordReference: 'text', plafondHoraire: 'real', refusLe: 'text', refusMotif: 'text',
       factureLe: 'text', montantFacture: 'real', soldeLe: 'text', soldeEcart: 'real', soldeNature: 'text', abandonLe: 'text', abandonMotif: 'text',
       creeLe: 'text', creePar: 'text', corrigeLe: 'text', corrigePar: 'text', corrigeMotif: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+      // lot 12 — C4 : fiche de l'organisme (préremplissage ; SIRET, NDA et Qualiopi restent ceux déclarés à l'OPCO).
+      organismeId: 'int',
     },
   },
   versementsOpco: {
@@ -652,6 +664,50 @@ export const TABLES = {
     },
   },
   // lot 12 — C4 (organismes de formation et e-learning)
+  // Organismes de formation (server/src/actions/organismes.ts, shared/rules/organismes.ts ; PostgreSQL 0025, SQLite
+  // lot12-organismes) : fiche (identité, SIRET, déclaration d'activité, Qualiopi, conditions du service RH, alias repris des
+  // textes libres), archivée au lieu d'être supprimée ; fusion d'un doublon : fiche archivée qui désigne celle qui l'absorbe,
+  // motif du service RH. Contacts (données de tiers) et tarifs : sous-tables, retirés par archivage.
+  organismes: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', code: 'text', raisonSociale: 'text', nomUsuel: 'text', type: 'text', siret: 'text', nda: 'text', ndaRegion: 'text',
+      qualiopi: 'bool', qualiopiCategories: 'json', qualiopiCertificateur: 'text', qualiopiNumero: 'text', qualiopiValideJusquau: 'text', qualiopiVerifieLe: 'text',
+      adresse: 'text', siteWeb: 'text', subrogationAcceptee: 'bool', delaiAnnulationJours: 'int', conditions: 'text', alias: 'json', aVerifier: 'bool', source: 'text',
+      archive: 'text', creeLe: 'text', creePar: 'text', fusionneDans: 'int', fusionneLe: 'text', fusionnePar: 'text', fusionneMotif: 'text',
+    },
+    unique: [['code']],
+  },
+  organismeContacts: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', organismeId: 'int', nom: 'text', fonction: 'text', email: 'text', telephone: 'text', role: 'text', principal: 'bool', archive: 'text', creeLe: 'text', creePar: 'text' },
+  },
+  organismeTarifs: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', organismeId: 'int', formation: 'text', libelle: 'text', modalite: 'text', unite: 'text', montantHt: 'real', valableDu: 'text', valableAu: 'text',
+      archive: 'text', creeLe: 'text', creePar: 'text',
+    },
+  },
+  // Modules d'e-learning (shared/rules/elearning.ts) et inscriptions des salariés (une ouverte par salarié et module :
+  // index de lot12-elearning-index et de 0025) ; fin validée par le service RH (formation suivie, certification).
+  modulesElearning: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', code: 'text', intitule: 'text', organismeId: 'int', formation: 'text', url: 'text', dureeHeures: 'real', langue: 'text', coutLicence: 'real',
+      accesMois: 'int', attestationRequise: 'bool', archive: 'text', creeLe: 'text', creePar: 'text',
+    },
+    unique: [['code']],
+  },
+  inscriptionsElearning: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', moduleId: 'int', planActionId: 'int', inscritLe: 'text', inscritPar: 'text', echeance: 'text', statut: 'text',
+      avancement: 'int', avancementSource: 'text', avancementLe: 'text', declareLe: 'text', termineLe: 'text', heures: 'real', reussi: 'json',
+      certId: 'int', suivieId: 'int', abandonLe: 'text',
+      corrigeLe: 'text', corrigePar: 'text', corrigeMotif: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+    },
+  },
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
 } satisfies Record<string, TableDef>;
@@ -778,7 +834,9 @@ export const TABLES_CHANGEMENTS_SANS_CLE: ReadonlySet<TableName> = new Set<Table
   // lot 12 — C3 (entretiens suivis et 360°) : tables du feedback 360°, fermées en entier à Matrix ; l'ordre et la clé des
   // écritures ne doivent rattacher aucune réponse à un répondant (migration 0024).
   'feedbackSollicitations', 'feedbackTampon', 'feedbackReponses',
-  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C4 (organismes de formation et e-learning) : contacts (données de tiers) et tarifs, fermés en entier à Matrix
+  // (migration 0025, demande docs/demandes/matrix-lot12-organismes.sql).
+  'organismeContacts', 'organismeTarifs',
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
 ]);

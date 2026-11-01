@@ -384,7 +384,10 @@ export const CHAMPS_PAR_SALARIE: ReadonlySet<keyof Dataset> = new Set<keyof Data
   // lot 12 — C3 (entretiens suivis et 360°)
   // Objectifs : lignes par salarié, lues par la vue à travers `direct(mine(…))` comme les entretiens.
   'objectifs',
-  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C4 (organismes de formation et e-learning) : inscriptions aux modules d'e-learning, les siennes ou celles du
+  // périmètre (server/src/vues-organismes.ts). Fiches et modules (`referentiels.organismes`, `modulesElearning`) : champs
+  // communs, leur écriture, rare, recalcule toutes les vues.
+  'inscriptionsElearning',
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
 ]);
@@ -406,7 +409,8 @@ export const CHAMPS_HORS_VUES: ReadonlySet<keyof Dataset> = new Set<keyof Datase
   // lot 12 — C3 (entretiens suivis et 360°)
   // Feedback 360° (étape 3, module désactivé) : service RH seulement tant que l'étape 3 n'ouvre pas sa synthèse.
   'feedbackSollicitations', 'feedbackReponses',
-  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C4 (organismes de formation et e-learning) : fiches complètes, contacts et tarifs, vides hors de l'espace RH.
+  'organismes', 'organismeContacts', 'organismeTarifs',
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
 ]);

@@ -29,6 +29,8 @@ import { FORFAIT_HEURES } from './lot12-forfait-heures.ts';
 import { INDEX_FRAIS_FENETRE } from './lot12-frais.ts';
 // lot 12 — C3 (entretiens suivis et 360°)
 import { ENTRETIENS_SUIVIS_INDEX } from './lot12-entretiens.ts';
+// lot 12 — C4 (organismes de formation et e-learning)
+import { ELEARNING_INDEX, ORGANISMES } from './lot12-organismes.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   INDEX_JOURNAL,
@@ -73,4 +75,7 @@ export const MIGRATIONS: readonly Migration[] = [
   INDEX_FRAIS_FENETRE,
   // lot 12 — C3 (entretiens suivis et 360°)
   ENTRETIENS_SUIVIS_INDEX,
+  // lot 12 — C4 (organismes de formation et e-learning)
+  ORGANISMES,
+  ELEARNING_INDEX,
 ];

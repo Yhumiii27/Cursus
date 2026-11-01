@@ -111,7 +111,10 @@ export const TRAITEMENTS: Record<string, Traitement> = {
   'feedback_sollicitations.emp_id': { mode: 'lignes', categorie: 'entretiens' },
   'feedback_sollicitations.repondant_emp_id': { mode: 'lignes', categorie: 'entretiens' },
   'feedback_reponses.emp_id': { mode: 'lignes', categorie: 'entretiens' },
-  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C4 (organismes de formation et e-learning) : inscriptions aux modules d'e-learning gardées avec les formations
+  // suivies qu'elles ont produites (statut, dates, heures), motifs (textes libres du service RH) vidés ; l'auteur de
+  // l'inscription (nom) retiré par le balayage des textes.
+  'inscriptions_elearning.emp_id': { mode: 'textes', categorie: 'formations' },
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
 };
@@ -203,6 +206,8 @@ export function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number
       { table: 'certifications', ou: 'emp_id = ?', vider: ['corrige_motif', 'annule_motif'] },
       { table: 'hab_titres', ou: 'emp_id = ?', vider: ['mesure_motif'] },
       { table: 'formations_suivies', ou: 'emp_id = ?', vider: ['corrige_motif', 'annule_motif'] },
+      // lot 12 — C4 : inscriptions aux modules d'e-learning, motifs vidés (statut, dates, heures gardés).
+      { table: 'inscriptions_elearning', ou: 'emp_id = ?', vider: ['corrige_motif', 'annule_motif'] },
       // Évaluations des formations (lot 7, t121) : commentaire vidé, note et efficacité gardées.
       { table: 'evaluations_formation', ou: 'emp_id = ?', vider: ['commentaire'] },
       // Liste d'attente (lot 7, t120) : la demande supprimée ci-dessous n'y est plus désignée.

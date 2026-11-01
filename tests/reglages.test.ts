@@ -113,6 +113,8 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
       'MARIAGE_ENFANT', 'NAISSANCE', 'DECES_ENFANT', 'DECES_ENFANT_JEUNE', 'DEUIL_ENFANT', 'DECES_PROCHE', 'HANDICAP_ENFANT', 'ENFANT_MALADE', 'SANS_SOLDE',
       'INJUSTIFIEE', 'ABSENCE'],
     forfaitHeuresJour: 0, forfaitHeuresEmission: 'cloture', forfaitHeuresContingent: false,
+    // lot 12 — C4 : relance Qualiopi 60 jours avant la fin de validité ; fin d'un module d'e-learning validée par le service RH.
+    organismeAlerteQualiopiJours: 60, elearningFinAutoImport: false,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(await loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

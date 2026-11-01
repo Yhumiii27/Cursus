@@ -1781,6 +1781,18 @@ aucun champ du paramètre n'est recopié.
 | `opco.deposer` / `opco.accorder` / `opco.refuser` / `opco.facturer` / `opco.solder` / `opco.abandonner` | id, de? (état affiché : transition déjà faite, rien n'est refait ; autre état, refus), date du fait (aujourd'hui par défaut, jamais future ni avant l'étape précédente) ; accorder : montantAccorde, accordReference?, plafondHoraire? ; refuser, abandonner : motif codé (`MOTIFS_REFUS_OPCO`, `MOTIFS_ABANDON_OPCO`) ; facturer (justificatifs envoyés) : montantFacture, facture et certificat de réalisation (ou émargement) joints quand les pièces sont activées, depuis « accordé » ou depuis « remboursé » quand un acompte a précédé l'envoi (le dossier reste alors « remboursé ») ; solder : justificatifs envoyés exigés, écart accordé − reçu figé, nature (`perte` ou `partiel`) s'il en reste un ; jamais de refus pour un exercice clos | RH |
 | `opco.versement` | id (dossier accordé, justificatifs envoyés ou remboursé), montant (> 0), le?, destinataire? (`entreprise`, ou `organisme` par défaut en subrogation), reference?, versements? (nombre affiché : au-delà, double clic, rien n'est enregistré) → « remboursé » | RH |
 | `opco.annulerVersement` / `opco.rouvrir` / `opco.supprimer` | id (versement ou dossier), de? (retour d'un cran), motif (obligatoire, jamais au journal) : versement gardé hors des sommes (dernier annulé : état d'avant) ; retour d'un cran (`statutPrecedent`, champs de l'état quitté effacés ; remboursé : annuler le versement d'abord) ; dossier saisi par erreur gardé hors de l'instantané, refusé avec un versement ou une pièce en vigueur | administrateur RH |
+| `organisme.enregistrer` | id? (modification ; création sinon), code? (majuscules, stable), nomUsuel (80 caractères, unique parmi les fiches en vigueur), raisonSociale?, type (`externe`, `interne`, `independant`), siret? (clé de Luhn, unique hors fiches fusionnées), nda? (11 chiffres), ndaRegion?, qualiopi?, qualiopiCategories?, qualiopiCertificateur?, qualiopiNumero?, qualiopiValideJusquau?, qualiopiVerifieLe?, adresse?, siteWeb? (lot 12, C4, `controlerOrganisme`) ; nom usuel recopié dans `formations.organisme` des formations rattachées, même transaction | RH, référent HSE |
+| `organisme.conditions` | id, subrogationAcceptee?, delaiAnnulationJours? (0 à 365), conditions? (500 caractères ; journal : « renseigné ») | RH |
+| `organisme.archiver` / `organisme.verifier` | id, archive? (faux : rétablir ; refusé tant qu'une formation du catalogue ou un module en vigueur la désigne) / id (fiche reprise confirmée) | RH, référent HSE |
+| `organisme.fusionner` | source, cible, motif (obligatoire, jamais au journal), objets? (nombre affiché à la confirmation, sinon 409) : jamais deux SIRET différents ni un service interne avec un externe ; objets réaffectés, alias réunis, source archivée (`fusionneDans`) | administrateur RH |
+| `organisme.contact.enregistrer` / `organisme.contact.retirer` | id? ou organismeId, nom, fonction?, email?, telephone?, role (`commercial`…), principal? (un seul par organisme) / id (archivé) | RH, référent HSE |
+| `organisme.tarif.enregistrer` / `organisme.tarif.archiver` | id? ou organismeId, formation? ou libelle, modalite, unite, montantHt, valableDu?, valableAu? / id | RH |
+| `elearning.module.enregistrer` / `elearning.module.archiver` | id? ou code, intitule, url (https seulement), organismeId?, formation?, dureeHeures?, langue?, coutLicence?, accesMois?, attestationRequise? / id, archive? | RH, référent HSE |
+| `elearning.inscrire` | moduleId (en vigueur), empId, empIds ou planActionId (membres présents de l'équipe de la ligne), echeance? : un salarié déjà inscrit (inscription ouverte) est passé | RH, référent HSE |
+| `elearning.declarer` | id : « J'ai terminé » (fin déclarée, à valider) | le salarié inscrit lui-même |
+| `elearning.importer` | texte (CSV : matricule ou e-mail, module, statut, avancement, date de fin, réussite ; toute autre colonne refusée), apercu? : lignes valides appliquées, rapport par ligne ; fin d'office seulement avec le réglage `elearningFinAutoImport` (module sans attestation, « terminé » et « réussi ») | RH, référent HSE |
+| `elearning.terminer` | id, de?, termineLe? (jamais future), heures? (sinon la durée du module), reussi? : formation suivie d'origine « elearning » et, module rattaché au catalogue et réussi, certification par `cert.ajouter` | RH (jamais pour lui-même) |
+| `elearning.abandonner` / `elearning.corriger` / `elearning.annuler` | id, de? / id, motif, echeance?, avancement?, planActionId? (inscription ouverte) / id, motif (sans formation suivie ni certification produite en vigueur) | RH, référent HSE ; annulation : administrateur RH |
 | `temps.setCell` | empId, week, li, di (0 = lundi … 5 = samedi, 6 = dimanche), value ; une ligne de 5 valeurs est complétée à 7 | salarié, manager direct ou RH (feuille soumise : valideur uniquement) ; aucune heure un jour d’absence validée ou signalée, ni hors contrat, vider la cellule reste possible ; pas de feuille pour une semaine hors contrat ; samedi et dimanche saisissables, repos hebdomadaire signalé sans blocage ; jour férié saisissable si `feriesTravaillesAutorises` (par défaut), saisie tracée (`temps.ferie`, ou `temps.correction` par autrui) |
 | `temps.derogationDominicale` | equipe, type (`aucune`/`feu_continu`/`suppleance`), reference (exigée hors `aucune`, 120 caractères ; journal : seulement « renseignée ») : clé `derogationsDominicales` de la table settings, suit l'équipe renommée et disparaît avec l'équipe supprimée | administrateur RH |
 | `temps.horaire` | empId, week, di (0 = lundi … 6 = dimanche), code (« » : aucun horaire ; un horaire archivé ne se choisit plus) : horaire de poste du jour, au niveau de la feuille ; seuls les choix y sont inscrits ; l'horaire retenu, avec ses heures, est figé à part à la soumission et à la validation (`horairesAFiger`, `FeuilleTemps.horairesFiges` : les jours non choisis qui portent des heures reçoivent l'horaire de l'équipe) ; tracé quand il est choisi par autrui | comme `temps.setCell` (salarié, manager direct ou RH ; feuille soumise : valideur) |
@@ -4910,4 +4922,73 @@ imprimé, les indicateurs et rappels, le guide et le RGPD viennent à l'étape 2
   tirages des actions `objectif.*` et des souhaits dans `tests/support/oracle.ts`. Tests : `tests/entretiens-suivis.test.ts`
   (règles, types interdits, cycle d'un objectif, doublons de versement, annulation, vues par profil, journal, point de
   mi-année), `tests/conservation.test.ts` (cascade), empreinte de 0024 dans `PUBLIEES`.
+## Lot 12 : organismes de formation et e-learning (C4, t190), étape 1
+
+L'organisme de formation n'est plus un simple texte recopié : un référentiel de fiches (identité, SIRET, déclaration
+d'activité, Qualiopi, conditions, contacts, tarifs) et des modules d'e-learning suivis sans plateforme embarquée (ni
+SCORM, ni xAPI). Cette étape pose tout le serveur ; les écrans (onglet Organismes, « À vérifier », modules et onglet
+E-learning, import, Mes modules, sélecteurs des dialogues), les alertes Qualiopi, les évaluations consolidées et les
+documents de l'utilisateur et du RGPD viennent à l'étape 2.
+
+- **Modèle** (`shared/types-organismes.ts`) : tables `organismes`, `organisme_contacts`, `organisme_tarifs`,
+  `modules_elearning`, `inscriptions_elearning` (TABLES de `server/src/db.ts`) ; colonne `organisme_id` en fin de table
+  sur formations, sessions, formations suivies, dossiers OPCO et lignes du plan ; `certifications.organisme` (jusqu'ici
+  sur le seul serveur commun, 0002) ajoutée en SQLite, avant la reprise ; origine `elearning` d'une formation suivie.
+  PostgreSQL : `server/migrations-pg/0025_organismes_elearning.sql` (structure, clés étrangères, CHECK, index, déclencheurs
+  `revision` et `revision_lignes_*`, commentaires « Sensible » : contacts et tarifs en entier, SIRET et adresse
+  (personnels pour un formateur indépendant), conditions, motif d'une fusion, avancement et motifs des inscriptions ; demande à Matrix `docs/demandes/matrix-lot12-organismes.sql`). SQLite :
+  migrations nommées `lot12-organismes-index` (index des `organisme_id` ; le nom `lot12-organismes` du brief ne passait pas
+  la règle des noms à trois parties) et `lot12-elearning-index` (index par salarié, une inscription ouverte par salarié et
+  module).
+- **Reprise des textes libres** (`server/src/reprise-organismes.ts`) : étape TypeScript unique, commune aux deux moteurs,
+  lancée après les migrations à chaque démarrage (`mettreAJourBase`) et après le chargement de la démonstration ;
+  idempotente (`repriseNecessaire`). Textes de `formations.organisme`, `formations_suivies.organisme` et
+  `certifications.organisme`, « Organisme non renseigné » écarté ; clé `cleOrganisme` (d'après `norm()` : casse, accents,
+  ponctuation, formes juridiques), fiches internes à part ; une fiche par clé (graphie la plus fréquente, `source`
+  « reprise », `a_verifier`, alias = toutes les graphies), ou la fiche existante qui reçoit les nouvelles graphies ; SIRET,
+  déclaration d'activité et Qualiopi des dossiers OPCO repris seulement s'ils concordent, et jamais deux textes de même clé
+  réunis quand leurs dossiers portent des SIRET différents (une fiche par SIRET, conflit compté ; en conflit, une fiche
+  existante sans SIRET n'accueille un groupe au SIRET connu que si elle reçoit ce SIRET). Pose des `organisme_id` vides :
+  formations et formations suivies d'après leur texte, puis sessions (celui du catalogue) et dossiers OPCO (par leur ligne
+  du plan). Les lignes du plan et les formations suivies sans texte restent sans fiche propre et lisent celle de leur
+  formation (`organismeDuPlan`, `organismeDeSuivie`) : un changement de formation ne garde jamais l'ancien organisme
+  (`plan.modifier` remet aussi à vide une fiche posée). Aucun texte d'origine modifié. Journal `migration.organismes` :
+  compteurs seulement.
+- **Contrat `pub_titres_detenus`** (0011:48) : `formations.organisme` reste et vaut le nom usuel de la fiche rattachée,
+  réécrit dans la transaction qui change la fiche (`organisme.enregistrer`), le rattachement
+  (`referentiel.formation.enregistrer`, paramètre `organismeId`) ou la fusion ; la vue ne change pas (test sur PostgreSQL).
+  Sans `organismeId` (dialogues actuels, texte seul), la formation et la formation suivie gardent leur fiche tant que le
+  texte la désigne (nom usuel ou alias, `ficheDuTexte`) ; un autre texte les détache, texte gardé, et la reprise du
+  démarrage suivant les rattache : jamais un texte et une fiche qui se contredisent.
+- **Règles pures** : `shared/rules/organismes.ts` (clé, saisie contrôlée de la fiche, des conditions, d'un contact et d'un
+  tarif, état Qualiopi à une date et avertissements — jamais un blocage —, déclaration d'activité absente, organisme d'une
+  session figé ou du catalogue, d'une ligne du plan, d'une formation suivie, fiche fusionnée suivie, tarif en vigueur,
+  refus et alias d'une fusion) ; `shared/rules/elearning.ts` (lien https seulement, module, inscription ouverte, expiration
+  calculée, fin à valider, import fermé et idempotent, fin d'office par réglage).
+- **Actions et droits** (`server/src/actions/organismes.ts`, `elearning.ts` ; tableau ci-dessus ; matrice de
+  `tests/droits.test.ts`) : droit « formations » pour la fiche, Qualiopi, les contacts, les modules et les inscriptions ;
+  service RH pour les conditions, les tarifs et la validation d'une fin ; administrateur RH pour la fusion et l'annulation
+  d'une inscription ; le salarié déclare la fin de son propre module. Une session reçoit à sa création l'organisme choisi,
+  sinon celui de la ligne du plan ou du catalogue (`organismeChoisi`), et le garde. Un dossier OPCO reprend SIRET,
+  déclaration d'activité et Qualiopi de la fiche quand ils ne sont pas saisis ; Qualiopi seulement s'il est valide à la date
+  de début (`qualiopiValideLe`). L'aperçu d'un import compte aussi les fins validées d'office.
+- **Instantané** (`server/src/vues-organismes.ts`) : `referentiels.organismes` réduit à {id, code, nomUsuel, type,
+  archive} pour tous, limité aux fiches du catalogue et aux fiches confirmées (ni formateur indépendant, ni texte libre
+  repris encore à vérifier : `organismePublie`) ; fiches complètes au service RH, au référent HSE et à la lecture seule
+  (sans le motif d'une fusion) ; contacts et tarifs au droit « formations » seulement (`CHAMPS_HORS_VUES`) ; modules
+  sans leur coût hors du droit « formations » ; inscriptions par salarié (`CHAMPS_PAR_SALARIE` : les siennes, celles du
+  périmètre du manager, toutes pour le référent HSE et la lecture seule), sans motif, sans auteur ni inscription annulée
+  hors du service RH ; rien pour la paie ni la comptabilité. Cache incrémental : `LECTURES` (`referentiels` lit aussi `organismes`), déclencheurs, banc d'oracle
+  (tirages des actions organisme.* et elearning.*, SQL direct sur les fiches et l'avancement).
+- **Journal** (`server/src/journal-organismes.ts`, ajouté à `REGLES`) : identifiants, codes, dates, statuts, booléens,
+  état Qualiopi et sa date, nombre de lignes d'un import, montant d'un tarif ; message neutre pour les fiches (code, jamais
+  le nom usuel, qui peut nommer un formateur indépendant) ; jamais un contact, des conditions, une URL, un alias, un
+  avancement, une réussite ni un motif ; SIRET et déclaration d'activité notés « [SIRET modifié] »,
+  « [déclaration d'activité modifiée] ». Familles « Référentiels » (organisme.*, migration.organismes) et « Formations, plan
+  et budget » (elearning.*).
+- **Conservation** : inscriptions gardées avec les formations suivies (`textes`, catégorie formations), motifs vidés ;
+  purge de la démonstration : inscriptions, contacts, tarifs et modules vidés ; fiches gardées comme le catalogue, sans
+  leurs valeurs fictives (SIRET, déclaration d'activité, Qualiopi et ses dates, coordonnées, conditions) et « à vérifier ».
+- **Réglages** : `organismeAlerteQualiopiJours` (60, premier palier de relance, utilisé à l'étape 2) et
+  `elearningFinAutoImport` (désactivé).
 

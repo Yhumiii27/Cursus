@@ -50,6 +50,8 @@ const TITRES: Partial<Record<TableName, string>> = {
   objectifs: 'Objectifs (entretiens annuels)',
   feedbackSollicitations: 'Feedback 360° : sollicitations',
   feedbackReponses: 'Feedback 360° : réponses versées (sans répondant)',
+  // lot 12 — C4 : inscriptions aux modules d'e-learning (statut, avancement, fin).
+  inscriptionsElearning: 'Inscriptions aux modules d’e-learning',
 };
 /**
  * Colonnes jamais exportées : empreinte du mot de passe (secret) et du jeton d'agenda ; nom stocké et jeton d'envoi d'une pièce justificative
@@ -80,6 +82,8 @@ const RETIREES_SALARIE: Partial<Record<TableName, string[]>> = {
   evaluationsFormation: ['auteur', 'auteurId'],
   // lot 12 — C1 (forfait annuel en heures) : administrateur RH qui a confirmé, rouvert ou annulé la clôture.
   cloturesForfaitHeures: ['confirmeePar', 'rouvertePar', 'annuleePar'],
+  // lot 12 — C4 : membres du service RH qui ont inscrit, corrigé ou supprimé l'inscription à un module d'e-learning.
+  inscriptionsElearning: ['inscritPar', 'corrigePar', 'annulePar'],
 };
 
 /**

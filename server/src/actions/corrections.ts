@@ -200,7 +200,9 @@ const modifierLigne: ActionHandler = async (ctx, p) => {
   ].filter(Boolean);
   if (!changes.length) return 'Aucune modification';
   const motif = motifDe(p);
-  await ctx.db.update<PlanAction>('planActions', l.id, { ...patch, ...marque(ctx, 'corrige', motif) });
+  // lot 12 — C4 : une autre formation, un autre organisme prévu : la ligne retombe sur celui de son catalogue.
+  const organisme = patch.f !== l.f && l.organismeId != null ? { organismeId: null } : {};
+  await ctx.db.update<PlanAction>('planActions', l.id, { ...patch, ...organisme, ...marque(ctx, 'corrige', motif) });
   return `${nomLigne(ctx, l)} (${l.exercice}) corrigée — ${changes.join(' · ')}`;
 };
 

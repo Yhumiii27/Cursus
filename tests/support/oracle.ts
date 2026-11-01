@@ -207,7 +207,48 @@ const TIRAGES: Record<string, Tirage> = {
     const x = parmi(r, ds.entretiens.filter(y => y.statut === 'planifie' && (y.souhaits ?? []).length));
     return { id: x?.id ?? r.entre(1, 50), cle: x ? r.choix(x.souhaits!).cle : 's1', avis: r.choix(['favorable', 'defavorable', 'a_discuter']) };
   },
-  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C4 (organismes de formation et e-learning) : fiches (créées, renommées — nom recopié dans le catalogue —,
+  // Qualiopi), conditions, archivage, vérification, fusion de deux fiches du même type, contacts, tarifs, modules,
+  // inscriptions (individuelles), fin déclarée, import d'un fichier d'avancement, fin validée, abandon, correction, annulation.
+  'organisme.enregistrer': ({ r, ds, date }) => {
+    const o = parmi(r, (ds.organismes ?? []).filter(x => x.fusionneDans == null));
+    const qualiopi = { qualiopi: r.si(0.6), qualiopiValideJusquau: date(-30, 400) };
+    return o && r.si(0.6) ? { id: o.id, ...qualiopi, ...(r.si(0.4) ? { nomUsuel: `${o.nomUsuel.replace(/ \(\d+\)$/, '')} (${r.entre(1, 99)})` } : {}) }
+      : { nomUsuel: `Organisme oracle ${r.entre(1, 999)}`, type: r.choix(['externe', 'independant']), ...qualiopi };
+  },
+  'organisme.conditions': ({ r, ds }) => ({ id: id(r, ds.organismes), subrogationAcceptee: r.si(0.5), delaiAnnulationJours: r.entre(0, 30) }),
+  'organisme.archiver': ({ r, ds }) => ({ id: id(r, ds.organismes), archive: r.si(0.7) }),
+  'organisme.verifier': ({ r, ds }) => ({ id: id(r, ds.organismes, o => o.aVerifier) }),
+  'organisme.fusionner': ({ r, ds }) => {
+    const actives = (ds.organismes ?? []).filter(o => o.fusionneDans == null && !o.archive);
+    const s = parmi(r, actives), c = parmi(r, actives.filter(o => s && o.id !== s.id && (o.type === 'interne') === (s.type === 'interne')));
+    return { source: s?.id ?? r.entre(1, 20), cible: c?.id ?? r.entre(1, 20), motif: 'Doublon (banc d’oracle)' };
+  },
+  'organisme.contact.enregistrer': ({ r, ds }) => ({ organismeId: id(r, ds.organismes), nom: `Contact ${r.entre(1, 99)}`, role: r.choix(['commercial', 'formateur']), principal: r.si(0.5) }),
+  'organisme.contact.retirer': ({ r, ds }) => ({ id: id(r, ds.organismeContacts, c => !c.archive) }),
+  'organisme.tarif.enregistrer': ({ r, ds }) => ({ organismeId: id(r, ds.organismes), formation: r.choix(ds.referentiels.formations).id, montantHt: r.entre(50, 900), unite: 'stagiaire' }),
+  'organisme.tarif.archiver': ({ r, ds }) => ({ id: id(r, ds.organismeTarifs, t => !t.archive) }),
+  'elearning.module.enregistrer': ({ r, ds }) => (r.si(0.5) && ds.modulesElearning?.length
+    ? { id: id(r, ds.modulesElearning), dureeHeures: r.entre(1, 8), accesMois: r.entre(1, 12) }
+    : { code: `MOD-${r.entre(1, 999)}`, intitule: 'Module du banc d’oracle', url: 'https://elearning.entreprise.example/m', organismeId: id(r, ds.organismes, o => !o.archive && o.fusionneDans == null), dureeHeures: r.entre(1, 8) }),
+  'elearning.module.archiver': ({ r, ds }) => ({ id: id(r, ds.modulesElearning), archive: r.si(0.7) }),
+  'elearning.inscrire': ({ r, ds, empId }) => ({ moduleId: id(r, ds.modulesElearning, m => !m.archive), empIds: [empId(), empId()], echeance: addD(ds.today, r.entre(10, 90)) }),
+  'elearning.declarer': ({ r, ds }) => ({ id: id(r, ds.inscriptionsElearning, i => i.statut === 'inscrit' || i.statut === 'en_cours') }),
+  'elearning.importer': ({ r, ds }) => {
+    const ouvertes = (ds.inscriptionsElearning ?? []).filter(i => i.statut === 'inscrit' || i.statut === 'en_cours');
+    const ligne = (i: (typeof ouvertes)[number]) => `EMP-${String(i.empId).padStart(4, '0')};${ds.modulesElearning?.find(m => m.id === i.moduleId)?.code ?? '?'};${r.choix(['en cours', 'terminé'])};${r.entre(0, 100)}`;
+    return { texte: ['matricule;module;statut;avancement', ...ouvertes.slice(0, 3).map(ligne)].join('\n'), apercu: r.si(0.2) };
+  },
+  'elearning.terminer': ({ r, ds }) => {
+    const i = parmi(r, (ds.inscriptionsElearning ?? []).filter(x => x.statut === 'inscrit' || x.statut === 'en_cours'));
+    return { id: i?.id ?? r.entre(1, 20), de: i?.statut, reussi: r.si(0.8) };
+  },
+  'elearning.abandonner': ({ r, ds }) => {
+    const i = parmi(r, (ds.inscriptionsElearning ?? []).filter(x => x.statut === 'inscrit' || x.statut === 'en_cours'));
+    return { id: i?.id ?? r.entre(1, 20), de: i?.statut };
+  },
+  'elearning.corriger': ({ r, ds }) => ({ id: id(r, ds.inscriptionsElearning, i => i.statut === 'en_cours'), echeance: addD(ds.today, r.entre(10, 90)), motif: 'Correction (banc d’oracle)' }),
+  'elearning.annuler': ({ r, ds }) => ({ id: id(r, ds.inscriptionsElearning, i => !i.suivieId), motif: 'Doublon (banc d’oracle)' }),
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
 };
@@ -257,6 +298,7 @@ function valeur(nom: string, action: string, x: Parameters<Tirage>[0]): unknown 
     // lot 12 — C3 (entretiens suivis et 360°)
     objectif: 'objectifs',
     // lot 12 — C4 (organismes de formation et e-learning)
+    organisme: 'organismes', elearning: 'inscriptionsElearning',
     // lot 12 — C5 (planning d'équipe)
     // lot 12 — C6 (badgeage virtuel)
   };
@@ -419,6 +461,15 @@ const SQL_DIRECT: Record<string, (db: Db, ds: Dataset, r: Aleatoire) => Promise<
   },
   // lot 11 — dossiers OPCO : correction et versement écrits par un outil (reprise d'un tableur), sur un dossier existant.
   'UPDATE dossiers_opco': async (db, ds, r) => { const d = parmi(r, ds.dossiersOpco ?? []); if (d) await db.run('UPDATE dossiers_opco SET heures = ? WHERE id = ?', [r.entre(1, 40), d.id]); },
+  // lot 12 — C4 : fiche corrigée par un outil (Qualiopi), avancement importé hors de Cursus.
+  'UPDATE organismes': async (db, ds, r) => {
+    const o = parmi(r, ds.organismes ?? []);
+    if (o) await db.run('UPDATE organismes SET qualiopi_valide_jusquau = ? WHERE id = ?', [addD(ds.today, r.entre(-60, 400)), o.id]);
+  },
+  'UPDATE inscriptions_elearning': async (db, ds, r) => {
+    const i = parmi(r, (ds.inscriptionsElearning ?? []).filter(x => x.statut === 'en_cours' || x.statut === 'inscrit'));
+    if (i) await db.run(`UPDATE inscriptions_elearning SET avancement = ?, avancement_source = 'import', avancement_le = ? WHERE id = ?`, [r.entre(0, 99), ds.today, i.id]);
+  },
   'INSERT versements_opco': async (db, ds, r) => {
     const d = parmi(r, (ds.dossiersOpco ?? []).filter(x => x.statut === 'rembourse'));
     if (d) await db.run(`INSERT INTO versements_opco (dossier_id, le, montant, destinataire, saisi_le, saisi_par) VALUES (?, ?, ?, 'entreprise', ?, 'Reprise')`, [d.id, ds.today, r.entre(10, 200), new Date().toISOString()]);

@@ -6,6 +6,8 @@ import type { AlerteFrais } from './rules/frais-politique.ts';
 // lot 12 — C1 (forfait annuel en heures)
 import type { ClotureForfaitHeures, ElementForfaitHeuresPaie, EmissionForfaitHeures } from './rules/forfait-heures.ts';
 export type { ClotureForfaitHeures, ElementForfaitHeuresPaie, EmissionForfaitHeures } from './rules/forfait-heures.ts';
+// lot 12 — C4 : organismes de formation et e-learning (shared/types-organismes.ts).
+import type { InscriptionElearning, ModuleElearning, Organisme, OrganismeContact, OrganismeResume, OrganismeTarif } from './types-organismes.ts';
 
 export type ISODate = string;
 export type Role = 'rh' | 'manager' | 'collaborateur';
@@ -94,6 +96,9 @@ export interface Formation {
    * modifiable dans Référentiels → Formations ; absente ou fausse : non déclarée.
    */
   passeportPrevention?: boolean;
+  // lot 12 — C4
+  /** Organisme par défaut du catalogue (fiche, shared/types-organismes.ts) ; `organisme` reste son nom usuel, tenu à jour. */
+  organismeId?: number | null;
 }
 export interface HabType {
   id: string; nom: string; detail: string; prereqs: string[]; medical: boolean; validite: number; signataire: string; archive?: ISODate | null;
@@ -263,6 +268,9 @@ export interface Referentiels {
   forfaitsFrais?: ForfaitFrais[];
   /** Taux des devises par mois, saisis par la comptabilité ou le service RH ; absent : aucun. */
   tauxDevises?: TauxDevise[];
+  // lot 12 — C4
+  /** Organismes de formation réduits à leur nom (archivés et fusionnés compris) : transmis à tous les espaces. */
+  organismes?: OrganismeResume[];
 }
 
 // — Collaborateurs —
@@ -280,6 +288,9 @@ export interface Certification { id: number; empId: number; f: string; obtenue: 
    * elle est annulée ou change de formation (server/src/actions/inscriptions-closes.ts). Service RH seulement.
    */
   inscriptionsCloses?: Inscription[] | null;
+  // lot 12 — C4
+  /** Organisme saisi par un autre outil (Vigie, colonne du serveur commun, D09) ; aligné en SQLite au lot 12. */
+  organisme?: string | null;
 }
 /** Mesure prise sur un titre après un incident ou une restriction : suspension (réversible) ou retrait (définitif). */
 export type HabMesure = 'suspension' | 'retrait';
@@ -300,7 +311,9 @@ export interface HabDelivrance {
   le: ISODate; auteur: string | null; auteurId: number | null;
 }
 /** Origine d'une formation suivie : demande hors catalogue acceptée, action du plan réalisée, session, saisie directe. */
-export type OrigineFormationSuivie = 'demande' | 'plan' | 'session' | 'saisie';
+export type OrigineFormationSuivie = 'demande' | 'plan' | 'session' | 'saisie'
+  // lot 12 — C4 : fin d'un module d'e-learning validée par le service RH (shared/rules/elearning.ts).
+  | 'elearning';
 /**
  * Formation suivie par un salarié (t116, shared/rules/formations-suivies.ts), du catalogue (`f`) ou hors catalogue
  * (`libelle`) : dates, durée en heures (null : celle du catalogue, sinon inconnue), organisme, formation obligatoire ou non
@@ -313,6 +326,9 @@ export interface FormationSuivie {
   le: ISODate; auteur: string | null; auteurId: number | null;
   corrigeLe?: ISODate | null; corrigePar?: string | null; corrigeMotif?: string | null;
   annuleLe?: ISODate | null; annulePar?: string | null; annuleMotif?: string | null;
+  // lot 12 — C4
+  /** Fiche de l'organisme (null : texte libre seul, ou celui du catalogue). */
+  organismeId?: number | null;
 }
 /** Avis du médecin du travail à l'issue d'une visite : apte, apte avec restrictions ou aménagements de poste, inapte. */
 export type AvisMedical = 'apte' | 'restrictions' | 'inapte';
@@ -544,6 +560,9 @@ export interface Session {
   planId: number | null;
   /** Clôture (évaluation à chaud) ou annulation (motif) : date et auteur. */
   bilan: SessionBilan | null;
+  // lot 12 — C4
+  /** Organisme de la session, figé à sa création depuis le catalogue (l'historique ne bascule plus quand le catalogue change). */
+  organismeId?: number | null;
 }
 /** Horaire d'un jour de session : début et fin (« HH:MM », heure de Paris), pause non comptée en minutes. */
 export interface HoraireSession { debut: string; fin: string; pause: number }
@@ -644,6 +663,9 @@ export interface PlanAction {
    */
   corrigeLe?: ISODate | null; corrigePar?: string | null; corrigeMotif?: string | null;
   annuleLe?: ISODate | null; annulePar?: string | null; annuleMotif?: string | null;
+  // lot 12 — C4
+  /** Organisme prévu (fiche) ; null : celui du catalogue (shared/rules/organismes.ts, `organismeDuPlan`). */
+  organismeId?: number | null;
 }
 /** Exercice du plan de formation clos (`plan.cloturerExercice`) : plan et enveloppes en lecture seule. */
 export interface ExerciceClos { exercice: number; le: ISODate; par: string }
@@ -1465,6 +1487,16 @@ export interface Settings {
   pointMiAnneeDebut: string;
   pointMiAnneeFin: string;
   // lot 12 — C4 (organismes de formation et e-learning)
+  /**
+   * Relance du service RH avant la fin de validité Qualiopi d'un organisme : premier palier en jours (60 par défaut), puis
+   * 15 jours et l'échéance (shared/rules/organismes.ts) ; avertissement seulement, jamais un blocage.
+   */
+  organismeAlerteQualiopiJours: number;
+  /**
+   * Fin automatique d'un module d'e-learning à l'import d'un avancement « terminé » et « réussi », pour les modules sans
+   * attestation exigée (désactivée : le service RH valide chaque fin).
+   */
+  elearningFinAutoImport: boolean;
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
 }
@@ -2088,6 +2120,22 @@ export interface Dataset {
   feedbackSollicitations?: Sollicitation360[];
   feedbackReponses?: Reponse360[];
   // lot 12 — C4 (organismes de formation et e-learning)
+  /**
+   * Fiches complètes des organismes (Qualiopi, déclaration d'activité, conditions), fusionnées comprises : service RH,
+   * référent HSE / formation et lecture seule (sans le motif d'une fusion) ; ni le manager, ni le collaborateur, ni la paie.
+   */
+  organismes?: Organisme[];
+  /** Contacts des organismes (données de tiers) : droit « formations » seulement (service RH, référent HSE). */
+  organismeContacts?: OrganismeContact[];
+  /** Tarifs des organismes : droit « formations » seulement. */
+  organismeTarifs?: OrganismeTarif[];
+  /** Modules d'e-learning, archivés compris : tous les espaces sauf la paie, sans le coût hors du droit « formations ». */
+  modulesElearning?: ModuleElearning[];
+  /**
+   * Inscriptions aux modules d'e-learning (annulées : service RH seulement) : les siennes pour le collaborateur, celles du
+   * périmètre pour le manager, toutes pour le droit « formations » et la lecture seule ; jamais un motif hors du service RH.
+   */
+  inscriptionsElearning?: InscriptionElearning[];
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
 }
@@ -2299,6 +2347,12 @@ export interface DossierOpco {
   creeLe: string; creePar: string;
   corrigeLe?: ISODate | null; corrigePar?: string | null; corrigeMotif?: string | null;
   annuleLe?: ISODate | null; annulePar?: string | null; annuleMotif?: string | null;
+  // lot 12 — C4
+  /**
+   * Organisme (fiche) qui préremplit SIRET, déclaration d'activité et Qualiopi ; ces trois champs restent ce qui a été déclaré
+   * à l'OPCO au dépôt.
+   */
+  organismeId?: number | null;
 }
 /** Versement de l'OPCO (acompte, solde) ; annulé avec un motif quand il a été saisi par erreur (hors des sommes). */
 export interface VersementOpco {

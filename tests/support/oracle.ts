@@ -234,7 +234,8 @@ function valeur(nom: string, action: string, x: Parameters<Tirage>[0]): unknown 
     // lot 12 — C2 (notes de frais : activation)
     // lot 12 — C3 (entretiens suivis et 360°)
     // lot 12 — C4 (organismes de formation et e-learning)
-    // lot 12 — C5 (planning d'équipe)
+    // lot 12 — C5 (planning d'équipe) : `id` d'une action du planning désigne un créneau (les échanges ont leur tirage par nom).
+    planning: 'creneaux',
     // lot 12 — C6 (badgeage virtuel)
   };
   const lignes = (nomListe: string | undefined) => (nomListe ? (ds as unknown as Record<string, { id: number }[] | undefined>)[nomListe] : undefined);
@@ -289,7 +290,13 @@ function valeur(nom: string, action: string, x: Parameters<Tirage>[0]): unknown 
     // lot 12 — C2 (notes de frais : activation)
     // lot 12 — C3 (entretiens suivis et 360°)
     // lot 12 — C4 (organismes de formation et e-learning)
-    // lot 12 — C5 (planning d'équipe)
+    // lot 12 — C5 (planning d'équipe) : pour ses seules actions (les autres familles gardent leur tirage) : cycle et groupe
+    // amorcés, horaire d'exemple, jour à venir, créneau publié (échanges), collègue, motif des alertes.
+    case 'cycle': case 'groupe': case 'horaire': case 'jour': case 'creneauId': case 'creneauPartenaire': case 'partenaireId': case 'motifAlertes':
+      if (famille !== 'planning') return undefined;
+      return nom === 'cycle' ? r.choix(['JOUR', '2X8', '3X8', '5X8']) : nom === 'groupe' ? r.choix(['A', 'B', 'C']) : nom === 'horaire' ? r.choix(['J', 'M', 'AM', 'N', ''])
+        : nom === 'jour' ? date(0, 40) : nom === 'partenaireId' ? r.choix(ds.employes).id : nom === 'motifAlertes' ? `Banc d’oracle ${r.entre(1, 999)}`
+          : id(r, (ds.creneaux ?? []).filter(c => c.statut === 'publie' && c.horaire));
     // lot 12 — C6 (badgeage virtuel)
     default: return undefined;
   }

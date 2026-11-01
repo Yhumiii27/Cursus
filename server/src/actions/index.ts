@@ -66,6 +66,7 @@ import { fraisExportActions } from './frais-exports.ts';
 // lot 12 — C3 (entretiens suivis et 360°)
 // lot 12 — C4 (organismes de formation et e-learning)
 // lot 12 — C5 (planning d'équipe)
+import { planningActions } from './planning.ts';
 // lot 12 — C6 (badgeage virtuel)
 
 /**
@@ -142,6 +143,7 @@ const REGISTRE = {
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
+  ...planningActions,
   // lot 12 — C6 (badgeage virtuel)
 } satisfies Record<string, ActionHandler>;
 

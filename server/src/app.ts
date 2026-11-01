@@ -38,6 +38,7 @@ import { routesFraisExports } from './frais-exports.ts';
 // lot 12 — C3 (entretiens suivis et 360°)
 // lot 12 — C4 (organismes de formation et e-learning)
 // lot 12 — C5 (planning d'équipe)
+import { routesPlanningHistorique } from './planning-historique.ts';
 // lot 12 — C6 (badgeage virtuel)
 import { routesPieces } from './pieces-routes.ts';
 import { CLE_INVALIDE, CleReutilisee, empreinteCorps, garderReponse, lireCle, reponseGardee } from './idempotence.ts';
@@ -270,7 +271,8 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
-  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C5 (planning d'équipe) : historique des créneaux hors de la fenêtre de l'instantané, filtré par droits.
+  app.use(routesPlanningHistorique(db));
   // lot 12 — C6 (badgeage virtuel)
 
   // File d'envoi des messages sortants (Paramètres → Envois) : état de l'intégration et derniers messages.

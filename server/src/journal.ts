@@ -157,6 +157,39 @@ const signalementOrganigramme = (p: P): Ligne => ({ entite: codeEntite(p.entite)
 const beneficiairesDe = (result: unknown): number[] =>
   ((result as { beneficiaires?: unknown[] } | null)?.beneficiaires ?? []).map(Number).filter(Number.isInteger);
 const parId = (table: TableName, colonnes: readonly string[]): Cible => ({ table, cle: p => Number(p.id) || null, colonnes });
+// lot 12 — C5 (planning d'équipe)
+/** Résultat d'une action du planning : seuls ses identifiants, codes, jours, statuts et nombres sont recopiés. */
+const resultatPlanning = (x: { result: unknown }) => (x.result ?? {}) as Record<string, unknown>;
+const garder = (r: Record<string, unknown>, cles: readonly string[]) => Object.fromEntries(cles.filter(k => r[k] !== undefined).map(k => [k, r[k]]));
+const salariesPlanning = (_p: P, x: { result: unknown }) => {
+  const r = resultatPlanning(x);
+  const creneau = r.creneau as { empId?: number } | undefined, roulement = r.roulement as { empId?: number } | undefined;
+  return [...(Array.isArray(r.salaries) ? r.salaries : []), creneau?.empId, roulement?.empId];
+};
+const bilanCreneau = (_p: P, x: { result: unknown }) => garder((resultatPlanning(x).creneau ?? {}) as Record<string, unknown>, ['id', 'jour', 'horaire', 'statut']);
+const bilanPeriode = (cles: readonly string[]) => (_p: P, x: { result: unknown }) => garder(resultatPlanning(x), ['equipe', 'du', 'au', ...cles]);
+const bilanEchange = (_p: P, x: { result: unknown }) => garder(resultatPlanning(x), ['echange', 'statut', 'alertes']);
+const codeCycle = (p: P) => { const c = String(p.code ?? '').trim().toUpperCase(); return /^[A-Z0-9]{1,8}$/.test(c) ? c : null; };
+const REGLES_PLANNING: Record<string, Regle> = {
+  'planning.cycle.creer': { extra: p => ({ code: codeCycle(p) }), cible: { table: 'cycles', cle: p => codeCycle(p), colonnes: ['nom', 'longueur', 'sequence', 'groupes', 'origine'] } },
+  'planning.cycle.modifier': { extra: p => ({ code: codeCycle(p) }), cible: { table: 'cycles', cle: p => codeCycle(p), colonnes: ['nom', 'longueur', 'sequence', 'groupes', 'origine'] } },
+  'planning.cycle.archiver': { extra: p => ({ code: codeCycle(p), retablir: p.archive === false }), cible: { table: 'cycles', cle: p => codeCycle(p), colonnes: ['archive'] } },
+  'planning.besoin.creer': { bilan: (_p, x) => ({ besoin: resultatPlanning(x).besoin ?? null }) },
+  'planning.besoin.modifier': { champs: ['id'], cible: parId('besoinsPoste', ['equipe', 'horaire', 'jours', 'effectifMin', 'posteId', 'exigences', 'du', 'au']) },
+  'planning.besoin.archiver': { champs: ['id'], cible: parId('besoinsPoste', ['archive']) },
+  'planning.roulement.affecter': { bilan: (_p, x) => garder((resultatPlanning(x).roulement ?? {}) as Record<string, unknown>, ['id', 'cycle', 'groupe', 'du', 'au']), salaries: salariesPlanning },
+  'planning.roulement.terminer': { champs: ['id'], cible: parId('roulements', ['au']) },
+  'planning.generer': { bilan: bilanPeriode(['crees', 'maj', 'gardes']), salaries: salariesPlanning },
+  'planning.creneau.ajouter': { bilan: bilanCreneau, salaries: salariesPlanning },
+  'planning.creneau.modifier': { champs: ['id'], bilan: bilanCreneau, salaries: salariesPlanning },
+  'planning.creneau.annuler': { champs: ['id'], bilan: bilanCreneau, salaries: salariesPlanning },
+  'planning.publier': { bilan: bilanPeriode(['version', 'creneaux', 'horsDelai', 'alertes']), salaries: salariesPlanning },
+  'planning.echange.proposer': { bilan: bilanEchange, salaries: salariesPlanning },
+  'planning.echange.accepter': { champs: ['id'], bilan: bilanEchange, salaries: salariesPlanning },
+  'planning.echange.valider': { champs: ['id'], bilan: bilanEchange, salaries: salariesPlanning },
+  'planning.echange.refuser': { champs: ['id'], bilan: bilanEchange, salaries: salariesPlanning },
+  'planning.echange.annuler': { champs: ['id'], bilan: bilanEchange, salaries: salariesPlanning },
+};
 /** Hiérarchie (t136) : éléments en attente redirigés (`result.redirections`) : type, identifiant, ancien et nouveau valideur (0 : service RH). */
 const redirigesDe = (result: unknown): Ligne[] => (result as { redirections?: Ligne[] } | null)?.redirections ?? [];
 const bilanRedirections = (result: unknown): Ligne => {
@@ -852,7 +885,7 @@ export const REGLES: Record<string, Regle> = {
   // Administration
   // Réglages : anciennes et nouvelles valeurs, sauf la référence de l'accord des heures supplémentaires (texte libre).
   'parametres.maj': {
-    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche', 'nuitAccord', 'forfaitJoursAccord', 'fractionnementAccord', 'conservationDecisionDpo', 'astreinteAccord'] },
+    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche', 'nuitAccord', 'forfaitJoursAccord', 'fractionnementAccord', 'conservationDecisionDpo', 'astreinteAccord', /* lot 12 — C5 */ 'planningAccord'] },
   },
   // Jours fériés d'une année (lot 6) : année, réglage avant et après ; le motif d'une année engagée (texte libre) n'est
   // jamais recopié, seulement le fait qu'il soit renseigné. Salariés dont une absence est recalculée (résultat).
@@ -917,7 +950,11 @@ export const REGLES: Record<string, Regle> = {
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
-  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C5 (planning d'équipe, server/src/actions/planning.ts) : codes (cycle, groupe, horaire, équipe), jours, nombres,
+  // version, statut, nombre de créneaux hors délai et nombre d'alertes acceptées. Jamais un motif (circonstances
+  // exceptionnelles, alertes, annulation, fin d'affectation, refus d'un échange), ni une nature d'absence, ni un code
+  // d'alerte (la réserve d'aptitude en est un) ; salariés lus dans le résultat de l'action.
+  ...REGLES_PLANNING,
   // lot 12 — C6 (badgeage virtuel)
 };
 

@@ -104,7 +104,14 @@ export const TRAITEMENTS: Record<string, Traitement> = {
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
-  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C5 (planning d'équipe) : créneaux, affectations et échanges gardés avec les feuilles de temps (catégorie
+  // « temps », au moins un an : art. D3171-16), motifs et codes d'alerte (textes libres, réserve d'aptitude) vidés ; le
+  // suppléant qui a validé un échange est un auteur, son nom retiré par le balayage.
+  'creneaux.emp_id': { mode: 'textes', categorie: 'temps' },
+  'roulements.emp_id': { mode: 'textes', categorie: 'temps' },
+  'echanges_poste.demandeur_id': { mode: 'textes', categorie: 'temps' },
+  'echanges_poste.partenaire_id': { mode: 'textes', categorie: 'temps' },
+  'echanges_poste.par_delegation_de': { mode: 'auteur' },
   // lot 12 — C6 (badgeage virtuel)
 };
 
@@ -178,6 +185,10 @@ export function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number
       { table: 'reports', ou: 'emp_id = ?', vider: ['motif'] },
       { table: 'clotures', ou: 'emp_id = ?', vider: ['motif'] },
       { table: 'astreintes', ou: 'emp_id = ?', vider: ['motif', 'annule_motif'] },
+      // lot 12 — C5 (planning d'équipe) : motifs et codes des alertes acceptées (réserve d'aptitude) ; postes et jours gardés.
+      { table: 'creneaux', ou: 'emp_id = ?', vider: ['motif', 'motif_alertes', 'alertes_acceptees', 'annule_motif'] },
+      { table: 'roulements', ou: 'emp_id = ?', vider: ['fin_motif'] },
+      { table: 'echanges_poste', ou: 'demandeur_id = ? OR partenaire_id = ?', vider: ['motif_refus', 'alertes_acceptees'] },
     ];
     case 'formations': return [
       retrait(cx, `emp_id = ? AND objet IN ('certification', 'habTitre')`),

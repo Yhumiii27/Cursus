@@ -283,6 +283,9 @@ const TOUJOURS: Partial<Record<TableName, string>> = {
   // démonstration (montants cités de mémoire, à ressaisir par le service RH et la comptabilité).
   ...Object.fromEntries(['notesFrais', 'lignesFrais', 'vehiculesPerso', 'avancesFrais', 'exportsFrais', 'sceauxPieces', 'baremesKm', 'forfaitsFrais', 'tauxDevises']
     .map(t => [t, 'notes de frais et valeurs de démonstration'])),
+  // lot 12 — C5 (planning d'équipe) : affectations, créneaux, publications et échanges fictifs ; besoins par poste aussi (ils
+  // désignent les postes du catalogue, que certains profils vident). Les cycles sont du paramétrage.
+  ...Object.fromEntries(['roulements', 'creneaux', 'publicationsPlanning', 'echangesPoste', 'besoinsPoste'].map(t => [t, 'planning d’équipe fictif'])),
   connexions: 'sessions de connexion',
   comptes: 'comptes de connexion',
   journal: 'journal des actions fictives (remplacé par la seule ligne purge.demo)',
@@ -314,7 +317,7 @@ export function planPurge(profil: ProfilPurge, comptesGardes = false): PlanPurge
   const supprimer = (pourquoi: string, amorcee = false): RegleTable => ({ sort: 'supprimer', pourquoi, ...(amorcee ? { amorcee } : {}) });
   for (const t of Object.keys(TABLES) as TableName[]) {
     if (TOUJOURS[t]) { tables[t] = supprimer(TOUJOURS[t]); continue; }
-    if (profil === 'rien') { tables[t] = supprimer('profil rien : base neuve', t === 'projets' || t === 'horaires'); continue; }
+    if (profil === 'rien') { tables[t] = supprimer('profil rien : base neuve', t === 'projets' || t === 'horaires' || /* lot 12 — C5 */ t === 'cycles'); continue; }
     tables[t] = garder('paramétrage');
   }
   if (comptesGardes) tables.comptes = { sort: 'ajuster', nulles: ['empId', 'oid', 'motDePasse', 'blocageFin', 'derniereConnexion'], pourquoi: 'comptes gardés (--garder-compte), rendus externes' };

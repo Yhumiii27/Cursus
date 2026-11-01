@@ -50,7 +50,7 @@ import { fraisVueProfil, fraisVueSalarie, piecesFraisManager, vueComptabilite } 
 import { forfaitHeuresVueProfil, forfaitHeuresVueSalarie } from './vues-forfait-heures.ts';
 import { entretiensSuivisVueProfil, entretiensSuivisVueSalarie } from './vues-entretiens-suivis.ts';
 import { organismesVueProfil, organismesVueSalarie } from './vues-organismes.ts';
-import { planningVueProfil, planningVueSalarie } from './vues-planning.ts';
+import { colleguesVisibles, planningVueProfil, planningVueSalarie } from './vues-planning.ts';
 import { pointageVueProfil, pointageVueSalarie } from './vues-pointage.ts';
 
 /** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
@@ -479,6 +479,8 @@ export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre 
   // lot 11 — notes de frais : salariés dont il valide les frais, sous-ensemble de son périmètre (`ids`) ; ajoutés aux lus.
   const fraisIds = idsFrais(d, user);
   for (const id of fraisIds) lues.add(id);
+  // lot 12 — C5 (planning d'équipe) : collègues dont le collaborateur voit les postes planifiés (réglage `planningCollegues`).
+  for (const id of colleguesVisibles(full, user)) lues.add(id);
   // lot 12 — contexte des projections des chantiers (server/src/vues-lot12.ts).
   const lot12 = { full, d, user, ids, mine, lecture };
   return retenirPerimetre<Dataset>({

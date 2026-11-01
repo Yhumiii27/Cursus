@@ -42,6 +42,9 @@ import type {
 // lot 11 — notes de frais
 import type { AvanceFrais, BaremeKm, ForfaitFrais, LigneFrais, NoteFrais, TauxDevise, VehiculePerso } from '../../shared/types.ts';
 import type { Db, Fenetre, TableName } from './db.ts';
+// lot 12 — C5 (planning d'équipe)
+import type { BesoinPoste, Creneau, Cycle, EchangePoste, PublicationPlanning, Roulement } from '../../shared/types-planning.ts';
+import { creneauxAPourvoir, creneauxNominatifs, fenetreCreneaux } from './planning-lecture.ts';
 import { formatFichierDe } from './lots-paie.ts';
 import { messagerieDe } from './messagerie.ts';
 import { type PieceEnregistree, piecesDe } from './pieces.ts';
@@ -149,7 +152,13 @@ export interface Brut {
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
-  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C5 (planning d'équipe) : créneaux dans leur fenêtre de lecture (`FENETRES`), « à pourvoir » compris.
+  cycles: Cycle[];
+  roulements: Roulement[];
+  besoinsPoste: BesoinPoste[];
+  creneaux: Creneau[];
+  publicationsPlanning: PublicationPlanning[];
+  echangesPoste: EchangePoste[];
   // lot 12 — C6 (badgeage virtuel)
   reglages: ReglagesBruts;
   /** Statut de l'e-mail de chaque relevé (envois désignés par `releves.envoiId` seulement). */
@@ -184,7 +193,8 @@ export const COLONNES_OMISES: Partial<Record<TableName, readonly string[]>> = { 
  */
 export const FENETRES: Partial<Record<TableName, (today: string) => Fenetre>> = {
   // lot 12 — C2 (notes de frais)
-  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C5 (planning d'équipe) : de 8 semaines passées à 12 semaines à venir (server/src/planning-lecture.ts).
+  creneaux: fenetreCreneaux,
 };
 
 /** Fenêtre de lecture de la table `t` au jour `today`, s'il y en a une. */
@@ -308,6 +318,12 @@ export async function lireBrut(db: Db, today: string): Promise<Brut> {
     // lot 12 — C3 (entretiens suivis et 360°)
     // lot 12 — C4 (organismes de formation et e-learning)
     // lot 12 — C5 (planning d'équipe)
+    cycles: await lire('cycles'),
+    roulements: await lire('roulements'),
+    besoinsPoste: await lire('besoinsPoste'),
+    creneaux: await lire('creneaux'),
+    publicationsPlanning: await lire('publicationsPlanning'),
+    echangesPoste: await lire('echangesPoste'),
     // lot 12 — C6 (badgeage virtuel)
     reglages: await lireReglages(db),
     statutsEnvoi: await statutsDesEnvois(db, releves),
@@ -517,7 +533,15 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     // lot 12 — C2 (notes de frais : activation)
     // lot 12 — C3 (entretiens suivis et 360°)
     // lot 12 — C4 (organismes de formation et e-learning)
-    // lot 12 — C5 (planning d'équipe)
+    // lot 12 — C5 (planning d'équipe) : filtrés par espace et par profil dans server/src/vues-planning.ts. Les créneaux « à
+    // pourvoir » (sans salarié) forment un champ commun, rattaché aux équipes (server/src/planning-lecture.ts).
+    cycles: brut.cycles,
+    besoinsPoste: brut.besoinsPoste,
+    publicationsPlanning: brut.publicationsPlanning,
+    roulements: brut.roulements,
+    creneaux: creneauxNominatifs(brut.creneaux),
+    creneauxAPourvoir: creneauxAPourvoir(brut.creneaux),
+    echangesPoste: brut.echangesPoste,
     // lot 12 — C6 (badgeage virtuel)
   };
 }
@@ -593,6 +617,13 @@ const LECTURES_ASSEMBLEES = {
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
+  cycles: ['cycles'],
+  besoinsPoste: ['besoinsPoste'],
+  publicationsPlanning: ['publicationsPlanning'],
+  roulements: ['roulements'],
+  creneaux: ['creneaux'],
+  creneauxAPourvoir: ['creneaux'],
+  echangesPoste: ['echangesPoste'],
   // lot 12 — C6 (badgeage virtuel)
 } as const satisfies Partial<Record<keyof Dataset, readonly TableName[]>>;
 

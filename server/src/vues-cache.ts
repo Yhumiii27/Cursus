@@ -382,7 +382,11 @@ export const CHAMPS_PAR_SALARIE: ReadonlySet<keyof Dataset> = new Set<keyof Data
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
-  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C5 (planning d'équipe) : créneaux nominatifs et affectations au roulement, lus à travers le périmètre de la vue
+  // (collègues compris quand le réglage `planningCollegues` les ouvre au collaborateur : ajoutés aux salariés lus par
+  // server/src/dataset.ts). Les créneaux « à pourvoir », les échanges (deux salariés), les cycles, les besoins et les
+  // publications sont des champs communs.
+  'creneaux', 'roulements',
   // lot 12 — C6 (badgeage virtuel)
 ]);
 

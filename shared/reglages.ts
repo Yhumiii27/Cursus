@@ -5,7 +5,7 @@
 import { isValidDate } from './dates.ts';
 import { CONTRATS_EXCLUABLES, PREAVIS_TOUTE_ANNEE } from './rules/campagne.ts';
 import { JOURS_RELANCE, paliersRelance } from './rules/relances.ts';
-import { nuitHorsLoi, refusPlageNuit } from './rules/repos-nuit.ts';
+import { nuitHorsLoi, refusPlageNuit, REPOS_QUOTIDIEN } from './rules/repos-nuit.ts';
 import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesTexte, DOSSIER_MIN_ANS, DUREE_MAX_ANS, FRAIS_MIN_ANS } from './rules/conservation.ts';
 import { DELAI_JOUR_FRANC, DELAI_PREVENANCE_LEGAL } from './rules/astreintes.ts';
 import { COLONNES_PASSEPORT_DEFAUT, COLONNES_PASSEPORT_IDS } from './rules/passeport-prevention.ts';
@@ -14,6 +14,8 @@ import type { CategorieEvaluee, CategorieFrais, CircuitFrais, CodeOpco, ColonneP
 import { NATURES_ABSENTEISME_DEFAUT, NATURES_ABSENTEISME_POSSIBLES, SEUIL_INDICATEURS_DEFAUT, SEUIL_INDICATEURS_MAX, SEUIL_INDICATEURS_MIN } from './rules/indicateurs-legaux.ts';
 import { CODES_OPCO } from './rules/opco.ts';
 // lot 11 — notes de frais, étape 2
+// lot 12 — C5 (planning d'équipe)
+import { DELAI_PREVENANCE_PLANNING, DELAI_PREVENANCE_PLANNING_MIN, NUIT_JOUR_ACCORD_MAX, NUIT_JOUR_LEGAL, NUIT_MOYENNE_ACCORD_MAX, NUIT_MOYENNE_LEGALE, planningHorsLoi, REPOS_QUOTIDIEN_ACCORD_MIN } from './rules/planning-controles.ts';
 import { COMPTE_FRAIS_GENERIQUE, COMPTE_SALARIE, COMPTE_TVA_DEDUCTIBLE, estCompte, estJournal, GABARIT_FRAIS_DEFAUT, JOURNAL_FRAIS, lireComptes, lireGabarit } from './rules/frais-export.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
@@ -357,7 +359,16 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
-  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C5 (planning d'équipe, shared/rules/planning*.ts ; section de Paramètres à l'étape 2) : module désactivé
+  //   jusqu'à l'avis du CSE ; délai de prévenance de 7 jours (supplétif, art. L3121-47) ; repos quotidien de 11 h, durées du
+  //   travailleur de nuit de la loi (8 h, 40 h) tant que l'accord n'est pas connu ; planning des collègues fermé —
+  planningActif: { defaut: false, controle: booleen },
+  planningDelaiPrevenance: { defaut: DELAI_PREVENANCE_PLANNING, controle: entier(DELAI_PREVENANCE_PLANNING_MIN, 60) },
+  planningReposQuotidienAccord: { defaut: REPOS_QUOTIDIEN, controle: entier(REPOS_QUOTIDIEN_ACCORD_MIN, REPOS_QUOTIDIEN) },
+  planningNuitJour: { defaut: NUIT_JOUR_LEGAL, controle: entier(NUIT_JOUR_LEGAL, NUIT_JOUR_ACCORD_MAX) },
+  planningNuitMoyenne: { defaut: NUIT_MOYENNE_LEGALE, controle: entier(NUIT_MOYENNE_LEGALE, NUIT_MOYENNE_ACCORD_MAX) },
+  planningAccord: { defaut: '', controle: texte(120, 'Référence de l’accord sur le planning') },
+  planningCollegues: { defaut: false, controle: booleen },
   // lot 12 — C6 (badgeage virtuel)
 };
 
@@ -419,7 +430,11 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
-  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C5 (planning d'équipe) : un délai de prévenance plus court que 7 jours (art. L3121-42 et L3121-44), un repos
+  // quotidien réduit (art. L3131-2, D3131-1 et suivants) ou d'autres durées du travailleur de nuit (art. L3122-6 et
+  // L3122-7) supposent un accord collectif —
+  s => (planningHorsLoi(s) && !s.planningAccord
+    ? 'Planning d’équipe : un délai de prévenance de moins de 7 jours, un repos quotidien réduit ou d’autres durées du travail de nuit supposent un accord collectif : indiquez sa référence' : null),
   // lot 12 — C6 (badgeage virtuel)
 ];
 

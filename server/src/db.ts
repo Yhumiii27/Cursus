@@ -333,6 +333,8 @@ export const TABLES = {
     cols: {
       id: 'int', empId: 'int', type: 'text', date: 'text', statut: 'text', cr: 'json', info: 'bool', signSal: 'text', signMgr: 'text', planifieLe: 'text',
       remiseLe: 'text', remiseMode: 'text', remisePar: 'text', telechargeLe: 'text',
+      // lot 12 — C3 (entretiens suivis) : souhaits de formation (sensibles comme `cr`) ; synthèse du feedback 360° (étape 3).
+      souhaits: 'json', syntheseFeedback: 'json',
     },
   },
   demandesCollab: {
@@ -342,6 +344,8 @@ export const TABLES = {
     cols: {
       id: 'int', empId: 'int', type: 'text', f: 'text', h: 'text', libelle: 'text', label: 'text', sessionId: 'int', motif: 'text', date: 'text', statut: 'text', reponse: 'text', parId: 'int', declaration: 'json', motifRefus: 'text',
       suite: 'json', rouverteLe: 'text', rouvertePar: 'text', rouverteMotif: 'text',
+      // lot 12 — C3 (entretiens suivis) : entretien dont le souhait a été versé (origine de la demande, anti-doublon).
+      entretienId: 'int',
     },
   },
   settings: { pk: 'key', cols: { key: 'text', value: 'json' } },
@@ -620,7 +624,33 @@ export const TABLES = {
     unique: [['empId', 'debut', 'version']],
   },
   // lot 12 — C2 (notes de frais : activation)
-  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C3 (entretiens suivis et 360°) : objectifs fixés à un entretien annuel, évalués au suivant (migration
+  // PostgreSQL 0024_entretiens_suivis, SQLite d'après TABLES et `lot12-entretiens-index`) ; tables du feedback 360°
+  // (étape 3, module désactivé) : sollicitations, tampon des réponses en attente (chiffré, jamais lu par l'instantané) et
+  // réponses versées par lot, sans répondant ni date de réception, sous un identifiant non séquentiel.
+  objectifs: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', entretienId: 'int', evalueEntretienId: 'int', reconduitDe: 'int', libelle: 'text', mesure: 'text', categorie: 'text', poids: 'int',
+      echeance: 'text', avancement: 'int', statut: 'text', evaluation: 'text', commentaireSal: 'text', creeLe: 'text', creePar: 'text', modifieLe: 'text', modifiePar: 'text',
+      ajusteLe: 'text', ajusteMotif: 'text', libelleInitial: 'text',
+    },
+  },
+  feedbackSollicitations: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', entretienId: 'int', repondantEmpId: 'int', relation: 'text', statut: 'text', proposeeLe: 'text', proposeePar: 'text', envoyeeLe: 'text',
+      echeance: 'text', relanceeLe: 'text', closeLe: 'text',
+    },
+  },
+  feedbackTampon: { pk: 'id', auto: true, cols: { id: 'int', sollicitationId: 'int', contenu: 'text', version: 'text' }, unique: [['sollicitationId']] },
+  feedbackReponses: {
+    pk: 'id',
+    cols: {
+      id: 'text', empId: 'int', entretienId: 'int', relation: 'text', versionQuestionnaire: 'text', notes: 'json', verbatim: 'text', verbatimStatut: 'text',
+      modereLe: 'text', moderePar: 'text',
+    },
+  },
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
@@ -745,7 +775,9 @@ export const TABLES_CHANGEMENTS_SANS_CLE: ReadonlySet<TableName> = new Set<Table
   'lignesFrais',
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)
-  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C3 (entretiens suivis et 360°) : tables du feedback 360°, fermées en entier à Matrix ; l'ordre et la clé des
+  // écritures ne doivent rattacher aucune réponse à un répondant (migration 0024).
+  'feedbackSollicitations', 'feedbackTampon', 'feedbackReponses',
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)

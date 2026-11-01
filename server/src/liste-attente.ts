@@ -83,7 +83,8 @@ export async function ajouterAuPlan(ctx: Ctx, emp: Employe, r: DemandeCollab): P
   if (!emp.equipe) return null;
   const ex = exerciceOuvert(ctx.ds, ctx.d.year);
   const tri = ex > ctx.d.year ? 'T1' : `T${Math.floor(ctx.d.today.getMonth() / 3) + 1}`;
-  const l = await ctx.db.insert<PlanAction>('planActions', { exercice: ex, f: r.f, libelle: r.libelle, equipe: emp.equipe, periode: tri, effectif: 1, cout: r.f ? ctx.d.fm(r.f).cout : 0, statut: 'prevu', origine: 'demande' });
+  // lot 12 — C3 : origine « entretien » pour une demande versée depuis un souhait d'entretien.
+  const l = await ctx.db.insert<PlanAction>('planActions', { exercice: ex, f: r.f, libelle: r.libelle, equipe: emp.equipe, periode: tri, effectif: 1, cout: r.f ? ctx.d.fm(r.f).cout : 0, statut: 'prevu', origine: r.entretienId ? 'entretien' : 'demande' });
   return { l, texte: `plan de formation ${ex} (${tri})` };
 }
 

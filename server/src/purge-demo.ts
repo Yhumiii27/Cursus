@@ -285,6 +285,8 @@ const TOUJOURS: Partial<Record<TableName, string>> = {
     .map(t => [t, 'notes de frais et valeurs de démonstration'])),
   // lot 12 — C1 (forfait annuel en heures) : clôtures fictives (éléments de paie).
   cloturesForfaitHeures: 'paie et compteurs',
+  // lot 12 — C3 (entretiens suivis et 360°) : objectifs et feedback 360° des entretiens fictifs.
+  ...Object.fromEntries(['objectifs', 'feedbackSollicitations', 'feedbackTampon', 'feedbackReponses'].map(t => [t, 'entretiens, demandes et agenda'])),
   connexions: 'sessions de connexion',
   comptes: 'comptes de connexion',
   journal: 'journal des actions fictives (remplacé par la seule ligne purge.demo)',

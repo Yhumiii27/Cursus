@@ -569,7 +569,19 @@ export const ENT_TYPES: Record<EntretienType, { nom: string; court: string; base
     base: 'Art. L3121-64 — chaque année : charge de travail, organisation, articulation vie pro / perso, rémunération, droit à la déconnexion.',
     sections: [['charge', 'Charge de travail', 'sal'], ['organisation', 'Organisation du travail dans l’entreprise', 'sal'], ['equilibre', 'Articulation vie professionnelle / personnelle', 'sal'], ['remuneration', 'Rémunération', 'mgr'], ['deconnexion', 'Droit à la déconnexion', 'mgr']],
   },
-  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C3 (entretiens suivis et 360°) : points de suivi des objectifs, sans obligation (point de mi-année obligatoire
+  // seulement par le réglage `pointMiAnneeActif`, shared/rules/entretiens.ts) ; ni l'un ni l'autre n'est un entretien de
+  // parcours professionnel (art. L6315-1) : objectifs suivis, évaluation à l'entretien annuel.
+  mi_annee: {
+    nom: 'Point de mi-année', court: 'Mi-année',
+    base: 'Facultatif — avancement des objectifs fixés à l’entretien annuel, difficultés et besoins ; méthodes portées à la connaissance du salarié (art. L1222-3).',
+    sections: [['avancement', 'Avancement des objectifs', 'mgr'], ['difficultes', 'Difficultés et besoins', 'mgr'], ['avis', 'Commentaire du salarié', 'sal']],
+  },
+  point: {
+    nom: 'Point de suivi', court: 'Point',
+    base: 'Facultatif — court échange sur l’avancement des objectifs, sans évaluation ; signature du salarié facultative.',
+    sections: [['notes', 'Points abordés', 'mgr'], ['avis', 'Commentaire du salarié', 'sal']],
+  },
 };
 
 export const TRIMESTRES = ['T1', 'T2', 'T3', 'T4'] as const;

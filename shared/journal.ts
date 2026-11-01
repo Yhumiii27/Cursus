@@ -371,6 +371,15 @@ export const JOURNAL_LABEL: Record<string, string> = {
   // comprises) par le service RH ou la comptabilité, tracée par sa route (server/src/frais-historique.ts).
   'frais.historique.consulter': 'Historique des notes de frais consulté',
   // lot 12 — C3 (entretiens suivis et 360°)
+  'objectif.ajouter': 'Objectif fixé à l’entretien annuel',
+  'objectif.proposer': 'Objectif proposé par le salarié',
+  'objectif.modifier': 'Objectif modifié ou proposition validée',
+  'objectif.retirer': 'Objectif retiré',
+  'objectif.avancer': 'Avancement d’un objectif',
+  'objectif.ajuster': 'Objectif ajusté en cours d’année',
+  'objectif.evaluer': 'Objectif évalué',
+  'entretien.souhait': 'Souhait de formation exprimé à l’entretien',
+  'entretien.avisSouhait': 'Avis du manager sur un souhait de formation',
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
@@ -408,7 +417,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement', 'migration.referencesDeplacements', 'chantier.', 'migration.deplacementsPaie'] },
   { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'forfait.', 'astreinte.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie', 'migration.rubriquesFeuilles'] },
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
-  { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
+  { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.', /* lot 12 — C3 (entretiens suivis et 360°) */ 'objectif.', 'feedback360.'] },
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
   { id: 'pieces', label: 'Pièces justificatives', prefixes: ['piece.'] },
   // lot 11 — notes de frais
@@ -560,6 +569,10 @@ export const CHAMP_LABEL: Record<string, string> = {
   forfaitHeuresEmission: 'Forfait annuel en heures : mois d’émission', forfaitHeuresContingent: 'Forfait annuel en heures : imputation sur le contingent',
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
+  objectifsActifs: 'Objectifs suivis aux entretiens annuels', objectifsFacultatifs: 'Objectifs facultatifs (clôture sans évaluation exigée)',
+  objectifsMax: 'Objectifs au plus par entretien', pointMiAnneeActif: 'Point de mi-année obligatoire', pointMiAnneeDebut: 'Point de mi-année : début',
+  pointMiAnneeFin: 'Point de mi-année : fin', avancement: 'Avancement (%)', poids: 'Poids (%)', echeance: 'Échéance', ajusteLe: 'Ajusté le',
+  evalueEntretienId: 'Évalué à l’entretien', mesure: 'Mesure',
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)

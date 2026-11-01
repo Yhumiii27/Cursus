@@ -27,6 +27,8 @@ import { INDEX_JOURNAL_COMPTE } from './lot8-index-journal.ts';
 import { FORFAIT_HEURES } from './lot12-forfait-heures.ts';
 // lot 12 — C2 (notes de frais : activation)
 import { INDEX_FRAIS_FENETRE } from './lot12-frais.ts';
+// lot 12 — C3 (entretiens suivis et 360°)
+import { ENTRETIENS_SUIVIS_INDEX } from './lot12-entretiens.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   INDEX_JOURNAL,
@@ -69,4 +71,6 @@ export const MIGRATIONS: readonly Migration[] = [
   FORFAIT_HEURES,
   // lot 12 — C2 (notes de frais : activation)
   INDEX_FRAIS_FENETRE,
+  // lot 12 — C3 (entretiens suivis et 360°)
+  ENTRETIENS_SUIVIS_INDEX,
 ];

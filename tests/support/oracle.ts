@@ -191,6 +191,22 @@ const TIRAGES: Record<string, Tirage> = {
   'forfaitHeures.annuler': ({ r, ds }) => ({ id: id(r, ds.cloturesForfaitHeures, l => l.statut !== 'annulee'), motif: 'Clôture faite trop tôt (banc d’oracle)' }),
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
+  // Objectifs et souhaits : entretien annuel planifié (fixation, évaluation), objectif de l'état voulu, codes fixes.
+  'objectif.ajouter': ({ r, ds, date }) => ({ entretienId: id(r, ds.entretiens, x => x.type === 'annuel' && x.statut === 'planifie'), libelle: `Objectif ${r.entre(1, 99)}`, categorie: r.choix(['individuel', 'collectif', 'developpement']), echeance: date(60, 300) }),
+  'objectif.proposer': ({ r, ds }) => ({ entretienId: id(r, ds.entretiens, x => x.type === 'annuel' && x.statut === 'planifie'), libelle: `Proposition ${r.entre(1, 99)}`, categorie: 'developpement' }),
+  'objectif.modifier': ({ r, ds }) => ({ id: id(r, ds.objectifs, o => o.statut === 'propose' || o.statut === 'ouvert'), poids: r.si(0.5) ? r.entre(0, 30) : null }),
+  'objectif.retirer': ({ r, ds }) => ({ id: id(r, ds.objectifs, o => o.statut === 'propose' || o.statut === 'ouvert') }),
+  'objectif.avancer': ({ r, ds }) => ({ id: id(r, ds.objectifs, o => o.statut === 'ouvert'), avancement: r.entre(0, 100) }),
+  'objectif.ajuster': ({ r, ds, date }) => ({ id: id(r, ds.objectifs, o => o.statut === 'ouvert'), echeance: date(30, 200), motif: 'Ajustement (banc d’oracle)' }),
+  'objectif.evaluer': ({ r, ds }) => {
+    const o = parmi(r, (ds.objectifs ?? []).filter(y => y.statut === 'ouvert'));
+    return { id: o?.id ?? r.entre(1, 20), entretienId: id(r, ds.entretiens, x => x.type === 'annuel' && x.statut === 'planifie' && (!o || x.empId === o.empId)), statut: r.choix(['atteint', 'partiel', 'reconduit']) };
+  },
+  'entretien.souhait': ({ r, ds }) => ({ id: id(r, ds.entretiens, x => x.statut === 'planifie' && ['epp', 'reprise', 'annuel', 'mi_annee'].includes(x.type)), f: r.choix(ds.referentiels.formations).id, priorite: 'normale' }),
+  'entretien.avisSouhait': ({ r, ds }) => {
+    const x = parmi(r, ds.entretiens.filter(y => y.statut === 'planifie' && (y.souhaits ?? []).length));
+    return { id: x?.id ?? r.entre(1, 50), cle: x ? r.choix(x.souhaits!).cle : 's1', avis: r.choix(['favorable', 'defavorable', 'a_discuter']) };
+  },
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
@@ -239,6 +255,7 @@ function valeur(nom: string, action: string, x: Parameters<Tirage>[0]): unknown 
     forfaitHeures: 'cloturesForfaitHeures',
     // lot 12 — C2 (notes de frais : activation)
     // lot 12 — C3 (entretiens suivis et 360°)
+    objectif: 'objectifs',
     // lot 12 — C4 (organismes de formation et e-learning)
     // lot 12 — C5 (planning d'équipe)
     // lot 12 — C6 (badgeage virtuel)

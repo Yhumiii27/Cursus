@@ -21,6 +21,8 @@ import { amorcer, cloreHistorique, rouvrirHistorique } from '../avenants.ts';
 import { alerteAstreintes } from '../astreintes.ts';
 import { promouvoirAttentes, retirerAttentesDe, retirerInscription } from '../liste-attente.ts';
 import { ActionError, getEmp, refuserSoiMeme, requireRh, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
+// lot 12 — C3 (entretiens suivis)
+import { detacherEntretien } from '../objectifs-entretien.ts';
 
 /**
  * Sortie d'un membre de l'espace RH (service RH, référent HSE, paie, lecture seule) : elle ferme son compte, ce que seul
@@ -86,7 +88,11 @@ const sortie: ActionHandler = async (ctx, p) => {
   // quitte (inscriptions annulées, place proposée) se proposent à la liste d'attente de leur session.
   const attentes = await retirerAttentesDe(ctx, emp, date);
   const promues = await promouvoirAttentes(ctx, [...c.certs.map(x => x.sessionId), ...c.inscriptions.map(i => i.sessionId), ...attentes.sessions]);
-  for (const x of c.entretiens) await ctx.db.remove('entretiens', x.id);
+  for (const x of c.entretiens) {
+    // lot 12 — C3 (entretiens suivis) : objectifs, demandes versées et feedback 360° de l'entretien retiré défaits d'abord.
+    await detacherEntretien(ctx, x);
+    await ctx.db.remove('entretiens', x.id);
+  }
   for (const x of c.visites) await ctx.db.update<DemandeVisite>('demandesVisite', x.id, { statut: 'annulee', closeLe: ctx.d.ti, closePar: ctx.user.nom });
   for (const f of c.feuilles) await ctx.db.remove('feuilles', f.id);
   // Sortie déjà passée : les sessions ouvertes sont fermées ; sinon, elles ne valent plus dès le lendemain (comptes.ts).

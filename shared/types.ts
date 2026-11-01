@@ -64,7 +64,8 @@ export type AbsenceType = CongeType | NatureAbsence | 'ABSENCE';
 export type AbsenceStatut = 'demandee' | 'validee' | 'refusee' | 'signalee' | 'annulee';
 export type FeuilleStatut = 'brouillon' | 'soumise' | 'validee' | 'rejetee';
 export type EntretienType = 'epp' | 'reprise' | 'bilan' | 'annuel' | 'forfait'
-  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C3 (entretiens suivis et 360°) : point de mi-année et point de suivi, sans obligation (sauf réglage).
+  | 'mi_annee' | 'point'
   ;
 export type PlanStatut = 'prevu' | 'engage' | 'realise' | 'reporte';
 export type Trimestre = 'T1' | 'T2' | 'T3' | 'T4';
@@ -630,7 +631,7 @@ export interface LigneEvaluation {
 export interface IndicateursEvaluation { exercice: number; total: LigneEvaluation; parOrganisme: LigneEvaluation[]; parFormation: LigneEvaluation[] }
 export interface PlanAction {
   id: number; exercice: number; f: string | null; libelle: string | null; equipe: string; periode: Trimestre; effectif: number; cout: number; statut: PlanStatut;
-  /** `import` (plan importé), `demande` (demande acceptée), `report` (action reportée d'un exercice clos) ; null : ancienne base, démonstration. */
+  /** `import` (plan importé), `demande` (demande acceptée), `entretien` (demande versée depuis un souhait d'entretien, lot 12), `report` (action reportée d'un exercice clos) ; null : ancienne base, démonstration. */
   origine: string | null;
   /** Coût et effectif réels, saisis à la clôture de l'action (« réalisé ») : le réalisé des enveloppes (shared/rules/budget.ts). */
   coutReel?: number | null;
@@ -1074,9 +1075,74 @@ export interface Entretien {
    * le serveur sur l'âge exact à la date de l'entretien (`needsFinCarriere`, shared/rules/entretiens.ts).
    */
   finCarriere?: boolean;
+  // lot 12 — C3 (entretiens suivis et 360°)
+  /**
+   * Souhaits de formation exprimés à l'entretien (shared/rules/souhaits.ts), donnée sensible comme le compte rendu ;
+   * versés au service RH à la clôture s'ils ont l'avis favorable du manager. Absent : aucun (ancienne base, vues filtrées).
+   */
+  souhaits?: SouhaitFormation[] | null;
+  /** Synthèse du feedback 360° jointe à l'entretien (étape 3, module désactivé) : agrégats seulement, jamais une réponse. */
+  syntheseFeedback?: unknown;
 }
 /** Remise du compte rendu : en main propre, après un refus de signer, ou mis à disposition dans le portail (lien par e-mail). */
 export type ModeRemise = 'main_propre' | 'refus' | 'portail';
+// lot 12 — C3 (entretiens suivis et 360°)
+/**
+ * État d'un objectif (shared/rules/objectifs.ts) : `propose` par le salarié, à valider par le manager ; `ouvert` (fixé,
+ * suivi en cours d'année) ; puis évalué à l'entretien annuel suivant : atteint, partiellement, non atteint, devenu sans
+ * objet, ou reconduit (une nouvelle ligne `reconduitDe` le reprend).
+ */
+export type StatutObjectif = 'propose' | 'ouvert' | 'atteint' | 'partiel' | 'non_atteint' | 'sans_objet' | 'reconduit';
+export type CategorieObjectif = 'individuel' | 'collectif' | 'developpement';
+/**
+ * Objectif fixé à un entretien annuel (`entretienId`), évalué à l'entretien annuel suivant (`evalueEntretienId`). Textes
+ * libres (libellé, mesure, évaluation, commentaire du salarié, motif d'ajustement) sensibles : jamais au journal ni dans
+ * une vue `pub_`. `ajusteLe` : dernier ajustement en cours d'année (`objectif.ajuster`), `libelleInitial` : libellé fixé
+ * avant le premier ajustement qui l'a changé.
+ */
+export interface Objectif {
+  id: number; empId: number; entretienId: number; evalueEntretienId: number | null; reconduitDe: number | null;
+  libelle: string; mesure: string | null; categorie: CategorieObjectif; poids: number | null; echeance: ISODate | null;
+  avancement: number; statut: StatutObjectif; evaluation: string | null; commentaireSal: string | null;
+  creeLe: string; creePar: string; modifieLe: string | null; modifiePar: string | null;
+  ajusteLe: ISODate | null; ajusteMotif: string | null; libelleInitial: string | null;
+}
+/** Avis du manager sur un souhait de formation : seul l'avis favorable le verse au service RH à la clôture. */
+export type AvisSouhait = 'favorable' | 'defavorable' | 'a_discuter';
+export type PrioriteSouhait = 'haute' | 'normale' | 'basse';
+/**
+ * Souhait de formation exprimé à l'entretien (colonne `entretiens.souhaits`) : formation du catalogue (`f`) ou intitulé
+ * libre, priorité, objectif lié éventuel, auteur (salarié ou évaluateur), avis du manager ; à la clôture, demande de
+ * formation créée (`demandeId`, `verseLe`), ou raison codée de ne pas la créer (`nonVerse` : déjà demandée, déjà inscrit,
+ * formation archivée).
+ */
+export interface SouhaitFormation {
+  cle: string; f: string | null; libelle: string | null; priorite: PrioriteSouhait; objectifId: number | null;
+  auteur: 'sal' | 'mgr'; avis: AvisSouhait | null; demandeId: number | null; verseLe: ISODate | null;
+  nonVerse: 'deja_demande' | 'deja_inscrit' | 'archivee' | null;
+}
+/**
+ * Sollicitation d'un répondant au feedback 360° (étape 3, module désactivé) : évalué, entretien, répondant interne et sa
+ * relation (pair, N+2, collaborateur encadré), état et dates. Seule la sollicitation sait qu'une personne a répondu.
+ */
+export interface Sollicitation360 {
+  id: number; empId: number; entretienId: number; repondantEmpId: number; relation: 'pair' | 'n2' | 'encadre';
+  statut: 'proposee' | 'envoyee' | 'repondue' | 'declinee' | 'expiree' | 'annulee';
+  proposeeLe: string | null; proposeePar: string | null; envoyeeLe: string | null; echeance: ISODate | null; relanceeLe: string | null; closeLe: string | null;
+}
+/**
+ * Réponse au feedback 360° versée à la clôture de la fenêtre (étape 3) : identifiant non séquentiel, sans répondant ni
+ * date de réception ; verbatim restitué après modération du service RH.
+ */
+export interface Reponse360 {
+  id: string; empId: number; entretienId: number; relation: 'pair' | 'n2' | 'encadre'; versionQuestionnaire: string;
+  notes: Record<string, number>; verbatim: string | null; verbatimStatut: 'a_moderer' | 'retenu' | 'retire' | null; modereLe: string | null; moderePar: string | null;
+}
+/**
+ * Compteurs des objectifs d'une équipe (profil en lecture seule, consultation N+2) : nombres seulement, jamais un libellé
+ * ni un résultat ; `masque` sous le seuil d'anonymat (moins de 3 salariés concernés).
+ */
+export interface CompteurObjectifs { equipe: string; salaries: number; objectifs: number; ouverts: number; evalues: number; masque?: boolean }
 /** Demande au service RH, émise par le collaborateur ou par son manager (`parId`). */
 export interface DemandeCollab { id: number; empId: number; type: DemandeType; f: string | null; h: string | null; libelle: string | null; label: string | null; sessionId: number | null; motif: string | null; date: ISODate;
   /** `retiree` : retirée par son auteur tant qu'elle était en attente (`demande.annuler`). */
@@ -1088,6 +1154,9 @@ export interface DemandeCollab { id: number; empId: number; type: DemandeType; f
   suite?: SuiteDemande | null;
   /** Dernière réouverture par le service RH (`demande.reouvrir`) : le motif (texte libre) reste au service RH. */
   rouverteLe?: ISODate | null; rouvertePar?: string | null; rouverteMotif?: string | null;
+  // lot 12 — C3 (entretiens suivis et 360°)
+  /** Demande de formation versée depuis un souhait exprimé à cet entretien (origine « Entretien du … ») ; null sinon. */
+  entretienId?: number | null;
 }
 /**
  * Suite donnée à une demande acceptée : inscription à la session souhaitée (recyclage `certId` ou formation initiale
@@ -1384,6 +1453,17 @@ export interface Settings {
   forfaitHeuresContingent: boolean;
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
+  /**
+   * Entretiens suivis (shared/rules/objectifs.ts) : objectifs structurés aux entretiens annuels ; « objectifs facultatifs »
+   * (activé la première année) : la clôture n'exige pas l'évaluation des objectifs repris ; nombre d'objectifs au plus par
+   * entretien ; point de mi-année facultatif, ou dû dans une fenêtre (« MM-JJ ») quand il est rendu obligatoire.
+   */
+  objectifsActifs: boolean;
+  objectifsFacultatifs: boolean;
+  objectifsMax: number;
+  pointMiAnneeActif: boolean;
+  pointMiAnneeDebut: string;
+  pointMiAnneeFin: string;
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
@@ -1997,6 +2077,16 @@ export interface Dataset {
   cloturesForfaitHeures?: ClotureForfaitHeures[];
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
+  /**
+   * Objectifs (server/src/vues-entretiens-suivis.ts) : tous pour le service RH ; ceux de l'équipe directe (et des délégations
+   * « entretiens ») pour le manager, les siens pour le salarié ; rien pour les profils restreints. Compteurs par équipe
+   * pour la lecture seule et la consultation N+2 (`compteursObjectifs`).
+   */
+  objectifs?: Objectif[];
+  compteursObjectifs?: CompteurObjectifs[];
+  /** Feedback 360° (étape 3, module désactivé) : sollicitations et réponses versées, service RH seulement. */
+  feedbackSollicitations?: Sollicitation360[];
+  feedbackReponses?: Reponse360[];
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)

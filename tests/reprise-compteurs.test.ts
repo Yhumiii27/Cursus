@@ -293,7 +293,9 @@ test('t072 migration nommée : compteurs et reports d’une base existante daté
     // Lot 12, chantier C1 : index des clôtures du forfait annuel en heures.
     'lot12-forfait-heures',
     // lot 12 — C2 (notes de frais : activation) : index de la fenêtre des notes de frais.
-    'lot12-frais-index']);
+    'lot12-frais-index',
+    // lot 12 — C3 (entretiens suivis) : index des objectifs, des demandes versées et du feedback 360°.
+    'lot12-entretiens-index']);
   const ds = await loadFull(db, ADMIN);
   assert.ok(ds.soldesReprise.every(s => s.arreteLe === '2026-10-10'), 'date de mise en service de cette version');
   const recu = ds.reports.find(r => r.empId === 6)!, accorde = ds.reports.find(r => r.empId === 2)!;

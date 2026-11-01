@@ -1825,10 +1825,19 @@ aucun champ du paramètre n'est recopié.
 | `entretien.planifier` | empId, kind, date, nonTenu? ; un seul entretien planifié par type : une nouvelle date le reprogramme (passé avec un compte rendu commencé, seulement avec `nonTenu`, l'évaluateur confirmant qu'il n'a pas eu lieu) ; refusé un jour d'absence du salarié ; convocation par e-mail (`.ics`, même événement à la reprogrammation) | manager direct ou RH (jamais son propre entretien) |
 | `entretien.annuler` | id, confirmer? (exigé si le compte rendu est commencé : supprimé avec l'entretien) ; entretien planifié seulement (clos : 409), retiré ; date à venir : `.ics` d'annulation au salarié (même UID `entretien-<id>`) | évaluateur (manager direct) ou RH, jamais son propre entretien |
 | `entretien.modifier` | id, section?, value?, info? | évaluateur / salarié selon la section (un membre du RH n'évalue pas son propre entretien) |
-| `entretien.clore` | id, date? (jour où l'entretien a eu lieu, aujourd'hui au plus tard et pas avant sa planification ; exigée pour un entretien prévu à une date à venir) | évaluateur (l'écran enregistre d'abord chaque section ; un échec interrompt la clôture) |
+| `entretien.clore` | id, date? (jour où l'entretien a eu lieu, aujourd'hui au plus tard et pas avant sa planification ; exigée pour un entretien prévu à une date à venir) ; lot 12, C3 : refus (409) tant qu'une proposition d'objectif attend, ou qu'un objectif repris n'est pas évalué hors mode « objectifs facultatifs » ; souhaits favorables versés au service RH | évaluateur (l'écran enregistre d'abord chaque section ; un échec interrompt la clôture) |
 | `entretien.signer` | id | salarié |
 | `entretien.remettre` | id, mode (`main_propre`/`refus`/`portail`), date? (main propre, refus : de la clôture à aujourd'hui ; portail : le jour même, compte actif exigé, e-mail avec le seul lien vers Cursus) ; une remise sur papier est définitive, une mise à disposition se complète par une remise sur papier | évaluateur (manager direct) ou RH, jamais pour son propre entretien |
 | `entretien.telecharger` | id : premier téléchargement du compte rendu clos, daté (`telechargeLe`) | salarié, depuis son espace |
+| `objectif.ajouter` | entretienId (annuel planifié ; parcours professionnel, état des lieux, forfait jours : refus, art. L6315-1 ; mi-année, point : refus), libelle, mesure?, categorie (`individuel`, `collectif`, `developpement`), poids? (total ≤ 100 %), echeance? ; au plus `objectifsMax` par entretien (lot 12, C3) | évaluateur (manager direct, RH, suppléant « entretiens »), jamais pour soi-même |
+| `objectif.proposer` | mêmes champs : objectif « proposé », à valider ou retirer avant la clôture | salarié, depuis son espace |
+| `objectif.modifier` | id + champs envoyés ; entretien qui le fixe encore planifié ; une proposition passe « en cours » (validée) | évaluateur |
+| `objectif.retirer` | id ; entretien planifié ; ligne reconduite : refus (changer l'évaluation) | évaluateur ; le salarié pour sa proposition |
+| `objectif.avancer` | id, avancement (0 à 100), commentaire? (salarié seul) ; objectif en cours | salarié ou évaluateur |
+| `objectif.ajuster` | id, champs changés, motif (exigé) ; objectif en cours d'un entretien clos ; `ajusteLe`, libellé d'origine gardé (`libelleInitial`) | évaluateur |
+| `objectif.evaluer` | id, entretienId (annuel suivant, planifié), statut (`atteint`, `partiel`, `non_atteint`, `sans_objet` avec motif, `reconduit`), evaluation?, echeance? (ligne reconduite) ; refaisable tant que l'entretien n'est pas clos | évaluateur |
+| `entretien.souhait` | id, op (`ajouter`, `modifier`, `retirer`), cle (modification, retrait), f (catalogue) ou libelle, priorite?, objectifId? ; entretien planifié de type parcours, reprise, annuel ou mi-année ; chacun ses souhaits ; souhait du salarié réécrit : avis effacé | salarié ou évaluateur |
+| `entretien.avisSouhait` | id, cle, avis (`favorable`, `defavorable`, `a_discuter`, ou null) ; entretien planifié | évaluateur |
 | `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, santeMiCarriereAge…, cpMaladie, feriesTravaillesAutorises, tauxMajorationFerie, plafondHeuresComplementaires, heuresComplementairesAccord, moyenne12SemainesMax, moyenne12SemainesAccord, contingentHeuresSup, contingentAlerte, contingentAccord, absencesFichierPaie, absencesPaieAPartirDu, piecesStockage, formationRenforceeCode, entretienMiCarriereActif, entretienMiCarriereMois, consultationN2, deplacementsFichierPaie, deplacementsPaieAPartirDu, vigilanceRappelJours, fractionnementRegle, fractionnementAccord, fractionnementDebut, fractionnementFin, cetPlafondRtt, cetPlafondCp), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture, fractionnement fixé par accord ou écarté sans référence, période du congé principal inversée) : 400, rien n'est enregistré | administrateur RH |
 | `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, santeMiCarriereAge…, cpMaladie, feriesTravaillesAutorises, tauxMajorationFerie, plafondHeuresComplementaires, heuresComplementairesAccord, moyenne12SemainesMax, moyenne12SemainesAccord, contingentHeuresSup, contingentAlerte, contingentAccord, absencesFichierPaie, absencesPaieAPartirDu), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
 | `parametres.feries` | annee (de l'année en cours, 2027 au plus tôt, à deux ans après), solidarite (`pentecote_chomee`/`pentecote_travaillee`/`autre_ferie`/`hors_calendrier`), solidariteFerie? (`autre_ferie` : ni le 1er mai, ni le lundi de Pentecôte, ni un férié qui tombe un samedi ou un dimanche de l'année), nonChomes [codes des fériés, jamais `1er_mai`], motif? (exigé, 409 sinon, pour une année engagée : absences de l'année transmises à la paie ou dans un lot, congés clôturés sur une période qui la couvre ; 500 caractères, service RH seulement, jamais au journal) : clé `calendrierFeries` de la table settings ; message : absences dont le décompte change (salariés rattachés à la ligne du journal) ; même réglage : rien n'est refait | administrateur RH |
@@ -4840,3 +4849,65 @@ colonne, aucune vue `pub_`, aucune action nouvelle ; une migration d'index. Le m
   reçoivent le détail des notes payées depuis plus de 2 mois qu'à la demande, par la même route), et, pour le delta,
   scission `lignes_frais_sante` (choix par défaut, demande à Matrix) si le marqueur « toute la table » reste au-delà du
   budget.
+## Lot 12 : entretiens suivis (C3, t194), étape 1 — objectifs, souhaits versés au plan, points de mi-année, tables du 360°
+
+Réponses du propriétaire du 1er novembre 2026 et choix par défaut du chantier : objectifs fixés et évalués à l'entretien
+annuel, ajustés en cours d'année avec un motif ; le salarié propose, le manager valide ; point de mi-année facultatif ;
+un souhait de formation devient une demande au service RH à la clôture **seulement avec l'avis favorable du manager** ;
+conservation avec les entretiens (5 ans après le départ) ; feedback 360° livré désactivé (étape 3) ; pas d'archivage dans
+Codex. Les écrans (EntDialog, onglets Objectifs et Points, Mes objectifs, Paramètres → Entretiens), le compte rendu
+imprimé, les indicateurs et rappels, le guide et le RGPD viennent à l'étape 2.
+
+- **Règles pures** : `shared/rules/objectifs.ts` (types : objectifs jamais dans un entretien de parcours professionnel ni
+  l'état des lieux, art. L6315-1, ni le forfait jours ; fixation et évaluation à l'annuel seul ; saisie, poids au plus
+  100 %, objectifs repris `objectifsARevoir`, `blocageClotureObjectifs`, compteurs par équipe sous le seuil d'anonymat
+  de 3) ; `shared/rules/souhaits.ts` (types qui recueillent des souhaits, saisie, clés `s<n>`, `souhaitsAVerser`, motif
+  fixe « Souhait exprimé à l’entretien du … ») ; `miAnnee` et l'obligation du point de mi-année dans `obligations()`
+  (`shared/rules/entretiens.ts`), seulement avec le réglage `pointMiAnneeActif`. Types d'entretien `mi_annee` et `point`
+  dans `ENT_TYPES` (planification, convocation, compte rendu, remise et conservation communes).
+- **Réglages** (`shared/reglages.ts`) : `objectifsActifs` (oui), `objectifsFacultatifs` (oui la première année : la
+  clôture n'exige pas l'évaluation des objectifs repris ; les propositions du salarié à valider la bloquent toujours),
+  `objectifsMax` (8), `pointMiAnneeActif` (non), `pointMiAnneeDebut` / `pointMiAnneeFin` (« 05-01 » / « 07-15 »).
+- **Tables** (`server/src/db.ts`, PostgreSQL `0024_entretiens_suivis`, SQLite d'après `TABLES` et la migration nommée
+  `lot12-entretiens-index`) : `objectifs` (libellé, mesure, évaluation, commentaire du salarié, motif d'ajustement et
+  libellé d'origine commentés « Sensible ») ; colonnes `entretiens.souhaits` et `entretiens.synthese_feedback`
+  (sensibles comme `cr`) et `demandes_collab.entretien_id` ; `entretiens_type_check` recréée avec les deux types ;
+  tables du feedback 360°, créées dès l'étape 1 puisque les migrations ne se modifient plus : `feedback_sollicitations`,
+  `feedback_tampon` (réponses en attente, chiffrées, jamais lues par l'instantané : `HORS_INSTANTANE`) et
+  `feedback_reponses` (identifiant texte non séquentiel, ni répondant ni date de réception), toutes trois en entier
+  sensibles et dans `TABLES_CHANGEMENTS_SANS_CLE`. Noms en `feedback_*` plutôt que `*_360` : `snake()` ne produit pas
+  de tiret bas devant un chiffre, et les contrôles des colonnes sensibles lisent des noms de tables sans chiffre.
+  Demande de fermeture à Matrix : `docs/demandes/matrix-lot12-entretiens.sql`. Aucune vue `pub_`.
+- **Actions** (`server/src/actions/objectifs.ts`, `server/src/actions/souhaits.ts`, matrice `tests/droits.test.ts`) :
+  `objectif.ajouter`, `proposer`, `modifier` (valide une proposition), `retirer`, `avancer`, `ajuster` (motif),
+  `evaluer` (reconduction : nouvelle ligne `reconduitDe`, défaite par une nouvelle évaluation) ; `entretien.souhait`,
+  `entretien.avisSouhait`. Évaluateur : `refuserSoiMeme` et `isValidatorOf(ctx, e, 'entretiens')`, délégation comprise.
+  `entretien.clore` refuse (409) une proposition en attente ou, hors mode facultatif, un objectif repris non évalué, puis
+  verse les souhaits favorables (`verserSouhaits`) : une demande `demandesCollab` de type formation par souhait, au nom du
+  manager (`parId` : celui qui clôt, ou le manager valideur quand le service RH clôt ; aucun quand le service RH est le
+  valideur), rattachée à l'entretien (`entretienId`), par le contrôle des doublons extrait de `demande.formation`
+  (`doublonFormation`, `creerDemandeFormation` de `server/src/actions/conformite.ts`) : demande identique en attente,
+  inscription à venir, souhait identique du même entretien ou formation archivée marquent le souhait (`nonVerse`) sans
+  nouvelle demande ; jamais deux fois. Acceptée sans session, la demande donne une ligne du plan d'origine `entretien`
+  (`demande.accepter`, liste d'attente). Annulation d'un entretien planifié, ou retrait à la sortie
+  (`server/src/objectifs-entretien.ts`) : objectifs fixés retirés, objectifs évalués rouverts, demandes versées gardées et
+  détachées (message et journal), feedback 360° de l'entretien supprimé.
+- **Instantané** (`server/src/vues-entretiens-suivis.ts`) : objectifs complets pour le service RH ; pour le manager ceux de
+  son équipe directe et de ses délégations « entretiens », pour le salarié les siens (`CHAMPS_PAR_SALARIE`) ; consultation
+  N+2 et lecture seule : compteurs par équipe seulement (`compteursObjectifs`, masqués sous 3 salariés), entretiens de la
+  lecture seule sans compte rendu, souhaits ni synthèse ; référent HSE et paie : rien. Feedback 360° : service RH seulement
+  (`CHAMPS_HORS_VUES`). Export des données d'un salarié : ni répondants, ni statut des sollicitations, ni contenu ou
+  relation (pair, N+2, encadré) d'une réponse prise une à une : le nombre de réponses n'est qu'un compteur global.
+- **Journal** (`REGLES_ENTRETIENS_SUIVIS`, `server/src/journal.ts`) : identifiants, codes (catégorie, résultat, avis,
+  priorité, formation du catalogue), dates, poids, avancement (regroupé sur 30 minutes) ; jamais le libellé, la mesure,
+  l'évaluation, un commentaire ni l'intitulé d'un souhait (« [texte renseigné] » au plus). Préfixes `objectif.` et
+  `feedback360.` dans la famille « Entretiens ».
+- **Conservation** : `objectifs.emp_id`, `feedback_sollicitations.emp_id` et `.repondant_emp_id`,
+  `feedback_reponses.emp_id` en lignes, catégorie « entretiens » ; l'étape détache d'abord `demandes_collab.entretien_id`
+  et la reconduction, puis supprime objectifs, feedback 360° et entretiens. La purge des réponses 360° à la clôture de
+  l'entretien (6 mois au plus tard) vient avec l'étape 3.
+- **Cache incrémental et banc d'oracle** : `LECTURES` (`objectifs`, `feedbackSollicitations`, `feedbackReponses`),
+  tirages des actions `objectif.*` et des souhaits dans `tests/support/oracle.ts`. Tests : `tests/entretiens-suivis.test.ts`
+  (règles, types interdits, cycle d'un objectif, doublons de versement, annulation, vues par profil, journal, point de
+  mi-année), `tests/conservation.test.ts` (cascade), empreinte de 0024 dans `PUBLIEES`.
+

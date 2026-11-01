@@ -370,7 +370,15 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   forfaitHeuresEmission: { defaut: 'cloture', controle: choix<EmissionForfaitHeures>(['cloture', 'periode']) },
   forfaitHeuresContingent: { defaut: false, controle: booleen },
   // lot 12 — C2 (notes de frais : activation)
-  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C3 (entretiens suivis et 360°) : objectifs aux entretiens annuels, facultatifs la première année (la clôture
+  //   n'exige pas encore l'évaluation des objectifs repris), 8 au plus par entretien ; point de mi-année facultatif, dû du
+  //   1er mai au 15 juillet seulement si le service RH le rend obligatoire (choix par défaut du chantier) —
+  objectifsActifs: { defaut: true, controle: booleen },
+  objectifsFacultatifs: { defaut: true, controle: booleen },
+  objectifsMax: { defaut: 8, controle: entier(1, 20) },
+  pointMiAnneeActif: { defaut: false, controle: booleen },
+  pointMiAnneeDebut: { defaut: '05-01', controle: jourDeLAnnee },
+  pointMiAnneeFin: { defaut: '07-15', controle: jourDeLAnnee },
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
@@ -436,7 +444,8 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   s => (forfaitHeuresHorsDefaut(s) && !s.forfaitHeuresAccord
     ? 'Forfait annuel en heures : une période de référence, une majoration, des absences déduites ou une durée journalière autres que celles par défaut supposent un accord collectif (art. L3121-63 et L3121-64) : indiquez sa référence' : null),
   // lot 12 — C2 (notes de frais : activation)
-  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C3 (entretiens suivis et 360°) : fenêtre du point de mi-année dans l'année civile, l'ouverture avant la fin —
+  s => (s.pointMiAnneeDebut > s.pointMiAnneeFin ? 'Point de mi-année : le début de la fenêtre doit précéder sa fin, dans la même année' : null),
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)

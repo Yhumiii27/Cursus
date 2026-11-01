@@ -531,8 +531,9 @@ test('oracle : suite d’écritures aléatoire, vues reportées, aucune divergen
   const { baseDemo, rejouer, resumeRapport } = await import('./support/oracle.ts');
   const db = await baseDemo(nouvelleBase);
   const avant = vc.vuesReportees;
-  // lot 12 — C1 : graine 11 (la 9 ne tirait plus que 3 écritures avec les actions du forfait annuel en heures au registre).
-  const rapport = await rejouer(db, { graine: 11, pas: 12 });
+  // Lot 12 : les actions nouvelles (forfait heures, objectifs…) diluent le tirage ; 40 pas en assurent assez d'écritures
+  // validées, quelle que soit la graine (la 9 ne tirait plus que 3 écritures en 12 pas).
+  const rapport = await rejouer(db, { graine: 11, pas: 40 });
   assert.equal(rapport.erreurs.length, 0, rapport.erreurs.join('\n'));
   assert.equal(rapport.divergences.length, 0, resumeRapport(rapport));
   assert.ok(rapport.ecritures > 3, `${rapport.ecritures} écritures`);

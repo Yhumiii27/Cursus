@@ -517,7 +517,8 @@ test('démonstration : connexion libre, mais par les comptes (RH de démonstrati
   const opts = s.json.loginOptions;
   assert.equal(opts.collaborateur.length, 24, 'un compte par salarié');
   assert.deepEqual(opts.rh.map((o: { nom: string }) => o.nom), [
-    'Aïcha Diallo — Gestionnaire de paie', 'Antoine Leroy — Gestionnaire RH', 'Élodie Bernard — Lecture seule', 'Sandrine Vidal — Administrateur RH',
+    // lot 11 — notes de frais : Manon Faure, profil « Comptabilité ».
+    'Aïcha Diallo — Gestionnaire de paie', 'Antoine Leroy — Gestionnaire RH', 'Élodie Bernard — Lecture seule', 'Manon Faure — Comptabilité', 'Sandrine Vidal — Administrateur RH',
     'Sarah Cohen — Référent HSE / formation',
   ]);
   const compteRh = (nom: string) => opts.rh.find((o: { nom: string }) => o.nom.startsWith(nom)).id as number;

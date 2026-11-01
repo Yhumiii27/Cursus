@@ -20,6 +20,7 @@ const { currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
 const { PROFIL_VIDE } = await import('../shared/rules/profil.ts');
+const { createECDH } = await import('node:crypto');
 const { SAMPLE_PLAN_CSV, SAMPLE_TRIPS_CSV } = await import('../shared/rules/imports.ts');
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Role = User['role'];
@@ -153,6 +154,23 @@ const evaluationDonnee = async () => (await db.insert<{ id: number }>('evaluatio
   empId: 2, participationId: await participationClose(), formationSuivieId: null, type: 'froid', repondant: 'salarie', note: null, efficacite: 'efficace',
   commentaire: 'Utile sur le terrain', le: '2026-10-01', auteur: 'Mehdi Benali', auteurId: 2,
 })).id;
+// lot 11 — dossiers OPCO
+/** Dossier OPCO de la ligne prévue du plan (FCO de la Logistique), dans l'état voulu ; renvoie son identifiant. */
+const dossierOpco = async (statut = 'a_deposer', champs: Record<string, unknown> = {}) => (await db.insert<{ id: number }>('dossiersOpco', {
+  planActionId: await lignePrevue(), empId: null, exercice: 2026, opco: 'opco2i', dispositif: 'plan', statut, du: '2026-11-16', au: '2026-11-17', subrogation: false,
+  organismeQualiopi: true, creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Sandrine Vidal',
+  ...(statut === 'a_deposer' ? {} : { deposeLe: '2026-10-01' }), ...(['accorde', 'facture', 'rembourse'].includes(statut) ? { accordLe: '2026-10-02', montantAccorde: 1200 } : {}),
+  ...(['facture', 'rembourse'].includes(statut) ? { factureLe: '2026-10-05', montantFacture: 1200 } : {}), ...champs,
+})).id;
+/** Versement de 600 € reçu le 6 octobre sur un dossier remboursé ; renvoie son identifiant. */
+const versementOpco = async () => (await db.insert<{ id: number }>('versementsOpco', {
+  dossierId: await dossierOpco('rembourse'), le: '2026-10-06', montant: 600, destinataire: 'entreprise', reference: null, saisiLe: '2026-10-06T08:00:00.000Z', saisiPar: 'Sandrine Vidal',
+})).id;
+/** Pièce jointe à un dossier OPCO (sans salarié), de la nature et de la fin de conservation voulues ; renvoie son identifiant. */
+const pieceDossierOpco = async (nature: string, conserverJusquau: string | null) => (await db.insert<{ id: number }>('pieces', {
+  empId: null, objet: 'dossierOpco', objetId: await dossierOpco(), nature, conserverJusquau, nom: 'piece.pdf', type: 'application/pdf', taille: 5, empreinte: 'e',
+  fichier: 'c'.repeat(32), deposeLe: '2026-10-07T08:00:00.000Z', deposePar: 'Essai', deposeCompteId: null,
+})).id;
 /** Réglages modifiés pour l'essai (transaction annulée ensuite). */
 const reglages = async (r: Record<string, unknown>) => await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), ...r });
 /** Mehdi sorti à la date (démission), conservation des dossiers activée avec la décision du DPO ; renvoie son identifiant. */
@@ -161,10 +179,37 @@ const sortiLe = async (fin: string) => {
   await db.update('employes', 2, { fin, motifSortie: 'demission' });
   return 2;
 };
+/** Abonnement push d'un appareil de la personne qui agit (lot 11, C2), pour les actions qui en demandent un. */
+const P256DH = (() => { const e = createECDH('prime256v1'); e.generateKeys(); return e.getPublicKey().toString('base64url'); })();
+const abonnementPush = async (u: User) => (await db.insert<{ id: number }>('abonnementsPush', {
+  compteId: u.compteId, cleEndpoint: `essai-${u.compteId}`, endpoint: 'https://fcm.googleapis.com/fcm/send/essai', p256dh: P256DH, auth: 'AAAAAAAAAAAAAAAAAAAAAA',
+  appareil: 'Android, Chrome', types: [], creation: '2026-10-01T08:00:00.000Z', dernierSucces: null, dernierEchec: null, echecs: 0,
+})).id;
 // `p` reçoit la personne qui agit (pièce justificative envoyée par son compte) ; les autres lignes l'ignorent.
 interface Ligne { action: string; variante?: string; droits: string; p: (u: User) => Record<string, unknown> | Promise<Record<string, unknown>>; env?: Record<string, string> }
 
 //                                                        admin gest mgr autM coll autC  hse paie lect
+// lot 11 — notes de frais : note de Mehdi d'octobre dans l'état voulu, dépense « divers » sans justificatif, avec attestation
+// (hors du cumul avec un forfait de grand déplacement), avance demandée.
+const DEPENSE = { date: '2026-10-06', categorie: 'divers', montant: 20, sansJustificatif: true, attestation: true };
+const noteFrais = async (statut: string, medicale = false) => (await db.insert<{ id: number }>('notesFrais', {
+  empId: 2, periode: '2026-10', voyageId: null, missionId: null, projet: null, medicale, statut, creeLe: '2026-10-06T08:00:00.000Z', creePar: 'Mehdi Benali',
+})).id;
+const ligneFrais = async (noteId: number, medicale = false) => (await db.insert<{ id: number }>('lignesFrais', {
+  noteId, empId: 2, ...DEPENSE, ...(medicale ? { categorie: 'medical' } : {}), devise: 'EUR', montantEur: 20,
+})).id;
+const noteAvecLigne = async (statut: string, medicale = false) => {
+  const id = await noteFrais(statut, medicale);
+  await ligneFrais(id, medicale);
+  return id;
+};
+const avanceFrais = async () => (await db.insert<{ id: number }>('avancesFrais', { empId: 2, montant: 200, statut: 'demandee', demandeLe: '2026-10-06T08:00:00.000Z' })).id;
+// lot 11 — notes de frais, étape 2 : export comptable enregistré (une note contrôlée), à annuler.
+const exportFrais = async () => (await db.insert<{ id: number }>('exportsFrais', {
+  type: 'compta', cle: `compta-essai-${Math.random()}`, creation: '2026-10-08T08:00:00.000Z', auteur: 'Manon Faure', notes: [await noteAvecLigne('controlee')],
+  contenu: { lignes: [], ecritures: 0, debit: 0, credit: 0 }, telechargements: 0,
+})).id;
+
 const MATRICE: Ligne[] = [
   // Fiches et équipes
   { action: 'employe.creer', droits: '                       O    O    -    -    -    -    -    -    -', p: async () => ({ ...PROFIL_VIDE('Maintenance', '2026-10-07'), nom: 'Nouvel Embauché', poste: 'Technicien' }) },
@@ -259,6 +304,26 @@ const MATRICE: Ligne[] = [
   // de l'avis (ici le salarié) et le service RH.
   { action: 'evaluation.enregistrer', droits: '              O    O    O    -    O    -    -    -    -', p: async () => ({ participationId: await participationClose(), type: 'froid', efficacite: 'efficace', repondant: 'salarie' }) },
   { action: 'evaluation.retirer', droits: '                  O    O    -    -    O    -    -    -    -', p: async () => ({ id: await evaluationDonnee() }) },
+  // lot 11 — dossiers OPCO : service RH ; retour d'un cran, annulation d'un versement et suppression, administrateur RH ;
+  // ni le manager, ni le collaborateur, ni les profils restreints (lecture seule : consultation sans action).
+  { action: 'opco.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: async () => ({ planActionId: await lignePrevue(), dispositif: 'plan', du: '2026-11-16', au: '2026-11-17' }) },
+  { action: 'opco.modifier', droits: '                     O    O    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco(), heures: 14 }) },
+  { action: 'opco.deposer', droits: '                      O    O    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco(), de: 'a_deposer', reference: 'OPCO2I-2026-001' }) },
+  { action: 'opco.accorder', droits: '                     O    O    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco('depose'), de: 'depose', montantAccorde: 1200 }) },
+  { action: 'opco.refuser', droits: '                      O    O    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco('depose'), de: 'depose', motif: 'budget_epuise' }) },
+  { action: 'opco.facturer', droits: '                     O    O    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco('accorde'), de: 'accorde', montantFacture: 1200 }) },
+  { action: 'opco.versement', droits: '                    O    O    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco('facture'), montant: 1200, le: '2026-10-06' }) },
+  { action: 'opco.annulerVersement', droits: '            O    -    -    -    -    -    -    -    -', p: async () => ({ id: await versementOpco(), motif: 'Versement saisi deux fois' }) },
+  { action: 'opco.solder', droits: '                       O    O    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco('facture'), de: 'facture', nature: 'perte' }) },
+  { action: 'opco.abandonner', droits: '                   O    O    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco(), de: 'a_deposer', motif: 'formation_annulee' }) },
+  { action: 'opco.rouvrir', droits: '                      O    -    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco('depose'), de: 'depose', motif: 'Dépôt enregistré par erreur' }) },
+  { action: 'opco.supprimer', droits: '                    O    -    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco(), motif: 'Dossier créé deux fois' }) },
+  // Pièce d'un dossier OPCO (lot 11), sans salarié : service RH seulement.
+  { action: 'piece.joindre', variante: 'dossier OPCO', droits: '  O    O    -    -    -    -    -    -    -', p: async u => await ({ jetons: [await pieceEnvoyee(u)], objet: 'dossierOpco', objetId: await dossierOpco(), nature: 'convention' }) },
+  // Pièce d'un dossier OPCO : retrait par le service RH ; pièce comptable (facture, accord) encore à conserver 10 ans,
+  // administrateur RH seulement.
+  { action: 'piece.retirer', variante: 'dossier OPCO', droits: '  O    O    -    -    -    -    -    -    -', p: async () => ({ id: await pieceDossierOpco('convention', null), motif: 'Mauvais document' }) },
+  { action: 'piece.retirer', variante: 'pièce comptable OPCO', droits: 'O    -    -    -    -    -    -    -    -', p: async () => ({ id: await pieceDossierOpco('facture', '2036-12-31'), motif: 'Facture d’un autre dossier' }) },
   { action: 'demande.refuser', droits: '                     O    O    -    -    -    -    O    -    -', p: async () => ({ id: await demande('aipr') }) },
   // Demande retirée par son auteur seul (Mehdi pour la sienne, Karim pour celle qu'il a faite pour Mehdi), tant qu'elle
   // attend ; rouverte par le service RH ou le référent HSE.
@@ -346,6 +411,8 @@ const MATRICE: Ligne[] = [
   { action: 'temps.setCell', droits: '                       O    O    O    -    O    -    -    -    -', p: async () => { await feuille('brouillon'); return { empId: 2, week: WEEK, li: 0, di: 0, value: '7' }; } },
   // Horaire du jour (lot 6) : mêmes droits que la saisie des heures.
   { action: 'temps.horaire', droits: '                       O    O    O    -    O    -    -    -    -', p: async () => { await feuille('brouillon'); return { empId: 2, week: WEEK, di: 0, code: 'J' }; } },
+  // lot 11 — pwa : saisie du jour désignée par projet et tâche (file hors ligne), mêmes droits que temps.setCell.
+  { action: 'temps.saisir', droits: '                        O    O    O    -    O    -    -    -    -', p: async () => { await feuille('brouillon'); return { empId: 2, week: WEEK, projet: 'INT-MAINT', tache: 'Maintenance interne', di: 0, value: '7', base: '0' }; } },
   { action: 'temps.addLine', droits: '                       O    O    O    -    O    -    -    -    -', p: () => ({ empId: 2, week: WEEK, projet: 'INT-MAINT' }) },
   { action: 'temps.removeLine', droits: '                    O    O    O    -    O    -    -    -    -', p: async () => { await feuille('brouillon'); return { empId: 2, week: WEEK, li: 0 }; } },
   { action: 'temps.suggest', droits: '                       O    O    O    -    O    -    -    -    -', p: async () => ({ empId: 2, week: WEEK }) },
@@ -498,6 +565,14 @@ const MATRICE: Ligne[] = [
   { action: 'agenda.creerJeton', droits: '                       -    -    O    O    O    O    -    -    -', p: async () => { await reglages({ agendaFluxActif: true }); return {}; } },
   { action: 'agenda.revoquerJeton', droits: '                    -    -    O    O    O    O    -    -    -', p: () => ({}) },
   { action: 'agenda.revoquerTout', droits: '                     O    -    -    -    -    -    -    -    -', p: () => ({}) },
+  // lot 11 — pwa : notifications sur le téléphone, chaque compte pour ses appareils, depuis tout espace (démonstration :
+  // clé VAPID en mémoire) ; révocation de tous les abonnements, administrateur RH.
+  { action: 'push.abonner', droits: '                         O    O    O    O    O    O    O    O    O', p: () => ({ endpoint: 'https://fcm.googleapis.com/fcm/send/nouvel-appareil', p256dh: P256DH, auth: 'AAAAAAAAAAAAAAAAAAAAAA', systeme: 'android', navigateur: 'chrome' }) },
+  { action: 'push.desabonner', droits: '                      O    O    O    O    O    O    O    O    O', p: () => ({ endpoint: 'https://fcm.googleapis.com/fcm/send/essai', motif: 'utilisateur' }) },
+  { action: 'push.preferences', droits: '                     O    O    O    O    O    O    O    O    O', p: async u => { await abonnementPush(u); return { types: ['absence.demande'] }; } },
+  { action: 'push.desabonnerAppareil', droits: '              O    O    O    O    O    O    O    O    O', p: async u => ({ id: await abonnementPush(u) }) },
+  { action: 'push.desabonnerAppareil', variante: 'tous les comptes', droits: 'O    -    -    -    -    -    -    -    -', p: () => ({ tout: true }) },
+  { action: 'push.tester', droits: '                          O    O    O    O    O    O    O    O    O', p: async u => { await abonnementPush(u); return {}; } },
   // Astreintes (t049, lot 7) : planning par le manager direct ou le service RH (jamais pour soi-même) ; interventions
   // déclarées sur la feuille de temps comme la saisie d'heures (salarié, manager direct, service RH).
   { action: 'astreinte.planifier', droits: '              O    O    O    -    -    -    -    -    -', p: () => ({ empId: 2, du: '2026-11-06', debut: '18:00', au: '2026-11-13', fin: '08:00' }) },
@@ -508,7 +583,72 @@ const MATRICE: Ligne[] = [
   // Astreinte d'un autre salarié (Thomas) : Mehdi reçoit le même refus qu'un identifiant inconnu, avant tout contrôle.
   { action: 'astreinte.intervention', variante: 'astreinte de Thomas', droits: 'O    O    O    -    -    O    -    -    -', p: async () => ({ astreinteId: await astreinte('2026-10-05', '2026-10-07', 6), jour: '2026-10-05', debut: '22:00', fin: '23:30' }) },
   { action: 'astreinte.retirerIntervention', droits: '    O    O    O    -    O    -    -    -    -', p: async () => ({ id: await intervention() }) },
+  // lot 11 — organigramme : entités, sites et rattachements d'équipe, service RH ; fermeture et réouverture,
+  // administrateur RH ; impression et export de l'organigramme, ouvert à tous par défaut (réglage organigrammeOuvert).
+  { action: 'entite.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ code: 'epc2i', nom: 'EPC2I', type: 'societe', siren: '552100554', idcc: '44' }) },
+  { action: 'entite.modifier', droits: '                     O    O    -    -    -    -    -    -    -', p: async () => { await entiteEssai(); return { code: 'essai', nom: 'Essai SAS', idcc: '0044' }; } },
+  { action: 'entite.fermer', droits: '                       O    -    -    -    -    -    -    -    -', p: async () => { await entiteEssai(); return { code: 'essai' }; } },
+  { action: 'entite.rouvrir', droits: '                      O    -    -    -    -    -    -    -    -', p: async () => { await entiteEssai(false); return { code: 'essai' }; } },
+  { action: 'site.enregistrer', droits: '                    O    O    -    -    -    -    -    -    -', p: () => ({ code: 'lab67', libelle: 'Laboratoire 67' }) },
+  { action: 'equipe.entite', droits: '                       O    O    -    -    -    -    -    -    -', p: async () => { await entiteEssai(); return { nom: 'Maintenance', entite: 'essai' }; } },
+  { action: 'equipe.site', droits: '                         O    O    -    -    -    -    -    -    -', p: async () => { await db.insert('sites', { code: 'lab67', libelle: 'Laboratoire 67', actif: true, ordre: 0 }); return { nom: 'Maintenance', siteCode: 'lab67' }; } },
+  { action: 'equipe.unite', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Maintenance', uniteCode: 'PRD-MAINT' }) },
+  { action: 'organigramme.imprimer', droits: '               O    O    O    O    O    O    O    O    O', p: () => ({ lignes: 24 }) },
+  { action: 'organigramme.exporter', droits: '               O    O    O    O    O    O    O    O    O', p: () => ({ lignes: 24 }) },
+  // Réglage restreint aux managers et au service RH : le collaborateur ne l'imprime plus ; tout l'espace RH, si.
+  { action: 'organigramme.imprimer', variante: 'réservé aux managers', droits: 'O    O    O    O    -    -    O    O    O', p: async () => { await reglerOrganigramme('managers'); return { lignes: 24 }; } },
+  { action: 'organigramme.exporter', variante: 'réservé au service RH', droits: 'O    O    -    -    -    -    O    O    O', p: async () => { await reglerOrganigramme('rh'); return { lignes: 24 }; } },
+  // lot 11 — indicateurs : sexe et catégorie d'emploi, service RH seulement (jamais le manager) ; arrêté annuel et son
+  // annulation, administrateur RH ; mise à disposition du CSE, service RH.
+  { action: 'employe.modifier', variante: 'sexe et catégorie', droits: 'O    O    -    -    -    -    -    -    -', p: () => ({ id: 2, sexe: 'M', categorie: 'tam' }) },
+  { action: 'indicateurs.arreter', droits: '                  O    -    -    -    -    -    -    -    -', p: () => ({ annee: 2025 }) },
+  { action: 'indicateurs.annulerArrete', droits: '            O    -    -    -    -    -    -    -    -', p: async () => ({ id: await arreteEssai(), motif: 'Absences de décembre corrigées' }) },
+  { action: 'indicateurs.marquerCse', droits: '               O    O    -    -    -    -    -    -    -', p: async () => ({ id: await arreteEssai(), le: '2026-10-05' }) },
+  // lot 11 — notes de frais (module activé dans le jeu de démonstration). Le profil « Comptabilité » n'a pas de colonne :
+  // ses droits sont éprouvés par tests/frais-actions.test.ts.
+  { action: 'frais.note.creer', droits: '            O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, periode: '2026-10' }) },
+  { action: 'frais.ligne.ajouter', droits: '          O    O    -    -    O    -    -    -    -', p: async () => ({ noteId: await noteFrais('brouillon'), ...DEPENSE }) },
+  { action: 'frais.ligne.modifier', droits: '         O    O    -    -    O    -    -    -    -', p: async () => ({ id: await ligneFrais(await noteFrais('brouillon')), montant: 22 }) },
+  { action: 'frais.ligne.supprimer', droits: '        O    O    -    -    O    -    -    -    -', p: async () => ({ id: await ligneFrais(await noteFrais('brouillon')) }) },
+  { action: 'frais.note.soumettre', droits: '         O    O    -    -    O    -    -    -    -', p: async () => ({ id: await noteAvecLigne('brouillon') }) },
+  { action: 'frais.note.valider', droits: '           O    O    O    -    -    -    -    -    -', p: async () => ({ id: await noteAvecLigne('soumise') }) },
+  // Note médicale : jamais au manager (même refus qu'une note inconnue).
+  { action: 'frais.note.valider', variante: 'note médicale', droits: 'O    O    -    -    -    -    -    -    -', p: async () => ({ id: await noteAvecLigne('soumise', true) }) },
+  { action: 'frais.note.renvoyer', droits: '          O    O    O    -    -    -    -    -    -', p: async () => ({ id: await noteAvecLigne('soumise'), motif: 'Justificatif illisible' }) },
+  { action: 'frais.note.controler', droits: '         O    O    -    -    -    -    -    -    -', p: async () => ({ id: await noteAvecLigne('validee') }) },
+  { action: 'frais.ligne.refuser', droits: '          O    O    -    -    -    -    -    -    -', p: async () => ({ id: await ligneFrais(await noteFrais('validee')), motif: 'Dépense personnelle' }) },
+  { action: 'frais.ligne.plafonner', droits: '        O    O    -    -    -    -    -    -    -', p: async () => ({ id: await ligneFrais(await noteFrais('validee')), montant: 10 }) },
+  { action: 'frais.note.annuler', droits: '           O    O    -    -    O    -    -    -    -', p: async () => ({ id: await noteFrais('brouillon') }) },
+  { action: 'frais.vehicule.declarer', droits: '      O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, type: 'voiture', cv: 5, du: '2026-10-01' }) },
+  { action: 'frais.bareme.enregistrer', droits: '     O    -    -    -    -    -    -    -    -', p: () => ({ annee: 2027, type: 'voiture', tranches: [{ cvMin: 0, cvMax: null, kmMin: 0, kmMax: null, a: 0.5, b: 0 }] }) },
+  { action: 'frais.forfait.enregistrer', droits: '    O    O    -    -    -    -    -    -    -', p: () => ({ annee: 2027, code: 'panier', montant: 7.4 }) },
+  { action: 'frais.taux.enregistrer', droits: '       O    O    -    -    -    -    -    -    -', p: () => ({ devise: 'USD', mois: '2026-10', taux: 0.9 }) },
+  { action: 'frais.avance.demander', droits: '       O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, montant: 200 }) },
+  { action: 'frais.avance.valider', droits: '        O    O    O    -    -    -    -    -    -', p: async () => ({ id: await avanceFrais() }) },
+  { action: 'frais.avance.refuser', droits: '        O    O    O    -    -    -    -    -    -', p: async () => ({ id: await avanceFrais(), motif: 'Déplacement annulé' }) },
+  { action: 'frais.avance.annuler', droits: '        O    O    -    -    O    -    -    -    -', p: async () => ({ id: await avanceFrais() }) },
+  // lot 11 — notes de frais, étape 2 : exports comptables, comptabilité (tests/frais-etape2.test.ts) et service RH.
+  { action: 'frais.export.generer', droits: '        O    O    -    -    -    -    -    -    -', p: async () => { await noteAvecLigne('controlee'); return {}; } },
+  { action: 'frais.export.annuler', droits: '        O    O    -    -    -    -    -    -    -', p: async () => ({ id: await exportFrais() }) },
 ];
+/** Entité d'essai (lot 11), ouverte ou fermée, insérée dans la transaction annulée de la ligne. */
+async function entiteEssai(ouverte = true) {
+  await db.insert('entites', {
+    code: 'essai', nom: 'Essai', type: 'societe', parente: null, siren: null, siret: null, idcc: null, siteCode: null, ordre: 0, actif: ouverte,
+    fermeLe: ouverte ? null : '2026-10-01', source: 'local',
+  });
+}
+/** Réglage de l'organigramme posé dans la transaction annulée de la ligne (lu par loadFull). */
+async function reglerOrganigramme(v: string) {
+  await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), organigrammeOuvert: v });
+}
+/** Arrêté des indicateurs 2025 (lot 11), inséré dans la transaction annulée de la ligne. */
+async function arreteEssai() {
+  return (await db.insert<{ id: number }>('indicateursArretes', {
+    annee: 2025, perimetre: 'global', du: '2025-01-01', au: '2025-12-31', reglesVersion: 'essai', seuil: 5, donnees: {}, arreteLe: '2026-01-15T09:00:00.000Z',
+    arretePar: 'Sandrine Vidal', cseLe: null, csePar: null, annuleLe: null, annulePar: null, annuleMotif: null,
+  })).id;
+}
 
 const ANNULER = Symbol('annuler');
 /** Exécute l'action dans une transaction toujours annulée : « O », « - » (refus 403), ou l'erreur inattendue. */

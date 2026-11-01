@@ -87,6 +87,21 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // Lot 7, chantier C (t121) : évaluation des formations activée ; à froid 90 jours après, par le salarié et son manager
     // (réponse de l'entreprise du 23 octobre 2026), formations réglementaires et recommandées.
     evaluationsActives: true, evaluationFroidDelai: 90, evaluationFroidPar: 'les_deux', evaluationFroidCategories: ['Réglementaire', 'Recommandée'],
+    // lot 11 — organigramme : ouvert à tous les salariés (choix par défaut du chantier).
+    organigrammeOuvert: 'tous',
+    // lot 11 — indicateurs : seuil d'anonymat de 5 ; absentéisme sur la santé, l'enfant malade, le sans solde et
+    // l'injustifiée (choix par défaut du chantier, à arrêter avec le CSE).
+    indicateursSeuil: 5, absenteismeNatures: ['MALADIE', 'ALD', 'AT', 'TRAJET', 'MP', 'ENFANT_MALADE', 'SANS_SOLDE', 'INJUSTIFIEE'],
+    // lot 11 — dossiers OPCO : OPCO 2i, sans subrogation ; dépôt 30 jours avant, justificatifs 90 jours après, relance du
+    // remboursement à 60 jours (à confirmer avec le service RH).
+    opcoDefaut: 'opco2i', opcoSubrogation: false, opcoDelaiDepot: 30, opcoDelaiJustificatifs: 90, opcoDelaiRemboursement: 60,
+    // Lot 11, chantier C5 : notes de frais désactivées, validation du manager puis contrôle, délai de 3 mois, aucun plafond
+    // interne, justificatif toujours exigé, puissance plafonnée à 7 CV, notes payées gardées 10 ans.
+    notesFraisActives: false, fraisCircuit: 'manager_controle', fraisDelaiSoumissionMois: 3, fraisPlafonds: {}, fraisSeuilJustificatif: 0, fraisIkCvReels: false,
+    conservationFraisAns: 10,
+    // Lot 11, chantier C5, étape 2 : fichier d'écritures (comptes proposés, journal OD, gabarit du fichier de paie).
+    fraisComptes: {}, fraisCompteGenerique: '6256', fraisCompteTva: '44566', fraisCompteSalarie: '421', fraisJournal: 'OD',
+    fraisGabarit: { separateur: ';', colonnes: ['journal', 'date', 'compte', 'compteTiers', 'piece', 'libelle', 'debit', 'credit'], decimale: ',', entete: true, encodage: 'utf-8', formatDate: 'JJ/MM/AAAA' },
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(await loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

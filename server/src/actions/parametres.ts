@@ -9,6 +9,7 @@ import { loadSettings } from '../dataset.ts';
 import { sauvegarderBase, type Sauvegarde } from '../sauvegarde.ts';
 import { seedDemo } from '../seed.ts';
 import { ActionError, requireRhAdmin, type ActionHandler } from './context.ts';
+import { amorcerEntites } from '../demarrage.ts';
 
 /** Réglages envoyés par l'écran Paramètres : chaque champ passe par son contrôle (table REGLAGES de shared/reglages.ts). */
 const maj: ActionHandler = async (ctx, p) => {
@@ -42,6 +43,8 @@ const reinitialiser: ActionHandler = async (ctx) => {
     throw new ActionError('Sauvegarde préalable impossible : réinitialisation annulée', 500);
   }
   await seedDemo(ctx.db);
+  // lot 11 — organigramme : entité unique reposée, comme au démarrage (server/src/demarrage.ts).
+  await amorcerEntites(ctx.db);
   return copie ? `Données de démonstration réinitialisées (sauvegarde ${basename(copie.fichier)})` : 'Données de démonstration réinitialisées';
 };
 

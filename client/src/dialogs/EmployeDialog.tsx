@@ -4,6 +4,8 @@
 // peut aussi en saisir un nouveau, ajouté au référentiel sans exigence.
 // Matricule de paie : unique ; reprendre celui d'un salarié sorti (réembauche) se confirme, par l'administrateur RH, qui
 // seul change ou retire un matricule déjà enregistré.
+// lot 11 — indicateurs : sexe et catégorie d'emploi (BDESE, index d'égalité), listes fermées saisies par le service RH,
+// catégorie proposée d'après le statut, jamais imposée ; absents du formulaire du manager.
 import { useEffect, useRef, useState } from 'react';
 import { isValidDate } from '../../../shared/dates.ts';
 import { AVIS_MEDICAL, MODE_NOTIFICATION_LABEL, MOTIFS_REPRISE, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../../../shared/constants.ts';
@@ -20,6 +22,9 @@ import { contratFige } from '../../../shared/rules/temps.ts';
 import { fichePropre } from '../../../shared/rules/soi-meme.ts';
 import { equipeDeNuit, finDerogationTravaux, mineurAu } from '../../../shared/rules/mineurs.ts';
 import type { MotifRecours, Statut, TempsTravail, TypeContrat } from '../../../shared/types.ts';
+// lot 11 — indicateurs
+import { CATEGORIES_EMPLOI, categorieProposee, SEXES } from '../../../shared/rules/indicateurs-legaux.ts';
+import type { CategorieEmploi, Sexe } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Btn, Fine, NoteAccent, SectionLabel, Seg } from '../components/ui.tsx';
 import { NOUVEAU_POSTE, PosteChoix, PosteLibelle } from '../components/PosteChoix.tsx';
@@ -45,6 +50,8 @@ interface Form {
   effet: string;
   /** CDD et intérim : motif de recours (liste fermée) ; CDD : terme initial, avant ses renouvellements. */
   motifRecours: string; cddFinInitiale: string;
+  /** lot 11 — indicateurs : sexe (F, M) et catégorie d'emploi ; `''` : à compléter. */
+  sexe: string; categorie: string;
 }
 
 /** Paramètres de l'organisation du temps : leur modification prend effet à une date choisie (`tempsDepuis`). */
@@ -69,6 +76,8 @@ function toForm(p: ProfilInput, today: string): Form {
     essaiFin: p.essaiFin ?? '', essaiRenouvele: p.essaiRenouveleJusquau ?? '',
     effet: today,
     motifRecours: p.motifRecours ?? '', cddFinInitiale: p.cddFinInitiale ?? '',
+    // lot 11 — indicateurs
+    sexe: p.sexe ?? '', categorie: p.categorie ?? '',
   };
 }
 
@@ -82,6 +91,8 @@ function toInput(f: Form, tempsDepuis: string | null): ProfilInput {
     visite: f.visite || null, repriseMotif: f.repriseMotif || null, repriseDate: f.repriseDate || null,
     essaiFin: f.essaiFin || null, essaiRenouveleJusquau: f.essaiRenouvele || null,
     motifRecours: (f.motifRecours || null) as ProfilInput['motifRecours'], cddFinInitiale: f.cddFinInitiale || null,
+    // lot 11 — indicateurs
+    sexe: (f.sexe || null) as Sexe | null, categorie: (f.categorie || null) as CategorieEmploi | null,
   };
 }
 
@@ -504,6 +515,9 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
         options={(Object.keys(STATUTS) as Statut[]).map(k => [k, STATUTS[k].court] as [Statut, string])} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }} />
       <Fine>{st.label} — {st.cadre ? 'cadre' : 'non-cadre'} au sens de la CCN Industries chimiques.</Fine>
 
+      {/* lot 11 — indicateurs : sexe et catégorie d'emploi, service RH et intéressé seulement (agrégats masqués ailleurs). */}
+      <IndicateursFiche sexe={f.sexe} categorie={f.categorie} statut={f.statut} set={set} />
+
       <SectionLabel>Temps de travail</SectionLabel>
       <div className="grid-2">
         <Field label="Organisation du temps" htmlFor="emp-temps" erreur={err('temps')}>
@@ -592,4 +606,42 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
       {messages}
     </Dialog>
   );
+}
+
+/**
+ * lot 11 — indicateurs : sexe (DSN) et catégorie d'emploi à 4 valeurs, pour la BDESE et l'index d'égalité. La catégorie
+ * proposée d'après le statut (technicien → TAM, cadre → cadre ; ouvrier et employé restent à choisir) n'est qu'un bouton :
+ * rien n'est rempli sans le service RH.
+ */
+function IndicateursFiche({ sexe, categorie, statut, set }: {
+  sexe: string; categorie: string; statut: Statut; set: (k: 'sexe' | 'categorie', v: string) => void;
+}) {
+  const proposee = categorieProposee(statut);
+  return (<>
+    <SectionLabel>Indicateurs sociaux</SectionLabel>
+    <div className="grid-2">
+      <Field label={<>Sexe <span className="who">· à compléter si vide</span></>} htmlFor="emp-sexe">
+        <select className="input" id="emp-sexe" value={sexe} onChange={ev => set('sexe', ev.target.value)}>
+          <option value="">Non renseigné</option>
+          {(Object.keys(SEXES) as Sexe[]).map(k => <option key={k} value={k}>{SEXES[k].label}</option>)}
+        </select>
+      </Field>
+      <Field label={<>Catégorie d’emploi <span className="who">· à compléter si vide</span></>} htmlFor="emp-categorie">
+        <select className="input" id="emp-categorie" value={categorie} onChange={ev => set('categorie', ev.target.value)}>
+          <option value="">Non renseignée</option>
+          {(Object.keys(CATEGORIES_EMPLOI) as CategorieEmploi[]).map(k => <option key={k} value={k}>{CATEGORIES_EMPLOI[k].label}</option>)}
+        </select>
+        {proposee && categorie !== proposee && (
+          <span className="text-muted sub">
+            D’après le statut : {CATEGORIES_EMPLOI[proposee].label.toLowerCase()}{' '}
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => set('categorie', proposee)}>Reprendre</button>
+          </span>
+        )}
+      </Field>
+    </div>
+    <Fine>
+      Pour la BDESE et l’index d’égalité professionnelle : visibles du service RH et du salarié seulement, jamais de son manager ;
+      les indicateurs n’en montrent que des agrégats, masqués sous le seuil d’anonymat. Le journal garde le nom du champ modifié, jamais sa valeur.
+    </Fine>
+  </>);
 }

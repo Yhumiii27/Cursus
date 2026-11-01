@@ -1,7 +1,7 @@
 // Feuilles de temps : saisie, soumission, validation, transmission à Sage Paie (lots de paie : actions/paie.ts).
 import { addD, isFerie, isValidDate, isoWeek, joursSemaine, mondayOf } from '../../../shared/dates.ts';
 import { Domain } from '../../../shared/domain.ts';
-import { fH, num, plural } from '../../../shared/format.ts';
+import { fH, fmtIso, num, plural } from '../../../shared/format.ts';
 import { fusionProposition } from '../../../shared/rules/formations-temps.ts';
 import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
 import { ACTIVITE_ASTREINTE } from '../../../shared/constants.ts';
@@ -93,11 +93,18 @@ export async function saveLines(ctx: Ctx, sh: FeuilleTemps, lignes: LigneTemps[]
  */
 const setCell: ActionHandler = async (ctx, p) => {
   const { emp, sh } = await editable(ctx, p);
-  const li = Number(p.li), di = Number(p.di);
+  await ecrireCellule(ctx, emp, sh, Number(p.li), Number(p.di), heuresSaisies(p.value));
+  return null;
+};
+
+/** Heures saisies dans une cellule : de 0 à 24, au centième ; texte quelconque lu comme un nombre (« 7,5 h »). */
+const heuresSaisies = (v: unknown) => Math.round(Math.max(0, Math.min(24, num(String(v ?? '').replace(/[^\d.,]/g, '')))) * 100) / 100;
+
+/** Écrit `v` heures dans la cellule (ligne `li`, jour `di`) d'une feuille modifiable, avec toutes les règles de la saisie. */
+async function ecrireCellule(ctx: Ctx, emp: Employe, sh: FeuilleTemps, li: number, di: number, v: number) {
   if (!sh.lignes[li] || !(Number.isInteger(di) && di >= 0 && di < JOURS_FEUILLE)) throw new ActionError('Cellule invalide');
   // Ligne des interventions d'astreinte (t049) : tenue par leur déclaration, avec les heures de début et de fin.
   if (sh.lignes[li].projet === ACTIVITE_ASTREINTE.code) throw new ActionError(INTERVENTION_A_DECLARER);
-  const v = Math.round(Math.max(0, Math.min(24, num(String(p.value ?? '').replace(/[^\d.,]/g, '')))) * 100) / 100;
   // Aucune heure un jour d'absence (validée ou signalée) ni hors contrat ; vider la cellule reste toujours possible, pour corriger.
   const abs = joursAbsence(ctx.d, sh.empId, sh.week)[di];
   if (v > 0 && abs) throw new ActionError(`${absenceCeJour(abs)} : aucune heure ne peut être saisie`);
@@ -115,12 +122,42 @@ const setCell: ActionHandler = async (ctx, p) => {
   const demi = v > num(sh.lignes[li].h[di]) ? demiJourneeRefus(ctx.d, sh, di, jour) : null;
   if (demi) throw new ActionError(demi);
   await saveLines(ctx, sh, lignes);
+}
+
+/**
+ * Saisie du jour rejouable (lot 11, chantier C2 : file hors ligne de l'application mobile, shared/hors-ligne.ts) : la
+ * cellule est désignée par la ligne (`projet`, `tache`) et le jour (`di`), jamais par l'indice de ligne, qui peut changer
+ * entre la saisie et le rejeu (ligne supprimée ou ajoutée depuis un autre poste) ; `base` : valeur vue au moment de la
+ * saisie. Si la cellule a changé depuis (correction du manager, saisie depuis le PC) et ne vaut ni `base` ni la nouvelle
+ * valeur, refus 409 avec les deux valeurs, au lieu d'écraser : la saisie passe dans « À reprendre ». Valeur déjà écrite
+ * (rejeu d'une saisie arrivée) : rien n'est refait. Toutes les règles de temps.setCell s'appliquent (feuille soumise,
+ * validée ou figée, absence, hors contrat, férié, 24 h, demi-journée).
+ */
+const saisir: ActionHandler = async (ctx, p) => {
+  const projet = str(p.projet), tache = str(p.tache), di = Number(p.di);
+  if (!projet || !(Number.isInteger(di) && di >= 0 && di < JOURS_FEUILLE)) throw new ActionError('Cellule invalide');
+  const { emp, sh } = await editable(ctx, p);
+  // Première ligne du projet et de la tâche (une ligne en double garde ses heures, comme dans la grille).
+  const li = sh.lignes.findIndex(l => l.projet === projet && (!tache || l.tache === tache));
+  if (li < 0) throw new ActionError(`Ligne ${projet} absente de la feuille : ajoutez-la de nouveau, puis saisissez les heures`, 409);
+  const v = heuresSaisies(p.value), actuelle = num(completerSemaine(sh.lignes[li].h)[di]);
+  if (actuelle === v) return null;
+  const base = heuresSaisies(p.base);
+  if (actuelle !== base) {
+    throw new ActionError(`Conflit : la cellule du ${fmtIso(addD(sh.week, di))} (${projet}) vaut maintenant ${fH(actuelle)}, vous aviez vu ${fH(base)} et saisi ${fH(v)} — vérifiez la feuille avant de saisir de nouveau`, 409);
+  }
+  await ecrireCellule(ctx, emp, sh, li, di, v);
   return null;
 };
 
+/**
+ * `siAbsente` (lot 11, file hors ligne) : ligne ajoutée seulement si le projet n'est pas déjà sur la feuille (ajoutée
+ * entre-temps depuis un autre poste), pour qu'un rejeu ne la double pas.
+ */
 const addLine: ActionHandler = async (ctx, p) => {
   const { sh } = await editable(ctx, p);
   const projet = str(p.projet);
+  if (p.siAbsente === true && sh.lignes.some(l => l.projet === projet)) return null;
   // Projets transmis par Keystone (server/src/integrations/keystone-entrant.ts) ; un projet archivé n'est plus proposé.
   const pr = ctx.ds.referentiels.projets.find(x => x.code === projet);
   if (!pr) throw new ActionError('Projet inconnu');
@@ -305,6 +342,8 @@ const pushSage: ActionHandler = async ctx => await pushSageSimulation(ctx);
 
 export const tempsActions = {
   'temps.setCell': setCell,
+  // lot 11 — pwa
+  'temps.saisir': saisir,
   'temps.addLine': addLine,
   'temps.removeLine': removeLine,
   'temps.suggest': suggest,

@@ -19,6 +19,8 @@ export const PERIMETRES_DELEGATION: Record<PerimetreDelegation, { label: string;
   absences: { label: 'Congés et absences', court: 'congés' },
   feuilles: { label: 'Feuilles de temps', court: 'feuilles de temps' },
   entretiens: { label: 'Entretiens', court: 'entretiens' },
+  // lot 11 — notes de frais : seulement le module activé (réglage `notesFraisActives`).
+  frais: { label: 'Notes de frais', court: 'notes de frais' },
 };
 export const estPerimetre = (v: unknown): v is PerimetreDelegation => typeof v === 'string' && Object.hasOwn(PERIMETRES_DELEGATION, v);
 
@@ -28,13 +30,13 @@ export const DUREE_MAX_DELEGATION = 92;
 type DsDelegation = {
   employes: readonly Pick<Employe, 'id' | 'equipe'>[];
   referentiels: { equipes: readonly Pick<Equipe, 'nom' | 'managerId' | 'parente'>[] };
-  settings: Pick<Settings, 'delegationEntretiens'>;
+  settings: Pick<Settings, 'delegationEntretiens'> & Partial<Pick<Settings, 'notesFraisActives'>>;
   delegations?: readonly DelegationValidation[];
 };
 
 /** Périmètre retenu d'une délégation : celui saisi, sans les entretiens tant que le réglage ne les ouvre pas. */
-export const perimetreEffectif = (s: Pick<Settings, 'delegationEntretiens'>, g: Pick<DelegationValidation, 'perimetre'>): PerimetreDelegation[] =>
-  g.perimetre.filter(p => p !== 'entretiens' || s.delegationEntretiens);
+export const perimetreEffectif = (s: Pick<Settings, 'delegationEntretiens'> & Partial<Pick<Settings, 'notesFraisActives'>>, g: Pick<DelegationValidation, 'perimetre'>): PerimetreDelegation[] =>
+  g.perimetre.filter(p => (p !== 'entretiens' || s.delegationEntretiens) && (p !== 'frais' || !!s.notesFraisActives));
 
 /** Délégation en vigueur ce jour-là (bornes comprises), non révoquée. */
 export const delegationEnVigueur = (g: DelegationValidation, jour: ISODate) => !g.revoqueeLe && g.du <= jour && jour <= g.au;
@@ -159,6 +161,8 @@ export function controleDelegation(
   if (s && ((s.entree && s.entree > du) || (s.fin && s.fin < au))) return `${noms.nom(g.suppleantId)} n’est pas présent dans l’entreprise pendant toute la période`;
   if (!g.perimetre.length || !g.perimetre.every(estPerimetre)) return 'Choisissez ce que le suppléant valide : congés, feuilles de temps';
   if (g.perimetre.includes('entretiens') && !ds.settings.delegationEntretiens) return 'La délégation des entretiens n’est pas ouverte (Paramètres → Hiérarchie des managers)';
+  // lot 11 — notes de frais
+  if (g.perimetre.includes('frais') && !ds.settings.notesFraisActives) return 'Les notes de frais ne sont pas activées (Paramètres → Notes de frais)';
   const actives = (ds.delegations ?? []).filter(x => !x.revoqueeLe && x.au >= ds.today);
   const deja = actives.find(x => x.managerId === g.managerId && chevauche(x, { du, au }));
   if (deja) return `${noms.nom(g.managerId)} a déjà délégué ses validations à ${noms.nom(deja.suppleantId)} sur une partie de cette période : révoquez-la d’abord`;

@@ -8,6 +8,7 @@ import { sessionActive } from '../../../shared/domain.ts';
 import type { PlanAction, Session } from '../../../shared/types.ts';
 import { ActionError, requireRhAdmin, type ActionHandler } from './context.ts';
 import { refuserExerciceClos } from './budget.ts';
+import { transfererDossiers } from './opco.ts';
 
 const cloturer: ActionHandler = async (ctx, p) => {
   requireRhAdmin(ctx);
@@ -22,6 +23,7 @@ const cloturer: ActionHandler = async (ctx, p) => {
     return l;
   });
   if (choisies.length) refuserExerciceClos(ctx, ex + 1);
+  let dossiers = 0;
   for (const l of choisies) {
     // Nouvelle ligne au premier trimestre de l'exercice suivant, au même coût prévu et au même statut ; les sessions
     // ouvertes de l'action d'origine la suivent (leur clôture réalisera la nouvelle ligne).
@@ -31,6 +33,8 @@ const cloturer: ActionHandler = async (ctx, p) => {
     });
     await ctx.db.update<PlanAction>('planActions', l.id, { statut: 'reporte' });
     for (const s of ctx.ds.sessions.filter(s => s.planId === l.id && sessionActive(s))) await ctx.db.update<Session>('sessions', s.id, { planId: n.id });
+    // lot 11 — dossiers OPCO : les dossiers actifs de l'action suivent la nouvelle ligne et son exercice.
+    dossiers += await transfererDossiers(ctx, l.id, n.id, ex + 1);
   }
   await ctx.db.insert('exercicesClos', { exercice: ex, le: ctx.d.ti, par: ctx.user.nom });
   const restees = possibles.length - choisies.length;
@@ -38,6 +42,7 @@ const cloturer: ActionHandler = async (ctx, p) => {
     `Exercice ${ex} clos le ${fmtIso(ctx.d.ti)}`,
     choisies.length ? `${plural(choisies.length, 'action reportée', 'actions reportées')} sur ${ex + 1}` : '',
     restees ? `${plural(restees, 'action non réalisée laissée', 'actions non réalisées laissées')} dans ${ex}` : '',
+    dossiers ? `${plural(dossiers, 'dossier OPCO transféré', 'dossiers OPCO transférés')} avec les actions reportées` : '',
   ].filter(Boolean).join(' · ');
 };
 

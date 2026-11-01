@@ -296,6 +296,12 @@ export interface EntreeJournal {
 /** Longueur au plus d'un message du journal, par sécurité (un message peut reprendre une donnée reçue). */
 const MESSAGE_MAX = 2000;
 
+// lot 11 — notes de frais : masque central de l'objet d'une pièce de frais médicaux, quelle que soit la trace qui le
+// recopie (piece.joindre et piece.retirer par leur règle, piece.consulter et piece.deposer par la route des pièces) :
+// `ligneFraisSante` est inscrit `ligneFrais`, le libellé des deux objets est le même.
+const sansObjetSante = (payload: unknown): unknown =>
+  (payload && typeof payload === 'object' && (payload as Record<string, unknown>).objet === 'ligneFraisSante' ? { ...payload, objet: 'ligneFrais' } : payload);
+
 /**
  * Trace une opération dans le journal, signée du nom de la personne et de son compte. Le contenu est
  * déjà expurgé (liste blanche de server/src/journal.ts) ; une action liée à la paie est marquée pour
@@ -304,7 +310,7 @@ const MESSAGE_MAX = 2000;
 export async function journaliser(db: Db, e: EntreeJournal) {
   const message = e.message != null && e.message.length > MESSAGE_MAX ? `${e.message.slice(0, MESSAGE_MAX)}…` : e.message;
   await db.insert('journal', {
-    at: e.at ?? new Date().toISOString(), actor: e.actor, role: e.role, action: e.action, message, payload: e.payload ?? {},
+    at: e.at ?? new Date().toISOString(), actor: e.actor, role: e.role, action: e.action, message, payload: sansObjetSante(e.payload ?? {}),
     compteId: e.compte?.id ?? null, identifiant: e.compte?.identifiant ?? null, salaries: [...new Set(e.salaries ?? [])], paie: estActionPaie(e.action),
   });
 }

@@ -6,10 +6,15 @@ import { isValidDate } from './dates.ts';
 import { CONTRATS_EXCLUABLES, PREAVIS_TOUTE_ANNEE } from './rules/campagne.ts';
 import { JOURS_RELANCE, paliersRelance } from './rules/relances.ts';
 import { nuitHorsLoi, refusPlageNuit } from './rules/repos-nuit.ts';
-import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesTexte, DOSSIER_MIN_ANS, DUREE_MAX_ANS } from './rules/conservation.ts';
+import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesTexte, DOSSIER_MIN_ANS, DUREE_MAX_ANS, FRAIS_MIN_ANS } from './rules/conservation.ts';
 import { DELAI_JOUR_FRANC, DELAI_PREVENANCE_LEGAL } from './rules/astreintes.ts';
 import { COLONNES_PASSEPORT_DEFAUT, COLONNES_PASSEPORT_IDS } from './rules/passeport-prevention.ts';
-import type { CategorieEvaluee, ColonnePasseport, CompensationAstreinte, ContenuAgenda, ModeAttente, RepondantsFroid, Settings, StockagePieces } from './types.ts';
+import type { CategorieEvaluee, CategorieFrais, CircuitFrais, CodeOpco, ColonnePasseport, CompensationAstreinte, ContenuAgenda, ModeAttente, OrganigrammeOuvert, RepondantsFroid, Settings, StockagePieces } from './types.ts';
+// lot 11 — indicateurs
+import { NATURES_ABSENTEISME_DEFAUT, NATURES_ABSENTEISME_POSSIBLES, SEUIL_INDICATEURS_DEFAUT, SEUIL_INDICATEURS_MAX, SEUIL_INDICATEURS_MIN } from './rules/indicateurs-legaux.ts';
+import { CODES_OPCO } from './rules/opco.ts';
+// lot 11 — notes de frais, étape 2
+import { COMPTE_FRAIS_GENERIQUE, COMPTE_SALARIE, COMPTE_TVA_DEDUCTIBLE, estCompte, estJournal, GABARIT_FRAIS_DEFAUT, JOURNAL_FRAIS, lireComptes, lireGabarit } from './rules/frais-export.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
 export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
@@ -71,6 +76,32 @@ export const texte = (max: number, libelle: string) => (v: unknown): string => {
   const t = typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '';
   if (t.length > max) throw new ReglageInvalide(`${libelle} : ${max} caractères au plus`);
   return t;
+};
+
+/**
+ * Plafonds internes des notes de frais (lot 11) : montant en euros par catégorie de frais réels, vide ou 0 : aucun
+ * plafond ; ni indemnité kilométrique ni allocation forfaitaire (leur limite est celle de l'URSSAF, saisie par année).
+ */
+const CATEGORIES_PLAFOND: readonly CategorieFrais[] = ['repas', 'repas_affaires', 'hotel', 'train', 'avion', 'taxi', 'transport', 'carburant', 'peage', 'parking', 'location', 'divers', 'medical'];
+export const plafondsFrais = (v: unknown): Partial<Record<CategorieFrais, number>> => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) throw new ReglageInvalide('Plafonds des notes de frais : liste par catégorie attendue');
+  const out: Partial<Record<CategorieFrais, number>> = {};
+  for (const c of CATEGORIES_PLAFOND) {
+    const x = (v as Record<string, unknown>)[c];
+    if (x === undefined || x === null || x === '' || x === 0) continue;
+    const n = Number(x);
+    if (!Number.isFinite(n) || n < 0 || n > 100000) throw new ReglageInvalide('Plafonds des notes de frais : montant en euros de 0 à 100 000');
+    out[c] = Math.round(n * 100) / 100;
+  }
+  return out;
+};
+
+// lot 11 — notes de frais, étape 2
+/** Compte comptable (chiffres et lettres majuscules, 13 caractères au plus), espaces retirés. */
+export const compteComptable = (libelle: string) => (v: unknown): string => {
+  const c = typeof v === 'string' ? v.trim().toUpperCase() : '';
+  if (!estCompte(c)) throw new ReglageInvalide(`${libelle} : chiffres et lettres, 13 caractères au plus`);
+  return c;
 };
 
 /** Stockage des pièces justificatives : désactivé ou dossier local ; la GED n'est pas encore raccordée. */
@@ -276,6 +307,52 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   evaluationFroidDelai: { defaut: 90, controle: entier(30, 365) },
   evaluationFroidPar: { defaut: 'les_deux', controle: choix<RepondantsFroid>(['les_deux', 'salarie', 'manager']) },
   evaluationFroidCategories: { defaut: ['Réglementaire', 'Recommandée'], controle: parmi<CategorieEvaluee>(['Réglementaire', 'Recommandée', 'Interne', 'Hors catalogue']) },
+  // lot 11 — organigramme (shared/rules/organigramme.ts, t195) : ouvert à tous les salariés, limité à l'annuaire (choix par
+  //   défaut du chantier, réponse de l'entreprise du 31 octobre 2026) ; l'administrateur RH peut le restreindre —
+  organigrammeOuvert: { defaut: 'tous', controle: choix<OrganigrammeOuvert>(['rh', 'managers', 'tous']) },
+  // lot 11 — indicateurs (shared/rules/indicateurs-legaux.ts, t197) : seuil d'anonymat de 5, réglable de 3 à 10 ; absentéisme
+  //   compté sur la santé, l'enfant malade, le sans solde et l'absence injustifiée (choix par défaut du chantier, à arrêter
+  //   avec le CSE) ; au moins une nature —
+  indicateursSeuil: { defaut: SEUIL_INDICATEURS_DEFAUT, controle: entier(SEUIL_INDICATEURS_MIN, SEUIL_INDICATEURS_MAX) },
+  absenteismeNatures: { defaut: NATURES_ABSENTEISME_DEFAUT, controle: v => {
+    const n = parmi(NATURES_ABSENTEISME_POSSIBLES)(v);
+    if (!n.length) throw new ReglageInvalide('Absentéisme : gardez au moins une nature d’absence comptée');
+    return n;
+  } },
+  // lot 11 — dossiers OPCO (shared/rules/opco.ts, chantier C4) : OPCO 2i proposé, sans subrogation ; dépôt 30 jours avant le
+  //   début, justificatifs 90 jours après la fin, relance du remboursement 60 jours après leur envoi (valeurs à confirmer avec
+  //   le service RH d'après les conditions de l'OPCO de l'année) —
+  opcoDefaut: { defaut: 'opco2i', controle: choix<CodeOpco>(CODES_OPCO) },
+  opcoSubrogation: { defaut: false, controle: booleen },
+  opcoDelaiDepot: { defaut: 30, controle: entier(0, 180) },
+  opcoDelaiJustificatifs: { defaut: 90, controle: entier(15, 365) },
+  opcoDelaiRemboursement: { defaut: 60, controle: entier(15, 365) },
+  // lot 11 — notes de frais (shared/rules/frais*.ts ; section de Paramètres à l'étape 2) : module désactivé jusqu'à l'essai
+  //   de charge et au paramétrage ; validation du manager puis contrôle ; délai de soumission de 3 mois ; plafonds internes
+  //   vides (aucune politique connue) ; justificatif toujours exigé ; indemnités à la puissance plafonnée à 7 CV ;
+  //   notes payées et justificatifs gardés 10 ans (terme comptable, art. L123-22 du Code de commerce) —
+  notesFraisActives: { defaut: false, controle: booleen },
+  fraisCircuit: { defaut: 'manager_controle', controle: choix<CircuitFrais>(['manager_controle', 'manager']) },
+  fraisDelaiSoumissionMois: { defaut: 3, controle: entier(0, 24) },
+  fraisPlafonds: { defaut: {}, controle: plafondsFrais },
+  fraisSeuilJustificatif: { defaut: 0, controle: entier(0, 1000) },
+  fraisIkCvReels: { defaut: false, controle: booleen },
+  // 10 ans au moins : pièces justificatives comptables (art. L123-22 du Code de commerce) ; une durée plus courte ferait
+  // effacer par la cascade des notes payées et leurs justificatifs avant le terme légal.
+  conservationFraisAns: { defaut: 10, controle: entier(FRAIS_MIN_ANS, DUREE_MAX_ANS) },
+  // lot 11 — notes de frais, étape 2 (shared/rules/frais-export.ts) : fichier d'écritures pour la comptabilité, comptes du
+  //   plan comptable général proposés (625x, TVA déductible 44566, salarié 421), journal « OD », gabarit du fichier de
+  //   paie ; à confirmer par la comptabilité (plan de comptes, compte du salarié, journal, format d'import) —
+  fraisComptes: { defaut: {}, controle: v => { const c = lireComptes(v); if (typeof c === 'string') throw new ReglageInvalide(c); return c; } },
+  fraisCompteGenerique: { defaut: COMPTE_FRAIS_GENERIQUE, controle: compteComptable('Compte générique des frais') },
+  fraisCompteTva: { defaut: COMPTE_TVA_DEDUCTIBLE, controle: compteComptable('Compte de TVA déductible') },
+  fraisCompteSalarie: { defaut: COMPTE_SALARIE, controle: compteComptable('Compte du salarié') },
+  fraisJournal: { defaut: JOURNAL_FRAIS, controle: v => {
+    const j = typeof v === 'string' ? v.trim().toUpperCase() : '';
+    if (!estJournal(j)) throw new ReglageInvalide('Journal comptable : 1 à 6 lettres ou chiffres');
+    return j;
+  } },
+  fraisGabarit: { defaut: GABARIT_FRAIS_DEFAUT, controle: v => { const g = lireGabarit(v); if (typeof g === 'string') throw new ReglageInvalide(`Fichier d’écritures : ${g}`); return g; } },
 };
 
 /**
@@ -325,7 +402,8 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   s => (s.conservationDossierAns < DOSSIER_MIN_ANS
     ? `Conservation des dossiers : ${DOSSIER_MIN_ANS} ans au moins pour le dossier : l’identité et le titre de séjour figurent au registre unique du personnel, gardé 5 ans après le départ (art. R1221-26)` : null),
   s => {
-    const plus = CATEGORIES.filter(c => c !== 'dossier' && s[CATEGORIES_CONSERVATION[c].reglage] > s.conservationDossierAns);
+    // lot 11 — notes de frais : gardées au-delà du dossier (l'anonymisation laisse les notes payées jusqu'à leur terme).
+    const plus = CATEGORIES.filter(c => c !== 'dossier' && !CATEGORIES_CONSERVATION[c].auDelaDuDossier && s[CATEGORIES_CONSERVATION[c].reglage] > s.conservationDossierAns);
     return plus.length ? `Conservation des dossiers : ${categoriesTexte(plus)} au-delà de la durée du dossier, dont l’anonymisation efface tout` : null;
   },
   // — Astreintes : un délai de prévenance plus court que 15 jours suppose un accord collectif (art. L3121-11) —

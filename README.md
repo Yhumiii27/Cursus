@@ -108,10 +108,24 @@ santé ; chaque export est tracé au journal. La page
 **Confidentialité**, ouverte depuis l'écran de connexion et depuis chaque espace, informe les salariés sur le
 traitement de leurs données ; le responsable du traitement et le DPO se règlent dans Paramètres → Confidentialité, et
 `docs/RGPD.md` décrit le traitement pour le registre et l'analyse d'impact de l'employeur.
+L'**organigramme** (lot 11), ouvert à tous les salariés par défaut (réglable : managers ou service RH seulement), montre
+les sociétés, établissements, équipes et présents du jour à partir de l'annuaire (nom, poste, équipe, manager), sans
+contrat, absence ni santé ; il se cherche, se filtre par entité et par site, s'imprime en paysage (une entité par page) et
+s'exporte en CSV. Le service RH tient les entités (SIREN, SIRET, IDCC) et les sites dans Référentiels → « Entités et
+sites », et rattache chaque équipe à son entité, son site et son unité Matrix (Équipes & managers, « Rattachement ») ; le
+site et l'unité de chaque salarié en découlent.
 La page **Aide**, ouverte de même depuis chaque espace et depuis l'écran de connexion, donne un guide court par rôle
 (collaborateur, manager, service RH, gestionnaire de paie), l'ouverture progressive au groupe pilote et ce qui reste à
 fournir avant la mise en service ; sa version détaillée, avec la procédure mensuelle de paie, est
 `docs/GUIDE-UTILISATEUR.md`.
+
+**Application mobile** (lot 11) : Cursus s'installe sur le téléphone depuis le navigateur (manifeste, service worker
+écrit à la main, icônes de `scripts/icones.mjs`), en HTTPS. Une application ouverte qui perd le réseau garde les
+heures, une ligne de projet et les demandes de congé, chiffrées sur l'appareil, et les envoie au retour du réseau sans
+doublon ni écrasement (refus en conflit « À reprendre ») ; ouverte sans réseau, elle ne montre que ces saisies.
+Notifications génériques sur le téléphone, choisies par la personne (« Mes appareils »), jamais de 20 h à 7 h ni le
+week-end. Barre d'onglets en mode installé. Mise en production (certificat, pare-feu, clés VAPID, limites d'iOS) :
+`docs/DEPLOIEMENT.md`, « Application mobile » ; fonctionnement : `docs/ARCHITECTURE.md`.
 
 ## Application de bureau (macOS)
 
@@ -121,7 +135,8 @@ npm run app
 
 Crée `Cursus.app` sur le Bureau : double-cliquez pour ouvrir Cursus dans sa propre fenêtre. L'application
 démarre le serveur local en mode démonstration (port 3217, accessible uniquement depuis ce Mac) et l'arrête à la fermeture.
-Relancez `npm run app` après une modification du code ou un déplacement du dossier. Journal du serveur :
+Relancez `npm run app` après une modification du code ou un déplacement du dossier. Elle pose `CURSUS_PWA=0` : ni
+service worker ni notifications dans sa fenêtre. Journal du serveur :
 `~/Library/Logs/Cursus/serveur.log`. L'application utilise la même base que `npm run dev`
 (`data/cursus.db`) : les deux ne peuvent pas tourner en même temps.
 
@@ -143,6 +158,7 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 | `npm run audit` | Failles connues des dépendances de production (`npm audit`), en échec à partir de la gravité « high » |
 | `npm run mesure` | Taille de l'instantané et durée des actions sur une base temporaire de 100 salariés et 3 ans (`npm run mesure -- 200` : autre effectif) |
 | `npm run charge:generer -- --ans 5` puis `npm run charge -- --scenario S3 --duree 120` | Essai de charge sur PostgreSQL (`CURSUS_TEST_DATABASE_URL` : serveur de test, jamais le serveur commun) : jeu réaliste de 5 ans dans un schéma jetable, scénarios simultanés S1 à S6, rapport et seuils dans `data/charge/rapports/` (`docs/ARCHITECTURE.md`, « Performances ») ; `-- --supprimer` retire les schémas de l'essai ; `--verifier-exactitude [k]` compare en plus, toutes les k actions validées, le cache à la relecture complète (invariant « 0 divergence ») ; `--client-brut` fait lire chaque réponse d'un bloc et la décompresser en une opération (temps du serveur, sans le décodage morceau par morceau de fetch dans la boucle de Cursus) ; `--sans-prechauffage-vues` ne préchauffe que l'entrée du cache |
+| `npm run charge:indicateurs [-- --effectif 500 --ans 3]` | Lot 11 : durée du calcul des indicateurs sociaux (premier calcul, mémoire, onglet BDESE, arrêté) sur une base SQLite temporaire, comparée aux budgets (`docs/ARCHITECTURE.md`, indicateurs sociaux, étape 2) ; code 1 au-delà |
 | `npm run backup` | Copie à chaud vérifiée de la base dans `data/backups`, avec rotation |
 | `npm run restore -- <fichier>` | Remplace la base par une sauvegarde (serveur arrêté) |
 | `DATABASE_URL=… npm run reprise-postgres -- [<base SQLite>] [--a-blanc]` | Reprise d'une base SQLite sur le serveur PostgreSQL commun, une fois, service arrêté ; `--a-blanc` : contrôles et compte rendu sans rien écrire (`docs/DEPLOIEMENT.md`) |
@@ -194,6 +210,7 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `CURSUS_SUPERVISION_TOKEN` | Jeton (32 caractères au moins) de l'outil de supervision : avec `Authorization: Bearer <jeton>`, `/api/health` donne aussi la version, le mode et les envois en échec. Facultatif ; ce détail est toujours donné à un appel local fait sur la machine (dans le conteneur avec Docker : `docker exec`) |
 | `CURSUS_LOG_FORMAT` | Journaux du serveur : `json` (par défaut en production : une ligne JSON par message et par requête, pour l'agrégateur de Coolify ou du service informatique) ou `texte` (par défaut ailleurs). Jamais le corps ni les paramètres des requêtes |
 | `CURSUS_COMPRESSION` | `1` par défaut : Cursus compresse ses réponses (brotli, sinon gzip) ; `0` si le proxy compresse déjà |
+| `CURSUS_PWA` | `1` par défaut (lot 11) : application installable, service worker `/sw.js` servi en `no-cache` ; `0` la coupe (`/sw.js` en 404), posée par l'application de bureau |
 | `CURSUS_BACKUP_DIR` | Dossier des sauvegardes (`backups/` à côté de la base par défaut) |
 | `CURSUS_BACKUP_KEEP` | Sauvegardes conservées par type (14 par défaut, `0` pour tout garder) |
 | `CURSUS_PIECES_DIR` | Dossier des pièces justificatives en stockage local (`pieces/` à côté de la base par défaut : `/data/pieces` dans l'image Docker). Réservé au compte du serveur (`700`, fichiers en `600`) |
@@ -356,6 +373,33 @@ incrémental ait servi (entrées dérivées par le delta, aucun repli : compteur
   par le service RH (inscription, ligne du plan ou titre en attente défaits). Motif obligatoire, réservé au service RH ;
   rien n'est effacé : une certification ou une ligne supprimée sort des calculs et reste tracée. Une certification sur
   laquelle s'appuie une habilitation délivrée ne se corrige qu'après la suspension de l'habilitation.
+- **Dossiers OPCO** (lot 11, version simple) : prise en charge d'une action du plan, de la demande au solde (dépôt, accord
+  ou refus, justificatifs, versements, solde), montants calculés (à récupérer, reste à charge, coût net du réalisé),
+  pièces sans salarié (facture et accord gardés 10 ans), échéances (écran Échéances, récapitulatif du service RH) et
+  exports CSV des dossiers et des versements ; onglet « Dossiers OPCO » de Plan & budget, Paramètres → Dossiers OPCO.
+  Ni export comptable, ni connexion au portail de l'OPCO.
+
+## Indicateurs sociaux et BDESE (lot 11)
+
+Écran « Indicateurs sociaux » (service RH et lecture seule) : effectifs, mouvements, absentéisme, formation, âges et
+ancienneté de l'année civile, par sexe, catégorie d'emploi, statut, contrat ou équipe ; BDESE d'une entreprise de moins
+de 300 salariés (art. R2312-9 : rubriques 1° et 2° sur N-2, N-1, N ; 3° à 10° listées avec leur source) et préparation de
+l'index d'égalité (indicateurs 1, 2 et 4 dans Sage et Egapro). Calcul et masquage par le serveur (seuil d'anonymat de 5,
+réglable de 3 à 10, masquage secondaire), graphiques SVG faits maison, impression, export CSV tracé ; arrêté annuel figé
+par l'administrateur RH, mis à disposition du CSE (sans accès à Cursus). Sexe et catégorie saisis sur la fiche par le
+service RH ; une seule échéance « fiches sans sexe ou catégorie ». Détail : `docs/ARCHITECTURE.md`, demandes à Matrix :
+`docs/demandes/matrix-lot11-indicateurs.md`.
+
+## Notes de frais (lot 11)
+
+Module désactivé par défaut (Paramètres → Notes de frais ; activé dans la démonstration). « Mes frais » (collaborateur,
+téléphone d'abord : photo du reçu, « Coller le texte du reçu », dépense rapide aussi depuis la page « Hors ligne » et le
+raccourci « Nouvelle dépense » de l'application installée), validation par le manager (« Notes de frais », jamais les frais
+médicaux), contrôle par la comptabilité (profil « Comptabilité ») ou le service RH, remboursement avec la paie du mois
+suivant (colonne « montant » du fichier Sage), fichier d'écritures pour la comptabilité (`GET /api/frais/exports/:id/fichier`,
+tracé), tableau de bord, notes rattachées dans Missions et Voyages. Pas de virement SEPA (remboursement par la paie).
+Détail : `docs/ARCHITECTURE.md` ; demandes : `docs/demandes/codex-lot11-pieces.md`, `keystone-lot11-frais.md`,
+`matrix-lot11-frais.sql`.
 
 ## Contrat et temps de travail
 

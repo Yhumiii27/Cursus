@@ -1,5 +1,7 @@
 // Jeu de données de démonstration (repris du prototype Claude Design) :
 // 24 collaborateurs d'un site industriel lyonnais, CCN Industries chimiques.
+// lot 11 — notes de frais
+import { fraisDemo } from './frais-demo.ts';
 import { Domain } from '../../shared/domain.ts';
 import { addD, addM, isFerie, joursSemaine, weekday } from '../../shared/dates.ts';
 import { matricule } from '../../shared/format.ts';
@@ -10,6 +12,8 @@ import { cpDroit, rttDroit } from '../../shared/rules/conges.ts';
 import type {
   AutorisationTravail, AvisMedical, Dataset, Employe, EntretienType, Messagerie, ProfilRh, Restriction, Statut, TempsTravail, TypeContrat, VaccinId,
 } from '../../shared/types.ts';
+// lot 11 — indicateurs
+import type { CategorieEmploi, Sexe } from '../../shared/types.ts';
 import { ACTIVITE_FORMATION, MOTIF_RESTRICTION } from '../../shared/constants.ts';
 import { VERSION } from './chemins.ts';
 import type { Db } from './db.ts';
@@ -133,6 +137,14 @@ const PROFILS: Record<number, Profil> = {
   22: cdi('ouvrier', '39h_rtt', '2008-02-04', 1978),
   23: cdi('cadre', 'forfait_jours', '2016-01-04', 1980, { forfaitJours: 218 }),
   24: { statut: 'ouvrier', typeContrat: 'alternance', temps: '35h', entree: '2025-09-01', fin: '2027-08-31', naissance: 2006 },
+};
+
+// lot 11 — indicateurs : sexe et catégorie d'emploi des fiches de démonstration (shared/rules/indicateurs-legaux.ts) ;
+// Yanis Bouzid sans sexe et Bastien Morel (apprenti) sans catégorie, pour montrer les fiches à compléter.
+const SEXE_CATEGORIE_DEMO: Record<number, [Sexe | null, CategorieEmploi | null]> = {
+  1: ['F', 'ouvrier'], 2: ['M', 'tam'], 3: ['F', 'tam'], 4: ['M', 'ouvrier'], 5: ['F', 'cadre'], 6: ['M', 'tam'], 7: ['F', 'employe'], 8: ['M', 'ouvrier'],
+  9: ['F', 'cadre'], 10: ['M', 'ouvrier'], 11: ['F', 'cadre'], 12: ['M', 'cadre'], 13: ['F', 'ouvrier'], 14: ['M', 'tam'], 15: ['F', 'ouvrier'], 16: ['M', 'ouvrier'],
+  17: ['F', 'tam'], 18: ['M', 'tam'], 19: ['F', 'cadre'], 20: [null, 'ouvrier'], 21: ['F', 'employe'], 22: ['M', 'ouvrier'], 23: ['F', 'cadre'], 24: ['M', null],
 };
 
 /** Jour et mois de naissance (date complète : shared/rules/mineurs.ts), l'année étant celle du profil. */
@@ -482,6 +494,8 @@ export async function seedDemo(db: Db) {
         avis: x.avis ?? null, restrictions: x.restrictions ?? [],
         passeportNumero: x.passeport?.numero ?? null, passeportExpire: x.passeport?.expire ?? null,
         autorisationTravail: TITRES_DEMO[e.id] ?? null,
+        // lot 11 — indicateurs
+        sexe: SEXE_CATEGORIE_DEMO[e.id]?.[0] ?? null, categorie: SEXE_CATEGORIE_DEMO[e.id]?.[1] ?? null,
         // CDD de Lucas Martin : accroissement temporaire d'activité, terme initial fin juillet, renouvelé une fois (ci-dessous).
         ...(p.typeContrat === 'cdd' ? { motifRecours: 'accroissement', cddFinInitiale: CDD_DEMO.initial } : {}),
       });
@@ -544,6 +558,8 @@ export async function seedDemo(db: Db) {
     await figerFeuilles(db);
     for (const e of entretiens()) await db.insert('entretiens', e);
     await comptesDemo(db);
+    // lot 11 — notes de frais : module activé en démonstration, barème, forfaits, notes à chaque étape du circuit.
+    await fraisDemo(db);
 
     // Reprise des compteurs : jours déjà pris sur les périodes en cours, arrêtés au jour du chargement (période de CP à
     // prendre et année de RTT de cette date), plafonnés pour laisser un solde réaliste.
@@ -604,6 +620,8 @@ export const RH_DEMO = 'Sandrine Vidal';
 /** Profils des comptes de démonstration, selon le poste du salarié. */
 const PROFILS_DEMO: Record<string, ProfilRh> = {
   'Chargé RH': 'rh_gestionnaire', 'Responsable HSE': 'referent_hse', 'Gestionnaire paie': 'paie', 'Auditrice interne': 'lecture_seule',
+  // lot 11 — notes de frais : Manon Faure contrôle les notes de frais (profil « Comptabilité »).
+  'Assistante de direction': 'comptabilite',
 };
 
 /**

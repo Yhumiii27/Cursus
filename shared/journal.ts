@@ -53,6 +53,12 @@ export const ACTIONS_PAIE: readonly string[] = [
   'forfait.avenant', 'forfait.annulerAvenant',
   // Astreintes (t049, lot 7) : périodes planifiées, modifiées ou annulées (compensation) et interventions (travail effectif).
   'astreinte.planifier', 'astreinte.modifier', 'astreinte.annuler', 'astreinte.intervention', 'astreinte.retirerIntervention',
+  // lot 11 — notes de frais : circuit jusqu'au contrôle (remboursement par la paie : lots de paie ci-dessus), avances,
+  // barème et forfaits (limites d'exonération), taux des devises ; exports comptables (génération, annulation, fichier
+  // téléchargé, tracé comme sage.fichier : étape 2).
+  'frais.note.soumettre', 'frais.note.valider', 'frais.note.renvoyer', 'frais.note.controler', 'frais.note.annuler', 'frais.ligne.refuser',
+  'frais.ligne.plafonner', 'frais.avance.valider', 'frais.avance.refuser', 'frais.avance.annuler', 'frais.bareme.enregistrer', 'frais.forfait.enregistrer',
+  'frais.taux.enregistrer', 'frais.export.generer', 'frais.export.annuler', 'frais.export.fichier',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -201,6 +207,29 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'astreinte.annuler': 'Astreinte annulée',
   'astreinte.intervention': 'Intervention d’astreinte déclarée',
   'astreinte.retirerIntervention': 'Intervention d’astreinte retirée',
+  // lot 11 — notes de frais (server/src/actions/frais.ts)
+  'frais.note.creer': 'Note de frais créée',
+  'frais.ligne.ajouter': 'Dépense ajoutée à une note de frais',
+  'frais.ligne.modifier': 'Dépense d’une note de frais modifiée',
+  'frais.ligne.supprimer': 'Dépense retirée d’une note de frais',
+  'frais.note.soumettre': 'Note de frais soumise',
+  'frais.note.valider': 'Note de frais validée',
+  'frais.note.renvoyer': 'Note de frais renvoyée pour correction',
+  'frais.note.controler': 'Note de frais contrôlée',
+  'frais.ligne.refuser': 'Dépense refusée au contrôle',
+  'frais.ligne.plafonner': 'Dépense ramenée au plafond',
+  'frais.note.annuler': 'Note de frais annulée',
+  'frais.vehicule.declarer': 'Véhicule personnel déclaré',
+  'frais.bareme.enregistrer': 'Barème kilométrique enregistré',
+  'frais.forfait.enregistrer': 'Limite d’un forfait de frais enregistrée',
+  'frais.taux.enregistrer': 'Taux d’une devise enregistré',
+  'frais.avance.demander': 'Avance sur frais demandée',
+  'frais.avance.valider': 'Avance sur frais validée',
+  'frais.avance.refuser': 'Avance sur frais refusée',
+  'frais.avance.annuler': 'Avance sur frais annulée',
+  'frais.export.generer': 'Export comptable des notes de frais généré',
+  'frais.export.annuler': 'Export comptable des notes de frais annulé',
+  'frais.export.fichier': 'Fichier d’écritures des notes de frais téléchargé',
   // Absences et congés
   'absence.demander': 'Demande d’absence',
   'absence.decider': 'Décision sur une absence',
@@ -291,6 +320,46 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'agenda.creerJeton': 'Abonnement à l’agenda personnel créé',
   'agenda.revoquerJeton': 'Abonnement à l’agenda personnel révoqué',
   'agenda.revoquerTout': 'Tous les abonnements aux agendas révoqués',
+  // lot 11 — organigramme (server/src/actions/entites.ts) : codes, type, SIREN, SIRET et IDCC (données publiques), équipe,
+  // avant et après ; impression et export : entité et nombre de lignes seulement, jamais un nom.
+  'entite.creer': 'Entité créée (société ou établissement)',
+  'entite.modifier': 'Entité modifiée',
+  'entite.fermer': 'Entité fermée',
+  'entite.rouvrir': 'Entité rouverte',
+  'entite.amorcer': 'Entité amorcée au démarrage (équipes racines rattachées)',
+  'site.enregistrer': 'Site de rattachement créé ou modifié',
+  'equipe.entite': 'Entité d’une équipe racine',
+  'equipe.site': 'Site de rattachement d’une équipe',
+  'equipe.unite': 'Unité Matrix d’une équipe',
+  'organigramme.imprimer': 'Organigramme imprimé',
+  'organigramme.exporter': 'Organigramme exporté (CSV)',
+  // lot 11 — pwa : saisie du jour rejouable (application mobile) ; notifications sur le téléphone, jamais l'adresse du
+  // service de push ni les clés de l'appareil.
+  'temps.saisir': 'Saisie d’heures (application mobile)',
+  'push.abonner': 'Notifications activées sur un appareil',
+  'push.desabonner': 'Notifications désactivées sur un appareil',
+  'push.preferences': 'Choix des notifications reçues sur le téléphone',
+  'push.desabonnerAppareil': 'Appareil retiré des notifications',
+  'push.tester': 'Notification d’essai envoyée',
+  // lot 11 — indicateurs (server/src/actions/indicateurs.ts, server/src/indicateurs.ts) : année, périmètre, identifiant de
+  // l'arrêté ; export : période, groupement et nombre de lignes. Jamais une valeur d'indicateur, ni le motif d'annulation.
+  'indicateurs.arreter': 'Indicateurs sociaux de l’année arrêtés (BDESE)',
+  'indicateurs.annulerArrete': 'Arrêté des indicateurs sociaux annulé',
+  'indicateurs.marquerCse': 'Arrêté des indicateurs sociaux mis à disposition du CSE',
+  'indicateurs.export': 'Indicateurs sociaux exportés (CSV)',
+  // lot 11 — dossiers OPCO (server/src/actions/opco.ts) : famille « Formations, plan et budget ».
+  'opco.creer': 'Dossier OPCO créé',
+  'opco.modifier': 'Dossier OPCO modifié',
+  'opco.deposer': 'Dossier OPCO déposé',
+  'opco.accorder': 'Accord de l’OPCO enregistré',
+  'opco.refuser': 'Refus de l’OPCO enregistré',
+  'opco.facturer': 'Justificatifs envoyés à l’OPCO',
+  'opco.versement': 'Versement de l’OPCO enregistré',
+  'opco.annulerVersement': 'Versement de l’OPCO annulé (saisie erronée)',
+  'opco.solder': 'Dossier OPCO soldé',
+  'opco.abandonner': 'Dossier OPCO abandonné',
+  'opco.rouvrir': 'Dossier OPCO rouvert (retour d’un cran)',
+  'opco.supprimer': 'Dossier OPCO supprimé (saisie erronée)',
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
@@ -316,8 +385,9 @@ export const dossierComplet = (u: Pick<CurrentUser, 'role' | 'profilRh'>) => dro
 
 /** Familles du filtre « Action » : codes commençant par l'un des préfixes (ou égaux à l'un d'eux). */
 export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly string[] }[] = [
-  { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.', 'migration.contratsHistorique'] },
-  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel', 'attente.', 'passeport.', 'evaluation.', 'migration.passeportPrevention'] },
+  // Une entrée par famille (la fusion du lot 11 avait doublé « fiches » et « formations » : clés React en double à l'écran).
+  { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.', 'migration.contratsHistorique', /* lot 11 — organigramme */ 'entite.', 'site.', 'organigramme.'] },
+  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel', 'attente.', 'passeport.', 'evaluation.', 'migration.passeportPrevention', 'opco.'] },
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.', 'migration.habDelivrances'] },
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
@@ -327,13 +397,18 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
   { id: 'pieces', label: 'Pièces justificatives', prefixes: ['piece.'] },
+  // lot 11 — notes de frais
+  { id: 'frais', label: 'Notes de frais', prefixes: ['frais.'] },
   { id: 'conservation', label: 'Conservation et agendas', prefixes: ['conservation.', 'agenda.'] },
-  { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.', 'integrite.', 'migration.postgres', 'purge.demo'] },
+  { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.', 'integrite.', 'migration.postgres', 'purge.demo',
+    /* lot 11 — indicateurs */ 'indicateurs.'] },
   { id: 'connexions', label: 'Connexions et accès', prefixes: ACTIONS_CONNEXION },
   {
     id: 'integrations', label: 'Intégrations (Keystone, e-mails)',
     prefixes: ['keystone.appel', 'keystone.echec', 'keystone.demande.', 'keystone.heures.', 'keystone.absence.', 'keystone.verdict.', 'keystone.deplacement.', 'email.'],
   },
+  // lot 11 — pwa
+  { id: 'mobile', label: 'Application mobile et notifications', prefixes: ['push.'] },
 ];
 
 /** Famille d'un code : la première qui le reconnaît. */
@@ -442,6 +517,20 @@ export const CHAMP_LABEL: Record<string, string> = {
   astreinteDelaiPrevenance: 'Astreintes : délai de prévenance (jours)', astreinteCompensation: 'Astreintes : forme de la compensation',
   astreinteMineurs: 'Astreintes : salariés mineurs admis', astreinteAccord: 'Référence de l’accord sur les astreintes',
   communiqueLe: 'Communiquée le',
+  // lot 11 — organigramme : réglage, colonnes d'une entité, d'un site et d'une équipe.
+  organigrammeOuvert: 'Organigramme ouvert à', entite: 'Entité', siteCode: 'Site', uniteCode: 'Unité Matrix', siren: 'SIREN', siret: 'SIRET',
+  idcc: 'IDCC', fermeLe: 'Fermée le',
+  // lot 11 — indicateurs : réglages, champs de la fiche (nommés au journal, jamais leur valeur) et colonnes d'un arrêté.
+  indicateursSeuil: 'Indicateurs sociaux : seuil d’anonymat', absenteismeNatures: 'Absentéisme : natures comptées',
+  sexe: 'Sexe', categorie: 'Catégorie d’emploi', cseLe: 'Mis à disposition du CSE le',
+  // lot 11 — dossiers OPCO : réglages et colonnes d'un dossier (montants des seuls dossiers non nominatifs).
+  opcoDefaut: 'OPCO proposé', opcoSubrogation: 'Subrogation proposée', opcoDelaiDepot: 'OPCO : dépôt avant le début (jours)',
+  opcoDelaiJustificatifs: 'OPCO : justificatifs après la fin (jours)', opcoDelaiRemboursement: 'OPCO : relance du remboursement (jours)',
+  opco: 'OPCO', dispositif: 'Dispositif', reference: 'Numéro de dossier', montantDemande: 'Montant demandé', montantDemandeAnnexes: 'Frais annexes demandés',
+  subrogation: 'Subrogation', organismeSiret: 'SIRET de l’organisme', organismeNda: 'Déclaration d’activité de l’organisme', organismeQualiopi: 'Organisme certifié Qualiopi',
+  deposeLe: 'Déposé le', accordLe: 'Accordé le', montantAccorde: 'Montant accordé', accordReference: 'Référence de l’accord', plafondHoraire: 'Plafond horaire',
+  refusLe: 'Refusé le', refusMotif: 'Motif du refus', factureLe: 'Justificatifs envoyés le', montantFacture: 'Montant facturé', soldeLe: 'Soldé le',
+  soldeEcart: 'Écart au solde', soldeNature: 'Nature de l’écart', abandonLe: 'Abandonné le', abandonMotif: 'Motif de l’abandon', planActionId: 'Action du plan',
 };
 
 const valeur = (v: unknown): string => {

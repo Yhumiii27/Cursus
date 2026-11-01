@@ -1,11 +1,13 @@
 // Appels à l'API Cursus.
-import type { CibleEnvoi, CompteSession, CompteVue, CurrentUser, Dataset, Envoi, EtatEnvois, Role, SageMode, StatutEnvoi } from '../../shared/types.ts';
+import type { CibleEnvoi, CompteSession, CompteVue, CurrentUser, Dataset, Envoi, EtatEnvois, ExportFraisVue, Role, SageMode, StatutEnvoi } from '../../shared/types.ts';
 import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
+import { EN_TETE_HORS_LIGNE, EN_TETE_IDEMPOTENCE } from '../../shared/hors-ligne.ts';
 // Noms des actions du serveur (t164) : import de type seulement, effacé à la compilation (aucun code serveur dans
 // l'interface) ; une faute dans un nom d'action est signalée par tsc.
 import type { NomAction } from '../../server/src/actions/index.ts';
+import type { AppareilPush } from '../../server/src/push.ts';
 
-export type { NomAction };
+export type { AppareilPush, NomAction };
 
 /** Compte proposé à la connexion de démonstration (`id` : identifiant du compte). */
 export interface LoginOption { id: number; nom: string }
@@ -99,9 +101,9 @@ export function surSessionExpiree(f: (() => void) | null) { auRefus = f; }
  * partagent la session ; si l'espace a changé dans un autre, le serveur refuse (409) au lieu d'agir
  * avec les droits de l'autre espace.
  */
-async function request<T>(method: string, url: string, body?: unknown, espace?: Role): Promise<T> {
+async function request<T>(method: string, url: string, body?: unknown, espace?: Role, entetes: Record<string, string> = {}): Promise<T> {
   let res: Response;
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...entetes };
   if (body !== undefined) headers['content-type'] = 'application/json';
   if (espace) headers['x-cursus-espace'] = espace;
   // Sans réponse dans le délai, l'appel est abandonné : l'écran ne reste pas sur « Chargement… ».
@@ -170,12 +172,13 @@ export interface PieceEnvoyee { id: number; jeton: string; nom: string; type: st
  * Envoie un fichier comme pièce justificative (corps brut, type du fichier, nom d'origine encodé dans un en-tête) ; lève
  * une erreur au message de Cursus (format refusé, trop volumineux, fonction désactivée).
  */
-async function envoyerPiece(fichier: File, espace?: Role): Promise<PieceEnvoyee> {
+async function envoyerPiece(fichier: File, espace?: Role, cle?: string): Promise<PieceEnvoyee> {
   let res: Response;
   try {
     res = await fetch('/api/pieces', {
       method: 'POST', credentials: 'same-origin', body: fichier,
-      headers: { 'content-type': fichier.type, 'x-nom-fichier': encodeURIComponent(fichier.name), ...(espace ? { 'x-cursus-espace': espace } : {}) },
+      // Lot 11 : clé d'idempotence de la file hors ligne (le même fichier renvoyé rend la même pièce).
+      headers: { 'content-type': fichier.type, 'x-nom-fichier': encodeURIComponent(fichier.name), ...(espace ? { 'x-cursus-espace': espace } : {}), ...(cle ? { [EN_TETE_IDEMPOTENCE]: cle } : {}) },
       signal: AbortSignal.timeout(DELAI_ACTION_MS),
     });
   } catch (err) {
@@ -223,6 +226,11 @@ export const api = {
   mesDonnees: () => telecharger('/api/mes-donnees'),
   /** Paie : fichier d'import Sage d'un lot de paie (téléchargement tracé et compté sur le lot). */
   fichierLotPaie: (id: number) => telecharger(`/api/paie/lots/${id}/fichier`),
+  // lot 11 — notes de frais : exports comptables (comptabilité, service RH ; server/src/frais-exports.ts).
+  /** Exports comptables des notes de frais, sans leurs écritures. */
+  exportsFrais: () => request<{ exports: ExportFraisVue[] }>('GET', '/api/frais/exports', undefined, espaceOnglet),
+  /** Fichier d'écritures d'un export comptable (téléchargement tracé et compté sur l'export). */
+  fichierExportFrais: (id: number) => telecharger(`/api/frais/exports/${id}/fichier`),
   /** Paie : variables d'une période de paie (lots et attente), export CSV tracé (server/src/variables-paie.ts). */
   variablesPaie: (periode: string) => telecharger(`/api/paie/variables/${encodeURIComponent(periode)}`),
   /**
@@ -249,6 +257,10 @@ export const api = {
   /** Pièce justificative envoyée seule, à joindre ensuite par une action (jeton). */
   envoyerPiece,
   comptes: () => request<CompteVue[]>('GET', '/api/comptes'),
+  /** Notifications sur le téléphone (lot 11) : actives sur le serveur, clé publique VAPID, types proposés. */
+  pushCle: () => request<{ active: boolean; cle: string | null; types: string[] }>('GET', '/api/push/cle'),
+  /** Appareils abonnés du compte connecté (Mes appareils), sans adresse ni clé. */
+  pushAppareils: () => request<{ active: boolean; appareils: AppareilPush[] }>('GET', '/api/push/appareils'),
   /** Page Confidentialité : coordonnées du responsable du traitement et du DPO, lisibles sans connexion. */
   confidentialite: () => request<ContactsConfidentialite>('GET', '/api/confidentialite'),
   envois: (statut: StatutEnvoi | null, cible: CibleEnvoi | null = null) => {
@@ -257,9 +269,16 @@ export const api = {
     if (cible) q.set('cible', cible);
     return request<EnvoisState>('GET', `/api/envois${q.size ? `?${q}` : ''}`);
   },
-  async action(name: NomAction, payload: Record<string, unknown>, espace?: Role): Promise<ActionResponse> {
+  /**
+   * `rejeu` (lot 11, file hors ligne : client/src/state/hors-ligne.ts) : clé d'idempotence de la saisie et marque du
+   * rejeu hors ligne ; une réponse déjà donnée pour cette clé est rendue sans refaire l'action (`relire`).
+   */
+  async action(name: NomAction, payload: Record<string, unknown>, espace?: Role, rejeu?: { cle: string; horsLigne?: boolean }): Promise<ActionResponse> {
     try {
-      const r = await request<{ message: string | null; result?: unknown; data?: Dataset; relire?: boolean }>('POST', `/api/actions/${name}`, payload, espace);
+      // `horsLigne: false` (étape 2) : envoi en ligne d'une saisie admise hors ligne, avec sa clé, sans la marque du rejeu :
+      // interrompu par le réseau, il repart de la file avec la même clé (client/src/pwa/useHorsLigne.ts).
+      const entetes: Record<string, string> = rejeu ? { [EN_TETE_IDEMPOTENCE]: rejeu.cle, ...(rejeu.horsLigne === false ? {} : { [EN_TETE_HORS_LIGNE]: '1' }) } : {};
+      const r = await request<{ message: string | null; result?: unknown; data?: Dataset; relire?: boolean }>('POST', `/api/actions/${name}`, payload, espace, entetes);
       return { ok: true, ...r };
     } catch (err) {
       return { ok: false, message: null, error: (err as Error).message, status: (err as ApiError).status };

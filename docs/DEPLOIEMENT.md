@@ -180,6 +180,8 @@ sudo nano /etc/cursus/cursus.env
 | `KEYSTONE_URL`, `KEYSTONE_TOKEN` | envois à Keystone : adresse de base de Keystone sur le réseau interne (`http://keystone.interne:8080`) et jeton convenu avec lui. Cursus refuse de démarrer avec l'adresse sans le jeton, ou avec des identifiants dans l'adresse. Sans adresse, les messages ne sont que tracés dans le journal |
 | `SAGE_MODE`, `SAGE_DOSSIER` | transmission à Sage Paie : à laisser vide (fichier d'import, mode de production) ; dossier de paie (`CURSUS-CHIMIE` par défaut). **Jamais** `SAGE_MODE=api` ni `SAGE_MODE=simulation`, **jamais** `SAGE_URL` : Cursus refuse de démarrer avec eux (voir « Sage Paie ») |
 | `CURSUS_BASE` | à laisser vide hors de l'image Docker. Dans l'image (`CURSUS_CONTENEUR=1`), la production exige `DATABASE_URL` (serveur commun), ou `CURSUS_BASE=sqlite` pour garder volontairement le fichier du volume : sans l'une ni l'autre, Cursus refuse de démarrer plutôt que d'ouvrir un fichier SQLite vide |
+| `CURSUS_VAPID_PUBLIC`, `CURSUS_VAPID_PRIVATE`, `CURSUS_VAPID_SUJET` | lot 11 : notifications sur le téléphone (Web Push) ; paire de clés P-256 en base64url et sujet `mailto:` ou `https:` (« Application mobile » ci-dessous). Sans elles, les notifications restent désactivées ; posées incomplètes ou illisibles : signalé au démarrage |
+| `CURSUS_PWA` | lot 11 : à laisser vide (`1`) : application installable sur le téléphone (manifeste, service worker `/sw.js`) ; `0` la coupe (`/sw.js` répond 404), comme le fait l'application de bureau |
 | `CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE` | **jamais** sur ce serveur (une instance de démonstration en ligne, séparée et aux données fictives : README.md, « Mise en ligne »). La démonstration ouvre l'espace RH sans mot de passe : Cursus refuse de démarrer avec elle, et refuserait de toute façon (403) chaque requête relayée par le proxy |
 
 Au démarrage, Cursus contrôle cette configuration. S'il manque une valeur obligatoire ou si un
@@ -358,6 +360,69 @@ les remplit dans l'écran Référentiels : saisie, ou « Charger le référentie
 et 8 destinations courantes, les habilitations après les formations) puis vérification des validités, coûts,
 organismes, signataires et formalités. Les codes, choisis à la création, sont ceux que Keystone envoie dans les
 exigences de ses chantiers : les convenir avec l'équipe Keystone. Un élément inutile s'archive.
+
+## Application mobile (lot 11) : installation, hors ligne, notifications
+
+Cursus s'installe sur le téléphone depuis le navigateur, sans magasin d'applications (application web installable :
+manifeste `/manifest.webmanifest`, service worker `/sw.js`). Rien à installer sur le serveur ; quatre points relèvent
+du service informatique.
+
+- **HTTPS avec un certificat public.** Service worker, installation, notifications et chiffrement de la file locale
+  (WebCrypto) n'existent qu'en contexte sécurisé. Le certificat doit être reconnu par les téléphones personnels :
+  Let's Encrypt (Caddy, certbot) convient ; un certificat d'une autorité interne, absent des téléphones, bloque tout
+  (ni installation, ni hors ligne, ni notification) sans message clair. `CURSUS_PUBLIC_URL` en `https://`.
+- **Cache du proxy.** Cursus sert `/sw.js` en `Cache-Control: no-cache` et `index.html` de même ; le proxy ne doit
+  pas les garder plus longtemps (Caddy et nginx tels que décrits ici ne gardent rien). Un `/sw.js` gardé retarde d'autant
+  les mises à jour de l'application installée.
+- **Pare-feu sortant, pour les notifications.** Le serveur envoie chaque notification au service de push du
+  navigateur, en HTTPS (443) : `fcm.googleapis.com` (Chrome, Edge sur Android, Samsung Internet), `*.push.apple.com`
+  (Safari, iPhone et Mac), `updates.push.services.mozilla.com` (Firefox), `*.notify.windows.com` (Edge sous Windows).
+  Cursus n'envoie qu'à ces services (liste fermée), jamais à une adresse interne, et les appelle directement : il ne
+  passe pas par un proxy HTTP sortant, la règle est donc à ouvrir sur le pare-feu du serveur. Le contenu est chiffré de bout en bout (RFC 8291) et générique, sans nom ni date ; les
+  services voient l'adresse de l'appareil, l'heure et la taille (transfert de métadonnées hors UE : avis du DPO,
+  `docs/RGPD.md`).
+- **Clés VAPID**, une paire par installation, créée une fois et gardée au coffre-fort avec `CURSUS_SECRET` :
+
+  ```bash
+  node -e "const e=require('crypto').createECDH('prime256v1');e.generateKeys();console.log('CURSUS_VAPID_PUBLIC='+e.getPublicKey('base64url'));console.log('CURSUS_VAPID_PRIVATE='+e.getPrivateKey('base64url'))"
+  ```
+
+  plus `CURSUS_VAPID_SUJET=mailto:rh@entreprise.fr` (contact donné aux services de push en cas d'abus). Changer de
+  paire désabonne tous les appareils : chacun réactive les notifications dans « Mes appareils ». Sans les clés, Cursus
+  fonctionne, les notifications restent coupées (« Notifications sur le téléphone désactivées sur ce serveur »).
+  Les abonnements sont chiffrés en base avec la clé des pièces (`CURSUS_PIECES_KEY`) quand elle est posée.
+
+Ce que fait l'application (détail : `docs/ARCHITECTURE.md`, « Lot 11 : application mobile ») :
+
+- hors ligne seulement pour une application déjà ouverte avec du réseau (décision du 31 octobre 2026) : heures, ligne
+  de projet et demande de congé (CP, RTT, récupération) gardées chiffrées sur l'appareil, envoyées au retour du réseau
+  sans doublon ni écrasement (conflit placé dans « À reprendre ») ; aucune donnée de Cursus gardée sur le téléphone ;
+  ouverte sans réseau, l'application ne montre que la file d'attente ;
+- notifications coupées par défaut, choisies par la personne (« Mes appareils »), jamais de 20 h à 7 h ni le
+  week-end (report au jour ouvré suivant, sans les jours fériés), génériques ;
+- « Appareil partagé » (tablette d'atelier) : ni file locale ni notification ; la file est purgée à la déconnexion,
+  au changement de compte et après 7 jours.
+
+Limites d'iPhone et d'iPad (iOS et iPadOS, à revérifier sur la version de la flotte) :
+
+- installation manuelle seulement (Safari : « Partager », puis « Sur l'écran d'accueil ») : l'Accueil l'explique ;
+- notifications à partir d'iOS 16.4, dans l'application installée seulement (pas dans Safari), après un geste de la
+  personne ; une notification reçue s'affiche toujours ;
+- pas de synchronisation en arrière-plan : les saisies gardées partent à la réouverture de l'application, pas
+  application fermée ;
+- l'application installée a ses propres cookies : une connexion la première fois (et chaque jour, session de 12 h) ;
+  la connexion Microsoft par redirection est à vérifier en mode installé pendant la recette ;
+- le système peut effacer le stockage d'un site peu utilisé (7 jours) ou sous pression de stockage : la file est
+  alors perdue ; c'est une raison de plus pour ne rien y laisser longtemps ;
+- les restrictions des applications installées annoncées dans l'UE (iOS 17.4) ont été retirées : à surveiller.
+
+Recette : installer l'application sur un iPhone et un Android de la flotte, s'y connecter (compte local et
+Microsoft), saisir une heure en mode avion puis la voir partir au retour du réseau, recevoir la notification d'essai
+(« Envoyer une notification d'essai »), prendre une photo avec l'appareil (Permissions-Policy `camera=()` : le champ
+de fichier ouvre l'appareil photo natif, à vérifier).
+
+L'application de bureau macOS (`npm run app`) pose `CURSUS_PWA=0` : ni service worker ni notification dans sa vue
+WebKit en `http://127.0.0.1`.
 
 ## Reverse proxy HTTPS : Caddy (recommandé)
 

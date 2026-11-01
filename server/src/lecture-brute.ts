@@ -21,13 +21,20 @@ import { avecInscrits } from '../../shared/rules/sessions.ts';
 import { completerSession } from '../../shared/rules/plage-session.ts';
 import { debutSaisieDe } from '../../shared/rules/suivi-feuilles.ts';
 import { effectifSite } from '../../shared/rules/delegation.ts';
+import { presentsDe } from '../../shared/rules/organigramme.ts';
 import type {
   Absence, Astreinte, AttenteSession, AvenantForfait, CalendrierFeries, Certification, CetMouvement, Chantier, ClotureConges, ContratHistorique, CurrentUser, Dataset,
   DeclarationPasseport, DelegationValidation, DemandeCollab, DemandeKeystone, DemandeVisite, DerogationDominicale, Destination, Employe, Entretien, Envoi,
   Equipe, EvaluationFormation, ExerciceClos, FeuilleTemps, Formation, FormationSuivie, FormatFichierPaie, Fractionnement, HabDelivrance, HabTitre, HabType,
   Horaire, InformationCp, Inscription, InterventionAstreinte, LotPaie, LotReprise, Mandat, Messagerie, Mission, Participation, PlanAction, Poste, Projet,
   ReleveInterim, ReportCp, RubriquePaie, Session, Settings, SoldeReprise, SoldeSortie, TacheKeystone, Vaccination, Visa, Voyage,
+  Entite, Site,
+  ArreteIndicateurs,
+  // lot 11 — dossiers OPCO
+  DossierOpco, VersementOpco,
 } from '../../shared/types.ts';
+// lot 11 — notes de frais
+import type { AvanceFrais, BaremeKm, ForfaitFrais, LigneFrais, NoteFrais, TauxDevise, VehiculePerso } from '../../shared/types.ts';
 import type { Db, TableName } from './db.ts';
 import { formatFichierDe } from './lots-paie.ts';
 import { messagerieDe } from './messagerie.ts';
@@ -114,6 +121,22 @@ export interface Brut {
   astreinteInterventions: InterventionAstreinte[];
   declarationsPasseport: DeclarationPasseport[];
   evaluationsFormation: EvaluationFormation[];
+  // lot 11 — organigramme
+  entites: Entite[];
+  sites: Site[];
+  // lot 11 — indicateurs : arrêtés annuels, sans leurs agrégats (`COLONNES_OMISES`).
+  indicateursArretes: ArreteIndicateurs[];
+  // lot 11 — dossiers OPCO (supprimés compris : `assembler` les écarte)
+  dossiersOpco: DossierOpco[];
+  versementsOpco: VersementOpco[];
+  // lot 11 — notes de frais
+  notesFrais: NoteFrais[];
+  lignesFrais: LigneFrais[];
+  vehiculesPerso: VehiculePerso[];
+  baremesKm: BaremeKm[];
+  forfaitsFrais: ForfaitFrais[];
+  avancesFrais: AvanceFrais[];
+  tauxDevises: TauxDevise[];
   reglages: ReglagesBruts;
   /** Statut de l'e-mail de chaque relevé (envois désignés par `releves.envoiId` seulement). */
   statutsEnvoi: ReadonlyMap<number, Envoi['statut']>;
@@ -122,6 +145,8 @@ export interface Brut {
 /** Tables lues dans l'ordre d'une autre colonne que leur clé (`rowid` : ordre d'insertion ; `rang` en PostgreSQL). */
 export const ORDRE_LECTURE: Partial<Record<TableName, string>> = {
   formations: 'rowid', habilitations: 'rowid', destinations: 'rowid', postes: 'nom', equipes: 'ordre', horaires: 'rowid', projets: 'rowid', chantiers: 'debut',
+  // lot 11 — organigramme : ordre d'affichage choisi par le service RH (départage : rang en PostgreSQL).
+  entites: 'ordre', sites: 'ordre',
 };
 
 /** Identifiants passés au plus par requête `IN (…)` (bien en deçà des limites de SQLite et de PostgreSQL). */
@@ -132,7 +157,9 @@ const PAR_REQUETE_IN = 500;
  * chacun après 5 ans, lu par le seul téléchargement du fichier). Absentes des lignes de la lecture brute, relecture
  * complète ou delta (server/src/delta.ts).
  */
-export const COLONNES_OMISES: Partial<Record<TableName, readonly string[]>> = { lotsPaie: ['contenu'] };
+export const COLONNES_OMISES: Partial<Record<TableName, readonly string[]>> = { lotsPaie: ['contenu'],
+  // lot 11 — indicateurs : agrégats figés d'un arrêté annuel, lus par la seule route GET /api/indicateurs?arrete=.
+  indicateursArretes: ['donnees'] };
 
 /** Lignes de la table `t` telles que les lit la lecture brute : ordre de sa clé ou de `ORDRE_LECTURE`, sans `COLONNES_OMISES`. */
 export async function lireTable<T>(db: Db, t: TableName): Promise<T[]> {
@@ -225,6 +252,22 @@ export async function lireBrut(db: Db): Promise<Brut> {
     astreinteInterventions: await lire('astreinteInterventions'),
     declarationsPasseport: await lire('declarationsPasseport'),
     evaluationsFormation: await lire('evaluationsFormation'),
+    // lot 11 — organigramme
+    entites: await lire('entites'),
+    sites: await lire('sites'),
+    // lot 11 — indicateurs
+    indicateursArretes: await lire<ArreteIndicateurs>('indicateursArretes'),
+    // lot 11 — dossiers OPCO
+    dossiersOpco: await lire('dossiersOpco'),
+    versementsOpco: await lire('versementsOpco'),
+    // lot 11 — notes de frais
+    notesFrais: await lire('notesFrais'),
+    lignesFrais: await lire('lignesFrais'),
+    vehiculesPerso: await lire('vehiculesPerso'),
+    baremesKm: await lire('baremesKm'),
+    forfaitsFrais: await lire('forfaitsFrais'),
+    avancesFrais: await lire('avancesFrais'),
+    tauxDevises: await lire('tauxDevises'),
     reglages: await lireReglages(db),
     statutsEnvoi: await statutsDesEnvois(db, releves),
   };
@@ -329,8 +372,19 @@ const piecesDeBrut = memo((lignes: PieceEnregistree[]) => piecesDe(lignes));
 const settingsDe = memo((app: ReglagesBruts['app']) => reglagesDe(app));
 const formatDe = memo((f: Partial<FormatFichierPaie>) => formatFichierDe(f));
 const messagerieDeBrut = memo((m: Partial<Messagerie>) => messagerieDe(m));
-const referentielsDe = memo((formations: Formation[], habilitations: HabType[], destinations: Destination[], postes: Poste[], equipes: Equipe[], horaires: Horaire[], projets: Projet[], chantiers: Chantier[]) =>
-  ({ formations, habilitations, destinations, postes, equipes, horaires, projets, chantiers }));
+const referentielsDe = memo((formations: Formation[], habilitations: HabType[], destinations: Destination[], postes: Poste[], equipes: Equipe[], horaires: Horaire[], projets: Projet[], chantiers: Chantier[],
+  entites: Entite[], sites: Site[],
+  // lot 11 — notes de frais : barèmes kilométriques, forfaits et taux des devises (aucune donnée personnelle).
+  baremesKm: BaremeKm[], forfaitsFrais: ForfaitFrais[], tauxDevises: TauxDevise[]) =>
+  ({ formations, habilitations, destinations, postes, equipes, horaires, projets, chantiers, entites, sites, baremesKm, forfaitsFrais, tauxDevises }));
+/** lot 11 — organigramme : présents du jour et non anonymisés (`presentsDe`), sur les fiches telles qu'enregistrées. */
+const presentsOrganigrammeDe = memo((lignes: EmpRow[], today: string) => presentsDe(lignes, today));
+// lot 11 — dossiers OPCO : un dossier supprimé (saisie erronée, `opco.supprimer`) sort de l'instantané, avec ses versements.
+const dossiersOpcoDe = memo((lignes: DossierOpco[]) => lignes.filter(d => !d.annuleLe));
+const versementsOpcoDe = memo((lignes: VersementOpco[], dossiers: DossierOpco[]) => {
+  const supprimes = new Set(dossiers.filter(d => d.annuleLe).map(d => d.id));
+  return supprimes.size ? lignes.filter(v => !supprimes.has(v.dossierId)) : lignes;
+});
 
 /**
  * Instantané complet tiré de la lecture brute, sans lire la base ni modifier `brut` : le Dataset de `loadFull`, ligne
@@ -352,7 +406,9 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     // Formations, habilitations et destinations, archivées comprises (`archive`, date d'archivage) : transmises à tous les
     // espaces, qui en ont besoin pour nommer les titres et écarter les archivées des listes ; aucune donnée personnelle.
     // Postes et exigences (shared/rules/exigences.ts), horaires de poste (shared/rules/horaires.ts) : idem.
-    referentiels: referentielsDe(brut.formations, brut.habilitations, brut.destinations, brut.postes, brut.equipes, brut.horaires, brut.projets, brut.chantiers),
+    // Entités et sites (lot 11) : données d'entreprise publiques (SIREN, SIRET, IDCC), transmises à tous pour l'organigramme.
+    referentiels: referentielsDe(brut.formations, brut.habilitations, brut.destinations, brut.postes, brut.equipes, brut.horaires, brut.projets, brut.chantiers,
+      brut.entites, brut.sites, brut.baremesKm, brut.forfaitsFrais, brut.tauxDevises),
     annuaire: annuaireDe(employes),
     employes,
     sessions: sessionsDe(brut.sessions, certs, brut.inscriptions, brut.participations, attentesSession, calendrierFeries),
@@ -403,6 +459,19 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     attentesSession,
     declarationsPasseport: brut.declarationsPasseport,
     evaluationsFormation: brut.evaluationsFormation,
+    // lot 11 — organigramme : présents de l'annuaire (identifiants seulement, sans les dates), filtrés par espace dans
+    // server/src/dataset.ts selon le réglage `organigrammeOuvert`.
+    presentsOrganigramme: presentsOrganigrammeDe(brut.employes, today),
+    // lot 11 — indicateurs : arrêtés annuels (sans agrégats), filtrés par espace et par profil dans server/src/dataset.ts.
+    indicateursArretes: brut.indicateursArretes,
+    // lot 11 — dossiers OPCO
+    dossiersOpco: dossiersOpcoDe(brut.dossiersOpco),
+    versementsOpco: versementsOpcoDe(brut.versementsOpco, brut.dossiersOpco),
+    // lot 11 — notes de frais : filtrées par espace et par profil dans server/src/dataset.ts (filtre propre aux frais).
+    notesFrais: brut.notesFrais,
+    lignesFrais: brut.lignesFrais,
+    vehiculesPerso: brut.vehiculesPerso,
+    avancesFrais: brut.avancesFrais,
   };
 }
 
@@ -412,7 +481,8 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
  */
 const LECTURES_ASSEMBLEES = {
   settings: ['settings'],
-  referentiels: ['formations', 'habilitations', 'destinations', 'postes', 'equipes', 'horaires', 'projets', 'chantiers'],
+  referentiels: ['formations', 'habilitations', 'destinations', 'postes', 'equipes', 'horaires', 'projets', 'chantiers', /* lot 11 — organigramme */ 'entites', 'sites',
+    /* lot 11 — notes de frais */ 'baremesKm', 'forfaitsFrais', 'tauxDevises'],
   annuaire: ['employes'],
   employes: ['employes', 'certifications', 'habTitres', 'visas', 'vaccinations'],
   sessions: ['sessions', 'certifications', 'inscriptions', 'participations', 'attentesSession', 'settings'],
@@ -459,6 +529,18 @@ const LECTURES_ASSEMBLEES = {
   attentesSession: ['attentesSession'],
   declarationsPasseport: ['declarationsPasseport'],
   evaluationsFormation: ['evaluationsFormation'],
+  // lot 11 — organigramme
+  presentsOrganigramme: ['employes'],
+  // lot 11 — indicateurs
+  indicateursArretes: ['indicateursArretes'],
+  // lot 11 — dossiers OPCO
+  dossiersOpco: ['dossiersOpco'],
+  versementsOpco: ['versementsOpco', 'dossiersOpco'],
+  // lot 11 — notes de frais
+  notesFrais: ['notesFrais'],
+  lignesFrais: ['lignesFrais'],
+  vehiculesPerso: ['vehiculesPerso'],
+  avancesFrais: ['avancesFrais'],
 } as const satisfies Partial<Record<keyof Dataset, readonly TableName[]>>;
 
 /**
@@ -495,7 +577,9 @@ export const LECTURES = {
  * La file d'envoi (`envois`) n'en est pas : elle est lue, pour le seul statut des envois désignés par `releves.envoiId`
  * (`LECTURES.releves`).
  */
-export const HORS_INSTANTANE: ReadonlySet<TableName> = new Set<TableName>(['notifications', 'verdictsKeystone', 'relances', 'effacements']);
+export const HORS_INSTANTANE: ReadonlySet<TableName> = new Set<TableName>(['notifications', 'verdictsKeystone', 'relances', 'effacements',
+  // lot 11 — notes de frais : exports comptables figés, lus par leur route de téléchargement.
+  'exportsFrais']);
 
 /** Tables lues par l'instantané complet : l'union de `LECTURES`. */
 export const TABLES_LUES: ReadonlySet<TableName> = new Set<TableName>(Object.values(LECTURES).flat());

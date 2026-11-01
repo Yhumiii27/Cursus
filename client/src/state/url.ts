@@ -10,7 +10,12 @@
 // l'entrée courante.
 import { isValidDate, weekday } from '../../../shared/dates.ts';
 import type { Dataset } from '../../../shared/types.ts';
+// lot 11 — dossiers OPCO
+import { CODES_OPCO, LISTE_DISPOSITIFS } from '../../../shared/rules/opco.ts';
 import type { UiState, View } from './store.tsx';
+// lot 11 — indicateurs
+import { anneeIndicateursValide, GROUPES_INDICATEURS } from '../../../shared/rules/indicateurs-legaux.ts';
+import { ONGLETS_INDICATEURS } from '../pages/indicateurs-onglets.ts';
 
 /** Paramètre de l'adresse : champ de UiState, nom affiché, valeur par défaut (absente de l'adresse), lecture contrôlée. */
 interface Param<K extends keyof UiState = keyof UiState> {
@@ -79,12 +84,22 @@ const equipe = param<'equipe'>({
   ecrire: v => v,
 });
 
+// lot 11 — organigramme
+/** Code d'une entité ou d'un site (organigramme), présent dans le jeu de données. */
+function codeEntite<K extends keyof UiState>(cle: K, nom: string, liste: (data: Dataset) => { code: string }[]): Param {
+  return param<K>({
+    cle, nom, defaut: null as UiState[K],
+    lire: (brut, data) => liste(data).some(x => x.code === brut) ? brut as UiState[K] : undefined,
+    ecrire: v => String(v),
+  });
+}
+
 /** Paramètres de chaque vue ; une vue absente n'a rien dans l'adresse. */
 export const PARAMS_URL: Partial<Record<View, Param[]>> = {
   collaborateurs: [
     identifiant('selectedId', 'fiche', d => d.employes),
     equipe,
-    choix('statut', 'statut', 'tous', { ok: 'a-jour', due: 'a-renouveler', exp: 'non-conforme', sortis: 'sortis' }),
+    choix('statut', 'statut', 'tous', { ok: 'a-jour', due: 'a-renouveler', exp: 'non-conforme', sortis: 'sortis', /* lot 11 — indicateurs */ acompleter: 'a-completer' }),
   ],
   temps: [identifiant('tsEmp', 'salarie', d => d.employes), semaine],
   formations: [
@@ -99,11 +114,39 @@ export const PARAMS_URL: Partial<Record<View, Param[]>> = {
   chantiers: [code('goSel', 'chantier', d => d.referentiels.chantiers)],
   echeances: [choix('echType', 'type', 'tous', {
     cert: 'certifications', hab: 'habilitations', med: 'visites-medicales', exigence: 'exigences', trip: 'voyages', contrat: 'contrats',
+    // lot 11 — dossiers OPCO
+    opco: 'dossiers-opco',
   })],
   referentiels: [choix('refOnglet', 'onglet', 'formations', {
     formations: 'formations', habilitations: 'habilitations', postes: 'postes', destinations: 'destinations', activites: 'activites',
+    // lot 11 — organigramme
+    entites: 'entites',
   })],
-  budget: [exercice, choix('planFilter', 'statut', 'tous', { prevu: 'prevu', engage: 'engage', realise: 'realise', reporte: 'reporte' })],
+  // lot 11 — organigramme : entité et site filtrés (codes du référentiel).
+  organigramme: [codeEntite('orgEntite', 'entite', d => d.referentiels.entites ?? []), codeEntite('orgSite', 'site', d => d.referentiels.sites ?? [])],
+  budget: [exercice, choix('planFilter', 'statut', 'tous', { prevu: 'prevu', engage: 'engage', realise: 'realise', reporte: 'reporte' }),
+    // lot 11 — dossiers OPCO : onglet, filtres (état, OPCO, dispositif) et dossier ouvert.
+    choix('budgetOnglet', 'onglet', 'plan', { opco: 'dossiers-opco' }),
+    choix('opcoFiltre', 'etat', 'tous', { en_cours: 'en-cours', retards: 'en-retard', clos: 'clos' }),
+    choix('opcoCode', 'opco', null, Object.fromEntries(CODES_OPCO.map(c => [c, c]))),
+    choix('opcoDispositif', 'dispositif', null, Object.fromEntries(LISTE_DISPOSITIFS.map(c => [c, c.replace(/_/g, '-')]))),
+    identifiant('opcoSel', 'dossier-opco', d => d.dossiersOpco ?? []),
+  ],
+  // lot 11 — indicateurs : onglet, année civile et groupement (jamais de date libre : l'année seulement).
+  indicateurs: [
+    choix('indOnglet', 'onglet', 'effectifs', Object.fromEntries(ONGLETS_INDICATEURS.map(o => [o, o]))),
+    param<'indAnnee'>({
+      cle: 'indAnnee', nom: 'annee', defaut: null,
+      lire: brut => { const a = entier(brut); return a != null && anneeIndicateursValide(a) ? a : undefined; },
+      ecrire: v => String(v),
+    }),
+    choix('indGroupe', 'groupe', 'aucun', Object.fromEntries(Object.keys(GROUPES_INDICATEURS).map(g => [g, g]))),
+  ],
+  // lot 11 — notes de frais : onglet et note ouverte (identifiant d'une note du jeu de données du rôle).
+  frais: [
+    choix('fraisOnglet', 'onglet', 'premier', { notes: 'notes', valider: 'a-valider', equipe: 'equipe', controle: 'a-controler', avances: 'avances', exports: 'exports', tableau: 'tableau-de-bord' }),
+    identifiant('fraisNote', 'note', d => d.notesFrais ?? []),
+  ],
 };
 
 /**

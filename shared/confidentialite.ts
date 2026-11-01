@@ -65,6 +65,8 @@ export const INFO_CONFIDENTIALITE: readonly RubriqueConfidentialite[] = [
       ['Pièces justificatives', 'si le service RH active leur dépôt : attestations de formation, titres d’habilitation signés, justificatifs d’absence (avis d’arrêt de travail…) et copies des documents que vous déclarez, jointes à votre dossier ; votre manager n’en voit que les attestations et titres d’habilitation.'],
       ['Contact d’urgence', 'nom et téléphone de la personne à prévenir, indiqués par vous depuis votre espace ou par le service RH à votre demande (facultatif) : vus du service RH seulement, jamais de votre manager ; à retirer quand vous le souhaitez.'],
       ['Connexion', 'identifiant, profil, dates de connexion et adresse IP, journal des actions effectuées ; journaux techniques du serveur (numéro de compte, adresse consultée, heure et résultat de chaque requête, jamais son contenu).'],
+      // lot 11 — pwa : application installée, file hors ligne et notifications (docs/RGPD.md, § 2, 4 et 5).
+      ['Application sur le téléphone', 'si vous installez Cursus sur votre téléphone : les saisies faites sans réseau y restent chiffrées jusqu’à leur envoi (7 jours au plus, rien sur un appareil partagé) ; si vous activez les notifications, l’adresse d’abonnement de votre appareil (gardée chiffrée) et un libellé comme « Android, Chrome ». Les notifications sont génériques, sans nom ni date ; le service de notification de l’éditeur du navigateur (Google, Apple, Mozilla ou Microsoft, en partie hors de l’Union européenne) achemine un message chiffré qu’il ne peut pas lire (' + A_COMPLETER + ').'],
     ],
   },
   {
@@ -82,6 +84,8 @@ export const INFO_CONFIDENTIALITE: readonly RubriqueConfidentialite[] = [
       ['Vous', 'toutes vos données, depuis votre espace ; « Télécharger mes données » sur l’accueil en donne une copie complète.'],
       ['Service RH', 'toutes les données du personnel, santé comprise.'],
       ['Votre manager', 'son équipe seulement, sans donnée de santé : il voit l’avis d’aptitude et les restrictions en vigueur, jamais la date de la visite ni les vaccins, ni la nature d’un arrêt de travail.'],
+      // lot 11 — organigramme (shared/rules/organigramme.ts, réglage organigrammeOuvert : tous par défaut).
+      ['Organigramme', 'vos collègues (ou les seuls managers, selon le réglage de l’entreprise) voient votre nom, votre poste, votre équipe et son manager tant que vous êtes présent ; ni contrat, ni absence, ni santé.'],
       ['Profils restreints', 'le référent HSE (formations et habilitations ; pour les chantiers, l’état des dossiers de déplacement et les dates d’absence des personnes affectées, sans leur nature), le gestionnaire de paie (temps, absences et soldes) et la consultation (direction, DPO, auditeur), chacun sans donnée de santé détaillée.'],
       ['Outils et prestataires', 'Keystone, l’outil de planification des chantiers (matricule, verdict et motifs codés, heures validées par projet, dates d’absence sans leur nature) ; Sage Paie (variables de paie) ; Microsoft 365 (connexion et envoi des e-mails) ; les agences d’intérim (relevé des heures validées de leurs intérimaires) ; le service de santé au travail (demande de visite, sans information médicale) ; les organismes de formation (liste des inscrits) ; l’hébergeur de Cursus (' + A_COMPLETER + ').'],
       // Lot 8 (docs/RGPD.md, § 4 « Serveur PostgreSQL commun EPC2I ») : vues pub_ lues par les autres outils du groupe, et

@@ -653,6 +653,9 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     `revision` d'une ligne et déclencheur `revision` par instruction sur chaque table hors journal, sessions, comptes et
     abonnements à l'agenda (`TABLES_SANS_REVISION`), clé du cache de l'instantané ; hors de `TABLES` et de la déclaration à Matrix ; aucune vue `pub_` touchée). Une table ajoutée
     ensuite reçoit son déclencheur dans sa migration : `controlerSchema` refuse de démarrer sans lui.
+    `0015_lot11_socle.sql` (lot 11, socle commun : `pieces_objet_check` élargi d'avance aux objets `dossierOpco`,
+    `ligneFrais`, `ligneFraisSante` et `vehiculePerso` des chantiers C4 et C5 ; aucune table, aucune colonne, aucune vue
+    `pub_` ; voir « Lot 11 : socle commun »).
     Appliquées au démarrage sous `pg_advisory_lock(hashtext('cursus.migrations'))`, pris avant de lire le journal
     `cursus.schema_migrations`, une transaction par fichier ; une migration du journal inconnue de ce code (base mise à
     jour par une version plus récente) ou un schéma `cursus` absent : refus de démarrer. Puis `TABLES` est comparé au
@@ -951,7 +954,7 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   - *Contrôle du schéma* : au démarrage, `PgDb.controlerSchema` refuse un schéma sans la table `changements`, sans les
     colonnes `purge` et `epoque`, ou dont une table de `TABLES` (hors `TABLES_SANS_REVISION`) n'a pas ses quatre
     déclencheurs `revision_lignes_*` actifs. Toute table ajoutée par une migration postérieure à 0014 reçoit ses
-    déclencheurs dans sa propre migration. Les migrations publiées 0001 à 0014 sont figées par leur empreinte
+    déclencheurs dans sa propre migration. Les migrations publiées (0001 à 0015) sont figées par leur empreinte
     (`tests/purge-changements.test.ts`).
   - *Lecture brute et assemblage* (chantier 2, étape 1 ; `server/src/lecture-brute.ts`) : `loadFull` = `assembler(lireBrut(db),
     …)` plus les résumés de la paie. `lireBrut` lit les tables telles quelles (ordre de leur clé, ou de la colonne de
@@ -1674,7 +1677,8 @@ aux sections ; `tests/reglages.test.ts` vérifie que chaque fichier de section e
 ## Actions disponibles
 
 « RH » : administrateur et gestionnaires RH ; « administrateur RH » : profil `rh_admin` seulement ; « référent HSE »,
-« paie » : profils restreints `referent_hse` et `paie` (la lecture seule n'exécute aucune action). Un membre du RH ne
+« paie » : profils restreints `referent_hse` et `paie` (la lecture seule n'exécute aucune action, sauf la gestion des
+notifications sur ses propres appareils, `push.*` : abonnement, préférences, essai, retrait). Un membre du RH ne
 décide jamais pour lui-même (« Décision sur soi-même »). `tests/droits.test.ts` vérifie chaque action pour neuf
 profils et échoue si une action n'y a pas sa ligne.
 Une nouvelle action déclare aussi ce que le journal en retient (`REGLES` de `server/src/journal.ts`) : sans règle,
@@ -1732,6 +1736,13 @@ aucun champ du paramètre n'est recopié.
 | `referentiel.horaire.enregistrer` / `referentiel.horaire.archiver` | code (création : 1 à 6 lettres ou chiffres commençant par une lettre, unique, archivés compris) ou id (le code), nom (60 caractères), debut, fin (« HH:MM », « 8 h »… ; fin avant le début : le lendemain), pause (minutes, 0 à 240, plus courte que l'horaire) / id, archive? (faux : rétabli) ; archivage refusé tant qu'une équipe le propose par défaut ; les feuilles qui le portent le gardent | RH |
 | `referentiel.poste.expositions` | id (poste, archivé compris), facteurs [codes `repetitif`, `hyperbare`, `temperatures`, `bruit` ; [] : aucun] : facteurs d'exposition du C2P cochés sur le poste (lot 7, `shared/rules/c2p.ts`) ; journal : identifiant, codes avant et après | RH, référent HSE |
 | `referentiel.horaire.alternant` | id (code de l'horaire), alternant (vrai : équipes successives alternantes ; faux : non ; null ou « » : à qualifier) ; vaut pour toutes les nuits comptées sous cet horaire ; journal : code, valeur avant et après | RH, référent HSE |
+| `entite.creer` (lot 11, C1) | code (2 à 32 lettres minuscules, chiffres ou « _ », jamais modifié), nom (120 caractères), type (`societe`, `etablissement`), parente (société ouverte d'un établissement ; aucune pour une société), siren (société : 9 chiffres, clé de Luhn, unique), siret (14 chiffres, clé de Luhn, unique, commençant par le SIREN de la société), idcc (1 à 4 chiffres, rendu sur 4), siteCode (site connu et actif) : `controlerEntite` de `shared/rules/entites.ts` ; journal : codes, type, SIREN, SIRET, IDCC, site, nom seulement « renseigné » | RH |
+| `entite.modifier` | code, mêmes champs (le type ne change pas) ; refusé pour une entité tenue par Matrix (`source = 'matrix'`) et pour un SIREN qui ne serait plus celui des SIRET de ses établissements | RH |
+| `entite.fermer` / `entite.rouvrir` | code : `actif`, `fermeLe` (jamais supprimée) ; fermeture refusée tant que l'entité porte des équipes (directement ou par héritage) ou, pour une société, des établissements ouverts ; réouverture d'un établissement refusée tant que sa société est fermée | administrateur RH |
+| `site.enregistrer` | code (création, format de matrix.pub_sites) ou id (le code), libelle (80 caractères), actif? : cache de matrix.pub_sites tenu à la main | RH |
+| `equipe.entite` | nom (équipe racine seulement : une équipe rattachée hérite de son équipe racine), entite (code d'une entité ouverte ; vide : aucune) ; aucun valideur ne change | RH |
+| `equipe.site` / `equipe.unite` | nom, siteCode (site connu et actif ; vide : celui d'une équipe au-dessus ou de l'entité) / uniteCode (format de l'organigramme de Matrix, `PRD-MAINT`, unique ; vide : aucun) | RH |
+| `organigramme.imprimer` / `organigramme.exporter` | entite? (code), lignes (entier) : rien n'est écrit en base, le journal garde l'entité et le nombre de lignes, jamais un nom | qui voit l'organigramme (réglage `organigrammeOuvert` : l'espace RH toujours ; managers sauf « rh » ; collaborateurs si « tous », par défaut) |
 | `passeport.declarer` | cles [« cert:<id> », « suivie:<id> » : lignes du Passeport de prévention, 2 000 au plus], le (jour de la déclaration sur la plateforme : ni à venir, ni avant le dernier jour d'une formation) ; ligne inconnue, annulée, d'une formation plus marquée ou déjà déclarée : refus, rien d'écrit (lot 7, `shared/rules/passeport-prevention.ts`) ; journal : jour, nombre de lignes, salariés concernés | RH, référent HSE |
 | `passeport.retirer` | cle (ligne marquée déclarée) : marque posée par erreur retirée, ligne de nouveau proposée à l'export ; journal : la clé, le salarié | RH, référent HSE |
 | `hab.demander` | empId, h : habilitation exigée jamais délivrée, titre « en attente » de délivrance (déjà demandée : rien n'est refait ; déjà délivrée ou archivée : refus) | RH, référent HSE ; jamais pour soi-même |
@@ -1756,12 +1767,17 @@ aucun champ du paramètre n'est recopié.
 | `formalite.enregistrer` | empId, kind (`passeport`/`visa`/`vaccin`), numero, expire, dest, visaType, obtenu, v, date | RH (écrit dans le dossier), ou le collaborateur pour lui-même (déclaration en attente, voir ci-dessous) |
 | `voyages.importer` | texte (CSV) ; ligne sans référence : `DD-<n° du déplacement>` (suffixe si déjà prise) ; demandeur : nom du salarié reconnu, sinon tel que saisi (service RH seulement) | RH |
 | `keystone.accepter` / `keystone.refuser` | id ; refus : motif? (conservé dans Cursus, demande et message du journal, jamais transmis à Keystone) | RH (demande en attente ; l'acceptation revalide affectation, chantier actif, destination, effectifs et l'absence de déplacement déjà créé, et est refusée si le salarié est déjà en déplacement ou absent ces jours-là ; la demande reste en base avec statut, date et décideur) |
-| `plan.importer` | texte, exercice, mode (`add`/`replace`) ; exercice clos refusé | RH ; `replace` (supprime les lignes prévues d'origine `import` ; celles issues d'une demande, d'un report ou sans origine sont conservées) : administrateur RH |
+| `plan.importer` | texte, exercice, mode (`add`/`replace`) ; exercice clos refusé | RH ; `replace` (supprime les lignes prévues d'origine `import` ; celles issues d'une demande, d'un report ou sans origine sont conservées ; lot 11 : refusé si l'une d'elles porte un dossier OPCO actif, celle qui ne porte qu'un dossier clos est gardée) : administrateur RH |
 | `budget.enveloppes` | exercice, enveloppes {équipe: montant} ; exercice clos refusé | RH |
 | `plan.avancer` | id, de? (statut affiché : déjà dépassé, rien n'est refait ; revenu à « prévue », refus), coutReel (vers « réalisé », exigé : euros, 0 accepté), effectifReel?, beneficiaires? [empId] avec du, au?, duree? (t116 : formation suivie d'origine `plan` pour chacun, membre de l'équipe de la ligne ou demandeur d'une demande acceptée qui l'a créée ; refus si une session clôturée réalise la ligne) ; exercice clos ou action reportée refusés | RH |
 | `plan.modifier` | id, f? (vide : hors catalogue), libelle?, equipe?, periode? (`T1`…`T4`), effectif? (1 à 1 000), cout? (0 à 1 000 000 €), motif (obligatoire) ; ligne prévue ou engagée d'un exercice ouvert ; une session ouverte rattachée fige la formation | RH |
-| `plan.supprimer` | id, motif (obligatoire) : ligne prévue ou engagée d'un exercice ouvert, sans session ouverte rattachée (l'annuler d'abord) ; gardée en base (`annuleLe`…), hors de l'instantané et des sommes | administrateur RH |
+| `plan.supprimer` | id, motif (obligatoire) : ligne prévue ou engagée d'un exercice ouvert, sans session ouverte rattachée (l'annuler d'abord) ni dossier OPCO actif (lot 11) ; gardée en base (`annuleLe`…), hors de l'instantané et des sommes | administrateur RH |
 | `plan.cloturerExercice` | exercice (passé et ouvert : jamais l'exercice en cours), reporter [id] (actions prévues ou engagées à reporter sur l'exercice suivant) | administrateur RH |
+| `opco.creer` | planActionId (action du plan non reportée ; exercice clos admis), dispositif? (`plan` par défaut), opco? et subrogation? (réglages `opcoDefaut`, `opcoSubrogation`), reference? (code sans espace, 40 caractères), du?, au?, heures?, effectif?, montantDemande?, montantDemandeAnnexes? (dispositifs qui les prévoient), organismeSiret? (clé de Luhn), organismeNda? (11 chiffres), organismeQualiopi? : dossier « à déposer » (lot 11, `controlerSaisieOpco` de shared/rules/opco.ts) | RH |
+| `opco.modifier` | id + champs de `opco.creer` envoyés ; motif exigé une fois le dossier déposé (correction : `corrigeLe`…) ; soldé, refusé ou abandonné : rouvrir d'abord | RH |
+| `opco.deposer` / `opco.accorder` / `opco.refuser` / `opco.facturer` / `opco.solder` / `opco.abandonner` | id, de? (état affiché : transition déjà faite, rien n'est refait ; autre état, refus), date du fait (aujourd'hui par défaut, jamais future ni avant l'étape précédente) ; accorder : montantAccorde, accordReference?, plafondHoraire? ; refuser, abandonner : motif codé (`MOTIFS_REFUS_OPCO`, `MOTIFS_ABANDON_OPCO`) ; facturer (justificatifs envoyés) : montantFacture, facture et certificat de réalisation (ou émargement) joints quand les pièces sont activées, depuis « accordé » ou depuis « remboursé » quand un acompte a précédé l'envoi (le dossier reste alors « remboursé ») ; solder : justificatifs envoyés exigés, écart accordé − reçu figé, nature (`perte` ou `partiel`) s'il en reste un ; jamais de refus pour un exercice clos | RH |
+| `opco.versement` | id (dossier accordé, justificatifs envoyés ou remboursé), montant (> 0), le?, destinataire? (`entreprise`, ou `organisme` par défaut en subrogation), reference?, versements? (nombre affiché : au-delà, double clic, rien n'est enregistré) → « remboursé » | RH |
+| `opco.annulerVersement` / `opco.rouvrir` / `opco.supprimer` | id (versement ou dossier), de? (retour d'un cran), motif (obligatoire, jamais au journal) : versement gardé hors des sommes (dernier annulé : état d'avant) ; retour d'un cran (`statutPrecedent`, champs de l'état quitté effacés ; remboursé : annuler le versement d'abord) ; dossier saisi par erreur gardé hors de l'instantané, refusé avec un versement ou une pièce en vigueur | administrateur RH |
 | `temps.setCell` | empId, week, li, di (0 = lundi … 5 = samedi, 6 = dimanche), value ; une ligne de 5 valeurs est complétée à 7 | salarié, manager direct ou RH (feuille soumise : valideur uniquement) ; aucune heure un jour d’absence validée ou signalée, ni hors contrat, vider la cellule reste possible ; pas de feuille pour une semaine hors contrat ; samedi et dimanche saisissables, repos hebdomadaire signalé sans blocage ; jour férié saisissable si `feriesTravaillesAutorises` (par défaut), saisie tracée (`temps.ferie`, ou `temps.correction` par autrui) |
 | `temps.derogationDominicale` | equipe, type (`aucune`/`feu_continu`/`suppleance`), reference (exigée hors `aucune`, 120 caractères ; journal : seulement « renseignée ») : clé `derogationsDominicales` de la table settings, suit l'équipe renommée et disparaît avec l'équipe supprimée | administrateur RH |
 | `temps.horaire` | empId, week, di (0 = lundi … 6 = dimanche), code (« » : aucun horaire ; un horaire archivé ne se choisit plus) : horaire de poste du jour, au niveau de la feuille ; seuls les choix y sont inscrits ; l'horaire retenu, avec ses heures, est figé à part à la soumission et à la validation (`horairesAFiger`, `FeuilleTemps.horairesFiges` : les jours non choisis qui portent des heures reçoivent l'horaire de l'équipe) ; tracé quand il est choisi par autrui | comme `temps.setCell` (salarié, manager direct ou RH ; feuille soumise : valideur) |
@@ -1826,12 +1842,22 @@ aucun champ du paramètre n'est recopié.
 | `messagerie.recapituler` | — : récapitulatifs des notifications en attente envoyés sans attendre 7 h | RH |
 | `notification.regler` | empId? (soi par défaut), mode (`immediat`/`quotidien`) | la personne elle-même, ou RH |
 | `confidentialite.regler` | responsable?, dpo? (texte, 300 caractères au plus ; vide : effacé, la page renvoie au service RH) ; journal : nom des champs dont la valeur change, jamais leur texte | administrateur RH |
-| `piece.joindre` | jetons (ou jeton) : pièces envoyées par `POST /api/pieces` par le même compte, encore en attente ; objet (`absence`/`certification`/`habTitre`/`declaration`/`voyage`), objetId ; 10 pièces en vigueur au plus par objet ; fonction désactivée : 409. Les mêmes jetons se passent en `pieces` à `absence.saisir`, `absence.qualifier`, `absence.signaler` (intéressé ou RH), `cert.ajouter`, `hab.delivrer` et `formalite.enregistrer` (déclaration du collaborateur ; celle qu'elle remplace lui laisse ses pièces) | absence (hors congés, ni annulée ni refusée) : intéressé, RH ; certification, titre d'habilitation : RH, référent HSE ; document déclaré : intéressé tant qu'il attend, RH ; déplacement : RH ; jamais le manager |
-| `piece.retirer` | id, motif (obligatoire, 500 caractères ; gardé avec la pièce, lu par le service RH et par le salarié dans l'export de ses données, masqué au journal) : description gardée, fichier effacé après la validation de l'action ; le refus d'un document déclaré retire aussi ses pièces | RH ; référent HSE pour une certification ou un titre d'habilitation ; jamais sur son propre dossier |
+| `piece.joindre` | jetons (ou jeton) : pièces envoyées par `POST /api/pieces` par le même compte, encore en attente ; objet (`absence`/`certification`/`habTitre`/`declaration`/`voyage`/`dossierOpco`), objetId ; `nature` exigée pour un dossier OPCO (`NATURES_PIECE_OPCO` : convention, accord, facture…), pièce sans salarié (`empId` null), `conserverJusquau` à 10 ans après la fin de l'exercice pour la facture et l'accord ; 10 pièces en vigueur au plus par objet ; fonction désactivée : 409. Les mêmes jetons se passent en `pieces` à `absence.saisir`, `absence.qualifier`, `absence.signaler` (intéressé ou RH), `cert.ajouter`, `hab.delivrer` et `formalite.enregistrer` (déclaration du collaborateur ; celle qu'elle remplace lui laisse ses pièces) | absence (hors congés, ni annulée ni refusée) : intéressé, RH ; certification, titre d'habilitation : RH, référent HSE ; document déclaré : intéressé tant qu'il attend, RH ; déplacement, dossier OPCO : RH ; jamais le manager |
+| `piece.retirer` | id, motif (obligatoire, 500 caractères ; gardé avec la pièce, lu par le service RH et par le salarié dans l'export de ses données, masqué au journal) : description gardée, fichier effacé après la validation de l'action ; le refus d'un document déclaré retire aussi ses pièces | RH ; référent HSE pour une certification ou un titre d'habilitation ; jamais sur son propre dossier ; pièce dont `conserverJusquau` n'est pas échue (facture ou accord d'un dossier OPCO) : administrateur RH seulement |
 | `employe.anonymiser` | ids (1 à 100), motif (obligatoire, 500 caractères ; gardé dans la table `effacements`, jamais au journal), avantEcheance? (droit à l'effacement : un seul salarié, sorti, même fonction désactivée ; catégories sans obligation légale ou échues effacées, identité, titre de séjour, santé et temps gardés jusqu'à leur échéance, 409 si rien à effacer) ; sans `avantEcheance`, fonction activée avec la décision du DPO (409 sinon) et dossiers proposés seulement (409 sinon) : catégories échues effacées, fiche anonymisée à l'échéance du dossier ; 409 tant qu'un solde de sortie est dans un lot à confirmer ; message et journal sans nom | administrateur RH (jamais son propre dossier) |
 | `agenda.creerJeton` / `agenda.revoquerJeton` | — : nouveau jeton (le précédent révoqué), renvoyé une seule fois dans `result`, jamais au journal ; flux désactivé : 409 / révocation de son abonnement | le salarié pour lui-même, depuis l'espace collaborateur ou manager |
 | `agenda.revoquerTout` | — : tous les abonnements révoqués | administrateur RH |
+| `temps.saisir` | empId, week, projet, tache? (première ligne de ce projet, et de cette tâche si elle est donnée), di (0 à 6), value, base (valeur vue à la saisie) : cellule désignée par la ligne et non par son indice (file hors ligne, lot 11) ; valeur déjà écrite : rien n'est refait ; cellule changée depuis (ni `base` ni la nouvelle valeur) : 409 avec les deux valeurs ; ligne absente : 409 ; toutes les règles de `temps.setCell` | comme `temps.setCell` |
+| `temps.addLine` (`siAbsente`) | siAbsente: true (lot 11, file hors ligne) : rien n'est ajouté si le projet est déjà sur la feuille | comme `temps.addLine` |
+| `push.abonner` | endpoint (service de push connu, https), p256dh (65 octets), auth (16 octets) en base64url, systeme, navigateur (codes : libellé d'appareil, jamais saisi) ; adresse déjà abonnée : reprise par ce compte ; notifications désactivées (sans clés VAPID) : 409 | chaque compte, depuis tout espace |
+| `push.desabonner` | endpoint, motif (`utilisateur`/`deconnexion`) : cet appareil ; appareil d'un autre compte ou inconnu : rien | chaque compte |
+| `push.preferences` | types (liste, `TYPES_PUSH` de `shared/notifications-push.ts`) : tous les appareils du compte ; aucun appareil : 409 | chaque compte |
+| `push.desabonnerAppareil` | id (un de ses appareils ; un autre : 404) ; ou tout: true (tous les abonnements de tous les comptes) | chaque compte ; `tout` : administrateur RH |
+| `push.tester` | — : notification d'essai à tous ses appareils, aussitôt (plage de silence ignorée) ; aucun appareil : 409 | chaque compte |
 | `reprise.importer` | type (`salaries`/`soldes`/`certifications`/`visites`/`habilitations`), texte (CSV), colonnes (champ de chaque colonne), dateReprise (soldes), equipes (rapprochement), confirmations (lignes cochées : réembauche sur un matricule, visite sans avis), comptes (comptes Microsoft 365, y compris pour une fiche déjà à jour), fichier ; analyse de `shared/rules/reprise.ts`, seules les lignes retenues par l'aperçu sont écrites ; ses propres soldes refusés (fiche rattachée au compte) ; lot conservé (table `reprises`) ; journal `reprise.<type>` | administrateur RH |
+| `indicateurs.arreter` | annee : année close (refusée tant qu'elle est en cours), un seul arrêté en vigueur par année et périmètre (`global`) ; agrégats de l'année figés déjà masqués, par groupement (ensemble, sexe, catégorie, statut, contrat), avec la version des règles et le seuil (lot 11, C3) ; journal : année, périmètre, identifiant | administrateur RH |
+| `indicateurs.annulerArrete` | id, motif (obligatoire, 500 caractères ; gardé avec l'arrêté pour le service RH, jamais au journal ni pour la lecture seule) : l'arrêté reste, un nouveau peut être pris pour la même année | administrateur RH |
+| `indicateurs.marquerCse` | id, le (mise à disposition du CSE : ni future, ni avant l'arrêté) ; arrêté annulé refusé | RH |
 
 ## Journal des actions
 
@@ -3898,3 +3924,681 @@ procédure dans `docs/DEPLOIEMENT.md` (« Procédure de reprise »).
   restreints) ; « Rejouer » reprend colonnes, rapprochements et date avec un fichier rechargé.
 - **Journal** : code `reprise.<type>` (`code` de la règle), type, date de reprise, case des comptes, décompte, salariés
   concernés, comptes Microsoft 365 ouverts (`comptesOuverts` : fiche et identifiant de chacun, comme `compte.creer`) ; `reprise.soldes` dans `ACTIONS_PAIE`, `reprise.visites` masqué pour la lecture seule (`ACTIONS_SANTE`).
+
+## Lot 11 : socle commun (S0)
+
+Posé seul sur `main` avant les cinq chantiers du lot 11 (C1 organigramme et entités, C2 application mobile, C3 tableaux de
+bord légaux et BDESE, C4 dossiers OPCO, C5 notes de frais), pour que deux chantiers ne créent ni ne réécrivent le même
+objet en parallèle. Aucun comportement ni type TypeScript ne change.
+
+- **Objets de pièce en PostgreSQL** (`server/migrations-pg/0015_lot11_socle.sql`) : `pieces_objet_check` admet, en plus des
+  objets existants, `dossierOpco` (C4), `ligneFrais`, `ligneFraisSante` (dépense médicale en mission, objet distinct parce
+  que la nature « santé » est portée par l'objet dans `OBJETS_PIECE`) et `vehiculePerso` (C5). Côté code, l'union
+  `ObjetPiece`, `OBJETS_PIECE` et `TABLE_OBJET` (un `Record` complet) restent inchangés : `estObjetPiece` refuse encore ces
+  objets à l'API, et chaque chantier les ajoute dans son bloc le jour où sa table existe. Aucune migration SQLite : les
+  tables y sont créées d'après `TABLES`, sans CHECK sur `objet`. `tests/lot11-socle.test.ts` vérifie que tout objet de
+  `OBJETS_PIECE` est admis par la dernière définition de la contrainte dans la chaîne des migrations.
+- **Registres vides**, remplis par les chantiers dans un bloc « // lot 11 — <module> » :
+  - `shared/hors-ligne.ts`, `ACTIONS_HORS_LIGNE` : actions que l'application, ouverte en ligne, met en file quand elle
+    perd le réseau (C2) ; chaque nom est une action du registre du serveur (contrôlé par le test) ;
+  - `shared/notifications-push.ts`, `NOTIFICATIONS_PUSH` : notifications sur le téléphone, textes fixes sans nom ni date
+    (réponse du propriétaire du 31 octobre 2026 ; le test refuse un gabarit ou un chiffre), vue ouverte connue. La table
+    `envois`, sa cible et sa file ne changent pas : le push a sa propre table (C2) ;
+  - `shared/rules/export-comptable.ts` : types du gabarit du fichier d'écritures comptables (`LigneEcriture`,
+    `GabaritExportComptable`, mêmes conventions que le fichier d'import Sage) ; le calcul et les réglages viennent avec
+    C5. Rien du plan de comptes n'y est figé : la comptabilité doit le fournir.
+- **Migrations PostgreSQL attribuées** : 0016_entites (C1), 0017_pwa (C2), 0018_indicateurs (C3), 0019_dossiers_opco (C4),
+  0020_notes_frais (C5). Une base applique les migrations manquantes même avec un trou ; l'empreinte de chacune s'ajoute à
+  `PUBLIEES` (`tests/purge-changements.test.ts`) à sa fusion.
+
+## Lot 11 : organigramme et entités (C1, t195)
+
+Structure société > établissement > équipes au-dessus de la hiérarchie des équipes (t136), sans changer aucun valideur :
+l'entité n'est qu'un regroupement au-dessus des équipes racines. Elle fournit le SIREN, le SIRET et l'IDCC dont ont besoin
+l'OPCO, les indicateurs légaux et les notes de frais. Étape 1 : règles, données, actions, journal, réglage, amorçage ;
+étape 2 : écrans (Organigramme, Référentiels → Entités et sites, entité et site dans Équipes & managers, réglage dans
+Paramètres), impression, CSV, remplissage de `employes.site_code` et `unite_code`, aide, guide, RGPD et demande à Matrix
+(détail en fin de section).
+
+- **Règles pures.** `shared/rules/entites.ts` : SIREN (9 chiffres) et SIRET (14) contrôlés par leur clé de Luhn (règle de
+  l'INSEE pour La Poste : somme des chiffres multiple de 5, admise en plus de la clé de Luhn), SIRET commençant par le SIREN de la société, IDCC sur 4
+  chiffres ; deux niveaux (un établissement a une société parente ouverte, une société n'en a pas) ; type et code fixés à
+  la création ; fermeture refusée tant que l'entité porte des équipes ou des établissements ouverts (`refusFermeture`) ;
+  entité d'une équipe = celle de son équipe racine (`entiteEquipe`, l'entité posée sur une équipe rattachée n'est pas
+  lue) ; site et unité d'un salarié tirés de son équipe ou d'une équipe au-dessus, le site à défaut de l'entité
+  (`rattachementSalarie`, appliqué à l'étape 2) ; équipes racines au nom de site (`equipesRessemblantAUnSite`), seulement
+  signalées. `shared/rules/organigramme.ts` : `arbre(entites, equipes, annuaire, delegationsVisibles, today, options)`
+  (entités, équipes racines et rattachées, présents, valideur N+1 lu par `valideurHierarchique`, suppléant d'après les
+  délégations visibles en vigueur, sans dates), présents selon `presentA` (entrée ≤ jour ≤ fin, plus strict que `present`,
+  inchangé) et fiches anonymisées exclues ; pour le service RH seulement (`rh`) : salariés à affecter, anomalies (équipe sans
+  manager, salarié à affecter, équipe racine sans entité, équipe racine au nom de site) et étiquettes de contrat fournies
+  par l'écran ; `organigrammeOuvertA(reglage, espace)`.
+- **Données.** `entites` (clé `code` ; nom, type, parente, siren, siret, idcc, siteCode, ordre, actif, fermeLe, source
+  `local` | `matrix` : cache du contrat pub_entites demandé à Matrix) et `sites` (cache de matrix.pub_sites : code,
+  libellé, actif, ordre) dans `TABLES` ; colonnes `equipes.entite`, `siteCode`, `uniteCode` ; `employes.siteCode` et
+  `uniteCode` entrent dans `TABLES` (colonnes de 0002_partage.sql en PostgreSQL, créées par la déclaration en SQLite, aucune
+  migration nommée). PostgreSQL : `server/migrations-pg/0016_entites.sql` (types, clés étrangères `equipes.entite` et
+  `entites.parente`, CHECK des formats de 0002 pour les codes de site et d'unité, deux niveaux, ouverture, index unique
+  partiel du SIREN et du code d'unité, déclencheurs `revision` et `revision_lignes_*` des deux tables ; aucune donnée,
+  aucune vue `pub_`, aucune colonne sensible). `TABLES_RANG` (départage de `ordre`), références de `integrite.ts`,
+  `TABLES_AMORCEES` de la reprise PostgreSQL (l'entité amorcée d'une base neuve est remplacée par celles de la source).
+- **Instantané et cache.** `referentiels.entites` et `referentiels.sites` (données d'entreprise publiques, transmises à tous :
+  `LECTURES.referentiels`, `ORDRE_LECTURE` par `ordre`, tables à clé texte relues en entier par le delta ; champ commun,
+  hors `CHAMPS_PAR_SALARIE` : chaque écriture recalcule les vues, ce qui est acceptable vu leur rareté). Champ
+  `presentsOrganigramme` (identifiants des présents du jour, sans les dates ; `LECTURES` : `employes`) : l'organigramme hors du
+  service RH filtre l'annuaire avec lui ; vide pour un espace auquel le réglage ferme l'organigramme (`vueDe`). L'annuaire
+  envoyé ne change pas (sa minimisation est une tâche à part). Preuves : `tests/entites.test.ts` (delta égal à la lecture
+  complète et oracle de toutes les vues après la création, le renommage et la fermeture d'une entité, le rattachement d'une
+  équipe, un réglage et un upsert direct), `tests/lecture-brute.test.ts` (registre), banc d'oracle (`tests/support/oracle.ts` :
+  codes d'entité, de site et d'unité tirés des données du moment).
+- **Actions et journal.** `server/src/actions/entites.ts` (tableau des actions ci-dessus) ; `equipe.parente` retire l'entité
+  d'une équipe qui devient rattachée et donne à une équipe détachée l'entité dont elle relevait (journal : `parente` et
+  `entite` avant et après). Journal en liste blanche (`REGLES` de `server/src/journal.ts`) : codes, type, SIREN, SIRET, IDCC
+  (données publiques), site, unité, équipe, avant et après ; nom d'une entité ou d'un site seulement « renseigné » ;
+  impression et export : entité et nombre de lignes. Famille « Fiches et équipes ». Aucune de ces actions ne change un
+  verdict Go / No Go (`SANS_EFFET_VERDICT`).
+- **Réglage** `organigrammeOuvert` (`tous` par défaut, `managers`, `rh`) : l'espace RH (tous ses profils) voit toujours
+  l'organigramme ; la vue `organigramme` (`ALLOWED_VIEWS`, `PROFILS_RH.vues`) est arrivée avec l'écran, à l'étape 2.
+- **Amorçage** (`amorcerEntites`, `server/src/demarrage.ts`) par le code et non par la migration (sur une base PostgreSQL
+  neuve, les réglages n'existent pas encore au moment des migrations) : à la fin de `mettreAJourBase` (deux moteurs), après
+  le chargement de la démonstration (`server/src/index.ts`) et après `demo.reinitialiser`. S'il n'existe aucune entité mais
+  au moins une équipe, une société de code `entreprise` est créée sous la raison sociale du responsable du traitement
+  (première ligne de Paramètres → Confidentialité) ou « Entreprise », et les équipes racines y sont rattachées ; ligne
+  `entite.amorcer` au journal (avec les équipes au nom de site, à vérifier à la main). Idempotent ; aucun valideur ne
+  change. Base de production neuve (aucune équipe) : rien n'est créé au démarrage ; la première équipe créée par
+  `equipe.creer` ou par la reprise de Lucca déclenche l'amorçage, une fois la raison sociale saisie
+  (`rattacherEquipeNeuve`). Ensuite, une équipe racine nouvelle est rattachée d'office à l'entité ouverte quand c'est la
+  seule et une société ; avec plusieurs entités ouvertes, le service RH la rattache (`equipe.entite`) et l'organigramme la
+  signale d'ici là.
+- **Modification d'une entité** (`entite.modifier`) : un champ absent de la requête garde sa valeur ; null ou une chaîne
+  vide l'efface. `site.enregistrer` refuse un `actif` qui n'est pas un booléen.
+- **Étape 2 — site et unité des fiches** (`server/src/rattachements.ts`, `recalerRattachements`) : `employes.site_code` et
+  `unite_code` sont tirés de l'équipe (`rattachementSalarie`), jamais saisis ; recalculés dans la transaction de
+  `employe.creer`, `employe.modifier` (changement d'équipe), `equipe.affecter`, `equipe.supprimer`, `equipe.parente`,
+  `equipe.entite`, `equipe.site`, `equipe.unite`, `entite.modifier` (site de l'entité) et `reprise.importer`, puis à chaque
+  démarrage (`mettreAJourBase` : une base d'avant l'étape 2 les reçoit). Seules les fiches qui changent sont écrites ;
+  aucun journal propre (la cause y est déjà). `pub_salaries` cesse de les publier vides. Ce sont des codes d'organisation
+  tirés de l'équipe, déjà transmise à tous : aucun filtrage dans `dataset.ts`.
+- **Étape 2 — écran Organigramme** (`client/src/pages/Organigramme.tsx`, vue `organigramme` de `ALLOWED_VIEWS` pour les
+  trois espaces et de `PROFILS_RH.vues` des profils référent HSE, paie et lecture seule ; Comptabilité exclu). Hors espace
+  RH, la vue et son entrée du menu suivent `organigrammeOuvertA` (state/store.tsx ramène une adresse fermée à l'accueil ;
+  layout/Shell.tsx, groupe « Organisation »). Arbre `arbre()` sur l'annuaire et les présents transmis par le serveur
+  (`presentsOrganigramme`) pour tous les espaces, les délégations du jeu de données (déjà réduites à `delegationsVisibles`) et, pour le service RH
+  et la lecture seule (`rh: true`), les étiquettes de contrat hors CDI. Listes imbriquées `role="tree"` / `treeitem` /
+  `group`, `aria-level`, `aria-expanded`, focus itinérant (flèches, Début, Fin, Entrée, Espace) ; traits en bordures CSS
+  (`.org-*` de `styles/app.css`), liste indentée sans traits sous 600 px. Filtres, recherche et dépliage : module sans
+  React `client/src/organigramme-vue.ts` (`filtrerArbre`, `depliageInitial`, `clesDepliables`, `lignesOrganigramme`,
+  `sectionsImpression`), testé par `tests/organigramme-ecran.test.ts`. Entité et site dans l'adresse (`?entite=…&site=…`,
+  `PARAMS_URL`, champs `orgEntite`, `orgSite` de `ui`) ; la recherche reste en mémoire.
+- **Étape 2 — impression et CSV** : `printDocument(…, { paysage: true, journal: false })` (`print.ts` : sections `arbre`
+  en listes imbriquées, `saut` de page avant chaque entité qui porte des équipes — une entité sans équipe n'a pas de page —, titre
+  d'un établissement suivi de sa société, même filtré seul, page nommée `paysage` de `styles/print.css`, mention « Document
+  interne — état au ») ; `csvOrganigramme` (`listes-csv.ts`) : société (celle de l'établissement sous un filtre
+  d'établissement), établissement, site, chemin des équipes, équipe,
+  nom, poste, manager, valideur, sans contrat ni étiquette pour aucun profil ; `downloadCsv(…, { journal: false })`. Les
+  deux sont signalés par `organigramme.imprimer` et `organigramme.exporter` (entité, nombre de lignes), et non par
+  `/api/exports` (qui nommerait le fichier).
+- **Étape 2 — écrans du service RH** : Référentiels → « Entités et sites » (`pages/ReferentielsEntites.tsx` ; dialogues
+  `RefEntiteDialog`, `RefSiteDialog`, contrôles de `controlerEntite` et `controlerSite` en direct ; fermeture confirmée par
+  `state/confirmations-entites.ts`, administrateur RH ; une entité `matrix` se consulte seulement) ; Équipes & managers :
+  entité et site (hérité signalé) sur chaque carte et dans le détail, bouton « Rattachement » (`EquipeRattachementDialog` :
+  une action par champ modifié, `equipe.entite` pour une équipe racine seulement), alerte « Équipes sans entité », lien
+  vers l'organigramme ; Paramètres → Hiérarchie des managers : « Organigramme ouvert à ».
+- **Restent** : copie de `pub_entites` quand Matrix l'aura validé (`docs/demandes/matrix-lot11-entites.md`) ; organigramme à
+  une date passée (BDESE, t197) ; entité portée par le salarié (employeur) si une équipe mêle deux sociétés ; minimisation
+  de l'annuaire envoyé aux non-RH (tâche à part) ; zoom de l'arbre.
+## Lot 11 : application mobile (C2), étape 1 — idempotence, saisie hors ligne, notifications
+
+Réponses du propriétaire du 31 octobre 2026 : hors ligne seulement pour une application déjà ouverte avec du réseau
+(aucun instantané gardé sur le téléphone) ; notifications génériques (sans nom ni date), coupées par défaut, jamais de
+20 h à 7 h ni le week-end ; aucune dépendance (ni Workbox, ni web-push). Le manifeste, les icônes, le service worker,
+CURSUS_PWA et les écrans sont venus avec l'étape 2 (section suivante).
+
+- **Idempotence** (`server/src/idempotence.ts`) : en-tête `Idempotency-Key` (16 à 100 caractères sûrs, UUID) lu sur
+  `POST /api/actions/:nom` (`server/src/app.ts`) et `POST /api/pieces` (`server/src/pieces-routes.ts`). Table
+  `idempotence` (TABLES_SANS_REVISION) : `cle` = SHA-256 du compte et de la clé reçue, empreinte du corps (JSON aux clés
+  triées, ou octets de la pièce) précédée de l'opération, statut, résultat réduit (nombres et booléens
+  seulement : jamais un jeton ni un nom) ; jamais le message de l'action (il peut nommer un salarié ou la nature d'une
+  absence ; colonne `message` laissée vide), un rejeu rend le message fixe `MESSAGE_REJOUE`. Écrite dans la transaction de l'action, après le journal : une action refusée
+  ou annulée ne garde rien. Même clé et même corps : réponse gardée, en-tête `idempotent-replayed`, `relire: true`
+  (le client relit l'instantané), l'action n'est pas refaite ; autre corps ou autre action : 422 ; clé illisible : 400.
+  Vérifiée dans la transaction (écritures sérialisées) : deux envois simultanés ne font l'action qu'une fois. Pièce :
+  la même pièce rendue avec son jeton tant qu'elle attend d'être jointe (410 ensuite) ; le fichier d'un second envoi
+  simultané est effacé. `temps.validerLot` (plusieurs transactions) ignore la clé. Purge à 30 jours par la tâche du quart
+  d'heure (`tachesEmails`).
+- **Registre hors ligne** (`shared/hors-ligne.ts`) : `ACTIONS_HORS_LIGNE` = `temps.saisir`, `temps.addLine`,
+  `absence.demander`. Un rejeu porte l'en-tête `x-cursus-hors-ligne: 1` ; `refusHorsLigne` (422) : action hors du
+  registre, salarié autre que celui du compte (jamais pour son équipe : le manager qui pose valide du même coup), absence
+  autre que CP, RTT ou récupération, pièce jointe à une demande de congé. L'action fait ensuite tous ses contrôles. Au
+  journal, l'action garde ses champs, plus `horsLigne: true`. Jamais une validation ni une action de `ACTIONS_PAIE`
+  (test).
+- **`temps.saisir`** (`server/src/actions/temps.ts`) : cellule désignée par `projet`, `tache` et `di`, avec la valeur vue
+  (`base`) ; écriture par `ecrireCellule`, commune avec `temps.setCell` (mêmes règles) ; conflit 409 avec les deux valeurs,
+  qui place la saisie dans « À reprendre ». Journal : règle de `temps.setCell`, indice de ligne retrouvé dans la feuille
+  lue avant l'action. `temps.addLine` reçoit `siAbsente` pour qu'un rejeu ne double pas une ligne ajoutée entre-temps.
+- **File chiffrée** (`client/src/state/hors-ligne.ts`, testée sans navigateur : `tests/client-hors-ligne.test.ts`) :
+  IndexedDB (`magasinIndexedDb`), AES-GCM 256 avec une CryptoKey non extractible rangée avec la file ; en clair seulement
+  le compte, l'espace, la date, l'état et le nombre de tentatives. Rejeu (`rejouer`) en série, dans l'ordre, pause de
+  `PAUSE_REJEU_MS`, une relecture à la fin, seulement pour le compte et l'espace de la session ; clé d'idempotence =
+  identifiant de l'entrée. Pièces envoyées d'abord avec leur propre clé, jetons gardés (jamais renvoyées après un arrêt),
+  passés à l'action ; jeton de plus de 23 h (valable 24 h sur le serveur) ou saisie reprise après un refus : pièce encore
+  sur l'appareil renvoyée avec une nouvelle clé d'envoi ; au plus `MAX_PIECES_EN_ATTENTE`. Refus → « À reprendre » avec le motif ; réseau, 401, 408, 429, 5xx
+  → arrêt. Purges : `purger` (déconnexion, appareil partagé), `purgerAutreCompte`, `purgerAnciennes` (7 jours). Envoi par
+  l'API : `envoyeurApi` (`api.action(…, { cle })`, `api.envoyerPiece(…, cle)`). La relecture périodique de
+  `client/src/state/store.tsx` se tait hors ligne (`navigator.onLine`).
+- **Web Push maison** (`server/src/integrations/push.ts`) : RFC 8291 (ECDH P-256, HKDF), RFC 8188 (aes128gcm, un
+  enregistrement de 4096), RFC 8292 (JWT ES256, audience = origine du service, 12 h) ; vecteurs de l'annexe A de la
+  RFC 8291 et vérification du jeton dans `tests/push.test.ts`. Services admis seulement (`HOTES_PUSH` : FCM, Apple,
+  Mozilla, Microsoft), https sans port ni identifiant : le serveur n'envoie jamais à une adresse interne.
+- **Clés VAPID** : `CURSUS_VAPID_PUBLIC`, `CURSUS_VAPID_PRIVATE`, `CURSUS_VAPID_SUJET` (`configVapid`,
+  `problemesVapid` de `server/src/config.ts`) ; absentes en production : push désactivé (actions 409) ; démonstration :
+  paire en mémoire (`clesPush`, `server/src/push.ts`), rien en base.
+- **Abonnements** (table `abonnementsPush`, TABLES_SANS_REVISION, par compte et par appareil, sans colonne de salarié) :
+  `endpoint`, `p256dh`, `auth` chiffrés (AES-256-GCM, clé des pièces, préfixe `pc1:`, authentifiés par colonne ; en clair
+  sans `CURSUS_PIECES_KEY`), commentés « Sensible » (0017_pwa.sql) ; `cleEndpoint` = SHA-256 de l'adresse (unique) ;
+  types choisis (préférences par compte, coupées par défaut) ; 10 appareils au plus par compte. Lus par
+  `GET /api/push/cle` et `GET /api/push/appareils` (`server/src/push-routes.ts`, compte connecté seulement, jamais
+  l'adresse ni les clés) ; jamais par l'instantané.
+- **Mise en file** : `notifier()` (`server/src/notifications.ts`) appelle `mettreEnFilePush` dans la transaction de
+  l'action, en plus de l'e-mail : appareils des comptes actifs du salarié destinataire (jamais la boîte du service RH)
+  qui ont choisi ce type ; registre `NOTIFICATIONS_PUSH` (`shared/notifications-push.ts`, textes fixes ; les
+  informations au retour d'un arrêt n'en ont pas) ; envoi au premier instant admis (`prochainEnvoiAdmis` : du lundi au
+  vendredi, 7 h – 20 h, heure de Paris), valable 24 h ensuite.
+- **File d'envoi push** (table `envoisPush`, TABLES_SANS_REVISION ; `server/src/envois-push.ts`, processus de fond
+  propre démarré par `server/src/index.ts` avec des clés seulement) : `envois`, `envois.ts` et `envois_cible_check` ne
+  changent pas. Chaque message indépendant (pas de blocage en tête), 50 par passage toutes les 5 s ; charge utile
+  `{ type, titre, corps, url }` recalculée à l'envoi (rien de nominatif en base ni chez le service de push), TTL 24 h,
+  Urgency normal ; appel au service de push hors de la base (décision puis issue écrites sous `exclusif`, après
+  relecture : un service lent ne bloque aucune action) ; plage de silence contrôlée aussi à l'envoi et pour chaque
+  nouvelle tentative (sauf `push.essai`) : notification due pendant la plage reportée au premier instant admis sans
+  compter de tentative, ou expirée si cet instant dépasse sa validité de 24 h ; 2xx envoyé ; 404/410 abonnement supprimé ; 408, 429, 5xx, réseau : nouvelle tentative (`attente`,
+  Retry-After, 10 au plus) ; autre 4xx : échec ; périmée : `expire`. Compteurs `compteursPush` (supervision). Purge
+  (`purgerPush`, tâche du quart d'heure) : messages clos de plus de 30 jours, abonnements sans succès depuis 90 jours ou
+  d'un compte désactivé (départ du salarié). Au-delà de 10 appareils, le plus ancien est retiré avec ses notifications en
+  file (`supprimerAbonnements`). Purge de démonstration (`server/src/purge-demo.ts`) : les trois tables sont toujours
+  vidées avec les comptes.
+- **Journal** : `push.abonner` { appareil }, `push.desabonner` { motif, appareil, retires }, `push.preferences` { types },
+  `push.desabonnerAppareil` { id, tout, appareil, retires }, `push.tester` { appareils } ; jamais l'adresse ni les clés ;
+  famille « Application mobile et notifications ».
+- **PostgreSQL** : `server/migrations-pg/0017_pwa.sql` (trois tables sans déclencheur de révision, clés étrangères vers
+  `comptes` et `abonnements_push` en cascade, aucune vue pub_). Demande à Matrix : `docs/demandes/matrix-lot11-pwa.sql`
+  (endpoint, p256dh, auth ; tables `idempotence` et `envois_push` entières), lue par `tests/colonnes-sensibles.ts` et
+  appliquée par la CI au socle d'essai avec les autres demandes `docs/demandes/matrix-*.sql`.
+
+## Lot 11 : application mobile (C2), étape 2 — installation, service worker, écrans
+
+Suite de l'étape 1 (ci-dessus) : Cursus devient installable et la file hors ligne est branchée sur l'interface. Aucune
+dépendance (ni Workbox, ni vite-plugin-pwa), aucune table ni migration nouvelle, CSP inchangée (manifeste et service
+worker de même origine : `manifest-src` et `worker-src` retombent sur `default-src 'self'`).
+
+- **Manifeste** (`client/public/manifest.webmanifest`) : `start_url` `/?source=pwa` (repère aussi le lancement installé),
+  portée `/`, `standalone`, fond et thème `--color-bg` de Nocturne, raccourcis « Saisir mes heures » (`/temps`) et
+  « Demander une absence » (`/absences?nouveau=1`, relevé au démarrage par `prendreNouvelleAbsence` avant la réécriture
+  de l'adresse, qui ouvre « Poser une absence »). Balises de `client/index.html` : manifeste, `theme-color`,
+  `apple-touch-icon`, `apple-mobile-web-app-*`, `viewport-fit=cover`.
+- **Icônes** (`client/public/icons/`) : PNG 192 et 512 (« any », coins transparents), 512 « maskable » (fond plein,
+  dessin dans la zone de sécurité) et `apple-touch-icon.png` 180 opaque, produits par `scripts/icones.mjs` (encodeur PNG
+  avec `node:zlib`, dessin de `favicon.svg` suréchantillonné, sortie identique d'une exécution à l'autre : comparée au
+  contenu commité par `tests/pwa.test.ts`) puis commités.
+- **Service worker** (`client/public/sw.js`, écrit à la main) : version et liste des fichiers `/assets` à précharger
+  injectées au build par le plugin `swCursus` de `vite.config.ts` (`generateBundle` ; version = empreinte des noms
+  hachés et du contenu des fichiers de la coque, liste `COQUE` de sw.js lue par `coqueDe` : une page « Hors ligne » ou
+  une icône modifiée seule fait aussi proposer la mise à jour ; polices WOFF exclues, WOFF2 gardées ; build refusé si
+  les marques ou un fichier de la coque manquent). Cache `cursus-coque-<version>` :
+  coque (page, page « Hors ligne » `hors-ligne.html` et sa feuille, manifeste, icônes) et `/assets`. `/assets` en cache
+  d'abord ; navigations en réseau d'abord avec 4 s de délai, puis `index.html` gardée, puis la page « Hors ligne »
+  (aussi sur une réponse 502, 503 ou 504 du reverse proxy pendant un redémarrage de Cursus) ;
+  **aucune adresse `/api` servie ni gardée** (ni autre origine, ni hors GET) ; anciennes versions effacées à
+  l'activation ; `skipWaiting` seulement sur le message `SKIP_WAITING` de la page. Push : notification générique
+  toujours affichée ; clic : écran de Cursus seulement (message `NAVIGUER` à l'onglet ouvert, sans rechargement, sinon
+  nouvel onglet). Contrôlé dans un bac à sable `vm` par `tests/pwa.test.ts`.
+- **Serveur** : `GET /sw.js` servi en `no-cache` quand `CURSUS_PWA` est active (par défaut, démonstration comprise :
+  les tests Playwright tournent en démonstration), 404 quand elle vaut `0` ou que le fichier manque (jamais la page de
+  l'interface à la place). `CURSUS_PWA` : `pwaActive` / `problemesPwa` (`server/src/config.ts`), option `pwa` de
+  `createApp` ; `desktop/CursusApp.swift` la pose à `0`.
+- **Enregistrement** (`client/src/pwa/enregistrement.ts`, appelé par `main.tsx` avant le premier rendu) : si
+  `serviceWorker` et `isSecureContext`, jamais sous le serveur de Vite ; `/sw.js` en 404 : service worker et caches
+  retirés. Mise à jour : version en attente → bandeau « Nouvelle version », « Recharger » envoie `SKIP_WAITING` puis
+  recharge à `controllerchange` ; nouvelle version cherchée au retour sur l'application. Installation : événement
+  `beforeinstallprompt` gardé (« Installer l'application ») ; mode standalone (ou `?source=pwa`) → classe
+  `html.standalone`.
+- **Saisie hors ligne branchée** (`client/src/pwa/saisie-hors-ligne.ts`, `pilote.ts`, `useHorsLigne.ts` ; store.tsx :
+  `horsLigne`, et `run` passe par `horsLigne.appeler`) : une action admise (`versFile`) qui ne part pas (réponse sans
+  statut, ou appareil hors ligne) entre dans la file chiffrée de l'étape 1 et l'écran reçoit `ok` (« saisie gardée »).
+  `temps.setCell` devient `temps.saisir` (projet, tâche, jour, `base` = valeur vue) ; `temps.addLine` reçoit
+  `siAbsente` ; `absence.demander` (CP, RTT, récupération) part en ligne avec sa clé d'idempotence sans la marque
+  hors ligne (`api.action(…, { cle, horsLigne: false })`), et la file reprend la même clé : une réponse perdue n'est
+  jamais doublée. Jamais pour un autre salarié, une validation ni la paie (`refusHorsLigne` rejoué côté client). La
+  feuille affichée porte la saisie (`appliquerLocalement`, instantané en mémoire seulement ; feuille encore inexistante :
+  créée en mémoire avec l'identifiant -1) ; un congé n'est pas décompté. Rejeu à chaque session lue, au retour du
+  réseau et de l'application ; messages « N saisies envoyées au retour du réseau » et « … refusées … : voyez « À
+  reprendre » ». Serveur revenu sans événement `online` (Wi-Fi sans accès, puis accès rétabli) : la relecture périodique
+  de store.tsx devient un rejeu tant que des saisies attendent (`horsLigne.relecture`), sans quoi la feuille relue les
+  ferait disparaître de l'écran. Conflit de cellule (`temps.saisir` refusé en 409) : entrée marquée `conflit`, jamais
+  renvoyée (`FileHorsLigne.reprendre` l'ignore : même valeur de base, même refus) ; « Ouvrir la feuille » puis
+  « Abandonner ». « Renvoyer » ne sert qu'à un refus qui peut disparaître (solde, feuille rouverte). Changement de
+  compte sans déconnexion (session expirée, autre personne) : à chaque session lue, l'abonnement aux notifications du
+  navigateur absent des appareils du compte (empreinte SHA-256 de l'adresse comparée à `empreinte` de
+  `GET /api/push/appareils`) est retiré du navigateur (`retirerAbonnementEtranger`, pwa/push.ts) ; le serveur supprime
+  l'ancien au prochain 404 ou 410. Purges : autre compte et 7 jours à chaque session lue ; déconnexion (`avantDeconnexion` : appareil
+  désabonné des notifications, motif `deconnexion` ; `apresDeconnexion` : file purgée une fois la déconnexion faite) ;
+  « Appareil partagé » (`pwa/appareil.ts`, localStorage : file purgée, notifications désactivées, plus rien de gardé).
+  Ouverture sans réseau : page « Hors ligne » (`pages/HorsLigne.tsx`), file seule (`listerTout`), nouvel essai à
+  l'événement `online`. Relecture périodique muette hors ligne (étape 1).
+- **Écrans** : `BandeauHorsLigne` (sous l'en-tête : hors ligne, « N saisies en attente d'envoi », « Envoyer
+  maintenant », nouvelle version, saisies gardées dans un autre espace), `FileEnAttente` (en attente / « À reprendre »
+  avec le motif, « Renvoyer » sauf conflit de cellule, « Ouvrir la feuille » pour un conflit, « Abandonner… » par le
+  dialogue « confirmer » : `abandonSaisie` de state/confirmations.ts, action locale `local: 'abandonSaisie'` sans appel
+  au serveur ; liste seule sur la page « Hors ligne »), `InstallerApplication` (Accueil, Aide et menu : bouton Android ; encart iPhone
+  « Partager » → « Sur l'écran d'accueil », masquable pour l'appareil), `MesAppareils` (Accueil : notifications de cet
+  appareil — permission demandée sur le geste —, préférences par type, essai, retrait d'un appareil, « Appareil
+  partagé » ; lu par `GET /api/push/appareils`, jamais par l'instantané ; « activées sur cet appareil » seulement si
+  l'abonnement du navigateur figure parmi les appareils du compte), barre d'onglets `layout/BarreOnglets.tsx`
+  (quatre premières entrées du menu et « Menu », `html.standalone` sous 900 px, `env(safe-area-inset-*)`), dialogue
+  « Se déconnecter » quand des saisies attendent, tous espaces confondus (`horsLigne.taille`, la déconnexion purge
+  toute la file ; `dialogs/DeconnexionDialog.tsx`).
+- **Photo** (`client/src/pwa/photo.ts`, pour les notes de frais de C5) : champ `capture="environment"` (appareil photo
+  natif, sans `getUserMedia` ni levée de `camera=()`) ; JPEG ou PNG de 10 Mo au plus envoyé sans ses métadonnées
+  (`sansMetadonnees` : APP1 EXIF et XMP, APP13, commentaires du JPEG, orientation réécrite dans un EXIF minimal ; blocs
+  eXIf et textes du PNG ; pixels inchangés, empreinte de la pièce calculée sur le fichier nettoyé) — la position GPS
+  qu'y écrit l'appareil photo ne part donc jamais ; sinon, ou structure illisible, canvas → JPEG 1 600 px, qualité 0,85.
+- **Tests** : `tests/pwa.test.ts` (service worker en bac à sable, plugin, icônes, manifeste et balises, `/sw.js` et
+  `CURSUS_PWA`), `tests/client-pwa.test.ts` (conversion, instantané en mémoire, pilote, photo), `e2e/pwa.spec.ts`
+  (Chromium et téléphone, en démonstration : coque gardée sans `/api`, coupure du réseau avec `context.setOffline`,
+  page « Hors ligne », rejeu, conflit « À reprendre », barre d'onglets et raccourci).
+- **Exploitation** : HTTPS public, pare-feu sortant vers les services de push, clés VAPID et limites d'iOS :
+  `docs/DEPLOIEMENT.md`, « Application mobile ». Registre : `docs/RGPD.md` ; demande à Matrix inchangée
+  (`docs/demandes/matrix-lot11-pwa.sql`, étape 1).
+
+## Lot 11 : indicateurs sociaux légaux et BDESE (C3, t197), étape 1
+
+Indicateurs de la BDESE d'une entreprise de moins de 300 salariés (art. R2312-9, rubriques 1° et 2°) et préparation de
+l'index d'égalité professionnelle (art. L1142-8, D1142-2), calculés par le serveur seulement : la lecture seule ne reçoit
+ni les natures d'absence médicales, ni le sexe, ni la date de naissance, et un calcul dans le navigateur contournerait le
+masquage. Écrans, BDESE, égalité, impression, saisie sur la fiche et échéance agrégée : étape 2.
+
+- **Règles pures** (`shared/rules/indicateurs-legaux.ts`, `tests/indicateurs-legaux.test.ts`) : `presentA` (entrée ≤ date ≤
+  fin ; `present` de contrats.ts ne lit pas l'entrée) ; une seule granularité, l'année civile (`bornesPeriode`, aucune date
+  libre : trimestres et mois, masqués chacun à part, se recouperaient avec l'année, l'année moins les onze autres mois
+  redonnant un mois masqué ; à rouvrir avec un masquage cohérent entre périodes emboîtées) ; groupements (ensemble, sexe, catégorie d'emploi, statut, nature du contrat, équipe). Chaque
+  tableau porte sa définition et son taux de complétude :
+  - *effectifs* : fin de période et moyen au sens de la Sécurité sociale (moyenne des fins de mois, art. L130-1 du CSS) hors
+    intérimaires ; ETP au régime en vigueur (`etpA` : temps partiel sur 35 h, forfait jours sur 218 jours, forfait annuel sur
+    1 607 h) ; effectif du Code du travail (L1111-2 et L1111-3 : moyenne mensuelle en ETP, CDD et intérimaires au prorata de
+    leur présence sauf remplacement, alternance exclue) ; intérimaires des fiches de Cursus ;
+  - *mouvements* : entrées, sorties enregistrées (un CDD arrivé à son terme sans sortie est une « fin de contrat prévue »),
+    taux de rotation ; sorties par motif, entrées par nature du contrat ;
+  - *absentéisme* : jours d'absence comptés dans les jours ouvrés théoriques du régime de chaque salarié
+    (`joursTheoriques` : lundi au vendredi, hors fériés chômés et jours non travaillés du temps partiel), quelle que soit la
+    nature du décompte (un arrêt en jours calendaires ne compte pas ses week-ends), un jour une seule fois (`joursAbsence`) ;
+    natures comptées réglables (`absenteismeNatures`) ; colonnes maladie, AT/trajet/MP, famille, autres ; détail de la santé
+    par nature donné seulement si chaque nature atteint le seuil et si les taux Maladie et AT/MP de l'ensemble sont visibles
+    (son total en est la somme ; sinon tout masqué, total compris) ; absences à qualifier signalées (complétude) ;
+  - *formation* (`realisationsDe` de heures-formation.ts) : stagiaires, heures connues, heures par stagiaire, taux d'accès,
+    durées inconnues ; stagiaires et heures croisés par catégorie et par sexe ;
+  - *âges* (tranches de 5 ans, extrêmes regroupées) et *ancienneté* par sexe ;
+  - *index* : effectifs pris en compte (présents six mois au moins, hors alternance et intérim) par catégorie et sexe, groupes
+    catégorie × âge valides (3 femmes et 3 hommes), retours de congé de maternité ou d'adoption ; indicateurs 1, 2 et 4
+    « hors Cursus » (rémunérations dans Sage), 3 en partie.
+- **Seuil d'anonymat et masquage** (`masquer`) : case portant sur 1 à k - 1 personnes (effectif, ou personnes absentes,
+  formées, sorties : `n2`) masquée « < k », jamais un zéro ; masquage secondaire dans chaque ligne et chaque colonne additive
+  avec son total (une seule case masquée laisserait la retrouver par différence : la plus petite partie non nulle, sinon le
+  total), et dans les relations entre colonnes d'une ligne (`OptionsMasque`) : groupes additifs explicites (les quatre taux
+  par motif d'absence et le taux d'absentéisme), cases liées masquées ensemble (jours et taux d'absence ; stagiaires, heures
+  par stagiaire et taux d'accès ; effectifs de fin de période, moyen, ETP et L1111-2), case dérivée masquée avec ses sources
+  (taux de rotation dès que les entrées ou les sorties le sont : l'effectif moyen est publié). Taux traités comme des comptes. Seuil `indicateursSeuil` (5, de 3 à 10). Propriété vérifiée sur des tableaux tirés
+  au hasard.
+- **Sexe et catégorie** (`employes.sexe` F/M, `employes.categorie` ouvrier/employé/TAM/cadre, NULL : à compléter) : saisis
+  par le service RH (`PROFIL_FIELDS`, listes fermées dans `validerProfil`, jamais le manager ni soi-même), repris de Lucca ou
+  de Sage (colonnes `sexe` et `categorie` de la reprise des salariés ; « Catégorie » seule reste le statut ; codes de la DSN
+  1/2 compris ; « Ouvrier / employé » refusé, à préciser). Service RH et intéressé seulement : `null` dans les vues du manager
+  (membres de son équipe), de la consultation N+2 et de tous les profils restreints (`vueProfil`), lecture seule comprise.
+  Au journal : le nom du champ modifié (`champsModifies`), jamais sa valeur (hors de `FICHE`). Catégorie proposée d'après le
+  statut pour l'écran (`categorieProposee`), jamais imposée.
+- **Route** (`server/src/indicateurs.ts`, montée dans `server/src/app.ts`) : `GET /api/indicateurs?annee&periode&groupe` et
+  `GET /api/indicateurs/csv` (format long : indicateur, période, dimension, modalité, mesure, valeur, « < k ») ; droit
+  `consultation` (service RH, lecture seule), refus tracé (`tracerRefus`), garde `exigerNavigationInterne('appel')`. Calcul sur
+  la lecture partagée de l'instantané en cache (`jeuEnLecture`, lecteur interne), hors de la lecture stable, mémorisé par
+  révision, date du jour et paramètres (`STATS_INDICATEURS`) ; réponse en agrégats masqués seulement, jamais un nom ni un
+  identifiant ; hors de l'instantané (aucun champ du Dataset, aucune entrée de cache). Export tracé `indicateurs.export`
+  { periode, groupe, lignes, arrete? }, jamais une valeur.
+- **Arrêtés** (table `indicateurs_arretes`, actions `indicateurs.arreter`, `annulerArrete`, `marquerCse`,
+  `server/src/actions/indicateurs.ts`) : agrégats de l'année figés (`donnees`, JSON par groupement, sans l'équipe), version des
+  règles (`REGLES_INDICATEURS`) et seuil ; jamais supprimés, un seul en vigueur par année et périmètre. `donnees` n'est jamais
+  lue par l'instantané (`COLONNES_OMISES`) : `GET /api/indicateurs?arrete=<id>&groupe=` la sert telle quelle. Cache
+  incrémental : table dans `TABLES` (déclencheurs `revision` et `revision_lignes_*` posés par la migration),
+  `LECTURES_ASSEMBLEES.indicateursArretes`, relue par le delta comme toute table ; champ `indicateursArretes` dans
+  `CHAMPS_HORS_VUES` (vide hors de l'espace RH) ; transmis au service RH et à la lecture seule (sans auteurs ni motif
+  d'annulation). Banc d'oracle : famille `indicateurs`, sexe et catégorie tirés dans `employe.modifier`, SQL direct sur
+  `employes.sexe` et `indicateurs_arretes.cse_le`.
+- **Données** : migration PostgreSQL `0018_indicateurs.sql` (CHECK, NULL permis, index unique partiel de l'arrêté en vigueur,
+  commentaires « Sensible » sur `employes.sexe`, `employes.categorie`, `indicateurs_arretes.donnees` et `annule_motif`,
+  commentaire de contrat de `pub_salaries` complété « Jamais : …, sexe, categorie » sans recréer la vue) ; fermeture demandée
+  à Matrix dans `docs/demandes/matrix-lot11-indicateurs.sql` (lue avec celle du lot 8 par `tests/colonnes-sensibles.ts` et
+  rejouée par la CI) ; SQLite : déclaration dans `TABLES`, aucune migration nommée (rien à reprendre). Démonstration : sexe et
+  catégorie des 24 fiches, une sans sexe et une sans catégorie.
+- **Réglages** : `indicateursSeuil` (entier de 3 à 10, 5) et `absenteismeNatures` (natures cochées, au moins une ; défaut :
+  maladie, longue maladie, AT, trajet, MP, enfant malade, sans solde, injustifiée), section de Paramètres à l'étape 2.
+## Lot 11 : indicateurs sociaux légaux et BDESE (C3, t197), étape 2
+
+Écrans, BDESE et égalité, impression et export, saisie sur la fiche, échéance agrégée, réglages, essai de charge et
+demandes ; le calcul et les données sont ceux de l'étape 1 (section précédente), inchangés.
+
+- **Écran** `indicateurs` (`client/src/pages/Indicateurs.tsx`, menu Pilotage → « Indicateurs sociaux ») : ouvert par
+  `ALLOWED_VIEWS.rh` et les `vues` de la lecture seule (droit « consultation ») ; ni le manager, ni le référent HSE, ni la
+  paie, ni la comptabilité. Adresse (`PARAMS_URL.indicateurs`) : `?onglet=&annee=&groupe=` (`indOnglet`, `indAnnee` — null :
+  l'année en cours —, `indGroupe` de `UiState`) ; onglets de `pages/indicateurs-onglets.ts` : Effectifs, Mouvements,
+  Absentéisme, Formation, Âges et ancienneté, BDESE, Égalité, Arrêtés. Jamais de date libre : l'année civile seulement.
+- **Lecture** (`client/src/indicateurs-api.ts`, à part de `api.ts`, propriété du chantier C2) : `GET /api/indicateurs` avec
+  l'en-tête d'espace (garde `exigerNavigationInterne('appel')`), relue quand l'instantané change de révision ; les réponses
+  précédentes restent affichées pendant une relecture. Le navigateur n'additionne ni ne soustrait rien : chaque chiffre est
+  une case de la réponse, « < k » (`<abbr>` expliqué) quand elle est masquée. Une année qui a un arrêté en vigueur
+  s'affiche d'après lui (`?arrete=`), « Calcul du jour » au choix ; le groupement par équipe n'est jamais figé.
+- **Graphiques** (`client/src/components/graphiques/`) : barres horizontales et pyramide en SVG faits maison, sans
+  bibliothèque, couleurs par les classes `graph-*` de `styles/app.css` (CSP `style-src 'self'`), `role="img"` avec `<title>`
+  et `<desc>` qui donne toutes les valeurs ; une case masquée n'a jamais de longueur (cadre en pointillé et « < k »).
+  Tableaux : légende, `th scope`, total en gras, défilement horizontal sur téléphone.
+- **BDESE** (onglet, `pages/indicateurs-vue.ts`) : années N-2, N-1, N, chacune lue sur son arrêté en vigueur s'il existe
+  (`GROUPES_BDESE` de `shared/rules/indicateurs-legaux.ts` : ensemble, sexe, catégorie, contrat, tous figés par l'arrêté),
+  chacune avec son propre seuil (`AnneeBdese.seuil` : celui de l'arrêté, figé avec ses agrégats, ou celui du calcul ; une
+  case masquée d'une année arrêtée reste « < k » de l'arrêté même si le réglage a changé, à l'écran, dans l'en-tête de
+  chaque colonne imprimée et dans la note de lecture) ; rubrique 1° (effectifs, contrats,
+  catégories, âges, ancienneté, mouvements, formation, absentéisme) et 2° (par sexe : effectif, embauches, sorties,
+  formation, absentéisme ; effectifs de l'index par catégorie) ; ce que ces rubriques demandent et que Cursus n'a pas
+  (`MANQUES_BDESE` : handicap, stagiaires, temps partiel, accidents, perspectives, promotions, rémunérations) et les
+  rubriques 3° à 10° (`RUBRIQUES_HORS_CURSUS`) listés avec leur source. **Égalité** : effectifs pris en compte, groupes
+  valides, retours de congé de maternité, indicateurs 1, 2 et 4 « Hors Cursus » (état « données manquantes »).
+- **Arrêtés** (onglet) : « Arrêter <année close> » (administrateur RH, confirmation `confirmationArreter` par le dialogue
+  « confirmer »), « Annuler » (motif obligatoire, `confirmationAnnuler` : le motif reste avec l'arrêté, jamais au journal),
+  « Mis à disposition du CSE » (service RH, `dialogs/ArreteCseDialog.tsx` : date contrôlée comme le serveur, ni future ni
+  avant l'arrêté). La lecture seule consulte sans bouton, sans auteurs ni motif (déjà filtrés par `dataset.ts`).
+- **Impression et export** : « Imprimer » (`printDocument`, impression signalée au journal par son titre seul) de l'onglet,
+  de la BDESE (`sectionsBdese`) ou de l'Égalité (`sectionsEgalite`) ; « Exporter (CSV) » télécharge le fichier produit et
+  tracé par le serveur (`indicateurs.export`), jamais `downloadCsv` : l'onglet affiché (`/api/indicateurs/csv`) ou, sur
+  l'onglet BDESE, la BDESE entière (`GET /api/indicateurs/bdese/csv?annee=N` : N-2, N-1 et N, chacune sur son arrêté en
+  vigueur ou calculée, groupements de `GROUPES_BDESE`, colonne « Source » avec l'arrêté ou la date du calcul et le seuil ;
+  index écrit une fois par année ; trace `{ periode: 'N-2-N', groupe: 'bdese', lignes, arretes }`, jamais une valeur).
+  Le groupement choisi n'est appliqué que sur les onglets où sa liste est visible : BDESE, Égalité et Arrêtés lisent et
+  exportent l'ensemble (un groupement par équipe caché ne fait ni repasser une année arrêtée en calcul du jour, ni partir
+  un export « équipe »).
+- **Fiche** (`dialogs/EmployeDialog.tsx`, section « Indicateurs sociaux ») : sexe et catégorie en listes fermées, service RH
+  seulement (le formulaire du manager ne les a pas) ; catégorie proposée d'après le statut par un bouton « Reprendre »,
+  jamais remplie d'office. **Échéance agrégée** : une seule ligne des Échéances (`components/IndicateursACompleter.tsx`,
+  service RH) « N fiches sans sexe ou catégorie d'emploi », règle `aCompleterIndicateurs` (présent à la date, hors
+  intérimaires), bouton « Compléter les fiches » vers l'annuaire filtré « Indicateurs à compléter » (`statut=a-completer`).
+  Renvoi depuis le panneau de formation de Plan & budget (`IndicateursFormation.tsx`).
+- **Paramètres → Indicateurs sociaux** (`pages/parametres/Indicateurs.tsx`) : seuil (3 à 10) et natures comptées dans
+  l'absentéisme, par catégorie d'absence ; modifiables par l'administrateur RH, au moins une nature gardée.
+- **Essai de charge** (`npm run charge:indicateurs`, `scripts/charge/mesure-indicateurs.ts`, base SQLite temporaire, jeu de
+  la fabrique sur 3 ans, sexe et catégorie tirés) — budgets : premier calcul d'une année < 800 ms, réponse mémorisée
+  < 20 ms, onglet BDESE à froid (12 calculs) < 6 s, arrêté < 4 s. Mesuré le 1er novembre 2026 (conteneur de développement) :
+  120 fiches : premier calcul 471 ms (lecture de l'instantané comprise), par sexe ensuite 101 ms, mémoire 0 ms, BDESE
+  1 355 ms, arrêté 535 ms, réponse 14 ko, arrêté 79 ko — budgets tenus. 600 fiches (marge) : 3 118 ms, 517 ms, 0 ms,
+  6 977 ms, 2 660 ms — premier calcul et BDESE au-delà du budget, pour cinq fois l'effectif du site : à remesurer si
+  l'effectif dépasse 300 (calcul des quatre groupements en un passage, ou arrêtés précalculés).
+- **Demandes** (`docs/demandes/matrix-lot11-indicateurs.md`) : fermeture des colonnes sensibles (prioritaire, lignes SQL
+  dans `matrix-lot11-indicateurs.sql`), vue future `pub_indicateurs_rh` (agrégats d'arrêtés), heures travaillées pour Vigie
+  et accidents avec arrêt ; aucune n'est écrite dans un autre dépôt.
+- **Tests** : `tests/client-indicateurs.test.ts` (écran avec le vrai calcul du serveur derrière un fetch remplacé, arrêtés
+  selon le profil, dialogue du CSE, fiche, échéance, section de Paramètres, adresse, mise en forme),
+  `tests/indicateurs-legaux.test.ts` (`aCompleterIndicateurs`).
+
+## Lot 11 : dossiers OPCO (C4, étape 1)
+
+Suivi des prises en charge de l'OPCO (OPCO 2i par défaut) rattachées aux actions du plan de formation, en version allégée
+(réponse de l'entreprise du 31 octobre 2026 : quelques dossiers par an ; ni export comptable des versements, ni aide au
+montage, ni dossiers d'alternance). Règles pures : `shared/rules/opco.ts` ; actions : `server/src/actions/opco.ts` ; tables
+`dossiersOpco` et `versementsOpco` (`server/src/db.ts`, migration PostgreSQL `0019_dossiers_opco.sql`). Les écrans (Plan &
+budget, Paramètres, Échéances) et l'export CSV sont décrits à la section suivante (étape 2).
+
+- **Dossier** : action du plan (`planActionId`, FK `restrict`), exercice de l'action (les montants y sont comptés), OPCO et
+  dispositif (listes fermées), numéro de dossier, dates et heures prévues, effectif, montants demandés (frais annexes pour
+  les seuls dispositifs qui les prévoient), subrogation, organisme (SIRET, déclaration d'activité, Qualiopi) saisi sur le
+  dossier en attendant un référentiel. `empId` est réservé aux dossiers d'alternance (plus tard) : null aujourd'hui, dossier
+  non nominatif ; ses pièces seraient refusées tant qu'ils ne sont pas cadrés.
+- **États** : à déposer → déposé → accordé ou refusé → justificatifs envoyés → remboursé (au moins un versement, un acompte
+  peut suivre l'accord) → soldé ; abandonné avant le solde. Transitions contrôlées par `controleTransition` avec l'état
+  affiché (`de`). Un acompte reçu avant l'envoi des justificatifs fait passer à « remboursé » sans les dispenser : leur envoi
+  s'enregistre encore depuis cet état, qui ne change pas (`controleFacturation`), leur échéance reste suivie
+  (`echeanceOpco`), et le solde les exige (`controleSolde`), avec les pièces de la demande de remboursement ; retour d'un cran par l'administrateur RH (`statutPrecedent`, motif gardé comme une correction). **Un
+  exercice clos ne bloque rien** (pas de `refuserExerciceClos`) : les remboursements arrivent après la clôture.
+- **Montants calculés, jamais stockés** (`montantsOpco`) : attendu = accordé, ou facturé s'il est plus bas ; à récupérer =
+  attendu − reçu par l'entreprise (rien en subrogation : le paiement de l'organisme est suivi à part) ; reste à charge =
+  coût retenu de l'action − prise en charge (`resteACharge`) ; écart au solde figé et qualifié (`ecartAuSolde`) ; synthèse
+  par exercice, OPCO, dispositif, équipe et trimestre (`syntheseOpco`).
+- **Ligne du plan** : `plan.supprimer` (et la réouverture d'une demande qui avait créé la ligne) est refusé tant qu'un dossier
+  actif (ni refusé, ni abandonné, ni supprimé) y est rattaché (`refusLigneAvecDossier`) ; l'import « remplacer » aussi, avant
+  toute suppression, et il garde la ligne qui ne porte qu'un dossier clos (`ligneAvecDossier` : jamais supprimée
+  physiquement, la clé étrangère la désigne). Au report d'une action par la clôture de l'exercice, ses dossiers actifs
+  suivent la nouvelle ligne et son exercice (`transfererDossiers`), et la conservation de leur facture et de leur accord
+  suit le nouvel exercice (jamais raccourcie).
+- **Pièces sans salarié** : objet `dossierOpco` (`OBJETS_PIECE`, `TABLE_OBJET`, `OBJETS_SANS_SALARIE` de
+  `shared/rules/pieces.ts`), `pieces.emp_id` NULL et `pieces.nature` (facture, accord, convention…) exigée à `piece.joindre`
+  (service RH). `voitPiece` : service RH seulement (droit « rh »), jamais par l'égalité de deux identifiants absents ;
+  `piecesDe` garde ces pièces malgré l'absence de salarié ; les pièces des autres objets gardent leurs règles
+  (`tests/opco-actions.test.ts`). Facture et accord : `conserverJusquau` à 10 ans après la fin de l'exercice
+  (`conservationPieceOpco`, art. L123-22 du Code de commerce) : avant cette date, seul l'administrateur RH retire la pièce
+  (`piece.retirer`). La date est aujourd'hui indicative : aucune purge ne la lit encore, et l'anonymisation d'un dossier
+  salarié ne touche pas ces pièces sans salarié. Avec les pièces activées, la demande de remboursement attend la
+  facture et le certificat de réalisation (à défaut, les feuilles d'émargement) ; les autres pièces attendues
+  (`piecesAttendues`) sont signalées, jamais exigées.
+- **Instantané** : `dossiersOpco` et `versementsOpco` (dossier supprimé écarté avec ses versements) complets pour le droit
+  « rh » ; la lecture seule les reçoit sans aucun motif (refus, abandon, correction, suppression, annulation d'un versement) ; rien
+  pour le référent HSE, la paie, le manager et le collaborateur (`CHAMPS_HORS_VUES`). Cache incrémental : deux tables à
+  révision, `LECTURES` (`versementsOpco` dépend aussi de `dossiersOpco`), déclencheurs `revision_lignes_*` posés par 0019,
+  banc d'oracle étendu (tirages des actions OPCO, acteur du service RH, SQL direct sur les deux tables).
+- **Journal** (famille « Formations, plan et budget », hors `ACTIONS_PAIE`) : dossier, action du plan, exercice, états avant
+  et après, dates, codes, référence contrôlée ; montants des seuls dossiers non nominatifs (sinon `[montant modifié]`) ;
+  jamais un motif (codes de refus et d'abandon compris, ni dans le message), ni le nom d'une pièce (sa nature seulement).
+- **Relances** (`relancesOpco`, server/src/relances.ts) : une par dossier en cours et par étape, clé
+  `opco:<id>:<étape>:<échéance>` (`depot`, `accord`, `justificatifs`, `remboursement` ; avec la date, comme les autres
+  relances : une échéance déplacée — formation reportée, retour d'un cran — repart de zéro), aux paliers réglés puis échue, à la seule boîte du service RH
+  (`rhSeul`) : l'action du plan et l'échéance, ni montant ni nom. Délais réglables (`opcoDelaiDepot` 30 jours avant le début,
+  accord attendu 7 jours avant, `opcoDelaiJustificatifs` 90 jours après la fin, `opcoDelaiRemboursement` 60 jours après
+  l'envoi des justificatifs), à confirmer avec le service RH.
+- **Matrix** : aucune vue `pub_` ; motifs commentés « Sensible » dans 0019 et demande de fermeture
+  `docs/demandes/matrix-lot11-opco.sql` (lue par `tests/colonnes-sensibles.ts` avec les autres demandes du lot 11, rejouée
+  par la CI sur le socle d'essai).
+
+## Lot 11 : dossiers OPCO (C4, étape 2 : écrans et exports)
+
+Écrans du service RH (gestionnaire et administrateur) en modification, consultés par la lecture seule ; rien pour le
+référent HSE, la paie, le manager et le collaborateur. Code dans `client/src/components/opco/` (onglet, panneau, colonne,
+échéances, `commun.ts`), `client/src/dialogs/Opco*Dialog.tsx`, `client/src/state/confirmations-opco.ts`,
+`client/src/pages/parametres/Opco.tsx` ; ajouts localisés et commentés « lot 11 — dossiers OPCO » dans `Budget.tsx`,
+`Echeances.tsx`, `listes-csv.ts`, `store.tsx`, `url.ts`, `DialogHost.tsx`, `parametres/sections.tsx`. Tests :
+`tests/client-opco.test.ts` (rendu sous Node avec les vraies actions du serveur).
+
+- **Plan & budget** : onglet « Dossiers OPCO » (`ui.budgetOnglet`, dans l'adresse : `?onglet=dossiers-opco`, filtres
+  `etat`, `opco`, `dispositif`, dossier ouvert `dossier-opco`) pour l'exercice affiché : indicateurs de `syntheseOpco`
+  (demandé, accordé, facturé, reçu, à récupérer, refusé, taux de prise en charge, reste à charge, nombre de dossiers par
+  état ; l'accordé et le facturé d'un dossier abandonné ne comptent plus, ni dans le taux), dossiers en retard en tête
+  (`echeanceOpco`), tableau filtrable (état : tout, en cours, en retard, clos ; OPCO et dispositif présents), panneau de
+  détail (montants au centime, formation et organisme, chronologie datée, versements, pièces attendues et jointes, étapes
+  proposées par `etapesProposees`, les mêmes contrôles que le serveur), répartition par OPCO, dispositif, équipe ou
+  trimestre, versements d'une période (l'exercice jusqu'à aujourd'hui, ou depuis le 1er janvier de l'année en cours pour un
+  exercice futur ; l'onglet est remonté à chaque changement d'exercice). Onglet du plan : colonne « OPCO » (états et
+  accordé de la ligne, hors dossier abandonné ; « Créer », ou « Nouveau dossier » à côté des dossiers existants — un par
+  dispositif ou par financeur, avertissement dans le dialogue si un dossier actif du même dispositif existe — pour le
+  service RH sur une ligne non reportée, exercice clos compris) et coût net du réalisé (`coutNetPlan` :
+  réalisé moins les versements de l'OPCO sur les actions réalisées ; les enveloppes ne changent pas).
+- **Dialogues** : création préremplie (`propositionDossier` : dates des sessions non annulées de la ligne, durée du
+  catalogue, effectif réel ou prévu, coût retenu ; OPCO et subrogation des réglages) et modification (correction motivée
+  après le dépôt) ; une étape par dialogue (`OpcoEtapeDialog` : dépôt, accord, refus, justificatifs, solde, abandon, avec
+  l'état affiché `de`) ; versement (nombre de versements affichés envoyé contre le double clic, montant proposé à ce qui
+  reste attendu) ; pièce avec sa nature. Réouverture, annulation d'un versement et suppression passent par le dialogue
+  « confirmer » avec un motif (administrateur RH). Avec les pièces activées, l'envoi des justificatifs est bloqué à l'écran
+  tant que facture et certificat de réalisation (ou émargement) manquent, comme par le serveur.
+- **Échéances** : filtre « Dossiers OPCO » (`echType = 'opco'`, `?type=dossiers-opco`) et panneau des échéances dépassées
+  ou des 12 prochains mois, qui ouvre le dossier dans Plan & budget. Pour un profil qui ne voit pas les dossiers (lien
+  partagé), le filtre lu dans l'adresse revient à « Tout ».
+- **Paramètres → Dossiers OPCO** : OPCO et subrogation proposés (enregistrés aussitôt), trois délais enregistrés au bouton
+  (bornes de `shared/reglages.ts`, comparées par le test).
+- **Exports** (`csvOpco`, `csvVersementsOpco` de `client/src/listes-csv.ts`, téléchargement tracé au journal par
+  `downloadCsv` avec son nombre de lignes) : dossiers affichés (montants calculés, jamais de motif) ; versements d'une
+  période par date d'encaissement pour le rapprochement. CSV simple : pas d'export au gabarit comptable commun
+  (réponse de l'entreprise du 31 octobre 2026, question 8 : quelques dossiers par an).
+- **Journal** : la fusion de la vague 1 avait doublé les familles « fiches » et « formations » de `FAMILLES_JOURNAL`
+  (le filtre « Formations, plan et budget » ignorait `opco.`) ; une seule famille par identifiant, vérifié par le test.
+
+## Lot 11 : notes de frais, étape 1 (C5)
+
+Réponses du propriétaire du 31 octobre 2026 : Cursus porte tout le module ; remboursement avec la paie du mois suivant
+(colonne « montant » du fichier Sage, rubriques inactives « à saisir dans Sage » tant que la paie n'a pas confirmé ses
+codes) plus un fichier d'écritures pour la comptabilité (étape 2) ; contrôle après le manager par un nouveau profil
+« Comptabilité », qui voit aussi les frais médicaux ; lecture du reçu par saisie assistée et texte collé, sans service
+externe. Module livré désactivé (réglage `notesFraisActives`, activé dans la démonstration seulement). Les écrans, l'export
+comptable, le branchement de l'application mobile, le guide et les demandes aux autres dépôts viennent à l'étape 2.
+
+- **Règles pures** (`shared/rules/frais*.ts`, tests par valeurs : `tests/frais-regles.test.ts`) :
+  - `frais.ts` : catégories (dont `medical`), statuts et transitions, montant retenu et totaux (calculés, jamais
+    stockés), totaux d'équipe sans note médicale, doublons par (salarié, date, montant, commerçant normalisé) et par
+    empreinte de justificatif, catégorie « divers » (une catégorie réelle) au journal à la place de `medical` ;
+  - `frais-km.ts` : barème de l'année (table `baremesKm`, saisie par l'administrateur RH), CV plafonnés à 7 pour la
+    voiture, majoration de 20 % pour l'électrique, part marginale du montant annuel pour chaque trajet (les trajets de
+    l'année s'additionnent au montant annuel, changement de tranche compris), cumul annuel calculé, régularisation ;
+    `indemnitesIkAnnee` recalcule les lignes de l'année dans l'ordre des trajets à chaque ajout, modification,
+    suppression ou refus d'une ligne, annulation d'une note et publication du barème (`recalculerIk`,
+    `server/src/actions/frais.ts`) ; l'écart d'une ligne déjà payée se régularise sur les lignes encore à payer (jamais
+    sous zéro), et la limite d'exonération se calcule de même (`limitesIk`) : une saisie dans le désordre ne paie ni
+    trop ni trop peu ;
+  - `frais-politique.ts` : alertes par ligne. Le dépassement de la politique interne (`fraisPlafonds`, vide par défaut)
+    est une alerte acceptée avec un motif ou plafonnée par le contrôleur (`montantRetenu`), jamais une réintégration ;
+    l'allocation au-delà de la limite d'exonération (forfait au-delà du montant URSSAF de l'année, indemnité au-delà du
+    barème plafonné) est réintégrable, signalée à la paie (FRAIS_REINT). Un frais réel justifié n'est jamais réintégrable ;
+  - `frais-cumul.ts` : jours et nuits de grand déplacement (GD_JOUR, GD_NUIT) et jours à l'étranger (ETR_JOUR) comptés
+    comme la paie (`partsSejour`), croisés jour par jour avec les repas, hôtels et forfaits de même nature : bloquant ;
+  - `frais-lecture.ts` (texte d'un reçu collé : montant, date, devise, TVA, SIRET, commerçant ; propositions),
+    `frais-tva.ts` (taux proposé, TVA récupérable par catégorie, note simplifiée de 150 € HT), `frais-paie.ts` (parts
+    d'une note, imputation des avances par séjour, éléments du lot). Le solde d'une avance se compte sur ce qui a été
+    réellement déduit : avances versées, en paiement ou versées par le lot en cours, moins les déductions
+    (FRAIS_AVANCE_DED) des lots non annulés, lues dans leur contenu figé (`deductionsTransmises`) ; il ne s'impute que
+    sur les notes du lot en cours, jamais a posteriori sur une note déjà payée.
+- **Tables** (`server/src/db.ts`, migration PostgreSQL `0020_notes_frais`, SQLite d'après `TABLES`) : `notesFrais`,
+  `lignesFrais`, `vehiculesPerso`, `baremesKm`, `forfaitsFrais`, `avancesFrais`, `tauxDevises` lues par l'instantané
+  (`LECTURES` ; barèmes, forfaits et taux dans `referentiels`) ; `exportsFrais` hors de l'instantané (`HORS_INSTANTANE`) ;
+  `sceauxPieces` sans révision (`TABLES_SANS_REVISION`) ; `lotsPaie.frais`. Déclencheurs `revision` et
+  `revision_lignes_*` posés par 0020 ; `lignesFrais`, fermée en entier à Matrix (demande
+  `docs/demandes/matrix-lot11-frais.sql`), n'est inscrite au journal des changements que par le marqueur « toute la
+  table » (`TABLES_CHANGEMENTS_SANS_CLE`). Commentaires « Sensible » sur les montants, commerçants, invités, kilomètres,
+  catégorie et motifs. Aucune vue `pub_`.
+- **Droits** (`server/src/actions/frais.ts`, matrice `tests/droits.test.ts`, `tests/frais-actions.test.ts`) : le salarié
+  saisit ses notes (le service RH aussi) ; le manager direct, ou son suppléant au périmètre de délégation `frais`
+  (`PerimetreDelegation`, effectif seulement le module activé), valide ; la comptabilité (droit `compta`, profil
+  `comptabilite`, contrainte `comptes_profil_rh_check` de 0020) ou le service RH contrôle ; jamais sa propre note
+  (`refuserSoiMeme`). Une note médicale et un salarié sans valideur passent d'emblée à « validée », en attente du
+  contrôle ; le message et la trace de la soumission sont les mêmes dans les deux cas (sans statut d'arrivée). Une note
+  dont toutes les dépenses sont refusées est close au contrôle (« payée », de zéro) : aucun lot ne l'emporterait. Refus d'un élément hors du périmètre : 403, sans rien en révéler.
+- **Instantané** (`server/src/frais-vues.ts`, appelé par `dataset.ts`) : filtre propre aux frais pour le manager (équipe
+  directe et délégations `frais`, `idsFrais`), jamais `scopeIds` (ni consultation N+2, ni suppléant d'un autre
+  périmètre), sans note médicale d'autrui ni ses lignes ; justificatifs de ces notes (`ligneFrais`, `vehiculePerso`,
+  jamais `ligneFraisSante`) ; `CHAMPS_PAR_SALARIE`. Comptabilité : branche propre de `vueProfil` (liste blanche :
+  référentiels, annuaire, réglages, frais et leurs justificatifs ; aucun dossier, aucune absence). Paie : notes
+  contrôlées, en paiement ou payées, sans lignes, ni mention médicale, ni dates et auteurs du circuit (une validation du
+  manager absente désignerait une note médicale). Référent HSE et lecture seule : rien.
+- **Frais médicaux** : note séparée (`medicale`), objet de pièce `ligneFraisSante` (santé), exclus des vues et totaux du
+  manager, « divers » au journal, libellé de pièce générique, objet `ligneFraisSante` inscrit `ligneFrais` par
+  `journaliser` (server/src/comptes.ts) quelle que soit la trace (`piece.consulter` compris), rubrique FRAIS_REMB commune
+  dans le fichier Sage. `notes_frais.validee_le` et `validee_par` sont déclarées sensibles (demande à Matrix) pour la même
+  raison que le circuit est masqué à la paie. Reste lisible au profil lecture seule : l'absence d'une trace
+  `frais.note.valider` pour un salarié qui a un manager (le journal ne fabrique pas d'étape).
+- **Justificatifs** : `ObjetPiece` élargi (`ligneFrais`, `ligneFraisSante`, `vehiculePerso`) ; joints par l'action de la
+  ligne ou `piece.joindre` tant que la note se saisit (`server/src/frais-pieces.ts`) ; scellés à la soumission dans une
+  chaîne d'empreintes (`server/src/sceaux.ts`, `verifierSceaux`), puis immuables (`piece.retirer` refusé). Ni
+  horodatage qualifié ni cachet : le papier reste conservé (choix par défaut).
+- **Paie** (`server/src/frais-paie.ts`, `FAMILLE_FRAIS`) : notes contrôlées et avances validées réservées par le prochain
+  lot (« en paiement »), payées à sa confirmation, libérées à son annulation ; `ElementLot.montant` ; colonne facultative
+  `montant` de `ColonneFichierPaie`, vide pour les autres éléments (le fichier d'un lot ancien ne change pas) ; lot
+  refusé (409) si un remboursement part dans le fichier sans cette colonne au format en vigueur.
+- **Conservation** : catégorie `frais` (`conservationFraisAns`, 10 ans, au-delà du dossier) ; les étapes n'effacent que
+  les notes hors de leur terme comptable (non payées, ou payées depuis plus de la durée réglée), avec leurs lignes,
+  justificatifs, avances et véhicules ; l'anonymisation du dossier garde les autres, et leurs justificatifs, sans nom.
+  Un dossier anonymisé qui garde des frais est reproposé pour la seule catégorie `frais` dès que des données passent
+  leur terme (`dossiersEchus`, `selection` de `shared/rules/conservation.ts`). Durée réglable de 10 ans au moins
+  (`FRAIS_MIN_ANS`).
+- **Journal** : liste blanche (`REGLES_FRAIS` de `server/src/journal.ts`) — identifiants, statuts, nombres de lignes et de
+  pièces, catégorie (jamais `medical`), période ; jamais commerçant, invités, lieux, motifs ni montant d'une ligne. Les
+  actions du circuit, des avances et des référentiels sont dans `ACTIONS_PAIE` (archive de 3 ans).
+- **Essai de charge** (`npm run charge:frais`, `scripts/charge/frais.ts` et `mesure-frais.ts` ; critère de fusion de
+  l'étape 1) : base SQLite, jeu d'un an de la fabrique (120 fiches), puis 3 ans de frais à l'hypothèse haute de la relecture
+  (une note par salarié et par mois, 20 dépenses en moyenne : 4 320 notes, 86 720 dépenses). Mesure du 1er novembre 2026
+  (machine partagée, ordres de grandeur) : lecture brute complète 1,23 s au lieu de 0,07 s ; JSON de la vue RH 43,0 Mo au
+  lieu de 5,3 Mo (1,6 Mo en brotli au lieu de 0,18 Mo) ; relecture de toute la table `lignes_frais`, que provoque chaque
+  dépense écrite (marqueur « toute la table » du journal des changements), 0,95 s ; vues manager et collaborateur
+  (calcul seul) inchangées à quelques millisecondes près. **Budget dépassé** : le module reste désactivé. Avant son
+  activation (étape 2 ou lot suivant), les notes payées depuis plus de 13 mois sortent de l'instantané et se lisent par une
+  route filtrée par droits (fenêtre appliquée à la lecture brute et au delta), et la relecture de `lignes_frais` est
+  remesurée sur ce volume réduit (de l'ordre de 31 000 lignes à l'hypothèse haute) ; à défaut, inscription par clé de la
+  table au journal des changements, à décider avec le DPO (elle est fermée en entier à Matrix pour les frais médicaux).
+
+## Lot 11 : notes de frais, étape 2 (C5) — écrans, export comptable, application mobile
+
+Suite de l'étape 1 (ci-dessus). Aucune table ni migration nouvelle (`exports_frais` existait), aucune vue `pub_`, aucune
+dépendance. Le module reste désactivé par défaut (`notesFraisActives`) : l'essai de charge de l'étape 1 dépasse le budget
+de l'instantané, et la sortie des notes payées depuis plus de 13 mois n'est pas encore faite.
+
+- **Vue `frais`** (`ALLOWED_VIEWS` des trois espaces, seule vue du profil `comptabilite` ; `pages/Frais.tsx`, onglets de
+  `components/frais/onglets.ts`, adresse `?onglet=` et `?note=` : `PARAMS_URL`) ; fermée par le store quand le module est
+  désactivé (la comptabilité lit alors un message). Collaborateur : « Mes frais » (une colonne, « Nouvelle dépense »,
+  « Nouvelle note », notes en cours et closes, avances, véhicule). Manager : « À valider » (notes et avances), « Équipe »
+  (`totauxEquipe` : jamais une note médicale), « Notes » (les siennes). Service RH et comptabilité : « À contrôler »,
+  « Notes », « Avances », « Exports comptables », « Tableau de bord » (agrégats calculés : notes par étape, délai moyen,
+  dépenses des douze derniers mois par mois et catégorie, réintégrable, avances en cours, taux des devises). Menu : entrée
+  « Notes de frais » / « Mes frais » (deuxième entrée du collaborateur, donc de sa barre d'onglets), pastilles.
+- **Détail d'une note** (`components/frais/Notes.tsx`) : dépenses, justificatifs (liens `/api/pieces`), alertes et totaux
+  calculés par `shared/rules/frais-alertes.ts` (`alertesDeNote`, que le serveur applique à la soumission et au contrôle).
+  Hors du service RH, l'instantané filtré n'a pas tout ce qu'elles lisent (chantiers en grand déplacement, absences et
+  séjours pour la comptabilité, empreintes des justificatifs) : le serveur joint à la vue manager, collaborateur et
+  comptabilité les alertes des notes en circuit, calculées sur l'instantané complet (`Dataset.alertesFrais`,
+  `alertesDesNotes` : brouillon, à corriger, soumise, validée ; texte sans nature d'absence ni auteur d'un doublon), que
+  l'écran affiche telles quelles (`alertesNote` de `components/frais/commun.ts`) ; le service RH, qui a tout, et les notes
+  closes les recalculent. Boutons selon `droitsNote`
+  (`components/frais/commun.ts`), les mêmes droits que le serveur. Dialogues `dialogs/Frais*Dialog.tsx` (dépense, note,
+  véhicule, avance, montant retenu, taux, limite d'un forfait, barème) ; confirmations `state/confirmations-frais.ts`
+  (renvoi et refus avec motif, annulation, retrait, annulation d'un export).
+- **Saisie d'une dépense** (`dialogs/FraisDepenseDialog.tsx`, règles `components/frais/saisie.ts`) : « Photographier le
+  reçu » (`pwa/photo.ts` : métadonnées retirées, HEIC converti) ou fichier ; « Coller le texte du reçu » (propositions de
+  `shared/rules/frais-lecture.ts`, texte jamais gardé ni envoyé) ; champs par catégorie (indemnité kilométrique, forfait,
+  devise et taux, TVA proposée). Sans `noteId` (`frais.ligne.ajouter` étendu, **dépense rapide**) : brouillon ordinaire du
+  mois de la dépense, sans rattachement, créé au besoin ; jamais une note médicale.
+- **Application mobile** : `frais.ligne.ajouter` dans `ACTIONS_HORS_LIGNE`, refusée hors ligne pour des frais médicaux
+  (`refusHorsLigne`). Dépense sans photo : file comme les heures (`versFile`) ; photo dont l'envoi échoue faute de réseau :
+  dépense et photo gardées chiffrées (`PiloteHorsLigne.garderAvecPieces`, pièce envoyée avant l'action au rejeu, jetons dans
+  `jetons`). Page « Hors ligne » (`components/frais/DepenseHorsLigne.tsx`) : photo, montant, date, catégorie, pour le dernier
+  compte connecté avec le module activé (`FileHorsLigne.garderPorteur` : compte, espace, salarié, rangés avec la file, gardés
+  à la purge d'une file vide, effacés à la déconnexion, sur un appareil partagé ou le module désactivé). Raccourci du
+  manifeste « Nouvelle dépense » (`/frais?nouveau=1`, `prendreNouvelleDepense`). Notifications génériques `frais.soumise`,
+  `frais.acontroler`, `frais.renvoyee`, `frais.validee`, `frais.payee` (`shared/notifications-push.ts`). La photo d'une
+  saisie non admise hors ligne (`refusHorsLigne` : dépense d'un autre salarié, frais médicaux) n'est jamais gardée.
+- **E-mails** (`server/src/frais-notifications.ts`, par `notifier`) : soumission au valideur et au suppléant « frais » ; note
+  qui attend le contrôle à la boîte du service RH et aux comptes du profil Comptabilité (droit « compta » sans « rh », sauf
+  l'intéressé de la note ; fiche : comme un salarié, e-mail et téléphone ; compte externe : e-mail aussitôt à son adresse et
+  ses appareils), même message pour une note médicale ; renvoi, contrôle (ou validation
+  sans contrôle, ou clôture sans remboursement) et remboursement (confirmation du lot, `FAMILLE_FRAIS.confirmer`) au
+  salarié. Jamais de montant, de commerçant ni de motif.
+- **Export comptable** (`shared/rules/frais-export.ts`, gabarit commun `shared/rules/export-comptable.ts` ; actions
+  `frais.export.generer` et `frais.export.annuler` de `server/src/actions/frais-exports.ts` ; routes
+  `GET /api/frais/exports` et `GET /api/frais/exports/:id/fichier` de `server/src/frais-exports.ts`, gardées par
+  `exigerNavigationInterne('appel')`) : une écriture par note contrôlée, en paiement ou payée, pas encore exportée, datée du
+  jour de son contrôle à Paris (`isoParis`) — charges par compte (montant retenu moins la TVA récupérable au prorata), TVA déductible, crédit du compte du
+  salarié (auxiliaire : matricule de paie). Frais médicaux : compte générique et libellé « NDF <n°> <nom> » de toute note.
+  Contenu figé dans `exports_frais` (hors de l'instantané) ; fichier tiré du contenu au gabarit en vigueur (réglages
+  `fraisComptes`, `fraisCompteGenerique`, `fraisCompteTva`, `fraisCompteSalarie`, `fraisJournal`, `fraisGabarit`), compté
+  et tracé `frais.export.fichier` comme `sage.fichier` ; génération, annulation et fichier dans `ACTIONS_PAIE`. Nombre de
+  notes affiché envoyé (`attendues`) : une liste changée ou un double clic est refusé (409). Pas de SEPA : remboursement
+  par la paie (réponse du 31 octobre 2026). Une note d'un export en vigueur ne se renvoie ni ne s'annule (409 : « annulez
+  d'abord l'export comptable n° X ») : ses écritures sont figées et elle n'entrerait plus dans un export suivant.
+- **Paramètres → Notes de frais** (`pages/parametres/NotesFrais.tsx`) : activation, circuit, délai, seuil du justificatif,
+  puissance réelle, plafonds par catégorie, barème kilométrique de l'année (alerte « barème manquant ») et suivante,
+  limites d'exonération (service RH), comptes et format du fichier d'écritures.
+- **Missions et Voyages** : notes rattachées (`components/frais/FraisRattaches.tsx`) dans la fiche d'un déplacement
+  (« Nouvelle note de frais » pour le service RH) et sous les missions.
+- **Justificatifs au manager** : `pieces-routes.ts` passe le filtre des frais (`idsFrais`) à `voitPiece` ; jamais une pièce
+  `ligneFraisSante`.
+- **Feuille de style** : un bloc `@media print` de l'organigramme restait ouvert depuis la fusion de la vague 2 et
+  emportait toute la fin de `app.css` (bandeaux et barre d'onglets de l'application mobile compris) ; refermé.
+- **Tests** : `tests/frais-etape2.test.ts` (écritures par valeurs, frais médicaux, gabarit, exports et journal, route
+  du fichier, justificatifs au manager, dépense rapide, notifications, vues et alertes partagées, saisie),
+  `tests/client-frais.test.ts` (compte gardé, dépense avec photo, confirmations), matrice des droits, registre hors ligne,
+  réglages, manifeste.
+

@@ -64,6 +64,10 @@ export const REFERENCES: readonly Reference[] = [
   ref('avenants_forfait', 'lot_id', 'lots_paie'),
   // Horaire de poste par défaut d'une équipe (lot 6) ; ceux des feuilles (JSON, archivés gardés) ne sont jamais supprimés.
   ref('equipes', 'horaire', 'horaires', 'code'),
+  // lot 11 — organigramme : entité d'une équipe racine, société parente d'un établissement (0016_entites.sql). Les codes de
+  // site (D14) ne sont pas des références : le cache `sites` peut être rechargé depuis Matrix.
+  ref('equipes', 'entite', 'entites', 'code'),
+  ref('entites', 'parente', 'entites', 'code'),
   // Jours de fractionnement (t046) : salarié et report reçu qui porte le crédit.
   ref('fractionnements', 'emp_id', 'employes'),
   ref('fractionnements', 'report_id', 'reports'),
@@ -100,6 +104,23 @@ export const REFERENCES: readonly Reference[] = [
   ref('evaluations_formation', 'auteur_id', 'employes'),
   ref('evaluations_formation', 'participation_id', 'participations'),
   ref('evaluations_formation', 'formation_suivie_id', 'formations_suivies'),
+  // lot 11 — pwa (chantier C2 ; clés étrangères de 0017_pwa.sql) : compte des réponses gardées et des abonnements push,
+  // abonnement de chaque notification en file.
+  ref('idempotence', 'compte_id', 'comptes'),
+  ref('abonnements_push', 'compte_id', 'comptes'),
+  ref('envois_push', 'abonnement_id', 'abonnements_push'),
+  // lot 11 — dossiers OPCO (clés étrangères de 0019_dossiers_opco.sql) : action du plan, salarié (réservé à l'alternance,
+  // plus tard), dossier de chaque versement.
+  ref('dossiers_opco', 'plan_action_id', 'plan_actions'),
+  ref('dossiers_opco', 'emp_id', 'employes'),
+  ref('versements_opco', 'dossier_id', 'dossiers_opco'),
+  // lot 11 — notes de frais (clés étrangères de 0020_notes_frais.sql) : salarié, déplacement, lot de paie, note, véhicule ;
+  // pièce scellée. Les missions, remplacées par Keystone, ne sont pas contrôlées.
+  ...['notes_frais', 'lignes_frais', 'vehicules_perso', 'avances_frais'].map(t => ref(t, 'emp_id', 'employes')),
+  ...['notes_frais', 'avances_frais'].flatMap(t => [ref(t, 'voyage_id', 'voyages'), ref(t, 'lot_id', 'lots_paie')]),
+  ref('lignes_frais', 'note_id', 'notes_frais'),
+  ref('lignes_frais', 'vehicule_id', 'vehicules_perso'),
+  ref('sceaux_pieces', 'piece_id', 'pieces'),
 ];
 
 export interface Integrite {

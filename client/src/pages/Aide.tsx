@@ -5,6 +5,8 @@
 import { Fragment, useState, type ReactNode } from 'react';
 import { A_COMPLETER_PAIE, GUIDE_AIDE, partieParDefaut, type PartieAideId, type RubriqueAide } from '../../../shared/aide.ts';
 import { Fine, Page, Panel, Seg } from '../components/ui.tsx';
+// lot 11 — pwa : installation de l'application (bouton Android, encart iPhone).
+import { InstallerApplication } from '../components/InstallerApplication.tsx';
 import { allowedView, useStore } from '../state/store.tsx';
 
 /**
@@ -45,6 +47,7 @@ export function Aide() {
       <Seg name="aide-partie" label="Partie du guide" value={p.id} onChange={setPartie} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
         options={GUIDE_AIDE.map(x => [x.id, x.court] as [PartieAideId, string])} />
       <p className="info-intro">{p.pour}</p>
+      <InstallerApplication />
       <div className="row-wrap">
         <div className="col-stack" style={{ flex: '1 1 480px' }}>
           {p.rubriques.slice(0, moitie).map(r => <Rubrique key={r.titre} r={r} />)}

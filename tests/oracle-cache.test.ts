@@ -28,7 +28,7 @@ const { juger, statistiques } = await import('../scripts/charge/seuils.ts');
 
 const COMPLET = process.env.CURSUS_ORACLE_COMPLET === '1';
 const GRAINES = (process.env.CURSUS_ORACLE_GRAINES?.trim() || (COMPLET ? '20261010,42,7' : '20261010')).split(',').map(Number);
-const PAS = Number(process.env.CURSUS_ORACLE_PAS) || (COMPLET ? 300 : 40);
+const PAS = Number(process.env.CURSUS_ORACLE_PAS) || (COMPLET ? 300 : 60);
 const demo = async () => await baseDemo(nouvelleBase);
 
 test('comparaison : premier écart en profondeur, à l’identique', () => {
@@ -164,7 +164,10 @@ for (const graine of GRAINES) {
     const db = await demo();
     remettreStatistiques();
     // Jeux d'action de tous les lecteurs tous les 5 pas (celui de l'acteur avant chaque action, toujours) ; tout au dernier pas.
-    const x = await rejouer(db, { graine, pas: PAS, verifierTous: 1, jeux: COMPLET ? 1 : 5, sql: 0.25 });
+    // Saisie et absences en renfort : depuis le lot 11, les actions des nouveaux modules (frais, OPCO, organigramme…) diluent
+    // le tirage, et la suite doit toujours exercer ces chemins.
+    const renfort = ['temps.setCell', 'temps.setCell', 'temps.addLine', 'temps.submit', 'temps.validate', 'absence.demander', 'absence.decider'];
+    const x = await rejouer(db, { graine, pas: PAS, verifierTous: 1, jeux: COMPLET ? 1 : 5, sql: 0.25, renfort });
     const stats = statistiquesCache(db);
     const resume = `${resumeRapport(x)}\ncache : ${JSON.stringify(stats)}`;
     // Bilan dans la sortie des tests (journal de la CI), même quand tout passe.

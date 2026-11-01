@@ -21,6 +21,9 @@ import { matriculeAffiche } from '../../shared/rules/matricules.ts';
 import { estTypeTitre } from '../../shared/rules/contrats.ts';
 import { estDemi } from '../../shared/rules/demi-journees.ts';
 import { estObjetPiece } from '../../shared/rules/pieces.ts';
+import { estNaturePiece } from '../../shared/rules/opco.ts';
+// lot 11 — notes de frais
+import { categorieJournal, estCategorieFrais } from '../../shared/rules/frais.ts';
 import {
   ACTION_APPEL_KEYSTONE, ACTIONS_CONNEXION, ACTIONS_PAIE, changementsTexte, CONSERVATION_ARCHIVE_PAIE_MOIS, CONSERVATION_ENVOIS_MOIS,
   CONSERVATION_JOURNAL_MOIS, dossierComplet, estActionPaie, familleAction, FAMILLES_JOURNAL, JOURNAL_LABEL, lecteurJournal, libelleAction,
@@ -29,6 +32,7 @@ import { CODE_PAYS, CODE_TITRE, codeDestination, codeTitre, type ReferentielId }
 import { estTypeReprise } from '../../shared/rules/reprise.ts';
 import { CODE_ACTIVITE, normaliserCodeActivite } from '../../shared/rules/activites.ts';
 import { CODE_HORAIRE, normaliserCodeHoraire } from '../../shared/rules/horaires.ts';
+import { CODE_ENTITE, normaliserCodeEntite } from '../../shared/rules/entites.ts';
 import { reglageAnnee } from '../../shared/rules/feries.ts';
 import { estTypeDerogation, JOURS_FEUILLE } from '../../shared/rules/semaine.ts';
 import { controlesMineur } from '../../shared/rules/mineurs.ts';
@@ -50,6 +54,49 @@ type P = Record<string, any>;
 type Ligne = Record<string, any>;
 
 // — Liste blanche par action —
+
+// lot 11 — notes de frais
+/** Résultat d'une action des notes de frais : note, ligne, avance, salarié, statut, nombres. */
+const resultatFrais = (x: { result: unknown }) => (x.result ?? {}) as { note?: number; ligne?: number; avance?: number; vehicule?: number; empId?: number; statut?: string; lignes?: number; pieces?: number };
+const salarieFrais = (_p: P, x: { result: unknown }) => [resultatFrais(x).empId];
+/** Catégorie reçue, recopiée seulement si elle en est une, et jamais « medical » (inscrite « divers »). */
+const categorieFrais = (p: P) => (p.categorie !== undefined ? { categorie: estCategorieFrais(p.categorie) ? categorieJournal(p.categorie) : null } : {});
+/** Pièces jointes par l'action (nombre de jetons reçus). */
+const piecesRecues = (p: P) => ({ pieces: (Array.isArray(p.jetons) ? p.jetons.length : 0) || (p.jeton ? 1 : 0) });
+const bilanFrais = (_p: P, x: { result: unknown }) => {
+  const r = resultatFrais(x);
+  return { note: r.note ?? null, ...(r.ligne ? { ligne: r.ligne } : {}), ...(r.statut ? { statut: r.statut } : {}), ...(r.lignes !== undefined ? { lignes: r.lignes } : {}), ...(r.pieces !== undefined ? { pieces: r.pieces } : {}) };
+};
+const REGLES_FRAIS: Record<string, Regle> = {
+  'frais.note.creer': { champs: ['periode', 'voyageId', 'missionId'], bilan: bilanFrais, salaries: salarieFrais },
+  'frais.ligne.ajouter': { champs: ['noteId', 'date'], extra: p => ({ ...categorieFrais(p), ...piecesRecues(p) }), bilan: bilanFrais, salaries: salarieFrais },
+  'frais.ligne.modifier': { champs: ['id', 'date'], extra: p => ({ ...categorieFrais(p), ...piecesRecues(p) }), bilan: bilanFrais, salaries: salarieFrais },
+  'frais.ligne.supprimer': { champs: ['id'], bilan: bilanFrais, salaries: salarieFrais },
+  // Sans le statut d'arrivée : « validée » d'emblée désignerait une note médicale d'un salarié qui a un manager.
+  'frais.note.soumettre': { champs: ['id'], bilan: (p, x) => { const { statut: _statut, ...b } = bilanFrais(p, x) as Record<string, unknown>; return b; }, salaries: salarieFrais },
+  'frais.note.valider': { champs: ['id'], bilan: bilanFrais, salaries: salarieFrais },
+  'frais.note.renvoyer': { champs: ['id'], extra: p => ({ motif: typeof p.motif === 'string' && p.motif.trim() ? MENTION_TEXTE : null }), bilan: bilanFrais, salaries: salarieFrais },
+  'frais.note.controler': { champs: ['id'], bilan: bilanFrais, salaries: salarieFrais },
+  'frais.ligne.refuser': { champs: ['id'], extra: p => ({ motif: typeof p.motif === 'string' && p.motif.trim() ? MENTION_TEXTE : null }), bilan: bilanFrais, salaries: salarieFrais },
+  'frais.ligne.plafonner': { champs: ['id'], bilan: bilanFrais, salaries: salarieFrais },
+  'frais.note.annuler': { champs: ['id'], bilan: bilanFrais, salaries: salarieFrais },
+  'frais.vehicule.declarer': { champs: ['type', 'cv', 'electrique', 'du', 'au'], extra: p => piecesRecues(p), bilan: (_p, x) => ({ vehicule: resultatFrais(x).vehicule ?? null }), salaries: salarieFrais },
+  'frais.bareme.enregistrer': { champs: ['annee', 'type'], extra: p => ({ tranches: Array.isArray(p.tranches) ? p.tranches.length : 0 }) },
+  'frais.forfait.enregistrer': { champs: ['annee', 'code', 'pays', 'montant'] },
+  'frais.taux.enregistrer': { champs: ['devise', 'mois', 'taux'] },
+  'frais.avance.demander': { champs: ['voyageId', 'missionId'], bilan: (_p, x) => ({ avance: resultatFrais(x).avance ?? null }), salaries: salarieFrais },
+  'frais.avance.valider': { champs: ['id'], salaries: salarieFrais },
+  'frais.avance.refuser': { champs: ['id'], extra: p => ({ motif: typeof p.motif === 'string' && p.motif.trim() ? MENTION_TEXTE : null }), salaries: salarieFrais },
+  'frais.avance.annuler': { champs: ['id'], salaries: salarieFrais },
+  // lot 11 — notes de frais, étape 2 : exports comptables (identifiant, nombre de notes et de lignes, total : agrégat utile à
+  // l'audit comptable, jamais le montant d'une note).
+  'frais.export.generer': {
+    champs: ['attendues'],
+    bilan: (_p, x) => { const r = (x.result ?? {}) as { export?: number; notes?: number; ecritures?: number; montant?: number }; return { export: r.export ?? null, notes: r.notes ?? 0, lignes: r.ecritures ?? 0, montant: r.montant ?? 0 }; },
+    salaries: (_p, x) => ((x.result ?? {}) as { salaries?: number[] }).salaries ?? [],
+  },
+  'frais.export.annuler': { champs: ['id'], bilan: (_p, x) => ({ notes: ((x.result ?? {}) as { notes?: number }).notes ?? 0 }) },
+};
 
 interface Cible {
   table: TableName;
@@ -95,6 +142,16 @@ interface Regle {
   /** Modifications successives du même objet par le même compte regroupées sur une ligne pendant N minutes. */
   regrouper?: number;
 }
+
+// lot 11 — organigramme
+/** Code d'entité ou de site reçu, recopié seulement s'il en a la forme (jamais un texte libre). */
+const codeEntite = (v: unknown) => { const c = normaliserCodeEntite(v); return CODE_ENTITE.test(c) ? c : null; };
+/** Entité désignée par `code` : son code, et ses colonnes avant et après (le nom masqué). */
+const regleEntite = (colonnes: readonly string[]): Regle => ({
+  extra: p => ({ code: codeEntite(p.code) }), cible: { table: 'entites', cle: p => codeEntite(p.code), colonnes, masques: ['nom'] },
+});
+/** Impression ou export de l'organigramme : entité filtrée (code) et nombre de lignes. */
+const signalementOrganigramme = (p: P): Ligne => ({ entite: codeEntite(p.entite), lignes: Number.isInteger(p.lignes) && p.lignes >= 0 ? p.lignes : null });
 
 /** Bénéficiaires enregistrés par `plan.avancer` (t116), lus dans son résultat. */
 const beneficiairesDe = (result: unknown): number[] =>
@@ -210,6 +267,8 @@ const lotDuResultat = (x: Contexte) => x.result as {
   rachats?: { id: number; empId: number }[];
   astreintes?: { id: number; empId: number }[];
   correctifs?: { empId: number; week: string }[];
+  // lot 11 — notes de frais : notes et avances (identifiants seuls).
+  frais?: { id: number; empId: number; avance?: true }[];
 } | null | undefined;
 const lotRetenu = (x: Contexte) => {
   const r = lotDuResultat(x);
@@ -223,12 +282,15 @@ const lotRetenu = (x: Contexte) => {
     ...(r?.rachats?.length ? { rachats: r.rachats.map(s => s.id) } : {}),
     // Astreintes terminées (t049) : identifiants seuls.
     ...(r?.astreintes?.length ? { astreintes: r.astreintes.map(s => s.id) } : {}),
+    // lot 11 — notes de frais : identifiants des notes et des avances, jamais les montants ni les catégories.
+    ...(r?.frais?.length ? { frais: r.frais.map(s => (s.avance ? `avance:${s.id}` : `note:${s.id}`)) } : {}),
   };
 };
 const salariesDuLot = (x: Contexte) => [...new Set([
   ...(lotDuResultat(x)?.feuilles ?? []).map(f => f.empId), ...(lotDuResultat(x)?.absences ?? []).map(a => a.empId), ...(lotDuResultat(x)?.sorties ?? []).map(a => a.empId),
   ...(lotDuResultat(x)?.deplacements ?? []).map(a => a.empId), ...(lotDuResultat(x)?.rachats ?? []).map(a => a.empId),
   ...(lotDuResultat(x)?.astreintes ?? []).map(a => a.empId),
+  ...(lotDuResultat(x)?.frais ?? []).map(a => a.empId),
 ])];
 /** Feuilles transmises à la paie : validées et non transmises avant l'action, marquées transmises après. */
 const transmises = async (x: Contexte) => (await Promise.all((x.etat as number[]).map(id => x.db.get<FeuilleTemps>('feuilles', id)))).filter((f): f is FeuilleTemps => !!f?.sage);
@@ -337,7 +399,7 @@ export const REGLES: Record<string, Regle> = {
   // Équipe parente (t136) : avant et après, et éléments en attente redirigés (type, identifiant, ancien et nouveau valideur,
   // 0 pour le service RH) ; salariés concernés : ceux des éléments redirigés.
   'equipe.parente': {
-    champs: ['nom', 'parente'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['parente'] },
+    champs: ['nom', 'parente'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['parente', /* lot 11 — organigramme */ 'entite'] },
     bilan: (_p, x) => bilanRedirections(x.result),
     salaries: (_p, x) => salariesRediriges(x.result),
   },
@@ -580,11 +642,17 @@ export const REGLES: Record<string, Regle> = {
   // Pièces justificatives (server/src/actions/pieces.ts) : objet et identifiants, nombre de pièces ; jamais le nom du fichier
   // (il peut nommer une donnée de santé), ni les jetons, ni le motif d'un retrait.
   'piece.joindre': {
-    extra: p => ({ objet: estObjetPiece(p.objet) ? p.objet : null, objetId: Number(p.objetId) || null, pieces: (Array.isArray(p.jetons) ? p.jetons.length : 0) || (p.jeton ? 1 : 0) }),
+    // lot 11 — notes de frais : un justificatif de frais médicaux est inscrit « ligneFrais » (aucune donnée de santé).
+    extra: p => ({
+      objet: estObjetPiece(p.objet) ? (p.objet === 'ligneFraisSante' ? 'ligneFrais' : p.objet) : null, objetId: Number(p.objetId) || null,
+      pieces: (Array.isArray(p.jetons) ? p.jetons.length : 0) || (p.jeton ? 1 : 0),
+      // lot 11 — pièce d'un dossier OPCO : sa nature (code), jamais le nom du fichier.
+      ...(p.objet === 'dossierOpco' && estNaturePiece(p.nature) ? { nature: p.nature } : {}),
+    }),
     salaries: (_p, x) => [(x.result as { empId?: number } | null)?.empId],
   },
   'piece.retirer': {
-    champs: ['id'], extra: (_p, av) => ({ objet: av?.objet ?? null, objetId: av?.objetId ?? null }),
+    champs: ['id'], extra: (_p, av) => ({ objet: av?.objet === 'ligneFraisSante' ? 'ligneFrais' : av?.objet ?? null, objetId: av?.objetId ?? null }),
     cible: { table: 'pieces', cle: p => Number(p.id) || null, colonnes: ['retireeLe', 'retireeMotif'], masques: ['retireeMotif'] },
   },
   // Conservation des dossiers (t016) : salariés et catégories effacées, nombre d'éléments ; jamais de nom (le message n'en
@@ -598,6 +666,16 @@ export const REGLES: Record<string, Regle> = {
   'agenda.creerJeton': { bilan: (_p, x) => ({ abonnement: (x.result as { id?: number } | null)?.id ?? null }), salaries: (_p, x) => [x.user.empId] },
   'agenda.revoquerJeton': { salaries: (_p, x) => [x.user.empId] },
   'agenda.revoquerTout': { bilan: (_p, x) => ({ revoques: (x.result as { revoques?: number } | null)?.revoques ?? 0 }) },
+  // lot 11 — indicateurs (server/src/actions/indicateurs.ts) : année, périmètre et identifiant de l'arrêté ; annulation :
+  // l'instant, jamais le motif (texte du service RH, ni même la mention qu'il est renseigné : il l'est toujours) ;
+  // mise à disposition du CSE : date avant et après. Jamais un chiffre de l'arrêté. L'export est tracé par la route
+  // (`indicateurs.export`, server/src/indicateurs.ts).
+  'indicateurs.arreter': {
+    extra: p => ({ annee: Number.isInteger(Number(p.annee)) ? Number(p.annee) : null, perimetre: 'global' }),
+    bilan: (_p, x) => ({ arrete: (x.result as { id?: number } | null)?.id ?? null }),
+  },
+  'indicateurs.annulerArrete': { champs: ['id'], extra: (_p, av) => ({ annee: av?.annee ?? null }), cible: parId('indicateursArretes', ['annuleLe']) },
+  'indicateurs.marquerCse': { champs: ['id'], extra: (_p, av) => ({ annee: av?.annee ?? null }), cible: parId('indicateursArretes', ['cseLe']) },
   'formalite.enregistrer': {
     champs: p => p.kind === 'passeport' ? ['empId', 'kind', 'expire'] : p.kind === 'visa' ? ['empId', 'kind', 'dest', 'visaType', 'obtenu', 'expire'] : ['empId', 'kind'],
   },
@@ -702,6 +780,10 @@ export const REGLES: Record<string, Regle> = {
     salaries: (_p, x) => [(x.result as { intervention?: Ligne } | null)?.intervention?.empId],
   },
   'astreinte.retirerIntervention': { champs: ['id'], cible: parId('astreinteInterventions', ['astreinteId', 'jour', 'debut', 'fin', 'heures']) },
+  // lot 11 — notes de frais (server/src/actions/frais.ts) : identifiants, statuts, nombres de lignes et de pièces,
+  // catégorie (« divers » pour des frais médicaux), période. Jamais le commerçant, les invités, les lieux, les motifs, le
+  // montant d'une ligne ni le caractère médical d'une note ; salariés lus dans le résultat de l'action.
+  ...REGLES_FRAIS,
   'mandat.enregistrer': { champs: ['id', 'empId'], cible: parId('mandats', ['role', 'du', 'au', 'credit']) },
   'mandat.supprimer': { champs: ['id'], cible: parId('mandats', ['role', 'du', 'au', 'credit']) },
   // Correspondance d'une rubrique avec le plan de paie Sage : codes, case « exportée », date de confirmation.
@@ -813,7 +895,117 @@ export const REGLES: Record<string, Regle> = {
     },
     salaries: (_p, x) => salariesTouches(x),
   },
+  // lot 11 — organigramme (server/src/actions/entites.ts) : codes, type, SIREN, SIRET et IDCC (données d'entreprise
+  // publiques), site et unité, avant et après ; le nom d'une entité ou d'un site n'est tracé que comme « renseigné ».
+  // Impression et export : entité et nombre de lignes seulement, jamais un nom de salarié.
+  'entite.creer': regleEntite(['nom', 'type', 'parente', 'siren', 'siret', 'idcc', 'siteCode']),
+  'entite.modifier': regleEntite(['nom', 'parente', 'siren', 'siret', 'idcc', 'siteCode']),
+  'entite.fermer': regleEntite(['actif', 'fermeLe']),
+  'entite.rouvrir': regleEntite(['actif', 'fermeLe']),
+  'site.enregistrer': {
+    extra: p => ({ code: codeEntite(p.id != null && p.id !== '' ? p.id : p.code) }),
+    cible: { table: 'sites', cle: p => codeEntite(p.id != null && p.id !== '' ? p.id : p.code), colonnes: ['libelle', 'actif'], masques: ['libelle'] },
+  },
+  'equipe.entite': { champs: ['nom'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['entite'] } },
+  'equipe.site': { champs: ['nom'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['siteCode'] } },
+  'equipe.unite': { champs: ['nom'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['uniteCode'] } },
+  'organigramme.imprimer': { extra: signalementOrganigramme },
+  'organigramme.exporter': { extra: signalementOrganigramme },
 };
+
+// lot 11 — pwa (chantier C2) : saisie du jour rejouable, désignée par la ligne (projet, tâche) et non par son indice ; tracée
+// comme temps.setCell (correction par autrui, heures un jour férié), l'indice de la ligne retrouvé dans la feuille lue
+// avant l'action. Jamais la valeur vue (`base`) ni la tâche (libellé).
+/** Indice de la ligne `projet` (et `tache`) dans la feuille, -1 si elle n'y est pas. */
+const ligneDe = (f: Ligne | null, p: P) => ((f?.lignes ?? []) as LigneTemps[]).findIndex(l => l.projet === p.projet && (!p.tache || l.tache === p.tache));
+{
+  const cellule = REGLES['temps.setCell'];
+  const avecLigne = (p: P, x: Contexte): P => ({ ...p, li: ligneDe(x.avant, p) });
+  REGLES['temps.saisir'] = {
+    champs: ['empId', 'week'], cible: cellule.cible,
+    code: (p, x) => cellule.code!(avecLigne(p, x), x),
+    tracer: (p, x) => cellule.tracer!(avecLigne(p, x), x),
+    changements: (p, x) => cellule.changements!(avecLigne(p, x), x),
+  };
+}
+// Notifications sur le téléphone : libellé d'appareil (vocabulaire fixe), motif, types choisis, nombres ; jamais l'adresse
+// du service de push ni les clés du navigateur (ni dans les champs, ni dans le message).
+const resultatPush = (x: Contexte) => (x.result ?? {}) as Record<string, unknown>;
+Object.assign(REGLES, {
+  'push.abonner': { bilan: (_p: P, x: Contexte) => ({ appareil: resultatPush(x).appareil ?? null }) },
+  'push.desabonner': { champs: ['motif'], bilan: (_p: P, x: Contexte) => ({ appareil: resultatPush(x).appareil ?? null, retires: resultatPush(x).retires ?? 0 }) },
+  'push.preferences': { bilan: (_p: P, x: Contexte) => ({ types: resultatPush(x).types ?? [] }) },
+  'push.desabonnerAppareil': { champs: ['id', 'tout'], bilan: (_p: P, x: Contexte) => ({ appareil: resultatPush(x).appareil ?? null, retires: resultatPush(x).retires ?? 0 }) },
+  'push.tester': { bilan: (_p: P, x: Contexte) => ({ appareils: resultatPush(x).appareils ?? 0 }) },
+} satisfies Record<string, Regle>);
+Object.assign(REGLES, {
+  // lot 11 — dossiers OPCO (server/src/actions/opco.ts) : dossier, action du plan, états avant et après, dates, codes (OPCO,
+  // dispositif, nature de l'écart), référence administrative contrôlée, organisme (SIRET, déclaration d'activité) ; montants
+  // des seuls dossiers non nominatifs (`empId` null : tous aujourd'hui), sinon « [montant modifié] » ; jamais un motif (refus et
+  // abandon codés compris, correction, suppression, annulation d'un versement), ni le nom d'une pièce. Hors ACTIONS_PAIE.
+  'opco.creer': {
+    champs: ['planActionId'],
+    bilan: async (_p, x) => {
+      const d = await x.db.get<Ligne>('dossiersOpco', Number((x.result as { id?: number } | null)?.id));
+      return d ? {
+        dossier: d.id, statut: d.statut, opco: d.opco, dispositif: d.dispositif, du: d.du, au: d.au, heures: d.heures, effectif: d.effectif, subrogation: d.subrogation,
+        reference: d.reference, ...(d.empId == null ? { montantDemande: d.montantDemande, montantDemandeAnnexes: d.montantDemandeAnnexes } : {}),
+      } : {};
+    },
+  },
+  'opco.modifier': {
+    champs: ['id'],
+    ...dossierOpco(['opco', 'dispositif', 'reference', 'du', 'au', 'heures', 'effectif', 'montantDemande', 'montantDemandeAnnexes', 'subrogation', 'organismeSiret', 'organismeNda', 'organismeQualiopi', 'corrigeLe']),
+  },
+  'opco.deposer': { champs: ['id'], ...dossierOpco(['statut', 'deposeLe', 'reference']) },
+  'opco.accorder': { champs: ['id'], ...dossierOpco(['statut', 'accordLe', 'montantAccorde', 'accordReference', 'plafondHoraire']) },
+  'opco.refuser': { champs: ['id'], ...dossierOpco(['statut', 'refusLe']) },
+  'opco.facturer': { champs: ['id'], ...dossierOpco(['statut', 'factureLe', 'montantFacture']) },
+  'opco.versement': {
+    champs: ['id'], ...dossierOpco(['statut']),
+    bilan: async (_p, x) => {
+      const v = await x.db.get<Ligne>('versementsOpco', Number((x.result as { id?: number } | null)?.id));
+      return v ? { versement: v.id, le: v.le, destinataire: v.destinataire, reference: v.reference, ...(x.apres?.empId == null ? { montant: v.montant } : {}) } : {};
+    },
+  },
+  'opco.annulerVersement': {
+    champs: ['id'], cible: parId('versementsOpco', ['annuleLe']),
+    bilan: async (_p, x) => {
+      const d = x.avant ? await x.db.get<Ligne>('dossiersOpco', x.avant.dossierId) : null;
+      return d ? { dossier: d.id, le: x.avant!.le, statut: d.statut, ...(d.empId == null ? { montant: x.avant!.montant } : {}) } : {};
+    },
+  },
+  'opco.solder': { champs: ['id'], ...dossierOpco(['statut', 'soldeLe', 'soldeEcart', 'soldeNature']) },
+  'opco.abandonner': { champs: ['id'], ...dossierOpco(['statut', 'abandonLe']) },
+  'opco.rouvrir': {
+    champs: ['id'],
+    ...dossierOpco(['statut', 'deposeLe', 'accordLe', 'montantAccorde', 'accordReference', 'plafondHoraire', 'refusLe', 'factureLe', 'montantFacture', 'soldeLe', 'soldeEcart', 'soldeNature', 'abandonLe', 'corrigeLe']),
+  },
+  'opco.supprimer': { champs: ['id'], ...dossierOpco(['annuleLe']) },
+} satisfies Record<string, Regle>);
+
+// lot 11 — dossiers OPCO
+/** Montants d'un dossier OPCO : recopiés pour un dossier non nominatif seulement. */
+const MONTANTS_OPCO = ['montantDemande', 'montantDemandeAnnexes', 'montantAccorde', 'montantFacture', 'soldeEcart', 'plafondHoraire'];
+export const MENTION_MONTANT = '[montant modifié]';
+/**
+ * Règle d'une action sur un dossier OPCO (`id`) : colonnes avant et après, dossier, action du plan et exercice ; montants
+ * remplacés par MENTION_MONTANT pour un dossier nominatif (alternance, plus tard).
+ */
+function dossierOpco(colonnes: readonly string[]): Partial<Regle> {
+  const cible: Cible = { table: 'dossiersOpco', cle: p => Number(p.id) || null, colonnes };
+  return {
+    cible,
+    extra: (_p, av) => (av ? { dossier: av.id, planActionId: av.planActionId, exercice: av.exercice } : {}),
+    changements: (_p, x) => {
+      const diff = comparer(cible, x.avant, x.apres);
+      if (diff && (x.apres ?? x.avant)?.empId != null) {
+        for (const k of MONTANTS_OPCO) if (k in diff.avant) { diff.avant[k] = MENTION_MONTANT; diff.apres[k] = MENTION_MONTANT; }
+      }
+      return diff;
+    },
+  };
+}
 
 /** Règle d'une action, lue sur les seules clés de REGLES (lot 8, S5) : « constructor », « toString »… n'en ont pas. */
 export const regleDe = (action: string): Regle | undefined => Object.hasOwn(REGLES, action) ? REGLES[action] : undefined;
@@ -932,14 +1124,15 @@ export async function preparerTrace(db: Db, action: string, p: unknown): Promise
  * Trace une action réussie (dans sa transaction) : code, champs retenus, anciennes et nouvelles valeurs,
  * salariés concernés, message expurgé. Rien pour la saisie d'heures du salarié sur sa propre feuille.
  */
-export async function journaliserAction(db: Db, t: Trace, x: { user: CurrentUser; compte: Compte; message: string | null; result?: unknown; parDelegation?: number[] }) {
+export async function journaliserAction(db: Db, t: Trace, x: { user: CurrentUser; compte: Compte; message: string | null; result?: unknown; parDelegation?: number[]; horsLigne?: boolean }) {
   const { regle, p, avant } = t;
   const ctx: Contexte = { db, user: x.user, avant, apres: await lireCible(db, regle?.cible, p), etat: t.etat, result: x.result };
   if (regle?.tracer && !await regle.tracer(p, ctx)) return;
   const code = await regle?.code?.(p, ctx) || t.action;
   // Décision prise par le suppléant d'un manager absent (t135) : identifiants des managers remplacés.
   const delegation = x.parDelegation?.length ? { parDelegation: x.parDelegation } : {};
-  const payload = { ...champsRetenus(t.action, p, avant), ...await regle?.bilan?.(p, ctx), ...delegation };
+  // Rejeu de la file hors ligne de l'application mobile (lot 11, C2) : l'action garde ses champs, marquée `horsLigne`.
+  const payload = { ...champsRetenus(t.action, p, avant), ...await regle?.bilan?.(p, ctx), ...delegation, ...(x.horsLigne ? { horsLigne: true } : {}) };
   const propres = await regle?.changements?.(p, ctx) ?? null;
   const diff = propres ?? (regle?.cible ? comparer(regle.cible, avant, ctx.apres) : null);
   if (propres?.extra) Object.assign(payload, propres.extra);

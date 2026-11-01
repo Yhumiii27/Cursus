@@ -9,6 +9,9 @@ import { ErreurDialogue, ErreurPage, ErreurRendu } from './components/ErreurRend
 import { Shell } from './layout/Shell.tsx';
 import { Login } from './pages/Login.tsx';
 import { MotDePasse } from './pages/MotDePasse.tsx';
+// lot 11 — pwa : ouverture sans réseau (application installée), file d'attente seule.
+import { HorsLigne } from './pages/HorsLigne.tsx';
+import { MSG_RESEAU } from './api.ts';
 import { useStore, type View } from './state/store.tsx';
 
 /** Composant exporté par son nom (`export function Temps`), chargé à la première utilisation. */
@@ -36,9 +39,16 @@ const PAGES: Record<View, ComponentType> = {
   miseEnService: aLaDemande(() => import('./pages/MiseEnService.tsx'), 'MiseEnService'),
   // Compte professionnel de prévention (lot 7) : synthèse annuelle des expositions et export pour la DSN.
   prevention: aLaDemande(() => import('./pages/Prevention.tsx'), 'Prevention'),
+  // lot 11 — indicateurs : indicateurs sociaux légaux (BDESE, préparation de l'index d'égalité), calculés par le serveur.
+  indicateurs: aLaDemande(() => import('./pages/Indicateurs.tsx'), 'Indicateurs'),
   // Vue commune à tous les espaces, ouverte aussi sans connexion (depuis l'écran de connexion).
   confidentialite: aLaDemande(() => import('./pages/Confidentialite.tsx'), 'Confidentialite'),
   aide: aLaDemande(() => import('./pages/Aide.tsx'), 'Aide'),
+  // lot 11 — organigramme : tous les espaces, selon le réglage organigrammeOuvert (state/store.tsx).
+  organigramme: aLaDemande(() => import('./pages/Organigramme.tsx'), 'Organigramme'),
+  // lot 11 — notes de frais : Mes frais (collaborateur, téléphone d'abord), validation (manager), contrôle (service RH,
+  // comptabilité).
+  frais: aLaDemande(() => import('./pages/Frais.tsx'), 'Frais'),
 };
 
 /** Tous les dialogues (dialogs/DialogHost.tsx et ce qu'il importe) : un seul fichier, préchargé avec les données. */
@@ -54,6 +64,7 @@ export function App() {
   useEffect(() => { if (avecDonnees) void chargerDialogues().catch(() => { /* réessayé à l'ouverture d'un dialogue */ }); }, [avecDonnees]);
   if (loading) return <Shell>{CHARGEMENT}</Shell>;
   if (erreurChargement) {
+    if (!navigator.onLine || erreurChargement === MSG_RESEAU) return <Shell><HorsLigne erreur={erreurChargement} recharger={recharger} /></Shell>;
     return (
       <Shell>
         <div className="loading">

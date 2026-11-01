@@ -140,6 +140,8 @@ const TIRAGES: Record<string, Tirage> = {
   'equipe.affecter': ({ r, empId, ds }) => ({ empId: empId(), equipe: r.choix(ds.referentiels.equipes).nom }),
   'employe.modifier': ({ r, empId, ds }) => {
     const e = fiche(ds, r, empId());
+    // lot 11 — indicateurs : sexe et catégorie d'emploi (service RH seulement), vidés parfois.
+    if (r.si(0.2)) return { id: e.id, sexe: r.choix(['F', 'M', '']), categorie: r.choix(['ouvrier', 'employe', 'tam', 'cadre', '']), avant: { sexe: e.sexe ?? null, categorie: e.categorie ?? null } };
     return r.si(0.5) ? { id: e.id, email: `${e.id}.${r.entre(1, 99)}@essai.example`, avant: { email: e.email } } : { id: e.id, poste: r.choix(ds.employes).poste, avant: { poste: e.poste } };
   },
   'employe.contactUrgence': ({ r, empId }) => ({ empId: empId(), nom: `Contact ${r.entre(1, 99)}`, telephone: `06 00 00 00 ${String(r.entre(10, 99))}` }),
@@ -157,6 +159,54 @@ const TIRAGES: Record<string, Tirage> = {
   'demande.formation': ({ r, ds }) => ({ f: r.choix(ds.referentiels.formations).id, motif: 'Montée en compétence' }),
   'mandat.enregistrer': ({ r, empId, date }) => ({ empId: empId(), role: r.choix(['titulaire', 'suppleant']), du: date(-100, 0), credit: r.entre(5, 20) }),
   'astreinte.planifier': ({ empId, date }) => { const du = date(8, 40); return { empId: empId(), du, au: addD(du, 6), debut: '18:00', fin: '08:00' }; },
+  // lot 11 — notes de frais : note, dépense, véhicule et avance tirés dans l'état du moment (module activé en démonstration).
+  'frais.note.creer': ({ r, saisie, ds }) => ({ empId: saisie(), periode: ds.today.slice(0, 7), medicale: r.si(0.2) }),
+  'frais.ligne.ajouter': ({ r, ds, date }) => {
+    const n = parmi(r, (ds.notesFrais ?? []).filter(x => x.statut === 'brouillon' || x.statut === 'a_corriger'));
+    return { noteId: n?.id ?? id(r, ds.notesFrais), date: date(-20, 0), categorie: n?.medicale ? 'medical' : r.choix(['divers', 'repas', 'train']), montant: r.entre(5, 90), sansJustificatif: true, attestation: true };
+  },
+  'frais.ligne.modifier': ({ r, ds }) => ({ id: id(r, ds.lignesFrais), montant: r.entre(5, 90) }),
+  'frais.ligne.supprimer': ({ r, ds }) => ({ id: id(r, ds.lignesFrais) }),
+  'frais.note.soumettre': ({ r, ds }) => ({ id: id(r, ds.notesFrais, n => (n.statut === 'brouillon' || n.statut === 'a_corriger') && (ds.lignesFrais ?? []).some(l => l.noteId === n.id)) }),
+  'frais.note.valider': ({ r, ds }) => ({ id: id(r, ds.notesFrais, n => n.statut === 'soumise') }),
+  'frais.note.renvoyer': ({ r, ds }) => ({ id: id(r, ds.notesFrais, n => n.statut === 'soumise' || n.statut === 'validee'), motif: 'Justificatif illisible' }),
+  'frais.note.controler': ({ r, ds }) => ({ id: id(r, ds.notesFrais, n => n.statut === 'validee') }),
+  'frais.ligne.refuser': ({ r, ds }) => ({ id: id(r, ds.lignesFrais), motif: 'Dépense personnelle' }),
+  'frais.ligne.plafonner': ({ r, ds }) => ({ id: id(r, ds.lignesFrais), montant: r.entre(1, 20) }),
+  'frais.note.annuler': ({ r, ds }) => ({ id: id(r, ds.notesFrais, n => n.statut !== 'payee' && n.statut !== 'en_paiement') }),
+  'frais.vehicule.declarer': ({ r, saisie, ds }) => ({ empId: saisie(), type: 'voiture', cv: r.entre(3, 8), du: ds.today }),
+  'frais.forfait.enregistrer': ({ r }) => ({ annee: 2026, code: r.choix(['panier', 'repas_hors_locaux']), montant: r.entre(5, 12) }),
+  'frais.taux.enregistrer': ({ r, ds }) => ({ devise: r.choix(['USD', 'GBP']), mois: ds.today.slice(0, 7), taux: r.entre(80, 120) / 100 }),
+  'frais.avance.demander': ({ r, saisie }) => ({ empId: saisie(), montant: r.entre(1, 5) * 100 }),
+  'frais.avance.valider': ({ r, ds }) => ({ id: id(r, ds.avancesFrais, a => a.statut === 'demandee') }),
+  'frais.avance.refuser': ({ r, ds }) => ({ id: id(r, ds.avancesFrais, a => a.statut === 'demandee'), motif: 'Mission annulée' }),
+  'frais.avance.annuler': ({ r, ds }) => ({ id: id(r, ds.avancesFrais, a => a.statut === 'demandee') }),
+};
+
+// lot 11 — dossiers OPCO
+/** Dossier OPCO de l'un des états `statuts`, au hasard (null : aucun). */
+const dossierOpcoDans = (ds: Dataset, r: Aleatoire, ...statuts: string[]) => parmi(r, (ds.dossiersOpco ?? []).filter(d => statuts.includes(d.statut)));
+/**
+ * Tirages des actions sur les dossiers OPCO (lot 11, chantier C4) : dossier dans l'état que l'action attend (`de` affiché),
+ * montants et motifs codés. Ils ne sont pas des cibles (`TIRAGES`) : une action OPCO est tirée parmi toutes les actions du
+ * registre, ou ajoutée en renfort (`OptionsOracle.renfort`) par le test du chantier (tests/opco-actions.test.ts).
+ */
+const TIRAGES_OPCO: Record<string, Tirage> = {
+  'opco.creer': ({ r, ds, date }) => {
+    const du = date(5, 60);
+    return { planActionId: id(r, ds.plan, l => l.statut !== 'reporte'), dispositif: r.choix(['plan', 'tutorat', 'versement_volontaire']), du, au: addD(du, r.entre(0, 3)), montantDemande: r.entre(200, 3000) };
+  },
+  'opco.modifier': ({ r, ds }) => ({ id: dossierOpcoDans(ds, r, 'a_deposer', 'depose', 'accorde')?.id ?? r.entre(1, 20), heures: r.entre(7, 35), motif: 'Correction (banc d’oracle)' }),
+  'opco.deposer': ({ r, ds }) => ({ id: dossierOpcoDans(ds, r, 'a_deposer')?.id ?? r.entre(1, 20), de: 'a_deposer', reference: `OPCO-${r.entre(1, 999)}` }),
+  'opco.accorder': ({ r, ds }) => ({ id: dossierOpcoDans(ds, r, 'depose')?.id ?? r.entre(1, 20), de: 'depose', montantAccorde: r.entre(100, 3000) }),
+  'opco.refuser': ({ r, ds }) => ({ id: dossierOpcoDans(ds, r, 'depose')?.id ?? r.entre(1, 20), de: 'depose', motif: 'budget_epuise' }),
+  'opco.facturer': ({ r, ds }) => ({ id: dossierOpcoDans(ds, r, 'accorde')?.id ?? r.entre(1, 20), de: 'accorde', montantFacture: r.entre(100, 3000) }),
+  'opco.versement': ({ r, ds }) => ({ id: dossierOpcoDans(ds, r, 'accorde', 'facture', 'rembourse')?.id ?? r.entre(1, 20), montant: r.entre(50, 1500) }),
+  'opco.annulerVersement': ({ r, ds }) => ({ id: id(r, (ds.versementsOpco ?? []).filter(v => !v.annuleLe)), motif: 'Saisi deux fois (banc d’oracle)' }),
+  'opco.solder': ({ r, ds }) => { const d = dossierOpcoDans(ds, r, 'facture', 'rembourse'); return { id: d?.id ?? r.entre(1, 20), de: d?.statut ?? 'facture' }; },
+  'opco.abandonner': ({ r, ds }) => { const d = dossierOpcoDans(ds, r, 'a_deposer', 'depose'); return { id: d?.id ?? r.entre(1, 20), de: d?.statut ?? 'a_deposer', motif: 'formation_annulee' }; },
+  'opco.rouvrir': ({ r, ds }) => { const d = dossierOpcoDans(ds, r, 'depose', 'accorde', 'refuse', 'facture', 'solde', 'abandonne'); return { id: d?.id ?? r.entre(1, 20), de: d?.statut, motif: 'Retour (banc d’oracle)' }; },
+  'opco.supprimer': ({ r, ds }) => ({ id: dossierOpcoDans(ds, r, 'a_deposer', 'abandonne')?.id ?? r.entre(1, 20), motif: 'Doublon (banc d’oracle)' }),
 };
 
 /** Valeur d'un paramètre d'après son nom, pour les actions sans tirage ciblé. */
@@ -168,9 +218,29 @@ function valeur(nom: string, action: string, x: Parameters<Tirage>[0]): unknown 
     absence: 'absences', session: 'sessions', entretien: 'entretiens', voyage: 'voyages', demande: 'demandesCollab', plan: 'plan', employe: 'employes',
     mandat: 'mandats', astreinte: 'astreintes', medical: 'demandesVisite', formationSuivie: 'formationsSuivies', forfait: 'avenantsForfait',
     equipe: 'delegations', conges: 'informationsCp', keystone: 'demandesKeystone', attente: 'attentesSession', evaluation: 'evaluationsFormation',
+    // lot 11 — indicateurs
+    indicateurs: 'indicateursArretes',
+    // lot 11 — dossiers OPCO
+    opco: 'dossiersOpco',
   };
   const lignes = (nomListe: string | undefined) => (nomListe ? (ds as unknown as Record<string, { id: number }[] | undefined>)[nomListe] : undefined);
   const parFamille = (f: string) => (f === 'cert' ? ds.employes.flatMap(e => e.certs) : lignes(tables[f]));
+  // lot 11 — organigramme : entités, sites et rattachements d'équipe tirés des données du moment (code existant, ou nouveau).
+  const entites = ds.referentiels.entites ?? [], sites = ds.referentiels.sites ?? [];
+  if (famille === 'entite' || famille === 'site' || famille === 'organigramme' || ['entite', 'siteCode', 'uniteCode'].includes(nom)) {
+    switch (nom) {
+      case 'code': return famille === 'site' ? `site_${r.entre(1, 4)}` : entites.length && r.si(0.6) ? r.choix(entites).code : `ent_${r.entre(1, 6)}`;
+      case 'id': return sites.length && r.si(0.5) ? r.choix(sites).code : undefined;
+      case 'type': return r.si(0.6) ? 'societe' : 'etablissement';
+      case 'parente': { const s = entites.filter(x => x.type === 'societe'); return s.length ? r.choix(s).code : undefined; }
+      case 'nom': return famille === 'entite' ? `Entité ${r.entre(1, 99)}` : r.choix(ds.referentiels.equipes).nom;
+      case 'entite': return entites.length && r.si(0.8) ? r.choix(entites).code : '';
+      case 'siteCode': return sites.length && r.si(0.8) ? r.choix(sites).code : '';
+      case 'uniteCode': return r.si(0.7) ? `ORA-E${r.entre(1, 5)}` : '';
+      case 'lignes': return r.entre(0, 40);
+      default: break;
+    }
+  }
   switch (nom) {
     case 'empId': case 'managerId': case 'suppleantId': return empId();
     case 'id': return id(r, parFamille(famille));
@@ -275,6 +345,12 @@ export interface RapportOracle {
 /** Écritures SQL directes, portables (SQLite et PostgreSQL), comme une reprise ou un outil hors de Cursus. */
 const SQL_DIRECT: Record<string, (db: Db, ds: Dataset, r: Aleatoire) => Promise<void>> = {
   'UPDATE employes': async (db, ds, r) => { const e = r.choix(ds.employes); await db.run('UPDATE employes SET nom = ? WHERE id = ?', [`${e.nom.replace(/ \(\d+\)$/, '')} (${r.entre(1, 99)})`, e.id]); },
+  // lot 11 — indicateurs : sexe d'une fiche changé hors de Cursus (reprise de Sage), mise à disposition du CSE d'un arrêté.
+  'UPDATE employes sexe': async (db, ds, r) => { await db.run('UPDATE employes SET sexe = ? WHERE id = ?', [r.choix(['F', 'M', null]), r.choix(ds.employes).id]); },
+  'UPDATE indicateurs_arretes': async (db, ds, r) => {
+    const a = ds.indicateursArretes ?? [];
+    if (a.length) await db.run('UPDATE indicateurs_arretes SET cse_le = ? WHERE id = ?', [addD(ds.today, -r.entre(0, 30)), r.choix(a).id]);
+  },
   'UPDATE feuilles (plusieurs lignes)': async (db, ds, r) => { await db.run('UPDATE feuilles SET comment = ? WHERE emp_id = ?', [`Reprise ${r.entre(1, 99)}`, r.choix(ds.employes).id]); },
   'INSERT absences': async (db, ds, r) => {
     const du = addD(ds.today, r.entre(-40, 40));
@@ -297,6 +373,12 @@ const SQL_DIRECT: Record<string, (db: Db, ds: Dataset, r: Aleatoire) => Promise<
   },
   'upsert equipes': async (db, ds, r) => {
     await db.run('INSERT INTO equipes (nom, manager_id, ordre) VALUES (?, NULL, ?) ON CONFLICT (nom) DO UPDATE SET ordre = excluded.ordre', [r.si(0.7) ? r.choix(ds.referentiels.equipes).nom : `Équipe oracle ${r.entre(1, 5)}`, r.entre(0, 20)]);
+  },
+  // lot 11 — dossiers OPCO : correction et versement écrits par un outil (reprise d'un tableur), sur un dossier existant.
+  'UPDATE dossiers_opco': async (db, ds, r) => { const d = parmi(r, ds.dossiersOpco ?? []); if (d) await db.run('UPDATE dossiers_opco SET heures = ? WHERE id = ?', [r.entre(1, 40), d.id]); },
+  'INSERT versements_opco': async (db, ds, r) => {
+    const d = parmi(r, (ds.dossiersOpco ?? []).filter(x => x.statut === 'rembourse'));
+    if (d) await db.run(`INSERT INTO versements_opco (dossier_id, le, montant, destinataire, saisi_le, saisi_par) VALUES (?, ?, ?, 'entreprise', ?, 'Reprise')`, [d.id, ds.today, r.entre(10, 200), new Date().toISOString()]);
   },
   'upsert settings': async (db, _ds, r) => {
     await db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value', ['calendrierFeries', JSON.stringify(r.si(0.5) ? {} : { 2026: { solidarite: 'pentecote_travaillee', solidariteFerie: null, nonChomes: r.si(0.5) ? ['11_novembre'] : [], le: '2026-01-05T08:00:00.000Z', par: 'Banc d’oracle' } })]);
@@ -359,8 +441,9 @@ export async function rejouer(db: Db, o: OptionsOracle): Promise<RapportOracle> 
       'absence.decider': a => a.statut === 'demandee', 'absence.qualifier': a => a.statut === 'signalee',
       'absence.annuler': a => a.statut === 'demandee' || a.statut === 'validee', 'absence.prolonger': a => a.statut === 'validee' || a.statut === 'signalee',
     };
-    const reserve = ['temps.rouvrir', 'temps.derogationDominicale'].includes(nom) ? 'admin'
-      : ['absence.saisir', 'absence.qualifier'].includes(nom) ? 'rh'
+    const reserve = ['temps.rouvrir', 'temps.derogationDominicale', 'opco.rouvrir', 'opco.annulerVersement', 'opco.supprimer'].includes(nom) ? 'admin'
+      // lot 11 — dossiers OPCO : service RH (droit « rh »).
+      : ['absence.saisir', 'absence.qualifier'].includes(nom) || nom.startsWith('opco.') ? 'rh'
         : ['temps.validate', 'temps.reject', 'temps.validerLot', 'absence.decider'].includes(nom) ? 'valideur' : 'saisie';
     const cible: FeuilleTemps | Absence | null = feuilles[nom] ? parmi(r, ds.feuilles.filter(feuilles[nom])) : absences[nom] ? parmi(r, ds.absences.filter(absences[nom])) : null;
     const equipe = cible ? ds.employes.find(e => e.id === cible.empId)?.equipe : undefined;
@@ -387,7 +470,8 @@ export async function rejouer(db: Db, o: OptionsOracle): Promise<RapportOracle> 
     const nom = r.si(0.7) ? r.choix(cibles) : r.choix(noms);
     // Saisie, validation des feuilles et absences : acteur repris neuf fois sur dix parmi ceux qui en ont le droit (le
     // chemin que le cache incrémental doit tenir exact) ; la dixième fois, l'acteur tiré, refusé le plus souvent.
-    const adapte = /^(temps|absence)\./.test(nom) && r.si(0.9) ? await acteurAdapte(nom, ds) : null;
+    // Lot 11 : de même pour les dossiers OPCO (service RH, administrateur RH pour les annulations).
+    const adapte = /^(temps|absence|opco)\./.test(nom) && r.si(0.9) ? await acteurAdapte(nom, ds) : null;
     const { acteur, user, cible } = adapte ?? { acteur: acteurTire, user: userTire, cible: null };
     const equipesGerees = new Set(ds.referentiels.equipes.filter(q => q.managerId === user.empId).map(q => q.nom));
     const equipiers = ds.employes.filter(e => e.equipe && equipesGerees.has(e.equipe)).map(e => e.id);
@@ -408,7 +492,7 @@ export async function rejouer(db: Db, o: OptionsOracle): Promise<RapportOracle> 
       validables,
       soumises: rr => { const f = parmi(rr, ds.feuilles.filter(y => y.statut === 'soumise' && validables.has(y.empId))); return f && { empId: f.empId, week: f.week }; },
     };
-    const p = (TIRAGES[nom] ?? ((y: Parameters<Tirage>[0]) => tirageGenerique(nom, y)))(x);
+    const p = (TIRAGES[nom] ?? TIRAGES_OPCO[nom] ?? ((y: Parameters<Tirage>[0]) => tirageGenerique(nom, y)))(x);
     // Jeu remis à l'action : celui que sa transaction lirait (aucune autre écriture ne s'intercale ici).
     // Entrée d'une révision dépassée (vérification sautée au pas précédent, `verifierTous` > 1) : l'action lit tout
     // directement, la comparaison est triviale et comptée à part.

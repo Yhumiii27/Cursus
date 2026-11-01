@@ -1,4 +1,6 @@
-// Documents imprimables (passeport formation, compte rendu d'entretien, demande de visite) et exports CSV.
+// Documents imprimables (passeport formation, compte rendu d'entretien, demande de visite, organigramme) et exports CSV.
+// L'organigramme (lot 11) s'imprime en paysage, une entité par page, et se signale au journal par sa propre action
+// (`organigramme.imprimer`, `organigramme.exporter` : entité et nombre de lignes seulement), d'où `journal: false`.
 import { texteCsv } from '../../shared/csv.ts';
 import { matricule } from '../../shared/format.ts';
 import type { Employe } from '../../shared/types.ts';
@@ -8,7 +10,18 @@ import printCss from './styles/print.css?url';
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
-export interface PrintSection { title: string; rows?: [string, string][]; table?: { head: string[]; rows: string[][] }; text?: string }
+export interface PrintSection {
+  title: string; rows?: [string, string][]; table?: { head: string[]; rows: string[][] }; text?: string;
+  // lot 11 — organigramme : sous-titre, arbre en listes imbriquées (traits de print.css), saut de page avant la section.
+  sub?: string; arbre?: PrintArbre[]; saut?: boolean;
+}
+/** Nœud d'un arbre imprimé (organigramme) : libellé, précision, nœuds rattachés ; `groupe` : nœud d'entité ou d'équipe. */
+export interface PrintArbre { libelle: string; detail?: string; enfants?: PrintArbre[]; groupe?: boolean }
+/** Options d'impression (lot 11) : page en paysage ; `journal` faux : l'écran signale lui-même l'impression au journal. */
+export interface OptionsImpression { paysage?: boolean; journal?: boolean }
+
+/** Listes imbriquées d'un arbre imprimé. */
+const arbreHtml = (noeuds: PrintArbre[]): string => `<ul>${noeuds.map(n => `<li${n.groupe ? ' class="groupe"' : ''}><span class="libelle">${esc(n.libelle)}</span>${n.detail ? ` <span class="detail">${esc(n.detail)}</span>` : ''}${n.enfants?.length ? arbreHtml(n.enfants) : ''}</li>`).join('')}</ul>`;
 
 /** Script servi tel quel (client/public) : il lance l'impression depuis le document ouvert. */
 const PRINT_JS = '/imprimer.js';
@@ -36,17 +49,19 @@ export function matriculesImprimes(e: Pick<Employe, 'id' | 'matriculePaie'>): st
 }
 
 /** Document complet (HTML), avec la feuille d'impression et le script qui lance l'impression. */
-function documentHtml(title: string, subtitle: string, sections: PrintSection[], entete: string | null, matricules?: string): string {
+function documentHtml(title: string, subtitle: string, sections: PrintSection[], entete: string | null, matricules?: string, o: OptionsImpression = {}): string {
   const url = (path: string) => esc(new URL(path, location.href).href);
   const body = sections.map(s => `
-    <section>
+    <section${s.saut ? ' class="saut"' : ''}>
       <h2>${esc(s.title)}</h2>
+      ${s.sub ? `<div class="sub">${esc(s.sub)}</div>` : ''}
+      ${s.arbre ? `<div class="arbre">${arbreHtml(s.arbre)}</div>` : ''}
       ${s.rows ? `<dl>${s.rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}
       ${s.table ? `<table><thead><tr>${s.table.head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${s.table.rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>` : ''}
       ${s.text ? `<p class="text">${esc(s.text)}</p>` : ''}
     </section>`).join('');
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${esc(title)}</title>
-    <link rel="stylesheet" href="${url(printCss)}"></head><body>
+    <link rel="stylesheet" href="${url(printCss)}"></head><body${o.paysage ? ' class="paysage"' : ''}>
     <header>${entete ? `<div class="employeur">${esc(entete)}</div>` : '<div class="brand">Cursus</div>'}<h1>${esc(title)}</h1><div class="sub">${esc(subtitle)}</div>${matricules ? `<div class="sub">${esc(matricules)}</div>` : ''}</header>
     ${body}
     <footer>Document généré par Cursus le ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}</footer>
@@ -65,7 +80,8 @@ let cadre: HTMLIFrameElement | null = null;
  * La mise en page vient d'une feuille servie, l'impression d'un script servi (client/public/imprimer.js) qui s'exécute
  * dans le document imprimé. Le doctype garde le document en mode standard. Faux si rien n'a pu s'ouvrir.
  */
-export function printDocument(title: string, subtitle: string, sections: PrintSection[], empId?: number, matricules?: string): boolean {
+export function printDocument(title: string, subtitle: string, sections: PrintSection[], empId?: number, matricules?: string, o: OptionsImpression = {}): boolean {
+  const signaler = () => { if (o.journal !== false) api.signalerExport({ nature: 'impression', titre: title, empId }); };
   cadre?.remove();
   const f = document.createElement('iframe');
   f.className = 'cadre-impression';
@@ -79,19 +95,19 @@ export function printDocument(title: string, subtitle: string, sections: PrintSe
     f.remove();
     const w = window.open('', '_blank');
     if (!w) return false;
-    api.signalerExport({ nature: 'impression', titre: title, empId });
+    signaler();
     w.document.open();
-    w.document.write(documentHtml(title, subtitle, sections, null, matricules));
+    w.document.write(documentHtml(title, subtitle, sections, null, matricules, o));
     w.document.close();
     return true;
   }
   cadre = f;
-  api.signalerExport({ nature: 'impression', titre: title, empId });
+  signaler();
   const attente = new Promise<null>(r => setTimeout(() => r(null), ATTENTE_ENTETE_MS));
   void Promise.race([enteteEmployeur(), attente]).then(entete => {
     if (cadre !== f) return;
     doc.open();
-    doc.write(documentHtml(title, subtitle, sections, entete, matricules));
+    doc.write(documentHtml(title, subtitle, sections, entete, matricules, o));
     doc.close();
     // Impression terminée (ou annulée) : le cadre est retiré.
     f.contentWindow?.addEventListener('afterprint', () => setTimeout(() => { if (cadre === f) { f.remove(); cadre = null; } }, 0), { once: true });
@@ -103,8 +119,8 @@ export function printDocument(title: string, subtitle: string, sections: PrintSe
  * Télécharge un fichier CSV (séparateur « ; », encodage UTF-8 avec BOM pour Excel). Les cellules qui commencent
  * comme une formule sont neutralisées (shared/csv.ts) : tout export passe par ici.
  */
-export function downloadCsv(filename: string, head: string[], rows: (string | number)[][], empId?: number) {
-  api.signalerExport({ nature: 'csv', titre: filename, lignes: rows.length, empId });
+export function downloadCsv(filename: string, head: string[], rows: (string | number)[][], empId?: number, o: Pick<OptionsImpression, 'journal'> = {}) {
+  if (o.journal !== false) api.signalerExport({ nature: 'csv', titre: filename, lignes: rows.length, empId });
   const csv = texteCsv(head, rows);
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
   const a = Object.assign(document.createElement('a'), { href: url, download: filename });

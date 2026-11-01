@@ -68,6 +68,36 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           '« Mes notifications par e-mail » : chaque notification aussitôt, ou un récapitulatif chaque matin. « Télécharger mes données » donne la copie de tout ce que Cursus conserve sur vous ; la page « Confidentialité » explique leur traitement.',
         ],
       },
+      // lot 11 — organigramme
+      {
+        titre: 'Organigramme',
+        points: [
+          'Menu « Organigramme » (si l’entreprise l’a ouvert à tous, ce qui est le réglage par défaut ; managers et collaborateurs le voient aussi) : sociétés, établissements, équipes et leurs membres présents ce jour, avec le manager de chaque équipe.',
+          'Il ne montre que l’annuaire : nom, poste, équipe, manager. Ni contrat, ni absence, ni santé ; le suppléant d’un manager absent n’apparaît que pour qui voit déjà sa délégation, sans les dates.',
+          'Cherchez un nom, un poste ou une équipe : les résultats sont surlignés et Entrée y place le curseur. Au clavier : flèches pour parcourir, droite et gauche pour déplier ou replier ; « Tout déplier » ouvre tout l’arbre. « Imprimer » (en paysage, une entité par page) et « Exporter (CSV) » reprennent les personnes affichées.',
+        ],
+      },
+      // lot 11 — pwa : application installée, saisie sans réseau, notifications, appareil partagé.
+      {
+        titre: 'Sur le téléphone',
+        points: [
+          'Cursus s’installe sans magasin d’applications. Android : « Installer l’application » (accueil, aide ou menu). iPhone : dans Safari, « Partager » puis « Sur l’écran d’accueil » ; ouvrez ensuite Cursus depuis l’icône et connectez-vous une fois.',
+          'Réseau perdu, Cursus déjà ouvert : vos heures, une ligne de projet et une demande de congé (congés payés, RTT, récupération) restent saisissables. Le bandeau « Hors ligne » le dit ; elles partent seules au retour du réseau (« Envoyer maintenant » sinon). Rien d’autre ne se fait sans réseau, et Cursus ouvert sans réseau ne montre que les saisies gardées.',
+          'Une saisie refusée au retour du réseau passe « À reprendre » avec le motif. Heure changée entre-temps par votre manager ou depuis le PC : « Ouvrir la feuille », ressaisissez-y la valeur si elle doit remplacer celle du serveur, puis « Abandonner » (elle ne se renvoie pas). Solde insuffisant ou feuille rouverte entre-temps : « Renvoyer » une fois la situation réglée, ou « Abandonner ». Rien n’est écrasé sans vous.',
+          '« Mes appareils » (accueil) : « Recevoir les notifications sur cet appareil », puis cochez celles que vous voulez (toutes coupées au départ) et « Enregistrer mes choix ». Elles ne disent ni nom ni date, et n’arrivent jamais de 20 h à 7 h ni le week-end. « Retirer » arrête un téléphone perdu ou changé.',
+          'Tablette d’atelier ou téléphone prêté : cochez « Appareil partagé » ; rien n’y est gardé. La déconnexion efface les saisies non envoyées (Cursus prévient avant).',
+        ],
+      },
+      // lot 11 — notes de frais
+      {
+        titre: 'Notes de frais',
+        points: [
+          'Menu « Mes frais » (deuxième onglet de l’application installée) : « Nouvelle dépense », « Photographier le reçu », montant, date et catégorie ; la dépense va dans la note du mois, créée au besoin. Le raccourci « Nouvelle dépense » de l’icône y mène directement.',
+          '« Coller le texte du reçu » : copiez le texte de la photo (Live Text sur iPhone, Google Lens sur Android), collez-le, puis « Lire le texte » propose montant, date, TVA et commerçant ; vérifiez chaque champ. Reçu perdu : cochez l’attestation sur l’honneur.',
+          '« Soumettre la note » une fois complète : les reçus deviennent définitifs, votre manager valide, la comptabilité contrôle, puis la note est remboursée avec la paie du mois suivant. Renvoyée « À corriger », le motif s’affiche sur la note.',
+          'Frais médicaux en mission (vaccin, pharmacie) : « Nouvelle note », case « Frais médicaux en mission » ; la note ne passe pas par votre manager. Indemnités kilométriques : déclarez d’abord votre véhicule. Sans réseau, une dépense avec sa photo reste gardée sur le téléphone (jamais des frais médicaux).',
+        ],
+      },
     ],
   },
   {
@@ -108,6 +138,14 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           '« Équipe » : conformité de chacun (formations, habilitations, aptitude réduite au verdict et aux restrictions). « Ajouter un membre » reprend un salarié « à affecter » ; une mutation directe passe par le service RH.',
           '« Formations » : renouvellements à prévoir. « Planifier » inscrit le collaborateur à une session ouverte ; sans session, « Demander au RH ».',
           '« Couverture minimale des équipes » (écran Équipe) : jour où votre équipe n’aura plus assez de secouristes ou d’équipiers incendie présents et formés, et pourquoi.',
+        ],
+      },
+      // lot 11 — notes de frais
+      {
+        titre: 'Valider les notes de frais',
+        points: [
+          'Menu « Notes de frais », onglet « À valider » : notes soumises de votre équipe directe et des salariés que vous remplacez pour les frais. Ouvrez la note : dépenses, reçus, alertes (plafond, doublon, jour d’absence), puis « Valider » ou « Renvoyer pour correction » avec un motif.',
+          'Avances : « Valider » ou « Refuser ». Onglet « Équipe » : notes et totaux de l’année ; les frais médicaux ne vous sont jamais montrés ni comptés. Vos propres notes : onglet « Notes ».',
         ],
       },
     ],
@@ -161,6 +199,43 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           'Écran « Missions », « Grand déplacement des chantiers en France » : qualifiez chaque chantier (« Grand déplacement » ou « Pas de grand déplacement ») ; seuls les chantiers retenus donnent à la paie jours, nuits et trajets de leurs missions. Les déplacements à l’étranger donnent leurs jours par pays sans qualification.',
           'Référentiels, destinations : « Vigilance (France Diplomatie) » et le jour de la vérification, à tenir à jour à la main. Passer un pays à l’orange ou au rouge prévient les managers des voyageurs et la boîte du service RH ; une zone rouge met une réserve au Go / No Go.',
           '« Modifier le déplacement » : « Hébergement », « Contact sur place » et « Inscrit sur Ariane le ». Le dossier voyage rappelle de vérifier la vigilance avant le départ quand elle date de plus de 30 jours (réglable).',
+        ],
+      },
+      // lot 11 — organigramme
+      {
+        titre: 'Entités, sites et organigramme',
+        points: [
+          'Référentiels, onglet « Entités et sites » : « Nouvelle entité » (société avec son SIREN et son IDCC, ou établissement avec son SIRET, qui commence par le SIREN de la société) et « Nouveau site » (code du référentiel commun de Matrix). Le code et le type ne changent plus ; l’administrateur RH ferme une entité dont plus aucune équipe ne relève (« Fermer ») et la rouvre (« Rouvrir »).',
+          'Écran « Équipes & managers », bouton « Rattachement » du détail d’une équipe : entité (équipe racine seulement : les équipes rattachées en héritent), site et unité Matrix (PRD-MAINT…). Aucun valideur ne change. Le site et l’unité des membres suivent, et partent à Matrix avec leur fiche.',
+          'Écran « Organigramme » : en plus de l’arbre, le service RH voit les points « À vérifier » (équipe sans manager, salarié à affecter, équipe racine sans entité, équipe racine au nom de site, à convertir à la main), les salariés à affecter et l’étiquette du contrat (intérim, CDD, alternance). L’administrateur RH règle à qui l’organigramme est ouvert : Paramètres → Hiérarchie des managers, « Organigramme ouvert à ».',
+        ],
+      },
+      // lot 11 — indicateurs : BDESE et index d'égalité (pages/Indicateurs.tsx), service RH et lecture seule.
+      {
+        titre: 'Indicateurs sociaux et BDESE',
+        points: [
+          'Écran « Indicateurs sociaux » (service RH et lecture seule) : effectifs, mouvements, absentéisme, formation, âges et ancienneté de l’année civile, groupés par sexe, catégorie, statut, contrat ou équipe. Une case sous le seuil d’anonymat (5 par défaut) s’affiche « < 5 », comme celle qu’un total permettrait de retrouver ; chaque tableau donne sa définition et sa complétude.',
+          'Onglet « BDESE » : rubriques 1° et 2° de l’article R2312-9 sur trois années, chacune lue sur son arrêté s’il existe (avec le seuil de l’arrêté), à imprimer (« Imprimer ») ou exporter en un fichier (« Exporter (CSV) ») pour le CSE, qui n’a pas d’accès à Cursus ; les rubriques 3° à 10° sont listées avec leur source. Onglet « Égalité » : effectifs pris en compte et retours de congé de maternité ; les indicateurs 1, 2 et 4 restent dans Sage et Egapro.',
+          'Onglet « Arrêtés » : l’administrateur RH fige une année close (« Chiffres arrêtés »), l’annule avec un motif ; le service RH note « Mis à disposition du CSE ». Fiche : sexe et catégorie d’emploi, saisis par le service RH ; Échéances signale les fiches à compléter (« Compléter les fiches »). Seuil et absences comptées : Paramètres → Indicateurs sociaux.',
+        ],
+      },
+      // lot 11 — dossiers OPCO
+      {
+        titre: 'Dossiers OPCO',
+        intro: 'Suivi simple des prises en charge de l’OPCO, de la demande au solde, rattachées aux lignes du plan ; la saisie sur le portail de l’OPCO reste manuelle.',
+        points: [
+          'Écran « Plan & budget », colonne « OPCO » : « Créer » propose dates, heures, effectif et montant d’après la ligne ; onglet « Dossiers OPCO » : montants de l’exercice, retards en tête, filtres et répartition.',
+          'Étapes du dossier ouvert : « Dossier déposé », « Accord reçu » ou « Refus reçu », « Justificatifs envoyés », « Versement reçu », « Solder », « Abandonner ». L’administrateur RH revient d’un cran, annule un versement ou supprime un dossier, avec un motif.',
+          '« Joindre une pièce » : facture et certificat de réalisation exigés avant l’envoi des justificatifs ; facture et accord gardés 10 ans. Échéances dans l’écran « Échéances » (filtre « Dossiers OPCO ») ; délais dans Paramètres → Dossiers OPCO, à confirmer.',
+        ],
+      },
+      // lot 11 — notes de frais
+      {
+        titre: 'Notes de frais : contrôle et exports',
+        points: [
+          'Menu « Notes de frais » (service RH et profil Comptabilité) : onglet « À contrôler » ; dans la note, « Montant retenu » ramène une dépense au plafond, « Refuser » l’écarte avec un motif, puis « Contrôler la note » : elle part dans le prochain lot de paie (colonne « montant » du fichier Sage).',
+          'Onglet « Exports comptables » : « Générer l’export comptable » fige les écritures des notes contrôlées, puis « Télécharger » le fichier pour la comptabilité (frais médicaux au compte générique). Une note déjà exportée ne se renvoie ni ne s’annule : annulez d’abord l’export, ses notes redeviennent à exporter. Onglet « Tableau de bord » : notes en attente, délai, dépenses par mois et par catégorie, taux des devises.',
+          'Paramètres → Notes de frais (administrateur RH) : activation, circuit, plafonds, barème kilométrique de l’année, limites d’exonération URSSAF, comptes et format du fichier d’écritures, à confirmer par la comptabilité et la paie.',
         ],
       },
     ],

@@ -442,3 +442,118 @@ th.right .th-tri, th.center .th-tri { justify-content: inherit; }
   h1, h2, h3 { break-after: avoid; page-break-after: avoid; }
   tr, .list-row, .kpi { break-inside: avoid; page-break-inside: avoid; }
 }
+
+/* — lot 11 — organigramme (pages/Organigramme.tsx) : arbre en listes imbriquées, traits tracés par des bordures (aucun
+   SVG, aucun style en ligne) ; sous 600 px, liste indentée sans traits. — */
+.org-filtres { margin-bottom: var(--space-3); }
+.org-filtres .grow { flex: 1; }
+.org-recherche { position: relative; display: inline-flex; align-items: center; flex: 1 1 240px; max-width: 360px; }
+.org-recherche svg { position: absolute; left: 10px; color: var(--color-neutral-400); pointer-events: none; }
+.org-recherche .input { width: 100%; padding-left: 30px; }
+.filtres-liste .org-recherche input.input { min-width: 0; }
+.org-arbre, .org-groupe { list-style: none; margin: 0; padding: 0; }
+.org-arbre { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.org-item { position: relative; outline: none; }
+.org-groupe { margin-left: 13px; padding-left: 0; }
+.org-groupe > .org-item { padding-left: 22px; }
+.org-groupe > .org-item::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; border-left: 1px solid var(--color-divider); }
+.org-groupe > .org-item:last-child::before { bottom: auto; height: 19px; }
+.org-groupe > .org-item::after { content: ''; position: absolute; left: 0; top: 19px; width: 16px; border-top: 1px solid var(--color-divider); }
+.org-ligne {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px var(--space-2); min-height: 38px; padding: 4px var(--space-2);
+  border-radius: var(--radius-sm); cursor: pointer;
+}
+.org-ligne:hover { background: color-mix(in srgb, var(--color-text) 6%, transparent); }
+.org-item:focus-visible > .org-ligne { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.org-caret { display: inline-flex; width: 14px; justify-content: center; color: var(--color-neutral-400); flex: none; }
+.org-icone { color: var(--color-accent-300); flex: none; }
+.org-nom { font-weight: 500; }
+.org-entite > .org-ligne .org-nom { font-size: 15px; }
+.org-personne > .org-ligne { cursor: default; padding-left: var(--space-1); }
+.org-personne > .org-ligne .org-nom { font-weight: 400; }
+.org-personne.ouvrable > .org-ligne { cursor: pointer; }
+.org-detail { color: var(--color-neutral-400); font-size: 13px; }
+.org-effectif { margin-left: auto; color: var(--color-neutral-400); font-size: 12px; white-space: nowrap; }
+.org-item.trouve > .org-ligne { background: color-mix(in srgb, var(--color-accent) 18%, transparent); box-shadow: inset 2px 0 0 var(--color-accent); }
+.org-titre-alerte { display: inline-flex; align-items: center; gap: var(--space-2); }
+.org-titre-alerte svg { color: var(--color-accent-300); }
+.org-anomalies { margin: 0; padding-left: var(--space-6); display: flex; flex-direction: column; gap: var(--space-1); font-size: 14px; }
+@media (max-width: 600px) {
+  /* Liste indentée : ni traits ni grand retrait ; le détail passe sous le nom. */
+  .org-groupe { margin-left: var(--space-2); }
+  .org-groupe > .org-item { padding-left: var(--space-2); }
+  .org-groupe > .org-item::before, .org-groupe > .org-item::after { display: none; }
+  .org-ligne { padding: 6px var(--space-1); }
+  .org-detail { flex-basis: 100%; padding-left: 22px; }
+  .org-personne > .org-ligne .org-detail { padding-left: 30px; }
+  .org-effectif { margin-left: 0; }
+  .org-recherche { max-width: none; flex-basis: 100%; }
+  .org-filtres .input { flex: 1 1 100%; }
+}
+@media print {
+  .org-groupe > .org-item::before, .org-groupe > .org-item::after { border-color: #cfd3e5; }
+}
+/* — lot 11 — pwa : application mobile (bandeaux, file d'attente, installation, Mes appareils, barre d'onglets) — */
+/* Bandeaux sous l'en-tête : hors ligne, saisies en attente, nouvelle version (components/BandeauHorsLigne.tsx). */
+.bandeaux-pwa { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) calc(var(--space-8) * 1.25) 0; }
+.bandeau-pwa { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--color-surface); font-size: 13px; }
+.bandeau-pwa.hors-ligne { box-shadow: inset 3px 0 0 var(--color-accent-400); }
+.bandeau-pwa > svg { flex: none; color: var(--color-accent-300); }
+.bandeau-pwa .grow, .file-attente .grow, .liste-appareils .grow { min-width: 0; flex: 1 1 200px; }
+.file-attente, .liste-appareils { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.file-attente li, .liste-appareils li { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); padding: var(--space-2) var(--space-3); font-size: 14px; background: var(--rule-soft) no-repeat bottom / 100% 1px; }
+.file-boutons { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.etapes-installation { margin: 0; padding-left: 1.25em; font-size: 14px; display: flex; flex-direction: column; gap: var(--space-1); }
+.choix-notifications { display: flex; flex-direction: column; gap: var(--space-2); }
+.check-row { display: inline-flex; align-items: center; gap: var(--space-2); font-size: 14px; cursor: pointer; }
+.check-row input { accent-color: var(--color-accent); width: 18px; height: 18px; flex: none; }
+.installer-menu { width: 100%; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+/* Page « Hors ligne » d'une ouverture sans réseau (pages/HorsLigne.tsx). */
+.hors-ligne-page { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-4); }
+/* Barre d'onglets : application installée sur écran étroit seulement (layout/BarreOnglets.tsx). */
+.barre-onglets { display: none; }
+@media (max-width: 900px) {
+  .bandeaux-pwa { padding-left: 16px; padding-right: 16px; }
+  html.standalone .barre-onglets {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 12; padding: 4px max(4px, env(safe-area-inset-right)) max(4px, env(safe-area-inset-bottom)) max(4px, env(safe-area-inset-left));
+    background-color: color-mix(in srgb, var(--color-bg) 96%, transparent); backdrop-filter: blur(10px);
+    background-image: var(--rule); background-repeat: no-repeat; background-position: top; background-size: 100% 1px;
+  }
+  /* Contenu dégagé de la barre ; notifications au-dessus d'elle. */
+  html.standalone .content { padding-bottom: calc(var(--space-8) * 2 + 64px + env(safe-area-inset-bottom)); }
+  html.standalone .toasts { bottom: calc(72px + env(safe-area-inset-bottom)); }
+  html.standalone .topbar { padding-top: max(var(--space-3), env(safe-area-inset-top)); }
+}
+.onglet {
+  flex: 1 1 0; min-width: 0; min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  padding: 4px 2px; border: 0; border-radius: var(--radius-md); background: none; color: var(--color-neutral-400); font: inherit; font-size: 11px;
+  text-decoration: none; cursor: pointer;
+}
+.onglet > span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.onglet[aria-current='page'] { color: var(--color-text); }
+.onglet[aria-current='page'] .onglet-icone { color: var(--color-accent-300); }
+.onglet-icone { position: relative; display: inline-flex; }
+.onglet-pastille {
+  position: absolute; top: -4px; right: -10px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
+  background: var(--color-accent-600); color: #fff; font-size: 10px; line-height: 16px; text-align: center;
+}
+/* — lot 11 — indicateurs : graphiques SVG faits maison (components/graphiques/), couleurs des jetons Nocturne — */
+.graph { display: block; width: 100%; max-width: 440px; height: auto; font-family: inherit; }
+.graph-barre { fill: var(--color-accent-600); }
+.graph-barre-b { fill: var(--color-accent-2-500); }
+.graph-masque { fill: none; stroke: var(--color-neutral-500); stroke-dasharray: 3 3; }
+.graph-texte { fill: var(--color-text); font-size: 11px; }
+.graph-valeur { fill: var(--text-70); font-size: 11px; font-variant-numeric: tabular-nums; }
+.graph-muet { fill: var(--text-70); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+.graphes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: var(--space-4); }
+/* Case masquée sous le seuil d'anonymat : « < k », expliquée par son titre et la note du tableau. */
+.case-masquee { color: var(--text-70); text-decoration: underline dotted; cursor: help; }
+.tableau-indicateur caption { text-align: left; font-weight: 600; padding-bottom: var(--space-2); }
+.tableau-bdese { table-layout: fixed; min-width: 480px; }
+.tableau-bdese th:first-child { width: 52%; }
+
+/* lot 11 — notes de frais (pages/Frais.tsx) : boutons de saisie en tête, pleine largeur sur le téléphone. */
+.frais-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+@media (max-width: 600px) {
+  .frais-actions > .btn { flex: 1 1 100%; justify-content: center; }
+}

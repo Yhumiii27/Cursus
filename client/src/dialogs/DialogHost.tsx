@@ -38,6 +38,10 @@ import { PlanDialog } from './PlanDialog.tsx';
 import { PlanImportDialog } from './PlanImportDialog.tsx';
 import { RefActiviteDialog } from './RefActiviteDialog.tsx';
 import { RefHoraireDialog } from './RefHoraireDialog.tsx';
+// lot 11 — organigramme
+import { EquipeRattachementDialog } from './EquipeRattachementDialog.tsx';
+import { RefEntiteDialog } from './RefEntiteDialog.tsx';
+import { RefSiteDialog } from './RefSiteDialog.tsx';
 import { RenouvelerCddDialog } from './RenouvelerCddDialog.tsx';
 import { RefDestinationDialog } from './RefDestinationDialog.tsx';
 import { RefEquipeDialog } from './RefEquipeDialog.tsx';
@@ -70,6 +74,22 @@ import { AstreinteDialog } from './AstreinteDialog.tsx';
 import { InterventionAstreinteDialog } from './InterventionAstreinteDialog.tsx';
 import { SuiviDialog } from './SuiviDialog.tsx';
 import { VisiteDialog } from './VisiteDialog.tsx';
+// lot 11 — pwa
+import { DeconnexionDialog } from './DeconnexionDialog.tsx';
+// lot 11 — indicateurs
+import { ArreteCseDialog } from './ArreteCseDialog.tsx';
+// lot 11 — dossiers OPCO
+import { OpcoDossierDialog } from './OpcoDossierDialog.tsx';
+import { OpcoEtapeDialog } from './OpcoEtapeDialog.tsx';
+import { OpcoPieceDialog } from './OpcoPieceDialog.tsx';
+// lot 11 — notes de frais
+import { FraisAvanceDialog } from './FraisAvanceDialog.tsx';
+import { FraisDepenseDialog } from './FraisDepenseDialog.tsx';
+import { FraisNoteDialog } from './FraisNoteDialog.tsx';
+import { FraisPlafondDialog } from './FraisPlafondDialog.tsx';
+import { FraisBaremeDialog, FraisForfaitDialog, FraisTauxDialog } from './FraisReferentielDialog.tsx';
+import { FraisVehiculeDialog } from './FraisVehiculeDialog.tsx';
+import { OpcoVersementDialog } from './OpcoVersementDialog.tsx';
 
 export function DialogHost() {
   const { dialog: d } = useStore();
@@ -150,6 +170,28 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'astreinte': return <AstreinteDialog {...d} />;
     case 'interventionAstreinte': return <InterventionAstreinteDialog {...d} />;
     case 'evaluation': return <EvaluationDialog {...d} />;
+    // lot 11 — organigramme
+    case 'refEntite': return <RefEntiteDialog {...d} />;
+    case 'refSite': return <RefSiteDialog {...d} />;
+    case 'equipeRattachement': return <EquipeRattachementDialog {...d} />;
     case 'confirmer': return <ConfirmerDialog c={d.c} />;
+    // lot 11 — pwa
+    case 'deconnexion': return <DeconnexionDialog {...d} />;
+    // lot 11 — indicateurs
+    case 'arreteCse': return <ArreteCseDialog {...d} />;
+    // lot 11 — dossiers OPCO
+    case 'opcoDossier': return <OpcoDossierDialog {...d} />;
+    case 'opcoEtape': return <OpcoEtapeDialog {...d} />;
+    case 'opcoVersement': return <OpcoVersementDialog {...d} />;
+    case 'opcoPiece': return <OpcoPieceDialog {...d} />;
+    // lot 11 — notes de frais
+    case 'fraisNote': return <FraisNoteDialog {...d} />;
+    case 'fraisDepense': return <FraisDepenseDialog {...d} />;
+    case 'fraisVehicule': return <FraisVehiculeDialog {...d} />;
+    case 'fraisAvance': return <FraisAvanceDialog {...d} />;
+    case 'fraisPlafond': return <FraisPlafondDialog {...d} />;
+    case 'fraisTaux': return <FraisTauxDialog />;
+    case 'fraisForfait': return <FraisForfaitDialog {...d} />;
+    case 'fraisBareme': return <FraisBaremeDialog {...d} />;
   }
 }

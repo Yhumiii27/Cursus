@@ -29,6 +29,8 @@ export const LIBELLE_CHAMP_FICHE: Record<Champ, string> = {
   motifRecours: 'Motif de recours', cddFinInitiale: 'Terme initial du CDD',
   naissance: 'Année de naissance', naissanceLe: 'Date de naissance', derogationTravauxLe: 'Dérogation pour travaux réglementés', agence: 'Agence d’intérim', matriculePaie: 'Matricule de paie', email: 'Adresse e-mail',
   visite: 'Visite médicale', repriseMotif: 'Motif de l’absence longue', repriseDate: 'Date de reprise',
+  // lot 11 — indicateurs
+  sexe: 'Sexe', categorie: 'Catégorie d’emploi',
 };
 
 const egal = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);

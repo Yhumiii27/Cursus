@@ -38,6 +38,11 @@ const TITRES: Partial<Record<TableName, string>> = {
   attentesSession: 'Listes d’attente des sessions de formation',
   declarationsPasseport: 'Formations déclarées au Passeport de prévention',
   evaluationsFormation: 'Évaluations des formations suivies',
+  // lot 11 — dossiers OPCO nominatifs (alternance, plus tard) : aucun aujourd'hui.
+  dossiersOpco: 'Dossiers de prise en charge OPCO (alternance)',
+  // lot 11 — notes de frais
+  notesFrais: 'Notes de frais', lignesFrais: 'Dépenses des notes de frais', vehiculesPerso: 'Véhicules personnels déclarés (indemnités kilométriques)',
+  avancesFrais: 'Avances sur frais',
 };
 /**
  * Colonnes jamais exportées : empreinte du mot de passe (secret) et du jeton d'agenda ; nom stocké et jeton d'envoi d'une pièce justificative

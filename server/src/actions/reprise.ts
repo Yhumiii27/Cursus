@@ -9,6 +9,9 @@ import type { Certification, DemandeVisite, Employe, HabTitre, LotReprise, Solde
 import { creerCompte } from '../comptes.ts';
 import { auteurDe, inscrireDelivrance } from '../delivrances.ts';
 import { rattacherFiches } from '../migrations/referentiels.ts';
+// lot 11 — organigramme
+import { rattacherEquipeNeuve } from '../demarrage.ts';
+import { recalerRattachements } from '../rattachements.ts';
 import { ActionError, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 /** Taille maximale du fichier importé (caractères) : quelques centaines de salariés tiennent largement. */
@@ -25,6 +28,8 @@ async function ecrire(ctx: Ctx, l: LigneReprise, o: { comptes: boolean }): Promi
       if (w.equipeACreer && !await ctx.db.get('equipes', w.equipeACreer)) {
         const ordre = Math.max(-1, ...(await ctx.db.all<{ ordre: number }>('equipes')).map(q => q.ordre)) + 1;
         await ctx.db.insert('equipes', { nom: w.equipeACreer, managerId: null, ordre });
+        // lot 11 — organigramme : équipe rattachée à l'entité unique, amorcée au besoin (base de production neuve).
+        await rattacherEquipeNeuve(ctx.db, w.equipeACreer);
       }
       let empId = l.empId;
       if (empId) await ctx.db.update('employes', empId, { ...w.profil });
@@ -134,6 +139,8 @@ const importer: ActionHandler = async (ctx, p) => {
   // Fiches créées sans poste du référentiel : rattachées tout de suite au poste de même intitulé (créé au besoin sans
   // exigence), dans la même transaction. Une fiche mise à jour garde son poste (`posteId` repris de la fiche).
   if (type === 'salaries') await rattacherFiches(ctx.db);
+  // lot 11 — organigramme : site et unité des fiches reprises, tirés de leur équipe (server/src/rattachements.ts).
+  if (type === 'salaries') await recalerRattachements(ctx.db);
   const comptesCrees = ouverts.length;
   const b = bilanReprise(a.lignes);
   const fichier = str(p.fichier).slice(0, 200) || null;

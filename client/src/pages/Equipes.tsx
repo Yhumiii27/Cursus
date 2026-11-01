@@ -1,4 +1,6 @@
 // Équipes & managers (RH) : composition des équipes, désignation des managers et collaborateurs à affecter.
+// Lot 11 (organigramme) : entité et site de chaque équipe (hérités d'une équipe au-dessus, le site à défaut de l'entité),
+// rattachement par dialogs/EquipeRattachementDialog.tsx, alerte « équipe racine sans entité », lien vers l'organigramme.
 import { useMemo, useState, type Ref } from 'react';
 import { PlusIcon, UserPlusIcon } from '@phosphor-icons/react';
 import { CLS, EMP_LABEL, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../../../shared/constants.ts';
@@ -16,6 +18,10 @@ import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { CouvertureEquipe } from '../components/Couverture.tsx';
 import { DelegationsManager } from '../components/Delegations.tsx';
+// lot 11 — organigramme
+import { TreeStructureIcon } from '@phosphor-icons/react';
+import { entiteEquipe, rattachementSalarie } from '../../../shared/rules/entites.ts';
+import { libelleSite } from '../organigramme-vue.ts';
 
 /** Contrat en deux lignes : « CDI · Cadre » et « Forfait jours · 218 j ». */
 export function contratResume(d: Domain, e: Employe) {
@@ -32,6 +38,8 @@ export function managerCandidates(d: Domain): Employe[] {
 
 interface TeamView {
   q: Equipe;
+  /** Lot 11 : entité (celle de l'équipe racine), site et unité Matrix effectifs ; `heriteSite` : site d'une équipe au-dessus ou de l'entité. */
+  entite: string | null; site: string | null; unite: string | null; heriteSite: boolean;
   members: EmpX[];
   conformes: number;
   pct: number | null;
@@ -60,8 +68,12 @@ export function Equipes() {
       const ids = new Set(members.map(e => e.id));
       const conformes = members.filter(e => e.worst !== 'exp').length;
       const mgr = q.managerId ? d.emp(q.managerId) : undefined;
+      const entites = d.ds.referentiels.entites ?? [], sites = d.ds.referentiels.sites ?? [];
+      const code = entiteEquipe(d.ds.referentiels.equipes, q.nom), ratt = rattachementSalarie(d.ds.referentiels.equipes, entites, q.nom);
       return {
-        q, members, conformes, pct: members.length ? Math.round(conformes / members.length * 100) : null,
+        q, entite: entites.find(x => x.code === code)?.nom ?? null, site: ratt.siteCode ? libelleSite(sites, ratt.siteCode) : null, unite: ratt.uniteCode,
+        heriteSite: !!ratt.siteCode && ratt.siteCode !== q.siteCode,
+        members, conformes, pct: members.length ? Math.round(conformes / members.length * 100) : null,
         feuilles: soumises.filter(f => ids.has(f.empId)).length,
         absences: demandees.filter(a => ids.has(a.empId)).length,
         mgrNom: q.managerId ? d.personName(q.managerId) : null,
@@ -72,7 +84,9 @@ export function Equipes() {
     });
     const aAffecter = emps.filter(e => !e.equipe).sort((a, b) => a.nom.localeCompare(b.nom));
     const managers = new Set(teams.map(t => t.q.managerId).filter(Boolean)).size;
-    return { teams, aAffecter, managers, candidates: managerCandidates(d) };
+    // Lot 11 : équipes racines sans entité (anomalie de l'organigramme, à rattacher par le service RH).
+    const sansEntite = teams.filter(t => !t.q.parente && !t.entite).map(t => t.q.nom);
+    return { teams, aAffecter, managers, candidates: managerCandidates(d), sansEntite };
   }, [d, emps]);
 
   const sel = v.teams.find(t => t.q.ordre === selOrdre) ?? v.teams[0] ?? null;
@@ -90,8 +104,19 @@ export function Equipes() {
     <Page
       kicker={`${plural(v.teams.length, 'équipe', 'équipes')} · ${plural(v.managers, 'manager', 'managers')} · ${plural(v.aAffecter.length, 'collaborateur à affecter', 'collaborateurs à affecter')}`}
       title="Équipes & managers"
-      actions={rh ? <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'equipe' })}>Nouvelle équipe</Btn> : undefined}
+      actions={<>
+        <Btn variant="secondary" icon={<TreeStructureIcon size={14} />} onClick={() => go('organigramme')}>Organigramme</Btn>
+        {rh && <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'equipe' })}>Nouvelle équipe</Btn>}
+      </>}
     >
+      {v.sansEntite.length > 0 && (
+        <Panel highlight title="Équipes sans entité" aside={plural(v.sansEntite.length, 'équipe racine', 'équipes racines')}>
+          <Fine>
+            {v.sansEntite.join(', ')} : {v.sansEntite.length > 1 ? 'ces équipes ne relèvent' : 'cette équipe ne relève'} d’aucune société ni d’aucun établissement.
+            {rh ? ' Choisissez son entité avec « Rattachement » dans le détail de l’équipe (les validations ne changent pas).' : ''}
+          </Fine>
+        </Panel>
+      )}
       {v.teams.length > 0 ? (
         <div className="cards-grid">
           {v.teams.map(t => {
@@ -103,6 +128,10 @@ export function Equipes() {
                 <div className="card-kicker">{plural(t.members.length, 'membre', 'membres')}</div>
                 <div className="card-title">{t.q.nom}</div>
                 {t.q.parente && <div className="text-muted sub-11">Rattachée à {t.q.parente}</div>}
+                {/* Lot 11 : entité et site de l'équipe (colonnes Entité et Site). */}
+                <div className="text-muted sub-11">
+                  {t.entite ?? (t.q.parente ? 'Sans entité' : <Tag cls="tag-outline">Sans entité</Tag>)}{t.site ? ` · ${t.site}` : ''}
+                </div>
                 {t.mgrNom ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minWidth: 0 }}>
                     <Avatar nom={t.mgrNom} size={24} />
@@ -210,15 +239,21 @@ function TeamPanel({ panneau, t, candidates }: { panneau: Ref<HTMLElement>; t: T
   return (
     <Panel panneau={panneau} nommePar="equipe-detail" style={{ flex: '1 1 600px' }} head={
       <div className="panel-head center">
-        <div style={{ minWidth: 0 }}>
+        {/* Lot 11 : aligné à gauche (la classe « center » centre aussi le texte), le détail tenant sur deux lignes. */}
+        <div style={{ minWidth: 0, textAlign: 'left' }}>
           <h2 id="equipe-detail">{nom}</h2>
           <div className="text-muted sub">
             {plural(n, 'membre', 'membres')}{t.pct != null ? ` · ${t.pct} % conformes` : ''} · validations : {t.mgrNom ?? 'service RH'}{t.q.parente ? ` · rattachée à ${t.q.parente}` : ''}
+          </div>
+          {/* Lot 11 : entité, site (hérité ou non) et unité de l'organigramme de Matrix. */}
+          <div className="text-muted sub">
+            Entité : {t.entite ?? 'aucune'} · Site : {t.site ? `${t.site}${t.heriteSite ? ' (hérité)' : ''}` : 'aucun'}{t.unite ? ` · Unité Matrix : ${t.unite}` : ''}
           </div>
         </div>
         {rh && (
           <div className="actions-end">
             <Btn small onClick={() => openDialog({ type: 'equipe', nom })}>Renommer</Btn>
+            <Btn small onClick={() => openDialog({ type: 'equipeRattachement', nom })}>Rattachement</Btn>
             {admin && <Btn small disabled={!!deleteBlock} title={deleteBlock || undefined} onClick={() => confirmer(suppressionEquipe(nom))}>Supprimer</Btn>}
             <Btn variant="secondary" small icon={<UserPlusIcon size={14} />} onClick={() => openDialog({ type: 'membre', equipe: nom })}>Ajouter un membre</Btn>
           </div>

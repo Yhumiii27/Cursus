@@ -4,7 +4,7 @@
 // Les fichiers sont contrôlés ici (PDF, JPEG, PNG, 10 Mo) et de nouveau par le serveur, sur leur contenu.
 import { useRef, useState } from 'react';
 import { isoParis } from '../../../shared/dates.ts';
-import { fmtIso } from '../../../shared/format.ts';
+import { decap, fmtIso } from '../../../shared/format.ts';
 import { depotOuvert, erreurPiece, LISTE_TYPES_PIECES, OBJETS_PIECE, piecesDe, TAILLE_MAX_PIECE, tailleTexte, TYPES_PIECES } from '../../../shared/rules/pieces.ts';
 import type { ObjetPiece, Piece } from '../../../shared/types.ts';
 import { api, lienPiece } from '../api.ts';
@@ -97,7 +97,7 @@ function LignePiece({ p, retirable }: { p: Piece; retirable: boolean }) {
         {retirable && <Btn small onClick={retirer}>Retirer</Btn>}
       </div>
       {p.type !== 'application/pdf' && (
-        <img src={lienPiece(p.id)} alt={`Aperçu : ${OBJETS_PIECE[p.objet].label.toLowerCase()}`} loading="lazy"
+        <img src={lienPiece(p.id)} alt={`Aperçu : ${decap(OBJETS_PIECE[p.objet].label)}`} loading="lazy"
           style={{ maxWidth: '100%', maxHeight: 220, objectFit: 'contain', alignSelf: 'flex-start', borderRadius: 'var(--radius-sm)' }} />
       )}
     </li>

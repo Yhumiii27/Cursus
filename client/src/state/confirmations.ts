@@ -24,8 +24,14 @@ export interface Confirmation {
   suites?: string[];
   /** Libellé du bouton qui exécute l'action. */
   bouton: string;
-  action: NomAction;
+  /** Action du serveur ; null pour une action faite sur l'appareil seulement (`local`). */
+  action: NomAction | null;
   payload: Record<string, unknown>;
+  /**
+   * lot 11 — pwa : action faite sur l'appareil, sans le serveur. `abandonSaisie` : saisie gardée hors ligne retirée de
+   * la file de l'appareil (`payload.id`, pwa/useHorsLigne.ts).
+   */
+  local?: 'abandonSaisie';
   /** Motif saisi, envoyé dans `payload.motif` ; `aide` dit qui le lira. */
   motif?: { label: string; requis: boolean; aide: string; placeholder?: string };
   /**
@@ -425,3 +431,25 @@ export function erreurMotif(c: Confirmation, motif: string): string | null {
 /** Paramètres envoyés : ceux de la confirmation, et le motif s'il y en a un. */
 export const parametres = (c: Confirmation, motif: string): Record<string, unknown> =>
   c.motif ? { ...c.payload, motif: motif.trim() } : c.payload;
+
+// lot 11 — pwa
+
+/**
+ * Abandon d'une saisie gardée sur l'appareil (file hors ligne, bandeau « saisies en attente d'envoi ») : elle est effacée
+ * de l'appareil sans jamais partir. `libelle` : la saisie telle que la liste l'affiche ; `conflit` : refusée parce que la
+ * cellule a changé, à ressaisir dans la feuille.
+ */
+export function abandonSaisie(id: string, libelle: string, conflit = false): Confirmation {
+  return {
+    titre: 'Abandonner la saisie',
+    question: `Abandonner la saisie « ${libelle} » ?`,
+    suites: [
+      'Elle est effacée de cet appareil et ne sera jamais envoyée.',
+      conflit ? 'La feuille garde la valeur enregistrée sur le serveur : ressaisissez-y la vôtre si elle doit la remplacer.' : '',
+    ].filter(Boolean),
+    bouton: 'Abandonner la saisie',
+    action: null,
+    local: 'abandonSaisie',
+    payload: { id },
+  };
+}

@@ -42,6 +42,12 @@ import { Rgpd } from './Rgpd.tsx';
 import { SagePaie } from './SagePaie.tsx';
 import { Sante } from './Sante.tsx';
 import { Suivi } from './Suivi.tsx';
+// lot 11 — indicateurs
+import { Indicateurs } from './Indicateurs.tsx';
+// lot 11 — dossiers OPCO
+import { Opco } from './Opco.tsx';
+// lot 11 — notes de frais
+import { NotesFrais } from './NotesFrais.tsx';
 
 export interface SectionParametres {
   /** Identifiant stable (clé de rendu). */
@@ -82,6 +88,10 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'repos', place: 'droite', Section: ReposHebdomadaire },
   { id: 'sante', place: 'gauche', Section: Sante },
   { id: 'formations', place: 'droite', Section: Formations },
+  // lot 11 — dossiers OPCO : sous les formations.
+  { id: 'opco', place: 'droite', Section: Opco },
+  // lot 11 — notes de frais : activation, politique, barème, limites, comptes du fichier d'écritures.
+  { id: 'notes-frais', place: 'gauche', Section: NotesFrais },
   { id: 'liste-attente', place: 'droite', Section: ListeAttente },
   { id: 'evaluations-formation', place: 'droite', Section: EvaluationsFormation },
   { id: 'postes-risques', place: 'droite', Section: PostesRisques },
@@ -90,6 +100,8 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'pieces', place: 'droite', Section: Pieces },
   { id: 'agenda', place: 'droite', Section: Agenda },
   { id: 'hierarchie', place: 'gauche', Section: Hierarchie },
+  // lot 11 — indicateurs : seuil d'anonymat et natures de l'absentéisme.
+  { id: 'indicateurs', place: 'droite', Section: Indicateurs },
   { id: 'messagerie', place: 'large', Section: Messagerie },
   { id: 'relances', place: 'large', Section: RelancesEcheances },
   { id: 'conservation', place: 'large', Section: Conservation },

@@ -259,7 +259,8 @@ jobs:
       # colonne déclarée sensible n'est lisible et droits.verifier() ne signale aucune erreur (vues pub_ comprises).
       - name: Demande à Matrix appliquée au socle d'essai
         run: |
-          psql -d epc2i -v ON_ERROR_STOP=1 -q -1 -f docs/demandes/matrix-lot8-colonnes-sensibles.sql
+          # Lot 11 : une demande par chantier (docs/demandes/matrix-*.sql), appliquées dans l'ordre de leur nom.
+          for f in docs/demandes/matrix-*.sql; do psql -d epc2i -v ON_ERROR_STOP=1 -q -1 -f "$f"; done
           psql -d epc2i -v ON_ERROR_STOP=1 -At -c "SELECT gravite, objet, constat FROM droits.verifier() WHERE gravite = 'erreur'" | tee erreurs-demande.txt
           test ! -s erreurs-demande.txt
           psql -d epc2i -v ON_ERROR_STOP=1 -At -f scripts/colonnes-sensibles-pg.sql | tee sensibles-demande.txt

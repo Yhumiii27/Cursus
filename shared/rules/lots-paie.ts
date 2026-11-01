@@ -66,6 +66,8 @@ export const FORMATS_DATE: Record<FormatFichierPaie['formatDate'], string> = { '
 export const COLONNES_FICHIER: Record<ColonneFichierPaie, string> = {
   matricule: 'Matricule de paie', periode: 'Période', rubrique: 'Code rubrique Sage', quantite: 'Quantité',
   dossier: 'Code dossier', libelle: 'Libellé de la rubrique', debut: 'Début de période', fin: 'Fin de période',
+  // lot 11 — notes de frais : montant en euros des remboursements de frais ; vide pour les autres éléments.
+  montant: 'Montant (euros)',
 };
 /** Colonnes toujours présentes, chacune une fois ; les autres sont facultatives, absentes par défaut. */
 export const COLONNES_OBLIGATOIRES: readonly ColonneFichierPaie[] = ['matricule', 'periode', 'rubrique', 'quantite'];
@@ -73,6 +75,7 @@ export const COLONNES_FACULTATIVES = (Object.keys(COLONNES_FICHIER) as ColonneFi
 /** Nom des colonnes dans la ligne d'en-tête : sans accent, lisible par tout outil d'import. */
 const ENTETE: Record<ColonneFichierPaie, string> = {
   matricule: 'matricule', periode: 'periode', rubrique: 'rubrique', quantite: 'quantite', dossier: 'dossier', libelle: 'libelle', debut: 'debut', fin: 'fin',
+  montant: 'montant',
 };
 
 /**
@@ -137,10 +140,14 @@ export function bornesPeriode(p: string): { debut: ISODate; fin: ISODate } {
 /** Quantités du fichier au centième (quart d'heure : 0,25) ; les totaux du lot, contrôlés dans Sage, de même. */
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
-export interface LigneFichier { matricule: string; periode: string; rubrique: string; quantite: number }
+export interface LigneFichier {
+  matricule: string; periode: string; rubrique: string; quantite: number;
+  // lot 11 — notes de frais : montant en euros d'une rubrique au montant (quantité 1) ; absent pour les quantités.
+  montant?: number;
+}
 
 /** Contenu lu par le fichier : lignes des feuilles et, depuis le lot 5, éléments d'absence et soldes de sortie. */
-type ContenuFichier = Pick<SagePush, 'lignes'> & Partial<Pick<SagePush, 'absences' | 'sorties' | 'deplacements' | 'rachats' | 'astreintes' | 'aSaisir'>>;
+type ContenuFichier = Pick<SagePush, 'lignes'> & Partial<Pick<SagePush, 'absences' | 'sorties' | 'deplacements' | 'rachats' | 'astreintes' | 'aSaisir' | 'frais'>>;
 
 /**
  * Quantités du contenu par matricule, période et code Sage : heures des feuilles, puis absences et soldes de sortie.
@@ -175,7 +182,17 @@ export function lignesFichier(contenu: ContenuFichier): LigneFichier[] {
     somme.set(cle, x);
     if (garder) gardees.add(cle);
   }
-  return [...somme.entries()].filter(([cle, x]) => x.quantite !== 0 || gardees.has(cle)).map(([, x]) => x)
+  // lot 11 — notes de frais : une ligne au montant par salarié, période et code Sage (quantité 1, montants additionnés) ;
+  // un montant nul (avance déduite égale au remboursement) est omis.
+  const montants = new Map<string, LigneFichier>();
+  for (const x of contenu.frais ?? []) {
+    if (!x.codeSage) continue;
+    const cle = `${x.matricule}|${x.periode}|${x.codeSage}`;
+    const l = montants.get(cle) ?? { matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, quantite: 1, montant: 0 };
+    l.montant = r2(l.montant! + x.montant);
+    montants.set(cle, l);
+  }
+  return [...[...somme.entries()].filter(([cle, x]) => x.quantite !== 0 || gardees.has(cle)).map(([, x]) => x), ...[...montants.values()].filter(x => x.montant !== 0)]
     .sort((a, b) => a.matricule.localeCompare(b.matricule) || a.periode.localeCompare(b.periode) || a.rubrique.localeCompare(b.rubrique));
 }
 
@@ -184,7 +201,8 @@ export function lignesFichier(contenu: ContenuFichier): LigneFichier[] {
  * (« + » entre deux rubriques additionnées), à défaut le code lui-même. Figé dans le contenu à la génération du lot.
  */
 export function libellesSage(contenu: ContenuFichier, table: readonly Pick<RubriqueVue, 'codeSage' | 'active' | 'label'>[]): Record<string, string> {
-  const codes = [...new Set(quantites(contenu).map(x => x.rubrique))].sort();
+  // lot 11 — notes de frais : codes des remboursements (libellé générique de la rubrique, jamais la nature d'une dépense).
+  const codes = [...new Set([...quantites(contenu).map(x => x.rubrique), ...(contenu.frais ?? []).flatMap(x => (x.codeSage ? [x.codeSage] : []))])].sort();
   return Object.fromEntries(codes.map(c => [c, table.filter(r => r.active && r.codeSage === c).map(r => r.label).join(' + ') || c]));
 }
 
@@ -206,6 +224,8 @@ export function fichierLot(
       case 'dossier': return contenu.dossier ?? '';
       case 'libelle': return libelles[l.rubrique] ?? l.rubrique;
       case 'debut': case 'fin': return l.periode ? dateFichier(bornesPeriode(l.periode)[c], f.formatDate ?? 'JJ/MM/AAAA') : '';
+      // lot 11 — notes de frais : vide pour une quantité (heures, jours, absences, déplacements…).
+      case 'montant': return l.montant === undefined ? '' : l.montant.toFixed(2).replace('.', f.decimale);
       default: return l[c];
     }
   };
@@ -238,6 +258,8 @@ export function resumeContenu(contenu: ContenuFichier, paysLabel?: (code: string
     ...(contenu.deplacements?.length ? { deplacements: { elements: contenu.deplacements.length, salaries: new Set(contenu.deplacements.map(x => x.empId)).size } } : {}),
     ...(contenu.rachats?.length ? { rachats: { elements: contenu.rachats.length, salaries: new Set(contenu.rachats.map(x => x.empId)).size } } : {}),
     ...(contenu.astreintes?.length ? { astreintes: { elements: contenu.astreintes.length, salaries: new Set(contenu.astreintes.map(x => x.empId)).size } } : {}),
+    // lot 11 — notes de frais : éléments, salariés et montant total (agrégat, sans nature de dépense).
+    ...(contenu.frais?.length ? { frais: { elements: contenu.frais.length, salaries: new Set(contenu.frais.map(x => x.empId)).size, montant: r2(contenu.frais.reduce((n, x) => n + x.montant, 0)) } } : {}),
     ...(aSaisir.length ? { aSaisir } : {}),
   };
 }

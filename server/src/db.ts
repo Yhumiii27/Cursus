@@ -33,7 +33,10 @@ export const TABLES = {
   // case pas encore renseignée, distincte de « non ».
   // `couverture` : minimum de membres formés (SST, EPI incendie…), shared/rules/couverture.ts ; null : aucun seuil.
   // `parente` : équipe parente (hiérarchie des managers, shared/rules/hierarchie.ts).
-  equipes: { pk: 'nom', cols: { nom: 'text', managerId: 'int', ordre: 'int', exigences: 'json', nuit: 'json', couverture: 'json', parente: 'text', horaire: 'text' } },
+  equipes: { pk: 'nom', cols: { nom: 'text', managerId: 'int', ordre: 'int', exigences: 'json', nuit: 'json', couverture: 'json', parente: 'text', horaire: 'text',
+    // lot 11 — organigramme (shared/rules/entites.ts) : entité de l'équipe racine (héritée par les équipes rattachées), site
+    // de rattachement (D14) et unité de l'organigramme de Matrix (D15, unique quand elle est renseignée).
+    entite: 'text', siteCode: 'text', uniteCode: 'text' } },
   // Horaires de poste (shared/rules/horaires.ts, server/src/actions/horaires.ts) : code choisi une fois pour toutes,
   // début et fin « HH:MM » (fin avant le début : le lendemain), pause en minutes ; `horaire` d'une équipe : proposé par défaut.
   // `alternant` : horaire d'un roulement en équipes successives alternantes (C2P, shared/rules/c2p.ts, lot 7) ; JSON pour
@@ -75,6 +78,12 @@ export const TABLES = {
       motifRecours: 'text', cddFinInitiale: 'text',
       // Dossier anonymisé à la fin de sa durée de conservation (t016, server/src/conservation.ts) : date ; null : nominatif.
       anonymiseLe: 'text',
+      // lot 11 — organigramme : site (D14) et unité (D15) de rattachement, tirés de l'équipe (`rattachementSalarie`) ; colonnes
+      // posées en PostgreSQL par 0002_partage.sql (publiées par pub_salaries), créées en SQLite par cette déclaration.
+      siteCode: 'text', uniteCode: 'text',
+      // lot 11 — indicateurs (shared/rules/indicateurs-legaux.ts, migration PostgreSQL 0018_indicateurs.sql) : sexe (F, M) et
+      // catégorie d'emploi ; null : à compléter. Service RH et intéressé seulement (server/src/dataset.ts).
+      sexe: 'text', categorie: 'text',
     },
   },
   // Historique des contrats (t074, shared/rules/historique-contrat.ts) : régime en vigueur à compter de chaque date d'effet
@@ -214,6 +223,8 @@ export const TABLES = {
       // Astreintes terminées dont le lot emporte les heures et la période (identifiant, salarié ; t049, lot 7) : quantités
       // dans `contenu`.
       astreintes: 'json',
+      // lot 11 — notes de frais : notes remboursées et avances versées (identifiant, salarié) ; montants dans `contenu`.
+      frais: 'json',
     },
     unique: [['cle']],
   },
@@ -399,6 +410,8 @@ export const TABLES = {
       deposeLe: 'text', deposePar: 'text', deposeCompteId: 'int', conserverJusquau: 'text', retireeLe: 'text', retireePar: 'text', retireeMotif: 'text',
       // Fichier chiffré au repos (lot 8, chantier D, server/src/pieces-chiffrement.ts) : 0012_pieces_chiffrees.sql.
       chiffree: 'bool',
+      // lot 11 — dossiers OPCO : nature d'une pièce de dossier (facture, accord…), shared/rules/opco.ts ; 0019_dossiers_opco.sql.
+      nature: 'text',
     },
     unique: [['jeton'], ['fichier']],
   },
@@ -462,6 +475,129 @@ export const TABLES = {
     },
     unique: [['participationId', 'type', 'repondant'], ['formationSuivieId', 'type', 'repondant']],
   },
+  // lot 11 — organigramme (t195, shared/rules/entites.ts, server/src/actions/entites.ts ; migration PostgreSQL 0016_entites.sql).
+  // Entités juridiques au-dessus des équipes : code stable, nom, type (société, établissement), société parente d'un
+  // établissement, SIREN, SIRET, IDCC, site, ordre, ouverture (jamais supprimée : fermée) et source (`local`, `matrix` :
+  // cache du contrat pub_entites demandé à Matrix). Aucune donnée personnelle.
+  entites: {
+    pk: 'code',
+    cols: {
+      code: 'text', nom: 'text', type: 'text', parente: 'text', siren: 'text', siret: 'text', idcc: 'text', siteCode: 'text', ordre: 'int', actif: 'bool',
+      fermeLe: 'text', source: 'text',
+    },
+  },
+  // Sites de rattachement (D14) : cache de matrix.pub_sites, tenu à la main tant que Matrix ne le fournit pas.
+  sites: { pk: 'code', cols: { code: 'text', libelle: 'text', actif: 'bool', ordre: 'int' } },
+  // lot 11 — pwa (chantier C2, t196 ; migration PostgreSQL 0017_pwa.sql). Trois tables techniques, dans
+  // TABLES_SANS_REVISION : jamais lues par l'instantané (lireTout), lues par des routes et des tâches dédiées.
+  // Réponses des actions rejouées (server/src/idempotence.ts) : `cle`, empreinte SHA-256 du compte et de la clé
+  // Idempotency-Key ; empreinte du corps reçu ; statut et résultat réduit (identifiants et compteurs) rendus à un nouvel
+  // envoi de la même requête ; `message` toujours vide (jamais le message de l'action). Purgées à 30 jours.
+  idempotence: {
+    pk: 'cle',
+    cols: { cle: 'text', compteId: 'int', action: 'text', empreinteCorps: 'text', statut: 'int', message: 'text', resultat: 'json', creation: 'text' },
+  },
+  // Abonnements aux notifications sur le téléphone (server/src/push.ts), un par compte et par appareil (le salarié est
+  // celui du compte : aucune colonne de salarié, un compte désactivé perd ses abonnements à la purge) : empreinte de
+  // l'adresse du service de push (`cleEndpoint`, unique) ; adresse et clés du navigateur chiffrées avec la clé des pièces
+  // (Sensible) ; libellé d'appareil déduit du navigateur ; types de notification acceptés (coupés par défaut) ; suivi
+  // des envois.
+  abonnementsPush: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', compteId: 'int', cleEndpoint: 'text', endpoint: 'text', p256dh: 'text', auth: 'text', appareil: 'text', types: 'json',
+      creation: 'text', dernierSucces: 'text', dernierEchec: 'text', echecs: 'int',
+    },
+    unique: [['cleEndpoint']],
+  },
+  // File d'envoi des notifications push (server/src/envois-push.ts), à part de `envois` : chaque message est indépendant
+  // (pas de blocage en tête), sans texte (titre et corps recalculés à l'envoi depuis `type`, shared/notifications-push.ts) ;
+  // `prochaine` : prochaine tentative (plage de silence, nouvelle tentative) ; `expire` : fin de validité (TTL de 24 h).
+  envoisPush: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', abonnementId: 'int', type: 'text', statut: 'text', tentatives: 'int', prochaine: 'text', expire: 'text', erreur: 'text',
+      creation: 'text', envoi: 'text',
+    },
+  },
+  // lot 11 — indicateurs (t197, server/src/actions/indicateurs.ts ; migration PostgreSQL 0018_indicateurs.sql). Arrêtés
+  // annuels des indicateurs sociaux (BDESE) : année, périmètre (`global`), période, version des règles et seuil appliqués,
+  // agrégats déjà masqués (`donnees`, JSON par groupement, jamais lus par l'instantané : COLONNES_OMISES), arrêté (instant,
+  // auteur), mise à disposition du CSE (jour, auteur), annulation (instant, auteur, motif : texte du service RH, jamais au
+  // journal). Jamais supprimés : un arrêté annulé reste, un nouveau peut être arrêté pour la même année.
+  indicateursArretes: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', annee: 'int', perimetre: 'text', du: 'text', au: 'text', reglesVersion: 'text', seuil: 'int', donnees: 'json',
+      arreteLe: 'text', arretePar: 'text', cseLe: 'text', csePar: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+    },
+  },
+  // lot 11 — dossiers OPCO (chantier C4, server/src/actions/opco.ts, shared/rules/opco.ts ; migration PostgreSQL
+  // 0019_dossiers_opco.sql) : dossier de prise en charge rattaché à une action du plan (`planActionId`), `empId` réservé aux
+  // dossiers d'alternance (plus tard, jamais rempli aujourd'hui) ; états datés, montants, organisme (SIRET, déclaration
+  // d'activité, Qualiopi) ; motif de refus codé ; correction et suppression (saisie erronée) datées, signées et motivées
+  // (textes du service RH, jamais au journal). Versements de l'OPCO (`dossierId`), annulés avec un motif, jamais supprimés.
+  dossiersOpco: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', planActionId: 'int', empId: 'int', exercice: 'int', opco: 'text', dispositif: 'text', statut: 'text', reference: 'text',
+      du: 'text', au: 'text', heures: 'real', effectif: 'int', montantDemande: 'real', montantDemandeAnnexes: 'real', subrogation: 'bool',
+      organismeSiret: 'text', organismeNda: 'text', organismeQualiopi: 'bool',
+      deposeLe: 'text', accordLe: 'text', montantAccorde: 'real', accordReference: 'text', plafondHoraire: 'real', refusLe: 'text', refusMotif: 'text',
+      factureLe: 'text', montantFacture: 'real', soldeLe: 'text', soldeEcart: 'real', soldeNature: 'text', abandonLe: 'text', abandonMotif: 'text',
+      creeLe: 'text', creePar: 'text', corrigeLe: 'text', corrigePar: 'text', corrigeMotif: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+    },
+  },
+  versementsOpco: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', dossierId: 'int', le: 'text', montant: 'real', destinataire: 'text', reference: 'text', saisiLe: 'text', saisiPar: 'text',
+      annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+    },
+  },
+  // lot 11 — notes de frais (shared/rules/frais*.ts, server/src/actions/frais.ts ; migration PostgreSQL 0020_notes_frais).
+  // Totaux, alertes et cumuls kilométriques calculés, jamais stockés. Notes, lignes, véhicules, barèmes, forfaits, avances
+  // et taux lus par l'instantané ; exports figés hors de l'instantané (HORS_INSTANTANE) ; sceaux des justificatifs sans
+  // révision (TABLES_SANS_REVISION), jamais lus par l'instantané.
+  notesFrais: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', periode: 'text', voyageId: 'int', missionId: 'int', projet: 'text', medicale: 'bool', statut: 'text', creeLe: 'text', creePar: 'text',
+      soumiseLe: 'text', valideeLe: 'text', valideePar: 'text', controleeLe: 'text', controleePar: 'text', renvoyeeLe: 'text', renvoyeePar: 'text', renvoiMotif: 'text',
+      lotId: 'int', payeeLe: 'text', annuleeLe: 'text', annuleePar: 'text', annuleMotif: 'text',
+    },
+  },
+  lignesFrais: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', noteId: 'int', empId: 'int', date: 'text', categorie: 'text', montant: 'real', devise: 'text', taux: 'real', montantEur: 'real',
+      tvaTaux: 'real', tvaMontant: 'real', commercant: 'text', forfait: 'text', km: 'real', vehiculeId: 'int', depart: 'text', arrivee: 'text',
+      invites: 'text', motifDepassement: 'text', sansJustificatif: 'bool', attestation: 'bool', montantRetenu: 'real', refuseeLe: 'text', refusMotif: 'text',
+    },
+  },
+  vehiculesPerso: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', type: 'text', cv: 'int', electrique: 'bool', du: 'text', au: 'text', creeLe: 'text', creePar: 'text' } },
+  baremesKm: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', annee: 'int', type: 'text', cvMin: 'int', cvMax: 'int', kmMin: 'int', kmMax: 'int', a: 'real', b: 'real', saisiLe: 'text', saisiPar: 'text' },
+  },
+  forfaitsFrais: { pk: 'id', auto: true, cols: { id: 'int', annee: 'int', code: 'text', pays: 'text', montant: 'real', saisiLe: 'text', saisiPar: 'text' } },
+  avancesFrais: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', montant: 'real', voyageId: 'int', missionId: 'int', statut: 'text', demandeLe: 'text', valideeLe: 'text', valideePar: 'text',
+      lotId: 'int', verseeLe: 'text', annuleeLe: 'text', annuleePar: 'text', refusMotif: 'text',
+    },
+  },
+  tauxDevises: { pk: 'id', auto: true, cols: { id: 'int', devise: 'text', mois: 'text', taux: 'real', saisiLe: 'text', saisiPar: 'text' }, unique: [['devise', 'mois']] },
+  // Exports comptables figés (étape 2) : type, clé d'idempotence, notes, contenu, téléchargements ; lus par leur route.
+  exportsFrais: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', type: 'text', cle: 'text', creation: 'text', auteur: 'text', notes: 'json', contenu: 'json', telechargements: 'int', telechargeLe: 'text', telechargePar: 'text', annuleLe: 'text' },
+    unique: [['cle']],
+  },
+  // Sceaux des justificatifs (server/src/sceaux.ts) : chaîne d'empreintes, chaque pièce scellée avec le sceau précédent, à
+  // la soumission de sa note ; identifiants, empreintes et heure seulement.
+  sceauxPieces: { pk: 'id', auto: true, cols: { id: 'int', pieceId: 'int', empreinte: 'text', precedent: 'text', sceau: 'text', le: 'text' }, unique: [['pieceId']] },
 } satisfies Record<string, TableDef>;
 
 export type TableName = keyof typeof TABLES;
@@ -557,7 +693,11 @@ export function jsonLu(v: unknown): unknown {
  * (table `changements`, lot 9, chantier 1 : migration PostgreSQL 0014_changements). Une table ajoutée ici ne doit jamais
  * être lue par `lireTout`.
  */
-export const TABLES_SANS_REVISION: ReadonlySet<TableName> = new Set<TableName>(['journal', 'connexions', 'comptes', 'jetonsAgenda']);
+export const TABLES_SANS_REVISION: ReadonlySet<TableName> = new Set<TableName>(['journal', 'connexions', 'comptes', 'jetonsAgenda',
+  // lot 11 — pwa : idempotence des actions rejouées, abonnements et file des notifications push (routes et tâches dédiées).
+  'idempotence', 'abonnementsPush', 'envoisPush',
+  // lot 11 — notes de frais : sceaux des justificatifs (chaîne d'empreintes), jamais lus par l'instantané.
+  'sceauxPieces']);
 
 /**
  * Tables dont le journal des changements n'inscrit jamais les clés, seulement le marqueur « toute la table » (lot 9,
@@ -567,7 +707,9 @@ export const TABLES_SANS_REVISION: ReadonlySet<TableName> = new Set<TableName>([
  * l'ordre des écritures des lignes lisibles du même salarié, la désigneraient. Petites tables : le cache les relit en
  * entier dès qu'elles changent.
  */
-export const TABLES_CHANGEMENTS_SANS_CLE: ReadonlySet<TableName> = new Set<TableName>(['vaccinations', 'visas', 'demandesVisite', 'informationsCp', 'reprises']);
+export const TABLES_CHANGEMENTS_SANS_CLE: ReadonlySet<TableName> = new Set<TableName>(['vaccinations', 'visas', 'demandesVisite', 'informationsCp', 'reprises',
+  // lot 11 — notes de frais : dépenses (frais médicaux en mission), fermées en entier à Matrix (migration 0020).
+  'lignesFrais']);
 
 /** Valeur passée en paramètre d'une requête SQL brute (`query`, `one`, `run`). */
 export type SqlValeur = string | number | bigint | boolean | null | Uint8Array;

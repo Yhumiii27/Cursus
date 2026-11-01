@@ -13,7 +13,7 @@ import { validerEnTranches } from './actions/suivi-feuilles.ts';
 import { appliquerMajSession, DEMO } from './auth.ts';
 import { dossierInterface } from './chemins.ts';
 import { compression } from './compression.ts';
-import { compressionActive, configMail, demoPublique, enProduction, trustProxy } from './config.ts';
+import { compressionActive, configMail, demoPublique, enProduction, pwaActive, trustProxy } from './config.ts';
 import { ESPACE_CHANGE, espaceChange, examinerIdentite, identite, routesConnexion } from './connexion.ts';
 import { routesConfidentialite } from './confidentialite.ts';
 import { corpsDe, lireParties, loadFull, partiesInstantane, todayIso } from './dataset.ts';
@@ -29,7 +29,14 @@ import { routesFichierPaie } from './fichier-paie.ts';
 import { filtreKeystone } from './filtre-keystone.ts';
 import { routesVariablesPaie } from './variables-paie.ts';
 import { routesPasseportPrevention } from './passeport-prevention.ts';
+// lot 11 — indicateurs
+import { routesIndicateurs } from './indicateurs.ts';
+// lot 11 — notes de frais, étape 2
+import { routesFraisExports } from './frais-exports.ts';
 import { routesPieces } from './pieces-routes.ts';
+import { CLE_INVALIDE, CleReutilisee, empreinteCorps, garderReponse, lireCle, reponseGardee } from './idempotence.ts';
+import { EN_TETE_HORS_LIGNE, refusHorsLigne } from '../../shared/hors-ligne.ts';
+import { routesPush } from './push-routes.ts';
 import { routesAgenda } from './agenda.ts';
 import { journaliserAction, lireFiltre, preparerTrace, routesJournal, tracerRefus } from './journal.ts';
 import { emailMode } from './integrations/email.ts';
@@ -51,6 +58,8 @@ export interface OptionsApp {
   compression?: boolean;
   /** Une ligne de journal par requête (server/src/logs.ts) ; active par défaut. */
   journalRequetes?: boolean;
+  /** Application installable (CURSUS_PWA, active par défaut) : service worker servi (lot 11, C2). */
+  pwa?: boolean;
 }
 
 /** Cache des fichiers de /assets : noms hachés par Vite (index-XXXX.js), donc contenu immuable pour une adresse. */
@@ -123,12 +132,24 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
     const handler = Object.hasOwn(ACTIONS, name) ? ACTIONS[name] : undefined;
     if (!handler) return res.status(404).json({ error: `Action inconnue : ${name}` });
     const corps = (req.body ?? {}) as Record<string, any>;
+    // Lot 11 (C2) : clé d'idempotence (server/src/idempotence.ts) et rejeu de la file hors ligne (shared/hors-ligne.ts),
+    // contrôlé avant tout : saisie personnelle admise hors ligne seulement. La validation groupée des feuilles, faite en
+    // plusieurs transactions, n'en a pas : une clé y est ignorée.
+    const cle = lireCle(req);
+    if (cle === false) return res.status(400).json({ error: CLE_INVALIDE });
+    const horsLigne = req.get(EN_TETE_HORS_LIGNE) === '1';
+    const refusHL = horsLigne ? refusHorsLigne(name, corps, id.user.empId) : null;
+    if (refusHL) return res.status(422).json({ error: refusHL });
+    const envoi = cle && name !== 'temps.validerLot' ? { compteId: compte.id, cle, operation: name, empreinte: empreinteCorps(name, corps) } : null;
     /** Une transaction : droits relus dans la transaction (un compte changé entre-temps agit avec ses droits du moment). */
     const passe = async (p: Record<string, any>) => await db.tx(async () => {
       const actuel = (await examinerIdentite(db, req)).id;
       if (!actuel) throw new ActionError('Connexion requise', 401);
       if (actuel.session.role !== id.session.role) throw new ActionError(ESPACE_CHANGE, 409);
       const user = actuel.user;
+      // Même requête déjà faite (même clé, même corps) : sa réponse, sans refaire l'action ; autre requête : 422.
+      const gardee = envoi ? await reponseGardee(db, envoi) : null;
+      if (gardee) return { message: gardee.message, result: gardee.resultat, rejoue: true };
       // Lecture partagée de l'instantané en cache si elle décrit l'état de la base vu ici (server/src/cache-instantane.ts).
       const depart = await donneesAction(db, user, todayIso(), async u => await loadFull(db, u));
       const ctx = makeCtx(db, user, depart);
@@ -137,16 +158,19 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
       const o = signerDelegation(ctx, typeof r === 'object' && r !== null ? r : { message: r });
       // Journal signé du nom de la personne connectée et de son compte : champs de la liste blanche de l'action,
       // anciennes et nouvelles valeurs, salariés concernés (server/src/journal.ts) ; managers remplacés (t135).
-      await journaliserAction(db, trace, { user, compte, message: o.message ?? null, result: o.result, parDelegation: [...ctx.parDelegation] });
+      await journaliserAction(db, trace, { user, compte, message: o.message ?? null, result: o.result, parDelegation: [...ctx.parDelegation], horsLigne });
       // Verdicts transmis à Keystone : un changement est mis en file avec l'action, dans la même transaction ; jeu des
       // verdicts dérivé du jeu de l'action et du delta de ses écritures (lot 9), sans relire toute la base.
       if (changeVerdicts(name)) await suivreVerdicts(db, { depart });
+      // Réponse gardée dans la même transaction (lot 11) : une action annulée ne garde rien.
+      if (envoi) await garderReponse(db, envoi, { resultat: o.result });
       return o;
     });
-    let out: { message?: string | null; result?: unknown };
+    let out: { message?: string | null; result?: unknown; rejoue?: boolean };
     try {
       out = name === 'temps.validerLot' ? await validerEnTranches(corps, passe, err => signalerErreur(req, err)) : await passe(corps);
     } catch (err) {
+      if (err instanceof CleReutilisee) return res.status(422).json({ error: err.message });
       // Refus d'accès : tracé hors de la transaction annulée (rien n'a été modifié), dans sa propre transaction.
       if (err instanceof ActionError && err.status === 403) await db.tx(async () => await tracerRefus(db, id, libelleAction(name), err.message, { action: name, p: req.body }));
       if (err instanceof ActionError) return res.status(err.status).json({ error: err.message });
@@ -155,6 +179,8 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
       signalerErreur(req, err);
       return res.status(500).json({ error: ERREUR_INTERNE });
     }
+    // Envoi déjà fait : réponse gardée, instantané à relire par le client (aucune lecture de plus ici).
+    if (out.rejoue) return res.set('idempotent-replayed', 'true').json({ message: out.message ?? null, result: out.result, relire: true });
     // L'action est validée (journal et envois compris) : quoi qu'il arrive ensuite, la réponse rend son message et son
     // résultat, jamais un 503 « rien n'est écrit » qui ferait refaire l'action (doublon).
     try {
@@ -188,6 +214,13 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // est gardé quelle que soit la vue (il trace toujours « journal.export » ; le client passe par `telecharger`).
   app.get('/api/journal', exigerNavigationInterne('appel', req => lireFiltre(req.query as Record<string, unknown>).vue === 'archive'));
   app.get('/api/journal/csv', exigerNavigationInterne('appel'));
+  // lot 11 — indicateurs : indicateurs sociaux et leur export, lus par fetch depuis l'écran (en-tête d'espace exigé).
+  app.get('/api/indicateurs', exigerNavigationInterne('appel'));
+  app.get('/api/indicateurs/csv', exigerNavigationInterne('appel'));
+  app.get('/api/indicateurs/bdese/csv', exigerNavigationInterne('appel'));
+  // lot 11 — notes de frais, étape 2 : exports comptables et leur fichier d'écritures, lus par fetch (en-tête d'espace exigé).
+  app.get('/api/frais/exports', exigerNavigationInterne('appel'));
+  app.get('/api/frais/exports/:id/fichier', exigerNavigationInterne('appel'));
   // Journal des actions (consultation filtrée et paginée, export CSV, archive paie, exports de l'interface) et
   // données personnelles d'un salarié (export RH, téléchargement par l'intéressé) : server/src/journal.ts, donnees.ts.
   app.use(routesJournal(db));
@@ -199,12 +232,20 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // Passeport de prévention (lot 7, t066) : lignes à déclarer, export CSV tracé (droit « formations ») :
   // server/src/passeport-prevention.ts.
   app.use(routesPasseportPrevention(db));
+  // lot 11 — indicateurs : indicateurs sociaux légaux (BDESE, préparation de l'index d'égalité), agrégats masqués calculés
+  // hors de l'instantané, arrêtés figés, export CSV tracé (droit « consultation ») : server/src/indicateurs.ts.
+  app.use(routesIndicateurs(db));
+  // lot 11 — notes de frais, étape 2 : exports comptables (comptabilité et service RH, téléchargement tracé) :
+  // server/src/frais-exports.ts.
+  app.use(routesFraisExports(db));
   // Pièces justificatives : envoi (corps brut, 10 Mo au plus) et consultation contrôlée par les droits, tracées :
   // server/src/pieces-routes.ts.
   app.use(routesPieces(db));
   // Agenda personnel par abonnement (t036) : GET /api/agenda/<jeton>.ics, sans session (client d'agenda), débit limité
   // par adresse et par jeton, 404 pour tout jeton inutilisable : server/src/agenda.ts.
   app.use(routesAgenda(db));
+  // Notifications sur le téléphone (lot 11, C2) : clé publique VAPID et appareils abonnés du compte (server/src/push-routes.ts).
+  app.use(routesPush(db));
 
   // File d'envoi des messages sortants (Paramètres → Envois) : état de l'intégration et derniers messages.
   // Service RH et lecture seule (droit `consultation`) ; ni le référent HSE, ni la paie. La lecture seule ne lit pas le
@@ -227,6 +268,14 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // — Application web —
   // dist/ du projet, quel que soit le dossier de lancement (CURSUS_DIST la remplace : server/src/chemins.ts).
   const dist = options.dist ?? dossierInterface();
+  // Service worker (lot 11, C2 : client/public/sw.js, version injectée au build) : revalidé à chaque contrôle du navigateur
+  // (no-cache, sinon l'ancien peut rester jusqu'à 24 h), démonstration comprise ; application installable coupée
+  // (CURSUS_PWA=0, application de bureau) : 404, jamais la page de l'interface à la place d'un script.
+  const pwa = options.pwa ?? pwaActive();
+  app.get('/sw.js', (_req, res) => {
+    if (!pwa || !existsSync(join(dist, 'sw.js'))) return res.status(404).type('text/plain').send('Fichier introuvable');
+    res.sendFile('sw.js', { root: dist, cacheControl: false, headers: { 'Cache-Control': CACHE_PAGE } });
+  });
   if (existsSync(dist)) {
     // Fichiers hachés par Vite : un an en cache, sans revalidation ; un fichier absent (ancienne version) reçoit 404,
     // jamais la page de l'interface à la place d'un script.

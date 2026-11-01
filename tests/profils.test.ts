@@ -81,7 +81,8 @@ test('profils : droits, écrans et espaces ouverts par chaque profil', async () 
   assert.deepEqual(droitsRh({ role: 'manager', profilRh: 'rh_admin' }), [], 'aucun droit RH hors de l’espace RH');
   assert.deepEqual(PROFILS_RH.rh_gestionnaire.droits.includes('paie'), false, 'transmission à la paie : pas le gestionnaire RH');
   // Écrans : la page d'accueil est le premier ; ni temps ni absences pour le référent HSE, ni formations pour la paie.
-  assert.deepEqual(vuesDe('rh', 'paie'), ['temps', 'absences']);
+  // lot 11 — organigramme : vue ouverte aussi au profil paie (annuaire seulement, déjà dans son instantané).
+  assert.deepEqual(vuesDe('rh', 'paie'), ['temps', 'absences', 'organigramme']);
   assert.ok(!vuesDe('rh', 'referent_hse').some(v => ['temps', 'absences', 'entretiens', 'parametres', 'budget', 'voyages'].includes(v)));
   assert.ok(!vuesDe('rh', 'lecture_seule').includes('voyages'), 'dossiers de voyage (vaccinations) réservés au service RH');
   assert.equal(vuesDe('rh', 'rh_gestionnaire'), vuesDe('rh'));

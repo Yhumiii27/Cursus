@@ -368,11 +368,16 @@ export const reportActif = (env: Record<string, string | undefined> = process.en
  * ligne changée d'un autre salarié ne change pas la vue. Ni `attentesSession` (place dans la file, qui dépend des autres
  * inscrits), ni `mandats` et `pieces` (effectif et visibilité communs) : ils invalident toutes les vues, comme les
  * fiches, les équipes, les délégations, les sessions, les réglages et les référentiels.
+ * lot 11 — organigramme : entités et sites (`referentiels`) et présents de l'organigramme (`presentsOrganigramme`, tiré
+ * de toutes les fiches) sont des champs communs : leur écriture, rare, recalcule toutes les vues.
  */
 export const CHAMPS_PAR_SALARIE: ReadonlySet<keyof Dataset> = new Set<keyof Dataset>([
   'feuilles', 'absences', 'cet', 'reports', 'soldesReprise', 'clotures', 'informationsCp', 'fractionnements', 'missions', 'taches', 'voyages',
   'contratsHistorique', 'avenantsForfait', 'entretiens', 'demandesCollab', 'demandesVisite', 'inscriptions', 'participations', 'formationsSuivies',
   'habDelivrances', 'evaluationsFormation', 'astreintes', 'interventionsAstreinte',
+  // lot 11 — notes de frais : lignes par salarié, lues par la vue à travers le filtre propre aux frais (server/src/dataset.ts :
+  // équipe directe et délégations « frais », sous-ensemble du périmètre retenu de la vue).
+  'notesFrais', 'lignesFrais', 'vehiculesPerso', 'avancesFrais',
 ]);
 
 /**
@@ -383,6 +388,10 @@ export const CHAMPS_PAR_SALARIE: ReadonlySet<keyof Dataset> = new Set<keyof Data
 export const CHAMPS_HORS_VUES: ReadonlySet<keyof Dataset> = new Set<keyof Dataset>([
   'absencesPaie', 'deplacementsPaie', 'plan', 'budgets', 'exercicesClos', 'demandesKeystone', 'soldesSortie', 'lotsPaie', 'rubriquesPaie', 'releves',
   'reprises', 'declarationsPasseport',
+  // lot 11 — indicateurs : arrêtés annuels, vides hors de l'espace RH.
+  'indicateursArretes',
+  // lot 11 — dossiers OPCO : service RH et lecture seule seulement.
+  'dossiersOpco', 'versementsOpco',
 ]);
 
 /** Salariés lus par chaque vue collaborateur ou manager calculée par `vueDe` (jamais une propriété de la vue : rien n'en part au navigateur). */

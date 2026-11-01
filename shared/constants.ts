@@ -276,6 +276,9 @@ export const EMAIL_LABEL: Record<string, string> = {
   'delegation.debut': 'Début d’une délégation des validations (demandes en attente)',
   'delegation.fin': 'Délégation des validations révoquée',
   // Astreintes (t049, lot 7, server/src/astreintes.ts) : au salarié, avec l'événement d'agenda (.ics).
+  // lot 11 — notes de frais (server/src/frais-notifications.ts) : circuit et remboursement, sans montant ni motif.
+  'frais.soumise': 'Note de frais à valider', 'frais.acontroler': 'Note de frais à contrôler', 'frais.renvoyee': 'Note de frais renvoyée pour correction',
+  'frais.validee': 'Note de frais validée', 'frais.payee': 'Note de frais remboursée',
   'astreinte.planifiee': 'Astreinte planifiée',
   'astreinte.modifiee': 'Astreinte modifiée',
   'astreinte.annulee': 'Astreinte annulée',
@@ -444,7 +447,9 @@ export const TEMPS_TRAVAIL: Record<TempsTravail, TempsDef> = {
 
 // — Rubriques de paie (shared/rules/paie.ts) —
 /** Unité d'une rubrique de paie : heures, jours ou nombre. */
-export type UniteRubrique = 'h' | 'j' | 'nombre';
+export type UniteRubrique = 'h' | 'j' | 'nombre'
+  // lot 11 — notes de frais : montant en euros (colonne « montant » du fichier d'import)
+  | 'eur';
 /**
  * Rubriques de paie émises par Cursus, liste unique (code interne → libellé, unité), dans l'ordre d'affichage : chaque
  * code se fait correspondre un code du plan de paie Sage, confirmé par l'administrateur RH ou la paie (table
@@ -516,6 +521,16 @@ export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubriqu
   AST_H: { label: 'Heures d’astreinte (période entière, interventions comprises)', unite: 'h', inactiveParDefaut: true },
   AST_PER: { label: 'Périodes d’astreinte (nombre, au mois de leur début)', unite: 'nombre', inactiveParDefaut: true },
   AST_COMP: { label: 'Compensation des astreintes (selon l’accord, à confirmer)', unite: 'nombre', inactiveParDefaut: true },
+  // lot 11 — notes de frais (server/src/frais-paie.ts) : remboursements avec la paie du mois suivant, en euros (colonne
+  // « montant » du fichier, quantité 1). Désactivées tant que la paie n'a pas confirmé ses codes (réponse du propriétaire
+  // du 31 octobre 2026) : listées « à saisir dans Sage ». Frais réels et frais médicaux sous la même rubrique, sans
+  // détail : la nature d'une dépense médicale ne figure ni dans le fichier ni dans son libellé.
+  FRAIS_REMB: { label: 'Remboursement de frais professionnels (non soumis)', unite: 'eur', inactiveParDefaut: true },
+  FRAIS_IK: { label: 'Indemnités kilométriques (barème, non soumises)', unite: 'eur', inactiveParDefaut: true },
+  FRAIS_FORFAIT: { label: 'Allocations forfaitaires de frais (dans la limite d’exonération)', unite: 'eur', inactiveParDefaut: true },
+  FRAIS_REINT: { label: 'Allocations de frais au-delà de la limite d’exonération (soumises à cotisations)', unite: 'eur', inactiveParDefaut: true },
+  FRAIS_AVANCE: { label: 'Avance sur frais versée', unite: 'eur', inactiveParDefaut: true },
+  FRAIS_AVANCE_DED: { label: 'Avance sur frais déduite d’un remboursement (montant négatif)', unite: 'eur', inactiveParDefaut: true },
 };
 
 /** Sections d'un compte rendu : [clé, libellé, rédacteur] — 'mgr' évaluateur, 'sal' salarié. */
@@ -554,9 +569,14 @@ export const TRIMESTRES = ['T1', 'T2', 'T3', 'T4'] as const;
 export const ALLOWED_VIEWS = {
   // `miseEnService` : reprise depuis Lucca, ouverte depuis Paramètres (hors du menu ; imports réservés à l'administrateur RH).
   // `prevention` : compte professionnel de prévention (lot 7, shared/rules/c2p.ts), service RH, référent HSE et lecture seule.
-  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'miseEnService', 'prevention'],
-  manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions'],
-  collaborateur: ['portail', 'temps', 'absences', 'entretiens'],
+  // lot 11 — organigramme (pages/Organigramme.tsx) : `organigramme`, toujours ouvert à l'espace RH ; au manager et au
+  // collaborateur selon le réglage `organigrammeOuvert` (shared/rules/organigramme.ts, `organigrammeOuvertA`).
+  // lot 11 — indicateurs : indicateurs sociaux légaux (BDESE, index d'égalité), droit « consultation » (service RH et lecture seule).
+  // lot 11 — notes de frais (pages/Frais.tsx) : `frais`, contrôle (service RH, comptabilité), validation de l'équipe
+  // (manager), « Mes frais » (collaborateur) ; dans le menu seulement le module activé (réglage notesFraisActives).
+  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'miseEnService', 'prevention', 'organigramme', 'indicateurs', 'frais'],
+  manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions', 'organigramme', 'frais'],
+  collaborateur: ['portail', 'temps', 'absences', 'entretiens', 'organigramme', 'frais'],
 } as const;
 /**
  * Vues ouvertes dans tous les espaces et sans connexion : information sur les données personnelles (shared/confidentialite.ts)
@@ -576,7 +596,10 @@ export const VUES_COMMUNES = ['confidentialite', 'aide'] as const;
  * Sans le droit `rh`, l'instantané envoyé au navigateur ne porte que ce que les autres droits ouvrent, jamais de
  * donnée de santé détaillée (server/src/dataset.ts), et chaque action contrôle son droit (server/src/actions/context.ts).
  */
-export type DroitRh = 'rh' | 'formations' | 'paie' | 'consultation' | 'admin';
+export type DroitRh = 'rh' | 'formations' | 'paie' | 'consultation' | 'admin'
+  // lot 11 — notes de frais : contrôle des notes de frais, frais médicaux compris, taux des devises, exports comptables ;
+  // aucun dossier RH (server/src/dataset.ts, branche propre de vueProfil)
+  | 'compta';
 /**
  * Profils d'un compte : deux niveaux au sein du service RH, puis trois profils restreints, décidés par l'entreprise.
  * `vues` : écrans ouverts par un profil restreint (sinon ceux de l'espace RH) ; `espace` : nom court de son espace.
@@ -591,17 +614,25 @@ export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits:
   referent_hse: {
     label: 'Référent HSE / formation', espace: 'HSE', droits: ['formations'],
     aide: 'Catalogue, sessions et présences, certifications et habilitations, verdicts Go / No Go ; aptitude médicale réduite au verdict et aux restrictions en vigueur, comme pour un manager ; synthèse du C2P (nuits comptées et facteurs d’exposition par salarié) ; ni feuilles de temps, ni paie, ni entretiens',
-    vues: ['dashboard', 'collaborateurs', 'formations', 'habilitations', 'echeances', 'chantiers', 'referentiels', 'prevention'],
+    vues: ['dashboard', 'collaborateurs', 'formations', 'habilitations', 'echeances', 'chantiers', 'referentiels', 'prevention', /* lot 11 — organigramme */ 'organigramme'],
   },
   paie: {
     label: 'Gestionnaire de paie', espace: 'Paie', droits: ['paie'],
     aide: 'Temps, absences et soldes en lecture, transmission des variables de paie à Sage ; ni entretiens, ni formations, ni données médicales détaillées : la catégorie d’une absence seulement (santé, parentalité…), pour la paie',
-    vues: ['temps', 'absences'],
+    vues: ['temps', 'absences', /* lot 11 — organigramme */ 'organigramme'],
   },
   lecture_seule: {
     label: 'Lecture seule', espace: 'Lecture', droits: ['consultation'],
     aide: 'Direction, DPO, auditeur : tableaux de bord, alertes et journal des actions, sans rien modifier ; ni données de santé détaillées, ni dossiers de voyage',
-    vues: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'echeances', 'budget', 'chantiers', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'prevention'],
+    vues: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'echeances', 'budget', 'chantiers', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'prevention', /* lot 11 — organigramme */ 'organigramme', /* lot 11 — indicateurs */ 'indicateurs'],
+  },
+  // lot 11 — notes de frais : réponse du propriétaire du 31 octobre 2026 (contrôle après le manager par un nouveau profil
+  // « Comptabilité », accès limité aux frais, frais médicaux compris). L'écran des frais vient à l'étape 2 du chantier.
+  comptabilite: {
+    label: 'Comptabilité', espace: 'Compta', droits: ['compta'],
+    aide: 'Contrôle des notes de frais validées, frais médicaux compris (ils ne passent jamais par le manager), taux des devises et exports comptables ; aucun dossier du personnel, ni absences, ni temps, ni formations',
+    // lot 11 — notes de frais, étape 2 : l'écran Notes de frais seul (contrôle, avances, exports, tableau de bord, taux).
+    vues: ['frais'],
   },
 };
 export const aDroitRh = (p: ProfilRh | undefined, droit: DroitRh) => !!p && !!PROFILS_RH[p]?.droits.includes(droit);

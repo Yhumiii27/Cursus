@@ -60,8 +60,8 @@ Sommaire : [Collaborateur](#collaborateur) · [Manager](#manager) · [Service RH
    par e-mail. Une feuille renvoyée revient « à corriger » avec le commentaire du manager : on la corrige et on la soumet de nouveau.
 
 Aucune heure ne se saisit un jour d'absence validée ; une demi-journée de congé laisse une demi-journée de travail au
-plus. Une semaine entière d'absence se soumet sans heure. Les heures de nuit et les frais de déplacement ne se saisissent
-pas dans Cursus : la paie les traite dans Sage.
+plus. Une semaine entière d'absence se soumet sans heure. Les heures de nuit ne se saisissent pas dans Cursus : la paie
+les traite dans Sage. Les frais engagés pendant un déplacement se déclarent dans « Mes frais » (ci-dessous).
 
 ### Demander une absence
 
@@ -111,6 +111,51 @@ pas dans Cursus : la paie les traite dans Sage.
   intervention se déclare sur la feuille de temps de la semaine (« Déclarer une intervention » dans l'encart
   « Astreinte » : jour, heures de début et de fin) ; ses heures vont sur la ligne « Intervention d'astreinte », qui ne se
   saisit pas à la main. Une intervention déclarée par erreur se retire tant que la feuille se saisit.
+
+### Organigramme
+
+- Menu « Organigramme » : sociétés, établissements, équipes et leurs membres présents ce jour, avec le manager de chaque
+  équipe. Ouvert à tous les salariés par défaut ; l'administrateur RH peut le réserver aux managers ou au service RH
+  (Paramètres → Hiérarchie des managers, « Organigramme ouvert à »).
+- Il ne montre que l'annuaire : nom, poste, équipe, manager. Ni contrat, ni absence, ni santé ; le suppléant d'un manager
+  absent n'apparaît que pour les personnes qui voient déjà sa délégation, sans les dates.
+- La recherche (nom, poste ou équipe) surligne les résultats et déplie les équipes qui y mènent ; Entrée place le curseur
+  sur le premier. Au clavier : flèches haut et bas pour parcourir, droite et gauche pour déplier ou replier, Entrée pour
+  ouvrir la fiche quand on y a accès ; « Tout déplier » ouvre tout l'arbre. Sur téléphone, l'arbre devient une liste
+  indentée.
+- « Imprimer » : document en paysage, une entité par page, « Document interne — état au » jour de l'impression.
+  « Exporter (CSV) » : une ligne par personne affichée (société, établissement, site, chemin des équipes, nom, poste,
+  manager, valideur). L'impression et l'export sont notés au journal avec l'entité et le nombre de lignes, jamais un nom.
+### Sur le téléphone
+
+- Cursus s'installe sans magasin d'applications. Android : « Installer l'application » (accueil, aide ou menu).
+  iPhone : dans Safari, « Partager » puis « Sur l'écran d'accueil » ; on ouvre ensuite Cursus depuis l'icône et on s'y
+  connecte une fois (l'application installée a sa propre session). Les notifications sur iPhone demandent iOS 16.4 et
+  l'application installée.
+- Réseau perdu, Cursus déjà ouvert : les heures, une ligne de projet et une demande de congé (congés payés, RTT,
+  récupération) restent saisissables. Le bandeau « Hors ligne » le dit ; elles partent seules au retour du réseau, ou par
+  « Envoyer maintenant ». Rien d'autre ne se fait sans réseau (validations, pièces, paie), et Cursus ouvert sans réseau
+  ne montre que les saisies gardées : aucune donnée n'est conservée sur le téléphone. Sur iPhone, elles partent à la
+  réouverture de l'application.
+- Une saisie refusée au retour du réseau passe « À reprendre » avec le motif. Heure changée entre-temps par le manager
+  ou depuis le PC : la saisie ne se renvoie pas (elle serait refusée de nouveau) ; « Ouvrir la feuille », y ressaisir la
+  valeur si elle doit remplacer celle du serveur, puis « Abandonner ». Refus qui peut disparaître (solde insuffisant,
+  feuille rouverte entre-temps) : « Renvoyer » une fois la situation réglée, ou « Abandonner ». Rien n'est écrasé sans
+  le dire.
+- « Mes appareils » (accueil) : « Recevoir les notifications sur cet appareil », puis on coche celles qu'on veut
+  (toutes coupées au départ) et « Enregistrer mes choix ». Elles ne disent ni nom ni date (elles s'affichent sur l'écran
+  verrouillé) et n'arrivent jamais de 20 h à 7 h ni le week-end : elles partent le jour ouvré suivant. « Envoyer une
+  notification d'essai » vérifie l'appareil ; « Retirer » arrête un téléphone perdu ou changé.
+- Tablette d'atelier ou téléphone prêté : cocher « Appareil partagé » ; rien n'y est gardé, ni saisie ni notification.
+  La déconnexion efface les saisies pas encore envoyées (Cursus prévient avant) ; elles sont effacées aussi au bout de
+  7 jours.
+
+### Notes de frais
+
+- Menu « Mes frais » (deuxième onglet de l'application installée) : « Nouvelle dépense », « Photographier le reçu », montant, date et catégorie ; la dépense va dans la note du mois, créée au besoin. Le raccourci « Nouvelle dépense » de l'icône y mène directement.
+- « Coller le texte du reçu » : copiez le texte de la photo (Live Text sur iPhone, Google Lens sur Android), collez-le, puis « Lire le texte » propose montant, date, TVA et commerçant ; vérifiez chaque champ. Reçu perdu : cochez l'attestation sur l'honneur.
+- « Soumettre la note » une fois complète : les reçus deviennent définitifs, votre manager valide, la comptabilité contrôle, puis la note est remboursée avec la paie du mois suivant. Renvoyée « À corriger », le motif s'affiche sur la note.
+- Frais médicaux en mission (vaccin, pharmacie) : « Nouvelle note », case « Frais médicaux en mission » ; la note ne passe pas par votre manager. Indemnités kilométriques : déclarez d'abord votre véhicule. Sans réseau, une dépense avec sa photo reste gardée sur le téléphone (jamais des frais médicaux).
 
 ## Manager
 
@@ -189,6 +234,11 @@ Les feuilles validées partent à la paie avec le lot du mois : le manager n'a r
   (réglage du service RH) ; en dessous, les circonstances exceptionnelles sont à indiquer, et jamais moins d'un jour franc.
   Le salarié reçoit un e-mail avec l'événement pour son agenda. Avant son début, l'astreinte se modifie ou s'annule (motif
   communiqué au salarié) ; commencée, seule sa fin s'avance. Le service RH planifie aussi, et vous en êtes prévenu.
+
+### Valider les notes de frais
+
+- Menu « Notes de frais », onglet « À valider » : notes soumises de votre équipe directe et des salariés que vous remplacez pour les frais. Ouvrez la note : dépenses, reçus, alertes (plafond, doublon, jour d'absence), puis « Valider » ou « Renvoyer pour correction » avec un motif.
+- Avances : « Valider » ou « Refuser ». Onglet « Équipe » : notes et totaux de l'année ; les frais médicaux ne vous sont jamais montrés ni comptés. Vos propres notes : onglet « Notes ».
 
 ## Service RH
 
@@ -336,6 +386,87 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
 - « Modifier le déplacement » : « Hébergement », « Contact sur place » et « Inscrit sur Ariane le », propres à Cursus et
   réservés au service RH. Le contact d'urgence est sur la fiche du salarié (« Contact d’urgence »), qu'il saisit depuis son
   espace.
+
+### Entités, sites et organigramme
+
+- **Entités** (Référentiels, onglet « Entités et sites ») : « Nouvelle entité ». Deux niveaux : la société (raison sociale,
+  SIREN, IDCC de la convention collective, 0044 pour les Industries chimiques) et ses établissements (SIRET, qui commence
+  par le SIREN de la société). SIREN et SIRET sont contrôlés par leur clé ; ce sont des données publiques. Le code et le
+  type ne changent plus après la création. Rien n'est supprimé : l'administrateur RH ferme une entité dont plus aucune
+  équipe ne relève (« Fermer »), et la rouvre (« Rouvrir »). Au démarrage, Cursus a créé une société sous la raison sociale
+  du responsable du traitement et y a rattaché les équipes racines : à compléter (SIREN, IDCC), puis à découper en
+  établissements s'il y a lieu.
+- **Sites** : « Nouveau site », avec le code du référentiel commun de Matrix (« lab67 », « pde »…) ; un site inactif n'est
+  plus proposé. Copie tenue à la main tant que Matrix ne la fournit pas.
+- **Rattachement d'une équipe** (Équipes & managers, détail de l'équipe, « Rattachement ») : entité (équipe racine
+  seulement, ses équipes rattachées en héritent), site et unité de l'organigramme de Matrix (PRD, PRD-MAINT…). Vides, le
+  site et l'unité sont ceux d'une équipe au-dessus, le site à défaut celui de l'entité. Aucun valideur ne change. Le site
+  et l'unité de chaque salarié suivent son équipe à chaque affectation et partent à Matrix avec sa fiche.
+- **Organigramme** : le service RH y voit en plus les points « À vérifier » (équipe sans manager, salarié à affecter,
+  équipe racine sans entité, équipe racine qui porte un nom de site : à convertir à la main en site ou en établissement,
+  jamais d'office), les salariés à affecter et l'étiquette du contrat (intérim, CDD, alternance), que les autres profils
+  ne voient pas. Une équipe racine sans entité est aussi signalée en tête d'Équipes & managers.
+### Indicateurs sociaux et BDESE
+
+- Écran « Indicateurs sociaux » (service RH et lecture seule ; ni manager, ni référent HSE, ni paie) : effectifs (fin
+  d'année, moyen de la Sécurité sociale, ETP, Code du travail), mouvements et rotation, absentéisme, formation, âges et
+  ancienneté de l'année civile, sans groupement ou par sexe, catégorie d'emploi, statut, contrat ou équipe. Chaque tableau
+  donne la définition retenue et sa complétude (fiches sans sexe ou catégorie, absences à qualifier, durées inconnues).
+- Seuil d'anonymat : une case qui porte sur moins de 5 personnes (réglable de 3 à 10) s'affiche « < 5 », et une autre
+  l'est aussi quand un total permettrait de la retrouver par différence. Jamais de liste nominative ; le calcul se fait
+  sur le serveur.
+- Onglet « BDESE » : rubriques 1° (investissement social) et 2° (égalité professionnelle) de l'article R2312-9 sur les
+  années N-2, N-1 et N ; les rubriques 3° à 10° (finances, rémunérations, activités sociales, environnement) sont listées
+  avec leur source (Sage, comptabilité, Vigie). Une année arrêtée est lue sur son arrêté, avec le seuil d'anonymat de
+  l'arrêté (indiqué pour chaque année). Le CSE n'a pas d'accès à Cursus : « Imprimer » ou « Exporter (CSV) » (les trois
+  années et leurs groupements en un fichier, avec la source et le seuil de chaque ligne), puis déposez le document dans la
+  BDESE.
+- Onglet « Égalité » : effectifs pris en compte pour l'index par catégorie et par sexe, groupes valides, retours de congé
+  de maternité. Les indicateurs 1, 2 et 4 (rémunérations, augmentations) se calculent dans Sage ou sur Egapro.
+- Onglet « Arrêtés » : en janvier, l'administrateur RH arrête l'année close ; ses chiffres sont figés (« Chiffres
+  arrêtés », ou « Calcul du jour » au choix) et les purges de conservation ne les changent plus. Une erreur : annuler
+  l'arrêté avec un motif (lu par le service RH seulement), puis en prendre un nouveau. Après le dépôt, « Mis à disposition
+  du CSE » note la date.
+- Fiche : sexe et catégorie d'emploi (ouvrier, employé, technicien ou agent de maîtrise, cadre), saisis par le service RH
+  ou repris de Lucca ou de Sage, visibles du service RH et du salarié seulement. Les fiches incomplètes forment une seule
+  ligne des Échéances (« Compléter les fiches », filtre « Indicateurs à compléter » de l'annuaire). Seuil et absences
+  comptées : Paramètres → Indicateurs sociaux (administrateur RH).
+
+### Dossiers OPCO
+
+Version simple retenue par l'entreprise (quelques dossiers par an) : suivi de la demande de prise en charge, montants,
+pièces et échéances, sans export comptable ni connexion au portail de l'OPCO (la saisie y reste manuelle).
+
+- Écran « Plan & budget », colonne « OPCO » : « Créer » ouvre un dossier sur la ligne du plan (une ligne reportée se
+  traite sur sa nouvelle ligne). « Nouveau dossier » en ajoute un second, pour un autre dispositif ou un autre financeur.
+  Dates, heures, effectif et montant demandé sont proposés d'après les sessions, le
+  catalogue et le coût de la ligne ; OPCO et subrogation d'après Paramètres → Dossiers OPCO. SIRET, déclaration
+  d'activité et certification Qualiopi de l'organisme se saisissent sur le dossier.
+- Onglet « Dossiers OPCO » : demandé, accordé, facturé, reçu, à récupérer, taux de prise en charge et reste à charge
+  de l'exercice de l'action, et nombre de dossiers par état (l'accord d'un dossier abandonné n'y compte plus) ; dossiers en retard en tête ; filtres par état, OPCO et dispositif ; répartition par OPCO,
+  dispositif, équipe et trimestre. Le réalisé de l'onglet du plan affiche aussi le coût net après les versements de
+  l'OPCO, sans changer les enveloppes.
+- Le dossier ouvert propose ses étapes : « Dossier déposé » (numéro de l'OPCO), « Accord reçu » ou « Refus reçu »
+  (motif de la liste), « Justificatifs envoyés » (montant facturé), « Versement reçu » (acompte ou solde, à
+  l'entreprise ou à l'organisme en subrogation), « Solder » (écart figé : perte ou prise en charge partielle),
+  « Abandonner ». Une modification après le dépôt est une correction motivée. L'administrateur RH revient d'un cran,
+  annule un versement saisi par erreur ou supprime un dossier créé par erreur, toujours avec un motif.
+- « Joindre une pièce » (pièces justificatives activées) : convention, programme, accord, facture, certificat de
+  réalisation… La facture et le certificat de réalisation (ou les feuilles d'émargement) sont exigés avant
+  « Justificatifs envoyés ». Facture et accord sont gardés 10 ans après l'exercice ; seul l'administrateur RH peut les
+  retirer avant. Pièces visibles du seul service RH.
+- Échéances (écran « Échéances », filtre « Dossiers OPCO », et récapitulatif e-mail du service RH sans montant ni
+  nom) : dépôt avant le début de la formation, accord attendu 7 jours avant, justificatifs après la fin, remboursement
+  après leur envoi. Délais de 30, 90 et 60 jours proposés, à confirmer avec les conditions de l'OPCO. Un exercice clos
+  ne bloque pas un dossier.
+- « Exporter (CSV) » : la liste des dossiers affichés, et les versements d'une période (date d'encaissement) pour le
+  rapprochement avec la comptabilité. La lecture seule consulte les dossiers sans les motifs ni les pièces.
+
+### Notes de frais : contrôle et exports
+
+- Menu « Notes de frais » (service RH et profil Comptabilité) : onglet « À contrôler » ; dans la note, « Montant retenu » ramène une dépense au plafond, « Refuser » l'écarte avec un motif, puis « Contrôler la note » : elle part dans le prochain lot de paie (colonne « montant » du fichier Sage).
+- Onglet « Exports comptables » : « Générer l'export comptable » fige les écritures des notes contrôlées, puis « Télécharger » le fichier pour la comptabilité (frais médicaux au compte générique). Une note déjà exportée ne se renvoie ni ne s'annule : annulez d'abord l'export, ses notes redeviennent à exporter. Onglet « Tableau de bord » : notes en attente, délai, dépenses par mois et par catégorie, taux des devises.
+- Paramètres → Notes de frais (administrateur RH) : activation, circuit, plafonds, barème kilométrique de l'année, limites d'exonération URSSAF, comptes et format du fichier d'écritures, à confirmer par la comptabilité et la paie.
 
 ## Gestionnaire de paie
 

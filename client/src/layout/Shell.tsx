@@ -7,12 +7,13 @@
 // région insérée avec son texte) : les succès en « status », les erreurs en « alert ».
 import { useMemo, useRef, type ReactNode } from 'react';
 import {
-  AirplaneIcon, BellIcon, BookOpenIcon, BooksIcon, BriefcaseIcon, CalendarBlankIcon, ChartBarIcon, ChatIcon, CheckIcon, ClockIcon, GearSixIcon, HardHatIcon,
-  HouseIcon, KeyIcon, LifebuoyIcon, LockSimpleIcon, MapPinIcon, PlusIcon, ShieldCheckIcon, SignOutIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
+  AirplaneIcon, BellIcon, BookOpenIcon, BooksIcon, BriefcaseIcon, CalendarBlankIcon, ChartBarIcon, ChartLineIcon, ChatIcon, CheckIcon, ClockIcon, GearSixIcon, HardHatIcon,
+  HouseIcon, KeyIcon, LifebuoyIcon, LockSimpleIcon, MapPinIcon, PlusIcon, ReceiptIcon, ShieldCheckIcon, SignOutIcon, TreeStructureIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
 } from '@phosphor-icons/react';
 import { droitsRh, PROFILS_RH, vuesDe } from '../../../shared/constants.ts';
 import { aFaireCollaborateur } from '../../../shared/rules/a-faire.ts';
 import { obligations, perimetreEntretiens } from '../../../shared/rules/entretiens.ts';
+import { organigrammeOuvertA } from '../../../shared/rules/organigramme.ts';
 import { evaluationsAFaireManager } from '../../../shared/rules/evaluation-formation.ts';
 import type { Dataset, PerimetreDelegation, Role } from '../../../shared/types.ts';
 import { Avatar } from '../components/ui.tsx';
@@ -23,6 +24,11 @@ import { Reconnexion } from './Reconnexion.tsx';
 import { RechercheGlobale } from './RechercheGlobale.tsx';
 import { BoutonMenu, ID_MENU, PiegeTiroir, useTiroir, type Tiroir } from './Tiroir.tsx';
 import { decideur } from '../state/delegues.ts';
+// lot 11 — pwa : bandeaux hors ligne et mise à jour, installation, barre d'onglets de l'application installée.
+import { BandeauHorsLigne } from '../components/BandeauHorsLigne.tsx';
+import { InstallerApplication } from '../components/InstallerApplication.tsx';
+import { BarreOnglets } from './BarreOnglets.tsx';
+import { ongletsDe } from './onglets.ts';
 
 interface NavItem { view: View; label: string; icon: Icon; badge?: number }
 type NavGroup = [string, NavItem[]];
@@ -43,36 +49,55 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
   const nQ = data.feuilles.filter(f => f.statut === 'soumise' && canValidate(f.empId, 'feuilles')).length;
   // Demandes à valider ; pour le RH, aussi les absences signalées à qualifier.
   const nAbs = data.absences.filter(a => (a.statut === 'demandee' && canValidate(a.empId, 'absences')) || (rh && a.statut === 'signalee' && a.empId !== soi)).length;
+  // lot 11 — notes de frais : entrée du menu le module activé ; pastille : notes à contrôler (service RH, comptabilité), à
+  // valider (manager : équipe directe et délégations « frais »), à corriger (collaborateur).
+  const fraisActifs = !!data.settings.notesFraisActives;
+  const notesFrais = data.notesFrais ?? [];
+  const frais = (label: string, badge: number): NavItem[] => (fraisActifs ? [{ view: 'frais', label, icon: ReceiptIcon, badge }] : []);
   if (role === 'rh') {
     const nReq = droitsRh(data.user).includes('formations') ? data.demandesCollab.filter(r => r.statut === 'attente').length : 0;
     // Écrans du profil (référent HSE, paie, lecture seule : une partie de l'espace RH).
     const vues = vuesDe('rh', data.user.profilRh);
     const groupes: NavGroup[] = [
-      ['Pilotage', [{ view: 'dashboard', label: 'Tableau de bord', icon: HouseIcon, badge: nReq }, { view: 'echeances', label: 'Échéances', icon: BellIcon }, { view: 'budget', label: 'Plan & budget', icon: ChartBarIcon }]],
-      ['Collaborateurs', [{ view: 'collaborateurs', label: 'Annuaire', icon: UserIcon, badge: data.employes.filter(e => !e.equipe).length }, { view: 'equipes', label: 'Équipes & managers', icon: UsersThreeIcon }, { view: 'entretiens', label: 'Entretiens', icon: ChatIcon, badge: late }]],
+      ['Pilotage', [{ view: 'dashboard', label: 'Tableau de bord', icon: HouseIcon, badge: nReq }, { view: 'echeances', label: 'Échéances', icon: BellIcon }, { view: 'budget', label: 'Plan & budget', icon: ChartBarIcon },
+        // lot 11 — indicateurs : BDESE et index d'égalité (service RH et lecture seule).
+        { view: 'indicateurs', label: 'Indicateurs sociaux', icon: ChartLineIcon }]],
+      ['Collaborateurs', [{ view: 'collaborateurs', label: 'Annuaire', icon: UserIcon, badge: data.employes.filter(e => !e.equipe).length }, { view: 'equipes', label: 'Équipes & managers', icon: UsersThreeIcon }, /* lot 11 — organigramme */ { view: 'organigramme', label: 'Organigramme', icon: TreeStructureIcon }, { view: 'entretiens', label: 'Entretiens', icon: ChatIcon, badge: late }]],
       ['Compétences', [{ view: 'formations', label: 'Formations', icon: BookOpenIcon }, { view: 'habilitations', label: 'Habilitations', icon: ShieldCheckIcon }]],
       // Compte professionnel de prévention (lot 7) : service RH, référent HSE et lecture seule.
       ['Prévention', [{ view: 'prevention', label: 'Expositions (C2P)', icon: HardHatIcon }]],
       ['Temps & absences', [{ view: 'temps', label: 'Feuilles de temps', icon: ClockIcon, badge: nQ }, { view: 'absences', label: 'Congés & absences', icon: CalendarBlankIcon, badge: nAbs }]],
-      ['Projets & déplacements', [{ view: 'missions', label: 'Missions', icon: MapPinIcon }, { view: 'voyages', label: 'Voyages', icon: AirplaneIcon, badge: data.demandesKeystone.filter(x => x.statut === 'attente').length }, { view: 'chantiers', label: 'Chantiers · Go / No Go', icon: BriefcaseIcon }]],
+      ['Projets & déplacements', [{ view: 'missions', label: 'Missions', icon: MapPinIcon }, { view: 'voyages', label: 'Voyages', icon: AirplaneIcon, badge: data.demandesKeystone.filter(x => x.statut === 'attente').length }, { view: 'chantiers', label: 'Chantiers · Go / No Go', icon: BriefcaseIcon },
+        // lot 11 — notes de frais : contrôle (service RH, comptabilité), jamais sa propre note.
+        ...frais('Notes de frais', notesFrais.filter(n => n.statut === 'validee' && n.empId !== soi).length)]],
       ['Administration', [{ view: 'referentiels', label: 'Référentiels', icon: BooksIcon }, { view: 'parametres', label: 'Paramètres', icon: GearSixIcon }]],
     ];
+    // Profil Paie : le groupe « Collaborateurs » ne garde que l'organigramme (lot 11).
     return groupes.map(([g, items]): NavGroup => [g, items.filter(i => vues.includes(i.view))]).filter(([, items]) => items.length > 0);
   }
+  // lot 11 — organigramme : entrée du menu selon le réglage `organigrammeOuvert` (shared/rules/organigramme.ts).
+  const organigramme: NavItem[] = organigrammeOuvertA(data.settings.organigrammeOuvert, role) ? [{ view: 'organigramme', label: 'Organigramme', icon: TreeStructureIcon }] : [];
   if (role === 'manager') {
     return [
       // Formations : évaluations à froid à faire sur l'équipe directe (lot 7, t121, shared/rules/evaluation-formation.ts).
       ['Mon équipe', [{ view: 'collaborateurs', label: 'Équipe', icon: UserIcon }, { view: 'formations', label: 'Formations', icon: BookOpenIcon, badge: evaluationsAFaireManager(d, me).length }, { view: 'entretiens', label: 'Entretiens', icon: ChatIcon, badge: late }]],
       ['Temps & absences', [{ view: 'temps', label: 'Feuilles de temps', icon: ClockIcon, badge: nQ }, { view: 'absences', label: 'Congés & absences', icon: CalendarBlankIcon, badge: nAbs }]],
-      ['Projets & déplacements', [{ view: 'missions', label: 'Missions', icon: MapPinIcon }]],
+      ['Projets & déplacements', [{ view: 'missions', label: 'Missions', icon: MapPinIcon },
+        // lot 11 — notes de frais
+        ...frais('Notes de frais', notesFrais.filter(n => n.statut === 'soumise' && !n.medicale && canValidate(n.empId, 'frais')).length)]],
+      ...(organigramme.length ? [['Organisation', organigramme] as NavGroup] : []),
     ];
   }
   // Collaborateur : comptes rendus à signer, feuilles renvoyées ou semaine passée à soumettre, évaluations de formation
   // attendues (accueil, lot 7 t121) : shared/rules/a-faire.ts.
   const aFaire = aFaireCollaborateur(d, me);
   return [
-    ['Mon espace', [{ view: 'portail', label: 'Accueil', icon: HouseIcon, badge: aFaire.evaluations.length }, { view: 'entretiens', label: 'Mes entretiens', icon: ChatIcon, badge: aFaire.comptesRendus.length }]],
+    ['Mon espace', [{ view: 'portail', label: 'Accueil', icon: HouseIcon, badge: aFaire.evaluations.length },
+      // lot 11 — notes de frais : en deuxième, pour la barre d'onglets de l'application installée (saisie au téléphone).
+      ...frais('Mes frais', notesFrais.filter(n => n.empId === me && n.statut === 'a_corriger').length),
+      { view: 'entretiens', label: 'Mes entretiens', icon: ChatIcon, badge: aFaire.comptesRendus.length }]],
     ['Temps & absences', [{ view: 'temps', label: 'Mes heures', icon: ClockIcon, badge: aFaire.feuilles.length }, { view: 'absences', label: 'Mes absences', icon: CalendarBlankIcon }]],
+    ...(organigramme.length ? [['Organisation', organigramme] as NavGroup] : []),
   ];
 }
 
@@ -95,7 +120,10 @@ const Pastille = ({ n }: { n: number }) => (
 );
 
 function Sidebar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
-  const { session, data, view, go, switchMode, bascule, logout, openDialog, reconnexion } = useStore();
+  const { session, data, view, go, switchMode, bascule, logout, openDialog, reconnexion, horsLigne } = useStore();
+  // lot 11 — pwa : saisies encore gardées sur l'appareil, tous espaces confondus (la déconnexion purge toute la file) :
+  // confirmation d'abord.
+  const deconnecter = () => void horsLigne.taille().then(n => n ? openDialog({ type: 'deconnexion', n }) : logout());
   const barre = useRef<HTMLElement>(null);
   // Écran étroit : un choix (page, espace, mot de passe, déconnexion) referme d'abord le tiroir.
   const puis = (f: () => void) => () => { tiroir.fermer(); f(); };
@@ -163,6 +191,8 @@ function Sidebar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
               <LifebuoyIcon size={16} />
               <span>Aide</span>
             </a>
+            {/* lot 11 — pwa : proposé par le navigateur (Android, Chrome, Edge), jamais une fois installée. */}
+            <InstallerApplication menu fermer={tiroir.fermer} />
           </div>
         )}
       </nav>
@@ -178,7 +208,7 @@ function Sidebar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
           </button>
         )}
         {user && (
-          <button type="button" className="btn btn-ghost btn-icon" aria-label="Se déconnecter" title="Se déconnecter" onClick={puis(logout)} style={{ color: 'inherit', width: 30, height: 30, flex: 'none' }}>
+          <button type="button" className="btn btn-ghost btn-icon" aria-label="Se déconnecter" title="Se déconnecter" onClick={puis(deconnecter)} style={{ color: 'inherit', width: 30, height: 30, flex: 'none' }}>
             <SignOutIcon size={14} />
           </button>
         )}
@@ -263,8 +293,10 @@ export function Shell({ children }: { children: ReactNode }) {
         {tiroir.ouvert && <div className="tiroir-fond" aria-hidden="true" onClick={tiroir.fermer} />}
         <div className="main-col" inert={tiroir.ouvert}>
           <Topbar groups={groups} tiroir={tiroir} />
+          <BandeauHorsLigne />
           <main className="content" id={ID_CONTENU} tabIndex={-1}>{children}</main>
         </div>
+        {connecte && data && <BarreOnglets onglets={ongletsDe(groups)} tiroir={tiroir} />}
       </div>
       {reconnexion && <Reconnexion />}
       <Toast />

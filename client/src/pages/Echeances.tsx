@@ -14,6 +14,11 @@ import { useEnriched, useIntentPermis } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { EchRow } from './Dashboard.tsx';
 import { CouverturePanel } from '../components/Couverture.tsx';
+// lot 11 — indicateurs
+import { IndicateursACompleter } from '../components/IndicateursACompleter.tsx';
+// lot 11 — dossiers OPCO
+import { EcheancesOpcoPanel } from '../components/opco/EcheancesOpco.tsx';
+import { useRole } from '../state/derived.ts';
 
 /** Colonnes triables des échéances ; « Statut » : dépassées d'abord. */
 const COLONNES: Record<string, Colonne<EchItem>> = {
@@ -29,10 +34,16 @@ export function Echeances() {
   const { emps, horizon, d } = useEnriched();
   const permis = useIntentPermis();
   const { ui, setUi, go, runIntent, notify } = useStore();
+  // lot 11 — dossiers OPCO : échéances des dossiers (service RH, lecture seule), à part des échéances par salarié.
+  const { rh, consultation } = useRole();
+  const voitOpco = rh || consultation;
+  // `?type=dossiers-opco` lu dans l'adresse pour un profil qui ne voit pas les dossiers (lien partagé) : « Tout ».
+  const echType = voitOpco || ui.echType !== 'opco' ? ui.echType : 'tous';
+  const horsSalaries = echType === 'couverture' || echType === 'opco';
 
   const v = useMemo(() => {
     const list = d.echeances(emps, horizon)
-      .filter(x => ui.echType === 'tous' || x.kind === ui.echType)
+      .filter(x => echType === 'tous' || x.kind === echType)
       // Propositions d'action réservées aux profils qui peuvent les lancer (aucune en lecture seule).
       .map(x => !x.action || permis(x.action.intent) ? x : { ...x, action: null });
     const exp = list.filter(x => x.key === 'exp').sort((a, b) => a.d - b.d);
@@ -54,7 +65,7 @@ export function Echeances() {
       })),
     ];
     return { months, max, year, exp: exp.length, groups };
-  }, [d, emps, horizon, ui.echType, permis]);
+  }, [d, emps, horizon, echType, permis]);
   // Tri par colonne (t145) dans chaque groupe (dépassées, puis mois) : par échéance tant qu'aucun en-tête n'est cliqué.
   // L'export suit l'ordre affiché.
   const t = useTri('echeances');
@@ -72,16 +83,22 @@ export function Echeances() {
       kicker={`12 prochains mois · ${plural(v.year, 'renouvellement', 'renouvellements')} · ${plural(v.exp, 'dépassé', 'dépassés')}`}
       title="Échéances"
       actions={<>
-        <Seg name="echType" label="Type d’échéance" value={ui.echType} onChange={x => setUi({ echType: x })}
-          options={[['tous', 'Tout'], ['cert', 'Certifications'], ['hab', 'Habilitations'], ['med', 'Visites médicales'], ['exigence', 'Exigences'], ['trip', 'Voyages'], ['contrat', 'Contrats'], ['couverture', 'Couverture']]} />
+        <Seg name="echType" label="Type d’échéance" value={echType} onChange={x => setUi({ echType: x })}
+          options={[['tous', 'Tout'], ['cert', 'Certifications'], ['hab', 'Habilitations'], ['med', 'Visites médicales'], ['exigence', 'Exigences'], ['trip', 'Voyages'], ['contrat', 'Contrats'], ['couverture', 'Couverture'],
+            ...(voitOpco ? [['opco', 'Dossiers OPCO'] as ['opco', string]] : [])]} />
         {/* Filtre « Couverture » : le panneau par équipe seul ; ni export ni graphique, qui portent sur les échéances des salariés. */}
-        {ui.echType !== 'couverture' && <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exportCsv}>Exporter (CSV)</Btn>}
+        {!horsSalaries && <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exportCsv}>Exporter (CSV)</Btn>}
       </>}
     >
+      {/* lot 11 — indicateurs : échéance agrégée du service RH (fiches sans sexe ou catégorie), une seule ligne. */}
+      {ui.echType === 'tous' && <IndicateursACompleter />}
       {/* Couverture minimale des équipes (SST, EPI incendie) : par équipe, à part des échéances de chaque salarié. */}
-      {(ui.echType === 'tous' || ui.echType === 'couverture') && <CouverturePanel />}
+      {(echType === 'tous' || echType === 'couverture') && <CouverturePanel />}
 
-      {ui.echType !== 'couverture' && <Panel title="Renouvellements par mois" style={{ gap: 'var(--space-4)' }}>
+      {/* lot 11 — dossiers OPCO */}
+      {(echType === 'tous' || echType === 'opco') && voitOpco && <EcheancesOpcoPanel />}
+
+      {!horsSalaries && <Panel title="Renouvellements par mois" style={{ gap: 'var(--space-4)' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 8, alignItems: 'end', height: 156 }}>
           {v.months.map((m, i) => (
             <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 6, height: '100%' }}>
@@ -97,7 +114,7 @@ export function Echeances() {
         </div>
       </Panel>}
 
-      <Panel style={{ gap: 'var(--space-2)' }}>
+      {echType !== 'opco' && <Panel style={{ gap: 'var(--space-2)' }}>
         {groups.map(g => (
           <div key={g.key} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-3)', marginTop: 'var(--space-3)' }}>
@@ -124,8 +141,8 @@ export function Echeances() {
             </div>
           </div>
         ))}
-        {v.groups.length === 0 && <Empty pad="sm">{ui.echType === 'couverture' ? 'Couverture minimale des équipes : les seuils non tenus figurent ci-dessus (Référentiels → Postes pour les saisir).' : 'Aucune échéance sur les 12 prochains mois.'}</Empty>}
-      </Panel>
+        {v.groups.length === 0 && <Empty pad="sm">{echType === 'couverture' ? 'Couverture minimale des équipes : les seuils non tenus figurent ci-dessus (Référentiels → Postes pour les saisir).' : 'Aucune échéance sur les 12 prochains mois.'}</Empty>}
+      </Panel>}
     </Page>
   );
 }

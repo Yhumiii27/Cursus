@@ -348,8 +348,10 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
   sur le serveur.
 - Onglet « BDESE » : rubriques 1° (investissement social) et 2° (égalité professionnelle) de l'article R2312-9 sur les
   années N-2, N-1 et N ; les rubriques 3° à 10° (finances, rémunérations, activités sociales, environnement) sont listées
-  avec leur source (Sage, comptabilité, Vigie). Le CSE n'a pas d'accès à Cursus : « Imprimer » ou « Exporter (CSV) », puis
-  déposez le document dans la BDESE.
+  avec leur source (Sage, comptabilité, Vigie). Une année arrêtée est lue sur son arrêté, avec le seuil d'anonymat de
+  l'arrêté (indiqué pour chaque année). Le CSE n'a pas d'accès à Cursus : « Imprimer » ou « Exporter (CSV) » (les trois
+  années et leurs groupements en un fichier, avec la source et le seuil de chaque ligne), puis déposez le document dans la
+  BDESE.
 - Onglet « Égalité » : effectifs pris en compte pour l'index par catégorie et par sexe, groupes valides, retours de congé
   de maternité. Les indicateurs 1, 2 et 4 (rémunérations, augmentations) se calculent dans Sage ou sur Egapro.
 - Onglet « Arrêtés » : en janvier, l'administrateur RH arrête l'année close ; ses chiffres sont figés (« Chiffres

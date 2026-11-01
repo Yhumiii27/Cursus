@@ -144,7 +144,46 @@ test('arrêtés : l’administrateur RH arrête l’année close (confirmation),
   await act(async () => { fireEvent.click(within(ligne).getByRole('button', { name: 'Voir la BDESE' })); });
   await attendre();
   assert.ok(lus.some(l => /arrete=1/.test(l.q)), 'BDESE 2025 lue sur l’arrêté');
-  assert.ok(screen.getByText('2025 : arrêté n° 1'));
+  assert.ok(screen.getByText('2025 : arrêté n° 1, seuil 5'));
+});
+
+test('BDESE : chaque année avec le seuil de son arrêté (arrêté à 5, réglage passé à 3) ; export de la BDESE ; Égalité sans groupement caché', async () => {
+  const { db, personne } = await baseDemo();
+  servir(db);
+  const { ACTIONS } = await import('../server/src/actions/index.ts');
+  const { makeCtx } = await import('../server/src/actions/context.ts');
+  const { loadFull } = await import('../server/src/dataset.ts');
+  const u = await personne(null, 'rh');
+  await db.tx(async () => await ACTIONS['indicateurs.arreter'](makeCtx(db, u, await loadFull(db, u)), { annee: 2025 }));
+  await db.tx(async () => await ACTIONS['parametres.maj'](makeCtx(db, u, await loadFull(db, u)), { indicateursSeuil: 3 }));
+  // Groupement par équipe choisi sur un autre onglet, puis BDESE.
+  const b = await monter(db, u, () => createElement(Indicateurs), { indOnglet: 'bdese', indGroupe: 'equipe' });
+  render(b.element);
+  await attendre();
+  assert.ok(screen.getByText('2025 : arrêté n° 1, seuil 5'));
+  assert.ok(screen.getByText('2026 : calcul du jour, seuil 3'));
+  // Colonnes : 2024, 2025 (arrêté), 2026 ; chaque case masquée porte le seuil de son année.
+  const masquees = (col: number) => [...document.querySelectorAll('table.tableau-bdese tbody tr')].map(tr => tr.querySelectorAll('td')[col]?.querySelector('abbr.case-masquee')?.textContent).filter(Boolean);
+  assert.ok(masquees(1).length > 0, 'cases de 2025 masquées');
+  assert.ok(masquees(1).every(t => t === '< 5'), '2025 : seuil de l’arrêté');
+  assert.ok(masquees(2).every(t => t === '< 3'), '2026 : réglage actuel');
+  assert.match(document.body.textContent!, /seuils d’anonymat : 2024 : 3, 2025 : 5, 2026 : 3/);
+  // Aucun groupement caché : ni l'équipe lue, ni l'équipe exportée.
+  assert.ok(!lus.some(l => /groupe=equipe/.test(l.q)), 'aucune lecture par équipe sur la BDESE');
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Exporter (CSV)' })); });
+  await attendre();
+  assert.deepEqual(lus.at(-1), { chemin: '/api/indicateurs/bdese/csv', q: '?annee=2026', espace: 'rh' });
+  // Égalité de 2025 : lue sur l'arrêté (groupement d'ensemble), « Chiffres arrêtés » disponible, pas de note sur l'équipe.
+  await act(async () => { fireEvent.change(screen.getByLabelText('Année'), { target: { value: '2025' } }); });
+  await act(async () => { fireEvent.click(screen.getByLabelText('Égalité')); });
+  await attendre();
+  assert.ok(lus.some(l => l.q === '?arrete=1&groupe=aucun'));
+  assert.ok(!lus.some(l => /groupe=equipe/.test(l.q)));
+  assert.doesNotMatch(document.body.textContent!, /groupement par équipe n’est pas figé/);
+  assert.equal((screen.getByLabelText('Chiffres arrêtés') as HTMLInputElement).disabled, false);
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Exporter (CSV)' })); });
+  await attendre();
+  assert.deepEqual(lus.at(-1), { chemin: '/api/indicateurs/csv', q: '?arrete=1&groupe=aucun', espace: 'rh' });
 });
 
 test('arrêtés : la lecture seule consulte sans bouton ; mise à disposition du CSE par le dialogue (date contrôlée)', async () => {
@@ -256,14 +295,23 @@ test('adresse de la page et mise en forme sans React', () => {
   const t = { id: 'effectifs', titre: 'Effectifs', definition: 'déf', dimension: 'Ensemble', lignes: ['Ensemble'], colonnes: ['a', 'b', 'c', 'd', 'e'],
     cases: [[{ valeur: 20, masque: false }, { valeur: null, masque: true }, { valeur: 19, masque: false }, { valeur: 19, masque: false }, { valeur: 0, masque: false }]], completude: 100, completudeTexte: null };
   const r = { tableaux: [t], index: { effectifs: { ...t, id: 'indexEffectifs', lignes: ['Ouvriers', 'Total'], cases: [[{ valeur: null, masque: true }], [{ valeur: 3, masque: false }]] } } } as never;
-  const annees = [{ annee: 2025, arrete: 2, r: { aucun: r } }, { annee: 2026, arrete: null, r: { aucun: null } }];
+  const annees = [{ annee: 2025, arrete: 2, seuil: 5, r: { aucun: r } }, { annee: 2026, arrete: null, seuil: 5, r: { aucun: null } }];
   const r1 = V.rubrique1(annees);
   assert.equal(r1[0].lignes[0].cases[0]!.valeur, 20);
   assert.equal(r1[0].lignes[1].cases[0]!.masque, true);
   assert.equal(r1[0].lignes[0].cases[1], undefined, 'année sans réponse : vide');
-  const p = V.sectionsBdese(annees, 5);
-  assert.ok(p[0].table!.head.includes('2025 (arrêté n° 2)'));
+  const p = V.sectionsBdese(annees);
+  assert.ok(p[0].table!.head.includes('2025 (arrêté n° 2, seuil 5)'));
   assert.equal(p[0].table!.rows[1][1], '< 5');
+  assert.equal(V.texteSeuils(annees), 'seuil d’anonymat 5');
+  // Seuils différents (arrêté pris à 5, réglage passé à 3) : chaque colonne avec le sien, et la lecture les nomme.
+  const melange = [{ ...annees[0] }, { annee: 2026, arrete: null, seuil: 3, r: { aucun: r } }];
+  const pm = V.sectionsBdese(melange);
+  assert.deepEqual(pm[0].table!.head, ['Indicateur', '2025 (arrêté n° 2, seuil 5)', '2026 (calcul du jour, seuil 3)']);
+  assert.deepEqual(pm[0].table!.rows[1].slice(1), ['< 5', '< 3']);
+  assert.match(pm.at(-1)!.text!, /« < k ».*2025 : 5, 2026 : 3/);
+  assert.equal(V.texteSeuils(melange), 'seuils d’anonymat : 2025 : 5, 2026 : 3');
+  assert.equal(V.seuilAnnee({ aucun: null }, 7), 7, 'année sans réponse : le réglage');
   assert.ok(p.some(s => s.title.startsWith('Rubriques 3° à 10°')));
   assert.equal(V.caseDe(t as never, 'Inconnue', 0), undefined);
   assert.equal(V.caseDe(undefined, null, 0), undefined);

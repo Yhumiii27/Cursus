@@ -4,6 +4,9 @@
 //                                                       masqués au seuil d'anonymat : JSON (shared/rules/indicateurs-legaux.ts)
 //   GET /api/indicateurs?arrete=<id>&groupe=            agrégats figés d'un arrêté annuel (table indicateurs_arretes)
 //   GET /api/indicateurs/csv?…                          les mêmes, export CSV au format long, tracé (`indicateurs.export`)
+//   GET /api/indicateurs/bdese/csv?annee=               BDESE de l'année N : N-2, N-1 et N, chacune lue sur son arrêté en
+//                                                       vigueur s'il existe (sinon calculée), groupements de GROUPES_BDESE,
+//                                                       en un fichier, tracé de même (`indicateurs.export`, groupe « bdese »)
 // Droit « consultation » (service RH et lecture seule) ; refus tracé. Ni le manager, ni le collaborateur, ni le référent
 // HSE, ni la paie : ils n'ont pas le droit, et aucun indicateur ne part dans leur instantané. Les deux routes sont gardées
 // contre une navigation provoquée depuis un autre site (server/src/app.ts, exigerNavigationInterne).
@@ -16,9 +19,9 @@ import express, { type Request, type Response, type Router } from 'express';
 import { droitsRh } from '../../shared/constants.ts';
 import { texteCsv } from '../../shared/csv.ts';
 import { Domain } from '../../shared/domain.ts';
-import { plural } from '../../shared/format.ts';
+import { fmtIso, plural } from '../../shared/format.ts';
 import {
-  ENTETE_CSV_INDICATEURS, estGroupeIndicateurs, estPeriodeIndicateurs, type GroupeIndicateurs, indicateursLegaux, type IndicateursLegaux, lignesCsvIndicateurs,
+  ENTETE_CSV_BDESE, ENTETE_CSV_INDICATEURS, estGroupeIndicateurs, GROUPES_BDESE, estPeriodeIndicateurs, type GroupeIndicateurs, indicateursLegaux, type IndicateursLegaux, lignesCsvIndicateurs,
   type ParametresIndicateurs, type PeriodeIndicateurs, anneeIndicateursValide,
 } from '../../shared/rules/indicateurs-legaux.ts';
 import type { CurrentUser, Dataset } from '../../shared/types.ts';
@@ -107,6 +110,39 @@ async function lire(db: Db, q: Record<string, unknown>): Promise<{ r: Indicateur
   return r ? { r, arrete: null } : { erreur: 'Paramètres invalides', statut: 400 };
 }
 
+/** Année de la BDESE : arrêté en vigueur (id) et agrégats par groupement de GROUPES_BDESE, chacun avec son propre seuil. */
+interface AnneeBdeseServeur { annee: number; arrete: number | null; r: Partial<Record<GroupeIndicateurs, IndicateursLegaux>> }
+
+/**
+ * Années N-2, N-1 et N de la BDESE de l'année `annee`, comme l'écran les montre : une année arrêtée (arrêté global en
+ * vigueur) est lue sur ses agrégats figés, avec le seuil de l'arrêté ; une autre est calculée (mémorisée par révision).
+ */
+async function anneesBdese(db: Db, annee: number): Promise<AnneeBdeseServeur[] | null> {
+  const out: AnneeBdeseServeur[] = [];
+  for (const a of [annee - 2, annee - 1, annee]) {
+    if (!anneeIndicateursValide(a)) return null;
+    const lus = await db.lecture(async () => await db.where<{ id: number; perimetre: string; donnees: DonneesArrete | null; annuleLe: string | null }>('indicateursArretes', 'annee', a));
+    const arrete = lus.find(x => x.perimetre === 'global' && !x.annuleLe) ?? null;
+    const r: AnneeBdeseServeur['r'] = {};
+    for (const g of GROUPES_BDESE) {
+      const x = arrete ? arrete.donnees?.[g] ?? null : await indicateursDe(db, { annee: a, periode: 'annee', groupe: g });
+      if (x) r[g] = x;
+    }
+    out.push({ annee: a, arrete: arrete?.id ?? null, r });
+  }
+  return out;
+}
+
+/** Lignes de l'export de la BDESE : chaque année et chaque groupement, avec sa source (arrêté ou calcul) et son seuil. */
+function lignesCsvBdese(annees: readonly AnneeBdeseServeur[]): string[][] {
+  return annees.flatMap(a => GROUPES_BDESE.flatMap(g => {
+    const r = a.r[g];
+    if (!r) return [];
+    const source = `${a.arrete ? `arrêté n° ${a.arrete}` : `calcul du ${fmtIso(r.calculeLe)}`} (seuil ${r.seuil})`;
+    return lignesCsvIndicateurs(r, { index: g === 'aucun' }).map(l => [...l, source]);
+  }));
+}
+
 export function routesIndicateurs(db: Db): Router {
   const r = express.Router();
   /** Identité et droit « consultation » ; refus tracé dans sa propre courte transaction. */
@@ -143,6 +179,26 @@ export function routesIndicateurs(db: Db): Router {
       payload: { periode, groupe: x.r.groupe, lignes: lignes.length, ...(x.arrete ? { arrete: x.arrete.id } : {}) },
     }));
     fichierJoint(res, 'text/csv; charset=utf-8', `indicateurs-${periode}-${x.r.groupe}${x.arrete ? `-arrete-${x.arrete.id}` : ''}.csv`, texteCsv(ENTETE_CSV_INDICATEURS, lignes));
+  });
+
+  // Export de la BDESE (onglet BDESE) : trois années et les groupements de la BDESE en un fichier, comme à l'écran. Trace :
+  // années, « bdese », nombre de lignes et arrêtés lus ; jamais une valeur.
+  r.get('/api/indicateurs/bdese/csv', async (req: Request, res: Response) => {
+    const id = await autorise(req, res, 'Export de la BDESE');
+    if (!id) return;
+    const q = req.query as Record<string, unknown>;
+    const annee = q.annee === undefined || q.annee === '' ? Number(todayIso().slice(0, 4)) : Number(q.annee);
+    const annees = anneeIndicateursValide(annee) ? await anneesBdese(db, annee) : null;
+    if (!annees) return res.status(400).json({ error: 'Année invalide' });
+    const lignes = lignesCsvBdese(annees);
+    const arretes = annees.flatMap(a => (a.arrete ? [a.arrete] : []));
+    const periode = `${annee - 2}-${annee}`;
+    await db.tx(async () => await journaliser(db, {
+      actor: id.user.nom, role: id.user.role, action: 'indicateurs.export', compte: id.compte, salaries: [],
+      message: `BDESE exportée — années ${annees.map(a => a.annee).join(', ')}${arretes.length ? ` (${plural(arretes.length, 'arrêté', 'arrêtés')} : n° ${arretes.join(', ')})` : ''} — ${plural(lignes.length, 'ligne', 'lignes')}`,
+      payload: { periode, groupe: 'bdese', lignes: lignes.length, arretes },
+    }));
+    fichierJoint(res, 'text/csv; charset=utf-8', `bdese-${annee}.csv`, texteCsv(ENTETE_CSV_BDESE, lignes));
   });
 
   return r;

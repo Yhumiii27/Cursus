@@ -213,6 +213,7 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // lot 11 — indicateurs : indicateurs sociaux et leur export, lus par fetch depuis l'écran (en-tête d'espace exigé).
   app.get('/api/indicateurs', exigerNavigationInterne('appel'));
   app.get('/api/indicateurs/csv', exigerNavigationInterne('appel'));
+  app.get('/api/indicateurs/bdese/csv', exigerNavigationInterne('appel'));
   // Journal des actions (consultation filtrée et paginée, export CSV, archive paie, exports de l'interface) et
   // données personnelles d'un salarié (export RH, téléchargement par l'intéressé) : server/src/journal.ts, donnees.ts.
   app.use(routesJournal(db));

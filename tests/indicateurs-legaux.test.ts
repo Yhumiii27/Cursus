@@ -416,6 +416,13 @@ test('fiche à compléter : présente, hors intérimaires, sans sexe ou sans cat
   assert.equal(L.aCompleterIndicateurs(emp(23, { sexe: null, typeContrat: 'interim', agence: 'A' }), le), false, 'intérimaire : hors des tableaux par sexe');
   assert.equal(L.aCompleterIndicateurs(emp(24, { sexe: null, entree: '2025-09-01' }), le), false, 'embauche à venir');
   assert.equal(L.aCompleterIndicateurs(emp(25, { sexe: null, fin: '2025-01-31', motifSortie: 'demission' }), le), false, 'sorti');
-  // Le jeu de 2025 : la seule fiche présente au 15 juin et incomplète serait comptée une fois, jamais une échéance par fiche.
+  // Compte de l'échéance agrégée sur un jeu explicite : deux fiches incomplètes présentes, une à venir, un intérimaire,
+  // une fiche sortie et une complète ; seules les deux premières comptent, chacune une fois.
+  const jeu = [
+    emp(30, { sexe: null }), emp(31, { categorie: null, sexe: null }), emp(32, { categorie: null, entree: '2025-09-01' }),
+    emp(33, { categorie: null, typeContrat: 'interim', agence: 'A' }), emp(34, { sexe: null, fin: '2025-03-31', motifSortie: 'demission' }), emp(35, {}),
+  ];
+  assert.deepEqual(jeu.filter(e => L.aCompleterIndicateurs(e, le)).map(e => e.id), [30, 31]);
+  // Le jeu de référence des tests de valeurs est complet : aucune fiche à compléter.
   assert.equal(EMPLOYES.filter(e => L.aCompleterIndicateurs(e, le)).length, 0);
 });

@@ -168,7 +168,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
         titre: 'Indicateurs sociaux et BDESE',
         points: [
           'Écran « Indicateurs sociaux » (service RH et lecture seule) : effectifs, mouvements, absentéisme, formation, âges et ancienneté de l’année civile, groupés par sexe, catégorie, statut, contrat ou équipe. Une case sous le seuil d’anonymat (5 par défaut) s’affiche « < 5 », comme celle qu’un total permettrait de retrouver ; chaque tableau donne sa définition et sa complétude.',
-          'Onglet « BDESE » : rubriques 1° et 2° de l’article R2312-9 sur trois années, à imprimer (« Imprimer ») ou exporter (« Exporter (CSV) ») pour le CSE, qui n’a pas d’accès à Cursus ; les rubriques 3° à 10° sont listées avec leur source. Onglet « Égalité » : effectifs pris en compte et retours de congé de maternité ; les indicateurs 1, 2 et 4 restent dans Sage et Egapro.',
+          'Onglet « BDESE » : rubriques 1° et 2° de l’article R2312-9 sur trois années, chacune lue sur son arrêté s’il existe (avec le seuil de l’arrêté), à imprimer (« Imprimer ») ou exporter en un fichier (« Exporter (CSV) ») pour le CSE, qui n’a pas d’accès à Cursus ; les rubriques 3° à 10° sont listées avec leur source. Onglet « Égalité » : effectifs pris en compte et retours de congé de maternité ; les indicateurs 1, 2 et 4 restent dans Sage et Egapro.',
           'Onglet « Arrêtés » : l’administrateur RH fige une année close (« Chiffres arrêtés »), l’annule avec un motif ; le service RH note « Mis à disposition du CSE ». Fiche : sexe et catégorie d’emploi, saisis par le service RH ; Échéances signale les fiches à compléter (« Compléter les fiches »). Seuil et absences comptées : Paramètres → Indicateurs sociaux.',
         ],
       },

@@ -42,7 +42,7 @@ export function ArreteCseDialog({ id }: { id: number }) {
         <input className="input" id="arrete-cse-le" type="date" min={min} max={d.ti} value={le} onChange={ev => setLe(ev.target.value)} />
       </Field>
       <Fine>
-        Jour où l’arrêté a été déposé dans la BDESE (impression ou export de l’écran Indicateurs sociaux) : les élus n’ont pas d’accès à Cursus.
+        Jour où l’arrêté a été déposé dans la BDESE (impression ou export de l’onglet BDESE des Indicateurs sociaux) : les élus n’ont pas d’accès à Cursus.
         {a.cseLe ? ` Déjà noté au ${fmtIso(a.cseLe)} : la nouvelle date la remplace.` : ''}
       </Fine>
     </Dialog>

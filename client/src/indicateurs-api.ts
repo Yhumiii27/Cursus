@@ -45,8 +45,20 @@ export async function lireIndicateurs(q: RequeteIndicateurs, espace: Role): Prom
 
 /** Export CSV au format long (produit et tracé par le serveur), enregistré sous le nom qu'il donne ; rend ce nom. */
 export async function exporterIndicateurs(q: RequeteIndicateurs, espace: Role): Promise<string> {
-  const res = await appeler(`/api/indicateurs/csv${requeteIndicateurs(q)}`, espace);
-  const nom = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? 'indicateurs.csv';
+  return await enregistrer(await appeler(`/api/indicateurs/csv${requeteIndicateurs(q)}`, espace), 'indicateurs.csv');
+}
+
+/**
+ * Export de la BDESE de l'année N (onglet BDESE) : N-2, N-1 et N, chacune d'après son arrêté en vigueur s'il existe, et
+ * les groupements de la BDESE (ensemble, sexe, catégorie, contrat), en un fichier produit et tracé par le serveur.
+ */
+export async function exporterBdese(annee: number, espace: Role): Promise<string> {
+  return await enregistrer(await appeler(`/api/indicateurs/bdese/csv?annee=${annee}`, espace), 'bdese.csv');
+}
+
+/** Enregistre le fichier d'une réponse sous le nom qu'elle donne ; rend ce nom. */
+async function enregistrer(res: Response, defaut: string): Promise<string> {
+  const nom = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? defaut;
   const href = URL.createObjectURL(await res.blob());
   const a = Object.assign(document.createElement('a'), { href, download: nom });
   document.body.appendChild(a);

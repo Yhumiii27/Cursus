@@ -4,7 +4,8 @@
 // - saisie par le service RH (listes fermées), journal sans la valeur ; reprise depuis Lucca ou Sage ;
 // - arrêtés : année close, un seul en vigueur, annulation motivée (motif jamais au journal), mise à disposition du CSE ;
 // - GET /api/indicateurs et /csv : droit « consultation », refus tracé, garde de navigation interne, agrégats masqués
-//   seulement (aucun nom, aucun identifiant), mémorisation par révision, export tracé sans valeur, arrêtés figés.
+//   seulement (aucun nom, aucun identifiant), mémorisation par révision, export tracé sans valeur, arrêtés figés ;
+// - GET /api/indicateurs/bdese/csv (étape 2) : trois années, chacune avec la source et le seuil de son arrêté ou du calcul.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
@@ -219,4 +220,47 @@ test('GET /api/indicateurs et /csv : consultation seulement, refus tracé, agré
   assert.equal(ca.headers.get('content-disposition'), `attachment; filename="indicateurs-2025-annee-aucun-arrete-${a}.csv"`);
   assert.equal((await journal('indicateurs.export')).at(-1)!.payload.arrete, a);
   assert.equal((await get('/api/indicateurs/csv?groupe=site', admin)).status, 400);
+});
+
+// Relecture de l'étape 2 : l'onglet BDESE exporte la BDESE (N-2, N-1, N et ses groupements), pas l'année N seule dans un
+// groupement caché ; chaque année garde le seuil de son arrêté, même quand le réglage a changé depuis.
+test('GET /api/indicateurs/bdese/csv : trois années, arrêté au seuil 5 puis réglage à 3, trace sans valeur', async () => {
+  const { db, P, run, journal, compteDe } = await fresh();
+  const app = createApp(db, { production: false, journalRequetes: false, compression: false });
+  const serveur = await new Promise<Server>(ok => { const s = app.listen(0, '127.0.0.1', () => ok(s)); });
+  serveurs.push(serveur);
+  const base = `http://127.0.0.1:${(serveur.address() as AddressInfo).port}`;
+  const get = async (chemin: string, cookie: string, espace: string | null = 'rh') =>
+    await fetch(`${base}${chemin}`, { headers: { cookie, ...(espace ? { 'x-cursus-espace': espace } : {}) } });
+  const admin = await cookieDe(db, await compteDe(null), 'rh'), lect = await cookieDe(db, await compteDe(11), 'rh');
+  const a = (await run(P.admin, 'indicateurs.arreter', { annee: 2025 })).result!.id;
+  await run(P.admin, 'parametres.maj', { indicateursSeuil: 3 });
+  // Garde de navigation et droit « consultation », refus tracé.
+  assert.equal((await get('/api/indicateurs/bdese/csv', admin, null)).status, 403);
+  assert.equal((await get('/api/indicateurs/bdese/csv', await cookieDe(db, await compteDe(7), 'rh'))).status, 403);
+  assert.equal((await journal('acces.refuse')).at(-1)!.message, 'Export de la BDESE — réservé au service RH et à la lecture seule');
+  for (const q of ['?annee=abc', '?annee=1890']) assert.equal((await get(`/api/indicateurs/bdese/csv${q}`, admin)).status, 400, q);
+  const c = await get('/api/indicateurs/bdese/csv?annee=2026', lect);
+  assert.equal(c.status, 200);
+  assert.equal(c.headers.get('content-disposition'), 'attachment; filename="bdese-2026.csv"');
+  const lignes = (await c.text()).split('\r\n').map(l => l.replace(/^\uFEFF/, '').split(';'));
+  assert.deepEqual(lignes[0], ['Indicateur', 'Période', 'Dimension', 'Modalité', 'Mesure', 'Valeur', 'Masquée', 'Source']);
+  const corps = lignes.slice(1);
+  const de = (an: number) => corps.filter(l => l[1] === `Année ${an}`);
+  for (const an of [2024, 2025, 2026]) assert.ok(de(an).length > 0, `année ${an}`);
+  // Groupements de la BDESE (ensemble, sexe, catégorie, contrat), jamais l'équipe.
+  const dims = new Set(corps.map(l => l[2]));
+  for (const dim of ['Ensemble', 'Sexe', 'Catégorie d’emploi', 'Nature du contrat']) assert.ok(dims.has(dim), dim);
+  assert.ok(!dims.has('Équipe'));
+  // 2025 : lue sur l'arrêté, au seuil de l'arrêté (5) ; 2024 et 2026 : calcul du jour au nouveau réglage (3).
+  assert.ok(de(2025).every(l => l[7] === `arrêté n° ${a} (seuil 5)`));
+  assert.ok(de(2025).some(l => l[6] === '< 5'), 'cases de 2025 masquées « < 5 »');
+  assert.ok(de(2025).every(l => l[6] === '' || l[6] === '< 5'));
+  for (const an of [2024, 2026]) assert.ok(de(an).every(l => /^calcul du .+ \(seuil 3\)$/.test(l[7]) && (l[6] === '' || l[6] === '< 3')), `${an}`);
+  // L'index (indépendant du groupement) n'est écrit qu'une fois par année.
+  assert.equal(de(2026).filter(l => l[0] === 'Retours de congé de maternité ou d’adoption').length, 1);
+  const t = (await journal('indicateurs.export')).at(-1)!;
+  assert.deepEqual(t.payload, { periode: '2024-2026', groupe: 'bdese', lignes: corps.length, arretes: [a] });
+  assert.deepEqual(t.salaries, []);
+  assert.match(t.message, new RegExp(`^BDESE exportée — années 2024, 2025, 2026 \\(1 arrêté : n° ${a}\\) — \\d+ lignes$`));
 });

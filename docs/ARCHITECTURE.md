@@ -4181,7 +4181,10 @@ demandes ; le calcul et les données sont ceux de l'étape 1 (section précéden
   et `<desc>` qui donne toutes les valeurs ; une case masquée n'a jamais de longueur (cadre en pointillé et « < k »).
   Tableaux : légende, `th scope`, total en gras, défilement horizontal sur téléphone.
 - **BDESE** (onglet, `pages/indicateurs-vue.ts`) : années N-2, N-1, N, chacune lue sur son arrêté en vigueur s'il existe
-  (`GROUPES_BDESE` : ensemble, sexe, catégorie, contrat, tous figés par l'arrêté) ; rubrique 1° (effectifs, contrats,
+  (`GROUPES_BDESE` de `shared/rules/indicateurs-legaux.ts` : ensemble, sexe, catégorie, contrat, tous figés par l'arrêté),
+  chacune avec son propre seuil (`AnneeBdese.seuil` : celui de l'arrêté, figé avec ses agrégats, ou celui du calcul ; une
+  case masquée d'une année arrêtée reste « < k » de l'arrêté même si le réglage a changé, à l'écran, dans l'en-tête de
+  chaque colonne imprimée et dans la note de lecture) ; rubrique 1° (effectifs, contrats,
   catégories, âges, ancienneté, mouvements, formation, absentéisme) et 2° (par sexe : effectif, embauches, sorties,
   formation, absentéisme ; effectifs de l'index par catégorie) ; ce que ces rubriques demandent et que Cursus n'a pas
   (`MANQUES_BDESE` : handicap, stagiaires, temps partiel, accidents, perspectives, promotions, rémunérations) et les
@@ -4193,7 +4196,13 @@ demandes ; le calcul et les données sont ceux de l'étape 1 (section précéden
   avant l'arrêté). La lecture seule consulte sans bouton, sans auteurs ni motif (déjà filtrés par `dataset.ts`).
 - **Impression et export** : « Imprimer » (`printDocument`, impression signalée au journal par son titre seul) de l'onglet,
   de la BDESE (`sectionsBdese`) ou de l'Égalité (`sectionsEgalite`) ; « Exporter (CSV) » télécharge le fichier produit et
-  tracé par le serveur (`indicateurs.export`), jamais `downloadCsv`.
+  tracé par le serveur (`indicateurs.export`), jamais `downloadCsv` : l'onglet affiché (`/api/indicateurs/csv`) ou, sur
+  l'onglet BDESE, la BDESE entière (`GET /api/indicateurs/bdese/csv?annee=N` : N-2, N-1 et N, chacune sur son arrêté en
+  vigueur ou calculée, groupements de `GROUPES_BDESE`, colonne « Source » avec l'arrêté ou la date du calcul et le seuil ;
+  index écrit une fois par année ; trace `{ periode: 'N-2-N', groupe: 'bdese', lignes, arretes }`, jamais une valeur).
+  Le groupement choisi n'est appliqué que sur les onglets où sa liste est visible : BDESE, Égalité et Arrêtés lisent et
+  exportent l'ensemble (un groupement par équipe caché ne fait ni repasser une année arrêtée en calcul du jour, ni partir
+  un export « équipe »).
 - **Fiche** (`dialogs/EmployeDialog.tsx`, section « Indicateurs sociaux ») : sexe et catégorie en listes fermées, service RH
   seulement (le formulaire du manager ne les a pas) ; catégorie proposée d'après le statut par un bouton « Reprendre »,
   jamais remplie d'office. **Échéance agrégée** : une seule ligne des Échéances (`components/IndicateursACompleter.tsx`,

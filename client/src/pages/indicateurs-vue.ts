@@ -2,7 +2,7 @@
 // l'écran Indicateurs sociaux (pages/Indicateurs.tsx), son impression et la BDESE. Rien n'est recalculé ici : chaque
 // chiffre est une case de la réponse du serveur, masquée « < k » comme elle y est. Une case masquée d'une année reste
 // masquée dans la BDESE ; aucune somme ni différence n'est faite dans le navigateur.
-import { CATEGORIES_EMPLOI, type Case, type GroupeIndicateurs, GROUPES_INDICATEURS, type IndicateursLegaux, INDICATEURS_INDEX, NON_RENSEIGNE, SEXES, type TableauIndicateur } from '../../../shared/rules/indicateurs-legaux.ts';
+import { CATEGORIES_EMPLOI, type Case, type GroupeIndicateurs, GROUPES_BDESE, GROUPES_INDICATEURS, type IndicateursLegaux, INDICATEURS_INDEX, NON_RENSEIGNE, SEXES, type TableauIndicateur } from '../../../shared/rules/indicateurs-legaux.ts';
 import { fmtIso, plural } from '../../../shared/format.ts';
 import type { ArreteIndicateurs } from '../../../shared/types.ts';
 import { texteCase } from '../components/graphiques/commun.ts';
@@ -46,10 +46,26 @@ export function origine(r: IndicateursLegaux & { arrete?: { id: number; annule: 
 
 // — BDESE (art. R2312-9, entreprise de moins de 300 salariés, sans accord) —
 
-/** Réponses d'une année de la BDESE, par groupement (null : indisponible). */
-export type AnneeBdese = { annee: number; arrete: number | null; r: Partial<Record<GroupeIndicateurs, IndicateursLegaux | null>> };
+/**
+ * Réponses d'une année de la BDESE, par groupement (null : indisponible), avec le seuil d'anonymat de l'année : celui de
+ * son arrêté quand elle est arrêtée (figé avec les agrégats), sinon celui du calcul du jour. Chaque colonne de la BDESE
+ * s'affiche « < k » avec son propre seuil (un réglage changé après un arrêté ne change pas les cases de l'arrêté).
+ */
+export type AnneeBdese = { annee: number; arrete: number | null; seuil: number; r: Partial<Record<GroupeIndicateurs, IndicateursLegaux | null>> };
+
+/** Seuil d'une année : celui de sa réponse d'ensemble (arrêté ou calcul), à défaut le réglage actuel. */
+export const seuilAnnee = (r: AnneeBdese['r'], defaut: number) => r.aucun?.seuil ?? Object.values(r).find(x => x)?.seuil ?? defaut;
+
+/** Seuils des années de la BDESE en clair : un seul quand ils sont égaux, sinon celui de chaque année. */
+export function texteSeuils(annees: readonly AnneeBdese[]): string {
+  const k = new Set(annees.map(a => a.seuil));
+  return k.size <= 1 ? `seuil d’anonymat ${annees[0]?.seuil ?? ''}`.trim() : `seuils d’anonymat : ${annees.map(a => `${a.annee} : ${a.seuil}`).join(', ')}`;
+}
+
+/** Colonne d'une année (en-tête d'impression) : année, arrêté, seuil. */
+export const colonneAnnee = (a: AnneeBdese) => `${a.annee} (${a.arrete ? `arrêté n° ${a.arrete}, ` : 'calcul du jour, '}seuil ${a.seuil})`;
 /** Groupements lus pour la BDESE : tous figés par un arrêté (server/src/indicateurs.ts, GROUPES_ARRETE). */
-export const GROUPES_BDESE: readonly GroupeIndicateurs[] = ['aucun', 'sexe', 'categorie', 'contrat'];
+export { GROUPES_BDESE };
 
 export interface LigneBdese { libelle: string; cases: (Case | undefined)[]; suffixe?: string }
 export interface BlocBdese { titre: string; lignes: LigneBdese[] }
@@ -143,17 +159,19 @@ export const RUBRIQUES_HORS_CURSUS: readonly { numero: string; titre: string; so
 ];
 
 /** Sections d'impression de la BDESE : rubriques 1° et 2° remplies, manques et rubriques 3° à 10° listés. */
-export function sectionsBdese(annees: readonly AnneeBdese[], seuil: number): PrintSection[] {
-  const head = ['Indicateur', ...annees.map(a => `${a.annee}${a.arrete ? ` (arrêté n° ${a.arrete})` : ''}`)];
+export function sectionsBdese(annees: readonly AnneeBdese[]): PrintSection[] {
+  const head = ['Indicateur', ...annees.map(colonneAnnee)];
   const bloc = (rub: string) => (b: BlocBdese): PrintSection => ({
-    title: `${rub} — ${b.titre}`, table: { head, rows: b.lignes.map(l => [l.libelle, ...l.cases.map(c => texteCase(c, seuil, l.suffixe))]) },
+    title: `${rub} — ${b.titre}`, table: { head, rows: b.lignes.map(l => [l.libelle, ...l.cases.map((c, i) => texteCase(c, annees[i].seuil, l.suffixe))]) },
   });
+  const seuils = new Set(annees.map(a => a.seuil));
+  const k = seuils.size === 1 ? String(annees[0].seuil) : 'k';
   return [
     ...rubrique1(annees).map(bloc('1° Investissement social')),
     ...rubrique2(annees).map(bloc('2° Égalité professionnelle')),
     { title: 'À compléter hors de Cursus (rubriques 1° et 2°)', table: { head: ['Rubrique', 'Indicateur', 'Source'], rows: MANQUES_BDESE.map(m => [m.rubrique, m.quoi, m.source]) } },
     { title: 'Rubriques 3° à 10° (hors de Cursus)', table: { head: ['Rubrique', 'Thème', 'Source'], rows: RUBRIQUES_HORS_CURSUS.map(r => [r.numero, r.titre, r.source]) } },
-    { title: 'Lecture', text: `Chiffres de Cursus calculés sur l’année civile, ou figés par l’arrêté de l’année quand il existe. « < ${seuil} » : case masquée sous le seuil d’anonymat (moins de ${seuil} personnes) ou qui permettrait de retrouver une case masquée par différence.` },
+    { title: 'Lecture', text: `Chiffres de Cursus calculés sur l’année civile, ou figés par l’arrêté de l’année quand il existe. « < ${k} » : case masquée sous le seuil d’anonymat (moins de ${k} personnes) ou qui permettrait de retrouver une case masquée par différence.${seuils.size === 1 ? '' : ` Chaque année garde le seuil de son arrêté ou du calcul (${texteSeuils(annees).replace('seuils d’anonymat : ', '')}).`}` },
   ];
 }
 

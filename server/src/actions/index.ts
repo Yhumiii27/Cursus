@@ -61,6 +61,12 @@ import { opcoActions } from './opco.ts';
 // lot 11 — notes de frais
 import { fraisActions } from './frais.ts';
 import { fraisExportActions } from './frais-exports.ts';
+// lot 12 — C1 (forfait annuel en heures)
+// lot 12 — C2 (notes de frais : activation)
+// lot 12 — C3 (entretiens suivis et 360°)
+// lot 12 — C4 (organismes de formation et e-learning)
+// lot 12 — C5 (planning d'équipe)
+// lot 12 — C6 (badgeage virtuel)
 
 /**
  * Registre typé (t164) : chaque famille est déclarée avec « satisfies Record<string, ActionHandler> », ce qui garde ses
@@ -131,6 +137,12 @@ const REGISTRE = {
   ...fraisActions,
   // lot 11 — notes de frais, étape 2 : exports comptables.
   ...fraisExportActions,
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
 } satisfies Record<string, ActionHandler>;
 
 /** Nom d'une action exposée par POST /api/actions/:nom. */

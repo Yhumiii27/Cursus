@@ -17,7 +17,7 @@ Format d'une entrée :
 
 
 ## [2026-10-30] Matrix → Cursus — M-17 : accès entre outils décidés par Matrix (plus de copie de vue, écritures par API ou fonction `pub_`)
-- Statut : OUVERTE
+- Statut : FAITE
 - Demande : appliquer dans Cursus la décision M-17 de Matrix (`docs/decisions.md` et `docs/architecture-postgres.md` § 8 sexies du dépôt Matrix) :
   1. **Lire** les données d'un autre outil uniquement par ses vues `pub_` (R2), jamais par ses tables ;
   2. **Écrire** chez un autre outil uniquement par son API ou par une fonction `pub_` qu'il fournit (R4), jamais par `INSERT` / `UPDATE` / `DELETE` dans son schéma ;
@@ -27,3 +27,4 @@ Format d'une entrée :
 - Justification : décision du responsable produit du 30/10/2026 (M-17) : Matrix décide de chaque accès d'un outil aux données d'un autre, PostgreSQL l'applique. Les vues `pub_` restent les contrats de lecture, mais leur copie par Matrix (quatre étapes par échange, dont deux à la main) disparaît, et l'écriture entre outils devient possible sous le contrôle de Matrix sans contourner les règles métier du propriétaire.
 - Détails techniques : relevé du 30/10/2026 sur `main` de Cursus (requêtes SQL vers d'autres schémas) : `matrix.pub_sites`, `matrix.pub_organigramme` ; appels de Keystone par API ; Cursus n'est pas encore basculé sur le serveur commun (SQLite) : à appliquer à la bascule. Toutes ces lectures passent déjà par des vues `pub_` et aucune écriture directe dans un autre schéma n'a été trouvée : aucune correction urgente. Les vues, droits et fichiers de partage actuels restent en place pendant la transition (lots M17-1 à M17-5 côté Matrix) ; une vue `pub_` existante ne change pas.
 - Validé par Guillaume le : 2026-10-30
+- Réalisé le 2026-11-01 (lot 12, socle, branche `lot12/socle-1`) : règles R2 à R5 et fonctions `pub_<verbe>_<objet>` dans `docs/ARCHITECTURE.md`, section « Échanges avec les autres outils » (Cursus n'a pas de `CLAUDE.md` à la racine) ; reprises en tête des demandes, `docs/demandes/LISEZ-MOI.md` ; inventaire des échanges et de leur conformité dans `docs/ECHANGES.md` : aucune lecture de table ni écriture dans un autre schéma, vues `pub_` définies par les migrations de Cursus, deux points à signaler à Matrix (accès de `matrix_lecture` aux tables de `cursus`, copie de partage `infra/postgres-partage/20-cursus.sql` à ne plus mettre à jour) et l'entrée prête à porter dans le `REQUESTS.md` de Matrix après validation. Aucun fichier d'un autre dépôt modifié.

@@ -911,6 +911,14 @@ export const REGLES: Record<string, Regle> = {
   'equipe.unite': { champs: ['nom'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['uniteCode'] } },
   'organigramme.imprimer': { extra: signalementOrganigramme },
   'organigramme.exporter': { extra: signalementOrganigramme },
+  // lot 12 — blocs réservés (socle) : identifiants, codes, dates, statuts seulement ; jamais de texte libre ni de donnée
+  // de santé (une règle longue peut vivre dans le fichier du chantier, ajoutée ici par une ligne `...REGLES_<module>`).
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
 };
 
 // lot 11 — pwa (chantier C2) : saisie du jour rejouable, désignée par la ligne (projet, tâche) et non par son indice ; tracée

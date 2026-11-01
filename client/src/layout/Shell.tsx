@@ -33,6 +33,37 @@ import { ongletsDe } from './onglets.ts';
 interface NavItem { view: View; label: string; icon: Icon; badge?: number }
 type NavGroup = [string, NavItem[]];
 
+/**
+ * lot 12 — entrées du menu des chantiers (socle) : une fonction par chantier, dans son bloc, qui rend ses entrées pour
+ * l'espace affiché, chacune avec le groupe où elle se range (un groupe existant de l'espace, à sa fin, ou un nouveau
+ * groupe, en fin de menu) et sa pastille. Les groupes de `navGroups` ne changent pas ; dans l'espace RH, les entrées sont
+ * filtrées ensuite par les écrans du profil, comme les autres.
+ */
+type EntreesMenu = (data: Dataset, d: ReturnType<typeof domaineDe>, role: Role) => [string, NavItem][];
+const ENTREES_LOT12: readonly EntreesMenu[] = [
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
+];
+
+/** Entrées du lot 12 pour cet espace (`ENTREES_LOT12`). */
+const entreesLot12: EntreesMenu = (data, d, role) => ENTREES_LOT12.flatMap(f => f(data, d, role));
+
+/** Groupes du menu avec les entrées du lot 12 (`entreesLot12`) rangées dans leur groupe. */
+function avecLot12(groupes: NavGroup[], entrees: readonly [string, NavItem][]): NavGroup[] {
+  if (!entrees.length) return groupes;
+  const out = groupes.map(([g, items]): NavGroup => [g, [...items]]);
+  for (const [g, item] of entrees) {
+    const groupe = out.find(([nom]) => nom === g);
+    if (groupe) groupe[1].push(item);
+    else out.push([g, [item]]);
+  }
+  return out;
+}
+
 function navGroups(data: Dataset | null, role: Role): NavGroup[] {
   if (!data) return [];
   const d = domaineDe(data);
@@ -73,12 +104,12 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
       ['Administration', [{ view: 'referentiels', label: 'Référentiels', icon: BooksIcon }, { view: 'parametres', label: 'Paramètres', icon: GearSixIcon }]],
     ];
     // Profil Paie : le groupe « Collaborateurs » ne garde que l'organigramme (lot 11).
-    return groupes.map(([g, items]): NavGroup => [g, items.filter(i => vues.includes(i.view))]).filter(([, items]) => items.length > 0);
+    return avecLot12(groupes, entreesLot12(data, d, role)).map(([g, items]): NavGroup => [g, items.filter(i => vues.includes(i.view))]).filter(([, items]) => items.length > 0);
   }
   // lot 11 — organigramme : entrée du menu selon le réglage `organigrammeOuvert` (shared/rules/organigramme.ts).
   const organigramme: NavItem[] = organigrammeOuvertA(data.settings.organigrammeOuvert, role) ? [{ view: 'organigramme', label: 'Organigramme', icon: TreeStructureIcon }] : [];
   if (role === 'manager') {
-    return [
+    return avecLot12([
       // Formations : évaluations à froid à faire sur l'équipe directe (lot 7, t121, shared/rules/evaluation-formation.ts).
       ['Mon équipe', [{ view: 'collaborateurs', label: 'Équipe', icon: UserIcon }, { view: 'formations', label: 'Formations', icon: BookOpenIcon, badge: evaluationsAFaireManager(d, me).length }, { view: 'entretiens', label: 'Entretiens', icon: ChatIcon, badge: late }]],
       ['Temps & absences', [{ view: 'temps', label: 'Feuilles de temps', icon: ClockIcon, badge: nQ }, { view: 'absences', label: 'Congés & absences', icon: CalendarBlankIcon, badge: nAbs }]],
@@ -86,19 +117,19 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
         // lot 11 — notes de frais
         ...frais('Notes de frais', notesFrais.filter(n => n.statut === 'soumise' && !n.medicale && canValidate(n.empId, 'frais')).length)]],
       ...(organigramme.length ? [['Organisation', organigramme] as NavGroup] : []),
-    ];
+    ], entreesLot12(data, d, role));
   }
   // Collaborateur : comptes rendus à signer, feuilles renvoyées ou semaine passée à soumettre, évaluations de formation
   // attendues (accueil, lot 7 t121) : shared/rules/a-faire.ts.
   const aFaire = aFaireCollaborateur(d, me);
-  return [
+  return avecLot12([
     ['Mon espace', [{ view: 'portail', label: 'Accueil', icon: HouseIcon, badge: aFaire.evaluations.length },
       // lot 11 — notes de frais : en deuxième, pour la barre d'onglets de l'application installée (saisie au téléphone).
       ...frais('Mes frais', notesFrais.filter(n => n.empId === me && n.statut === 'a_corriger').length),
       { view: 'entretiens', label: 'Mes entretiens', icon: ChatIcon, badge: aFaire.comptesRendus.length }]],
     ['Temps & absences', [{ view: 'temps', label: 'Mes heures', icon: ClockIcon, badge: aFaire.feuilles.length }, { view: 'absences', label: 'Mes absences', icon: CalendarBlankIcon }]],
     ...(organigramme.length ? [['Organisation', organigramme] as NavGroup] : []),
-  ];
+  ], entreesLot12(data, d, role));
 }
 
 const VUES: [Role, string][] = [['rh', 'RH'], ['manager', 'Manager'], ['collaborateur', 'Utilisateur']];

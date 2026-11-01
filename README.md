@@ -321,6 +321,10 @@ incrémental ait servi (entrées dérivées par le delta, aucun repli : compteur
 
 ## Ce qui reste simulé
 
+Échanges avec les autres outils du groupe : règles de la décision M-17 de Matrix (lire par les vues `pub_`, écrire par
+une API ou une fonction `pub_`, besoins d'accès déclarés au registre de Matrix) dans `docs/ARCHITECTURE.md`, « Échanges
+avec les autres outils » ; inventaire et conformité dans `docs/ECHANGES.md` ; demandes en cours dans `docs/demandes/`.
+
 - **Keystone** : les appels entrants sont réels — API versionnée `/api/integrations/keystone/v1`
   (projets, chantiers, affectations, tâches planifiées, synchronisation complète, verdict Go / No Go,
   demandes de déplacement), contrat OpenAPI `docs/keystone-openapi.json` et guide du développeur de

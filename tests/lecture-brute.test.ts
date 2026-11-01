@@ -100,12 +100,12 @@ test('assembler est pur : lecture brute gelée intacte, même Dataset que loadFu
   const db = await demo();
   for (const u of [RH_ADMIN, HSE]) {
     const full = await loadFull(db, u);
-    const brut = geler(await db.lecture(async () => await lireBrut(db)));
+    const brut = geler(await db.lecture(async () => await lireBrut(db, '2026-10-10')));
     const ds = assembler(brut, full.today, full.revision, u);
     const { absencesPaie: _a, deplacementsPaie: _d, ...attendu } = full;
     assert.deepStrictEqual(ds, attendu, u.profilRh);
   }
-  const brut = geler(await db.lecture(async () => await lireBrut(db)));
+  const brut = geler(await db.lecture(async () => await lireBrut(db, '2026-10-10')));
   const a = assembler(brut, '2026-10-10', 1, HSE);
   // Même lecture brute : chaque dérivé est repris tel quel (mêmes objets), seuls les champs de tête changent.
   const b = assembler(brut, '2026-10-10', 2, RH_ADMIN);
@@ -132,7 +132,7 @@ test('assembler est pur : lecture brute gelée intacte, même Dataset que loadFu
 
 test('jointure des employés et de leurs titres : la même que le filtre par salarié', async () => {
   const db = await demo();
-  const brut = await db.lecture(async () => await lireBrut(db));
+  const brut = await db.lecture(async () => await lireBrut(db, '2026-10-10'));
   const ds = assembler(brut, '2026-10-10', 1, RH_ADMIN);
   const certs = brut.certifications.filter(c => !c.annuleLe), annulees = brut.certifications.filter(c => c.annuleLe);
   assert.equal(ds.employes.length, brut.employes.length);
@@ -154,7 +154,7 @@ test('jours des sessions : un changement du seul calendrier des fériés les rec
   const formation = (await db.all<{ formation: string }>('sessions'))[0].formation;
   await db.tx(async () => { await db.insert('sessions', { formation, date: '2027-11-10', fin: '2027-11-12', jours: [], horaires: [], lieu: 'Site', places: 8, statut: 'À confirmer', planId: null, bilan: null }); });
   const joursDe = (ds: { sessions: { date: string; jours: string[] }[] }) => ds.sessions.find(s => s.date === '2027-11-10')?.jours;
-  const brut = geler(await db.lecture(async () => await lireBrut(db)));
+  const brut = geler(await db.lecture(async () => await lireBrut(db, '2026-10-10')));
   const a = assembler(brut, '2026-10-10', 1, HSE);
   assert.deepEqual(joursDe(a), ['2027-11-10', '2027-11-12']);
   // Delta qui ne touche que le réglage du calendrier (table `settings` relue) : 11 novembre 2027 non chômé.

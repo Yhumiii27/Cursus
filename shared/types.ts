@@ -60,7 +60,9 @@ export type AbsenceType = CongeType | NatureAbsence | 'ABSENCE';
 /** `signalee` : absence imprévue signalée, à qualifier par le service RH ; `annulee` : demande retirée ou absence annulée. */
 export type AbsenceStatut = 'demandee' | 'validee' | 'refusee' | 'signalee' | 'annulee';
 export type FeuilleStatut = 'brouillon' | 'soumise' | 'validee' | 'rejetee';
-export type EntretienType = 'epp' | 'reprise' | 'bilan' | 'annuel' | 'forfait';
+export type EntretienType = 'epp' | 'reprise' | 'bilan' | 'annuel' | 'forfait'
+  // lot 12 — C3 (entretiens suivis et 360°)
+  ;
 export type PlanStatut = 'prevu' | 'engage' | 'realise' | 'reporte';
 export type Trimestre = 'T1' | 'T2' | 'T3' | 'T4';
 export type VoyageOrigine = 'formulaire' | 'keystone' | 'cursus';
@@ -878,7 +880,10 @@ export interface InterventionAstreinte {
 /** Délégation des validations d'un manager absent (t135, shared/rules/delegations-manager.ts) : ce que le suppléant valide. */
 export type PerimetreDelegation = 'absences' | 'feuilles' | 'entretiens'
   // lot 11 — notes de frais : validation des notes de l'équipe (stocké en JSON, sans contrainte CHECK)
-  | 'frais';
+  | 'frais'
+  // lot 12 — socle : publication du planning de l'équipe (chantier C5) ; stocké en JSON, sans contrainte CHECK. Ni retenu,
+  // ni proposé, ni accepté au socle (shared/rules/delegations-manager.ts) : C5 l'ouvre dans son bloc avec son module.
+  | 'planning';
 /**
  * Délégation datée des validations d'un manager à un suppléant (t135), bornes comprises. Saisie par le manager pour
  * lui-même ou par le service RH ; `creePar`, `revoqueePar` : nom de l'auteur ; `revoqueeLe` : horodatage de la révocation,
@@ -1358,6 +1363,12 @@ export interface Settings {
   fraisCompteSalarie: string;
   fraisJournal: string;
   fraisGabarit: GabaritExportComptable;
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
 }
 /** Catégorie d'une formation pour l'évaluation à froid : type du catalogue, ou formation hors catalogue. */
 export type CategorieEvaluee = FormationType | 'Hors catalogue';
@@ -1569,6 +1580,7 @@ export interface SagePush {
   // lot 11 — notes de frais
   /** Remboursements de notes de frais et avances (montants en euros), `codeSage` null : à saisir dans Sage. */
   frais?: ElementFraisPaie[];
+  // lot 12 — C1 (forfait annuel en heures)
   /**
    * Éléments calculés que le lot n'emporte pas, faute de rubrique active (soldes de sortie) : listés « à saisir dans Sage »
    * dans le résumé du lot et l'export des variables (server/src/elements-lot.ts). Les absences et déplacements sans code
@@ -1684,6 +1696,7 @@ export interface LotPaie {
   // lot 11 — notes de frais
   /** Notes de frais remboursées et avances versées par le lot (identifiant, salarié ; `avance` : avance sur frais). */
   frais?: { id: number; empId: number; avance?: true }[];
+  // lot 12 — C1 (forfait annuel en heures)
   /**
    * Totaux du contenu figé : lignes du fichier, salariés, quantité par code Sage des heures ; `absences` : éléments
    * d'absence, salariés et quantité par code Sage (codes retirés hors droit « paie » : server/src/dataset.ts).
@@ -1699,6 +1712,7 @@ export interface LotPaie {
     // lot 11 — notes de frais
     /** Remboursements de frais et avances : éléments, salariés et montant total (euros). */
     frais?: { elements: number; salaries: number; montant: number };
+    // lot 12 — C1 (forfait annuel en heures)
     /** Éléments à saisir à la main dans Sage, nominatifs (shared/rules/elements-lot.ts) ; absent : aucun. */
     aSaisir?: ElementASaisir[];
   };
@@ -1948,6 +1962,14 @@ export interface Dataset {
    * comptabilité, qui n'ont pas tout ce que les alertes lisent. Absent (service RH, tests, outils) : calcul sur l'instantané.
    */
   alertesFrais?: Record<number, AlerteFrais[]>;
+  // lot 12 — blocs réservés (socle) : un champ nouveau part tel quel vers le manager et le collaborateur s'il n'est pas filtré
+  // par la projection du chantier (server/src/vues-<module>.ts, contexte server/src/vues-lot12.ts).
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
 }
 
 /**

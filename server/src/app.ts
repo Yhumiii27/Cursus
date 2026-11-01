@@ -33,6 +33,12 @@ import { routesPasseportPrevention } from './passeport-prevention.ts';
 import { routesIndicateurs } from './indicateurs.ts';
 // lot 11 — notes de frais, étape 2
 import { routesFraisExports } from './frais-exports.ts';
+// lot 12 — C1 (forfait annuel en heures)
+// lot 12 — C2 (notes de frais : activation)
+// lot 12 — C3 (entretiens suivis et 360°)
+// lot 12 — C4 (organismes de formation et e-learning)
+// lot 12 — C5 (planning d'équipe)
+// lot 12 — C6 (badgeage virtuel)
 import { routesPieces } from './pieces-routes.ts';
 import { CLE_INVALIDE, CleReutilisee, empreinteCorps, garderReponse, lireCle, reponseGardee } from './idempotence.ts';
 import { EN_TETE_HORS_LIGNE, refusHorsLigne } from '../../shared/hors-ligne.ts';
@@ -86,6 +92,12 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // API Keystone (clé X-Api-Key, journal de chaque appel) : avant l'analyse JSON, faite après la vérification de la clé.
   // Filtre facultatif par adresse devant elle (CURSUS_KEYSTONE_ADRESSES, lot 8 : server/src/filtre-keystone.ts).
   app.use('/api/integrations/keystone', filtreKeystone(), keystoneRoutes(db));
+  // lot 12 — route d'intégration réservée (socle) : montée avant le limiteur, le CSRF et l'analyse JSON, comme celle de
+  // Keystone ; elle a donc son propre limiteur et son propre `express.json` (taille limitée), appelé après la vérification
+  // de sa clé. Aucune au socle : la route de badgeuse de C6 est abandonnée (pas de badgeuse murale, réponse du
+  // propriétaire du 1er novembre 2026) ; C4 n'en monte une que si une plateforme d'e-learning envoie le suivi.
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C6 (badgeage virtuel)
   // Débit limité par adresse IP et par compte (429, Retry-After), puis refus des requêtes qui modifient sans venir de Cursus (CSRF).
   app.use('/api', limiterDebit(db));
   app.use(protectionCsrf());
@@ -221,6 +233,12 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // lot 11 — notes de frais, étape 2 : exports comptables et leur fichier d'écritures, lus par fetch (en-tête d'espace exigé).
   app.get('/api/frais/exports', exigerNavigationInterne('appel'));
   app.get('/api/frais/exports/:id/fichier', exigerNavigationInterne('appel'));
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
   // Journal des actions (consultation filtrée et paginée, export CSV, archive paie, exports de l'interface) et
   // données personnelles d'un salarié (export RH, téléchargement par l'intéressé) : server/src/journal.ts, donnees.ts.
   app.use(routesJournal(db));
@@ -246,6 +264,14 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   app.use(routesAgenda(db));
   // Notifications sur le téléphone (lot 11, C2) : clé publique VAPID et appareils abonnés du compte (server/src/push-routes.ts).
   app.use(routesPush(db));
+  // lot 12 — routes à la demande des chantiers (socle), après la session : chacune dans le fichier de son chantier,
+  // identité, droits et traçage comme les routes ci-dessus (C2 : historique des frais ; C6 : GET /api/pointages/etat).
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
 
   // File d'envoi des messages sortants (Paramètres → Envois) : état de l'intégration et derniers messages.
   // Service RH et lecture seule (droit `consultation`) ; ni le référent HSE, ni la paie. La lecture seule ne lit pas le

@@ -360,6 +360,12 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'opco.abandonner': 'Dossier OPCO abandonné',
   'opco.rouvrir': 'Dossier OPCO rouvert (retour d’un cran)',
   'opco.supprimer': 'Dossier OPCO supprimé (saisie erronée)',
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
@@ -409,6 +415,13 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   },
   // lot 11 — pwa
   { id: 'mobile', label: 'Application mobile et notifications', prefixes: ['push.'] },
+  // lot 12 — blocs réservés (socle) : préfixes d'une nouvelle famille (une entrée par famille, jamais une famille en double).
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
 ];
 
 /** Famille d'un code : la première qui le reconnaît. */
@@ -531,6 +544,12 @@ export const CHAMP_LABEL: Record<string, string> = {
   deposeLe: 'Déposé le', accordLe: 'Accordé le', montantAccorde: 'Montant accordé', accordReference: 'Référence de l’accord', plafondHoraire: 'Plafond horaire',
   refusLe: 'Refusé le', refusMotif: 'Motif du refus', factureLe: 'Justificatifs envoyés le', montantFacture: 'Montant facturé', soldeLe: 'Soldé le',
   soldeEcart: 'Écart au solde', soldeNature: 'Nature de l’écart', abandonLe: 'Abandonné le', abandonMotif: 'Motif de l’abandon', planActionId: 'Action du plan',
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
 };
 
 const valeur = (v: unknown): string => {

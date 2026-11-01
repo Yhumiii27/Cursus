@@ -21,6 +21,9 @@ export const PERIMETRES_DELEGATION: Record<PerimetreDelegation, { label: string;
   entretiens: { label: 'Entretiens', court: 'entretiens' },
   // lot 11 — notes de frais : seulement le module activé (réglage `notesFraisActives`).
   frais: { label: 'Notes de frais', court: 'notes de frais' },
+  // lot 12 — socle : publication du planning de l'équipe (chantier C5). Jamais retenu (`perimetreEffectif`), proposé ni
+  // accepté (`controleDelegation`) tant que C5 ne l'ouvre pas, dans son bloc, d'après le réglage de son module.
+  planning: { label: 'Planning de l’équipe', court: 'planning' },
 };
 export const estPerimetre = (v: unknown): v is PerimetreDelegation => typeof v === 'string' && Object.hasOwn(PERIMETRES_DELEGATION, v);
 
@@ -36,7 +39,9 @@ type DsDelegation = {
 
 /** Périmètre retenu d'une délégation : celui saisi, sans les entretiens tant que le réglage ne les ouvre pas. */
 export const perimetreEffectif = (s: Pick<Settings, 'delegationEntretiens'> & Partial<Pick<Settings, 'notesFraisActives'>>, g: Pick<DelegationValidation, 'perimetre'>): PerimetreDelegation[] =>
-  g.perimetre.filter(p => (p !== 'entretiens' || s.delegationEntretiens) && (p !== 'frais' || !!s.notesFraisActives));
+  g.perimetre.filter(p => (p !== 'entretiens' || s.delegationEntretiens) && (p !== 'frais' || !!s.notesFraisActives)
+    // lot 12 — C5 (planning d'équipe) : seulement le module activé ; fermé au socle.
+    && p !== 'planning');
 
 /** Délégation en vigueur ce jour-là (bornes comprises), non révoquée. */
 export const delegationEnVigueur = (g: DelegationValidation, jour: ISODate) => !g.revoqueeLe && g.du <= jour && jour <= g.au;
@@ -163,6 +168,8 @@ export function controleDelegation(
   if (g.perimetre.includes('entretiens') && !ds.settings.delegationEntretiens) return 'La délégation des entretiens n’est pas ouverte (Paramètres → Hiérarchie des managers)';
   // lot 11 — notes de frais
   if (g.perimetre.includes('frais') && !ds.settings.notesFraisActives) return 'Les notes de frais ne sont pas activées (Paramètres → Notes de frais)';
+  // lot 12 — C5 (planning d'équipe) : fermé au socle, ouvert par le chantier d'après le réglage de son module.
+  if (g.perimetre.includes('planning')) return 'Le planning d’équipe n’est pas activé';
   const actives = (ds.delegations ?? []).filter(x => !x.revoqueeLe && x.au >= ds.today);
   const deja = actives.find(x => x.managerId === g.managerId && chevauche(x, { du, au }));
   if (deja) return `${noms.nom(g.managerId)} a déjà délégué ses validations à ${noms.nom(deja.suppleantId)} sur une partie de cette période : révoquez-la d’abord`;

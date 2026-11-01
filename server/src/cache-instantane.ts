@@ -204,6 +204,9 @@ async function lireEntree(lire: (lecteur: CurrentUser) => Promise<Dataset>): Pro
  * (`lireChangements`) : l'appelant relit tout.
  */
 async function deriver(db: Db, brut: Brut, de: number, epoque: number, a: number, today: string, lecteur: CurrentUser): Promise<(Lu & { paieReportee: boolean }) | null> {
+  // Lecture brute d'un autre jour (lot 12, fenêtres de lecture : `FENETRES`) : ses fenêtres ne sont plus celles du jour,
+  // et une ligne qui en sort par le seul passage du temps n'est pas au journal. Relecture complète.
+  if (brut.jour !== today) return null;
   const t0 = performance.now();
   const changements = await db.lireChangements(de, a, epoque);
   if (!changements) { STATS.replis.ecartInconnu++; return null; }

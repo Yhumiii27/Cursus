@@ -531,6 +531,7 @@ export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubriqu
   FRAIS_REINT: { label: 'Allocations de frais au-delà de la limite d’exonération (soumises à cotisations)', unite: 'eur', inactiveParDefaut: true },
   FRAIS_AVANCE: { label: 'Avance sur frais versée', unite: 'eur', inactiveParDefaut: true },
   FRAIS_AVANCE_DED: { label: 'Avance sur frais déduite d’un remboursement (montant négatif)', unite: 'eur', inactiveParDefaut: true },
+  // lot 12 — C1 (forfait annuel en heures)
 };
 
 /** Sections d'un compte rendu : [clé, libellé, rédacteur] — 'mgr' évaluateur, 'sal' salarié. */
@@ -561,6 +562,7 @@ export const ENT_TYPES: Record<EntretienType, { nom: string; court: string; base
     base: 'Art. L3121-64 — chaque année : charge de travail, organisation, articulation vie pro / perso, rémunération, droit à la déconnexion.',
     sections: [['charge', 'Charge de travail', 'sal'], ['organisation', 'Organisation du travail dans l’entreprise', 'sal'], ['equilibre', 'Articulation vie professionnelle / personnelle', 'sal'], ['remuneration', 'Rémunération', 'mgr'], ['deconnexion', 'Droit à la déconnexion', 'mgr']],
   },
+  // lot 12 — C3 (entretiens suivis et 360°)
 };
 
 export const TRIMESTRES = ['T1', 'T2', 'T3', 'T4'] as const;
@@ -574,9 +576,33 @@ export const ALLOWED_VIEWS = {
   // lot 11 — indicateurs : indicateurs sociaux légaux (BDESE, index d'égalité), droit « consultation » (service RH et lecture seule).
   // lot 11 — notes de frais (pages/Frais.tsx) : `frais`, contrôle (service RH, comptabilité), validation de l'équipe
   // (manager), « Mes frais » (collaborateur) ; dans le menu seulement le module activé (réglage notesFraisActives).
-  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'miseEnService', 'prevention', 'organigramme', 'indicateurs', 'frais'],
-  manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions', 'organigramme', 'frais'],
-  collaborateur: ['portail', 'temps', 'absences', 'entretiens', 'organigramme', 'frais'],
+  // lot 12 — blocs réservés (socle) : une vue nouvelle se déclare ici, dans le bloc de son chantier et de chaque espace,
+  // avec sa page (client/src/App.tsx), son entrée du menu (client/src/layout/Shell.tsx) et, pour un module désactivable, sa
+  // fermeture (client/src/state/store.tsx).
+  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'miseEnService', 'prevention', 'organigramme', 'indicateurs', 'frais',
+    // lot 12 — C1 (forfait annuel en heures)
+    // lot 12 — C2 (notes de frais : activation)
+    // lot 12 — C3 (entretiens suivis et 360°)
+    // lot 12 — C4 (organismes de formation et e-learning)
+    // lot 12 — C5 (planning d'équipe)
+    // lot 12 — C6 (badgeage virtuel)
+  ],
+  manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions', 'organigramme', 'frais',
+    // lot 12 — C1 (forfait annuel en heures)
+    // lot 12 — C2 (notes de frais : activation)
+    // lot 12 — C3 (entretiens suivis et 360°)
+    // lot 12 — C4 (organismes de formation et e-learning)
+    // lot 12 — C5 (planning d'équipe)
+    // lot 12 — C6 (badgeage virtuel)
+  ],
+  collaborateur: ['portail', 'temps', 'absences', 'entretiens', 'organigramme', 'frais',
+    // lot 12 — C1 (forfait annuel en heures)
+    // lot 12 — C2 (notes de frais : activation)
+    // lot 12 — C3 (entretiens suivis et 360°)
+    // lot 12 — C4 (organismes de formation et e-learning)
+    // lot 12 — C5 (planning d'équipe)
+    // lot 12 — C6 (badgeage virtuel)
+  ],
 } as const;
 /**
  * Vues ouvertes dans tous les espaces et sans connexion : information sur les données personnelles (shared/confidentialite.ts)

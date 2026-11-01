@@ -13,7 +13,10 @@
 //   est `loadFull(SUIVI)` ;
 // - une même séquence d'actions jouée avec CURSUS_CACHE_INCREMENTAL=1 et avec CURSUS_CACHE_INSTANTANE=0 donne les mêmes
 //   réponses (messages, alertes de validation), les mêmes verdicts en file et les mêmes tables finales ;
-// - `remplacerFeuille` trouve la feuille par dichotomie ; préchauffage de l'entrée au démarrage.
+// - `remplacerFeuille` trouve la feuille par dichotomie ; préchauffage de l'entrée au démarrage ;
+// - fenêtres de lecture (lot 12, socle : `FENETRES`) : lecture brute, delta par clé (ligne sortie de la fenêtre relue par
+//   clé) et relecture complète limités à la fenêtre du jour, banc d'oracle exact avec une fenêtre ; un autre jour relit
+//   l'entrée en entier, puis la dérive de nouveau.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
@@ -27,7 +30,7 @@ const { PG, nouvelleBase } = await import('./base.ts');
 const { seedDemo, comptesDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull, todayIso } = await import('../server/src/dataset.ts');
 const { TABLES, TABLES_SANS_REVISION } = await import('../server/src/db.ts');
-const { assembler, brutDe, lireBrut } = await import('../server/src/lecture-brute.ts');
+const { assembler, brutDe, FENETRES, lireBrut } = await import('../server/src/lecture-brute.ts');
 const { appliquerDelta, lireDelta, positionCle, relectureComplete, SEUIL_RELECTURE } = await import('../server/src/delta.ts');
 const { donneesAction, geler, incrementalActif, jeuApres, prechauffer, suiteEntree, viderCache } = await import('../server/src/cache-instantane.ts');
 const { jeuDeSuivi, SUIVI } = await import('../server/src/integrations/keystone-verdicts.ts');
@@ -43,6 +46,7 @@ type Brut = Awaited<ReturnType<typeof lireBrut>>;
 type Dataset = Awaited<ReturnType<typeof loadFull>>;
 type TableName = keyof typeof TABLES;
 type Pg = import('../server/src/db-pg.ts').PgDb;
+type Changements = NonNullable<Awaited<ReturnType<Db['lireChangements']>>>;
 
 const SEUL_PG = { skip: !PG && 'PostgreSQL seulement (CURSUS_TEST_ENGINE=pg)' };
 const T = '2026-10-10';
@@ -91,7 +95,7 @@ async function apres(db: Db, etat: { brut: Brut; n: number }, quoi: string, fn: 
     const ch = await db.lireChangements(etat.n, n);
     assert.ok(ch, `${quoi} : écart connu`);
     const f = appliquerDelta(etat.brut, await lireDelta(db, etat.brut, ch));
-    const ref = await lireBrut(db);
+    const ref = await lireBrut(db, T);
     assert.deepStrictEqual(f.brut, ref, `${quoi} : lecture brute`);
     assert.deepStrictEqual(assembler(f.brut, T, 1, HSE), assembler(ref, T, 1, HSE), `${quoi} : instantané assemblé`);
     return { etat: { brut: geler(f.brut), n }, f };
@@ -99,7 +103,7 @@ async function apres(db: Db, etat: { brut: Brut; n: number }, quoi: string, fn: 
 }
 
 /** Lecture brute gelée et révision de la base, lues ensemble. */
-const depart = async (db: Db) => await db.lecture(async () => ({ n: (await db.etatRevision()).n, brut: geler(await lireBrut(db)) }));
+const depart = async (db: Db) => await db.lecture(async () => ({ n: (await db.etatRevision()).n, brut: geler(await lireBrut(db, T)) }));
 
 test('delta fusionné : après chaque écriture d’un scénario scripté, la lecture brute relue en entier', async () => {
   const db = await demo();
@@ -593,6 +597,91 @@ test('préchauffage : entrée lue avant les premières requêtes, sans relecture
     }
   } finally {
     if (contexte !== undefined) process.env.NODE_TEST_CONTEXT = contexte;
+  }
+});
+
+test('fenêtres de lecture (lot 12) : lecture brute, delta par clé et relecture complète dans la fenêtre du jour', async () => {
+  const db = await demo();
+  // Fenêtre d'essai : absences commençant au plus tôt le jour même (démonstration : 3 absences avant le 10 octobre 2026).
+  FENETRES.absences = today => ({ where: 'du >= ?', params: [today] });
+  try {
+    let etat = await depart(db);
+    const toutes = await db.all<{ id: number; du: string }>('absences');
+    const dans = toutes.filter(a => a.du >= T);
+    assert.ok(dans.length > 0 && dans.length < toutes.length, 'jeu de démonstration de part et d’autre de la fenêtre');
+    assert.equal(etat.brut.jour, T);
+    assert.deepEqual(etat.brut.absences.map(a => a.id), dans.map(a => a.id), 'lecture brute limitée à la fenêtre, dans l’ordre de la clé');
+    assert.ok((await loadFull(db, HSE)).absences.every(a => a.du >= T), 'loadFull lit la fenêtre du jour');
+
+    // Ligne hors de la fenêtre modifiée : relue par clé, elle ne rend rien ; la lecture brute est reprise telle quelle.
+    const avant = toutes.find(a => a.du < T)!;
+    let x = await apres(db, etat, 'ligne hors fenêtre', async () => await db.update('absences', avant.id, { justificatif: true }));
+    assert.equal(x.f.brut, etat.brut);
+    // Ligne qui sort de la fenêtre (date de début reculée) : retirée comme une ligne supprimée, relue par clé.
+    const sortie = dans[0];
+    x = await apres(db, x.etat, 'ligne sortie de la fenêtre', async () => await db.run('UPDATE absences SET du = ? WHERE id = ?', ['2026-09-01', sortie.id]));
+    assert.equal(x.f.brut.absences.length, dans.length - 1);
+    assert.ok(x.f.tablesChangees.has('absences') && x.f.touches.size > 0);
+    // Puis qui y revient : insérée à sa place.
+    x = await apres(db, x.etat, 'ligne revenue dans la fenêtre', async () => await db.run('UPDATE absences SET du = ? WHERE id = ?', [sortie.du, sortie.id]));
+    assert.deepEqual(x.f.brut.absences.map(a => a.id), dans.map(a => a.id));
+    etat = x.etat;
+
+    // Relecture complète (marqueur « toute la table ») : dans la même fenêtre.
+    await db.lecture(async () => {
+      const f = appliquerDelta(etat.brut, await lireDelta(db, etat.brut, new Map([['absences', 'tout']]) as Changements));
+      assert.deepStrictEqual(f.brut, await lireBrut(db, T));
+    });
+
+    // Banc d'oracle avec la fenêtre : lecture partagée, jeux d'action et réponses égaux à la relecture complète.
+    const rapport = await rejouer(db, { graine: 20261101, pas: 12, verifierTous: 4, jeux: 0, sql: 0.3 });
+    assert.deepEqual(rapport.divergences, []);
+    assert.deepEqual(rapport.erreurs, []);
+    assert.ok(rapport.ecritures > 0 && rapport.comparaisons > 0, 'le banc a écrit et comparé');
+  } finally {
+    delete FENETRES.absences;
+  }
+});
+
+test('fenêtres de lecture (lot 12) : un changement de jour relit l’entrée en entier, puis la dérive de nouveau', async () => {
+  const db = await demo();
+  FENETRES.absences = today => ({ where: 'du >= ?', params: [today] });
+  const espion = compterRelectures(db);
+  const J2 = '2026-10-20';
+  try {
+    const enCache = async (u: User) => await db.lecture(async () => await buildSnapshot(db, u));
+    const verifier = async (quoi: string) => {
+      for (const u of [RH, MEHDI]) assert.deepStrictEqual(json(await enCache(u)), json(await buildSnapshot(db, u, { cache: false })), `${quoi} ${u.profilRh ?? u.role}`);
+    };
+    await enCache(RH);
+    espion.zero();
+    await db.update('employes', 2, { nom: 'Mehdi Jour' });
+    await enCache(RH);
+    assert.equal(espion.n(), 0, 'même jour : entrée dérivée');
+    // Jour suivant, même révision : les absences sorties de la fenêtre par le seul passage du temps ne sont pas au journal
+    // des changements ; l'entrée du nouveau jour est relue en entier.
+    process.env.CURSUS_TODAY = J2;
+    espion.zero();
+    const ds = await enCache(RH);
+    assert.equal(espion.n(), 1, 'autre jour : relecture complète');
+    assert.equal(ds.today, J2);
+    assert.ok(ds.absences.length > 0 && ds.absences.every(a => a.du >= J2), 'fenêtre du nouveau jour');
+    assert.equal(brutDe(await loadFull(db, HSE))?.jour, J2);
+    await verifier('nouveau jour');
+    // Écriture suivante, le même jour : de nouveau dérivée par le delta, dans la fenêtre du nouveau jour.
+    espion.zero();
+    await db.update('employes', 2, { nom: 'Mehdi Jour 2' });
+    await enCache(MEHDI);
+    await enCache(RH);
+    assert.equal(espion.n(), 0, 'puis dérivée');
+    await verifier('dérivée le nouveau jour');
+    // Jeu d'une action : départ du jour de son entrée ; une lecture brute d'un autre jour n'est jamais dérivée.
+    await db.tx(async () => assert.ok((await donneesAction(db, RH, J2, async u => await loadFull(db, u))).absences.every(a => a.du >= J2)));
+  } finally {
+    process.env.CURSUS_TODAY = T;
+    delete FENETRES.absences;
+    espion.retirer();
+    viderCache(db);
   }
 });
 

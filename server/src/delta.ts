@@ -6,27 +6,30 @@
 //   table entière quand une fusion par clé ne rendrait pas l'ordre de la lecture brute ou coûterait plus qu'elle (clé
 //   texte, table triée par une autre colonne que sa clé : `ORDRE_LECTURE`, marqueur « toute la table », plus de
 //   `SEUIL_RELECTURE` clés) ; les réglages lus par l'instantané si la table `settings` a changé ; le statut des envois
-//   des seuls relevés concernés (relevé changé, ou envoi changé qu'un relevé désigne) ;
+//   des seuls relevés concernés (relevé changé, ou envoi changé qu'un relevé désigne). Une table à fenêtre de lecture
+//   (`FENETRES`, lot 12) est relue dans la fenêtre du jour de `brut` (`Brut.jour`), en entier comme par clé : une clé
+//   changée dont la ligne est hors de la fenêtre ne rend rien, et la ligne sort de la lecture brute comme une ligne
+//   supprimée ;
 // - `appliquerDelta(brut, delta)`, pur : une nouvelle lecture brute, en partage structurel. Seules les tables dont une
 //   ligne a vraiment changé reçoivent un nouveau tableau (insertion par dichotomie sur la clé entière, donc le même ordre
 //   que `ORDER BY` clé) ; les autres tableaux, et les lignes inchangées d'une table relue, sont repris par identité, ce
 //   qui garde les dérivés mémoïsés de `assembler` (server/src/lecture-brute.ts). Rien de `brut` n'est modifié (gel des
 //   tests). Rend aussi les champs de l'instantané qui ont changé (`champsChanges`, d'après `LECTURES`), les salariés
 //   touchés (`touches`, avant et après la modification) et si les résumés de la paie peuvent être repris.
-// `assembler(appliquerDelta(brutN, lireDelta(…)).brut)` est l'instantané de `assembler(lireBrut())` à la révision
+// `assembler(appliquerDelta(brutN, lireDelta(…)).brut)` est l'instantané de `assembler(lireBrut(db, brutN.jour))` à la révision
 // suivante : tests/lecture-incrementale.test.ts le vérifie après chaque écriture d'une suite scriptée et aléatoire.
 import { isDeepStrictEqual } from 'node:util';
 import type { Dataset, Envoi } from '../../shared/types.ts';
 import { type Changements, type Db, TABLES, type TableName } from './db.ts';
 import {
-  type Brut, COLONNES_OMISES, DEP_PAIE, LECTURES, lireReglages, lireTable, ORDRE_LECTURE, type ReglagesBruts, statutsDesEnvois,
+  type Brut, COLONNES_OMISES, DEP_PAIE, fenetreDe, LECTURES, lireReglages, lireTable, ORDRE_LECTURE, type ReglagesBruts, statutsDesEnvois,
 } from './lecture-brute.ts';
 
 /** Au-delà de ce nombre de clés changées dans une table, elle est relue en entière plutôt que par paquets de clés. */
 export const SEUIL_RELECTURE = 2000;
 
-/** Tables de la lecture brute : chaque propriété de `Brut` sauf les réglages et le statut des envois porte le nom de sa table. */
-type TableBrute = Exclude<keyof Brut, 'reglages' | 'statutsEnvoi'>;
+/** Tables de la lecture brute : chaque propriété de `Brut` sauf le jour, les réglages et le statut des envois porte le nom de sa table. */
+type TableBrute = Exclude<keyof Brut, 'jour' | 'reglages' | 'statutsEnvoi'>;
 type Ligne = Record<string, unknown>;
 
 /** Lignes relues d'une table : toute la table (`tout`), ou les lignes encore présentes parmi les clés changées `cles`. */
@@ -77,9 +80,12 @@ export function relectureComplete(t: TableName, ch: ReadonlySet<string> | 'tout'
   return ch === 'tout' || ch.size > SEUIL_RELECTURE || !cleDe(t).entiere || ORDRE_LECTURE[t] !== undefined;
 }
 
-/** Lignes des clés `cles` de `t`, décodées comme par la lecture brute (sans `COLONNES_OMISES`). */
-async function lireLignesBrutes(db: Db, t: TableName, cles: Iterable<string>): Promise<Ligne[]> {
-  const lignes = await db.lireLignes<Ligne>(t, cles);
+/**
+ * Lignes des clés `cles` de `t`, décodées comme par la lecture brute du jour `today` (sans `COLONNES_OMISES`, dans la
+ * fenêtre de `FENETRES` : une clé hors de la fenêtre ne rend rien).
+ */
+async function lireLignesBrutes(db: Db, t: TableName, cles: Iterable<string>, today: string): Promise<Ligne[]> {
+  const lignes = await db.lireLignes<Ligne>(t, cles, fenetreDe(t, today));
   const sans = COLONNES_OMISES[t];
   if (sans) for (const l of lignes) for (const c of sans) delete l[c];
   return lignes;
@@ -173,14 +179,16 @@ const envoisDes = (releves: readonly { envoiId?: number | null }[]) => new Set(r
 
 /**
  * Delta de `brut` (lecture brute de la révision où commencent les `changements`) : lignes, réglages et statuts d'envoi
- * relus en base, à faire dans la lecture stable ou la transaction où les changements ont été lus.
+ * relus en base, à faire dans la lecture stable ou la transaction où les changements ont été lus. Les fenêtres de lecture
+ * (`FENETRES`, lot 12) sont celles du jour de `brut` (`Brut.jour`) : la lecture brute suivante reste de ce jour-là.
  */
 export async function lireDelta(db: Db, brut: Brut, changements: Changements): Promise<Delta> {
+  const today = brut.jour;
   const tables = new Map<TableBrute, LectureTable>();
   for (const [t, ch] of changements) {
     if (!(t in brut)) continue;
     const tb = t as TableBrute;
-    tables.set(tb, relectureComplete(t, ch) ? { tout: true, lignes: await lireTable<Ligne>(db, t) } : { tout: false, cles: ch as ReadonlySet<string>, lignes: await lireLignesBrutes(db, t, ch as ReadonlySet<string>) });
+    tables.set(tb, relectureComplete(t, ch) ? { tout: true, lignes: await lireTable<Ligne>(db, t, today) } : { tout: false, cles: ch as ReadonlySet<string>, lignes: await lireLignesBrutes(db, t, ch as ReadonlySet<string>, today) });
   }
   const reglages = changements.has('settings') ? await lireReglages(db) : null;
   // Statuts d'envoi : ceux des relevés changés, et des envois changés que désigne un relevé (avant ou après).

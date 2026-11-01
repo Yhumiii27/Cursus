@@ -38,6 +38,12 @@ export const NOTIFICATIONS_PUSH: Readonly<Record<string, ModeleNotificationPush>
   'frais.validee': { titre: 'Note de frais', corps: 'Une note de frais a été validée.', vue: 'frais' },
   'frais.payee': { titre: 'Note de frais remboursée', corps: 'Une note de frais a été remboursée.', vue: 'frais' },
   'push.essai': { titre: 'Notifications de Cursus', corps: 'Les notifications fonctionnent sur cet appareil.' },
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
 };
 
 // — lot 11 — pwa : préférences, plage de silence, appareil (règles partagées par le serveur et l'interface) —

@@ -612,7 +612,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // n'est gardé sur l'appareil) et la file hors ligne se rejoue au retour du réseau.
       if (!navigator.onLine) return;
       // Serveur injoignable : une tentative par période, pas à chaque tour de la minuterie.
-      if (Date.now() - Math.max(recuLe.current, tenteLe.current) >= age) rafraichir();
+      if (Date.now() - Math.max(recuLe.current, tenteLe.current) < age) return;
+      // Lot 11 (C2) : des saisies attendent dans la file hors ligne : rejeu d'abord (il relit à la fin), pour que la
+      // feuille relue ne les fasse pas disparaître quand le serveur revient sans événement « online ».
+      if (horsLigneRef.current.entrees.some(e => e.etat === 'attente')) { tenteLe.current = Date.now(); void horsLigneRef.current.relecture(); return; }
+      rafraichir();
     };
     const auRetour = () => relire(RETOUR_MS);
     const minuterie = setInterval(() => relire(RELECTURE_MS), 15_000);

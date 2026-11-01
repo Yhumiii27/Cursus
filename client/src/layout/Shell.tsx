@@ -101,8 +101,9 @@ const Pastille = ({ n }: { n: number }) => (
 
 function Sidebar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
   const { session, data, view, go, switchMode, bascule, logout, openDialog, reconnexion, horsLigne } = useStore();
-  // lot 11 — pwa : saisies encore gardées sur l'appareil, perdues à la déconnexion : confirmation d'abord.
-  const deconnecter = () => horsLigne.entrees.length ? openDialog({ type: 'deconnexion', n: horsLigne.entrees.length }) : logout();
+  // lot 11 — pwa : saisies encore gardées sur l'appareil, tous espaces confondus (la déconnexion purge toute la file) :
+  // confirmation d'abord.
+  const deconnecter = () => void horsLigne.taille().then(n => n ? openDialog({ type: 'deconnexion', n }) : logout());
   const barre = useRef<HTMLElement>(null);
   // Écran étroit : un choix (page, espace, mot de passe, déconnexion) referme d'abord le tiroir.
   const puis = (f: () => void) => () => { tiroir.fermer(); f(); };

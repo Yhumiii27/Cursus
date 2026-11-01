@@ -9,7 +9,8 @@
 // - fetch : rien n'est intercepté hors de cette origine, hors GET, ni sous /api (instantané, pièces justificatives, connexion,
 //   agenda, fichiers de paie : réponses no-store du serveur, seconde barrière) ; /assets en cache d'abord (noms hachés,
 //   immuables) ; navigations en réseau d'abord avec un délai de 4 s, puis la page de l'application gardée en cache (le
-//   serveur renvoie la même pour toute adresse hors /api), à défaut la page « Hors ligne » ; fichiers de la coque (icônes,
+//   serveur renvoie la même pour toute adresse hors /api), à défaut la page « Hors ligne » ; une réponse 502, 503 ou 504
+//   (reverse proxy pendant un redémarrage ou une mise à jour de Cursus) vaut une coupure ; fichiers de la coque (icônes,
 //   manifeste) en cache d'abord ; tout le reste passe au réseau sans réponse du service worker.
 // - push : notification générique (titre et texte fixes, sans nom ni date : shared/notifications-push.ts), toujours
 //   affichée (exigence des navigateurs) ; notificationclick : l'onglet de Cursus ouvert passe à l'écran de la notification
@@ -29,6 +30,8 @@ const COQUE = [PAGE, HORS_LIGNE, '/hors-ligne.css', '/manifest.webmanifest', '/f
   '/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-512-maskable.png', '/icons/apple-touch-icon.png'];
 /** Délai de la navigation par le réseau avant le repli sur la page gardée. */
 const DELAI_NAVIGATION_MS = 4000;
+/** Statuts du reverse proxy quand Cursus ne répond pas (redémarrage, mise à jour) : repli comme sans réseau. */
+const INDISPONIBLE = [502, 503, 504];
 
 /** Adresse de l'API : jamais servie ni gardée par le service worker. */
 const estApi = chemin => chemin === '/api' || chemin.startsWith('/api/');
@@ -62,19 +65,30 @@ async function cacheDabord(requete) {
   return reponse;
 }
 
-/** Navigation : réseau d'abord (4 s), puis la page de l'application gardée, puis la page « Hors ligne ». */
+/** Page gardée pour une navigation sans serveur : celle de l'application, puis la page « Hors ligne ». */
+async function pageGardee() {
+  return (await caches.match(PAGE)) || (await caches.match(HORS_LIGNE));
+}
+
+/**
+ * Navigation : réseau d'abord (4 s), puis la page de l'application gardée, puis la page « Hors ligne ». Une réponse
+ * 502, 503 ou 504 est rendue telle quelle seulement si rien n'est gardé.
+ */
 async function navigation(requete) {
+  let reponse;
   try {
     const controle = new AbortController();
     const minuterie = setTimeout(() => controle.abort(), DELAI_NAVIGATION_MS);
     try {
-      return await fetch(requete, { signal: controle.signal });
+      reponse = await fetch(requete, { signal: controle.signal });
     } finally {
       clearTimeout(minuterie);
     }
   } catch {
-    return (await caches.match(PAGE)) || (await caches.match(HORS_LIGNE)) || Response.error();
+    return (await pageGardee()) || Response.error();
   }
+  if (INDISPONIBLE.includes(reponse.status)) return (await pageGardee()) || reponse;
+  return reponse;
 }
 
 self.addEventListener('fetch', evenement => {

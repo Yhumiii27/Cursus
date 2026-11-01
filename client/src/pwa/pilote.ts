@@ -7,7 +7,13 @@
 //   première réponse s'est seulement perdue, le rejeu rend la réponse gardée par le serveur, sans seconde demande.
 // - Rejeu (`rejouer`) au chargement, au retour du réseau, au retour sur l'application et après une reconnexion : en série,
 //   pour le compte et l'espace de la session seulement, une relecture de l'instantané à la fin ; refus → « À reprendre ».
+// - Relecture périodique (store.tsx) : tant que des saisies attendent, elle devient un rejeu (`relecture`), qui relit à la
+//   fin s'il en part au moins une. Sans cela, un serveur revenu sans événement « online » (Wi-Fi d'atelier sans accès,
+//   puis accès rétabli) ferait relire une feuille sans la saisie gardée, qui semblerait perdue alors qu'elle attend.
 // - Session d'un autre compte : file purgée ; saisies de plus de 7 jours purgées ; « Appareil partagé » : rien n'est gardé.
+//   À chaque session lue, l'abonnement aux notifications du navigateur est rapproché des appareils du compte
+//   (`verifierAbonnement`, pwa/push.ts) : celui d'un autre compte (session expirée, puis connexion d'une autre personne
+//   sans déconnexion) est retiré, pour qu'elle ne reçoive pas les notifications de la précédente.
 import { plural } from '../../../shared/format.ts';
 import type { Dataset, Role } from '../../../shared/types.ts';
 import type { ActionResponse, NomAction, SessionState } from '../api.ts';
@@ -32,6 +38,8 @@ export interface DependancesPilote {
   enLigne: () => boolean;
   /** Appareil partagé : ni file ni notifications. */
   partage: () => boolean;
+  /** Abonnement aux notifications du navigateur retiré s'il n'est pas à ce compte (pwa/push.ts) ; erreurs ignorées. */
+  verifierAbonnement?: () => Promise<unknown>;
   /** État changé (file, rejeu) : l'écran se redessine. */
   changement: () => void;
 }
@@ -44,6 +52,8 @@ export function porteurDe(s: SessionState | null): Porteur | null {
 export class PiloteHorsLigne {
   /** Saisies du compte et de l'espace de la session, dans l'ordre (en attente, puis « À reprendre »). */
   entrees: EntreeFile[] = [];
+  /** Saisies gardées sur l'appareil dans un autre espace du compte (bandeau, alerte avant la déconnexion). */
+  autres = 0;
   /** Rejeu en cours. */
   rejeu = false;
   private readonly dep: DependancesPilote;
@@ -56,6 +66,7 @@ export class PiloteHorsLigne {
   async actualiser(): Promise<void> {
     const f = this.file, qui = porteurDe(this.dep.session());
     this.entrees = f && qui ? await f.lister(qui).catch(() => []) : [];
+    this.autres = f && qui ? Math.max(0, await f.taille().catch(() => 0) - this.entrees.length) : 0;
     this.dep.changement();
   }
 
@@ -105,13 +116,31 @@ export class PiloteHorsLigne {
     return b;
   }
 
-  /** Session lue (chargement, connexion, reconnexion) : purges, puis rejeu. */
+  /**
+   * Relecture périodique de l'instantané (store.tsx) : rejeu d'abord si des saisies attendent (il relit à la fin s'il en
+   * part une ; serveur encore injoignable : l'instantané affiché, qui les montre, reste tel quel), sinon relecture.
+   */
+  async relecture(): Promise<void> {
+    if (this.file && this.entrees.some(e => e.etat === 'attente')) {
+      if (this.dep.enLigne()) await this.rejouer();
+      return;
+    }
+    await this.dep.relire();
+  }
+
+  /** Nombre de saisies gardées sur l'appareil, tous espaces confondus (purgées à la déconnexion). */
+  async taille(): Promise<number> {
+    return await this.dep.file?.taille().catch(() => 0) ?? 0;
+  }
+
+  /** Session lue (chargement, connexion, reconnexion) : purges, abonnement aux notifications rapproché du compte, rejeu. */
   async surSession(): Promise<void> {
     const f = this.file, qui = porteurDe(this.dep.session());
     if (f && qui) {
       await f.purgerAutreCompte(qui.compteId).catch(() => false);
       await f.purgerAnciennes().catch(() => 0);
     }
+    if (qui) await this.dep.verifierAbonnement?.().catch(() => null);
     await this.actualiser();
     await this.rejouer();
   }

@@ -4109,9 +4109,12 @@ worker de même origine : `manifest-src` et `worker-src` retombent sur `default-
   contenu commité par `tests/pwa.test.ts`) puis commités.
 - **Service worker** (`client/public/sw.js`, écrit à la main) : version et liste des fichiers `/assets` à précharger
   injectées au build par le plugin `swCursus` de `vite.config.ts` (`generateBundle` ; version = empreinte des noms
-  hachés ; polices WOFF exclues, WOFF2 gardées ; build refusé si les marques manquent). Cache `cursus-coque-<version>` :
+  hachés et du contenu des fichiers de la coque, liste `COQUE` de sw.js lue par `coqueDe` : une page « Hors ligne » ou
+  une icône modifiée seule fait aussi proposer la mise à jour ; polices WOFF exclues, WOFF2 gardées ; build refusé si
+  les marques ou un fichier de la coque manquent). Cache `cursus-coque-<version>` :
   coque (page, page « Hors ligne » `hors-ligne.html` et sa feuille, manifeste, icônes) et `/assets`. `/assets` en cache
-  d'abord ; navigations en réseau d'abord avec 4 s de délai, puis `index.html` gardée, puis la page « Hors ligne » ;
+  d'abord ; navigations en réseau d'abord avec 4 s de délai, puis `index.html` gardée, puis la page « Hors ligne »
+  (aussi sur une réponse 502, 503 ou 504 du reverse proxy pendant un redémarrage de Cursus) ;
   **aucune adresse `/api` servie ni gardée** (ni autre origine, ni hors GET) ; anciennes versions effacées à
   l'activation ; `skipWaiting` seulement sur le message `SKIP_WAITING` de la page. Push : notification générique
   toujours affichée ; clic : écran de Cursus seulement (message `NAVIGUER` à l'onglet ouvert, sans rechargement, sinon
@@ -4136,22 +4139,36 @@ worker de même origine : `manifest-src` et `worker-src` retombent sur `default-
   feuille affichée porte la saisie (`appliquerLocalement`, instantané en mémoire seulement ; feuille encore inexistante :
   créée en mémoire avec l'identifiant -1) ; un congé n'est pas décompté. Rejeu à chaque session lue, au retour du
   réseau et de l'application ; messages « N saisies envoyées au retour du réseau » et « … refusées … : voyez « À
-  reprendre » ». Purges : autre compte et 7 jours à chaque session lue ; déconnexion (`avantDeconnexion` : appareil
+  reprendre » ». Serveur revenu sans événement `online` (Wi-Fi sans accès, puis accès rétabli) : la relecture périodique
+  de store.tsx devient un rejeu tant que des saisies attendent (`horsLigne.relecture`), sans quoi la feuille relue les
+  ferait disparaître de l'écran. Conflit de cellule (`temps.saisir` refusé en 409) : entrée marquée `conflit`, jamais
+  renvoyée (`FileHorsLigne.reprendre` l'ignore : même valeur de base, même refus) ; « Ouvrir la feuille » puis
+  « Abandonner ». « Renvoyer » ne sert qu'à un refus qui peut disparaître (solde, feuille rouverte). Changement de
+  compte sans déconnexion (session expirée, autre personne) : à chaque session lue, l'abonnement aux notifications du
+  navigateur absent des appareils du compte (empreinte SHA-256 de l'adresse comparée à `empreinte` de
+  `GET /api/push/appareils`) est retiré du navigateur (`retirerAbonnementEtranger`, pwa/push.ts) ; le serveur supprime
+  l'ancien au prochain 404 ou 410. Purges : autre compte et 7 jours à chaque session lue ; déconnexion (`avantDeconnexion` : appareil
   désabonné des notifications, motif `deconnexion` ; `apresDeconnexion` : file purgée une fois la déconnexion faite) ;
   « Appareil partagé » (`pwa/appareil.ts`, localStorage : file purgée, notifications désactivées, plus rien de gardé).
   Ouverture sans réseau : page « Hors ligne » (`pages/HorsLigne.tsx`), file seule (`listerTout`), nouvel essai à
   l'événement `online`. Relecture périodique muette hors ligne (étape 1).
 - **Écrans** : `BandeauHorsLigne` (sous l'en-tête : hors ligne, « N saisies en attente d'envoi », « Envoyer
-  maintenant », nouvelle version), `FileEnAttente` (en attente / « À reprendre » avec le motif, « Renvoyer »,
-  « Abandonner… » confirmé sur place), `InstallerApplication` (Accueil, Aide et menu : bouton Android ; encart iPhone
+  maintenant », nouvelle version, saisies gardées dans un autre espace), `FileEnAttente` (en attente / « À reprendre »
+  avec le motif, « Renvoyer » sauf conflit de cellule, « Ouvrir la feuille » pour un conflit, « Abandonner… » par le
+  dialogue « confirmer » : `abandonSaisie` de state/confirmations.ts, action locale `local: 'abandonSaisie'` sans appel
+  au serveur ; liste seule sur la page « Hors ligne »), `InstallerApplication` (Accueil, Aide et menu : bouton Android ; encart iPhone
   « Partager » → « Sur l'écran d'accueil », masquable pour l'appareil), `MesAppareils` (Accueil : notifications de cet
   appareil — permission demandée sur le geste —, préférences par type, essai, retrait d'un appareil, « Appareil
-  partagé » ; lu par `GET /api/push/appareils`, jamais par l'instantané), barre d'onglets `layout/BarreOnglets.tsx`
+  partagé » ; lu par `GET /api/push/appareils`, jamais par l'instantané ; « activées sur cet appareil » seulement si
+  l'abonnement du navigateur figure parmi les appareils du compte), barre d'onglets `layout/BarreOnglets.tsx`
   (quatre premières entrées du menu et « Menu », `html.standalone` sous 900 px, `env(safe-area-inset-*)`), dialogue
-  « Se déconnecter » quand des saisies attendent (`dialogs/DeconnexionDialog.tsx`).
+  « Se déconnecter » quand des saisies attendent, tous espaces confondus (`horsLigne.taille`, la déconnexion purge
+  toute la file ; `dialogs/DeconnexionDialog.tsx`).
 - **Photo** (`client/src/pwa/photo.ts`, pour les notes de frais de C5) : champ `capture="environment"` (appareil photo
-  natif, sans `getUserMedia` ni levée de `camera=()`) ; JPEG ou PNG de 10 Mo au plus gardé tel quel, sinon canvas →
-  JPEG 1 600 px, qualité 0,85.
+  natif, sans `getUserMedia` ni levée de `camera=()`) ; JPEG ou PNG de 10 Mo au plus envoyé sans ses métadonnées
+  (`sansMetadonnees` : APP1 EXIF et XMP, APP13, commentaires du JPEG, orientation réécrite dans un EXIF minimal ; blocs
+  eXIf et textes du PNG ; pixels inchangés, empreinte de la pièce calculée sur le fichier nettoyé) — la position GPS
+  qu'y écrit l'appareil photo ne part donc jamais ; sinon, ou structure illisible, canvas → JPEG 1 600 px, qualité 0,85.
 - **Tests** : `tests/pwa.test.ts` (service worker en bac à sable, plugin, icônes, manifeste et balises, `/sw.js` et
   `CURSUS_PWA`), `tests/client-pwa.test.ts` (conversion, instantané en mémoire, pilote, photo), `e2e/pwa.spec.ts`
   (Chromium et téléphone, en démonstration : coque gardée sans `/api`, coupure du réseau avec `context.setOffline`,

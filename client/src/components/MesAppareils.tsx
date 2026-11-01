@@ -2,6 +2,9 @@
 // partagé. Les abonnements se lisent par une route du compte (GET /api/push/appareils), jamais par l'instantané ; le
 // serveur ne renvoie ni l'adresse du service de push ni les clés.
 // - « Recevoir les notifications sur cet appareil » : permission demandée sur ce geste seulement (pwa/push.ts) ;
+// - « activées sur cet appareil » seulement si l'abonnement du navigateur figure parmi les appareils du compte (empreinte
+//   de son adresse, `abonnementDuCompte`) : un abonnement retiré côté serveur, ou resté au compte précédent, propose de
+//   nouveau « Recevoir… », que push.abonner rattache à ce compte ;
 // - préférences par type, toutes coupées par défaut, valables pour tous les appareils du compte (push.preferences) ;
 //   notifications génériques, sans nom ni date, jamais de 20 h à 7 h ni le week-end (shared/notifications-push.ts) ;
 // - notification d'essai, appareil retiré à distance (téléphone perdu ou changé) ;
@@ -10,7 +13,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { fmtIso } from '../../../shared/format.ts';
 import { NOTIFICATIONS_PUSH, SILENCE_PUSH, TYPES_PUSH } from '../../../shared/notifications-push.ts';
 import { api, type AppareilPush } from '../api.ts';
-import { abonnementActuel, activerNotifications, desactiverNotifications, pushPossible } from '../pwa/push.ts';
+import { abonnementActuel, abonnementDuCompte, activerNotifications, desactiverNotifications, pushPossible } from '../pwa/push.ts';
 import { useAgir } from '../state/actions.ts';
 import { useStore } from '../state/store.tsx';
 import { Btn, Fine, NoteAccent, Panel, Tag } from './ui.tsx';
@@ -28,7 +31,8 @@ export function MesAppareils() {
       const r = await api.pushAppareils();
       setEtat(r);
       setTypes(r.appareils[0]?.types ?? []);
-      setIci(!!(await abonnementActuel().catch(() => null)));
+      const sub = await abonnementActuel().catch(() => null);
+      setIci(!!sub && await abonnementDuCompte(sub.endpoint, r.appareils).catch(() => false));
     } catch {
       // Hors ligne ou session expirée : le panneau reste tel quel (la reconnexion s'affiche par-dessus).
     }

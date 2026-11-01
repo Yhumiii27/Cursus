@@ -6,13 +6,15 @@
 // - Déconnexion : notifications de cet appareil désactivées (motif « deconnexion »), puis file purgée une fois la
 //   déconnexion faite.
 // - Appareil partagé : file purgée et notifications désactivées, plus rien n'est gardé (pwa/appareil.ts).
+// - Changement de compte sans déconnexion (session expirée, autre personne) : à chaque session lue, un abonnement aux
+//   notifications du navigateur qui n'est pas au compte connecté est retiré (pwa/push.ts, `retirerAbonnementEtranger`).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dataset } from '../../../shared/types.ts';
 import { api, type ActionResponse, type NomAction, type SessionState } from '../api.ts';
 import { envoyeurApi, FileHorsLigne, magasinIndexedDb, type EntreeFile } from '../state/hors-ligne.ts';
 import { appareilPartage, definirAppareilPartage } from './appareil.ts';
 import { PiloteHorsLigne } from './pilote.ts';
-import { desactiverNotifications } from './push.ts';
+import { desactiverNotifications, retirerAbonnementEtranger } from './push.ts';
 
 /** File de l'appareil (une par page), ou null si le navigateur ne peut pas la tenir (IndexedDB, WebCrypto). */
 let fileUnique: FileHorsLigne | null | undefined;
@@ -29,10 +31,16 @@ export interface HorsLigne {
   disponible: boolean;
   enLigne: boolean;
   entrees: EntreeFile[];
+  /** Saisies gardées dans un autre espace du compte (bandeau ; perdues aussi à la déconnexion). */
+  autres: number;
   rejeu: boolean;
   partage: boolean;
   appeler: (name: NomAction, payload: Record<string, unknown>) => Promise<ActionResponse>;
   rejouer: () => Promise<void>;
+  /** Relecture périodique : rejeu d'abord tant que des saisies attendent (pwa/pilote.ts, `relecture`). */
+  relecture: () => Promise<void>;
+  /** Saisies gardées sur l'appareil, tous espaces confondus (alerte avant la déconnexion). */
+  taille: () => Promise<number>;
   reprendre: (id: string) => Promise<void>;
   abandonner: (id: string) => Promise<void>;
   /** Avant la déconnexion (session encore valide) : notifications de cet appareil désactivées. */
@@ -66,6 +74,7 @@ export function useHorsLigne(dep: {
     notifier: (t, e) => deps.current.notifier(t, e),
     enLigne,
     partage: () => partageRef.current,
+    verifierAbonnement: () => retirerAbonnementEtranger(),
     changement: () => redessiner(n => n + 1),
   }), []);
 
@@ -99,9 +108,11 @@ export function useHorsLigne(dep: {
   }, [lancer, pilote]);
 
   return {
-    disponible: !!fileAppareil() && !partage, enLigne: reseau, entrees: pilote.entrees, rejeu: pilote.rejeu, partage,
+    disponible: !!fileAppareil() && !partage, enLigne: reseau, entrees: pilote.entrees, autres: pilote.autres, rejeu: pilote.rejeu, partage,
     appeler: (n, p) => pilote.appeler(n, p),
     rejouer: async () => { await pilote.rejouer(); },
+    relecture: () => pilote.relecture(),
+    taille: () => pilote.taille(),
     reprendre: id => pilote.reprendre(id),
     abandonner: id => pilote.abandonner(id),
     avantDeconnexion, apresDeconnexion, definirPartage,

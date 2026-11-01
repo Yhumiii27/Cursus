@@ -102,9 +102,12 @@ test('conflit : la cellule changée ailleurs pendant la coupure n’est pas écr
   await page.getByRole('button', { name: 'Voir' }).click();
   await expect(page.getByText(/^Conflit : la cellule du 5 oct\. 2026 \(INT-MAINT\) vaut maintenant 5 h/)).toBeVisible();
   await expect(lundi).toHaveValue('5');
-  // Abandon confirmé sur place : la file est vide, la valeur du serveur reste.
+  // Conflit : jamais « Renvoyer » (refusé de nouveau à coup sûr) ; « Ouvrir la feuille » ou « Abandonner… ».
+  await expect(page.getByRole('button', { name: 'Renvoyer' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Ouvrir la feuille' })).toBeVisible();
+  // Abandon par le dialogue « confirmer » : la file est vide, la valeur du serveur reste.
   await page.getByRole('button', { name: 'Abandonner…' }).click();
-  await page.getByRole('button', { name: 'Abandonner', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Abandonner la saisie' }).getByRole('button', { name: 'Abandonner la saisie' }).click();
   await expect(page.getByText(/à reprendre/)).toHaveCount(0);
   sansErreursReseau(erreurs);
 });

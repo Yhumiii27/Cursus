@@ -79,3 +79,13 @@ export function libelleSaisie(nom: string, p: Record<string, unknown>): string {
   }
   return 'Saisie';
 }
+
+/**
+ * Boutons proposés pour une saisie de la file (components/FileEnAttente.tsx) : « Abandonner » toujours ; « Renvoyer » pour
+ * un refus qui peut disparaître (solde, feuille rouverte) ; jamais pour un conflit de cellule, refusé de nouveau à
+ * coup sûr avec la même valeur de base : « Ouvrir la feuille » pour y ressaisir.
+ */
+export function boutonsSaisie(e: { etat: 'attente' | 'a_reprendre'; conflit?: boolean }): ('renvoyer' | 'feuille' | 'abandonner')[] {
+  if (e.etat !== 'a_reprendre') return ['abandonner'];
+  return e.conflit ? ['feuille', 'abandonner'] : ['renvoyer', 'abandonner'];
+}

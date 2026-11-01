@@ -8,7 +8,7 @@
 // - Libellé de l'appareil déduit de l'agent du navigateur (codesAppareil), jamais saisi ; l'adresse du service de push et
 //   les clés partent au serveur, qui les garde chiffrées et ne les renvoie jamais.
 import { codesAppareil } from '../../../shared/notifications-push.ts';
-import { api, type ActionResponse, type NomAction } from '../api.ts';
+import { api, type ActionResponse, type AppareilPush, type NomAction } from '../api.ts';
 
 type Lancer = (name: NomAction, payload: Record<string, unknown>) => Promise<ActionResponse>;
 
@@ -32,6 +32,36 @@ async function enregistrement(): Promise<ServiceWorkerRegistration | null> {
 export async function abonnementActuel(): Promise<PushSubscription | null> {
   if (!pushPossible()) return null;
   return (await (await enregistrement())?.pushManager.getSubscription()) ?? null;
+}
+
+/** Empreinte de l'adresse du service de push (SHA-256 en hexadécimal) : celle que le serveur renvoie (`cleEndpoint`). */
+export async function empreinteEndpoint(endpoint: string): Promise<string> {
+  const h = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(endpoint)));
+  return Array.from(h, o => o.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * L'abonnement du navigateur est-il un appareil du compte connecté ? Non quand il appartient au compte précédent
+ * (session expirée, autre personne connectée sans déconnexion) ou qu'il a été retiré côté serveur (« Retirer » depuis
+ * cet appareil, révocation par le service RH, 404 ou 410 du service de push, 90 jours sans envoi).
+ */
+export async function abonnementDuCompte(endpoint: string, appareils: readonly Pick<AppareilPush, 'empreinte'>[]): Promise<boolean> {
+  const e = await empreinteEndpoint(endpoint);
+  return appareils.some(a => a.empreinte === e);
+}
+
+/**
+ * Session lue : un abonnement du navigateur qui n'est pas au compte connecté est retiré du navigateur. Rien n'est demandé
+ * au serveur (push.desabonner ne vaut que pour son propre compte) : l'abonnement mort y est supprimé au prochain envoi
+ * (404 ou 410). Rien n'est fait si les notifications sont coupées sur le serveur ou que la liste ne se lit pas.
+ * Renvoie vrai si un abonnement a été retiré.
+ */
+export async function retirerAbonnementEtranger(lireAppareils: () => Promise<{ active: boolean; appareils: AppareilPush[] }> = api.pushAppareils): Promise<boolean> {
+  const sub = await abonnementActuel().catch(() => null);
+  if (!sub) return false;
+  const r = await lireAppareils();
+  if (!r.active || await abonnementDuCompte(sub.endpoint, r.appareils)) return false;
+  return await sub.unsubscribe();
 }
 
 /**

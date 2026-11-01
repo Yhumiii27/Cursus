@@ -123,9 +123,11 @@ pas dans Cursus : la paie les traite dans Sage.
   « Envoyer maintenant ». Rien d'autre ne se fait sans réseau (validations, pièces, paie), et Cursus ouvert sans réseau
   ne montre que les saisies gardées : aucune donnée n'est conservée sur le téléphone. Sur iPhone, elles partent à la
   réouverture de l'application.
-- Une saisie refusée au retour du réseau (heure changée entre-temps par le manager ou depuis le PC, feuille déjà
-  validée, solde insuffisant) passe « À reprendre » avec le motif : « Renvoyer » après correction, ou « Abandonner ».
-  Rien n'est écrasé sans le dire.
+- Une saisie refusée au retour du réseau passe « À reprendre » avec le motif. Heure changée entre-temps par le manager
+  ou depuis le PC : la saisie ne se renvoie pas (elle serait refusée de nouveau) ; « Ouvrir la feuille », y ressaisir la
+  valeur si elle doit remplacer celle du serveur, puis « Abandonner ». Refus qui peut disparaître (solde insuffisant,
+  feuille rouverte entre-temps) : « Renvoyer » une fois la situation réglée, ou « Abandonner ». Rien n'est écrasé sans
+  le dire.
 - « Mes appareils » (accueil) : « Recevoir les notifications sur cet appareil », puis on coche celles qu'on veut
   (toutes coupées au départ) et « Enregistrer mes choix ». Elles ne disent ni nom ni date (elles s'affichent sur l'écran
   verrouillé) et n'arrivent jamais de 20 h à 7 h ni le week-end : elles partent le jour ouvré suivant. « Envoyer une

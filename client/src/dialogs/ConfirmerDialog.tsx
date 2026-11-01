@@ -9,7 +9,7 @@ import { erreurMotif, MOTIF_MAX, parametres, type Confirmation } from '../state/
 import { useStore } from '../state/store.tsx';
 
 export function ConfirmerDialog({ c }: { c: Confirmation }) {
-  const { run, closeDialog, openDialog, setUi } = useStore();
+  const { run, closeDialog, openDialog, setUi, horsLigne, notify } = useStore();
   const [motif, setMotif] = useState('');
   const [busy, setBusy] = useState(false);
   const v = useVerification();
@@ -19,7 +19,10 @@ export function ConfirmerDialog({ c }: { c: Confirmation }) {
   const confirmer = async () => {
     if (busy || !v.verifier(erreur)) return;
     setBusy(true);
-    const r = await run(c.action, parametres(c, motif));
+    // lot 11 — pwa : action faite sur l'appareil seulement (saisie gardée hors ligne abandonnée), sans le serveur.
+    const r: { ok: boolean; result?: unknown } = c.action ? await run(c.action, parametres(c, motif))
+      : c.local === 'abandonSaisie' ? await horsLigne.abandonner(String(c.payload.id)).then(() => ({ ok: true }), () => { notify('Saisie impossible à retirer de cet appareil : réessayez', true); return { ok: false }; })
+      : { ok: false };
     setBusy(false);
     if (!r.ok) return;
     const mdp = (r.result as { motDePasse?: string | null } | undefined)?.motDePasse;

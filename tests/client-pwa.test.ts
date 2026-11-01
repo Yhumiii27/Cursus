@@ -9,11 +9,13 @@ import assert from 'node:assert/strict';
 import type { ActionResponse, SessionState } from '../client/src/api.ts';
 import type { Dataset } from '../shared/types.ts';
 
-const { appliquerLocalement, libelleSaisie, versFile } = await import('../client/src/pwa/saisie-hors-ligne.ts');
+const { appliquerLocalement, boutonsSaisie, libelleSaisie, versFile } = await import('../client/src/pwa/saisie-hors-ligne.ts');
 const { MESSAGE_GARDEE, PiloteHorsLigne, porteurDe } = await import('../client/src/pwa/pilote.ts');
 const { FileHorsLigne, magasinMemoire } = await import('../client/src/state/hors-ligne.ts');
-const { COTE_MAX_PHOTO, dimensionsReduites, photoTelleQuelle, preparerPhoto } = await import('../client/src/pwa/photo.ts');
-const { octetsB64u } = await import('../client/src/pwa/push.ts');
+const { COTE_MAX_PHOTO, dimensionsReduites, photoTelleQuelle, preparerPhoto, sansMetadonnees } = await import('../client/src/pwa/photo.ts');
+const { abonnementDuCompte, empreinteEndpoint, octetsB64u } = await import('../client/src/pwa/push.ts');
+const { cleEndpoint } = await import('../server/src/push.ts');
+const { abandonSaisie } = await import('../client/src/state/confirmations.ts');
 const { estIos, estStandalone } = await import('../client/src/pwa/enregistrement.ts');
 const { ongletsDe } = await import('../client/src/layout/onglets.ts');
 const { ACTIONS_PAIE } = await import('../shared/journal.ts');
@@ -160,8 +162,12 @@ test('photo : JPEG ou PNG de 10 Mo au plus gardé tel quel, sinon converti en JP
   assert.equal(photoTelleQuelle({ type: 'image/heic', size: 2_000_000 }), false);
   assert.deepEqual(dimensionsReduites(4032, 3024), { l: COTE_MAX_PHOTO, h: 1200 });
   assert.deepEqual(dimensionsReduites(800, 600), { l: 800, h: 600 });
-  const jpeg = new File([new Uint8Array([0xff, 0xd8])], 'recu.jpg', { type: 'image/jpeg' });
+  // JPEG sans métadonnées (début, données de l'image, fin) : le fichier lui-même, sans conversion.
+  const jpeg = new File([new Uint8Array([0xff, 0xd8, 0xff, 0xda, 0, 2, 1, 2, 0xff, 0xd9])], 'recu.jpg', { type: 'image/jpeg' });
   assert.equal(await preparerPhoto(jpeg, async () => { throw new Error('jamais'); }), jpeg);
+  // Structure illisible : redessiné par le canvas plutôt qu'envoyé avec d'éventuelles métadonnées.
+  const casse = new File([new Uint8Array([0xff, 0xd8])], 'recu.jpg', { type: 'image/jpeg' });
+  assert.equal((await preparerPhoto(casse, async () => new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: 'image/jpeg' }))).size, 3);
   const heic = new File([new Uint8Array(10)], 'IMG_0042.HEIC', { type: 'image/heic' });
   const converti = await preparerPhoto(heic, async () => new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: 'image/jpeg' }));
   assert.deepEqual([converti.name, converti.type, converti.size], ['IMG_0042.jpg', 'image/jpeg', 3]);
@@ -181,4 +187,112 @@ test('clé VAPID, iOS, application installée, barre d’onglets', () => {
   const item = (view: string) => ({ view, label: view, icon: (() => null) as never });
   assert.deepEqual(ongletsDe([['A', [item('portail'), item('entretiens')]], ['B', [item('temps'), item('absences'), item('missions')]]] as never).map(o => o.view),
     ['portail', 'entretiens', 'temps', 'absences']);
+});
+
+// — Constats de relecture (étape 2) —
+
+/** Segment JPEG : marqueur, longueur, données. */
+const segment = (m: number, d: number[]) => [0xff, m, (d.length + 2) >> 8, (d.length + 2) & 0xff, ...d];
+const ascii = (t: string) => [...t].map(c => c.charCodeAt(0));
+/** EXIF petit-boutiste : orientation 6 et un pointeur GPS (0x8825), suivi d'un texte « GPS 48.58N » pour le repérer. */
+const EXIF = [...ascii('Exif'), 0, 0, 0x49, 0x49, 0x2a, 0, 8, 0, 0, 0, 2, 0, 0x12, 0x01, 3, 0, 1, 0, 0, 0, 6, 0, 0, 0,
+  0x25, 0x88, 4, 0, 1, 0, 0, 0, 38, 0, 0, 0, 0, 0, 0, 0, ...ascii('GPS 48.58N')];
+
+test('photo : métadonnées retirées (EXIF, XMP, commentaire ; blocs texte du PNG), orientation gardée, image intacte', async () => {
+  const jfif = segment(0xe0, ascii('JFIF\0'));
+  const image = [0xff, 0xda, 0, 4, 9, 9, 7, 7, 0xff, 0xd9];
+  const avec = new Uint8Array([0xff, 0xd8, ...jfif, ...segment(0xe1, EXIF), ...segment(0xe1, ascii('http://ns.adobe.com/xap/1.0/\0<gps/>')),
+    ...segment(0xfe, ascii('Pixel 7')), ...segment(0xdb, [0, 1, 2]), ...image]);
+  const r = sansMetadonnees(avec, 'image/jpeg')!;
+  assert.equal(r.change, true);
+  const texte = String.fromCharCode(...r.octets);
+  for (const trace of ['GPS', 'adobe', 'Pixel']) assert.ok(!texte.includes(trace), trace);
+  // Début, JFIF, EXIF minimal (orientation 6, gros-boutiste), table de quantification et image, dans cet ordre.
+  const exif = [0xff, 0xe1, 0, 34, ...ascii('Exif'), 0, 0, 0x4d, 0x4d, 0, 0x2a, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0];
+  assert.deepEqual([...r.octets], [0xff, 0xd8, ...jfif, ...exif, ...segment(0xdb, [0, 1, 2]), ...image]);
+  // Orientation normale : aucun EXIF réécrit.
+  const droit = EXIF.slice();
+  droit[24] = 1;
+  assert.deepEqual([...sansMetadonnees(new Uint8Array([0xff, 0xd8, ...segment(0xe1, droit), ...image]), 'image/jpeg')!.octets], [0xff, 0xd8, ...image]);
+  // Fichier gardé tel quel, nettoyé : même nom et même type.
+  const f = await preparerPhoto(new File([avec], 'recu.jpg', { type: 'image/jpeg' }), async () => { throw new Error('jamais'); });
+  assert.deepEqual([f.name, f.type, f.size], ['recu.jpg', 'image/jpeg', r.octets.length]);
+  // PNG : blocs tEXt et eXIf retirés, IHDR, IDAT et IEND recopiés (leurs CRC ne changent pas).
+  const bloc = (type: string, d: number[]) => [0, 0, 0, d.length, ...ascii(type), ...d, 1, 2, 3, 4];
+  const sig = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  const png = new Uint8Array([...sig, ...bloc('IHDR', [1, 2]), ...bloc('tEXt', ascii('GPS')), ...bloc('eXIf', [1]), ...bloc('IDAT', [5]), ...bloc('IEND', [])]);
+  assert.deepEqual([...sansMetadonnees(png, 'image/png')!.octets], [...sig, ...bloc('IHDR', [1, 2]), ...bloc('IDAT', [5]), ...bloc('IEND', [])]);
+  assert.equal(sansMetadonnees(new Uint8Array([...sig, ...bloc('IHDR', [1])]), 'image/png'), null, 'sans IEND : illisible');
+  assert.equal(sansMetadonnees(new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0, 40]), 'image/jpeg'), null, 'segment tronqué');
+});
+
+test('conflit de cellule : jamais « Renvoyer » (même 409 assuré), un autre refus se renvoie ; abandon par le dialogue « confirmer »', async () => {
+  const conflit: ActionResponse = { ok: false, message: null, error: 'Conflit : la cellule a changé', status: 409 };
+  const solde: ActionResponse = { ok: false, message: null, error: 'Solde de congés insuffisant', status: 400 };
+  const b = banc([RESEAU, RESEAU, conflit, solde]);
+  await b.p.appeler('temps.setCell', { empId: 2, week: SEMAINE, li: 0, di: 0, value: '8' });
+  await b.p.appeler('absence.demander', { empId: 2, kind: 'CP', du: '2026-12-07', au: '2026-12-08' });
+  await b.p.rejouer();
+  assert.deepEqual(b.p.entrees.map(e => [e.nom, e.etat, e.conflit]), [['temps.saisir', 'a_reprendre', true], ['absence.demander', 'a_reprendre', false]]);
+  assert.deepEqual(b.p.entrees.map(boutonsSaisie), [['feuille', 'abandonner'], ['renvoyer', 'abandonner']]);
+  const appels = b.j.appels.length;
+  // « Renvoyer » sur le conflit : rien ne part, la saisie reste à reprendre.
+  await b.p.reprendre(b.p.entrees[0].id);
+  assert.equal(b.j.appels.length, appels);
+  assert.equal(b.p.entrees[0].etat, 'a_reprendre');
+  // Le refus de solde, lui, repart (et passe cette fois).
+  await b.p.reprendre(b.p.entrees[1].id);
+  assert.equal(b.j.appels.at(-1)!.nom, 'absence.demander');
+  assert.deepEqual(b.p.entrees.map(e => e.nom), ['temps.saisir']);
+  assert.deepEqual(boutonsSaisie({ ...b.p.entrees[0], etat: 'attente' }), ['abandonner']);
+  // Confirmation locale : aucune action du serveur, la saisie désignée.
+  const c = abandonSaisie(b.p.entrees[0].id, 'Heures · INT-MAINT', true);
+  assert.equal(c.action, null);
+  assert.equal(c.local, 'abandonSaisie');
+  assert.deepEqual(c.payload, { id: b.p.entrees[0].id });
+  assert.equal(c.suites?.length, 2);
+});
+
+test('relecture périodique : rejeu d’abord quand des saisies attendent (serveur revenu sans événement « online »)', async () => {
+  // Wi-Fi présent, serveur muet : la saisie est gardée (réponse sans statut).
+  const b = banc([RESEAU, RESEAU]);
+  await b.p.appeler('temps.setCell', { empId: 2, week: SEMAINE, li: 0, di: 0, value: '7,5' });
+  assert.equal(b.p.entrees.length, 1);
+  // Serveur encore muet : rien n'est relu, la feuille affichée garde la saisie.
+  await b.p.relecture();
+  assert.equal(b.j.relectures, 0);
+  assert.equal(b.donnees()!.feuilles[0].lignes[0].h[0], 7.5);
+  assert.equal(b.p.entrees[0].etat, 'attente');
+  // Serveur revenu : la saisie part, puis une seule relecture.
+  await b.p.relecture();
+  assert.equal(b.j.appels.at(-1)!.nom, 'temps.saisir');
+  assert.deepEqual(b.p.entrees, []);
+  assert.equal(b.j.relectures, 1);
+  // File vide : relecture ordinaire.
+  await b.p.relecture();
+  assert.equal(b.j.relectures, 2);
+});
+
+test('changement de compte : abonnement du navigateur rapproché du compte à chaque session ; saisies d’un autre espace comptées', async () => {
+  const verifs: number[] = [];
+  const b = banc([RESEAU]);
+  Object.assign((b.p as unknown as { dep: object }).dep, { verifierAbonnement: async () => { verifs.push(1); } });
+  await b.p.surSession();
+  assert.equal(verifs.length, 1);
+  b.changerSession(null);
+  await b.p.surSession();
+  assert.equal(verifs.length, 1, 'sans session : rien');
+  // Saisie gardée dans l'espace collaborateur, session passée dans l'espace manager du même compte.
+  b.changerSession({ role: 'collaborateur', user: {}, compte: { id: 3 } } as unknown as SessionState);
+  await b.p.appeler('temps.setCell', { empId: 2, week: SEMAINE, li: 0, di: 0, value: '8' });
+  b.changerSession({ role: 'manager', user: {}, compte: { id: 3 } } as unknown as SessionState);
+  b.reseau.en = false;
+  await b.p.surSession();
+  assert.deepEqual([b.p.entrees.length, b.p.autres, await b.p.taille()], [0, 1, 1]);
+  // Empreinte de l'adresse : la même que celle du serveur (cleEndpoint), comparée aux appareils du compte.
+  const endpoint = 'https://fcm.googleapis.com/fcm/send/abc';
+  assert.equal(await empreinteEndpoint(endpoint), cleEndpoint(endpoint));
+  assert.equal(await abonnementDuCompte(endpoint, [{ empreinte: cleEndpoint(endpoint) }]), true);
+  assert.equal(await abonnementDuCompte(endpoint, [{ empreinte: cleEndpoint('https://fcm.googleapis.com/fcm/send/autre') }]), false);
+  assert.equal(await abonnementDuCompte(endpoint, []), false);
 });

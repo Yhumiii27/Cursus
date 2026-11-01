@@ -5,12 +5,22 @@ import react from '@vitejs/plugin-react';
 
 const API_PORT = Number(process.env.CURSUS_API_PORT || 3210);
 
+/** Chemins de la liste COQUE de sw.js : chaînes entre apostrophes, ou constantes du fichier (PAGE, HORS_LIGNE). */
+export function coqueDe(texte: string): string[] {
+  const liste = /const COQUE = \[([^\]]*)\];/.exec(texte)?.[1] ?? '';
+  return liste.split(',').map(e => e.trim()).filter(Boolean).map(e =>
+    /^'([^']+)'$/.exec(e)?.[1] ?? new RegExp(`const ${e} = '([^']+)';`).exec(texte)?.[1] ?? `?${e}`);
+}
+
 /**
  * Service worker (lot 11, chantier C2 : client/public/sw.js, écrit à la main) : au build, la version et la liste des
  * fichiers /assets à précharger y sont injectées, sans dépendance (ni Workbox ni vite-plugin-pwa). La version est
- * l'empreinte des noms de fichiers hachés : elle change avec tout fichier de l'interface, ce qui déclenche la mise à jour
- * (bandeau « Nouvelle version »). Les polices au format WOFF (repli des navigateurs sans WOFF2, qui n'ont pas non plus de
- * service worker) ne sont pas préchargées. Le fichier produit remplace la copie de client/public/ dans dist/.
+ * l'empreinte des noms de fichiers hachés et du contenu des fichiers de la coque (liste COQUE de sw.js : page, page
+ * « Hors ligne », manifeste, icônes ; lus dans client/ et client/public/) : elle change avec tout fichier de l'interface,
+ * y compris une page « Hors ligne » ou une icône modifiée seule, ce qui déclenche la mise à jour (bandeau « Nouvelle
+ * version »). Un fichier de la coque absent fait échouer le build (l'installation du service worker échouerait). Les
+ * polices au format WOFF (repli des navigateurs sans WOFF2, qui n'ont pas non plus de service worker) ne sont pas
+ * préchargées. Le fichier produit remplace la copie de client/public/ dans dist/.
  */
 export function swCursus(source = new URL('./client/public/sw.js', import.meta.url)): Plugin {
   return {
@@ -18,10 +28,20 @@ export function swCursus(source = new URL('./client/public/sw.js', import.meta.u
     apply: 'build',
     generateBundle(_options, bundle) {
       const fichiers = Object.keys(bundle).filter(f => f.startsWith('assets/') && !f.endsWith('.woff')).sort().map(f => `/${f}`);
-      const version = createHash('sha256').update(fichiers.join('\n')).digest('hex').slice(0, 12);
       const texte = readFileSync(source, 'utf8');
       const marques = [/const VERSION = 'dev'; \/\/ __CURSUS_VERSION__/, /const PRECHARGE = \[\]; \/\/ __CURSUS_PRECHARGE__/];
       if (!marques.every(m => m.test(texte))) this.error('client/public/sw.js : marques __CURSUS_VERSION__ et __CURSUS_PRECHARGE__ introuvables');
+      const empreinte = createHash('sha256').update(fichiers.join('\n'));
+      for (const chemin of coqueDe(texte)) {
+        // La page vient de client/index.html (celle de dist/ ne change qu'avec les noms hachés, déjà comptés).
+        const fichier = new URL(chemin === '/index.html' ? '../index.html' : `.${chemin}`, source);
+        try {
+          empreinte.update(`\n${chemin}\n`).update(readFileSync(fichier));
+        } catch {
+          this.error(`client/public/sw.js : fichier de la coque introuvable (${chemin})`);
+        }
+      }
+      const version = empreinte.digest('hex').slice(0, 12);
       const sw = texte.replace(marques[0], `const VERSION = '${version}';`).replace(marques[1], `const PRECHARGE = ${JSON.stringify(fichiers)};`);
       this.emitFile({ type: 'asset', fileName: 'sw.js', source: sw });
     },

@@ -214,6 +214,9 @@ Contact : le DPO (Paramètres → Confidentialité), sinon le service RH.
   mention dans la page Confidentialité ; information du CSE (art. L2312-8 : nouvelle technologie, téléphones personnels)
   et droit à la déconnexion (plage de silence de 20 h à 7 h et le week-end, notifications coupées par défaut ; charte de
   l'entreprise à rapprocher) ; file locale chiffrée sur le téléphone (7 jours au plus, rien sur un appareil partagé).
+  Photo d'un justificatif prise avec le téléphone (`client/src/pwa/photo.ts`, notes de frais) : métadonnées retirées
+  avant l'envoi (EXIF et XMP, dont la position GPS que l'appareil photo d'Android peut y écrire ; seule l'orientation
+  est gardée), Cursus ne demandant jamais la géolocalisation (`Permissions-Policy geolocation=()`).
 - Accès depuis Internet, smartphone compris (décision de l'entreprise) : téléphones fournis, verrouillage imposé par
   la gestion de flotte (`docs/DEPLOIEMENT.md`, « Postes et téléphones »).
 - Validation par le DPO du texte de la page Confidentialité, de l'information sur les vaccinations et de celle sur les

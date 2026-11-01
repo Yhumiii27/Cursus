@@ -18,7 +18,7 @@ import { inflateSync } from 'node:zlib';
 const { createApp } = await import('../server/src/app.ts');
 const { nouvelleBase } = await import('./base.ts');
 const { problemesPwa, pwaActive } = await import('../server/src/config.ts');
-const { swCursus } = await import('../vite.config.ts');
+const { coqueDe, swCursus } = await import('../vite.config.ts');
 const { ALLOWED_VIEWS } = await import('../shared/constants.ts');
 
 const lire = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
@@ -150,6 +150,63 @@ test('plugin du build : version et fichiers /assets injectés (sans les polices 
   const mauvais = swCursus(new URL(`file://${join(dir, 'sw.js')}`));
   assert.throws(() => (mauvais.generateBundle as unknown as (this: typeof contexte, o: unknown, b: unknown) => void).call(contexte, {}, bundle), /marques/);
   rmSync(dir, { recursive: true, force: true });
+});
+
+test('service worker : navigation sans serveur (réseau coupé, 502, 503 ou 504 du reverse proxy) → page gardée, puis « Hors ligne »', async () => {
+  /** Navigation avec une réponse du réseau (statut) ou une coupure (null), et ce que le cache garde. */
+  const naviguer = async (statut: number | null, garde: string[]) => {
+    const ecouteurs: Record<string, (e: unknown) => void> = {};
+    const fetch = async () => { if (statut === null) throw new TypeError('Failed to fetch'); return { status: statut, ok: statut < 400, quoi: 'reseau' }; };
+    const caches = { match: async (u: string) => garde.includes(u) ? { quoi: u } : undefined };
+    runInNewContext(SW, {
+      self: { location: { origin: 'https://cursus.test' }, addEventListener: (t: string, f: (e: unknown) => void) => { ecouteurs[t] = f; } },
+      caches, fetch, URL, Request: class {}, Response: { error: () => ({ quoi: 'erreur' }) }, setTimeout, clearTimeout, AbortController,
+    });
+    let reponse: Promise<{ quoi: string; status?: number }> | undefined;
+    ecouteurs.fetch({ request: { url: 'https://cursus.test/temps', method: 'GET', mode: 'navigate' }, respondWith: (p: typeof reponse) => { reponse = p; } });
+    return await reponse!;
+  };
+  const tout = ['/index.html', '/hors-ligne.html'];
+  assert.equal((await naviguer(200, tout)).quoi, 'reseau');
+  assert.equal((await naviguer(404, tout)).quoi, 'reseau', 'réponse de Cursus : rendue telle quelle');
+  assert.equal((await naviguer(500, tout)).quoi, 'reseau', 'erreur de Cursus lui-même : rendue telle quelle');
+  for (const statut of [null, 502, 503, 504]) {
+    assert.equal((await naviguer(statut, tout)).quoi, '/index.html', String(statut));
+    assert.equal((await naviguer(statut, ['/hors-ligne.html'])).quoi, '/hors-ligne.html', `${statut}, page de l'application absente`);
+  }
+  // Rien de gardé : l'erreur du réseau, ou la réponse du reverse proxy telle quelle.
+  assert.equal((await naviguer(null, [])).quoi, 'erreur');
+  assert.equal((await naviguer(502, [])).status, 502);
+});
+
+test('plugin du build : la version suit aussi le contenu de la coque (page « Hors ligne », icônes, manifeste, page)', () => {
+  const contexte = { emitFile: (f: { source: string }) => { emis.push(f.source); return 'x'; }, error: (m: string) => { throw new Error(m); } };
+  const emis: string[] = [];
+  const dir = mkdtempSync(join(tmpdir(), 'cursus-coque-'));
+  const pub = join(dir, 'public');
+  mkdirSync(join(pub, 'icons'), { recursive: true });
+  writeFileSync(join(pub, 'sw.js'), SW);
+  writeFileSync(join(dir, 'index.html'), '<!doctype html>');
+  const coque = ['/hors-ligne.html', '/hors-ligne.css', '/manifest.webmanifest', '/favicon.svg', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-512-maskable.png', '/icons/apple-touch-icon.png'];
+  for (const c of coque) writeFileSync(join(pub, c), c);
+  const version = () => {
+    (swCursus(new URL(`file://${join(pub, 'sw.js')}`)).generateBundle as unknown as (this: typeof contexte, o: unknown, b: unknown) => void).call(contexte, {}, { 'assets/index-AAAA.js': {} });
+    return /VERSION = '(\w+)'/.exec(emis.at(-1)!)![1];
+  };
+  const v0 = version();
+  assert.equal(version(), v0, 'mêmes fichiers : même version');
+  writeFileSync(join(pub, 'hors-ligne.html'), 'Hors ligne, texte corrigé');
+  const v1 = version();
+  assert.notEqual(v1, v0);
+  writeFileSync(join(pub, 'icons/icon-192.png'), 'nouvelle icône');
+  const v2 = version();
+  assert.notEqual(v2, v1);
+  writeFileSync(join(dir, 'index.html'), '<!doctype html><meta name="theme-color">');
+  assert.notEqual(version(), v2);
+  rmSync(join(pub, 'favicon.svg'));
+  assert.throws(version, /coque introuvable \(\/favicon\.svg\)/);
+  rmSync(dir, { recursive: true, force: true });
+  assert.deepEqual(coqueDe(SW), ['/index.html', ...coque]);
 });
 
 // — Manifeste, icônes, page —

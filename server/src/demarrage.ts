@@ -6,7 +6,8 @@
 //   amorçages de données qu'une base neuve reçoit des migrations nommées (activités internes, dont INT-AST des
 //   interventions d'astreinte, horaires de poste d'exemple) et le rattachement des
 //   fiches au référentiel des postes, rejoué à chaque démarrage comme en SQLite ;
-// - les deux moteurs (lot 11) : amorçage de l'entité unique, s'il n'en existe aucune (`amorcerEntites`).
+// - les deux moteurs (lot 11) : amorçage de l'entité unique, s'il n'en existe aucune et qu'une équipe existe
+//   (`amorcerEntites`) ; une équipe racine créée ensuite y est rattachée (`rattacherEquipeNeuve`).
 import { type Db, SqliteDb } from './db.ts';
 import { migrate } from './migrate.ts';
 import { appliquerMigrations } from './migrations/cadre.ts';
@@ -17,7 +18,7 @@ import { amorcerActivites } from './migrations/temps.ts';
 import { amorcerActiviteAstreinte } from './migrations/lot7-astreintes.ts';
 // lot 11 — organigramme
 import { plural } from '../../shared/format.ts';
-import { equipesRessemblantAUnSite, NOM_ENTITE_MAX } from '../../shared/rules/entites.ts';
+import { entiteOuverte, equipesRessemblantAUnSite, NOM_ENTITE_MAX } from '../../shared/rules/entites.ts';
 import type { Entite, Equipe } from '../../shared/types.ts';
 import { journaliser } from './comptes.ts';
 import { lireConfidentialite } from './confidentialite.ts';
@@ -57,8 +58,10 @@ export interface BilanEntites { code: string; nom: string; equipes: number; equi
 
 /**
  * Amorçage neutre des entités (lot 11, t195), au démarrage et après le chargement de la démonstration, sur les deux
- * moteurs : s'il n'existe aucune entité, une société est créée sous la raison sociale du responsable du traitement
- * (Paramètres → Confidentialité, première ligne) ou, à défaut, « Entreprise », et les équipes racines y sont rattachées.
+ * moteurs : s'il n'existe aucune entité mais au moins une équipe, une société est créée sous la raison sociale du
+ * responsable du traitement (Paramètres → Confidentialité, première ligne) ou, à défaut, « Entreprise », et les équipes
+ * racines y sont rattachées. Base sans équipe (premier démarrage de la production) : rien n'est créé, l'amorçage attend
+ * la première équipe (`rattacherEquipeNeuve` : equipe.creer ou reprise de Lucca), une fois la raison sociale saisie.
  * Aucun valideur ne change (l'entité n'est qu'un regroupement au-dessus des équipes racines). Les équipes racines dont le
  * nom ressemble à un site sont seulement signalées au service RH (journal, `entite.amorcer`, quand des équipes sont
  * rattachées), jamais converties.
@@ -67,23 +70,47 @@ export interface BilanEntites { code: string; nom: string; equipes: number; equi
 export async function amorcerEntites(db: Db): Promise<BilanEntites | null> {
   return await db.tx(async () => {
     if (await db.count('entites') > 0) return null;
+    const racines = (await db.all<Equipe>('equipes', 'ordre')).filter(q => !q.parente);
+    // Aucune équipe : une société créée maintenant porterait le nom par défaut et ne serait plus jamais amorcée.
+    if (!racines.length) return null;
     const responsable = (await lireConfidentialite(db)).responsable?.split('\n')[0].trim() ?? '';
     const nom = responsable.slice(0, NOM_ENTITE_MAX).trim() || 'Entreprise';
     await db.insert<Entite>('entites', {
       code: CODE_ENTITE_AMORCEE, nom, type: 'societe', parente: null, siren: null, siret: null, idcc: null, siteCode: null, ordre: 0, actif: true, fermeLe: null, source: 'local',
     });
-    const racines = (await db.all<Equipe>('equipes', 'ordre')).filter(q => !q.parente);
-    if (racines.length) await db.run('UPDATE equipes SET entite = ? WHERE parente IS NULL', [CODE_ENTITE_AMORCEE]);
+    await db.run('UPDATE equipes SET entite = ? WHERE parente IS NULL', [CODE_ENTITE_AMORCEE]);
     const bilan: BilanEntites = { code: CODE_ENTITE_AMORCEE, nom, equipes: racines.length, equipesSite: equipesRessemblantAUnSite(racines) };
-    // Base neuve sans équipe : rien à tracer (le journal d'une base PostgreSQL neuve reste vide pour la reprise d'une
-    // base SQLite, server/src/reprise-postgres.ts, qui remplace l'entité amorcée : TABLES_AMORCEES).
-    if (racines.length) await journaliser(db, {
+    await journaliser(db, {
       actor: 'Cursus', role: null, action: 'entite.amorcer',
       message: `Entité ${nom} créée, ${plural(racines.length, 'équipe racine rattachée', 'équipes racines rattachées')}${bilan.equipesSite.length
         ? ` ; à vérifier par le service RH (nom de site, conversion à la main) : ${bilan.equipesSite.join(', ')}` : ''}`,
       payload: { code: CODE_ENTITE_AMORCEE, equipes: racines.length, ...(bilan.equipesSite.length ? { equipesSite: bilan.equipesSite } : {}) },
     });
     return bilan;
+  });
+}
+
+/**
+ * Entité d'une équipe racine nouvelle (equipe.creer ; reprise de Lucca, server/src/actions/reprise.ts), sans quoi les
+ * équipes de la mise en service resteraient toutes sans entité : aucune entité encore, l'amorçage est fait maintenant
+ * (`amorcerEntites`, qui rattache aussi cette équipe) ; une seule entité ouverte, et c'est une société, l'équipe y est
+ * rattachée ; plusieurs entités ouvertes, le choix revient au service RH (equipe.entite) et l'équipe reste signalée dans
+ * l'organigramme. Équipe rattachée à une équipe parente ou portant déjà une entité : rien. Aucun valideur ne change.
+ * Rend l'entité posée, ou null.
+ */
+export async function rattacherEquipeNeuve(db: Db, nom: string): Promise<Entite | null> {
+  return await db.tx(async () => {
+    const q = await db.get<Equipe>('equipes', nom);
+    if (!q || q.parente || q.entite) return null;
+    const entites = await db.all<Entite>('entites');
+    if (!entites.length) {
+      const bilan = await amorcerEntites(db);
+      return bilan ? (await db.get<Entite>('entites', bilan.code)) ?? null : null;
+    }
+    const ouvertes = entites.filter(entiteOuverte);
+    if (ouvertes.length !== 1 || ouvertes[0].type !== 'societe') return null;
+    await db.update<Equipe>('equipes', nom, { entite: ouvertes[0].code });
+    return ouvertes[0];
   });
 }
 

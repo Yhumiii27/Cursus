@@ -44,14 +44,17 @@ export function luhn(n: string): boolean {
   return somme % 10 === 0;
 }
 
-/** SIREN de La Poste : ses établissements ont des SIRET dont la somme des chiffres est un multiple de 5 (règle de l'INSEE). */
+/**
+ * SIREN de La Poste : ses établissements ont des SIRET dont la somme des chiffres est un multiple de 5 (règle de l'INSEE),
+ * en plus de ceux qui vérifient la clé de Luhn (le siège, 356 000 000 00048).
+ */
 const SIREN_LA_POSTE = '356000000';
 
 export const sirenValide = (v: string) => /^\d{9}$/.test(v) && luhn(v);
 export function siretValide(v: string): boolean {
   if (!/^\d{14}$/.test(v)) return false;
-  if (v.startsWith(SIREN_LA_POSTE)) return [...v].reduce((s, c) => s + Number(c), 0) % 5 === 0;
-  return luhn(v) && sirenValide(v.slice(0, 9));
+  if (luhn(v) && sirenValide(v.slice(0, 9))) return true;
+  return v.startsWith(SIREN_LA_POSTE) && [...v].reduce((s, c) => s + Number(c), 0) % 5 === 0;
 }
 
 /** IDCC (identifiant de la convention collective) : 1 à 4 chiffres, rendu sur 4 (« 44 » → « 0044 », Industries chimiques). */
@@ -229,8 +232,8 @@ export function controleUnite(equipes: readonly EquipeE[], nom: string, code: st
 
 /** Saisie d'un site (cache de matrix.pub_sites, tenu à la main tant que Matrix ne le fournit pas). */
 export function controlerSite(p: { code?: unknown; libelle?: unknown; actif?: unknown }, sites: readonly Site[], existant: Site | null):
-  { erreurs: { code?: string; libelle?: string }; site: Site | null } {
-  const erreurs: { code?: string; libelle?: string } = {};
+  { erreurs: { code?: string; libelle?: string; actif?: string }; site: Site | null } {
+  const erreurs: { code?: string; libelle?: string; actif?: string } = {};
   const code = existant ? existant.code : normaliserCodeEntite(p.code);
   const libelle = String(p.libelle ?? '').replace(/\s+/g, ' ').trim();
   if (!existant) {
@@ -240,10 +243,12 @@ export function controlerSite(p: { code?: unknown; libelle?: unknown; actif?: un
   }
   if (!libelle) erreurs.libelle = 'Indiquez le libellé du site.';
   else if (libelle.length > LIBELLE_SITE_MAX) erreurs.libelle = `Libellé : ${LIBELLE_SITE_MAX} caractères au plus.`;
+  // Un booléen seulement : « false », 0 ou null laisseraient le site actif sans le dire.
+  if (p.actif !== undefined && typeof p.actif !== 'boolean') erreurs.actif = 'Indiquez si le site est actif.';
   if (Object.keys(erreurs).length) return { erreurs, site: null };
   return {
     erreurs,
-    site: { code, libelle, actif: p.actif === undefined ? existant?.actif ?? true : p.actif !== false, ordre: existant?.ordre ?? Math.max(-1, ...sites.map(x => x.ordre)) + 1 },
+    site: { code, libelle, actif: p.actif === undefined ? existant?.actif ?? true : p.actif === true, ordre: existant?.ordre ?? Math.max(-1, ...sites.map(x => x.ordre)) + 1 },
   };
 }
 

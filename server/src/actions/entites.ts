@@ -50,13 +50,18 @@ const creer: ActionHandler = async (ctx, p) => {
   return `${accord(x, 'créé')}${x.type === 'etablissement' ? ` (société ${entiteDe(entitesDe(ctx), x.parente)?.nom ?? x.parente})` : ''} : ${proposee(x)}`;
 };
 
-/** `code` et les mêmes champs que la création, sauf le code et le type (fixés une fois pour toutes). */
+/**
+ * `code` et les mêmes champs que la création, sauf le code et le type (fixés une fois pour toutes). Un champ absent de la
+ * requête garde sa valeur ; null ou une chaîne vide l'efface.
+ */
 const modifier: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const avant = entite(ctx, p.code);
   if (avant.source === 'matrix') throw new ActionError(`L’entité ${avant.nom} est tenue par Matrix : elle se modifie dans le référentiel commun`);
   if (p.type !== undefined && p.type !== avant.type) throw new ActionError('Le type d’une entité ne change pas : créez une nouvelle entité, puis rattachez-y les équipes');
-  const { erreurs, entite: x } = controlerEntite({ ...p, parente: p.parente === undefined ? avant.parente : p.parente }, entitesDe(ctx), sitesDe(ctx), avant);
+  const saisie = { ...p };
+  for (const k of ['nom', 'parente', 'siren', 'siret', 'idcc', 'siteCode'] as const) if (saisie[k] === undefined) saisie[k] = avant[k];
+  const { erreurs, entite: x } = controlerEntite(saisie, entitesDe(ctx), sitesDe(ctx), avant);
   if (!x) throw new ActionError(premiere({ ...erreurs }));
   const champs = { nom: x.nom, parente: x.parente, siren: x.siren, siret: x.siret, idcc: x.idcc, siteCode: x.siteCode };
   if ((Object.keys(champs) as (keyof typeof champs)[]).every(k => (avant[k] ?? null) === champs[k])) return null;

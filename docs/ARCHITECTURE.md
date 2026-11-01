@@ -3944,7 +3944,7 @@ l'étape 2 apporte les écrans (Organigramme, Référentiels → Entités et sit
 CSV, le remplissage de `employes.site_code` et `unite_code`, l'aide, le guide et la demande à Matrix.
 
 - **Règles pures.** `shared/rules/entites.ts` : SIREN (9 chiffres) et SIRET (14) contrôlés par leur clé de Luhn (règle de
-  l'INSEE pour La Poste : somme des chiffres multiple de 5), SIRET commençant par le SIREN de la société, IDCC sur 4
+  l'INSEE pour La Poste : somme des chiffres multiple de 5, admise en plus de la clé de Luhn), SIRET commençant par le SIREN de la société, IDCC sur 4
   chiffres ; deux niveaux (un établissement a une société parente ouverte, une société n'en a pas) ; type et code fixés à
   la création ; fermeture refusée tant que l'entité porte des équipes ou des établissements ouverts (`refusFermeture`) ;
   entité d'une équipe = celle de son équipe racine (`entiteEquipe`, l'entité posée sur une équipe rattachée n'est pas
@@ -3984,10 +3984,17 @@ CSV, le remplissage de `employes.site_code` et `unite_code`, l'aide, le guide et
   l'organigramme ; la vue `organigramme` (`ALLOWED_VIEWS`, `PROFILS_RH.vues`) arrive avec l'écran, à l'étape 2.
 - **Amorçage** (`amorcerEntites`, `server/src/demarrage.ts`) par le code et non par la migration (sur une base PostgreSQL
   neuve, les réglages n'existent pas encore au moment des migrations) : à la fin de `mettreAJourBase` (deux moteurs), après
-  le chargement de la démonstration (`server/src/index.ts`) et après `demo.reinitialiser`. S'il n'existe aucune entité, une
-  société de code `entreprise` est créée sous la raison sociale du responsable du traitement (première ligne de Paramètres →
-  Confidentialité) ou « Entreprise », et les équipes racines y sont rattachées ; ligne `entite.amorcer` au journal quand des
-  équipes sont rattachées (avec les équipes au nom de site, à vérifier à la main). Idempotent ; aucun valideur ne change.
+  le chargement de la démonstration (`server/src/index.ts`) et après `demo.reinitialiser`. S'il n'existe aucune entité mais
+  au moins une équipe, une société de code `entreprise` est créée sous la raison sociale du responsable du traitement
+  (première ligne de Paramètres → Confidentialité) ou « Entreprise », et les équipes racines y sont rattachées ; ligne
+  `entite.amorcer` au journal (avec les équipes au nom de site, à vérifier à la main). Idempotent ; aucun valideur ne
+  change. Base de production neuve (aucune équipe) : rien n'est créé au démarrage ; la première équipe créée par
+  `equipe.creer` ou par la reprise de Lucca déclenche l'amorçage, une fois la raison sociale saisie
+  (`rattacherEquipeNeuve`). Ensuite, une équipe racine nouvelle est rattachée d'office à l'entité ouverte quand c'est la
+  seule et une société ; avec plusieurs entités ouvertes, le service RH la rattache (`equipe.entite`) et l'organigramme la
+  signale d'ici là.
+- **Modification d'une entité** (`entite.modifier`) : un champ absent de la requête garde sa valeur ; null ou une chaîne
+  vide l'efface. `site.enregistrer` refuse un `actif` qui n'est pas un booléen.
 - **Restent** (étape 2 et au-delà) : écrans, impression et CSV ; remplissage de `employes.site_code` et `unite_code` à chaque
   affectation (`rattachementSalarie`) ; demande à Matrix d'un contrat `pub_entites` (`docs/demandes/`) ; organigramme à une
   date passée (BDESE, t197) ; entité portée par le salarié (employeur) si une équipe mêle deux sociétés.

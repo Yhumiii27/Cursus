@@ -2,7 +2,10 @@
 // (réponse de l'entreprise du 18 octobre 2026). Activée, un manager consulte en lecture seule les membres des équipes
 // rattachées aux siennes (équipe parente, écran Équipes & managers), sans donnée médicale ni entretien ; les décisions
 // restent à leur manager direct. Réglage de l'administrateur RH, enregistré aussitôt ; les autres profils le consultent.
+// Lot 11 (organigramme) : réglage `organigrammeOuvert`, espaces auxquels l'organigramme est ouvert (tous par défaut).
 import { PROFONDEUR_MAX } from '../../../../shared/rules/hierarchie.ts';
+import { ORGANIGRAMME_OUVERT } from '../../../../shared/rules/organigramme.ts';
+import type { OrganigrammeOuvert } from '../../../../shared/types.ts';
 import { Fine, Panel } from '../../components/ui.tsx';
 import { useRole } from '../../state/derived.ts';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
@@ -29,6 +32,18 @@ export function Hierarchie({ s }: SectionProps) {
         service RH. Les demandes déjà en attente changent de valideur à l’enregistrement ; le nouveau valideur en est prévenu. La consultation N+2
         montre la fiche, les absences et les feuilles des membres des équipes rattachées, avec les mêmes restrictions que pour l’équipe directe et
         sans aptitude médicale détaillée ni entretien ; les décisions restent à leur manager direct.
+      </Fine>
+      {/* lot 11 — organigramme */}
+      <div className="field" style={{ maxWidth: 360 }}>
+        <label htmlFor="reglage-organigramme">Organigramme ouvert à</label>
+        <select className="input" id="reglage-organigramme" value={s.organigrammeOuvert ?? 'tous'} disabled={!admin}
+          onChange={e => enregistrer({ organigrammeOuvert: e.target.value as OrganigrammeOuvert })}>
+          {(Object.entries(ORGANIGRAMME_OUVERT) as [OrganigrammeOuvert, string][]).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+      </div>
+      <Fine>
+        L’organigramme ne montre que l’annuaire (nom, poste, équipe, manager) des présents du jour : ni contrat, ni absence, ni santé. Le suppléant
+        d’un manager n’y figure que pour les personnes qui voient déjà la délégation, sans les dates. Le service RH le voit toujours.
       </Fine>
       <Fine>
         Pendant ses absences, un manager peut déléguer ses validations à un suppléant pour une période datée (Mon espace ; ou le service RH, écran

@@ -7,6 +7,8 @@
 // - Administrateur RH : fermeture (refusée tant qu'elle porte des équipes ou des établissements ouverts) et réouverture.
 // - Aucun valideur ne change : l'entité n'est qu'un regroupement au-dessus des équipes racines ; la hiérarchie des
 //   managers reste celle des équipes parentes (actions/hierarchie.ts).
+// - Étape 2 : le site et l'unité des salariés suivent ceux de leur équipe (server/src/rattachements.ts), recalculés après
+//   chaque rattachement d'une équipe et chaque changement du site d'une entité.
 // - Organigramme : impression et export par qui le voit (réglage `organigrammeOuvert`) ; le journal n'en garde que
 //   l'entité et le nombre de lignes, jamais un nom.
 import { plural } from '../../../shared/format.ts';
@@ -16,6 +18,7 @@ import {
 } from '../../../shared/rules/entites.ts';
 import { organigrammeOuvertA } from '../../../shared/rules/organigramme.ts';
 import type { Entite, Equipe, Site } from '../../../shared/types.ts';
+import { recalerRattachements } from '../rattachements.ts';
 import { ActionError, type ActionHandler, type Ctx, requireRh, requireRhAdmin } from './context.ts';
 
 const entitesDe = (ctx: Ctx) => ctx.ds.referentiels.entites ?? [];
@@ -66,6 +69,8 @@ const modifier: ActionHandler = async (ctx, p) => {
   const champs = { nom: x.nom, parente: x.parente, siren: x.siren, siret: x.siret, idcc: x.idcc, siteCode: x.siteCode };
   if ((Object.keys(champs) as (keyof typeof champs)[]).every(k => (avant[k] ?? null) === champs[k])) return null;
   await ctx.db.update<Entite>('entites', avant.code, champs);
+  // Site de l'entité : celui des salariés dont l'équipe n'en porte pas (étape 2, server/src/rattachements.ts).
+  if ((avant.siteCode ?? null) !== x.siteCode) await recalerRattachements(ctx.db);
   return accord(x, 'enregistré');
 };
 
@@ -118,6 +123,7 @@ const entiteEquipe: ActionHandler = async (ctx, p) => {
   const refus = controleEntiteEquipe(ctx.ds.referentiels.equipes, entitesDe(ctx), q.nom, code);
   if (refus) throw new ActionError(refus);
   await ctx.db.update<Equipe>('equipes', q.nom, { entite: code });
+  await recalerRattachements(ctx.db);
   const x = entiteDe(entitesDe(ctx), code);
   return x ? `L’équipe ${q.nom} relève de ${x.nom}, avec ses équipes rattachées` : `L’équipe ${q.nom} ne relève plus d’aucune entité`;
 };
@@ -131,6 +137,7 @@ const siteEquipe: ActionHandler = async (ctx, p) => {
   const refus = controleSite(sitesDe(ctx), code, q.siteCode);
   if (refus) throw new ActionError(refus);
   await ctx.db.update<Equipe>('equipes', q.nom, { siteCode: code });
+  await recalerRattachements(ctx.db);
   const s = sitesDe(ctx).find(x => x.code === code);
   return s ? `L’équipe ${q.nom} est rattachée au site ${s.libelle}` : `L’équipe ${q.nom} n’a plus de site propre`;
 };
@@ -144,6 +151,7 @@ const uniteEquipe: ActionHandler = async (ctx, p) => {
   const refus = controleUnite(ctx.ds.referentiels.equipes, q.nom, code);
   if (refus) throw new ActionError(refus);
   await ctx.db.update<Equipe>('equipes', q.nom, { uniteCode: code });
+  await recalerRattachements(ctx.db);
   return code ? `L’équipe ${q.nom} correspond à l’unité ${code} de l’organigramme de Matrix` : `L’équipe ${q.nom} n’a plus d’unité Matrix`;
 };
 

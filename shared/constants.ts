@@ -566,9 +566,11 @@ export const TRIMESTRES = ['T1', 'T2', 'T3', 'T4'] as const;
 export const ALLOWED_VIEWS = {
   // `miseEnService` : reprise depuis Lucca, ouverte depuis Paramètres (hors du menu ; imports réservés à l'administrateur RH).
   // `prevention` : compte professionnel de prévention (lot 7, shared/rules/c2p.ts), service RH, référent HSE et lecture seule.
-  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'miseEnService', 'prevention'],
-  manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions'],
-  collaborateur: ['portail', 'temps', 'absences', 'entretiens'],
+  // lot 11 — organigramme (pages/Organigramme.tsx) : `organigramme`, toujours ouvert à l'espace RH ; au manager et au
+  // collaborateur selon le réglage `organigrammeOuvert` (shared/rules/organigramme.ts, `organigrammeOuvertA`).
+  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'miseEnService', 'prevention', 'organigramme'],
+  manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions', 'organigramme'],
+  collaborateur: ['portail', 'temps', 'absences', 'entretiens', 'organigramme'],
 } as const;
 /**
  * Vues ouvertes dans tous les espaces et sans connexion : information sur les données personnelles (shared/confidentialite.ts)
@@ -606,17 +608,17 @@ export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits:
   referent_hse: {
     label: 'Référent HSE / formation', espace: 'HSE', droits: ['formations'],
     aide: 'Catalogue, sessions et présences, certifications et habilitations, verdicts Go / No Go ; aptitude médicale réduite au verdict et aux restrictions en vigueur, comme pour un manager ; synthèse du C2P (nuits comptées et facteurs d’exposition par salarié) ; ni feuilles de temps, ni paie, ni entretiens',
-    vues: ['dashboard', 'collaborateurs', 'formations', 'habilitations', 'echeances', 'chantiers', 'referentiels', 'prevention'],
+    vues: ['dashboard', 'collaborateurs', 'formations', 'habilitations', 'echeances', 'chantiers', 'referentiels', 'prevention', /* lot 11 — organigramme */ 'organigramme'],
   },
   paie: {
     label: 'Gestionnaire de paie', espace: 'Paie', droits: ['paie'],
     aide: 'Temps, absences et soldes en lecture, transmission des variables de paie à Sage ; ni entretiens, ni formations, ni données médicales détaillées : la catégorie d’une absence seulement (santé, parentalité…), pour la paie',
-    vues: ['temps', 'absences'],
+    vues: ['temps', 'absences', /* lot 11 — organigramme */ 'organigramme'],
   },
   lecture_seule: {
     label: 'Lecture seule', espace: 'Lecture', droits: ['consultation'],
     aide: 'Direction, DPO, auditeur : tableaux de bord, alertes et journal des actions, sans rien modifier ; ni données de santé détaillées, ni dossiers de voyage',
-    vues: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'echeances', 'budget', 'chantiers', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'prevention'],
+    vues: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'echeances', 'budget', 'chantiers', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'prevention', /* lot 11 — organigramme */ 'organigramme'],
   },
   // lot 11 — notes de frais : réponse du propriétaire du 31 octobre 2026 (contrôle après le manager par un nouveau profil
   // « Comptabilité », accès limité aux frais, frais médicaux compris). L'écran des frais vient à l'étape 2 du chantier.

@@ -108,6 +108,12 @@ santé ; chaque export est tracé au journal. La page
 **Confidentialité**, ouverte depuis l'écran de connexion et depuis chaque espace, informe les salariés sur le
 traitement de leurs données ; le responsable du traitement et le DPO se règlent dans Paramètres → Confidentialité, et
 `docs/RGPD.md` décrit le traitement pour le registre et l'analyse d'impact de l'employeur.
+L'**organigramme** (lot 11), ouvert à tous les salariés par défaut (réglable : managers ou service RH seulement), montre
+les sociétés, établissements, équipes et présents du jour à partir de l'annuaire (nom, poste, équipe, manager), sans
+contrat, absence ni santé ; il se cherche, se filtre par entité et par site, s'imprime en paysage (une entité par page) et
+s'exporte en CSV. Le service RH tient les entités (SIREN, SIRET, IDCC) et les sites dans Référentiels → « Entités et
+sites », et rattache chaque équipe à son entité, son site et son unité Matrix (Équipes & managers, « Rattachement ») ; le
+site et l'unité de chaque salarié en découlent.
 La page **Aide**, ouverte de même depuis chaque espace et depuis l'écran de connexion, donne un guide court par rôle
 (collaborateur, manager, service RH, gestionnaire de paie), l'ouverture progressive au groupe pilote et ce qui reste à
 fournir avant la mise en service ; sa version détaillée, avec la procédure mensuelle de paie, est

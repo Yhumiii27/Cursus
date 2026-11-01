@@ -442,3 +442,54 @@ th.right .th-tri, th.center .th-tri { justify-content: inherit; }
   h1, h2, h3 { break-after: avoid; page-break-after: avoid; }
   tr, .list-row, .kpi { break-inside: avoid; page-break-inside: avoid; }
 }
+
+/* — lot 11 — organigramme (pages/Organigramme.tsx) : arbre en listes imbriquées, traits tracés par des bordures (aucun
+   SVG, aucun style en ligne) ; sous 600 px, liste indentée sans traits. — */
+.org-filtres { margin-bottom: var(--space-3); }
+.org-filtres .grow { flex: 1; }
+.org-recherche { position: relative; display: inline-flex; align-items: center; flex: 1 1 240px; max-width: 360px; }
+.org-recherche svg { position: absolute; left: 10px; color: var(--color-neutral-400); pointer-events: none; }
+.org-recherche .input { width: 100%; padding-left: 30px; }
+.filtres-liste .org-recherche input.input { min-width: 0; }
+.org-arbre, .org-groupe { list-style: none; margin: 0; padding: 0; }
+.org-arbre { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.org-item { position: relative; outline: none; }
+.org-groupe { margin-left: 13px; padding-left: 0; }
+.org-groupe > .org-item { padding-left: 22px; }
+.org-groupe > .org-item::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; border-left: 1px solid var(--color-divider); }
+.org-groupe > .org-item:last-child::before { bottom: auto; height: 19px; }
+.org-groupe > .org-item::after { content: ''; position: absolute; left: 0; top: 19px; width: 16px; border-top: 1px solid var(--color-divider); }
+.org-ligne {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px var(--space-2); min-height: 38px; padding: 4px var(--space-2);
+  border-radius: var(--radius-sm); cursor: pointer;
+}
+.org-ligne:hover { background: color-mix(in srgb, var(--color-text) 6%, transparent); }
+.org-item:focus-visible > .org-ligne { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.org-caret { display: inline-flex; width: 14px; justify-content: center; color: var(--color-neutral-400); flex: none; }
+.org-icone { color: var(--color-accent-300); flex: none; }
+.org-nom { font-weight: 500; }
+.org-entite > .org-ligne .org-nom { font-size: 15px; }
+.org-personne > .org-ligne { cursor: default; padding-left: var(--space-1); }
+.org-personne > .org-ligne .org-nom { font-weight: 400; }
+.org-personne.ouvrable > .org-ligne { cursor: pointer; }
+.org-detail { color: var(--color-neutral-400); font-size: 13px; }
+.org-effectif { margin-left: auto; color: var(--color-neutral-400); font-size: 12px; white-space: nowrap; }
+.org-item.trouve > .org-ligne { background: color-mix(in srgb, var(--color-accent) 18%, transparent); box-shadow: inset 2px 0 0 var(--color-accent); }
+.org-titre-alerte { display: inline-flex; align-items: center; gap: var(--space-2); }
+.org-titre-alerte svg { color: var(--color-accent-300); }
+.org-anomalies { margin: 0; padding-left: var(--space-6); display: flex; flex-direction: column; gap: var(--space-1); font-size: 14px; }
+@media (max-width: 600px) {
+  /* Liste indentée : ni traits ni grand retrait ; le détail passe sous le nom. */
+  .org-groupe { margin-left: var(--space-2); }
+  .org-groupe > .org-item { padding-left: var(--space-2); }
+  .org-groupe > .org-item::before, .org-groupe > .org-item::after { display: none; }
+  .org-ligne { padding: 6px var(--space-1); }
+  .org-detail { flex-basis: 100%; padding-left: 22px; }
+  .org-personne > .org-ligne .org-detail { padding-left: 30px; }
+  .org-effectif { margin-left: 0; }
+  .org-recherche { max-width: none; flex-basis: 100%; }
+  .org-filtres .input { flex: 1 1 100%; }
+}
+@media print {
+  .org-groupe > .org-item::before, .org-groupe > .org-item::after { border-color: #cfd3e5; }
+}

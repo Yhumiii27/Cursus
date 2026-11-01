@@ -14,6 +14,8 @@ import { cetInfo, cpInfo, recupInfo, rttInfo } from '../../shared/rules/conges.t
 import { sorti } from '../../shared/rules/contrats.ts';
 import { coutRetenu } from '../../shared/rules/exercices.ts';
 import type { Absence, Employe, ISODate, PlanAction } from '../../shared/types.ts';
+// lot 11 — organigramme
+import { ENTETE_CSV_ORGANIGRAMME, type LigneOrganigramme } from './organigramme-vue.ts';
 
 /** Fichier prêt pour `downloadCsv` : nom daté, en-tête, lignes. */
 export interface ListeCsv { fichier: string; head: string[]; rows: (string | number)[][] }
@@ -117,5 +119,20 @@ export function csvPlan(d: Domain, exercice: number, lignes: PlanAction[]): List
         nombre(coutRetenu(l)), nombre(l.cout), PLAN_LABEL[l.statut], l.origine ? ORIGINE[l.origine] ?? l.origine : '',
         fm ? fm.type : 'Hors catalogue', fm?.dureeHeures != null ? nombre(fm.dureeHeures) : ''];
     }),
+  };
+}
+
+// lot 11 — organigramme
+/**
+ * Organigramme (pages/Organigramme.tsx) : une ligne par personne affichée (filtres d'entité et de site, recherche), avec
+ * la structure (société, établissement, site, chemin des équipes, manager, valideur) et les seules colonnes de l'annuaire
+ * (nom, poste, équipe) : ni contrat, ni étiquette, ni sortie, ni santé, quel que soit le profil. `entite` : code de
+ * l'entité filtrée, dans le nom du fichier.
+ */
+export function csvOrganigramme(today: ISODate, lignes: LigneOrganigramme[], entite: string | null): ListeCsv {
+  return {
+    fichier: `organigramme${entite ? `-${entite}` : ''}-${today}.csv`,
+    head: ENTETE_CSV_ORGANIGRAMME,
+    rows: lignes.map(l => [l.societe, l.etablissement, l.site, l.chemin, l.equipe, l.nom, l.poste, l.manager, l.valideur]),
   };
 }

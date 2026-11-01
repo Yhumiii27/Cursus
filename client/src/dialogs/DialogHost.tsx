@@ -38,6 +38,10 @@ import { PlanDialog } from './PlanDialog.tsx';
 import { PlanImportDialog } from './PlanImportDialog.tsx';
 import { RefActiviteDialog } from './RefActiviteDialog.tsx';
 import { RefHoraireDialog } from './RefHoraireDialog.tsx';
+// lot 11 — organigramme
+import { EquipeRattachementDialog } from './EquipeRattachementDialog.tsx';
+import { RefEntiteDialog } from './RefEntiteDialog.tsx';
+import { RefSiteDialog } from './RefSiteDialog.tsx';
 import { RenouvelerCddDialog } from './RenouvelerCddDialog.tsx';
 import { RefDestinationDialog } from './RefDestinationDialog.tsx';
 import { RefEquipeDialog } from './RefEquipeDialog.tsx';
@@ -150,6 +154,10 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'astreinte': return <AstreinteDialog {...d} />;
     case 'interventionAstreinte': return <InterventionAstreinteDialog {...d} />;
     case 'evaluation': return <EvaluationDialog {...d} />;
+    // lot 11 — organigramme
+    case 'refEntite': return <RefEntiteDialog {...d} />;
+    case 'refSite': return <RefSiteDialog {...d} />;
+    case 'equipeRattachement': return <EquipeRattachementDialog {...d} />;
     case 'confirmer': return <ConfirmerDialog c={d.c} />;
   }
 }

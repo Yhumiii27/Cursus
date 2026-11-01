@@ -8,11 +8,12 @@
 import { useMemo, useRef, type ReactNode } from 'react';
 import {
   AirplaneIcon, BellIcon, BookOpenIcon, BooksIcon, BriefcaseIcon, CalendarBlankIcon, ChartBarIcon, ChatIcon, CheckIcon, ClockIcon, GearSixIcon, HardHatIcon,
-  HouseIcon, KeyIcon, LifebuoyIcon, LockSimpleIcon, MapPinIcon, PlusIcon, ShieldCheckIcon, SignOutIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
+  HouseIcon, KeyIcon, LifebuoyIcon, LockSimpleIcon, MapPinIcon, PlusIcon, ShieldCheckIcon, SignOutIcon, TreeStructureIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
 } from '@phosphor-icons/react';
 import { droitsRh, PROFILS_RH, vuesDe } from '../../../shared/constants.ts';
 import { aFaireCollaborateur } from '../../../shared/rules/a-faire.ts';
 import { obligations, perimetreEntretiens } from '../../../shared/rules/entretiens.ts';
+import { organigrammeOuvertA } from '../../../shared/rules/organigramme.ts';
 import { evaluationsAFaireManager } from '../../../shared/rules/evaluation-formation.ts';
 import type { Dataset, PerimetreDelegation, Role } from '../../../shared/types.ts';
 import { Avatar } from '../components/ui.tsx';
@@ -49,7 +50,7 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
     const vues = vuesDe('rh', data.user.profilRh);
     const groupes: NavGroup[] = [
       ['Pilotage', [{ view: 'dashboard', label: 'Tableau de bord', icon: HouseIcon, badge: nReq }, { view: 'echeances', label: 'Échéances', icon: BellIcon }, { view: 'budget', label: 'Plan & budget', icon: ChartBarIcon }]],
-      ['Collaborateurs', [{ view: 'collaborateurs', label: 'Annuaire', icon: UserIcon, badge: data.employes.filter(e => !e.equipe).length }, { view: 'equipes', label: 'Équipes & managers', icon: UsersThreeIcon }, { view: 'entretiens', label: 'Entretiens', icon: ChatIcon, badge: late }]],
+      ['Collaborateurs', [{ view: 'collaborateurs', label: 'Annuaire', icon: UserIcon, badge: data.employes.filter(e => !e.equipe).length }, { view: 'equipes', label: 'Équipes & managers', icon: UsersThreeIcon }, /* lot 11 — organigramme */ { view: 'organigramme', label: 'Organigramme', icon: TreeStructureIcon }, { view: 'entretiens', label: 'Entretiens', icon: ChatIcon, badge: late }]],
       ['Compétences', [{ view: 'formations', label: 'Formations', icon: BookOpenIcon }, { view: 'habilitations', label: 'Habilitations', icon: ShieldCheckIcon }]],
       // Compte professionnel de prévention (lot 7) : service RH, référent HSE et lecture seule.
       ['Prévention', [{ view: 'prevention', label: 'Expositions (C2P)', icon: HardHatIcon }]],
@@ -57,14 +58,18 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
       ['Projets & déplacements', [{ view: 'missions', label: 'Missions', icon: MapPinIcon }, { view: 'voyages', label: 'Voyages', icon: AirplaneIcon, badge: data.demandesKeystone.filter(x => x.statut === 'attente').length }, { view: 'chantiers', label: 'Chantiers · Go / No Go', icon: BriefcaseIcon }]],
       ['Administration', [{ view: 'referentiels', label: 'Référentiels', icon: BooksIcon }, { view: 'parametres', label: 'Paramètres', icon: GearSixIcon }]],
     ];
+    // Profil Paie : le groupe « Collaborateurs » ne garde que l'organigramme (lot 11).
     return groupes.map(([g, items]): NavGroup => [g, items.filter(i => vues.includes(i.view))]).filter(([, items]) => items.length > 0);
   }
+  // lot 11 — organigramme : entrée du menu selon le réglage `organigrammeOuvert` (shared/rules/organigramme.ts).
+  const organigramme: NavItem[] = organigrammeOuvertA(data.settings.organigrammeOuvert, role) ? [{ view: 'organigramme', label: 'Organigramme', icon: TreeStructureIcon }] : [];
   if (role === 'manager') {
     return [
       // Formations : évaluations à froid à faire sur l'équipe directe (lot 7, t121, shared/rules/evaluation-formation.ts).
       ['Mon équipe', [{ view: 'collaborateurs', label: 'Équipe', icon: UserIcon }, { view: 'formations', label: 'Formations', icon: BookOpenIcon, badge: evaluationsAFaireManager(d, me).length }, { view: 'entretiens', label: 'Entretiens', icon: ChatIcon, badge: late }]],
       ['Temps & absences', [{ view: 'temps', label: 'Feuilles de temps', icon: ClockIcon, badge: nQ }, { view: 'absences', label: 'Congés & absences', icon: CalendarBlankIcon, badge: nAbs }]],
       ['Projets & déplacements', [{ view: 'missions', label: 'Missions', icon: MapPinIcon }]],
+      ...(organigramme.length ? [['Organisation', organigramme] as NavGroup] : []),
     ];
   }
   // Collaborateur : comptes rendus à signer, feuilles renvoyées ou semaine passée à soumettre, évaluations de formation
@@ -73,6 +78,7 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
   return [
     ['Mon espace', [{ view: 'portail', label: 'Accueil', icon: HouseIcon, badge: aFaire.evaluations.length }, { view: 'entretiens', label: 'Mes entretiens', icon: ChatIcon, badge: aFaire.comptesRendus.length }]],
     ['Temps & absences', [{ view: 'temps', label: 'Mes heures', icon: ClockIcon, badge: aFaire.feuilles.length }, { view: 'absences', label: 'Mes absences', icon: CalendarBlankIcon }]],
+    ...(organigramme.length ? [['Organisation', organigramme] as NavGroup] : []),
   ];
 }
 

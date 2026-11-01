@@ -14,6 +14,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { VUES_COMMUNES, vuesDe, type ALLOWED_VIEWS, type HabMesureAction } from '../../../shared/constants.ts';
 import { mondayOf } from '../../../shared/dates.ts';
+import { organigrammeOuvertA } from '../../../shared/rules/organigramme.ts';
 import type { FormaliteKind, UiIntent } from '../../../shared/domain.ts';
 import type { ReferentielId } from '../../../shared/rules/referentiels.ts';
 import type { CompteSession, Dataset, EntretienType, ISODate, MotifVisite, ObjetPiece, PlanStatut, ProfilRh, Role, VaccinId } from '../../../shared/types.ts';
@@ -49,12 +50,16 @@ export interface UiState {
   planFilter: 'tous' | PlanStatut;
   weekStart: ISODate | null;
   tsEmp: number | null;
-  /** Onglet de l'écran Référentiels. */
-  refOnglet: ReferentielId | 'postes' | 'activites' | 'horaires';
+  /** Onglet de l'écran Référentiels (`entites` : Entités et sites, lot 11). */
+  refOnglet: ReferentielId | 'postes' | 'activites' | 'horaires' | 'entites';
   /** Saisie des heures jour par jour (téléphone, tablette) : jour affiché, du lundi (0) au dimanche (6) ; null : le jour courant. */
   tsJour: number | null;
   /** Tri choisi par un clic sur un en-tête, par liste (components/tri.ts) ; absent : l'ordre par défaut de l'écran. */
   tris: Partial<Record<string, Tri | null>>;
+  // lot 11 — organigramme
+  /** Organigramme : entité (code) et site (code) filtrés ; null : tous. */
+  orgEntite: string | null;
+  orgSite: string | null;
 }
 
 const INITIAL_UI: UiState = {
@@ -63,6 +68,8 @@ const INITIAL_UI: UiState = {
   refOnglet: 'formations',
   tsJour: null,
   tris: {},
+  // lot 11 — organigramme
+  orgEntite: null, orgSite: null,
 };
 
 /** Dialogues ouverts depuis plusieurs écrans — rendus par <DialogHost />. */
@@ -161,6 +168,12 @@ export type DialogState =
   | { type: 'interventionAstreinte'; empId: number; jour?: ISODate | null; astreinteId?: number | null }
   /** Évaluation d'une formation (lot 7, t121) : `cle` de shared/rules/evaluation-formation.ts, à chaud ou à froid, avis de qui. */
   | { type: 'evaluation'; cle: string; quand: TypeEvaluation; repondant?: RepondantEvaluation }
+  // lot 11 — organigramme
+  /** Référentiels → Entités et sites : entité (création sans code, modification) et site (création sans code). */
+  | { type: 'refEntite'; code?: string | null }
+  | { type: 'refSite'; code?: string | null }
+  /** Équipes & managers : entité (équipe racine), site et unité Matrix d'une équipe. */
+  | { type: 'equipeRattachement'; nom: string }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
   | { type: 'confirmer'; c: Confirmation };
 
@@ -466,7 +479,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const role: Role = session?.role ?? 'rh';
-  const view = allowedView(role, rawView, role === 'rh' ? data?.settings.vueInitiale : undefined, (data ?? session)?.user?.profilRh);
+  // lot 11 — organigramme : vue fermée au manager ou au collaborateur par le réglage `organigrammeOuvert` → page d'accueil.
+  const fermee = rawView === 'organigramme' && !!data && !organigrammeOuvertA(data.settings.organigrammeOuvert, role);
+  const view = allowedView(role, fermee ? '' : rawView, role === 'rh' ? data?.settings.vueInitiale : undefined, (data ?? session)?.user?.profilRh);
 
   // Synchronise l'URL avec la vue effectivement affichée, sa sélection et ses filtres (state/url.ts) : l'ouverture d'une
   // fiche dans la même vue ajoute une entrée à l'historique, tout autre changement remplace l'entrée courante (go a déjà

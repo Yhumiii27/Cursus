@@ -39,6 +39,8 @@ const PAGES: Record<View, ComponentType> = {
   miseEnService: aLaDemande(() => import('./pages/MiseEnService.tsx'), 'MiseEnService'),
   // Compte professionnel de prévention (lot 7) : synthèse annuelle des expositions et export pour la DSN.
   prevention: aLaDemande(() => import('./pages/Prevention.tsx'), 'Prevention'),
+  // lot 11 — indicateurs : indicateurs sociaux légaux (BDESE, préparation de l'index d'égalité), calculés par le serveur.
+  indicateurs: aLaDemande(() => import('./pages/Indicateurs.tsx'), 'Indicateurs'),
   // Vue commune à tous les espaces, ouverte aussi sans connexion (depuis l'écran de connexion).
   confidentialite: aLaDemande(() => import('./pages/Confidentialite.tsx'), 'Confidentialite'),
   aide: aLaDemande(() => import('./pages/Aide.tsx'), 'Aide'),

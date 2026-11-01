@@ -26,6 +26,8 @@ const UI: UiState = {
   refOnglet: 'formations', tsJour: null, tris: {},
   // lot 11 — organigramme
   orgEntite: null, orgSite: null,
+  // lot 11 — indicateurs
+  indOnglet: 'effectifs', indAnnee: null, indGroupe: 'aucun',
 };
 
 async function fresh() {

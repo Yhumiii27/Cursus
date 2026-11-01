@@ -568,7 +568,8 @@ export const ALLOWED_VIEWS = {
   // `prevention` : compte professionnel de prévention (lot 7, shared/rules/c2p.ts), service RH, référent HSE et lecture seule.
   // lot 11 — organigramme (pages/Organigramme.tsx) : `organigramme`, toujours ouvert à l'espace RH ; au manager et au
   // collaborateur selon le réglage `organigrammeOuvert` (shared/rules/organigramme.ts, `organigrammeOuvertA`).
-  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'miseEnService', 'prevention', 'organigramme'],
+  // lot 11 — indicateurs : indicateurs sociaux légaux (BDESE, index d'égalité), droit « consultation » (service RH et lecture seule).
+  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'miseEnService', 'prevention', 'organigramme', 'indicateurs'],
   manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions', 'organigramme'],
   collaborateur: ['portail', 'temps', 'absences', 'entretiens', 'organigramme'],
 } as const;
@@ -618,7 +619,7 @@ export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits:
   lecture_seule: {
     label: 'Lecture seule', espace: 'Lecture', droits: ['consultation'],
     aide: 'Direction, DPO, auditeur : tableaux de bord, alertes et journal des actions, sans rien modifier ; ni données de santé détaillées, ni dossiers de voyage',
-    vues: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'echeances', 'budget', 'chantiers', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'prevention', /* lot 11 — organigramme */ 'organigramme'],
+    vues: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'echeances', 'budget', 'chantiers', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'prevention', /* lot 11 — organigramme */ 'organigramme', /* lot 11 — indicateurs */ 'indicateurs'],
   },
   // lot 11 — notes de frais : réponse du propriétaire du 31 octobre 2026 (contrôle après le manager par un nouveau profil
   // « Comptabilité », accès limité aux frais, frais médicaux compris). L'écran des frais vient à l'étape 2 du chantier.

@@ -76,6 +76,8 @@ import { SuiviDialog } from './SuiviDialog.tsx';
 import { VisiteDialog } from './VisiteDialog.tsx';
 // lot 11 — pwa
 import { DeconnexionDialog } from './DeconnexionDialog.tsx';
+// lot 11 — indicateurs
+import { ArreteCseDialog } from './ArreteCseDialog.tsx';
 
 export function DialogHost() {
   const { dialog: d } = useStore();
@@ -163,5 +165,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'confirmer': return <ConfirmerDialog c={d.c} />;
     // lot 11 — pwa
     case 'deconnexion': return <DeconnexionDialog {...d} />;
+    // lot 11 — indicateurs
+    case 'arreteCse': return <ArreteCseDialog {...d} />;
   }
 }

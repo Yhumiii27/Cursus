@@ -42,6 +42,8 @@ import { Rgpd } from './Rgpd.tsx';
 import { SagePaie } from './SagePaie.tsx';
 import { Sante } from './Sante.tsx';
 import { Suivi } from './Suivi.tsx';
+// lot 11 — indicateurs
+import { Indicateurs } from './Indicateurs.tsx';
 
 export interface SectionParametres {
   /** Identifiant stable (clé de rendu). */
@@ -90,6 +92,8 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'pieces', place: 'droite', Section: Pieces },
   { id: 'agenda', place: 'droite', Section: Agenda },
   { id: 'hierarchie', place: 'gauche', Section: Hierarchie },
+  // lot 11 — indicateurs : seuil d'anonymat et natures de l'absentéisme.
+  { id: 'indicateurs', place: 'droite', Section: Indicateurs },
   { id: 'messagerie', place: 'large', Section: Messagerie },
   { id: 'relances', place: 'large', Section: RelancesEcheances },
   { id: 'conservation', place: 'large', Section: Conservation },

@@ -3,6 +3,8 @@
 // formations de durée inconnue signalées (durée en heures à compléter au catalogue ou sur la formation suivie). Exports
 // CSV des indicateurs et des formations suivies de l'exercice. Indicateurs BDESE (pas de bilan social sous 300 salariés).
 // En dessous, les indicateurs des évaluations de l'exercice (lot 7, t121 : components/Evaluations.tsx).
+// lot 11 — indicateurs : renvoi vers l'écran Indicateurs sociaux (onglet Formation : stagiaires et heures par catégorie
+// d'emploi et par sexe, taux d'accès, masqués sous le seuil d'anonymat), pour le service RH et la lecture seule.
 import { useMemo } from 'react';
 import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { fH, fmtEur, plural } from '../../../shared/format.ts';
@@ -13,6 +15,8 @@ import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { Btn, Fine, NoteAccent, Panel } from './ui.tsx';
 import { IndicateursEvaluationPanel } from './Evaluations.tsx';
+// lot 11 — indicateurs
+import { droitsRh } from '../../../shared/constants.ts';
 
 function Tableau({ titre, lignes }: { titre: string; lignes: LigneIndicateur[] }) {
   const visibles = lignes.filter(l => l.realisations > 0);
@@ -36,7 +40,9 @@ function Tableau({ titre, lignes }: { titre: string; lignes: LigneIndicateur[] }
 
 export function IndicateursFormationPanel({ exercice }: { exercice: number }) {
   const d = useDomain();
-  const { notify } = useStore();
+  const { notify, go } = useStore();
+  // Écran Indicateurs sociaux : droit « consultation » (service RH et lecture seule).
+  const versIndicateurs = droitsRh(d.ds.user).includes('consultation');
   const x = useMemo(() => indicateursFormation(d, exercice), [d, exercice]);
   const exporter = () => {
     const c = csvIndicateurs(d, x);
@@ -72,6 +78,8 @@ export function IndicateursFormationPanel({ exercice }: { exercice: number }) {
         Formations réalisées dans l’année : participations présentes aux sessions clôturées (horaires de la session, sinon durée du
         catalogue), certifications enregistrées sans session et formations suivies, hors catalogue comprises. Le site compte moins de
         300 salariés : pas de bilan social obligatoire, ces indicateurs servent à la BDESE.
+        {versIndicateurs && <>{' '}Par sexe et par catégorie d’emploi, avec le taux d’accès :{' '}
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => go('indicateurs', { indOnglet: 'formation', indAnnee: exercice })}>Indicateurs sociaux</button></>}
       </Fine>
     </Panel>
     {/* Évaluation des formations (lot 7, t121) : par organisme et par formation, export CSV. */}

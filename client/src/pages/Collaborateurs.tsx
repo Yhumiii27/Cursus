@@ -33,6 +33,8 @@ import { ContactUrgenceFiche } from '../components/ContactUrgence.tsx';
 import { ForfaitJoursFiche } from '../components/ForfaitJours.tsx';
 import { ActionsCertification, CertsAnnulees, DemandesFiche } from '../components/Corrections.tsx';
 import { downloadCsv } from '../print.ts';
+// lot 11 — indicateurs
+import { aCompleterIndicateurs } from '../../../shared/rules/indicateurs-legaux.ts';
 import { csvAnnuaire } from '../listes-csv.ts';
 import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
 import { desinscription, retraitEquipe } from '../state/confirmations.ts';
@@ -113,13 +115,14 @@ export function Collaborateurs() {
   // Tri par colonne (t145) : l'ordre par défaut (gravité, puis échéance, puis nom) tant qu'aucun en-tête n'est cliqué.
   const t = useTri('collaborateurs');
   const rows = useMemo(() => trier(liste
-    .filter(e => (filtre === 'Toutes' || (filtre === SANS_EQUIPE ? !e.equipe : e.equipe === filtre)) && (ui.statut === 'tous' || sortis || e.worst === ui.statut)
+    .filter(e => (filtre === 'Toutes' || (filtre === SANS_EQUIPE ? !e.equipe : e.equipe === filtre))
+      && (ui.statut === 'tous' || sortis || (ui.statut === 'acompleter' ? !rh || aCompleterIndicateurs(e, d.ti) : e.worst === ui.statut))
       // Recherche aussi par matricule : de paie (fiche) ou Cursus (EMP-0001, celui des messages de Keystone).
       && correspond(e, q))
     // Sortis : les départs les plus récents d'abord.
     .sort((a, b) => sortis ? (b.fin ?? '').localeCompare(a.fin ?? '') || a.nom.localeCompare(b.nom)
       : RANK[b.worst] - RANK[a.worst] || (a.next ? a.next.d : 1e9) - (b.next ? b.next.d : 1e9) || a.nom.localeCompare(b.nom)),
-  COLONNES, t.tri), [liste, filtre, ui.statut, sortis, q, t.tri]);
+  COLONNES, t.tri), [liste, filtre, ui.statut, sortis, q, t.tri, rh, d.ti]);
   // Au-delà de 50 lignes : « Afficher plus » ; les filtres ramènent aux 50 premières (l'export garde toutes les lignes).
   const page = usePagination(rows, `${filtre}|${ui.statut}|${q}`);
 
@@ -154,7 +157,9 @@ export function Collaborateurs() {
         </select>
       )}
       <Seg name="statut" label="Statut" value={ui.statut} onChange={v => setUi({ statut: v })}
-        options={[['tous', 'Tous'], ['ok', 'À jour'], ['due', 'À renouveler'], ['exp', 'Non conformes'], ['sortis', 'Sortis']]} />
+        options={[['tous', 'Tous'], ['ok', 'À jour'], ['due', 'À renouveler'], ['exp', 'Non conformes'], ['sortis', 'Sortis'],
+          // lot 11 — indicateurs : sexe ou catégorie d'emploi à compléter, service RH seulement (seul à les recevoir).
+          ...(rh ? [['acompleter', 'Indicateurs à compléter'] as ['acompleter', string]] : [])]} />
       <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exporter}>Exporter (CSV)</Btn>
       {rh && <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'employe', equipe: cible })}>Nouveau collaborateur</Btn>}
       {manager && myTeams.length > 0 && (

@@ -406,3 +406,23 @@ test('masquer : propriété sur 300 tableaux à motifs tirés au hasard — grou
     });
   }
 });
+
+// Étape 2 : échéance agrégée du service RH « N fiches sans sexe ou catégorie » (une seule ligne, écran Échéances).
+test('fiche à compléter : présente, hors intérimaires, sans sexe ou sans catégorie', () => {
+  const le = '2025-06-15';
+  assert.equal(L.aCompleterIndicateurs(emp(20, { sexe: null }), le), true);
+  assert.equal(L.aCompleterIndicateurs(emp(21, { categorie: null }), le), true);
+  assert.equal(L.aCompleterIndicateurs(emp(22, {}), le), false, 'complète');
+  assert.equal(L.aCompleterIndicateurs(emp(23, { sexe: null, typeContrat: 'interim', agence: 'A' }), le), false, 'intérimaire : hors des tableaux par sexe');
+  assert.equal(L.aCompleterIndicateurs(emp(24, { sexe: null, entree: '2025-09-01' }), le), false, 'embauche à venir');
+  assert.equal(L.aCompleterIndicateurs(emp(25, { sexe: null, fin: '2025-01-31', motifSortie: 'demission' }), le), false, 'sorti');
+  // Compte de l'échéance agrégée sur un jeu explicite : deux fiches incomplètes présentes, une à venir, un intérimaire,
+  // une fiche sortie et une complète ; seules les deux premières comptent, chacune une fois.
+  const jeu = [
+    emp(30, { sexe: null }), emp(31, { categorie: null, sexe: null }), emp(32, { categorie: null, entree: '2025-09-01' }),
+    emp(33, { categorie: null, typeContrat: 'interim', agence: 'A' }), emp(34, { sexe: null, fin: '2025-03-31', motifSortie: 'demission' }), emp(35, {}),
+  ];
+  assert.deepEqual(jeu.filter(e => L.aCompleterIndicateurs(e, le)).map(e => e.id), [30, 31]);
+  // Le jeu de référence des tests de valeurs est complet : aucune fiche à compléter.
+  assert.equal(EMPLOYES.filter(e => L.aCompleterIndicateurs(e, le)).length, 0);
+});

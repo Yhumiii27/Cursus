@@ -14,6 +14,8 @@ import { useEnriched, useIntentPermis } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { EchRow } from './Dashboard.tsx';
 import { CouverturePanel } from '../components/Couverture.tsx';
+// lot 11 — indicateurs
+import { IndicateursACompleter } from '../components/IndicateursACompleter.tsx';
 
 /** Colonnes triables des échéances ; « Statut » : dépassées d'abord. */
 const COLONNES: Record<string, Colonne<EchItem>> = {
@@ -78,6 +80,8 @@ export function Echeances() {
         {ui.echType !== 'couverture' && <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exportCsv}>Exporter (CSV)</Btn>}
       </>}
     >
+      {/* lot 11 — indicateurs : échéance agrégée du service RH (fiches sans sexe ou catégorie), une seule ligne. */}
+      {ui.echType === 'tous' && <IndicateursACompleter />}
       {/* Couverture minimale des équipes (SST, EPI incendie) : par équipe, à part des échéances de chaque salarié. */}
       {(ui.echType === 'tous' || ui.echType === 'couverture') && <CouverturePanel />}
 

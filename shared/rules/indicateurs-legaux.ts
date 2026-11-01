@@ -96,6 +96,8 @@ export const GROUPES_INDICATEURS = {
 } as const;
 export type GroupeIndicateurs = keyof typeof GROUPES_INDICATEURS;
 export const estGroupeIndicateurs = (v: unknown): v is GroupeIndicateurs => typeof v === 'string' && Object.hasOwn(GROUPES_INDICATEURS, v);
+/** Groupements lus par la BDESE (écran, impression, export) : tous figés par un arrêté annuel (jamais l'équipe). */
+export const GROUPES_BDESE: readonly GroupeIndicateurs[] = ['aucun', 'sexe', 'categorie', 'contrat'];
 
 /** Modalité d'une fiche pour un groupement. L'équipe est celle de la fiche aujourd'hui (Cursus ne garde pas les mutations). */
 export function modaliteDe(e: Employe, g: GroupeIndicateurs): string {
@@ -245,6 +247,13 @@ export const presentA = (e: Pick<Employe, 'entree' | 'fin'>, date: ISODate) => e
 const presentDurant = (e: Pick<Employe, 'entree' | 'fin'>, du: ISODate, au: ISODate) => e.entree <= au && (!e.fin || e.fin >= du);
 /** Intérimaire : salarié de l'entreprise de travail temporaire, hors des effectifs de l'entreprise utilisatrice (sauf L1111-2). */
 const interim = (e: Employe) => e.typeContrat === 'interim';
+
+/**
+ * Fiche à compléter pour les indicateurs (étape 2) : salarié présent à `date`, hors intérimaires (absents des tableaux par
+ * sexe et par catégorie), sans sexe ou sans catégorie d'emploi. Une seule échéance agrégée pour le service RH (« N fiches
+ * sans sexe ou catégorie », écran Échéances) et le filtre « À compléter » de l'annuaire, jamais une échéance par fiche.
+ */
+export const aCompleterIndicateurs = (e: Employe, date: ISODate) => presentA(e, date) && !interim(e) && (!e.sexe || !e.categorie);
 /** CDD ou mission de remplacement d'un salarié absent : exclu de l'effectif L1111-2. */
 const remplacement = (e: Employe) => e.motifRecours === 'remplacement' || e.motifRecours === 'remplacement_suppression';
 
@@ -704,16 +713,22 @@ export function indicateursLegaux(d: Domain, p: ParametresIndicateurs): Indicate
 // — Export CSV (format long) —
 
 export const ENTETE_CSV_INDICATEURS = ['Indicateur', 'Période', 'Dimension', 'Modalité', 'Mesure', 'Valeur', 'Masquée'];
+/** Export de la BDESE (trois années, groupements de GROUPES_BDESE) : la source de chaque ligne en plus (arrêté ou calcul, seuil). */
+export const ENTETE_CSV_BDESE = [...ENTETE_CSV_INDICATEURS, 'Source'];
 const nombreFr = (v: number) => String(v).replace('.', ',');
 
-/** Lignes de l'export CSV : une par case, valeur à la française, « < k » pour une case masquée ; index compris. */
-export function lignesCsvIndicateurs(r: IndicateursLegaux): string[][] {
+/**
+ * Lignes de l'export CSV : une par case, valeur à la française, « < k » pour une case masquée ; index compris, sauf
+ * `index: false` (export de la BDESE : l'index ne dépend pas du groupement, il n'est écrit qu'avec l'ensemble).
+ */
+export function lignesCsvIndicateurs(r: IndicateursLegaux, { index = true }: { index?: boolean } = {}): string[][] {
   const out: string[][] = [];
   const tableau = (t: TableauIndicateur) => t.lignes.forEach((l, i) => t.colonnes.forEach((c, j) => {
     const v = t.cases[i][j];
     out.push([t.titre, r.libelle, t.dimension, l, c, v.masque ? '' : nombreFr(v.valeur ?? 0), v.masque ? `< ${r.seuil}` : '']);
   }));
   r.tableaux.forEach(tableau);
+  if (!index) return out;
   tableau(r.index.effectifs);
   const rm = r.index.retoursMaternite;
   out.push(['Retours de congé de maternité ou d’adoption', `Année ${r.index.annee}`, 'Ensemble', 'Ensemble', 'Retours', rm.masque ? '' : nombreFr(rm.valeur ?? 0), rm.masque ? `< ${r.seuil}` : '']);

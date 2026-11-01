@@ -20,6 +20,8 @@ export const UI_DEPART: UiState = {
   refOnglet: 'formations', tsJour: null, tris: {},
   // lot 11 — organigramme
   orgEntite: null, orgSite: null,
+  // lot 11 — indicateurs
+  indOnglet: 'effectifs', indAnnee: null, indGroupe: 'aucun',
 };
 
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;

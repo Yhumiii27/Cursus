@@ -158,6 +158,7 @@ service worker ni notifications dans sa fenêtre. Journal du serveur :
 | `npm run audit` | Failles connues des dépendances de production (`npm audit`), en échec à partir de la gravité « high » |
 | `npm run mesure` | Taille de l'instantané et durée des actions sur une base temporaire de 100 salariés et 3 ans (`npm run mesure -- 200` : autre effectif) |
 | `npm run charge:generer -- --ans 5` puis `npm run charge -- --scenario S3 --duree 120` | Essai de charge sur PostgreSQL (`CURSUS_TEST_DATABASE_URL` : serveur de test, jamais le serveur commun) : jeu réaliste de 5 ans dans un schéma jetable, scénarios simultanés S1 à S6, rapport et seuils dans `data/charge/rapports/` (`docs/ARCHITECTURE.md`, « Performances ») ; `-- --supprimer` retire les schémas de l'essai ; `--verifier-exactitude [k]` compare en plus, toutes les k actions validées, le cache à la relecture complète (invariant « 0 divergence ») ; `--client-brut` fait lire chaque réponse d'un bloc et la décompresser en une opération (temps du serveur, sans le décodage morceau par morceau de fetch dans la boucle de Cursus) ; `--sans-prechauffage-vues` ne préchauffe que l'entrée du cache |
+| `npm run charge:indicateurs [-- --effectif 500 --ans 3]` | Lot 11 : durée du calcul des indicateurs sociaux (premier calcul, mémoire, onglet BDESE, arrêté) sur une base SQLite temporaire, comparée aux budgets (`docs/ARCHITECTURE.md`, indicateurs sociaux, étape 2) ; code 1 au-delà |
 | `npm run backup` | Copie à chaud vérifiée de la base dans `data/backups`, avec rotation |
 | `npm run restore -- <fichier>` | Remplace la base par une sauvegarde (serveur arrêté) |
 | `DATABASE_URL=… npm run reprise-postgres -- [<base SQLite>] [--a-blanc]` | Reprise d'une base SQLite sur le serveur PostgreSQL commun, une fois, service arrêté ; `--a-blanc` : contrôles et compte rendu sans rien écrire (`docs/DEPLOIEMENT.md`) |
@@ -372,6 +373,17 @@ incrémental ait servi (entrées dérivées par le delta, aucun repli : compteur
   par le service RH (inscription, ligne du plan ou titre en attente défaits). Motif obligatoire, réservé au service RH ;
   rien n'est effacé : une certification ou une ligne supprimée sort des calculs et reste tracée. Une certification sur
   laquelle s'appuie une habilitation délivrée ne se corrige qu'après la suspension de l'habilitation.
+
+## Indicateurs sociaux et BDESE (lot 11)
+
+Écran « Indicateurs sociaux » (service RH et lecture seule) : effectifs, mouvements, absentéisme, formation, âges et
+ancienneté de l'année civile, par sexe, catégorie d'emploi, statut, contrat ou équipe ; BDESE d'une entreprise de moins
+de 300 salariés (art. R2312-9 : rubriques 1° et 2° sur N-2, N-1, N ; 3° à 10° listées avec leur source) et préparation de
+l'index d'égalité (indicateurs 1, 2 et 4 dans Sage et Egapro). Calcul et masquage par le serveur (seuil d'anonymat de 5,
+réglable de 3 à 10, masquage secondaire), graphiques SVG faits maison, impression, export CSV tracé ; arrêté annuel figé
+par l'administrateur RH, mis à disposition du CSE (sans accès à Cursus). Sexe et catégorie saisis sur la fiche par le
+service RH ; une seule échéance « fiches sans sexe ou catégorie ». Détail : `docs/ARCHITECTURE.md`, demandes à Matrix :
+`docs/demandes/matrix-lot11-indicateurs.md`.
 
 ## Contrat et temps de travail
 

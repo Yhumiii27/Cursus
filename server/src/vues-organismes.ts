@@ -8,7 +8,7 @@
 // - Contacts (données de tiers) et tarifs : droit « formations » seulement ; ni la lecture seule, ni la paie, ni le manager,
 //   ni le collaborateur (CHAMPS_HORS_VUES de server/src/vues-cache.ts).
 // - Inscriptions : les siennes pour le collaborateur, celles du périmètre pour le manager, toutes pour le référent HSE et la
-//   lecture seule ; sans aucun motif (correction, annulation) ni inscription annulée hors du service RH.
+//   lecture seule ; sans aucun motif (correction, annulation), ni auteur, ni inscription annulée hors du service RH.
 import type { InscriptionElearning, ModuleElearning, Organisme } from '../../shared/types-organismes.ts';
 import type { ContexteVueProfil, ContexteVueSalarie, Projection } from './vues-lot12.ts';
 
@@ -16,9 +16,12 @@ import type { ContexteVueProfil, ContexteVueSalarie, Projection } from './vues-l
 const ficheSansMotif = (o: Organisme): Organisme => (o.fusionneMotif ? { ...o, fusionneMotif: null } : o);
 /** Module sans le coût d'une licence (donnée commerciale du service RH). */
 const moduleSansCout = (m: ModuleElearning): ModuleElearning => (m.coutLicence != null ? { ...m, coutLicence: null } : m);
-/** Inscriptions en vigueur (une inscription annulée reste au service RH), sans motif de correction ni d'annulation. */
+/**
+ * Inscriptions en vigueur (une inscription annulée reste au service RH), sans motif de correction ni d'annulation, ni les
+ * auteurs (membres du service RH), comme les formations suivies hors du service RH (`suiviesNeutres` de dataset.ts).
+ */
 const inscriptionsNeutres = (l: readonly InscriptionElearning[]): InscriptionElearning[] =>
-  l.filter(i => !i.annuleLe).map(i => (i.corrigeMotif ? { ...i, corrigeMotif: null } : i));
+  l.filter(i => !i.annuleLe).map(i => ({ ...i, inscritPar: null, corrigePar: null, corrigeMotif: null, annulePar: null, annuleMotif: null }));
 
 /** Champs du chantier vus par un manager (son périmètre) ou un collaborateur (les siens). */
 export function organismesVueSalarie(x: ContexteVueSalarie): Projection {

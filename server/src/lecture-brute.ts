@@ -43,7 +43,7 @@ import type {
 import type { AvanceFrais, BaremeKm, ForfaitFrais, LigneFrais, NoteFrais, TauxDevise, VehiculePerso } from '../../shared/types.ts';
 // lot 12 — C4 (organismes de formation et e-learning)
 import type { InscriptionElearning, ModuleElearning, Organisme, OrganismeContact, OrganismeTarif } from '../../shared/types-organismes.ts';
-import { resumeOrganisme } from '../../shared/rules/organismes.ts';
+import { organismePublie, resumeOrganisme } from '../../shared/rules/organismes.ts';
 import type { Db, Fenetre, TableName } from './db.ts';
 import { formatFichierDe } from './lots-paie.ts';
 import { messagerieDe } from './messagerie.ts';
@@ -432,8 +432,12 @@ const referentielsDe = memo((formations: Formation[], habilitations: HabType[], 
   baremesKm: BaremeKm[], forfaitsFrais: ForfaitFrais[], tauxDevises: TauxDevise[]) =>
   ({ formations, habilitations, destinations, postes, equipes, horaires, projets, chantiers, entites, sites, baremesKm, forfaitsFrais, tauxDevises }));
 // lot 12 — C4 (organismes de formation et e-learning) : fiches réduites à leur nom (id, code, nom usuel, type, archivage),
-// fusionnées comprises (pour nommer un ancien rattachement), ajoutées aux référentiels transmis à tous les espaces.
-const avecOrganismes = memo((r: Dataset['referentiels'], organismes: Organisme[]) => ({ ...r, organismes: organismes.map(resumeOrganisme) }));
+// fusionnées comprises (pour nommer un ancien rattachement), ajoutées aux référentiels transmis à tous les espaces ; ni
+// formateur indépendant ni texte repris encore à vérifier, sauf rattachés au catalogue (`organismePublie`).
+const avecOrganismes = memo((r: Dataset['referentiels'], organismes: Organisme[]) => {
+  const catalogue = new Set(r.formations.map(f => f.organismeId).filter((id): id is number => id != null));
+  return { ...r, organismes: organismes.filter(o => organismePublie(o, catalogue)).map(resumeOrganisme) };
+});
 /** lot 11 — organigramme : présents du jour et non anonymisés (`presentsDe`), sur les fiches telles qu'enregistrées. */
 const presentsOrganigrammeDe = memo((lignes: EmpRow[], today: string) => presentsDe(lignes, today));
 // lot 11 — dossiers OPCO : un dossier supprimé (saisie erronée, `opco.supprimer`) sort de l'instantané, avec ses versements.

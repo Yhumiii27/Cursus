@@ -4727,8 +4727,8 @@ documents de l'utilisateur et du RGPD viennent à l'étape 2.
   sur formations, sessions, formations suivies, dossiers OPCO et lignes du plan ; `certifications.organisme` (jusqu'ici
   sur le seul serveur commun, 0002) ajoutée en SQLite, avant la reprise ; origine `elearning` d'une formation suivie.
   PostgreSQL : `server/migrations-pg/0025_organismes_elearning.sql` (structure, clés étrangères, CHECK, index, déclencheurs
-  `revision` et `revision_lignes_*`, commentaires « Sensible » : contacts et tarifs en entier, conditions, motif d'une
-  fusion, avancement et motifs des inscriptions ; demande à Matrix `docs/demandes/matrix-lot12-organismes.sql`). SQLite :
+  `revision` et `revision_lignes_*`, commentaires « Sensible » : contacts et tarifs en entier, SIRET et adresse
+  (personnels pour un formateur indépendant), conditions, motif d'une fusion, avancement et motifs des inscriptions ; demande à Matrix `docs/demandes/matrix-lot12-organismes.sql`). SQLite :
   migrations nommées `lot12-organismes-index` (index des `organisme_id` ; le nom `lot12-organismes` du brief ne passait pas
   la règle des noms à trois parties) et `lot12-elearning-index` (index par salarié, une inscription ouverte par salarié et
   module).
@@ -4739,12 +4739,19 @@ documents de l'utilisateur et du RGPD viennent à l'étape 2.
   ponctuation, formes juridiques), fiches internes à part ; une fiche par clé (graphie la plus fréquente, `source`
   « reprise », `a_verifier`, alias = toutes les graphies), ou la fiche existante qui reçoit les nouvelles graphies ; SIRET,
   déclaration d'activité et Qualiopi des dossiers OPCO repris seulement s'ils concordent, et jamais deux textes de même clé
-  réunis quand leurs dossiers portent des SIRET différents (une fiche par SIRET, conflit compté). Pose des `organisme_id`
-  vides : formations et formations suivies d'après leur texte, puis sessions (celui du catalogue), lignes du plan, dossiers
-  OPCO, formations suivies sans texte. Aucun texte d'origine modifié. Journal `migration.organismes` : compteurs seulement.
+  réunis quand leurs dossiers portent des SIRET différents (une fiche par SIRET, conflit compté ; en conflit, une fiche
+  existante sans SIRET n'accueille un groupe au SIRET connu que si elle reçoit ce SIRET). Pose des `organisme_id` vides :
+  formations et formations suivies d'après leur texte, puis sessions (celui du catalogue) et dossiers OPCO (par leur ligne
+  du plan). Les lignes du plan et les formations suivies sans texte restent sans fiche propre et lisent celle de leur
+  formation (`organismeDuPlan`, `organismeDeSuivie`) : un changement de formation ne garde jamais l'ancien organisme
+  (`plan.modifier` remet aussi à vide une fiche posée). Aucun texte d'origine modifié. Journal `migration.organismes` :
+  compteurs seulement.
 - **Contrat `pub_titres_detenus`** (0011:48) : `formations.organisme` reste et vaut le nom usuel de la fiche rattachée,
   réécrit dans la transaction qui change la fiche (`organisme.enregistrer`), le rattachement
   (`referentiel.formation.enregistrer`, paramètre `organismeId`) ou la fusion ; la vue ne change pas (test sur PostgreSQL).
+  Sans `organismeId` (dialogues actuels, texte seul), la formation et la formation suivie gardent leur fiche tant que le
+  texte la désigne (nom usuel ou alias, `ficheDuTexte`) ; un autre texte les détache, texte gardé, et la reprise du
+  démarrage suivant les rattache : jamais un texte et une fiche qui se contredisent.
 - **Règles pures** : `shared/rules/organismes.ts` (clé, saisie contrôlée de la fiche, des conditions, d'un contact et d'un
   tarif, état Qualiopi à une date et avertissements — jamais un blocage —, déclaration d'activité absente, organisme d'une
   session figé ou du catalogue, d'une ligne du plan, d'une formation suivie, fiche fusionnée suivie, tarif en vigueur,
@@ -4754,13 +4761,16 @@ documents de l'utilisateur et du RGPD viennent à l'étape 2.
   `tests/droits.test.ts`) : droit « formations » pour la fiche, Qualiopi, les contacts, les modules et les inscriptions ;
   service RH pour les conditions, les tarifs et la validation d'une fin ; administrateur RH pour la fusion et l'annulation
   d'une inscription ; le salarié déclare la fin de son propre module. Une session reçoit à sa création l'organisme choisi,
-  sinon celui de la ligne du plan ou du catalogue (`organismeChoisi`), et le garde.
+  sinon celui de la ligne du plan ou du catalogue (`organismeChoisi`), et le garde. Un dossier OPCO reprend SIRET,
+  déclaration d'activité et Qualiopi de la fiche quand ils ne sont pas saisis ; Qualiopi seulement s'il est valide à la date
+  de début (`qualiopiValideLe`). L'aperçu d'un import compte aussi les fins validées d'office.
 - **Instantané** (`server/src/vues-organismes.ts`) : `referentiels.organismes` réduit à {id, code, nomUsuel, type,
-  archive} pour tous ; fiches complètes au service RH, au référent HSE et à la lecture seule (sans le motif d'une fusion) ;
-  contacts et tarifs au droit « formations » seulement (`CHAMPS_HORS_VUES`) ; modules sans leur coût hors du droit
-  « formations » ; inscriptions par salarié (`CHAMPS_PAR_SALARIE` : les siennes, celles du périmètre du manager, toutes
-  pour le référent HSE et la lecture seule), sans motif ni inscription annulée hors du service RH ; rien pour la paie ni la
-  comptabilité. Cache incrémental : `LECTURES` (`referentiels` lit aussi `organismes`), déclencheurs, banc d'oracle
+  archive} pour tous, limité aux fiches du catalogue et aux fiches confirmées (ni formateur indépendant, ni texte libre
+  repris encore à vérifier : `organismePublie`) ; fiches complètes au service RH, au référent HSE et à la lecture seule
+  (sans le motif d'une fusion) ; contacts et tarifs au droit « formations » seulement (`CHAMPS_HORS_VUES`) ; modules
+  sans leur coût hors du droit « formations » ; inscriptions par salarié (`CHAMPS_PAR_SALARIE` : les siennes, celles du
+  périmètre du manager, toutes pour le référent HSE et la lecture seule), sans motif, sans auteur ni inscription annulée
+  hors du service RH ; rien pour la paie ni la comptabilité. Cache incrémental : `LECTURES` (`referentiels` lit aussi `organismes`), déclencheurs, banc d'oracle
   (tirages des actions organisme.* et elearning.*, SQL direct sur les fiches et l'avancement).
 - **Journal** (`server/src/journal-organismes.ts`, ajouté à `REGLES`) : identifiants, codes, dates, statuts, booléens,
   état Qualiopi et sa date, nombre de lignes d'un import, montant d'un tarif ; message neutre pour les fiches (code, jamais
@@ -4769,7 +4779,8 @@ documents de l'utilisateur et du RGPD viennent à l'étape 2.
   « [déclaration d'activité modifiée] ». Familles « Référentiels » (organisme.*, migration.organismes) et « Formations, plan
   et budget » (elearning.*).
 - **Conservation** : inscriptions gardées avec les formations suivies (`textes`, catégorie formations), motifs vidés ;
-  purge de la démonstration : inscriptions, contacts et tarifs vidés, fiches et modules gardés comme le catalogue.
+  purge de la démonstration : inscriptions, contacts, tarifs et modules vidés ; fiches gardées comme le catalogue, sans
+  leurs valeurs fictives (SIRET, déclaration d'activité, Qualiopi et ses dates, coordonnées, conditions) et « à vérifier ».
 - **Réglages** : `organismeAlerteQualiopiJours` (60, premier palier de relance, utilisé à l'étape 2) et
   `elearningFinAutoImport` (désactivé).
 

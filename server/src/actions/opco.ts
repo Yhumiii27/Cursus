@@ -32,7 +32,7 @@ import type { DestinataireVersementOpco, DossierOpco, ISODate, NaturePiece, Plan
 import type { PieceEnregistree } from '../pieces.ts';
 import { ActionError, type ActionHandler, type Ctx, requireRh, requireRhAdmin, str } from './context.ts';
 // lot 12 — C4 : organisme du dossier (fiche), préremplissage.
-import { organismeDuPlan, organismeFinal } from '../../../shared/rules/organismes.ts';
+import { organismeDuPlan, organismeFinal, qualiopiValideLe } from '../../../shared/rules/organismes.ts';
 import { organismeChoisi } from './organismes.ts';
 
 // — Lecture et noms —
@@ -124,7 +124,9 @@ const creer: ActionHandler = async (ctx, p) => {
   // lot 12 — C4 : organisme choisi, sinon celui de la ligne du plan (ou du catalogue) ; SIRET, déclaration d'activité et
   // Qualiopi préremplis depuis sa fiche quand ils ne sont pas saisis (ils restent ce qui est déclaré à l'OPCO).
   const fiche = organismeFinal(ctx.ds.organismes, organismeChoisi(ctx, p.organismeId, organismeDuPlan(ctx.ds, l)?.id));
-  const prerempli: Partial<Record<keyof SaisieOpco, unknown>> = fiche ? { organismeSiret: fiche.siret, organismeNda: fiche.nda, organismeQualiopi: fiche.qualiopi } : {};
+  // Qualiopi : certification en cours de validité à la date de début (à défaut, ce jour) ; échue ou sans date : non déclarée.
+  const debut = typeof p.du === 'string' && isValidDate(p.du) ? p.du : ctx.d.ti;
+  const prerempli: Partial<Record<keyof SaisieOpco, unknown>> = fiche ? { organismeSiret: fiche.siret, organismeNda: fiche.nda, organismeQualiopi: qualiopiValideLe(fiche, debut) } : {};
   const champs = saisie({
     ...Object.fromEntries(CHAMPS_SAISIE.map(k => [k, p[k] === undefined ? prerempli[k] : p[k]])) as unknown as SaisieOpco,
     // Proposés : OPCO et subrogation des réglages, dispositif « plan de développement des compétences ».

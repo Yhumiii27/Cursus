@@ -30,7 +30,7 @@ import type { InscriptionElearning, ModuleElearning } from '../../../shared/type
 import { auteurDe } from '../delivrances.ts';
 import { conformiteActions } from './conformite.ts';
 import {
-  ActionError, type ActionHandler, type Ctx, estSoiMeme, getEmp, refuserSoiMeme, requireFormations, requireRh, requireRhAdmin, REVIENT_FORMATIONS, str,
+  ActionError, type ActionHandler, type Ctx, estSoiMeme, getEmp, refuserSoiMeme, requireFormations, requireRh, requireRhAdmin, REVIENT_RH, str,
 } from './context.ts';
 import { organismeChoisi } from './organismes.ts';
 
@@ -193,7 +193,7 @@ const terminer: ActionHandler = async (ctx, p) => {
   const deja = transition(ctx, i, 'termine', p.de);
   if (deja) return deja;
   const emp = getEmp(ctx, i.empId);
-  refuserSoiMeme(ctx, emp, 'Vous ne validez pas la fin de votre propre module', REVIENT_FORMATIONS);
+  refuserSoiMeme(ctx, emp, 'Vous ne validez pas la fin de votre propre module', REVIENT_RH);
   const termineLe = dateDe(p.termineLe, 'Date de fin', i.inscritLe) ?? ctx.d.ti;
   if (termineLe > ctx.d.ti) throw new ActionError('Date de fin : la date ne peut pas être dans le futur');
   const h = str(String(p.heures ?? '')).replace(',', '.');
@@ -265,7 +265,8 @@ const importer: ActionHandler = async (ctx, p) => {
   const lu = lireImportElearning(texte, ctx.ds, ctx.d.ti);
   if ('refus' in lu) throw new ActionError(lu.refus);
   const apercu = p.apercu === true;
-  const auto = !!ctx.ds.settings.elearningFinAutoImport && !apercu;
+  // Fins d'office comptées aussi à l'aperçu (rien n'y est écrit) : le service RH les voit avant de confirmer l'import.
+  const auto = !!ctx.ds.settings.elearningFinAutoImport;
   let modifiees = 0, inchangees = 0, terminees = 0;
   const erreurs = lu.lignes.filter(l => l.errs.length).map(l => ({ n: l.n, erreurs: l.errs }));
   // État courant de chaque inscription : deux lignes du fichier sur la même inscription s'appliquent l'une après l'autre.
@@ -277,11 +278,10 @@ const importer: ActionHandler = async (ctx, p) => {
     const fin = auto && inscriptionOuverte(i) && finAutomatique(true, moduleDe(ctx, i.moduleId), l) && !estSoiMeme(ctx, i.empId);
     if (!maj && !fin) { inchangees++; continue; }
     modifiees++;
-    if (apercu) continue;
     const apres = { ...i, ...maj };
-    if (maj) await ctx.db.update<InscriptionElearning>('inscriptionsElearning', i.id, maj);
+    if (!apercu && maj) await ctx.db.update<InscriptionElearning>('inscriptionsElearning', i.id, maj);
     if (fin) {
-      await terminerInscription(ctx, apres, { termineLe: l.dateFin ?? ctx.d.ti, heures: null, reussi: true });
+      if (!apercu) await terminerInscription(ctx, apres, { termineLe: l.dateFin ?? ctx.d.ti, heures: null, reussi: true });
       apres.statut = 'termine';
       terminees++;
     }

@@ -91,7 +91,8 @@ test('reprise : textes libres repris en fiches (clé, internes à part, alias), 
     assert.equal((await fiche(r.organisme_id)).nomUsuel, f.organisme);
   }
   assert.equal(Number((await db.one<{ n: number }>('SELECT COUNT(*) AS n FROM sessions WHERE organisme_id IS NULL'))!.n), 0, 'sessions passées : celui du catalogue');
-  assert.equal(Number((await db.one<{ n: number }>('SELECT COUNT(*) AS n FROM plan_actions WHERE f IS NOT NULL AND organisme_id IS NULL'))!.n), 0);
+  // Lignes du plan : sans fiche propre, celle de leur formation (organismeDuPlan) ; un changement de formation la suit.
+  assert.equal(Number((await db.one<{ n: number }>('SELECT COUNT(*) AS n FROM plan_actions WHERE organisme_id IS NOT NULL'))!.n), 0);
   assert.equal((await db.one<{ organisme_id: number }>(`SELECT organisme_id FROM formations_suivies WHERE organisme = 'GRETA Industrie'`))!.organisme_id, await code('GRETA-INDUSTRIE'));
   assert.equal(await repriseNecessaire(db), false);
   assert.equal(await reprendreOrganismes(db), null);
@@ -114,7 +115,7 @@ test('reprise : textes libres repris en fiches (clé, internes à part, alias), 
   await db.insert('formationsSuivies', { empId: 3, f: null, libelle: 'Atelier sécurité', du: '2026-05-04', au: '2026-05-04', duree: 3, organisme: 'apave', obligatoire: false, origine: 'saisie', le: '2026-05-05' });
   assert.equal(await repriseNecessaire(db), true);
   const bilan = await reprendreOrganismes(db);
-  assert.deepEqual(bilan, { fiches: 3, rattachements: 9, alias: 2, conflits: 1, siret: 2, nda: 1, qualiopi: 2 });
+  assert.deepEqual(bilan, { fiches: 3, rattachements: 6, alias: 2, conflits: 1, siret: 2, nda: 1, qualiopi: 2 });
   const bv = (await db.all<Organisme>('organismes', 'id')).filter(o => o.code.startsWith('BUREAU-VERITAS'));
   assert.deepEqual(bv.map(o => [o.code, o.siret, o.nda, o.qualiopi, o.qualiopiValideJusquau, o.aVerifier, o.alias]), [
     ['BUREAU-VERITAS', SIRET_X, '11755468475', true, null, true, ['Bureau Veritas']],
@@ -132,7 +133,7 @@ test('reprise : textes libres repris en fiches (clé, internes à part, alias), 
   const [j] = await journal('migration.organismes');
   assert.deepEqual(j.payload, bilan);
   assert.doesNotMatch(JSON.stringify(j), /Bureau|Veritas|Apave|Institut|55123456|81234567/);
-  assert.match(j.message, /^Reprise des organismes de formation : 3 fiches créées \(à vérifier\), 9 rattachements, 1 conflit de SIRET/);
+  assert.match(j.message, /^Reprise des organismes de formation : 3 fiches créées \(à vérifier\), 6 rattachements, 1 conflit de SIRET/);
   // Rejouée : rien ; au démarrage aussi (mettreAJourBase, deux moteurs).
   assert.equal(await repriseNecessaire(db), false);
   assert.equal(await reprendreOrganismes(db), null);
@@ -142,6 +143,32 @@ test('reprise : textes libres repris en fiches (clé, internes à part, alias), 
   // Base neuve : rien à reprendre.
   const vide = await nouvelleBase();
   assert.equal(await repriseNecessaire(vide), false);
+});
+
+test('reprise : deux SIRET sur la clé d’une fiche saisie sans SIRET — jamais réunis dans cette fiche', async () => {
+  const { db, u, run } = await fresh();
+  // Fiche saisie (source « saisie », sans SIRET) : elle ne reçoit pas de SIRET à la reprise.
+  const saisie = (await run(u.gest, 'organisme.enregistrer', { nomUsuel: 'Bureau Veritas' })).result.id as number;
+  for (const [f, texte, siret] of [['bv1', 'Bureau Veritas', SIRET_X], ['bv2', 'BUREAU VERITAS SA', SIRET_Y], ['bv3', 'Bureau Veritas', null]] as const) {
+    await db.insert('formations', { ...FORMATIONS[0], id: f, nom: `Formation ${f}`, court: f, organisme: texte, organismeId: null });
+    const l = await db.insert<{ id: number }>('planActions', { exercice: 2026, f, libelle: null, equipe: 'Maintenance', periode: 'T4', effectif: 1, cout: 100, statut: 'prevu', origine: null });
+    await db.insert('dossiersOpco', {
+      planActionId: l.id, empId: null, exercice: 2026, opco: 'opco2i', dispositif: 'plan', statut: 'a_deposer', subrogation: false, organismeSiret: siret, organismeNda: null,
+      organismeQualiopi: false, creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Reprise',
+    });
+  }
+  const bilan = (await reprendreOrganismes(db))!;
+  assert.equal(bilan.conflits, 1);
+  const lien = async (f: string) => Number((await db.one<{ organisme_id: number }>('SELECT organisme_id FROM formations WHERE id = ?', [f]))!.organisme_id);
+  const [x, y, sans] = [await lien('bv1'), await lien('bv2'), await lien('bv3')];
+  assert.equal(new Set([x, y, sans]).size, 3, 'une fiche par SIRET, la fiche saisie pour le texte sans SIRET');
+  assert.equal(sans, saisie);
+  const siretDe = async (id: number) => (await db.get<Organisme>('organismes', id))!.siret;
+  assert.deepEqual([await siretDe(x), await siretDe(y), await siretDe(saisie)], [SIRET_X, SIRET_Y, null]);
+  // Dossiers OPCO : chacun sur la fiche de sa formation.
+  const dossiers = await db.query<{ f: string; organisme_id: number }>('SELECT p.f AS f, d.organisme_id AS organisme_id FROM dossiers_opco d JOIN plan_actions p ON p.id = d.plan_action_id WHERE p.f IN (\'bv1\', \'bv2\', \'bv3\') ORDER BY p.f');
+  assert.deepEqual(dossiers.map(d => [d.f, Number(d.organisme_id)]), [['bv1', x], ['bv2', y], ['bv3', saisie]]);
+  assert.equal(await repriseNecessaire(db), false);
 });
 
 test('formations.organisme tenu à jour dans la même transaction (contrat pub_titres_detenus) : renommage, rattachement, fusion', async () => {
@@ -154,9 +181,17 @@ test('formations.organisme tenu à jour dans la même transaction (contrat pub_t
   assert.deepEqual(await organismeFormation('atex'), { organisme: 'APAVE Sud Europe', organisme_id: sud });
   await run(u.hse, 'referentiel.formation.enregistrer', { ...FORMATIONS.find(f => f.id === 'aipr'), id: 'aipr', organisme: 'Prestataire libre', organismeId: '' });
   assert.deepEqual(await organismeFormation('aipr'), { organisme: 'Prestataire libre', organisme_id: null });
-  // Champ absent : rattachement gardé, texte saisi remplacé par le nom de la fiche.
-  await run(u.hse, 'referentiel.formation.enregistrer', { ...FORMATIONS.find(f => f.id === 'elec'), id: 'elec', organisme: 'Autre texte' });
+  // Champ absent (dialogue sans sélecteur) : rattachement gardé tant que le texte désigne la fiche (nom usuel ou alias, nom
+  // usuel réécrit) ; un autre texte détache la formation, texte saisi gardé (repris au démarrage suivant).
+  await run(u.hse, 'referentiel.formation.enregistrer', { ...FORMATIONS.find(f => f.id === 'elec'), id: 'elec', organisme: 'Apave Formation' });
   assert.deepEqual(await organismeFormation('elec'), { organisme: 'Apave Formation', organisme_id: apave });
+  await run(u.hse, 'referentiel.formation.enregistrer', { ...FORMATIONS.find(f => f.id === 'elec'), id: 'elec', organisme: 'APAVE' });
+  assert.deepEqual(await organismeFormation('elec'), { organisme: 'Apave Formation', organisme_id: apave }, 'alias : même fiche');
+  await run(u.hse, 'referentiel.formation.enregistrer', { ...FORMATIONS.find(f => f.id === 'elec'), id: 'elec', organisme: 'Socotec' });
+  assert.deepEqual(await organismeFormation('elec'), { organisme: 'Socotec', organisme_id: null }, 'texte saisi gardé, jamais contredit par la fiche');
+  await reprendreOrganismes(db);
+  assert.deepEqual(await organismeFormation('elec'), { organisme: 'Socotec', organisme_id: await code('SOCOTEC') }, 'repris au démarrage suivant');
+  await run(u.hse, 'referentiel.formation.enregistrer', { ...FORMATIONS.find(f => f.id === 'elec'), id: 'elec', organismeId: apave });
   // Fusion : la formation rattachée à la fiche absorbée prend la fiche qui reste et son nom.
   const r = await run(u.admin, 'organisme.fusionner', { source: sud, cible: apave, motif: 'Agence saisie deux fois', objets: 1 });
   assert.match(r.message!, /^« APAVE Sud Europe » fusionné dans « Apave Formation » — 1 objet réaffecté · nom repris par 1 formation du catalogue$/);
@@ -244,6 +279,13 @@ test('dossier OPCO prérempli par la fiche de la ligne du plan ; formation suivi
   const fco = (await db.one<{ id: number }>(`SELECT id FROM plan_actions WHERE f = 'fco' AND statut = 'prevu'`))!.id;
   const d1 = (await run(u.gest, 'opco.creer', { planActionId: fco, du: '2026-11-16', au: '2026-11-17' })).result.id as number;
   const d2 = (await run(u.gest, 'opco.creer', { planActionId: fco, organismeId: apave, organismeQualiopi: false })).result.id as number;
+  // Qualiopi d'AFTRAL valable jusqu'au 30 novembre 2026 : échu à la date de début, il n'est pas déclaré ; sans date de
+  // validité (fiche reprise), non plus.
+  const d3 = (await run(u.gest, 'opco.creer', { planActionId: fco, du: '2026-12-07', au: '2026-12-08' })).result.id as number;
+  assert.equal(!!(await db.one<{ q: unknown }>('SELECT organisme_qualiopi AS q FROM dossiers_opco WHERE id = ?', [d3]))!.q, false, 'Qualiopi échu au début : non déclaré');
+  await db.run('UPDATE organismes SET qualiopi_valide_jusquau = NULL WHERE id = ?', [aftral]);
+  const d4 = (await run(u.gest, 'opco.creer', { planActionId: fco, du: '2026-11-16' })).result.id as number;
+  assert.equal(!!(await db.one<{ q: unknown }>('SELECT organisme_qualiopi AS q FROM dossiers_opco WHERE id = ?', [d4]))!.q, false, 'sans date de validité : non déclaré');
   const dossier = async (id: number) => ({ ...(await db.one<Record<string, unknown>>('SELECT organisme_id, organisme_siret, organisme_nda, organisme_qualiopi FROM dossiers_opco WHERE id = ?', [id]))! });
   assert.deepEqual({ ...await dossier(d1), organisme_qualiopi: !!(await dossier(d1)).organisme_qualiopi }, { organisme_id: aftral, organisme_siret: '44712345000002', organisme_nda: '11930567893', organisme_qualiopi: true });
   assert.deepEqual({ ...await dossier(d2), organisme_qualiopi: !!(await dossier(d2)).organisme_qualiopi }, { organisme_id: apave, organisme_siret: '77568516000001', organisme_nda: '11755468475', organisme_qualiopi: false }, 'saisie gardée');
@@ -256,6 +298,32 @@ test('dossier OPCO prérempli par la fiche de la ligne du plan ; formation suivi
   await run(u.hse, 'formationSuivie.modifier', { id: x, organismeId: aftral, motif: 'Organisme corrigé' });
   assert.deepEqual(await suivie(), { organisme: 'AFTRAL', organisme_id: aftral });
   await refus(u.hse, 'formationSuivie.modifier', { id: x, organismeId: 999, motif: 'x' }, /Organisme inconnu/);
+  // Texte seul (dialogue actuel) : fiche gardée si le texte la désigne encore, sinon détachée (jamais contredite).
+  await run(u.hse, 'formationSuivie.modifier', { id: x, organisme: 'Aftral', duree: 15, motif: 'Durée corrigée' });
+  assert.deepEqual(await suivie(), { organisme: 'Aftral', organisme_id: aftral });
+  await run(u.hse, 'formationSuivie.modifier', { id: x, organisme: 'AFPA Strasbourg', motif: 'Organisme corrigé' });
+  assert.deepEqual(await suivie(), { organisme: 'AFPA Strasbourg', organisme_id: null });
+  // Démonstration : formation suivie de Mehdi Benali, « GRETA Industrie » corrigé sans sélecteur.
+  const greta = (await db.one<{ id: number }>(`SELECT id FROM formations_suivies WHERE organisme = 'GRETA Industrie'`))!.id;
+  await run(u.hse, 'formationSuivie.modifier', { id: greta, organisme: 'AFPA Strasbourg', motif: 'Organisme corrigé' });
+  assert.equal((await db.one<{ organisme_id: number | null }>('SELECT organisme_id FROM formations_suivies WHERE id = ?', [greta]))!.organisme_id, null);
+});
+
+test('ligne du plan : organisme lu sur sa formation ; une autre formation, un autre organisme (session, dossier OPCO)', async () => {
+  const { db, u, run, code } = await fresh();
+  const aftral = await code('AFTRAL'), croixRouge = await code('CROIX-ROUGE-FRANCAISE');
+  const l = (await db.one<{ id: number; organisme_id: number | null }>(`SELECT id, organisme_id FROM plan_actions WHERE f = 'fco' AND statut = 'prevu' ORDER BY id LIMIT 1`))!;
+  assert.equal(l.organisme_id, null, 'pas figée par la reprise');
+  // Ligne d'une base qui porterait encore l'organisme de son ancienne formation : remis à celui du catalogue.
+  await db.run('UPDATE plan_actions SET organisme_id = ? WHERE id = ?', [aftral, l.id]);
+  await run(u.gest, 'plan.modifier', { id: l.id, f: 'sst', motif: 'Formation corrigée' });
+  assert.equal((await db.one<{ organisme_id: number | null }>('SELECT organisme_id FROM plan_actions WHERE id = ?', [l.id]))!.organisme_id, null);
+  const d = (await run(u.gest, 'opco.creer', { planActionId: l.id })).result.id as number;
+  assert.equal(Number((await db.one<{ organisme_id: number }>('SELECT organisme_id FROM dossiers_opco WHERE id = ?', [d]))!.organisme_id), croixRouge);
+  const s = (await run(u.gest, 'session.creer', { f: 'sst', date: '2026-12-03', lieu: 'Site de Lyon', places: 8, planId: l.id })).result.id as number;
+  assert.equal(Number((await db.one<{ organisme_id: number }>('SELECT organisme_id FROM sessions WHERE id = ?', [s]))!.organisme_id), croixRouge);
+  // Démarrage suivant : rien à reprendre, aucune nouvelle entrée au journal.
+  assert.equal(await repriseNecessaire(db), false);
 });
 
 test('contacts (droit « formations ») et tarifs (service RH) : un seul contact principal, retrait par archivage', async () => {
@@ -362,8 +430,12 @@ test('import d’avancement : aperçu sans effet, lignes valides appliquées, id
   assert.equal((await run(u.hse, 'elearning.importer', { texte: fichier })).message, '3 lignes lues : 0 inscription mise à jour, 2 inchangées, 1 ligne en erreur');
   await refus(u.hse, 'elearning.importer', { texte: 'matricule;module;durée de connexion\nEMP-0002;RGPD-EL;3h' }, /Colonne non admise.*aucun temps de connexion/);
   await refus(u.karim, 'elearning.importer', { texte: fichier }, /référent HSE/, 403);
-  // Réglage : fin validée d'office pour un module sans attestation exigée (« terminé » et « réussi »).
+  // Réglage : fin validée d'office pour un module sans attestation exigée (« terminé » et « réussi ») ; annoncée dès l'aperçu.
   await reglages({ elearningFinAutoImport: true });
+  const apercuFin = await run(u.gest, 'elearning.importer', { texte: 'matricule;module;statut;réussite\nEMP-0006;RGPD-EL;terminé;oui\nEMP-0003;ATEX-THEO;terminé;oui', apercu: true });
+  assert.equal(apercuFin.message, 'Aperçu — 2 lignes lues : 2 inscriptions mises à jour, 1 fin validée d’office (rien n’est enregistré)');
+  assert.equal(apercuFin.result.terminees, 1);
+  assert.equal((await lireInscription(await inscription(6, 'RGPD-EL'))).statut, 'en_cours', 'aperçu : rien n’est écrit');
   const fin = await run(u.gest, 'elearning.importer', { texte: 'matricule;module;statut;réussite\nEMP-0006;RGPD-EL;terminé;oui\nEMP-0003;ATEX-THEO;terminé;oui' });
   assert.equal(fin.message, '2 lignes lues : 2 inscriptions mises à jour, 1 fin validée d’office');
   assert.equal((await lireInscription(await inscription(6, 'RGPD-EL'))).statut, 'termine');
@@ -415,16 +487,22 @@ test('instantané : nom réduit pour tous ; fiches, contacts et tarifs selon le 
   const { db, u, run, code, inscription } = await fresh();
   await run(u.admin, 'organisme.fusionner', { source: await code('APAVE-SUD'), cible: await code('APAVE'), motif: 'Doublon' });
   await run(u.hse, 'elearning.corriger', { id: await inscription(2, 'RGPD-EL'), echeance: '2026-12-31', motif: 'Motif à garder au service RH' });
+  await run(u.hse, 'organisme.enregistrer', { nomUsuel: 'Jean Dupont, coach', type: 'independant' });
   const rh = await buildSnapshot(db, u.gest);
   assert.equal(rh.organismes!.find(o => o.code === 'APAVE-SUD')!.fusionneMotif, 'Doublon');
   assert.ok(rh.organismeContacts!.length && rh.organismeTarifs!.length && rh.modulesElearning!.some(m => m.coutLicence === 45));
   assert.equal(rh.inscriptionsElearning!.find(i => i.empId === 2)!.corrigeMotif, 'Motif à garder au service RH');
+  // Référentiels de tous les espaces : fiches du catalogue et fiches confirmées ; ni formateur indépendant, ni texte libre
+  // d'une formation suivie repris et encore à vérifier (« GRETA Industrie », saisi sur la seule formation de Mehdi Benali).
+  // APAVE-SUD : fusionnée par l'administrateur RH (plus à vérifier), nommée pour ses anciens rattachements.
+  const publiees = ['AFTRAL', 'APAVE', 'APAVE-SUD', 'CROIX-ROUGE-FRANCAISE', 'INRS', 'INTERNE-DSI', 'INTERNE-HSE', 'SOCOTEC'];
   for (const user of [u.gest, u.hse, u.lecture, u.paie, u.karim, u.hugo, u.mehdi]) {
     const s = await buildSnapshot(db, user);
     const nom = `${user.role} ${user.profilRh ?? user.nom}`;
     assert.deepEqual(Object.keys(s.referentiels.organismes![0]).sort(), ['archive', 'code', 'id', 'nomUsuel', 'type'], nom);
-    assert.equal(s.referentiels.organismes!.length, rh.organismes!.length, nom);
+    assert.deepEqual(s.referentiels.organismes!.map(o => o.code).sort(), publiees, nom);
   }
+  assert.ok((await buildSnapshot(db, u.gest)).organismes!.some(o => o.code === 'GRETA-INDUSTRIE'), 'service RH : toutes les fiches');
   const hse = await buildSnapshot(db, u.hse);
   assert.equal(hse.organismes!.length, rh.organismes!.length);
   assert.equal(hse.organismes!.find(o => o.code === 'APAVE-SUD')!.fusionneMotif, null);
@@ -445,6 +523,9 @@ test('instantané : nom réduit pour tous ; fiches, contacts et tarifs selon le 
   assert.deepEqual((await buildSnapshot(db, u.hugo)).inscriptionsElearning, []);
   const mehdi = await buildSnapshot(db, u.mehdi);
   assert.deepEqual(mehdi.inscriptionsElearning!.map(i => i.empId), [2]);
+  // Auteurs (membres du service RH) retirés hors du service RH, comme dans la copie de ses données.
+  assert.ok(rh.inscriptionsElearning!.some(i => i.inscritPar));
+  for (const s of [mehdi, karim, hse, lecture]) assert.ok(s.inscriptionsElearning!.every(i => i.inscritPar === null && i.corrigePar === null && i.annulePar === null));
   assert.deepEqual([mehdi.organismes, mehdi.organismeContacts, mehdi.organismeTarifs], [[], [], []]);
   // Inscription annulée : service RH seulement.
   await db.run(`UPDATE inscriptions_elearning SET annule_le = '2026-10-10', annule_par = 'Essai', annule_motif = 'Doublon' WHERE emp_id = 3`);

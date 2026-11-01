@@ -12,9 +12,10 @@
 //    (une fiche par SIRET, plus une pour les textes sans SIRET, toutes « à vérifier » : conflit compté).
 // 4. Une fiche par groupe (nom le plus fréquent, `source` « reprise », `a_verifier`, alias = toutes les graphies vues), ou
 //    la fiche existante de même clé (SIRET compatible), qui reçoit les nouvelles graphies en alias.
-// 5. Pose des `organisme_id` encore vides : formations et formations suivies d'après leur texte, puis sessions, lignes du
-//    plan et dossiers OPCO d'après leur formation (les sessions passées reçoivent celui du catalogue, seule information
-//    disponible), formations suivies sans texte d'après leur formation. Aucun texte d'origine n'est modifié ni effacé.
+// 5. Pose des `organisme_id` encore vides : formations et formations suivies d'après leur texte, puis sessions et dossiers
+//    OPCO d'après leur formation (les sessions passées reçoivent celui du catalogue, seule information disponible). Les
+//    lignes du plan et les formations suivies sans texte restent sans fiche : elles lisent celle de leur formation.
+//    Aucun texte d'origine n'est modifié ni effacé.
 // 6. Journal `migration.organismes` : compteurs seulement (jamais un nom, un SIRET ou un alias).
 // Ensuite, l'écran « À vérifier » confirme chaque fiche (`organisme.verifier`) ou fusionne les doublons
 // (`organisme.fusionner`, administrateur RH, motif).
@@ -36,32 +37,29 @@ export interface BilanRepriseOrganismes {
 type Ligne = Record<string, unknown>;
 const n = (v: unknown) => Number(v ?? 0);
 
-/** Lignes qui désignent leur organisme par leur formation (catalogue) : propagation de son `organisme_id`. */
-const PROPAGATIONS: readonly { table: string; ou: string; sql: string }[] = [
+/**
+ * Lignes figées qui désignent leur organisme par leur formation (catalogue) : propagation de son `organisme_id`. Sessions
+ * passées (celui du catalogue, figé) et dossiers OPCO (par leur ligne du plan, puis sa formation) seulement : les lignes du
+ * plan et les formations suivies sans texte restent sans fiche (`organismeDuPlan` et `organismeDeSuivie` lisent alors celle
+ * de leur formation), pour qu'un changement de formation (`plan.modifier`, `formationSuivie.modifier`) ne garde jamais
+ * l'organisme de l'ancienne.
+ */
+const PROPAGATIONS: readonly { table: string; sql: string }[] = [
   {
-    table: 'sessions', ou: 's.organisme_id IS NULL AND f.organisme_id IS NOT NULL',
+    table: 'sessions',
     sql: 'UPDATE sessions SET organisme_id = (SELECT f.organisme_id FROM formations f WHERE f.id = sessions.formation) WHERE organisme_id IS NULL AND formation IN (SELECT id FROM formations WHERE organisme_id IS NOT NULL)',
   },
   {
-    table: 'plan_actions', ou: 'p.organisme_id IS NULL AND f.organisme_id IS NOT NULL',
-    sql: 'UPDATE plan_actions SET organisme_id = (SELECT f.organisme_id FROM formations f WHERE f.id = plan_actions.f) WHERE organisme_id IS NULL AND f IN (SELECT id FROM formations WHERE organisme_id IS NOT NULL)',
-  },
-  {
-    table: 'formations_suivies', ou: 'x.organisme_id IS NULL AND (x.organisme IS NULL OR x.organisme = \'\') AND f.organisme_id IS NOT NULL',
-    sql: `UPDATE formations_suivies SET organisme_id = (SELECT f.organisme_id FROM formations f WHERE f.id = formations_suivies.f)
-      WHERE organisme_id IS NULL AND (organisme IS NULL OR organisme = '') AND f IN (SELECT id FROM formations WHERE organisme_id IS NOT NULL)`,
-  },
-  {
-    table: 'dossiers_opco', ou: 'd.organisme_id IS NULL AND p.organisme_id IS NOT NULL',
-    sql: 'UPDATE dossiers_opco SET organisme_id = (SELECT p.organisme_id FROM plan_actions p WHERE p.id = dossiers_opco.plan_action_id) WHERE organisme_id IS NULL AND plan_action_id IN (SELECT id FROM plan_actions WHERE organisme_id IS NOT NULL)',
+    table: 'dossiers_opco',
+    sql: `UPDATE dossiers_opco SET organisme_id = (SELECT COALESCE(p.organisme_id, f.organisme_id) FROM plan_actions p LEFT JOIN formations f ON f.id = p.f WHERE p.id = dossiers_opco.plan_action_id)
+      WHERE organisme_id IS NULL AND plan_action_id IN (SELECT p.id FROM plan_actions p LEFT JOIN formations f ON f.id = p.f WHERE COALESCE(p.organisme_id, f.organisme_id) IS NOT NULL)`,
   },
 ];
 /** Requêtes de comptage de ce qui reste à propager (`necessaire`). */
 const RESTE: readonly string[] = [
   'SELECT COUNT(*) AS n FROM sessions s JOIN formations f ON f.id = s.formation WHERE s.organisme_id IS NULL AND f.organisme_id IS NOT NULL',
-  'SELECT COUNT(*) AS n FROM plan_actions p JOIN formations f ON f.id = p.f WHERE p.organisme_id IS NULL AND f.organisme_id IS NOT NULL',
-  `SELECT COUNT(*) AS n FROM formations_suivies x JOIN formations f ON f.id = x.f WHERE x.organisme_id IS NULL AND (x.organisme IS NULL OR x.organisme = '') AND f.organisme_id IS NOT NULL`,
-  'SELECT COUNT(*) AS n FROM dossiers_opco d JOIN plan_actions p ON p.id = d.plan_action_id WHERE d.organisme_id IS NULL AND p.organisme_id IS NOT NULL',
+  `SELECT COUNT(*) AS n FROM dossiers_opco d JOIN plan_actions p ON p.id = d.plan_action_id LEFT JOIN formations f ON f.id = p.f
+    WHERE d.organisme_id IS NULL AND COALESCE(p.organisme_id, f.organisme_id) IS NOT NULL`,
 ];
 
 /** Texte libre à rattacher : formation du catalogue, formation suivie ou certification (cette dernière sans colonne de fiche). */
@@ -158,7 +156,10 @@ export async function executerReprise(db: Db, o: { journal?: boolean } = {}): Pr
       const graphies = [...new Set(g.occ.map(o => o.texte))].sort((a, b) => a.localeCompare(b, 'fr'));
       // Fiche existante de même clé, au SIRET compatible (le même d'abord, puis sans SIRET) ; jamais une au SIRET différent.
       // En conflit, les textes sans SIRET ne rejoignent qu'une fiche sans SIRET (jamais celle d'un autre groupe de la clé).
-      const compatible = (o: Organisme) => (g.siret ? !o.siret || o.siret === g.siret : !g.conflit || !o.siret);
+      // En conflit, un groupe au SIRET connu ne rejoint une fiche sans SIRET que si elle reçoit ce SIRET (fiche de la reprise
+      // encore à vérifier, SIRET libre) : sinon (fiche saisie ou vérifiée) les groupes de SIRET différents s'y réuniraient.
+      const recoitSiret = (o: Organisme) => o.aVerifier && o.source === 'reprise' && !o.siret && !!g.siret && !sirets.has(g.siret);
+      const compatible = (o: Organisme) => (g.siret ? o.siret === g.siret || (!o.siret && (!g.conflit || recoitSiret(o))) : !g.conflit || !o.siret);
       const candidates = existantes.filter(f => f.cles.has(cle) && compatible(f.o))
         .sort((a, b) => Number(b.o.siret === g.siret) - Number(a.o.siret === g.siret) || Number(!a.o.siret) - Number(!b.o.siret) || a.o.id - b.o.id);
       let fiche = candidates[0]?.o ?? null;
@@ -208,8 +209,7 @@ export async function executerReprise(db: Db, o: { journal?: boolean } = {}): Pr
       }
     }
   }
-  // Objets désignés par leur formation : sessions (celui du catalogue, figé), lignes du plan, formations suivies sans texte,
-  // dossiers OPCO (par leur ligne du plan).
+  // Objets figés désignés par leur formation : sessions (celui du catalogue) et dossiers OPCO (par leur ligne du plan).
   for (const p of PROPAGATIONS) bilan.rattachements += n((await db.run(p.sql)).changes);
   if (o.journal !== false && (bilan.fiches || bilan.rattachements || bilan.alias)) {
     await journaliser(db, {

@@ -299,6 +299,12 @@ async function appliquer(db: Db, options: OptionsPurge, attendus: number | null,
   if (signataires.length) {
     compter(ajustees, 'habilitations', (await db.run(`UPDATE habilitations SET signataire = '' WHERE id IN (${signataires.map(() => '?').join(', ')})`, signataires)).changes);
   }
+  // lot 12 — C4 : fiches des organismes gardées remises « à vérifier », sans Qualiopi ni subrogation déclarés (valeurs
+  //    fictives de la démonstration ; SIRET, déclaration d'activité et dates remis à NULL ci-dessus).
+  if (plan.tables.organismes.sort === 'ajuster') {
+    compter(ajustees, 'organismes', (await db.run(`UPDATE organismes SET a_verifier = TRUE, qualiopi = FALSE, qualiopi_categories = '[]', subrogation_acceptee = FALSE
+      WHERE NOT a_verifier OR qualiopi OR subrogation_acceptee`)).changes);
+  }
   // 2. Réglages retirés (remis à leur valeur par défaut).
   const cles = plan.reglagesSupprimes === '*' ? a.reglages.supprimes : a.reglages.supprimes.filter(k => plan.reglagesSupprimes.includes(k));
   if (plan.tables.settings.sort === 'ajuster') {

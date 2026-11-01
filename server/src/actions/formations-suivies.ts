@@ -13,14 +13,15 @@ import type { Employe, FormationSuivie, OrigineFormationSuivie, PlanAction } fro
 import { auteurDe } from '../delivrances.ts';
 import { ActionError, type ActionHandler, type Ctx, getEmp, refuserSoiMeme, requireFormations, requireRhAdmin, str } from './context.ts';
 // lot 12 — C4 : organisme choisi dans le référentiel (fiche) ; le texte libre reste admis hors catalogue.
-import { organismeChoisi } from './organismes.ts';
+import { ficheDuTexte, organismeChoisi } from './organismes.ts';
 
 /**
  * lot 12 — C4 : `organismeId` reçu (vide : aucune fiche, texte libre) ; une fiche choisie donne son nom usuel au texte
- * `organisme`. Absent : rien ne change (`null` à la saisie).
+ * `organisme`. Absent : la fiche d'avant, tant que le texte la désigne (nom usuel ou alias), sinon aucune (`null` à la saisie).
  */
 function organismeDeLaSaisie(ctx: Ctx, p: Record<string, any>, texte: string | null, avant: number | null = null): { organismeId: number | null; organisme: string | null } {
-  if (p.organismeId === undefined) return { organismeId: avant, organisme: texte };
+  // Texte seul (dialogue sans sélecteur) : fiche gardée s'il la désigne encore, sinon détachée (texte saisi gardé).
+  if (p.organismeId === undefined) return { organismeId: ficheDuTexte(ctx, avant, texte), organisme: texte };
   const organismeId = organismeChoisi(ctx, p.organismeId, avant);
   const fiche = organismeId == null ? null : (ctx.ds.organismes ?? []).find(o => o.id === organismeId);
   return { organismeId, organisme: fiche ? fiche.nomUsuel : texte };

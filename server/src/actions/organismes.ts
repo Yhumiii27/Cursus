@@ -20,7 +20,8 @@
 import { plural } from '../../../shared/format.ts';
 import { erreurMotifCorrection } from '../../../shared/rules/corrections.ts';
 import {
-  aliasApresFusion, controlerConditions, controlerContact, controlerOrganisme, controlerTarif, organismeActif, rattachementsDe, refusFusion, type Rattachements,
+  aliasApresFusion, cleOrganisme, clesFiche, controlerConditions, controlerContact, controlerOrganisme, controlerTarif, organismeActif, organismeFinal, rattachementsDe,
+  refusFusion, type Rattachements,
 } from '../../../shared/rules/organismes.ts';
 import type { Organisme, OrganismeContact, OrganismeTarif } from '../../../shared/types-organismes.ts';
 import { ActionError, type ActionHandler, type Ctx, requireFormations, requireRh, requireRhAdmin, str } from './context.ts';
@@ -62,6 +63,18 @@ export function organismeChoisi(ctx: Pick<Ctx, 'ds'>, v: unknown, defaut: number
   if (!o) throw new ActionError('Organisme inconnu');
   if (!organismeActif(o) && o.id !== final(defaut)) throw new ActionError(`${o.nomUsuel} : organisme archivé ou fusionné, choisissez-en un autre`);
   return o.id;
+}
+
+/**
+ * Fiche gardée quand un dialogue envoie seulement le texte de l'organisme (`organismeId` absent) : celle d'avant, si le
+ * texte la désigne encore (même clé que son nom usuel ou l'un de ses alias) ; sinon aucune (null), le texte saisi est gardé
+ * et la reprise du démarrage suivant le rattache à la bonne fiche, ou en crée une « à vérifier ». Jamais un texte et une
+ * fiche qui se contredisent.
+ */
+export function ficheDuTexte(ctx: Pick<Ctx, 'ds'>, avant: number | null | undefined, texte: string | null | undefined): number | null {
+  const fiche = organismeFinal(ctx.ds.organismes, avant);
+  const cle = cleOrganisme(texte);
+  return fiche && cle && clesFiche(fiche).has(cle) ? fiche.id : null;
 }
 
 /** Nom usuel de la fiche recopié dans `formations.organisme` des formations rattachées (contrat pub_titres_detenus). */

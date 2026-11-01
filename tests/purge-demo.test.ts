@@ -660,6 +660,23 @@ test('purge : signataires fictifs du référentiel des habilitations vidés, aut
   assert.deepEqual((await apercuPurge(await demo(), { ...OPTIONS, garder: 'rien' })).signataires, []);
 });
 
+test('purge : fiches des organismes gardées sans leurs valeurs fictives et « à vérifier », modules de démonstration retirés (lot 12, C4)', async () => {
+  const db = await demoPurge();
+  assert.ok(Number((await db.one<{ n: number }>('SELECT COUNT(*) AS n FROM organismes WHERE siret IS NOT NULL OR qualiopi'))!.n) > 0, 'jeu : SIRET et Qualiopi fictifs');
+  const b = await executerPurge(db, OUI, SANS_COPIE);
+  assert.ok(b.statut === 'faite');
+  if (b.statut !== 'faite') return;
+  const fiches = await db.all<import('../shared/types-organismes.ts').Organisme>('organismes', 'id');
+  assert.ok(fiches.length >= 7, 'fiches reprises du catalogue gardé');
+  for (const o of fiches) {
+    assert.deepEqual([o.siret, o.nda, o.ndaRegion, o.raisonSociale, o.qualiopi, o.qualiopiCategories, o.qualiopiValideJusquau, o.qualiopiVerifieLe, o.siteWeb, o.adresse, o.conditions, o.subrogationAcceptee, o.aVerifier],
+      [null, null, null, null, false, [], null, null, null, null, null, false, true], o.code);
+  }
+  assert.ok(Number((await db.one<{ n: number }>(`SELECT COUNT(*) AS n FROM formations WHERE organisme_id IS NOT NULL`))!.n) > 0, 'rattachements du catalogue gardés');
+  assert.deepEqual([await db.count('modulesElearning'), await db.count('inscriptionsElearning'), await db.count('organismeContacts'), await db.count('organismeTarifs')], [0, 0, 0, 0]);
+  assert.equal((await controlerOrphelins(db)).orphelins, 0);
+});
+
 test('purge : un échec après la validation (compactage) est noté dans le bilan, sans être pris pour un refus', { skip: PG && 'compactage propre au fichier SQLite' }, async () => {
   const db = await demoPurge();
   const exec = db.exec.bind(db);

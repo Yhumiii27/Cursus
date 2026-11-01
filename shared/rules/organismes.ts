@@ -125,6 +125,16 @@ export function organismeDeSuivie(ds: Pick<Dataset, 'organismes' | 'referentiels
   return !x.organisme && x.f ? organismeDeFormation(ds, ds.referentiels.formations.find(f => f.id === x.f)) : null;
 }
 
+/**
+ * Fiche nommée dans les référentiels transmis à tous les espaces (`referentiels.organismes`) : celle d'une formation du
+ * catalogue (son nom y figure déjà), sinon une fiche qui n'est ni un formateur indépendant (personne physique) ni un texte
+ * libre repris encore à vérifier (une formation suivie peut nommer une personne ou révéler une formation individuelle).
+ * Le service RH, le référent et la lecture seule reçoivent toutes les fiches (`organismes`).
+ */
+export function organismePublie(o: Pick<Organisme, 'id' | 'type' | 'source' | 'aVerifier'>, catalogue: ReadonlySet<number>): boolean {
+  return catalogue.has(o.id) || (o.type !== 'independant' && !(o.source === 'reprise' && o.aVerifier));
+}
+
 /** Fiche réduite transmise à tous les espaces. */
 export const resumeOrganisme = (o: Organisme): OrganismeResume => ({ id: o.id, code: o.code, nomUsuel: o.nomUsuel, type: o.type, archive: o.archive });
 

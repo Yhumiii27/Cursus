@@ -14,7 +14,8 @@
 -- 4. Déclencheurs de révision des cinq tables (`revision`, 0013 ; `revision_lignes_*`, 0014), sans lesquels
 --    PgDb.controlerSchema refuse le démarrage ; contacts et tarifs inscrits sans clé (tables fermées en entier).
 -- 5. Commentaires « Sensible » (format lu par scripts/colonnes-sensibles-pg.sql) : contacts (données de tiers) et tarifs
---    en entier, motifs (fusion, correction, annulation), conditions commerciales, avancement nominatif. Demande de fermeture à
+--    en entier, motifs (fusion, correction, annulation), conditions commerciales, SIRET et adresse (personnels pour un
+--    formateur indépendant), avancement nominatif. Demande de fermeture à
 --    Matrix : docs/demandes/matrix-lot12-organismes.sql.
 -- Mêmes règles que 0019_dossiers_opco.sql : types d'après les valeurs écrites par le code (dates « AAAA-MM-JJ » en date,
 -- instants ISO en timestamptz, montants en numeric), clés étrangères des références de server/src/integrite.ts en
@@ -282,7 +283,9 @@ $$;
 -- ═══ Commentaires (droits.colonnes_sensibles de Matrix : commentaire « Sensible ») ═══
 COMMENT ON TABLE "organismes" IS 'Formation et plan : organismes de formation (identité, SIRET, déclaration d''activité, Qualiopi, conditions), archivés ou fusionnés, jamais supprimés.';
 --> statement-breakpoint
-COMMENT ON COLUMN "organismes"."siret" IS 'Personnel pour un formateur indépendant (entreprise individuelle) : jamais recopié au journal (« [SIRET modifié] »).';
+COMMENT ON COLUMN "organismes"."siret" IS 'Sensible : SIRET, donnée personnelle pour un formateur indépendant (entreprise individuelle), jamais recopié au journal (« [SIRET modifié] »), à exclure de matrix_lecture (Matrix).';
+--> statement-breakpoint
+COMMENT ON COLUMN "organismes"."adresse" IS 'Sensible : adresse, personnelle pour un formateur indépendant (entreprise individuelle), à exclure de matrix_lecture (Matrix).';
 --> statement-breakpoint
 COMMENT ON COLUMN "organismes"."conditions" IS 'Sensible : texte libre, conditions commerciales de l''organisme (service RH), à exclure de matrix_lecture (Matrix).';
 --> statement-breakpoint

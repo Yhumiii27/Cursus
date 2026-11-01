@@ -18,6 +18,9 @@ export const ACTIONS_HORS_LIGNE: readonly string[] = [
   // lot 11 — pwa : heures du jour (cellule désignée par projet et tâche, avec la valeur vue : temps.saisir), ligne de projet
   // ajoutée hors ligne (créée seulement si elle manque au rejeu), demande de congé.
   'temps.saisir', 'temps.addLine', 'absence.demander',
+  // lot 11 — notes de frais : dépense (photo du reçu, montant, date) ajoutée à sa propre note, ou au brouillon du mois
+  // (dépense rapide, sans note désignée) ; jamais une dépense médicale (donnée de santé), ni une soumission ou une validation.
+  'frais.ligne.ajouter',
 ];
 
 /** En-tête de la clé d'idempotence d'un envoi (UUID tiré par le client, server/src/idempotence.ts). */
@@ -46,6 +49,8 @@ export function refusHorsLigne(nom: string, p: Record<string, unknown>, empId: n
   if (!ACTIONS_HORS_LIGNE.includes(nom)) return 'Action non admise hors ligne : refaites-la une fois connecté';
   // lot 11 — pwa : saisie personnelle seulement, congés sans justificatif.
   if (empId == null || Number(p.empId) !== empId) return 'Hors ligne, seule votre propre saisie est admise : refaites-la une fois connecté';
+  // lot 11 — notes de frais : jamais de frais médicaux hors ligne.
+  if (nom === 'frais.ligne.ajouter' && p.categorie === 'medical') return 'Hors ligne, les frais médicaux ne se saisissent pas : refaites la dépense une fois connecté';
   if (nom === 'absence.demander') {
     if (!CONGES_HORS_LIGNE.includes(String(p.kind ?? ''))) return 'Hors ligne, seuls les congés payés, RTT et récupérations peuvent être demandés';
     if (p.jetons != null || p.pieces != null) return 'Hors ligne, une demande de congé part sans pièce justificative';

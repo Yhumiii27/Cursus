@@ -15,6 +15,7 @@ import type { Db } from './db.ts';
 import { ActionError } from './actions/context.ts';
 import type { FamilleLot } from './elements-lot.ts';
 import { type LotEnregistre, lireFormatFichier } from './lots-paie.ts';
+import { notifierNotesPayees } from './frais-notifications.ts';
 
 /** Refus d'un lot dont des remboursements partiraient dans un fichier sans colonne « montant ». */
 export const REFUS_SANS_MONTANT = 'Remboursements de frais à transmettre : le format du fichier d’import n’a pas la colonne « montant ». Ajoutez-la (format du fichier d’import, écran Temps), puis générez de nouveau le lot.';
@@ -49,7 +50,10 @@ export const FAMILLE_FRAIS: FamilleLot<ElementFraisPaie> = {
     }
   },
   confirmer: async (db, d, lot) => {
+    // lot 11 — étape 2 : chaque salarié est prévenu du remboursement de sa note (e-mail et notification génériques).
+    const payees = (d.ds.notesFrais ?? []).filter(n => n.lotId === lot.id && n.statut === 'en_paiement');
     await db.run(`UPDATE notes_frais SET statut = 'payee', payee_le = ? WHERE lot_id = ? AND statut = 'en_paiement'`, [d.ti, lot.id]);
+    await notifierNotesPayees({ db, ds: d.ds, user: d.ds.user }, payees, lot.periode);
     await db.run(`UPDATE avances_frais SET statut = 'versee', versee_le = ? WHERE lot_id = ? AND statut = 'en_paiement'`, [d.ti, lot.id]);
   },
   liberer: async (db, lot) => {

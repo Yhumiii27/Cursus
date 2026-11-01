@@ -26,3 +26,6 @@ INSERT INTO droits.colonnes_sensibles (schema_nom, table_nom, colonne_nom, motif
   ('cursus', 'avances_frais', 'montant', 'Vie personnelle : montant d''une avance sur frais', 'convention'),
   ('cursus', 'avances_frais', 'refus_motif', 'Texte libre : motif du refus d''une avance', 'convention'),
   ('cursus', 'exports_frais', 'contenu', 'Vie personnelle : écritures comptables nominatives figées', 'convention');
+
+-- Lot 11, étape 2 (notes de frais) : aucune colonne nouvelle. Vue future d'agrégats par projet (pub_frais_projets) :
+-- demande séparée, docs/demandes/keystone-lot11-frais.md, à valider par le propriétaire.

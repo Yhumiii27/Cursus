@@ -1,5 +1,5 @@
 // Appels à l'API Cursus.
-import type { CibleEnvoi, CompteSession, CompteVue, CurrentUser, Dataset, Envoi, EtatEnvois, Role, SageMode, StatutEnvoi } from '../../shared/types.ts';
+import type { CibleEnvoi, CompteSession, CompteVue, CurrentUser, Dataset, Envoi, EtatEnvois, ExportFraisVue, Role, SageMode, StatutEnvoi } from '../../shared/types.ts';
 import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
 import { EN_TETE_HORS_LIGNE, EN_TETE_IDEMPOTENCE } from '../../shared/hors-ligne.ts';
 // Noms des actions du serveur (t164) : import de type seulement, effacé à la compilation (aucun code serveur dans
@@ -226,6 +226,11 @@ export const api = {
   mesDonnees: () => telecharger('/api/mes-donnees'),
   /** Paie : fichier d'import Sage d'un lot de paie (téléchargement tracé et compté sur le lot). */
   fichierLotPaie: (id: number) => telecharger(`/api/paie/lots/${id}/fichier`),
+  // lot 11 — notes de frais : exports comptables (comptabilité, service RH ; server/src/frais-exports.ts).
+  /** Exports comptables des notes de frais, sans leurs écritures. */
+  exportsFrais: () => request<{ exports: ExportFraisVue[] }>('GET', '/api/frais/exports', undefined, espaceOnglet),
+  /** Fichier d'écritures d'un export comptable (téléchargement tracé et compté sur l'export). */
+  fichierExportFrais: (id: number) => telecharger(`/api/frais/exports/${id}/fichier`),
   /** Paie : variables d'une période de paie (lots et attente), export CSV tracé (server/src/variables-paie.ts). */
   variablesPaie: (periode: string) => telecharger(`/api/paie/variables/${encodeURIComponent(periode)}`),
   /**

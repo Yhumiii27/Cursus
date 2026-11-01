@@ -60,8 +60,8 @@ Sommaire : [Collaborateur](#collaborateur) · [Manager](#manager) · [Service RH
    par e-mail. Une feuille renvoyée revient « à corriger » avec le commentaire du manager : on la corrige et on la soumet de nouveau.
 
 Aucune heure ne se saisit un jour d'absence validée ; une demi-journée de congé laisse une demi-journée de travail au
-plus. Une semaine entière d'absence se soumet sans heure. Les heures de nuit et les frais de déplacement ne se saisissent
-pas dans Cursus : la paie les traite dans Sage.
+plus. Une semaine entière d'absence se soumet sans heure. Les heures de nuit ne se saisissent pas dans Cursus : la paie
+les traite dans Sage. Les frais engagés pendant un déplacement se déclarent dans « Mes frais » (ci-dessous).
 
 ### Demander une absence
 
@@ -150,6 +150,13 @@ pas dans Cursus : la paie les traite dans Sage.
   La déconnexion efface les saisies pas encore envoyées (Cursus prévient avant) ; elles sont effacées aussi au bout de
   7 jours.
 
+### Notes de frais
+
+- Menu « Mes frais » (deuxième onglet de l'application installée) : « Nouvelle dépense », « Photographier le reçu », montant, date et catégorie ; la dépense va dans la note du mois, créée au besoin. Le raccourci « Nouvelle dépense » de l'icône y mène directement.
+- « Coller le texte du reçu » : copiez le texte de la photo (Live Text sur iPhone, Google Lens sur Android), collez-le, puis « Lire le texte » propose montant, date, TVA et commerçant ; vérifiez chaque champ. Reçu perdu : cochez l'attestation sur l'honneur.
+- « Soumettre la note » une fois complète : les reçus deviennent définitifs, votre manager valide, la comptabilité contrôle, puis la note est remboursée avec la paie du mois suivant. Renvoyée « À corriger », le motif s'affiche sur la note.
+- Frais médicaux en mission (vaccin, pharmacie) : « Nouvelle note », case « Frais médicaux en mission » ; la note ne passe pas par votre manager. Indemnités kilométriques : déclarez d'abord votre véhicule. Sans réseau, une dépense avec sa photo reste gardée sur le téléphone (jamais des frais médicaux).
+
 ## Manager
 
 Le manager a deux espaces : **Manager** pour son équipe, **Collaborateur** pour ses propres heures, absences et entretiens
@@ -227,6 +234,11 @@ Les feuilles validées partent à la paie avec le lot du mois : le manager n'a r
   (réglage du service RH) ; en dessous, les circonstances exceptionnelles sont à indiquer, et jamais moins d'un jour franc.
   Le salarié reçoit un e-mail avec l'événement pour son agenda. Avant son début, l'astreinte se modifie ou s'annule (motif
   communiqué au salarié) ; commencée, seule sa fin s'avance. Le service RH planifie aussi, et vous en êtes prévenu.
+
+### Valider les notes de frais
+
+- Menu « Notes de frais », onglet « À valider » : notes soumises de votre équipe directe et des salariés que vous remplacez pour les frais. Ouvrez la note : dépenses, reçus, alertes (plafond, doublon, jour d'absence), puis « Valider » ou « Renvoyer pour correction » avec un motif.
+- Avances : « Valider » ou « Refuser ». Onglet « Équipe » : notes et totaux de l'année ; les frais médicaux ne vous sont jamais montrés ni comptés. Vos propres notes : onglet « Notes ».
 
 ## Service RH
 
@@ -449,6 +461,12 @@ pièces et échéances, sans export comptable ni connexion au portail de l'OPCO 
   ne bloque pas un dossier.
 - « Exporter (CSV) » : la liste des dossiers affichés, et les versements d'une période (date d'encaissement) pour le
   rapprochement avec la comptabilité. La lecture seule consulte les dossiers sans les motifs ni les pièces.
+
+### Notes de frais : contrôle et exports
+
+- Menu « Notes de frais » (service RH et profil Comptabilité) : onglet « À contrôler » ; dans la note, « Montant retenu » ramène une dépense au plafond, « Refuser » l'écarte avec un motif, puis « Contrôler la note » : elle part dans le prochain lot de paie (colonne « montant » du fichier Sage).
+- Onglet « Exports comptables » : « Générer l'export comptable » fige les écritures des notes contrôlées, puis « Télécharger » le fichier pour la comptabilité (frais médicaux au compte générique). Onglet « Tableau de bord » : notes en attente, délai, dépenses par mois et par catégorie, taux des devises.
+- Paramètres → Notes de frais (administrateur RH) : activation, circuit, plafonds, barème kilométrique de l'année, limites d'exonération URSSAF, comptes et format du fichier d'écritures, à confirmer par la comptabilité et la paie.
 
 ## Gestionnaire de paie
 

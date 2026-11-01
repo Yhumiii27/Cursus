@@ -10,12 +10,14 @@ import { useDomain, useRole } from '../state/derived.ts';
 import { planningMissions } from './planning-missions.ts';
 import { FOND, PlanningGrille, ferieBg } from './PlanningMissions.tsx';
 import { GrandDeplacementChantiers } from '../components/GrandDeplacement.tsx';
+// lot 11 — notes de frais
+import { FraisRattaches } from '../components/frais/FraisRattaches.tsx';
 
 const swatch: CSSProperties = { width: 14, height: 14, borderRadius: 3, display: 'inline-grid', placeItems: 'center', fontSize: 9, fontWeight: 600 };
 
 export function Missions() {
   const d = useDomain();
-  const { manager } = useRole();
+  const { manager, rh } = useRole();
   const data = d.ds;
   const ti = data.today;
 
@@ -68,6 +70,13 @@ export function Missions() {
       </Panel>
 
       <GrandDeplacementChantiers />
+
+      {/* lot 11 — notes de frais : notes rattachées à une mission Keystone (service RH ; manager : son équipe). */}
+      {(rh || manager) && d.ds.settings.notesFraisActives && (
+        <Panel title="Notes de frais des missions">
+          <FraisRattaches titre="Rattachées à une mission" avecRattachement filtre={n => n.missionId != null} />
+        </Panel>
+      )}
 
       <Panel title="Missions en cours et à venir">
         {v.rows.length === 0 ? <Empty>Aucune mission en cours ou à venir.</Empty> : <div className="scroll-x">

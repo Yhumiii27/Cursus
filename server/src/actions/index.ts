@@ -60,6 +60,7 @@ import { indicateursActions } from './indicateurs.ts';
 import { opcoActions } from './opco.ts';
 // lot 11 — notes de frais
 import { fraisActions } from './frais.ts';
+import { fraisExportActions } from './frais-exports.ts';
 
 /**
  * Registre typé (t164) : chaque famille est déclarée avec « satisfies Record<string, ActionHandler> », ce qui garde ses
@@ -128,6 +129,8 @@ const REGISTRE = {
   ...opcoActions,
   // lot 11 — notes de frais
   ...fraisActions,
+  // lot 11 — notes de frais, étape 2 : exports comptables.
+  ...fraisExportActions,
 } satisfies Record<string, ActionHandler>;
 
 /** Nom d'une action exposée par POST /api/actions/:nom. */

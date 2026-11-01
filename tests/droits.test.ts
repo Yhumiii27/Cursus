@@ -204,6 +204,11 @@ const noteAvecLigne = async (statut: string, medicale = false) => {
   return id;
 };
 const avanceFrais = async () => (await db.insert<{ id: number }>('avancesFrais', { empId: 2, montant: 200, statut: 'demandee', demandeLe: '2026-10-06T08:00:00.000Z' })).id;
+// lot 11 — notes de frais, étape 2 : export comptable enregistré (une note contrôlée), à annuler.
+const exportFrais = async () => (await db.insert<{ id: number }>('exportsFrais', {
+  type: 'compta', cle: `compta-essai-${Math.random()}`, creation: '2026-10-08T08:00:00.000Z', auteur: 'Manon Faure', notes: [await noteAvecLigne('controlee')],
+  contenu: { lignes: [], ecritures: 0, debit: 0, credit: 0 }, telechargements: 0,
+})).id;
 
 const MATRICE: Ligne[] = [
   // Fiches et équipes
@@ -622,6 +627,9 @@ const MATRICE: Ligne[] = [
   { action: 'frais.avance.valider', droits: '        O    O    O    -    -    -    -    -    -', p: async () => ({ id: await avanceFrais() }) },
   { action: 'frais.avance.refuser', droits: '        O    O    O    -    -    -    -    -    -', p: async () => ({ id: await avanceFrais(), motif: 'Déplacement annulé' }) },
   { action: 'frais.avance.annuler', droits: '        O    O    -    -    O    -    -    -    -', p: async () => ({ id: await avanceFrais() }) },
+  // lot 11 — notes de frais, étape 2 : exports comptables, comptabilité (tests/frais-etape2.test.ts) et service RH.
+  { action: 'frais.export.generer', droits: '        O    O    -    -    -    -    -    -    -', p: async () => { await noteAvecLigne('controlee'); return {}; } },
+  { action: 'frais.export.annuler', droits: '        O    O    -    -    -    -    -    -    -', p: async () => ({ id: await exportFrais() }) },
 ];
 /** Entité d'essai (lot 11), ouverte ou fermée, insérée dans la transaction annulée de la ligne. */
 async function entiteEssai(ouverte = true) {

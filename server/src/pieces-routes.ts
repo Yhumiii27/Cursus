@@ -18,7 +18,7 @@ import {
 import { journaliser } from './comptes.ts';
 import { refusPiecesLocales } from './config.ts';
 import { espaceChange, identite, type Identite } from './connexion.ts';
-import { loadFull, scopeIds } from './dataset.ts';
+import { idsFrais, loadFull, scopeIds } from './dataset.ts';
 import type { Db } from './db.ts';
 import { tracerRefus } from './journal.ts';
 import { log } from './logs.ts';
@@ -64,7 +64,14 @@ function disposition(mode: 'inline' | 'attachment', nom: string) {
 }
 
 /** Équipe du manager connecté (périmètre de l'instantané, server/src/dataset.ts). */
-const equipeDe = async (db: Db, id: Identite) => new Set(scopeIds(new Domain(await loadFull(db, id.user)), id.user));
+/**
+ * Salariés d'un manager : son périmètre habituel, et (lot 11 — notes de frais, étape 2) ceux dont il valide les frais
+ * (équipe directe et délégations « frais », `idsFrais`) pour les justificatifs de frais, jamais ceux de frais médicaux.
+ */
+const equipeDe = async (db: Db, id: Identite) => {
+  const d = new Domain(await loadFull(db, id.user));
+  return { equipe: new Set(scopeIds(d, id.user)), frais: idsFrais(d, id.user) };
+};
 
 export function routesPieces(db: Db): Router {
   const r = express.Router();
@@ -140,9 +147,9 @@ export function routesPieces(db: Db): Router {
     if (!id) return res.status(401).json({ error: 'Connexion requise' });
     const p = await db.get<PieceEnregistree>('pieces', Number(req.params.id));
     // Pièce en attente : seul le compte qui l'a envoyée la relit ; sinon les règles de shared/rules/pieces.ts.
-    const equipe = p?.objet && id.user.role === 'manager' ? await equipeDe(db, id) : new Set<number>();
+    const { equipe, frais } = p?.objet && id.user.role === 'manager' ? await equipeDe(db, id) : { equipe: new Set<number>(), frais: new Set<number>() };
     const permis = !!p && (p.objet
-      ? voitPiece(id.user, { empId: p.empId!, objet: p.objet }, empId => id.user.role === 'manager' && equipe.has(empId))
+      ? voitPiece(id.user, { empId: p.empId!, objet: p.objet }, empId => id.user.role === 'manager' && equipe.has(empId), empId => frais.has(empId))
       : p.deposeCompteId === id.compte.id);
     if (!p || !permis) {
       // Même réponse pour une pièce inexistante ou hors de portée (rien ne dit qu'elle existe), refus tracé.

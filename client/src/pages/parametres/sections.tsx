@@ -46,6 +46,8 @@ import { Suivi } from './Suivi.tsx';
 import { Indicateurs } from './Indicateurs.tsx';
 // lot 11 — dossiers OPCO
 import { Opco } from './Opco.tsx';
+// lot 11 — notes de frais
+import { NotesFrais } from './NotesFrais.tsx';
 
 export interface SectionParametres {
   /** Identifiant stable (clé de rendu). */
@@ -88,6 +90,8 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'formations', place: 'droite', Section: Formations },
   // lot 11 — dossiers OPCO : sous les formations.
   { id: 'opco', place: 'droite', Section: Opco },
+  // lot 11 — notes de frais : activation, politique, barème, limites, comptes du fichier d'écritures.
+  { id: 'notes-frais', place: 'gauche', Section: NotesFrais },
   { id: 'liste-attente', place: 'droite', Section: ListeAttente },
   { id: 'evaluations-formation', place: 'droite', Section: EvaluationsFormation },
   { id: 'postes-risques', place: 'droite', Section: PostesRisques },

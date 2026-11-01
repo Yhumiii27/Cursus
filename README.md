@@ -390,6 +390,17 @@ par l'administrateur RH, mis à disposition du CSE (sans accès à Cursus). Sexe
 service RH ; une seule échéance « fiches sans sexe ou catégorie ». Détail : `docs/ARCHITECTURE.md`, demandes à Matrix :
 `docs/demandes/matrix-lot11-indicateurs.md`.
 
+## Notes de frais (lot 11)
+
+Module désactivé par défaut (Paramètres → Notes de frais ; activé dans la démonstration). « Mes frais » (collaborateur,
+téléphone d'abord : photo du reçu, « Coller le texte du reçu », dépense rapide aussi depuis la page « Hors ligne » et le
+raccourci « Nouvelle dépense » de l'application installée), validation par le manager (« Notes de frais », jamais les frais
+médicaux), contrôle par la comptabilité (profil « Comptabilité ») ou le service RH, remboursement avec la paie du mois
+suivant (colonne « montant » du fichier Sage), fichier d'écritures pour la comptabilité (`GET /api/frais/exports/:id/fichier`,
+tracé), tableau de bord, notes rattachées dans Missions et Voyages. Pas de virement SEPA (remboursement par la paie).
+Détail : `docs/ARCHITECTURE.md` ; demandes : `docs/demandes/codex-lot11-pieces.md`, `keystone-lot11-frais.md`,
+`matrix-lot11-frais.sql`.
+
 ## Contrat et temps de travail
 
 Chaque fiche distingue le **statut** (catégories de la CCN Industries chimiques : ouvrier / employé,

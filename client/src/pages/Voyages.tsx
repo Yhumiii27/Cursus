@@ -19,6 +19,8 @@ import { refusKeystone } from '../state/confirmations.ts';
 import { annulationVoyage } from '../state/confirmations-annulations.ts';
 import { useEnriched, useRole, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+// lot 11 — notes de frais
+import { FraisRattaches } from '../components/frais/FraisRattaches.tsx';
 
 const docCls = (k: StatusKey) => k === 'exp' ? 'tag-accent' : k === 'due' ? 'tag-outline' : 'tag-neutral';
 const itemAction = (i: TripItem) => i.k === 'passeport' ? 'Mettre à jour le passeport' : i.k === 'visa' ? 'Enregistrer le visa' : 'Enregistrer la vaccination';
@@ -257,6 +259,8 @@ function TripPanel({ panneau, t, onClose, onOpenEmp }: { panneau: RefObject<HTML
         ))}
       </div>
       <VoyageVigilance t={t} />
+      {/* lot 11 — notes de frais : notes rattachées au déplacement (service RH ; manager de l'équipe). */}
+      <FraisRattaches titre="Notes de frais" filtre={n => n.voyageId === t.id} nouvelle={rh ? { empId: t.emp.id, voyageId: t.id } : undefined} />
       <Fine>{d.destSummary(r.dest)} Exigences tenues à jour par le service RH — à vérifier sur France Diplomatie avant le départ.</Fine>
       <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center' }}>
         <Btn onClick={onOpenEmp}>Fiche collaborateur →</Btn>

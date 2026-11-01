@@ -12,7 +12,9 @@ import { ABS_LABEL } from '../../../shared/constants.ts';
 import { addD, parse } from '../../../shared/dates.ts';
 import { fH, fmtIso, num } from '../../../shared/format.ts';
 import { CONGES_HORS_LIGNE, refusHorsLigne } from '../../../shared/hors-ligne.ts';
-import type { AbsenceType, Dataset, FeuilleTemps, ISODate } from '../../../shared/types.ts';
+import type { AbsenceType, CategorieFrais, Dataset, FeuilleTemps, ISODate } from '../../../shared/types.ts';
+// lot 11 — notes de frais
+import { CATEGORIES_FRAIS } from '../../../shared/rules/frais.ts';
 import type { NomAction } from '../api.ts';
 import { cellValue } from '../components/heures.ts';
 
@@ -37,6 +39,9 @@ export function versFile(nom: NomAction, payload: Record<string, unknown>, data:
   } else if (nom === 'temps.saisir') mf = { nom, payload };
   else if (nom === 'temps.addLine') mf = { nom, payload: { ...payload, siAbsente: true } };
   else if (nom === 'absence.demander' && CONGES_HORS_LIGNE.includes(String(payload.kind))) mf = { nom, payload };
+  // lot 11 — notes de frais : dépense sans photo (indemnité kilométrique, attestation) ; avec photo, l'écran la garde
+  // lui-même avec sa pièce (pilote.ts, `garderAvecPieces`). Jamais de frais médicaux (refusHorsLigne).
+  else if (nom === 'frais.ligne.ajouter' && !payload.jetons) mf = { nom, payload };
   return mf && refusHorsLigne(mf.nom, mf.payload, empId) === null ? mf : null;
 }
 
@@ -76,6 +81,12 @@ export function libelleSaisie(nom: string, p: Record<string, unknown>): string {
   if (nom === 'absence.demander') {
     const nature = ABS_LABEL[String(p.kind) as AbsenceType] ?? 'Congé';
     return p.du === p.au ? `${nature} · le ${fmtIso(String(p.du) as ISODate)}` : `${nature} · du ${fmtIso(String(p.du) as ISODate)} au ${fmtIso(String(p.au) as ISODate)}`;
+  }
+  // lot 11 — notes de frais : catégorie, date et montant saisis, rien d'autre (ni commerçant, ni invités).
+  if (nom === 'frais.ligne.ajouter') {
+    const c = CATEGORIES_FRAIS[String(p.categorie) as CategorieFrais]?.label ?? 'Dépense';
+    const m = Number(String(p.montant ?? '').replace(',', '.'));
+    return `Dépense · ${c} · le ${fmtIso(String(p.date) as ISODate)}${m > 0 ? ` : ${m.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${String(p.devise ?? 'EUR') === 'EUR' ? '€' : String(p.devise)}` : ''}`;
   }
   return 'Saisie';
 }

@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dataset } from '../../../shared/types.ts';
 import { api, type ActionResponse, type NomAction, type SessionState } from '../api.ts';
-import { envoyeurApi, FileHorsLigne, magasinIndexedDb, type EntreeFile } from '../state/hors-ligne.ts';
+import { envoyeurApi, FileHorsLigne, magasinIndexedDb, type EntreeFile, type PieceLocale } from '../state/hors-ligne.ts';
 import { appareilPartage, definirAppareilPartage } from './appareil.ts';
 import { PiloteHorsLigne } from './pilote.ts';
 import { desactiverNotifications, retirerAbonnementEtranger } from './push.ts';
@@ -48,6 +48,8 @@ export interface HorsLigne {
   /** Après la déconnexion : file purgée (une déconnexion refusée faute de réseau ne perd rien). */
   apresDeconnexion: () => Promise<void>;
   definirPartage: (v: boolean) => Promise<void>;
+  // lot 11 — notes de frais : dépense et photo du reçu gardées sur l'appareil quand l'envoi de la photo échoue faute de réseau.
+  garderAvecPieces: (nom: NomAction, payload: Record<string, unknown>, pieces: PieceLocale[]) => Promise<boolean>;
 }
 
 const enLigne = () => typeof navigator === 'undefined' || navigator.onLine !== false;
@@ -55,6 +57,9 @@ const enLigne = () => typeof navigator === 'undefined' || navigator.onLine !== f
 export function useHorsLigne(dep: {
   session: SessionState | null; sessionRef: { current: SessionState | null }; dataRef: { current: Dataset | null };
   montrer: (d: Dataset) => void; relire: () => Promise<void>; notifier: (t: string, e?: boolean) => void;
+  // lot 11 — notes de frais : module activé (compte gardé pour la dépense rapide de la page « Hors ligne ») ; undefined :
+  // instantané pas encore lu.
+  fraisActifs?: boolean;
 }): HorsLigne {
   const [, redessiner] = useState(0);
   const [reseau, setReseau] = useState(enLigne);
@@ -81,6 +86,9 @@ export function useHorsLigne(dep: {
   // Session lue : purges (autre compte, 7 jours) et rejeu.
   const { session } = dep;
   useEffect(() => { void pilote.surSession(); }, [pilote, session]);
+  // lot 11 — notes de frais : compte gardé pour la dépense rapide (effacé le module désactivé ou l'appareil partagé).
+  const { fraisActifs } = dep;
+  useEffect(() => { void pilote.memoriserPorteur(fraisActifs === undefined ? undefined : fraisActifs && !partage); }, [pilote, session, fraisActifs, partage]);
   useEffect(() => {
     const enLigneMaintenant = () => { setReseau(true); void pilote.rejouer(); };
     const horsLigne = () => setReseau(false);
@@ -116,5 +124,6 @@ export function useHorsLigne(dep: {
     reprendre: id => pilote.reprendre(id),
     abandonner: id => pilote.abandonner(id),
     avantDeconnexion, apresDeconnexion, definirPartage,
+    garderAvecPieces: (n, p, pieces) => pilote.garderAvecPieces(n, p, pieces),
   };
 }

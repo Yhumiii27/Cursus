@@ -17,7 +17,7 @@
 import { plural } from '../../../shared/format.ts';
 import type { Dataset, Role } from '../../../shared/types.ts';
 import type { ActionResponse, NomAction, SessionState } from '../api.ts';
-import type { BilanRejeu, EntreeFile, Envoyeur, FileHorsLigne, Porteur } from '../state/hors-ligne.ts';
+import type { BilanRejeu, EntreeFile, Envoyeur, FileHorsLigne, PieceLocale, Porteur } from '../state/hors-ligne.ts';
 import { appliquerLocalement, versFile } from './saisie-hors-ligne.ts';
 
 /** Message rendu à l'écran pour une saisie gardée sur l'appareil. */
@@ -157,6 +157,33 @@ export class PiloteHorsLigne {
     await this.file?.abandonner(id);
     await this.actualiser();
     if (this.dep.enLigne()) await this.dep.relire();
+  }
+
+  // lot 11 — notes de frais
+  /**
+   * Compte de la session gardé pour la dépense rapide de la page « Hors ligne » (`frais` : notes de frais activées et
+   * salarié connecté) ; sinon effacé. Sans session ni instantané (ouverture sans réseau), rien ne change.
+   */
+  async memoriserPorteur(frais: boolean | undefined): Promise<void> {
+    const f = this.file, s = this.dep.session(), qui = porteurDe(s);
+    if (!f || !qui || frais === undefined) return;
+    await f.garderPorteur(frais && s?.user?.empId ? { ...qui, empId: s.user.empId } : null).catch(() => {});
+  }
+
+  /**
+   * Dépense avec la photo du reçu gardée sur l'appareil (réseau absent pendant l'envoi de la photo) : la photo part
+   * avant l'action au retour du réseau, jetons dans `jetons`. Faux si la file ne peut pas la garder.
+   */
+  async garderAvecPieces(nom: NomAction, payload: Record<string, unknown>, pieces: PieceLocale[]): Promise<boolean> {
+    const f = this.file, qui = porteurDe(this.dep.session());
+    if (!f || !qui) return false;
+    try {
+      await f.ajouter(qui, nom, payload, { pieces, champPieces: 'jetons' });
+    } catch {
+      return false;
+    }
+    await this.actualiser();
+    return true;
   }
 
   /** Purge complète de la file de l'appareil (déconnexion, appareil partagé). */

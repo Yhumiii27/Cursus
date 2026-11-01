@@ -142,6 +142,11 @@ export const PARAMS_URL: Partial<Record<View, Param[]>> = {
     }),
     choix('indGroupe', 'groupe', 'aucun', Object.fromEntries(Object.keys(GROUPES_INDICATEURS).map(g => [g, g]))),
   ],
+  // lot 11 — notes de frais : onglet et note ouverte (identifiant d'une note du jeu de données du rôle).
+  frais: [
+    choix('fraisOnglet', 'onglet', 'premier', { notes: 'notes', valider: 'a-valider', equipe: 'equipe', controle: 'a-controler', avances: 'avances', exports: 'exports', tableau: 'tableau-de-bord' }),
+    identifiant('fraisNote', 'note', d => d.notesFrais ?? []),
+  ],
 };
 
 /**

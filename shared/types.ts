@@ -1,5 +1,7 @@
 // Modèle de données de Cursus, partagé entre le serveur (SQLite) et le client.
 // Les dates sont des chaînes ISO « AAAA-MM-JJ » (heure locale, sans fuseau).
+// lot 11 — notes de frais, étape 2 : gabarit du fichier d'écritures (réglage `fraisGabarit`) et ses lignes (exports).
+import type { GabaritExportComptable, LigneEcriture } from './rules/export-comptable.ts';
 
 export type ISODate = string;
 export type Role = 'rh' | 'manager' | 'collaborateur';
@@ -1346,6 +1348,15 @@ export interface Settings {
   fraisIkCvReels: boolean;
   /** Conservation des notes de frais payées et de leurs justificatifs (10 ans, terme comptable), au-delà du dossier. */
   conservationFraisAns: number;
+  // lot 11 — notes de frais, étape 2 : fichier d'écritures pour la comptabilité (shared/rules/frais-export.ts), valeurs
+  // proposées à confirmer par la comptabilité.
+  /** Comptes de charge réglés par catégorie (vide : compte proposé) ; jamais pour les frais médicaux (compte générique). */
+  fraisComptes: Partial<Record<CategorieFrais, string>>;
+  fraisCompteGenerique: string;
+  fraisCompteTva: string;
+  fraisCompteSalarie: string;
+  fraisJournal: string;
+  fraisGabarit: GabaritExportComptable;
 }
 /** Catégorie d'une formation pour l'évaluation à froid : type du catalogue, ou formation hors catalogue. */
 export type CategorieEvaluee = FormationType | 'Hors catalogue';
@@ -2237,6 +2248,17 @@ export interface AvanceFrais {
  * rubrique (FRAIS_REMB, FRAIS_IK, FRAIS_FORFAIT, FRAIS_REINT, FRAIS_AVANCE, FRAIS_AVANCE_DED), période ; `codeSage` null :
  * rubrique désactivée, à saisir dans Sage. Le détail ne nomme jamais la nature d'une dépense médicale.
  */
+/**
+ * Export comptable des notes de frais (table exportsFrais, hors de l'instantané : lu par sa route, server/src/frais-exports.ts) :
+ * notes emportées, écritures figées (shared/rules/frais-export.ts), téléchargements ; annulé, ses notes redeviennent à exporter.
+ */
+export interface ExportFraisEnregistre {
+  id: number; type: 'compta' | 'sepa'; cle: string; creation: string; auteur: string; notes: number[] | null;
+  contenu: { lignes: LigneEcriture[]; ecritures: number; debit: number; credit: number } | null;
+  telechargements: number; telechargeLe: string | null; telechargePar: string | null; annuleLe: string | null;
+}
+/** Export comptable tel que la route le montre à l'écran (sans les écritures). */
+export type ExportFraisVue = Omit<ExportFraisEnregistre, 'contenu' | 'cle'> & { ecritures: number; montant: number };
 export interface ElementFraisPaie {
   note: number | null; avance: number | null; empId: number; matricule: string; periode: string; rubrique: string; codeSage: string | null;
   quantite: number; montant: number;

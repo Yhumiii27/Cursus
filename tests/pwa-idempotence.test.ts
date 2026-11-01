@@ -72,7 +72,8 @@ const cellule = async (di: number) => {
 const lignesIdem = async () => Number((await db.one<{ n: number }>('SELECT COUNT(*) AS n FROM idempotence'))!.n);
 
 test('registre hors ligne : saisie personnelle, jamais une validation ni une action de paie', () => {
-  assert.deepEqual([...ACTIONS_HORS_LIGNE], ['temps.saisir', 'temps.addLine', 'absence.demander']);
+  // lot 11 — notes de frais (étape 2) : dépense ajoutée à sa propre note, jamais médicale.
+  assert.deepEqual([...ACTIONS_HORS_LIGNE], ['temps.saisir', 'temps.addLine', 'absence.demander', 'frais.ligne.ajouter']);
   for (const a of ACTIONS_HORS_LIGNE) {
     assert.ok(!ACTIONS_PAIE.includes(a), `${a} : action de paie`);
     assert.doesNotMatch(a, /valid|decid|decider|submit|reject|lot/i, `${a} : une validation ne part jamais hors ligne`);
@@ -86,6 +87,9 @@ test('registre hors ligne : saisie personnelle, jamais une validation ni une act
   assert.match(refusHorsLigne('absence.demander', { empId: 2, kind: 'CET' }, 2)!, /congés payés/);
   assert.match(refusHorsLigne('absence.demander', { empId: 2, kind: 'CP', pieces: ['x'] }, 2)!, /sans pièce/);
   assert.equal(refusHorsLigne('absence.demander', { empId: 2, kind: 'RTT' }, 2), null);
+  assert.equal(refusHorsLigne('frais.ligne.ajouter', { empId: 2, date: '2026-10-09', categorie: 'repas', montant: 18 }, 2), null);
+  assert.match(refusHorsLigne('frais.ligne.ajouter', { empId: 2, categorie: 'medical' }, 2)!, /frais médicaux/);
+  assert.match(refusHorsLigne('frais.ligne.ajouter', { empId: 6, categorie: 'repas' }, 2)!, /votre propre saisie/);
   assert.ok(JOURNAL_LABEL['temps.saisir']);
 });
 

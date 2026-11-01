@@ -32,7 +32,7 @@ test('manifeste, icônes et service worker : servis en démonstration, jamais un
   const manifeste = await (await request.get('/manifest.webmanifest')).json();
   expect(manifeste.start_url).toBe('/?source=pwa');
   expect(manifeste.display).toBe('standalone');
-  expect(manifeste.shortcuts.map((s: { name: string }) => s.name)).toEqual(['Saisir mes heures', 'Demander une absence']);
+  expect(manifeste.shortcuts.map((s: { name: string }) => s.name)).toEqual(['Saisir mes heures', 'Demander une absence', 'Nouvelle dépense']);
   for (const i of manifeste.icons) expect((await request.get(i.src)).headers()['content-type']).toBe('image/png');
   const sw = await request.get('/sw.js');
   expect(sw.headers()['cache-control']).toBe('no-cache');

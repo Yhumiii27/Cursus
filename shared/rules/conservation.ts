@@ -89,6 +89,8 @@ export const DUREE_MAX_ANS = 10;
  * journal (3 ans, shared/journal.ts). L'anonymisation retire aussi le nom du journal (server/src/conservation.ts).
  */
 export const DOSSIER_MIN_ANS = 5;
+// lot 11 — notes de frais : durée minimale des notes payées et de leurs justificatifs (art. L123-22 du Code de commerce).
+export const FRAIS_MIN_ANS = 10;
 
 /** Nom donné à la fiche anonymisée (aucune autre donnée d'identité ne reste). */
 export const nomAnonyme = (id: number) => `Salarié anonymisé n° ${id}`;
@@ -107,7 +109,8 @@ export const dureesConservation = (s: Settings): Record<CategorieConservation, n
 export const echeanceConservation = (fin: ISODate, ans: number): ISODate => addD(addM(fin, 12 * ans), 1);
 
 /**
- * Catégories échues d'un salarié sorti dont le dossier n'est pas anonymisé ; `aDesDonnees` écarte une catégorie partielle
+ * Catégories échues d'un salarié sorti dont le dossier n'est pas anonymisé (anonymisé : seules les catégories gardées au-delà
+ * du dossier, quand des données y ont passé leur terme) ; `aDesDonnees` écarte une catégorie partielle
  * sans rien à effacer (salarié sans passeport, catégorie déjà effacée : une donnée saisie après un effacement la fait
  * reproposer). Le dossier échu emporte toutes les catégories. null : rien à proposer (salarié présent, dossier déjà
  * anonymisé, rien d'échu).
@@ -134,6 +137,13 @@ export function categoriesDroitEffacement(
 }
 
 function selection(e: Pick<Employe, 'fin'> & { anonymiseLe?: ISODate | null }, s: Settings, ti: ISODate, aDesDonnees: (c: CategorieConservation) => boolean, demande: boolean) {
+  // lot 11 — notes de frais : un dossier anonymisé garde les catégories gardées au-delà du dossier (notes payées encore
+  // dans leur terme comptable) ; elles sont reproposées dès que des données y passent leur terme (`aDesDonnees` ne compte
+  // que celles-là), sinon rien ne les effacerait jamais.
+  if (e.anonymiseLe && !demande) {
+    const reste = CATEGORIES.filter(c => CATEGORIES_CONSERVATION[c].auDelaDuDossier && aDesDonnees(c));
+    return { r: reste.length ? { categories: reste, dossier: false } : null, gardees: [] };
+  }
   if (!e.fin || e.anonymiseLe || !sorti(e, ti)) return null;
   const durees = dureesConservation(s);
   const echeance = (c: CategorieConservation) => echeanceConservation(e.fin!, durees[c]);

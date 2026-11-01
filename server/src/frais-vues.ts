@@ -42,8 +42,13 @@ const POUR_LA_PAIE: readonly NoteFrais['statut'][] = ['controlee', 'en_paiement'
 export function fraisVueProfil(full: Dataset, paie: boolean): Pick<Dataset, 'notesFrais' | 'lignesFrais' | 'vehiculesPerso' | 'avancesFrais'> {
   if (!paie) return { notesFrais: [], lignesFrais: [], vehiculesPerso: [], avancesFrais: [] };
   return {
-    // Sans le motif d'un renvoi ou d'une annulation (textes libres) ; une note médicale n'y est qu'un remboursement.
-    notesFrais: (full.notesFrais ?? []).filter(n => POUR_LA_PAIE.includes(n.statut)).map(n => ({ ...n, renvoiMotif: null, annuleMotif: null, medicale: false })),
+    // Sans le motif d'un renvoi ou d'une annulation (textes libres) ; une note médicale n'y est qu'un remboursement : ni
+    // l'indicateur, ni les dates et auteurs du circuit, qui la trahiraient (validation du manager absente pour un salarié
+    // qui a un manager). La paie n'en a pas l'usage : statut, lot et date de paiement lui suffisent.
+    notesFrais: (full.notesFrais ?? []).filter(n => POUR_LA_PAIE.includes(n.statut)).map(n => ({
+      ...n, renvoiMotif: null, annuleMotif: null, medicale: false,
+      soumiseLe: null, valideeLe: null, valideePar: null, controleeLe: null, controleePar: null, renvoyeeLe: null, renvoyeePar: null,
+    })),
     lignesFrais: [],
     vehiculesPerso: [],
     avancesFrais: (full.avancesFrais ?? []).filter(a => a.statut === 'validee' || a.statut === 'en_paiement' || a.statut === 'versee').map(a => ({ ...a, refusMotif: null })),

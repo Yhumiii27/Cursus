@@ -5,7 +5,7 @@
 // l'administrateur RH : la liste nomme des salariés partis et l'effacement est irréversible.
 import { useEffect, useMemo, useState } from 'react';
 import { fmtIso, plural } from '../../../../shared/format.ts';
-import { CATEGORIES, CATEGORIES_CONSERVATION, conservationActive, DUREE_MAX_ANS, DOSSIER_MIN_ANS, echeanceConservation } from '../../../../shared/rules/conservation.ts';
+import { CATEGORIES, CATEGORIES_CONSERVATION, conservationActive, DUREE_MAX_ANS, DOSSIER_MIN_ANS, echeanceConservation, FRAIS_MIN_ANS } from '../../../../shared/rules/conservation.ts';
 import { sorti } from '../../../../shared/rules/contrats.ts';
 import type { CategorieConservation, Settings } from '../../../../shared/types.ts';
 import { Field } from '../../components/Dialog.tsx';
@@ -54,7 +54,8 @@ function Reglages({ s }: { s: Settings }) {
         {CATEGORIES.map(c => (
           <Field key={c} label={CATEGORIES_CONSERVATION[c].label} htmlFor={`param-conservation-${c}`} erreur={tente && c === 'dossier' && erreurDurees}>
             <select className="input" id={`param-conservation-${c}`} value={durees[c]} onChange={e => setDurees({ ...durees, [c]: Number(e.target.value) })}>
-              {ANS.map(n => <option key={n} value={n}>{ansTexte(n)}</option>)}
+              {/* lot 11 — notes de frais : 10 ans au moins (pièces comptables, art. L123-22 du Code de commerce). */}
+              {ANS.filter(n => c !== 'frais' || n >= FRAIS_MIN_ANS).map(n => <option key={n} value={n}>{ansTexte(n)}</option>)}
             </select>
           </Field>
         ))}

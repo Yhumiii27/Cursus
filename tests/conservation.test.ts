@@ -74,7 +74,11 @@ test('règles : échéance par catégorie, passeport à la sortie, dossier à 5 
   // Présent, sorti du jour, déjà anonymisé, catégorie déjà effacée ou sans données : rien.
   assert.equal(regles.categoriesEchues({ fin: null }, s, ti), null);
   assert.equal(regles.categoriesEchues({ fin: ti }, s, ti), null, 'dernier jour : encore présent');
-  assert.equal(regles.categoriesEchues({ fin: '2021-03-31', anonymiseLe: '2026-05-01' }, s, ti), null);
+  assert.equal(regles.categoriesEchues({ fin: '2021-03-31', anonymiseLe: '2026-05-01' }, s, ti, c => c !== 'frais'), null);
+  // lot 11 — notes de frais : un dossier anonymisé est reproposé pour la seule catégorie « frais » quand des notes gardées
+  // y ont passé leur terme comptable (les données comptées ne sont que celles-là).
+  assert.deepEqual(regles.categoriesEchues({ fin: '2021-03-31', anonymiseLe: '2026-05-01' }, s, ti), { categories: ['frais'], dossier: false });
+  assert.equal(regles.categoriesDroitEffacement({ fin: '2021-03-31', anonymiseLe: '2026-05-01' }, s, ti), null, 'droit à l’effacement : dossier déjà anonymisé');
   assert.equal(regles.categoriesEchues({ fin: '2026-03-31' }, s, ti, () => false), null);
   assert.equal(regles.nomAnonyme(12), 'Salarié anonymisé n° 12');
   assert.match(regles.categoriesTexte(['passeport', 'entretiens']), /^passeport et visas, entretiens professionnels$/);

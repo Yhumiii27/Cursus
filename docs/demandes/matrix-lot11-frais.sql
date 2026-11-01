@@ -21,6 +21,8 @@ INSERT INTO droits.colonnes_sensibles (schema_nom, table_nom, colonne_nom, motif
   ('cursus', 'notes_frais', 'medicale', 'Santé : note de frais médicaux en mission', 'convention'),
   ('cursus', 'notes_frais', 'renvoi_motif', 'Texte libre : motif du renvoi d''une note pour correction', 'convention'),
   ('cursus', 'notes_frais', 'annule_motif', 'Texte libre : motif de l''annulation d''une note', 'convention'),
+  ('cursus', 'notes_frais', 'validee_le', 'Santé : validation du manager absente pour une note de frais médicaux (circuit direct)', 'convention'),
+  ('cursus', 'notes_frais', 'validee_par', 'Santé : validation du manager absente pour une note de frais médicaux (circuit direct)', 'convention'),
   ('cursus', 'avances_frais', 'montant', 'Vie personnelle : montant d''une avance sur frais', 'convention'),
   ('cursus', 'avances_frais', 'refus_motif', 'Texte libre : motif du refus d''une avance', 'convention'),
   ('cursus', 'exports_frais', 'contenu', 'Vie personnelle : écritures comptables nominatives figées', 'convention');

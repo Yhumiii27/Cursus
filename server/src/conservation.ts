@@ -288,10 +288,10 @@ async function appliquer(db: Db, e: Etape, empId: number): Promise<number> {
 const cxNeutre = (ti: ISODate): Cx => ({ ti, le: '', par: '' });
 
 /** Données d'une catégorie partielle encore présentes (lignes et valeurs). */
-export async function aEffacer(db: Db, empId: number, cat: CategorieConservation): Promise<number> {
+export async function aEffacer(db: Db, empId: number, cat: CategorieConservation, ti: ISODate = todayIso()): Promise<number> {
   let n = 0;
-  // lot 11 — notes de frais : terme comptable d'après le réglage en vigueur.
-  const cx = cat === 'frais' ? { ...cxNeutre(todayIso()), fraisAns: (await loadSettings(db)).conservationFraisAns } : cxNeutre('');
+  // lot 11 — notes de frais : terme comptable d'après le réglage en vigueur, au jour `ti`.
+  const cx = cat === 'frais' ? { ...cxNeutre(ti), fraisAns: (await loadSettings(db)).conservationFraisAns } : cxNeutre('');
   for (const e of etapes(db, cat, cx, empId)) n += await compter(db, e, empId);
   return n;
 }
@@ -300,11 +300,14 @@ export async function aEffacer(db: Db, empId: number, cat: CategorieConservation
  * Données encore présentes de chaque catégorie donnée (`aEffacer`), lues d'avance : les règles de shared/ les demandent
  * par une fonction synchrone (`aDesDonnees` de `categoriesEchues`, `categoriesDroitEffacement`).
  */
-export async function quantitesAEffacer(db: Db, empId: number, categories: readonly CategorieConservation[]): Promise<Map<CategorieConservation, number>> {
+export async function quantitesAEffacer(db: Db, empId: number, categories: readonly CategorieConservation[], ti?: ISODate): Promise<Map<CategorieConservation, number>> {
   const out = new Map<CategorieConservation, number>();
-  for (const c of new Set(categories)) out.set(c, await aEffacer(db, empId, c));
+  for (const c of new Set(categories)) out.set(c, await aEffacer(db, empId, c, ti));
   return out;
 }
+
+// lot 11 — notes de frais : salariés qui ont encore des données de frais (dossier anonymisé compris).
+const DOSSIERS_AVEC_FRAIS = 'SELECT emp_id FROM notes_frais UNION SELECT emp_id FROM avances_frais UNION SELECT emp_id FROM vehicules_perso';
 
 /**
  * Dossiers proposés à l'effacement : salariés sortis, non anonymisés, dont une catégorie qui a encore des données est
@@ -314,14 +317,18 @@ export async function quantitesAEffacer(db: Db, empId: number, categories: reado
 export async function dossiersEchus(db: Db, s?: Settings, ti: ISODate = todayIso()): Promise<DossierEchu[]> {
   s ??= await loadSettings(db);
   if (!conservationActive(s)) return [];
-  const sortis = await db.query<{ id: number; fin: string }>('SELECT id, fin FROM employes WHERE fin IS NOT NULL AND fin < ? AND anonymise_le IS NULL ORDER BY fin, id', [ti]);
+  // lot 11 — notes de frais : aussi les dossiers anonymisés qui gardent des notes de frais (ou leurs avances et véhicules),
+  // reproposés quand ces données passent leur terme comptable.
+  const sortis = (await db.query<{ id: number; fin: string; anonymise_le: string | null }>(
+    `SELECT id, fin, anonymise_le FROM employes WHERE fin IS NOT NULL AND fin < ? AND (anonymise_le IS NULL OR id IN (${DOSSIERS_AVEC_FRAIS})) ORDER BY fin, id`, [ti]))
+    .map(e => ({ id: e.id, fin: e.fin, anonymiseLe: e.anonymise_le }));
   const out: DossierEchu[] = [];
   for (const e of sortis) {
     // Catégories échues sans regarder les données (aucune lecture pour un dossier dont rien n'est échu), puis données
     // de celles-là seulement : même sélection que si chaque catégorie était comptée à la demande.
     const candidates = categoriesEchues(e, s, ti);
     if (!candidates) continue;
-    const quantites = await quantitesAEffacer(db, e.id, candidates.categories);
+    const quantites = await quantitesAEffacer(db, e.id, candidates.categories, ti);
     const r = categoriesEchues(e, s, ti, c => (quantites.get(c) ?? 0) > 0);
     if (!r) continue;
     const elements = r.categories.reduce((n, c) => n + (quantites.get(c) ?? 0), 0);

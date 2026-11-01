@@ -3940,10 +3940,15 @@ comptable, le branchement de l'application mobile, le guide et les demandes aux 
 - **Règles pures** (`shared/rules/frais*.ts`, tests par valeurs : `tests/frais-regles.test.ts`) :
   - `frais.ts` : catégories (dont `medical`), statuts et transitions, montant retenu et totaux (calculés, jamais
     stockés), totaux d'équipe sans note médicale, doublons par (salarié, date, montant, commerçant normalisé) et par
-    empreinte de justificatif, catégorie « autre » au journal à la place de `medical` ;
+    empreinte de justificatif, catégorie « divers » (une catégorie réelle) au journal à la place de `medical` ;
   - `frais-km.ts` : barème de l'année (table `baremesKm`, saisie par l'administrateur RH), CV plafonnés à 7 pour la
     voiture, majoration de 20 % pour l'électrique, part marginale du montant annuel pour chaque trajet (les trajets de
     l'année s'additionnent au montant annuel, changement de tranche compris), cumul annuel calculé, régularisation ;
+    `indemnitesIkAnnee` recalcule les lignes de l'année dans l'ordre des trajets à chaque ajout, modification,
+    suppression ou refus d'une ligne, annulation d'une note et publication du barème (`recalculerIk`,
+    `server/src/actions/frais.ts`) ; l'écart d'une ligne déjà payée se régularise sur les lignes encore à payer (jamais
+    sous zéro), et la limite d'exonération se calcule de même (`limitesIk`) : une saisie dans le désordre ne paie ni
+    trop ni trop peu ;
   - `frais-politique.ts` : alertes par ligne. Le dépassement de la politique interne (`fraisPlafonds`, vide par défaut)
     est une alerte acceptée avec un motif ou plafonnée par le contrôleur (`montantRetenu`), jamais une réintégration ;
     l'allocation au-delà de la limite d'exonération (forfait au-delà du montant URSSAF de l'année, indemnité au-delà du
@@ -3952,7 +3957,10 @@ comptable, le branchement de l'application mobile, le guide et les demandes aux 
     comme la paie (`partsSejour`), croisés jour par jour avec les repas, hôtels et forfaits de même nature : bloquant ;
   - `frais-lecture.ts` (texte d'un reçu collé : montant, date, devise, TVA, SIRET, commerçant ; propositions),
     `frais-tva.ts` (taux proposé, TVA récupérable par catégorie, note simplifiée de 150 € HT), `frais-paie.ts` (parts
-    d'une note, imputation des avances par séjour, éléments du lot).
+    d'une note, imputation des avances par séjour, éléments du lot). Le solde d'une avance se compte sur ce qui a été
+    réellement déduit : avances versées, en paiement ou versées par le lot en cours, moins les déductions
+    (FRAIS_AVANCE_DED) des lots non annulés, lues dans leur contenu figé (`deductionsTransmises`) ; il ne s'impute que
+    sur les notes du lot en cours, jamais a posteriori sur une note déjà payée.
 - **Tables** (`server/src/db.ts`, migration PostgreSQL `0020_notes_frais`, SQLite d'après `TABLES`) : `notesFrais`,
   `lignesFrais`, `vehiculesPerso`, `baremesKm`, `forfaitsFrais`, `avancesFrais`, `tauxDevises` lues par l'instantané
   (`LECTURES` ; barèmes, forfaits et taux dans `referentiels`) ; `exportsFrais` hors de l'instantané (`HORS_INSTANTANE`) ;
@@ -3966,15 +3974,21 @@ comptable, le branchement de l'application mobile, le guide et les demandes aux 
   (`PerimetreDelegation`, effectif seulement le module activé), valide ; la comptabilité (droit `compta`, profil
   `comptabilite`, contrainte `comptes_profil_rh_check` de 0020) ou le service RH contrôle ; jamais sa propre note
   (`refuserSoiMeme`). Une note médicale et un salarié sans valideur passent d'emblée à « validée », en attente du
-  contrôle. Refus d'un élément hors du périmètre : 403, sans rien en révéler.
+  contrôle ; le message et la trace de la soumission sont les mêmes dans les deux cas (sans statut d'arrivée). Une note
+  dont toutes les dépenses sont refusées est close au contrôle (« payée », de zéro) : aucun lot ne l'emporterait. Refus d'un élément hors du périmètre : 403, sans rien en révéler.
 - **Instantané** (`server/src/frais-vues.ts`, appelé par `dataset.ts`) : filtre propre aux frais pour le manager (équipe
   directe et délégations `frais`, `idsFrais`), jamais `scopeIds` (ni consultation N+2, ni suppléant d'un autre
   périmètre), sans note médicale d'autrui ni ses lignes ; justificatifs de ces notes (`ligneFrais`, `vehiculePerso`,
   jamais `ligneFraisSante`) ; `CHAMPS_PAR_SALARIE`. Comptabilité : branche propre de `vueProfil` (liste blanche :
   référentiels, annuaire, réglages, frais et leurs justificatifs ; aucun dossier, aucune absence). Paie : notes
-  contrôlées, en paiement ou payées, sans lignes ni mention médicale. Référent HSE et lecture seule : rien.
+  contrôlées, en paiement ou payées, sans lignes, ni mention médicale, ni dates et auteurs du circuit (une validation du
+  manager absente désignerait une note médicale). Référent HSE et lecture seule : rien.
 - **Frais médicaux** : note séparée (`medicale`), objet de pièce `ligneFraisSante` (santé), exclus des vues et totaux du
-  manager, « autre » au journal, libellé de pièce générique, rubrique FRAIS_REMB commune dans le fichier Sage.
+  manager, « divers » au journal, libellé de pièce générique, objet `ligneFraisSante` inscrit `ligneFrais` par
+  `journaliser` (server/src/comptes.ts) quelle que soit la trace (`piece.consulter` compris), rubrique FRAIS_REMB commune
+  dans le fichier Sage. `notes_frais.validee_le` et `validee_par` sont déclarées sensibles (demande à Matrix) pour la même
+  raison que le circuit est masqué à la paie. Reste lisible au profil lecture seule : l'absence d'une trace
+  `frais.note.valider` pour un salarié qui a un manager (le journal ne fabrique pas d'étape).
 - **Justificatifs** : `ObjetPiece` élargi (`ligneFrais`, `ligneFraisSante`, `vehiculePerso`) ; joints par l'action de la
   ligne ou `piece.joindre` tant que la note se saisit (`server/src/frais-pieces.ts`) ; scellés à la soumission dans une
   chaîne d'empreintes (`server/src/sceaux.ts`, `verifierSceaux`), puis immuables (`piece.retirer` refusé). Ni
@@ -3986,6 +4000,9 @@ comptable, le branchement de l'application mobile, le guide et les demandes aux 
 - **Conservation** : catégorie `frais` (`conservationFraisAns`, 10 ans, au-delà du dossier) ; les étapes n'effacent que
   les notes hors de leur terme comptable (non payées, ou payées depuis plus de la durée réglée), avec leurs lignes,
   justificatifs, avances et véhicules ; l'anonymisation du dossier garde les autres, et leurs justificatifs, sans nom.
+  Un dossier anonymisé qui garde des frais est reproposé pour la seule catégorie `frais` dès que des données passent
+  leur terme (`dossiersEchus`, `selection` de `shared/rules/conservation.ts`). Durée réglable de 10 ans au moins
+  (`FRAIS_MIN_ANS`).
 - **Journal** : liste blanche (`REGLES_FRAIS` de `server/src/journal.ts`) — identifiants, statuts, nombres de lignes et de
   pièces, catégorie (jamais `medical`), période ; jamais commerçant, invités, lieux, motifs ni montant d'une ligne. Les
   actions du circuit, des avances et des référentiels sont dans `ACTIONS_PAIE` (archive de 3 ans).

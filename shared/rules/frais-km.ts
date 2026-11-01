@@ -73,6 +73,41 @@ export function cumulKm(lignesAnnee: readonly Pick<LigneFrais, 'id' | 'km' | 'da
 }
 
 /**
+ * Indemnités des lignes de l'année recalculées dans l'ordre des trajets (date, puis identifiant), au moment où on s'en
+ * sert (saisie, refus, annulation, barème publié, contrôle, lot) : chaque ligne reçoit sa part marginale du montant
+ * annuel sur le cumul ordonné. Une ligne déjà transmise à la paie (`transmises` : montant remboursé, en euros) garde son
+ * montant ; l'écart avec sa part recalculée (ligne saisie après coup à une date antérieure, barème publié en cours
+ * d'année) est régularisé sur les lignes non transmises, dans l'ordre, sans en faire descendre une sous zéro (un
+ * trop-perçu qui reste est chiffré par `regularisationIk`). `limite` : calcul de la limite d'exonération (puissance
+ * plafonnée) ; seul le complément dû compte alors pour une ligne transmise, dont la part au-delà a déjà été déclarée.
+ * Rendu : montant de chaque ligne non transmise ; null pour un véhicule inconnu ou un barème de l'année absent.
+ */
+export function indemnitesIkAnnee(
+  baremes: readonly BaremeKm[] | undefined, annee: number, vehicules: readonly Pick<VehiculePerso, 'id' | 'type' | 'cv' | 'electrique'>[],
+  lignesAnnee: readonly Pick<LigneFrais, 'id' | 'km' | 'vehiculeId' | 'date'>[], transmises: ReadonlyMap<number, number>, o: { cvReels?: boolean; limite?: boolean } = {},
+): Map<number, number | null> {
+  const ordre = [...lignesAnnee].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+  const aRegler: { id: number; m: number | null }[] = [];
+  let cumul = 0, ecart = 0;
+  for (const l of ordre) {
+    const v = vehicules.find(x => x.id === l.vehiculeId);
+    const m = v ? ikDuTrajet(baremes, annee, v, cumul, l.km ?? 0, !o.limite && !!o.cvReels) : null;
+    cumul = Math.round((cumul + (l.km ?? 0)) * 10) / 10;
+    const t = transmises.get(l.id);
+    if (t === undefined) aRegler.push({ id: l.id, m });
+    else if (m !== null) ecart += o.limite ? Math.max(0, m - t) : m - t;
+  }
+  const out = new Map<number, number | null>();
+  for (const x of aRegler) {
+    if (x.m === null) { out.set(x.id, null); continue; }
+    const v = r2(x.m + ecart);
+    out.set(x.id, Math.max(0, v));
+    ecart = v < 0 ? v : 0;
+  }
+  return out;
+}
+
+/**
  * Régularisation de l'année : montant annuel dû au barème sur le cumul des kilomètres de l'année (`lignesAnnee`), moins
  * ce qui a déjà été remboursé (`rembourse`, euros). Positive : complément dû ; négative : trop-perçu. null : barème absent,
  * ou plusieurs véhicules dans l'année (calcul par véhicule, à faire par le service RH).

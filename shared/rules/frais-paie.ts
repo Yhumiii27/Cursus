@@ -9,11 +9,13 @@
 // - FRAIS_REINT : part des allocations au-delà de ces limites, soumise à cotisations (jamais un frais réel) ;
 // - FRAIS_AVANCE_DED : avance versée imputée sur la note (montant négatif), jusqu'à épuisement de son solde ;
 // et pour chaque avance validée pas encore dans un lot : FRAIS_AVANCE (versement). Imputation calculée, jamais stockée :
-// avances versées et notes du même séjour (déplacement, mission, ou aucun), dans l'ordre de leurs identifiants.
+// avances du même séjour (déplacement, mission, ou aucun) versées, en paiement ou versées par ce lot, moins les déductions
+// déjà transmises par les lots non annulés (lues dans leur contenu figé), imputées sur les notes de ce lot seulement, dans
+// l'ordre de leurs identifiants. Une note payée sans déduction n'en reçoit jamais après coup (relecture du lot 11).
 import type { Domain } from '../domain.ts';
 import type { AvanceFrais, ElementFraisPaie, LigneFrais, NoteFrais } from '../types.ts';
-import { lignesDe, montantRetenu, r2 } from './frais.ts';
-import { cumulKm, ikDuTrajet, lignesIkDeLAnnee } from './frais-km.ts';
+import { lignesDe, montantRetenu, notePayee, r2 } from './frais.ts';
+import { indemnitesIkAnnee, lignesIkDeLAnnee } from './frais-km.ts';
 import { limiteForfait } from './frais-politique.ts';
 import { matriculeAffiche } from './matricules.ts';
 import type { RubriqueVue } from './paie.ts';
@@ -46,25 +48,49 @@ export function partsNote(d: Pick<Domain, 'ds'>, n: NoteFrais, limiteIk: (l: Lig
   return { reels: r2(reels), ik: r2(ik), forfaits: r2(forfaits), reintegrable: r2(reintegrable), total: r2(reels + ik + forfaits + reintegrable) };
 }
 
-/** Indemnité au barème plafonné à 7 CV d'une ligne kilométrique (limite d'exonération), d'après le cumul de l'année. */
-export function limiteIkDe(d: Pick<Domain, 'ds'>, l: LigneFrais): number | null {
-  const veh = (d.ds.vehiculesPerso ?? []).find(v => v.id === l.vehiculeId);
-  if (!veh) return null;
-  const annee = Number(l.date.slice(0, 4));
-  const autres = lignesIkDeLAnnee(d.ds.lignesFrais ?? [], d.ds.notesFrais ?? [], l.empId, annee);
-  return ikDuTrajet(d.ds.referentiels.baremesKm, annee, veh, cumulKm(autres, l), l.km ?? 0);
+/** Lignes kilométriques transmises à la paie (note en paiement ou payée) et leur montant remboursé, en euros. */
+export function ikTransmises(lignesAnnee: readonly LigneFrais[], notes: readonly Pick<NoteFrais, 'id' | 'statut'>[]): Map<number, number> {
+  const payees = new Set(notes.filter(notePayee).map(n => n.id));
+  return new Map(lignesAnnee.filter(l => payees.has(l.noteId)).map(l => [l.id, montantRetenu(l)]));
 }
 
 /**
- * Avances imputées sur chaque note (montant positif, à déduire) : pour chaque séjour, solde des avances versées ou en
- * cours de versement, imputé sur les notes contrôlées, en paiement ou payées du même séjour, dans l'ordre des identifiants.
+ * Limite d'exonération des lignes kilométriques (barème à la puissance plafonnée, cumul ordonné de l'année recalculé :
+ * `indemnitesIkAnnee`), mémorisée par salarié et par année ; null : barème absent ou véhicule inconnu.
  */
-export function imputationsAvances(notes: readonly NoteFrais[], avances: readonly AvanceFrais[], total: (n: NoteFrais) => number): Map<number, number> {
+export function limitesIk(d: Pick<Domain, 'ds'>): (l: LigneFrais) => number | null {
+  const memo = new Map<string, Map<number, number | null>>();
+  return l => {
+    const annee = Number(l.date.slice(0, 4)), cle = `${l.empId}|${annee}`;
+    let m = memo.get(cle);
+    if (!m) {
+      const lignes = lignesIkDeLAnnee(d.ds.lignesFrais ?? [], d.ds.notesFrais ?? [], l.empId, annee);
+      m = indemnitesIkAnnee(d.ds.referentiels.baremesKm, annee, (d.ds.vehiculesPerso ?? []).filter(v => v.empId === l.empId), lignes, ikTransmises(lignes, d.ds.notesFrais ?? []), { limite: true });
+      memo.set(cle, m);
+    }
+    return m.get(l.id) ?? null;
+  };
+}
+
+/** Indemnité au barème plafonné à 7 CV d'une ligne kilométrique (limite d'exonération), d'après le cumul ordonné de l'année. */
+export const limiteIkDe = (d: Pick<Domain, 'ds'>, l: LigneFrais): number | null => limitesIk(d)(l);
+
+/**
+ * Avances imputées sur chaque note de ce lot (montant positif, à déduire) : pour chaque séjour, solde des avances versées,
+ * en cours de versement ou versées par ce lot (validées, pas encore dans un lot), moins les déductions déjà transmises
+ * (`transmises` : note → montant déduit par un lot non annulé), imputé sur les notes contrôlées pas encore dans un lot du
+ * même séjour, dans l'ordre des identifiants. Une note déjà payée ne consomme jamais le solde a posteriori.
+ */
+export function imputationsAvances(notes: readonly NoteFrais[], avances: readonly AvanceFrais[], total: (n: NoteFrais) => number,
+  transmises: ReadonlyMap<number, number> = new Map()): Map<number, number> {
   const solde = new Map<string, number>();
-  for (const a of avances) if (a.statut === 'versee' || a.statut === 'en_paiement') solde.set(cleSejourFrais(a), r2((solde.get(cleSejourFrais(a)) ?? 0) + a.montant));
+  const crediter = (k: string, m: number) => solde.set(k, r2((solde.get(k) ?? 0) + m));
+  for (const a of avances) if (a.statut === 'versee' || a.statut === 'en_paiement' || (a.statut === 'validee' && !a.lotId)) crediter(cleSejourFrais(a), a.montant);
+  const parId = new Map(notes.map(n => [n.id, n]));
+  for (const [id, m] of transmises) { const n = parId.get(id); if (n) crediter(cleSejourFrais(n), -m); }
   const out = new Map<number, number>();
   for (const n of [...notes].sort((a, b) => a.id - b.id)) {
-    if (n.statut !== 'controlee' && n.statut !== 'en_paiement' && n.statut !== 'payee') continue;
+    if (n.statut !== 'controlee' || n.lotId) continue;
     const k = cleSejourFrais(n), s = solde.get(k) ?? 0;
     if (s <= 0) continue;
     const imp = r2(Math.min(s, total(n)));
@@ -73,16 +99,26 @@ export function imputationsAvances(notes: readonly NoteFrais[], avances: readonl
   return out;
 }
 
+/** Déductions d'avance transmises par des lots (contenu figé) : note → montant déduit, positif. */
+export function deductionsDuContenu(elements: readonly Pick<ElementFraisPaie, 'note' | 'rubrique' | 'montant'>[]): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const x of elements) if (x.note && x.rubrique === 'FRAIS_AVANCE_DED') out.set(x.note, r2((out.get(x.note) ?? 0) - x.montant));
+  return out;
+}
+
 /**
  * Éléments de la famille « frais » d'un lot de la période `jusqua` : notes contrôlées et avances validées pas encore dans
  * un lot (le prochain lot généré les emporte : paie du mois suivant le contrôle), à la période du lot, avec le code Sage
- * de leur rubrique active (null : à saisir dans Sage).
+ * de leur rubrique active (null : à saisir dans Sage). `transmises` : déductions d'avance des lots non annulés
+ * (`deductionsDuContenu`).
  */
-export function elementsFrais(d: Domain, jusqua: string, table: readonly Pick<RubriqueVue, 'code' | 'codeSage' | 'active'>[]): ElementFraisPaie[] {
+export function elementsFrais(d: Domain, jusqua: string, table: readonly Pick<RubriqueVue, 'code' | 'codeSage' | 'active'>[],
+  transmises: ReadonlyMap<number, number> = new Map()): ElementFraisPaie[] {
   const code = (rubrique: string) => { const r = table.find(t => t.code === rubrique); return r?.active ? r.codeSage : null; };
   const notes = d.ds.notesFrais ?? [], avances = d.ds.avancesFrais ?? [];
-  const parts = new Map(notes.filter(n => n.statut !== 'annulee').map(n => [n.id, partsNote(d, n, l => limiteIkDe(d, l))]));
-  const imputees = imputationsAvances(notes, avances, n => parts.get(n.id)?.total ?? 0);
+  const limites = limitesIk(d);
+  const parts = new Map(notes.filter(n => n.statut === 'controlee' && !n.lotId).map(n => [n.id, partsNote(d, n, limites)]));
+  const imputees = imputationsAvances(notes, avances, n => parts.get(n.id)?.total ?? 0, transmises);
   const out: ElementFraisPaie[] = [];
   const ajouter = (x: Omit<ElementFraisPaie, 'matricule' | 'periode' | 'codeSage' | 'quantite'>) => {
     const e = d.emp(x.empId);

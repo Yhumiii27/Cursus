@@ -6,7 +6,7 @@ import { isValidDate } from './dates.ts';
 import { CONTRATS_EXCLUABLES, PREAVIS_TOUTE_ANNEE } from './rules/campagne.ts';
 import { JOURS_RELANCE, paliersRelance } from './rules/relances.ts';
 import { nuitHorsLoi, refusPlageNuit } from './rules/repos-nuit.ts';
-import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesTexte, DOSSIER_MIN_ANS, DUREE_MAX_ANS } from './rules/conservation.ts';
+import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesTexte, DOSSIER_MIN_ANS, DUREE_MAX_ANS, FRAIS_MIN_ANS } from './rules/conservation.ts';
 import { DELAI_JOUR_FRANC, DELAI_PREVENANCE_LEGAL } from './rules/astreintes.ts';
 import { COLONNES_PASSEPORT_DEFAUT, COLONNES_PASSEPORT_IDS } from './rules/passeport-prevention.ts';
 import type { CategorieFrais, CircuitFrais, CategorieEvaluee, ColonnePasseport, CompensationAstreinte, ContenuAgenda, ModeAttente, RepondantsFroid, Settings, StockagePieces } from './types.ts';
@@ -304,7 +304,9 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   fraisPlafonds: { defaut: {}, controle: plafondsFrais },
   fraisSeuilJustificatif: { defaut: 0, controle: entier(0, 1000) },
   fraisIkCvReels: { defaut: false, controle: booleen },
-  conservationFraisAns: { defaut: 10, controle: entier(DOSSIER_MIN_ANS, DUREE_MAX_ANS) },
+  // 10 ans au moins : pièces justificatives comptables (art. L123-22 du Code de commerce) ; une durée plus courte ferait
+  // effacer par la cascade des notes payées et leurs justificatifs avant le terme légal.
+  conservationFraisAns: { defaut: 10, controle: entier(FRAIS_MIN_ANS, DUREE_MAX_ANS) },
 };
 
 /**

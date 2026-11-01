@@ -9,7 +9,7 @@
 //   passent d'emblée à « validée », en attente du contrôle. Circuit réglé « manager » : la validation vaut contrôle.
 // - Frais médicaux (vaccin, pharmacie, consultation en mission) : catégorie `medical`, dans une note séparée
 //   (`medicale`), qui ne contient que cette catégorie ; jamais vue du manager, exclue de ses totaux, compteurs et tableaux
-//   de bord ; au journal, la catégorie devient « autre » (`categorieJournal`).
+//   de bord ; au journal, la catégorie devient « divers » (`categorieJournal`).
 // - Montant retenu d'une ligne : montant en euros, ou montant ramené au plafond de la politique (`montantRetenu`) ; une
 //   ligne refusée au contrôle ne compte plus.
 // - Doublons : même empreinte de justificatif (SHA-256 de la pièce) sur deux lignes, ou même (salarié, date, montant,
@@ -43,8 +43,11 @@ export const CATEGORIES_FRAIS: Record<CategorieFrais, { label: string; nature: '
 export const LISTE_CATEGORIES_FRAIS = Object.keys(CATEGORIES_FRAIS) as CategorieFrais[];
 export const estCategorieFrais = (v: unknown): v is CategorieFrais => typeof v === 'string' && Object.hasOwn(CATEGORIES_FRAIS, v);
 
-/** Catégorie recopiée au journal, dans un message ou un export : jamais « medical » (donnée de santé), remplacée par « autre ». */
-export const categorieJournal = (c: CategorieFrais): string => (c === 'medical' ? 'autre' : c);
+/**
+ * Catégorie recopiée au journal, dans un message ou un export : jamais « medical » (donnée de santé), remplacée par
+ * « divers », une catégorie réelle : une valeur propre aux frais médicaux (« autre ») les désignerait (relecture du lot 11).
+ */
+export const categorieJournal = (c: CategorieFrais): CategorieFrais => (c === 'medical' ? 'divers' : c);
 
 export const STATUTS_NOTE_FRAIS: Record<StatutNoteFrais, { label: string; cls: string }> = {
   brouillon: { label: 'Brouillon', cls: 'tag-outline' },

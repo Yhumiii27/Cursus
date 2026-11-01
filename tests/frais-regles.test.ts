@@ -43,7 +43,8 @@ test('circuit : statuts, transitions, soumission sans manager pour une note méd
   assert.match(F.erreurCategoriePourNote({ medicale: true }, 'repas')!, /que des frais médicaux/);
   assert.match(F.erreurCategoriePourNote({ medicale: false }, 'medical')!, /note séparée/);
   assert.equal(F.erreurCategoriePourNote({ medicale: true }, 'medical'), null);
-  assert.equal(F.categorieJournal('medical'), 'autre');
+  assert.equal(F.categorieJournal('medical'), 'divers', 'une catégorie réelle, que d’autres dépenses produisent aussi');
+  assert.ok(F.estCategorieFrais(F.categorieJournal('medical')));
   assert.equal(F.categorieJournal('hotel'), 'hotel');
   assert.ok(F.estPeriodeFrais('2026-10') && !F.estPeriodeFrais('2026-13') && F.estDevise('USD') && !F.estDevise('usd'));
 });
@@ -98,6 +99,24 @@ test('barème kilométrique : tranche, CV plafonnés à 7, majoration électriqu
   // Régularisation : dû au barème sur 120 km (76,32 €) moins ce qui a été remboursé.
   assert.equal(K.regularisationIk(BAREME, 2026, v5, annee, 70), 6.32);
   assert.equal(K.regularisationIk(BAREME, 2026, v5, [...annee, ligne({ categorie: 'ik', km: 5, vehiculeId: 9 })], 0), null, 'deux véhicules : à calculer par véhicule');
+  // Saisie dans le désordre (relecture du lot 11) : B (20 mars, 4 000 km) saisie avant A (1er mars, 4 000 km). Recalculées
+  // dans l'ordre des trajets : 2 544 € pour A, 1 707 € pour B, soit le barème annuel de 8 000 km (4 251 €).
+  const veh = [{ id: 1, ...v5 }];
+  const ab = [ligne({ id: 1, categorie: 'ik', km: 4000, date: '2026-03-20', vehiculeId: 1 }), ligne({ id: 2, categorie: 'ik', km: 4000, date: '2026-03-01', vehiculeId: 1 })];
+  assert.equal(K.montantAnnuelIk(BAREME, 2026, v5, 8000), 4251);
+  assert.deepEqual([...K.indemnitesIkAnnee(BAREME, 2026, veh, ab, new Map())], [[2, 2544], [1, 1707]]);
+  // B déjà payée à 2 544 € : l'écart (837 €) est régularisé sur A, total 4 251 € ; la limite d'exonération de A, elle, ne
+  // reprend pas le trop-perçu de B (seul un complément dû compte), rien n'est déclaré réintégrable à tort.
+  assert.deepEqual([...K.indemnitesIkAnnee(BAREME, 2026, veh, ab, new Map([[1, 2544]]))], [[2, 1707]]);
+  assert.deepEqual([...K.indemnitesIkAnnee(BAREME, 2026, veh, ab, new Map([[1, 2544]]), { limite: true })], [[2, 2544]]);
+  // B payée à 1 000 € (barème publié après coup) : le complément dû (707 €) passe sur A.
+  assert.deepEqual([...K.indemnitesIkAnnee(BAREME, 2026, veh, ab, new Map([[1, 1000]]))], [[2, 3251]]);
+  // Trop-perçu plus grand que les lignes à payer : jamais en dessous de zéro, reporté sur les suivantes.
+  const abc = [...ab, ligne({ id: 3, categorie: 'ik', km: 100, date: '2026-04-01', vehiculeId: 1 })];
+  assert.deepEqual([...K.indemnitesIkAnnee(BAREME, 2026, veh, abc, new Map([[2, 5000]]))], [[1, 0], [3, 0]]);
+  // Véhicule inconnu, année sans barème : null (à calculer).
+  assert.deepEqual([...K.indemnitesIkAnnee(BAREME, 2026, [], ab, new Map())], [[2, null], [1, null]]);
+  assert.deepEqual([...K.indemnitesIkAnnee(BAREME, 2025, veh, ab, new Map())], [[2, null], [1, null]]);
   assert.equal(K.ikReintegrable(100, 80), 20);
   assert.equal(K.ikReintegrable(70, 80), 0);
   assert.equal(K.ikReintegrable(70, null), null);
@@ -208,10 +227,32 @@ test('paie : parts d’une note, imputation des avances, éléments et notes ré
   assert.deepEqual(Pa.partsNote(d, note({ id: 2, medicale: true }), () => null), { reels: 35, ik: 0, forfaits: 0, reintegrable: 0, total: 35 }, 'frais médicaux : frais réels, rubrique commune');
   const avances = [{ id: 1, empId: 2, montant: 100, voyageId: 7, missionId: null, statut: 'versee' as const, demandeLe: '', valideeLe: null, valideePar: null, lotId: 3, verseeLe: null, annuleeLe: null, annuleePar: null, refusMotif: null }];
   const notes = [note({ id: 4, voyageId: 7, statut: 'payee' }), note({ id: 5, voyageId: 7, statut: 'controlee' }), note({ id: 6, voyageId: 8, statut: 'controlee' }), note({ id: 7, voyageId: 7, statut: 'brouillon' })];
-  assert.deepEqual([...Pa.imputationsAvances(notes, avances, () => 60)], [[4, 60], [5, 40]], 'solde imputé dans l’ordre, même séjour seulement');
+  assert.deepEqual([...Pa.imputationsAvances(notes, avances, () => 60)], [[5, 60]], 'note payée sans déduction transmise : elle ne consomme pas le solde');
+  assert.deepEqual([...Pa.imputationsAvances(notes, avances, () => 60, new Map([[4, 60]]))], [[5, 40]], 'solde diminué des déductions transmises, même séjour seulement');
+  assert.deepEqual([...Pa.imputationsAvances([...notes, note({ id: 8, voyageId: 7, statut: 'controlee', lotId: 3 })], avances, () => 60)], [[5, 60]], 'note déjà dans un lot : rien de plus');
+  // Relecture du lot 11, sur deux lots : avance de 500 € validée et note A (300 €) contrôlée emportées par le même lot
+  // (l'avance y est imputée), puis note B (400 €) au lot suivant : déduite du reste (200 €), jamais deux fois payée.
+  const avance = (statut: 'validee' | 'versee', lotId: number | null) => ({ ...avances[0], montant: 500, statut, lotId });
+  const lot1 = Pa.imputationsAvances([note({ id: 1, voyageId: 7, statut: 'controlee' })], [avance('validee', null)], () => 300);
+  assert.deepEqual([...lot1], [[1, 300]], 'avance versée par ce lot imputée dans ce lot');
+  const transmis = Pa.deductionsDuContenu([{ note: 1, rubrique: 'FRAIS_AVANCE_DED', montant: -300 }, { note: 1, rubrique: 'FRAIS_REMB', montant: 300 }, { note: null, rubrique: 'FRAIS_AVANCE', montant: 500 }]);
+  assert.deepEqual([...transmis], [[1, 300]]);
+  const lot2 = Pa.imputationsAvances([note({ id: 1, voyageId: 7, statut: 'payee', lotId: 1 }), note({ id: 2, voyageId: 7, statut: 'controlee' })], [avance('versee', 1)], n => (n.id === 1 ? 300 : 400), transmis);
+  assert.deepEqual([...lot2], [[2, 200]], '500 − 300 déjà déduits : 200 sur la note B ; total versé 500 + 300 + 400 − 500 = 700');
+  // Note payée avant l'avance (aucune déduction transmise) : l'avance s'impute en entier sur la note suivante.
+  assert.deepEqual([...Pa.imputationsAvances([note({ id: 1, voyageId: 7, statut: 'payee', lotId: 1 }), note({ id: 2, voyageId: 7, statut: 'controlee' })], [avance('versee', 2)], () => 400)], [[2, 400]]);
   assert.deepEqual(Pa.fraisDuContenu([
     { note: 5, avance: null, empId: 2, matricule: 'X', periode: '2026-10', rubrique: 'FRAIS_REMB', codeSage: null, quantite: 1, montant: 10 },
     { note: 5, avance: null, empId: 2, matricule: 'X', periode: '2026-10', rubrique: 'FRAIS_IK', codeSage: null, quantite: 1, montant: 5 },
     { note: null, avance: 9, empId: 3, matricule: 'Y', periode: '2026-10', rubrique: 'FRAIS_AVANCE', codeSage: null, quantite: 1, montant: 50 },
   ]), [{ id: 5, empId: 2 }, { id: 9, empId: 3, avance: true }]);
+});
+
+test('réglage conservationFraisAns : 10 ans au moins (pièces comptables, art. L123-22 du Code de commerce)', async () => {
+  const { appliquerReglages, REGLAGES, reglagesParDefaut } = await import('../shared/reglages.ts');
+  const DEFAULT_SETTINGS = reglagesParDefaut();
+  assert.equal(REGLAGES.conservationFraisAns.defaut, 10);
+  assert.equal(appliquerReglages(DEFAULT_SETTINGS, { conservationFraisAns: 10 }).conservationFraisAns, 10);
+  // Bornée comme les autres durées : une valeur hors bornes est ramenée à 10 ans, jamais en deçà du terme légal.
+  for (const ans of [0, 5, 6, 9, 11]) assert.equal(appliquerReglages(DEFAULT_SETTINGS, { conservationFraisAns: ans }).conservationFraisAns, 10, String(ans));
 });

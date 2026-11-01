@@ -57,7 +57,7 @@ type Ligne = Record<string, any>;
 /** Résultat d'une action des notes de frais : note, ligne, avance, salarié, statut, nombres. */
 const resultatFrais = (x: { result: unknown }) => (x.result ?? {}) as { note?: number; ligne?: number; avance?: number; vehicule?: number; empId?: number; statut?: string; lignes?: number; pieces?: number };
 const salarieFrais = (_p: P, x: { result: unknown }) => [resultatFrais(x).empId];
-/** Catégorie reçue, recopiée seulement si elle en est une, et jamais « medical ». */
+/** Catégorie reçue, recopiée seulement si elle en est une, et jamais « medical » (inscrite « divers »). */
 const categorieFrais = (p: P) => (p.categorie !== undefined ? { categorie: estCategorieFrais(p.categorie) ? categorieJournal(p.categorie) : null } : {});
 /** Pièces jointes par l'action (nombre de jetons reçus). */
 const piecesRecues = (p: P) => ({ pieces: (Array.isArray(p.jetons) ? p.jetons.length : 0) || (p.jeton ? 1 : 0) });
@@ -70,7 +70,8 @@ const REGLES_FRAIS: Record<string, Regle> = {
   'frais.ligne.ajouter': { champs: ['noteId', 'date'], extra: p => ({ ...categorieFrais(p), ...piecesRecues(p) }), bilan: bilanFrais, salaries: salarieFrais },
   'frais.ligne.modifier': { champs: ['id', 'date'], extra: p => ({ ...categorieFrais(p), ...piecesRecues(p) }), bilan: bilanFrais, salaries: salarieFrais },
   'frais.ligne.supprimer': { champs: ['id'], bilan: bilanFrais, salaries: salarieFrais },
-  'frais.note.soumettre': { champs: ['id'], bilan: bilanFrais, salaries: salarieFrais },
+  // Sans le statut d'arrivée : « validée » d'emblée désignerait une note médicale d'un salarié qui a un manager.
+  'frais.note.soumettre': { champs: ['id'], bilan: (p, x) => { const { statut: _statut, ...b } = bilanFrais(p, x) as Record<string, unknown>; return b; }, salaries: salarieFrais },
   'frais.note.valider': { champs: ['id'], bilan: bilanFrais, salaries: salarieFrais },
   'frais.note.renvoyer': { champs: ['id'], extra: p => ({ motif: typeof p.motif === 'string' && p.motif.trim() ? MENTION_TEXTE : null }), bilan: bilanFrais, salaries: salarieFrais },
   'frais.note.controler': { champs: ['id'], bilan: bilanFrais, salaries: salarieFrais },
@@ -745,7 +746,7 @@ export const REGLES: Record<string, Regle> = {
   },
   'astreinte.retirerIntervention': { champs: ['id'], cible: parId('astreinteInterventions', ['astreinteId', 'jour', 'debut', 'fin', 'heures']) },
   // lot 11 — notes de frais (server/src/actions/frais.ts) : identifiants, statuts, nombres de lignes et de pièces,
-  // catégorie (« autre » pour des frais médicaux), période. Jamais le commerçant, les invités, les lieux, les motifs, le
+  // catégorie (« divers » pour des frais médicaux), période. Jamais le commerçant, les invités, les lieux, les motifs, le
   // montant d'une ligne ni le caractère médical d'une note ; salariés lus dans le résultat de l'action.
   ...REGLES_FRAIS,
   'mandat.enregistrer': { champs: ['id', 'empId'], cible: parId('mandats', ['role', 'du', 'au', 'credit']) },

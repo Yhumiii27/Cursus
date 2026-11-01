@@ -24,10 +24,11 @@ import { plural } from '../../../shared/format.ts';
 import { periodeLabel } from '../../../shared/rules/paie.ts';
 import { sejoursPaie } from '../../../shared/rules/deplacements-paie.ts';
 import {
-  doublonsDe, doublonsEmpreinte, enEuros, erreurCategoriePourNote, estCategorieFrais, estDevise, estPeriodeFrais, lignesDe, noteModifiable, notePayee,
+  doublonsDe, doublonsEmpreinte, enEuros, erreurCategoriePourNote, estCategorieFrais, estDevise, estPeriodeFrais, lignesDe, montantRetenu, noteModifiable, notePayee,
   r2, statutApresValidation, statutASoumission,
 } from '../../../shared/rules/frais.ts';
-import { cumulKm, ikDuTrajet, lignesIkDeLAnnee, TYPES_VEHICULE, vehiculeAuJour } from '../../../shared/rules/frais-km.ts';
+import { cumulKm, ikDuTrajet, indemnitesIkAnnee, lignesIkDeLAnnee, TYPES_VEHICULE, vehiculeAuJour } from '../../../shared/rules/frais-km.ts';
+import { ikTransmises, limitesIk } from '../../../shared/rules/frais-paie.ts';
 import { cumulsForfait, joursForfait, joursSejour } from '../../../shared/rules/frais-cumul.ts';
 import { type AlerteFrais, alertesLigne, bloquantes, estCodeForfait, forfaitDeLaLigne, limiteForfait } from '../../../shared/rules/frais-politique.ts';
 import { estTauxTva } from '../../../shared/rules/frais-tva.ts';
@@ -208,10 +209,40 @@ function avertirDoublons(ctx: Ctx, l: LigneFrais): string {
   return n ? ` · doublon possible avec ${plural(n, 'autre dépense', 'autres dépenses')} (même date, même montant, même commerçant)` : '';
 }
 
+/**
+ * Indemnités kilométriques non transmises à la paie d'un salarié, recalculées pour les années données d'après le cumul
+ * ordonné de l'année (shared/rules/frais-km.ts, `indemnitesIkAnnee`) : une ligne saisie après coup à une date antérieure,
+ * une ligne modifiée, supprimée ou refusée, une note annulée ou un barème publié changent la part des trajets suivants ;
+ * l'écart d'une ligne déjà payée se régularise sur les lignes encore à payer. Lu en base (écritures de l'action comprises).
+ */
+export async function recalculerIk(ctx: Ctx, empId: number, annees: Iterable<number>): Promise<void> {
+  const lignes = await ctx.db.where<LigneFrais>('lignesFrais', 'empId', empId);
+  if (!lignes.some(l => l.categorie === 'ik')) return;
+  const notes = await ctx.db.where<NoteFrais>('notesFrais', 'empId', empId);
+  const vehicules = await ctx.db.where<VehiculePerso>('vehiculesPerso', 'empId', empId);
+  const baremes = await ctx.db.all<BaremeKm>('baremesKm');
+  for (const annee of new Set(annees)) {
+    const enVigueur = lignesIkDeLAnnee(lignes, notes, empId, annee);
+    const transmises = ikTransmises(enVigueur, notes);
+    const montants = indemnitesIkAnnee(baremes, annee, vehicules, enVigueur, transmises, { cvReels: ctx.ds.settings.fraisIkCvReels });
+    for (const l of enVigueur) {
+      if (transmises.has(l.id)) continue;
+      const m = montants.get(l.id) ?? 0;
+      if (m === l.montantEur && m === l.montant) continue;
+      // Montant retenu par le contrôleur gardé s'il reste en deçà de la nouvelle indemnité.
+      await ctx.db.update<LigneFrais>('lignesFrais', l.id, { montant: m, montantEur: m, ...(l.montantRetenu !== null && l.montantRetenu > m ? { montantRetenu: m } : {}) });
+    }
+  }
+}
+
+/** Année d'une ligne kilométrique (recalcul de ses voisines), sinon aucune. */
+const anneeIk = (l: Pick<LigneFrais, 'categorie' | 'date'> | undefined): number[] => (l?.categorie === 'ik' ? [Number(l.date.slice(0, 4))] : []);
+
 const ligneAjouter: ActionHandler = async (ctx, p) => {
   requireActif(ctx);
   const n = await noteEnSaisie(ctx, p.noteId);
   const l = await ctx.db.insert<LigneFrais>('lignesFrais', { noteId: n.id, empId: n.empId, ...lireLigne(ctx, n, p) });
+  await recalculerIk(ctx, n.empId, anneeIk(l));
   const pieces = await joindrePieces(ctx, p.jetons ?? p.jeton, objetLigne(n), l.id, n.empId);
   return { message: `Dépense ajoutée à la note de frais n° ${n.id}${pieces}${avertirDoublons(ctx, l)}`, result: { note: n.id, ligne: l.id, empId: n.empId } };
 };
@@ -222,6 +253,7 @@ const ligneModifier: ActionHandler = async (ctx, p) => {
   await noteEnSaisie(ctx, n.id);
   const champs = lireLigne(ctx, n, p, l);
   await ctx.db.update<LigneFrais>('lignesFrais', l.id, champs);
+  await recalculerIk(ctx, n.empId, [...anneeIk(l), ...anneeIk(champs)]);
   const pieces = await joindrePieces(ctx, p.jetons ?? p.jeton, objetLigne(n), l.id, n.empId);
   return { message: `Dépense de la note de frais n° ${n.id} modifiée${pieces}${avertirDoublons(ctx, { ...l, ...champs })}`, result: { note: n.id, ligne: l.id, empId: n.empId } };
 };
@@ -238,6 +270,7 @@ const ligneSupprimer: ActionHandler = async (ctx, p) => {
   const retirees = await retirerPiecesDe(ctx, objetLigne(n), l.id, 'Dépense supprimée de la note de frais');
   await ctx.db.run('UPDATE pieces SET objet_id = NULL, objet = NULL WHERE objet IN (?, ?) AND objet_id = ? AND retiree_le IS NOT NULL', ['ligneFrais', 'ligneFraisSante', l.id]);
   await ctx.db.remove('lignesFrais', l.id);
+  await recalculerIk(ctx, n.empId, anneeIk(l));
   return { message: `Dépense retirée de la note de frais n° ${n.id}${retirees ? ` · ${plural(retirees, 'pièce retirée', 'pièces retirées')}` : ''}`, result: { note: n.id, ligne: l.id, empId: n.empId } };
 };
 
@@ -253,14 +286,10 @@ export function alertesNote(ctx: Ctx, n: NoteFrais, lignes: readonly LigneFrais[
   const pieces = (ctx.ds.pieces ?? []).filter(x => (x.objet === 'ligneFrais' || x.objet === 'ligneFraisSante') && !x.retireeLe);
   const parEmpreinte = doublonsEmpreinte(pieces.map(x => ({ ligneId: x.objetId, empreinte: x.empreinte })));
   const out = new Map<number, AlerteFrais[]>();
+  const limites = limitesIk(ctx);
   for (const l of lignes) {
-    let limiteIk: number | null | undefined;
-    if (l.categorie === 'ik') {
-      const veh = (ctx.ds.vehiculesPerso ?? []).find(v => v.id === l.vehiculeId);
-      const annee = Number(l.date.slice(0, 4));
-      const autres = lignesIkDeLAnnee(ctx.ds.lignesFrais ?? [], ctx.ds.notesFrais ?? [], n.empId, annee);
-      limiteIk = veh ? ikDuTrajet(ctx.ds.referentiels.baremesKm, annee, veh, cumulKm(autres, l), l.km ?? 0) : null;
-    }
+    // Limite d'exonération d'après le cumul ordonné de l'année (recalculé : saisie dans le désordre, refus, barème).
+    const limiteIk = l.categorie === 'ik' ? limites(l) : undefined;
     const doublons = [...new Set([...doublonsDe(l, ctx.ds.lignesFrais ?? [], ctx.ds.notesFrais ?? []), ...parEmpreinte.filter(g => g.includes(l.id)).flat().filter(id => id !== l.id)])];
     out.set(l.id, alertesLigne(l, {
       settings: ctx.ds.settings, today: ctx.d.ti, justificatifs: pieces.filter(x => x.objetId === l.id).length, forfaits: ctx.ds.referentiels.forfaitsFrais,
@@ -295,8 +324,9 @@ const noteSoumettre: ActionHandler = async (ctx, p) => {
   const scellees = await scellerPieces(ctx.db, pieces);
   await ctx.db.update<NoteFrais>('notesFrais', n.id, { statut, soumiseLe: maintenant(), renvoyeeLe: null, renvoyeePar: null, renvoiMotif: null });
   return {
-    message: `Note de frais n° ${n.id} soumise — ${plural(lignes.length, 'dépense', 'dépenses')}${scellees ? `, ${plural(scellees, 'justificatif scellé', 'justificatifs scellés')}` : ''}`
-      + (statut === 'validee' ? ' · transmise directement au contrôle' : ' · en attente de la validation du manager'),
+    // Message identique quel que soit le circuit (il est recopié au journal) : « transmise directement au contrôle »
+    // désignerait une note médicale d'un salarié qui a un manager. L'écran montre le statut.
+    message: `Note de frais n° ${n.id} soumise — ${plural(lignes.length, 'dépense', 'dépenses')}${scellees ? `, ${plural(scellees, 'justificatif scellé', 'justificatifs scellés')}` : ''}`,
     result: { note: n.id, empId: n.empId, statut, lignes: lignes.length, pieces: scellees },
   };
 };
@@ -307,10 +337,12 @@ const noteValider: ActionHandler = async (ctx, p) => {
   refuserSoiMeme(ctx, getEmp(ctx, n.empId), 'Vous ne validez pas votre propre note de frais');
   if (n.statut === 'validee' || n.statut === 'controlee') return { message: `Note de frais n° ${n.id} déjà validée`, result: { note: n.id, empId: n.empId, statut: n.statut } };
   if (n.statut !== 'soumise') throw new ActionError(`Note de frais n° ${n.id} : rien à valider`, 409);
-  const statut = statutApresValidation(ctx.ds.settings.fraisCircuit);
+  const valide = statutApresValidation(ctx.ds.settings.fraisCircuit);
+  // Circuit sans contrôle et rien à rembourser : note close aussitôt (aucun lot ne l'emporterait).
+  const statut = valide === 'controlee' && rienARembourser(ctx, n) ? 'payee' : valide;
   const le = maintenant();
-  await ctx.db.update<NoteFrais>('notesFrais', n.id, { statut, valideeLe: le, valideePar: ctx.user.nom, ...(statut === 'controlee' ? { controleeLe: le, controleePar: ctx.user.nom } : {}) });
-  return { message: `Note de frais n° ${n.id} validée${statut === 'controlee' ? ' · en attente de la paie' : ' · en attente du contrôle'}`, result: { note: n.id, empId: n.empId, statut } };
+  await ctx.db.update<NoteFrais>('notesFrais', n.id, { statut, valideeLe: le, valideePar: ctx.user.nom, ...(valide === 'controlee' ? { controleeLe: le, controleePar: ctx.user.nom } : {}), ...(statut === 'payee' ? { payeeLe: ctx.d.ti } : {}) });
+  return { message: `Note de frais n° ${n.id} validée${statut === 'payee' ? ' · rien à rembourser, note close' : statut === 'controlee' ? ' · en attente de la paie' : ' · en attente du contrôle'}`, result: { note: n.id, empId: n.empId, statut } };
 };
 
 /** Motif d'un renvoi, d'un refus ou d'une annulation : obligatoire, borné (jamais recopié au journal). */
@@ -340,14 +372,24 @@ async function noteAControler(ctx: Ctx, id: unknown): Promise<NoteFrais> {
   return n;
 }
 
+/**
+ * Note sans rien à rembourser (toutes ses dépenses refusées ou ramenées à zéro) : aucun élément de lot ne la réserverait,
+ * elle resterait « contrôlée, en attente de paie » ; elle est close au contrôle (« payée » de zéro, gardée comme les autres).
+ */
+const rienARembourser = (ctx: Ctx, n: NoteFrais) => lignesDe(ctx.ds.lignesFrais, n.id).every(l => !montantRetenu(l));
+
 const noteControler: ActionHandler = async (ctx, p) => {
   requireActif(ctx);
   const n = await noteAControler(ctx, p.id);
   if (n.statut === 'controlee' || notePayee(n)) return { message: `Note de frais n° ${n.id} déjà contrôlée`, result: { note: n.id, empId: n.empId, statut: n.statut } };
   if (n.statut !== 'validee') throw new ActionError(`Note de frais n° ${n.id} : à valider d’abord par le manager`, 409);
   refuserBloquantes(ctx, n, 'Contrôle');
-  await ctx.db.update<NoteFrais>('notesFrais', n.id, { statut: 'controlee', controleeLe: maintenant(), controleePar: ctx.user.nom });
-  return { message: `Note de frais n° ${n.id} contrôlée · remboursée avec la prochaine paie`, result: { note: n.id, empId: n.empId, statut: 'controlee' } };
+  const le = maintenant(), rien = rienARembourser(ctx, n);
+  await ctx.db.update<NoteFrais>('notesFrais', n.id, { statut: 'controlee', controleeLe: le, controleePar: ctx.user.nom, ...(rien ? { statut: 'payee', payeeLe: ctx.d.ti } : {}) });
+  return {
+    message: `Note de frais n° ${n.id} contrôlée · ${rien ? 'rien à rembourser (dépenses refusées), note close' : 'remboursée avec la prochaine paie'}`,
+    result: { note: n.id, empId: n.empId, statut: rien ? 'payee' : 'controlee' },
+  };
 };
 
 /** Ligne d'une note validée, pour le contrôleur. */
@@ -363,6 +405,7 @@ const ligneRefuser: ActionHandler = async (ctx, p) => {
   requireActif(ctx);
   const { l, n } = await ligneAControler(ctx, p.id);
   await ctx.db.update<LigneFrais>('lignesFrais', l.id, { refuseeLe: maintenant(), refusMotif: motif(p.motif) });
+  await recalculerIk(ctx, n.empId, anneeIk(l));
   return { message: `Dépense refusée dans la note de frais n° ${n.id}`, result: { note: n.id, ligne: l.id, empId: n.empId } };
 };
 
@@ -385,6 +428,7 @@ const noteAnnuler: ActionHandler = async (ctx, p) => {
   if (!isRh(ctx) && !avantValidation) throw new ActionError(`Note de frais n° ${n.id} déjà validée : adressez-vous au service RH`, 409);
   if (isRh(ctx) && !avantValidation) refuserSoiMeme(ctx, getEmp(ctx, n.empId), 'Vous n’annulez pas votre propre note de frais validée');
   await ctx.db.update<NoteFrais>('notesFrais', n.id, { statut: 'annulee', annuleeLe: maintenant(), annuleePar: ctx.user.nom, annuleMotif: str(p.motif).slice(0, TEXTE_FRAIS_MAX) || null });
+  await recalculerIk(ctx, n.empId, lignesDe(ctx.ds.lignesFrais, n.id).flatMap(anneeIk));
   return { message: `Note de frais n° ${n.id} annulée`, result: { note: n.id, empId: n.empId, statut: 'annulee' } };
 };
 
@@ -425,6 +469,8 @@ const baremeEnregistrer: ActionHandler = async (ctx, p) => {
   });
   await ctx.db.run('DELETE FROM baremes_km WHERE annee = ? AND type = ?', [annee, type]);
   for (const t of lues) await ctx.db.insert<BaremeKm>('baremesKm', { annee, type: type as TypeVehicule, ...t, saisiLe: maintenant(), saisiPar: ctx.user.nom });
+  // Indemnités de l'année recalculées au barème publié (lignes saisies sans barème comprises).
+  for (const empId of new Set((ctx.ds.lignesFrais ?? []).filter(l => l.categorie === 'ik' && l.date.startsWith(`${annee}-`)).map(l => l.empId))) await recalculerIk(ctx, empId, [annee]);
   return { message: `Barème kilométrique ${annee} enregistré (${TYPES_VEHICULE[type as TypeVehicule].toLowerCase()}, ${plural(lues.length, 'tranche', 'tranches')})`, result: { annee, type, tranches: lues.length } };
 };
 

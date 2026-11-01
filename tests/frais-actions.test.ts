@@ -1,6 +1,6 @@
 // Notes de frais (lot 11, chantier C5, étape 1) sur le jeu de démonstration (module activé) le 10 octobre 2026 : circuit
 // (soumission, validation par le manager, contrôle par la comptabilité), droits (refuserSoiMeme, profil « Comptabilité »),
-// frais médicaux isolés (jamais au manager, ni dans ses totaux ; « autre » au journal), filtre manager propre aux frais
+// frais médicaux isolés (jamais au manager, ni dans ses totaux ; « divers » au journal), filtre manager propre aux frais
 // (N+2, suppléant « absences », suppléant « frais »), vues des profils restreints, journal en liste blanche, justificatifs
 // scellés et immuables, famille « frais » des lots de paie (colonne montant exigée, lot ancien inchangé), avances, devises,
 // barème manquant, cascade de conservation (notes payées gardées jusqu'à leur terme comptable), registres du cache.
@@ -12,12 +12,14 @@ const { nouvelleBase } = await import('./base.ts');
 // Bilans du nettoyage des pièces (fichiers fictifs) : hors de la sortie du test.
 (await import('../server/src/logs.ts')).reglerJournaux({ sortie: () => {} });
 const { seedDemo } = await import('../server/src/seed.ts');
-const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
+const { buildSnapshot, currentUser, loadFull, loadSettings } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
 const { journaliserAction, preparerTrace } = await import('../server/src/journal.ts');
 const { verifierSceaux } = await import('../server/src/sceaux.ts');
-const { effacer } = await import('../server/src/conservation.ts');
+const { journaliser } = await import('../server/src/comptes.ts');
+const { dossiersEchus, effacer } = await import('../server/src/conservation.ts');
+
 const { REFUS_SANS_MONTANT } = await import('../server/src/frais-paie.ts');
 const { controlerOrphelins, REFERENCES } = await import('../server/src/integrite.ts');
 const { HORS_INSTANTANE, LECTURES } = await import('../server/src/lecture-brute.ts');
@@ -68,7 +70,8 @@ test('circuit : soumise, validée par le manager, contrôlée par la comptabilit
   assert.equal((await refus(MANON, 'frais.note.creer', { empId: 2, periode: '2026-10' })).status, 403);
   assert.equal((await refus(MEHDI, 'frais.note.valider', { id: note })).status, 403);
   const s = await run(MEHDI, 'frais.note.soumettre', { id: note });
-  assert.match(s.message, /^Note de frais n° \d+ soumise — 2 dépenses · en attente de la validation du manager$/);
+  assert.match(s.message, /^Note de frais n° \d+ soumise — 2 dépenses$/);
+  assert.equal(s.result.statut, 'soumise');
   assert.equal((await refus(MEHDI, 'frais.ligne.ajouter', { noteId: note, ...DEPENSE })).status, 409, 'note soumise');
   assert.equal((await refus(HUGO, 'frais.note.valider', { id: note })).status, 403, 'autre manager');
   assert.equal((await refus(KARIM, 'frais.note.controler', { id: note })).status, 403);
@@ -99,7 +102,8 @@ test('circuit : renvoi pour correction (motif jamais au journal), manager sans N
   // Karim Haddad (manager de la Maintenance) n'a pas de N+1 : sa note va directement au contrôle.
   const k = (await run(KARIM, 'frais.note.creer', { periode: '2026-10' })).result.note;
   await run(KARIM, 'frais.ligne.ajouter', { noteId: k, ...DEPENSE });
-  assert.match((await run(KARIM, 'frais.note.soumettre', { id: k })).message, /transmise directement au contrôle/);
+  const sk = await run(KARIM, 'frais.note.soumettre', { id: k });
+  assert.deepEqual([sk.message, sk.result.statut], [`Note de frais n° ${k} soumise — 1 dépense`, 'validee'], 'même message qu’une note qui attend le manager');
   // Circuit « manager » : la validation vaut contrôle.
   await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), fraisCircuit: 'manager' });
   await run(MEHDI, 'frais.note.soumettre', { id: note });
@@ -113,14 +117,14 @@ test('circuit : renvoi pour correction (motif jamais au journal), manager sans N
   assert.match((await run(ADMIN, 'frais.forfait.enregistrer', { annee: 2027, code: 'panier', montant: 7.4 })).message, /enregistrée/);
 });
 
-test('frais médicaux : note séparée, jamais au manager ni dans ses totaux, contrôlée directement ; « autre » au journal', async () => {
+test('frais médicaux : note séparée, jamais au manager ni dans ses totaux, contrôlée directement ; « divers » au journal', async () => {
   const { run, refus, vue, journal, MEHDI, KARIM, MANON, PAIE } = await fresh();
   const m = (await run(MEHDI, 'frais.note.creer', { periode: '2026-10', medicale: true })).result.note;
   assert.match((await refus(MEHDI, 'frais.ligne.ajouter', { noteId: m, ...DEPENSE })).message, /que des frais médicaux/);
   await run(MEHDI, 'frais.ligne.ajouter', { noteId: m, ...DEPENSE, categorie: 'medical', montant: 35, commercant: 'Pharmacie du Port' });
   const o = (await run(MEHDI, 'frais.note.creer', { periode: '2026-10' })).result.note;
   assert.match((await refus(MEHDI, 'frais.ligne.ajouter', { noteId: o, ...DEPENSE, categorie: 'medical' })).message, /note séparée/);
-  assert.match((await run(MEHDI, 'frais.note.soumettre', { id: m })).message, /transmise directement au contrôle/);
+  assert.equal((await run(MEHDI, 'frais.note.soumettre', { id: m })).message, `Note de frais n° ${m} soumise — 1 dépense`);
   assert.equal((await refus(KARIM, 'frais.note.valider', { id: m })).status, 403);
   assert.equal((await refus(KARIM, 'frais.note.renvoyer', { id: m, motif: 'x' })).status, 403);
   // Vue du manager : ni la note médicale ni sa ligne ; la note ordinaire de Mehdi, oui.
@@ -132,13 +136,30 @@ test('frais médicaux : note séparée, jamais au manager ni dans ses totaux, co
   const vm = await vue(MANON);
   assert.ok(vm.notesFrais!.some(n => n.id === m) && vm.lignesFrais!.some(l => l.noteId === m && l.categorie === 'medical'));
   await run(MANON, 'frais.note.controler', { id: m });
+  // Note ordinaire du même salarié, du même circuit jusqu'au contrôle (une dépense « divers ») : vue de la paie et journal
+  // identiques, aux identifiants près ; rien n'y distingue la note médicale (ni l'indicateur, ni le circuit).
+  await run(MEHDI, 'frais.ligne.ajouter', { noteId: o, ...DEPENSE, montant: 36, commercant: 'Librairie du Port' });
+  await run(MEHDI, 'frais.note.soumettre', { id: o });
+  await run(KARIM, 'frais.note.valider', { id: o });
+  await run(MANON, 'frais.note.controler', { id: o });
   const vp = await vue(PAIE);
   assert.deepEqual(vp.lignesFrais, []);
-  assert.equal(vp.notesFrais!.find(n => n.id === m)?.medicale, false);
-  // Journal : catégorie « autre », ni le mot « médical », ni le commerçant, ni le montant d'une ligne.
-  const j = JSON.stringify((await journal()).filter(l => l.action.startsWith('frais.')));
-  assert.ok(j.includes('"categorie":"autre"'));
-  assert.ok(!/medical|médic|Pharmacie|"montant"/i.test(j), j);
+  const circuit = (id: number) => { const { id: _id, creeLe: _le, ...x } = vp.notesFrais!.find(n => n.id === id)!; return x; };
+  assert.equal(circuit(m).medicale, false);
+  assert.deepEqual(circuit(m), circuit(o), 'note médicale et note ordinaire indiscernables pour la paie');
+  // Journal : catégorie « divers » (une catégorie réelle), ni le mot « médical », ni « autre », ni le commerçant, ni le
+  // montant d'une ligne ; soumission, ajout de ligne et contrôle identiques pour les deux notes.
+  const lignes = (await journal()).filter(l => l.action.startsWith('frais.'));
+  const j = JSON.stringify(lignes);
+  assert.ok(!/medical|médic|Pharmacie|"montant"|"autre"/i.test(j), j);
+  const trace = (action: string, cle: string, id: number) => lignes.filter(l => l.action === action && l.payload[cle] === id).map(l => {
+    const { [cle]: _id, note: _note, ligne: _ligne, ...x } = l.payload;
+    return { ...x, message: l.message?.replace(/n° \d+/, 'n° X') } as Record<string, unknown>;
+  });
+  assert.deepEqual(trace('frais.ligne.ajouter', 'noteId', m), trace('frais.ligne.ajouter', 'noteId', o));
+  assert.equal(trace('frais.ligne.ajouter', 'noteId', m)[0].categorie, 'divers');
+  assert.deepEqual(trace('frais.note.soumettre', 'id', m), trace('frais.note.soumettre', 'id', o).slice(-1));
+  assert.deepEqual(trace('frais.note.controler', 'id', m), trace('frais.note.controler', 'id', o));
 });
 
 test('filtre manager propre aux frais : ni N+2 (consultation activée), ni suppléant « absences » ; suppléant « frais » sans note médicale', async () => {
@@ -216,6 +237,11 @@ test('justificatifs : joints à la ligne, scellés à la soumission (chaîne d�
   await piece('j4', 'd'.repeat(64));
   assert.equal((await refus(MEHDI, 'piece.joindre', { objet: 'ligneFrais', objetId: lm, jeton: 'j4' })).status, 403, 'objet de santé pour une note médicale');
   await run(MEHDI, 'piece.joindre', { objet: 'ligneFraisSante', objetId: lm, jeton: 'j4' });
+  // Consultation d'un justificatif médical (trace de la route des pièces, server/src/pieces-routes.ts) : objet masqué par
+  // le journal lui-même, comme pour piece.joindre et piece.retirer.
+  const pm = (await db.one<{ id: number }>('SELECT id FROM pieces WHERE objet = ? AND objet_id = ?', ['ligneFraisSante', lm]))!.id;
+  await journaliser(db, { actor: 'Manon Faure', role: 'rh', action: 'piece.consulter', message: 'Pièce justificative consultée (justificatif de frais)', payload: { piece: pm, objet: 'ligneFraisSante', objetId: lm }, salaries: [2] });
+  assert.deepEqual((await journal()).at(-1)!.payload, { piece: pm, objet: 'ligneFrais', objetId: lm });
   const j = JSON.stringify(await journal());
   assert.ok(!j.includes('ligneFraisSante') && !/médic/i.test(j));
   // Ligne supprimée en brouillon : ses pièces retirées, aucune référence orpheline.
@@ -277,9 +303,10 @@ test('paie : famille « frais » (rubriques désactivées : à saisir dans Sage)
   assert.match(g.message, /remboursements de frais/);
   const lot = (await db.get<any>('lotsPaie', g.result.lot))!;
   assert.deepEqual(lot.frais, [{ id: note, empId: 2 }, { id: a, empId: 2, avance: true }]);
-  assert.deepEqual(lot.resume.frais, { elements: 2, salaries: 1, montant: 142.5 });
+  // L'avance versée par ce lot est imputée sur la note du même séjour (aucun déplacement) dans ce même lot.
+  assert.deepEqual(lot.resume.frais, { elements: 3, salaries: 1, montant: 100 });
   assert.deepEqual(lot.resume.aSaisir.filter((x: any) => x.famille === 'frais').map((x: any) => [x.rubrique, x.quantite, x.detail]),
-    [['FRAIS_REMB', 42.5, `note de frais n° ${note}, en euros`], ['FRAIS_AVANCE', 100, `avance sur frais n° ${a}, en euros`]]);
+    [['FRAIS_REMB', 42.5, `note de frais n° ${note}, en euros`], ['FRAIS_AVANCE_DED', -42.5, `note de frais n° ${note}, en euros`], ['FRAIS_AVANCE', 100, `avance sur frais n° ${a}, en euros`]]);
   assert.deepEqual(await statut(), ['en_paiement', 'en_paiement']);
   await run(PAIE, 'paie.lotAnnuler', { id: lot.id });
   assert.deepEqual(await statut(), ['controlee', 'validee']);
@@ -297,6 +324,61 @@ test('paie : famille « frais » (rubriques désactivées : à saisir dans Sage)
   assert.deepEqual(await statut(), ['payee', 'versee']);
   assert.equal((await db.get<{ payeeLe: string }>('notesFrais', note))!.payeeLe, '2026-10-10');
   assert.ok(lot2.contenu.frais.every((x: any) => x.quantite === 1));
+});
+
+test('relecture : avance imputée sur deux lots (jamais payée deux fois), indemnités saisies dans le désordre, note à zéro close', async () => {
+  const { db, run, MEHDI, KARIM, MANON, PAIE } = await fresh();
+  const controlee = async (montant: number) => {
+    const id = (await run(MEHDI, 'frais.note.creer', { periode: '2026-10' })).result.note;
+    await run(MEHDI, 'frais.ligne.ajouter', { noteId: id, ...DEPENSE, montant });
+    await run(MEHDI, 'frais.note.soumettre', { id });
+    await run(KARIM, 'frais.note.valider', { id });
+    await run(MANON, 'frais.note.controler', { id });
+    return id;
+  };
+  // Avance de 500 € validée et note A (300 €) emportées par le même lot : l'avance y est imputée sur A.
+  const a = (await run(MEHDI, 'frais.avance.demander', { montant: 500 })).result.avance;
+  await run(KARIM, 'frais.avance.valider', { id: a });
+  const na = await controlee(300);
+  const elements = async (id: number) => ((await db.get<any>('lotsPaie', id))!.contenu.frais as any[]).map(x => [x.note ?? `a${x.avance}`, x.rubrique, x.montant]);
+  const l1 = (await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' })).result.lot;
+  assert.deepEqual(await elements(l1), [[na, 'FRAIS_REMB', 300], [na, 'FRAIS_AVANCE_DED', -300], [`a${a}`, 'FRAIS_AVANCE', 500]]);
+  await run(PAIE, 'paie.lotConfirmer', { id: l1 });
+  // Note B (400 €) au lot suivant : seul le reste de l'avance (200 €) est déduit. Versé : 500 + 300 − 300 + 400 − 200 = 700.
+  const nb = await controlee(400);
+  const l2 = (await run(PAIE, 'paie.lotGenerer', { periode: '2026-11' })).result.lot;
+  assert.deepEqual(await elements(l2), [[nb, 'FRAIS_REMB', 400], [nb, 'FRAIS_AVANCE_DED', -200]]);
+  // Lot annulé : ses déductions ne comptent plus (la note revient, le reste de l'avance aussi).
+  await run(PAIE, 'paie.lotAnnuler', { id: l2 });
+  const l3 = (await run(PAIE, 'paie.lotGenerer', { periode: '2026-11' })).result.lot;
+  assert.deepEqual(await elements(l3), [[nb, 'FRAIS_REMB', 400], [nb, 'FRAIS_AVANCE_DED', -200]]);
+  await run(PAIE, 'paie.lotAnnuler', { id: l3 });
+
+  // Indemnités saisies dans le désordre : B (20 mars, 4 000 km) puis A (1er mars, 4 000 km) ; recalculées dans l'ordre
+  // des trajets, elles font le barème annuel des kilomètres de l'année (demo : 120 km en octobre), sans part réintégrable.
+  const v = (await db.one<{ id: number }>('SELECT id FROM vehicules_perso WHERE emp_id = 2'))!.id;
+  const n = (await run(MEHDI, 'frais.note.creer', { periode: '2026-03' })).result.note;
+  const ik = async (date: string) => (await run(MEHDI, 'frais.ligne.ajouter', { noteId: n, date, categorie: 'ik', km: 4000, vehiculeId: v })).result.ligne as number;
+  const lb = await ik('2026-03-20'), la = await ik('2026-03-01');
+  const montant = async (id: number) => (await db.get<{ montantEur: number }>('lignesFrais', id))!.montantEur;
+  assert.deepEqual([await montant(la), await montant(lb)], [2544, 1707]);
+  const total = async () => (await db.query<{ m: number }>(`SELECT montant_eur AS m FROM lignes_frais WHERE emp_id = 2 AND categorie = 'ik'`)).reduce((x, r) => x + Number(r.m), 0);
+  assert.equal(Math.round(await total() * 100) / 100, 4251 + 42.84, '8 120 km : 0,357 × 8 120 + 1 395 = 4 293,84');
+  // Suppression de A : B reprend sa part au cumul de l'année.
+  await run(MEHDI, 'frais.ligne.supprimer', { id: la });
+  assert.equal(await montant(lb), 2544);
+  await run(MEHDI, 'frais.ligne.supprimer', { id: lb });
+
+  // Note dont toutes les dépenses sont refusées : close au contrôle, jamais « en attente de paie » pour toujours.
+  const z = (await run(MEHDI, 'frais.note.creer', { periode: '2026-10' })).result.note;
+  const lz = (await run(MEHDI, 'frais.ligne.ajouter', { noteId: z, ...DEPENSE, montant: 13 })).result.ligne;
+  await run(MEHDI, 'frais.note.soumettre', { id: z });
+  await run(KARIM, 'frais.note.valider', { id: z });
+  await run(MANON, 'frais.ligne.refuser', { id: lz, motif: 'Hors politique' });
+  const c = await run(MANON, 'frais.note.controler', { id: z });
+  assert.match(c.message, /rien à rembourser/);
+  const nz = (await db.get<{ statut: string; payeeLe: string; lotId: number | null }>('notesFrais', z))!;
+  assert.deepEqual([nz.statut, nz.payeeLe, nz.lotId], ['payee', '2026-10-10', null]);
 });
 
 test('fichier d’un lot ancien inchangé : format par défaut identique, colonne montant vide pour les quantités', () => {
@@ -336,6 +418,17 @@ test('conservation : notes payées gardées jusqu’au terme comptable (10 ans),
   assert.equal((await db.get<{ nom: string }>('employes', 2))!.nom, 'Salarié anonymisé n° 2');
   // Références seulement : les fichiers des pièces de l'essai n'existent pas.
   assert.deepEqual((await controlerOrphelins(db, [...REFERENCES])).parReference, {});
+  // Cascade sur deux dates (relecture du lot 11) : la note gardée sort de son terme le 31 mars 2030 ; le dossier anonymisé
+  // est alors reproposé pour la seule catégorie « frais », puis plus du tout une fois elle effacée.
+  await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), conservationActive: true, conservationDecisionDpo: 'Décision DPO n° 2026-04' });
+  const echus = async (ti: string) => (await dossiersEchus(db, await loadSettings(db), ti)).filter(d => d.empId === 2).map(d => [d.categories, d.dossier, d.elements]);
+  assert.deepEqual(await echus('2026-10-10'), [], 'note encore dans son terme comptable');
+  assert.deepEqual(await echus('2030-03-31'), []);
+  assert.deepEqual(await echus('2030-04-01'), [[['frais'], false, 4]], 'note, ligne, justificatif retiré et détaché : hors terme');
+  await db.tx(async () => { await effacer(db, 2, ['frais'], { ti: '2030-04-01', le: '2030-04-01T08:00:00.000Z', par: 'Essai' }, { motif: 'Essai', avantEcheance: false }); });
+  assert.deepEqual(await db.where('notesFrais', 'empId', 2), []);
+  assert.ok((await db.one<{ retiree_le: string | null }>('SELECT retiree_le FROM pieces WHERE id = ?', [(await db.one<{ id: number }>('SELECT id FROM pieces WHERE emp_id = 2 AND nom LIKE ?', ['piece-%']))!.id]))!.retiree_le);
+  assert.deepEqual(await echus('2030-04-02'), []);
 });
 
 test('registres : tables lues par l’instantané, champs par salarié, exports hors de l’instantané, sceaux sans révision, dépenses sans clé', () => {

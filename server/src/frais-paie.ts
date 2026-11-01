@@ -7,20 +7,38 @@
 // élément de frais part dans le fichier est refusé tant que le format en vigueur n'a pas la colonne « montant »
 // (Paramètres → Paie, format du fichier d'import) : sans elle, le fichier ne porterait qu'une quantité de 1.
 import { rubriquesPaie } from '../../shared/rules/paie.ts';
-import { elementsFrais, fraisDuContenu } from '../../shared/rules/frais-paie.ts';
+import type { Domain } from '../../shared/domain.ts';
+import { cleSejourFrais, deductionsDuContenu, elementsFrais, fraisDuContenu } from '../../shared/rules/frais-paie.ts';
+import { notePayee } from '../../shared/rules/frais.ts';
 import type { ElementFraisPaie, RubriquePaie } from '../../shared/types.ts';
+import type { Db } from './db.ts';
 import { ActionError } from './actions/context.ts';
 import type { FamilleLot } from './elements-lot.ts';
-import { lireFormatFichier } from './lots-paie.ts';
+import { type LotEnregistre, lireFormatFichier } from './lots-paie.ts';
 
 /** Refus d'un lot dont des remboursements partiraient dans un fichier sans colonne « montant ». */
 export const REFUS_SANS_MONTANT = 'Remboursements de frais à transmettre : le format du fichier d’import n’a pas la colonne « montant ». Ajoutez-la (format du fichier d’import, écran Temps), puis générez de nouveau le lot.';
+
+/**
+ * Déductions d'avance déjà transmises (note → montant déduit) : lues dans le contenu figé des lots non annulés qui
+ * remboursent une note d'un séjour à avance ; ces lots seulement (le contenu d'un lot pèse 50 à 300 Ko).
+ */
+export async function deductionsTransmises(db: Db, d: Pick<Domain, 'ds'>): Promise<Map<number, number>> {
+  const sejours = new Set((d.ds.avancesFrais ?? []).map(cleSejourFrais));
+  const lots = new Set((d.ds.notesFrais ?? []).filter(n => n.lotId && notePayee(n) && sejours.has(cleSejourFrais(n))).map(n => n.lotId!));
+  const elements: ElementFraisPaie[] = [];
+  for (const id of [...lots].sort((a, b) => a - b)) {
+    const lot = await db.get<LotEnregistre>('lotsPaie', id);
+    if (lot && lot.statut !== 'annule') elements.push(...(lot.contenu?.frais ?? []));
+  }
+  return deductionsDuContenu(elements);
+}
 
 /** Famille du registre des éléments de lot : remboursements de frais et avances (lot 11). */
 export const FAMILLE_FRAIS: FamilleLot<ElementFraisPaie> = {
   cle: 'frais',
   libelles: ['remboursement de frais', 'remboursements de frais'],
-  aEmettre: async (db, d, jusqua) => elementsFrais(d, jusqua, rubriquesPaie(await db.all<RubriquePaie>('rubriquesPaie'))),
+  aEmettre: async (db, d, jusqua) => elementsFrais(d, jusqua, rubriquesPaie(await db.all<RubriquePaie>('rubriquesPaie')), await deductionsTransmises(db, d)),
   aSaisir: async () => [], // gardés dans le lot sans code Sage : listés par le résumé (shared/rules/elements-lot.ts)
   idsDuContenu: fraisDuContenu,
   reserver: async (db, lotId, elements) => {

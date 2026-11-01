@@ -272,6 +272,8 @@ COMMENT ON TABLE "notes_frais" IS 'Notes de frais : salarié, mois, rattachement
 COMMENT ON COLUMN "notes_frais"."medicale" IS 'Sensible : note de frais médicaux en mission (donnée de santé), à exclure de matrix_lecture (Matrix).';
 COMMENT ON COLUMN "notes_frais"."renvoi_motif" IS 'Sensible : texte libre, motif du renvoi pour correction, à exclure de matrix_lecture (Matrix).';
 COMMENT ON COLUMN "notes_frais"."annule_motif" IS 'Sensible : texte libre, motif de l''annulation, à exclure de matrix_lecture (Matrix).';
+COMMENT ON COLUMN "notes_frais"."validee_le" IS 'Sensible : date de la validation du manager ; vide pour une note passée directement au contrôle, elle désignerait une note médicale. À exclure de matrix_lecture (Matrix).';
+COMMENT ON COLUMN "notes_frais"."validee_par" IS 'Sensible : auteur de la validation du manager ; vide pour une note passée directement au contrôle, elle désignerait une note médicale. À exclure de matrix_lecture (Matrix).';
 COMMENT ON TABLE "lignes_frais" IS 'Sensible (table entière) : dépenses nominatives des notes de frais (montants, commerçants, invités, kilomètres, frais médicaux), à exclure de matrix_lecture (Matrix).';
 COMMENT ON COLUMN "lignes_frais"."montant" IS 'Sensible : montant d''une dépense nominative.';
 COMMENT ON COLUMN "lignes_frais"."montant_eur" IS 'Sensible : montant d''une dépense nominative, en euros.';

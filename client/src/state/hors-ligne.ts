@@ -19,9 +19,12 @@
 //   24 h sur le serveur (DELAI_PIECE_EN_ATTENTE_MS) : au-delà de 23 h, ou quand la personne reprend une saisie refusée,
 //   la pièce encore gardée sur l'appareil est renvoyée avec une nouvelle clé (l'ancienne rendrait 410).
 // - Refus du serveur (conflit, règle, droit) : l'entrée passe dans « À reprendre » avec le motif ; réseau, session expirée,
-//   serveur occupé : le rejeu s'arrête, l'entrée reste en attente.
+//   serveur occupé : le rejeu s'arrête, l'entrée reste en attente. Un conflit de cellule (temps.saisir refusé en 409 :
+//   valeur changée entre-temps, ligne absente) est marqué `conflit` : la même saisie, avec la même valeur de base,
+//   serait refusée de nouveau, elle ne se renvoie donc pas (`reprendre` l'ignore) ; on la ressaisit dans la feuille,
+//   puis on l'abandonne.
 // - Purge : à la déconnexion, au changement de compte, après 7 jours (CONSERVATION_FILE_JOURS) et sur « appareil partagé ».
-import { ACTIONS_HORS_LIGNE, CONSERVATION_FILE_JOURS, PAUSE_REJEU_MS } from '../../../shared/hors-ligne.ts';
+import { ACTIONS_HORS_LIGNE, CONSERVATION_FILE_JOURS, FORME_CLE_IDEMPOTENCE, PAUSE_REJEU_MS } from '../../../shared/hors-ligne.ts';
 import { DELAI_PIECE_EN_ATTENTE_MS, MAX_PIECES_EN_ATTENTE } from '../../../shared/rules/pieces.ts';
 import type { Role } from '../../../shared/types.ts';
 import { type ActionResponse, api, type NomAction } from '../api.ts';
@@ -90,6 +93,8 @@ export interface Envoyeur {
 /** Saisie en file, telle que l'affiche l'application (« N saisies en attente d'envoi », « À reprendre »). */
 export interface EntreeFile {
   id: string; nom: NomAction; payload: Record<string, unknown>; creeLe: string; etat: 'attente' | 'a_reprendre'; motif: string | null; tentatives: number; pieces: number;
+  /** Refus définitif d'un conflit de cellule (temps.saisir, 409) : « Renvoyer » échouerait de nouveau, seul « Abandonner » reste. */
+  conflit: boolean;
 }
 
 /** Bilan d'un rejeu ; `arret` : cause de l'arrêt avant la fin de la file (le reste attend le prochain rejeu). */
@@ -98,6 +103,8 @@ export interface BilanRejeu { envoyees: number; aReprendre: number; restantes: n
 /** Partie chiffrée d'une entrée. */
 interface Contenu {
   nom: NomAction; payload: Record<string, unknown>; motif: string | null;
+  /** Conflit de cellule (temps.saisir refusé en 409) : la saisie ne se renvoie pas telle quelle. */
+  conflit?: boolean;
   /**
    * Pièces : contenu dans `piece:<cle>` ; clé d'idempotence de leur envoi (`cleEnvoi`, `cle` à défaut, renouvelée quand
    * le jeton est abandonné), nom, type, jeton une fois envoyées et heure de cet envoi.
@@ -160,10 +167,12 @@ export class FileHorsLigne {
    * Met une saisie en file pour ce compte et cet espace ; renvoie son identifiant (sa clé d'idempotence). Refuse une
    * action hors du registre. `pieces` : contenu gardé chiffré, envoyé avant l'action, jetons passés dans `champPieces`.
    */
-  async ajouter(qui: Porteur, nom: NomAction, payload: Record<string, unknown>, o: { pieces?: PieceLocale[]; champPieces?: string } = {}): Promise<string> {
+  async ajouter(qui: Porteur, nom: NomAction, payload: Record<string, unknown>, o: { pieces?: PieceLocale[]; champPieces?: string; id?: string } = {}): Promise<string> {
     if (!ACTIONS_HORS_LIGNE.includes(nom)) throw new Error('Action non admise hors ligne : refaites-la une fois connecté');
     if ((o.pieces?.length ?? 0) > 10) throw new Error('10 pièces au plus par saisie');
-    const id = crypto.randomUUID();
+    // `id` (étape 2) : clé d'idempotence déjà portée par l'envoi en ligne interrompu (même saisie, même clé : jamais deux fois).
+    if (o.id !== undefined && !FORME_CLE_IDEMPOTENCE.test(o.id)) throw new Error('Clé d’idempotence invalide');
+    const id = o.id ?? crypto.randomUUID();
     const pieces: Contenu['pieces'] = [];
     for (const p of o.pieces ?? []) {
       const cle = crypto.randomUUID();
@@ -183,7 +192,20 @@ export class FileHorsLigne {
     for (const s of await this.stockees()) {
       if (s.compteId !== qui.compteId || s.espace !== qui.espace) continue;
       const c = await this.contenu(s);
-      out.push({ id: s.id, nom: c.nom, payload: c.payload, creeLe: s.creeLe, etat: s.etat, motif: c.motif, tentatives: s.tentatives, pieces: c.pieces.length });
+      out.push({ id: s.id, nom: c.nom, payload: c.payload, creeLe: s.creeLe, etat: s.etat, motif: c.motif, tentatives: s.tentatives, pieces: c.pieces.length, conflit: !!c.conflit });
+    }
+    return out;
+  }
+
+  /**
+   * Toutes les saisies de l'appareil, sans session (page « Hors ligne » d'une ouverture sans réseau : la session n'est
+   * pas connue). La file ne garde que celles du dernier compte connecté : un autre compte la purge à sa connexion.
+   */
+  async listerTout(): Promise<(EntreeFile & Porteur)[]> {
+    const out: (EntreeFile & Porteur)[] = [];
+    for (const s of await this.stockees()) {
+      const c = await this.contenu(s);
+      out.push({ id: s.id, compteId: s.compteId, espace: s.espace, nom: c.nom, payload: c.payload, creeLe: s.creeLe, etat: s.etat, motif: c.motif, tentatives: s.tentatives, pieces: c.pieces.length, conflit: !!c.conflit });
     }
     return out;
   }
@@ -202,11 +224,13 @@ export class FileHorsLigne {
   /**
    * Remet une saisie « À reprendre » en attente (renvoyée au prochain rejeu). Ses pièces encore gardées sur l'appareil
    * seront renvoyées : le refus peut venir d'un jeton expiré ou déjà consommé, qu'il ne sert à rien de présenter de nouveau.
+   * Un conflit de cellule reste « À reprendre » : renvoyé avec la même valeur de base, il serait refusé de nouveau.
    */
   async reprendre(id: string): Promise<void> {
     const s = await this.magasin.lire(ENTREE + id) as Stockee | undefined;
     if (!s || s.etat !== 'a_reprendre') return;
     const c = await this.contenu(s);
+    if (c.conflit) return;
     await this.oublierJetons(c, () => true);
     await this.garder({ ...s, etat: 'attente' }, { ...c, motif: null });
   }
@@ -276,7 +300,7 @@ export class FileHorsLigne {
 
   /** Une saisie : ses pièces (jetons gardés au fur et à mesure), puis l'action. */
   private async envoyer(s: Stockee, c: Contenu, envoyeur: Envoyeur): Promise<'envoyee' | 'a_reprendre' | NonNullable<BilanRejeu['arret']>> {
-    const aReprendre = async (motif: string) => { await this.garder({ ...s, etat: 'a_reprendre' }, { ...c, motif }); return 'a_reprendre' as const; };
+    const aReprendre = async (motif: string, conflit = false) => { await this.garder({ ...s, etat: 'a_reprendre' }, { ...c, motif, conflit }); return 'a_reprendre' as const; };
     // Jeton de plus de 23 h (rejeu après une longue coupure) : la pièce est renvoyée plutôt que de faire échouer l'action.
     const limite = this.maintenant().getTime() - JETON_PERIME_MS;
     if (await this.oublierJetons(c, p => !p.envoiLe || Date.parse(p.envoiLe) < limite)) await this.garder(s, c);
@@ -303,7 +327,7 @@ export class FileHorsLigne {
       await this.abandonner(s.id);
       return 'envoyee';
     }
-    return arretDe(r.status) ?? await aReprendre(r.error || 'Saisie refusée par le serveur');
+    return arretDe(r.status) ?? await aReprendre(r.error || 'Saisie refusée par le serveur', r.status === 409 && c.nom === 'temps.saisir');
   }
 }
 

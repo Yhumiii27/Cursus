@@ -13,7 +13,7 @@ import { validerEnTranches } from './actions/suivi-feuilles.ts';
 import { appliquerMajSession, DEMO } from './auth.ts';
 import { dossierInterface } from './chemins.ts';
 import { compression } from './compression.ts';
-import { compressionActive, configMail, demoPublique, enProduction, trustProxy } from './config.ts';
+import { compressionActive, configMail, demoPublique, enProduction, pwaActive, trustProxy } from './config.ts';
 import { ESPACE_CHANGE, espaceChange, examinerIdentite, identite, routesConnexion } from './connexion.ts';
 import { routesConfidentialite } from './confidentialite.ts';
 import { corpsDe, lireParties, loadFull, partiesInstantane, todayIso } from './dataset.ts';
@@ -56,6 +56,8 @@ export interface OptionsApp {
   compression?: boolean;
   /** Une ligne de journal par requête (server/src/logs.ts) ; active par défaut. */
   journalRequetes?: boolean;
+  /** Application installable (CURSUS_PWA, active par défaut) : service worker servi (lot 11, C2). */
+  pwa?: boolean;
 }
 
 /** Cache des fichiers de /assets : noms hachés par Vite (index-XXXX.js), donc contenu immuable pour une adresse. */
@@ -257,6 +259,14 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // — Application web —
   // dist/ du projet, quel que soit le dossier de lancement (CURSUS_DIST la remplace : server/src/chemins.ts).
   const dist = options.dist ?? dossierInterface();
+  // Service worker (lot 11, C2 : client/public/sw.js, version injectée au build) : revalidé à chaque contrôle du navigateur
+  // (no-cache, sinon l'ancien peut rester jusqu'à 24 h), démonstration comprise ; application installable coupée
+  // (CURSUS_PWA=0, application de bureau) : 404, jamais la page de l'interface à la place d'un script.
+  const pwa = options.pwa ?? pwaActive();
+  app.get('/sw.js', (_req, res) => {
+    if (!pwa || !existsSync(join(dist, 'sw.js'))) return res.status(404).type('text/plain').send('Fichier introuvable');
+    res.sendFile('sw.js', { root: dist, cacheControl: false, headers: { 'Cache-Control': CACHE_PAGE } });
+  });
   if (existsSync(dist)) {
     // Fichiers hachés par Vite : un an en cache, sans revalidation ; un fichier absent (ancienne version) reçoit 404,
     // jamais la page de l'interface à la place d'un script.

@@ -24,6 +24,11 @@ import { Reconnexion } from './Reconnexion.tsx';
 import { RechercheGlobale } from './RechercheGlobale.tsx';
 import { BoutonMenu, ID_MENU, PiegeTiroir, useTiroir, type Tiroir } from './Tiroir.tsx';
 import { decideur } from '../state/delegues.ts';
+// lot 11 — pwa : bandeaux hors ligne et mise à jour, installation, barre d'onglets de l'application installée.
+import { BandeauHorsLigne } from '../components/BandeauHorsLigne.tsx';
+import { InstallerApplication } from '../components/InstallerApplication.tsx';
+import { BarreOnglets } from './BarreOnglets.tsx';
+import { ongletsDe } from './onglets.ts';
 
 interface NavItem { view: View; label: string; icon: Icon; badge?: number }
 type NavGroup = [string, NavItem[]];
@@ -101,7 +106,10 @@ const Pastille = ({ n }: { n: number }) => (
 );
 
 function Sidebar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
-  const { session, data, view, go, switchMode, bascule, logout, openDialog, reconnexion } = useStore();
+  const { session, data, view, go, switchMode, bascule, logout, openDialog, reconnexion, horsLigne } = useStore();
+  // lot 11 — pwa : saisies encore gardées sur l'appareil, tous espaces confondus (la déconnexion purge toute la file) :
+  // confirmation d'abord.
+  const deconnecter = () => void horsLigne.taille().then(n => n ? openDialog({ type: 'deconnexion', n }) : logout());
   const barre = useRef<HTMLElement>(null);
   // Écran étroit : un choix (page, espace, mot de passe, déconnexion) referme d'abord le tiroir.
   const puis = (f: () => void) => () => { tiroir.fermer(); f(); };
@@ -169,6 +177,8 @@ function Sidebar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
               <LifebuoyIcon size={16} />
               <span>Aide</span>
             </a>
+            {/* lot 11 — pwa : proposé par le navigateur (Android, Chrome, Edge), jamais une fois installée. */}
+            <InstallerApplication menu fermer={tiroir.fermer} />
           </div>
         )}
       </nav>
@@ -184,7 +194,7 @@ function Sidebar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
           </button>
         )}
         {user && (
-          <button type="button" className="btn btn-ghost btn-icon" aria-label="Se déconnecter" title="Se déconnecter" onClick={puis(logout)} style={{ color: 'inherit', width: 30, height: 30, flex: 'none' }}>
+          <button type="button" className="btn btn-ghost btn-icon" aria-label="Se déconnecter" title="Se déconnecter" onClick={puis(deconnecter)} style={{ color: 'inherit', width: 30, height: 30, flex: 'none' }}>
             <SignOutIcon size={14} />
           </button>
         )}
@@ -269,8 +279,10 @@ export function Shell({ children }: { children: ReactNode }) {
         {tiroir.ouvert && <div className="tiroir-fond" aria-hidden="true" onClick={tiroir.fermer} />}
         <div className="main-col" inert={tiroir.ouvert}>
           <Topbar groups={groups} tiroir={tiroir} />
+          <BandeauHorsLigne />
           <main className="content" id={ID_CONTENU} tabIndex={-1}>{children}</main>
         </div>
+        {connecte && data && <BarreOnglets onglets={ongletsDe(groups)} tiroir={tiroir} />}
       </div>
       {reconnexion && <Reconnexion />}
       <Toast />

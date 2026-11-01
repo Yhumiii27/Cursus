@@ -56,7 +56,7 @@ test('ajout : registre des actions hors ligne, contenu chiffré au repos avec un
   assert.doesNotMatch(brut, /temps\.saisir|INT-MAINT|Maintenance|recu\.jpg/);
   assert.match(brut, /"compteId":3/);
   const [e] = await b.f.lister(MEHDI);
-  assert.deepEqual({ ...e, creeLe: undefined }, { id, nom: 'temps.saisir', payload: saisie(0), creeLe: undefined, etat: 'attente', motif: null, tentatives: 0, pieces: 1 });
+  assert.deepEqual({ ...e, creeLe: undefined }, { id, nom: 'temps.saisir', payload: saisie(0), creeLe: undefined, etat: 'attente', motif: null, tentatives: 0, pieces: 1, conflit: false });
   assert.equal(await b.f.taille(), 1);
   await assert.rejects(b.f.ajouter(MEHDI, 'temps.saisir', saisie(0), { pieces: Array.from({ length: 11 }, () => ({ nom: 'a', type: 'image/png', octets: new Uint8Array(1) })) }), /10 pièces/);
 });
@@ -96,16 +96,18 @@ test('rejeu : refus → « À reprendre » avec le motif ; réseau, session, ser
   const l = await b.f.lister(MEHDI);
   assert.deepEqual(l.map(e => [e.id === a ? 'a' : e.id === c ? 'c' : 'd', e.etat, e.motif, e.tentatives]), [
     ['a', 'a_reprendre', 'Conflit : la cellule vaut maintenant 6 h', 0], ['c', 'attente', null, 1], ['d', 'attente', null, 0]]);
-  // « À reprendre » ne repart pas d'elle-même ; remise en attente par la personne, puis abandon.
+  // « À reprendre » ne repart pas d'elle-même ; un conflit ne se remet pas en attente, il s'abandonne.
   for (const [status, arret] of [[401, 'session'], [503, 'serveur'], [429, 'serveur']] as const) {
     const x = banc([{ ok: false, message: null, error: 'x', status }]);
     await x.f.ajouter(MEHDI, 'temps.saisir', saisie(0));
     assert.equal((await x.f.rejouer(MEHDI, x.envoyeur, x.relire)).arret, arret);
     assert.equal((await x.f.lister(MEHDI))[0].etat, 'attente');
   }
+  // Conflit de cellule (temps.saisir, 409) : marqué, jamais remis en attente (même base, même refus assuré).
+  assert.equal((await b.f.lister(MEHDI))[0].conflit, true);
   await b.f.reprendre(a);
-  assert.equal((await b.f.lister(MEHDI))[0].etat, 'attente');
-  assert.equal((await b.f.lister(MEHDI))[0].motif, null);
+  assert.equal((await b.f.lister(MEHDI))[0].etat, 'a_reprendre');
+  assert.match((await b.f.lister(MEHDI))[0].motif ?? '', /^Conflit/);
   await b.f.abandonner(a);
   assert.equal((await b.f.lister(MEHDI)).length, 2);
 });

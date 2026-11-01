@@ -83,6 +83,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     env["CURSUS_INSECURE_COOKIE"] = "1"  // http://127.0.0.1 : cookie de session sans l'attribut Secure
     // Démonstration sur la boucle locale : seule configuration de démonstration admise en production.
     env["CURSUS_DEMO"] = "1"
+    // Ni service worker ni notifications sur le téléphone dans WKWebView (http://127.0.0.1) : /sw.js répond 404 (lot 11).
+    env["CURSUS_PWA"] = "0"
     env["CURSUS_SECRET"] = sessionSecret()
     env["KEYSTONE_API_KEY"] = "demo-keystone"  // clé de démonstration, joignable depuis ce Mac uniquement
     env.removeValue(forKey: "CURSUS_TODAY")    // refusée en production : date réelle

@@ -218,7 +218,9 @@ test('jeu de charge d’un an : suite d’écritures, lecture partagée identiqu
     return [...rh.slice(-5), ...tous.filter(u => u.role === 'manager'), ...new Set(Array.from({ length: 6 }, () => r.choix(collaborateurs)))];
   };
   const x = await rejouer(db, {
-    graine: GRAINES[0], pas: COMPLET ? 60 : 4, verifierTous: 1, sql: 0.3, jeux: COMPLET ? 10 : 0, lecteurs: echantillon,
+    graine: GRAINES[0], pas: COMPLET ? 60 : 6, verifierTous: 1, sql: 0.3, jeux: COMPLET ? 10 : 0, lecteurs: echantillon,
+    // Lot 12 : les actions nouvelles diluent le tirage ; renfort d'écritures courantes pour que les pas écrivent.
+    renfort: COMPLET ? undefined : ['temps.setCell', 'temps.addLine', 'absence.demander', 'absence.decider', 'temps.validate'].flatMap(a => Array<string>(12).fill(a)),
     lecteursFinaux: COMPLET ? undefined : tous => [
       ...tous.filter(u => u.role === 'rh').slice(-5), ...tous.filter(u => u.role === 'manager').slice(0, 4), ...tous.filter(u => u.role === 'collaborateur').slice(0, 4),
     ],

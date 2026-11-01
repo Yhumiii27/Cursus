@@ -216,7 +216,7 @@ test('banc d’oracle : même graine, Domain partagé ou neuf par feuille, même
     try {
       // Lots groupés par salarié (`lotsGroupes`) : toutes les feuilles soumises de trois à huit salariés, semaines
       // consécutives comprises (environ quatre par salarié sur le jeu d'un an), sur une ou deux tranches.
-      const x = await rejouer(db, { graine: 20261029, pas: 40, verifier: false, sql: 0.1, renfort: Array<string>(40).fill('temps.validerLot'), lotsGroupes: true });
+      const x = await rejouer(db, { graine: 20261029, pas: 40, verifier: false, sql: 0.1, renfort: Array<string>(120).fill('temps.validerLot'), lotsGroupes: true });
       const feuilles = await db.query('SELECT id, emp_id, week, statut, keystone, contrat, heures_sup, maj_dimanche, maj_ferie, maj_nuit, cor, horaires, horaires_figes, motif_depassement, motif_forfait, lignes FROM feuilles ORDER BY id');
       // Relevés comparés par agence et semaine : le Domain partagé les écrit en fin de tranche, le repli après chaque
       // feuille ; leur ordre d'écriture (identifiant) diffère sans que leur contenu change (lot 11 : un autre tirage le montre).

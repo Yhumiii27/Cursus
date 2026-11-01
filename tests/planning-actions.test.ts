@@ -320,7 +320,7 @@ test('cache incrémental : tables et fenêtre déclarées ; banc d’oracle avec
   await run(KARIM, 'planning.creneau.ajouter', { equipe: 'Maintenance', jour: '2026-10-20', horaire: 'N' });
   const renfort = ['planning.generer', 'planning.creneau.modifier', 'planning.creneau.modifier', 'planning.creneau.ajouter', 'planning.publier', 'planning.publier',
     'planning.creneau.annuler', 'planning.echange.proposer', 'planning.echange.accepter', 'planning.roulement.affecter'].flatMap(a => Array<string>(10).fill(a));
-  const x = await rejouer(db, { graine: 20261101, pas: 90, verifierTous: 3, jeux: 0, sql: 0.1, renfort });
+  const x = await rejouer(db, { graine: 20261102, pas: 90, verifierTous: 3, jeux: 0, sql: 0.1, renfort });
   assert.deepEqual(x.erreurs, [], resumeRapport(x));
   assert.deepEqual(x.divergences, [], resumeRapport(x));
   assert.ok(Object.entries(x.actions).some(([a, s]) => a.startsWith('planning.') && s.ok > 0), `${resumeRapport(x)}\n${JSON.stringify(x.actions)}\n${JSON.stringify(x.motifs)}`);

@@ -3956,8 +3956,9 @@ objet en parallèle. Aucun comportement ni type TypeScript ne change.
 Structure société > établissement > équipes au-dessus de la hiérarchie des équipes (t136), sans changer aucun valideur :
 l'entité n'est qu'un regroupement au-dessus des équipes racines. Elle fournit le SIREN, le SIRET et l'IDCC dont ont besoin
 l'OPCO, les indicateurs légaux et les notes de frais. Étape 1 : règles, données, actions, journal, réglage, amorçage ;
-l'étape 2 apporte les écrans (Organigramme, Référentiels → Entités et sites, colonnes de l'écran Équipes), l'impression, le
-CSV, le remplissage de `employes.site_code` et `unite_code`, l'aide, le guide et la demande à Matrix.
+étape 2 : écrans (Organigramme, Référentiels → Entités et sites, entité et site dans Équipes & managers, réglage dans
+Paramètres), impression, CSV, remplissage de `employes.site_code` et `unite_code`, aide, guide, RGPD et demande à Matrix
+(détail en fin de section).
 
 - **Règles pures.** `shared/rules/entites.ts` : SIREN (9 chiffres) et SIRET (14) contrôlés par leur clé de Luhn (règle de
   l'INSEE pour La Poste : somme des chiffres multiple de 5, admise en plus de la clé de Luhn), SIRET commençant par le SIREN de la société, IDCC sur 4
@@ -3997,7 +3998,7 @@ CSV, le remplissage de `employes.site_code` et `unite_code`, l'aide, le guide et
   impression et export : entité et nombre de lignes. Famille « Fiches et équipes ». Aucune de ces actions ne change un
   verdict Go / No Go (`SANS_EFFET_VERDICT`).
 - **Réglage** `organigrammeOuvert` (`tous` par défaut, `managers`, `rh`) : l'espace RH (tous ses profils) voit toujours
-  l'organigramme ; la vue `organigramme` (`ALLOWED_VIEWS`, `PROFILS_RH.vues`) arrive avec l'écran, à l'étape 2.
+  l'organigramme ; la vue `organigramme` (`ALLOWED_VIEWS`, `PROFILS_RH.vues`) est arrivée avec l'écran, à l'étape 2.
 - **Amorçage** (`amorcerEntites`, `server/src/demarrage.ts`) par le code et non par la migration (sur une base PostgreSQL
   neuve, les réglages n'existent pas encore au moment des migrations) : à la fin de `mettreAJourBase` (deux moteurs), après
   le chargement de la démonstration (`server/src/index.ts`) et après `demo.reinitialiser`. S'il n'existe aucune entité mais
@@ -4011,9 +4012,41 @@ CSV, le remplissage de `employes.site_code` et `unite_code`, l'aide, le guide et
   signale d'ici là.
 - **Modification d'une entité** (`entite.modifier`) : un champ absent de la requête garde sa valeur ; null ou une chaîne
   vide l'efface. `site.enregistrer` refuse un `actif` qui n'est pas un booléen.
-- **Restent** (étape 2 et au-delà) : écrans, impression et CSV ; remplissage de `employes.site_code` et `unite_code` à chaque
-  affectation (`rattachementSalarie`) ; demande à Matrix d'un contrat `pub_entites` (`docs/demandes/`) ; organigramme à une
-  date passée (BDESE, t197) ; entité portée par le salarié (employeur) si une équipe mêle deux sociétés.
+- **Étape 2 — site et unité des fiches** (`server/src/rattachements.ts`, `recalerRattachements`) : `employes.site_code` et
+  `unite_code` sont tirés de l'équipe (`rattachementSalarie`), jamais saisis ; recalculés dans la transaction de
+  `employe.creer`, `employe.modifier` (changement d'équipe), `equipe.affecter`, `equipe.supprimer`, `equipe.parente`,
+  `equipe.entite`, `equipe.site`, `equipe.unite`, `entite.modifier` (site de l'entité) et `reprise.importer`, puis à chaque
+  démarrage (`mettreAJourBase` : une base d'avant l'étape 2 les reçoit). Seules les fiches qui changent sont écrites ;
+  aucun journal propre (la cause y est déjà). `pub_salaries` cesse de les publier vides. Ce sont des codes d'organisation
+  tirés de l'équipe, déjà transmise à tous : aucun filtrage dans `dataset.ts`.
+- **Étape 2 — écran Organigramme** (`client/src/pages/Organigramme.tsx`, vue `organigramme` de `ALLOWED_VIEWS` pour les
+  trois espaces et de `PROFILS_RH.vues` des profils référent HSE, paie et lecture seule ; Comptabilité exclu). Hors espace
+  RH, la vue et son entrée du menu suivent `organigrammeOuvertA` (state/store.tsx ramène une adresse fermée à l'accueil ;
+  layout/Shell.tsx, groupe « Organisation »). Arbre `arbre()` sur l'annuaire et les présents transmis par le serveur
+  (`presentsOrganigramme`) pour tous les espaces, les délégations du jeu de données (déjà réduites à `delegationsVisibles`) et, pour le service RH
+  et la lecture seule (`rh: true`), les étiquettes de contrat hors CDI. Listes imbriquées `role="tree"` / `treeitem` /
+  `group`, `aria-level`, `aria-expanded`, focus itinérant (flèches, Début, Fin, Entrée, Espace) ; traits en bordures CSS
+  (`.org-*` de `styles/app.css`), liste indentée sans traits sous 600 px. Filtres, recherche et dépliage : module sans
+  React `client/src/organigramme-vue.ts` (`filtrerArbre`, `depliageInitial`, `clesDepliables`, `lignesOrganigramme`,
+  `sectionsImpression`), testé par `tests/organigramme-ecran.test.ts`. Entité et site dans l'adresse (`?entite=…&site=…`,
+  `PARAMS_URL`, champs `orgEntite`, `orgSite` de `ui`) ; la recherche reste en mémoire.
+- **Étape 2 — impression et CSV** : `printDocument(…, { paysage: true, journal: false })` (`print.ts` : sections `arbre`
+  en listes imbriquées, `saut` de page avant chaque entité qui porte des équipes — une entité sans équipe n'a pas de page —, titre
+  d'un établissement suivi de sa société, même filtré seul, page nommée `paysage` de `styles/print.css`, mention « Document
+  interne — état au ») ; `csvOrganigramme` (`listes-csv.ts`) : société (celle de l'établissement sous un filtre
+  d'établissement), établissement, site, chemin des équipes, équipe,
+  nom, poste, manager, valideur, sans contrat ni étiquette pour aucun profil ; `downloadCsv(…, { journal: false })`. Les
+  deux sont signalés par `organigramme.imprimer` et `organigramme.exporter` (entité, nombre de lignes), et non par
+  `/api/exports` (qui nommerait le fichier).
+- **Étape 2 — écrans du service RH** : Référentiels → « Entités et sites » (`pages/ReferentielsEntites.tsx` ; dialogues
+  `RefEntiteDialog`, `RefSiteDialog`, contrôles de `controlerEntite` et `controlerSite` en direct ; fermeture confirmée par
+  `state/confirmations-entites.ts`, administrateur RH ; une entité `matrix` se consulte seulement) ; Équipes & managers :
+  entité et site (hérité signalé) sur chaque carte et dans le détail, bouton « Rattachement » (`EquipeRattachementDialog` :
+  une action par champ modifié, `equipe.entite` pour une équipe racine seulement), alerte « Équipes sans entité », lien
+  vers l'organigramme ; Paramètres → Hiérarchie des managers : « Organigramme ouvert à ».
+- **Restent** : copie de `pub_entites` quand Matrix l'aura validé (`docs/demandes/matrix-lot11-entites.md`) ; organigramme à
+  une date passée (BDESE, t197) ; entité portée par le salarié (employeur) si une équipe mêle deux sociétés ; minimisation
+  de l'annuaire envoyé aux non-RH (tâche à part) ; zoom de l'arbre.
 ## Lot 11 : application mobile (C2), étape 1 — idempotence, saisie hors ligne, notifications
 
 Réponses du propriétaire du 31 octobre 2026 : hors ligne seulement pour une application déjà ouverte avec du réseau

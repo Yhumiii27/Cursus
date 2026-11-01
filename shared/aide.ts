@@ -68,6 +68,15 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           '« Mes notifications par e-mail » : chaque notification aussitôt, ou un récapitulatif chaque matin. « Télécharger mes données » donne la copie de tout ce que Cursus conserve sur vous ; la page « Confidentialité » explique leur traitement.',
         ],
       },
+      // lot 11 — organigramme
+      {
+        titre: 'Organigramme',
+        points: [
+          'Menu « Organigramme » (si l’entreprise l’a ouvert à tous, ce qui est le réglage par défaut ; managers et collaborateurs le voient aussi) : sociétés, établissements, équipes et leurs membres présents ce jour, avec le manager de chaque équipe.',
+          'Il ne montre que l’annuaire : nom, poste, équipe, manager. Ni contrat, ni absence, ni santé ; le suppléant d’un manager absent n’apparaît que pour qui voit déjà sa délégation, sans les dates.',
+          'Cherchez un nom, un poste ou une équipe : les résultats sont surlignés et Entrée y place le curseur. Au clavier : flèches pour parcourir, droite et gauche pour déplier ou replier ; « Tout déplier » ouvre tout l’arbre. « Imprimer » (en paysage, une entité par page) et « Exporter (CSV) » reprennent les personnes affichées.',
+        ],
+      },
     ],
   },
   {
@@ -161,6 +170,15 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           'Écran « Missions », « Grand déplacement des chantiers en France » : qualifiez chaque chantier (« Grand déplacement » ou « Pas de grand déplacement ») ; seuls les chantiers retenus donnent à la paie jours, nuits et trajets de leurs missions. Les déplacements à l’étranger donnent leurs jours par pays sans qualification.',
           'Référentiels, destinations : « Vigilance (France Diplomatie) » et le jour de la vérification, à tenir à jour à la main. Passer un pays à l’orange ou au rouge prévient les managers des voyageurs et la boîte du service RH ; une zone rouge met une réserve au Go / No Go.',
           '« Modifier le déplacement » : « Hébergement », « Contact sur place » et « Inscrit sur Ariane le ». Le dossier voyage rappelle de vérifier la vigilance avant le départ quand elle date de plus de 30 jours (réglable).',
+        ],
+      },
+      // lot 11 — organigramme
+      {
+        titre: 'Entités, sites et organigramme',
+        points: [
+          'Référentiels, onglet « Entités et sites » : « Nouvelle entité » (société avec son SIREN et son IDCC, ou établissement avec son SIRET, qui commence par le SIREN de la société) et « Nouveau site » (code du référentiel commun de Matrix). Le code et le type ne changent plus ; l’administrateur RH ferme une entité dont plus aucune équipe ne relève (« Fermer ») et la rouvre (« Rouvrir »).',
+          'Écran « Équipes & managers », bouton « Rattachement » du détail d’une équipe : entité (équipe racine seulement : les équipes rattachées en héritent), site et unité Matrix (PRD-MAINT…). Aucun valideur ne change. Le site et l’unité des membres suivent, et partent à Matrix avec leur fiche.',
+          'Écran « Organigramme » : en plus de l’arbre, le service RH voit les points « À vérifier » (équipe sans manager, salarié à affecter, équipe racine sans entité, équipe racine au nom de site, à convertir à la main), les salariés à affecter et l’étiquette du contrat (intérim, CDD, alternance). L’administrateur RH règle à qui l’organigramme est ouvert : Paramètres → Hiérarchie des managers, « Organigramme ouvert à ».',
         ],
       },
     ],

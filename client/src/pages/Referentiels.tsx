@@ -4,7 +4,8 @@
 // clic), référentiel type à charger dans un référentiel vide, à vérifier ensuite. Règles : shared/rules/referentiels.ts.
 // Onglet Postes (formations et habilitations exigées par poste et par équipe) : pages/ReferentielsPostes.tsx ; onglet
 // Activités internes (codes INT-… et ECOLE des feuilles de temps) : pages/ReferentielsActivites.tsx ; onglet Horaires
-// (horaires de poste des feuilles de temps) : pages/ReferentielsHoraires.tsx.
+// (horaires de poste des feuilles de temps) : pages/ReferentielsHoraires.tsx ; onglet Entités et sites (sociétés,
+// établissements et sites de rattachement, lot 11) : pages/ReferentielsEntites.tsx.
 import { useState, type ReactNode } from 'react';
 import { PlusIcon } from '@phosphor-icons/react';
 import { SECU_RULES, VALIDATION_LABEL, VISA_RULES, secuDe } from '../../../shared/constants.ts';
@@ -20,10 +21,13 @@ import { useStore } from '../state/store.tsx';
 import { Postes } from './ReferentielsPostes.tsx';
 import { Activites } from './ReferentielsActivites.tsx';
 import { Horaires } from './ReferentielsHoraires.tsx';
+import { EntitesEtSites } from './ReferentielsEntites.tsx';
 
-const ONGLETS: [ReferentielId | 'postes' | 'activites' | 'horaires', string][] = [
+const ONGLETS: [ReferentielId | 'postes' | 'activites' | 'horaires' | 'entites', string][] = [
   ['formations', 'Formations'], ['habilitations', 'Habilitations'], ['postes', 'Postes'], ['destinations', 'Destinations'], ['activites', 'Activités internes'],
   ['horaires', 'Horaires'],
+  // lot 11 — organigramme
+  ['entites', 'Entités et sites'],
 ];
 
 /** État d'un élément : en vigueur, ou archivé (date). */
@@ -50,6 +54,7 @@ export function Referentiels() {
       {ui.refOnglet === 'destinations' && <Destinations />}
       {ui.refOnglet === 'activites' && <Activites />}
       {ui.refOnglet === 'horaires' && <Horaires />}
+      {ui.refOnglet === 'entites' && <EntitesEtSites />}
     </Page>
   );
 }

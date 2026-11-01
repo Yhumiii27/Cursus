@@ -79,6 +79,16 @@ const equipe = param<'equipe'>({
   ecrire: v => v,
 });
 
+// lot 11 — organigramme
+/** Code d'une entité ou d'un site (organigramme), présent dans le jeu de données. */
+function codeEntite<K extends keyof UiState>(cle: K, nom: string, liste: (data: Dataset) => { code: string }[]): Param {
+  return param<K>({
+    cle, nom, defaut: null as UiState[K],
+    lire: (brut, data) => liste(data).some(x => x.code === brut) ? brut as UiState[K] : undefined,
+    ecrire: v => String(v),
+  });
+}
+
 /** Paramètres de chaque vue ; une vue absente n'a rien dans l'adresse. */
 export const PARAMS_URL: Partial<Record<View, Param[]>> = {
   collaborateurs: [
@@ -102,7 +112,11 @@ export const PARAMS_URL: Partial<Record<View, Param[]>> = {
   })],
   referentiels: [choix('refOnglet', 'onglet', 'formations', {
     formations: 'formations', habilitations: 'habilitations', postes: 'postes', destinations: 'destinations', activites: 'activites',
+    // lot 11 — organigramme
+    entites: 'entites',
   })],
+  // lot 11 — organigramme : entité et site filtrés (codes du référentiel).
+  organigramme: [codeEntite('orgEntite', 'entite', d => d.referentiels.entites ?? []), codeEntite('orgSite', 'site', d => d.referentiels.sites ?? [])],
   budget: [exercice, choix('planFilter', 'statut', 'tous', { prevu: 'prevu', engage: 'engage', realise: 'realise', reporte: 'reporte' })],
 };
 

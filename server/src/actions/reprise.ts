@@ -11,6 +11,7 @@ import { auteurDe, inscrireDelivrance } from '../delivrances.ts';
 import { rattacherFiches } from '../migrations/referentiels.ts';
 // lot 11 — organigramme
 import { rattacherEquipeNeuve } from '../demarrage.ts';
+import { recalerRattachements } from '../rattachements.ts';
 import { ActionError, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 /** Taille maximale du fichier importé (caractères) : quelques centaines de salariés tiennent largement. */
@@ -138,6 +139,8 @@ const importer: ActionHandler = async (ctx, p) => {
   // Fiches créées sans poste du référentiel : rattachées tout de suite au poste de même intitulé (créé au besoin sans
   // exigence), dans la même transaction. Une fiche mise à jour garde son poste (`posteId` repris de la fiche).
   if (type === 'salaries') await rattacherFiches(ctx.db);
+  // lot 11 — organigramme : site et unité des fiches reprises, tirés de leur équipe (server/src/rattachements.ts).
+  if (type === 'salaries') await recalerRattachements(ctx.db);
   const comptesCrees = ouverts.length;
   const b = bilanReprise(a.lignes);
   const fichier = str(p.fichier).slice(0, 200) || null;

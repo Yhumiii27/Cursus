@@ -72,6 +72,9 @@ test('lignes cliquables : un bouton « Ouvrir » sur le nom, la ligne restant cl
     if (/role="button"/.test(x.attributs) && /tabIndex=\{0\}/.test(x.attributs) && /onKeyDown=/.test(x.attributs)) return false;
     // Option d'une liste de suggestions (combobox, t152) : choisie au clavier depuis le champ (flèches, Entrée, aria-activedescendant).
     if (/role="option"/.test(x.attributs)) return false;
+    // lot 11 — organigramme : ligne d'un nœud d'arbre ARIA, doublon à la souris du nœud `treeitem` qui la contient,
+    // focalisable (focus itinérant ; Entrée, Espace et flèches : pages/Organigramme.tsx).
+    if (/className="org-ligne"/.test(x.attributs) && x.fichier.endsWith('Organigramme.tsx')) return false;
     return !/<Ouvrir\b/.test(x.corps);
   });
   assert.deepEqual(sansClavier.map(x => `${x.fichier}:${x.ligne} <${x.nom}>`), [], 'élément cliquable sans élément focalisable');

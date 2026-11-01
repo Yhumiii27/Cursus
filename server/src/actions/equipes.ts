@@ -20,6 +20,7 @@ import { rattacherPoste } from './referentiels.ts';
 import { renommerDerogation, retirerDerogation } from './repos-dominical.ts';
 // lot 11 — organigramme
 import { rattacherEquipeNeuve } from '../demarrage.ts';
+import { recalerRattachements } from '../rattachements.ts';
 import {
   ActionError, estSoiMeme, getEmp, isManagerOf, isRh, isRhAdmin, refuserSoiMeme, requireRh, requireRhAdmin, REVIENT_RH, str, type ActionHandler, type Ctx,
 } from './context.ts';
@@ -93,6 +94,8 @@ const creer: ActionHandler = async (ctx, p) => {
     fin: P.motifSortie ? P.fin : null,
   }, auteur(ctx), ctx.d.ti);
   // Délai de carence (art. L1244-3) : contrat antérieur sur le même poste ou du même titulaire (avertissement seul).
+  // lot 11 — organigramme : site et unité de rattachement tirés de l'équipe (server/src/rattachements.ts).
+  await recalerRattachements(ctx.db);
   const carence = carences(ctx.ds.employes, { ...P, id: row.id, posteId: row.posteId ?? null }).map(c => ` · ${carenceTexte(c).replace(/\.$/, '')}`).join('');
   return { message: `Fiche créée — ${P.nom}${P.equipe ? ' · équipe ' + P.equipe : ' · à affecter'}${carence}`, result: { id: row.id } };
 };
@@ -205,6 +208,8 @@ const modifier: ActionHandler = async (ctx, p) => {
   }
   // Brouillons refigés sur le régime de leur semaine (changement daté, avenant programmé).
   if (avant !== apres) await refigerBrouillons(ctx.db, emp.id);
+  // lot 11 — organigramme : site et unité de rattachement suivent un changement d'équipe (server/src/rattachements.ts).
+  if ((v.profil.equipe ?? null) !== (emp.equipe ?? null)) await recalerRattachements(ctx.db);
   const suite = [
     avenant ? `avenant programmé au ${fmtIso(avenant.effet)} (${ctx.d.contratOf({ ...emp, ...v.profil }).label}), appliqué à la fiche à cette date` : '',
     figees.length ? `${plural(figees.length, 'semaine sans feuille figée', 'semaines sans feuille figées')} sur l’ancien régime` : '',
@@ -277,6 +282,8 @@ const supprimer: ActionHandler = async (ctx, p) => {
   await ctx.db.run('DELETE FROM budgets WHERE equipe = ?', [q.nom]);
   await ctx.db.remove('equipes', q.nom);
   await retirerDerogation(ctx.db, q.nom);
+  // lot 11 — organigramme : salariés sortis détachés, sans site ni unité (server/src/rattachements.ts).
+  if (membres.length) await recalerRattachements(ctx.db);
   return `Équipe ${q.nom} supprimée${membres.length ? ` · ${plural(membres.length, 'salarié sorti détaché', 'salariés sortis détachés')} de l’équipe` : ''}`;
 };
 
@@ -315,6 +322,8 @@ const affecter: ActionHandler = async (ctx, p) => {
   // Hiérarchie (t136) : pas de validation croisée nouvelle (un manager rangé dans l'équipe de son N-1).
   refuserCroisee(ctx, { employes: ctx.ds.employes.map(e => (e.id === emp.id ? { ...e, equipe: cible } : e)) });
   await ctx.db.update('employes', emp.id, { equipe: cible });
+  // lot 11 — organigramme : site et unité de rattachement tirés de la nouvelle équipe (server/src/rattachements.ts).
+  await recalerRattachements(ctx.db);
   if (!cible) return `${emp.nom} retiré de l’équipe ${avant} — à affecter par le service RH`;
   return `${emp.nom} rejoint l’équipe ${cible}${avant ? ` (auparavant ${avant})` : ''}`;
 };

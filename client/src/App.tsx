@@ -39,6 +39,8 @@ const PAGES: Record<View, ComponentType> = {
   // Vue commune à tous les espaces, ouverte aussi sans connexion (depuis l'écran de connexion).
   confidentialite: aLaDemande(() => import('./pages/Confidentialite.tsx'), 'Confidentialite'),
   aide: aLaDemande(() => import('./pages/Aide.tsx'), 'Aide'),
+  // lot 11 — organigramme : tous les espaces, selon le réglage organigrammeOuvert (state/store.tsx).
+  organigramme: aLaDemande(() => import('./pages/Organigramme.tsx'), 'Organigramme'),
 };
 
 /** Tous les dialogues (dialogs/DialogHost.tsx et ce qu'il importe) : un seul fichier, préchargé avec les données. */

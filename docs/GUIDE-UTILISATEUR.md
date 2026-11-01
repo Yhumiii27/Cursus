@@ -112,6 +112,21 @@ pas dans Cursus : la paie les traite dans Sage.
   « Astreinte » : jour, heures de début et de fin) ; ses heures vont sur la ligne « Intervention d'astreinte », qui ne se
   saisit pas à la main. Une intervention déclarée par erreur se retire tant que la feuille se saisit.
 
+### Organigramme
+
+- Menu « Organigramme » : sociétés, établissements, équipes et leurs membres présents ce jour, avec le manager de chaque
+  équipe. Ouvert à tous les salariés par défaut ; l'administrateur RH peut le réserver aux managers ou au service RH
+  (Paramètres → Hiérarchie des managers, « Organigramme ouvert à »).
+- Il ne montre que l'annuaire : nom, poste, équipe, manager. Ni contrat, ni absence, ni santé ; le suppléant d'un manager
+  absent n'apparaît que pour les personnes qui voient déjà sa délégation, sans les dates.
+- La recherche (nom, poste ou équipe) surligne les résultats et déplie les équipes qui y mènent ; Entrée place le curseur
+  sur le premier. Au clavier : flèches haut et bas pour parcourir, droite et gauche pour déplier ou replier, Entrée pour
+  ouvrir la fiche quand on y a accès ; « Tout déplier » ouvre tout l'arbre. Sur téléphone, l'arbre devient une liste
+  indentée.
+- « Imprimer » : document en paysage, une entité par page, « Document interne — état au » jour de l'impression.
+  « Exporter (CSV) » : une ligne par personne affichée (société, établissement, site, chemin des équipes, nom, poste,
+  manager, valideur). L'impression et l'export sont notés au journal avec l'entité et le nombre de lignes, jamais un nom.
+
 ## Manager
 
 Le manager a deux espaces : **Manager** pour son équipe, **Collaborateur** pour ses propres heures, absences et entretiens
@@ -336,6 +351,26 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
 - « Modifier le déplacement » : « Hébergement », « Contact sur place » et « Inscrit sur Ariane le », propres à Cursus et
   réservés au service RH. Le contact d'urgence est sur la fiche du salarié (« Contact d’urgence »), qu'il saisit depuis son
   espace.
+
+### Entités, sites et organigramme
+
+- **Entités** (Référentiels, onglet « Entités et sites ») : « Nouvelle entité ». Deux niveaux : la société (raison sociale,
+  SIREN, IDCC de la convention collective, 0044 pour les Industries chimiques) et ses établissements (SIRET, qui commence
+  par le SIREN de la société). SIREN et SIRET sont contrôlés par leur clé ; ce sont des données publiques. Le code et le
+  type ne changent plus après la création. Rien n'est supprimé : l'administrateur RH ferme une entité dont plus aucune
+  équipe ne relève (« Fermer »), et la rouvre (« Rouvrir »). Au démarrage, Cursus a créé une société sous la raison sociale
+  du responsable du traitement et y a rattaché les équipes racines : à compléter (SIREN, IDCC), puis à découper en
+  établissements s'il y a lieu.
+- **Sites** : « Nouveau site », avec le code du référentiel commun de Matrix (« lab67 », « pde »…) ; un site inactif n'est
+  plus proposé. Copie tenue à la main tant que Matrix ne la fournit pas.
+- **Rattachement d'une équipe** (Équipes & managers, détail de l'équipe, « Rattachement ») : entité (équipe racine
+  seulement, ses équipes rattachées en héritent), site et unité de l'organigramme de Matrix (PRD, PRD-MAINT…). Vides, le
+  site et l'unité sont ceux d'une équipe au-dessus, le site à défaut celui de l'entité. Aucun valideur ne change. Le site
+  et l'unité de chaque salarié suivent son équipe à chaque affectation et partent à Matrix avec sa fiche.
+- **Organigramme** : le service RH y voit en plus les points « À vérifier » (équipe sans manager, salarié à affecter,
+  équipe racine sans entité, équipe racine qui porte un nom de site : à convertir à la main en site ou en établissement,
+  jamais d'office), les salariés à affecter et l'étiquette du contrat (intérim, CDD, alternance), que les autres profils
+  ne voient pas. Une équipe racine sans entité est aussi signalée en tête d'Équipes & managers.
 
 ## Gestionnaire de paie
 

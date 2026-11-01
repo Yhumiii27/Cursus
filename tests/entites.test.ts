@@ -3,7 +3,8 @@
 // amorçage neutre au démarrage (server/src/demarrage.ts : aucun valideur changé), équipe parente qui suit l'entité,
 // présents de l'organigramme par espace, cache de l'instantané (delta et oracle après la création, le renommage et la
 // fermeture d'une entité et le rattachement d'une équipe), et schéma PostgreSQL (0016_entites.sql). Sur le moteur de la
-// suite (SQLite par défaut, PostgreSQL avec npm run test:pg).
+// suite (SQLite par défaut, PostgreSQL avec npm run test:pg). Étape 2 : site et unité des fiches tirés de leur équipe
+// (server/src/rattachements.ts) à chaque affectation et rattachement, puis au démarrage.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
@@ -474,7 +475,8 @@ test('cache : delta et oracle après la création, le renommage et la fermeture 
       assert.deepStrictEqual(f.brut, ref, `${quoi} : lecture brute`);
       assert.deepStrictEqual(assembler(f.brut, T, 1, RH), assembler(ref, T, 1, RH), `${quoi} : instantané assemblé`);
       for (const c of champs) assert.ok(f.champsChanges.has(c as never), `${quoi} : champ ${c} changé`);
-      assert.ok(!f.champsChanges.has('employes'), `${quoi} : fiches inchangées`);
+      // Étape 2 : le site d'une équipe passe aux fiches de ses membres (server/src/rattachements.ts) ; sinon, rien.
+      if (!champs.includes('employes')) assert.ok(!f.champsChanges.has('employes'), `${quoi} : fiches inchangées`);
       return { n, brut: geler(f.brut) };
     });
     const b = await verifierExactitude(db, lecteurs, { jeux: true });
@@ -486,7 +488,8 @@ test('cache : delta et oracle après la création, le renommage et la fermeture 
   await pas('renommage', async () => await run(RH, 'entite.modifier', { code: 'epc2i', nom: 'EPC2I SAS', siren: '552100554' }), ['referentiels']);
   await pas('site', async () => await run(RH, 'site.enregistrer', { code: 'lab67', libelle: 'Laboratoire 67' }), ['referentiels']);
   await pas('rattachement d’une équipe', async () => await run(RH, 'equipe.entite', { nom: 'Maintenance', entite: 'lyon' }), ['referentiels']);
-  await pas('site d’une équipe', async () => await run(RH, 'equipe.site', { nom: 'Maintenance', siteCode: 'lab67' }), ['referentiels']);
+  await pas('site d’une équipe', async () => await run(RH, 'equipe.site', { nom: 'Maintenance', siteCode: 'lab67' }), ['referentiels', 'employes']);
+  assert.ok((await loadFull(db, RH)).employes.filter(e => e.equipe === 'Maintenance').every(e => e.siteCode === 'lab67'), 'site reporté sur les fiches');
   await pas('réglage', async () => await run(RH, 'parametres.maj', { organigrammeOuvert: 'managers' }), ['settings']);
   await pas('détachement', async () => await run(RH, 'equipe.entite', { nom: 'Maintenance', entite: '' }), ['referentiels']);
   await pas('fermeture', async () => await run(RH, 'entite.fermer', { code: 'lyon' }), ['referentiels']);
@@ -499,6 +502,54 @@ test('cache : delta et oracle après la création, le renommage et la fermeture 
 });
 
 // — Schéma PostgreSQL —
+
+// — Étape 2 : site et unité des fiches (server/src/rattachements.ts) —
+
+test('fiches : site et unité tirés de l’équipe à chaque affectation et à chaque rattachement, puis au démarrage', async () => {
+  const db = await demo();
+  const run = runSur(db);
+  const fiche = async (id: number) => ({ ...await db.one<{ s: string | null; u: string | null }>('SELECT site_code AS s, unite_code AS u FROM employes WHERE id = ?', [id]) });
+  await mettreAJourBase(db);
+  // Démonstration : aucune équipe ni entité n'a de site ; rien n'est écrit.
+  assert.deepEqual(await fiche(2), { s: null, u: null });
+  await run(RH, 'site.enregistrer', { code: 'lab67', libelle: 'Laboratoire 67' });
+  await run(RH, 'site.enregistrer', { code: 'pde', libelle: 'PDE' });
+  // Site et unité d'une équipe : ceux de ses membres (Mehdi, Maintenance).
+  await run(RH, 'equipe.site', { nom: 'Maintenance', siteCode: 'lab67' });
+  await run(RH, 'equipe.unite', { nom: 'Maintenance', uniteCode: 'PRD-MAINT' });
+  assert.deepEqual(await fiche(2), { s: 'lab67', u: 'PRD-MAINT' });
+  // Équipe rattachée : site et unité de l'équipe au-dessus (Production sous Maintenance, sans site propre).
+  await run(RH, 'equipe.parente', { nom: 'Production', parente: 'Maintenance' });
+  assert.deepEqual(await fiche(3), { s: 'lab67', u: 'PRD-MAINT' });
+  await run(RH, 'equipe.parente', { nom: 'Production', parente: '' });
+  assert.deepEqual(await fiche(3), { s: null, u: null });
+  // Site de l'entité, à défaut de celui de l'équipe.
+  await run(RH, 'entite.modifier', { code: CODE_ENTITE_AMORCEE, siteCode: 'pde' });
+  assert.deepEqual(await fiche(3), { s: 'pde', u: null });
+  assert.deepEqual(await fiche(2), { s: 'lab67', u: 'PRD-MAINT' }, 'le site de l’équipe l’emporte');
+  // Affectation (equipe.affecter, employe.modifier) : le site et l'unité suivent l'équipe ; à affecter : aucun.
+  await run(RH, 'equipe.affecter', { empId: 2, equipe: 'Production' });
+  assert.deepEqual(await fiche(2), { s: 'pde', u: null });
+  await run(RH, 'equipe.affecter', { empId: 2, equipe: null });
+  assert.deepEqual(await fiche(2), { s: null, u: null });
+  const e6 = (await loadFull(db, RH)).employes.find(e => e.id === 6)!;
+  await run(RH, 'employe.modifier', { id: 6, equipe: 'Logistique', nom: e6.nom });
+  assert.deepEqual(await fiche(6), { s: 'pde', u: null });
+  // Fiche créée dans une équipe : rattachée d'emblée.
+  const avant = (await loadFull(db, RH)).employes.find(e => e.id === 1)!;
+  await run(RH, 'employe.creer', { ...avant, id: undefined, nom: 'Nouvelle Recrue', matriculePaie: null, equipe: 'Maintenance', email: null });
+  const nouvelle = await db.one<{ id: number }>('SELECT id FROM employes WHERE nom = ?', ['Nouvelle Recrue']);
+  assert.deepEqual(await fiche(nouvelle!.id), { s: 'lab67', u: 'PRD-MAINT' });
+  // Retrait du site de l'équipe : celui de l'entité ; une action sans effet n'écrit rien.
+  await run(RH, 'equipe.site', { nom: 'Maintenance', siteCode: '' });
+  assert.deepEqual(await fiche(nouvelle!.id), { s: 'pde', u: 'PRD-MAINT' });
+  // Écriture directe (base d'avant l'étape 2) : le démarrage les recalcule, sans effet ensuite.
+  await db.run('UPDATE employes SET site_code = NULL, unite_code = NULL');
+  await mettreAJourBase(db);
+  assert.deepEqual(await fiche(nouvelle!.id), { s: 'pde', u: 'PRD-MAINT' });
+  const { recalerRattachements } = await import('../server/src/rattachements.ts');
+  assert.equal(await db.tx(async () => await recalerRattachements(db)), 0);
+});
 
 test('PostgreSQL : contraintes de 0016_entites (formats, deux niveaux, fermeture, unicité de l’unité)', { skip: !PG && 'PostgreSQL seulement (CURSUS_TEST_ENGINE=pg)' }, async () => {
   const db = await nouvelleBase();

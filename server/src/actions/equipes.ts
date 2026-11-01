@@ -18,6 +18,8 @@ import { avenantProgramme, renouvellementsDe } from '../../../shared/rules/histo
 import { amorcer, inscrireLigne, refigerBrouillons } from '../avenants.ts';
 import { rattacherPoste } from './referentiels.ts';
 import { renommerDerogation, retirerDerogation } from './repos-dominical.ts';
+// lot 11 — organigramme
+import { rattacherEquipeNeuve } from '../demarrage.ts';
 import {
   ActionError, estSoiMeme, getEmp, isManagerOf, isRh, isRhAdmin, refuserSoiMeme, requireRh, requireRhAdmin, REVIENT_RH, str, type ActionHandler, type Ctx,
 } from './context.ts';
@@ -220,7 +222,9 @@ const creerEquipe: ActionHandler = async (ctx, p) => {
   const managerId = p.managerId ? checkManager(ctx, p.managerId).id : null;
   const ordre = Math.max(-1, ...ctx.ds.referentiels.equipes.map(q => q.ordre)) + 1;
   await ctx.db.insert('equipes', { nom, managerId, ordre });
-  return `Équipe ${nom} créée${managerId ? ' — manager : ' + ctx.d.personName(managerId) : ''}`;
+  // lot 11 — organigramme : équipe racine rattachée à l'entité unique (amorcée au besoin), sans changer de valideur.
+  const entite = await rattacherEquipeNeuve(ctx.db, nom);
+  return `Équipe ${nom} créée${managerId ? ' — manager : ' + ctx.d.personName(managerId) : ''}${entite ? ` · relève de ${entite.nom}` : ''}`;
 };
 
 const renommer: ActionHandler = async (ctx, p) => {

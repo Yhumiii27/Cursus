@@ -1735,6 +1735,13 @@ aucun champ du paramètre n'est recopié.
 | `referentiel.horaire.enregistrer` / `referentiel.horaire.archiver` | code (création : 1 à 6 lettres ou chiffres commençant par une lettre, unique, archivés compris) ou id (le code), nom (60 caractères), debut, fin (« HH:MM », « 8 h »… ; fin avant le début : le lendemain), pause (minutes, 0 à 240, plus courte que l'horaire) / id, archive? (faux : rétabli) ; archivage refusé tant qu'une équipe le propose par défaut ; les feuilles qui le portent le gardent | RH |
 | `referentiel.poste.expositions` | id (poste, archivé compris), facteurs [codes `repetitif`, `hyperbare`, `temperatures`, `bruit` ; [] : aucun] : facteurs d'exposition du C2P cochés sur le poste (lot 7, `shared/rules/c2p.ts`) ; journal : identifiant, codes avant et après | RH, référent HSE |
 | `referentiel.horaire.alternant` | id (code de l'horaire), alternant (vrai : équipes successives alternantes ; faux : non ; null ou « » : à qualifier) ; vaut pour toutes les nuits comptées sous cet horaire ; journal : code, valeur avant et après | RH, référent HSE |
+| `entite.creer` (lot 11, C1) | code (2 à 32 lettres minuscules, chiffres ou « _ », jamais modifié), nom (120 caractères), type (`societe`, `etablissement`), parente (société ouverte d'un établissement ; aucune pour une société), siren (société : 9 chiffres, clé de Luhn, unique), siret (14 chiffres, clé de Luhn, unique, commençant par le SIREN de la société), idcc (1 à 4 chiffres, rendu sur 4), siteCode (site connu et actif) : `controlerEntite` de `shared/rules/entites.ts` ; journal : codes, type, SIREN, SIRET, IDCC, site, nom seulement « renseigné » | RH |
+| `entite.modifier` | code, mêmes champs (le type ne change pas) ; refusé pour une entité tenue par Matrix (`source = 'matrix'`) et pour un SIREN qui ne serait plus celui des SIRET de ses établissements | RH |
+| `entite.fermer` / `entite.rouvrir` | code : `actif`, `fermeLe` (jamais supprimée) ; fermeture refusée tant que l'entité porte des équipes (directement ou par héritage) ou, pour une société, des établissements ouverts ; réouverture d'un établissement refusée tant que sa société est fermée | administrateur RH |
+| `site.enregistrer` | code (création, format de matrix.pub_sites) ou id (le code), libelle (80 caractères), actif? : cache de matrix.pub_sites tenu à la main | RH |
+| `equipe.entite` | nom (équipe racine seulement : une équipe rattachée hérite de son équipe racine), entite (code d'une entité ouverte ; vide : aucune) ; aucun valideur ne change | RH |
+| `equipe.site` / `equipe.unite` | nom, siteCode (site connu et actif ; vide : celui d'une équipe au-dessus ou de l'entité) / uniteCode (format de l'organigramme de Matrix, `PRD-MAINT`, unique ; vide : aucun) | RH |
+| `organigramme.imprimer` / `organigramme.exporter` | entite? (code), lignes (entier) : rien n'est écrit en base, le journal garde l'entité et le nombre de lignes, jamais un nom | qui voit l'organigramme (réglage `organigrammeOuvert` : l'espace RH toujours ; managers sauf « rh » ; collaborateurs si « tous », par défaut) |
 | `passeport.declarer` | cles [« cert:<id> », « suivie:<id> » : lignes du Passeport de prévention, 2 000 au plus], le (jour de la déclaration sur la plateforme : ni à venir, ni avant le dernier jour d'une formation) ; ligne inconnue, annulée, d'une formation plus marquée ou déjà déclarée : refus, rien d'écrit (lot 7, `shared/rules/passeport-prevention.ts`) ; journal : jour, nombre de lignes, salariés concernés | RH, référent HSE |
 | `passeport.retirer` | cle (ligne marquée déclarée) : marque posée par erreur retirée, ligne de nouveau proposée à l'export ; journal : la clé, le salarié | RH, référent HSE |
 | `hab.demander` | empId, h : habilitation exigée jamais délivrée, titre « en attente » de délivrance (déjà demandée : rien n'est refait ; déjà délivrée ou archivée : refus) | RH, référent HSE ; jamais pour soi-même |
@@ -3927,3 +3934,67 @@ objet en parallèle. Aucun comportement ni type TypeScript ne change.
 - **Migrations PostgreSQL attribuées** : 0016_entites (C1), 0017_pwa (C2), 0018_indicateurs (C3), 0019_dossiers_opco (C4),
   0020_notes_frais (C5). Une base applique les migrations manquantes même avec un trou ; l'empreinte de chacune s'ajoute à
   `PUBLIEES` (`tests/purge-changements.test.ts`) à sa fusion.
+
+## Lot 11 : organigramme et entités (C1, t195)
+
+Structure société > établissement > équipes au-dessus de la hiérarchie des équipes (t136), sans changer aucun valideur :
+l'entité n'est qu'un regroupement au-dessus des équipes racines. Elle fournit le SIREN, le SIRET et l'IDCC dont ont besoin
+l'OPCO, les indicateurs légaux et les notes de frais. Étape 1 : règles, données, actions, journal, réglage, amorçage ;
+l'étape 2 apporte les écrans (Organigramme, Référentiels → Entités et sites, colonnes de l'écran Équipes), l'impression, le
+CSV, le remplissage de `employes.site_code` et `unite_code`, l'aide, le guide et la demande à Matrix.
+
+- **Règles pures.** `shared/rules/entites.ts` : SIREN (9 chiffres) et SIRET (14) contrôlés par leur clé de Luhn (règle de
+  l'INSEE pour La Poste : somme des chiffres multiple de 5, admise en plus de la clé de Luhn), SIRET commençant par le SIREN de la société, IDCC sur 4
+  chiffres ; deux niveaux (un établissement a une société parente ouverte, une société n'en a pas) ; type et code fixés à
+  la création ; fermeture refusée tant que l'entité porte des équipes ou des établissements ouverts (`refusFermeture`) ;
+  entité d'une équipe = celle de son équipe racine (`entiteEquipe`, l'entité posée sur une équipe rattachée n'est pas
+  lue) ; site et unité d'un salarié tirés de son équipe ou d'une équipe au-dessus, le site à défaut de l'entité
+  (`rattachementSalarie`, appliqué à l'étape 2) ; équipes racines au nom de site (`equipesRessemblantAUnSite`), seulement
+  signalées. `shared/rules/organigramme.ts` : `arbre(entites, equipes, annuaire, delegationsVisibles, today, options)`
+  (entités, équipes racines et rattachées, présents, valideur N+1 lu par `valideurHierarchique`, suppléant d'après les
+  délégations visibles en vigueur, sans dates), présents selon `presentA` (entrée ≤ jour ≤ fin, plus strict que `present`,
+  inchangé) et fiches anonymisées exclues ; pour le service RH seulement (`rh`) : salariés à affecter, anomalies (équipe sans
+  manager, salarié à affecter, équipe racine sans entité, équipe racine au nom de site) et étiquettes de contrat fournies
+  par l'écran ; `organigrammeOuvertA(reglage, espace)`.
+- **Données.** `entites` (clé `code` ; nom, type, parente, siren, siret, idcc, siteCode, ordre, actif, fermeLe, source
+  `local` | `matrix` : cache du contrat pub_entites demandé à Matrix) et `sites` (cache de matrix.pub_sites : code,
+  libellé, actif, ordre) dans `TABLES` ; colonnes `equipes.entite`, `siteCode`, `uniteCode` ; `employes.siteCode` et
+  `uniteCode` entrent dans `TABLES` (colonnes de 0002_partage.sql en PostgreSQL, créées par la déclaration en SQLite, aucune
+  migration nommée). PostgreSQL : `server/migrations-pg/0016_entites.sql` (types, clés étrangères `equipes.entite` et
+  `entites.parente`, CHECK des formats de 0002 pour les codes de site et d'unité, deux niveaux, ouverture, index unique
+  partiel du SIREN et du code d'unité, déclencheurs `revision` et `revision_lignes_*` des deux tables ; aucune donnée,
+  aucune vue `pub_`, aucune colonne sensible). `TABLES_RANG` (départage de `ordre`), références de `integrite.ts`,
+  `TABLES_AMORCEES` de la reprise PostgreSQL (l'entité amorcée d'une base neuve est remplacée par celles de la source).
+- **Instantané et cache.** `referentiels.entites` et `referentiels.sites` (données d'entreprise publiques, transmises à tous :
+  `LECTURES.referentiels`, `ORDRE_LECTURE` par `ordre`, tables à clé texte relues en entier par le delta ; champ commun,
+  hors `CHAMPS_PAR_SALARIE` : chaque écriture recalcule les vues, ce qui est acceptable vu leur rareté). Champ
+  `presentsOrganigramme` (identifiants des présents du jour, sans les dates ; `LECTURES` : `employes`) : l'organigramme hors du
+  service RH filtre l'annuaire avec lui ; vide pour un espace auquel le réglage ferme l'organigramme (`vueDe`). L'annuaire
+  envoyé ne change pas (sa minimisation est une tâche à part). Preuves : `tests/entites.test.ts` (delta égal à la lecture
+  complète et oracle de toutes les vues après la création, le renommage et la fermeture d'une entité, le rattachement d'une
+  équipe, un réglage et un upsert direct), `tests/lecture-brute.test.ts` (registre), banc d'oracle (`tests/support/oracle.ts` :
+  codes d'entité, de site et d'unité tirés des données du moment).
+- **Actions et journal.** `server/src/actions/entites.ts` (tableau des actions ci-dessus) ; `equipe.parente` retire l'entité
+  d'une équipe qui devient rattachée et donne à une équipe détachée l'entité dont elle relevait (journal : `parente` et
+  `entite` avant et après). Journal en liste blanche (`REGLES` de `server/src/journal.ts`) : codes, type, SIREN, SIRET, IDCC
+  (données publiques), site, unité, équipe, avant et après ; nom d'une entité ou d'un site seulement « renseigné » ;
+  impression et export : entité et nombre de lignes. Famille « Fiches et équipes ». Aucune de ces actions ne change un
+  verdict Go / No Go (`SANS_EFFET_VERDICT`).
+- **Réglage** `organigrammeOuvert` (`tous` par défaut, `managers`, `rh`) : l'espace RH (tous ses profils) voit toujours
+  l'organigramme ; la vue `organigramme` (`ALLOWED_VIEWS`, `PROFILS_RH.vues`) arrive avec l'écran, à l'étape 2.
+- **Amorçage** (`amorcerEntites`, `server/src/demarrage.ts`) par le code et non par la migration (sur une base PostgreSQL
+  neuve, les réglages n'existent pas encore au moment des migrations) : à la fin de `mettreAJourBase` (deux moteurs), après
+  le chargement de la démonstration (`server/src/index.ts`) et après `demo.reinitialiser`. S'il n'existe aucune entité mais
+  au moins une équipe, une société de code `entreprise` est créée sous la raison sociale du responsable du traitement
+  (première ligne de Paramètres → Confidentialité) ou « Entreprise », et les équipes racines y sont rattachées ; ligne
+  `entite.amorcer` au journal (avec les équipes au nom de site, à vérifier à la main). Idempotent ; aucun valideur ne
+  change. Base de production neuve (aucune équipe) : rien n'est créé au démarrage ; la première équipe créée par
+  `equipe.creer` ou par la reprise de Lucca déclenche l'amorçage, une fois la raison sociale saisie
+  (`rattacherEquipeNeuve`). Ensuite, une équipe racine nouvelle est rattachée d'office à l'entité ouverte quand c'est la
+  seule et une société ; avec plusieurs entités ouvertes, le service RH la rattache (`equipe.entite`) et l'organigramme la
+  signale d'ici là.
+- **Modification d'une entité** (`entite.modifier`) : un champ absent de la requête garde sa valeur ; null ou une chaîne
+  vide l'efface. `site.enregistrer` refuse un `actif` qui n'est pas un booléen.
+- **Restent** (étape 2 et au-delà) : écrans, impression et CSV ; remplissage de `employes.site_code` et `unite_code` à chaque
+  affectation (`rattachementSalarie`) ; demande à Matrix d'un contrat `pub_entites` (`docs/demandes/`) ; organigramme à une
+  date passée (BDESE, t197) ; entité portée par le salarié (employeur) si une équipe mêle deux sociétés.

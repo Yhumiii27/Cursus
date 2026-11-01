@@ -21,12 +21,14 @@ import { avecInscrits } from '../../shared/rules/sessions.ts';
 import { completerSession } from '../../shared/rules/plage-session.ts';
 import { debutSaisieDe } from '../../shared/rules/suivi-feuilles.ts';
 import { effectifSite } from '../../shared/rules/delegation.ts';
+import { presentsDe } from '../../shared/rules/organigramme.ts';
 import type {
   Absence, Astreinte, AttenteSession, AvenantForfait, CalendrierFeries, Certification, CetMouvement, Chantier, ClotureConges, ContratHistorique, CurrentUser, Dataset,
   DeclarationPasseport, DelegationValidation, DemandeCollab, DemandeKeystone, DemandeVisite, DerogationDominicale, Destination, Employe, Entretien, Envoi,
   Equipe, EvaluationFormation, ExerciceClos, FeuilleTemps, Formation, FormationSuivie, FormatFichierPaie, Fractionnement, HabDelivrance, HabTitre, HabType,
   Horaire, InformationCp, Inscription, InterventionAstreinte, LotPaie, LotReprise, Mandat, Messagerie, Mission, Participation, PlanAction, Poste, Projet,
   ReleveInterim, ReportCp, RubriquePaie, Session, Settings, SoldeReprise, SoldeSortie, TacheKeystone, Vaccination, Visa, Voyage,
+  Entite, Site,
 } from '../../shared/types.ts';
 import type { Db, TableName } from './db.ts';
 import { formatFichierDe } from './lots-paie.ts';
@@ -114,6 +116,9 @@ export interface Brut {
   astreinteInterventions: InterventionAstreinte[];
   declarationsPasseport: DeclarationPasseport[];
   evaluationsFormation: EvaluationFormation[];
+  // lot 11 — organigramme
+  entites: Entite[];
+  sites: Site[];
   reglages: ReglagesBruts;
   /** Statut de l'e-mail de chaque relevé (envois désignés par `releves.envoiId` seulement). */
   statutsEnvoi: ReadonlyMap<number, Envoi['statut']>;
@@ -122,6 +127,8 @@ export interface Brut {
 /** Tables lues dans l'ordre d'une autre colonne que leur clé (`rowid` : ordre d'insertion ; `rang` en PostgreSQL). */
 export const ORDRE_LECTURE: Partial<Record<TableName, string>> = {
   formations: 'rowid', habilitations: 'rowid', destinations: 'rowid', postes: 'nom', equipes: 'ordre', horaires: 'rowid', projets: 'rowid', chantiers: 'debut',
+  // lot 11 — organigramme : ordre d'affichage choisi par le service RH (départage : rang en PostgreSQL).
+  entites: 'ordre', sites: 'ordre',
 };
 
 /** Identifiants passés au plus par requête `IN (…)` (bien en deçà des limites de SQLite et de PostgreSQL). */
@@ -225,6 +232,9 @@ export async function lireBrut(db: Db): Promise<Brut> {
     astreinteInterventions: await lire('astreinteInterventions'),
     declarationsPasseport: await lire('declarationsPasseport'),
     evaluationsFormation: await lire('evaluationsFormation'),
+    // lot 11 — organigramme
+    entites: await lire('entites'),
+    sites: await lire('sites'),
     reglages: await lireReglages(db),
     statutsEnvoi: await statutsDesEnvois(db, releves),
   };
@@ -329,8 +339,11 @@ const piecesDeBrut = memo((lignes: PieceEnregistree[]) => piecesDe(lignes));
 const settingsDe = memo((app: ReglagesBruts['app']) => reglagesDe(app));
 const formatDe = memo((f: Partial<FormatFichierPaie>) => formatFichierDe(f));
 const messagerieDeBrut = memo((m: Partial<Messagerie>) => messagerieDe(m));
-const referentielsDe = memo((formations: Formation[], habilitations: HabType[], destinations: Destination[], postes: Poste[], equipes: Equipe[], horaires: Horaire[], projets: Projet[], chantiers: Chantier[]) =>
-  ({ formations, habilitations, destinations, postes, equipes, horaires, projets, chantiers }));
+const referentielsDe = memo((formations: Formation[], habilitations: HabType[], destinations: Destination[], postes: Poste[], equipes: Equipe[], horaires: Horaire[], projets: Projet[], chantiers: Chantier[],
+  entites: Entite[], sites: Site[]) =>
+  ({ formations, habilitations, destinations, postes, equipes, horaires, projets, chantiers, entites, sites }));
+/** lot 11 — organigramme : présents du jour et non anonymisés (`presentsDe`), sur les fiches telles qu'enregistrées. */
+const presentsOrganigrammeDe = memo((lignes: EmpRow[], today: string) => presentsDe(lignes, today));
 
 /**
  * Instantané complet tiré de la lecture brute, sans lire la base ni modifier `brut` : le Dataset de `loadFull`, ligne
@@ -352,7 +365,9 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     // Formations, habilitations et destinations, archivées comprises (`archive`, date d'archivage) : transmises à tous les
     // espaces, qui en ont besoin pour nommer les titres et écarter les archivées des listes ; aucune donnée personnelle.
     // Postes et exigences (shared/rules/exigences.ts), horaires de poste (shared/rules/horaires.ts) : idem.
-    referentiels: referentielsDe(brut.formations, brut.habilitations, brut.destinations, brut.postes, brut.equipes, brut.horaires, brut.projets, brut.chantiers),
+    // Entités et sites (lot 11) : données d'entreprise publiques (SIREN, SIRET, IDCC), transmises à tous pour l'organigramme.
+    referentiels: referentielsDe(brut.formations, brut.habilitations, brut.destinations, brut.postes, brut.equipes, brut.horaires, brut.projets, brut.chantiers,
+      brut.entites, brut.sites),
     annuaire: annuaireDe(employes),
     employes,
     sessions: sessionsDe(brut.sessions, certs, brut.inscriptions, brut.participations, attentesSession, calendrierFeries),
@@ -403,6 +418,9 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     attentesSession,
     declarationsPasseport: brut.declarationsPasseport,
     evaluationsFormation: brut.evaluationsFormation,
+    // lot 11 — organigramme : présents de l'annuaire (identifiants seulement, sans les dates), filtrés par espace dans
+    // server/src/dataset.ts selon le réglage `organigrammeOuvert`.
+    presentsOrganigramme: presentsOrganigrammeDe(brut.employes, today),
   };
 }
 
@@ -412,7 +430,7 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
  */
 const LECTURES_ASSEMBLEES = {
   settings: ['settings'],
-  referentiels: ['formations', 'habilitations', 'destinations', 'postes', 'equipes', 'horaires', 'projets', 'chantiers'],
+  referentiels: ['formations', 'habilitations', 'destinations', 'postes', 'equipes', 'horaires', 'projets', 'chantiers', /* lot 11 — organigramme */ 'entites', 'sites'],
   annuaire: ['employes'],
   employes: ['employes', 'certifications', 'habTitres', 'visas', 'vaccinations'],
   sessions: ['sessions', 'certifications', 'inscriptions', 'participations', 'attentesSession', 'settings'],
@@ -459,6 +477,8 @@ const LECTURES_ASSEMBLEES = {
   attentesSession: ['attentesSession'],
   declarationsPasseport: ['declarationsPasseport'],
   evaluationsFormation: ['evaluationsFormation'],
+  // lot 11 — organigramme
+  presentsOrganigramme: ['employes'],
 } as const satisfies Partial<Record<keyof Dataset, readonly TableName[]>>;
 
 /**

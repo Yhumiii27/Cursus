@@ -171,6 +171,22 @@ function valeur(nom: string, action: string, x: Parameters<Tirage>[0]): unknown 
   };
   const lignes = (nomListe: string | undefined) => (nomListe ? (ds as unknown as Record<string, { id: number }[] | undefined>)[nomListe] : undefined);
   const parFamille = (f: string) => (f === 'cert' ? ds.employes.flatMap(e => e.certs) : lignes(tables[f]));
+  // lot 11 — organigramme : entités, sites et rattachements d'équipe tirés des données du moment (code existant, ou nouveau).
+  const entites = ds.referentiels.entites ?? [], sites = ds.referentiels.sites ?? [];
+  if (famille === 'entite' || famille === 'site' || famille === 'organigramme' || ['entite', 'siteCode', 'uniteCode'].includes(nom)) {
+    switch (nom) {
+      case 'code': return famille === 'site' ? `site_${r.entre(1, 4)}` : entites.length && r.si(0.6) ? r.choix(entites).code : `ent_${r.entre(1, 6)}`;
+      case 'id': return sites.length && r.si(0.5) ? r.choix(sites).code : undefined;
+      case 'type': return r.si(0.6) ? 'societe' : 'etablissement';
+      case 'parente': { const s = entites.filter(x => x.type === 'societe'); return s.length ? r.choix(s).code : undefined; }
+      case 'nom': return famille === 'entite' ? `Entité ${r.entre(1, 99)}` : r.choix(ds.referentiels.equipes).nom;
+      case 'entite': return entites.length && r.si(0.8) ? r.choix(entites).code : '';
+      case 'siteCode': return sites.length && r.si(0.8) ? r.choix(sites).code : '';
+      case 'uniteCode': return r.si(0.7) ? `ORA-E${r.entre(1, 5)}` : '';
+      case 'lignes': return r.entre(0, 40);
+      default: break;
+    }
+  }
   switch (nom) {
     case 'empId': case 'managerId': case 'suppleantId': return empId();
     case 'id': return id(r, parFamille(famille));

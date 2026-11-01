@@ -368,6 +368,8 @@ export const reportActif = (env: Record<string, string | undefined> = process.en
  * ligne changée d'un autre salarié ne change pas la vue. Ni `attentesSession` (place dans la file, qui dépend des autres
  * inscrits), ni `mandats` et `pieces` (effectif et visibilité communs) : ils invalident toutes les vues, comme les
  * fiches, les équipes, les délégations, les sessions, les réglages et les référentiels.
+ * lot 11 — organigramme : entités et sites (`referentiels`) et présents de l'organigramme (`presentsOrganigramme`, tiré
+ * de toutes les fiches) sont des champs communs : leur écriture, rare, recalcule toutes les vues.
  */
 export const CHAMPS_PAR_SALARIE: ReadonlySet<keyof Dataset> = new Set<keyof Dataset>([
   'feuilles', 'absences', 'cet', 'reports', 'soldesReprise', 'clotures', 'informationsCp', 'fractionnements', 'missions', 'taches', 'voyages',

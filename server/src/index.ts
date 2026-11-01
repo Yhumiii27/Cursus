@@ -10,7 +10,7 @@ import { adminsActifs } from './comptes.ts';
 import { compressionActive, demoPublique, enProduction, hoteEcoute, portEcoute, verifierConfig } from './config.ts';
 import { todayIso } from './dataset.ts';
 import { dbFile, openDb, urlPostgres } from './db.ts';
-import { mettreAJourBase, prechaufferChaqueJour, prechaufferDemarrage } from './demarrage.ts';
+import { amorcerEntites, mettreAJourBase, prechaufferChaqueJour, prechaufferDemarrage } from './demarrage.ts';
 import { demarrerEnvois, envoiEnCours } from './envois.ts';
 import { controlerIntegrite } from './integrite.ts';
 import { demarrerJournal } from './journal.ts';
@@ -117,7 +117,11 @@ if (await retirerSecretStocke(db)) log.info('Ancienne clé de session retirée d
 const vide = await db.tx(async () => {
   if (await db.count('employes') !== 0) return null;
   // Les salariés fictifs ne sont chargés qu'en démonstration (CURSUS_DEMO=1), jamais dans une base de production.
-  if (DEMO) await seedDemo(db);
+  if (DEMO) {
+    await seedDemo(db);
+    // lot 11 — organigramme : entité unique et équipes racines rattachées, comme au démarrage (server/src/demarrage.ts).
+    await amorcerEntites(db);
+  }
   return DEMO;
 });
 if (vide !== null) log.info(vide ? 'Base vide : données de démonstration chargées.' : 'Base vide : aucune donnée de démonstration chargée (mode démonstration inactif).');

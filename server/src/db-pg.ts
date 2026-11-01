@@ -17,7 +17,9 @@ export const SCHEMA_PG = 'cursus';
 /** Dossier des migrations PostgreSQL (fichiers NNNN_<objet>.sql, appliqués dans l'ordre de leur nom). */
 export const DOSSIER_MIGRATIONS_PG = join(RACINE, 'server', 'migrations-pg');
 /** Tables dont SQLite donne l'ordre par le rowid (référentiels, `Db.all(…, 'rowid')`) ou départage les tris : colonne `rang`. */
-export const TABLES_RANG: ReadonlySet<TableName> = new Set<TableName>(['formations', 'habilitations', 'destinations', 'projets', 'equipes', 'chantiers', 'horaires']);
+export const TABLES_RANG: ReadonlySet<TableName> = new Set<TableName>(['formations', 'habilitations', 'destinations', 'projets', 'equipes', 'chantiers', 'horaires',
+  // lot 11 — organigramme : entités et sites, lus dans l'ordre de leur colonne `ordre` (ORDRE_LECTURE), départagés par `rang`.
+  'entites', 'sites']);
 /**
  * Déclencheurs du journal des changements posés sur chaque table hors `TABLES_SANS_REVISION` (migration
  * 0014_changements) : insertion, modification, suppression, TRUNCATE. Exigés par `PgDb.controlerSchema`.

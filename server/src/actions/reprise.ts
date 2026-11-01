@@ -9,6 +9,8 @@ import type { Certification, DemandeVisite, Employe, HabTitre, LotReprise, Solde
 import { creerCompte } from '../comptes.ts';
 import { auteurDe, inscrireDelivrance } from '../delivrances.ts';
 import { rattacherFiches } from '../migrations/referentiels.ts';
+// lot 11 — organigramme
+import { rattacherEquipeNeuve } from '../demarrage.ts';
 import { ActionError, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 /** Taille maximale du fichier importé (caractères) : quelques centaines de salariés tiennent largement. */
@@ -25,6 +27,8 @@ async function ecrire(ctx: Ctx, l: LigneReprise, o: { comptes: boolean }): Promi
       if (w.equipeACreer && !await ctx.db.get('equipes', w.equipeACreer)) {
         const ordre = Math.max(-1, ...(await ctx.db.all<{ ordre: number }>('equipes')).map(q => q.ordre)) + 1;
         await ctx.db.insert('equipes', { nom: w.equipeACreer, managerId: null, ordre });
+        // lot 11 — organigramme : équipe rattachée à l'entité unique, amorcée au besoin (base de production neuve).
+        await rattacherEquipeNeuve(ctx.db, w.equipeACreer);
       }
       let empId = l.empId;
       if (empId) await ctx.db.update('employes', empId, { ...w.profil });

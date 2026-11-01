@@ -8,7 +8,9 @@
 //   d'avance déjà transmises par des notes archivées ;
 // - notes à exporter en comptabilité : toutes celles de la base, une note payée et jamais exportée ne disparaît pas.
 // `avecHistorique` complète un instantané des lignes utiles à ces règles, sans jamais le modifier en place.
-import type { Dataset, LigneFrais, NoteFrais } from '../../shared/types.ts';
+import type { CategorieFrais, Dataset, LigneFrais, NoteFrais, ResumeNoteFrais } from '../../shared/types.ts';
+import { borneDetailFrais, borneFrais } from '../../shared/rules/frais-fenetre.ts';
+import { r2 } from '../../shared/rules/frais.ts';
 import { STATUTS_EXPORTABLES } from '../../shared/rules/frais-export.ts';
 import { lignesIkDeLAnnee } from '../../shared/rules/frais-km.ts';
 import type { Db, SqlValeur } from './db.ts';
@@ -141,4 +143,39 @@ export async function lignesDesNotesEnBase(db: Db, notes: readonly number[]): Pr
 /** Justificatifs (en vigueur ou retirés) des dépenses `lignes`, lus en base. */
 export async function piecesDesLignesEnBase(db: Db, lignes: readonly number[]): Promise<PieceEnregistree[]> {
   return await lire<PieceEnregistree>(db, 'pieces', await idsParPaquets(db, m => `SELECT id FROM pieces WHERE objet IN ('ligneFrais', 'ligneFraisSante') AND objet_id IN (${m})`, lignes));
+}
+
+// lot 12 — C2, étape 2 (option des 2 mois) : résumés des notes de la fenêtre dont les dépenses ne sont pas dans
+// l'instantané (payées avant `borneDetailFrais`), calculés en base à chaque lecture brute et à chaque delta qui touche les
+// notes ou les dépenses (server/src/delta.ts), jamais stockés. Deux agrégats indexés (notes_frais (statut, payee_le),
+// lignes_frais (note_id)) ; montants arrondis au centime ici, pour que la relecture complète et le delta rendent les mêmes
+// valeurs sur les deux moteurs.
+
+/** Résumés des notes payées entre la borne de la fenêtre et celle du détail au jour `today`, dans l'ordre des notes. */
+export async function lireResumesFrais(db: Db, today: string): Promise<ResumeNoteFrais[]> {
+  // Dépenses du salarié de la note seulement (`lignesDesNotes`, server/src/frais-vues.ts) ; `+l.emp_id` : comparaison sans
+  // index, pour que le plan parte de l'index des notes payées et non de celui des dépenses par salarié.
+  const groupes = await db.query<{ note_id: number; emp_id: number; categorie: CategorieFrais; refusee: number; n: number; demande: number | null; retenu: number | null }>(
+    `SELECT l.note_id, n.emp_id, l.categorie, CASE WHEN l.refusee_le IS NULL THEN 0 ELSE 1 END AS refusee, COUNT(*) AS n,`
+    + ` SUM(l.montant_eur) AS demande, SUM(COALESCE(l.montant_retenu, l.montant_eur)) AS retenu`
+    + ` FROM lignes_frais l JOIN notes_frais n ON n.id = l.note_id WHERE +l.emp_id = n.emp_id AND n.statut = 'payee' AND n.payee_le >= ? AND n.payee_le < ?`
+    + ` GROUP BY l.note_id, n.emp_id, l.categorie, CASE WHEN l.refusee_le IS NULL THEN 0 ELSE 1 END ORDER BY l.note_id`,
+    [borneFrais(today), borneDetailFrais(today)]);
+  // Une note sans dépense n'a pas de résumé : ses totaux sont nuls, comme calculés sur ses dépenses (aucune).
+  const out = new Map<number, ResumeNoteFrais>();
+  for (const g of groupes) {
+    const id = Number(g.note_id);
+    let r = out.get(id);
+    if (!r) out.set(id, r = { noteId: id, empId: Number(g.emp_id), depenses: 0, refusees: 0, demande: 0, retenu: 0, parCategorie: {} });
+    if (Number(g.refusee)) { r.refusees += Number(g.n); continue; }
+    r.depenses += Number(g.n);
+    r.demande += Number(g.demande ?? 0);
+    r.retenu += Number(g.retenu ?? 0);
+    r.parCategorie[g.categorie] = (r.parCategorie[g.categorie] ?? 0) + Number(g.retenu ?? 0);
+  }
+  // Arrondis au centime une fois les groupes réunis, dans l'ordre des catégories (même objet en relecture et en delta).
+  return [...out.values()].sort((a, b) => a.noteId - b.noteId).map(r => ({
+    ...r, demande: r2(r.demande), retenu: r2(r.retenu),
+    parCategorie: Object.fromEntries(Object.entries(r.parCategorie).sort(([a], [b]) => a.localeCompare(b)).map(([c, v]) => [c, r2(v)])),
+  }));
 }

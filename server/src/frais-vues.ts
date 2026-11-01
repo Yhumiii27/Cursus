@@ -14,7 +14,7 @@
 // que ces vues montrent celles que le serveur applique (chantiers en grand déplacement, absences, empreintes des
 // justificatifs leur manquent) ; le texte d'une alerte ne dit ni la nature d'une absence ni à qui est un doublon.
 import { Domain } from '../../shared/domain.ts';
-import type { CurrentUser, Dataset, LigneFrais, NoteFrais, Piece } from '../../shared/types.ts';
+import type { CurrentUser, Dataset, LigneFrais, NoteFrais, Piece, ResumeNoteFrais } from '../../shared/types.ts';
 import { alertesDesNotes } from '../../shared/rules/frais-alertes.ts';
 import { estObjetFrais } from '../../shared/rules/pieces.ts';
 
@@ -30,6 +30,15 @@ export const notesVuesSalarie = <N extends Pick<NoteFrais, 'empId' | 'medicale'>
 export function lignesDesNotes<L extends Pick<LigneFrais, 'noteId' | 'empId'>>(lignes: readonly L[], notes: readonly Pick<NoteFrais, 'id' | 'empId'>[]): L[] {
   const parId = new Map(notes.map(n => [n.id, n]));
   return lignes.filter(l => parId.get(l.noteId)?.empId === l.empId);
+}
+
+/**
+ * lot 12 — C2, étape 2 : résumés des notes reçues (notes payées depuis plus de 2 mois, sans leurs dépenses), comme leurs
+ * lignes ; aucun pour la paie (`fraisVueProfil`), qui ne reçoit pas les dépenses.
+ */
+export function resumesDesNotes(resumes: readonly ResumeNoteFrais[], notes: readonly Pick<NoteFrais, 'id' | 'empId'>[]): ResumeNoteFrais[] {
+  const parId = new Map(notes.map(n => [n.id, n]));
+  return resumes.filter(r => parId.get(r.noteId)?.empId === r.empId);
 }
 
 /**
@@ -61,7 +70,7 @@ export const piecesFraisComptabilite = (pieces: readonly Piece[]): Piece[] => pi
  * Notes de frais vues par un manager ou un collaborateur : les siennes, et celles des salariés `idsFrais` sans les notes
  * médicales ; `d` : domaine de l'instantané complet (alertes).
  */
-export function fraisVueSalarie(full: Dataset, d: Domain, user: CurrentUser, idsFrais: ReadonlySet<number>): Pick<Dataset, 'notesFrais' | 'lignesFrais' | 'vehiculesPerso' | 'avancesFrais' | 'alertesFrais'> {
+export function fraisVueSalarie(full: Dataset, d: Domain, user: CurrentUser, idsFrais: ReadonlySet<number>): Pick<Dataset, 'notesFrais' | 'lignesFrais' | 'vehiculesPerso' | 'avancesFrais' | 'alertesFrais' | 'resumesFrais'> {
   const moi = user.empId;
   const voit = (empId: number) => empId === moi || idsFrais.has(empId);
   const notes = notesVuesSalarie(full.notesFrais ?? [], moi, idsFrais);
@@ -72,6 +81,8 @@ export function fraisVueSalarie(full: Dataset, d: Domain, user: CurrentUser, ids
     vehiculesPerso: (full.vehiculesPerso ?? []).filter(v => voit(v.empId)),
     avancesFrais: (full.avancesFrais ?? []).filter(a => voit(a.empId)),
     alertesFrais: alertesDesNotes(d, notes, lignes),
+    // lot 12 — C2 : résumés des notes reçues.
+    resumesFrais: resumesDesNotes(full.resumesFrais ?? [], notes),
   };
 }
 
@@ -82,11 +93,13 @@ export function piecesFraisManager(full: Dataset, user: CurrentUser, idsFrais: R
 }
 
 /** Notes de frais d'un profil restreint de l'espace RH autre que la comptabilité (paie, référent HSE, lecture seule). */
-export function fraisVueProfil(full: Dataset, paie: boolean): Pick<Dataset, 'notesFrais' | 'lignesFrais' | 'vehiculesPerso' | 'avancesFrais'> {
-  if (!paie) return { notesFrais: [], lignesFrais: [], vehiculesPerso: [], avancesFrais: [] };
+export function fraisVueProfil(full: Dataset, paie: boolean): Pick<Dataset, 'notesFrais' | 'lignesFrais' | 'vehiculesPerso' | 'avancesFrais' | 'resumesFrais'> {
+  if (!paie) return { notesFrais: [], lignesFrais: [], vehiculesPerso: [], avancesFrais: [], resumesFrais: [] };
   return {
     notesFrais: notesPourLaPaie(full.notesFrais ?? []),
     lignesFrais: [],
+    // lot 12 — C2 : ni dépenses ni leurs résumés.
+    resumesFrais: [],
     vehiculesPerso: [],
     avancesFrais: (full.avancesFrais ?? []).filter(a => a.statut === 'validee' || a.statut === 'en_paiement' || a.statut === 'versee').map(a => ({ ...a, refusMotif: null })),
   };
@@ -116,6 +129,8 @@ export function vueComptabilite(full: Dataset): Dataset {
     vehiculesPerso: full.vehiculesPerso ?? [],
     avancesFrais: full.avancesFrais ?? [],
     alertesFrais: alertesDesNotes(new Domain(full), full.notesFrais ?? [], full.lignesFrais ?? []),
+    // lot 12 — C2 : résumés des notes payées depuis plus de 2 mois (frais médicaux compris, comme les lignes).
+    resumesFrais: full.resumesFrais ?? [],
     // Justificatifs des frais, frais médicaux compris, sans l'empreinte (service RH seulement, comme pour les autres).
     pieces: piecesFraisComptabilite(full.pieces ?? []),
   };

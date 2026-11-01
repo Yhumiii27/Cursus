@@ -168,6 +168,7 @@ les traite dans Sage. Les frais engagés pendant un déplacement se déclarent d
 - « Coller le texte du reçu » : copiez le texte de la photo (Live Text sur iPhone, Google Lens sur Android), collez-le, puis « Lire le texte » propose montant, date, TVA et commerçant ; vérifiez chaque champ. Reçu perdu : cochez l'attestation sur l'honneur.
 - « Soumettre la note » une fois complète : les reçus deviennent définitifs, votre manager valide, la comptabilité contrôle, puis la note est remboursée avec la paie du mois suivant. Renvoyée « À corriger », le motif s'affiche sur la note.
 - Frais médicaux en mission (vaccin, pharmacie) : « Nouvelle note », case « Frais médicaux en mission » ; la note ne passe pas par votre manager. Indemnités kilométriques : déclarez d'abord votre véhicule. Sans réseau, une dépense avec sa photo reste gardée sur le téléphone (jamais des frais médicaux).
+- Notes anciennes : une note payée depuis plus de 2 mois affiche ses totaux, ses dépenses se chargent quand vous l'ouvrez ; au-delà de 13 mois, bouton « Notes plus anciennes » en bas de « Mes frais » (24 mois à la fois, puis « Mois précédents »), en consultation seule.
 
 ## Manager
 
@@ -479,6 +480,8 @@ pièces et échéances, sans export comptable ni connexion au portail de l'OPCO 
 - Menu « Notes de frais » (service RH et profil Comptabilité) : onglet « À contrôler » ; dans la note, « Montant retenu » ramène une dépense au plafond, « Refuser » l'écarte avec un motif, puis « Contrôler la note » : elle part dans le prochain lot de paie (colonne « montant » du fichier Sage).
 - Onglet « Exports comptables » : « Générer l'export comptable » fige les écritures des notes contrôlées, puis « Télécharger » le fichier pour la comptabilité (frais médicaux au compte générique). Une note déjà exportée ne se renvoie ni ne s'annule : annulez d'abord l'export, ses notes redeviennent à exporter. Onglet « Tableau de bord » : notes en attente, délai, dépenses par mois et par catégorie, taux des devises.
 - Paramètres → Notes de frais (administrateur RH) : activation, circuit, plafonds, barème kilométrique de l'année, limites d'exonération URSSAF, comptes et format du fichier d'écritures, à confirmer par la comptabilité et la paie.
+- Onglet « Historique » : recherche dans toutes les notes, archivées comprises (salarié, mois de début et de fin, 24 mois au plus, statut, ou numéro de note) ; chaque consultation des notes d'un autre salarié est tracée au journal. Le tableau de bord indique la période de chaque chiffre ; le réintégrable ne porte que sur les notes en circuit ou payées depuis moins de 2 mois.
+- Activation : Paramètres → Notes de frais liste les prérequis (comptes de charge, rubriques FRAIS_* actives et confirmées par la paie, barème kilométrique de l'année) ; l'activation reste la décision de l'administrateur RH.
 
 ## Gestionnaire de paie
 

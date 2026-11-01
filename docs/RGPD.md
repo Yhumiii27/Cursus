@@ -237,6 +237,11 @@ Contact : le DPO (Paramètres → Confidentialité), sinon le service RH.
   collé lu dans le navigateur, jamais gardé ni envoyé ; fichier d'écritures pour la comptabilité nominatif (nom et
   matricule, montants par note), frais médicaux au compte et au libellé génériques ; e-mails et notifications sans montant
   ni motif. Finalité « remboursement des frais professionnels » à inscrire au registre et à la page Confidentialité.
+- Notes de frais (lot 12, C2) : minimisation de l'instantané envoyé au navigateur — notes payées depuis plus de 13 mois
+  absentes, dépenses et justificatifs des seules notes en circuit ou payées depuis moins de 2 mois (totaux des autres) ;
+  le reste se lit à la demande, avec les mêmes droits ; consultation des notes d'autrui par le service RH ou la
+  comptabilité tracée (`frais.historique.consulter` : salariés et nombre de notes). **Avis du DPO à recueillir** sur
+  cette traçabilité et sur une éventuelle scission des frais médicaux (`lignes_frais_sante`).
 - Accès depuis Internet, smartphone compris (décision de l'entreprise) : téléphones fournis, verrouillage imposé par
   la gestion de flotte (`docs/DEPLOIEMENT.md`, « Postes et téléphones »).
 - Organigramme (lot 11) : inscription de la finalité au registre et information des salariés (page Confidentialité) ;

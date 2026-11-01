@@ -207,7 +207,7 @@ jobs:
             workflow_dispatch|schedule) echo "ans=5" >> "$GITHUB_OUTPUT"; echo "scenarios=S1,S2,S3" >> "$GITHUB_OUTPUT" ;;
             pull_request)
               git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
-              if git diff --name-only FETCH_HEAD HEAD | grep -qE '^server/src/(db[^/]*\.ts|dataset\.ts|app\.ts|actions/suivi-feuilles\.ts|cache-instantane\.ts|delta\.ts|lecture-brute\.ts|vues-cache\.ts|demarrage\.ts|purge-changements\.ts)$|^server/migrations-pg/|^scripts/charge/'; then
+              if git diff --name-only FETCH_HEAD HEAD | grep -qE '^server/src/(db[^/]*\.ts|dataset\.ts|app\.ts|actions/suivi-feuilles\.ts|cache-instantane\.ts|delta\.ts|lecture-brute\.ts|vues-cache\.ts|demarrage\.ts|purge-changements\.ts|frais-[a-z-]+\.ts)$|^server/migrations-pg/|^scripts/charge/|^shared/rules/frais'; then
                 echo "ans=1" >> "$GITHUB_OUTPUT"; echo "scenarios=S2,S3" >> "$GITHUB_OUTPUT"; echo "exactitude=--verifier-exactitude" >> "$GITHUB_OUTPUT"
               fi ;;
           esac
@@ -219,6 +219,15 @@ jobs:
         run: |
           npm run charge:generer -- --ans ${{ steps.charge.outputs.ans }} --effectif 100 --interimaires 20 --seed 42
           npm run charge -- --scenario ${{ steps.charge.outputs.scenarios }} --duree 60 --marge 3 ${{ steps.charge.outputs.exactitude }}
+      # lot 12 — C2 (notes de frais : activation) : contrôle de seuil des notes de frais (npm run charge:frais, base SQLite
+      # temporaire, 3 et 5 ans de frais), mêmes déclenchements que l'essai de charge. Verdicts du lot 12 : vues RH, manager et
+      # collaborateur, JSON de la vue RH, lecture brute, delta d'une dépense ; seuils de temps ×3 (machines partagées), seuils
+      # de taille tels quels. Non bloquant tant que les six verdicts ne passent pas (docs/ARCHITECTURE.md, « Lot 12 : notes de
+      # frais, étape 2 ») : à rendre bloquant (retirer continue-on-error) avec l'activation par défaut du module.
+      - name: Essai de charge des notes de frais (non bloquant)
+        if: steps.charge.outputs.ans
+        continue-on-error: true
+        run: npm run charge:frais -- --marge 3
       - name: Publier le rapport de charge
         if: ${{ !cancelled() && steps.charge.outputs.ans }}
         uses: actions/upload-artifact@v4

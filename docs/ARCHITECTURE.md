@@ -4872,6 +4872,71 @@ colonne, aucune vue `pub_`, aucune action nouvelle ; une migration d'index. Le m
   reçoivent le détail des notes payées depuis plus de 2 mois qu'à la demande, par la même route), et, pour le delta,
   scission `lignes_frais_sante` (choix par défaut, demande à Matrix) si le marqueur « toute la table » reste au-delà du
   budget.
+## Lot 12 : notes de frais, détail de 2 mois, écrans et remesure (C2, étape 2)
+
+La remesure de l'étape 1 dépassait encore le budget : l'option des 2 mois est appliquée (réponse du propriétaire du 1er
+novembre 2026). Aucune table, aucune colonne, aucune migration, aucune action ni vue `pub_` nouvelles.
+
+- **Détail de 2 mois** (`DETAIL_FRAIS_MOIS`, `borneDetailFrais`, `detailEnLigne` de `shared/rules/frais-fenetre.ts` ;
+  bloc C2 de `FENETRES`) : les notes restent dans l'instantané 13 mois après leur paiement, mais leurs dépenses et leurs
+  justificatifs n'y entrent que pour les notes en circuit, annulées ou payées depuis moins de 2 mois. La condition est
+  appliquée à la **lecture brute**, donc à toutes les vues (collaborateur et manager compris) : c'est le seul moyen
+  d'alléger aussi la lecture brute et le delta d'une dépense (marqueur « toute la table » de `lignes_frais`), communs à
+  toutes les vues. Conditions menées par l'index des notes (`note_id IN (…)`), justificatifs par la liste positive des
+  dépenses retenues (toute pièce sans objet ou sans `objet_id` reste lue).
+- **Résumés** (`ResumeNoteFrais`, `Dataset.resumesFrais`, `Brut.resumesFrais`) : pour chaque note de la fenêtre sans son
+  détail, dépenses en vigueur et refusées, montants demandé et retenu, retenu par catégorie. Calculés en base à chaque
+  lecture (`lireResumesFrais` de `server/src/frais-base.ts`, un agrégat groupé, arrondi au centime), **jamais stockés**.
+  Le delta (`server/src/delta.ts`) les relit dès que `notesFrais` ou `lignesFrais` change (le marqueur ne dit pas quelle
+  note est touchée) et les reprend par identité s'ils n'ont pas changé ; un changement compte au titre de `lignesFrais`
+  et touche les salariés concernés. `LECTURES.resumesFrais` = notes et dépenses ; champ par salarié
+  (`CHAMPS_PAR_SALARIE`). Vues : filtrés comme les notes (`resumesDesNotes`, `server/src/frais-vues.ts`) — service RH et
+  comptabilité, tout ; manager, `idsFrais` sans note médicale d'autrui ; collaborateur, les siens ; paie, référent HSE
+  et lecture seule, rien.
+- **Écrans** :
+  - totaux d'une note par ses dépenses ou son résumé (`totauxVue`, `syntheseNote`, liste « détail à la demande ») ; une
+    note sans détail s'ouvre en lecture par `GET /api/frais/historique/:noteId` (`DetailHistorique`) ; exports et
+    totaux de l'équipe (`totauxEquipeVue`) comptent les résumés ;
+  - « Notes plus anciennes » dans Mes frais et l'onglet Notes du manager (`NotesAnciennes`,
+    `client/src/components/frais/Historique.tsx`) : les 24 mois de dépenses qui précèdent la fenêtre, puis « Mois
+    précédents », pages de 100 ; mention « payées depuis plus de 13 mois : chargées à la demande » ;
+  - onglet « Historique » du service RH et de la comptabilité (`?onglet=historique`, `RechercheFrais`) : salarié, mois de
+    début et de fin (24 au plus, contrôlés sous les champs : `lireRecherche`), statut, ou numéro d'une note ; bouton
+    « Notes plus anciennes » de l'onglet Notes ;
+  - tableau de bord : mois et catégories des douze derniers mois sur les dépenses et les résumés
+    (`retenuParCategorie`, `depensesParMois`), chaque indicateur avec sa période ; réintégrable sur les seules notes
+    détaillées (alertes des dépenses), étiqueté comme tel.
+- **Activation** : `notesFraisActives` reste faux par défaut, les six verdicts ne passant pas tous (ci-dessous). En
+  production, l'administrateur RH décide, guidé par la liste des prérequis de Paramètres → Notes de frais
+  (`prerequisFrais`, `shared/rules/frais-activation.ts` : comptes de charge saisis, rubriques FRAIS_* actives et
+  confirmées, barème kilométrique de l'année), jamais bloquante. Le nouveau défaut vrai ne vaudrait que pour une base
+  neuve (une base dont le réglage est enregistré le garde).
+- **CI** : étape « Essai de charge des notes de frais (non bloquant) » du job postgres, mêmes déclenchements que l'essai
+  de charge (fichiers `server/src/frais-*.ts` et `shared/rules/frais*` ajoutés), `npm run charge:frais -- --marge 3`
+  (seuils de temps ×3, tailles telles quelles) ; à rendre bloquante avec l'activation par défaut.
+- **Matrix** : `docs/demandes/matrix-lot12-index.sql` (information sur l'index de 0023, contrôle en lecture ; scission
+  `lignes_frais_sante` non décidée, aucune fermeture nouvelle).
+
+Remesure finale (`npm run charge:frais`, 1er novembre 2026, machine partagée, médiane de 5) :
+
+| Mesure (budget) | Étape 1, 3 ans | 3 ans | 5 ans |
+| --- | --- | --- | --- |
+| Dans l'instantané : notes, dépenses, justificatifs, résumés | 1 684, 32 734, 27 291, — | 1 684, 7 139, 5 978, 1 320 | 1 684, 7 108, 5 942, 1 320 |
+| Vue RH à froid (< 800 ms) | 85 ms | 88 ms | 71 ms |
+| Vue manager (< 300 ms) | 154 ms | 52 ms | 53 ms |
+| Vue collaborateur (< 300 ms) | 124 ms | 15 ms | 12 ms |
+| JSON de la vue RH (≤ 1,5 × 5,5 Mo) | **28,7 Mo** | **11,5 Mo** (2,1 ×) | **11,5 Mo** (2,1 ×) |
+| Lecture brute (≤ 2 × sans frais, 101 à 135 ms) | **785 ms** | **318 ms** | **279 ms** |
+| Delta d'une dépense (< 100 ms) | **542 ms** | **169 ms** | **159 ms** |
+
+Le volume ne dépend plus de l'ancienneté et chaque mesure baisse de 2,5 à 3 fois, mais trois verdicts échouent encore
+sur l'hypothèse haute du jeu (120 salariés, une note de 10 à 30 dépenses par salarié et par mois). Répartition : JSON
+des frais ~6 Mo (dépenses 2,95, justificatifs 2,7, notes 0,75, résumés 0,3) ; lecture brute ~+180 ms (dépenses ~60,
+justificatifs ~35, résumés ~45, notes ~12) ; delta ~60 ms de relecture des dépenses, ~40 ms de résumés, ~40 ms de
+fusion. Leviers restants, à décider : scission `lignes_frais_sante` (dépenses ordinaires inscrites par clé au journal
+des changements : le delta ne relirait plus ni la table ni les résumés ; migration, demande à Matrix, avis du DPO),
+détail réduit aux notes en circuit, ou budgets revus sur un jeu réaliste.
+
 ## Lot 12 : entretiens suivis (C3, t194), étape 1 — objectifs, souhaits versés au plan, points de mi-année, tables du 360°
 
 Réponses du propriétaire du 1er novembre 2026 et choix par défaut du chantier : objectifs fixés et évalués à l'entretien

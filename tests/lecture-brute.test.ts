@@ -197,11 +197,13 @@ test('résumés de la paie : une absence validée change les absences en attente
   assert.ok(DEP_PAIE.includes('absences'));
 });
 
-// lot 12 — C2 (notes de frais : activation) : fenêtre de 13 mois après paiement.
-test('fenêtre des notes de frais : aucune note payée avant la borne, ni ses dépenses ni leurs justificatifs ; la note payée le jour de la borne reste', async () => {
+// lot 12 — C2 (notes de frais : activation) : fenêtre de 13 mois après paiement ; étape 2 : dépenses et justificatifs des
+// seules notes en circuit ou payées depuis moins de 2 mois, résumé des autres.
+test('fenêtre des notes de frais : aucune note payée avant la borne, ni ses dépenses ni leurs justificatifs ; la note payée le jour de la borne reste, résumée', async () => {
   const { BORNE_ESSAI, notesArchivees } = await import('./support/frais-archives.ts');
-  const { borneFrais } = await import('../shared/rules/frais-fenetre.ts');
+  const { borneDetailFrais, borneFrais } = await import('../shared/rules/frais-fenetre.ts');
   assert.equal(borneFrais('2026-10-10'), BORNE_ESSAI);
+  assert.equal(borneDetailFrais('2026-10-10'), '2026-08-10');
   const db = await demo();
   const a = await notesArchivees(db);
   const brut = await db.lecture(async () => await lireBrut(db, '2026-10-10'));
@@ -210,12 +212,22 @@ test('fenêtre des notes de frais : aucune note payée avant la borne, ni ses d�
   for (const id of [a.archivee, a.medicale, a.thomas, a.nadia]) assert.ok(!notes.has(id), `note ${id} archivée`);
   assert.ok(notes.has(a.bord), 'payée le jour de la borne : encore dans la fenêtre');
   assert.ok(brut.lignesFrais.every(l => notes.has(l.noteId)), 'dépenses des seules notes retenues');
-  assert.ok(brut.lignesFrais.some(l => l.id === a.ligneBord));
+  // Payée depuis plus de 2 mois : ni dépenses ni justificatifs, un résumé ; payée depuis moins de 2 mois : le détail.
+  assert.ok(!brut.lignesFrais.some(l => l.id === a.ligneBord));
+  assert.deepEqual(brut.resumesFrais.find(r => r.noteId === a.bord), { noteId: a.bord, empId: 2, depenses: 1, refusees: 0, demande: 42, retenu: 42, parCategorie: { train: 42 } });
+  const detaillees = new Set(brut.lignesFrais.map(l => l.noteId));
+  assert.ok(brut.notesFrais.filter(n => n.statut === 'payee' && n.payeeLe! < borneDetailFrais(brut.jour)).every(n => !detaillees.has(n.id)), 'aucune dépense d’une note payée avant la borne du détail');
+  assert.ok(brut.resumesFrais.every(r => notes.has(r.noteId) && !detaillees.has(r.noteId)), 'un résumé pour les seules notes sans détail');
   const lignes = new Set(brut.lignesFrais.map(l => l.id));
-  assert.ok(brut.pieces.filter(p => p.objet === 'ligneFrais' || p.objet === 'ligneFraisSante').every(p => lignes.has(p.objetId!)), 'justificatifs des seules dépenses retenues');
-  assert.deepEqual(brut.pieces.filter(p => [a.pieceRepas, a.pieceMedicale, a.pieceBord].includes(p.id)).map(p => p.id), [a.pieceBord]);
+  assert.ok(brut.pieces.filter(p => (p.objet === 'ligneFrais' || p.objet === 'ligneFraisSante') && p.objetId).every(p => lignes.has(p.objetId!)), 'justificatifs des seules dépenses retenues');
+  assert.deepEqual(brut.pieces.filter(p => [a.pieceRepas, a.pieceMedicale, a.pieceBord].includes(p.id)).map(p => p.id), []);
+  // Note payée le mois dernier : détail dans l'instantané, sans résumé.
+  const recente = await db.insert<{ id: number }>('notesFrais', { empId: 2, periode: '2026-08', voyageId: null, missionId: null, projet: null, medicale: false, statut: 'payee', creeLe: '2026-08-28T17:00:00.000Z', creePar: 'Essai', payeeLe: '2026-09-28', lotId: null });
+  const ligneRecente = await db.insert<{ id: number }>('lignesFrais', { noteId: recente.id, empId: 2, date: '2026-08-12', categorie: 'repas', montant: 12, devise: 'EUR', montantEur: 12, sansJustificatif: true, attestation: true });
+  const brut2 = await db.lecture(async () => await lireBrut(db, '2026-10-10'));
+  assert.ok(brut2.lignesFrais.some(l => l.id === ligneRecente.id) && !brut2.resumesFrais.some(r => r.noteId === recente.id));
   // En base, tout reste : conservation comptable, historique à la demande.
-  assert.equal((await db.all('notesFrais')).length, brut.notesFrais.length + 4);
+  assert.equal((await db.all('notesFrais')).length, brut2.notesFrais.length + 4);
   // Le service RH reçoit l'instantané fenêtré, comme tous.
   assert.ok(!(await loadFull(db, RH_ADMIN)).notesFrais!.some(n => n.id === a.archivee));
 });

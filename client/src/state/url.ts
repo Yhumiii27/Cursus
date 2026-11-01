@@ -158,7 +158,9 @@ export const PARAMS_URL: Partial<Record<View, Param[]>> = {
   ],
   // lot 11 — notes de frais : onglet et note ouverte (identifiant d'une note du jeu de données du rôle).
   frais: [
-    choix('fraisOnglet', 'onglet', 'premier', { notes: 'notes', valider: 'a-valider', equipe: 'equipe', controle: 'a-controler', avances: 'avances', exports: 'exports', tableau: 'tableau-de-bord' }),
+    choix('fraisOnglet', 'onglet', 'premier', { notes: 'notes', valider: 'a-valider', equipe: 'equipe', controle: 'a-controler', avances: 'avances', exports: 'exports', tableau: 'tableau-de-bord',
+      // lot 12 — C2 : recherche dans l'historique (service RH, comptabilité).
+      historique: 'historique' }),
     identifiant('fraisNote', 'note', d => d.notesFrais ?? []),
   ],
 };

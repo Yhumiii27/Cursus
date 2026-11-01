@@ -397,7 +397,8 @@ test('vues : écran frais dans les trois espaces et seul écran de la comptabili
   const dm = new Domain(await db.lecture(async () => await buildSnapshot(db, MANON, { cache: false })) as Dataset);
   const validee = dm.ds.notesFrais!.find(x => x.statut === 'validee')!;
   assert.ok(C.droitsNote(dm, dm.ds.user, validee).controler && C.controleur(dm.ds.user));
-  assert.deepEqual(O.ongletsFrais('rh'), ['controle', 'notes', 'avances', 'exports', 'tableau']);
+  // lot 12 — C2 : onglet Historique (recherche dans toute la base) en dernier.
+  assert.deepEqual(O.ongletsFrais('rh'), ['controle', 'notes', 'avances', 'exports', 'tableau', 'historique']);
   assert.equal(O.ongletFraisDe('rh', 'premier'), 'controle');
   assert.equal(O.ongletFraisDe('manager', 'controle'), 'valider');
   assert.equal(O.ongletFraisDe('manager', 'notes'), 'notes');

@@ -10,12 +10,13 @@ import { droitsRh } from '../../../../shared/constants.ts';
 import type { Domain } from '../../../../shared/domain.ts';
 import { fmtIso } from '../../../../shared/format.ts';
 import { periodeLabel } from '../../../../shared/rules/paie.ts';
-import { lignesDe, noteModifiable, totauxNote } from '../../../../shared/rules/frais.ts';
+import { lignesDe, noteModifiable } from '../../../../shared/rules/frais.ts';
+import { totauxVue } from '../../../../shared/rules/frais-fenetre.ts';
 import { alertesDeNote, noteEnCircuit } from '../../../../shared/rules/frais-alertes.ts';
 import { type AlerteFrais, bloquantes, totalReintegrable } from '../../../../shared/rules/frais-politique.ts';
 import { tvaRecuperable } from '../../../../shared/rules/frais-tva.ts';
 import { decideur } from '../../state/delegues.ts';
-import type { AvanceFrais, CurrentUser, ISODate, LigneFrais, NoteFrais, Piece, StatutAvanceFrais } from '../../../../shared/types.ts';
+import type { AvanceFrais, CurrentUser, ISODate, LigneFrais, NoteFrais, Piece, ResumeNoteFrais, StatutAvanceFrais } from '../../../../shared/types.ts';
 
 /** Montant au centime : « 1 234,50 € » (une autre devise : son code). */
 export const euros = (n: number, devise = 'EUR') =>
@@ -71,6 +72,8 @@ export function droitsNote(d: Domain, u: CurrentUser, n: NoteFrais): DroitsNote 
 /** Synthèse d'une note : totaux, alertes par dépense, bloquantes, part réintégrable, TVA récupérable. */
 export interface SyntheseNote {
   n: NoteFrais; lignes: LigneFrais[]; demande: number; retenu: number; nb: number; refusees: number;
+  /** lot 12 — C2 : faux si les dépenses de la note ne sont pas dans l'instantané (payée depuis plus de 2 mois) : totaux de son résumé. */
+  detail: boolean;
   alertes: Map<number, AlerteFrais[]>; bloquantes: number; reintegrable: number; tva: number;
 }
 /**
@@ -86,11 +89,12 @@ export function alertesNote(d: Domain, n: NoteFrais, lignes: readonly LigneFrais
 
 export function syntheseNote(d: Domain, n: NoteFrais): SyntheseNote {
   const lignes = lignesDe(d.ds.lignesFrais, n.id);
-  const t = totauxNote(lignes);
+  // lot 12 — C2 : note sans ses dépenses dans l'instantané, totaux de son résumé.
+  const t = totauxVue(n, lignes, d.ds.resumesFrais);
   const alertes = alertesNote(d, n, lignes);
   const toutes = [...alertes.values()].flat();
   return {
-    n, lignes, demande: t.demande, retenu: t.retenu, nb: t.lignes, refusees: t.refusees, alertes,
+    n, lignes, demande: t.demande, retenu: t.retenu, nb: t.lignes, refusees: t.refusees, detail: t.detail, alertes,
     bloquantes: bloquantes(toutes).length, reintegrable: totalReintegrable(toutes),
     tva: Math.round(lignes.reduce((s, l) => s + tvaRecuperable(l), 0) * 100) / 100,
   };
@@ -121,16 +125,24 @@ export const parRecence = (a: NoteFrais, b: NoteFrais) => b.periode.localeCompar
 
 /** Dépenses par mois et par catégorie (tableau de bord), sur les notes non annulées ; frais médicaux comptés à part. */
 export interface Agregat { mois: string; montant: number; notes: number }
-export function depensesParMois(notes: readonly NoteFrais[], lignes: readonly LigneFrais[], depuis: ISODate): Agregat[] {
+export function depensesParMois(notes: readonly NoteFrais[], lignes: readonly LigneFrais[], depuis: ISODate, resumes: readonly ResumeNoteFrais[] = []): Agregat[] {
   const actives = new Map(notes.filter(n => n.statut !== 'annulee' && n.statut !== 'brouillon' && n.periode >= depuis.slice(0, 7)).map(n => [n.id, n]));
   const par = new Map<string, { montant: number; notes: Set<number> }>();
+  const ajouter = (n: NoteFrais, montant: number) => {
+    const g = par.get(n.periode) ?? { montant: 0, notes: new Set<number>() };
+    g.montant += montant;
+    g.notes.add(n.id);
+    par.set(n.periode, g);
+  };
   for (const l of lignes) {
     const n = actives.get(l.noteId);
     if (!n || l.refuseeLe) continue;
-    const g = par.get(n.periode) ?? { montant: 0, notes: new Set<number>() };
-    g.montant += l.montantRetenu ?? l.montantEur;
-    g.notes.add(n.id);
-    par.set(n.periode, g);
+    ajouter(n, l.montantRetenu ?? l.montantEur);
+  }
+  // lot 12 — C2 : notes payées depuis plus de 2 mois, par leur résumé (dépenses hors de l'instantané).
+  for (const r of resumes) {
+    const n = actives.get(r.noteId);
+    if (n && r.depenses > 0) ajouter(n, r.retenu);
   }
   return [...par.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([mois, g]) => ({ mois, montant: Math.round(g.montant * 100) / 100, notes: g.notes.size }));
 }

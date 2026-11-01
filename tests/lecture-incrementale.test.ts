@@ -712,6 +712,21 @@ test('fenêtre des notes de frais : delta par clé et relecture complète dans l
   // Note de la fenêtre payée (paiement du jour) : elle reste dans la fenêtre, ses dépenses aussi.
   x = await apres(db, etat, 'note payée ce jour', async () => await db.run(`UPDATE notes_frais SET statut = 'payee', payee_le = ? WHERE id = ?`, [T, 3]));
   assert.ok(x.f.brut.notesFrais.some(n => n.id === 3) && x.f.brut.lignesFrais.some(l => l.noteId === 3));
+  // lot 12 — C2, étape 2 : résumé d'une note payée depuis plus de 2 mois relu par le delta (dépense modifiée hors de Cursus,
+  // marqueur « toute la table ») ; une dépense d'une note détaillée ne le change pas (résumés repris par identité).
+  const resumes = x.f.brut.resumesFrais;
+  assert.equal(resumes.find(r => r.noteId === a.bord)?.retenu, 42);
+  x = await apres(db, x.etat, 'dépense résumée modifiée', async () => await db.run('UPDATE lignes_frais SET montant_retenu = ? WHERE id = ?', [30, a.ligneBord]));
+  assert.deepEqual(x.f.brut.resumesFrais.find(r => r.noteId === a.bord), { noteId: a.bord, empId: 2, depenses: 1, refusees: 0, demande: 42, retenu: 30, parCategorie: { train: 30 } });
+  assert.ok(x.f.champsChanges.has('resumesFrais') && x.f.touches.has(2));
+  const avantResumes = x.etat.brut.resumesFrais;
+  x = await apres(db, x.etat, 'dépense détaillée modifiée', async () => await db.run('UPDATE lignes_frais SET commercant = ? WHERE note_id = 3', ['Delta']));
+  assert.equal(x.f.brut.resumesFrais, avantResumes, 'résumés repris');
+  x = await apres(db, x.etat, 'dépense résumée refusée', async () => await db.run('UPDATE lignes_frais SET refusee_le = ? WHERE id = ?', ['2025-09-01T08:00:00.000Z', a.ligneBord]));
+  assert.deepEqual(x.f.brut.resumesFrais.find(r => r.noteId === a.bord), { noteId: a.bord, empId: 2, depenses: 0, refusees: 1, demande: 0, retenu: 0, parCategorie: {} });
+  x = await apres(db, x.etat, 'note résumée effacée', async () => { await db.run('DELETE FROM pieces WHERE objet_id = ?', [a.ligneBord]); await db.run('DELETE FROM lignes_frais WHERE note_id = ?', [a.bord]); });
+  assert.ok(!x.f.brut.resumesFrais.some(r => r.noteId === a.bord));
+  etat = x.etat;
 
   // Banc d'oracle, actions de frais en renfort (dont celles qui visent une note archivée, refusées) : lecture partagée,
   // jeux d'action et réponses égaux à la relecture complète.

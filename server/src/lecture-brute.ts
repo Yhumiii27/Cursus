@@ -44,7 +44,9 @@ import type { AvanceFrais, BaremeKm, ForfaitFrais, LigneFrais, NoteFrais, TauxDe
 // lot 12 — C1 (forfait annuel en heures)
 import type { ClotureForfaitHeures, CorrectionPointage, Objectif, Reponse360, Sollicitation360 } from '../../shared/types.ts';
 // lot 12 — C2 (notes de frais : activation)
-import { borneFrais } from '../../shared/rules/frais-fenetre.ts';
+import { borneDetailFrais, borneFrais } from '../../shared/rules/frais-fenetre.ts';
+import type { ResumeNoteFrais } from '../../shared/types.ts';
+import { lireResumesFrais } from './frais-base.ts';
 // lot 12 — C3 (entretiens suivis et 360°)
 // lot 12 — C4 (organismes de formation et e-learning)
 import type { InscriptionElearning, ModuleElearning, Organisme, OrganismeContact, OrganismeTarif } from '../../shared/types-organismes.ts';
@@ -160,6 +162,11 @@ export interface Brut {
   // lot 12 — C1 (forfait annuel en heures)
   cloturesForfaitHeures: ClotureForfaitHeures[];
   // lot 12 — C2 (notes de frais : activation)
+  /**
+   * Résumés des notes de la fenêtre dont les dépenses n'y sont pas (payées depuis plus de 2 mois), calculés en base
+   * (`lireResumesFrais`, server/src/frais-base.ts) ; relus par un delta dès que les notes ou les dépenses changent.
+   */
+  resumesFrais: ResumeNoteFrais[];
   // lot 12 — C3 (entretiens suivis et 360°)
   objectifs: Objectif[];
   feedbackSollicitations: Sollicitation360[];
@@ -212,18 +219,22 @@ export const COLONNES_OMISES: Partial<Record<TableName, readonly string[]>> = { 
  */
 export const FENETRES: Partial<Record<TableName, (today: string) => Fenetre>> = {
   // lot 12 — C2 (notes de frais) : notes payées depuis moins de 13 mois et toutes celles qui ne sont pas payées
-  // (shared/rules/frais-fenetre.ts), dépenses de ces notes, justificatifs de ces dépenses. Une note archivée ne revient
-  // jamais par une écriture (refus 409, server/src/actions/frais.ts) : seul le passage du temps la fait sortir, et l'entrée
-  // du cache d'un autre jour est relue en entier. Conditions corrélées par le nom de la table (lecture complète `allDans`
-  // comme relecture par clé `lireLignes`) ; index de la migration 0023.
+  // (shared/rules/frais-fenetre.ts) ; dépenses et justificatifs des seules notes en circuit, annulées ou payées depuis moins
+  // de 2 mois (option des 2 mois, étape 2 : les autres notes de la fenêtre n'ont que leur résumé, `Brut.resumesFrais`). Une
+  // note archivée ne revient jamais par une écriture (refus 409, server/src/actions/frais.ts), une note payée ne se modifie
+  // plus : seul le passage du temps fait sortir une note ou ses dépenses, et l'entrée du cache d'un autre jour est relue en
+  // entier. Conditions corrélées par le nom de la table (lecture complète `allDans` comme relecture par clé `lireLignes`),
+  // menées par l'index des notes payées (migration 0023) puis celui des dépenses d'une note.
   notesFrais: today => ({ where: `NOT (statut = 'payee' AND payee_le < ?)`, params: [borneFrais(today)] }),
   lignesFrais: today => ({
-    where: `NOT EXISTS (SELECT 1 FROM notes_frais n WHERE n.id = lignes_frais.note_id AND n.statut = 'payee' AND n.payee_le < ?)`, params: [borneFrais(today)],
+    where: `lignes_frais.note_id IN (SELECT n.id FROM notes_frais n WHERE NOT (n.statut = 'payee' AND n.payee_le < ?))`, params: [borneDetailFrais(today)],
   }),
+  // Justificatifs : toute pièce qui n'est pas d'une dépense (en attente, détachée par la conservation comprises), et celles
+  // des dépenses retenues ; une dépense supprimée détache ses pièces (objet vidé, server/src/actions/frais.ts).
   pieces: today => ({
-    where: `NOT (pieces.objet IN ('ligneFrais', 'ligneFraisSante') AND EXISTS (SELECT 1 FROM lignes_frais l JOIN notes_frais n ON n.id = l.note_id`
-      + ` WHERE l.id = pieces.objet_id AND n.statut = 'payee' AND n.payee_le < ?))`,
-    params: [borneFrais(today)],
+    where: `(pieces.objet IS NULL OR pieces.objet_id IS NULL OR pieces.objet NOT IN ('ligneFrais', 'ligneFraisSante') OR pieces.objet_id IN (SELECT l.id FROM lignes_frais l WHERE l.note_id IN`
+      + ` (SELECT n.id FROM notes_frais n WHERE NOT (n.statut = 'payee' AND n.payee_le < ?))))`,
+    params: [borneDetailFrais(today)],
   }),
   // lot 12 — C5 (planning d'équipe) : de 8 semaines passées à 12 semaines à venir (server/src/planning-lecture.ts).
   creneaux: fenetreCreneaux,
@@ -348,6 +359,7 @@ export async function lireBrut(db: Db, today: string): Promise<Brut> {
     // lot 12 — C1 (forfait annuel en heures)
     cloturesForfaitHeures: await lire('cloturesForfaitHeures'),
     // lot 12 — C2 (notes de frais : activation)
+    resumesFrais: await lireResumesFrais(db, today),
     // lot 12 — C3 (entretiens suivis et 360°)
     objectifs: await lire('objectifs'),
     feedbackSollicitations: await lire('feedbackSollicitations'),
@@ -582,6 +594,8 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     // Clôtures du forfait annuel en heures : filtrées par espace et par profil (server/src/vues-forfait-heures.ts).
     cloturesForfaitHeures: brut.cloturesForfaitHeures,
     // lot 12 — C2 (notes de frais : activation)
+    // Résumés des notes sans leurs dépenses : filtrés comme les notes (server/src/frais-vues.ts).
+    resumesFrais: brut.resumesFrais,
     // lot 12 — C3 (entretiens suivis et 360°)
     // Objectifs (toutes les lignes) ; feedback 360° (étape 3) : sollicitations et réponses versées, filtrées par espace et
     // par profil dans server/src/vues-entretiens-suivis.ts.
@@ -679,6 +693,7 @@ const LECTURES_ASSEMBLEES = {
   // lot 12 — C1 (forfait annuel en heures)
   cloturesForfaitHeures: ['cloturesForfaitHeures'],
   // lot 12 — C2 (notes de frais : activation)
+  resumesFrais: ['notesFrais', 'lignesFrais'],
   // lot 12 — C3 (entretiens suivis et 360°)
   objectifs: ['objectifs'],
   feedbackSollicitations: ['feedbackSollicitations'],

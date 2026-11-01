@@ -12,7 +12,11 @@
 // - delta d'une dépense écrite en deçà de 100 ms.
 // Les seuils de l'essai de charge (scripts/charge/seuils.ts) ne changent pas. Code de sortie 1 si un verdict échoue
 // (contrôle de seuil).
-//   npm run charge:frais [-- --ans 3]
+// Étape 2 (option des 2 mois) : dépenses et justificatifs des seules notes en circuit ou payées depuis moins de 2 mois dans
+// la lecture brute, résumés calculés en base pour les autres notes de la fenêtre (comptés, et relus par le delta d'une
+// dépense). `--marge` multiplie les seuils de temps (pas ceux de taille) : la CI le passe à 3 sur ses machines partagées,
+// comme l'essai de charge (.github/workflows/ci.yml).
+//   npm run charge:frais [-- --ans 3] [-- --marge 3]
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -30,7 +34,7 @@ const { currentUser, vueDe } = await import('../../server/src/dataset.ts');
 const { assembler, lireBrut, lireTable } = await import('../../server/src/lecture-brute.ts');
 const { appliquerDelta, lireDelta } = await import('../../server/src/delta.ts');
 const { sansMemo } = await import('../../server/src/memo-vues.ts');
-const { borneFrais } = await import('../../shared/rules/frais-fenetre.ts');
+const { borneDetailFrais, borneFrais } = await import('../../shared/rules/frais-fenetre.ts');
 const { aleatoire, entier, lireArguments } = await import('./commun.ts');
 const { insererPortable, peuplerJeu } = await import('./fabrique.ts');
 const { peuplerFrais } = await import('./frais.ts');
@@ -40,6 +44,7 @@ const args = lireArguments();
 const DUREES = args.has('ans') ? [entier(args, 'ans', 3)] : [3, 5];
 const ESSAIS = 5;
 const T = process.env.CURSUS_TODAY!;
+const MARGE = args.has('marge') ? Math.max(1, Number(args.get('marge')) || 1) : 1;
 
 /** Budgets du lot 12, chantier C2 (proposés par l'éclaireur, retenus par le brief). */
 const BUDGETS_FRAIS = { vueRhMs: 800, vueSalarieMs: 300, jsonRhFacteur: 1.5, lectureBruteFacteur: 2, deltaDepenseMs: 100 } as const;
@@ -64,6 +69,8 @@ async function mesurer(db: Db, titre: string): Promise<Mesure> {
     notesEnBase: await compter('SELECT COUNT(*) AS n FROM notes_frais'), notesFrais: brut.notesFrais.length,
     lignesEnBase: await compter('SELECT COUNT(*) AS n FROM lignes_frais'), lignesFrais: brut.lignesFrais.length,
     piecesEnBase: await compter('SELECT COUNT(*) AS n FROM pieces'), pieces: brut.pieces.length,
+    // lot 12 — C2, étape 2 : notes de la fenêtre résumées (dépenses hors de la lecture brute).
+    resumes: brut.resumesFrais.length,
     lectureBruteMs: await mediane(async () => await db.lecture(async () => await lireBrut(db, T))),
     assemblageMs: await mediane(() => assembler(brut, T, 0, rh)),
     vueRhMs: await mediane(() => vueDe(assembler(brut, T, 1, rh), rh)),
@@ -111,14 +118,15 @@ async function deltaDepense(db: Db): Promise<number> {
 
 /** Verdicts d'une durée : mesure avec frais contre budgets et mesure sans frais. */
 function verdicts(sans: Mesure, avec: Mesure): { critere: string; mesure: string; seuil: string; ok: boolean }[] {
-  const b = BUDGETS_FRAIS;
+  const b = BUDGETS_FRAIS, m = MARGE;
+  // Seuils de temps multipliés par la marge (`--marge`) ; la lecture brute est comparée à celle sans frais du même essai.
   return [
-    { critere: 'vue RH (à froid)', mesure: `${avec.vueRhFroideMs} ms`, seuil: `< ${b.vueRhMs} ms`, ok: avec.vueRhFroideMs < b.vueRhMs },
-    { critere: 'vue manager', mesure: `${avec.vueManagerMs} ms`, seuil: `< ${b.vueSalarieMs} ms`, ok: avec.vueManagerMs < b.vueSalarieMs },
-    { critere: 'vue collaborateur', mesure: `${avec.vueCollaborateurMs} ms`, seuil: `< ${b.vueSalarieMs} ms`, ok: avec.vueCollaborateurMs < b.vueSalarieMs },
+    { critere: 'vue RH (à froid)', mesure: `${avec.vueRhFroideMs} ms`, seuil: `< ${b.vueRhMs * m} ms`, ok: avec.vueRhFroideMs < b.vueRhMs * m },
+    { critere: 'vue manager', mesure: `${avec.vueManagerMs} ms`, seuil: `< ${b.vueSalarieMs * m} ms`, ok: avec.vueManagerMs < b.vueSalarieMs * m },
+    { critere: 'vue collaborateur', mesure: `${avec.vueCollaborateurMs} ms`, seuil: `< ${b.vueSalarieMs * m} ms`, ok: avec.vueCollaborateurMs < b.vueSalarieMs * m },
     { critere: 'JSON de la vue RH', mesure: `${avec.jsonRhMo} Mo (${Math.round((avec.jsonRhMo / sans.jsonRhMo) * 100) / 100} ×)`, seuil: `≤ ${b.jsonRhFacteur} × ${sans.jsonRhMo} Mo`, ok: avec.jsonRhMo <= b.jsonRhFacteur * sans.jsonRhMo },
-    { critere: 'lecture brute', mesure: `${avec.lectureBruteMs} ms`, seuil: `≤ ${b.lectureBruteFacteur} × ${sans.lectureBruteMs} ms`, ok: avec.lectureBruteMs <= b.lectureBruteFacteur * sans.lectureBruteMs },
-    { critere: 'delta d’une dépense', mesure: `${avec.deltaDepenseMs} ms`, seuil: `< ${b.deltaDepenseMs} ms`, ok: avec.deltaDepenseMs < b.deltaDepenseMs },
+    { critere: 'lecture brute', mesure: `${avec.lectureBruteMs} ms`, seuil: `≤ ${b.lectureBruteFacteur * m} × ${sans.lectureBruteMs} ms`, ok: avec.lectureBruteMs <= b.lectureBruteFacteur * m * sans.lectureBruteMs },
+    { critere: 'delta d’une dépense', mesure: `${avec.deltaDepenseMs} ms`, seuil: `< ${b.deltaDepenseMs * m} ms`, ok: avec.deltaDepenseMs < b.deltaDepenseMs * m },
   ];
 }
 
@@ -134,7 +142,7 @@ for (const ans of DUREES) {
     const jeu = await peuplerJeu(db, aleatoire(42), { ans: 1, effectif: 100, interimaires: 20 }, insererPortable(db), t => console.log(`  ${t}`));
     const sans = await mesurer(db, 'Sans frais');
     const f = await db.tx(async () => await peuplerFrais(db, aleatoire(7), jeu.employes.map(e => e.id), jeu.today, { ans, lignesMin: 10, lignesMax: 30 }, insererPortable(db)));
-    console.log(`Frais : ${f.notes} notes (${f.medicales} médicales), ${f.lignes} dépenses, ${f.pieces} justificatifs, ${f.vehicules} véhicules, ${f.avances} avances sur ${ans} an${ans > 1 ? 's' : ''} ; fenêtre : notes payées depuis le ${borneFrais(T)}`);
+    console.log(`Frais : ${f.notes} notes (${f.medicales} médicales), ${f.lignes} dépenses, ${f.pieces} justificatifs, ${f.vehicules} véhicules, ${f.avances} avances sur ${ans} an${ans > 1 ? 's' : ''} ; fenêtre : notes payées depuis le ${borneFrais(T)}, dépenses des notes payées depuis le ${borneDetailFrais(T)}${MARGE > 1 ? ` ; marge ×${MARGE} sur les seuils de temps` : ''}`);
     const avec = await mesurer(db, `Avec ${ans} an${ans > 1 ? 's' : ''} de frais`);
     console.log('Écart :', Object.fromEntries(Object.entries(avec).map(([k, v]) => [k, Math.round((v - sans[k]) * 100) / 100])));
     const v = verdicts(sans, avec);

@@ -8,7 +8,7 @@ import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { isoParis } from '../../../../shared/dates.ts';
 import { fmtIso, plural } from '../../../../shared/format.ts';
 import { notesAExporter } from '../../../../shared/rules/frais-export.ts';
-import { totauxNote, lignesDe } from '../../../../shared/rules/frais.ts';
+import { totauxVue } from '../../../../shared/rules/frais-fenetre.ts';
 import type { ExportFraisVue } from '../../../../shared/types.ts';
 import { api } from '../../api.ts';
 import { useAgir } from '../../state/actions.ts';
@@ -32,8 +32,10 @@ export function ExportsFrais() {
   useEffect(() => { relire(); }, [relire, revision]);
 
   const aExporter = exports ? notesAExporter(d.ds.notesFrais ?? [], exports.map(x => ({ id: x.id, notes: x.notes, annuleLe: x.annuleLe }))) : [];
-  const avecMontant = aExporter.filter(n => totauxNote(lignesDe(d.ds.lignesFrais, n.id)).retenu > 0);
-  const total = avecMontant.reduce((s, n) => s + totauxNote(lignesDe(d.ds.lignesFrais, n.id)).retenu, 0);
+  // lot 12 — C2 : note payée depuis plus de 2 mois, total de son résumé (dépenses hors de l'instantané).
+  const retenu = (n: (typeof aExporter)[number]) => totauxVue(n, d.ds.lignesFrais, d.ds.resumesFrais).retenu;
+  const avecMontant = aExporter.filter(n => retenu(n) > 0);
+  const total = avecMontant.reduce((s, n) => s + retenu(n), 0);
   const telecharger = async (id: number) => {
     try { await api.fichierExportFrais(id); relire(); } catch (e) { notify(`Fichier non téléchargé — ${(e as Error).message}`, true); }
   };

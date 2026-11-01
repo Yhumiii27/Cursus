@@ -1,5 +1,7 @@
 // Appels à l'API Cursus.
 import type { CibleEnvoi, CompteSession, CompteVue, CurrentUser, Dataset, Envoi, EtatEnvois, ExportFraisVue, Role, SageMode, StatutEnvoi } from '../../shared/types.ts';
+// lot 12 — C2 (notes de frais : activation)
+import type { NoteHistoriqueFrais, PageHistoriqueFrais } from '../../shared/types.ts';
 import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
 import { EN_TETE_HORS_LIGNE, EN_TETE_IDEMPOTENCE } from '../../shared/hors-ligne.ts';
 // Noms des actions du serveur (t164) : import de type seulement, effacé à la compilation (aucun code serveur dans
@@ -231,6 +233,16 @@ export const api = {
   exportsFrais: () => request<{ exports: ExportFraisVue[] }>('GET', '/api/frais/exports', undefined, espaceOnglet),
   /** Fichier d'écritures d'un export comptable (téléchargement tracé et compté sur l'export). */
   fichierExportFrais: (id: number) => telecharger(`/api/frais/exports/${id}/fichier`),
+  // lot 12 — C2 (notes de frais : activation) : historique hors de l'instantané (server/src/frais-historique.ts), filtré par
+  // les droits de la personne connectée ; la consultation des notes d'autrui par le service RH ou la comptabilité est tracée.
+  /** Page de l'historique : salarié, mois des dépenses (AAAA-MM, 24 mois au plus), statut, page de 100 notes. */
+  historiqueFrais: (f: { empId?: number | null; du?: string; au?: string; statut?: string | null; page?: number }) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') q.set(k, String(v));
+    return request<PageHistoriqueFrais>('GET', `/api/frais/historique${q.size ? `?${q}` : ''}`, undefined, espaceOnglet);
+  },
+  /** Une note de l'historique (ou de l'instantané sans ses dépenses) : dépenses et justificatifs, en lecture. */
+  noteHistoriqueFrais: (id: number) => request<NoteHistoriqueFrais>('GET', `/api/frais/historique/${id}`, undefined, espaceOnglet),
   /** Paie : variables d'une période de paie (lots et attente), export CSV tracé (server/src/variables-paie.ts). */
   variablesPaie: (periode: string) => telecharger(`/api/paie/variables/${encodeURIComponent(periode)}`),
   /**

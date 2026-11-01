@@ -1,0 +1,21 @@
+-- Cursus : migration 0015 du schéma PostgreSQL, lot 11, socle commun (S0), posé avant les cinq chantiers du lot. Une seule
+-- contrainte, aucune table, aucune colonne, aucune vue pub_ touchée, aucune migration publiée modifiée :
+-- 1. Objets auxquels une pièce justificative se joint (`pieces.objet`, contrainte `pieces_objet_check` de 0001_init.sql) :
+--    valeurs existantes plus les quatre objets prévus par le lot 11, pour que deux chantiers ne réécrivent pas la même
+--    contrainte en parallèle :
+--    - `dossierOpco` : pièce d'un dossier de prise en charge OPCO (chantier C4, migration 0019_dossiers_opco) ;
+--    - `ligneFrais` : justificatif d'une ligne de note de frais (chantier C5, migration 0020_notes_frais) ;
+--    - `ligneFraisSante` : justificatif d'une dépense médicale en mission, objet distinct parce que la nature « santé »
+--      est portée par l'objet (OBJETS_PIECE, shared/rules/pieces.ts) et non par la pièce (C5) ;
+--    - `vehiculePerso` : carte grise et attestation d'assurance du véhicule personnel (C5, indemnités kilométriques).
+-- La contrainte n'admet ces valeurs qu'en base : côté code, l'union ObjetPiece (shared/types.ts), OBJETS_PIECE et
+-- TABLE_OBJET (server/src/pieces.ts) restent inchangés, et estObjetPiece refuse encore ces objets à l'API ; chaque chantier
+-- les élargit dans son bloc le jour où sa table existe (TABLE_OBJET est un Record complet). Aucune migration SQLite : les
+-- tables y sont créées d'après TABLES (server/src/db.ts), sans contrainte CHECK sur `objet`.
+-- Mêmes règles que 0003_lot6_etape2.sql (absences_type_check) : suppression puis recréation sous le même nom, valeurs dans
+-- l'ordre de 0001 puis dans l'ordre du lot. Les lignes existantes satisfont la nouvelle contrainte (elle ne fait
+-- qu'ajouter des valeurs) ; aucune donnée n'est réécrite.
+--> statement-breakpoint
+ALTER TABLE "pieces" DROP CONSTRAINT "pieces_objet_check";
+--> statement-breakpoint
+ALTER TABLE "pieces" ADD CONSTRAINT "pieces_objet_check" CHECK ("objet" IN ('absence', 'certification', 'habTitre', 'declaration', 'voyage', 'dossierOpco', 'ligneFrais', 'ligneFraisSante', 'vehiculePerso'));

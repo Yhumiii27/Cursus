@@ -193,7 +193,7 @@ test('PostgreSQL : controlerSchema refuse une table sans ses déclencheurs revis
   await assert.rejects(autre.controlerSchema(), /table changements/);
 });
 
-test('migrations PostgreSQL publiées intactes (empreintes figées, 0001 à 0014)', () => {
+test('migrations PostgreSQL publiées intactes (empreintes figées, 0001 à 0015)', () => {
   // Une migration publiée ne se modifie jamais : une nouvelle migration reçoit le numéro suivant, et son empreinte
   // s'ajoute ici une fois publiée. Fins de ligne normalisées (copie de travail sous Windows).
   const PUBLIEES: Record<string, string> = {
@@ -211,11 +211,13 @@ test('migrations PostgreSQL publiées intactes (empreintes figées, 0001 à 0014
     '0012_pieces_chiffrees': '55cbfe0e81ff61dadd96e54740152b872c216ac1a9b9c488beb3963082fd9aa9',
     '0013_index_journal': 'c17ce42c9f43cc348dedbf22809497a4fc2419cd90f0304be252d495432de66a',
     '0014_changements': '1a107a5e67d0a673ed9e4dddb04941932c55717f61d8a58af91e710cf19d2f45',
+    // lot 11 — socle commun
+    '0015_lot11_socle': 'fc8a1ea20f790c7d060eede504a9a74ca23c4e80ad7f4552247d11a76b811634',
   };
   const lues = new Map(migrationsPg().map(m => [m.nom, createHash('sha256').update(m.sql.replace(/\r\n/g, '\n')).digest('hex')]));
   for (const [nom, empreinte] of Object.entries(PUBLIEES)) assert.equal(lues.get(nom), empreinte, `${nom} modifiée ou absente`);
   const suivantes = [...lues.keys()].filter(n => !(n in PUBLIEES));
-  assert.ok(suivantes.every(n => n > '0014'), `migrations nouvelles numérotées après 0014 : ${suivantes.join(', ')}`);
+  assert.ok(suivantes.every(n => n > '0015'), `migrations nouvelles numérotées après 0015 : ${suivantes.join(', ')}`);
 });
 
 test('npm run revision:epoque : époque du fichier SQLite changée, option inconnue refusée', { skip: PG && 'commande lancée sur le fichier SQLite' }, async () => {

@@ -15,6 +15,7 @@
 //   (`verifierAbonnement`, pwa/push.ts) : celui d'un autre compte (session expirée, puis connexion d'une autre personne
 //   sans déconnexion) est retiré, pour qu'elle ne reçoive pas les notifications de la précédente.
 import { plural } from '../../../shared/format.ts';
+import { refusHorsLigne } from '../../../shared/hors-ligne.ts';
 import type { Dataset, Role } from '../../../shared/types.ts';
 import type { ActionResponse, NomAction, SessionState } from '../api.ts';
 import type { BilanRejeu, EntreeFile, Envoyeur, FileHorsLigne, PieceLocale, Porteur } from '../state/hors-ligne.ts';
@@ -172,11 +173,14 @@ export class PiloteHorsLigne {
 
   /**
    * Dépense avec la photo du reçu gardée sur l'appareil (réseau absent pendant l'envoi de la photo) : la photo part
-   * avant l'action au retour du réseau, jetons dans `jetons`. Faux si la file ne peut pas la garder.
+   * avant l'action au retour du réseau, jetons dans `jetons`. Faux si la file ne peut pas la garder, ou si la saisie n'est
+   * pas admise hors ligne (`refusHorsLigne`, comme `versFile` : la sienne seulement, jamais de frais médicaux) — la dépense
+   * d'un autre salarié saisie par le service RH ne garde pas son reçu sur l'appareil.
    */
   async garderAvecPieces(nom: NomAction, payload: Record<string, unknown>, pieces: PieceLocale[]): Promise<boolean> {
-    const f = this.file, qui = porteurDe(this.dep.session());
+    const f = this.file, s = this.dep.session(), qui = porteurDe(s);
     if (!f || !qui) return false;
+    if (refusHorsLigne(nom, payload, s?.user?.empId ?? null) !== null) return false;
     try {
       await f.ajouter(qui, nom, payload, { pieces, champPieces: 'jetons' });
     } catch {

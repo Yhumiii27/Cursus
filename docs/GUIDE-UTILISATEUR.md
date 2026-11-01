@@ -465,7 +465,7 @@ pièces et échéances, sans export comptable ni connexion au portail de l'OPCO 
 ### Notes de frais : contrôle et exports
 
 - Menu « Notes de frais » (service RH et profil Comptabilité) : onglet « À contrôler » ; dans la note, « Montant retenu » ramène une dépense au plafond, « Refuser » l'écarte avec un motif, puis « Contrôler la note » : elle part dans le prochain lot de paie (colonne « montant » du fichier Sage).
-- Onglet « Exports comptables » : « Générer l'export comptable » fige les écritures des notes contrôlées, puis « Télécharger » le fichier pour la comptabilité (frais médicaux au compte générique). Onglet « Tableau de bord » : notes en attente, délai, dépenses par mois et par catégorie, taux des devises.
+- Onglet « Exports comptables » : « Générer l'export comptable » fige les écritures des notes contrôlées, puis « Télécharger » le fichier pour la comptabilité (frais médicaux au compte générique). Une note déjà exportée ne se renvoie ni ne s'annule : annulez d'abord l'export, ses notes redeviennent à exporter. Onglet « Tableau de bord » : notes en attente, délai, dépenses par mois et par catégorie, taux des devises.
 - Paramètres → Notes de frais (administrateur RH) : activation, circuit, plafonds, barème kilométrique de l'année, limites d'exonération URSSAF, comptes et format du fichier d'écritures, à confirmer par la comptabilité et la paie.
 
 ## Gestionnaire de paie

@@ -2,6 +2,7 @@
 // Les dates sont des chaînes ISO « AAAA-MM-JJ » (heure locale, sans fuseau).
 // lot 11 — notes de frais, étape 2 : gabarit du fichier d'écritures (réglage `fraisGabarit`) et ses lignes (exports).
 import type { GabaritExportComptable, LigneEcriture } from './rules/export-comptable.ts';
+import type { AlerteFrais } from './rules/frais-politique.ts';
 
 export type ISODate = string;
 export type Role = 'rh' | 'manager' | 'collaborateur';
@@ -1941,6 +1942,12 @@ export interface Dataset {
   vehiculesPerso?: VehiculePerso[];
   /** Avances sur frais : mêmes vues que les notes (la paie : celles validées ou versées). */
   avancesFrais?: AvanceFrais[];
+  /**
+   * Alertes des lignes des notes en circuit (en saisie, soumises, validées), par identifiant de ligne, calculées par le
+   * serveur sur l'instantané complet (shared/rules/frais-alertes.ts, `alertesDesNotes`) : vues manager, collaborateur et
+   * comptabilité, qui n'ont pas tout ce que les alertes lisent. Absent (service RH, tests, outils) : calcul sur l'instantané.
+   */
+  alertesFrais?: Record<number, AlerteFrais[]>;
 }
 
 /**

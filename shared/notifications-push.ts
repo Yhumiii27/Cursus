@@ -30,8 +30,10 @@ export const NOTIFICATIONS_PUSH: Readonly<Record<string, ModeleNotificationPush>
   'temps.relance': { titre: 'Feuille de temps à compléter', corps: 'Une feuille de temps reste à saisir ou à soumettre.', vue: 'temps' },
   'entretien.clos': { titre: 'Entretien', corps: 'Un compte rendu d’entretien est disponible.', vue: 'entretiens' },
   'demande.reponse': { titre: 'Réponse du service RH', corps: 'Le service RH a répondu à une demande.' },
-  // lot 11 — notes de frais : circuit (la boîte du service RH, prévenue des notes à contrôler, n'a pas d'appareil).
+  // lot 11 — notes de frais : circuit (la boîte du service RH, prévenue des notes à contrôler, n'a pas d'appareil ; les
+  // comptes de la comptabilité, oui).
   'frais.soumise': { titre: 'Note de frais à valider', corps: 'Une note de frais attend votre validation.', vue: 'frais' },
+  'frais.acontroler': { titre: 'Note de frais à contrôler', corps: 'Une note de frais attend votre contrôle.', vue: 'frais' },
   'frais.renvoyee': { titre: 'Note de frais renvoyée', corps: 'Une note de frais est à corriger.', vue: 'frais' },
   'frais.validee': { titre: 'Note de frais', corps: 'Une note de frais a été validée.', vue: 'frais' },
   'frais.payee': { titre: 'Note de frais remboursée', corps: 'Une note de frais a été remboursée.', vue: 'frais' },

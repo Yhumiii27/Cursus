@@ -61,6 +61,13 @@ test('dépense gardée avec la photo du reçu : file chiffrée, photo dans `jeto
   assert.equal(await b.p.garderAvecPieces('frais.ligne.ajouter', {}, []), false);
   b.changer(session);
   assert.equal(await b.p.garderAvecPieces('frais.note.soumettre' as never, {}, []), false);
+  // Relecture de l'étape 2 : la dépense d'un autre salarié (service RH dans sa note) ou des frais médicaux ne gardent
+  // jamais leur reçu sur l'appareil (refusHorsLigne, comme versFile) ; le dialogue montre l'erreur réseau habituelle.
+  const photo = [{ nom: 'recu.jpg', type: 'image/jpeg', octets: new Uint8Array([4]) }];
+  assert.equal(await b.p.garderAvecPieces('frais.ligne.ajouter', { empId: 5, noteId: 9, date: '2026-10-09', categorie: 'repas', montant: 12 }, photo), false);
+  assert.equal(await b.p.garderAvecPieces('frais.ligne.ajouter', { empId: 2, date: '2026-10-09', categorie: 'medical', montant: 12 }, photo), false);
+  b.changer({ ...session, user: { ...session.user!, empId: null } } as unknown as SessionState);
+  assert.equal(await b.p.garderAvecPieces('frais.ligne.ajouter', { empId: 2, date: '2026-10-09', categorie: 'repas', montant: 12 }, photo), false, 'compte sans fiche');
 });
 
 test('confirmations : renvoi et refus avec motif lu par qui le verra, annulation et retrait sans motif obligatoire', () => {

@@ -16,9 +16,14 @@ décisions de déplacement).
 | --- | --- |
 | `projet` | Code du projet ou du chantier Keystone (celui de la mission, sinon celui saisi sur la note) |
 | `mois` | Mois des dépenses (AAAA-MM) |
-| `nature` | Grande nature : repas, logement, transport, véhicule, autre (frais médicaux comptés dans « autre ») |
-| `montant` | Montant retenu des notes contrôlées, en paiement ou payées, en euros |
+| `nature` | Grande nature : repas, logement, transport, véhicule, autre (dépenses diverses) |
+| `montant` | Montant retenu des notes contrôlées, en paiement ou payées, en euros, **hors notes médicales** |
 | `notes` | Nombre de notes |
+
+**Les notes médicales (`notes_frais.medicale`) sont exclues de la vue** : ni comptées dans « autre » ni dans le nombre
+de notes. Un mois-projet où la seule dépense « autre » serait un vaccin publierait sinon, dans une vue `pub_`, un montant
+tiré d'une donnée de santé d'un salarié reconnaissable par l'équipe du projet ; le seuil d'anonymat, qui ne porte que sur
+le nombre de notes, ne l'empêcherait pas. Aucune donnée de santé n'entre dans une vue `pub_` (règle du lot 11).
 
 Jamais de salarié, de commerçant, d'invité, de motif ni de montant d'une dépense ; seuil d'anonymat (un agrégat d'une ou
 deux notes d'un mois révèle les frais d'une personne) à fixer avec le DPO, comme pour les indicateurs sociaux (k = 5) ;

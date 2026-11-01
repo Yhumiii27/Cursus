@@ -4546,8 +4546,13 @@ de l'instantané, et la sortie des notes payées depuis plus de 13 mois n'est pa
   dépenses des douze derniers mois par mois et catégorie, réintégrable, avances en cours, taux des devises). Menu : entrée
   « Notes de frais » / « Mes frais » (deuxième entrée du collaborateur, donc de sa barre d'onglets), pastilles.
 - **Détail d'une note** (`components/frais/Notes.tsx`) : dépenses, justificatifs (liens `/api/pieces`), alertes et totaux
-  calculés par `shared/rules/frais-alertes.ts` — `alertesDeNote`, sortie de l'action (`alertesNote` du serveur l'appelle) :
-  l'écran montre exactement les points qui bloquent la soumission ou le contrôle. Boutons selon `droitsNote`
+  calculés par `shared/rules/frais-alertes.ts` (`alertesDeNote`, que le serveur applique à la soumission et au contrôle).
+  Hors du service RH, l'instantané filtré n'a pas tout ce qu'elles lisent (chantiers en grand déplacement, absences et
+  séjours pour la comptabilité, empreintes des justificatifs) : le serveur joint à la vue manager, collaborateur et
+  comptabilité les alertes des notes en circuit, calculées sur l'instantané complet (`Dataset.alertesFrais`,
+  `alertesDesNotes` : brouillon, à corriger, soumise, validée ; texte sans nature d'absence ni auteur d'un doublon), que
+  l'écran affiche telles quelles (`alertesNote` de `components/frais/commun.ts`) ; le service RH, qui a tout, et les notes
+  closes les recalculent. Boutons selon `droitsNote`
   (`components/frais/commun.ts`), les mêmes droits que le serveur. Dialogues `dialogs/Frais*Dialog.tsx` (dépense, note,
   véhicule, avance, montant retenu, taux, limite d'un forfait, barème) ; confirmations `state/confirmations-frais.ts`
   (renvoi et refus avec motif, annulation, retrait, annulation d'un export).
@@ -4563,22 +4568,26 @@ de l'instantané, et la sortie des notes payées depuis plus de 13 mois n'est pa
   compte connecté avec le module activé (`FileHorsLigne.garderPorteur` : compte, espace, salarié, rangés avec la file, gardés
   à la purge d'une file vide, effacés à la déconnexion, sur un appareil partagé ou le module désactivé). Raccourci du
   manifeste « Nouvelle dépense » (`/frais?nouveau=1`, `prendreNouvelleDepense`). Notifications génériques `frais.soumise`,
-  `frais.renvoyee`, `frais.validee`, `frais.payee` (`shared/notifications-push.ts`).
+  `frais.acontroler`, `frais.renvoyee`, `frais.validee`, `frais.payee` (`shared/notifications-push.ts`). La photo d'une
+  saisie non admise hors ligne (`refusHorsLigne` : dépense d'un autre salarié, frais médicaux) n'est jamais gardée.
 - **E-mails** (`server/src/frais-notifications.ts`, par `notifier`) : soumission au valideur et au suppléant « frais » ; note
-  qui attend le contrôle à la boîte du service RH (même message pour une note médicale) ; renvoi, contrôle (ou validation
+  qui attend le contrôle à la boîte du service RH et aux comptes du profil Comptabilité (droit « compta » sans « rh », sauf
+  l'intéressé de la note ; fiche : comme un salarié, e-mail et téléphone ; compte externe : e-mail aussitôt à son adresse et
+  ses appareils), même message pour une note médicale ; renvoi, contrôle (ou validation
   sans contrôle, ou clôture sans remboursement) et remboursement (confirmation du lot, `FAMILLE_FRAIS.confirmer`) au
   salarié. Jamais de montant, de commerçant ni de motif.
 - **Export comptable** (`shared/rules/frais-export.ts`, gabarit commun `shared/rules/export-comptable.ts` ; actions
   `frais.export.generer` et `frais.export.annuler` de `server/src/actions/frais-exports.ts` ; routes
   `GET /api/frais/exports` et `GET /api/frais/exports/:id/fichier` de `server/src/frais-exports.ts`, gardées par
-  `exigerNavigationInterne('appel')`) : une écriture par note contrôlée, en paiement ou payée, pas encore exportée, datée de
-  son contrôle — charges par compte (montant retenu moins la TVA récupérable au prorata), TVA déductible, crédit du compte du
+  `exigerNavigationInterne('appel')`) : une écriture par note contrôlée, en paiement ou payée, pas encore exportée, datée du
+  jour de son contrôle à Paris (`isoParis`) — charges par compte (montant retenu moins la TVA récupérable au prorata), TVA déductible, crédit du compte du
   salarié (auxiliaire : matricule de paie). Frais médicaux : compte générique et libellé « NDF <n°> <nom> » de toute note.
   Contenu figé dans `exports_frais` (hors de l'instantané) ; fichier tiré du contenu au gabarit en vigueur (réglages
   `fraisComptes`, `fraisCompteGenerique`, `fraisCompteTva`, `fraisCompteSalarie`, `fraisJournal`, `fraisGabarit`), compté
   et tracé `frais.export.fichier` comme `sage.fichier` ; génération, annulation et fichier dans `ACTIONS_PAIE`. Nombre de
   notes affiché envoyé (`attendues`) : une liste changée ou un double clic est refusé (409). Pas de SEPA : remboursement
-  par la paie (réponse du 31 octobre 2026).
+  par la paie (réponse du 31 octobre 2026). Une note d'un export en vigueur ne se renvoie ni ne s'annule (409 : « annulez
+  d'abord l'export comptable n° X ») : ses écritures sont figées et elle n'entrerait plus dans un export suivant.
 - **Paramètres → Notes de frais** (`pages/parametres/NotesFrais.tsx`) : activation, circuit, délai, seuil du justificatif,
   puissance réelle, plafonds par catégorie, barème kilométrique de l'année (alerte « barème manquant ») et suivante,
   limites d'exonération (service RH), comptes et format du fichier d'écritures.

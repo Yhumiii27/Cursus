@@ -10,6 +10,7 @@
 // journal sont des valeurs par défaut à confirmer par la comptabilité (Paramètres → Notes de frais) : rien n'en est figé.
 // Avances : versées et déduites par la paie, elles n'entrent pas dans ces écritures (à rapprocher dans la comptabilité).
 import type { CategorieFrais, ISODate, LigneFrais, NoteFrais, Settings } from '../types.ts';
+import { isoParis } from '../dates.ts';
 import { encoderTexte } from '../encodage.ts';
 import { DECIMALES, ENCODAGES, FORMATS_DATE, SEPARATEURS, dateFichier } from './lots-paie.ts';
 import type { ColonneEcriture, GabaritExportComptable, LigneEcriture } from './export-comptable.ts';
@@ -110,8 +111,11 @@ export function tvaRetenue(l: LigneFrais): number {
   return r2(Math.min(tva, tva * retenu / l.montantEur));
 }
 
-/** Date de l'écriture d'une note : jour de son contrôle, sinon `defaut` (jour de l'export). */
-export const dateEcriture = (n: Pick<NoteFrais, 'controleeLe'>, defaut: ISODate): ISODate => (n.controleeLe ? n.controleeLe.slice(0, 10) : defaut);
+/**
+ * Date de l'écriture d'une note : jour de son contrôle à Paris (l'horodatage est en UTC : un contrôle entre minuit et
+ * 1 h, 2 h l'été, resterait sinon daté de la veille, et du mois précédent le 1er), sinon `defaut` (jour de l'export).
+ */
+export const dateEcriture = (n: Pick<NoteFrais, 'controleeLe'>, defaut: ISODate): ISODate => (n.controleeLe ? isoParis(new Date(n.controleeLe)) : defaut);
 
 /**
  * Écriture d'une note : débits par compte de charge (ordre des comptes), TVA, crédit du salarié. Aucune ligne si rien

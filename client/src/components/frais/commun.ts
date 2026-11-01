@@ -11,7 +11,7 @@ import type { Domain } from '../../../../shared/domain.ts';
 import { fmtIso } from '../../../../shared/format.ts';
 import { periodeLabel } from '../../../../shared/rules/paie.ts';
 import { lignesDe, noteModifiable, totauxNote } from '../../../../shared/rules/frais.ts';
-import { alertesDeNote } from '../../../../shared/rules/frais-alertes.ts';
+import { alertesDeNote, noteEnCircuit } from '../../../../shared/rules/frais-alertes.ts';
 import { type AlerteFrais, bloquantes, totalReintegrable } from '../../../../shared/rules/frais-politique.ts';
 import { tvaRecuperable } from '../../../../shared/rules/frais-tva.ts';
 import { decideur } from '../../state/delegues.ts';
@@ -73,10 +73,21 @@ export interface SyntheseNote {
   n: NoteFrais; lignes: LigneFrais[]; demande: number; retenu: number; nb: number; refusees: number;
   alertes: Map<number, AlerteFrais[]>; bloquantes: number; reintegrable: number; tva: number;
 }
+/**
+ * Alertes d'une note : celles que le serveur a jointes à la vue (`alertesFrais` : manager, collaborateur, comptabilité,
+ * dont l'instantané n'a pas tout ce qu'elles lisent) pour une note en circuit ; sinon calculées sur l'instantané (service
+ * RH, qui a tout ; notes closes, dont les alertes ne décident plus de rien).
+ */
+export function alertesNote(d: Domain, n: NoteFrais, lignes: readonly LigneFrais[]): Map<number, AlerteFrais[]> {
+  const serveur = d.ds.alertesFrais;
+  if (!serveur || !noteEnCircuit(n)) return alertesDeNote(d, n, lignes);
+  return new Map(lignes.map(l => [l.id, serveur[l.id] ?? []]));
+}
+
 export function syntheseNote(d: Domain, n: NoteFrais): SyntheseNote {
   const lignes = lignesDe(d.ds.lignesFrais, n.id);
   const t = totauxNote(lignes);
-  const alertes = alertesDeNote(d, n, lignes);
+  const alertes = alertesNote(d, n, lignes);
   const toutes = [...alertes.values()].flat();
   return {
     n, lignes, demande: t.demande, retenu: t.retenu, nb: t.lignes, refusees: t.refusees, alertes,

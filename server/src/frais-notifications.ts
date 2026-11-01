@@ -2,18 +2,24 @@
 // `notifier` : aussitôt ou dans le récapitulatif quotidien, doublées sur le téléphone par les notifications génériques de
 // shared/notifications-push.ts) :
 // - soumission : au valideur (manager direct) et à son suppléant au périmètre « frais » pendant une délégation ;
-// - à contrôler : à la boîte du service RH, quand une note attend le contrôle (validée par le manager, ou soumise sans
-//   valideur, note médicale comprise : le message est le même, il ne désigne jamais la nature des dépenses) ;
+// - à contrôler : à la boîte du service RH et aux comptes du profil Comptabilité (droit « compta » ; réponse du
+//   propriétaire du 31 octobre 2026 : c'est lui qui contrôle), quand une note attend le contrôle (validée par le manager,
+//   ou soumise sans valideur, note médicale comprise : le message est le même, il ne désigne jamais la nature des
+//   dépenses) ;
 // - renvoi pour correction, contrôle (ou validation quand le circuit n'a pas de contrôle) et remboursement par la paie :
 //   au salarié.
 // Jamais de montant, de commerçant, d'invité ni de motif dans un message : le motif d'un renvoi se lit dans Cursus.
 import { periodeLabel } from '../../shared/rules/paie.ts';
 import { valideursDe } from '../../shared/rules/delegations-manager.ts';
-import { droitsRh } from '../../shared/constants.ts';
+import { droitsRh, PROFILS_RH } from '../../shared/constants.ts';
 import { fmtIso } from '../../shared/format.ts';
 import type { CurrentUser, Dataset, Employe, NoteFrais } from '../../shared/types.ts';
+import { type Compte, refusDuCompte } from './comptes.ts';
 import type { Db } from './db.ts';
-import { notifier } from './notifications.ts';
+import { envoyerEmail } from './integrations/email.ts';
+import { courriel, lireMessagerie } from './messagerie.ts';
+import { notifier, type Notification } from './notifications.ts';
+import { mettreEnFilePush } from './push.ts';
 
 type Contexte = { db: Db; ds: Dataset; user: CurrentUser };
 type Note = Pick<NoteFrais, 'id' | 'periode'>;
@@ -36,12 +42,39 @@ export async function notifierNoteSoumise(cx: Contexte, emp: Employe, n: Note) {
   }
 }
 
-/** Note qui attend le contrôle : à la boîte du service RH (récapitulatif selon son réglage). */
+/**
+ * Comptes du profil Comptabilité qui contrôlent les notes de frais (droit « compta » sans le droit « rh » : le service RH
+ * est prévenu par sa boîte), ouverts, autres que l'intéressé de la note (on ne contrôle pas sa propre note).
+ */
+async function comptesComptabilite(cx: Contexte, empId: number): Promise<Compte[]> {
+  const out: Compte[] = [];
+  for (const c of await cx.db.all<Compte>('comptes')) {
+    const droits = PROFILS_RH[c.profilRh]?.droits ?? [];
+    if (!c.actif || !droits.includes('compta') || droits.includes('rh') || (c.empId != null && c.empId === empId)) continue;
+    if (!await refusDuCompte(cx.db, c)) out.push(c);
+  }
+  return out;
+}
+
+/**
+ * Note qui attend le contrôle : à la boîte du service RH (récapitulatif selon son réglage), et à chaque compte de la
+ * comptabilité (`comptesComptabilite`) — rattaché à une fiche, comme à un salarié (e-mail aussitôt ou récapitulatif selon
+ * sa fiche, notification générique sur le téléphone) ; compte externe, par e-mail aussitôt à son adresse et sur ses
+ * appareils. Jamais à la personne qui agit.
+ */
 export async function notifierNoteAControler(cx: Contexte, emp: Employe, n: Note) {
-  return await notifier(cx, 0, {
+  const notif: Notification = {
     type: 'frais.acontroler', objet: `Note de frais à contrôler — ${emp.nom}`,
     texte: `La note de frais ${noteTexte(n)} de ${emp.nom} attend le contrôle (Notes de frais).`,
-  }, true);
+  };
+  const mode = await notifier(cx, 0, notif, true);
+  for (const c of await comptesComptabilite(cx, emp.id)) {
+    if (c.id === cx.user.compteId) continue;
+    if (c.empId != null) { await notifier(cx, c.empId, notif); continue; }
+    await mettreEnFilePush(cx.db, { compteId: c.id }, notif.type);
+    if (c.adresse) await envoyerEmail(cx.db, notif.type, courriel(cx.ds.messagerie ?? await lireMessagerie(cx.db), c.adresse, notif.objet, notif.texte, { nom: c.nom }));
+  }
+  return mode;
 }
 
 /** Note renvoyée pour correction : au salarié. */

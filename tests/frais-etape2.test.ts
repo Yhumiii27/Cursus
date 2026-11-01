@@ -96,6 +96,16 @@ test('écritures d’une note : charges par compte, TVA récupérable, crédit d
   assert.equal(X.dateEcriture({ controleeLe: null }, '2026-10-10'), '2026-10-10');
 });
 
+test('date d’écriture : jour du contrôle à Paris, au passage de minuit (hiver et été) et du mois', () => {
+  // 1er novembre 2026 à 0 h 30 à Paris (UTC+1) : écriture du 1er novembre, pas du 31 octobre.
+  assert.equal(X.dateEcriture({ controleeLe: '2026-10-31T23:30:00.000Z' }, '2026-11-02'), '2026-11-01');
+  // 1er juillet 2026 à 1 h 30 à Paris (UTC+2).
+  assert.equal(X.dateEcriture({ controleeLe: '2026-06-30T23:30:00.000Z' }, '2026-07-02'), '2026-07-01');
+  // Juste avant minuit à Paris : la veille.
+  assert.equal(X.dateEcriture({ controleeLe: '2026-10-31T22:59:59.000Z' }, '2026-11-02'), '2026-10-31');
+  assert.equal(X.dateEcriture({ controleeLe: '2026-10-08T09:00:00.000Z' }, '2026-10-10'), '2026-10-08');
+});
+
 test('frais médicaux : compte générique (même que « divers »), même libellé que toute dépense, sans TVA', () => {
   const med = X.ecrituresNote(note({ medicale: true }), [ligne({ categorie: 'medical', montantEur: 35, montant: 35, tvaTaux: 10 })], { nom: 'Clara Roussel', compteTiers: 'C' }, { ...R, fraisComptes: { medical: '6999', divers: '6258' } as never }, '2026-10-08');
   assert.deepEqual(med.map(x => [x.compte, x.debit, x.credit]), [['6256', 35, 0], ['421', 0, 35]]);
@@ -175,6 +185,39 @@ test('export comptable : généré par la comptabilité, liste vérifiée, journ
   // Module désactivé : plus de génération.
   await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), notesFraisActives: false });
   assert.equal((await refus(MANON, 'frais.export.generer', {})).status, 409);
+});
+
+test('note d’un export en vigueur : ni renvoyée ni annulée tant que l’export n’est pas annulé ; recontrôlée, elle est réexportée', async () => {
+  const { db, run, refus, MANON, ADMIN, MEHDI } = await fresh();
+  const { result: { note: id, empId } } = await run(MEHDI, 'frais.note.creer', { periode: '2026-10' });
+  assert.equal(empId, 2);
+  const { result: { ligne } } = await run(MEHDI, 'frais.ligne.ajouter', { noteId: id, date: '2026-10-07', categorie: 'divers', montant: 84, sansJustificatif: true, attestation: true });
+  await run(MEHDI, 'frais.note.soumettre', { id });
+  await run(ADMIN, 'frais.note.valider', { id });
+  await run(MANON, 'frais.note.controler', { id });
+  const x = (await run(MANON, 'frais.export.generer', {})).result.export as number;
+  assert.ok((await db.get<{ notes: number[] }>('exportsFrais', x))!.notes.includes(id));
+  // Renvoi par le contrôleur ou annulation par le service RH : refusés, avec l'export à annuler.
+  for (const [u, a] of [[MANON, 'frais.note.renvoyer'], [ADMIN, 'frais.note.renvoyer'], [ADMIN, 'frais.note.annuler']] as const) {
+    const r = await refus(u, a, { id, motif: 'Montant à revoir' });
+    assert.equal(r.status, 409, a);
+    assert.match(r.message, new RegExp(`n° ${id} figure dans l’export comptable n° ${x} ; annulez d’abord cet export`));
+  }
+  assert.equal((await db.get<NoteFrais>('notesFrais', id))!.statut, 'controlee');
+  // Export annulé : renvoi admis ; corrigée, resoumise et recontrôlée, la note entre dans le nouvel export au nouveau montant.
+  await run(ADMIN, 'frais.export.annuler', { id: x });
+  await run(MANON, 'frais.note.renvoyer', { id, motif: 'Montant à revoir' });
+  await run(MEHDI, 'frais.ligne.modifier', { id: ligne, date: '2026-10-07', categorie: 'divers', montant: 134, sansJustificatif: true, attestation: true });
+  await run(MEHDI, 'frais.note.soumettre', { id });
+  await run(ADMIN, 'frais.note.valider', { id });
+  await run(MANON, 'frais.note.controler', { id });
+  const y = (await run(MANON, 'frais.export.generer', {})).result.export as number;
+  const ex = await db.get<{ notes: number[]; contenu: { lignes: { piece: string; compte: string; credit: number }[] } }>('exportsFrais', y);
+  assert.ok(ex!.notes.includes(id));
+  assert.equal(ex!.contenu.lignes.find(l => l.piece === `NDF-${id}` && l.compte === '421')!.credit, 134);
+  // Après annulation de ce second export, l'annulation de la note par le service RH est admise.
+  await run(ADMIN, 'frais.export.annuler', { id: y });
+  assert.match((await run(ADMIN, 'frais.note.annuler', { id, motif: 'x' })).message, /annulée/);
 });
 
 // — Route du fichier —
@@ -311,13 +354,22 @@ test('notifications du circuit : manager à la soumission, boîte RH au contrôl
   assert.ok(parType('frais.soumise').length >= 2, 'au manager à chaque soumission');
   assert.match(parType('frais.soumise')[0].objet, /Note de frais à valider — Mehdi Benali/);
   assert.equal(parType('frais.renvoyee').length, 1);
-  assert.equal(parType('frais.acontroler').length, 2, 'validée par le manager, puis note médicale');
-  assert.equal(parType('frais.acontroler')[0].texte.replace(/n° \d+/, ''), parType('frais.acontroler')[1].texte.replace(/n° \d+/, ''), 'même message pour la note médicale');
+  // Boîte du service RH et comptabilité (Manon Faure, profil comptabilite : contrôleuse désignée le 31 octobre 2026), à
+  // chaque note qui attend le contrôle.
+  const aControler = (await db.all<{ cible: string; type: string; contenu: { a: string[]; objet: string; texte: string } }>('envois'))
+    .filter(e => e.cible === 'email' && e.type === 'frais.acontroler');
+  const boite = (await db.getSetting<{ rh: string }>('messagerie', { rh: '' })).rh;
+  const manon = (await db.get<{ email: string | null }>('employes', 21))!.email;
+  assert.ok(manon, 'adresse de Manon Faure');
+  assert.equal(aControler.filter(e => e.contenu.a.includes(boite)).length, 2, 'validée par le manager, puis note médicale');
+  assert.equal(aControler.filter(e => e.contenu.a.includes(manon!)).length, 2, 'la comptabilité aussi');
+  const parBoite = aControler.filter(e => e.contenu.a.includes(boite)).map(e => e.contenu.texte.replace(/n° \d+/, ''));
+  assert.equal(parBoite[0], parBoite[1], 'même message pour la note médicale');
   assert.equal(parType('frais.validee').length, 1);
   for (const x of t) assert.doesNotMatch(`${x.objet} ${x.texte}`, /€|Boutique|confidentiel|médic/i, x.type);
   if (lot && (await db.get<{ statut: string }>('lotsPaie', lot.id))?.statut === 'transmis') assert.ok(parType('frais.payee').length >= 1, 'remboursement');
   for (const k of ['frais.soumise', 'frais.acontroler', 'frais.renvoyee', 'frais.validee', 'frais.payee']) assert.ok(EMAIL_LABEL[k], k);
-  for (const k of ['frais.soumise', 'frais.renvoyee', 'frais.validee', 'frais.payee']) {
+  for (const k of ['frais.soumise', 'frais.acontroler', 'frais.renvoyee', 'frais.validee', 'frais.payee']) {
     assert.ok(TYPES_PUSH.includes(k), k);
     assert.equal(NOTIFICATIONS_PUSH[k].vue, 'frais');
   }
@@ -354,6 +406,51 @@ test('vues : écran frais dans les trois espaces et seul écran de la comptabili
   assert.equal(C.euros(1234.5), '1 234,50 €'.replace(' ', ' '));
   assert.equal(C.euros(3, 'USD'), '3,00 USD');
   assert.equal(C.moisNote({ periode: '2026-10' }), 'Octobre 2026');
+});
+
+test('alertes de la vue manager, collaborateur et comptabilité : celles du serveur (grand déplacement, jour d’absence)', async () => {
+  const { db, run, ADMIN, MEHDI, KARIM, MANON } = await fresh();
+  const snap = async (u: User) => await db.lecture(async () => await buildSnapshot(db, u, { cache: false })) as Dataset;
+  // Mission de Mehdi le jour d'une dépense de repas de sa note n° 1, sur un chantier en France qualifié « grand
+  // déplacement » : le repas est déjà couvert par le forfait de la paie (alerte bloquante « cumul »).
+  const full0 = await snap(ADMIN);
+  const l1 = full0.lignesFrais!.find(l => l.noteId === 1 && l.categorie === 'repas')!;
+  assert.ok(l1, 'repas de la note n° 1 de Mehdi');
+  // Arrêt maladie de Mehdi le jour d'une autre dépense de la note : alerte « jour d'absence », sans la nature de l'arrêt.
+  const jour2 = l1.date === '2026-10-07' ? '2026-10-08' : '2026-10-07';
+  const l2 = { id: (await run(MEHDI, 'frais.ligne.ajouter', { noteId: 1, date: jour2, categorie: 'parking', montant: 4, sansJustificatif: true, attestation: true })).result.ligne as number };
+  const chantier = full0.referentiels.chantiers.find(c => c.pays === 'FR')!;
+  await db.tx(async () => {
+    await db.update('chantiers', chantier.id, { grandDeplacement: true });
+    await db.insert('missions', { empId: 2, projet: chantier.id, lieu: chantier.lieu, du: l1.date, au: l1.date, type: 'chantier', ref: null });
+    await db.insert('absences', { empId: 2, type: 'MALADIE', du: jour2, au: jour2, statut: 'validee', keystone: false, justificatif: true });
+  });
+  const full = await snap(ADMIN), dFull = new Domain(full);
+  const n1 = full.notesFrais!.find(n => n.id === 1)!;
+  const attendu = alertesDeNote(dFull, n1);
+  assert.ok(attendu.get(l1.id)!.some(a => a.code === 'cumul' && a.niveau === 'bloquant'), 'le serveur voit le cumul');
+  assert.ok(attendu.get(l2.id)!.some(a => a.code === 'absence'), 'et le jour d’absence');
+  for (const u of [MEHDI, KARIM, MANON]) {
+    const ds = await snap(u), d = new Domain(ds);
+    const n = ds.notesFrais!.find(x => x.id === 1)!;
+    assert.ok(n, u.nom);
+    assert.ok(ds.alertesFrais, `${u.nom} : alertes jointes par le serveur`);
+    assert.deepEqual(C.syntheseNote(d, n).alertes, attendu, u.nom);
+    assert.equal(C.syntheseNote(d, n).bloquantes, [...attendu.values()].flat().filter(a => a.niveau === 'bloquant').length, u.nom);
+    // Sans les alertes du serveur, l'instantané filtré ne verrait pas le cumul (l'écart relevé à la relecture).
+    assert.ok(!alertesDeNote(d, n).get(l1.id)!.some(a => a.code === 'cumul'), `${u.nom} : recalcul incomplet`);
+    assert.doesNotMatch(JSON.stringify(ds.alertesFrais), /maladie|arrêt/i, `${u.nom} : jamais la nature de l’absence`);
+    // Toute note en circuit de la vue a ses alertes ; jamais une ligne d'une note que la vue ne reçoit pas.
+    const lignesVues = new Set((ds.lignesFrais ?? []).map(l => l.id));
+    assert.ok(Object.keys(ds.alertesFrais!).every(id => lignesVues.has(Number(id))), u.nom);
+    for (const x of (ds.notesFrais ?? []).filter(m => ['brouillon', 'a_corriger', 'soumise', 'validee'].includes(m.statut))) {
+      assert.deepEqual(C.syntheseNote(d, x).alertes, alertesDeNote(dFull, full.notesFrais!.find(m => m.id === x.id)!), `${u.nom}, note ${x.id}`);
+    }
+  }
+  // Le service RH reçoit l'instantané complet : alertes recalculées, identiques.
+  const rh = await snap(ADMIN);
+  assert.equal(rh.alertesFrais, undefined);
+  assert.deepEqual(C.syntheseNote(new Domain(rh), n1).alertes, attendu);
 });
 
 test('saisie d’une dépense : contrôles par champ, paramètres par catégorie, propositions d’un reçu collé', () => {

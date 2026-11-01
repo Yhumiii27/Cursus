@@ -8,8 +8,9 @@
 //   d'hiver (dernier dimanche d'octobre) ; les repos de 11 h et de 35 h se comptent de même. Les heures de nuit restent
 //   comptées à l'horloge (plage 21 h – 6 h réglée), comme sur la feuille de temps.
 // - Refus, sans motif possible : créneau hors du contrat (avant l'entrée, après la sortie), travail de nuit d'un salarié
-//   mineur (`refusNuitMineur`, art. L3163-2) ; habilitation exigée absente, en attente, retirée, suspendue ou expirée avant
-//   la période (réponse de l'entreprise du 1er novembre 2026 : publication bloquée).
+//   mineur (`refusNuitMineur`, art. L3163-2) ; habilitation exigée absente, en attente, retirée, suspendue (prérequis
+//   de formation échu compris) ou expirée avant la partie à venir de la période (réponse de l'entreprise du 1er novembre
+//   2026 : publication bloquée).
 // - Alertes qui exigent un motif à la publication : repos quotidien de 11 h (art. L3131-1 ; 12 h et 14 h pour un mineur,
 //   art. L3164-1), ou la valeur réduite de l'accord en travail posté (`planningReposQuotidienAccord`, 9 h au moins, art.
 //   D3131-1 et suivants, jamais pour un mineur) ; repos hebdomadaire de 35 h consécutives (art. L3132-2) ; 6 jours au plus
@@ -21,7 +22,7 @@
 // - Informations : repos réduit par l'accord (repos compensateur dû), moyenne de 44 h sur 12 semaines (art. L3121-22),
 //   moyenne du travailleur de nuit sur 12 semaines (40 h, art. L3122-7, `planningNuitMoyenne`).
 import { addD, joursSemaine, mondayOf, parse } from '../dates.ts';
-import { certEnVigueur, type CertInfo, type HabInfo, type MedInfo } from '../domain.ts';
+import { certEnVigueur, type CertInfo, type HabInfo, type MedInfo, type PrereqCheck } from '../domain.ts';
 import { fH, fmtIso } from '../format.ts';
 import type { Employe, Exigences, HoraireFige, ISODate, Settings } from '../types.ts';
 import { dureeHoraire, finitLeLendemain } from './horaires.ts';
@@ -195,22 +196,26 @@ export function controlesPlanning(x: EntreeControles): AlertePlanning[] {
     if (mineur) out.push(alerte(e.id, q.jour, 'nuit_mineur', `${fmtIso(q.jour)} : ${mineur}`));
   }
 
-  // Repos quotidien : de la fin du poste précédent (le plus tard fini) au début du suivant, en temps réel.
-  let finMax: number | null = null;
+  // Repos quotidien : de la fin du poste précédent (le plus tard fini) au début du suivant, en temps réel. Contrôlé avant
+  // chaque poste de la période, et avant le premier poste qui la suit (déjà planifié ou publié) quand le poste qui le
+  // précède est de la période : l'alerte est alors rattachée au jour de ce dernier, seul créneau que la publication ou
+  // l'échange touche.
+  let finMax: number | null = null, jourFinMax: ISODate | null = null;
   for (const q of postes) {
-    if (finMax != null && dans(q.jour)) {
+    const rattache = dans(q.jour) ? q.jour : jourFinMax && dans(jourFinMax) ? jourFinMax : null;
+    if (finMax != null && rattache) {
       const repos = Math.round((q.p.debut - finMax) / 60 * 100) / 100;
       const mineur = mineurAu(e, q.jour), seuilMineur = moins16Au(e, q.jour) ? REPOS_QUOTIDIEN_MOINS_16 : REPOS_QUOTIDIEN_MINEUR;
       const seuil = mineur ? seuilMineur : s.planningReposQuotidienAccord;
       if (repos < seuil) {
-        out.push(alerte(e.id, q.jour, 'repos_quotidien', `${fmtIso(q.jour)} : ${repos > 0 ? fH(repos) : 'aucun repos'} avant la prise de poste, moins que le repos quotidien de ${mineur
+        out.push(alerte(e.id, rattache, 'repos_quotidien', `${fmtIso(q.jour)} : ${repos > 0 ? fH(repos) : 'aucun repos'} avant la prise de poste, moins que le repos quotidien de ${mineur
           ? `${seuilMineur} h (salarié de moins de ${seuilMineur === REPOS_QUOTIDIEN_MOINS_16 ? 16 : 18} ans, art. L3164-1)`
           : seuil < REPOS_QUOTIDIEN ? `${seuil} h fixé par l’accord (art. D3131-1)` : `${REPOS_QUOTIDIEN} h (art. L3131-1)`}`));
       } else if (!mineur && repos < REPOS_QUOTIDIEN) {
-        out.push(alerte(e.id, q.jour, 'repos_reduit', `${fmtIso(q.jour)} : repos quotidien réduit à ${fH(repos)} par l’accord : un repos équivalent est dû en compensation (art. D3131-1 et suivants)`));
+        out.push(alerte(e.id, rattache, 'repos_reduit', `${fmtIso(q.jour)} : repos quotidien réduit à ${fH(repos)} par l’accord : un repos équivalent est dû en compensation (art. D3131-1 et suivants)`));
       }
     }
-    if (finMax == null || q.p.fin > finMax) finMax = q.p.fin;
+    if (finMax == null || q.p.fin > finMax) { finMax = q.p.fin; jourFinMax = q.jour; }
   }
 
   // Travailleur de nuit : d'après les feuilles, ou deux postes au moins avec le seuil quotidien de nuit dans une semaine de
@@ -312,7 +317,8 @@ function nuitHabituelle(postes: readonly Poste[], nuit: ReturnType<typeof reglag
 /** Ce que lit l'alerte d'habilitation d'un salarié (fiche enrichie : `Domain.enrich`). */
 export interface HabilitationsSalarie {
   id: number;
-  habs: readonly Pick<HabInfo, 'h' | 'key' | 'mesure' | 'exp'>[];
+  /** `checks` : prérequis du titre (seules les formations, `type` « cert », sont lues : jamais l'échéance de l'aptitude). */
+  habs: readonly (Pick<HabInfo, 'h' | 'key' | 'mesure' | 'exp'> & { checks?: readonly Pick<PrereqCheck, 'type' | 'label' | 'ok' | 'exp'>[] })[];
   rawCerts: readonly Pick<CertInfo, 'id' | 'f' | 'obtenue' | 'exp'>[];
   med: Pick<MedInfo, 'ok' | 'restrictions'>;
 }
@@ -323,22 +329,33 @@ export const APTITUDE_PLANNING = 'Aptitude médicale à vérifier avec le servic
 /**
  * Alertes d'habilitation des créneaux d'un salarié sur la période `du`–`au` (`jours` : jours travaillés du salarié dans la
  * période, `exigences` : celles du poste et de l'équipe, et du besoin de poste du jour). Habilitation absente, en attente,
- * retirée, suspendue (mesure, ou prérequis échu) ou expirée avant la période : refus ; expirée pendant la période, avant le
- * créneau : alerte. Formation exigée sans certification valide à la date du créneau : alerte. Aptitude non valide ou
- * restrictions en vigueur aujourd'hui : une seule réserve neutre pour la période, jamais datée ni projetée sur un créneau.
+ * retirée, suspendue (mesure, ou prérequis échu) ou expirée avant la partie à venir de la période (à partir de max(`du`,
+ * `today`) : reculer `du` ne fait pas d'une habilitation déjà expirée une simple alerte) : refus ; expirée pendant la
+ * période, avant le créneau : alerte. Prérequis (formation) qui expire avant le créneau : l'habilitation est suspendue à
+ * cette date, avec la même règle que son échéance. Formation exigée sans certification valide à la date du créneau : alerte.
+ * Aptitude non valide ou restrictions en vigueur aujourd'hui : une seule réserve neutre pour la période, jamais datée ni
+ * projetée sur un créneau (le prérequis médical d'une habilitation n'est donc jamais lu à la date du créneau).
  */
 export function alertesHabilitations(e: HabilitationsSalarie, jours: readonly { jour: ISODate; exigences: Exigences }[], du: ISODate, today: ISODate,
   noms: { habilitation: (id: string) => string; formation: (id: string) => string }): AlertePlanning[] {
   const out: AlertePlanning[] = [];
-  const debut = parse(du);
+  const debut = parse(du > today ? du : today);
   for (const { jour, exigences } of jours) {
     const date = parse(jour);
     for (const h of exigences.habilitations) {
       const hi = e.habs.find(x => x.h === h), nom = noms.habilitation(h);
       const refus = !hi ? 'non détenue' : hi.mesure === 'retrait' ? 'retirée' : hi.mesure === 'suspension' || hi.key === 'susp' ? 'suspendue'
         : hi.key === 'pending' || !hi.exp ? 'en attente de délivrance' : hi.exp < debut ? `expirée le ${fmtIso(isoDe(hi.exp))}` : null;
-      if (refus) out.push(alerte(e.id, jour, 'habilitation', `${fmtIso(jour)} : habilitation exigée ${nom} ${refus}`));
-      else if (hi!.exp! < date) out.push(alerte(e.id, jour, 'habilitation_expire', `${fmtIso(jour)} : habilitation ${nom} expirée le ${fmtIso(isoDe(hi!.exp!))}, pendant la période`));
+      if (refus) { out.push(alerte(e.id, jour, 'habilitation', `${fmtIso(jour)} : habilitation exigée ${nom} ${refus}`)); continue; }
+      // Prérequis de formation valide aujourd'hui qui échoit le plus tôt : l'habilitation est suspendue dès cette échéance.
+      const prereq = (hi!.checks ?? []).filter(c => c.type === 'cert' && c.ok && c.exp).sort((x, y) => x.exp!.getTime() - y.exp!.getTime())[0];
+      if (prereq && prereq.exp! < debut) {
+        out.push(alerte(e.id, jour, 'habilitation', `${fmtIso(jour)} : habilitation exigée ${nom} suspendue (prérequis ${prereq.label} échu le ${fmtIso(isoDe(prereq.exp!))})`));
+      } else if (hi!.exp! < date) {
+        out.push(alerte(e.id, jour, 'habilitation_expire', `${fmtIso(jour)} : habilitation ${nom} expirée le ${fmtIso(isoDe(hi!.exp!))}, pendant la période`));
+      } else if (prereq && prereq.exp! < date) {
+        out.push(alerte(e.id, jour, 'habilitation_expire', `${fmtIso(jour)} : habilitation ${nom} suspendue dès l’échéance de son prérequis ${prereq.label} le ${fmtIso(isoDe(prereq.exp!))}, pendant la période`));
+      }
     }
     for (const f of exigences.formations) {
       const c = certEnVigueur(e.rawCerts, f);

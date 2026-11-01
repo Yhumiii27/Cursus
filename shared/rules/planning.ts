@@ -22,7 +22,7 @@ import type { Absence, Employe, FeuilleTemps, Horaire, HoraireFige, ISODate } fr
 import type { BesoinPoste, Creneau, Cycle, EchangePoste, Roulement, StatutEchange } from '../types-planning.ts';
 import { absenceBloque, jourHorsContrat } from './absences.ts';
 import { prevenance } from './astreintes.ts';
-import { cycleDe, horaireDuCycle } from './cycles.ts';
+import { cycleDe, horaireDuCycle, roulementAnnule } from './cycles.ts';
 import { horaireDe } from './horaires.ts';
 import { instantParis } from './planning-controles.ts';
 
@@ -65,6 +65,12 @@ export function creneauxPlanificateur(creneaux: readonly Creneau[]): Creneau[] {
   const remplaces = new Set(creneaux.filter(c => c.statut === 'brouillon' && c.remplaceId).map(c => c.remplaceId!));
   return creneaux.filter(c => creneauActif(c) && !remplaces.has(c.id));
 }
+/**
+ * Créneaux sans les brouillons des jours passés (avant `ti`) : jamais communiqués, ils ne valent plus rien (un jour passé
+ * se corrige sur la feuille de temps) ; pour ces jours, la version publiée reste celle qui compte dans les contrôles.
+ */
+export const sansBrouillonsPasses = <T extends Pick<Creneau, 'jour' | 'statut'>>(creneaux: readonly T[], ti: ISODate): T[] =>
+  creneaux.filter(c => c.statut !== 'brouillon' || c.jour >= ti);
 /** Créneaux publiés en vigueur (ce qu'a reçu le salarié) : la version publiée, pas le brouillon qui la remplacera. */
 export const creneauxPublies = (creneaux: readonly Creneau[]) => creneaux.filter(c => c.statut === 'publie');
 
@@ -265,7 +271,7 @@ export function controlerRoulement(p: { cycle?: unknown; groupe?: unknown; du?: 
   else if (jourHorsContrat(e, du)) erreurs.du = `Début hors du contrat (${jourHorsContrat(e, du)})`;
   if (au != null && (!isValidDate(au) || au < du)) erreurs.au = 'Date de fin invalide, ou avant le début';
   if (!Object.keys(erreurs).length) {
-    const autre = roulements.find(r => r.empId === e.id && r.du <= (au ?? '9999-12-31') && du <= (r.au ?? '9999-12-31'));
+    const autre = roulements.find(r => r.empId === e.id && !roulementAnnule(r) && r.du <= (au ?? '9999-12-31') && du <= (r.au ?? '9999-12-31'));
     if (autre) erreurs.general = `Déjà affecté au cycle ${autre.cycle} (groupe ${autre.groupe}) du ${fmtIso(autre.du)}${autre.au ? ` au ${fmtIso(autre.au)}` : ''} : terminez cette affectation d’abord`;
   }
   return Object.keys(erreurs).length ? { erreurs, valeurs: null } : { erreurs, valeurs: { cycle, groupe, du, au } };

@@ -1860,10 +1860,10 @@ aucun champ du paramètre n'est recopié.
 | `indicateurs.marquerCse` | id, le (mise à disposition du CSE : ni future, ni avant l'arrêté) ; arrêté annulé refusé | RH |
 | `planning.cycle.creer` / `.modifier` / `.archiver` | code (1 à 8 lettres ou chiffres, jamais modifié), nom, longueur (1 à 70 jours), sequence (un code d'horaire en vigueur ou « » par jour), groupes [{code, decalage}], origine / archive: false pour rétablir ; archivage refusé tant qu'une affectation en cours ou à venir l'emploie (lot 12, C5 ; module désactivé compris) | RH |
 | `planning.besoin.creer` / `.modifier` / `.archiver` | equipe, horaire, jours (0 = lundi … 6), effectifMin (1 à 99), posteId?, activite?, exigences {formations, habilitations}, du, au? / id | RH |
-| `planning.roulement.affecter` / `.terminer` | empId, cycle, groupe, du, au? (sans chevauchement, dans le contrat) / id, au, motif? (jamais journalisé) ; module désactivé : 409 | planificateur : manager direct, son suppléant par délégation « planning », RH (jamais pour soi-même) |
-| `planning.generer` | equipe, du, au (12 semaines au plus, à partir d'aujourd'hui) : brouillons d'après les affectations ; un créneau publié ou corrigé à la main n'est jamais remplacé | planificateur de l'équipe |
-| `planning.creneau.ajouter` / `.modifier` / `.annuler` | equipe, jour, horaire, empId? (absent : à pourvoir) / id, horaire (« » : repos) : brouillon corrigé, ou nouvelle version d'un créneau publié / id, motif (exigé pour un créneau publié, communiqué au salarié, jamais journalisé) ; jour passé : 409 | planificateur |
-| `planning.publier` | equipe, du, au, motif? (circonstances exceptionnelles, exigé sous `planningDelaiPrevenance`), motifAlertes? (exigé en cas d'alerte) : refus (habilitation absente, retirée, suspendue ou expirée avant la période ; nuit d'un mineur ; hors contrat ; semaine dont la feuille est validée ; jour passé) en 409 ; version suivante de l'équipe, salariés prévenus par e-mail aussitôt (`communiqueLe`) | planificateur de l'équipe, jamais pour son propre créneau |
+| `planning.roulement.affecter` / `.terminer` | empId, cycle, groupe, du, au? (sans chevauchement, dans le contrat) / id, au (au plus tôt la veille du début : affectation annulée), motif? (jamais journalisé) ; module désactivé : 409 | planificateur : manager direct, son suppléant par délégation « planning », RH (jamais pour soi-même) |
+| `planning.generer` | equipe, du, au (12 semaines au plus, à partir d'aujourd'hui) : brouillons d'après les affectations, pour les seuls salariés qui font aujourd'hui partie de l'équipe et que l'on planifie (un salarié muté relève de son nouveau planificateur) ; un créneau publié ou corrigé à la main n'est jamais remplacé | planificateur de l'équipe |
+| `planning.creneau.ajouter` / `.modifier` / `.annuler` | equipe (celle du salarié), jour, horaire, empId? (absent : à pourvoir) / id, horaire (« » : repos) : brouillon corrigé, ou nouvelle version d'un créneau publié / id, motif (exigé pour un créneau publié, communiqué au salarié, jamais journalisé) ; jour passé : 409, sauf le retrait d'un brouillon (jamais communiqué) | planificateur |
+| `planning.publier` | equipe, du, au, motif? (circonstances exceptionnelles, exigé sous `planningDelaiPrevenance`), motifAlertes? (exigé en cas d'alerte) : période ramenée à aujourd'hui (brouillons passés ignorés) ; brouillon d'un salarié que l'on ne planifie pas : 403, avant tout contrôle ; refus (habilitation absente, retirée, suspendue — prérequis échu compris — ou expirée avant la partie à venir de la période ; nuit d'un mineur ; hors contrat ; semaine dont la feuille est validée) en 409 ; version suivante de l'équipe, salariés prévenus par e-mail aussitôt (`communiqueLe`) | planificateur de l'équipe, jamais pour son propre créneau |
 | `planning.echange.proposer` / `.accepter` / `.valider` / `.refuser` / `.annuler` | creneauId, partenaireId (même équipe), creneauPartenaire? (absent : cession) / id / id, motifAlertes? / id, motif? / id ; expiré dès qu'un des créneaux commence | proposer, annuler : le salarié du créneau ; accepter : le collègue ; valider : le manager des deux (ou son suppléant « planning ») ou RH ; refuser : le collègue (proposé), le valideur (accepté) |
 
 ## Journal des actions
@@ -4727,7 +4727,9 @@ sessions et les astreintes et la couverture par créneau, l'étape 3.
     (`CYCLES_MODELES`), s'ils trouvent leurs horaires d'exemple en vigueur ; en PostgreSQL au démarrage
     (`mettreAJourBase`), en démonstration par le jeu ; archivés, jamais supprimés.
   - `roulements` : salarié, cycle, groupe, du, au (null : sans fin), équipe figée ; jamais deux affectations qui se
-    chevauchent ; terminées par une date de fin (motif : texte libre, jamais journalisé).
+    chevauchent ; terminées par une date de fin (motif : texte libre, jamais journalisé) ; une fin à la veille du début
+    annule une affectation pas encore commencée (`roulementAnnule` : plus comptée nulle part ; contrainte PostgreSQL
+    `au >= du - 1`).
   - `besoinsPoste` : équipe, horaire, jours, effectif minimal, poste ou activité, exigences propres au créneau.
   - `creneaux` : un par salarié et par jour planifié, repos compris (`horaire` null) ; `empId` null : « à pourvoir »,
     rattaché à l'équipe. Heures figées (début, fin, pause). Statuts `brouillon`, `publie`, `remplace` (une version publiée
@@ -4752,7 +4754,12 @@ sessions et les astreintes et la couverture par créneau, l'étape 3.
     la machine) : un poste de nuit de 21 h à 5 h dure 7 h la nuit du passage à l'heure d'été, 9 h celle du retour à l'heure
     d'hiver ; repos et durées en temps réel, heures de nuit à l'horloge. Refus : hors contrat, nuit d'un mineur
     (`refusNuitMineur`), habilitation absente, en attente, retirée, suspendue (mesure, ou prérequis échu) ou expirée avant
-    la période (réponse de l'entreprise du 1er novembre 2026). Alertes à motiver : repos quotidien de 11 h, ou la valeur
+    la partie à venir de la période, c'est-à-dire avant max(début, aujourd'hui) : reculer le début ne change pas un refus en
+    alerte (réponse de l'entreprise du 1er novembre 2026). Un prérequis de formation qui échoit avant le créneau suspend
+    l'habilitation à cette date, avec la même règle (le prérequis médical n'est jamais lu à la date du créneau). Le repos
+    quotidien est contrôlé avant chaque poste de la période et avant le poste qui la suit (déjà planifié ou publié) quand
+    le précédent en fait partie : l'alerte est rattachée à ce dernier (publication courte, échange d'un poste de nuit la
+    veille d'un poste du matin). Alertes à motiver : repos quotidien de 11 h, ou la valeur
     réduite de l'accord (`planningReposQuotidienAccord`, 9 h au moins ; jamais pour un mineur : 12 h, 14 h avant 16 ans),
     repos hebdomadaire de 35 h consécutives dont 24 h dans la semaine civile, 6 jours, dimanche sans dérogation, 10 h,
     48 h, travailleur de nuit (feuilles validées, `statutNuit`, ou deux postes de nuit dans une semaine du planning) au-delà
@@ -4764,15 +4771,19 @@ sessions et les astreintes et la couverture par créneau, l'étape 3.
     jamais datée ni projetée sur le créneau ; son code n'est vu que du planificateur et jamais journalisé.
 - **Actions** (`server/src/actions/planning.ts`, tableau « Actions disponibles ») : planificateur d'un salarié = manager
   direct, son suppléant par délégation « planning » (signée « par délégation de ») ou service RH, jamais pour soi-même ;
-  planificateur d'une équipe = son manager, son suppléant, le service RH. La publication lit les brouillons de l'équipe
-  sur la période, refuse (409) ce qui bloque, exige le motif des circonstances exceptionnelles pour un créneau à moins
+  planificateur d'une équipe = son manager, son suppléant, le service RH. La génération ne retient que les salariés qui
+  font aujourd'hui partie de l'équipe et que la personne connectée planifie (une affectation garde l'équipe de sa saisie) ;
+  un poste nominatif ajouté l'est à l'équipe actuelle du salarié. La publication lit les brouillons de l'équipe sur la
+  période ramenée à aujourd'hui (un brouillon passé, jamais communiqué, est ignoré ici comme dans les contrôles, et se
+  retire), refuse (403) un brouillon d'un salarié que l'on ne planifie pas avant tout contrôle, refuse (409) ce qui bloque, exige le motif des circonstances exceptionnelles pour un créneau à moins
   de `planningDelaiPrevenance` jours (7 par défaut, art. L3121-47 ; 3 au moins par accord) puis celui des alertes, garde
   sur chaque créneau ses codes d'alerte (`alertesAcceptees`), le motif, `horsDelai`, la version et `communiqueLe` (jour de
   l'e-mail), remplace les versions précédentes et prévient chaque salarié (`server/src/planning-envois.ts` : e-mail
   aussitôt, notification push `planning.publie` ou `planning.modifie` s'il l'a choisie, retardée par la plage de silence
   sans jamais servir de point de départ au délai). Échange : proposé par le salarié sur son poste publié à un collègue de
   son équipe (cession, ou contre un poste publié du collègue), accepté par lui, validé par le manager des deux (ou son
-  suppléant) ou le service RH, après les contrôles des deux salariés sur leurs nouveaux postes (refus : 409 ; alertes :
+  suppléant) ou le service RH — l'acceptation prévient le manager de chacun et le suppléant d'une délégation « planning »
+  en cours —, après les contrôles des deux salariés sur leurs nouveaux postes (refus : 409 ; alertes :
   motif) ; sans nouveau délai de prévenance ; refusé s'il touche un jour dont une modification attend sa publication ;
   expiré dès qu'un de ses créneaux commence (`echangeExpire`, vérifié à chaque étape). Aucune action dans la file hors
   ligne : un échange exige un état frais.
@@ -4780,7 +4791,7 @@ sessions et les astreintes et la couverture par créneau, l'étape 3.
   (`controleDelegation`) seulement module activé.
 - **Instantané et cache** : `FENETRES.creneaux` (`server/src/planning-lecture.ts`) : de 8 semaines passées à 12 semaines
   à venir ; l'historique se lit par `GET /api/planning/historique?du=&au=[&equipe=]` (un an au plus, mêmes filtres que
-  l'instantané, `server/src/planning-historique.ts`). `creneaux` (nominatifs) et `roulements` sont des champs par salarié
+  l'instantané, « à pourvoir » compris : motifs pour les équipes que le manager planifie, `server/src/planning-historique.ts`). `creneaux` (nominatifs) et `roulements` sont des champs par salarié
   (`CHAMPS_PAR_SALARIE`) ; les créneaux « à pourvoir » forment le champ commun `creneauxAPourvoir`, dont l'identité est
   gardée tant que ses lignes ne changent pas (une écriture d'un créneau nominatif ne recalcule pas toutes les vues) ;
   `echangesPoste` (deux salariés), `cycles`, `besoinsPoste` et `publicationsPlanning` sont communs. Le collaborateur qui

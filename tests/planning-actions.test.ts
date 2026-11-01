@@ -280,6 +280,11 @@ test('historique à la demande : hors de la fenêtre de l’instantané, filtré
   const ancien = await publie(db, 6, '2026-03-02');
   await db.update('creneaux', ancien, { motif: 'Ancien motif' });
   await publie(db, 2, '2026-03-02');
+  // « À pourvoir » de la Maintenance : motif servi à son planificateur (Karim), comme dans l'instantané.
+  const aPourvoir = await db.insert<Creneau>('creneaux', {
+    empId: null, jour: '2026-03-03', equipe: 'Maintenance', horaire: 'N', debut: '21:00', fin: '05:00', pause: 30, source: 'manuel', statut: 'publie', version: 1,
+    publieLe: '2026-03-01T08:00:00.000Z', publiePar: 'Karim Haddad', communiqueLe: '2026-03-01', horsDelai: true, motif: 'Motif à pourvoir', creeLe: '2026-03-01T08:00:00.000Z', creePar: 'Karim Haddad',
+  });
   assert.ok(!(await loadFull(db, (await currentUser(db, { compteId: 1, role: 'rh', methode: 'demo' }))!)).creneaux!.some(c => c.id === ancien), 'hors de la fenêtre de 8 semaines');
   const banc = await ouvrirBanc(db);
   try {
@@ -292,7 +297,8 @@ test('historique à la demande : hors de la fenêtre de l’instantané, filtré
     const thomas = await lire(await compteDe(6), 'collaborateur', 'du=2026-03-01&au=2026-03-31');
     assert.deepEqual(thomas.corps.creneaux!.map(c => [c.empId, c.motif]), [[6, 'Ancien motif']]);
     const karim = await lire(await compteDe(12), 'manager', 'du=2026-03-01&au=2026-03-31');
-    assert.deepEqual(karim.corps.creneaux!.map(c => c.empId).sort(), [2, 6]);
+    assert.deepEqual(karim.corps.creneaux!.filter(c => c.empId != null).map(c => c.empId).sort(), [2, 6]);
+    assert.equal(karim.corps.creneaux!.find(c => c.id === aPourvoir.id)?.motif, 'Motif à pourvoir', 'planificateur : motif du créneau à pourvoir');
     const hse = await lire(await compteDe(23), 'rh', 'du=2026-03-01&au=2026-03-31');
     assert.ok(hse.corps.creneaux!.every(c => !c.motif));
     assert.equal((await lire(await compteDe(6), 'collaborateur', 'du=2026-01-01&au=2027-03-31')).status, 400);
@@ -333,4 +339,92 @@ test('journal : libellés et famille « temps » ; migration nommée et référe
   assert.match(String(await PLANNING_EQUIPE.executer(s)), /^index creneaux_emp_jour, creneaux_equipe_jour/);
   assert.equal(await PLANNING_EQUIPE.necessaire!(s), false);
   void appliquerMigrations;
+});
+
+test('publication : début ramené à aujourd’hui (habilitation déjà expirée toujours refusée) ; brouillons passés ignorés et retirables', async () => {
+  const { run, refuse, creneaux, db, KARIM } = await fresh();
+  // Mehdi : habilitation électrique expirée le 1er octobre. Reculer le début de la période n'en fait pas une simple alerte.
+  await run(KARIM, 'planning.creneau.ajouter', { equipe: 'Maintenance', jour: '2026-11-03', horaire: 'J', empId: 2 });
+  await refuse(KARIM, 'planning.publier', { equipe: 'Maintenance', du: '2026-08-17', au: '2026-11-08', motifAlertes: 'x', motif: 'y' },
+    /Publication impossible : Mehdi Benali — 3 nov\. 2026 : habilitation exigée Habilitation électrique expirée le 1 oct\. 2026/, 409);
+  await run(KARIM, 'planning.creneau.annuler', { id: (await creneaux(2))[0].id });
+  // Brouillon passé (généré, jamais publié) : ignoré par la publication, retiré sur demande ; il ne masque pas la version publiée.
+  const publieAvant = await publie(db, 6, '2026-10-08');
+  const passe = await db.insert<Creneau>('creneaux', {
+    empId: 6, jour: '2026-10-08', equipe: 'Maintenance', horaire: 'N', debut: '21:00', fin: '05:00', pause: 30, source: 'manuel', statut: 'brouillon', remplaceId: publieAvant,
+    creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Karim Haddad',
+  });
+  await run(KARIM, 'planning.creneau.ajouter', { equipe: 'Maintenance', jour: '2026-10-20', horaire: 'J', empId: 6 });
+  const o = await run(KARIM, 'planning.publier', { equipe: 'Maintenance', du: '2026-10-05', au: '2026-10-25', motifAlertes: 'Visite programmée' });
+  assert.match(o.message!, /publié du 10 oct\. 2026 au 25 oct\. 2026 \(version 1\) : 1 créneau/);
+  assert.equal((await db.get<Creneau>('creneaux', passe.id))!.statut, 'brouillon', 'brouillon passé ni publié ni refusé');
+  assert.equal((await db.get<Creneau>('creneaux', publieAvant))!.statut, 'publie');
+  assert.match((await run(KARIM, 'planning.creneau.annuler', { id: passe.id })).message!, /^Brouillon du 8 oct\. 2026 \(Thomas Garnier\) retiré$/);
+  await refuse(KARIM, 'planning.creneau.annuler', { id: publieAvant, motif: 'x' }, /Jour passé/, 409);
+  await refuse(KARIM, 'planning.publier', { equipe: 'Maintenance', du: '2026-10-01', au: '2026-10-09' }, /Période passée/);
+});
+
+test('repos quotidien contrôlé jusqu’au poste qui suit la période : publication et validation d’un échange', async () => {
+  const { run, refuse, db, KARIM, MEHDI, THOMAS } = await fresh();
+  // Thomas : poste du matin publié le 4 novembre (5 h) ; un poste de nuit la veille (21 h – 5 h) ne lui laisse aucun repos.
+  await publie(db, 6, '2026-11-04', 'M', '05:00', '13:00');
+  await run(KARIM, 'planning.creneau.ajouter', { equipe: 'Maintenance', jour: '2026-11-03', horaire: 'N', empId: 6 });
+  await refuse(KARIM, 'planning.publier', { equipe: 'Maintenance', du: '2026-11-03', au: '2026-11-03' }, /Thomas Garnier — 4 nov\. 2026 : aucun repos avant la prise de poste/);
+  const brouillon = (await db.all<Creneau>('creneaux')).find(c => c.jour === '2026-11-03')!;
+  await run(KARIM, 'planning.creneau.annuler', { id: brouillon.id });
+  // Échange : Mehdi cède son poste de nuit du 3 novembre à Thomas, la veille de son propre poste du matin.
+  const nuit = await publie(db, 2, '2026-11-03', 'N', '21:00', '05:00');
+  const p = await run(MEHDI, 'planning.echange.proposer', { creneauId: nuit, partenaireId: 6 });
+  const id = (p.result as { echange: number }).echange;
+  await run(THOMAS, 'planning.echange.accepter', { id });
+  await refuse(KARIM, 'planning.echange.valider', { id }, /alertes à motiver — Thomas Garnier — 4 nov\. 2026 : aucun repos avant la prise de poste/);
+  const v = await run(KARIM, 'planning.echange.valider', { id, motifAlertes: 'Remplacement accepté, repos rendu le 5' });
+  assert.match(v.message!, /validé/);
+  const recu = (await db.all<Creneau>('creneaux')).find(c => c.empId === 6 && c.jour === '2026-11-03' && c.statut === 'publie')!;
+  assert.ok(recu.alertesAcceptees!.includes('repos_quotidien'), 'alerte rattachée au poste échangé');
+});
+
+test('fin d’une affectation pas encore commencée : la veille du début admise sur les deux moteurs ; elle ne bloque plus rien', async () => {
+  const { run, refuse, db, KARIM, RH } = await fresh();
+  const a = await run(KARIM, 'planning.roulement.affecter', { empId: 6, cycle: 'JOUR', groupe: 'A', du: '2026-11-02' });
+  const id = (a.result as { roulement: { id: number } }).roulement.id;
+  await refuse(KARIM, 'planning.roulement.terminer', { id, au: '2026-10-31' }, /plus d’un jour avant le début/);
+  assert.match((await run(KARIM, 'planning.roulement.terminer', { id, au: '2026-11-01' })).message!, /terminée le 1 nov\. 2026/);
+  assert.equal((await db.get<{ au: string }>('roulements', id))!.au, '2026-11-01');
+  // Annulée : ni chevauchement pour une nouvelle affectation, ni archivage refusé, ni génération.
+  await run(KARIM, 'planning.roulement.affecter', { empId: 6, cycle: '2X8', groupe: 'A', du: '2026-10-26' });
+  assert.match((await run(KARIM, 'planning.generer', { equipe: 'Maintenance', du: '2026-11-02', au: '2026-11-08' })).message!, /7 créneaux créés/);
+  assert.match(String((await run(RH, 'planning.cycle.archiver', { code: 'JOUR' })).message), /Cycle JOUR archivé/);
+});
+
+test('mutation : l’ancien manager ne génère ni ne publie plus le planning du salarié ; poste ajouté hors de son équipe refusé', async () => {
+  const { run, refuse, creneaux, db, KARIM, HUGO, RH } = await fresh();
+  await run(KARIM, 'planning.roulement.affecter', { empId: 6, cycle: 'JOUR', groupe: 'A', du: '2026-10-19' });
+  await run(KARIM, 'planning.generer', { equipe: 'Maintenance', du: '2026-10-19', au: '2026-10-25' });
+  assert.equal((await creneaux(6)).length, 7);
+  // Thomas passe en Logistique (manager : Hugo Lefèvre, 16).
+  await db.update('employes', 6, { equipe: 'Logistique' });
+  await refuse(KARIM, 'planning.publier', { equipe: 'Maintenance', du: '2026-10-19', au: '2026-10-25', motifAlertes: 'x', motif: 'y' },
+    /^Publication impossible : le planning de Thomas Garnier est tenu par son manager \(ou son suppléant\) ou le service RH — retirez ces brouillons$/, 403);
+  const g = await run(KARIM, 'planning.generer', { equipe: 'Maintenance', du: '2026-10-26', au: '2026-11-01' });
+  assert.match(g.message!, /0 créneau créé, 0 mis à jour .* · 1 salarié affecté au roulement de l’équipe mais qui n’en fait plus partie ou que vous ne planifiez pas/);
+  assert.equal((await creneaux(6)).length, 7);
+  await refuse(KARIM, 'planning.creneau.ajouter', { equipe: 'Maintenance', jour: '2026-10-28', horaire: 'J', empId: 6 }, /manager du salarié/, 403);
+  await refuse(HUGO, 'planning.creneau.ajouter', { equipe: 'Logistique', jour: '2026-10-28', horaire: 'J', empId: 2 }, /manager du salarié/, 403);
+  await refuse(HUGO, 'planning.creneau.ajouter', { equipe: 'Maintenance', jour: '2026-10-28', horaire: 'J', empId: 6 }, /tenu par son manager/, 403);
+  // Même pour le service RH : un poste nominatif est rattaché à l'équipe actuelle du salarié.
+  await refuse(RH, 'planning.creneau.ajouter', { equipe: 'Maintenance', jour: '2026-10-28', horaire: 'J', empId: 6 }, /Thomas Garnier ne fait pas partie de l’équipe Maintenance/);
+});
+
+test('échange accepté : le suppléant d’une délégation « planning » est prévenu, comme le manager', async () => {
+  const { run, db, mails, MEHDI, THOMAS } = await fresh();
+  await db.insert('delegations', { managerId: 12, suppleantId: 16, du: '2026-10-10', au: '2026-10-20', perimetre: ['planning'], creeLe: '2026-10-09T08:00:00.000Z', creePar: 'Karim Haddad' });
+  const sien = await publie(db, 2, '2026-10-17');
+  const p = await run(MEHDI, 'planning.echange.proposer', { creneauId: sien, partenaireId: 6 });
+  await run(THOMAS, 'planning.echange.accepter', { id: (p.result as { echange: number }).echange });
+  const adresse = async (id: number) => (await db.get<{ email: string | null }>('employes', id))!.email;
+  const courriels = (await mails('planning.echange.demande')).filter(m => /à valider/.test(m.objet)).flatMap(m => m.a);
+  const notifs = (await db.all<{ empId: number; type: string }>('notifications')).filter(n => n.type === 'planning.echange.demande').map(n => n.empId);
+  assert.ok(courriels.includes((await adresse(16))!) || notifs.includes(16), `suppléant prévenu : ${JSON.stringify({ notifs, courriels })}`);
+  assert.ok(courriels.includes((await adresse(12))!) || notifs.includes(12), 'manager prévenu');
 });

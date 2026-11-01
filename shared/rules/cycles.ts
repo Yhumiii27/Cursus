@@ -133,9 +133,11 @@ export function controlerCycle(
     : { erreurs, valeurs: { code, nom, longueur, sequence, groupes, origine } };
 }
 
+/** Affectation annulée avant d'avoir commencé (terminée la veille de son début) : elle ne compte plus nulle part. */
+export const roulementAnnule = (r: Pick<Roulement, 'du' | 'au'>) => !!r.au && r.au < r.du;
 /** Affectations en cours ou à venir au jour `ti` qui emploient le cycle (archivage refusé tant qu'il y en a). */
 export const roulementsDuCycle = (roulements: readonly Roulement[] | undefined, code: string, ti: ISODate) =>
-  (roulements ?? []).filter(r => r.cycle === code && (!r.au || r.au >= ti));
+  (roulements ?? []).filter(r => r.cycle === code && !roulementAnnule(r) && (!r.au || r.au >= ti));
 
 // — Indicateurs —
 

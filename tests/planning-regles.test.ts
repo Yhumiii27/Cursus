@@ -242,6 +242,44 @@ test('habilitations à la date du créneau : absente, retirée, suspendue → re
 
 // — Publication, échanges, affectations —
 
+test('habilitations : prérequis de formation échu à la date du créneau ; échéance comparée à la partie à venir de la période', () => {
+  const d = (s: string) => new Date(`${s}T00:00:00`);
+  const noms = { habilitation: (id: string) => id.toUpperCase(), formation: (id: string) => id.toUpperCase() };
+  const jour = (j: string) => ({ jour: j, exigences: { habilitations: ['elec'], formations: [] } });
+  const avec = (prereqExp: string, exp = '2028-01-01') => ({
+    id: 7, rawCerts: [], med: { ok: true, restrictions: [] },
+    habs: [{ h: 'elec', key: 'ok', mesure: null, exp: d(exp), checks: [
+      { type: 'cert', label: 'SST', ok: true, exp: d(prereqExp) },
+      // Prérequis médical : jamais lu à la date du créneau (il révélerait l'échéance de la visite).
+      { type: 'med', label: 'Aptitude médicale', ok: true, exp: d('2026-10-20') },
+    ] }],
+  }) as never;
+  // Prérequis échu le 1er novembre : créneau du 5 novembre publié dès aujourd'hui → alerte « suspendue pendant la période ».
+  const a = ctl.alertesHabilitations(avec('2026-11-01'), [jour('2026-10-30'), jour('2026-11-05')], '2026-10-26', '2026-10-10', noms);
+  assert.deepEqual(a.map(x => [x.jour, x.code, x.gravite]), [['2026-11-05', 'habilitation_expire', 'alerte']]);
+  assert.match(a[0].texte, /suspendue dès l’échéance de son prérequis SST le 1 nov\. 2026/);
+  // Période qui commence après l'échéance du prérequis : refus, comme une habilitation suspendue.
+  const b = ctl.alertesHabilitations(avec('2026-11-01'), [jour('2026-11-05')], '2026-11-02', '2026-10-10', noms);
+  assert.deepEqual(b.map(x => [x.code, x.gravite]), [['habilitation', 'refus']]);
+  assert.match(b[0].texte, /suspendue \(prérequis SST échu le 1 nov\. 2026\)/);
+  assert.deepEqual(ctl.alertesHabilitations(avec('2027-06-01'), [jour('2026-11-05')], '2026-11-02', '2026-10-10', noms), [], 'prérequis valide : rien');
+  // Échéance de l'habilitation déjà passée aujourd'hui : refus même si la période reçue commence avant (début ramené à aujourd'hui).
+  const c = ctl.alertesHabilitations(avec('2027-06-01', '2026-10-01'), [jour('2026-11-05')], '2026-08-17', '2026-10-10', noms);
+  assert.deepEqual(c.map(x => [x.code, x.gravite]), [['habilitation', 'refus']]);
+});
+
+test('repos quotidien : le poste qui suit la période est contrôlé quand le précédent en fait partie (alerte rattachée à ce dernier)', () => {
+  const jours = [{ jour: '2026-11-03', horaire: H.N }, { jour: '2026-11-04', horaire: H.M }];
+  const a = ctl.controlesPlanning({ employe: MAJEUR, jours, du: '2026-11-03', au: '2026-11-03', reglages: DEFAULT_SETTINGS, derogationDominicale: false });
+  const r = a.filter(x => x.code === 'repos_quotidien');
+  assert.deepEqual(r.map(x => [x.jour, x.gravite]), [['2026-11-03', 'alerte']]);
+  assert.match(r[0].texte, /^4 nov\. 2026 : aucun repos avant la prise de poste/);
+  assert.ok(ctl.codesAcceptes(a, 1, '2026-11-03').includes('repos_quotidien'));
+  // Repos suffisant après la période : rien.
+  const b = ctl.controlesPlanning({ employe: MAJEUR, jours: [{ jour: '2026-11-03', horaire: H.M }, { jour: '2026-11-04', horaire: H.M }], du: '2026-11-03', au: '2026-11-03', reglages: DEFAULT_SETTINGS, derogationDominicale: false });
+  assert.deepEqual(b.filter(x => x.code === 'repos_quotidien'), []);
+});
+
 test('délai de prévenance : compté depuis la communication ; verrous d’une semaine validée et d’un jour passé', () => {
   assert.deepEqual(planning.prevenanceCreneau('2026-10-17', '2026-10-10', 7), { jours: 7, horsDelai: false });
   assert.deepEqual(planning.prevenanceCreneau('2026-10-16', '2026-10-10', 7), { jours: 6, horsDelai: true });

@@ -46,7 +46,8 @@ CREATE TABLE "roulements" (
 	"fin_le" timestamp with time zone,
 	"fin_par" text,
 	"fin_motif" text,
-	CONSTRAINT "roulements_periode_check" CHECK ("au" IS NULL OR "au" >= "du")
+	-- « au » à la veille de « du » : affectation annulée avant d'avoir commencé (planning.roulement.terminer).
+	CONSTRAINT "roulements_periode_check" CHECK ("au" IS NULL OR "au" >= "du" - 1)
 );
 --> statement-breakpoint
 CREATE TABLE "besoins_poste" (

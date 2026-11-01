@@ -914,7 +914,9 @@ export const REGLES: Record<string, Regle> = {
   // lot 12 — blocs réservés (socle) : identifiants, codes, dates, statuts seulement ; jamais de texte libre ni de donnée
   // de santé (une règle longue peut vivre dans le fichier du chantier, ajoutée ici par une ligne `...REGLES_<module>`).
   // lot 12 — C1 (forfait annuel en heures)
-  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C2 (notes de frais : activation) : aucune action nouvelle ; la consultation de l'historique d'autrui
+  // (`frais.historique.consulter`) est tracée par sa route (server/src/frais-historique.ts), salariés et nombre de notes
+  // seulement, comme `frais.export.fichier`.
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)

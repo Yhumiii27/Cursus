@@ -16,7 +16,9 @@
 // - `remplacerFeuille` trouve la feuille par dichotomie ; préchauffage de l'entrée au démarrage ;
 // - fenêtres de lecture (lot 12, socle : `FENETRES`) : lecture brute, delta par clé (ligne sortie de la fenêtre relue par
 //   clé) et relecture complète limités à la fenêtre du jour, banc d'oracle exact avec une fenêtre ; un autre jour relit
-//   l'entrée en entier, puis la dérive de nouveau.
+//   l'entrée en entier, puis la dérive de nouveau ;
+// - fenêtre des notes de frais (lot 12 — C2) : note, dépense et justificatif archivés relus par clé ou en entier, banc
+//   d'oracle exact avec des notes archivées et les actions de frais en renfort.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
@@ -683,6 +685,42 @@ test('fenêtres de lecture (lot 12) : un changement de jour relit l’entrée en
     espion.retirer();
     viderCache(db);
   }
+});
+
+// lot 12 — C2 (notes de frais : activation) : fenêtre de 13 mois après paiement, appliquée par la lecture complète, la
+// relecture complète du delta (dépenses : marqueur « toute la table ») et la relecture par clé (notes, justificatifs).
+test('fenêtre des notes de frais : delta par clé et relecture complète dans la fenêtre, banc d’oracle exact avec des notes archivées', async () => {
+  const { notesArchivees } = await import('./support/frais-archives.ts');
+  const db = await demo();
+  const a = await notesArchivees(db);
+  let etat = await depart(db);
+  assert.ok(!etat.brut.notesFrais.some(n => n.id === a.archivee) && etat.brut.notesFrais.some(n => n.id === a.bord));
+  // Note archivée modifiée hors de Cursus : relue par clé, elle ne rend rien ; la lecture brute est reprise telle quelle.
+  let x = await apres(db, etat, 'note archivée modifiée', async () => await db.run('UPDATE notes_frais SET cree_par = ? WHERE id = ?', ['Reprise', a.archivee]));
+  assert.equal(x.f.brut, etat.brut);
+  // Justificatif d'une dépense archivée modifié : de même.
+  x = await apres(db, x.etat, 'justificatif archivé modifié', async () => await db.run('UPDATE pieces SET nom = ? WHERE id = ?', ['reprise.pdf', a.pieceRepas]));
+  assert.equal(x.f.brut, x.etat.brut);
+  // Dépense archivée modifiée : table relue en entier (marqueur « toute la table »), dans la fenêtre.
+  x = await apres(db, x.etat, 'dépense archivée modifiée', async () => await db.run('UPDATE lignes_frais SET commercant = ? WHERE id = ?', ['Reprise', a.repas]));
+  assert.ok(!x.f.brut.lignesFrais.some(l => l.id === a.repas));
+  // Justificatif détaché de sa dépense (comme l'effacement de la conservation, objet_id vidé) : il revient dans la fenêtre.
+  const avant = x.etat.brut.pieces.length;
+  x = await apres(db, x.etat, 'justificatif détaché', async () => await db.run('UPDATE pieces SET objet_id = NULL WHERE id = ?', [a.pieceRepas]));
+  assert.equal(x.f.brut.pieces.length, avant + 1);
+  etat = x.etat;
+  // Note de la fenêtre payée (paiement du jour) : elle reste dans la fenêtre, ses dépenses aussi.
+  x = await apres(db, etat, 'note payée ce jour', async () => await db.run(`UPDATE notes_frais SET statut = 'payee', payee_le = ? WHERE id = ?`, [T, 3]));
+  assert.ok(x.f.brut.notesFrais.some(n => n.id === 3) && x.f.brut.lignesFrais.some(l => l.noteId === 3));
+
+  // Banc d'oracle, actions de frais en renfort (dont celles qui visent une note archivée, refusées) : lecture partagée,
+  // jeux d'action et réponses égaux à la relecture complète.
+  const frais = Object.keys(ACTIONS).filter(n => n.startsWith('frais.') && n !== 'frais.export.generer');
+  const rapport = await rejouer(db, { graine: 20261102, pas: 40, verifierTous: 4, jeux: 0, sql: 0.2, renfort: [...frais, ...frais] });
+  assert.deepEqual(rapport.divergences, []);
+  assert.deepEqual(rapport.erreurs, []);
+  assert.ok(rapport.ecritures > 0 && rapport.comparaisons > 0, 'le banc a écrit et comparé');
+  assert.ok(Object.keys(rapport.actions).some(n => n.startsWith('frais.') && rapport.actions[n].ok > 0), 'des actions de frais validées');
 });
 
 test('lecture brute retenue avec l’instantané complet : loadFull, entrée, jeu dérivé', async () => {

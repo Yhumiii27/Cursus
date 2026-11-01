@@ -196,3 +196,26 @@ test('résumés de la paie : une absence validée change les absences en attente
   assert.notDeepStrictEqual(apres.absencesPaie, avant.absencesPaie, 'absences en attente du fichier de paie changées');
   assert.ok(DEP_PAIE.includes('absences'));
 });
+
+// lot 12 — C2 (notes de frais : activation) : fenêtre de 13 mois après paiement.
+test('fenêtre des notes de frais : aucune note payée avant la borne, ni ses dépenses ni leurs justificatifs ; la note payée le jour de la borne reste', async () => {
+  const { BORNE_ESSAI, notesArchivees } = await import('./support/frais-archives.ts');
+  const { borneFrais } = await import('../shared/rules/frais-fenetre.ts');
+  assert.equal(borneFrais('2026-10-10'), BORNE_ESSAI);
+  const db = await demo();
+  const a = await notesArchivees(db);
+  const brut = await db.lecture(async () => await lireBrut(db, '2026-10-10'));
+  assert.ok(brut.notesFrais.every(n => !(n.statut === 'payee' && n.payeeLe && n.payeeLe < borneFrais(brut.jour))), 'aucune note payée avant la borne');
+  const notes = new Set(brut.notesFrais.map(n => n.id));
+  for (const id of [a.archivee, a.medicale, a.thomas, a.nadia]) assert.ok(!notes.has(id), `note ${id} archivée`);
+  assert.ok(notes.has(a.bord), 'payée le jour de la borne : encore dans la fenêtre');
+  assert.ok(brut.lignesFrais.every(l => notes.has(l.noteId)), 'dépenses des seules notes retenues');
+  assert.ok(brut.lignesFrais.some(l => l.id === a.ligneBord));
+  const lignes = new Set(brut.lignesFrais.map(l => l.id));
+  assert.ok(brut.pieces.filter(p => p.objet === 'ligneFrais' || p.objet === 'ligneFraisSante').every(p => lignes.has(p.objetId!)), 'justificatifs des seules dépenses retenues');
+  assert.deepEqual(brut.pieces.filter(p => [a.pieceRepas, a.pieceMedicale, a.pieceBord].includes(p.id)).map(p => p.id), [a.pieceBord]);
+  // En base, tout reste : conservation comptable, historique à la demande.
+  assert.equal((await db.all('notesFrais')).length, brut.notesFrais.length + 4);
+  // Le service RH reçoit l'instantané fenêtré, comme tous.
+  assert.ok(!(await loadFull(db, RH_ADMIN)).notesFrais!.some(n => n.id === a.archivee));
+});

@@ -402,6 +402,10 @@ raccourci « Nouvelle dépense » de l'application installée), validation par l
 médicaux), contrôle par la comptabilité (profil « Comptabilité ») ou le service RH, remboursement avec la paie du mois
 suivant (colonne « montant » du fichier Sage), fichier d'écritures pour la comptabilité (`GET /api/frais/exports/:id/fichier`,
 tracé), tableau de bord, notes rattachées dans Missions et Voyages. Pas de virement SEPA (remboursement par la paie).
+Lot 12 (C2, étape 1) : l'instantané ne porte plus que les notes payées depuis moins de 13 mois (et toutes celles qui ne
+sont pas payées) ; les plus anciennes restent en base et se lisent par `GET /api/frais/historique` et
+`GET /api/frais/historique/:noteId`, filtrées par les mêmes droits ; une note archivée ne se modifie plus (409) ;
+essai de charge : `npm run charge:frais` (3 et 5 ans, verdicts).
 Détail : `docs/ARCHITECTURE.md` ; demandes : `docs/demandes/codex-lot11-pieces.md`, `keystone-lot11-frais.md`,
 `matrix-lot11-frais.sql`.
 

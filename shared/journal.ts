@@ -361,7 +361,9 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'opco.rouvrir': 'Dossier OPCO rouvert (retour d’un cran)',
   'opco.supprimer': 'Dossier OPCO supprimé (saisie erronée)',
   // lot 12 — C1 (forfait annuel en heures)
-  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C2 (notes de frais : activation) : consultation de l'historique d'autrui (notes payées depuis plus de 13 mois
+  // comprises) par le service RH ou la comptabilité, tracée par sa route (server/src/frais-historique.ts).
+  'frais.historique.consulter': 'Historique des notes de frais consulté',
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)

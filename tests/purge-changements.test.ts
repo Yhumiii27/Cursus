@@ -193,7 +193,7 @@ test('PostgreSQL : controlerSchema refuse une table sans ses déclencheurs revis
   await assert.rejects(autre.controlerSchema(), /table changements/);
 });
 
-test('migrations PostgreSQL publiées intactes (empreintes figées, 0001 à 0015)', () => {
+test('migrations PostgreSQL publiées intactes (empreintes figées, 0001 à 0020)', () => {
   // Une migration publiée ne se modifie jamais : une nouvelle migration reçoit le numéro suivant, et son empreinte
   // s'ajoute ici une fois publiée. Fins de ligne normalisées (copie de travail sous Windows).
   const PUBLIEES: Record<string, string> = {
@@ -213,15 +213,21 @@ test('migrations PostgreSQL publiées intactes (empreintes figées, 0001 à 0015
     '0014_changements': '1a107a5e67d0a673ed9e4dddb04941932c55717f61d8a58af91e710cf19d2f45',
     // lot 11 — socle commun
     '0015_lot11_socle': 'fc8a1ea20f790c7d060eede504a9a74ca23c4e80ad7f4552247d11a76b811634',
+    // lot 11 — organigramme et entités
+    '0016_entites': '30495dd06cf8353e920b02b125615e454e95ed8abce7c7c5be39a0582a3cd7a0',
     // lot 11 — pwa
     '0017_pwa': '75d0b9975f1280466821e313e77eeb40f371b175edac5b305cc64cef4232b9c9',
+    // lot 11 — indicateurs sociaux
+    '0018_indicateurs': '6e2c335f8123476e21873d592334f930cadd46cefeee230cbf04c5ac85bfd95e',
     // lot 11 — dossiers OPCO
     '0019_dossiers_opco': '163ffa3e5b8ead112791390aa9f7b7dfb7e900ed40921801b02e049a85951a9a',
+    // lot 11 — notes de frais
+    '0020_notes_frais': 'a6f80c29e24c6c01370b629bac909f942ff3fab0fbaabe51ef2b10a4495854ac',
   };
   const lues = new Map(migrationsPg().map(m => [m.nom, createHash('sha256').update(m.sql.replace(/\r\n/g, '\n')).digest('hex')]));
   for (const [nom, empreinte] of Object.entries(PUBLIEES)) assert.equal(lues.get(nom), empreinte, `${nom} modifiée ou absente`);
   const suivantes = [...lues.keys()].filter(n => !(n in PUBLIEES));
-  assert.ok(suivantes.every(n => n > '0015'), `migrations nouvelles numérotées après 0015 : ${suivantes.join(', ')}`);
+  assert.ok(suivantes.every(n => n > '0020'), `migrations nouvelles numérotées après 0020 : ${suivantes.join(', ')}`);
 });
 
 test('npm run revision:epoque : époque du fichier SQLite changée, option inconnue refusée', { skip: PG && 'commande lancée sur le fichier SQLite' }, async () => {

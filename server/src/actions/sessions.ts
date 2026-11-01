@@ -13,6 +13,8 @@ import type { Certification, EvaluationFormation, Inscription, Participation, Pl
 import { annulerSiConvoque } from '../notifications.ts';
 import { ajusterPropositions, promouvoirAttente, purgerAttente, retirerInscription } from '../liste-attente.ts';
 import { ActionError, type ActionHandler, type Ctx, getEmp, isRh, refuserSoiMeme, requireFormations, REVIENT_FORMATIONS, str } from './context.ts';
+// lot 12 — C4 : organisme de la session, figé à sa création.
+import { organismeChoisi } from './organismes.ts';
 
 /** Session désignée par `id` ; refusée si elle est clôturée ou annulée (sauf `toutes`). */
 function sessionOf(ctx: Ctx, id: unknown, toutes = false): Session {
@@ -55,7 +57,9 @@ const creer: ActionHandler = async (ctx, p) => {
     if (clotureDe(ctx.ds, plan.exercice)) throw new ActionError(`Action du plan ${plan.exercice} : exercice clos, il ne se modifie plus`);
   }
   const places = Number(p.places), lieu = str(p.lieu);
-  const s = await ctx.db.insert<Session>('sessions', { formation: fm.id, date: p.date, ...plage, lieu, places, statut: 'À confirmer', planId: plan?.id ?? null, bilan: null });
+  // lot 12 — C4 : organisme choisi, sinon celui de la ligne du plan ou du catalogue, figé (le catalogue peut changer ensuite).
+  const organismeId = organismeChoisi(ctx, p.organismeId, plan?.organismeId ?? fm.organismeId);
+  const s = await ctx.db.insert<Session>('sessions', { formation: fm.id, date: p.date, ...plage, lieu, places, statut: 'À confirmer', planId: plan?.id ?? null, bilan: null, organismeId });
   if (plan) await ctx.db.update<PlanAction>('planActions', plan.id, { statut: 'engage' });
   const pour = plage.fin === p.date ? `pour le ${fmt(parse(p.date))}` : plageTexte({ date: p.date, ...plage });
   return { message: `Session ${fm.court} créée ${pour} — ${plural(places, 'place', 'places')}${plan ? ' · action du plan engagée' : ''}`, result: { id: s.id } };

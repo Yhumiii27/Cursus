@@ -357,6 +357,10 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
+  //   Qualiopi : première relance du service RH 60 jours avant la fin de validité (puis 15 jours et l'échéance), avertissement
+  //   seulement ; fin d'un module d'e-learning validée par le service RH, pas d'office à l'import (choix par défaut du chantier) —
+  organismeAlerteQualiopiJours: { defaut: 60, controle: entier(16, 180) },
+  elearningFinAutoImport: { defaut: false, controle: booleen },
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
 };

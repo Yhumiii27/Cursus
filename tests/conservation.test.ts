@@ -148,7 +148,9 @@ const TEXTES_GARDES: Record<string, readonly string[]> = {
   // Contrat : dates, nature et régime codés ; auteur (nom) balayé. La référence (texte libre) est vidée.
   contrats_historique: ['effet', 'nature', 'regime', 'jusquau', 'signe_le', 'le', 'par', 'annule_le', 'fin'],
   // Certification : code de formation, dates, inscriptions closes (identifiants) ; auteurs (noms) balayés.
-  certifications: ['f', 'obtenue', 'convoc', 'convoc_le', 'corrige_le', 'corrige_par', 'annule_le', 'annule_par', 'inscriptions_closes'],
+  certifications: ['f', 'obtenue', 'convoc', 'convoc_le', 'corrige_le', 'corrige_par', 'annule_le', 'annule_par', 'inscriptions_closes',
+    // lot 12 — C4 : organisme (saisi par Vigie sur le serveur commun), pas une donnée sur la personne.
+    'organisme'],
   // Titre d'habilitation : code, dates, mesure codée ; auteurs (noms) balayés. Le motif de la mesure est vidé.
   hab_titres: ['h', 'delivree', 'par', 'demande', 'mesure', 'mesure_date', 'mesure_par'],
   // Formation suivie : code, intitulé et organisme de la formation (pas une donnée sur la personne), dates, origine
@@ -175,6 +177,10 @@ const TEXTES_GARDES: Record<string, readonly string[]> = {
   attentes_session: ['le', 'par', 'statut', 'proposee_le', 'issue_le', 'issue_par', 'issue'],
   // Évaluation de formation : type, répondant et efficacité codés, date ; auteur (nom) balayé.
   evaluations_formation: ['type', 'repondant', 'efficacite', 'le', 'auteur'],
+  // lot 12 — C4 : inscription à un module d'e-learning — dates, statut, source de l'avancement et réussite codés ; auteurs
+  // (noms) balayés.
+  inscriptions_elearning: ['inscrit_le', 'inscrit_par', 'echeance', 'statut', 'avancement_source', 'avancement_le', 'declare_le', 'termine_le', 'reussi',
+    'abandon_le', 'corrige_le', 'corrige_par', 'annule_le', 'annule_par'],
 };
 
 test('conservation : chaque colonne de texte libre d’une table gardée (mode « textes ») est vidée ou sur la liste blanche', async () => {

@@ -24,6 +24,8 @@ import { estObjetPiece } from '../../shared/rules/pieces.ts';
 import { estNaturePiece } from '../../shared/rules/opco.ts';
 // lot 11 — notes de frais
 import { categorieJournal, estCategorieFrais } from '../../shared/rules/frais.ts';
+// lot 12 — C4 (organismes de formation et e-learning)
+import { REGLES_ORGANISMES } from './journal-organismes.ts';
 import {
   ACTION_APPEL_KEYSTONE, ACTIONS_CONNEXION, ACTIONS_PAIE, changementsTexte, CONSERVATION_ARCHIVE_PAIE_MOIS, CONSERVATION_ENVOIS_MOIS,
   CONSERVATION_JOURNAL_MOIS, dossierComplet, estActionPaie, familleAction, FAMILLES_JOURNAL, JOURNAL_LABEL, lecteurJournal, libelleAction,
@@ -523,7 +525,7 @@ export const REGLES: Record<string, Regle> = {
   // Référentiels (catalogue, aucune donnée personnelle) : code de l'élément, valeurs avant et après de chaque champ.
   // Une validité modifiée rattache la ligne aux salariés dont un titre change de statut (le message en nomme).
   'referentiel.formation.enregistrer': {
-    ...referentiel('formations', ['nom', 'court', 'type', 'validite', 'duree', 'organisme', 'cout', 'validation', 'dureeHeures', 'passeportPrevention']), salaries: (_p, x) => salariesTouches(x),
+    ...referentiel('formations', ['nom', 'court', 'type', 'validite', 'duree', 'organisme', 'cout', 'validation', 'dureeHeures', 'passeportPrevention', /* lot 12 — C4 */ 'organismeId']), salaries: (_p, x) => salariesTouches(x),
   },
   'referentiel.formation.archiver': referentiel('formations', ['archive'], true),
   'referentiel.habilitation.enregistrer': {
@@ -916,7 +918,8 @@ export const REGLES: Record<string, Regle> = {
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
-  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C4 (organismes de formation et e-learning) : server/src/journal-organismes.ts.
+  ...REGLES_ORGANISMES,
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
 };

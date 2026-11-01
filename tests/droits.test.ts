@@ -188,6 +188,15 @@ const abonnementPush = async (u: User) => (await db.insert<{ id: number }>('abon
 // `p` reçoit la personne qui agit (pièce justificative envoyée par son compte) ; les autres lignes l'ignorent.
 interface Ligne { action: string; variante?: string; droits: string; p: (u: User) => Record<string, unknown> | Promise<Record<string, unknown>>; env?: Record<string, string> }
 
+// lot 12 — C4 (organismes de formation et e-learning) : fiches, contacts, tarifs, modules et inscriptions de la démonstration
+// (server/src/seed-organismes.ts), désignés par leur code.
+const organisme = async (code: string) => ((await db.one('SELECT id FROM organismes WHERE code = ?', [code])) as { id: number }).id;
+const moduleEl = async (code: string) => ((await db.one('SELECT id FROM modules_elearning WHERE code = ?', [code])) as { id: number }).id;
+const contactOrganisme = async () => ((await db.one('SELECT id FROM organisme_contacts ORDER BY id LIMIT 1')) as { id: number }).id;
+const tarifOrganisme = async () => ((await db.one('SELECT id FROM organisme_tarifs ORDER BY id LIMIT 1')) as { id: number }).id;
+/** Inscription ouverte au module RGPD-EL de la fiche `empId` (Mehdi : en cours ; Thomas : fin déclarée). */
+const inscriptionEl = async (empId = 2) => ((await db.one(`SELECT i.id FROM inscriptions_elearning i JOIN modules_elearning m ON m.id = i.module_id WHERE i.emp_id = ? AND m.code = 'RGPD-EL'`, [empId])) as { id: number }).id;
+
 //                                                        admin gest mgr autM coll autC  hse paie lect
 // lot 11 — notes de frais : note de Mehdi d'octobre dans l'état voulu, dépense « divers » sans justificatif, avec attestation
 // (hors du cumul avec un forfait de grand déplacement), avance demandée.
@@ -211,6 +220,27 @@ const exportFrais = async () => (await db.insert<{ id: number }>('exportsFrais',
 })).id;
 
 const MATRICE: Ligne[] = [
+  // lot 12 — C4 : organismes — droit « formations » (service RH, référent HSE) pour la fiche et les contacts ; service RH pour
+  // les conditions et les tarifs ; administrateur RH pour la fusion. Modules et inscriptions : droit « formations » ; fin
+  // validée par le service RH ; suppression d'une inscription par l'administrateur RH ; fin déclarée par le salarié inscrit.
+  { action: 'organisme.enregistrer', droits: '              O    O    -    -    -    -    O    -    -', p: async () => ({ id: await organisme('APAVE'), qualiopiVerifieLe: '2026-10-01' }) },
+  { action: 'organisme.conditions', droits: '               O    O    -    -    -    -    -    -    -', p: async () => ({ id: await organisme('APAVE'), delaiAnnulationJours: 15 }) },
+  { action: 'organisme.archiver', droits: '                 O    O    -    -    -    -    O    -    -', p: async () => ({ id: await organisme('APAVE-SUD') }) },
+  { action: 'organisme.verifier', droits: '                 O    O    -    -    -    -    O    -    -', p: async () => ({ id: await organisme('CROIX-ROUGE-FRANCAISE') }) },
+  { action: 'organisme.fusionner', droits: '                O    -    -    -    -    -    -    -    -', p: async () => ({ source: await organisme('APAVE-SUD'), cible: await organisme('APAVE'), motif: 'Agence saisie deux fois' }) },
+  { action: 'organisme.contact.enregistrer', droits: '      O    O    -    -    -    -    O    -    -', p: async () => ({ organismeId: await organisme('APAVE'), nom: 'Paul Durand', role: 'formateur' }) },
+  { action: 'organisme.contact.retirer', droits: '          O    O    -    -    -    -    O    -    -', p: async () => ({ id: await contactOrganisme() }) },
+  { action: 'organisme.tarif.enregistrer', droits: '        O    O    -    -    -    -    -    -    -', p: async () => ({ organismeId: await organisme('APAVE'), formation: 'atex', montantHt: 350 }) },
+  { action: 'organisme.tarif.archiver', droits: '           O    O    -    -    -    -    -    -    -', p: async () => ({ id: await tarifOrganisme() }) },
+  { action: 'elearning.module.enregistrer', droits: '       O    O    -    -    -    -    O    -    -', p: async () => ({ id: await moduleEl('RGPD-EL'), dureeHeures: 3 }) },
+  { action: 'elearning.module.archiver', droits: '          O    O    -    -    -    -    O    -    -', p: async () => ({ id: await moduleEl('ATEX-THEO') }) },
+  { action: 'elearning.inscrire', droits: '                 O    O    -    -    -    -    O    -    -', p: async () => ({ moduleId: await moduleEl('ATEX-THEO'), empId: 2 }) },
+  { action: 'elearning.declarer', droits: '                 -    -    -    -    O    -    -    -    -', p: async () => ({ id: await inscriptionEl() }) },
+  { action: 'elearning.importer', droits: '                 O    O    -    -    -    -    O    -    -', p: () => ({ texte: 'matricule;module;avancement\nEMP-0002;RGPD-EL;60' }) },
+  { action: 'elearning.terminer', droits: '                 O    O    -    -    -    -    -    -    -', p: async () => ({ id: await inscriptionEl(6), de: 'en_cours' }) },
+  { action: 'elearning.abandonner', droits: '               O    O    -    -    -    -    O    -    -', p: async () => ({ id: await inscriptionEl(), de: 'en_cours' }) },
+  { action: 'elearning.corriger', droits: '                 O    O    -    -    -    -    O    -    -', p: async () => ({ id: await inscriptionEl(), echeance: '2026-12-15', motif: 'Report demandé' }) },
+  { action: 'elearning.annuler', droits: '                  O    -    -    -    -    -    -    -    -', p: async () => ({ id: await inscriptionEl(), motif: 'Inscription en double' }) },
   // Fiches et équipes
   { action: 'employe.creer', droits: '                       O    O    -    -    -    -    -    -    -', p: async () => ({ ...PROFIL_VIDE('Maintenance', '2026-10-07'), nom: 'Nouvel Embauché', poste: 'Technicien' }) },
   { action: 'employe.modifier', droits: '                    O    O    O    -    -    -    -    -    -', p: async () => ({ id: 2, poste: 'Technicien de maintenance confirmé' }) },

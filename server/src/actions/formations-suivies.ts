@@ -12,6 +12,19 @@ import { controlerSuivie, intituleSuivie, obligatoireParDefaut, suiviesEnVigueur
 import type { Employe, FormationSuivie, OrigineFormationSuivie, PlanAction } from '../../../shared/types.ts';
 import { auteurDe } from '../delivrances.ts';
 import { ActionError, type ActionHandler, type Ctx, getEmp, refuserSoiMeme, requireFormations, requireRhAdmin, str } from './context.ts';
+// lot 12 — C4 : organisme choisi dans le référentiel (fiche) ; le texte libre reste admis hors catalogue.
+import { organismeChoisi } from './organismes.ts';
+
+/**
+ * lot 12 — C4 : `organismeId` reçu (vide : aucune fiche, texte libre) ; une fiche choisie donne son nom usuel au texte
+ * `organisme`. Absent : rien ne change (`null` à la saisie).
+ */
+function organismeDeLaSaisie(ctx: Ctx, p: Record<string, any>, texte: string | null, avant: number | null = null): { organismeId: number | null; organisme: string | null } {
+  if (p.organismeId === undefined) return { organismeId: avant, organisme: texte };
+  const organismeId = organismeChoisi(ctx, p.organismeId, avant);
+  const fiche = organismeId == null ? null : (ctx.ds.organismes ?? []).find(o => o.id === organismeId);
+  return { organismeId, organisme: fiche ? fiche.nomUsuel : texte };
+}
 
 /** Saisie contrôlée (première erreur), ou refus. */
 function valeurDe(ctx: Ctx, p: SaisieSuivie, avant: Pick<FormationSuivie, 'f'> | null = null) {
@@ -54,7 +67,7 @@ const enregistrer: ActionHandler = async (ctx, p) => {
   if (doublon) throw new ActionError(`${intituleSuivie(ctx.d, v)} du ${fmt(parse(v.du))} déjà enregistrée pour ${emp.nom}`);
   if (horsEntreprise(emp, v)) throw new ActionError(`${emp.nom} n’était pas dans l’entreprise à ces dates`);
   const planActionId = demandeId ? ctx.ds.demandesCollab.find(x => x.id === demandeId)?.suite?.planId ?? null : null;
-  const x = await ctx.db.insert<FormationSuivie>('formationsSuivies', { empId: emp.id, ...v, origine, planActionId, demandeId, ...enregistre(ctx) });
+  const x = await ctx.db.insert<FormationSuivie>('formationsSuivies', { empId: emp.id, ...v, ...organismeDeLaSaisie(ctx, p, v.organisme), origine, planActionId, demandeId, ...enregistre(ctx) });
   // Ligne du plan créée par l'acceptation, pas encore réalisée : signalée, à clore dans Plan & budget (coût réel).
   const ligne = planActionId ? ctx.ds.plan.find(l => l.id === planActionId && (l.statut === 'prevu' || l.statut === 'engage')) : null;
   const suite = ligne ? ` · ligne du plan ${ligne.exercice} à passer « réalisée » dans Plan & budget` : '';
@@ -73,11 +86,14 @@ const modifier: ActionHandler = async (ctx, p) => {
     f: champ('f', avant.f ?? ''), libelle: champ('libelle', avant.libelle ?? ''), du: champ('du', avant.du), au: champ('au', avant.au),
     duree: champ('duree', avant.duree ?? ''), organisme: champ('organisme', avant.organisme ?? ''), obligatoire: champ('obligatoire', avant.obligatoire),
   }, avant);
-  const change = (Object.keys(v) as (keyof typeof v)[]).some(k => v[k] !== avant[k]);
+  // lot 12 — C4 : fiche de l'organisme (champ absent : inchangée).
+  const lien = organismeDeLaSaisie(ctx, p, v.organisme, avant.organismeId ?? null);
+  Object.assign(v, { organisme: lien.organisme });
+  const change = (Object.keys(v) as (keyof typeof v)[]).some(k => v[k] !== avant[k]) || lien.organismeId !== (avant.organismeId ?? null);
   if (!change) return 'Aucune modification';
   const err = erreurMotifCorrection(p.motif);
   if (err) throw new ActionError(err);
-  await ctx.db.update<FormationSuivie>('formationsSuivies', avant.id, { ...v, corrigeLe: ctx.d.ti, corrigePar: ctx.user.nom, corrigeMotif: str(p.motif) });
+  await ctx.db.update<FormationSuivie>('formationsSuivies', avant.id, { ...v, organismeId: lien.organismeId, corrigeLe: ctx.d.ti, corrigePar: ctx.user.nom, corrigeMotif: str(p.motif) });
   // Passeport de prévention (lot 7, t066) : une ligne déjà déclarée se corrige aussi sur la plateforme.
   const rappel = rappelDeclaration(ctx.ds, cleLigne({ suivieId: avant.id }));
   return `${intituleSuivie(ctx.d, v)} — ${emp.nom} · formation suivie corrigée${rappel ? ` · ${rappel}` : ''}`;

@@ -102,6 +102,8 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // Lot 11, chantier C5, étape 2 : fichier d'écritures (comptes proposés, journal OD, gabarit du fichier de paie).
     fraisComptes: {}, fraisCompteGenerique: '6256', fraisCompteTva: '44566', fraisCompteSalarie: '421', fraisJournal: 'OD',
     fraisGabarit: { separateur: ';', colonnes: ['journal', 'date', 'compte', 'compteTiers', 'piece', 'libelle', 'debit', 'credit'], decimale: ',', entete: true, encodage: 'utf-8', formatDate: 'JJ/MM/AAAA' },
+    // lot 12 — C4 : relance Qualiopi 60 jours avant la fin de validité ; fin d'un module d'e-learning validée par le service RH.
+    organismeAlerteQualiopiJours: 60, elearningFinAutoImport: false,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(await loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

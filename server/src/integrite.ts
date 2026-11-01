@@ -121,6 +121,19 @@ export const REFERENCES: readonly Reference[] = [
   ref('lignes_frais', 'note_id', 'notes_frais'),
   ref('lignes_frais', 'vehicule_id', 'vehicules_perso'),
   ref('sceaux_pieces', 'piece_id', 'pieces'),
+  // lot 12 — C4 (clés étrangères de 0025_organismes_elearning.sql) : fiche des objets rattachés à un organisme, fiche qui en a
+  // absorbé une autre, formation d'un tarif ou d'un module ; salarié, module, ligne du plan, certification et formation
+  // suivie produites d'une inscription à un module d'e-learning.
+  ...['formations', 'sessions', 'formations_suivies', 'plan_actions', 'dossiers_opco', 'organisme_contacts', 'organisme_tarifs', 'modules_elearning']
+    .map(t => ref(t, 'organisme_id', 'organismes')),
+  ref('organismes', 'fusionne_dans', 'organismes'),
+  ref('organisme_tarifs', 'formation', 'formations'),
+  ref('modules_elearning', 'formation', 'formations'),
+  ref('inscriptions_elearning', 'emp_id', 'employes'),
+  ref('inscriptions_elearning', 'module_id', 'modules_elearning'),
+  ref('inscriptions_elearning', 'plan_action_id', 'plan_actions'),
+  ref('inscriptions_elearning', 'cert_id', 'certifications'),
+  ref('inscriptions_elearning', 'suivie_id', 'formations_suivies'),
 ];
 
 export interface Integrite {

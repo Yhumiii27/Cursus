@@ -283,6 +283,9 @@ const TOUJOURS: Partial<Record<TableName, string>> = {
   // démonstration (montants cités de mémoire, à ressaisir par le service RH et la comptabilité).
   ...Object.fromEntries(['notesFrais', 'lignesFrais', 'vehiculesPerso', 'avancesFrais', 'exportsFrais', 'sceauxPieces', 'baremesKm', 'forfaitsFrais', 'tauxDevises']
     .map(t => [t, 'notes de frais et valeurs de démonstration'])),
+  // lot 12 — C4 : inscriptions des salariés fictifs aux modules d'e-learning ; contacts (personnes fictives) et tarifs de
+  // démonstration. Les fiches des organismes et les modules, repris du catalogue gardé, restent (paramétrage, à vérifier).
+  ...Object.fromEntries(['inscriptionsElearning', 'organismeContacts', 'organismeTarifs'].map(t => [t, 'inscriptions e-learning, contacts et tarifs de démonstration'])),
   connexions: 'sessions de connexion',
   comptes: 'comptes de connexion',
   journal: 'journal des actions fictives (remplacé par la seule ligne purge.demo)',

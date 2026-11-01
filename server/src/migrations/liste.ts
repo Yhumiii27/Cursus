@@ -23,6 +23,8 @@ import { C2P_COLONNES, PASSEPORT_PREVENTION } from './lot7-prevention.ts';
 import { INDEX_ATTENTES, INDEX_EVALUATIONS } from './lot7-formations.ts';
 import { PIECES_CHIFFREES } from './lot8-pieces.ts';
 import { INDEX_JOURNAL_COMPTE } from './lot8-index-journal.ts';
+// lot 12 — C4 (organismes de formation et e-learning)
+import { ELEARNING_INDEX, ORGANISMES } from './lot12-organismes.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   INDEX_JOURNAL,
@@ -61,4 +63,7 @@ export const MIGRATIONS: readonly Migration[] = [
   INDEX_EVALUATIONS,
   PIECES_CHIFFREES,
   INDEX_JOURNAL_COMPTE,
+  // lot 12 — C4 (organismes de formation et e-learning)
+  ORGANISMES,
+  ELEARNING_INDEX,
 ];

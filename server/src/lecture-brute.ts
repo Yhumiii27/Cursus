@@ -41,6 +41,9 @@ import type {
 } from '../../shared/types.ts';
 // lot 11 — notes de frais
 import type { AvanceFrais, BaremeKm, ForfaitFrais, LigneFrais, NoteFrais, TauxDevise, VehiculePerso } from '../../shared/types.ts';
+// lot 12 — C4 (organismes de formation et e-learning)
+import type { InscriptionElearning, ModuleElearning, Organisme, OrganismeContact, OrganismeTarif } from '../../shared/types-organismes.ts';
+import { resumeOrganisme } from '../../shared/rules/organismes.ts';
 import type { Db, Fenetre, TableName } from './db.ts';
 import { formatFichierDe } from './lots-paie.ts';
 import { messagerieDe } from './messagerie.ts';
@@ -149,6 +152,11 @@ export interface Brut {
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
+  organismes: Organisme[];
+  organismeContacts: OrganismeContact[];
+  organismeTarifs: OrganismeTarif[];
+  modulesElearning: ModuleElearning[];
+  inscriptionsElearning: InscriptionElearning[];
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
   reglages: ReglagesBruts;
@@ -307,6 +315,11 @@ export async function lireBrut(db: Db, today: string): Promise<Brut> {
     // lot 12 — C2 (notes de frais : activation)
     // lot 12 — C3 (entretiens suivis et 360°)
     // lot 12 — C4 (organismes de formation et e-learning)
+    organismes: await lire('organismes'),
+    organismeContacts: await lire('organismeContacts'),
+    organismeTarifs: await lire('organismeTarifs'),
+    modulesElearning: await lire('modulesElearning'),
+    inscriptionsElearning: await lire('inscriptionsElearning'),
     // lot 12 — C5 (planning d'équipe)
     // lot 12 — C6 (badgeage virtuel)
     reglages: await lireReglages(db),
@@ -418,6 +431,9 @@ const referentielsDe = memo((formations: Formation[], habilitations: HabType[], 
   // lot 11 — notes de frais : barèmes kilométriques, forfaits et taux des devises (aucune donnée personnelle).
   baremesKm: BaremeKm[], forfaitsFrais: ForfaitFrais[], tauxDevises: TauxDevise[]) =>
   ({ formations, habilitations, destinations, postes, equipes, horaires, projets, chantiers, entites, sites, baremesKm, forfaitsFrais, tauxDevises }));
+// lot 12 — C4 (organismes de formation et e-learning) : fiches réduites à leur nom (id, code, nom usuel, type, archivage),
+// fusionnées comprises (pour nommer un ancien rattachement), ajoutées aux référentiels transmis à tous les espaces.
+const avecOrganismes = memo((r: Dataset['referentiels'], organismes: Organisme[]) => ({ ...r, organismes: organismes.map(resumeOrganisme) }));
 /** lot 11 — organigramme : présents du jour et non anonymisés (`presentsDe`), sur les fiches telles qu'enregistrées. */
 const presentsOrganigrammeDe = memo((lignes: EmpRow[], today: string) => presentsDe(lignes, today));
 // lot 11 — dossiers OPCO : un dossier supprimé (saisie erronée, `opco.supprimer`) sort de l'instantané, avec ses versements.
@@ -448,8 +464,8 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     // espaces, qui en ont besoin pour nommer les titres et écarter les archivées des listes ; aucune donnée personnelle.
     // Postes et exigences (shared/rules/exigences.ts), horaires de poste (shared/rules/horaires.ts) : idem.
     // Entités et sites (lot 11) : données d'entreprise publiques (SIREN, SIRET, IDCC), transmises à tous pour l'organigramme.
-    referentiels: referentielsDe(brut.formations, brut.habilitations, brut.destinations, brut.postes, brut.equipes, brut.horaires, brut.projets, brut.chantiers,
-      brut.entites, brut.sites, brut.baremesKm, brut.forfaitsFrais, brut.tauxDevises),
+    referentiels: avecOrganismes(referentielsDe(brut.formations, brut.habilitations, brut.destinations, brut.postes, brut.equipes, brut.horaires, brut.projets, brut.chantiers,
+      brut.entites, brut.sites, brut.baremesKm, brut.forfaitsFrais, brut.tauxDevises), /* lot 12 — C4 */ brut.organismes),
     annuaire: annuaireDe(employes),
     employes,
     sessions: sessionsDe(brut.sessions, certs, brut.inscriptions, brut.participations, attentesSession, calendrierFeries),
@@ -516,7 +532,12 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     // lot 12 — C1 (forfait annuel en heures)
     // lot 12 — C2 (notes de frais : activation)
     // lot 12 — C3 (entretiens suivis et 360°)
-    // lot 12 — C4 (organismes de formation et e-learning)
+    // lot 12 — C4 (organismes de formation et e-learning) : filtrés par espace et par profil dans server/src/vues-organismes.ts.
+    organismes: brut.organismes,
+    organismeContacts: brut.organismeContacts,
+    organismeTarifs: brut.organismeTarifs,
+    modulesElearning: brut.modulesElearning,
+    inscriptionsElearning: brut.inscriptionsElearning,
     // lot 12 — C5 (planning d'équipe)
     // lot 12 — C6 (badgeage virtuel)
   };
@@ -529,7 +550,7 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
 const LECTURES_ASSEMBLEES = {
   settings: ['settings'],
   referentiels: ['formations', 'habilitations', 'destinations', 'postes', 'equipes', 'horaires', 'projets', 'chantiers', /* lot 11 — organigramme */ 'entites', 'sites',
-    /* lot 11 — notes de frais */ 'baremesKm', 'forfaitsFrais', 'tauxDevises'],
+    /* lot 11 — notes de frais */ 'baremesKm', 'forfaitsFrais', 'tauxDevises', /* lot 12 — C4 */ 'organismes'],
   annuaire: ['employes'],
   employes: ['employes', 'certifications', 'habTitres', 'visas', 'vaccinations'],
   sessions: ['sessions', 'certifications', 'inscriptions', 'participations', 'attentesSession', 'settings'],
@@ -592,6 +613,11 @@ const LECTURES_ASSEMBLEES = {
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
+  organismes: ['organismes'],
+  organismeContacts: ['organismeContacts'],
+  organismeTarifs: ['organismeTarifs'],
+  modulesElearning: ['modulesElearning'],
+  inscriptionsElearning: ['inscriptionsElearning'],
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
 } as const satisfies Partial<Record<keyof Dataset, readonly TableName[]>>;

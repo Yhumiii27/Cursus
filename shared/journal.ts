@@ -363,7 +363,27 @@ export const JOURNAL_LABEL: Record<string, string> = {
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
-  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C4 (organismes de formation et e-learning) : famille « Référentiels » pour organisme.*, « Formations, plan et
+  // budget » pour elearning.*.
+  'organisme.enregistrer': 'Organisme de formation enregistré',
+  'organisme.conditions': 'Conditions d’un organisme de formation enregistrées',
+  'organisme.archiver': 'Organisme de formation archivé ou rétabli',
+  'organisme.verifier': 'Organisme de formation vérifié',
+  'organisme.fusionner': 'Organismes de formation fusionnés (doublon)',
+  'organisme.contact.enregistrer': 'Contact d’un organisme enregistré',
+  'organisme.contact.retirer': 'Contact d’un organisme retiré',
+  'organisme.tarif.enregistrer': 'Tarif d’un organisme enregistré',
+  'organisme.tarif.archiver': 'Tarif d’un organisme archivé',
+  'migration.organismes': 'Reprise des organismes de formation (textes libres)',
+  'elearning.module.enregistrer': 'Module d’e-learning enregistré',
+  'elearning.module.archiver': 'Module d’e-learning archivé ou rétabli',
+  'elearning.inscrire': 'Inscription à un module d’e-learning',
+  'elearning.declarer': 'Fin d’un module d’e-learning déclarée',
+  'elearning.importer': 'Avancement e-learning importé',
+  'elearning.terminer': 'Fin d’un module d’e-learning validée',
+  'elearning.abandonner': 'Inscription à un module d’e-learning abandonnée',
+  'elearning.corriger': 'Inscription à un module d’e-learning corrigée',
+  'elearning.annuler': 'Inscription à un module d’e-learning supprimée (saisie erronée)',
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
 };
@@ -393,9 +413,10 @@ export const dossierComplet = (u: Pick<CurrentUser, 'role' | 'profilRh'>) => dro
 export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly string[] }[] = [
   // Une entrée par famille (la fusion du lot 11 avait doublé « fiches » et « formations » : clés React en double à l'écran).
   { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.', 'migration.contratsHistorique', /* lot 11 — organigramme */ 'entite.', 'site.', 'organigramme.'] },
-  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel', 'attente.', 'passeport.', 'evaluation.', 'migration.passeportPrevention', 'opco.'] },
+  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel', 'attente.', 'passeport.', 'evaluation.', 'migration.passeportPrevention', 'opco.',
+    /* lot 12 — C4 */ 'elearning.'] },
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.', 'migration.habDelivrances'] },
-  { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes'] },
+  { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes', /* lot 12 — C4 */ 'organisme.', 'migration.organismes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
   { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement', 'migration.referencesDeplacements', 'chantier.', 'migration.deplacementsPaie'] },
   { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'forfait.', 'astreinte.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie', 'migration.rubriquesFeuilles'] },
@@ -547,7 +568,15 @@ export const CHAMP_LABEL: Record<string, string> = {
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
-  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C4 (organismes de formation et e-learning) : réglages, colonnes d'une fiche, d'un tarif, d'un module et d'une
+  // inscription (jamais un nom, une URL, un avancement ni un motif).
+  organismeAlerteQualiopiJours: 'Qualiopi : première relance avant la fin de validité (jours)', elearningFinAutoImport: 'E-learning : fin validée d’office à l’import',
+  organismeId: 'Organisme', nda: 'Déclaration d’activité', qualiopi: 'Certifié Qualiopi', qualiopiCategories: 'Catégories Qualiopi',
+  qualiopiValideJusquau: 'Qualiopi valable jusqu’au', qualiopiVerifieLe: 'Qualiopi vérifié le', aVerifier: 'À vérifier', subrogationAcceptee: 'Subrogation acceptée',
+  delaiAnnulationJours: 'Délai d’annulation (jours)', conditions: 'Conditions', principal: 'Contact principal', modalite: 'Modalité', unite: 'Unité',
+  montantHt: 'Montant HT', valableDu: 'Valable du', valableAu: 'Valable jusqu’au', url: 'Lien d’accès', intitule: 'Intitulé', langue: 'Langue',
+  coutLicence: 'Coût d’une licence', accesMois: 'Validité de l’accès (mois)', attestationRequise: 'Attestation exigée', declareLe: 'Fin déclarée le',
+  termineLe: 'Terminé le', suivieId: 'Formation suivie', certId: 'Certification', echeance: 'Échéance',
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
 };

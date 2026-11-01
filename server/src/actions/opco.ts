@@ -31,6 +31,9 @@ import { depotOuvert } from '../../../shared/rules/pieces.ts';
 import type { DestinataireVersementOpco, DossierOpco, ISODate, NaturePiece, PlanAction, VersementOpco } from '../../../shared/types.ts';
 import type { PieceEnregistree } from '../pieces.ts';
 import { ActionError, type ActionHandler, type Ctx, requireRh, requireRhAdmin, str } from './context.ts';
+// lot 12 — C4 : organisme du dossier (fiche), préremplissage.
+import { organismeDuPlan, organismeFinal } from '../../../shared/rules/organismes.ts';
+import { organismeChoisi } from './organismes.ts';
 
 // — Lecture et noms —
 
@@ -118,13 +121,18 @@ const creer: ActionHandler = async (ctx, p) => {
   if (!l) throw new ActionError('Action du plan introuvable ou supprimée', 404);
   if (l.statut === 'reporte') throw new ActionError(`${nomActionPlan(ctx, l)} : action reportée sur l’exercice ${l.exercice + 1}, créez le dossier sur sa nouvelle ligne`);
   const s = ctx.ds.settings;
+  // lot 12 — C4 : organisme choisi, sinon celui de la ligne du plan (ou du catalogue) ; SIRET, déclaration d'activité et
+  // Qualiopi préremplis depuis sa fiche quand ils ne sont pas saisis (ils restent ce qui est déclaré à l'OPCO).
+  const fiche = organismeFinal(ctx.ds.organismes, organismeChoisi(ctx, p.organismeId, organismeDuPlan(ctx.ds, l)?.id));
+  const prerempli: Partial<Record<keyof SaisieOpco, unknown>> = fiche ? { organismeSiret: fiche.siret, organismeNda: fiche.nda, organismeQualiopi: fiche.qualiopi } : {};
   const champs = saisie({
-    ...Object.fromEntries(CHAMPS_SAISIE.map(k => [k, p[k]])) as unknown as SaisieOpco,
+    ...Object.fromEntries(CHAMPS_SAISIE.map(k => [k, p[k] === undefined ? prerempli[k] : p[k]])) as unknown as SaisieOpco,
     // Proposés : OPCO et subrogation des réglages, dispositif « plan de développement des compétences ».
     opco: p.opco ?? s.opcoDefaut, subrogation: p.subrogation ?? s.opcoSubrogation, dispositif: p.dispositif ?? 'plan',
   });
   const d = await ctx.db.insert<DossierOpco>('dossiersOpco', {
     ...champs, planActionId: l.id, empId: null, exercice: l.exercice, statut: 'a_deposer', creeLe: new Date().toISOString(), creePar: ctx.user.nom,
+    organismeId: fiche?.id ?? null,
   });
   return {
     message: `Dossier OPCO créé — ${nomActionPlan(ctx, l)} : ${DISPOSITIFS_OPCO[champs.dispositif].label}, ${OPCOS[champs.opco]}${champs.montantDemande != null ? `, ${fmtEur(champs.montantDemande)} demandés` : ''}`,

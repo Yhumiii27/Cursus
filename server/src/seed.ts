@@ -29,6 +29,8 @@ import { lotHistorique } from './migrations/paie.ts';
 import { amorcerActivites } from './migrations/temps.ts';
 import { amorcerHoraires } from './migrations/lot6-horaires.ts';
 import { amorcerActiviteAstreinte } from './migrations/lot7-astreintes.ts';
+// lot 12 — C4 (organismes de formation et e-learning)
+import { organismesDemo } from './seed-organismes.ts';
 
 // Mode de validation : évaluation réussie pour les habilitations électriques, CACES, SST, ATEX, AIPR et PRAP ;
 // la présence suffit pour les sensibilisations et formations d'information.
@@ -560,6 +562,8 @@ export async function seedDemo(db: Db) {
     await comptesDemo(db);
     // lot 11 — notes de frais : module activé en démonstration, barème, forfaits, notes à chaque étape du circuit.
     await fraisDemo(db);
+    // lot 12 — C4 : organismes repris des textes libres (comme une base existante), complétés ; modules et inscriptions.
+    await organismesDemo(db);
 
     // Reprise des compteurs : jours déjà pris sur les périodes en cours, arrêtés au jour du chargement (période de CP à
     // prendre et année de RTT de cette date), plafonnés pour laisser un solde réaliste.

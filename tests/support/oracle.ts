@@ -9,7 +9,9 @@
 // - après chaque pas (ou tous les `verifierTous` pas) : vue de chaque compte, espace et profil RH (PROFILS_RH), entrée du
 //   cache et jeu d'action de chaque lecteur, contre la lecture directe (`instantaneDirect`, `loadFull`).
 // Il juge le cache tel qu'il est : depuis l'étape 2 du lot 9, le cache incrémental (entrée dérivée par le delta des lignes
-// changées, vues reportées ; compteurs `statistiquesCache` de server/src/cache-instantane.ts).
+// changées, vues reportées ; compteurs `statistiquesCache` de server/src/cache-instantane.ts). La relecture complète
+// (`loadFull`) lit les tables dans leur fenêtre de lecture du jour (`FENETRES`, lot 12, socle) : le banc compare donc à
+// la lecture brute fenêtrée, comme le cache.
 // Un appel refusé (4xx) fait partie du jeu : il ne doit rien changer. Une 5xx est une erreur du banc ou de Cursus.
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -181,6 +183,12 @@ const TIRAGES: Record<string, Tirage> = {
   'frais.avance.valider': ({ r, ds }) => ({ id: id(r, ds.avancesFrais, a => a.statut === 'demandee') }),
   'frais.avance.refuser': ({ r, ds }) => ({ id: id(r, ds.avancesFrais, a => a.statut === 'demandee'), motif: 'Mission annulée' }),
   'frais.avance.annuler': ({ r, ds }) => ({ id: id(r, ds.avancesFrais, a => a.statut === 'demandee') }),
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
 };
 
 // lot 11 — dossiers OPCO
@@ -222,6 +230,12 @@ function valeur(nom: string, action: string, x: Parameters<Tirage>[0]): unknown 
     indicateurs: 'indicateursArretes',
     // lot 11 — dossiers OPCO
     opco: 'dossiersOpco',
+    // lot 12 — C1 (forfait annuel en heures)
+    // lot 12 — C2 (notes de frais : activation)
+    // lot 12 — C3 (entretiens suivis et 360°)
+    // lot 12 — C4 (organismes de formation et e-learning)
+    // lot 12 — C5 (planning d'équipe)
+    // lot 12 — C6 (badgeage virtuel)
   };
   const lignes = (nomListe: string | undefined) => (nomListe ? (ds as unknown as Record<string, { id: number }[] | undefined>)[nomListe] : undefined);
   const parFamille = (f: string) => (f === 'cert' ? ds.employes.flatMap(e => e.certs) : lignes(tables[f]));
@@ -271,6 +285,12 @@ function valeur(nom: string, action: string, x: Parameters<Tirage>[0]): unknown 
     case 'profilRh': return r.choix(Object.keys(PROFILS_RH).filter(p => p !== 'rh_admin'));
     case 'perimetre': return ['feuilles', 'absences'];
     case 'motif': case 'comment': case 'commentaire': case 'reponse': case 'libelle': case 'texte': case 'lieu': case 'par': case 'reference': case 'numero': case 'telephone': case 'info': return `Banc d’oracle ${r.entre(1, 999)}`;
+    // lot 12 — C1 (forfait annuel en heures)
+    // lot 12 — C2 (notes de frais : activation)
+    // lot 12 — C3 (entretiens suivis et 360°)
+    // lot 12 — C4 (organismes de formation et e-learning)
+    // lot 12 — C5 (planning d'équipe)
+    // lot 12 — C6 (badgeage virtuel)
     default: return undefined;
   }
 }

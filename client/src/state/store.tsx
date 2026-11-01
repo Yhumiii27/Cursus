@@ -28,6 +28,14 @@ import type { EtapeOpco } from '../../../shared/rules/opco.ts';
 // lot 11 — notes de frais
 import type { TypeVehicule } from '../../../shared/types.ts';
 import type { OngletFrais } from '../components/frais/onglets.ts';
+// lot 12 — socle : onglets de l'écran Temps de travail.
+import type { OngletTemps } from '../pages/temps-onglets.ts';
+// lot 12 — C1 (forfait annuel en heures)
+// lot 12 — C2 (notes de frais : activation)
+// lot 12 — C3 (entretiens suivis et 360°)
+// lot 12 — C4 (organismes de formation et e-learning)
+// lot 12 — C5 (planning d'équipe)
+// lot 12 — C6 (badgeage virtuel)
 import { api, definirEspaceOnglet, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type NomAction, type SessionState } from '../api.ts';
 import type { Tri } from '../components/tri.ts';
 import { AppelsEnCours } from './actions.ts';
@@ -92,6 +100,15 @@ export interface UiState {
   /** Onglet de l'écran Notes de frais (selon l'espace : components/frais/onglets.ts) et note ouverte. */
   fraisOnglet: OngletFrais;
   fraisNote: number | null;
+  // lot 12 — socle
+  /** Onglet de l'écran Temps de travail (pages/temps-onglets.ts) : les feuilles, ou celui d'un chantier du lot 12. */
+  tempsOnglet: OngletTemps;
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
 }
 
 /** lot 11 — dossiers OPCO : filtre d'état de l'onglet « Dossiers OPCO ». */
@@ -111,6 +128,14 @@ const INITIAL_UI: UiState = {
   budgetOnglet: 'plan', opcoFiltre: 'tous', opcoCode: null, opcoDispositif: null, opcoSel: null,
   // lot 11 — notes de frais
   fraisOnglet: 'premier', fraisNote: null,
+  // lot 12 — socle
+  tempsOnglet: 'feuilles',
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
 };
 
 /** Dialogues ouverts depuis plusieurs écrans — rendus par <DialogHost />. */
@@ -237,7 +262,14 @@ export type DialogState =
   | { type: 'fraisPlafond'; id: number }
   | { type: 'fraisTaux' }
   | { type: 'fraisForfait'; annee: number }
-  | { type: 'fraisBareme'; annee: number; vehicule: TypeVehicule };
+  | { type: 'fraisBareme'; annee: number; vehicule: TypeVehicule }
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
+  ;
 
 /** Dialogue « Planifier » : rouvert après la création d'une session (t107). */
 export type DialogePlan = { type: 'plan'; empId: number; certId?: number; inscriptionId?: number };
@@ -547,7 +579,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const fermee = (rawView === 'organigramme' && !!data && !organigrammeOuvertA(data.settings.organigrammeOuvert, role))
     // lot 11 — notes de frais : module désactivé (réglage notesFraisActives) → page d'accueil (la comptabilité, qui n'a que
     // cet écran, y lit que le module est désactivé).
-    || (rawView === 'frais' && !!data && !data.settings.notesFraisActives);
+    || (rawView === 'frais' && !!data && !data.settings.notesFraisActives)
+    // lot 12 — blocs réservés (socle) : vue d'un module désactivé (réglage du chantier) → page d'accueil.
+    // lot 12 — C1 (forfait annuel en heures)
+    // lot 12 — C2 (notes de frais : activation)
+    // lot 12 — C3 (entretiens suivis et 360°)
+    // lot 12 — C4 (organismes de formation et e-learning)
+    // lot 12 — C5 (planning d'équipe)
+    // lot 12 — C6 (badgeage virtuel)
+    ;
   const view = allowedView(role, fermee ? '' : rawView, role === 'rh' ? data?.settings.vueInitiale : undefined, (data ?? session)?.user?.profilRh);
 
   // Synchronise l'URL avec la vue effectivement affichée, sa sélection et ses filtres (state/url.ts) : l'ouverture d'une

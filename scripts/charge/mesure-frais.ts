@@ -41,19 +41,19 @@ async function mesurer(titre: string) {
   const rh = (await currentUser(db, { compteId: (await db.one<{ id: number }>('SELECT id FROM comptes WHERE emp_id IS NULL AND profil_rh = ?', ['rh_admin']))!.id, role: 'rh', methode: 'demo' }))!;
   const mgr = (await currentUser(db, { compteId: (await db.one<{ id: number }>('SELECT id FROM comptes WHERE emp_id = 12'))!.id, role: 'manager', methode: 'demo' }))!;
   const coll = (await currentUser(db, { compteId: (await db.one<{ id: number }>('SELECT id FROM comptes WHERE emp_id = 2'))!.id, role: 'collaborateur', methode: 'demo' }))!;
-  const brut = await db.lecture(async () => await lireBrut(db));
+  const brut = await db.lecture(async () => await lireBrut(db, process.env.CURSUS_TODAY!));
   const full = assembler(brut, process.env.CURSUS_TODAY!, 0, rh);
   const json = JSON.stringify(vueDe(full, rh));
   const r = {
     lignesFrais: brut.lignesFrais.length, notesFrais: brut.notesFrais.length,
-    lectureBruteMs: await mediane(async () => await db.lecture(async () => await lireBrut(db))),
+    lectureBruteMs: await mediane(async () => await db.lecture(async () => await lireBrut(db, process.env.CURSUS_TODAY!))),
     assemblageMs: await mediane(() => assembler(brut, process.env.CURSUS_TODAY!, 0, rh)),
     vueRhMs: await mediane(() => vueDe(assembler(brut, process.env.CURSUS_TODAY!, 1, rh), rh)),
     vueManagerMs: await mediane(() => vueDe(assembler(brut, process.env.CURSUS_TODAY!, 2, mgr), mgr)),
     vueCollaborateurMs: await mediane(() => vueDe(assembler(brut, process.env.CURSUS_TODAY!, 3, coll), coll)),
     jsonRhMo: Math.round(json.length / 1e4) / 100,
     jsonRhBrotliMo: Math.round(brotliCompressSync(json, { params: { [constants.BROTLI_PARAM_QUALITY]: 5 } }).length / 1e4) / 100,
-    relectureLignesFraisMs: await mediane(async () => await db.lecture(async () => await lireTable(db, 'lignesFrais'))),
+    relectureLignesFraisMs: await mediane(async () => await db.lecture(async () => await lireTable(db, 'lignesFrais', process.env.CURSUS_TODAY!))),
   };
   console.log(`${titre} :`, r);
   return r;

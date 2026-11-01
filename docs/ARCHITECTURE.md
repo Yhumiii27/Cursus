@@ -3699,6 +3699,35 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
   au démarrage par le schéma déclaratif (`db.ts`), après une copie de sécurité ; les absences existantes sont reprises
   telles quelles (un signalement antérieur n’est pas réputé fait par l’intéressé : seul son manager ou le RH l’annule).
 
+## Échanges avec les autres outils
+
+Règles de la décision M-17 de Matrix (30 octobre 2026 ; demande M-17 de `REQUESTS.md`, validée par le propriétaire) :
+Matrix décide de chaque accès d'un outil aux données d'un autre, PostgreSQL l'applique. Elles valent pour tout échange de
+Cursus avec Keystone, Codex, Vigie, Crucible, Arche, Matrix ou un outil à venir. Inventaire des échanges actuels et de
+leur conformité : `docs/ECHANGES.md` ; règles reprises en tête des demandes : `docs/demandes/LISEZ-MOI.md`.
+
+- **R2 — Lire chez un autre outil** : seulement par ses vues `pub_` (`<schéma>.pub_…`), jamais par ses tables, même si
+  un droit le permettait. Une donnée qui manque dans une vue se demande à son propriétaire (colonne ajoutée en fin de
+  vue, ou nouvelle vue).
+- **R3 — Les vues `pub_` de Cursus** : la migration de Cursus (`server/migrations-pg/`) est la seule définition de ses
+  vues `pub_` ; on ne demande plus à Matrix de les recopier dans son dossier `partage/` (la copie qualifiée
+  `infra/postgres-partage/20-cursus.sql` reste en place pendant la transition, lots M17-1 à M17-5 de Matrix). Une vue
+  `pub_` est un contrat : aucune colonne retirée ni renommée (sinon une nouvelle vue `_v2`), ajouts en fin de liste
+  seulement, `WITH (security_barrier)`, jamais une colonne sensible (santé, motifs, textes libres :
+  `droits.colonnes_sensibles` du socle de Matrix) ; aucune vue nouvelle sans demande validée.
+- **R4 — Écrire chez un autre outil** : seulement par son API, ou par une fonction `pub_` qu'il fournit ; jamais par
+  `INSERT`, `UPDATE` ou `DELETE` dans son schéma. Les envois de Cursus passent par la file `envois`
+  (`server/src/envois.ts`), dans la transaction de l'action.
+- **R5 — Déclarer un besoin d'accès** : comme un lien du registre `matrix.liens` (lecteur, objet `schéma.pub_…`, nature
+  `lecture` ou `execution`, justification). En attendant l'API `POST /api/liens` de Matrix (lot M17-4), par une entrée
+  courte dans le `REQUESTS.md` de Matrix, rédigée dans `docs/demandes/` et jamais écrite dans le dépôt de Matrix : le
+  propriétaire la valide et la porte.
+- **Écriture qu'un autre outil ferait chez Cursus** : une API de Cursus (comme `/api/integrations/keystone/v1`), ou une
+  fonction `pub_<verbe>_<objet>` créée par une migration de Cursus : `SECURITY DEFINER`,
+  `SET search_path = cursus, pg_temp`, appelant identifié par `session_user`, règles métier et journal de Cursus
+  appliqués comme pour une action, `REVOKE EXECUTE … FROM PUBLIC` (le droit d'exécution est accordé par Matrix, lien de
+  nature `execution`). Aucune n'existe aujourd'hui.
+
 ## Intégrations
 
 - **Keystone → Cursus** : API `/api/integrations/keystone/v1` (en-tête `X-Api-Key`, variable
@@ -4602,3 +4631,73 @@ de l'instantané, et la sortie des notes payées depuis plus de 13 mois n'est pa
   `tests/client-frais.test.ts` (compte gardé, dépense avec photo, confirmations), matrice des droits, registre hors ligne,
   réglages, manifeste.
 
+## Lot 12 : socle commun (S0)
+
+Posé seul sur `main` avant les six chantiers du lot 12 (C1 forfait annuel en heures, C2 activation des notes de frais, C3
+entretiens suivis et 360°, C4 organismes de formation et e-learning, C5 planning d'équipe, C6 badgeage virtuel), pour que
+deux chantiers ne créent ni ne réécrivent le même objet en parallèle. Le multilingue est reporté (réponse du propriétaire
+du 1er novembre 2026) : aucun socle i18n, les textes restent en français. Aucun comportement visible ne change.
+
+- **Objets de pièce en PostgreSQL** (`server/migrations-pg/0021_lot12_socle.sql`) : `pieces_objet_check` admet, en plus
+  des objets existants, `inscriptionElearning`, `organisme` (C4) et `correctionPointage` (C6). Côté code, `ObjetPiece`,
+  `OBJETS_PIECE` et `TABLE_OBJET` restent inchangés : chaque chantier les ajoute dans son bloc le jour où sa table existe.
+  Aucune migration SQLite nommée (`lot12-socle` n'aurait rien à faire : sans CHECK sur `objet` en SQLite, comme au lot
+  11). Empreinte de 0021 dans `PUBLIEES` (`tests/purge-changements.test.ts`).
+- **Fenêtres de lecture** (`FENETRES` de `server/src/lecture-brute.ts`, registre vide au socle ; C2 et C5 y ajoutent
+  chacun une entrée, dans son bloc) : pour une table qui grossit sans fin, la condition SQL (fonction du seul jour) que
+  vérifient les lignes lues par l'instantané. `lireBrut(db, today)` et `lireTable(db, t, today)` l'appliquent (`Db.allDans`
+  : condition, ordre de la clé, colonnes omises) ; la lecture brute porte son jour (`Brut.jour`), et le delta
+  (`server/src/delta.ts`) relit dans la fenêtre de ce jour, en entier comme par clé (`Db.lireLignes(t, clés, fenêtre)`) :
+  une clé changée dont la ligne est hors de la fenêtre ne rend rien, la ligne sort de la lecture brute comme une ligne
+  supprimée. Une ligne qui sort de la fenêtre par le seul passage du temps n'est pas au journal des changements : l'entrée
+  du cache d'un autre jour est relue en entier (`entree` de `server/src/cache-instantane.ts`, comme avant), et `deriver`
+  refuse une lecture brute d'un autre jour (relecture complète). Une table à fenêtre se lit dans l'ordre de sa clé
+  entière, sans `ORDRE_LECTURE` (`tests/lot12-socle.test.ts`). Le banc d'oracle compare à `loadFull`, qui lit la fenêtre
+  du jour. Le reste des lignes ne se lit qu'à la demande, par une route du chantier. Tests :
+  `tests/lecture-incrementale.test.ts` (lecture brute, ligne sortie et revenue relue par clé, marqueur « toute la
+  table », banc d'oracle avec une fenêtre ; changement de jour : relecture complète, puis de nouveau dérivée).
+- **Projections par espace et par profil** : une ligne par chantier dans `vueDe` (manager, collaborateur) et `vueProfil`
+  (paie, référent HSE, lecture seule) de `server/src/dataset.ts`, vers `server/src/vues-<module>.ts` : `vues-forfait-heures`
+  (C1), `vues-entretiens-suivis` (C3), `vues-organismes` (C4), `vues-planning` (C5), `vues-pointage` (C6) ; les notes de
+  frais (C2) gardent `server/src/frais-vues.ts`. Contexte commun : `server/src/vues-lot12.ts`. Au socle, chaque projection
+  ne remplace rien ; tout champ nouveau d'un chantier qu'elle n'écrase pas part tel quel vers le manager et le
+  collaborateur (`...full`) : le chantier le filtre dans son fichier. La comptabilité garde sa liste blanche, le service RH
+  l'instantané complet.
+- **Délégation « planning »** (`PerimetreDelegation`, `shared/types.ts`, stocké en JSON sans CHECK) : connue de
+  `PERIMETRES_DELEGATION`, jamais retenue (`perimetreEffectif`), proposée (`DelegationDialog`) ni acceptée
+  (`controleDelegation`) tant que C5 ne l'ouvre pas d'après le réglage de son module.
+- **Onglets de l'écran Temps de travail** (`client/src/pages/temps-onglets.ts`, paramètre `onglet` de l'adresse, état
+  `tempsOnglet`) : un seul au socle (les feuilles, barre d'onglets cachée) ; C1 (RecapForfaitHeures), C5 (PlanningEquipe)
+  et C6 (Pointages) ajoutent chacun un onglet dans son bloc de `Temps.tsx` (libellé et composant), le contenu dans un
+  composant à eux.
+- **Menu** (`client/src/layout/Shell.tsx`) : registre `ENTREES_LOT12`, une fonction par chantier qui rend ses entrées
+  (groupe existant de l'espace, à sa fin, ou nouveau groupe en fin de menu) et leurs pastilles ; les groupes existants ne
+  changent pas.
+- **Blocs réservés**, commentés « lot 12 — Cx (…) » ; chaque chantier n'écrit que dans le sien. `tests/lot12-socle.test.ts`
+  ne contrôle que la présence des marqueurs (et l'absence de bloc C6 avant le limiteur dans `app.ts`) ; le respect des
+  blocs se vérifie à la relecture du diff de chaque chantier :
+  - serveur : `db.ts` (`TABLES`, `TABLES_SANS_REVISION`, `TABLES_CHANGEMENTS_SANS_CLE`), `lecture-brute.ts` (`Brut`,
+    `lireBrut`, `assembler`, `LECTURES`, `HORS_INSTANTANE`, `FENETRES`), `vues-cache.ts` (`CHAMPS_PAR_SALARIE`,
+    `CHAMPS_HORS_VUES`), `dataset.ts` (lignes d'appel), `journal.ts` (`REGLES`), `actions/index.ts` (imports et
+    registre), `elements-lot.ts` (`CleFamille`, `FAMILLES` : C1), `conservation.ts` (`TRAITEMENTS`), `app.ts` (imports ;
+    route d'intégration avant le limiteur, avec son propre limiteur et son `express.json` : C4 seulement si une plateforme
+    d'e-learning envoie le suivi, la route de badgeuse de C6 étant abandonnée, et aucun bloc C6 à cet endroit ; gardes `exigerNavigationInterne` ; routes
+    à la demande après la session : C2 historique des frais, C6 `GET /api/pointages/etat`) ; `tests/support/oracle.ts`
+    (tirages, tables par famille, valeurs par nom) ;
+  - partagé : `shared/types.ts` (`Settings`, `Dataset`, `SagePush` et `LotPaie` : C1, `EntretienType` : C3),
+    `shared/reglages.ts` (`REGLAGES`, `COHERENCE`), `shared/journal.ts` (`JOURNAL_LABEL`, `FAMILLES_JOURNAL`,
+    `CHAMP_LABEL`), `shared/constants.ts` (`ALLOWED_VIEWS` par espace, `RUBRIQUES_PAIE` : C1, `ENT_TYPES` : C3),
+    `shared/notifications-push.ts`, `shared/hors-ligne.ts` ;
+  - client : `App.tsx` (vue → page), `state/store.tsx` (imports, `UiState`, `INITIAL_UI`, `DialogState`, fermeture d'un
+    module désactivé), `dialogs/DialogHost.tsx` (imports, dialogues), `layout/Shell.tsx` (`ENTREES_LOT12`),
+    `pages/Temps.tsx` et `pages/temps-onglets.ts` (onglets : C1, C5, C6).
+- **Migrations** : numéros PostgreSQL attribués d'avance (choix par défaut du lot, comme au lot 11) :
+  `0021_lot12_socle` (S0), 0022 (C1), 0023 (C2), 0024 (C3), 0025 (C4), 0026 (C5), 0027 (C6, seulement si nécessaire) ;
+  chaque chantier nomme sa migration `00NN_<objet>.sql` avec son numéro, sans renumérotation ; fusion groupée par le
+  coordinateur, qui ajoute l'empreinte de chaque migration à `PUBLIEES` à la fusion ; la migration SQLite nommée
+  s'ajoute en fin de `MIGRATIONS` (`server/src/migrations/liste.ts`). Toute nouvelle table pose ses déclencheurs
+  `revision_lignes_*` dans sa migration (ou entre dans `TABLES_SANS_REVISION`), et se déclare dans `LECTURES` ou
+  `HORS_INSTANTANE`, dans les vues par salarié et dans le banc d'oracle.
+- **Échanges avec les autres outils** : règles R2 à R5 de M-17 (section « Échanges avec les autres outils » ci-dessus),
+  inventaire `docs/ECHANGES.md`. Les demandes du lot aux autres dépôts se rédigent dans `docs/demandes/` et attendent la
+  validation du propriétaire.

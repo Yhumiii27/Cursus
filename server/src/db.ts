@@ -598,6 +598,14 @@ export const TABLES = {
   // Sceaux des justificatifs (server/src/sceaux.ts) : chaîne d'empreintes, chaque pièce scellée avec le sceau précédent, à
   // la soumission de sa note ; identifiants, empreintes et heure seulement.
   sceauxPieces: { pk: 'id', auto: true, cols: { id: 'int', pieceId: 'int', empreinte: 'text', precedent: 'text', sceau: 'text', le: 'text' }, unique: [['pieceId']] },
+  // lot 12 — blocs réservés (socle) : chaque chantier déclare ses tables dans le sien (migrations PostgreSQL et SQLite :
+  // docs/ARCHITECTURE.md, « Lot 12 : socle commun »).
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
 } satisfies Record<string, TableDef>;
 
 export type TableName = keyof typeof TABLES;
@@ -697,7 +705,14 @@ export const TABLES_SANS_REVISION: ReadonlySet<TableName> = new Set<TableName>([
   // lot 11 — pwa : idempotence des actions rejouées, abonnements et file des notifications push (routes et tâches dédiées).
   'idempotence', 'abonnementsPush', 'envoisPush',
   // lot 11 — notes de frais : sceaux des justificatifs (chaîne d'empreintes), jamais lus par l'instantané.
-  'sceauxPieces']);
+  'sceauxPieces',
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
+]);
 
 /**
  * Tables dont le journal des changements n'inscrit jamais les clés, seulement le marqueur « toute la table » (lot 9,
@@ -709,10 +724,23 @@ export const TABLES_SANS_REVISION: ReadonlySet<TableName> = new Set<TableName>([
  */
 export const TABLES_CHANGEMENTS_SANS_CLE: ReadonlySet<TableName> = new Set<TableName>(['vaccinations', 'visas', 'demandesVisite', 'informationsCp', 'reprises',
   // lot 11 — notes de frais : dépenses (frais médicaux en mission), fermées en entier à Matrix (migration 0020).
-  'lignesFrais']);
+  'lignesFrais',
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
+]);
 
 /** Valeur passée en paramètre d'une requête SQL brute (`query`, `one`, `run`). */
 export type SqlValeur = string | number | bigint | boolean | null | Uint8Array;
+/**
+ * Fenêtre de lecture d'une table (lot 12, socle) : condition SQL commune aux deux moteurs (noms de colonnes de la base,
+ * paramètres `?`) et ses paramètres. Seules les lignes qui la vérifient entrent dans la lecture brute de l'instantané
+ * (`FENETRES` de server/src/lecture-brute.ts), relue en entier ou par clé (server/src/delta.ts).
+ */
+export interface Fenetre { where: string; params: readonly SqlValeur[] }
 /** Issue d'une écriture SQL brute (`run`) : lignes touchées, identifiant de la dernière insertion. */
 export interface Ecriture { changes: number; lastInsertRowid: number }
 
@@ -886,15 +914,17 @@ export abstract class Db {
    * comme par `all`, par paquets de `PAQUET_LIGNES` clés ; triées par clé (ordre global pour une clé entière, dans chaque
    * paquet pour une clé texte). Une clé disparue (ligne supprimée) ne rend rien.
    */
-  async lireLignes<T>(table: TableName, pks: Iterable<string>): Promise<T[]> {
+  async lireLignes<T>(table: TableName, pks: Iterable<string>, fenetre?: Fenetre): Promise<T[]> {
     const def = this.def(table), type = def.cols[def.pk], entiere = type === 'int' || type === 'real';
     const cles = [...new Set(pks)];
     if (entiere) cles.sort((x, y) => Number(x) - Number(y)); else cles.sort();
     const out: T[] = [];
+    // lot 12 — socle : fenêtre de lecture (`FENETRES`) ; une clé changée hors de la fenêtre ne rend rien, comme une ligne supprimée.
+    const dans = fenetre ? ` AND (${fenetre.where})` : '';
     for (let i = 0; i < cles.length; i += PAQUET_LIGNES) {
       const paquet = cles.slice(i, i + PAQUET_LIGNES);
-      const lignes = await this.query(`SELECT * FROM ${snake(table)} WHERE ${snake(def.pk)} IN (${paquet.map(() => '?').join(', ')}) ORDER BY ${snake(def.pk)}`,
-        paquet.map(k => this.versBase(type, k)));
+      const lignes = await this.query(`SELECT * FROM ${snake(table)} WHERE ${snake(def.pk)} IN (${paquet.map(() => '?').join(', ')})${dans} ORDER BY ${snake(def.pk)}`,
+        [...paquet.map(k => this.versBase(type, k)), ...(fenetre?.params ?? [])]);
       for (const r of lignes) out.push(this.decode<T>(table, r));
     }
     return out;
@@ -915,6 +945,21 @@ export abstract class Db {
     const def = this.def(table);
     const cols = Object.keys(def.cols).filter(c => !sans.includes(c));
     return (await this.query(`SELECT ${cols.map(snake).join(', ')} FROM ${snake(table)} ORDER BY ${snake(def.pk)}`)).map(r => {
+      const o = this.decode<Row>(table, r);
+      for (const c of sans) delete o[c];
+      return o as T;
+    });
+  }
+
+  /**
+   * Lignes de `table` dans la fenêtre `fenetre` (lot 12, socle : `FENETRES` de server/src/lecture-brute.ts), dans l'ordre
+   * de sa clé, sans les colonnes `sans` (absentes des objets rendus, comme `allSans`). Une table à fenêtre n'a pas
+   * d'autre ordre de lecture (`ORDRE_LECTURE`) : contrôlé par tests/lot12-socle.test.ts.
+   */
+  async allDans<T>(table: TableName, fenetre: Fenetre, sans: readonly string[] = []): Promise<T[]> {
+    const def = this.def(table);
+    const cols = Object.keys(def.cols).filter(c => !sans.includes(c));
+    return (await this.query(`SELECT ${cols.map(snake).join(', ')} FROM ${snake(table)} WHERE ${fenetre.where} ORDER BY ${snake(def.pk)}`, fenetre.params)).map(r => {
       const o = this.decode<Row>(table, r);
       for (const c of sans) delete o[c];
       return o as T;

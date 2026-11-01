@@ -1,7 +1,8 @@
 // Lecture brute de la base et assemblage de l'instantané complet (lot 9, chantier 2, étape 1). La lecture complète
 // (`loadFull`, server/src/dataset.ts) se fait désormais en deux temps :
-// - `lireBrut(db)` lit les tables telles quelles (lignes décodées, dans l'ordre de leur clé ou de la colonne de tri de
-//   `ORDRE_LECTURE`), plus cinq réglages et le statut des envois des relevés : aucune jointure ni aucun calcul ;
+// - `lireBrut(db, today)` lit les tables telles quelles (lignes décodées, dans l'ordre de leur clé ou de la colonne de tri
+//   de `ORDRE_LECTURE`, limitées à leur fenêtre de lecture du jour `FENETRES`), plus cinq réglages et le statut des envois
+//   des relevés : aucune jointure ni aucun calcul ;
 // - `assembler(brut, today, revision, user)` en tire le Dataset, sans lire la base : jointure des employés et de leurs
 //   titres, nombre d'inscrits et places proposées des sessions, positions dans les listes d'attente, annuaire, début de
 //   la saisie des feuilles, effectif du site, budgets, plan, reprises (de la plus récente à la plus ancienne), lots de
@@ -14,6 +15,11 @@
 // tables à révision jamais lues par l'instantané. tests/lecture-brute.test.ts contrôle, par un espion sur `db.query`, que
 // les tables réellement lues par `loadFull` sont exactement l'union de `LECTURES`, et que chaque table de TABLES est
 // lue, hors de l'instantané ou sans révision (`TABLES_SANS_REVISION`).
+// Fenêtres de lecture (lot 12, socle) : `FENETRES` limite, pour une table qui grossit sans fin, les lignes lues par
+// l'instantané à celles d'une période qui dépend du jour (notes de frais des 13 derniers mois, créneaux du planning…).
+// Lecture brute, relecture complète et relecture par clé du delta (server/src/delta.ts) appliquent la même fenêtre ; une
+// ligne qui en sort par le seul passage du temps n'est pas au journal des changements, mais l'entrée du cache d'un autre
+// jour est relue en entier (server/src/cache-instantane.ts).
 import { configurerFeries } from '../../shared/dates.ts';
 import { reglagesParDefaut } from '../../shared/reglages.ts';
 import { avecPositions, avecProposees } from '../../shared/rules/liste-attente.ts';
@@ -35,7 +41,7 @@ import type {
 } from '../../shared/types.ts';
 // lot 11 — notes de frais
 import type { AvanceFrais, BaremeKm, ForfaitFrais, LigneFrais, NoteFrais, TauxDevise, VehiculePerso } from '../../shared/types.ts';
-import type { Db, TableName } from './db.ts';
+import type { Db, Fenetre, TableName } from './db.ts';
 import { formatFichierDe } from './lots-paie.ts';
 import { messagerieDe } from './messagerie.ts';
 import { type PieceEnregistree, piecesDe } from './pieces.ts';
@@ -68,6 +74,8 @@ export interface ReglagesBruts {
  * en fait une nouvelle, qui reprend les tableaux des tables inchangées.
  */
 export interface Brut {
+  /** Jour de la lecture (AAAA-MM-JJ) : celui des fenêtres de lecture (`FENETRES`, lot 12), repris par un delta. */
+  jour: string;
   certifications: Certification[];
   habTitres: HabTitre[];
   visas: Visa[];
@@ -137,6 +145,12 @@ export interface Brut {
   forfaitsFrais: ForfaitFrais[];
   avancesFrais: AvanceFrais[];
   tauxDevises: TauxDevise[];
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
   reglages: ReglagesBruts;
   /** Statut de l'e-mail de chaque relevé (envois désignés par `releves.envoiId` seulement). */
   statutsEnvoi: ReadonlyMap<number, Envoi['statut']>;
@@ -161,9 +175,29 @@ export const COLONNES_OMISES: Partial<Record<TableName, readonly string[]>> = { 
   // lot 11 — indicateurs : agrégats figés d'un arrêté annuel, lus par la seule route GET /api/indicateurs?arrete=.
   indicateursArretes: ['donnees'] };
 
-/** Lignes de la table `t` telles que les lit la lecture brute : ordre de sa clé ou de `ORDRE_LECTURE`, sans `COLONNES_OMISES`. */
-export async function lireTable<T>(db: Db, t: TableName): Promise<T[]> {
+/**
+ * Fenêtres de lecture (lot 12, socle) : pour une table, la condition (fonction du jour `today`, AAAA-MM-JJ) que vérifient
+ * les seules lignes lues par l'instantané. Une table à fenêtre se lit dans l'ordre de sa clé entière (ni `ORDRE_LECTURE`
+ * ni clé texte : tests/lot12-socle.test.ts) ; le reste de ses lignes n'est lu qu'à la demande, par une route dédiée.
+ * La condition ne dépend que du jour : l'entrée du cache d'un autre jour est relue en entier. Vide au socle ; chaque
+ * chantier n'écrit que dans son bloc.
+ */
+export const FENETRES: Partial<Record<TableName, (today: string) => Fenetre>> = {
+  // lot 12 — C2 (notes de frais)
+  // lot 12 — C5 (planning d'équipe)
+};
+
+/** Fenêtre de lecture de la table `t` au jour `today`, s'il y en a une. */
+export const fenetreDe = (t: TableName, today: string): Fenetre | undefined => FENETRES[t]?.(today);
+
+/**
+ * Lignes de la table `t` telles que les lit la lecture brute au jour `today` : ordre de sa clé ou de `ORDRE_LECTURE`,
+ * sans `COLONNES_OMISES`, limitées à sa fenêtre (`FENETRES`).
+ */
+export async function lireTable<T>(db: Db, t: TableName, today: string): Promise<T[]> {
   const sans = COLONNES_OMISES[t];
+  const fenetre = fenetreDe(t, today);
+  if (fenetre) return await db.allDans<T>(t, fenetre, sans);
   return sans ? await db.allSans<T>(t, sans) : await db.all<T>(t, ORDRE_LECTURE[t]);
 }
 
@@ -193,13 +227,14 @@ export async function statutsDesEnvois(db: Db, releves: readonly Pick<ReleveInte
 }
 
 /**
- * Lecture brute de la base, à faire dans une lecture stable (`Db.lecture`) ou une transaction : les tables, les réglages
- * et le statut des envois des relevés, tels quels.
+ * Lecture brute de la base au jour `today`, à faire dans une lecture stable (`Db.lecture`) ou une transaction : les
+ * tables (dans leur fenêtre de lecture, `FENETRES`), les réglages et le statut des envois des relevés, tels quels.
  */
-export async function lireBrut(db: Db): Promise<Brut> {
-  const lire = async <T>(t: TableName) => await lireTable<T>(db, t);
+export async function lireBrut(db: Db, today: string): Promise<Brut> {
+  const lire = async <T>(t: TableName) => await lireTable<T>(db, t, today);
   const releves = await lire<Omit<ReleveInterim, 'envoi'>>('releves');
   return {
+    jour: today,
     certifications: await lire('certifications'),
     habTitres: await lire('habTitres'),
     visas: await lire('visas'),
@@ -268,6 +303,12 @@ export async function lireBrut(db: Db): Promise<Brut> {
     forfaitsFrais: await lire('forfaitsFrais'),
     avancesFrais: await lire('avancesFrais'),
     tauxDevises: await lire('tauxDevises'),
+    // lot 12 — C1 (forfait annuel en heures)
+    // lot 12 — C2 (notes de frais : activation)
+    // lot 12 — C3 (entretiens suivis et 360°)
+    // lot 12 — C4 (organismes de formation et e-learning)
+    // lot 12 — C5 (planning d'équipe)
+    // lot 12 — C6 (badgeage virtuel)
     reglages: await lireReglages(db),
     statutsEnvoi: await statutsDesEnvois(db, releves),
   };
@@ -472,6 +513,12 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     lignesFrais: brut.lignesFrais,
     vehiculesPerso: brut.vehiculesPerso,
     avancesFrais: brut.avancesFrais,
+    // lot 12 — C1 (forfait annuel en heures)
+    // lot 12 — C2 (notes de frais : activation)
+    // lot 12 — C3 (entretiens suivis et 360°)
+    // lot 12 — C4 (organismes de formation et e-learning)
+    // lot 12 — C5 (planning d'équipe)
+    // lot 12 — C6 (badgeage virtuel)
   };
 }
 
@@ -541,6 +588,12 @@ const LECTURES_ASSEMBLEES = {
   lignesFrais: ['lignesFrais'],
   vehiculesPerso: ['vehiculesPerso'],
   avancesFrais: ['avancesFrais'],
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
 } as const satisfies Partial<Record<keyof Dataset, readonly TableName[]>>;
 
 /**
@@ -579,7 +632,14 @@ export const LECTURES = {
  */
 export const HORS_INSTANTANE: ReadonlySet<TableName> = new Set<TableName>(['notifications', 'verdictsKeystone', 'relances', 'effacements',
   // lot 11 — notes de frais : exports comptables figés, lus par leur route de téléchargement.
-  'exportsFrais']);
+  'exportsFrais',
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
+]);
 
 /** Tables lues par l'instantané complet : l'union de `LECTURES`. */
 export const TABLES_LUES: ReadonlySet<TableName> = new Set<TableName>(Object.values(LECTURES).flat());

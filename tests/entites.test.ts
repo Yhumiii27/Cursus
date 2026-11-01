@@ -460,7 +460,7 @@ test('cache : delta et oracle après la création, le renommage et la fermeture 
   const db = await demo();
   const run = runSur(db);
   const lecteurs = await lecteursDe(db);
-  const depart = async () => await db.lecture(async () => ({ n: (await db.etatRevision()).n, brut: geler(await lireBrut(db)) }));
+  const depart = async () => await db.lecture(async () => ({ n: (await db.etatRevision()).n, brut: geler(await lireBrut(db, T)) }));
   let etat: { n: number; brut: Brut } = await depart();
   // Entrée du cache lue avant la suite : chaque révision suivante en est dérivée par le delta.
   assert.deepEqual((await verifierExactitude(db, lecteurs, { jeux: true })).divergences, []);
@@ -471,7 +471,7 @@ test('cache : delta et oracle après la création, le renommage et la fermeture 
       const ch = await db.lireChangements(etat.n, n);
       assert.ok(ch, `${quoi} : écart connu`);
       const f = appliquerDelta(etat.brut, await lireDelta(db, etat.brut, ch));
-      const ref = await lireBrut(db);
+      const ref = await lireBrut(db, T);
       assert.deepStrictEqual(f.brut, ref, `${quoi} : lecture brute`);
       assert.deepStrictEqual(assembler(f.brut, T, 1, RH), assembler(ref, T, 1, RH), `${quoi} : instantané assemblé`);
       for (const c of champs) assert.ok(f.champsChanges.has(c as never), `${quoi} : champ ${c} changé`);

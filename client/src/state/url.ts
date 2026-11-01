@@ -16,6 +16,8 @@ import type { UiState, View } from './store.tsx';
 // lot 11 — indicateurs
 import { anneeIndicateursValide, GROUPES_INDICATEURS } from '../../../shared/rules/indicateurs-legaux.ts';
 import { ONGLETS_INDICATEURS } from '../pages/indicateurs-onglets.ts';
+// lot 12 — socle
+import { ONGLETS_TEMPS } from '../pages/temps-onglets.ts';
 
 /** Paramètre de l'adresse : champ de UiState, nom affiché, valeur par défaut (absente de l'adresse), lecture contrôlée. */
 interface Param<K extends keyof UiState = keyof UiState> {
@@ -101,7 +103,9 @@ export const PARAMS_URL: Partial<Record<View, Param[]>> = {
     equipe,
     choix('statut', 'statut', 'tous', { ok: 'a-jour', due: 'a-renouveler', exp: 'non-conforme', sortis: 'sortis', /* lot 11 — indicateurs */ acompleter: 'a-completer' }),
   ],
-  temps: [identifiant('tsEmp', 'salarie', d => d.employes), semaine],
+  temps: [identifiant('tsEmp', 'salarie', d => d.employes), semaine,
+    // lot 12 — socle : onglet de l'écran (pages/temps-onglets.ts) ; « feuilles » par défaut, absent de l'adresse.
+    choix('tempsOnglet', 'onglet', 'feuilles', Object.fromEntries(ONGLETS_TEMPS.map(o => [o, o])))],
   formations: [
     code('formationFilter', 'formation', d => d.referentiels.formations),
     choix('typeForm', 'type', 'toutes', { reg: 'reglementaires', rec: 'recommandees', int: 'internes' }),

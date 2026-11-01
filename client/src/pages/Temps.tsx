@@ -20,7 +20,7 @@
 // l'équipe, figée à la soumission ; journée de solidarité travaillée (shared/rules/feries.ts) signalée sur son jour.
 // Forfait jours (t043, components/ForfaitJours.tsx) : cumul annuel au récapitulatif et dans la file de validation, alerte au
 // seuil ; au-delà du plafond (forfait, plus les jours rachetés par avenant), motif du valideur exigé à la validation.
-import { useState, type MouseEvent } from 'react';
+import { useState, type MouseEvent, type ReactNode } from 'react';
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
 import { ABS_ABREGE, ACTIVITE_ASTREINTE, TEMPS_TRAVAIL, TS_CLS, TS_LABEL } from '../../../shared/constants.ts';
 import type { Domain } from '../../../shared/domain.ts';
@@ -41,7 +41,7 @@ import { feriesDeLaSemaine, MAJORATION_1ER_MAI, mentionFerie, plafondComplementa
 import { contingentsDeLaSemaine, contingentTexte, moyenne12Semaines, moyenneTexte, requalificationPartiel, requalificationTexte } from '../../../shared/rules/durees.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
 import { ChoixCollaborateur } from '../components/ChoixCollaborateur.tsx';
-import { CloseButton, Fine, Page, Panel, stop, Tag, Two } from '../components/ui.tsx';
+import { CloseButton, Fine, Page, Panel, Seg, stop, Tag, Two } from '../components/ui.tsx';
 import { Ouvrir } from '../components/Cliquable.tsx';
 import { LotsPaie } from '../components/LotsPaie.tsx';
 import { SuiviFeuilles } from '../components/SuiviFeuilles.tsx';
@@ -65,6 +65,11 @@ import { controleValidationForfait } from '../../../shared/rules/forfait-jours.t
 import { decideur } from '../state/delegues.ts';
 import { InterventionsFeuille, PlanningAstreintes } from '../components/Astreintes.tsx';
 import { ligneAstreinte } from '../components/astreintes-etat.ts';
+// lot 12 — socle : onglets de l'écran (le contenu de chaque onglet de chantier est dans un composant à lui).
+import type { OngletTemps } from './temps-onglets.ts';
+// lot 12 — C1 (forfait annuel en heures)
+// lot 12 — C5 (planning d'équipe)
+// lot 12 — C6 (badgeage virtuel)
 
 /** Année d'une feuille : celle de sa semaine ISO (son jeudi) ; le cumul annuel ventile une semaine à cheval jour par jour. */
 const anneeDe = (week: ISODate) => isoWeekYear(week);
@@ -214,6 +219,16 @@ export function Temps() {
     .filter((q): q is { sh: FeuilleTemps; e: Employe } => !!q.e && (espaceRh || (manager && decideur(d, q.e, me, 'feuilles'))));
   const valide = (e: Employe) => (rh && e.id !== soi) || (manager && decideur(d, e, me, 'feuilles'));
 
+  // Onglets de l'écran (lot 12, socle ; pages/temps-onglets.ts) : chaque chantier n'ajoute que son onglet (libellé, et
+  // contenu dans un composant à lui), dans son bloc. La barre n'est montrée qu'à partir de deux onglets ; un onglet
+  // absent pour cet espace (adresse d'un autre) ramène aux feuilles de temps.
+  const onglets: [OngletTemps, string][] = [['feuilles', 'Feuilles de temps']];
+  const contenus: Partial<Record<OngletTemps, ReactNode>> = {};
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
+  const onglet: OngletTemps = onglets.some(([o]) => o === ui.tempsOnglet) ? ui.tempsOnglet : 'feuilles';
+
   return (
     <Page
       kicker={`Semaine ${isoWeek(wk)} · ${fmtShort(parse(wdays[0]))} → ${fmt(parse(wdays[DIMANCHE]))}`}
@@ -233,6 +248,11 @@ export function Temps() {
         <CopierLien chemin={`/temps?${collab || tsId == null ? '' : `salarie=${tsId}&`}semaine=${wk}`} />
       </>}
     >
+      {onglets.length > 1 && (
+        <Seg name="tempsOnglet" label="Onglet de Temps de travail" value={onglet} onChange={v => setUi({ tempsOnglet: v })} style={{ alignSelf: 'flex-start', flexWrap: 'wrap' }}
+          options={onglets} />
+      )}
+      {onglet !== 'feuilles' ? contenus[onglet] : <>
       {!collab && queue.length > 0 && (
         <Panel highlight title="Feuilles à valider" aside={plural(queue.length, 'feuille à valider', 'feuilles à valider')}>
           <div className="scroll-x">
@@ -283,6 +303,7 @@ export function Temps() {
       {espaceRh && <LotsPaie />}
 
       {rh && <RelevesPanel wk={wk} />}
+      </>}
     </Page>
   );
 }

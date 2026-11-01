@@ -100,6 +100,12 @@ export const TRAITEMENTS: Record<string, Traitement> = {
   'lignes_frais.emp_id': { mode: 'lignes', categorie: 'frais' },
   'vehicules_perso.emp_id': { mode: 'lignes', categorie: 'frais' },
   'avances_frais.emp_id': { mode: 'lignes', categorie: 'frais' },
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
 };
 
 /**

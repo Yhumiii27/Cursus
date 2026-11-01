@@ -21,6 +21,12 @@ export const ACTIONS_HORS_LIGNE: readonly string[] = [
   // lot 11 — notes de frais : dépense (photo du reçu, montant, date) ajoutée à sa propre note, ou au brouillon du mois
   // (dépense rapide, sans note désignée) ; jamais une dépense médicale (donnée de santé), ni une soumission ou une validation.
   'frais.ligne.ajouter',
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
 ];
 
 /** En-tête de la clé d'idempotence d'un envoi (UUID tiré par le client, server/src/idempotence.ts). */

@@ -274,6 +274,9 @@ const TOUJOURS: Partial<Record<TableName, string>> = {
     .map(t => [t, 'paie et compteurs'])),
   ...Object.fromEntries(['entretiens', 'demandesCollab', 'effacements', 'jetonsAgenda'].map(t => [t, 'entretiens, demandes et agenda'])),
   ...Object.fromEntries(['envois', 'notifications', 'releves', 'relances', 'pieces'].map(t => [t, 'envois, notifications et pièces'])),
+  // lot 11 — pwa : réponses gardées des actions rejouées, appareils abonnés et notifications en file, liés aux comptes
+  // (supprimés ci-dessous) : en SQLite, sans clé étrangère, ils resteraient orphelins et l'intégrité refuserait la purge.
+  ...Object.fromEntries(['idempotence', 'abonnementsPush', 'envoisPush'].map(t => [t, 'actions rejouées et notifications sur le téléphone'])),
   connexions: 'sessions de connexion',
   comptes: 'comptes de connexion',
   journal: 'journal des actions fictives (remplacé par la seule ligne purge.demo)',

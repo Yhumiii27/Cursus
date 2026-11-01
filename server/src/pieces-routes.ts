@@ -2,6 +2,8 @@
 //   POST /api/pieces       corps brut du fichier (express.raw, 10 Mo au plus), type PDF, JPEG ou PNG vérifié sur le
 //                          contenu, nom d'origine dans l'en-tête X-Nom-Fichier (encodé) ; toute personne connectée,
 //                          stockage activé ; la pièce reste en attente, à joindre par une action avec son jeton (201)
+//                          ; en-tête Idempotency-Key facultatif (lot 11, file hors ligne : server/src/idempotence.ts) :
+//                          le même fichier renvoyé avec la même clé rend la même pièce, sans en déposer une seconde
 //   GET  /api/pieces/:id   contenu, après contrôle des droits (shared/rules/pieces.ts, `voitPiece`) et de l'empreinte ;
 //                          `?telecharger=1` : en pièce jointe ; sinon affiché par le navigateur (PDF, image)
 // Envoi et consultation sont tracés (`piece.deposer`, `piece.consulter`, une ligne par compte et par pièce pendant
@@ -21,6 +23,18 @@ import { tracerRefus } from './journal.ts';
 import { log } from './logs.ts';
 import { depotDe, depotEcriture, empreinte, type PieceEnregistree, stockagePieces } from './pieces.ts';
 import { PieceIndechiffrable } from './pieces-chiffrement.ts';
+import { CLE_INVALIDE, CleReutilisee, empreinteCorps, type Envoi, garderReponse, lireCle, reponseGardee } from './idempotence.ts';
+
+/** Pièce déjà déposée par cet envoi (même clé, même fichier) : elle-même, avec son jeton tant qu'elle attend d'être jointe. */
+async function pieceDejaDeposee(db: Db, e: Envoi, compteId: number) {
+  const g = await reponseGardee(db, e);
+  if (!g) return null;
+  const pid = Number((g.resultat as { id?: unknown } | null)?.id);
+  const p = Number.isInteger(pid) ? await db.get<PieceEnregistree>('pieces', pid) : undefined;
+  // Jointe entre-temps (jeton effacé) ou effacée (24 h) : plus rien à joindre, le client renvoie le fichier sans clé.
+  if (!p || p.deposeCompteId !== compteId || !p.jeton) return { statut: 410, corps: { error: 'Pièce déjà jointe ou effacée : envoyez de nouveau le fichier' } };
+  return { statut: 201, corps: { id: p.id, jeton: p.jeton, nom: p.nom, type: p.type, taille: p.taille } };
+}
 
 export const PIECES_DESACTIVEES = 'Pièces justificatives désactivées : l’administrateur RH les active dans Paramètres → Pièces justificatives.';
 export const PIECE_TROP_VOLUMINEUSE = `Fichier trop volumineux : ${tailleTexte(TAILLE_MAX_PIECE)} au plus.`;
@@ -65,6 +79,17 @@ export function routesPieces(db: Db): Router {
     if (refus) return res.status(409).json({ error: refus });
     const octets = Buffer.isBuffer(req.body) ? req.body : null;
     if (!octets) return res.status(415).json({ error: 'Format refusé : PDF, JPEG ou PNG seulement.' });
+    // Lot 11 : envoi rejoué par la file hors ligne (même clé, même fichier) : la pièce déjà déposée, aucune seconde copie.
+    const cle = lireCle(req);
+    if (cle === false) return res.status(400).json({ error: CLE_INVALIDE });
+    const envoi: Envoi | null = cle ? { compteId: id.compte.id, cle, operation: 'piece.deposer', empreinte: empreinteCorps('piece.deposer', octets) } : null;
+    try {
+      const deja = envoi ? await pieceDejaDeposee(db, envoi, id.compte.id) : null;
+      if (deja) return res.status(deja.statut).set('idempotent-replayed', 'true').json(deja.corps);
+    } catch (err) {
+      if (err instanceof CleReutilisee) return res.status(422).json({ error: err.message });
+      throw err;
+    }
     // Type reconnu sur le contenu, seul gardé (c'est lui qui est servi ensuite) : une page HTML renommée en .pdf est
     // refusée ; une photo JPEG nommée .png (export d'un téléphone, d'une messagerie) est acceptée comme JPEG. Le type
     // déclaré par le navigateur ne sert qu'à recevoir le corps brut (PDF, JPEG ou PNG).
@@ -81,6 +106,9 @@ export function routesPieces(db: Db): Router {
     try {
       const jeton = randomBytes(24).toString('base64url');
       const piece = await db.tx(async () => {
+        // Envoi simultané de la même requête, déjà enregistré dans une autre transaction : sa pièce, ce fichier effacé.
+        const deja = envoi ? await pieceDejaDeposee(db, envoi, id.compte.id) : null;
+        if (deja) return deja;
         const p = await db.insert<PieceEnregistree>('pieces', {
           jeton, empId: null, objet: null, objetId: null, nom, type, taille: octets.length, empreinte: empreinte(octets), fichier,
           chiffree: depot.chiffre === true,
@@ -91,11 +119,17 @@ export function routesPieces(db: Db): Router {
           message: `Pièce justificative envoyée (${TYPES_PIECES[type].label}, ${tailleTexte(octets.length)}), en attente d’être jointe`,
           payload: { piece: p.id, type, taille: octets.length },
         });
+        if (envoi) await garderReponse(db, envoi, { statut: 201, resultat: { id: p.id } });
         return p;
       });
+      if ('statut' in piece) {
+        await depot.supprimer(fichier).catch(() => {});
+        return res.status(piece.statut).set('idempotent-replayed', 'true').json(piece.corps);
+      }
       res.status(201).json({ id: piece.id, jeton, nom, type, taille: octets.length });
     } catch (err) {
       await depot.supprimer(fichier).catch(() => {});
+      if (err instanceof CleReutilisee) return res.status(422).json({ error: err.message });
       throw err;
     }
   });

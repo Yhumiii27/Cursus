@@ -30,6 +30,9 @@ import { filtreKeystone } from './filtre-keystone.ts';
 import { routesVariablesPaie } from './variables-paie.ts';
 import { routesPasseportPrevention } from './passeport-prevention.ts';
 import { routesPieces } from './pieces-routes.ts';
+import { CLE_INVALIDE, CleReutilisee, empreinteCorps, garderReponse, lireCle, reponseGardee } from './idempotence.ts';
+import { EN_TETE_HORS_LIGNE, refusHorsLigne } from '../../shared/hors-ligne.ts';
+import { routesPush } from './push-routes.ts';
 import { routesAgenda } from './agenda.ts';
 import { journaliserAction, lireFiltre, preparerTrace, routesJournal, tracerRefus } from './journal.ts';
 import { emailMode } from './integrations/email.ts';
@@ -123,12 +126,24 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
     const handler = Object.hasOwn(ACTIONS, name) ? ACTIONS[name] : undefined;
     if (!handler) return res.status(404).json({ error: `Action inconnue : ${name}` });
     const corps = (req.body ?? {}) as Record<string, any>;
+    // Lot 11 (C2) : clé d'idempotence (server/src/idempotence.ts) et rejeu de la file hors ligne (shared/hors-ligne.ts),
+    // contrôlé avant tout : saisie personnelle admise hors ligne seulement. La validation groupée des feuilles, faite en
+    // plusieurs transactions, n'en a pas : une clé y est ignorée.
+    const cle = lireCle(req);
+    if (cle === false) return res.status(400).json({ error: CLE_INVALIDE });
+    const horsLigne = req.get(EN_TETE_HORS_LIGNE) === '1';
+    const refusHL = horsLigne ? refusHorsLigne(name, corps, id.user.empId) : null;
+    if (refusHL) return res.status(422).json({ error: refusHL });
+    const envoi = cle && name !== 'temps.validerLot' ? { compteId: compte.id, cle, operation: name, empreinte: empreinteCorps(name, corps) } : null;
     /** Une transaction : droits relus dans la transaction (un compte changé entre-temps agit avec ses droits du moment). */
     const passe = async (p: Record<string, any>) => await db.tx(async () => {
       const actuel = (await examinerIdentite(db, req)).id;
       if (!actuel) throw new ActionError('Connexion requise', 401);
       if (actuel.session.role !== id.session.role) throw new ActionError(ESPACE_CHANGE, 409);
       const user = actuel.user;
+      // Même requête déjà faite (même clé, même corps) : sa réponse, sans refaire l'action ; autre requête : 422.
+      const gardee = envoi ? await reponseGardee(db, envoi) : null;
+      if (gardee) return { message: gardee.message, result: gardee.resultat, rejoue: true };
       // Lecture partagée de l'instantané en cache si elle décrit l'état de la base vu ici (server/src/cache-instantane.ts).
       const depart = await donneesAction(db, user, todayIso(), async u => await loadFull(db, u));
       const ctx = makeCtx(db, user, depart);
@@ -137,16 +152,19 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
       const o = signerDelegation(ctx, typeof r === 'object' && r !== null ? r : { message: r });
       // Journal signé du nom de la personne connectée et de son compte : champs de la liste blanche de l'action,
       // anciennes et nouvelles valeurs, salariés concernés (server/src/journal.ts) ; managers remplacés (t135).
-      await journaliserAction(db, trace, { user, compte, message: o.message ?? null, result: o.result, parDelegation: [...ctx.parDelegation] });
+      await journaliserAction(db, trace, { user, compte, message: o.message ?? null, result: o.result, parDelegation: [...ctx.parDelegation], horsLigne });
       // Verdicts transmis à Keystone : un changement est mis en file avec l'action, dans la même transaction ; jeu des
       // verdicts dérivé du jeu de l'action et du delta de ses écritures (lot 9), sans relire toute la base.
       if (changeVerdicts(name)) await suivreVerdicts(db, { depart });
+      // Réponse gardée dans la même transaction (lot 11) : une action annulée ne garde rien.
+      if (envoi) await garderReponse(db, envoi, { resultat: o.result });
       return o;
     });
-    let out: { message?: string | null; result?: unknown };
+    let out: { message?: string | null; result?: unknown; rejoue?: boolean };
     try {
       out = name === 'temps.validerLot' ? await validerEnTranches(corps, passe, err => signalerErreur(req, err)) : await passe(corps);
     } catch (err) {
+      if (err instanceof CleReutilisee) return res.status(422).json({ error: err.message });
       // Refus d'accès : tracé hors de la transaction annulée (rien n'a été modifié), dans sa propre transaction.
       if (err instanceof ActionError && err.status === 403) await db.tx(async () => await tracerRefus(db, id, libelleAction(name), err.message, { action: name, p: req.body }));
       if (err instanceof ActionError) return res.status(err.status).json({ error: err.message });
@@ -155,6 +173,8 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
       signalerErreur(req, err);
       return res.status(500).json({ error: ERREUR_INTERNE });
     }
+    // Envoi déjà fait : réponse gardée, instantané à relire par le client (aucune lecture de plus ici).
+    if (out.rejoue) return res.set('idempotent-replayed', 'true').json({ message: out.message ?? null, result: out.result, relire: true });
     // L'action est validée (journal et envois compris) : quoi qu'il arrive ensuite, la réponse rend son message et son
     // résultat, jamais un 503 « rien n'est écrit » qui ferait refaire l'action (doublon).
     try {
@@ -205,6 +225,8 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // Agenda personnel par abonnement (t036) : GET /api/agenda/<jeton>.ics, sans session (client d'agenda), débit limité
   // par adresse et par jeton, 404 pour tout jeton inutilisable : server/src/agenda.ts.
   app.use(routesAgenda(db));
+  // Notifications sur le téléphone (lot 11, C2) : clé publique VAPID et appareils abonnés du compte (server/src/push-routes.ts).
+  app.use(routesPush(db));
 
   // File d'envoi des messages sortants (Paramètres → Envois) : état de l'intégration et derniers messages.
   // Service RH et lecture seule (droit `consultation`) ; ni le référent HSE, ni la paie. La lecture seule ne lit pas le

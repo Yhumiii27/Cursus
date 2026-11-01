@@ -27,9 +27,13 @@ export function socleCursus(): Map<string, ColonneSensible> {
   return new Map(lignesCursus(lire('infra/postgres-socle/03-droits.sql')).map(c => [cle(c), c]));
 }
 
-/** Lignes de la demande à Matrix (toutes en 'convention'). */
+/**
+ * Lignes des demandes à Matrix (toutes en 'convention') : docs/demandes/matrix-lot8-colonnes-sensibles.sql et, depuis le
+ * lot 11, chaque fichier docs/demandes/matrix-*.sql d'un chantier (même forme), dans l'ordre de leur nom.
+ */
 export function demandeMatrix(): ColonneSensible[] {
-  return lignesCursus(lire('docs/demandes/matrix-lot8-colonnes-sensibles.sql'));
+  const dossier = new URL('docs/demandes/', racine);
+  return readdirSync(dossier).filter(f => /^matrix-.*\.sql$/.test(f)).sort().flatMap(f => lignesCursus(lire(`docs/demandes/${f}`)));
 }
 
 /**

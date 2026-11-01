@@ -304,6 +304,14 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'equipe.unite': 'Unité Matrix d’une équipe',
   'organigramme.imprimer': 'Organigramme imprimé',
   'organigramme.exporter': 'Organigramme exporté (CSV)',
+  // lot 11 — pwa : saisie du jour rejouable (application mobile) ; notifications sur le téléphone, jamais l'adresse du
+  // service de push ni les clés de l'appareil.
+  'temps.saisir': 'Saisie d’heures (application mobile)',
+  'push.abonner': 'Notifications activées sur un appareil',
+  'push.desabonner': 'Notifications désactivées sur un appareil',
+  'push.preferences': 'Choix des notifications reçues sur le téléphone',
+  'push.desabonnerAppareil': 'Appareil retiré des notifications',
+  'push.tester': 'Notification d’essai envoyée',
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
@@ -347,6 +355,8 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
     id: 'integrations', label: 'Intégrations (Keystone, e-mails)',
     prefixes: ['keystone.appel', 'keystone.echec', 'keystone.demande.', 'keystone.heures.', 'keystone.absence.', 'keystone.verdict.', 'keystone.deplacement.', 'email.'],
   },
+  // lot 11 — pwa
+  { id: 'mobile', label: 'Application mobile et notifications', prefixes: ['push.'] },
 ];
 
 /** Famille d'un code : la première qui le reconnaît. */

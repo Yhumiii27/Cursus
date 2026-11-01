@@ -842,6 +842,32 @@ export const REGLES: Record<string, Regle> = {
   'organigramme.exporter': { extra: signalementOrganigramme },
 };
 
+// lot 11 — pwa (chantier C2) : saisie du jour rejouable, désignée par la ligne (projet, tâche) et non par son indice ; tracée
+// comme temps.setCell (correction par autrui, heures un jour férié), l'indice de la ligne retrouvé dans la feuille lue
+// avant l'action. Jamais la valeur vue (`base`) ni la tâche (libellé).
+/** Indice de la ligne `projet` (et `tache`) dans la feuille, -1 si elle n'y est pas. */
+const ligneDe = (f: Ligne | null, p: P) => ((f?.lignes ?? []) as LigneTemps[]).findIndex(l => l.projet === p.projet && (!p.tache || l.tache === p.tache));
+{
+  const cellule = REGLES['temps.setCell'];
+  const avecLigne = (p: P, x: Contexte): P => ({ ...p, li: ligneDe(x.avant, p) });
+  REGLES['temps.saisir'] = {
+    champs: ['empId', 'week'], cible: cellule.cible,
+    code: (p, x) => cellule.code!(avecLigne(p, x), x),
+    tracer: (p, x) => cellule.tracer!(avecLigne(p, x), x),
+    changements: (p, x) => cellule.changements!(avecLigne(p, x), x),
+  };
+}
+// Notifications sur le téléphone : libellé d'appareil (vocabulaire fixe), motif, types choisis, nombres ; jamais l'adresse
+// du service de push ni les clés du navigateur (ni dans les champs, ni dans le message).
+const resultatPush = (x: Contexte) => (x.result ?? {}) as Record<string, unknown>;
+Object.assign(REGLES, {
+  'push.abonner': { bilan: (_p: P, x: Contexte) => ({ appareil: resultatPush(x).appareil ?? null }) },
+  'push.desabonner': { champs: ['motif'], bilan: (_p: P, x: Contexte) => ({ appareil: resultatPush(x).appareil ?? null, retires: resultatPush(x).retires ?? 0 }) },
+  'push.preferences': { bilan: (_p: P, x: Contexte) => ({ types: resultatPush(x).types ?? [] }) },
+  'push.desabonnerAppareil': { champs: ['id', 'tout'], bilan: (_p: P, x: Contexte) => ({ appareil: resultatPush(x).appareil ?? null, retires: resultatPush(x).retires ?? 0 }) },
+  'push.tester': { bilan: (_p: P, x: Contexte) => ({ appareils: resultatPush(x).appareils ?? 0 }) },
+} satisfies Record<string, Regle>);
+
 /** Règle d'une action, lue sur les seules clés de REGLES (lot 8, S5) : « constructor », « toString »… n'en ont pas. */
 export const regleDe = (action: string): Regle | undefined => Object.hasOwn(REGLES, action) ? REGLES[action] : undefined;
 
@@ -959,14 +985,15 @@ export async function preparerTrace(db: Db, action: string, p: unknown): Promise
  * Trace une action réussie (dans sa transaction) : code, champs retenus, anciennes et nouvelles valeurs,
  * salariés concernés, message expurgé. Rien pour la saisie d'heures du salarié sur sa propre feuille.
  */
-export async function journaliserAction(db: Db, t: Trace, x: { user: CurrentUser; compte: Compte; message: string | null; result?: unknown; parDelegation?: number[] }) {
+export async function journaliserAction(db: Db, t: Trace, x: { user: CurrentUser; compte: Compte; message: string | null; result?: unknown; parDelegation?: number[]; horsLigne?: boolean }) {
   const { regle, p, avant } = t;
   const ctx: Contexte = { db, user: x.user, avant, apres: await lireCible(db, regle?.cible, p), etat: t.etat, result: x.result };
   if (regle?.tracer && !await regle.tracer(p, ctx)) return;
   const code = await regle?.code?.(p, ctx) || t.action;
   // Décision prise par le suppléant d'un manager absent (t135) : identifiants des managers remplacés.
   const delegation = x.parDelegation?.length ? { parDelegation: x.parDelegation } : {};
-  const payload = { ...champsRetenus(t.action, p, avant), ...await regle?.bilan?.(p, ctx), ...delegation };
+  // Rejeu de la file hors ligne de l'application mobile (lot 11, C2) : l'action garde ses champs, marquée `horsLigne`.
+  const payload = { ...champsRetenus(t.action, p, avant), ...await regle?.bilan?.(p, ctx), ...delegation, ...(x.horsLigne ? { horsLigne: true } : {}) };
   const propres = await regle?.changements?.(p, ctx) ?? null;
   const diff = propres ?? (regle?.cible ? comparer(regle.cible, avant, ctx.apres) : null);
   if (propres?.extra) Object.assign(payload, propres.extra);

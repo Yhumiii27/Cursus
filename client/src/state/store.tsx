@@ -593,6 +593,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!connecte) return;
     const relire = (age: number) => {
       if (document.visibilityState !== 'visible' || appels.current.taille > 0) return;
+      // Lot 11 (C2, application mobile) : hors ligne, la relecture se tait ; l'instantané affiché reste en mémoire (rien
+      // n'est gardé sur l'appareil) et la file hors ligne se rejoue au retour du réseau.
+      if (!navigator.onLine) return;
       // Serveur injoignable : une tentative par période, pas à chaque tour de la minuterie.
       if (Date.now() - Math.max(recuLe.current, tenteLe.current) >= age) rafraichir();
     };

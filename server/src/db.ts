@@ -481,6 +481,38 @@ export const TABLES = {
   },
   // Sites de rattachement (D14) : cache de matrix.pub_sites, tenu à la main tant que Matrix ne le fournit pas.
   sites: { pk: 'code', cols: { code: 'text', libelle: 'text', actif: 'bool', ordre: 'int' } },
+  // lot 11 — pwa (chantier C2, t196 ; migration PostgreSQL 0017_pwa.sql). Trois tables techniques, dans
+  // TABLES_SANS_REVISION : jamais lues par l'instantané (lireTout), lues par des routes et des tâches dédiées.
+  // Réponses des actions rejouées (server/src/idempotence.ts) : `cle`, empreinte SHA-256 du compte et de la clé
+  // Idempotency-Key ; empreinte du corps reçu ; statut et résultat réduit (identifiants et compteurs) rendus à un nouvel
+  // envoi de la même requête ; `message` toujours vide (jamais le message de l'action). Purgées à 30 jours.
+  idempotence: {
+    pk: 'cle',
+    cols: { cle: 'text', compteId: 'int', action: 'text', empreinteCorps: 'text', statut: 'int', message: 'text', resultat: 'json', creation: 'text' },
+  },
+  // Abonnements aux notifications sur le téléphone (server/src/push.ts), un par compte et par appareil (le salarié est
+  // celui du compte : aucune colonne de salarié, un compte désactivé perd ses abonnements à la purge) : empreinte de
+  // l'adresse du service de push (`cleEndpoint`, unique) ; adresse et clés du navigateur chiffrées avec la clé des pièces
+  // (Sensible) ; libellé d'appareil déduit du navigateur ; types de notification acceptés (coupés par défaut) ; suivi
+  // des envois.
+  abonnementsPush: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', compteId: 'int', cleEndpoint: 'text', endpoint: 'text', p256dh: 'text', auth: 'text', appareil: 'text', types: 'json',
+      creation: 'text', dernierSucces: 'text', dernierEchec: 'text', echecs: 'int',
+    },
+    unique: [['cleEndpoint']],
+  },
+  // File d'envoi des notifications push (server/src/envois-push.ts), à part de `envois` : chaque message est indépendant
+  // (pas de blocage en tête), sans texte (titre et corps recalculés à l'envoi depuis `type`, shared/notifications-push.ts) ;
+  // `prochaine` : prochaine tentative (plage de silence, nouvelle tentative) ; `expire` : fin de validité (TTL de 24 h).
+  envoisPush: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', abonnementId: 'int', type: 'text', statut: 'text', tentatives: 'int', prochaine: 'text', expire: 'text', erreur: 'text',
+      creation: 'text', envoi: 'text',
+    },
+  },
 } satisfies Record<string, TableDef>;
 
 export type TableName = keyof typeof TABLES;
@@ -576,7 +608,9 @@ export function jsonLu(v: unknown): unknown {
  * (table `changements`, lot 9, chantier 1 : migration PostgreSQL 0014_changements). Une table ajoutée ici ne doit jamais
  * être lue par `lireTout`.
  */
-export const TABLES_SANS_REVISION: ReadonlySet<TableName> = new Set<TableName>(['journal', 'connexions', 'comptes', 'jetonsAgenda']);
+export const TABLES_SANS_REVISION: ReadonlySet<TableName> = new Set<TableName>(['journal', 'connexions', 'comptes', 'jetonsAgenda',
+  // lot 11 — pwa : idempotence des actions rejouées, abonnements et file des notifications push (routes et tâches dédiées).
+  'idempotence', 'abonnementsPush', 'envoisPush']);
 
 /**
  * Tables dont le journal des changements n'inscrit jamais les clés, seulement le marqueur « toute la table » (lot 9,

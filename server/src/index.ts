@@ -12,6 +12,7 @@ import { todayIso } from './dataset.ts';
 import { dbFile, openDb, urlPostgres } from './db.ts';
 import { amorcerEntites, mettreAJourBase, prechaufferChaqueJour, prechaufferDemarrage } from './demarrage.ts';
 import { demarrerEnvois, envoiEnCours } from './envois.ts';
+import { demarrerEnvoisPush, envoiPushEnCours } from './envois-push.ts';
 import { controlerIntegrite } from './integrite.ts';
 import { demarrerJournal } from './journal.ts';
 import { appliquerAvenants } from './avenants.ts';
@@ -188,6 +189,9 @@ arret.ecouter(app, PORT, HOST, async () => {
   await suivreVerdictsChaqueJour(db);
   arret.tache(await demarrerEnvois(db, { keystone: transportKeystone(), email: transportEmail() }));
   arret.attendre(envoiEnCours);
+  // Notifications sur le téléphone (lot 11, C2) : file à part, chaque message indépendant ; seulement avec des clés VAPID.
+  arret.tache(await demarrerEnvoisPush(db));
+  arret.attendre(envoiPushEnCours);
   // E-mails planifiés : récapitulatif quotidien des notifications, relevés d'heures des intérimaires (server/src/notifications.ts).
   arret.tache(await planifierEmails(db));
   log.info(`Cursus — API sur http://${hoteAffiche(HOST)}:${PORT}${existsSync(dist) ? ' (application servie)' : ''}${DEMO ? ' · mode démonstration' : ''}`);

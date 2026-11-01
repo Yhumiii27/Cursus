@@ -25,7 +25,8 @@ const { ActionError, makeCtx } = await import('../server/src/actions/context.ts'
 const { journaliserAction, preparerTrace } = await import('../server/src/journal.ts');
 const { createApp } = await import('../server/src/app.ts');
 const { empreinteSession, sign } = await import('../server/src/auth.ts');
-const { purgerPointages, instantServeur } = await import('../server/src/pointages.ts');
+const { purgerPointages, instantServeur, etatDuSalarie, bilanPeriode, lirePointages, theoriques } = await import('../server/src/pointages.ts');
+const { instantParis } = await import('../shared/rules/pointage.ts');
 const { effacer } = await import('../server/src/conservation.ts');
 const { mettreAJourBase } = await import('../server/src/demarrage.ts');
 const { donneesSalarie } = await import('../server/src/donnees.ts');
@@ -201,6 +202,73 @@ test('feuille créée : mode de la population figé ; déclarative sans populati
   const autre = (await db.query<{ id: number }>(`SELECT id FROM employes WHERE equipe <> 'Maintenance' AND fin IS NULL ORDER BY id LIMIT 1`))[0].id;
   await run(P.admin, 'temps.addLine', { empId: autre, week: '2026-10-19', projet: 'INT-MAINT' });
   assert.equal((await db.where<Record<string, unknown>>('feuilles', 'empId', autre)).find(x => x.week === '2026-10-19')!.modeTemps, null);
+});
+
+test('avenant : les feuilles figées des semaines précédentes reçoivent le mode de la population badgée', async () => {
+  const { db, P, run } = await fresh();
+  // Mehdi (Maintenance, « controle » depuis le 1er janvier) passe à 35 h au 5 octobre : semaines sans feuille figées.
+  await run(P.admin, 'employe.modifier', { id: 2, temps: '35h', tempsDepuis: '2026-10-05' });
+  const figees = (await db.where<{ week: string; modeTemps?: string | null }>('feuilles', 'empId', 2)).filter(f => f.week >= '2026-08-10' && f.week <= '2026-09-14');
+  assert.equal(figees.length, 6);
+  assert.ok(figees.every(f => f.modeTemps === 'controle'), JSON.stringify(figees.map(f => [f.week, f.modeTemps])));
+});
+
+test('feuille validée : pointage différé refusé, et poste de nuit du dimanche au lundi rattaché à la semaine validée', async () => {
+  const { db, P, run, refuse } = await fresh();
+  // Feuille du 28 septembre de Mehdi validée (jeu de démonstration).
+  assert.equal((await db.where<Record<string, unknown>>('feuilles', 'empId', 2)).find(f => f.week === '2026-09-28')!.statut, 'validee');
+  await db.tx(async () => { await db.insert('feuilles', { empId: 2, week: '2026-10-05', statut: 'validee', comment: null, sage: false, keystone: false, lignes: [] }); });
+  // Hors ligne : la file rejoue un pointage antidaté dans la semaine validée : refusé, rien n'est inséré.
+  await refuse(P.coll, 'pointage.pointer', { empId: 2, horodatageAppareil: '2026-10-08T06:00:00Z', sens: 'E' }, /déjà validée : ce pointage hors ligne n’est pas enregistré/, 409, { horsLigne: true });
+  // Heure sans fuseau : refusée (sinon lue dans le fuseau du processus).
+  await refuse(P.coll, 'pointage.pointer', { empId: 2, horodatageAppareil: '2026-10-10T08:00', sens: 'E' }, /instant avec fuseau attendu/, 422, { horsLigne: true });
+  await refuse(P.coll, 'pointage.corriger', { empId: 2, nature: 'ajout', horodatage: '2026-10-09T08:00', sens: 'E', motif: 'oubli' }, /instant avec fuseau attendu/);
+  assert.equal((await pointages(db)).length, 0);
+  // Semaine du 5 octobre rouverte (brouillon) ; poste du dimanche 4 octobre 21 h au lundi 5 à 5 h, rattaché au dimanche.
+  await db.tx(async () => { await db.run('DELETE FROM feuilles WHERE emp_id = ? AND week = ?', [2, '2026-10-05']); });
+  const entree = await db.tx(async () => await db.insert<Pointage>('pointages', { empId: 2, horodatage: '2026-10-04T19:00:00.000Z', jour: '2026-10-04', sens: 'E', source: 'virtuel', horsLigne: false, recuLe: '2026-10-04T19:00:00.000Z', annuleId: null }));
+  // Ajout de la sortie oubliée du lundi 5 h : elle clôt le poste du dimanche, semaine validée.
+  await refuse(P.coll, 'pointage.corriger', { empId: 2, nature: 'ajout', horodatage: '2026-10-05T03:00:00Z', sens: 'S', motif: 'oubli' }, /déjà validée/, 409);
+  const sortie = await db.tx(async () => await db.insert<Pointage>('pointages', { empId: 2, horodatage: '2026-10-05T03:00:00.000Z', jour: '2026-10-05', sens: 'S', source: 'virtuel', horsLigne: false, recuLe: '2026-10-05T03:00:00.000Z', annuleId: null }));
+  // Neutralisation de cette sortie (jour calendaire : lundi 5) : refusée, le poste est rattaché au dimanche 4.
+  await refuse(P.coll, 'pointage.corriger', { empId: 2, nature: 'neutralisation', pointageId: sortie.id, motif: 'autre' }, /déjà validée/, 409);
+  await refuse(P.coll, 'pointage.corriger', { empId: 2, nature: 'neutralisation', pointageId: entree.id, motif: 'autre' }, /déjà validée/, 409);
+  // Une arrivée oubliée du lundi 7 h ouvre un nouveau poste du lundi : admise.
+  await run(P.coll, 'pointage.corriger', { empId: 2, nature: 'ajout', horodatage: '2026-10-05T05:00:00Z', sens: 'E', motif: 'oubli' });
+  // Demande déposée avant la validation, validée après : même contrôle à la validation.
+  const c = await run(P.coll, 'pointage.corriger', { empId: 2, nature: 'ajout', horodatage: '2026-10-05T14:00:00Z', sens: 'S', motif: 'oubli' });
+  await db.tx(async () => { await db.insert('feuilles', { empId: 2, week: '2026-10-05', statut: 'validee', comment: null, sage: false, keystone: false, lignes: [] }); });
+  await refuse(P.mgr, 'pointage.validerCorrection', { id: c.result!.id }, /déjà validée/, 409);
+});
+
+test('débit-crédit et anomalies : rien avant l’activation de la population ; demi-journée d’absence sans anomalie', async () => {
+  const { db, P, run } = await fresh();
+  // Population Maintenance active au vendredi 9 octobre seulement ; Mehdi pointe ce jour-là de 8 h à 16 h.
+  await run(P.admin, 'parametres.maj', { pointagePopulations: [{ ...POPULATION[0], effet: '2026-10-09' }] });
+  const ajout = async (h: string, sens: 'E' | 'S') => await db.tx(async () => await db.insert<Pointage>('pointages', { empId: 2, horodatage: h, jour: h.slice(0, 10), sens, source: 'virtuel', horsLigne: false, recuLe: h, annuleId: null }));
+  await ajout('2026-10-09T06:00:00.000Z', 'E');
+  await ajout('2026-10-09T14:00:00.000Z', 'S');
+  const ds = await loadFull(db, P.admin), e = ds.employes.find(x => x.id === 2)!;
+  const l = await lirePointages(db, [2], '2026-10-04', '2026-10-11');
+  const etat = etatDuSalarie(ds, e, l, instantParis('2026-10-10', 600));
+  assert.deepEqual(etat.anomalies.filter(a => a.code === 'sans_pointage'), [], 'du lundi au jeudi : encore au déclaratif');
+  const vendredi = theoriques(ds, e, '2026-10-09', '2026-10-09').get('2026-10-09')!;
+  assert.ok(vendredi.pointe && vendredi.minutes > 0);
+  assert.deepEqual([etat.debitCredit.semaine.realise, etat.debitCredit.semaine.theorique], [480, vendredi.minutes], 'théorique du seul vendredi');
+  assert.equal(theoriques(ds, e, '2026-10-08', '2026-10-08').get('2026-10-08')!.pointe, false);
+  // Population active toute la semaine : le jeudi sans pointage redevient une anomalie.
+  await run(P.admin, 'parametres.maj', { pointagePopulations: POPULATION });
+  const ds2 = await loadFull(db, P.admin);
+  const avant = etatDuSalarie(ds2, ds2.employes.find(x => x.id === 2)!, l, instantParis('2026-10-10', 600));
+  assert.ok(avant.anomalies.some(a => a.code === 'sans_pointage' && a.jour === '2026-10-08'));
+  // Demi-journée de CP le mardi 6 (après-midi) ; pointé le matin de 8 h à 12 h : ni absence pointée, ni jour sans pointage.
+  await db.tx(async () => { await db.insert('absences', { empId: 2, type: 'CP', du: '2026-10-06', au: '2026-10-06', statut: 'validee', keystone: false, debutDemi: 'apres_midi', finDemi: 'apres_midi' }); });
+  await ajout('2026-10-06T06:00:00.000Z', 'E');
+  await ajout('2026-10-06T10:00:00.000Z', 'S');
+  const ds3 = await loadFull(db, P.admin), e3 = ds3.employes.find(x => x.id === 2)!;
+  const b = bilanPeriode(ds3, e3, await lirePointages(db, [2], '2026-10-04', '2026-10-11'), '2026-10-05', '2026-10-09', instantParis('2026-10-10', 600));
+  assert.equal(b.theoriques.get('2026-10-06')!.absence, 'demi');
+  assert.deepEqual(b.anomalies.filter(a => a.jour === '2026-10-06'), []);
 });
 
 test('vues : le salarié ses demandes, le manager son équipe, le service RH toutes, les profils restreints aucune', async () => {

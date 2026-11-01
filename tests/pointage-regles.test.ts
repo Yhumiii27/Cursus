@@ -32,6 +32,14 @@ test('heure de Paris : instants aux nuits de mars et d’octobre, heure inexista
   assert.deepEqual(P.heureParis('2026-10-11T22:30:00Z').jour, '2026-10-12', 'minuit passé à Paris, encore la veille en UTC');
   assert.equal(P.instantValide('2026-10-12T06:00:00+02:00'), '2026-10-12T04:00:00.000Z');
   assert.equal(P.instantValide('12/10/2026 06:00'), null);
+  // Fuseau exigé : sans lui, l'heure dépendrait du fuseau du processus (UTC chez un hébergeur, Paris dans l'image).
+  assert.equal(P.instantValide('2026-10-10T08:00'), null);
+  assert.equal(P.instantValide('2026-10-10T08:00:00'), null);
+  assert.equal(P.instantValide('2026-10-10T08:00:00.000'), null);
+  assert.equal(P.instantValide('2026-10-10T08:00Z'), '2026-10-10T08:00:00.000Z');
+  assert.equal(P.instantValide('2026-10-10T08:00:00.123Z'), '2026-10-10T08:00:00.123Z');
+  assert.equal(P.instantValide('2026-10-10T08:00:00-01:30'), '2026-10-10T09:30:00.000Z');
+  assert.equal(P.instantValide('2026-10-10T08:00:00+0200'), null, 'décalage sans deux-points');
   assert.equal(P.instantValide(42), null);
 });
 
@@ -141,6 +149,31 @@ test('anomalies : orphelins, différé, sans pointage, absence, amplitude, repos
   // 48 h dans la semaine : six jours de 9 h.
   const semaine = Array.from({ length: 6 }, (_, i) => [p(`2026-10-${12 + i}T05:00:00Z`, 'E'), p(`2026-10-${12 + i}T14:00:00Z`, 'S'), p(`2026-10-${12 + i}T14:30:00Z`, 'E'), p(`2026-10-${12 + i}T14:31:00Z`, 'S')]).flat();
   assert.ok(P.anomaliesPointage({ du: '2026-10-12', au: '2026-10-18', maintenant: t('2026-10-19T08:00:00Z'), pointages: semaine }).some(x => x.code === 'duree_semaine'));
+  // Coupure de plus de 5 h le même jour (8 h – 12 h, 17 h 30 – 19 h à Paris) : deux postes, mais une seule journée ; le
+  // repos quotidien se lit entre deux journées (19 h → 8 h le lendemain : 13 h), jamais dans la coupure.
+  const coupure = P.anomaliesPointage({
+    ...base, pointages: [p('2026-10-13T06:00:00Z', 'E'), p('2026-10-13T10:00:00Z', 'S'), p('2026-10-13T15:30:00Z', 'E'), p('2026-10-13T17:00:00Z', 'S'),
+      p('2026-10-14T06:00:00Z', 'E'), p('2026-10-14T10:00:00Z', 'S')],
+  });
+  assert.deepEqual(coupure.map(x => x.code), []);
+  // Amplitude sur la journée entière : 6 h – 10 h puis 16 h – 21 h, 15 h d'amplitude ; et 21 h → 6 h le lendemain : 9 h de repos.
+  const longue = P.anomaliesPointage({
+    ...base, pointages: [p('2026-10-13T04:00:00Z', 'E'), p('2026-10-13T08:00:00Z', 'S'), p('2026-10-13T14:00:00Z', 'E'), p('2026-10-13T19:00:00Z', 'S'),
+      p('2026-10-14T04:00:00Z', 'E'), p('2026-10-14T08:00:00Z', 'S')],
+  });
+  assert.deepEqual(longue.map(x => [x.jour, x.code]), [['2026-10-13', 'amplitude'], ['2026-10-14', 'repos_quotidien']]);
+  assert.match(longue[0].texte, /Amplitude de 15 h \(06:00 – 21:00\)/);
+  // Demi-journée d'absence : le pointage de l'autre demi-journée n'est pas une anomalie, même un peu plus long que son
+  // théorique ; au-delà d'une fois et demie ce théorique (journée travaillée), il l'est, sans dire la nature de l'absence.
+  const demi = (fin: string) => P.anomaliesPointage({
+    ...base, pointages: [p('2026-10-13T06:00:00Z', 'E'), p(fin, 'S')], prevus: new Set(['2026-10-13']), demiAbsents: new Map([['2026-10-13', 210]]),
+  });
+  assert.deepEqual(demi('2026-10-13T10:00:00Z'), [], '8 h – 12 h pour 3 h 30 prévues : la demi-journée travaillée');
+  assert.deepEqual(demi('2026-10-13T11:15:00Z'), [], '5 h 15 : une fois et demie le théorique, admis');
+  const trop = demi('2026-10-13T15:00:00Z').filter(x => x.code !== 'pause');
+  assert.deepEqual(trop.map(x => x.code), ['pendant_absence']);
+  assert.match(trop[0].texte, /pointées pour .* prévues un jour d’absence d’une demi-journée$/);
+  assert.ok(!/congé|CP|RTT|récupération/i.test(trop[0].texte));
   // Entrée du jour en cours : ni sortie manquante, ni « sans pointage » pour la journée qui n'est pas finie.
   const enCours = P.anomaliesPointage({ ...base, pointages: [p('2026-10-16T06:00:00Z', 'E')], prevus: new Set(['2026-10-16']) });
   assert.deepEqual(enCours, []);

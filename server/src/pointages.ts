@@ -35,7 +35,8 @@ import { tracerRefus } from './journal.ts';
  * tests), l'heure murale de Paris du moment, ce jour-là, pour que pointages, état du jour et délais suivent la même date.
  */
 export function instantServeur(t = Date.now()): number {
-  const today = todayIso(), h = heureParis(t);
+  // Une seule lecture de l'horloge : un passage de minuit entre deux lectures daterait le pointage du lendemain.
+  const today = todayIso(new Date(t)), h = heureParis(t);
   return h.jour === today ? t : instantParis(today, h.minutes) + (t % 60_000);
 }
 
@@ -45,6 +46,16 @@ export const contextePopulation = (ds: Pick<Dataset, 'settings' | 'referentiels'
 
 /** Mode de décompte du salarié le `date` (régime de l'historique des contrats à cette date). */
 export const modeDuSalarie = (ds: Dataset, e: Employe, date: ISODate): ModeTemps => modeTempsAu(contextePopulation(ds), employeAu(ds, e, date), date);
+
+/**
+ * Mode à figer sur une feuille créée pour la semaine `week` (lundi) : celui de la population badgée ce jour-là ; rien pour
+ * une feuille déclarative (la colonne reste vide, comme avant le module). Commun à toutes les créations de feuille
+ * (saisie : actions/temps.ts ; semaines figées par un avenant : actions/equipes.ts).
+ */
+export function modeAFiger(ds: Dataset, e: Employe, week: ISODate): { modeTemps?: ModeTemps } {
+  const mode = modeDuSalarie(ds, e, week);
+  return mode !== 'declaratif' ? { modeTemps: mode } : {};
+}
 
 /** Pointages bruts des salariés `empIds`, jours de Paris `du` à `au` (neutralisations comprises), dans l'ordre des clés. */
 export async function lirePointages(db: Db, empIds: readonly number[], du: ISODate, au: ISODate): Promise<Pointage[]> {
@@ -74,9 +85,16 @@ function absencesParJour(ds: Dataset, empId: number, du: ISODate, au: ISODate): 
   return m;
 }
 
+/**
+ * Théorique d'un jour : minutes, absence (journée entière ou demi-journée, sans sa nature), hors contrat, et salarié qui
+ * pointe ce jour-là (population badgée en vigueur : `pointe`). Un jour où il ne pointe pas encore (avant la date d'effet de
+ * sa population, avant son entrée dans une équipe badgée) n'est ni « prévu » pour les anomalies, ni compté au débit-crédit.
+ */
+export interface TheoriqueJour { minutes: number; absence: 'journee' | 'demi' | null; horsContrat: boolean; pointe: boolean }
+
 /** Théorique de chaque jour d'une période (minutes), d'après le contrat, l'horaire, les absences et les fériés. */
-export function theoriques(ds: Dataset, e: Employe, du: ISODate, au: ISODate): Map<ISODate, { minutes: number; absent: boolean; horsContrat: boolean }> {
-  const absences = absencesParJour(ds, e.id, du, au), out = new Map<ISODate, { minutes: number; absent: boolean; horsContrat: boolean }>();
+export function theoriques(ds: Dataset, e: Employe, du: ISODate, au: ISODate): Map<ISODate, TheoriqueJour> {
+  const absences = absencesParJour(ds, e.id, du, au), out = new Map<ISODate, TheoriqueJour>();
   const d = new Domain(ds);
   for (let j = du; j <= au; j = addD(j, 1)) {
     const x = employeAu(ds, e, j), c = d.contratOf(x);
@@ -88,7 +106,7 @@ export function theoriques(ds: Dataset, e: Employe, du: ISODate, au: ISODate): M
       jour: j, horaire: choisi ? { code: choisi.code, debut: choisi.debut, fin: choisi.fin, pause: choisi.pause } : null, absence: absences.get(j) ?? null,
       ferie: isFerie(j), horsContrat, jourOff: c.jourOff, heuresSemaine: c.base,
     });
-    out.set(j, { minutes: t.minutes, absent: absences.has(j), horsContrat });
+    out.set(j, { minutes: t.minutes, absence: absences.get(j) ?? null, horsContrat, pointe: modeDuSalarie(ds, e, j) !== 'declaratif' });
   }
   return out;
 }
@@ -110,14 +128,17 @@ function feuillesParJour(ds: Dataset, empId: number, du: ISODate, au: ISODate) {
 /** Pointages et anomalies d'un salarié sur une période (jours de Paris), à l'instant `maintenant`. */
 export function bilanPeriode(ds: Dataset, e: Employe, pointages: readonly Pointage[], du: ISODate, au: ISODate, maintenant: number) {
   const t = theoriques(ds, e, du, au);
-  const prevus = new Set([...t].filter(([, x]) => x.minutes > 0).map(([j]) => j));
-  const absents = new Set([...t].filter(([, x]) => x.absent).map(([j]) => j));
+  // Jours où le salarié pointe seulement : avant l'activation de sa population, rien n'est attendu.
+  const prevus = new Set([...t].filter(([, x]) => x.pointe && x.minutes > 0).map(([j]) => j));
+  const absents = new Set([...t].filter(([, x]) => x.absence === 'journee').map(([j]) => j));
+  const demiAbsents = new Map([...t].filter(([, x]) => x.absence === 'demi').map(([j, x]) => [j, x.minutes]));
   const horsContrat = new Set([...t].filter(([, x]) => x.horsContrat).map(([j]) => j));
-  const { declare, figes } = feuillesParJour(ds, e.id, du, au);
+  const f = feuillesParJour(ds, e.id, du, au), figes = f.figes;
+  const declare = new Map([...f.declare].filter(([j]) => t.get(j)?.pointe));
   const a = apparier(pointages, maintenant);
   const postes = postesDe(a, maintenant);
   const anomalies: AnomaliePointage[] = anomaliesPointage({
-    du, au, pointages, maintenant, prevus, absents, horsContrat, declare, figes,
+    du, au, pointages, maintenant, prevus, absents, demiAbsents, horsContrat, declare, figes,
     ecartMin: ds.settings.pointageEcartAnomalieMin, differeMin: ds.settings.pointageEcartDiffereMin,
   });
   return { theoriques: t, postes, appariement: a, anomalies };
@@ -128,7 +149,11 @@ export function etatDuSalarie(ds: Dataset, e: Employe, pointages: readonly Point
   const today = heureParis(maintenant).jour, week = mondayOf(today);
   const b = bilanPeriode(ds, e, pointages, week, today, maintenant);
   const realise = realiseParJour(b.postes);
-  const theorique = (j: ISODate) => (j <= today ? b.theoriques.get(j)?.minutes ?? 0 : 0);
+  // Théorique nul les jours où le salarié ne pointe pas (avant l'activation de sa population) : aucun débit fictif.
+  const theorique = (j: ISODate) => {
+    const x = b.theoriques.get(j);
+    return j <= today && x?.pointe ? x.minutes : 0;
+  };
   const semaine = soldeSemaine(week, realise, theorique);
   const duJour = b.postes.filter(p => p.jour === today).sort((u, v) => u.debut - v.debut);
   const effectifs = pointages.filter(p => heureParis(p.horodatage).jour === today && p.annuleId == null);
@@ -151,7 +176,7 @@ export function etatDuSalarie(ds: Dataset, e: Employe, pointages: readonly Point
 export function presenceDuJour(ds: Dataset, e: Employe, pointages: readonly Pointage[], maintenant: number) {
   const today = heureParis(maintenant).jour;
   const b = bilanPeriode(ds, e, pointages, today, today, maintenant);
-  const etat = b.appariement.enCours ? 'present' : b.postes.some(p => p.jour === today) ? 'parti' : b.theoriques.get(today)?.absent ? 'absent' : 'non_pointe';
+  const etat = b.appariement.enCours ? 'present' : b.postes.some(p => p.jour === today) ? 'parti' : b.theoriques.get(today)?.absence === 'journee' ? 'absent' : 'non_pointe';
   return { empId: e.id, etat, depuis: b.appariement.enCours ? hhmmParis(b.appariement.enCours.horodatage) : null, anomalies: b.anomalies.length };
 }
 

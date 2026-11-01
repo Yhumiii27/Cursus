@@ -1858,8 +1858,8 @@ aucun champ du paramètre n'est recopié.
 | `indicateurs.arreter` | annee : année close (refusée tant qu'elle est en cours), un seul arrêté en vigueur par année et périmètre (`global`) ; agrégats de l'année figés déjà masqués, par groupement (ensemble, sexe, catégorie, statut, contrat), avec la version des règles et le seuil (lot 11, C3) ; journal : année, périmètre, identifiant | administrateur RH |
 | `indicateurs.annulerArrete` | id, motif (obligatoire, 500 caractères ; gardé avec l'arrêté pour le service RH, jamais au journal ni pour la lecture seule) : l'arrêté reste, un nouveau peut être pris pour la même année | administrateur RH |
 | `indicateurs.marquerCse` | id, le (mise à disposition du CSE : ni future, ni avant l'arrêté) ; arrêté annulé refusé | RH |
-| `pointage.pointer` | empId (soi-même), sens? (`E`/`S`, déduit sinon de l'entrée en cours) ; instant du serveur ; rejeu hors ligne : horodatageAppareil (moins de 7 jours, au plus 5 min d'avance), marqué « différé » ; jamais de position ; doublon sous 60 s : rien d'ajouté ; module actif et population badgée exigés (409) ; jamais au journal (lot 12, C6) | chacun pour lui-même |
-| `pointage.corriger` | empId, nature (`ajout` : horodatage, sens ; `neutralisation` : pointageId), motif (`oubli`/`appareil`/`mission`/`formation`/`autre`), commentaire? (300 caractères, jamais au journal) ; jour passé, sous `pointageDelaiCorrectionJours` jours (le service RH sans délai) ; feuille de la semaine validée : 409 (réouverture) ; saisie par le valideur : validée d'emblée | salarié, manager direct ou suppléant « feuilles », RH |
+| `pointage.pointer` | empId (soi-même), sens? (`E`/`S`, déduit sinon de l'entrée en cours) ; instant du serveur ; rejeu hors ligne : horodatageAppareil (instant avec fuseau, moins de 7 jours, au plus 5 min d'avance), marqué « différé », refusé (409) dans une semaine dont la feuille est validée ; jamais de position ; doublon sous 60 s : rien d'ajouté ; module actif et population badgée exigés (409) ; jamais au journal (lot 12, C6) | chacun pour lui-même |
+| `pointage.corriger` | empId, nature (`ajout` : horodatage avec fuseau, sens ; `neutralisation` : pointageId), motif (`oubli`/`appareil`/`mission`/`formation`/`autre`), commentaire? (300 caractères, jamais au journal) ; jour passé, sous `pointageDelaiCorrectionJours` jours (le service RH sans délai) ; feuille validée de la semaine du jour ou de celle du jour de rattachement du poste (sortie du lundi d'un poste de nuit du dimanche) : 409 (réouverture), aussi à la validation ; saisie par le valideur : validée d'emblée | salarié, manager direct ou suppléant « feuilles », RH |
 | `pointage.validerCorrection` / `pointage.refuserCorrection` | id ; refus : motif (300 caractères, jamais au journal) ; validation : ligne ajoutée (pointage, ou neutralisation du pointage visé), feuille validée : 409 | manager direct ou suppléant « feuilles », RH ; jamais pour soi |
 | `pointage.annulerCorrection` | id : demande en attente retirée | le salarié, son valideur |
 
@@ -4719,7 +4719,8 @@ géolocalisation à l'étape 3.
   date d'effet ; la plus récente qui désigne le salarié l'emporte, à date égale la dernière de la liste) ; activation
   refusée (COHERENCE, `refusActivationPointage`) sans `pointageAccord` ni `pointageCseLe` (art. L2312-38 et L1222-4) ;
   forfait jours et cadres dirigeants toujours exclus, intérimaires sauf `pointageInterim`. Mode figé sur la feuille à sa
-  création (`feuilles.mode_temps`, mode du lundi de la semaine ; rien pour une feuille déclarative), jamais recalculé.
+  création (`feuilles.mode_temps`, mode du lundi de la semaine ; rien pour une feuille déclarative), jamais recalculé ;
+  `modeAFiger` (server/src/pointages.ts) sert à toutes les créations de feuille, saisie comme semaines figées par un avenant.
   `pointageDelaiCorrectionJours` 7, `pointageHorsLigne` vrai, `pointageEcartDiffereMin` 5, `pointageEcartAnomalieMin`
   15, `conservationPointagesAns` 3 (1 à 5). La référence de l'accord n'est tracée au journal que « renseignée ».
 - **Tables** (`server/src/db.ts`, migration PostgreSQL `0027_badgeage`, SQLite d'après TABLES et `lot12-badgeage-pointages`) :
@@ -4747,8 +4748,12 @@ géolocalisation à l'étape 3.
   dans le décompte des feuilles vient avec le mode « calcule » de l'étape 2, les pointages n'étant pas dans
   l'instantané). Anomalies calculées, jamais stockées, sans la nature d'une absence (`anomaliesPointage` : sortie ou entrée
   manquante, différé au-delà de 5 min, jour prévu sans pointage, pointage un jour d'absence ou hors contrat, amplitude de
-  plus de 13 h, repos de moins de 11 h, pause de moins de 20 min dès 6 h, plus de 10 h par jour ou 48 h par semaine, écart
-  déclaré / pointé en mode « controle », pointé changé depuis la validation de la feuille, d'après `pointeFige`).
+  plus de 13 h, repos de moins de 11 h — amplitude et repos lus sur la journée de rattachement entière, de la première
+  entrée à la dernière sortie, une coupure de plus de 5 h n'étant pas un repos quotidien —, pause de moins de 20 min dès 6 h, plus de 10 h par jour ou 48 h par semaine, écart
+  déclaré / pointé en mode « controle », pointé changé depuis la validation de la feuille, d'après `pointeFige`). Un jour
+  d'absence d'une demi-journée n'est signalé qu'au-delà d'une fois et demie le théorique de la demi-journée travaillée.
+  Seuls les jours où le salarié pointe (population en vigueur, `theoriques(…).pointe`) sont « prévus » et comptent au
+  débit-crédit : avant la date d'effet de sa population, aucune anomalie ni aucun débit.
   Débit-crédit (`shared/rules/debit-credit.ts`) : théorique du jour (horaire du jour, sinon durée du contrat divisée par
   ses jours travaillés ; zéro un jour de repos, férié, hors contrat ou d'absence, moitié pour une demi-journée), solde de la
   semaine, report plafonné (3 h par semaine, 10 h de cumul, supplétifs) et excédent signalé ; aucune rubrique de paie.

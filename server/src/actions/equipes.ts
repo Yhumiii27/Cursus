@@ -21,6 +21,8 @@ import { renommerDerogation, retirerDerogation } from './repos-dominical.ts';
 // lot 11 — organigramme
 import { rattacherEquipeNeuve } from '../demarrage.ts';
 import { recalerRattachements } from '../rattachements.ts';
+// lot 12 — C6 (badgeage virtuel)
+import { modeAFiger } from '../pointages.ts';
 import {
   ActionError, estSoiMeme, getEmp, isManagerOf, isRh, isRhAdmin, refuserSoiMeme, requireRh, requireRhAdmin, REVIENT_RH, str, type ActionHandler, type Ctx,
 } from './context.ts';
@@ -194,6 +196,8 @@ const modifier: ActionHandler = async (ctx, p) => {
       figees = semainesAFiger(emp, effet, ctx.ds.feuilles);
       for (const week of figees) await ctx.db.insert<FeuilleTemps>('feuilles', {
         empId: emp.id, week, statut: 'brouillon', comment: null, sage: false, keystone: false, lignes: [], contrat: contratFige(emp),
+        // lot 12 — C6 (badgeage virtuel) : mode de la population badgée cette semaine-là, figé comme à la saisie.
+        ...modeAFiger(ctx.ds, emp, week),
       });
     }
   } else row.tempsDepuis = emp.tempsDepuis;

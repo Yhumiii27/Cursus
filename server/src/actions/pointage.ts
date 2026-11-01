@@ -17,8 +17,8 @@
 import { addD, isoParis, mondayOf } from '../../../shared/dates.ts';
 import { fmtIso } from '../../../shared/format.ts';
 import {
-  apparier, estMotifCorrection, estNatureCorrection, estSens, hhmmParis, instantValide, MOTIFS_CORRECTION, refusDelaiCorrection, refusHeureAppareil,
-  TEXTE_CORRECTION_MAX,
+  apparier, estMotifCorrection, estNatureCorrection, estSens, hhmmParis, instantValide, MOTIFS_CORRECTION, postesDesPointages, refusDelaiCorrection,
+  refusHeureAppareil, TEXTE_CORRECTION_MAX,
 } from '../../../shared/rules/pointage.ts';
 import type { CorrectionPointage, Employe, FeuilleTemps, ISODate, Pointage, SensPointage } from '../../../shared/types.ts';
 import { instantServeur, lirePointages, modeDuSalarie } from '../pointages.ts';
@@ -39,13 +39,19 @@ function requirePopulation(ctx: Ctx, e: Employe, jour: ISODate) {
   }
 }
 
-/** Feuille de la semaine du jour validée : la correction passe par sa réouverture (shared/rules/regularisation.ts). */
-async function refusFeuilleValidee(ctx: Ctx, empId: number, jour: ISODate) {
-  const f = (await ctx.db.where<FeuilleTemps>('feuilles', 'empId', empId)).find(x => x.week === mondayOf(jour));
-  if (f?.statut === 'validee') {
-    throw new ActionError('Feuille de la semaine déjà validée : la correction passe par sa réouverture, demandée au service RH', 409);
-  }
+/**
+ * Pointage ajouté (`ajout` : son sens) ou retiré à l'instant `t`, jour de Paris `jour` : refus si la feuille d'une semaine
+ * qu'il touche est validée (le changement passe par sa réouverture, shared/rules/regularisation.ts). Semaines touchées :
+ * celle du jour calendaire et celle du jour de rattachement du poste où il tombe (la sortie du lundi matin d'un poste de
+ * nuit commencé le dimanche change la semaine précédente).
+ */
+async function refusFeuilleValidee(ctx: Ctx, empId: number, jour: ISODate, t: number, ajout: { sens: SensPointage } | null, refus: string) {
+  const voisins = await lirePointages(ctx.db, [empId], addD(jour, -2), addD(jour, 1));
+  const l = ajout ? [...voisins, { id: -1, horodatage: new Date(t).toISOString(), sens: ajout.sens, annuleId: null }] : voisins;
+  const semaines = new Set([mondayOf(jour), ...postesDesPointages(l, instantServeur()).filter(p => p.debut <= t && t <= p.fin).map(p => mondayOf(p.jour))]);
+  if ((await ctx.db.where<FeuilleTemps>('feuilles', 'empId', empId)).some(f => semaines.has(f.week) && f.statut === 'validee')) throw new ActionError(refus, 409);
 }
+const REFUS_VALIDEE = 'Feuille de la semaine déjà validée : la correction passe par sa réouverture, demandée au service RH';
 
 /** Texte libre facultatif, borné ; vide : null. */
 function texte(v: unknown, quoi: string): string | null {
@@ -87,6 +93,7 @@ const pointer: ActionHandler = async (ctx, p) => {
   if (horsLigne) {
     if (!ctx.ds.settings.pointageHorsLigne) throw new ActionError('Pointage hors ligne non admis : pointez une fois connecté', 409);
     const appareil = instantValide(p.horodatageAppareil);
+    if (p.horodatageAppareil != null && !appareil) throw new ActionError('Heure du pointage invalide (instant avec fuseau attendu)', 422);
     const refus = refusHeureAppareil(appareil, t);
     if (refus) throw new ActionError(refus, 422);
     horodatage = appareil!;
@@ -104,12 +111,21 @@ const pointer: ActionHandler = async (ctx, p) => {
   // Double appui (ou rejeu d'un même pointage) : un pointage à moins de 60 s n'est pas ajouté, sauf un sens explicitement
   // différent de celui du précédent.
   const doublon = voisins.find(x => x.annuleId == null && (p.sens == null || x.sens == null || x.sens === sens) && Math.abs(Date.parse(x.horodatage) - Date.parse(horodatage)) < 60_000);
-  const quoi = sens === 'E' ? 'Arrivée' : 'Départ';
-  if (doublon) return { message: `${quoi} déjà pointée à ${hhmmParis(doublon.horodatage)}`, result: { id: doublon.id, sens, horodatage: doublon.horodatage, doublon: true } };
+  // Participe accordé au nom (« Arrivée pointée », « Départ pointé ») ; un doublon se dit du pointage déjà reçu.
+  const dit = (s: SensPointage) => (s === 'E' ? 'Arrivée pointée' : 'Départ pointé');
+  if (doublon) {
+    const [nom, participe] = dit(doublon.sens ?? sens).split(' ');
+    return { message: `${nom} déjà ${participe} à ${hhmmParis(doublon.horodatage)}`, result: { id: doublon.id, sens, horodatage: doublon.horodatage, doublon: true } };
+  }
+  // Pointage différé dans une semaine dont la feuille est validée : refusé comme une correction (sinon le rejeu de la file,
+  // antidaté jusqu'à 7 jours, changerait sans validation le pointé d'une semaine close). Un rejeu déjà reçu reste un doublon.
+  if (horsLigne) {
+    await refusFeuilleValidee(ctx, e.id, jour, Date.parse(horodatage), { sens }, 'Feuille de la semaine déjà validée : ce pointage hors ligne n’est pas enregistré, demandez une correction après sa réouverture');
+  }
   const row = await ctx.db.insert<Pointage>('pointages', {
     empId: e.id, horodatage, jour, sens, source: 'virtuel', horsLigne, horodatageAppareil: horsLigne ? horodatage : null, recuLe: recu, zone: null, annuleId: null, correctionId: null,
   });
-  return { message: `${quoi} pointée à ${hhmmParis(horodatage)}${horsLigne ? ' (pointage différé, fait hors ligne)' : ''}`, result: { id: row.id, sens, horodatage } };
+  return { message: `${dit(sens)} à ${hhmmParis(horodatage)}${horsLigne ? ' (pointage différé, fait hors ligne)' : ''}`, result: { id: row.id, sens, horodatage } };
 };
 
 // — Corrections —
@@ -149,25 +165,27 @@ const corriger: ActionHandler = async (ctx, p) => {
   if (!estNatureCorrection(p.nature)) throw new ActionError('Nature de la correction invalide');
   if (!estMotifCorrection(p.motif)) throw new ActionError(`Motif de la correction : ${Object.values(MOTIFS_CORRECTION).join(', ')}`);
   const commentaire = texte(p.commentaire, 'Commentaire');
-  let jour: ISODate, horodatage: string | null = null, sens: SensPointage | null = null, pointageId: number | null = null;
+  let jour: ISODate, horodatage: string | null = null, sens: SensPointage | null = null, pointageId: number | null = null, instantVise = 0;
   if (p.nature === 'ajout') {
     horodatage = instantValide(p.horodatage);
-    if (!horodatage) throw new ActionError('Heure du pointage à ajouter invalide');
+    if (!horodatage) throw new ActionError('Heure du pointage à ajouter invalide (instant avec fuseau attendu)');
     if (Date.parse(horodatage) > instantServeur()) throw new ActionError('Pointage à venir : impossible');
     if (!estSens(p.sens)) throw new ActionError('Précisez s’il s’agit d’une arrivée ou d’un départ');
     sens = p.sens;
     jour = isoParis(new Date(horodatage));
+    instantVise = Date.parse(horodatage);
   } else {
     const vise = await ctx.db.get<Pointage>('pointages', Number(p.pointageId) || 0);
     if (!vise || vise.empId !== e.id || vise.annuleId != null) throw new ActionError('Pointage à retirer introuvable', 404);
     if ((await ctx.db.where<Pointage>('pointages', 'annuleId', vise.id)).length) throw new ActionError('Ce pointage est déjà retiré', 409);
     pointageId = vise.id;
     jour = vise.jour;
+    instantVise = Date.parse(vise.horodatage);
   }
   const refus = refusDelaiCorrection(jour, ctx.d.ti, ctx.ds.settings.pointageDelaiCorrectionJours, isRh(ctx) && !soi);
   if (refus) throw new ActionError(refus, 409);
   requirePopulation(ctx, e, jour);
-  await refusFeuilleValidee(ctx, e.id, jour);
+  await refusFeuilleValidee(ctx, e.id, jour, instantVise, sens ? { sens } : null, REFUS_VALIDEE);
   if (pointageId != null && (await ctx.db.where<CorrectionPointage>('correctionsPointage', 'pointageId', pointageId)).some(c => c.statut === 'demandee')) {
     throw new ActionError('Une demande est déjà en attente pour ce pointage', 409);
   }
@@ -188,7 +206,8 @@ const validerCorrection: ActionHandler = async (ctx, p) => {
   refuserSoiMeme(ctx, e, 'Valider sa propre correction de pointage');
   if (!valideur(ctx, e)) throw new ActionError('Validation réservée au manager du salarié (ou son suppléant pour les feuilles) et au service RH', 403);
   if (c.statut !== 'demandee') throw new ActionError('Demande déjà traitée', 409);
-  await refusFeuilleValidee(ctx, c.empId, c.jour);
+  const instantVise = c.horodatage ? Date.parse(c.horodatage) : Date.parse((await ctx.db.get<Pointage>('pointages', c.pointageId ?? 0))?.horodatage ?? `${c.jour}T12:00:00Z`);
+  await refusFeuilleValidee(ctx, c.empId, c.jour, instantVise, c.nature === 'ajout' && c.sens ? { sens: c.sens } : null, REFUS_VALIDEE);
   const v = await decider(ctx, c, 'validee', { pointageCreeId: await appliquer(ctx, c) });
   return { message: `Correction validée : ${libelle(ctx, c)}`, result: resultat(v) };
 };

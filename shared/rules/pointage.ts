@@ -38,6 +38,8 @@ export const ECART_POSTE_MIN = 300;
 export const PAIRE_MAX_MIN = 24 * 60;
 /** Amplitude d'une journée au-delà de laquelle une anomalie est signalée (heures, 13 h : repos quotidien de 11 h). */
 export const AMPLITUDE_MAX_H = 13;
+/** Demi-journée d'absence : pointé admis jusqu'à une fois et demie le théorique de la demi-journée travaillée. */
+export const DEMI_ABSENCE_TOLERANCE = 1.5;
 /** Durées maximales (art. L3121-18 et L3121-20) : 10 h par jour, 48 h par semaine. */
 export const JOURNEE_MAX_H = 10;
 export const SEMAINE_MAX_H = 48;
@@ -104,9 +106,13 @@ export function instantParis(jour: ISODate, minutes: number): number {
   // Heure inexistante : la correction tombe dans le trou, on garde l'instant après le passage à l'heure d'été.
   return heureParis(t).minutes === ((minutes % 1440) + 1440) % 1440 ? t : t + Math.abs(ecart) * 60_000;
 }
-/** Instant ISO (UTC) valide, ou null. */
+/**
+ * Instant ISO valide, rendu en UTC, ou null. Le fuseau est exigé (« Z » ou décalage ±HH:MM) : sans lui, Date.parse lirait
+ * l'heure dans le fuseau du processus (UTC chez un hébergeur, Paris dans l'image), et une heure de la nuit d'octobre resterait
+ * ambiguë.
+ */
 export function instantValide(v: unknown): string | null {
-  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v)) return null;
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(v)) return null;
   const t = Date.parse(v);
   return Number.isFinite(t) ? new Date(t).toISOString() : null;
 }
@@ -382,8 +388,14 @@ export interface EntreeAnomalies {
   maintenant: number;
   /** Jours où un travail est prévu (théorique non nul, shared/rules/debit-credit.ts). */
   prevus?: ReadonlySet<ISODate>;
-  /** Jours d'absence (validée ou signalée, toute nature) et jours hors contrat. */
+  /** Jours d'absence d'une journée entière (validée ou signalée, toute nature) et jours hors contrat. */
   absents?: ReadonlySet<ISODate>;
+  /**
+   * Jours d'absence d'une demi-journée : théorique de la demi-journée travaillée (minutes, moitié de la journée). Le
+   * pointage n'y est signalé qu'au-delà des trois quarts d'une journée entière (une fois et demie ce théorique) : une
+   * matinée plus longue que l'après-midi reste admise, une journée complète travaillée ne l'est pas.
+   */
+  demiAbsents?: ReadonlyMap<ISODate, number>;
   horsContrat?: ReadonlySet<ISODate>;
   /** Mode « controle » : heures déclarées de chaque jour (feuille), comparées au pointé au-delà de `ecartMin` minutes. */
   declare?: ReadonlyMap<ISODate, number>;
@@ -421,6 +433,10 @@ export function anomaliesPointage(x: EntreeAnomalies): AnomaliePointage[] {
     const m = realise.get(j) ?? 0;
     if (!m && !pointes.has(j) && x.prevus?.has(j) && !x.absents?.has(j) && j < aujourdhui) out.push({ code: 'sans_pointage', jour: j, texte: 'Travail prévu ce jour-là, sans pointage ni absence' });
     if (m && x.absents?.has(j)) out.push({ code: 'pendant_absence', jour: j, texte: 'Pointage un jour d’absence enregistrée' });
+    const demi = x.demiAbsents?.get(j);
+    if (demi != null && m > demi * DEMI_ABSENCE_TOLERANCE) {
+      out.push({ code: 'pendant_absence', jour: j, texte: `${minutesTexte(m)} pointées pour ${minutesTexte(demi)} prévues un jour d’absence d’une demi-journée` });
+    }
     if (m && x.horsContrat?.has(j)) out.push({ code: 'hors_contrat', jour: j, texte: 'Pointage en dehors du contrat de travail' });
     if (m > JOURNEE_MAX_H * 60) out.push({ code: 'duree_jour', jour: j, texte: `${minutesTexte(m)} pointées dans la journée (${JOURNEE_MAX_H} h au plus, art. L3121-18)` });
     const declare = x.declare?.get(j);
@@ -430,20 +446,26 @@ export function anomaliesPointage(x: EntreeAnomalies): AnomaliePointage[] {
     const fige = x.figes?.get(j);
     if (fige != null && Math.abs(fige * 60 - m) > 1) out.push({ code: 'apres_validation', jour: j, texte: `Pointé changé depuis la validation de la feuille (${fH(fige)} figées, ${minutesTexte(m)} pointées) : réouverture à demander` });
   }
+  // Amplitude et repos quotidien sur la journée de rattachement entière, comme `plagesReelles` : de la première entrée à la
+  // dernière sortie du jour (une coupure de plus de 5 h entre deux postes du même jour n'est pas un repos quotidien), et
+  // repos de la dernière sortie d'un jour à la première entrée du jour suivant travaillé.
   const parJour = new Map<ISODate, Poste[]>();
-  for (const p of postes) parJour.set(p.jour, [...parJour.get(p.jour) ?? [], p]);
-  let precedent: Poste | null = null;
-  for (const p of [...postes].sort((u, v) => u.debut - v.debut)) {
-    if (dans(p.jour)) {
-      const amplitude = (p.fin - p.debut) / 3_600_000;
-      if (amplitude > AMPLITUDE_MAX_H) out.push({ code: 'amplitude', jour: p.jour, texte: `Amplitude de ${fH(amplitude)} (${hhmmParis(p.debut)} – ${hhmmParis(p.fin)})` });
-      if (precedent && !p.enCours) {
-        const repos = (p.debut - precedent.fin) / 3_600_000;
-        if (repos < 11) out.push({ code: 'repos_quotidien', jour: p.jour, texte: `${fH(repos)} de repos avant la reprise de ${hhmmParis(p.debut)} (11 h consécutives, art. L3131-1)` });
+  for (const p of [...postes].sort((u, v) => u.debut - v.debut)) parJour.set(p.jour, [...parJour.get(p.jour) ?? [], p]);
+  let finPrecedente: number | null = null;
+  for (const j of [...parJour.keys()].sort()) {
+    const l = parJour.get(j)!, debut = l[0].debut, fin = Math.max(...l.map(p => p.fin));
+    if (dans(j)) {
+      const amplitude = (fin - debut) / 3_600_000;
+      if (amplitude > AMPLITUDE_MAX_H) out.push({ code: 'amplitude', jour: j, texte: `Amplitude de ${fH(amplitude)} (${hhmmParis(debut)} – ${hhmmParis(fin)})` });
+      if (finPrecedente != null) {
+        const repos = (debut - finPrecedente) / 3_600_000;
+        if (repos < 11) out.push({ code: 'repos_quotidien', jour: j, texte: `${fH(repos)} de repos avant la reprise de ${hhmmParis(debut)} (11 h consécutives, art. L3131-1)` });
       }
-      if (!p.enCours && p.travail >= 6 * 60 && p.pauseMax < 20) out.push({ code: 'pause', jour: p.jour, texte: `Pause de ${p.pauseMax} min pour ${minutesTexte(p.travail)} de travail (20 min dès 6 h, art. L3121-16)` });
+      for (const p of l) {
+        if (!p.enCours && p.travail >= 6 * 60 && p.pauseMax < 20) out.push({ code: 'pause', jour: j, texte: `Pause de ${p.pauseMax} min pour ${minutesTexte(p.travail)} de travail (20 min dès 6 h, art. L3121-16)` });
+      }
     }
-    precedent = p;
+    finPrecedente = finPrecedente == null ? fin : Math.max(finPrecedente, fin);
   }
   // Semaines de la période : 48 h au plus (lundi au dimanche, jours de rattachement).
   for (let w = mondayOf(x.du); w <= x.au; w = addD(w, 7)) {

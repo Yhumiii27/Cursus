@@ -41,6 +41,8 @@ import { exercicesEvaluation, indicateursEvaluation, SEUIL_ANONYMAT } from '../.
 import type { EvaluationFormation } from '../../shared/types.ts';
 // lot 11 — organigramme
 import { organigrammeOuvertA } from '../../shared/rules/organigramme.ts';
+// lot 11 — indicateurs
+import type { ArreteIndicateurs } from '../../shared/types.ts';
 
 /** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
 export const DEFAULT_SETTINGS: Settings = REGLAGES_DEFAUT;
@@ -436,6 +438,8 @@ export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre 
       urgenceNom: null, urgenceTel: null,
       // Anonymisation d'un dossier échu (t016) : affaire du service RH.
       anonymiseLe: null,
+      // lot 11 — indicateurs : sexe et catégorie d'emploi, service RH et intéressé seulement (agrégats masqués ailleurs).
+      sexe: null, categorie: null,
       ...(repriseMedicale(e, full.absences) ? { repriseMotif: null, repriseDate: null } : { repriseMotif: e.repriseDate ? 'absence longue' : null }),
     }
     : e).map(e => (lecture.has(e.id) && e.aptitude ? { ...e, aptitude: { ok: e.aptitude.ok, aProgrammer: e.aptitude.aProgrammer } } : e));
@@ -554,6 +558,8 @@ export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre 
     // lot 11 — organigramme : présents de l'annuaire (identifiants), seulement si le réglage ouvre l'organigramme à cet
     // espace (shared/rules/organigramme.ts) ; l'annuaire lui-même ne change pas.
     presentsOrganigramme: organigrammeOuvertA(full.settings.organigrammeOuvert, user.role) ? full.presentsOrganigramme : [],
+    // lot 11 — indicateurs : arrêtés annuels de la BDESE, service RH et lecture seule ; rien hors de l'espace RH.
+    indicateursArretes: [],
   }, lues);
 }
 
@@ -634,6 +640,9 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
   const d = new Domain(full);
   const employes = full.employes.map(sansContactUrgence).map(e => ({
     ...e,
+    // lot 11 — indicateurs : sexe et catégorie d'emploi, jamais pour un profil restreint (lecture seule comprise), qui
+    // n'en reçoit que les agrégats masqués (GET /api/indicateurs).
+    sexe: null, categorie: null,
     visite: null, avis: null, restrictions: [], aptitude: formations ? aptitudeVueManager(e, d.medInfo(e).ok, full.today, visiteAProgrammer(d, e)) : undefined, vaccins: [],
     suivi: null, prochaineVisite: null, examenAptitude: null, expose: null,
     passeport: lecture ? e.passeport && { expire: e.passeport.expire } : null, visas: lecture ? e.visas : [],
@@ -755,7 +764,12 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // indicateurs agrégés, calculés ici sur toutes les données, sans moyenne ni taux sous 3 réponses ; rien pour la paie.
     evaluationsFormation: [],
     ...(formations ? { indicateursEvaluation: exercicesEvaluation(d).map(ex => indicateursEvaluation(d, ex, SEUIL_ANONYMAT)) } : {}),
+    // lot 11 — indicateurs : arrêtés annuels pour la lecture seule, sans auteurs ni motif d'annulation ; rien ailleurs.
+    indicateursArretes: lecture ? (full.indicateursArretes ?? []).map(arreteNeutre) : [],
   };
 }
+
+/** lot 11 — indicateurs : arrêté vu par la lecture seule, sans les noms du service RH ni le motif d'une annulation. */
+const arreteNeutre = (a: ArreteIndicateurs): ArreteIndicateurs => ({ ...a, arretePar: null, csePar: null, annulePar: null, annuleMotif: null });
 
 

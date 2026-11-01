@@ -1850,6 +1850,9 @@ aucun champ du paramètre n'est recopié.
 | `push.desabonnerAppareil` | id (un de ses appareils ; un autre : 404) ; ou tout: true (tous les abonnements de tous les comptes) | chaque compte ; `tout` : administrateur RH |
 | `push.tester` | — : notification d'essai à tous ses appareils, aussitôt (plage de silence ignorée) ; aucun appareil : 409 | chaque compte |
 | `reprise.importer` | type (`salaries`/`soldes`/`certifications`/`visites`/`habilitations`), texte (CSV), colonnes (champ de chaque colonne), dateReprise (soldes), equipes (rapprochement), confirmations (lignes cochées : réembauche sur un matricule, visite sans avis), comptes (comptes Microsoft 365, y compris pour une fiche déjà à jour), fichier ; analyse de `shared/rules/reprise.ts`, seules les lignes retenues par l'aperçu sont écrites ; ses propres soldes refusés (fiche rattachée au compte) ; lot conservé (table `reprises`) ; journal `reprise.<type>` | administrateur RH |
+| `indicateurs.arreter` | annee : année close (refusée tant qu'elle est en cours), un seul arrêté en vigueur par année et périmètre (`global`) ; agrégats de l'année figés déjà masqués, par groupement (ensemble, sexe, catégorie, statut, contrat), avec la version des règles et le seuil (lot 11, C3) ; journal : année, périmètre, identifiant | administrateur RH |
+| `indicateurs.annulerArrete` | id, motif (obligatoire, 500 caractères ; gardé avec l'arrêté pour le service RH, jamais au journal ni pour la lecture seule) : l'arrêté reste, un nouveau peut être pris pour la même année | administrateur RH |
+| `indicateurs.marquerCse` | id, le (mise à disposition du CSE : ni future, ni avant l'arrêté) ; arrêté annulé refusé | RH |
 
 ## Journal des actions
 
@@ -4084,3 +4087,72 @@ CURSUS_PWA et les écrans viennent avec l'étape 2.
   (endpoint, p256dh, auth ; tables `idempotence` et `envois_push` entières), lue par `tests/colonnes-sensibles.ts` et
   appliquée par la CI au socle d'essai avec les autres demandes `docs/demandes/matrix-*.sql`.
 
+## Lot 11 : indicateurs sociaux légaux et BDESE (C3, t197), étape 1
+
+Indicateurs de la BDESE d'une entreprise de moins de 300 salariés (art. R2312-9, rubriques 1° et 2°) et préparation de
+l'index d'égalité professionnelle (art. L1142-8, D1142-2), calculés par le serveur seulement : la lecture seule ne reçoit
+ni les natures d'absence médicales, ni le sexe, ni la date de naissance, et un calcul dans le navigateur contournerait le
+masquage. Écrans, BDESE, égalité, impression, saisie sur la fiche et échéance agrégée : étape 2.
+
+- **Règles pures** (`shared/rules/indicateurs-legaux.ts`, `tests/indicateurs-legaux.test.ts`) : `presentA` (entrée ≤ date ≤
+  fin ; `present` de contrats.ts ne lit pas l'entrée) ; une seule granularité, l'année civile (`bornesPeriode`, aucune date
+  libre : trimestres et mois, masqués chacun à part, se recouperaient avec l'année, l'année moins les onze autres mois
+  redonnant un mois masqué ; à rouvrir avec un masquage cohérent entre périodes emboîtées) ; groupements (ensemble, sexe, catégorie d'emploi, statut, nature du contrat, équipe). Chaque
+  tableau porte sa définition et son taux de complétude :
+  - *effectifs* : fin de période et moyen au sens de la Sécurité sociale (moyenne des fins de mois, art. L130-1 du CSS) hors
+    intérimaires ; ETP au régime en vigueur (`etpA` : temps partiel sur 35 h, forfait jours sur 218 jours, forfait annuel sur
+    1 607 h) ; effectif du Code du travail (L1111-2 et L1111-3 : moyenne mensuelle en ETP, CDD et intérimaires au prorata de
+    leur présence sauf remplacement, alternance exclue) ; intérimaires des fiches de Cursus ;
+  - *mouvements* : entrées, sorties enregistrées (un CDD arrivé à son terme sans sortie est une « fin de contrat prévue »),
+    taux de rotation ; sorties par motif, entrées par nature du contrat ;
+  - *absentéisme* : jours d'absence comptés dans les jours ouvrés théoriques du régime de chaque salarié
+    (`joursTheoriques` : lundi au vendredi, hors fériés chômés et jours non travaillés du temps partiel), quelle que soit la
+    nature du décompte (un arrêt en jours calendaires ne compte pas ses week-ends), un jour une seule fois (`joursAbsence`) ;
+    natures comptées réglables (`absenteismeNatures`) ; colonnes maladie, AT/trajet/MP, famille, autres ; détail de la santé
+    par nature donné seulement si chaque nature atteint le seuil et si les taux Maladie et AT/MP de l'ensemble sont visibles
+    (son total en est la somme ; sinon tout masqué, total compris) ; absences à qualifier signalées (complétude) ;
+  - *formation* (`realisationsDe` de heures-formation.ts) : stagiaires, heures connues, heures par stagiaire, taux d'accès,
+    durées inconnues ; stagiaires et heures croisés par catégorie et par sexe ;
+  - *âges* (tranches de 5 ans, extrêmes regroupées) et *ancienneté* par sexe ;
+  - *index* : effectifs pris en compte (présents six mois au moins, hors alternance et intérim) par catégorie et sexe, groupes
+    catégorie × âge valides (3 femmes et 3 hommes), retours de congé de maternité ou d'adoption ; indicateurs 1, 2 et 4
+    « hors Cursus » (rémunérations dans Sage), 3 en partie.
+- **Seuil d'anonymat et masquage** (`masquer`) : case portant sur 1 à k - 1 personnes (effectif, ou personnes absentes,
+  formées, sorties : `n2`) masquée « < k », jamais un zéro ; masquage secondaire dans chaque ligne et chaque colonne additive
+  avec son total (une seule case masquée laisserait la retrouver par différence : la plus petite partie non nulle, sinon le
+  total), et dans les relations entre colonnes d'une ligne (`OptionsMasque`) : groupes additifs explicites (les quatre taux
+  par motif d'absence et le taux d'absentéisme), cases liées masquées ensemble (jours et taux d'absence ; stagiaires, heures
+  par stagiaire et taux d'accès ; effectifs de fin de période, moyen, ETP et L1111-2), case dérivée masquée avec ses sources
+  (taux de rotation dès que les entrées ou les sorties le sont : l'effectif moyen est publié). Taux traités comme des comptes. Seuil `indicateursSeuil` (5, de 3 à 10). Propriété vérifiée sur des tableaux tirés
+  au hasard.
+- **Sexe et catégorie** (`employes.sexe` F/M, `employes.categorie` ouvrier/employé/TAM/cadre, NULL : à compléter) : saisis
+  par le service RH (`PROFIL_FIELDS`, listes fermées dans `validerProfil`, jamais le manager ni soi-même), repris de Lucca ou
+  de Sage (colonnes `sexe` et `categorie` de la reprise des salariés ; « Catégorie » seule reste le statut ; codes de la DSN
+  1/2 compris ; « Ouvrier / employé » refusé, à préciser). Service RH et intéressé seulement : `null` dans les vues du manager
+  (membres de son équipe), de la consultation N+2 et de tous les profils restreints (`vueProfil`), lecture seule comprise.
+  Au journal : le nom du champ modifié (`champsModifies`), jamais sa valeur (hors de `FICHE`). Catégorie proposée d'après le
+  statut pour l'écran (`categorieProposee`), jamais imposée.
+- **Route** (`server/src/indicateurs.ts`, montée dans `server/src/app.ts`) : `GET /api/indicateurs?annee&periode&groupe` et
+  `GET /api/indicateurs/csv` (format long : indicateur, période, dimension, modalité, mesure, valeur, « < k ») ; droit
+  `consultation` (service RH, lecture seule), refus tracé (`tracerRefus`), garde `exigerNavigationInterne('appel')`. Calcul sur
+  la lecture partagée de l'instantané en cache (`jeuEnLecture`, lecteur interne), hors de la lecture stable, mémorisé par
+  révision, date du jour et paramètres (`STATS_INDICATEURS`) ; réponse en agrégats masqués seulement, jamais un nom ni un
+  identifiant ; hors de l'instantané (aucun champ du Dataset, aucune entrée de cache). Export tracé `indicateurs.export`
+  { periode, groupe, lignes, arrete? }, jamais une valeur.
+- **Arrêtés** (table `indicateurs_arretes`, actions `indicateurs.arreter`, `annulerArrete`, `marquerCse`,
+  `server/src/actions/indicateurs.ts`) : agrégats de l'année figés (`donnees`, JSON par groupement, sans l'équipe), version des
+  règles (`REGLES_INDICATEURS`) et seuil ; jamais supprimés, un seul en vigueur par année et périmètre. `donnees` n'est jamais
+  lue par l'instantané (`COLONNES_OMISES`) : `GET /api/indicateurs?arrete=<id>&groupe=` la sert telle quelle. Cache
+  incrémental : table dans `TABLES` (déclencheurs `revision` et `revision_lignes_*` posés par la migration),
+  `LECTURES_ASSEMBLEES.indicateursArretes`, relue par le delta comme toute table ; champ `indicateursArretes` dans
+  `CHAMPS_HORS_VUES` (vide hors de l'espace RH) ; transmis au service RH et à la lecture seule (sans auteurs ni motif
+  d'annulation). Banc d'oracle : famille `indicateurs`, sexe et catégorie tirés dans `employe.modifier`, SQL direct sur
+  `employes.sexe` et `indicateurs_arretes.cse_le`.
+- **Données** : migration PostgreSQL `0018_indicateurs.sql` (CHECK, NULL permis, index unique partiel de l'arrêté en vigueur,
+  commentaires « Sensible » sur `employes.sexe`, `employes.categorie`, `indicateurs_arretes.donnees` et `annule_motif`,
+  commentaire de contrat de `pub_salaries` complété « Jamais : …, sexe, categorie » sans recréer la vue) ; fermeture demandée
+  à Matrix dans `docs/demandes/matrix-lot11-indicateurs.sql` (lue avec celle du lot 8 par `tests/colonnes-sensibles.ts` et
+  rejouée par la CI) ; SQLite : déclaration dans `TABLES`, aucune migration nommée (rien à reprendre). Démonstration : sexe et
+  catégorie des 24 fiches, une sans sexe et une sans catégorie.
+- **Réglages** : `indicateursSeuil` (entier de 3 à 10, 5) et `absenteismeNatures` (natures cochées, au moins une ; défaut :
+  maladie, longue maladie, AT, trajet, MP, enfant malade, sans solde, injustifiée), section de Paramètres à l'étape 2.

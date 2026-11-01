@@ -609,6 +609,16 @@ export const REGLES: Record<string, Regle> = {
   'agenda.creerJeton': { bilan: (_p, x) => ({ abonnement: (x.result as { id?: number } | null)?.id ?? null }), salaries: (_p, x) => [x.user.empId] },
   'agenda.revoquerJeton': { salaries: (_p, x) => [x.user.empId] },
   'agenda.revoquerTout': { bilan: (_p, x) => ({ revoques: (x.result as { revoques?: number } | null)?.revoques ?? 0 }) },
+  // lot 11 — indicateurs (server/src/actions/indicateurs.ts) : année, périmètre et identifiant de l'arrêté ; annulation :
+  // l'instant, jamais le motif (texte du service RH, ni même la mention qu'il est renseigné : il l'est toujours) ;
+  // mise à disposition du CSE : date avant et après. Jamais un chiffre de l'arrêté. L'export est tracé par la route
+  // (`indicateurs.export`, server/src/indicateurs.ts).
+  'indicateurs.arreter': {
+    extra: p => ({ annee: Number.isInteger(Number(p.annee)) ? Number(p.annee) : null, perimetre: 'global' }),
+    bilan: (_p, x) => ({ arrete: (x.result as { id?: number } | null)?.id ?? null }),
+  },
+  'indicateurs.annulerArrete': { champs: ['id'], extra: (_p, av) => ({ annee: av?.annee ?? null }), cible: parId('indicateursArretes', ['annuleLe']) },
+  'indicateurs.marquerCse': { champs: ['id'], extra: (_p, av) => ({ annee: av?.annee ?? null }), cible: parId('indicateursArretes', ['cseLe']) },
   'formalite.enregistrer': {
     champs: p => p.kind === 'passeport' ? ['empId', 'kind', 'expire'] : p.kind === 'visa' ? ['empId', 'kind', 'dest', 'visaType', 'obtenu', 'expire'] : ['empId', 'kind'],
   },

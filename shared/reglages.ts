@@ -10,6 +10,8 @@ import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesTexte, DOSSIER_MIN_ANS, 
 import { DELAI_JOUR_FRANC, DELAI_PREVENANCE_LEGAL } from './rules/astreintes.ts';
 import { COLONNES_PASSEPORT_DEFAUT, COLONNES_PASSEPORT_IDS } from './rules/passeport-prevention.ts';
 import type { CategorieEvaluee, ColonnePasseport, CompensationAstreinte, ContenuAgenda, ModeAttente, OrganigrammeOuvert, RepondantsFroid, Settings, StockagePieces } from './types.ts';
+// lot 11 — indicateurs
+import { NATURES_ABSENTEISME_DEFAUT, NATURES_ABSENTEISME_POSSIBLES, SEUIL_INDICATEURS_DEFAUT, SEUIL_INDICATEURS_MAX, SEUIL_INDICATEURS_MIN } from './rules/indicateurs-legaux.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
 export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
@@ -279,6 +281,15 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   // lot 11 — organigramme (shared/rules/organigramme.ts, t195) : ouvert à tous les salariés, limité à l'annuaire (choix par
   //   défaut du chantier, réponse de l'entreprise du 31 octobre 2026) ; l'administrateur RH peut le restreindre —
   organigrammeOuvert: { defaut: 'tous', controle: choix<OrganigrammeOuvert>(['rh', 'managers', 'tous']) },
+  // lot 11 — indicateurs (shared/rules/indicateurs-legaux.ts, t197) : seuil d'anonymat de 5, réglable de 3 à 10 ; absentéisme
+  //   compté sur la santé, l'enfant malade, le sans solde et l'absence injustifiée (choix par défaut du chantier, à arrêter
+  //   avec le CSE) ; au moins une nature —
+  indicateursSeuil: { defaut: SEUIL_INDICATEURS_DEFAUT, controle: entier(SEUIL_INDICATEURS_MIN, SEUIL_INDICATEURS_MAX) },
+  absenteismeNatures: { defaut: NATURES_ABSENTEISME_DEFAUT, controle: v => {
+    const n = parmi(NATURES_ABSENTEISME_POSSIBLES)(v);
+    if (!n.length) throw new ReglageInvalide('Absentéisme : gardez au moins une nature d’absence comptée');
+    return n;
+  } },
 };
 
 /**

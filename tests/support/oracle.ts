@@ -140,6 +140,8 @@ const TIRAGES: Record<string, Tirage> = {
   'equipe.affecter': ({ r, empId, ds }) => ({ empId: empId(), equipe: r.choix(ds.referentiels.equipes).nom }),
   'employe.modifier': ({ r, empId, ds }) => {
     const e = fiche(ds, r, empId());
+    // lot 11 — indicateurs : sexe et catégorie d'emploi (service RH seulement), vidés parfois.
+    if (r.si(0.2)) return { id: e.id, sexe: r.choix(['F', 'M', '']), categorie: r.choix(['ouvrier', 'employe', 'tam', 'cadre', '']), avant: { sexe: e.sexe ?? null, categorie: e.categorie ?? null } };
     return r.si(0.5) ? { id: e.id, email: `${e.id}.${r.entre(1, 99)}@essai.example`, avant: { email: e.email } } : { id: e.id, poste: r.choix(ds.employes).poste, avant: { poste: e.poste } };
   },
   'employe.contactUrgence': ({ r, empId }) => ({ empId: empId(), nom: `Contact ${r.entre(1, 99)}`, telephone: `06 00 00 00 ${String(r.entre(10, 99))}` }),
@@ -168,6 +170,8 @@ function valeur(nom: string, action: string, x: Parameters<Tirage>[0]): unknown 
     absence: 'absences', session: 'sessions', entretien: 'entretiens', voyage: 'voyages', demande: 'demandesCollab', plan: 'plan', employe: 'employes',
     mandat: 'mandats', astreinte: 'astreintes', medical: 'demandesVisite', formationSuivie: 'formationsSuivies', forfait: 'avenantsForfait',
     equipe: 'delegations', conges: 'informationsCp', keystone: 'demandesKeystone', attente: 'attentesSession', evaluation: 'evaluationsFormation',
+    // lot 11 — indicateurs
+    indicateurs: 'indicateursArretes',
   };
   const lignes = (nomListe: string | undefined) => (nomListe ? (ds as unknown as Record<string, { id: number }[] | undefined>)[nomListe] : undefined);
   const parFamille = (f: string) => (f === 'cert' ? ds.employes.flatMap(e => e.certs) : lignes(tables[f]));
@@ -291,6 +295,12 @@ export interface RapportOracle {
 /** Écritures SQL directes, portables (SQLite et PostgreSQL), comme une reprise ou un outil hors de Cursus. */
 const SQL_DIRECT: Record<string, (db: Db, ds: Dataset, r: Aleatoire) => Promise<void>> = {
   'UPDATE employes': async (db, ds, r) => { const e = r.choix(ds.employes); await db.run('UPDATE employes SET nom = ? WHERE id = ?', [`${e.nom.replace(/ \(\d+\)$/, '')} (${r.entre(1, 99)})`, e.id]); },
+  // lot 11 — indicateurs : sexe d'une fiche changé hors de Cursus (reprise de Sage), mise à disposition du CSE d'un arrêté.
+  'UPDATE employes sexe': async (db, ds, r) => { await db.run('UPDATE employes SET sexe = ? WHERE id = ?', [r.choix(['F', 'M', null]), r.choix(ds.employes).id]); },
+  'UPDATE indicateurs_arretes': async (db, ds, r) => {
+    const a = ds.indicateursArretes ?? [];
+    if (a.length) await db.run('UPDATE indicateurs_arretes SET cse_le = ? WHERE id = ?', [addD(ds.today, -r.entre(0, 30)), r.choix(a).id]);
+  },
   'UPDATE feuilles (plusieurs lignes)': async (db, ds, r) => { await db.run('UPDATE feuilles SET comment = ? WHERE emp_id = ?', [`Reprise ${r.entre(1, 99)}`, r.choix(ds.employes).id]); },
   'INSERT absences': async (db, ds, r) => {
     const du = addD(ds.today, r.entre(-40, 40));

@@ -3,12 +3,14 @@
 import { estMotifReprise, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../constants.ts';
 import { isValidDate } from '../dates.ts';
 import { r1 } from '../format.ts';
-import type { Employe, Equipe, MotifRecours, MotifSortie, Settings, Statut, TempsTravail, TypeContrat } from '../types.ts';
+import type { CategorieEmploi, Employe, Equipe, MotifRecours, MotifSortie, Settings, Sexe, Statut, TempsTravail, TypeContrat } from '../types.ts';
 import { controleCdd } from './cdd.ts';
 import { controleMatriculePaie, normaliserMatricule, type TitulaireMatricule, unicite } from './matricules.ts';
 import { controleEssai, estMotifSortie } from './contrats.ts';
 import { controleAdresse, normaliserAdresse } from './messagerie.ts';
 import { ageAu, mineurAu, refusEquipeNuit } from './mineurs.ts';
+// lot 11 — indicateurs
+import { estCategorieEmploi, estSexe } from './indicateurs-legaux.ts';
 
 /** Âge minimal d'un salarié : 14 ans, pour des travaux légers pendant les vacances scolaires (art. L4153-3). */
 export const AGE_MINIMUM = 14;
@@ -61,11 +63,19 @@ export interface ProfilInput {
   visite: string | null;
   repriseMotif: string | null;
   repriseDate: string | null;
+  /**
+   * lot 11 — indicateurs (shared/rules/indicateurs-legaux.ts) : sexe (F, M) et catégorie d'emploi à 4 valeurs, saisis par le
+   * service RH seulement ; null : à compléter. Au journal, le nom du champ modifié, jamais sa valeur.
+   */
+  sexe?: Sexe | null;
+  categorie?: CategorieEmploi | null;
 }
 
 export const PROFIL_FIELDS: (keyof ProfilInput)[] = [
   'nom', 'poste', 'posteId', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis',
   'entree', 'fin', 'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'motifRecours', 'cddFinInitiale', 'naissance', 'naissanceLe', 'derogationTravauxLe', 'agence', 'matriculePaie', 'email', 'visite', 'repriseMotif', 'repriseDate',
+  // lot 11 — indicateurs
+  'sexe', 'categorie',
 ];
 
 /**
@@ -92,6 +102,8 @@ export function profilOf(e: Employe): ProfilInput {
 export const PROFIL_VIDE = (equipe: string | null, today: string): ProfilInput => ({
   nom: '', poste: '', posteId: null, equipe, statut: 'ouvrier', typeContrat: 'cdi', temps: '35h', heures: null, forfaitHeures: null, forfaitJours: null,
   jourOff: [], tempsDepuis: null, entree: today, fin: null, motifSortie: null, essaiFin: null, essaiRenouveleJusquau: null, motifRecours: null, cddFinInitiale: null, naissance: Number(today.slice(0, 4)) - 30, naissanceLe: null, derogationTravauxLe: null, agence: null, matriculePaie: null, email: null, visite: null, repriseMotif: null, repriseDate: null,
+  // lot 11 — indicateurs
+  sexe: null, categorie: null,
 });
 
 /**
@@ -132,6 +144,9 @@ export function normaliserProfil(p: ProfilInput): ProfilInput {
     visite: s(p.visite),
     repriseMotif: s(p.repriseMotif),
     repriseDate: s(p.repriseDate),
+    // lot 11 — indicateurs : codes en majuscules (sexe) ou minuscules (catégorie) ; vide : à compléter.
+    sexe: (typeof p.sexe === 'string' && p.sexe.trim() ? p.sexe.trim().toUpperCase() : null) as Sexe | null,
+    categorie: (typeof p.categorie === 'string' && p.categorie.trim() ? p.categorie.trim().toLowerCase() : null) as CategorieEmploi | null,
   };
 }
 
@@ -242,6 +257,9 @@ export function validerProfil(raw: ProfilInput, opts: {
   if (p.repriseDate && !p.repriseMotif) errors.push('Motif de l’absence longue requis avec la date de reprise.');
   // Liste fermée (MOTIFS_REPRISE) : aucun texte libre, donc aucune information médicale, sur la fiche.
   if (p.repriseMotif && !estMotifReprise(p.repriseMotif)) errors.push('Motif de reprise à choisir dans la liste (aucune information médicale).');
+  // lot 11 — indicateurs : listes fermées (DSN pour le sexe ; 4 catégories de la BDESE et de l'index).
+  if (p.sexe && !estSexe(p.sexe)) errors.push('Sexe à choisir dans la liste (féminin, masculin).');
+  if (p.categorie && !estCategorieEmploi(p.categorie)) errors.push('Catégorie d’emploi à choisir dans la liste (ouvrier, employé, technicien ou agent de maîtrise, cadre).');
 
   const cadre = STATUTS[p.statut]?.cadre;
   switch (p.temps) {

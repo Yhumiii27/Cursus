@@ -385,6 +385,8 @@ export const CHAMPS_PAR_SALARIE: ReadonlySet<keyof Dataset> = new Set<keyof Data
 export const CHAMPS_HORS_VUES: ReadonlySet<keyof Dataset> = new Set<keyof Dataset>([
   'absencesPaie', 'deplacementsPaie', 'plan', 'budgets', 'exercicesClos', 'demandesKeystone', 'soldesSortie', 'lotsPaie', 'rubriquesPaie', 'releves',
   'reprises', 'declarationsPasseport',
+  // lot 11 — indicateurs : arrêtés annuels, vides hors de l'espace RH.
+  'indicateursArretes',
 ]);
 
 /** Salariés lus par chaque vue collaborateur ou manager calculée par `vueDe` (jamais une propriété de la vue : rien n'en part au navigateur). */

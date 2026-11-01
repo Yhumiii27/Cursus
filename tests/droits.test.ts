@@ -540,6 +540,12 @@ const MATRICE: Ligne[] = [
   // Réglage restreint aux managers et au service RH : le collaborateur ne l'imprime plus ; tout l'espace RH, si.
   { action: 'organigramme.imprimer', variante: 'réservé aux managers', droits: 'O    O    O    O    -    -    O    O    O', p: async () => { await reglerOrganigramme('managers'); return { lignes: 24 }; } },
   { action: 'organigramme.exporter', variante: 'réservé au service RH', droits: 'O    O    -    -    -    -    O    O    O', p: async () => { await reglerOrganigramme('rh'); return { lignes: 24 }; } },
+  // lot 11 — indicateurs : sexe et catégorie d'emploi, service RH seulement (jamais le manager) ; arrêté annuel et son
+  // annulation, administrateur RH ; mise à disposition du CSE, service RH.
+  { action: 'employe.modifier', variante: 'sexe et catégorie', droits: 'O    O    -    -    -    -    -    -    -', p: () => ({ id: 2, sexe: 'M', categorie: 'tam' }) },
+  { action: 'indicateurs.arreter', droits: '                  O    -    -    -    -    -    -    -    -', p: () => ({ annee: 2025 }) },
+  { action: 'indicateurs.annulerArrete', droits: '            O    -    -    -    -    -    -    -    -', p: async () => ({ id: await arreteEssai(), motif: 'Absences de décembre corrigées' }) },
+  { action: 'indicateurs.marquerCse', droits: '               O    O    -    -    -    -    -    -    -', p: async () => ({ id: await arreteEssai(), le: '2026-10-05' }) },
 ];
 /** Entité d'essai (lot 11), ouverte ou fermée, insérée dans la transaction annulée de la ligne. */
 async function entiteEssai(ouverte = true) {
@@ -551,6 +557,13 @@ async function entiteEssai(ouverte = true) {
 /** Réglage de l'organigramme posé dans la transaction annulée de la ligne (lu par loadFull). */
 async function reglerOrganigramme(v: string) {
   await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), organigrammeOuvert: v });
+}
+/** Arrêté des indicateurs 2025 (lot 11), inséré dans la transaction annulée de la ligne. */
+async function arreteEssai() {
+  return (await db.insert<{ id: number }>('indicateursArretes', {
+    annee: 2025, perimetre: 'global', du: '2025-01-01', au: '2025-12-31', reglesVersion: 'essai', seuil: 5, donnees: {}, arreteLe: '2026-01-15T09:00:00.000Z',
+    arretePar: 'Sandrine Vidal', cseLe: null, csePar: null, annuleLe: null, annulePar: null, annuleMotif: null,
+  })).id;
 }
 
 const ANNULER = Symbol('annuler');

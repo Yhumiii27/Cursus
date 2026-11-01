@@ -175,6 +175,8 @@ const TEXTES_GARDES: Record<string, readonly string[]> = {
   attentes_session: ['le', 'par', 'statut', 'proposee_le', 'issue_le', 'issue_par', 'issue'],
   // Évaluation de formation : type, répondant et efficacité codés, date ; auteur (nom) balayé.
   evaluations_formation: ['type', 'repondant', 'efficacite', 'le', 'auteur'],
+  // lot 12 — C1 (forfait annuel en heures) : plage, motif de fin et statut codés, dates ; auteurs (noms) balayés.
+  clotures_forfait_heures: ['debut', 'fin', 'motif_fin', 'statut', 'confirmee_le', 'confirmee_par', 'rouverte_le', 'rouverte_par', 'annulee_le', 'annulee_par'],
 };
 
 test('conservation : chaque colonne de texte libre d’une table gardée (mode « textes ») est vidée ou sur la liste blanche', async () => {

@@ -102,6 +102,14 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // Lot 11, chantier C5, étape 2 : fichier d'écritures (comptes proposés, journal OD, gabarit du fichier de paie).
     fraisComptes: {}, fraisCompteGenerique: '6256', fraisCompteTva: '44566', fraisCompteSalarie: '421', fraisJournal: 'OD',
     fraisGabarit: { separateur: ';', colonnes: ['journal', 'date', 'compte', 'compteTiers', 'piece', 'libelle', 'debit', 'credit'], decimale: ',', entete: true, encodage: 'utf-8', formatDate: 'JJ/MM/AAAA' },
+    // Lot 12, chantier C1 : forfait annuel en heures sur l'année civile, suivi depuis la mise en service, 25 % jusqu'à 8 h par
+    // semaine travaillée, toutes les absences hors CP déduites au forfait / jours ouvrés théoriques, émission au mois de la
+    // confirmation, sans imputation sur le contingent.
+    forfaitHeuresDebutPeriode: '01-01', forfaitHeuresDebutSuivi: '2027-01-01', forfaitHeuresAccord: '', forfaitHeuresSeuil25: 8,
+    forfaitHeuresAbsencesDeduites: ['RTT', 'RECUP', 'CET', 'MALADIE', 'ALD', 'AT', 'TRAJET', 'MP', 'MATERNITE', 'PATERNITE', 'ADOPTION', 'PARENTAL', 'MARIAGE',
+      'MARIAGE_ENFANT', 'NAISSANCE', 'DECES_ENFANT', 'DECES_ENFANT_JEUNE', 'DEUIL_ENFANT', 'DECES_PROCHE', 'HANDICAP_ENFANT', 'ENFANT_MALADE', 'SANS_SOLDE',
+      'INJUSTIFIEE', 'ABSENCE'],
+    forfaitHeuresJour: 0, forfaitHeuresEmission: 'cloture', forfaitHeuresContingent: false,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(await loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

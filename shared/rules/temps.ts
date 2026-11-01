@@ -17,6 +17,8 @@ import { employeAu, memeRegime, regimeFiche, segmentsContrat } from './historiqu
 import { horairesDeLaFeuille } from './horaires.ts';
 import { controlesReposNuit, veilleDe } from './repos-nuit.ts';
 import { plagesInterventions } from './astreintes.ts';
+// lot 12 — C1 (forfait annuel en heures)
+import { cibleSegments, debutSuivi, plagesForfait } from './forfait-heures.ts';
 
 /** Régime de temps de travail en vigueur d'une fiche, à figer sur une feuille soumise. */
 export function contratFige(e: Employe): ContratFige {
@@ -202,18 +204,24 @@ export const joursAuDela24 = (lignes: Pick<LigneTemps, 'h'>[]): number[] =>
  * Forfait annuel en heures : cumul des feuilles validées de l'année, cible proratisée selon la présence
  * (entrée, fin de contrat) et part de la cible correspondant à la période déjà écoulée. Une semaine à cheval
  * sur deux années est ventilée jour par jour : le lundi 29 décembre compte pour l'année qui s'achève.
+ * lot 12 — C1 (shared/rules/forfait-heures.ts) : seules comptent les feuilles décomptées au forfait annuel (régime figé de
+ * chaque feuille, comme le forfait jours) — une semaine à 35 h d'un salarié passé au forfait en cours d'année, dont les
+ * heures supplémentaires sont déjà payées, n'y entre plus ; cumul et cible partent au plus tôt du début du suivi
+ * (`forfaitHeuresDebutSuivi`, mise en service) : le réalisé d'avant n'est pas dans Cursus.
  */
 export function cumulAnnuel(d: Domain, e: Employe, year = d.year) {
   const c = d.contratOf(e);
   const annee = String(year);
+  const suivi = debutSuivi(d.ds.settings);
   const done = d.ds.feuilles
-    .filter(sh => sh.empId === e.id && sh.statut === 'validee' && joursSemaine(sh.week).some(day => day.startsWith(annee)))
+    .filter(sh => sh.empId === e.id && sh.statut === 'validee' && joursSemaine(sh.week).some(day => day.startsWith(annee) && day >= suivi))
     .reduce((n, sh) => {
-      const perDay = calcSheet(d, e, sh).perDay;
-      return n + joursSemaine(sh.week).reduce((m, day, i) => m + (day.startsWith(annee) ? perDay[i] : 0), 0);
+      const calc = calcSheet(d, e, sh);
+      if (!calc.c.annuel) return n;
+      return n + joursSemaine(sh.week).reduce((m, day, i) => m + (day.startsWith(annee) && day >= suivi ? calc.perDay[i] : 0), 0);
     }, 0);
   const start = new Date(year, 0, 1).getTime(), end = new Date(year + 1, 0, 1).getTime();
-  const debut = Math.max(start, parse(e.entree).getTime());
+  const debut = Math.max(start, parse(e.entree).getTime(), parse(suivi).getTime());
   const fin = e.fin ? Math.min(end, parse(e.fin).getTime() + 864e5) : end;
   const presence = Math.max(0, fin - debut) / (end - start);
   // Historique des contrats (t074) : cible au prorata des périodes de l'année sous un forfait annuel, chacune avec sa durée
@@ -223,11 +231,9 @@ export function cumulAnnuel(d: Domain, e: Employe, year = d.year) {
   const segs = segmentsContrat(d, e).filter((s, i, l) => s.du <= `${year}-12-31` && (l[i + 1]?.du ?? '9999-12-31') > `${year}-01-01`);
   const cible = segs.every(s => !s.regime || memeRegime(s.regime, fiche))
     ? Math.round(c.heuresAnnuelles * presence)
-    : Math.round(segs.reduce((n, s, i) => {
-      const du = Math.max(debut, parse(s.du).getTime()), au = Math.min(fin, segs[i + 1] ? parse(segs[i + 1].du).getTime() : end);
-      const k = d.contratOf(s.regime ? { ...e, ...s.regime } : e);
-      return n + (k.annuel && au > du ? k.heuresAnnuelles * (au - du) / (end - start) : 0);
-    }, 0));
+    // lot 12 — C1 : jours des semaines décomptées au forfait annuel (régime figé de la feuille, sinon celui du lundi), comme la
+    // clôture : un avenant pris en milieu de semaine ne joue qu'à partir de la semaine suivante, où les heures comptent.
+    : Math.round(plagesForfait(d, e, { debut: `${year}-01-01`, fin: `${year}-12-31` }).reduce((n, p) => n + cibleSegments(p.segments, { debut: `${year}-01-01`, fin: `${year}-12-31` }), 0));
   const ecoule = fin > debut ? Math.min(1, Math.max(0, (d.today.getTime() - debut) / (fin - debut))) : 1;
   return { done, cible, prorata: cible * ecoule, depasse: done > cible, annee: year };
 }

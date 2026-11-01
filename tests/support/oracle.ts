@@ -184,6 +184,11 @@ const TIRAGES: Record<string, Tirage> = {
   'frais.avance.refuser': ({ r, ds }) => ({ id: id(r, ds.avancesFrais, a => a.statut === 'demandee'), motif: 'Mission annulée' }),
   'frais.avance.annuler': ({ r, ds }) => ({ id: id(r, ds.avancesFrais, a => a.statut === 'demandee') }),
   // lot 12 — C1 (forfait annuel en heures)
+  // Clôture d'une plage de l'an passé ou de l'année (le plus souvent refusée : plage en cours, semaines sans feuille), puis
+  // réouverture ou annulation d'une ligne existante.
+  'forfaitHeures.cloturer': ({ r, empId, ds }) => ({ lignes: [{ empId: empId(), debut: `${Number(ds.today.slice(0, 4)) - r.entre(0, 1)}-01-01` }] }),
+  'forfaitHeures.rouvrir': ({ r, ds }) => ({ id: id(r, ds.cloturesForfaitHeures, l => l.statut === 'confirmee'), motif: 'Feuille corrigée (banc d’oracle)' }),
+  'forfaitHeures.annuler': ({ r, ds }) => ({ id: id(r, ds.cloturesForfaitHeures, l => l.statut !== 'annulee'), motif: 'Clôture faite trop tôt (banc d’oracle)' }),
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
@@ -231,6 +236,7 @@ function valeur(nom: string, action: string, x: Parameters<Tirage>[0]): unknown 
     // lot 11 — dossiers OPCO
     opco: 'dossiersOpco',
     // lot 12 — C1 (forfait annuel en heures)
+    forfaitHeures: 'cloturesForfaitHeures',
     // lot 12 — C2 (notes de frais : activation)
     // lot 12 — C3 (entretiens suivis et 360°)
     // lot 12 — C4 (organismes de formation et e-learning)

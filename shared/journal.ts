@@ -59,6 +59,8 @@ export const ACTIONS_PAIE: readonly string[] = [
   'frais.note.soumettre', 'frais.note.valider', 'frais.note.renvoyer', 'frais.note.controler', 'frais.note.annuler', 'frais.ligne.refuser',
   'frais.ligne.plafonner', 'frais.avance.valider', 'frais.avance.refuser', 'frais.avance.annuler', 'frais.bareme.enregistrer', 'frais.forfait.enregistrer',
   'frais.taux.enregistrer', 'frais.export.generer', 'frais.export.annuler', 'frais.export.fichier',
+  // lot 12 — C1 (forfait annuel en heures) : clôture, réouverture et annulation de la régularisation de fin de période.
+  'forfaitHeures.cloturer', 'forfaitHeures.rouvrir', 'forfaitHeures.annuler',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -361,6 +363,10 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'opco.rouvrir': 'Dossier OPCO rouvert (retour d’un cran)',
   'opco.supprimer': 'Dossier OPCO supprimé (saisie erronée)',
   // lot 12 — C1 (forfait annuel en heures)
+  // Clôture du forfait annuel en heures (server/src/actions/forfait-heures.ts) : famille « Forfait annuel en heures » (paie).
+  'forfaitHeures.cloturer': 'Forfait annuel en heures : période clôturée',
+  'forfaitHeures.rouvrir': 'Forfait annuel en heures : clôture rouverte',
+  'forfaitHeures.annuler': 'Forfait annuel en heures : clôture annulée',
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
@@ -417,6 +423,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'mobile', label: 'Application mobile et notifications', prefixes: ['push.'] },
   // lot 12 — blocs réservés (socle) : préfixes d'une nouvelle famille (une entrée par famille, jamais une famille en double).
   // lot 12 — C1 (forfait annuel en heures)
+  { id: 'forfaitHeures', label: 'Forfait annuel en heures (clôture)', prefixes: ['forfaitHeures.'] },
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
@@ -545,6 +552,10 @@ export const CHAMP_LABEL: Record<string, string> = {
   refusLe: 'Refusé le', refusMotif: 'Motif du refus', factureLe: 'Justificatifs envoyés le', montantFacture: 'Montant facturé', soldeLe: 'Soldé le',
   soldeEcart: 'Écart au solde', soldeNature: 'Nature de l’écart', abandonLe: 'Abandonné le', abandonMotif: 'Motif de l’abandon', planActionId: 'Action du plan',
   // lot 12 — C1 (forfait annuel en heures)
+  forfaitHeuresDebutPeriode: 'Forfait annuel en heures : début de la période de référence', forfaitHeuresDebutSuivi: 'Forfait annuel en heures : début du suivi',
+  forfaitHeuresAccord: 'Référence de l’accord sur le forfait annuel en heures', forfaitHeuresSeuil25: 'Forfait annuel en heures : heures à 25 % par semaine',
+  forfaitHeuresAbsencesDeduites: 'Forfait annuel en heures : absences déduites', forfaitHeuresJour: 'Forfait annuel en heures : heures déduites par jour d’absence',
+  forfaitHeuresEmission: 'Forfait annuel en heures : mois d’émission', forfaitHeuresContingent: 'Forfait annuel en heures : imputation sur le contingent',
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)

@@ -62,6 +62,7 @@ import { opcoActions } from './opco.ts';
 import { fraisActions } from './frais.ts';
 import { fraisExportActions } from './frais-exports.ts';
 // lot 12 — C1 (forfait annuel en heures)
+import { forfaitHeuresActions } from './forfait-heures.ts';
 // lot 12 — C2 (notes de frais : activation)
 // lot 12 — C3 (entretiens suivis et 360°)
 // lot 12 — C4 (organismes de formation et e-learning)
@@ -138,6 +139,7 @@ const REGISTRE = {
   // lot 11 — notes de frais, étape 2 : exports comptables.
   ...fraisExportActions,
   // lot 12 — C1 (forfait annuel en heures)
+  ...forfaitHeuresActions,
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)

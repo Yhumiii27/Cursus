@@ -31,7 +31,7 @@ import { aRegulariser, modeRegularisation } from '../../../shared/rules/regulari
 import { optionsRegularisation, selectionRemplace } from '../regularisation-paie.ts';
 import { lireFormatFichier, type LotEnregistre } from '../lots-paie.ts';
 import {
-  avantFamilles, confirmerFamilles, contenuDesFamilles, elementsDansLeFichier, elementsDesFamilles, type ElementsFamilles, idsDesFamilles, libererFamilles,
+  avantFamilles, confirmerFamilles, contenuDesFamilles, correctifDesFamilles, elementsDansLeFichier, elementsDesFamilles, type ElementsFamilles, idsDesFamilles, libererFamilles,
   reserverFamilles, resultatFamilles, rubriquesDesFamilles, salariesDesFamilles, texteFamilles, texteLiberes,
 } from '../elements-lot.ts';
 import { ActionError, type ActionHandler, type Ctx, requirePaie, str } from './context.ts';
@@ -113,7 +113,8 @@ export async function creerLot(ctx: Ctx, sheets: FeuilleTemps[], mode: SageMode,
     feuilles: sheets.map(sh => ({ empId: sh.empId, week: sh.week })), absences: absencesDuContenu(elements), resume: resumeContenu(contenu, paysLabel), sansMatricule: sans, contenu,
     ...idsDesFamilles(autres),
     telechargeLe: null, telechargePar: null, telechargements: 0, confirmeLe: null, confirmePar: null, reference: null, annuleLe: null, annulePar: null, historique: false,
-    type: correctifs.length ? 'correctif' : 'normal', correctifs,
+    // lot 12 — C1 (forfait annuel en heures) : écart d'une clôture rouverte après sa transmission, lot correctif aussi.
+    type: correctifs.length || correctifDesFamilles(autres) ? 'correctif' : 'normal', correctifs,
   });
   for (const sh of sheets) await ctx.db.update<FeuilleTemps>('feuilles', sh.id, { lotId: lot.id });
   for (const a of absencesDuContenu(elements)) await ctx.db.update<Absence>('absences', a.id, { lotId: lot.id });

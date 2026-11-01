@@ -269,6 +269,8 @@ const lotDuResultat = (x: Contexte) => x.result as {
   correctifs?: { empId: number; week: string }[];
   // lot 11 — notes de frais : notes et avances (identifiants seuls).
   frais?: { id: number; empId: number; avance?: true }[];
+  // lot 12 — C1 (forfait annuel en heures) : lignes de clôture (identifiants seuls).
+  forfaitHeures?: { id: number; empId: number }[];
 } | null | undefined;
 const lotRetenu = (x: Contexte) => {
   const r = lotDuResultat(x);
@@ -284,6 +286,8 @@ const lotRetenu = (x: Contexte) => {
     ...(r?.astreintes?.length ? { astreintes: r.astreintes.map(s => s.id) } : {}),
     // lot 11 — notes de frais : identifiants des notes et des avances, jamais les montants ni les catégories.
     ...(r?.frais?.length ? { frais: r.frais.map(s => (s.avance ? `avance:${s.id}` : `note:${s.id}`)) } : {}),
+    // lot 12 — C1 (forfait annuel en heures) : identifiants des lignes de clôture, jamais les heures.
+    ...(r?.forfaitHeures?.length ? { forfaitHeures: r.forfaitHeures.map(s => s.id) } : {}),
   };
 };
 const salariesDuLot = (x: Contexte) => [...new Set([
@@ -291,6 +295,8 @@ const salariesDuLot = (x: Contexte) => [...new Set([
   ...(lotDuResultat(x)?.deplacements ?? []).map(a => a.empId), ...(lotDuResultat(x)?.rachats ?? []).map(a => a.empId),
   ...(lotDuResultat(x)?.astreintes ?? []).map(a => a.empId),
   ...(lotDuResultat(x)?.frais ?? []).map(a => a.empId),
+  // lot 12 — C1 (forfait annuel en heures)
+  ...(lotDuResultat(x)?.forfaitHeures ?? []).map(a => a.empId),
 ])];
 /** Feuilles transmises à la paie : validées et non transmises avant l'action, marquées transmises après. */
 const transmises = async (x: Contexte) => (await Promise.all((x.etat as number[]).map(id => x.db.get<FeuilleTemps>('feuilles', id)))).filter((f): f is FeuilleTemps => !!f?.sage);
@@ -852,7 +858,8 @@ export const REGLES: Record<string, Regle> = {
   // Administration
   // Réglages : anciennes et nouvelles valeurs, sauf la référence de l'accord des heures supplémentaires (texte libre).
   'parametres.maj': {
-    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche', 'nuitAccord', 'forfaitJoursAccord', 'fractionnementAccord', 'conservationDecisionDpo', 'astreinteAccord'] },
+    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche', 'nuitAccord', 'forfaitJoursAccord', 'fractionnementAccord', 'conservationDecisionDpo', 'astreinteAccord',
+      /* lot 12 — C1 */ 'forfaitHeuresAccord'] },
   },
   // Jours fériés d'une année (lot 6) : année, réglage avant et après ; le motif d'une année engagée (texte libre) n'est
   // jamais recopié, seulement le fait qu'il soit renseigné. Salariés dont une absence est recalculée (résultat).
@@ -914,6 +921,29 @@ export const REGLES: Record<string, Regle> = {
   // lot 12 — blocs réservés (socle) : identifiants, codes, dates, statuts seulement ; jamais de texte libre ni de donnée
   // de santé (une règle longue peut vivre dans le fichier du chantier, ajoutée ici par une ligne `...REGLES_<module>`).
   // lot 12 — C1 (forfait annuel en heures)
+  // Clôture du forfait annuel en heures (server/src/actions/forfait-heures.ts, ACTIONS_PAIE) : lignes (identifiant, salarié,
+  // plage, version), nombre de lignes ; réouverture et annulation : identifiant, salarié, version, statut avant et après, et
+  // seulement le fait qu'un motif soit donné. Jamais d'heures (ni absences, ni réalisé, ni heures majorées), de taux ni de
+  // montant.
+  'forfaitHeures.cloturer': {
+    extra: p => ({ demandees: Array.isArray(p.lignes) ? p.lignes.length : 0 }),
+    bilan: (_p, x) => {
+      const l = ((x.result as { lignes?: Ligne[] } | null)?.lignes ?? []);
+      return { lignes: l.length, clotures: l.map(c => ({ id: c.id, empId: c.empId, debut: c.debut, fin: c.fin, version: c.version })) };
+    },
+    salaries: (_p, x) => ((x.result as { lignes?: Ligne[] } | null)?.lignes ?? []).map(c => c.empId),
+  },
+  'forfaitHeures.rouvrir': {
+    champs: ['id'], extra: p => ({ motif: typeof p.motif === 'string' && p.motif.trim() ? MENTION_TEXTE : null }),
+    cible: { table: 'cloturesForfaitHeures', cle: p => Number(p.id) || null, colonnes: ['statut', 'version'] },
+    bilan: (_p, x) => { const r = (x.result ?? {}) as { version?: number; nouvelle?: number | null }; return { version: r.version ?? null, nouvelle: r.nouvelle ?? null }; },
+    salaries: (_p, x) => [x.avant?.empId],
+  },
+  'forfaitHeures.annuler': {
+    champs: ['id'], extra: p => ({ motif: typeof p.motif === 'string' && p.motif.trim() ? MENTION_TEXTE : null }),
+    cible: { table: 'cloturesForfaitHeures', cle: p => Number(p.id) || null, colonnes: ['statut', 'version'] },
+    salaries: (_p, x) => [x.avant?.empId],
+  },
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)

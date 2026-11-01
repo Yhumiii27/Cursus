@@ -227,7 +227,9 @@ test('t022 rubriques : pré-remplies au code interne, à confirmer ; saisie, con
   assert.ok(table.every(r => r.codeSage === r.code && r.active === !RUBRIQUES_PAIE[r.code].inactiveParDefaut && !r.confirmee));
   assert.deepEqual(table.filter(r => !r.active).map(r => r.code), ['HNUIT', 'MAJ_NUIT', 'CET', 'ICCP_J', 'RTT_SOLDE', 'RECUP_H', 'CET_LIQ', 'GD_JOUR', 'GD_NUIT', 'ETR_JOUR', 'TRAJET', 'JREN', 'AST_H', 'AST_PER', 'AST_COMP',
     // lot 11 — notes de frais : rubriques au montant, désactivées tant que la paie n'a pas confirmé ses codes.
-    'FRAIS_REMB', 'FRAIS_IK', 'FRAIS_FORFAIT', 'FRAIS_REINT', 'FRAIS_AVANCE', 'FRAIS_AVANCE_DED']);
+    'FRAIS_REMB', 'FRAIS_IK', 'FRAIS_FORFAIT', 'FRAIS_REINT', 'FRAIS_AVANCE', 'FRAIS_AVANCE_DED',
+    // lot 12 — C1 : clôture du forfait annuel en heures, codes Sage à confirmer par la paie.
+    'HFA25', 'HFA50', 'HCA10', 'HCA25']);
   await refus(GEST, 'paie.rubrique', { code: 'HN', confirmer: true }, 403);
   await refus(PAIE, 'paie.rubrique', { code: 'XX', codeSage: '1' }, 404);
   await refus(PAIE, 'paie.rubrique', { code: 'HN', codeSage: 'code avec espaces' }, 400, /20 caractères au plus/);

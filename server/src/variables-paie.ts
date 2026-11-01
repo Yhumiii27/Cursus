@@ -35,6 +35,8 @@ import { SAGE_DOSSIER, sageMode } from './integrations/sage.ts';
 import { fichierJoint, tracerRefus } from './journal.ts';
 import type { LotEnregistre } from './lots-paie.ts';
 import { contenuDesFamilles, elementsDesFamilles } from './elements-lot.ts';
+// lot 12 — C1 (forfait annuel en heures)
+import { detailForfaitHeures } from '../../shared/rules/forfait-heures.ts';
 
 /** Ligne de l'export : `empId` sert au journal (salariés concernés), il n'est pas écrit dans le fichier. */
 export interface VariablePaie {
@@ -58,7 +60,9 @@ export async function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: s
   const table = rubriquesPaie(await db.all<RubriquePaie>('rubriquesPaie'));
   const out: VariablePaie[] = [];
   const paysLabel = (code: string) => d.destOf(code)?.pays ?? code;
-  const ajouter = (contenu: Pick<SagePush, 'lignes' | 'absences' | 'sorties' | 'deplacements' | 'rachats' | 'astreintes' | 'aSaisir' | 'libelles'>, lot: string, etat: string) => {
+  const ajouter = (contenu: Pick<SagePush, 'lignes' | 'absences' | 'sorties' | 'deplacements' | 'rachats' | 'astreintes' | 'aSaisir' | 'libelles'
+    // lot 12 — C1 (forfait annuel en heures)
+    | 'forfaitHeures'>, lot: string, etat: string) => {
     const libelles = contenu.libelles ?? libellesSage(contenu, table);
     for (const l of contenu.lignes) {
       if ((l.periode ?? '') !== periode) continue;
@@ -115,6 +119,15 @@ export async function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: s
       out.push({
         matricule: x.matricule, salarie: d.emp(x.empId)?.nom ?? '', rubrique: x.codeSage ?? A_SAISIR, quantite: x.quantite, lot, etat, empId: x.empId,
         libelle: x.codeSage ? libelles[x.codeSage] ?? x.codeSage : RUBRIQUES_PAIE[x.rubrique]?.label ?? x.rubrique, detail: detailAstreinte(x, periodeLabel),
+      });
+    }
+    // lot 12 — C1 (forfait annuel en heures) : heures de la clôture ; sans code Sage (rubriques désactivées), absentes du
+    // fichier, à saisir dans Sage.
+    for (const x of contenu.forfaitHeures ?? []) {
+      if (x.periode !== periode) continue;
+      out.push({
+        matricule: x.matricule, salarie: d.emp(x.empId)?.nom ?? '', rubrique: x.codeSage ?? A_SAISIR, quantite: x.quantite, lot, etat, empId: x.empId,
+        libelle: x.codeSage ? libelles[x.codeSage] ?? x.codeSage : RUBRIQUES_PAIE[x.rubrique]?.label ?? x.rubrique, detail: detailForfaitHeures(x),
       });
     }
     // Autres éléments laissés à Sage (soldes de sortie sous une rubrique désactivée) : listés pour la saisie à la main.

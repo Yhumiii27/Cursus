@@ -100,7 +100,8 @@ export const TRAITEMENTS: Record<string, Traitement> = {
   'lignes_frais.emp_id': { mode: 'lignes', categorie: 'frais' },
   'vehicules_perso.emp_id': { mode: 'lignes', categorie: 'frais' },
   'avances_frais.emp_id': { mode: 'lignes', categorie: 'frais' },
-  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C1 (forfait annuel en heures) : lignes gardées avec les avenants du forfait jours (élément de paie), motifs vidés.
+  'clotures_forfait_heures.emp_id': { mode: 'textes', categorie: 'paie' },
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
@@ -191,7 +192,9 @@ export function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number
       { table: 'demandes_collab', ou: `emp_id = ? AND type IN ('formation', 'habilitation')`, supprimer: true },
     ];
     // Avenants de renonciation d'un forfait jours : référence et motif d'annulation (textes libres du service RH).
-    case 'paie': return [{ table: 'avenants_forfait', ou: 'emp_id = ?', vider: ['reference', 'annule_motif'] }];
+    case 'paie': return [{ table: 'avenants_forfait', ou: 'emp_id = ?', vider: ['reference', 'annule_motif'] },
+      // lot 12 — C1 (forfait annuel en heures) : motifs de réouverture et d'annulation des clôtures (textes de l'administrateur RH).
+      { table: 'clotures_forfait_heures', ou: 'emp_id = ?', vider: ['rouverte_motif', 'annulee_motif'] }];
     // lot 11 — notes de frais : seules les notes hors de leur terme comptable (payées depuis plus de la durée réglée, ou
     // jamais payées) partent, avec leurs lignes, leurs justificatifs et les avances soldées ; les véhicules et leurs pièces
     // quand plus aucune ligne gardée ne les désigne. Le dossier anonymisé garde les autres, sans nom.

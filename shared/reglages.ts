@@ -15,6 +15,9 @@ import { NATURES_ABSENTEISME_DEFAUT, NATURES_ABSENTEISME_POSSIBLES, SEUIL_INDICA
 import { CODES_OPCO } from './rules/opco.ts';
 // lot 11 — notes de frais, étape 2
 import { COMPTE_FRAIS_GENERIQUE, COMPTE_SALARIE, COMPTE_TVA_DEDUCTIBLE, estCompte, estJournal, GABARIT_FRAIS_DEFAUT, JOURNAL_FRAIS, lireComptes, lireGabarit } from './rules/frais-export.ts';
+// lot 12 — C1 (forfait annuel en heures)
+import { ABSENCES_DEDUCTIBLES, ABSENCES_DEDUITES_DEFAUT, DEBUT_SUIVI_DEFAUT, forfaitHeuresHorsDefaut, SEUIL_25_DEFAUT } from './rules/forfait-heures.ts';
+import type { EmissionForfaitHeures } from './rules/forfait-heures.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
 export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
@@ -354,6 +357,18 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   } },
   fraisGabarit: { defaut: GABARIT_FRAIS_DEFAUT, controle: v => { const g = lireGabarit(v); if (typeof g === 'string') throw new ReglageInvalide(`Fichier d’écritures : ${g}`); return g; } },
   // lot 12 — C1 (forfait annuel en heures)
+  // Forfait annuel en heures (shared/rules/forfait-heures.ts) : année civile, suivi à partir de la mise en service (le
+  //   réalisé de 2026 n'est pas repris), 25 % jusqu'à 8 h par semaine travaillée sous forfait puis 50 %, toutes les absences
+  //   hors CP légaux déduites au forfait divisé par les jours ouvrés théoriques (réponses du propriétaire du 1er novembre
+  //   2026), émission au mois de la confirmation, sans imputation sur le contingent tant que la paie ne l'a pas confirmée —
+  forfaitHeuresDebutPeriode: { defaut: '01-01', controle: jourDeLAnnee },
+  forfaitHeuresDebutSuivi: { defaut: DEBUT_SUIVI_DEFAUT, controle: v => { const d = dateOuVide('Début du suivi du forfait annuel en heures')(v); if (!d) throw new ReglageInvalide('Début du suivi du forfait annuel en heures : date attendue'); return d; } },
+  forfaitHeuresAccord: { defaut: '', controle: texte(120, 'Référence de l’accord sur le forfait annuel en heures') },
+  forfaitHeuresSeuil25: { defaut: SEUIL_25_DEFAUT, controle: entier(0, 48) },
+  forfaitHeuresAbsencesDeduites: { defaut: [...ABSENCES_DEDUITES_DEFAUT], controle: parmi(ABSENCES_DEDUCTIBLES) },
+  forfaitHeuresJour: { defaut: 0, controle: (v, actuelle: number) => { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.min(12, Math.round(n * 100) / 100)) : actuelle; } },
+  forfaitHeuresEmission: { defaut: 'cloture', controle: choix<EmissionForfaitHeures>(['cloture', 'periode']) },
+  forfaitHeuresContingent: { defaut: false, controle: booleen },
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
@@ -416,6 +431,10 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   s => (s.astreinteDelaiPrevenance < DELAI_PREVENANCE_LEGAL && !s.astreinteAccord
     ? `Astreintes : un délai de prévenance de moins de ${DELAI_PREVENANCE_LEGAL} jours suppose un accord collectif (art. L3121-11) : indiquez sa référence` : null),
   // lot 12 — C1 (forfait annuel en heures)
+  // Forfait annuel en heures : une autre période de référence, un autre seuil de la tranche à 25 %, d'autres absences
+  // déduites ou une autre durée journalière supposent l'accord collectif (art. L3121-64 et L3121-63, 3°) —
+  s => (forfaitHeuresHorsDefaut(s) && !s.forfaitHeuresAccord
+    ? 'Forfait annuel en heures : une période de référence, une majoration, des absences déduites ou une durée journalière autres que celles par défaut supposent un accord collectif (art. L3121-63 et L3121-64) : indiquez sa référence' : null),
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)

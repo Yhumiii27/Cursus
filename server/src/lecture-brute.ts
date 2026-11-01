@@ -41,6 +41,8 @@ import type {
 } from '../../shared/types.ts';
 // lot 11 — notes de frais
 import type { AvanceFrais, BaremeKm, ForfaitFrais, LigneFrais, NoteFrais, TauxDevise, VehiculePerso } from '../../shared/types.ts';
+// lot 12 — C1 (forfait annuel en heures)
+import type { ClotureForfaitHeures } from '../../shared/types.ts';
 import type { Db, Fenetre, TableName } from './db.ts';
 import { formatFichierDe } from './lots-paie.ts';
 import { messagerieDe } from './messagerie.ts';
@@ -146,6 +148,7 @@ export interface Brut {
   avancesFrais: AvanceFrais[];
   tauxDevises: TauxDevise[];
   // lot 12 — C1 (forfait annuel en heures)
+  cloturesForfaitHeures: ClotureForfaitHeures[];
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
@@ -304,6 +307,7 @@ export async function lireBrut(db: Db, today: string): Promise<Brut> {
     avancesFrais: await lire('avancesFrais'),
     tauxDevises: await lire('tauxDevises'),
     // lot 12 — C1 (forfait annuel en heures)
+    cloturesForfaitHeures: await lire('cloturesForfaitHeures'),
     // lot 12 — C2 (notes de frais : activation)
     // lot 12 — C3 (entretiens suivis et 360°)
     // lot 12 — C4 (organismes de formation et e-learning)
@@ -514,6 +518,8 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     vehiculesPerso: brut.vehiculesPerso,
     avancesFrais: brut.avancesFrais,
     // lot 12 — C1 (forfait annuel en heures)
+    // Clôtures du forfait annuel en heures : filtrées par espace et par profil (server/src/vues-forfait-heures.ts).
+    cloturesForfaitHeures: brut.cloturesForfaitHeures,
     // lot 12 — C2 (notes de frais : activation)
     // lot 12 — C3 (entretiens suivis et 360°)
     // lot 12 — C4 (organismes de formation et e-learning)
@@ -589,6 +595,7 @@ const LECTURES_ASSEMBLEES = {
   vehiculesPerso: ['vehiculesPerso'],
   avancesFrais: ['avancesFrais'],
   // lot 12 — C1 (forfait annuel en heures)
+  cloturesForfaitHeures: ['cloturesForfaitHeures'],
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)

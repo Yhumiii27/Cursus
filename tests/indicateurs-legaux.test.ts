@@ -1,11 +1,13 @@
 // Lot 11, chantier C3 (t197), étape 1 : règles des indicateurs sociaux légaux (shared/rules/indicateurs-legaux.ts), testées
 // par valeurs sur un jeu construit à la main, et masquage au seuil d'anonymat :
-// - présence (entrée ≤ date ≤ fin), périodes calendaires, ETP, effectifs de fin de période, moyen (Sécurité sociale) et
+// - présence (entrée ≤ date ≤ fin), l'année civile pour seule période, ETP, effectifs de fin de période, moyen (Sécurité sociale) et
 //   au sens du Code du travail (L1111-2, L1111-3) ;
 // - entrées, sorties, fins de contrat prévues, taux de rotation ;
 // - absentéisme compté dans les jours ouvrés théoriques du régime (temps partiel, férié, arrêt en jours calendaires) ;
 // - formation, âges, préparation de l'index ;
-// - masquer : masque primaire, secondaire (ligne, colonne, total), propriété sur des tableaux tirés au hasard.
+// - masquer : masque primaire, secondaire (ligne, colonne, total, groupes explicites, cases liées et dérivées), propriété
+//   sur des tableaux tirés au hasard ; recoupements par différence dans une ligne (motifs d'absence et taux, taux de
+//   rotation et sorties) et entre tableaux d'une même réponse (détail de la santé et tableau principal).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
@@ -86,17 +88,15 @@ test('présence à une date : entrée au plus tard ce jour, contrat non terminé
   assert.equal(L.presentA({ entree: '2020-01-01', fin: '2026-10-09' }, '2026-10-10'), false);
 });
 
-test('périodes calendaires imposées : année, trimestre, mois ; fins de mois', () => {
+test('période imposée : l’année civile seulement (trimestres et mois se recouperaient avec elle) ; fins de mois', () => {
   assert.deepEqual(L.bornesPeriode(2026, 'annee'), { du: '2026-01-01', au: '2026-12-31', libelle: 'Année 2026' });
-  assert.deepEqual(L.bornesPeriode(2026, 'T1'), { du: '2026-01-01', au: '2026-03-31', libelle: '1er trimestre 2026' });
-  assert.deepEqual(L.bornesPeriode(2026, 'T4'), { du: '2026-10-01', au: '2026-12-31', libelle: '4e trimestre 2026' });
-  assert.deepEqual(L.bornesPeriode(2024, '02'), { du: '2024-02-01', au: '2024-02-29', libelle: 'Février 2024' });
-  assert.equal(L.bornesPeriode(2026, 'T5' as never), null);
+  // Un mois masqué se retrouverait en retranchant de l'année les onze autres, visibles : ni trimestre ni mois.
+  for (const p of ['T1', 'T4', '01', '12', 'T5']) assert.equal(L.bornesPeriode(2026, p as never), null, p);
   assert.equal(L.bornesPeriode(1999, 'annee'), null);
   assert.equal(L.bornesPeriode(2026.5, 'annee'), null);
   assert.deepEqual(L.finsDeMois('2026-11-01', '2027-01-31'), ['2026-11-30', '2026-12-31', '2027-01-31']);
   assert.deepEqual(L.finsDeMois('2026-01-15', '2026-02-27'), ['2026-01-31'], 'mois incomplet en fin de période : sans sa fin');
-  assert.ok(L.estPeriodeIndicateurs('09') && !L.estPeriodeIndicateurs('2026-09-01') && !L.estPeriodeIndicateurs(3));
+  assert.ok(L.estPeriodeIndicateurs('annee') && !L.estPeriodeIndicateurs('09') && !L.estPeriodeIndicateurs('T3') && !L.estPeriodeIndicateurs('2026-09-01') && !L.estPeriodeIndicateurs(3));
   assert.ok(L.estGroupeIndicateurs('equipe') && !L.estGroupeIndicateurs('site') && !L.estGroupeIndicateurs('constructor'));
 });
 
@@ -131,16 +131,17 @@ test('effectifs 2025 : fin de période, moyen (Sécurité sociale), ETP, Code du
   assert.equal(t.completude, 100);
   // Par sexe (seuil 3) : 2 hommes en fin de période, masqués, et les femmes avec eux (le total les révélerait) ; la colonne
   // du Code du travail ne compte que 2 femmes (sans l'alternante) : masquée, les hommes avec elle ; total d'intérim
-  // masqué (une personne).
+  // masqué (une personne). Fin de période, moyen, ETP et Code du travail d'une ligne se confondent souvent (effectif
+  // stable à temps plein) : masqués ensemble.
   const s = tab(calcul('annee', 'sexe'), 'effectifs');
   assert.deepEqual(s.lignes, ['Femmes', 'Hommes', 'Non renseigné', 'Total']);
   assert.deepEqual(masques(s), [
-    [true, false, true, true, false],
-    [true, false, true, true, true],
+    [true, true, true, true, false],
+    [true, true, true, true, true],
     [false, false, false, false, false],
     [false, false, false, false, true],
   ]);
-  assert.deepEqual(valeurs(s).map(l => l[1]), [3, 2.08, 0, 5.08]);
+  assert.deepEqual(valeurs(s).map(l => l[1]), [null, null, 0, 5.08]);
   assert.deepEqual(valeurs(s)[3].slice(0, 4), [5, 5.08, 4.8, 3.72]);
   sansDifference(s, { totalLigne: true });
 });
@@ -149,8 +150,9 @@ test('mouvements 2025 : entrées, sorties enregistrées, fins prévues, taux de 
   const r = calcul('annee', 'aucun');
   const t = tab(r, 'mouvements');
   // 2 entrées (CDD 4 et 5), 1 sortie (démission), 2 fins de contrat prévues sans sortie : toutes sous le seuil ; taux de
-  // rotation (2 + 1) / 2 / 5,08 = 29,51 %, porté par 3 mouvements : visible.
-  assert.deepEqual(valeurs(t), [[null, null, null, 29.51]]);
+  // rotation (2 + 1) / 2 / 5,08 = 29,51 %, porté par 3 mouvements, mais masqué avec les entrées et les sorties : l'effectif
+  // moyen est publié, le taux les redonnerait.
+  assert.deepEqual(valeurs(t), [[null, null, null, null]]);
   const motifs = tab(r, 'sortiesMotifs');
   assert.equal(motifs.lignes.at(-1), 'Total');
   assert.ok(motifs.cases[motifs.lignes.indexOf('Démission')][0].masque && motifs.cases.at(-1)![0].masque);
@@ -160,18 +162,22 @@ test('mouvements 2025 : entrées, sorties enregistrées, fins prévues, taux de 
   assert.ok(contrats.cases[contrats.lignes.indexOf('CDD')][0].masque);
 });
 
-test('absentéisme de janvier 2025 : jours ouvrés théoriques du régime, toutes natures comptées dans ces jours', () => {
-  // Jours théoriques : 22 jours ouvrés (1er janvier férié) pour 1, 3, 5, 6 et 9 ; 17 pour 2 (vendredi non travaillé) → 127.
+test('absentéisme 2025 : jours ouvrés théoriques du régime, toutes natures comptées dans ces jours', () => {
+  // Janvier : 22 jours ouvrés (1er janvier férié), 17 pour 2 (vendredi non travaillé).
+  assert.equal(L.joursTheoriques(d, EMPLOYES[0], '2025-01-01', '2025-01-31').length, 22);
   assert.equal(L.joursTheoriques(d, EMPLOYES[1], '2025-01-01', '2025-01-31').length, 17);
+  // L'année : 251 jours ouvrés hors fériés pour un temps plein présent toute l'année.
+  assert.equal(L.joursTheoriques(d, EMPLOYES[0], '2025-01-01', '2025-12-31').length, 251);
   assert.equal(L.joursTheoriques(d, EMPLOYES[3], '2025-01-01', '2025-01-31').length, 0, 'entré en juillet');
   // Arrêt maladie du lundi 6 au dimanche 12 (jours calendaires) : 5 jours ouvrés ; enfant malade jeudi et vendredi non
   // travaillé : 1 jour ; congés payés, demande en attente : non comptés.
-  const r = calcul('01', 'aucun');
+  const r = calcul('annee', 'aucun');
   const t = tab(r, 'absenteisme');
-  // 9 jours d'absence pour 4 personnes : jours et taux visibles ; chaque motif ne concerne qu'une personne : masqué.
-  assert.deepEqual(valeurs(t), [[127, 9, 7.09, null, null, null, null]]);
-  // Complétude : une absence signalée reste à qualifier (sans nature) sur cinq absences hors congés.
-  assert.equal(t.completude, 80);
+  // 9 jours d'absence pour 4 personnes sur 1 228 jours théoriques : jours et taux visibles ; chaque motif ne concerne
+  // qu'une personne : masqué.
+  assert.deepEqual(valeurs(t), [[1228, 9, 0.73, null, null, null, null]]);
+  // Complétude : une absence signalée reste à qualifier (sans nature) sur six absences hors congés (maternité comprise).
+  assert.equal(t.completude, 83.33);
   assert.match(t.completudeTexte!, /^1 absence à qualifier/);
   assert.match(t.definition, /Arrêt maladie|Maladie/);
   // Détail de la santé : la maladie ne concerne qu'une personne, tout le détail est masqué.
@@ -183,7 +189,7 @@ test('absentéisme de janvier 2025 : jours ouvrés théoriques du régime, toute
   const jours = L.joursAbsence(th, [absence(1, 'MALADIE', '2025-01-06', '2025-01-08'), absence(1, 'AT', '2025-01-07', '2025-01-09')], new Set(['MALADIE', 'AT']));
   assert.deepEqual([...jours], [['MALADIE', 3], ['AT', 1]]);
   // Natures réglées : sans la maladie, l'arrêt du 6 au 12 ne compte plus.
-  const sansMaladie = L.indicateursLegaux(d, { annee: 2025, periode: '01', groupe: 'aucun', seuil: 3, natures: ['AT', 'SANS_SOLDE', 'ENFANT_MALADE'] })!;
+  const sansMaladie = L.indicateursLegaux(d, { annee: 2025, periode: 'annee', groupe: 'aucun', seuil: 3, natures: ['AT', 'SANS_SOLDE', 'ENFANT_MALADE'] })!;
   assert.equal(tab(sansMaladie, 'absenteisme').cases[0][1].valeur, 4);
 });
 
@@ -199,8 +205,8 @@ test('formation 2025 : stagiaires, heures connues, taux d’accès, durées inco
   assert.equal(croise.cases.at(-1)!.at(-1)!.valeur, 3, 'total général visible');
   sansDifference(croise, { totalLigne: true, totalColonne: true });
   for (const l of tab(r, 'formationHeures').cases) for (const c of l) assert.ok(c.masque || c.valeur === 0 || c.valeur === 28, 'heures masquées avec les stagiaires');
-  // Trimestre sans formation : rien, sans division par zéro.
-  assert.deepEqual(valeurs(tab(calcul('T4', 'aucun'), 'formation')), [[0, 0, 0, 0, 0]]);
+  // Année sans formation : rien, sans division par zéro.
+  assert.deepEqual(valeurs(tab(calcul('annee', 'aucun', 2024), 'formation')), [[0, 0, 0, 0, 0]]);
 });
 
 test('âges, ancienneté et index 2025 : tranches par sexe masquées, effectifs pris en compte, retours de maternité', () => {
@@ -245,6 +251,91 @@ test('calcul refusé (période, groupement), seuil borné de 3 à 10, période e
   assert.ok(x.avertissements.includes('1 fiche sans catégorie d’emploi : comptée « Non renseigné »'));
 });
 
+/**
+ * Aucune case masquée d'une ligne ne se déduit des autres cases de la même ligne : jours et taux d'absence masqués
+ * ensemble ; dans le groupe Maladie + AT/MP + Famille + Autres = taux, jamais une seule case masquée ; taux de rotation
+ * masqué dès que les entrées ou les sorties le sont.
+ */
+function sansDeductionLigne(t: Tableau) {
+  for (const [i, l] of t.cases.entries()) {
+    if (t.id === 'absenteisme') {
+      assert.equal(l[1].masque, l[2].masque, `${t.lignes[i]} : jours et taux d’absence liés`);
+      assert.notEqual([3, 4, 5, 6, 2].filter(j => l[j].masque).length, 1, `${t.lignes[i]} : un motif seul masqué se retrouverait par différence`);
+    }
+    if (t.id === 'mouvements' && (l[0].masque || l[1].masque)) assert.ok(l[3].masque, `${t.lignes[i]} : taux de rotation`);
+  }
+}
+
+// Jeu de 2025 du constat de relecture : 36 salariés en CDI (30 toute l'année, 6 entrés le 3 mars), 2 sortis le 30 juin ;
+// 8 arrêts maladie, 7 congés sans solde, 1 enfant malade (une seule personne, 2 jours).
+const GRAND: Employe[] = [
+  ...Array.from({ length: 30 }, (_, i) => emp(101 + i, { sexe: i % 2 ? 'M' : 'F', equipe: i % 3 ? 'Atelier' : 'Laboratoire' })),
+  ...Array.from({ length: 6 }, (_, i) => emp(131 + i, { sexe: i % 2 ? 'M' : 'F', entree: '2025-03-03' })),
+  emp(137, { sexe: 'M', fin: '2025-06-30', motifSortie: 'demission' }),
+  emp(138, { sexe: 'F', fin: '2025-06-30', motifSortie: 'licenciement' }),
+];
+const ABS_GRAND: Absence[] = [
+  ...Array.from({ length: 8 }, (_, i) => absence(101 + i, 'MALADIE', '2025-03-10', '2025-03-14')),
+  ...Array.from({ length: 7 }, (_, i) => absence(109 + i, 'SANS_SOLDE', '2025-04-07', '2025-04-08')),
+  absence(116, 'ENFANT_MALADE', '2025-05-12', '2025-05-13'),
+];
+const grand = (employes: Employe[], absences: Absence[], groupe: import('../shared/rules/indicateurs-legaux.ts').GroupeIndicateurs, natures = L.NATURES_ABSENTEISME_DEFAUT) =>
+  L.indicateursLegaux(new Domain({ ...ds, employes, absences }), { annee: 2025, periode: 'annee', groupe, seuil: 5, natures })!;
+
+test('absentéisme : un motif masqué ne se retrouve pas par différence avec le taux et les autres motifs', () => {
+  const t = tab(grand(GRAND, ABS_GRAND, 'aucun'), 'absenteisme');
+  const [l] = t.cases;
+  // Famille (une personne) masquée ; sans masque secondaire dans la ligne, Taux − Maladie − AT/MP − Autres la redonnait.
+  assert.ok(l[5].masque);
+  assert.ok(!l[1].masque && !l[2].masque, 'jours et taux d’ensemble visibles (16 personnes)');
+  assert.ok(l[6].masque, 'Autres (la plus petite partie non nulle) masquée avec elle');
+  assert.ok(!l[3].masque && l[4].valeur === 0, 'Maladie et AT/MP (zéro) visibles');
+  sansDeductionLigne(t);
+  for (const g of ['sexe', 'categorie', 'equipe', 'statut'] as const) {
+    const x = tab(grand(GRAND, ABS_GRAND, g), 'absenteisme');
+    sansDeductionLigne(x);
+    sansDifference(x, { totalLigne: true });
+  }
+});
+
+test('mouvements : 6 entrées et 2 sorties, le taux de rotation ne redonne pas les sorties masquées', () => {
+  const r = grand(GRAND, ABS_GRAND, 'aucun');
+  // Sans masque du taux : S = taux × 2 × effectif moyen (publié) / 100 − entrées.
+  assert.deepEqual(valeurs(tab(r, 'mouvements')), [[6, null, 0, null]]);
+  assert.ok(tab(r, 'effectifs').cases[0][1].valeur! > 30, 'effectif moyen publié');
+  for (const g of ['sexe', 'equipe'] as const) {
+    const t = tab(grand(GRAND, ABS_GRAND, g), 'mouvements');
+    sansDeductionLigne(t);
+    sansDifference(t, { totalLigne: true });
+  }
+});
+
+test('absentéisme : un accident du travail seul ne se retrouve ni dans la ligne ni par le total du détail de la santé', () => {
+  // 12 CDI ; 6 arrêts maladie de 2 jours en mars, un accident du travail du 5 au 16 mai (le 8 mai férié : 9 jours).
+  const douze = Array.from({ length: 12 }, (_, i) => emp(201 + i, { sexe: i % 2 ? 'M' : 'F' }));
+  const abs = [...Array.from({ length: 6 }, (_, i) => absence(201 + i, 'MALADIE', '2025-03-10', '2025-03-11')), absence(207, 'AT', '2025-05-05', '2025-05-16')];
+  const r = grand(douze, abs, 'aucun');
+  const t = tab(r, 'absenteisme'), sante = tab(r, 'absenteismeSante');
+  assert.deepEqual(t.cases[0].map(c => c.masque), [false, false, false, true, true, false, false], 'AT/MP masqué, Maladie avec lui');
+  assert.equal(t.cases[0][1].valeur, 21);
+  // Le total du détail de la santé (Maladie + AT/MP) redonnerait AT/MP : masqué avec tout le détail.
+  assert.ok(sante.cases.every(l => l[0].masque), 'détail de la santé masqué, total compris');
+  sansDeductionLigne(t);
+  // Recoupement entre tableaux : un total de la santé visible n'est jamais la somme d'une case masquée du tableau principal.
+  for (const g of ['aucun', 'sexe'] as const) {
+    const x = grand(douze, abs, g), p = tab(x, 'absenteisme').cases.at(-1)!, st = tab(x, 'absenteismeSante').cases.at(-1)![0];
+    if (!st.masque) assert.ok(!p[3].masque && !p[4].masque, g);
+  }
+  // Natures réglées sur la maladie et l'accident du travail, chacune pour 5 personnes : détail donné, et son total est
+  // la somme des taux Maladie et AT/MP visibles du tableau principal.
+  const cinq = [...Array.from({ length: 5 }, (_, i) => absence(201 + i, 'MALADIE', '2025-03-10', '2025-03-11')), ...Array.from({ length: 5 }, (_, i) => absence(206 + i, 'AT', '2025-05-05', '2025-05-06'))];
+  const v = grand(douze, cinq, 'aucun', ['MALADIE', 'AT']);
+  const pv = tab(v, 'absenteisme').cases[0], sv = tab(v, 'absenteismeSante');
+  assert.deepEqual(sv.lignes, ['Arrêt maladie', 'Accident du travail', 'Total']);
+  assert.ok(sv.cases.every(l => !l[0].masque));
+  assert.deepEqual(sv.cases.map(l => l[0].valeur), [pv[3].valeur, pv[4].valeur, pv[3].valeur! + pv[4].valeur!]);
+});
+
 test('masquer : primaire sous le seuil, zéro jamais masqué, personnes concernées (n2)', () => {
   const c = (valeur: number, n = valeur, n2?: number): CaseBrute => ({ valeur, n, ...(n2 === undefined ? {} : { n2 }) });
   assert.deepEqual(L.masquer([[c(1)], [c(5)], [c(0)]], 3), [[{ valeur: null, masque: true }], [{ valeur: 5, masque: false }], [{ valeur: 0, masque: false }]]);
@@ -284,5 +375,34 @@ test('masquer : propriété sur 300 tableaux tirés au hasard — rien sous le s
       if (L.sousSeuil(cases[i][j], k)) assert.ok(x.masque, 'case sous le seuil masquée');
       if (!x.masque) assert.equal(x.valeur, cases[i][j].valeur);
     }));
+  }
+});
+
+test('masquer : propriété sur 300 tableaux à motifs tirés au hasard — groupes explicites, cases liées et dérivées', () => {
+  let graine = 20261101;
+  const hasard = (max: number) => { graine = (graine * 1103515245 + 12345) % 2147483648; return graine % (max + 1); };
+  for (let essai = 0; essai < 300; essai++) {
+    // Lignes : quatre motifs (personnes concernées), leur total (taux) et une copie liée du total (jours) ; colonne
+    // dérivée des deux premiers motifs (comme le taux de rotation). Dernière ligne : total des colonnes.
+    const nl = 1 + hasard(4), k = 3 + hasard(7);
+    const parts = Array.from({ length: nl }, () => Array.from({ length: 4 }, () => (hasard(2) ? hasard(12) : 0)));
+    const ligne = (l: number[]) => { const t = l.reduce((a, b) => a + b, 0); return [...l, t, t, l[0] + l[1]]; };
+    const lignes = [...parts.map(ligne), ligne(parts[0].map((_, j) => parts.reduce((a, l) => a + l[j], 0)))];
+    const cases = lignes.map(l => l.map(v => ({ valeur: v, n: 40, n2: v })));
+    const idx = lignes.map((_, i) => i);
+    const o = {
+      totalLigne: nl > 0,
+      groupes: idx.map(i => [0, 1, 2, 3, 4].map(j => [i, j] as const)),
+      lies: idx.map(i => [[i, 4], [i, 5]] as const),
+      derives: idx.map(i => ({ cible: [i, 6] as const, sources: [[i, 0], [i, 1]] as const })),
+    };
+    const r = L.masquer(cases, k, o);
+    sansDifference({ cases: r }, { totalLigne: true });
+    r.forEach((l, i) => {
+      assert.notEqual([0, 1, 2, 3, 4].filter(j => l[j].masque).length, 1, `ligne ${i} : groupe explicite`);
+      assert.equal(l[4].masque, l[5].masque, `ligne ${i} : cases liées`);
+      if (l[0].masque || l[1].masque) assert.ok(l[6].masque, `ligne ${i} : case dérivée`);
+      l.forEach((x, j) => { if (L.sousSeuil(cases[i][j], k)) assert.ok(x.masque, 'case sous le seuil masquée'); });
+    });
   }
 });

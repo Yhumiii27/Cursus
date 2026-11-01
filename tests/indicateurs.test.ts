@@ -87,9 +87,10 @@ test('arrêtés : année close, un seul en vigueur, annulation motivée, CSE ; v
   await refuse(P.gest, 'indicateurs.marquerCse', { id: a, le: '2026-10-11' }, /futur/);
   await refuse(P.gest, 'indicateurs.marquerCse', { id: a, le: 'demain' }, /invalide/);
   await refuse(P.lect, 'indicateurs.marquerCse', { id: a, le: '2026-10-09' }, /service RH/, 403);
-  await db.run('UPDATE indicateurs_arretes SET arrete_le = ? WHERE id = ?', ['2026-10-05T08:00:00.000Z', a]);
-  await refuse(P.gest, 'indicateurs.marquerCse', { id: a, le: '2026-10-04' }, /précéder l’arrêté/);
-  await run(P.gest, 'indicateurs.marquerCse', { id: a, le: '2026-10-09' });
+  // Arrêté horodaté à l'instant réel (après le 10 octobre 2026 de la démonstration) : le jour métier borne la comparaison,
+  // et la date du jour reste admise (parcours réel, sans réécrire l'horodatage).
+  await refuse(P.gest, 'indicateurs.marquerCse', { id: a, le: '2026-01-02' }, /précéder l’arrêté/);
+  await run(P.gest, 'indicateurs.marquerCse', { id: a, le: '2026-10-10' });
   await refuse(P.gest, 'indicateurs.marquerCse', { id: 999, le: '2026-10-09' }, /introuvable/, 404);
   // Annulation : motif obligatoire, gardé avec l'arrêté, jamais au journal ni hors du service RH.
   await refuse(P.admin, 'indicateurs.annulerArrete', { id: a, motif: '  ' }, /Motif requis/);
@@ -98,7 +99,7 @@ test('arrêtés : année close, un seul en vigueur, annulation motivée, CSE ; v
   await refuse(P.admin, 'indicateurs.annulerArrete', { id: a, motif: 'Encore' }, /déjà annulé/);
   await refuse(P.gest, 'indicateurs.marquerCse', { id: a, le: '2026-10-09' }, /annulé/);
   const lect = await buildSnapshot(db, P.lect);
-  assert.deepEqual(lect.indicateursArretes!.map(x => [x.annuleMotif, x.arretePar, x.csePar, x.annulePar, x.cseLe]), [[null, null, null, null, '2026-10-09']]);
+  assert.deepEqual(lect.indicateursArretes!.map(x => [x.annuleMotif, x.arretePar, x.csePar, x.annulePar, x.cseLe]), [[null, null, null, null, '2026-10-10']]);
   assert.equal((await buildSnapshot(db, P.admin)).indicateursArretes![0].annuleMotif, 'Absences de décembre de Mehdi Benali corrigées');
   for (const u of [P.hse, P.paie, P.mgr, P.coll]) assert.deepEqual((await buildSnapshot(db, u)).indicateursArretes, [], u.nom);
   // Un nouvel arrêté pour la même année, une fois le premier annulé.
@@ -109,6 +110,14 @@ test('arrêtés : année close, un seul en vigueur, annulation motivée, CSE ; v
   assert.deepEqual((await journal('indicateurs.annulerArrete'))[0].payload.annee, 2025);
   assert.ok(traces.every(t => !JSON.stringify(t).includes('Mehdi') && !JSON.stringify(t).includes('décembre')), 'ni motif ni nom au journal');
   assert.ok(traces.every(t => !JSON.stringify(t).includes('tableaux')), 'aucun chiffre au journal');
+});
+
+test('mise à disposition du CSE : jours métier, jour de Paris de l’arrêté borné par la date du jour', async () => {
+  const { premierJourCse } = await import('../server/src/actions/indicateurs.ts');
+  // Production : arrêté pris avant la date du jour, le 31 mars à 23 h 30 UTC, déjà le 1er avril à Paris.
+  assert.equal(premierJourCse('2026-03-31T23:30:00.000Z', '2026-10-10'), '2026-04-01');
+  // Démonstration : date du jour figée (CURSUS_TODAY) avant l'arrêté réel ; elle reste admise.
+  assert.equal(premierJourCse('2026-11-01T09:00:00.000Z', '2026-10-10'), '2026-10-10');
 });
 
 test('fiche : sexe et catégorie saisis par le service RH en listes fermées, journal sans la valeur ; reprise de Lucca', async () => {
@@ -162,23 +171,24 @@ test('GET /api/indicateurs et /csv : consultation seulement, refus tracé, agré
   }
   assert.equal((await journal('acces.refuse')).filter(t => t.message === 'Indicateurs sociaux — réservé au service RH et à la lecture seule').length, 4);
   // Paramètres : année, période calendaire, groupement.
-  for (const q of ['?annee=1890', '?periode=2026-03-15', '?groupe=site', '?groupe=constructor']) assert.equal((await get(`/api/indicateurs${q}`, admin)).status, 400, q);
+  // L'année civile seulement : un trimestre ou un mois se recouperait avec elle (différence avec les autres mois).
+  for (const q of ['?annee=1890', '?periode=2026-03-15', '?periode=T3', '?periode=01', '?groupe=site', '?groupe=constructor']) assert.equal((await get(`/api/indicateurs${q}`, admin)).status, 400, q);
   const avant = { ...STATS_INDICATEURS };
-  const r = await get('/api/indicateurs?annee=2026&periode=T3&groupe=sexe', lect);
+  const r = await get('/api/indicateurs?annee=2026&periode=annee&groupe=sexe', lect);
   assert.equal(r.status, 200);
   assert.equal(r.headers.get('cache-control'), 'no-store');
   const texte = await r.text(), x = JSON.parse(texte);
-  assert.deepEqual([x.annee, x.periode, x.du, x.au, x.groupe, x.seuil, x.arrete], [2026, 'T3', '2026-07-01', '2026-09-30', 'sexe', 5, null]);
+  assert.deepEqual([x.annee, x.periode, x.du, x.au, x.groupe, x.seuil, x.arrete], [2026, 'annee', '2026-01-01', '2026-12-31', 'sexe', 5, null]);
   assert.deepEqual(x.tableaux.find((t: { id: string }) => t.id === 'effectifs').lignes, ['Femmes', 'Hommes', 'Non renseigné', 'Total']);
   // Agrégats seulement : aucun nom de salarié, aucun identifiant.
   const noms = (await loadFull(db, P.admin)).employes.map(e => e.nom);
   assert.ok(noms.every(nom => !texte.includes(nom)), 'aucun nom');
   assert.ok(!/empId|"nom"|"salaries"/.test(texte), 'aucun identifiant ni nom de salarié');
   // Même révision : servi par la mémoire ; après une écriture, recalculé.
-  assert.equal((await get('/api/indicateurs?annee=2026&periode=T3&groupe=sexe', admin)).status, 200);
+  assert.equal((await get('/api/indicateurs?annee=2026&groupe=sexe', admin)).status, 200);
   assert.deepEqual([STATS_INDICATEURS.calculs - avant.calculs, STATS_INDICATEURS.memorises - avant.memorises], [1, 1]);
   await run(P.gest, 'employe.modifier', { id: 20, sexe: 'M' });
-  const apres = await (await get('/api/indicateurs?annee=2026&periode=T3&groupe=sexe', admin)).json() as typeof x;
+  const apres = await (await get('/api/indicateurs?annee=2026&periode=annee&groupe=sexe', admin)).json() as typeof x;
   assert.equal(STATS_INDICATEURS.calculs - avant.calculs, 2);
   assert.notDeepEqual(apres.tableaux[0], x.tableaux[0], 'fiche complétée : l’effectif par sexe change');
   // Export CSV : fichier, trace sans valeur.

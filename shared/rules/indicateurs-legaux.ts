@@ -7,10 +7,12 @@
 //   cache pas.
 // - Seuil d'anonymat (réglage `indicateursSeuil`, 5 par défaut, de 3 à 10) et masquage secondaire (`masquer`) : une case
 //   qui porte sur moins de k personnes (effectif, ou personnes absentes, formées, sorties) est masquée « < k », et une
-//   autre case de la même ligne ou colonne l'est aussi quand le total permettrait de la retrouver par différence. La
-//   réponse ne contient que des agrégats déjà masqués, jamais un identifiant ni une liste nominative.
-// - Périodes calendaires imposées (année, trimestre, mois) : deux périodes voisines choisies librement révéleraient une
-//   absence par différence.
+//   autre case du même groupe additif l'est aussi quand le total permettrait de la retrouver par différence : ligne ou
+//   colonne avec son total, mais aussi les motifs d'absence d'une ligne avec leur taux, et les cases qui se déduisent
+//   l'une de l'autre (taux de rotation et mouvements, jours et taux d'absence…). La réponse ne contient que des agrégats
+//   déjà masqués, jamais un identifiant ni une liste nominative.
+// - Une seule granularité, l'année civile : des sous-périodes masquées chacune à part se recouperaient (l'année moins
+//   les onze autres mois redonnerait un mois masqué), et une date libre plus encore.
 // Rien de ce qui est calculé ici n'est stocké, sauf l'arrêté annuel (table `indicateurs_arretes`), figé déjà masqué.
 import { NATURES_ABSENCE, STATUTS, TYPES_CONTRAT } from '../constants.ts';
 import { avecCalendrier, isFerie, weekday } from '../dates.ts';
@@ -57,11 +59,14 @@ export const NATURES_ABSENTEISME_DEFAUT: NatureAbsence[] = ['MALADIE', 'ALD', 'A
 
 // — Périodes et groupements —
 
-/** Période calendaire imposée : l'année, un trimestre (T1 à T4) ou un mois (01 à 12). */
-export const PERIODES_INDICATEURS = ['annee', 'T1', 'T2', 'T3', 'T4', '01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'] as const;
+/**
+ * Période calendaire imposée : l'année civile seulement. Trimestres et mois, calculés et masqués chacun à part, se
+ * recouperaient avec l'année (une case masquée d'un mois = l'année moins les autres mois, visibles) ; un masquage
+ * cohérent entre périodes emboîtées reste à faire avant de les rouvrir. Le paramètre est gardé pour ce jour-là.
+ */
+export const PERIODES_INDICATEURS = ['annee'] as const;
 export type PeriodeIndicateurs = typeof PERIODES_INDICATEURS[number];
 export const estPeriodeIndicateurs = (v: unknown): v is PeriodeIndicateurs => (PERIODES_INDICATEURS as readonly unknown[]).includes(v);
-const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 /** Années admises : de 2000 à 2100 (une faute de frappe ne lance pas un calcul de plusieurs siècles). */
 export const anneeIndicateursValide = (a: number) => Number.isInteger(a) && a >= 2000 && a <= 2100;
 
@@ -71,13 +76,7 @@ const finDuMois = (annee: number, mois: number): ISODate => `${annee}-${pad(mois
 /** Bornes et libellé d'une période calendaire ; null : année ou période refusée. */
 export function bornesPeriode(annee: number, periode: PeriodeIndicateurs): { du: ISODate; au: ISODate; libelle: string } | null {
   if (!anneeIndicateursValide(annee) || !estPeriodeIndicateurs(periode)) return null;
-  if (periode === 'annee') return { du: `${annee}-01-01`, au: `${annee}-12-31`, libelle: `Année ${annee}` };
-  if (periode.startsWith('T')) {
-    const t = Number(periode.slice(1)), m1 = 3 * t - 2;
-    return { du: `${annee}-${pad(m1)}-01`, au: finDuMois(annee, m1 + 2), libelle: `${t === 1 ? '1er' : `${t}e`} trimestre ${annee}` };
-  }
-  const m = Number(periode);
-  return { du: `${annee}-${pad(m)}-01`, au: finDuMois(annee, m), libelle: `${MOIS[m - 1][0].toUpperCase()}${MOIS[m - 1].slice(1)} ${annee}` };
+  return { du: `${annee}-01-01`, au: `${annee}-12-31`, libelle: `Année ${annee}` };
 }
 
 /** Derniers jours des mois de la période (effectifs moyens). */
@@ -130,35 +129,53 @@ function modalites(g: GroupeIndicateurs, employes: readonly Employe[]): string[]
 export interface CaseBrute { valeur: number; n: number; n2?: number }
 /** Case envoyée : valeur, ou null quand elle est masquée (« < k ») ; jamais l'effectif sous-jacent. */
 export interface Case { valeur: number | null; masque: boolean }
-/** Totaux d'un tableau : dernière ligne (total de chaque colonne), dernière colonne (total de chaque ligne). */
-export interface OptionsMasque { totalLigne?: boolean; totalColonne?: boolean }
+/** Case d'un tableau : [ligne, colonne]. */
+export type Position = readonly [number, number];
+/**
+ * Relations entre cases d'un tableau, que le masquage secondaire doit respecter :
+ * - `totalLigne`, `totalColonne` : dernière ligne (total de chaque colonne), dernière colonne (total de chaque ligne) ;
+ * - `groupes` : groupes additifs explicites, total en dernier (les taux par motif d'une ligne et le taux d'absentéisme) ;
+ * - `lies` : cases qui se déduisent l'une de l'autre (jours et taux d'absence, stagiaires et taux d'accès), masquées ensemble ;
+ * - `derives` : case calculée d'après ses sources (taux de rotation d'après les entrées et les sorties), masquée dès
+ *   qu'une source l'est.
+ */
+export interface OptionsMasque {
+  totalLigne?: boolean; totalColonne?: boolean;
+  groupes?: readonly (readonly Position[])[];
+  lies?: readonly (readonly Position[])[];
+  derives?: readonly { cible: Position; sources: readonly Position[] }[];
+}
 
 /** Case sous le seuil : effectif ou personnes concernées de 1 à k - 1 (zéro n'est pas masqué : aucune personne). */
 export const sousSeuil = (c: CaseBrute, k: number) => (c.n > 0 && c.n < k) || (c.n2 !== undefined && c.n2 > 0 && c.n2 < k);
 
 /**
  * Masquage d'un tableau `cases[ligne][colonne]` au seuil `k` : masque primaire de chaque case sous le seuil, puis masque
- * secondaire. Chaque ligne (avec `totalColonne`) et chaque colonne (avec `totalLigne`) forment, avec leur total, un groupe
- * additif : un groupe qui n'a qu'une case masquée la laisserait retrouver par différence, une seconde y est masquée — la
- * case visible de plus petit effectif (non nulle de préférence), sinon le total. Répété jusqu'à ce qu'aucun groupe n'ait
- * une seule case masquée. Les taux sont traités comme les comptes : par prudence, un taux masqué ne se recalcule pas
- * non plus d'après le taux d'ensemble.
+ * secondaire. Chaque ligne (avec `totalColonne`), chaque colonne (avec `totalLigne`) et chaque groupe explicite forment,
+ * avec leur total, un groupe additif : un groupe qui n'a qu'une case masquée la laisserait retrouver par différence, une
+ * seconde y est masquée — la case visible de plus petit effectif (non nulle de préférence), sinon le total. Les cases
+ * liées sont masquées ensemble, une case dérivée avec ses sources. Répété jusqu'à ce que plus rien ne change. Les taux
+ * sont traités comme les comptes : par prudence, un taux masqué ne se recalcule pas non plus d'après le taux d'ensemble.
  */
 export function masquer(cases: readonly (readonly CaseBrute[])[], k: number, o: OptionsMasque = {}): Case[][] {
   const masque = cases.map(l => l.map(c => sousSeuil(c, k)));
-  const groupes: [number, number][][] = [];
+  const groupes: Position[][] = (o.groupes ?? []).map(g => [...g]);
   const nl = cases.length, nc = cases[0]?.length ?? 0;
   if (o.totalLigne && nl > 1) for (let j = 0; j < nc; j++) groupes.push(Array.from({ length: nl }, (_, i) => [i, j]));
   if (o.totalColonne && nc > 1) for (let i = 0; i < nl; i++) groupes.push(Array.from({ length: nc }, (_, j) => [i, j]));
+  // Effectif d'une case pour le choix du masque secondaire : personnes concernées, sinon effectif.
+  const effectif = (c: CaseBrute) => c.n2 ?? c.n;
+  const masquerCase = ([i, j]: Position) => { if (!masque[i][j]) { masque[i][j] = true; return true; } return false; };
   for (let change = true; change;) {
     change = false;
+    for (const l of o.lies ?? []) if (l.some(([i, j]) => masque[i][j])) for (const p of l) change = masquerCase(p) || change;
+    for (const x of o.derives ?? []) if (x.sources.some(([i, j]) => masque[i][j])) change = masquerCase(x.cible) || change;
     for (const g of groupes) {
       if (g.filter(([i, j]) => masque[i][j]).length !== 1) continue;
       // Parties (le total est la dernière case du groupe) encore visibles, la plus petite d'abord, non nulle de préférence.
       const parties = g.slice(0, -1).filter(([i, j]) => !masque[i][j])
-        .sort(([a, b], [c, d]) => Number(cases[a][b].valeur === 0) - Number(cases[c][d].valeur === 0) || cases[a][b].n - cases[c][d].n || a - c || b - d);
-      const [i, j] = parties[0] ?? g[g.length - 1];
-      masque[i][j] = true;
+        .sort(([a, b], [c, d]) => Number(cases[a][b].valeur === 0) - Number(cases[c][d].valeur === 0) || effectif(cases[a][b]) - effectif(cases[c][d]) || a - c || b - d);
+      masquerCase(parties[0] ?? g[g.length - 1]);
       change = true;
     }
   }
@@ -251,12 +268,26 @@ function parModalite(lignes: readonly string[], employes: readonly Employe[], g:
 
 interface Contexte { d: Domain; du: ISODate; au: ISODate; g: GroupeIndicateurs; k: number; employes: readonly Employe[]; lignes: string[] }
 
-/** Tableau masqué, lignes du groupement plus le Total (sauf « Ensemble »). */
-function tableauGroupe(x: Contexte, id: string, titre: string, definition: string, colonnes: string[], brutes: CaseBrute[][], completude: number | null = null, completudeTexte: string | null = null): TableauIndicateur {
+/**
+ * Tableau masqué, lignes du groupement plus le Total (sauf « Ensemble ») ; `relations` : relations entre les cases d'une
+ * même ligne (colonnes), posées sur chaque ligne, Total compris.
+ */
+function tableauGroupe(x: Contexte, id: string, titre: string, definition: string, colonnes: string[], brutes: CaseBrute[][], completude: number | null = null, completudeTexte: string | null = null, relations: RelationsLigne = {}): TableauIndicateur {
   const total = x.g !== 'aucun';
   return {
     id, titre, definition, dimension: GROUPES_INDICATEURS[x.g], lignes: total ? [...x.lignes, 'Total'] : x.lignes, colonnes,
-    cases: masquer(brutes, x.k, { totalLigne: total }), completude, completudeTexte,
+    cases: masquer(brutes, x.k, { totalLigne: total, ...surChaqueLigne(brutes.length, relations) }), completude, completudeTexte,
+  };
+}
+/** Relations entre colonnes d'une ligne : groupes additifs (total en dernier), colonnes liées, colonne dérivée de ses sources. */
+interface RelationsLigne { groupes?: number[][]; lies?: number[][]; derives?: { cible: number; sources: number[] }[] }
+/** Relations entre colonnes posées sur chacune des `nl` lignes. */
+function surChaqueLigne(nl: number, r: RelationsLigne): Pick<OptionsMasque, 'groupes' | 'lies' | 'derives'> {
+  const lignes = Array.from({ length: nl }, (_, i) => i);
+  return {
+    groupes: lignes.flatMap(i => (r.groupes ?? []).map(g => g.map(j => [i, j] as const))),
+    lies: lignes.flatMap(i => (r.lies ?? []).map(l => l.map(j => [i, j] as const))),
+    derives: lignes.flatMap(i => (r.derives ?? []).map(x => ({ cible: [i, x.cible] as const, sources: x.sources.map(j => [i, j] as const) }))),
   };
 }
 
@@ -304,7 +335,8 @@ function effectifs(x: Contexte): TableauIndicateur {
     + 'Code du travail (art. L1111-2 et L1111-3) : moyenne mensuelle en ETP, CDD et intérimaires compris au prorata de leur présence sauf '
     + 'remplacement d’un absent, apprentis et contrats de professionnalisation exclus. Intérimaires : fiches de Cursus seulement.',
     ['Effectif fin de période', 'Effectif moyen (Sécurité sociale)', 'ETP fin de période', 'Effectif Code du travail (L1111-2)', 'Intérimaires (moyenne)'],
-    parModalite(x.lignes, x.employes, x.g, mesure), c, t);
+    // Fin de période, moyen, ETP et Code du travail se confondent souvent (effectif stable à temps plein) : masqués ensemble.
+    parModalite(x.lignes, x.employes, x.g, mesure), c, t, { lies: [[0, 1, 2, 3]] });
 }
 
 // — 2. Mouvements —
@@ -326,8 +358,8 @@ function mouvements(x: Contexte): TableauIndicateur[] {
       { valeur: entrees, n: entrees },
       { valeur: sorties, n: sorties },
       { valeur: fins, n: fins },
-      // Taux de rotation : moyenne des entrées et des sorties, rapportée à l'effectif moyen ; il dirait le nombre de
-      // mouvements, d'où son masquage avec eux.
+      // Taux de rotation : moyenne des entrées et des sorties, rapportée à l'effectif moyen (publié dans les effectifs) ; il
+      // dirait le nombre de mouvements, d'où son masquage avec eux, et dès que les entrées ou les sorties le sont.
       { valeur: moyen > 0 ? arrondi((entrees + sorties) / 2 / moyen * 100) : 0, n: pop, n2: entrees + sorties },
     ];
   };
@@ -345,7 +377,8 @@ function mouvements(x: Contexte): TableauIndicateur[] {
       + 'enregistrés (motif de sortie) dont le dernier jour tombe dans la période. Fins de contrat prévues : terme d’un CDD, d’une '
       + 'mission ou d’une alternance dans la période, sans sortie enregistrée (ni comptées comme sorties). Taux de rotation : '
       + '(entrées + sorties) / 2, rapporté à l’effectif moyen de la Sécurité sociale.',
-      ['Entrées', 'Sorties', 'Fins de contrat prévues', 'Taux de rotation (%)'], parModalite(x.lignes, x.employes, x.g, mesure), c, t),
+      ['Entrées', 'Sorties', 'Fins de contrat prévues', 'Taux de rotation (%)'], parModalite(x.lignes, x.employes, x.g, mesure), c, t,
+      { derives: [{ cible: 3, sources: [0, 1] }] }),
     {
       id: 'sortiesMotifs', titre: 'Sorties par motif', dimension: 'Motif de sortie',
       definition: 'Départs enregistrés pendant la période, hors intérimaires, par motif de sortie (liste fermée de la fiche).',
@@ -461,23 +494,29 @@ function absenteisme(x: Contexte, natures: readonly NatureAbsence[]): TableauInd
     `Jours d’absence comptés dans les jours ouvrés théoriques du régime de chaque salarié (du lundi au vendredi, hors fériés chômés `
     + `et jours non travaillés du temps partiel), quelle que soit la nature du décompte, rapportés à ces jours ; hors intérimaires. `
     + `Absences validées ou signalées. Natures comptées (Paramètres) : ${[...new Set(libelles)].join(', ')}. Aucune formule légale : `
-    + `définition à arrêter avec le CSE. Période calendaire imposée (année, trimestre, mois).`,
+    + `définition à arrêter avec le CSE. Période calendaire imposée : l’année civile.`,
     ['Jours théoriques', 'Jours d’absence', 'Taux d’absentéisme (%)', MOTIFS_ABSENTEISME[0].label, MOTIFS_ABSENTEISME[1].label, 'Famille (%)', 'Autres motifs (%)'],
     parModalite(x.lignes, x.employes, x.g, mesure),
     horsConges.length ? pct(horsConges.length - aQualifier, horsConges.length) : null,
-    aQualifier ? `${aQualifier} absence${aQualifier > 1 ? 's' : ''} à qualifier par le service RH, non comptée${aQualifier > 1 ? 's' : ''}` : null);
-  // Détail de la santé par nature, sur l'ensemble : donné seulement si chaque nature atteint le seuil (sinon tout masqué).
+    aQualifier ? `${aQualifier} absence${aQualifier > 1 ? 's' : ''} à qualifier par le service RH, non comptée${aQualifier > 1 ? 's' : ''}` : null,
+    // Chaque jour d'absence est rangé dans un seul motif : les quatre taux par motif s'additionnent en taux d'absentéisme
+    // (groupe additif de la ligne), et les jours d'absence disent le taux (jours théoriques visibles) : liés.
+    { groupes: [[3, 4, 5, 6, 2]], lies: [[1, 2]] });
+  // Détail de la santé par nature, sur l'ensemble : donné seulement si chaque nature atteint le seuil, et si les taux
+  // Maladie et AT/MP de l'ensemble (dernière ligne du tableau principal) sont visibles : son total en est la somme, il
+  // redonnerait sinon un motif masqué. Sinon tout est masqué, total compris.
   const sante = natures.filter(n => motifAbsence(n) === 'sante' || motifAbsence(n) === 'atmp');
   const pop = population.filter(e => parSalarie.get(e.id)!.theoriques > 0);
   const th = pop.reduce((n, e) => n + parSalarie.get(e.id)!.theoriques, 0);
   const brutes = [...sante.map(n => { const s = somme(pop, m => m === n); return [{ valeur: pct(s.jours, th), n: pop.length, n2: s.personnes }]; }),
     (() => { const s = somme(pop, m => sante.includes(m)); return [{ valeur: pct(s.jours, th), n: pop.length, n2: s.personnes }]; })()];
+  const ensemble = principal.cases[principal.cases.length - 1];
   let cases = masquer(brutes, x.k, { totalLigne: true });
-  if (cases.slice(0, -1).some(l => l[0].masque)) cases = cases.map((l, i) => (i < cases.length - 1 ? [{ valeur: null, masque: true }] : l));
+  if (ensemble[3].masque || ensemble[4].masque || cases.some(l => l[0].masque)) cases = cases.map(() => [{ valeur: null, masque: true }]);
   return [principal, {
     id: 'absenteismeSante', titre: 'Absentéisme pour raison de santé, par nature', dimension: 'Nature de l’absence',
     definition: 'Détail des arrêts de santé sur l’ensemble des salariés (même calcul que l’absentéisme) ; donné seulement si chaque nature '
-      + 'concerne au moins autant de personnes que le seuil, sinon entièrement masqué.',
+      + 'concerne au moins autant de personnes que le seuil et si les taux Maladie et AT/MP de l’ensemble sont visibles, sinon entièrement masqué.',
     lignes: [...sante.map(n => NATURES_ABSENCE[n].label), 'Total'], colonnes: ['Taux (%)'], cases, completude: null, completudeTexte: null,
   }];
 }
@@ -510,7 +549,9 @@ function formation(x: Contexte): TableauIndicateur[] {
     ['Stagiaires', 'Heures de formation', 'Heures par stagiaire', 'Taux d’accès (%)', 'Formations de durée inconnue'],
     parModalite(x.lignes, x.employes, x.g, mesure),
     retenues.length ? pct(retenues.length - inconnues, retenues.length) : null,
-    inconnues ? `${inconnues} formation${inconnues > 1 ? 's' : ''} de durée inconnue (heures non comptées)` : null);
+    inconnues ? `${inconnues} formation${inconnues > 1 ? 's' : ''} de durée inconnue (heures non comptées)` : null,
+    // Heures par stagiaire (heures visibles) et taux d'accès (effectif moyen publié) redonnent le nombre de stagiaires.
+    { lies: [[0, 2, 3]] });
   // Croisement catégorie × sexe : stagiaires, puis heures, masquées d'après le nombre de stagiaires de chaque case.
   const cats = [...Object.keys(CATEGORIES_EMPLOI) as CategorieEmploi[], null];
   const sexes = [...Object.keys(SEXES) as Sexe[], null];

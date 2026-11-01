@@ -5,8 +5,10 @@
 //   indicateurs.arreter       { annee }        administrateur RH : année terminée, aucun arrêté en vigueur pour elle
 //   indicateurs.annulerArrete { id, motif }    administrateur RH : motif obligatoire (gardé avec l'arrêté, jamais au journal)
 //   indicateurs.marquerCse    { id, le }       service RH : date de mise à disposition du CSE (pas dans le futur)
+// Dates comparées en jours métier : l'arrêté est horodaté à l'instant réel, la mise à disposition est un jour de Paris
+// borné par la date du jour (`ti`, CURSUS_TODAY en démonstration et dans l'app de bureau).
 // Le journal ne reçoit que l'année, le périmètre et l'identifiant (server/src/journal.ts), jamais un chiffre.
-import { isValidDate } from '../../../shared/dates.ts';
+import { isoParis, isValidDate } from '../../../shared/dates.ts';
 import { fmtIso } from '../../../shared/format.ts';
 import { anneeIndicateursValide, REGLES_INDICATEURS } from '../../../shared/rules/indicateurs-legaux.ts';
 import type { ArreteIndicateurs } from '../../../shared/types.ts';
@@ -51,6 +53,13 @@ const annulerArrete: ActionHandler = async (ctx, p) => {
   return { message: `Arrêté n° ${a.id} des indicateurs ${a.annee} annulé : un nouvel arrêté peut être pris`, result: { id: a.id } };
 };
 
+/**
+ * Premier jour admis pour la mise à disposition du CSE : le jour de Paris de l'arrêté, borné par la date du jour métier.
+ * En démonstration, `ti` (CURSUS_TODAY) précède la date réelle de l'arrêté : sans la borne, aucune date ne passerait
+ * (ni avant l'arrêté, ni après `ti`).
+ */
+export const premierJourCse = (arreteLe: string, ti: string) => { const j = isoParis(new Date(arreteLe)); return j < ti ? j : ti; };
+
 const marquerCse: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const a = getArrete(ctx, p.id);
@@ -58,7 +67,7 @@ const marquerCse: ActionHandler = async (ctx, p) => {
   const le = String(p.le ?? '');
   if (!isValidDate(le)) throw new ActionError('Date de mise à disposition invalide');
   if (le > ctx.d.ti) throw new ActionError('La mise à disposition du CSE ne peut pas être datée du futur');
-  if (le < a.arreteLe.slice(0, 10)) throw new ActionError('La mise à disposition du CSE ne peut pas précéder l’arrêté');
+  if (le < premierJourCse(a.arreteLe, ctx.d.ti)) throw new ActionError('La mise à disposition du CSE ne peut pas précéder l’arrêté');
   await ctx.db.update('indicateursArretes', a.id, { cseLe: le, csePar: ctx.user.nom });
   return { message: `Arrêté n° ${a.id} des indicateurs ${a.annee} mis à disposition du CSE le ${fmtIso(le)}`, result: { id: a.id } };
 };

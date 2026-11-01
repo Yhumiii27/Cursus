@@ -3939,8 +3939,9 @@ ni les natures d'absence médicales, ni le sexe, ni la date de naissance, et un 
 masquage. Écrans, BDESE, égalité, impression, saisie sur la fiche et échéance agrégée : étape 2.
 
 - **Règles pures** (`shared/rules/indicateurs-legaux.ts`, `tests/indicateurs-legaux.test.ts`) : `presentA` (entrée ≤ date ≤
-  fin ; `present` de contrats.ts ne lit pas l'entrée) ; périodes calendaires imposées (`bornesPeriode` : année, T1 à T4, mois
-  01 à 12, aucune date libre) ; groupements (ensemble, sexe, catégorie d'emploi, statut, nature du contrat, équipe). Chaque
+  fin ; `present` de contrats.ts ne lit pas l'entrée) ; une seule granularité, l'année civile (`bornesPeriode`, aucune date
+  libre : trimestres et mois, masqués chacun à part, se recouperaient avec l'année, l'année moins les onze autres mois
+  redonnant un mois masqué ; à rouvrir avec un masquage cohérent entre périodes emboîtées) ; groupements (ensemble, sexe, catégorie d'emploi, statut, nature du contrat, équipe). Chaque
   tableau porte sa définition et son taux de complétude :
   - *effectifs* : fin de période et moyen au sens de la Sécurité sociale (moyenne des fins de mois, art. L130-1 du CSS) hors
     intérimaires ; ETP au régime en vigueur (`etpA` : temps partiel sur 35 h, forfait jours sur 218 jours, forfait annuel sur
@@ -3952,7 +3953,8 @@ masquage. Écrans, BDESE, égalité, impression, saisie sur la fiche et échéan
     (`joursTheoriques` : lundi au vendredi, hors fériés chômés et jours non travaillés du temps partiel), quelle que soit la
     nature du décompte (un arrêt en jours calendaires ne compte pas ses week-ends), un jour une seule fois (`joursAbsence`) ;
     natures comptées réglables (`absenteismeNatures`) ; colonnes maladie, AT/trajet/MP, famille, autres ; détail de la santé
-    par nature donné seulement si chaque nature atteint le seuil ; absences à qualifier signalées (complétude) ;
+    par nature donné seulement si chaque nature atteint le seuil et si les taux Maladie et AT/MP de l'ensemble sont visibles
+    (son total en est la somme ; sinon tout masqué, total compris) ; absences à qualifier signalées (complétude) ;
   - *formation* (`realisationsDe` de heures-formation.ts) : stagiaires, heures connues, heures par stagiaire, taux d'accès,
     durées inconnues ; stagiaires et heures croisés par catégorie et par sexe ;
   - *âges* (tranches de 5 ans, extrêmes regroupées) et *ancienneté* par sexe ;
@@ -3962,7 +3964,10 @@ masquage. Écrans, BDESE, égalité, impression, saisie sur la fiche et échéan
 - **Seuil d'anonymat et masquage** (`masquer`) : case portant sur 1 à k - 1 personnes (effectif, ou personnes absentes,
   formées, sorties : `n2`) masquée « < k », jamais un zéro ; masquage secondaire dans chaque ligne et chaque colonne additive
   avec son total (une seule case masquée laisserait la retrouver par différence : la plus petite partie non nulle, sinon le
-  total). Taux traités comme des comptes. Seuil `indicateursSeuil` (5, de 3 à 10). Propriété vérifiée sur des tableaux tirés
+  total), et dans les relations entre colonnes d'une ligne (`OptionsMasque`) : groupes additifs explicites (les quatre taux
+  par motif d'absence et le taux d'absentéisme), cases liées masquées ensemble (jours et taux d'absence ; stagiaires, heures
+  par stagiaire et taux d'accès ; effectifs de fin de période, moyen, ETP et L1111-2), case dérivée masquée avec ses sources
+  (taux de rotation dès que les entrées ou les sorties le sont : l'effectif moyen est publié). Taux traités comme des comptes. Seuil `indicateursSeuil` (5, de 3 à 10). Propriété vérifiée sur des tableaux tirés
   au hasard.
 - **Sexe et catégorie** (`employes.sexe` F/M, `employes.categorie` ouvrier/employé/TAM/cadre, NULL : à compléter) : saisis
   par le service RH (`PROFIL_FIELDS`, listes fermées dans `validerProfil`, jamais le manager ni soi-même), repris de Lucca ou

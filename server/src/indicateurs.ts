@@ -1,5 +1,5 @@
 // Indicateurs sociaux légaux (lot 11, chantier C3, t197) : calcul à la demande, hors de l'instantané, et arrêtés figés.
-//   GET /api/indicateurs?annee=&periode=&groupe=        indicateurs de la période (année, trimestre T1 à T4, mois 01 à 12),
+//   GET /api/indicateurs?annee=&periode=&groupe=        indicateurs de l'année civile (periode=annee, seule admise),
 //                                                       groupés (aucun, sexe, catégorie, statut, contrat, équipe), déjà
 //                                                       masqués au seuil d'anonymat : JSON (shared/rules/indicateurs-legaux.ts)
 //   GET /api/indicateurs?arrete=<id>&groupe=            agrégats figés d'un arrêté annuel (table indicateurs_arretes)
@@ -100,8 +100,9 @@ async function lire(db: Db, q: Record<string, unknown>): Promise<{ r: Indicateur
   const annee = q.annee === undefined || q.annee === '' ? Number(todayIso().slice(0, 4)) : Number(q.annee);
   const periode = q.periode === undefined || q.periode === '' ? 'annee' : q.periode;
   if (!anneeIndicateursValide(annee)) return { erreur: 'Année invalide', statut: 400 };
-  // Périodes calendaires seulement : aucune date libre (deux périodes voisines révéleraient une absence par différence).
-  if (!estPeriodeIndicateurs(periode)) return { erreur: 'Période invalide : l’année, un trimestre (T1 à T4) ou un mois (01 à 12)', statut: 400 };
+  // L'année civile seulement : ni date libre, ni trimestre, ni mois. Masquées chacune à part, des périodes emboîtées se
+  // recouperaient (l'année moins les onze autres mois redonnerait un mois masqué).
+  if (!estPeriodeIndicateurs(periode)) return { erreur: 'Période invalide : l’année civile seulement (les trimestres et les mois se recouperaient avec elle)', statut: 400 };
   const r = await indicateursDe(db, { annee, periode: periode as PeriodeIndicateurs, groupe });
   return r ? { r, arrete: null } : { erreur: 'Paramètres invalides', statut: 400 };
 }

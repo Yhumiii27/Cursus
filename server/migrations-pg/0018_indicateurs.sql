@@ -5,7 +5,7 @@
 --    cadre : catégories de la BDESE et de l'index d'égalité), NULL permis (à compléter par le service RH ou repris de
 --    Lucca ou de Sage). Visibles du service RH et de l'intéressé seulement (server/src/dataset.ts) ; commentaire
 --    « Sensible » pour que le déclencheur droits_ddl ne les donne pas à matrix_lecture, fermeture demandée à Matrix
---    (docs/demandes/matrix-lot11-indicateurs.md).
+--    (docs/demandes/matrix-lot11-indicateurs.sql).
 -- 2. `indicateurs_arretes` : arrêtés annuels des indicateurs sociaux (BDESE), agrégats déjà masqués (JSON), version des
 --    règles et seuil appliqués, mise à disposition du CSE, annulation avec motif (texte du service RH, jamais au journal).
 --    Jamais supprimés : un seul arrêté en vigueur par année et périmètre (index unique partiel), un arrêté annulé reste.

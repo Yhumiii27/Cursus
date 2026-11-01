@@ -42,13 +42,14 @@ import type {
 // lot 11 — notes de frais
 import type { AvanceFrais, BaremeKm, ForfaitFrais, LigneFrais, NoteFrais, TauxDevise, VehiculePerso } from '../../shared/types.ts';
 // lot 12 — C1 (forfait annuel en heures)
-import type { ClotureForfaitHeures, Objectif, Reponse360, Sollicitation360 } from '../../shared/types.ts';
+import type { ClotureForfaitHeures, CorrectionPointage, Objectif, Reponse360, Sollicitation360 } from '../../shared/types.ts';
 // lot 12 — C2 (notes de frais : activation)
 import { borneFrais } from '../../shared/rules/frais-fenetre.ts';
 // lot 12 — C3 (entretiens suivis et 360°)
 // lot 12 — C4 (organismes de formation et e-learning)
 import type { InscriptionElearning, ModuleElearning, Organisme, OrganismeContact, OrganismeTarif } from '../../shared/types-organismes.ts';
 import { organismePublie, resumeOrganisme } from '../../shared/rules/organismes.ts';
+// lot 12 — C6 (badgeage virtuel)
 import type { Db, Fenetre, TableName } from './db.ts';
 // lot 12 — C5 (planning d'équipe)
 import type { BesoinPoste, Creneau, Cycle, EchangePoste, PublicationPlanning, Roulement } from '../../shared/types-planning.ts';
@@ -177,6 +178,7 @@ export interface Brut {
   publicationsPlanning: PublicationPlanning[];
   echangesPoste: EchangePoste[];
   // lot 12 — C6 (badgeage virtuel)
+  correctionsPointage: CorrectionPointage[];
   reglages: ReglagesBruts;
   /** Statut de l'e-mail de chaque relevé (envois désignés par `releves.envoiId` seulement). */
   statutsEnvoi: ReadonlyMap<number, Envoi['statut']>;
@@ -364,6 +366,7 @@ export async function lireBrut(db: Db, today: string): Promise<Brut> {
     publicationsPlanning: await lire('publicationsPlanning'),
     echangesPoste: await lire('echangesPoste'),
     // lot 12 — C6 (badgeage virtuel)
+    correctionsPointage: await lire('correctionsPointage'),
     reglages: await lireReglages(db),
     statutsEnvoi: await statutsDesEnvois(db, releves),
   };
@@ -601,6 +604,9 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     creneauxAPourvoir: creneauxAPourvoir(brut.creneaux),
     echangesPoste: brut.echangesPoste,
     // lot 12 — C6 (badgeage virtuel)
+    // Demandes de correction de pointage (toutes) ; filtrées par espace et par profil dans server/src/vues-pointage.ts. Les
+    // pointages eux-mêmes ne sont jamais lus ici (HORS_INSTANTANE).
+    correctionsPointage: brut.correctionsPointage,
   };
 }
 
@@ -692,6 +698,7 @@ const LECTURES_ASSEMBLEES = {
   creneauxAPourvoir: ['creneaux'],
   echangesPoste: ['echangesPoste'],
   // lot 12 — C6 (badgeage virtuel)
+  correctionsPointage: ['correctionsPointage'],
 } as const satisfies Partial<Record<keyof Dataset, readonly TableName[]>>;
 
 /**
@@ -739,6 +746,9 @@ export const HORS_INSTANTANE: ReadonlySet<TableName> = new Set<TableName>(['noti
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
+  // Pointages bruts (lus à la demande par GET /api/pointages et /etat, server/src/pointages.ts : l'état du jour dépend de
+  // l'heure, il ne peut pas être gardé dans un cache indexé par révision et par jour) et zones de géolocalisation (étape 3).
+  'pointages', 'zonesPointage',
 ]);
 
 /** Tables lues par l'instantané complet : l'union de `LECTURES`. */

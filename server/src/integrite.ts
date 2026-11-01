@@ -165,6 +165,14 @@ export const REFERENCES: readonly Reference[] = [
   ref('echanges_poste', 'par_delegation_de', 'employes'),
   ref('echanges_poste', 'creneau_demandeur', 'creneaux'),
   ref('echanges_poste', 'creneau_partenaire', 'creneaux'),
+  // lot 12 — C6 (badgeage virtuel ; clés étrangères de 0027_badgeage.sql) : salarié, pointage neutralisé, correction qui a
+  // créé le pointage ; pointage visé par une demande et pointage créé par sa validation.
+  ref('pointages', 'emp_id', 'employes'),
+  ref('pointages', 'annule_id', 'pointages'),
+  ref('pointages', 'correction_id', 'corrections_pointage'),
+  ref('corrections_pointage', 'emp_id', 'employes'),
+  ref('corrections_pointage', 'pointage_id', 'pointages'),
+  ref('corrections_pointage', 'pointage_cree_id', 'pointages'),
 ];
 
 export interface Integrite {

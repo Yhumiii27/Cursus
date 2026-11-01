@@ -33,6 +33,8 @@ import { ENTRETIENS_SUIVIS_INDEX } from './lot12-entretiens.ts';
 import { ELEARNING_INDEX, ORGANISMES } from './lot12-organismes.ts';
 // lot 12 — C5 (planning d'équipe)
 import { PLANNING_EQUIPE } from './lot12-planning.ts';
+// lot 12 — C6 (badgeage virtuel)
+import { BADGEAGE } from './lot12-badgeage.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   INDEX_JOURNAL,
@@ -82,4 +84,6 @@ export const MIGRATIONS: readonly Migration[] = [
   ELEARNING_INDEX,
   // lot 12 — C5 (planning d'équipe)
   PLANNING_EQUIPE,
+  // lot 12 — C6 (badgeage virtuel)
+  BADGEAGE,
 ];

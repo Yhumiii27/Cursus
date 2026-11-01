@@ -73,6 +73,7 @@ import { elearningActions } from './elearning.ts';
 // lot 12 — C5 (planning d'équipe)
 import { planningActions } from './planning.ts';
 // lot 12 — C6 (badgeage virtuel)
+import { pointageActions } from './pointage.ts';
 
 /**
  * Registre typé (t164) : chaque famille est déclarée avec « satisfies Record<string, ActionHandler> », ce qui garde ses
@@ -155,6 +156,7 @@ const REGISTRE = {
   // lot 12 — C5 (planning d'équipe)
   ...planningActions,
   // lot 12 — C6 (badgeage virtuel)
+  ...pointageActions,
 } satisfies Record<string, ActionHandler>;
 
 /** Nom d'une action exposée par POST /api/actions/:nom. */

@@ -227,6 +227,15 @@ export interface Horaire {
    * pas encore qualifié (ses nuits comptent comme travail de nuit, signalées « à qualifier ») ; faux : non alternant.
    */
   alternant?: boolean | null;
+  // lot 12 — C6 (badgeage virtuel) : horaires variables (art. L3121-48 à L3121-52, étape 2) ; colonnes posées par la
+  // migration du chantier. Plages fixes et mobiles, durée de référence (minutes), plafonds du report d'une semaine à
+  // l'autre et du cumul (minutes ; supplétifs 3 h et 10 h), référence de l'accord exigée pour d'autres plafonds.
+  variable?: boolean | null;
+  plages?: PlageHoraire[] | null;
+  dureeReference?: number | null;
+  reportMaxSemaine?: number | null;
+  cumulMax?: number | null;
+  accordVariable?: string | null;
 }
 /** Horaire figé sur une feuille de temps : code, début, fin et pause au moment de la soumission ou de la validation. */
 export type HoraireFige = Pick<Horaire, 'code' | 'debut' | 'fin' | 'pause'>;
@@ -802,6 +811,15 @@ export interface FeuilleTemps {
    * celles du dimanche et des fériés. Null avant : le réglage s'applique.
    */
   majNuit?: number | null;
+  // lot 12 — C6 (badgeage virtuel)
+  /**
+   * Mode de décompte du temps figé à la création de la feuille (population badgée du salarié ce jour-là,
+   * shared/rules/pointage.ts) : une modification des populations ne recalcule jamais une semaine passée. Null ou absent :
+   * déclaratif. `pointeFige` : total pointé de chaque jour (heures), figé à la soumission puis à la validation (mode
+   * « calcule », étape 2).
+   */
+  modeTemps?: ModeTemps | null;
+  pointeFige?: number[] | null;
 }
 /**
  * Réouverture d'une feuille validée (action `temps.rouvrir`, administrateur RH seul, motif obligatoire) : ce qui était
@@ -1516,6 +1534,25 @@ export interface Settings {
   planningAccord: string;
   planningCollegues: boolean;
   // lot 12 — C6 (badgeage virtuel)
+  /**
+   * Badgeage virtuel (lot 12, chantier C6, shared/rules/pointage.ts) : module désactivé ; activation refusée sans la
+   * référence de l'accord (`pointageAccord`, texte court jamais recopié au journal) ni la date de l'avis du CSE
+   * (`pointageCseLe`, art. L2312-38 et L1222-4). Populations badgées (critère, mode, date d'effet) ; forfait jours et cadres
+   * dirigeants toujours exclus, intérimaires exclus sauf `pointageInterim`. Corrections demandées sous
+   * `pointageDelaiCorrectionJours` jours ; pointage hors ligne admis (`pointageHorsLigne`), signalé au-delà de
+   * `pointageEcartDiffereMin` minutes d'écart ; écart entre déclaré et pointé signalé au-delà de `pointageEcartAnomalieMin`
+   * minutes par jour (mode « controle »). Pointages bruts gardés `conservationPointagesAns` ans (1 à 5).
+   */
+  pointageActif: boolean;
+  pointagePopulations: PopulationPointage[];
+  pointageAccord: string;
+  pointageCseLe: ISODate | null;
+  pointageInterim: boolean;
+  pointageDelaiCorrectionJours: number;
+  pointageHorsLigne: boolean;
+  pointageEcartDiffereMin: number;
+  pointageEcartAnomalieMin: number;
+  conservationPointagesAns: number;
 }
 /** Catégorie d'une formation pour l'évaluation à froid : type du catalogue, ou formation hors catalogue. */
 export type CategorieEvaluee = FormationType | 'Hors catalogue';
@@ -2169,6 +2206,13 @@ export interface Dataset {
   creneauxAPourvoir?: Creneau[];
   echangesPoste?: EchangePoste[];
   // lot 12 — C6 (badgeage virtuel)
+  /**
+   * Demandes de correction de pointage (file de validation) : toutes pour le service RH ; pour le manager, celles de son
+   * équipe directe et des salariés dont il valide les feuilles par délégation ; les siennes pour le salarié ; rien pour
+   * les profils restreints (server/src/vues-pointage.ts). Les pointages eux-mêmes ne sont jamais dans l'instantané : ils se
+   * lisent par GET /api/pointages et GET /api/pointages/etat (server/src/pointages.ts). Absent : aucune.
+   */
+  correctionsPointage?: CorrectionPointage[];
 }
 
 /**
@@ -2497,3 +2541,51 @@ export interface ElementFraisPaie {
   note: number | null; avance: number | null; empId: number; matricule: string; periode: string; rubrique: string; codeSage: string | null;
   quantite: number; montant: number;
 }
+
+// lot 12 — C6 (badgeage virtuel) : pointages (shared/rules/pointage.ts, shared/rules/debit-credit.ts, server/src/pointages.ts).
+/**
+ * Mode de décompte du temps d'une population (réglage `pointagePopulations`), figé sur la feuille à sa création
+ * (`FeuilleTemps.modeTemps`) : « declaratif » (rien ne change), « controle » (la feuille reste déclarative ; le
+ * rapprochement avec les pointages produit des anomalies), « calcule » (le total de chaque jour vient des pointages, étape 2).
+ */
+export type ModeTemps = 'declaratif' | 'controle' | 'calcule';
+/** Critère d'une population badgée : équipe (et ses équipes rattachées), entité, site de rattachement, régime de temps. */
+export type CriterePopulation = 'equipe' | 'entite' | 'site' | 'regime';
+/** Population badgée : critère, valeur (nom d'équipe, code d'entité ou de site, régime), mode et date d'effet. */
+export interface PopulationPointage { critere: CriterePopulation; valeur: string; mode: ModeTemps; effet: ISODate }
+/** Sens d'un pointage : entrée ou sortie ; null : déduit en alternance (appariement). */
+export type SensPointage = 'E' | 'S';
+/** Origine d'un pointage : bouton « Pointer » (téléphone, ordinateur), ou correction validée. */
+export type SourcePointage = 'virtuel' | 'correction';
+/** Verdict de géolocalisation (étape 3, option désactivée) : seul le verdict est gardé, jamais la position. */
+export type VerdictZone = 'dans' | 'hors' | 'imprecise' | 'refusee';
+/**
+ * Pointage brut (table `pointages`, ajouts seulement, hors de l'instantané) : instant (UTC, celui du serveur en ligne ; celui
+ * de l'appareil pour un pointage différé, gardé aussi dans `horodatageAppareil`), jour calendaire de Paris de l'instant
+ * (index de lecture ; le jour de rattachement du poste est calculé), sens, origine, réception par le serveur (`recuLe`).
+ * Une correction ajoute une ligne (`correctionId`) ou en neutralise une autre par une ligne qui la désigne (`annuleId`) :
+ * jamais de modification ni de suppression d'une saisie, hors conservation.
+ */
+export interface Pointage {
+  id: number; empId: number; horodatage: string; jour: ISODate; sens: SensPointage | null; source: SourcePointage; horsLigne: boolean;
+  horodatageAppareil: string | null; recuLe: string; zone: VerdictZone | null; annuleId: number | null; correctionId: number | null;
+}
+/** Correction demandée : ajout d'un pointage oublié, ou neutralisation d'un pointage erroné. */
+export type NatureCorrectionPointage = 'ajout' | 'neutralisation';
+/** Motif d'une correction, tiré d'une liste fermée (jamais de texte libre au journal). */
+export type MotifCorrectionPointage = 'oubli' | 'appareil' | 'mission' | 'formation' | 'autre';
+export type StatutCorrectionPointage = 'demandee' | 'validee' | 'refusee' | 'annulee';
+/**
+ * Demande de correction de pointage (table `corrections_pointage`, dans l'instantané par salarié) : jour, nature, instant
+ * et sens demandés (ajout) ou pointage visé (neutralisation), motif codé, commentaire facultatif (texte libre, jamais au
+ * journal, effacé par la conservation), demande, décision (valideur au périmètre « feuilles », jamais soi-même) et motif
+ * d'un refus (texte, jamais au journal), pointage créé par la validation.
+ */
+export interface CorrectionPointage {
+  id: number; empId: number; jour: ISODate; nature: NatureCorrectionPointage; horodatage: string | null; sens: SensPointage | null;
+  pointageId: number | null; motif: MotifCorrectionPointage; commentaire: string | null; statut: StatutCorrectionPointage;
+  demandeLe: string; demandePar: string | null; demandeParInteresse: boolean;
+  decideLe: string | null; decidePar: string | null; motifRefus: string | null; pointageCreeId: number | null;
+}
+/** Plage d'un horaire variable (étape 2) : fixe (présence obligatoire) ou mobile, heures « HH:MM ». */
+export interface PlageHoraire { type: 'fixe' | 'mobile'; debut: string; fin: string }

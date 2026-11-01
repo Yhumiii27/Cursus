@@ -295,6 +295,8 @@ const TOUJOURS: Partial<Record<TableName, string>> = {
   // lot 12 — C5 (planning d'équipe) : affectations, créneaux, publications et échanges fictifs ; besoins par poste aussi (ils
   // désignent les postes du catalogue, que certains profils vident). Les cycles sont du paramétrage.
   ...Object.fromEntries(['roulements', 'creneaux', 'publicationsPlanning', 'echangesPoste', 'besoinsPoste'].map(t => [t, 'planning d’équipe fictif'])),
+  // lot 12 — C6 (badgeage virtuel) : pointages, demandes de correction et zones des essais de démonstration.
+  ...Object.fromEntries(['pointages', 'correctionsPointage', 'zonesPointage'].map(t => [t, 'temps et astreintes'])),
   connexions: 'sessions de connexion',
   comptes: 'comptes de connexion',
   journal: 'journal des actions fictives (remplacé par la seule ligne purge.demo)',

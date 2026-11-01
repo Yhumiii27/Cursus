@@ -52,6 +52,8 @@ const TITRES: Partial<Record<TableName, string>> = {
   feedbackReponses: 'Feedback 360° : réponses versées (sans répondant)',
   // lot 12 — C4 : inscriptions aux modules d'e-learning (statut, avancement, fin).
   inscriptionsElearning: 'Inscriptions aux modules d’e-learning',
+  // lot 12 — C6 (badgeage virtuel)
+  pointages: 'Pointages (badgeage)', correctionsPointage: 'Demandes de correction de pointage',
 };
 /**
  * Colonnes jamais exportées : empreinte du mot de passe (secret) et du jeton d'agenda ; nom stocké et jeton d'envoi d'une pièce justificative

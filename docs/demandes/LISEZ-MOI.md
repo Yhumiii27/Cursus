@@ -48,3 +48,4 @@ demandées comme avant : elles ne copient aucune vue et ne donnent aucun accès.
 | `matrix-lot12-forfait-heures.sql` | Matrix | Colonnes sensibles de la clôture du forfait annuel en heures (lot 12, C1) | À valider |
 | `matrix-lot12-entretiens.sql` | Matrix | Colonnes et tables sensibles des entretiens suivis et du feedback 360° (lot 12, C3) | À valider |
 | `matrix-lot12-organismes.sql` | Matrix | Lot 12, C4 : contacts et tarifs des organismes de formation (tables entières), conditions, motif d'une fusion, avancement et motifs des inscriptions e-learning, à fermer à `matrix_lecture` | À valider |
+| `matrix-lot12-badgeage.sql` | Matrix | Tables du badgeage (pointages, demandes de correction, zones) à fermer en entier à `matrix_lecture` (lot 12, C6) | À valider |

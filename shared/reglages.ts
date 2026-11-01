@@ -20,6 +20,8 @@ import { COMPTE_FRAIS_GENERIQUE, COMPTE_SALARIE, COMPTE_TVA_DEDUCTIBLE, estCompt
 // lot 12 — C1 (forfait annuel en heures)
 import { ABSENCES_DEDUCTIBLES, ABSENCES_DEDUITES_DEFAUT, DEBUT_SUIVI_DEFAUT, forfaitHeuresHorsDefaut, SEUIL_25_DEFAUT } from './rules/forfait-heures.ts';
 import type { EmissionForfaitHeures } from './rules/forfait-heures.ts';
+// lot 12 — C6 (badgeage virtuel)
+import { CONSERVATION_POINTAGES_MAX, CONSERVATION_POINTAGES_MIN, lirePopulations, refusActivationPointage } from './rules/pointage.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
 export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
@@ -396,7 +398,21 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   planningNuitMoyenne: { defaut: NUIT_MOYENNE_LEGALE, controle: entier(NUIT_MOYENNE_LEGALE, NUIT_MOYENNE_ACCORD_MAX) },
   planningAccord: { defaut: '', controle: texte(120, 'Référence de l’accord sur le planning') },
   planningCollegues: { defaut: false, controle: booleen },
-  // lot 12 — C6 (badgeage virtuel)
+  // lot 12 — C6 (badgeage virtuel) (shared/rules/pointage.ts ; section Paramètres → Badgeage à l'étape 2) : module désactivé ;
+  //   aucune population ; référence de l'accord et date de l'avis du CSE exigées pour l'activer (COHERENCE) ; intérimaires
+  //   exclus ; corrections demandées sous 7 jours ; hors ligne admis, signalé au-delà de 5 min d'écart ; écart déclaré /
+  //   pointé signalé au-delà de 15 min par jour ; pointages bruts gardés 3 ans (1 an au moins, art. D3171-16 ; 5 ans au plus,
+  //   référentiel CNIL), durée à confirmer avec le DPO —
+  pointageActif: { defaut: false, controle: booleen },
+  pointagePopulations: { defaut: [], controle: v => { const l = lirePopulations(v); if (typeof l === 'string') throw new ReglageInvalide(l); return l; } },
+  pointageAccord: { defaut: '', controle: texte(200, 'Badgeage, référence de l’accord') },
+  pointageCseLe: { defaut: null, controle: dateOuVide('Badgeage, date de l’avis du CSE') },
+  pointageInterim: { defaut: false, controle: booleen },
+  pointageDelaiCorrectionJours: { defaut: 7, controle: entier(1, 31) },
+  pointageHorsLigne: { defaut: true, controle: booleen },
+  pointageEcartDiffereMin: { defaut: 5, controle: entier(1, 60) },
+  pointageEcartAnomalieMin: { defaut: 15, controle: entier(0, 240) },
+  conservationPointagesAns: { defaut: 3, controle: entier(CONSERVATION_POINTAGES_MIN, CONSERVATION_POINTAGES_MAX) },
 };
 
 /**
@@ -467,7 +483,10 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   // L3122-7) supposent un accord collectif —
   s => (planningHorsLoi(s) && !s.planningAccord
     ? 'Planning d’équipe : un délai de prévenance de moins de 7 jours, un repos quotidien réduit ou d’autres durées du travail de nuit supposent un accord collectif : indiquez sa référence' : null),
-  // lot 12 — C6 (badgeage virtuel)
+  // lot 12 — C6 (badgeage virtuel) : moyen de contrôle de l'activité, activé seulement après l'information et la
+  // consultation du CSE (art. L2312-38) et sur le fondement de l'accord d'entreprise ; sans elles, des pointages seraient
+  // inopposables (art. L1222-4) —
+  s => refusActivationPointage(s),
 ];
 
 /** Vue non typée de la table, pour la parcourir (les contrôles reçoivent la valeur en vigueur du même champ). */

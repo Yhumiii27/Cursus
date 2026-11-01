@@ -161,7 +161,10 @@ export interface PlageIntervention { di: number; debut: number; fin: number }
  * restent comptées. Sans semaine connue : rien.
  */
 export function controlesReposNuit(jours: readonly (HoraireFige | null)[], perDay: readonly number[], week: ISODate | null | undefined,
-  o: { s?: Partial<ReglagesNuit>; naissance?: Naissance | null; veille?: Veille | null; exclu?: boolean; interventions?: readonly PlageIntervention[] }): ControlesReposNuit {
+  o: { s?: Partial<ReglagesNuit>; naissance?: Naissance | null; veille?: Veille | null; exclu?: boolean; interventions?: readonly PlageIntervention[];
+    // lot 12 — C6 (badgeage virtuel) : plages réelles tirées des pointages d'une population badgée (shared/rules/pointage.ts,
+    // `plagesReelles`), à la place de l'estimation `plageDuJour` : repos, pause et nuit exacts ; dimanche précédent compris.
+    reelles?: { plages: readonly (PlageTravail | null)[]; nuitParJour?: readonly number[]; veille?: PlageTravail | null } }): ControlesReposNuit {
   const out: ControlesReposNuit = { nuitParJour: Array(JOURS_FEUILLE).fill(0), nuit: 0, repos: [], pauses: [], nuitMineur: [], codes: [] };
   if (!week) return out;
   const s = reglagesNuit(o.s), wd = joursSemaine(week);
@@ -169,9 +172,11 @@ export function controlesReposNuit(jours: readonly (HoraireFige | null)[], perDa
   const ints = (o.interventions ?? []).filter(x => x.fin > x.debut && x.di >= -1 && x.di < JOURS_FEUILLE);
   const hInt = (di: number) => ints.filter(x => x.di === di).reduce((n, x) => n + (x.fin - x.debut) / 60, 0);
   const travail = (i: number) => Math.max(0, num(perDay[i]) - hInt(i));
-  const plages = Array.from({ length: JOURS_FEUILLE }, (_, i) => plageDuJour(jours[i], travail(i), i));
+  const plages = o.reelles
+    ? Array.from({ length: JOURS_FEUILLE }, (_, i) => o.reelles!.plages[i] ?? null)
+    : Array.from({ length: JOURS_FEUILLE }, (_, i) => plageDuJour(jours[i], travail(i), i));
   const plagesInt = ints.filter(x => x.di >= 0).map(x => ({ di: x.di, p: { debut: x.debut, fin: x.fin, pause: 0 } }));
-  out.nuitParJour = plages.map((p, i) => Math.round((heuresDeNuit(p, s) + plagesInt.filter(x => x.di === i).reduce((n, x) => n + heuresDeNuit(x.p, s), 0)) * 100) / 100);
+  out.nuitParJour = plages.map((p, i) => Math.round(((o.reelles?.nuitParJour ? o.reelles.nuitParJour[i] ?? 0 : heuresDeNuit(p, s)) + plagesInt.filter(x => x.di === i).reduce((n, x) => n + heuresDeNuit(x.p, s), 0)) * 100) / 100);
   out.nuit = Math.round(out.nuitParJour.reduce((a, b) => a + b, 0) * 100) / 100;
   // Salarié mineur ce jour-là (moins de 16 ans quand la date de naissance le dit) : vue sans la date, les indications
   // de la semaine (`mineur`, `moins16` : naissanceDeLaFeuille).
@@ -194,7 +199,7 @@ export function controlesReposNuit(jours: readonly (HoraireFige | null)[], perDa
 
   // Repos quotidien : de la fin d'un jour au début du suivant (dimanche précédent compris). Interventions d'astreinte : le
   // repos qui suit leur fin est contrôlé (dû en entier), jamais celui qu'elles interrompent.
-  const veille = o.veille ? plageDuJour(o.veille.horaire, Math.max(0, o.veille.heures - hInt(-1)), -1) : null;
+  const veille = o.reelles ? o.reelles.veille ?? null : o.veille ? plageDuJour(o.veille.horaire, Math.max(0, o.veille.heures - hInt(-1)), -1) : null;
   const suite = [
     ...(veille ? [{ di: -1, p: veille, intervention: false }] : []),
     ...ints.filter(x => x.di === -1).map(x => ({ di: -1, p: { debut: x.debut, fin: x.fin, pause: 0 }, intervention: true })),

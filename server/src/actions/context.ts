@@ -24,6 +24,11 @@ export interface Ctx {
    * signée « par délégation de … » dans le message, le journal et l'e-mail au salarié (server/src/app.ts, notifications.ts).
    */
   parDelegation: Set<number>;
+  /**
+   * lot 12 — C6 (badgeage virtuel) : action rejouée depuis la file hors ligne (en-tête EN_TETE_HORS_LIGNE, server/src/app.ts) ;
+   * un pointage n'y prend l'heure de l'appareil que dans ce cas.
+   */
+  horsLigne?: boolean;
 }
 
 /** Valeur renvoyée par une action : message de confirmation, éventuel résultat. */

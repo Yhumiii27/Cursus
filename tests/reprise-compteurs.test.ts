@@ -299,7 +299,9 @@ test('t072 migration nommée : compteurs et reports d’une base existante daté
     // lot 12 — C4 : index des organismes et des inscriptions e-learning.
     'lot12-organismes-index', 'lot12-elearning-index',
     // lot 12 — C5 (planning d'équipe) : index du planning (cycles d'exemple déjà chargés par la démonstration).
-    'lot12-planning-equipe']);
+    'lot12-planning-equipe',
+    // lot 12 — C6 (badgeage virtuel) : index des pointages et des demandes de correction, pointages en ajouts seulement.
+    'lot12-badgeage-pointages']);
   const ds = await loadFull(db, ADMIN);
   assert.ok(ds.soldesReprise.every(s => s.arreteLe === '2026-10-10'), 'date de mise en service de cette version');
   const recu = ds.reports.find(r => r.empId === 6)!, accorde = ds.reports.find(r => r.empId === 2)!;

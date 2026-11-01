@@ -41,6 +41,7 @@ import { routesFraisHistorique } from './frais-historique.ts';
 // lot 12 — C5 (planning d'équipe)
 import { routesPlanningHistorique } from './planning-historique.ts';
 // lot 12 — C6 (badgeage virtuel)
+import { routesPointages } from './pointages.ts';
 import { routesPieces } from './pieces-routes.ts';
 import { CLE_INVALIDE, CleReutilisee, empreinteCorps, garderReponse, lireCle, reponseGardee } from './idempotence.ts';
 import { EN_TETE_HORS_LIGNE, refusHorsLigne } from '../../shared/hors-ligne.ts';
@@ -167,6 +168,8 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
       // Lecture partagée de l'instantané en cache si elle décrit l'état de la base vu ici (server/src/cache-instantane.ts).
       const depart = await donneesAction(db, user, todayIso(), async u => await loadFull(db, u));
       const ctx = makeCtx(db, user, depart);
+      // lot 12 — C6 (badgeage virtuel) : rejeu de la file hors ligne connu de l'action (pointage différé).
+      ctx.horsLigne = horsLigne;
       const trace = await preparerTrace(db, name, p);
       const r = await handler(ctx, p);
       const o = signerDelegation(ctx, typeof r === 'object' && r !== null ? r : { message: r });
@@ -243,7 +246,9 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
-  // lot 12 — C6 (badgeage virtuel)
+  // lot 12 — C6 (badgeage virtuel) : pointages et état du jour, lus par fetch depuis l'écran (en-tête d'espace exigé).
+  app.get('/api/pointages', exigerNavigationInterne('appel'));
+  app.get('/api/pointages/etat', exigerNavigationInterne('appel'));
   // Journal des actions (consultation filtrée et paginée, export CSV, archive paie, exports de l'interface) et
   // données personnelles d'un salarié (export RH, téléchargement par l'intéressé) : server/src/journal.ts, donnees.ts.
   app.use(routesJournal(db));
@@ -278,7 +283,9 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe) : historique des créneaux hors de la fenêtre de l'instantané, filtré par droits.
   app.use(routesPlanningHistorique(db));
-  // lot 12 — C6 (badgeage virtuel)
+  // lot 12 — C6 (badgeage virtuel) : pointages bruts (6 semaines au plus) et état du jour, recalculés à chaque appel :
+  // server/src/pointages.ts.
+  app.use(routesPointages(db));
 
   // File d'envoi des messages sortants (Paramètres → Envois) : état de l'intégration et derniers messages.
   // Service RH et lecture seule (droit `consultation`) ; ni le référent HSE, ni la paie. La lecture seule ne lit pas le

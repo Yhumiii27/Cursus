@@ -57,6 +57,14 @@ type Ligne = Record<string, any>;
 
 // — Liste blanche par action —
 
+// lot 12 — C6 (badgeage virtuel)
+/** Résultat d'une action sur une demande de correction de pointage (server/src/actions/pointage.ts) : codes seulement. */
+const resultatCorrection = (x: { result: unknown }) => (x.result ?? {}) as { id?: number; empId?: number; jour?: string; nature?: string; motif?: string; statut?: string };
+const bilanCorrection = (x: { result: unknown }): Ligne => {
+  const r = resultatCorrection(x);
+  return { id: r.id ?? null, jour: isValidDate(r.jour) ? r.jour : null, nature: r.nature ?? null, motif: r.motif ?? null, statut: r.statut ?? null };
+};
+
 // lot 11 — notes de frais
 /** Résultat d'une action des notes de frais : note, ligne, avance, salarié, statut, nombres. */
 const resultatFrais = (x: { result: unknown }) => (x.result ?? {}) as { note?: number; ligne?: number; avance?: number; vehicule?: number; empId?: number; statut?: string; lignes?: number; pieces?: number };
@@ -961,7 +969,8 @@ export const REGLES: Record<string, Regle> = {
   // Réglages : anciennes et nouvelles valeurs, sauf la référence de l'accord des heures supplémentaires (texte libre).
   'parametres.maj': {
     cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche', 'nuitAccord', 'forfaitJoursAccord', 'fractionnementAccord', 'conservationDecisionDpo', 'astreinteAccord',
-      /* lot 12 — C1 */ 'forfaitHeuresAccord', /* lot 12 — C5 */ 'planningAccord'] },
+      /* lot 12 — C1 */ 'forfaitHeuresAccord', /* lot 12 — C5 */ 'planningAccord',
+      /* lot 12 — C6 (badgeage virtuel) */ 'pointageAccord'] },
   },
   // Jours fériés d'une année (lot 6) : année, réglage avant et après ; le motif d'une année engagée (texte libre) n'est
   // jamais recopié, seulement le fait qu'il soit renseigné. Salariés dont une absence est recalculée (résultat).
@@ -1058,7 +1067,14 @@ export const REGLES: Record<string, Regle> = {
   // exceptionnelles, alertes, annulation, fin d'affectation, refus d'un échange), ni une nature d'absence, ni un code
   // d'alerte (la réserve d'aptitude en est un) ; salariés lus dans le résultat de l'action.
   ...REGLES_PLANNING,
-  // lot 12 — C6 (badgeage virtuel)
+  // lot 12 — C6 (badgeage virtuel) : jamais de ligne par pointage ordinaire (la table des pointages est elle-même la trace,
+  // et le volume noierait le journal) ; corrections : identifiant, salarié, jour, nature, motif codé et statut, jamais le
+  // commentaire ni le motif d'un refus (textes libres), jamais une heure de pointage.
+  'pointage.pointer': { tracer: () => false },
+  'pointage.corriger': { bilan: (_p, x) => bilanCorrection(x), salaries: (_p, x) => [resultatCorrection(x).empId] },
+  'pointage.validerCorrection': { champs: ['id'], bilan: (_p, x) => bilanCorrection(x), salaries: (_p, x) => [resultatCorrection(x).empId] },
+  'pointage.refuserCorrection': { champs: ['id'], bilan: (_p, x) => bilanCorrection(x), salaries: (_p, x) => [resultatCorrection(x).empId] },
+  'pointage.annulerCorrection': { champs: ['id'], bilan: (_p, x) => bilanCorrection(x), salaries: (_p, x) => [resultatCorrection(x).empId] },
 };
 
 // lot 11 — pwa (chantier C2) : saisie du jour rejouable, désignée par la ligne (projet, tâche) et non par son indice ; tracée

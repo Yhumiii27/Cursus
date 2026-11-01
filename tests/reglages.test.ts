@@ -118,6 +118,10 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // lot 12 — C5 (planning d'équipe) : module désactivé jusqu'à l'avis du CSE ; valeurs de la loi, planning des collègues fermé.
     planningActif: false, planningDelaiPrevenance: 7, planningReposQuotidienAccord: 11, planningNuitJour: 8, planningNuitMoyenne: 40, planningAccord: '',
     planningCollegues: false,
+    // lot 12 — C6 (badgeage virtuel) : module désactivé, sans population, accord et avis du CSE à saisir ; intérimaires
+    // exclus ; corrections sous 7 jours ; hors ligne admis, signalé au-delà de 5 min ; écart de 15 min ; 3 ans.
+    pointageActif: false, pointagePopulations: [], pointageAccord: '', pointageCseLe: null, pointageInterim: false, pointageDelaiCorrectionJours: 7,
+    pointageHorsLigne: true, pointageEcartDiffereMin: 5, pointageEcartAnomalieMin: 15, conservationPointagesAns: 3,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(await loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

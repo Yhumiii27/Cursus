@@ -162,7 +162,7 @@ const TEXTES_GARDES: Record<string, readonly string[]> = {
   // Demande de Keystone : chantier, destination, dates, référence, statut ; décideur (nom) balayé.
   demandes_keystone: ['chantier', 'dest', 'depart', 'retour', 'recue', 'ref', 'statut', 'decidee', 'decideur'],
   // Feuille : semaine, statut, heures et contrat figés, mode des heures supplémentaires, contrepartie en repos, horaires.
-  feuilles: ['week', 'statut', 'lignes', 'contrat', 'heures_sup', 'cor', 'horaires', 'horaires_figes'],
+  feuilles: ['week', 'statut', 'lignes', 'contrat', 'heures_sup', 'cor', 'horaires', 'horaires_figes', /* lot 12 — C6 : mode figé, pointé figé */ 'mode_temps', 'pointe_fige'],
   // Avenant de forfait : dates ; auteurs (noms) balayés.
   avenants_forfait: ['signe_le', 'cree_le', 'cree_par', 'annule_le', 'annule_par'],
   // Absence : type, dates, demi-journées et statut codés ; auteurs (noms) balayés.

@@ -250,6 +250,21 @@ const echangePlanning = async (statut: string) => {
   return (await db.insert<{ id: number }>('echangesPoste', { demandeurId: 2, partenaireId: 6, creneauDemandeur: a, creneauPartenaire: null, statut, creeLe: '2026-10-06T08:00:00.000Z' })).id;
 };
 const roulementPlanning = async () => (await db.insert<{ id: number }>('roulements', { empId: 2, cycle: 'JOUR', groupe: 'A', du: '2026-11-02', au: null, equipe: 'Maintenance', creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Karim Haddad' })).id;
+// lot 12 — C6 (badgeage virtuel) : module activé (accord, avis du CSE, Maintenance en mode « controle ») dans la
+// transaction de la ligne ; demande de correction de Mehdi en attente (ajout d'une arrivée le jour même).
+const badgeageActif = async () => {
+  await db.setSetting('app', {
+    ...await db.getSetting<Record<string, unknown>>('app', {}), pointageActif: true, pointageAccord: 'Accord d’entreprise du 1er mars 2026', pointageCseLe: '2026-02-15',
+    pointagePopulations: [{ critere: 'equipe', valeur: 'Maintenance', mode: 'controle', effet: '2026-01-01' }],
+  });
+};
+const correctionPointage = async () => {
+  await badgeageActif();
+  return (await db.insert<{ id: number }>('correctionsPointage', {
+    empId: 2, jour: '2026-10-07', nature: 'ajout', horodatage: '2026-10-07T05:00:00.000Z', sens: 'E', pointageId: null, motif: 'oubli', commentaire: null, statut: 'demandee',
+    demandeLe: '2026-10-07T09:00:00.000Z', demandePar: 'Mehdi Benali', demandeParInteresse: true, decideLe: null, decidePar: null, motifRefus: null, pointageCreeId: null,
+  })).id;
+};
 
 const MATRICE: Ligne[] = [
   // lot 12 — C4 : organismes — droit « formations » (service RH, référent HSE) pour la fiche et les contacts ; service RH pour
@@ -739,6 +754,17 @@ const MATRICE: Ligne[] = [
   { action: 'planning.echange.refuser', droits: '      -    -    -    -    -    O    -    -    -', p: async () => ({ id: await echangePlanning('propose') }) },
   { action: 'planning.echange.refuser', variante: 'échange accepté', droits: 'O    O    O    -    -    -    -    -    -', p: async () => ({ id: await echangePlanning('accepte') }) },
   { action: 'planning.echange.annuler', droits: '       -    -    -    -    O    -    -    -    -', p: async () => ({ id: await echangePlanning('propose') }) },
+  // lot 12 — C6 (badgeage virtuel) : chacun pointe pour lui-même (tests/pointage-actions.test.ts) ; correction demandée par
+  // le salarié, ou saisie et validée d'emblée par son valideur (manager, service RH) ; validation et refus par le valideur,
+  // jamais pour soi ; retrait par le salarié ou son valideur. Paie, référent HSE, lecture seule : rien.
+  { action: 'pointage.pointer', droits: '            -    -    -    -    O    -    -    -    -', p: async () => { await badgeageActif(); return { empId: 2 }; } },
+  { action: 'pointage.corriger', droits: '           O    O    O    -    O    -    -    -    -', p: async () => {
+    await badgeageActif();
+    return { empId: 2, nature: 'ajout', horodatage: '2026-10-07T05:00:00.000Z', sens: 'E', motif: 'oubli' };
+  } },
+  { action: 'pointage.validerCorrection', droits: '   O    O    O    -    -    -    -    -    -', p: async () => ({ id: await correctionPointage() }) },
+  { action: 'pointage.refuserCorrection', droits: '   O    O    O    -    -    -    -    -    -', p: async () => ({ id: await correctionPointage(), motif: 'Présence non constatée' }) },
+  { action: 'pointage.annulerCorrection', droits: '   O    O    O    -    O    -    -    -    -', p: async () => ({ id: await correctionPointage() }) },
 ];
 // lot 12 — C1 (forfait annuel en heures)
 /**

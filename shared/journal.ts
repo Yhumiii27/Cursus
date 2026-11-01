@@ -420,6 +420,14 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'planning.echange.refuser': 'Échange de poste refusé',
   'planning.echange.annuler': 'Échange de poste retiré',
   // lot 12 — C6 (badgeage virtuel)
+  // Badgeage (server/src/actions/pointage.ts) : famille « Temps — badgeage ». Jamais de ligne par pointage ordinaire (la
+  // table des pointages est elle-même la trace) ; corrections : identifiant, salarié, jour, nature et motif codé, jamais le
+  // commentaire ni le motif d'un refus.
+  'pointage.pointer': 'Pointage (jamais tracé : la table des pointages en est la trace)',
+  'pointage.corriger': 'Correction de pointage demandée',
+  'pointage.validerCorrection': 'Correction de pointage validée',
+  'pointage.refuserCorrection': 'Correction de pointage refusée',
+  'pointage.annulerCorrection': 'Demande de correction de pointage retirée',
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
@@ -478,6 +486,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
+  { id: 'badgeage', label: 'Temps — badgeage', prefixes: ['pointage.'] },
 ];
 
 /** Famille d'un code : la première qui le reconnaît. */
@@ -628,6 +637,11 @@ export const CHAMP_LABEL: Record<string, string> = {
   longueur: 'Longueur du cycle (jours)', sequence: 'Séquence des horaires', groupes: 'Groupes et décalages', origine: 'Jour d’origine du cycle',
   effectifMin: 'Effectif minimal', posteId: 'Poste', exigences: 'Exigences du créneau',
   // lot 12 — C6 (badgeage virtuel)
+  pointageActif: 'Badgeage activé', pointagePopulations: 'Badgeage : populations', pointageAccord: 'Badgeage : référence de l’accord',
+  pointageCseLe: 'Badgeage : avis du CSE le', pointageInterim: 'Badgeage : intérimaires inclus', pointageDelaiCorrectionJours: 'Badgeage : délai de correction (jours)',
+  pointageHorsLigne: 'Badgeage : pointage hors ligne admis', pointageEcartDiffereMin: 'Badgeage : écart toléré hors ligne (minutes)',
+  pointageEcartAnomalieMin: 'Badgeage : écart déclaré / pointé signalé (minutes)', conservationPointagesAns: 'Conservation des pointages (ans)',
+  motif: 'Motif',
 };
 
 const valeur = (v: unknown): string => {

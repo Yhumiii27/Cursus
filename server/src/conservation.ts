@@ -19,6 +19,8 @@ import { snake, type SqlValeur, TABLES, type Db, type TableName } from './db.ts'
 import { log } from './logs.ts';
 import { lireMessagerie } from './messagerie.ts';
 import { nettoyerBientot } from './pieces.ts';
+// lot 12 — C6 (badgeage virtuel)
+import { purgerPointages } from './pointages.ts';
 
 /**
  * Traitement de chaque référence à un salarié (clé « table.colonne » de REFERENCES) :
@@ -123,7 +125,11 @@ export const TRAITEMENTS: Record<string, Traitement> = {
   'echanges_poste.demandeur_id': { mode: 'textes', categorie: 'temps' },
   'echanges_poste.partenaire_id': { mode: 'textes', categorie: 'temps' },
   'echanges_poste.par_delegation_de': { mode: 'auteur' },
-  // lot 12 — C6 (badgeage virtuel)
+  // lot 12 — C6 (badgeage virtuel) : pointages bruts et demandes de correction supprimés avec les temps (le commentaire et
+  // le motif d'un refus partent avec eux) ; la tâche quotidienne purge en plus les pointages de plus de
+  // `conservationPointagesAns` ans (server/src/pointages.ts, `purgerPointages`).
+  'pointages.emp_id': { mode: 'lignes', categorie: 'temps' },
+  'corrections_pointage.emp_id': { mode: 'lignes', categorie: 'temps' },
 };
 
 /**
@@ -211,6 +217,9 @@ export function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number
       { table: 'creneaux', ou: 'emp_id = ?', vider: ['motif', 'motif_alertes', 'alertes_acceptees', 'annule_motif'] },
       { table: 'roulements', ou: 'emp_id = ?', vider: ['fin_motif'] },
       { table: 'echanges_poste', ou: 'demandeur_id = ? OR partenaire_id = ?', vider: ['motif_refus', 'alertes_acceptees'] },
+      // lot 12 — C6 (badgeage virtuel) : demandes de correction puis pointages (clé de la correction vérifiée à la fin).
+      { table: 'corrections_pointage', ou: 'emp_id = ?', supprimer: true },
+      { table: 'pointages', ou: 'emp_id = ?', supprimer: true },
     ];
     case 'formations': return [
       retrait(cx, `emp_id = ? AND objet IN ('certification', 'habTitre')`),
@@ -406,7 +415,9 @@ async function identite(db: Db, empId: number): Promise<string[]> {
  * nom de l'action au journal (code).
  */
 const LIGNES_DU_SALARIE: Partial<Record<string, string>> = { employes: 'id', comptes: 'emp_id' };
-const TABLES_EXCLUES = new Set(['settings']);
+// lot 12 — C6 (badgeage virtuel) : pointages bruts, sans aucun texte nommé (instants, jours, codes), écartés du balayage :
+// des centaines de milliers de lignes relues pour rien à chaque anonymisation.
+const TABLES_EXCLUES = new Set(['settings', 'pointages']);
 const COLONNES_EXCLUES = new Set(['journal.action']);
 
 const echapper = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -511,6 +522,8 @@ export async function verifierConservation(db: Db, ti: ISODate = todayIso()): Pr
 export async function demarrerConservation(db: Db): Promise<() => void> {
   const passer = async () => {
     try { await verifierConservation(db); } catch (err) { log.erreur(`Conservation des dossiers : ${err instanceof Error ? err.message : err}`); }
+    // lot 12 — C6 (badgeage virtuel) : pointages bruts au-delà de leur durée de conservation.
+    try { await purgerPointages(db); } catch (err) { log.erreur(`Conservation des pointages : ${err instanceof Error ? err.message : err}`); }
   };
   await passer();
   const t = setInterval(async () => await passer(), 3600_000);

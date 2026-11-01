@@ -25,6 +25,8 @@ import { PIECES_CHIFFREES } from './lot8-pieces.ts';
 import { INDEX_JOURNAL_COMPTE } from './lot8-index-journal.ts';
 // lot 12 — C1 (forfait annuel en heures)
 import { FORFAIT_HEURES } from './lot12-forfait-heures.ts';
+// lot 12 — C2 (notes de frais : activation)
+import { INDEX_FRAIS_FENETRE } from './lot12-frais.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   INDEX_JOURNAL,
@@ -65,4 +67,6 @@ export const MIGRATIONS: readonly Migration[] = [
   INDEX_JOURNAL_COMPTE,
   // lot 12 — C1 (forfait annuel en heures)
   FORFAIT_HEURES,
+  // lot 12 — C2 (notes de frais : activation)
+  INDEX_FRAIS_FENETRE,
 ];

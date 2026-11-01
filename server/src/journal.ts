@@ -944,7 +944,9 @@ export const REGLES: Record<string, Regle> = {
     cible: { table: 'cloturesForfaitHeures', cle: p => Number(p.id) || null, colonnes: ['statut', 'version'] },
     salaries: (_p, x) => [x.avant?.empId],
   },
-  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C2 (notes de frais : activation) : aucune action nouvelle ; la consultation de l'historique d'autrui
+  // (`frais.historique.consulter`) est tracée par sa route (server/src/frais-historique.ts), salariés et nombre de notes
+  // seulement, comme `frais.export.fichier`.
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)

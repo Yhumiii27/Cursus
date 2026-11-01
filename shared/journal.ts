@@ -367,7 +367,9 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'forfaitHeures.cloturer': 'Forfait annuel en heures : période clôturée',
   'forfaitHeures.rouvrir': 'Forfait annuel en heures : clôture rouverte',
   'forfaitHeures.annuler': 'Forfait annuel en heures : clôture annulée',
-  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C2 (notes de frais : activation) : consultation de l'historique d'autrui (notes payées depuis plus de 13 mois
+  // comprises) par le service RH ou la comptabilité, tracée par sa route (server/src/frais-historique.ts).
+  'frais.historique.consulter': 'Historique des notes de frais consulté',
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)

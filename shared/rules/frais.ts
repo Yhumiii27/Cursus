@@ -155,6 +155,24 @@ export function doublonsDe(l: Pick<LigneFrais, 'id' | 'empId' | 'date' | 'montan
 }
 
 /**
+ * lot 12 — C2 (notes de frais : activation) : `doublonsDe` pour plusieurs lignes, sur les mêmes `lignes` et `notes`, en un
+ * seul parcours (index par clé de doublon) : mêmes identifiants, dans le même ordre. Les alertes d'une vue (toutes les
+ * lignes en circuit contre toutes les lignes de l'instantané) coûtaient un parcours complet par ligne (essai de charge du
+ * lot 12 : vue d'un manager de 10 s sur 3 ans de frais).
+ */
+export function indexDoublons(lignes: readonly LigneFrais[], notes: readonly Pick<NoteFrais, 'id' | 'statut'>[]): (l: Pick<LigneFrais, 'id' | 'empId' | 'date' | 'montantEur' | 'commercant'>) => number[] {
+  const annulees = new Set(notes.filter(n => n.statut === 'annulee').map(n => n.id));
+  const par = new Map<string, number[]>();
+  for (const x of lignes) {
+    if (!ligneEnVigueur(x) || annulees.has(x.noteId)) continue;
+    const k = cleDoublon(x), g = par.get(k);
+    if (g) g.push(x.id);
+    else par.set(k, [x.id]);
+  }
+  return l => (par.get(cleDoublon(l)) ?? []).filter(id => id !== l.id);
+}
+
+/**
  * Doublons par empreinte : pour chaque empreinte de justificatif portée par plusieurs lignes, la liste de ces lignes
  * (le même reçu photographié deux fois). `pieces` : empreinte et ligne de chaque justificatif en vigueur.
  */

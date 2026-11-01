@@ -35,6 +35,7 @@ import { routesIndicateurs } from './indicateurs.ts';
 import { routesFraisExports } from './frais-exports.ts';
 // lot 12 — C1 (forfait annuel en heures)
 // lot 12 — C2 (notes de frais : activation)
+import { routesFraisHistorique } from './frais-historique.ts';
 // lot 12 — C3 (entretiens suivis et 360°)
 // lot 12 — C4 (organismes de formation et e-learning)
 // lot 12 — C5 (planning d'équipe)
@@ -235,6 +236,9 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   app.get('/api/frais/exports/:id/fichier', exigerNavigationInterne('appel'));
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)
+  // Historique des notes de frais (notes payées depuis plus de 13 mois, hors de l'instantané), lu par fetch depuis l'écran.
+  app.get('/api/frais/historique', exigerNavigationInterne('appel'));
+  app.get('/api/frais/historique/:noteId', exigerNavigationInterne('appel'));
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
@@ -268,6 +272,7 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // identité, droits et traçage comme les routes ci-dessus (C2 : historique des frais ; C6 : GET /api/pointages/etat).
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)
+  app.use(routesFraisHistorique(db));
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)

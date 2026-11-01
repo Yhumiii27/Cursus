@@ -4769,3 +4769,74 @@ RH), la documentation RGPD et le guide viennent à l'étape 2.
 - **Tests** : tests/forfait-heures.test.ts (règle par valeurs : avenant en juillet, entrée, sortie, début du suivi,
   absences, temps partiel, plafond, 1 607 h, CP incomplets ; actions : lot de paie, ligne « à revoir », réouverture après
   transmission et lot correctif, annulation, sortie, droits de lecture, lecture incrémentale) ; matrice des droits.
+## Lot 12 : notes de frais, fenêtre de 13 mois et historique (C2, étape 1)
+
+Première étape de l'activation des notes de frais : ramener l'instantané dans le budget de charge. Aucune table, aucune
+colonne, aucune vue `pub_`, aucune action nouvelle ; une migration d'index. Le module reste désactivé par défaut
+(`notesFraisActives`) : écrans, option des 2 mois, défaut d'activation, CI et demande à Matrix viennent à l'étape 2.
+
+- **Fenêtre** (`shared/rules/frais-fenetre.ts`, bloc C2 de `FENETRES` dans `server/src/lecture-brute.ts`) : borne = jour
+  de Paris moins 13 mois (`borneFrais`, `addM`) ; une note payée avant la borne est archivée (`noteArchivee`) et sort de
+  la lecture brute avec ses dépenses et leurs justificatifs (`notesFrais` : `NOT (statut = 'payee' AND payee_le < ?)` ;
+  `lignesFrais` et `pieces` d'objet `ligneFrais` / `ligneFraisSante` : sous-requêtes corrélées sur la note). Lecture
+  complète, relecture complète du delta (marqueur « toute la table » de `lignes_frais`) et relecture par clé (notes,
+  justificatifs) appliquent la même condition ; un justificatif détaché de sa dépense (conservation) revient dans la
+  fenêtre, relu par clé. Une note n'entre jamais dans l'archive par une écriture (paiement daté du jour) et n'en ressort
+  jamais (refus 409) : seul le passage du temps la fait sortir, et l'entrée du cache d'un autre jour est relue en
+  entier. En base, rien ne change (conservation comptable de 10 ans, `server/src/conservation.ts`). Index : migration
+  PostgreSQL `0023_frais_fenetre.sql` (`notes_frais (statut, payee_le)`), migration SQLite nommée `lot12-frais-index`
+  (même index, plus ceux de 0020 absents en SQLite : `notes_frais (emp_id)`, `lignes_frais (note_id)`, `lignes_frais
+  (emp_id)`).
+- **Lectures ciblées en base** (`server/src/frais-base.ts`) : cumul kilométrique de l'année du trajet (`ikDeLAnneeEnBase`
+  dans `lireLigne` et `recalculerIk` ; `salariesIkDeLAnnee` à la publication d'un barème : une note tardive de
+  l'année passée, le délai de soumission allant jusqu'à 24 mois, a besoin des trajets archivés) ; doublons et alertes de
+  la soumission et du contrôle sur l'instantané complété des dépenses de la base du même salarié et du même jour, des
+  trajets de l'année et des dépenses au même justificatif (`avecHistorique`, l'instantané lui-même si rien ne manque) ;
+  famille « frais » d'un lot de paie (`avecHistoriquePaie` : trajets de l'année des notes à rembourser, notes déjà
+  transmises des salariés qui ont une avance, pour les déductions) ; export comptable (`notesExportablesEnBase`, puis
+  les dépenses des seules notes à exporter : une note payée et jamais exportée n'est jamais perdue ; `attendues` reste
+  le nombre de notes de la fenêtre, que l'écran affiche, et le message dit combien de notes archivées partent en plus).
+- **Note archivée** : toute écriture qui la vise est refusée (409, `refusNoteArchivee`) — actions de frais (`noteDe`,
+  `ligneDe` de `server/src/actions/frais.ts`) et justificatifs (`objetFraisVise`, `refusRetraitFrais`) ; un élément
+  hors du périmètre garde son refus 403.
+- **Historique** (`server/src/frais-historique.ts`, montées dans le bloc C2 de `server/src/app.ts`, après la session,
+  `exigerNavigationInterne('appel')`) : `GET /api/frais/historique` (`empId`, `du`, `au` : mois des dépenses de la
+  note, 24 mois au plus, les 24 derniers par défaut ; `statut` ; `page` de 100, de la plus récente à la plus ancienne ;
+  total remboursé de chaque note, sauf pour la paie) et `GET /api/frais/historique/:noteId` (dépenses et description des
+  justificatifs ; le fichier par `GET /api/pieces/:id`, qui lit déjà la base). Toutes les notes de la base, filtrées par
+  les règles de l'instantané, factorisées dans `server/src/frais-vues.ts` (`notesVuesSalarie`, `lignesDesNotes`,
+  `piecesFraisDeManager`, `notesPourLaPaie`, `piecesFraisComptabilite`) : collaborateur, les siennes ; manager, les
+  siennes et celles des salariés `idsFrais` du jour (jeu complet du cache), jamais une note médicale d'autrui ; service
+  RH (droit `rh`) et comptabilité (droit `compta`), tout, frais médicaux compris ; paie, notes contrôlées, en paiement ou
+  payées, sans lignes, justificatifs, motifs ni indicateur médical ; référent HSE et lecture seule, 403 tracé
+  (`acces.refuse`). La condition SQL du périmètre n'est que l'avance de ces règles, pour une pagination exacte. Note
+  inconnue ou hors du périmètre : même 403 (404 pour le service RH et la comptabilité). Module désactivé : 409.
+- **Journal** : `frais.historique.consulter` (libellé dans `JOURNAL_LABEL`, famille « Notes de frais », hors de l'archive
+  de la paie), écrit par la route quand le service RH ou la comptabilité reçoit des notes d'autres salariés : salariés
+  et nombre de notes seulement, jamais un critère ni un montant.
+- **Alertes** (`shared/rules/frais-alertes.ts`) : doublons par clé indexés une fois par préparation (`indexDoublons`,
+  mêmes résultats que `doublonsDe`) et justificatifs comptés par ligne ; chaque ligne en circuit parcourait auparavant
+  toutes les dépenses et toutes les pièces de l'instantané (vue d'un manager : 10,7 s sur 3 ans de frais).
+- **Essai de charge** (`npm run charge:frais`, une base par durée, 3 et 5 ans ; `scripts/charge/frais.ts` : justificatifs
+  de ~75 % des dépenses, 2 % de notes médicales ; `scripts/charge/mesure-frais.ts` : verdicts, code de sortie 1 en
+  échec). Mesure du 1er novembre 2026 (machine partagée, ordres de grandeur ; sans frais : lecture brute 67 ms, JSON RH
+  5,3 Mo) :
+
+| Mesure (budget) | 3 ans | 5 ans |
+| --- | --- | --- |
+| En base : notes, dépenses, justificatifs | 4 324, 84 968, 70 855 | 7 204, 142 196, 118 691 |
+| Dans la fenêtre : notes, dépenses, justificatifs | 1 684, 32 734, 27 291 | 1 684, 33 222, 27 771 |
+| Vue RH à froid (< 800 ms) | 74 ms | 94 ms |
+| Vue manager (< 300 ms) | 126 ms | 119 ms |
+| Vue collaborateur (< 300 ms) | 80 ms | 88 ms |
+| JSON de la vue RH (≤ 1,5 × 5,3 Mo) | **28,5 Mo** (1,0 Mo en brotli) | **28,9 Mo** (1,0 Mo) |
+| Lecture brute (≤ 2 × sans frais) | **616 ms** | **623 ms** |
+| Delta d'une dépense écrite (< 100 ms) | **444 ms** (relecture de `lignes_frais` : 308 ms) | **438 ms** (296 ms) |
+
+  La fenêtre rend le volume indépendant de l'ancienneté (5 ans comme 3 ans) et les vues tiennent leur budget ; le JSON
+  RH, la lecture brute et le delta d'une dépense ne le tiennent pas : décodage de ~33 000 dépenses et ~27 000
+  justificatifs de la fenêtre, relecture de toute la table `lignes_frais` à chaque dépense écrite. Suites, à l'étape 2 et
+  sur décision : option des 2 mois (réponse du propriétaire du 1er novembre 2026 : les vues RH et comptabilité ne
+  reçoivent le détail des notes payées depuis plus de 2 mois qu'à la demande, par la même route), et, pour le delta,
+  scission `lignes_frais_sante` (choix par défaut, demande à Matrix) si le marqueur « toute la table » reste au-delà du
+  budget.

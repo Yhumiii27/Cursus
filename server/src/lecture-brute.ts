@@ -43,6 +43,8 @@ import type {
 import type { AvanceFrais, BaremeKm, ForfaitFrais, LigneFrais, NoteFrais, TauxDevise, VehiculePerso } from '../../shared/types.ts';
 // lot 12 — C1 (forfait annuel en heures)
 import type { ClotureForfaitHeures } from '../../shared/types.ts';
+// lot 12 — C2 (notes de frais : activation)
+import { borneFrais } from '../../shared/rules/frais-fenetre.ts';
 import type { Db, Fenetre, TableName } from './db.ts';
 import { formatFichierDe } from './lots-paie.ts';
 import { messagerieDe } from './messagerie.ts';
@@ -186,7 +188,20 @@ export const COLONNES_OMISES: Partial<Record<TableName, readonly string[]>> = { 
  * chantier n'écrit que dans son bloc.
  */
 export const FENETRES: Partial<Record<TableName, (today: string) => Fenetre>> = {
-  // lot 12 — C2 (notes de frais)
+  // lot 12 — C2 (notes de frais) : notes payées depuis moins de 13 mois et toutes celles qui ne sont pas payées
+  // (shared/rules/frais-fenetre.ts), dépenses de ces notes, justificatifs de ces dépenses. Une note archivée ne revient
+  // jamais par une écriture (refus 409, server/src/actions/frais.ts) : seul le passage du temps la fait sortir, et l'entrée
+  // du cache d'un autre jour est relue en entier. Conditions corrélées par le nom de la table (lecture complète `allDans`
+  // comme relecture par clé `lireLignes`) ; index de la migration 0023.
+  notesFrais: today => ({ where: `NOT (statut = 'payee' AND payee_le < ?)`, params: [borneFrais(today)] }),
+  lignesFrais: today => ({
+    where: `NOT EXISTS (SELECT 1 FROM notes_frais n WHERE n.id = lignes_frais.note_id AND n.statut = 'payee' AND n.payee_le < ?)`, params: [borneFrais(today)],
+  }),
+  pieces: today => ({
+    where: `NOT (pieces.objet IN ('ligneFrais', 'ligneFraisSante') AND EXISTS (SELECT 1 FROM lignes_frais l JOIN notes_frais n ON n.id = l.note_id`
+      + ` WHERE l.id = pieces.objet_id AND n.statut = 'payee' AND n.payee_le < ?))`,
+    params: [borneFrais(today)],
+  }),
   // lot 12 — C5 (planning d'équipe)
 };
 

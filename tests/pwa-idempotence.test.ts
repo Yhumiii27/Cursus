@@ -73,7 +73,8 @@ const lignesIdem = async () => Number((await db.one<{ n: number }>('SELECT COUNT
 
 test('registre hors ligne : saisie personnelle, jamais une validation ni une action de paie', () => {
   // lot 11 — notes de frais (étape 2) : dépense ajoutée à sa propre note, jamais médicale.
-  assert.deepEqual([...ACTIONS_HORS_LIGNE], ['temps.saisir', 'temps.addLine', 'absence.demander', 'frais.ligne.ajouter']);
+  // lot 12 — C6 (badgeage virtuel) : pointage pour soi, avec l'heure de l'appareil, jamais de position.
+  assert.deepEqual([...ACTIONS_HORS_LIGNE], ['temps.saisir', 'temps.addLine', 'absence.demander', 'frais.ligne.ajouter', 'pointage.pointer']);
   for (const a of ACTIONS_HORS_LIGNE) {
     assert.ok(!ACTIONS_PAIE.includes(a), `${a} : action de paie`);
     assert.doesNotMatch(a, /valid|decid|decider|submit|reject|lot/i, `${a} : une validation ne part jamais hors ligne`);
@@ -91,6 +92,10 @@ test('registre hors ligne : saisie personnelle, jamais une validation ni une act
   assert.match(refusHorsLigne('frais.ligne.ajouter', { empId: 2, categorie: 'medical' }, 2)!, /frais médicaux/);
   assert.match(refusHorsLigne('frais.ligne.ajouter', { empId: 6, categorie: 'repas' }, 2)!, /votre propre saisie/);
   assert.ok(JOURNAL_LABEL['temps.saisir']);
+  assert.equal(refusHorsLigne('pointage.pointer', { empId: 2, horodatageAppareil: '2026-10-09T06:00:00.000Z' }, 2), null);
+  assert.match(refusHorsLigne('pointage.pointer', { empId: 2 }, 2)!, /heure de l’appareil/);
+  assert.match(refusHorsLigne('pointage.pointer', { empId: 2, horodatageAppareil: '2026-10-09T06:00:00.000Z', position: { lat: 1, lng: 2 } }, 2)!, /jamais de position/);
+  assert.match(refusHorsLigne('pointage.pointer', { empId: 6, horodatageAppareil: '2026-10-09T06:00:00.000Z' }, 2)!, /votre propre saisie/);
 });
 
 test('idempotence : même clé et même corps → réponse gardée sans refaire l’action ; autre corps → 422 ; clé illisible → 400', async () => {

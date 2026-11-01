@@ -531,7 +531,8 @@ test('oracle : suite d’écritures aléatoire, vues reportées, aucune divergen
   const { baseDemo, rejouer, resumeRapport } = await import('./support/oracle.ts');
   const db = await baseDemo(nouvelleBase);
   const avant = vc.vuesReportees;
-  const rapport = await rejouer(db, { graine: 9, pas: 12 });
+  // Graine 13 (lot 12 — C6) : avec les actions du badgeage au registre, la graine 9 ne tirait plus que 3 écritures validées.
+  const rapport = await rejouer(db, { graine: 13, pas: 12 });
   assert.equal(rapport.erreurs.length, 0, rapport.erreurs.join('\n'));
   assert.equal(rapport.divergences.length, 0, resumeRapport(rapport));
   assert.ok(rapport.ecritures > 3, `${rapport.ecritures} écritures`);

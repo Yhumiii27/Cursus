@@ -12,6 +12,8 @@ import {
 } from '../../../shared/rules/temps.ts';
 import { estActiviteInterne } from '../../../shared/rules/activites.ts';
 import { regimeAFiger } from '../../../shared/rules/historique-contrat.ts';
+// lot 12 — C6 (badgeage virtuel)
+import { modeDuSalarie } from '../pointages.ts';
 import { completerSemaine, JOURS_FEUILLE } from '../../../shared/rules/semaine.ts';
 import { ferieRefus } from '../../../shared/rules/majorations.ts';
 import { horairesAFiger } from '../../../shared/rules/horaires.ts';
@@ -50,7 +52,12 @@ export async function editable(ctx: Ctx, p: Record<string, any>): Promise<{ emp:
   if (sh && !['brouillon', 'rejetee'].includes(sh.statut) && !correction) throw new ActionError('Feuille déjà soumise ou validée');
   // Feuille créée : figée sur le régime de sa semaine quand l'historique des contrats le dit autre que celui de la fiche
   // (semaine antérieure à un changement, postérieure à un avenant programmé : shared/rules/historique-contrat.ts).
-  if (!sh) sh = await ctx.db.insert<FeuilleTemps>('feuilles', { empId: emp.id, week, statut: 'brouillon', comment: null, sage: false, keystone: false, lignes: [], contrat: regimeAFiger(ctx.ds, emp, week) });
+  // lot 12 — C6 (badgeage virtuel) : mode de décompte de la population badgée le lundi de la semaine, figé (rien pour une
+  // feuille déclarative : la colonne reste vide, comme avant le module).
+  if (!sh) {
+    const mode = modeDuSalarie(ctx.ds, emp, week);
+    sh = await ctx.db.insert<FeuilleTemps>('feuilles', { empId: emp.id, week, statut: 'brouillon', comment: null, sage: false, keystone: false, lignes: [], contrat: regimeAFiger(ctx.ds, emp, week), ...(mode !== 'declaratif' ? { modeTemps: mode } : {}) });
+  }
   return { emp, week, sh };
 }
 

@@ -384,6 +384,8 @@ export const CHAMPS_PAR_SALARIE: ReadonlySet<keyof Dataset> = new Set<keyof Data
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
+  // Demandes de correction de pointage : lignes par salarié, lues par la vue à travers `mine(…)` (server/src/vues-pointage.ts).
+  'correctionsPointage',
 ]);
 
 /**

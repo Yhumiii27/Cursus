@@ -210,6 +210,22 @@ const exportFrais = async () => (await db.insert<{ id: number }>('exportsFrais',
   contenu: { lignes: [], ecritures: 0, debit: 0, credit: 0 }, telechargements: 0,
 })).id;
 
+// lot 12 — C6 (badgeage virtuel) : module activé (accord, avis du CSE, Maintenance en mode « controle ») dans la
+// transaction de la ligne ; demande de correction de Mehdi en attente (ajout d'une arrivée le jour même).
+const badgeageActif = async () => {
+  await db.setSetting('app', {
+    ...await db.getSetting<Record<string, unknown>>('app', {}), pointageActif: true, pointageAccord: 'Accord d’entreprise du 1er mars 2026', pointageCseLe: '2026-02-15',
+    pointagePopulations: [{ critere: 'equipe', valeur: 'Maintenance', mode: 'controle', effet: '2026-01-01' }],
+  });
+};
+const correctionPointage = async () => {
+  await badgeageActif();
+  return (await db.insert<{ id: number }>('correctionsPointage', {
+    empId: 2, jour: '2026-10-07', nature: 'ajout', horodatage: '2026-10-07T05:00:00.000Z', sens: 'E', pointageId: null, motif: 'oubli', commentaire: null, statut: 'demandee',
+    demandeLe: '2026-10-07T09:00:00.000Z', demandePar: 'Mehdi Benali', demandeParInteresse: true, decideLe: null, decidePar: null, motifRefus: null, pointageCreeId: null,
+  })).id;
+};
+
 const MATRICE: Ligne[] = [
   // Fiches et équipes
   { action: 'employe.creer', droits: '                       O    O    -    -    -    -    -    -    -', p: async () => ({ ...PROFIL_VIDE('Maintenance', '2026-10-07'), nom: 'Nouvel Embauché', poste: 'Technicien' }) },
@@ -630,6 +646,17 @@ const MATRICE: Ligne[] = [
   // lot 11 — notes de frais, étape 2 : exports comptables, comptabilité (tests/frais-etape2.test.ts) et service RH.
   { action: 'frais.export.generer', droits: '        O    O    -    -    -    -    -    -    -', p: async () => { await noteAvecLigne('controlee'); return {}; } },
   { action: 'frais.export.annuler', droits: '        O    O    -    -    -    -    -    -    -', p: async () => ({ id: await exportFrais() }) },
+  // lot 12 — C6 (badgeage virtuel) : chacun pointe pour lui-même (tests/pointage-actions.test.ts) ; correction demandée par
+  // le salarié, ou saisie et validée d'emblée par son valideur (manager, service RH) ; validation et refus par le valideur,
+  // jamais pour soi ; retrait par le salarié ou son valideur. Paie, référent HSE, lecture seule : rien.
+  { action: 'pointage.pointer', droits: '            -    -    -    -    O    -    -    -    -', p: async () => { await badgeageActif(); return { empId: 2 }; } },
+  { action: 'pointage.corriger', droits: '           O    O    O    -    O    -    -    -    -', p: async () => {
+    await badgeageActif();
+    return { empId: 2, nature: 'ajout', horodatage: '2026-10-07T05:00:00.000Z', sens: 'E', motif: 'oubli' };
+  } },
+  { action: 'pointage.validerCorrection', droits: '   O    O    O    -    -    -    -    -    -', p: async () => ({ id: await correctionPointage() }) },
+  { action: 'pointage.refuserCorrection', droits: '   O    O    O    -    -    -    -    -    -', p: async () => ({ id: await correctionPointage(), motif: 'Présence non constatée' }) },
+  { action: 'pointage.annulerCorrection', droits: '   O    O    O    -    O    -    -    -    -', p: async () => ({ id: await correctionPointage() }) },
 ];
 /** Entité d'essai (lot 11), ouverte ou fermée, insérée dans la transaction annulée de la ligne. */
 async function entiteEssai(ouverte = true) {

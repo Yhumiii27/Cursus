@@ -67,6 +67,7 @@ import { fraisExportActions } from './frais-exports.ts';
 // lot 12 — C4 (organismes de formation et e-learning)
 // lot 12 — C5 (planning d'équipe)
 // lot 12 — C6 (badgeage virtuel)
+import { pointageActions } from './pointage.ts';
 
 /**
  * Registre typé (t164) : chaque famille est déclarée avec « satisfies Record<string, ActionHandler> », ce qui garde ses
@@ -143,6 +144,7 @@ const REGISTRE = {
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
+  ...pointageActions,
 } satisfies Record<string, ActionHandler>;
 
 /** Nom d'une action exposée par POST /api/actions/:nom. */

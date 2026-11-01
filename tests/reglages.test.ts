@@ -102,6 +102,10 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // Lot 11, chantier C5, étape 2 : fichier d'écritures (comptes proposés, journal OD, gabarit du fichier de paie).
     fraisComptes: {}, fraisCompteGenerique: '6256', fraisCompteTva: '44566', fraisCompteSalarie: '421', fraisJournal: 'OD',
     fraisGabarit: { separateur: ';', colonnes: ['journal', 'date', 'compte', 'compteTiers', 'piece', 'libelle', 'debit', 'credit'], decimale: ',', entete: true, encodage: 'utf-8', formatDate: 'JJ/MM/AAAA' },
+    // lot 12 — C6 (badgeage virtuel) : module désactivé, sans population, accord et avis du CSE à saisir ; intérimaires
+    // exclus ; corrections sous 7 jours ; hors ligne admis, signalé au-delà de 5 min ; écart de 15 min ; 3 ans.
+    pointageActif: false, pointagePopulations: [], pointageAccord: '', pointageCseLe: null, pointageInterim: false, pointageDelaiCorrectionJours: 7,
+    pointageHorsLigne: true, pointageEcartDiffereMin: 5, pointageEcartAnomalieMin: 15, conservationPointagesAns: 3,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(await loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

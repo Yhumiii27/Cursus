@@ -43,6 +43,8 @@ const TITRES: Partial<Record<TableName, string>> = {
   // lot 11 — notes de frais
   notesFrais: 'Notes de frais', lignesFrais: 'Dépenses des notes de frais', vehiculesPerso: 'Véhicules personnels déclarés (indemnités kilométriques)',
   avancesFrais: 'Avances sur frais',
+  // lot 12 — C6 (badgeage virtuel)
+  pointages: 'Pointages (badgeage)', correctionsPointage: 'Demandes de correction de pointage',
 };
 /**
  * Colonnes jamais exportées : empreinte du mot de passe (secret) et du jeton d'agenda ; nom stocké et jeton d'envoi d'une pièce justificative

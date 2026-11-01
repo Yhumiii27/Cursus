@@ -1858,6 +1858,10 @@ aucun champ du paramètre n'est recopié.
 | `indicateurs.arreter` | annee : année close (refusée tant qu'elle est en cours), un seul arrêté en vigueur par année et périmètre (`global`) ; agrégats de l'année figés déjà masqués, par groupement (ensemble, sexe, catégorie, statut, contrat), avec la version des règles et le seuil (lot 11, C3) ; journal : année, périmètre, identifiant | administrateur RH |
 | `indicateurs.annulerArrete` | id, motif (obligatoire, 500 caractères ; gardé avec l'arrêté pour le service RH, jamais au journal ni pour la lecture seule) : l'arrêté reste, un nouveau peut être pris pour la même année | administrateur RH |
 | `indicateurs.marquerCse` | id, le (mise à disposition du CSE : ni future, ni avant l'arrêté) ; arrêté annulé refusé | RH |
+| `pointage.pointer` | empId (soi-même), sens? (`E`/`S`, déduit sinon de l'entrée en cours) ; instant du serveur ; rejeu hors ligne : horodatageAppareil (moins de 7 jours, au plus 5 min d'avance), marqué « différé » ; jamais de position ; doublon sous 60 s : rien d'ajouté ; module actif et population badgée exigés (409) ; jamais au journal (lot 12, C6) | chacun pour lui-même |
+| `pointage.corriger` | empId, nature (`ajout` : horodatage, sens ; `neutralisation` : pointageId), motif (`oubli`/`appareil`/`mission`/`formation`/`autre`), commentaire? (300 caractères, jamais au journal) ; jour passé, sous `pointageDelaiCorrectionJours` jours (le service RH sans délai) ; feuille de la semaine validée : 409 (réouverture) ; saisie par le valideur : validée d'emblée | salarié, manager direct ou suppléant « feuilles », RH |
+| `pointage.validerCorrection` / `pointage.refuserCorrection` | id ; refus : motif (300 caractères, jamais au journal) ; validation : ligne ajoutée (pointage, ou neutralisation du pointage visé), feuille validée : 409 | manager direct ou suppléant « feuilles », RH ; jamais pour soi |
+| `pointage.annulerCorrection` | id : demande en attente retirée | le salarié, son valideur |
 
 ## Journal des actions
 
@@ -4701,3 +4705,71 @@ du 1er novembre 2026) : aucun socle i18n, les textes restent en français. Aucun
 - **Échanges avec les autres outils** : règles R2 à R5 de M-17 (section « Échanges avec les autres outils » ci-dessus),
   inventaire `docs/ECHANGES.md`. Les demandes du lot aux autres dépôts se rédigent dans `docs/demandes/` et attendent la
   validation du propriétaire.
+
+## Lot 12 : badgeage virtuel (C6, t191), étape 1
+
+Pointage sur téléphone ou ordinateur seulement (réponse du propriétaire du 1er novembre 2026 : pas de badgeuse murale ; ni
+appareils, ni badges, ni API de badgeuse, ni import de fichier). Tout est livré désactivé. L'étape 1 pose le serveur ;
+les écrans (bouton Pointer, onglet Pointages, Présences du jour, Corrections à valider, Paramètres → Badgeage), le mode
+« calcule » (ligne PTG, `pointeFige`), les horaires variables, l'AIPD et la mention d'information viennent à l'étape 2 ; la
+géolocalisation à l'étape 3.
+
+- **Activation** (`shared/reglages.ts`, `shared/rules/pointage.ts`) : `pointageActif` faux ; `pointagePopulations` (critère
+  `equipe` — équipes rattachées comprises —, `entite`, `site` ou `regime` ; mode `declaratif`, `controle` ou `calcule` ;
+  date d'effet ; la plus récente qui désigne le salarié l'emporte, à date égale la dernière de la liste) ; activation
+  refusée (COHERENCE, `refusActivationPointage`) sans `pointageAccord` ni `pointageCseLe` (art. L2312-38 et L1222-4) ;
+  forfait jours et cadres dirigeants toujours exclus, intérimaires sauf `pointageInterim`. Mode figé sur la feuille à sa
+  création (`feuilles.mode_temps`, mode du lundi de la semaine ; rien pour une feuille déclarative), jamais recalculé.
+  `pointageDelaiCorrectionJours` 7, `pointageHorsLigne` vrai, `pointageEcartDiffereMin` 5, `pointageEcartAnomalieMin`
+  15, `conservationPointagesAns` 3 (1 à 5). La référence de l'accord n'est tracée au journal que « renseignée ».
+- **Tables** (`server/src/db.ts`, migration PostgreSQL `0027_badgeage`, SQLite d'après TABLES et `lot12-badgeage-pointages`) :
+  `pointages` (instant UTC, jour de Paris, sens, origine, hors ligne et heure de l'appareil, réception, verdict de zone de
+  l'étape 3, `annule_id`, `correction_id`), en ajouts seulement : le déclencheur `pointages_ajouts_seulement` refuse
+  toute modification sur les deux moteurs ; une correction ajoute une ligne, ou une ligne qui neutralise le pointage
+  visé. `corrections_pointage` (file de validation), `zones_pointage` (étape 3). Colonnes posées d'avance pour ne pas
+  rouvrir la migration : `feuilles.pointe_fige`, horaires variables (`horaires.variable`, `plages`, `duree_reference`,
+  `report_max_semaine`, `cumul_max`, `accord_variable`). Les trois tables sont fermées en entier à Matrix
+  (`docs/demandes/matrix-lot12-badgeage.sql`), donc inscrites au journal des changements par le seul marqueur « toute
+  la table » (`TABLES_CHANGEMENTS_SANS_CLE` : le contrôle de tests/changements.test.ts l'exige de toute table fermée en
+  entier ; sans coût pour `pointages` et `zones_pointage`, qui ne sont pas lues par l'instantané).
+- **Cache** : `pointages` et `zones_pointage` dans `HORS_INSTANTANE` (un pointage change la révision, jamais
+  l'instantané) ; seules les demandes de correction entrent dans l'instantané (`LECTURES.correctionsPointage`, vues par
+  salarié de `server/src/vues-cache.ts`, banc d'oracle : `TIRAGES_POINTAGE` en renfort dans
+  tests/pointage-actions.test.ts). Projection `server/src/vues-pointage.ts` : manager, son équipe directe et ses
+  délégations « feuilles » (jamais la consultation N+2) ; collaborateur, les siennes ; paie, référent HSE, lecture seule et
+  comptabilité, aucune.
+- **Règles pures** (`shared/rules/pointage.ts`, tests/pointage-regles.test.ts) : heure de Paris (`heureParis`,
+  `instantParis`, justes aux nuits de mars et d'octobre), appariement (sens déduit en alternance, entrée sans sortie au-delà
+  de 24 h, sortie sans entrée), dédoublonnage sous 60 s, poste (paires séparées de moins de 5 h, rattaché au jour de sa
+  première entrée : nuit du dimanche au lundi comprise), pauses, heures de nuit sur les instants réels
+  (`heuresDeNuitReelles`), plages réelles d'une semaine (`plagesReelles`) qui remplacent `plageDuJour` dans
+  `controlesReposNuit` (option `reelles` de shared/rules/repos-nuit.ts : repos de 11 h, pause, nuit exacts ; le branchement
+  dans le décompte des feuilles vient avec le mode « calcule » de l'étape 2, les pointages n'étant pas dans
+  l'instantané). Anomalies calculées, jamais stockées, sans la nature d'une absence (`anomaliesPointage` : sortie ou entrée
+  manquante, différé au-delà de 5 min, jour prévu sans pointage, pointage un jour d'absence ou hors contrat, amplitude de
+  plus de 13 h, repos de moins de 11 h, pause de moins de 20 min dès 6 h, plus de 10 h par jour ou 48 h par semaine, écart
+  déclaré / pointé en mode « controle », pointé changé depuis la validation de la feuille, d'après `pointeFige`).
+  Débit-crédit (`shared/rules/debit-credit.ts`) : théorique du jour (horaire du jour, sinon durée du contrat divisée par
+  ses jours travaillés ; zéro un jour de repos, férié, hors contrat ou d'absence, moitié pour une demi-journée), solde de la
+  semaine, report plafonné (3 h par semaine, 10 h de cumul, supplétifs) et excédent signalé ; aucune rubrique de paie.
+- **Actions** (`server/src/actions/pointage.ts`, tableau ci-dessus) : instant du serveur (`instantServeur` de
+  server/src/pointages.ts : avec CURSUS_TODAY, l'heure murale du moment ce jour-là) ; `Ctx.horsLigne` (posé par app.ts
+  pour un rejeu de la file) seul autorise l'heure de l'appareil ; `pointage.pointer` dans `ACTIONS_HORS_LIGNE`
+  (`refusHorsLigne` : heure de l'appareil exigée, jamais de position). Pas de notification au salarié à l'étape 1.
+- **Lecture à la demande** (`server/src/pointages.ts`, gardées par `exigerNavigationInterne('appel')`) :
+  `GET /api/pointages?empId&du&au` (6 semaines au plus : pointages, postes, anomalies) et `GET /api/pointages/etat`
+  (`empId` : présent depuis, pointages et postes du jour, débit-crédit du jour et de la semaine, anomalies de la semaine ;
+  `equipe=1` : présence du jour du périmètre — présent, parti, non pointé, absent, sans nature —) ; recalculées à chaque
+  appel ; le salarié, son manager direct ou suppléant « feuilles », le service RH ; refus tracé (`acces.refuse`) pour la
+  paie, le référent HSE, la lecture seule, la comptabilité et les autres managers.
+- **Journal** (famille « Temps — badgeage ») : jamais de ligne par pointage ordinaire (`tracer: () => false`) ;
+  corrections : identifiant, jour, nature, motif codé, statut, salarié ; jamais le commentaire, le motif d'un refus ni une
+  heure.
+- **Conservation** : `pointages` et `corrections_pointage` supprimés avec la catégorie « temps » (cascade de
+  l'anonymisation, `TRAITEMENTS`) ; la tâche quotidienne de la conservation purge en plus les pointages et demandes de plus
+  de `conservationPointagesAns` ans (`purgerPointages` : demandes puis pointages ; en PostgreSQL, la clé
+  `pointages.correction_id` est vérifiée à la fin de la transaction). Export des données du salarié : sections « Pointages
+  (badgeage) » et « Demandes de correction de pointage ».
+- **Essai de charge** (`npm run charge:pointages`, base SQLite temporaire, 100 salariés, 3 ans) : 275 492 pointages (91 800
+  par an), 53 Mo de base ; instantané inchangé (lecture brute 111 → 120 ms, bruit de mesure ; vue RH 2 ms) ; six semaines
+  d'un salarié 15 ms, état du jour 2 ms, présences d'une équipe de 19 salariés 19 ms, insertion 0,5 ms, purge 0,4 ms.

@@ -15,6 +15,8 @@ import { NATURES_ABSENTEISME_DEFAUT, NATURES_ABSENTEISME_POSSIBLES, SEUIL_INDICA
 import { CODES_OPCO } from './rules/opco.ts';
 // lot 11 — notes de frais, étape 2
 import { COMPTE_FRAIS_GENERIQUE, COMPTE_SALARIE, COMPTE_TVA_DEDUCTIBLE, estCompte, estJournal, GABARIT_FRAIS_DEFAUT, JOURNAL_FRAIS, lireComptes, lireGabarit } from './rules/frais-export.ts';
+// lot 12 — C6 (badgeage virtuel)
+import { CONSERVATION_POINTAGES_MAX, CONSERVATION_POINTAGES_MIN, lirePopulations, refusActivationPointage } from './rules/pointage.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
 export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
@@ -358,7 +360,21 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
-  // lot 12 — C6 (badgeage virtuel)
+  // lot 12 — C6 (badgeage virtuel) (shared/rules/pointage.ts ; section Paramètres → Badgeage à l'étape 2) : module désactivé ;
+  //   aucune population ; référence de l'accord et date de l'avis du CSE exigées pour l'activer (COHERENCE) ; intérimaires
+  //   exclus ; corrections demandées sous 7 jours ; hors ligne admis, signalé au-delà de 5 min d'écart ; écart déclaré /
+  //   pointé signalé au-delà de 15 min par jour ; pointages bruts gardés 3 ans (1 an au moins, art. D3171-16 ; 5 ans au plus,
+  //   référentiel CNIL), durée à confirmer avec le DPO —
+  pointageActif: { defaut: false, controle: booleen },
+  pointagePopulations: { defaut: [], controle: v => { const l = lirePopulations(v); if (typeof l === 'string') throw new ReglageInvalide(l); return l; } },
+  pointageAccord: { defaut: '', controle: texte(200, 'Badgeage, référence de l’accord') },
+  pointageCseLe: { defaut: null, controle: dateOuVide('Badgeage, date de l’avis du CSE') },
+  pointageInterim: { defaut: false, controle: booleen },
+  pointageDelaiCorrectionJours: { defaut: 7, controle: entier(1, 31) },
+  pointageHorsLigne: { defaut: true, controle: booleen },
+  pointageEcartDiffereMin: { defaut: 5, controle: entier(1, 60) },
+  pointageEcartAnomalieMin: { defaut: 15, controle: entier(0, 240) },
+  conservationPointagesAns: { defaut: 3, controle: entier(CONSERVATION_POINTAGES_MIN, CONSERVATION_POINTAGES_MAX) },
 };
 
 /**
@@ -420,7 +436,10 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
-  // lot 12 — C6 (badgeage virtuel)
+  // lot 12 — C6 (badgeage virtuel) : moyen de contrôle de l'activité, activé seulement après l'information et la
+  // consultation du CSE (art. L2312-38) et sur le fondement de l'accord d'entreprise ; sans elles, des pointages seraient
+  // inopposables (art. L1222-4) —
+  s => refusActivationPointage(s),
 ];
 
 /** Vue non typée de la table, pour la parcourir (les contrôles reçoivent la valeur en vigueur du même champ). */

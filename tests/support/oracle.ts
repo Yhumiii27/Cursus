@@ -188,7 +188,7 @@ const TIRAGES: Record<string, Tirage> = {
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
-  // lot 12 — C6 (badgeage virtuel)
+  // lot 12 — C6 (badgeage virtuel) : tirages des pointages à part (`TIRAGES_POINTAGE`), comme ceux des dossiers OPCO.
 };
 
 // lot 11 — dossiers OPCO
@@ -217,6 +217,23 @@ const TIRAGES_OPCO: Record<string, Tirage> = {
   'opco.supprimer': ({ r, ds }) => ({ id: dossierOpcoDans(ds, r, 'a_deposer', 'abandonne')?.id ?? r.entre(1, 20), motif: 'Doublon (banc d’oracle)' }),
 };
 
+// lot 12 — C6 (badgeage virtuel)
+/**
+ * Tirages des actions du badgeage (lot 12, chantier C6) : pointage pour soi (refusé tant que le module est inactif),
+ * correction d'un salarié que l'acteur peut saisir, décisions sur une demande en attente, motifs codés. Hors des cibles
+ * (`TIRAGES`) : ajoutés en renfort par le test du chantier (tests/pointage-actions.test.ts), module activé.
+ */
+const TIRAGES_POINTAGE: Record<string, Tirage> = {
+  'pointage.pointer': ({ r, user }) => ({ empId: user.empId ?? 2, ...(r.si(0.3) ? { sens: r.choix(['E', 'S']) } : {}) }),
+  'pointage.corriger': ({ r, saisie, ds }) => ({
+    empId: saisie(), nature: 'ajout', horodatage: `${addD(ds.today, -r.entre(0, 5))}T0${r.entre(5, 9)}:${String(r.entre(0, 59)).padStart(2, '0')}:00.000Z`,
+    sens: r.choix(['E', 'S']), motif: r.choix(['oubli', 'appareil', 'mission', 'formation', 'autre']), ...(r.si(0.5) ? { commentaire: 'Banc d’oracle' } : {}),
+  }),
+  'pointage.validerCorrection': ({ r, ds }) => ({ id: id(r, ds.correctionsPointage, c => c.statut === 'demandee') }),
+  'pointage.refuserCorrection': ({ r, ds }) => ({ id: id(r, ds.correctionsPointage, c => c.statut === 'demandee'), motif: 'Refus (banc d’oracle)' }),
+  'pointage.annulerCorrection': ({ r, ds }) => ({ id: id(r, ds.correctionsPointage, c => c.statut === 'demandee') }),
+};
+
 /** Valeur d'un paramètre d'après son nom, pour les actions sans tirage ciblé. */
 function valeur(nom: string, action: string, x: Parameters<Tirage>[0]): unknown {
   const { r, ds, empId, semaine, date } = x;
@@ -236,6 +253,7 @@ function valeur(nom: string, action: string, x: Parameters<Tirage>[0]): unknown 
     // lot 12 — C4 (organismes de formation et e-learning)
     // lot 12 — C5 (planning d'équipe)
     // lot 12 — C6 (badgeage virtuel)
+    pointage: 'correctionsPointage',
   };
   const lignes = (nomListe: string | undefined) => (nomListe ? (ds as unknown as Record<string, { id: number }[] | undefined>)[nomListe] : undefined);
   const parFamille = (f: string) => (f === 'cert' ? ds.employes.flatMap(e => e.certs) : lignes(tables[f]));
@@ -512,7 +530,7 @@ export async function rejouer(db: Db, o: OptionsOracle): Promise<RapportOracle> 
       validables,
       soumises: rr => { const f = parmi(rr, ds.feuilles.filter(y => y.statut === 'soumise' && validables.has(y.empId))); return f && { empId: f.empId, week: f.week }; },
     };
-    const p = (TIRAGES[nom] ?? TIRAGES_OPCO[nom] ?? ((y: Parameters<Tirage>[0]) => tirageGenerique(nom, y)))(x);
+    const p = (TIRAGES[nom] ?? TIRAGES_OPCO[nom] ?? /* lot 12 — C6 */ TIRAGES_POINTAGE[nom] ?? ((y: Parameters<Tirage>[0]) => tirageGenerique(nom, y)))(x);
     // Jeu remis à l'action : celui que sa transaction lirait (aucune autre écriture ne s'intercale ici).
     // Entrée d'une révision dépassée (vérification sautée au pas précédent, `verifierTous` > 1) : l'action lit tout
     // directement, la comparaison est triviale et comptée à part.

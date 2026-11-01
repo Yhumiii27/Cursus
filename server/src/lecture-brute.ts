@@ -41,6 +41,8 @@ import type {
 } from '../../shared/types.ts';
 // lot 11 — notes de frais
 import type { AvanceFrais, BaremeKm, ForfaitFrais, LigneFrais, NoteFrais, TauxDevise, VehiculePerso } from '../../shared/types.ts';
+// lot 12 — C6 (badgeage virtuel)
+import type { CorrectionPointage } from '../../shared/types.ts';
 import type { Db, Fenetre, TableName } from './db.ts';
 import { formatFichierDe } from './lots-paie.ts';
 import { messagerieDe } from './messagerie.ts';
@@ -151,6 +153,7 @@ export interface Brut {
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
+  correctionsPointage: CorrectionPointage[];
   reglages: ReglagesBruts;
   /** Statut de l'e-mail de chaque relevé (envois désignés par `releves.envoiId` seulement). */
   statutsEnvoi: ReadonlyMap<number, Envoi['statut']>;
@@ -309,6 +312,7 @@ export async function lireBrut(db: Db, today: string): Promise<Brut> {
     // lot 12 — C4 (organismes de formation et e-learning)
     // lot 12 — C5 (planning d'équipe)
     // lot 12 — C6 (badgeage virtuel)
+    correctionsPointage: await lire('correctionsPointage'),
     reglages: await lireReglages(db),
     statutsEnvoi: await statutsDesEnvois(db, releves),
   };
@@ -519,6 +523,9 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     // lot 12 — C4 (organismes de formation et e-learning)
     // lot 12 — C5 (planning d'équipe)
     // lot 12 — C6 (badgeage virtuel)
+    // Demandes de correction de pointage (toutes) ; filtrées par espace et par profil dans server/src/vues-pointage.ts. Les
+    // pointages eux-mêmes ne sont jamais lus ici (HORS_INSTANTANE).
+    correctionsPointage: brut.correctionsPointage,
   };
 }
 
@@ -594,6 +601,7 @@ const LECTURES_ASSEMBLEES = {
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
+  correctionsPointage: ['correctionsPointage'],
 } as const satisfies Partial<Record<keyof Dataset, readonly TableName[]>>;
 
 /**
@@ -639,6 +647,9 @@ export const HORS_INSTANTANE: ReadonlySet<TableName> = new Set<TableName>(['noti
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
+  // Pointages bruts (lus à la demande par GET /api/pointages et /etat, server/src/pointages.ts : l'état du jour dépend de
+  // l'heure, il ne peut pas être gardé dans un cache indexé par révision et par jour) et zones de géolocalisation (étape 3).
+  'pointages', 'zonesPointage',
 ]);
 
 /** Tables lues par l'instantané complet : l'union de `LECTURES`. */

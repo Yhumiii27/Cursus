@@ -41,7 +41,10 @@ export const TABLES = {
   // début et fin « HH:MM » (fin avant le début : le lendemain), pause en minutes ; `horaire` d'une équipe : proposé par défaut.
   // `alternant` : horaire d'un roulement en équipes successives alternantes (C2P, shared/rules/c2p.ts, lot 7) ; JSON pour
   // garder null, horaire pas encore qualifié, distinct de « non ».
-  horaires: { pk: 'code', cols: { code: 'text', nom: 'text', debut: 'text', fin: 'text', pause: 'int', archive: 'text', alternant: 'json' } },
+  horaires: { pk: 'code', cols: { code: 'text', nom: 'text', debut: 'text', fin: 'text', pause: 'int', archive: 'text', alternant: 'json',
+    // lot 12 — C6 (badgeage virtuel) : horaires variables (étape 2) ; plages fixes et mobiles, durée de référence et
+    // plafonds du report en minutes, référence de l'accord (migration PostgreSQL 0027_badgeage).
+    variable: 'json', plages: 'json', dureeReference: 'int', reportMaxSemaine: 'int', cumulMax: 'int', accordVariable: 'text' } },
   projets: { pk: 'code', cols: { code: 'text', nom: 'text', statut: 'text' } },
   chantiers: { pk: 'id', cols: { id: 'text', nom: 'text', client: 'text', lieu: 'text', pays: 'text', debut: 'text', fin: 'text', chef: 'text', habs: 'json', certs: 'json', ressources: 'json', statut: 'text',
     // Grand déplacement (t031) : qualification du service RH, jamais écrite par Keystone ; JSON pour garder null (à qualifier).
@@ -182,6 +185,8 @@ export const TABLES = {
       horaires: 'json',
       // Horaires retenus (code, début, fin, pause), figés à la soumission et à la validation (lot 6).
       horairesFiges: 'json',
+      // lot 12 — C6 (badgeage virtuel) : mode de décompte figé à la création, total pointé figé (étape 2).
+      modeTemps: 'text', pointeFige: 'json',
       // Majoration des heures de nuit (%) figée à la validation (lot 6, shared/rules/repos-nuit.ts).
       majNuit: 'int',
       // Motif du dépassement du plafond d'un forfait jours, donné à la validation (t043, shared/rules/forfait-jours.ts).
@@ -605,7 +610,25 @@ export const TABLES = {
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
-  // lot 12 — C6 (badgeage virtuel)
+  // lot 12 — C6 (badgeage virtuel) : pointages bruts (ajouts seulement : une correction ajoute une ligne ou en neutralise
+  // une autre ; hors de l'instantané, lus à la demande par server/src/pointages.ts), demandes de correction (dans
+  // l'instantané par salarié), zones de géolocalisation (étape 3, option désactivée). Migration PostgreSQL 0027_badgeage,
+  // SQLite d'après TABLES et `lot12-badgeage-pointages`. Ni badges ni appareils : pas de badgeuse (réponse du propriétaire).
+  pointages: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', horodatage: 'text', jour: 'text', sens: 'text', source: 'text', horsLigne: 'bool', horodatageAppareil: 'text', recuLe: 'text',
+      zone: 'text', annuleId: 'int', correctionId: 'int',
+    },
+  },
+  correctionsPointage: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', jour: 'text', nature: 'text', horodatage: 'text', sens: 'text', pointageId: 'int', motif: 'text', commentaire: 'text', statut: 'text',
+      demandeLe: 'text', demandePar: 'text', demandeParInteresse: 'bool', decideLe: 'text', decidePar: 'text', motifRefus: 'text', pointageCreeId: 'int',
+    },
+  },
+  zonesPointage: { pk: 'id', auto: true, cols: { id: 'int', libelle: 'text', siteCode: 'text', chantierId: 'text', lat: 'real', lng: 'real', rayonM: 'int', actif: 'bool' } },
 } satisfies Record<string, TableDef>;
 
 export type TableName = keyof typeof TABLES;
@@ -730,7 +753,10 @@ export const TABLES_CHANGEMENTS_SANS_CLE: ReadonlySet<TableName> = new Set<Table
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
-  // lot 12 — C6 (badgeage virtuel)
+  // lot 12 — C6 (badgeage virtuel) : pointages, demandes de correction et zones, fermés en entier à Matrix (migration 0027,
+  // docs/demandes/matrix-lot12-badgeage.sql) ; les pointages et les zones ne sont pas lus par l'instantané (aucun coût), les
+  // demandes de correction sont relues en entier quand elles changent (petite table).
+  'pointages', 'correctionsPointage', 'zonesPointage',
 ]);
 
 /** Valeur passée en paramètre d'une requête SQL brute (`query`, `one`, `run`). */

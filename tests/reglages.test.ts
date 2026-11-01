@@ -87,6 +87,10 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // Lot 7, chantier C (t121) : évaluation des formations activée ; à froid 90 jours après, par le salarié et son manager
     // (réponse de l'entreprise du 23 octobre 2026), formations réglementaires et recommandées.
     evaluationsActives: true, evaluationFroidDelai: 90, evaluationFroidPar: 'les_deux', evaluationFroidCategories: ['Réglementaire', 'Recommandée'],
+    // Lot 11, chantier C5 : notes de frais désactivées, validation du manager puis contrôle, délai de 3 mois, aucun plafond
+    // interne, justificatif toujours exigé, puissance plafonnée à 7 CV, notes payées gardées 10 ans.
+    notesFraisActives: false, fraisCircuit: 'manager_controle', fraisDelaiSoumissionMois: 3, fraisPlafonds: {}, fraisSeuilJustificatif: 0, fraisIkCvReels: false,
+    conservationFraisAns: 10,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(await loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

@@ -59,7 +59,8 @@ test('règles : échéance par catégorie, passeport à la sortie, dossier à 5 
   assert.equal(regles.echeanceConservation('2021-02-28', 5), '2026-03-01');
   assert.equal(regles.echeanceConservation('2024-02-29', 1), '2025-03-01', 'fin de mois ramenée au 28 février');
   // Défauts (réponse de l'entreprise du 18 octobre 2026) : préremplis, inactifs.
-  assert.deepEqual(regles.dureesConservation(s), { dossier: 5, temps: 3, paie: 5, sante: 5, passeport: 0, titreSejour: 5, entretiens: 5, formations: 5 });
+  // lot 11 — notes de frais : 10 ans (terme comptable), au-delà du dossier.
+  assert.deepEqual(regles.dureesConservation(s), { dossier: 5, temps: 3, paie: 5, sante: 5, passeport: 0, titreSejour: 5, entretiens: 5, formations: 5, frais: 10 });
   assert.equal(s.conservationActive, false);
   assert.equal(regles.conservationActive(s), false);
   assert.equal(regles.conservationActive({ conservationActive: true, conservationDecisionDpo: '  ' }), false);
@@ -67,7 +68,8 @@ test('règles : échéance par catégorie, passeport à la sortie, dossier à 5 
   const ti = '2026-10-10';
   assert.deepEqual(regles.categoriesEchues({ fin: '2026-03-31' }, s, ti), { categories: ['passeport'], dossier: false });
   assert.deepEqual(regles.categoriesEchues({ fin: '2023-03-31' }, s, ti), { categories: ['temps', 'passeport'], dossier: false });
-  assert.deepEqual(regles.categoriesEchues({ fin: '2021-03-31' }, s, ti)?.categories, ['dossier', 'temps', 'sante', 'passeport', 'titreSejour', 'entretiens', 'formations']);
+  // lot 11 — notes de frais : le dossier échu emporte la catégorie, dont les étapes gardent les notes dans leur terme.
+  assert.deepEqual(regles.categoriesEchues({ fin: '2021-03-31' }, s, ti)?.categories, ['dossier', 'temps', 'sante', 'passeport', 'titreSejour', 'entretiens', 'formations', 'frais']);
   assert.equal(regles.categoriesEchues({ fin: '2021-03-31' }, s, ti)?.dossier, true);
   // Présent, sorti du jour, déjà anonymisé, catégorie déjà effacée ou sans données : rien.
   assert.equal(regles.categoriesEchues({ fin: null }, s, ti), null);
@@ -83,7 +85,8 @@ test('droit à l’effacement (règles) : catégories sans obligation légale ef
   const r = regles.categoriesDroitEffacement({ fin: '2026-09-30' }, s, ti)!;
   assert.deepEqual(r.categories, ['passeport', 'entretiens', 'formations']);
   assert.equal(r.dossier, false);
-  assert.deepEqual(r.gardees.map(g => g.categorie), ['dossier', 'temps', 'sante', 'titreSejour']);
+  // lot 11 — notes de frais : gardées jusqu'à leur terme comptable (obligation du Code de commerce).
+  assert.deepEqual(r.gardees.map(g => g.categorie), ['dossier', 'temps', 'sante', 'titreSejour', 'frais']);
   assert.equal(r.gardees.find(g => g.categorie === 'titreSejour')?.jusquAu, '2031-10-01', 'registre unique : 5 ans après le départ');
   for (const c of ['dossier', 'titreSejour', 'sante', 'temps'] as const) assert.ok(regles.CATEGORIES_CONSERVATION[c].obligation, c);
   // Temps échu (3 ans) : effacé à la demande ; dossier échu : anonymisation complète, rien de gardé.

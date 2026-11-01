@@ -18,7 +18,7 @@ const MONO = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fon
 const heure = (iso: string) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 const minuscule = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 /** Profils restreints de l'espace RH (décidés par l'entreprise), expliqués sous la liste. */
-const RESTREINTS: ProfilRh[] = ['referent_hse', 'paie', 'lecture_seule'];
+const RESTREINTS: ProfilRh[] = ['referent_hse', 'paie', 'lecture_seule', 'comptabilite']; // lot 11 — notes de frais : profil « Comptabilité »
 /** Adresse coupée de préférence avant « @ » quand la colonne est étroite. */
 const coupure = (id: string) => { const i = id.indexOf('@'); return i > 0 ? <>{id.slice(0, i)}<wbr />{id.slice(i)}</> : id; };
 

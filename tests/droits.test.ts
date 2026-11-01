@@ -165,6 +165,22 @@ const sortiLe = async (fin: string) => {
 interface Ligne { action: string; variante?: string; droits: string; p: (u: User) => Record<string, unknown> | Promise<Record<string, unknown>>; env?: Record<string, string> }
 
 //                                                        admin gest mgr autM coll autC  hse paie lect
+// lot 11 — notes de frais : note de Mehdi d'octobre dans l'état voulu, dépense « divers » sans justificatif, avec attestation
+// (hors du cumul avec un forfait de grand déplacement), avance demandée.
+const DEPENSE = { date: '2026-10-06', categorie: 'divers', montant: 20, sansJustificatif: true, attestation: true };
+const noteFrais = async (statut: string, medicale = false) => (await db.insert<{ id: number }>('notesFrais', {
+  empId: 2, periode: '2026-10', voyageId: null, missionId: null, projet: null, medicale, statut, creeLe: '2026-10-06T08:00:00.000Z', creePar: 'Mehdi Benali',
+})).id;
+const ligneFrais = async (noteId: number, medicale = false) => (await db.insert<{ id: number }>('lignesFrais', {
+  noteId, empId: 2, ...DEPENSE, ...(medicale ? { categorie: 'medical' } : {}), devise: 'EUR', montantEur: 20,
+})).id;
+const noteAvecLigne = async (statut: string, medicale = false) => {
+  const id = await noteFrais(statut, medicale);
+  await ligneFrais(id, medicale);
+  return id;
+};
+const avanceFrais = async () => (await db.insert<{ id: number }>('avancesFrais', { empId: 2, montant: 200, statut: 'demandee', demandeLe: '2026-10-06T08:00:00.000Z' })).id;
+
 const MATRICE: Ligne[] = [
   // Fiches et équipes
   { action: 'employe.creer', droits: '                       O    O    -    -    -    -    -    -    -', p: async () => ({ ...PROFIL_VIDE('Maintenance', '2026-10-07'), nom: 'Nouvel Embauché', poste: 'Technicien' }) },
@@ -508,6 +524,29 @@ const MATRICE: Ligne[] = [
   // Astreinte d'un autre salarié (Thomas) : Mehdi reçoit le même refus qu'un identifiant inconnu, avant tout contrôle.
   { action: 'astreinte.intervention', variante: 'astreinte de Thomas', droits: 'O    O    O    -    -    O    -    -    -', p: async () => ({ astreinteId: await astreinte('2026-10-05', '2026-10-07', 6), jour: '2026-10-05', debut: '22:00', fin: '23:30' }) },
   { action: 'astreinte.retirerIntervention', droits: '    O    O    O    -    O    -    -    -    -', p: async () => ({ id: await intervention() }) },
+  // lot 11 — notes de frais (module activé dans le jeu de démonstration). Le profil « Comptabilité » n'a pas de colonne :
+  // ses droits sont éprouvés par tests/frais-actions.test.ts.
+  { action: 'frais.note.creer', droits: '            O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, periode: '2026-10' }) },
+  { action: 'frais.ligne.ajouter', droits: '          O    O    -    -    O    -    -    -    -', p: async () => ({ noteId: await noteFrais('brouillon'), ...DEPENSE }) },
+  { action: 'frais.ligne.modifier', droits: '         O    O    -    -    O    -    -    -    -', p: async () => ({ id: await ligneFrais(await noteFrais('brouillon')), montant: 22 }) },
+  { action: 'frais.ligne.supprimer', droits: '        O    O    -    -    O    -    -    -    -', p: async () => ({ id: await ligneFrais(await noteFrais('brouillon')) }) },
+  { action: 'frais.note.soumettre', droits: '         O    O    -    -    O    -    -    -    -', p: async () => ({ id: await noteAvecLigne('brouillon') }) },
+  { action: 'frais.note.valider', droits: '           O    O    O    -    -    -    -    -    -', p: async () => ({ id: await noteAvecLigne('soumise') }) },
+  // Note médicale : jamais au manager (même refus qu'une note inconnue).
+  { action: 'frais.note.valider', variante: 'note médicale', droits: 'O    O    -    -    -    -    -    -    -', p: async () => ({ id: await noteAvecLigne('soumise', true) }) },
+  { action: 'frais.note.renvoyer', droits: '          O    O    O    -    -    -    -    -    -', p: async () => ({ id: await noteAvecLigne('soumise'), motif: 'Justificatif illisible' }) },
+  { action: 'frais.note.controler', droits: '         O    O    -    -    -    -    -    -    -', p: async () => ({ id: await noteAvecLigne('validee') }) },
+  { action: 'frais.ligne.refuser', droits: '          O    O    -    -    -    -    -    -    -', p: async () => ({ id: await ligneFrais(await noteFrais('validee')), motif: 'Dépense personnelle' }) },
+  { action: 'frais.ligne.plafonner', droits: '        O    O    -    -    -    -    -    -    -', p: async () => ({ id: await ligneFrais(await noteFrais('validee')), montant: 10 }) },
+  { action: 'frais.note.annuler', droits: '           O    O    -    -    O    -    -    -    -', p: async () => ({ id: await noteFrais('brouillon') }) },
+  { action: 'frais.vehicule.declarer', droits: '      O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, type: 'voiture', cv: 5, du: '2026-10-01' }) },
+  { action: 'frais.bareme.enregistrer', droits: '     O    -    -    -    -    -    -    -    -', p: () => ({ annee: 2027, type: 'voiture', tranches: [{ cvMin: 0, cvMax: null, kmMin: 0, kmMax: null, a: 0.5, b: 0 }] }) },
+  { action: 'frais.forfait.enregistrer', droits: '    O    O    -    -    -    -    -    -    -', p: () => ({ annee: 2027, code: 'panier', montant: 7.4 }) },
+  { action: 'frais.taux.enregistrer', droits: '       O    O    -    -    -    -    -    -    -', p: () => ({ devise: 'USD', mois: '2026-10', taux: 0.9 }) },
+  { action: 'frais.avance.demander', droits: '       O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, montant: 200 }) },
+  { action: 'frais.avance.valider', droits: '        O    O    O    -    -    -    -    -    -', p: async () => ({ id: await avanceFrais() }) },
+  { action: 'frais.avance.refuser', droits: '        O    O    O    -    -    -    -    -    -', p: async () => ({ id: await avanceFrais(), motif: 'Déplacement annulé' }) },
+  { action: 'frais.avance.annuler', droits: '        O    O    -    -    O    -    -    -    -', p: async () => ({ id: await avanceFrais() }) },
 ];
 
 const ANNULER = Symbol('annuler');

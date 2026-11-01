@@ -9,7 +9,7 @@ import { useRole } from '../state/derived.ts';
 import { useData, useStore } from '../state/store.tsx';
 import { SectionLabel, Tag, Two } from './ui.tsx';
 
-const UNITE = { h: 'heures', j: 'jours', nombre: 'nombre' } as const;
+const UNITE = { h: 'heures', j: 'jours', nombre: 'nombre', eur: 'euros' } as const;
 const MONO = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 };
 
 /** `aConfirmer` : codes internes utilisés par les feuilles et les absences en attente, pas encore confirmés (signalés). */

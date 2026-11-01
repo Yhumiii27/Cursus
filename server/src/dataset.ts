@@ -39,6 +39,8 @@ import { memoParEntrees, memoParObjet, sansMemo } from './memo-vues.ts';
 import type { AttenteSession } from '../../shared/types.ts';
 import { exercicesEvaluation, indicateursEvaluation, SEUIL_ANONYMAT } from '../../shared/rules/evaluation-formation.ts';
 import type { EvaluationFormation } from '../../shared/types.ts';
+// lot 11 — notes de frais
+import { fraisVueProfil, fraisVueSalarie, piecesFraisManager, vueComptabilite } from './frais-vues.ts';
 
 /** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
 export const DEFAULT_SETTINGS: Settings = REGLAGES_DEFAUT;
@@ -205,6 +207,16 @@ export function scopeIds(d: Domain, user: CurrentUser): number[] {
   if (user.role === 'rh') return d.ds.employes.map(e => e.id);
   if (user.role === 'manager') return [...new Set([user.empId!, ...equipeDirecte(d, user.empId!), ...deleguesDe(d, user).map(x => x.empId), ...lectureSeuleIds(d, user)])];
   return [user.empId!];
+}
+
+/**
+ * lot 11 — notes de frais : salariés dont le manager connecté valide les notes de frais aujourd'hui — son équipe directe
+ * et ceux qu'il valide par une délégation au périmètre « frais » —, jamais `scopeIds` : ni la consultation N+2, ni un
+ * suppléant d'un autre périmètre (server/src/frais-vues.ts). Vide hors de l'espace manager.
+ */
+export function idsFrais(d: Domain, user: CurrentUser): Set<number> {
+  if (user.role !== 'manager' || !user.empId) return new Set();
+  return new Set([...equipeDirecte(d, user.empId), ...deleguesDe(d, user).filter(x => x.perimetre.includes('frais')).map(x => x.empId)].filter(id => id !== user.empId));
 }
 
 /**
@@ -449,6 +461,9 @@ export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre 
   // encadrées. Retenus à part, jamais envoyés au navigateur.
   const equipes = isMgr ? d.teamsOf(user.empId) : [];
   const lues = new Set([...ids, ...full.employes.filter(e => !!e.equipe && equipes.includes(e.equipe)).map(e => e.id)]);
+  // lot 11 — notes de frais : salariés dont il valide les frais, sous-ensemble de son périmètre (`ids`) ; ajoutés aux lus.
+  const fraisIds = idsFrais(d, user);
+  for (const id of fraisIds) lues.add(id);
   return retenirPerimetre<Dataset>({
     ...full,
     // Facteurs d'exposition du C2P cochés sur les postes : avec le poste d'un membre, ils diraient son exposition.
@@ -523,7 +538,7 @@ export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre 
     effectifCse: (full.mandats ?? []).some(m => m.empId === user.empId) ? full.effectifCse : null,
     // Pièces justificatives : les siennes ; pour le manager, les certifications et habilitations de son équipe, jamais un
     // justificatif d'absence ni un document déclaré (shared/rules/pieces.ts, `voitPiece`).
-    pieces: piecesVisibles(full.pieces, user, ids),
+    pieces: [...piecesVisibles(full.pieces, user, ids), ...piecesFraisManager(full, user, fraisIds)],
     // Couverture minimale : celle des équipes que le manager encadre (ses membres, absences sans leur nature) ; rien pour
     // le collaborateur.
     couverture: isMgr ? etatsCouverture(full, full.settings.horizonAlerte, d.teamsOf(user.empId)) : [],
@@ -549,6 +564,8 @@ export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre 
     // consultation N+2 ; interventions déclarées du périmètre, comme les feuilles de temps qui portent leurs heures.
     astreintes: mine(full.astreintes ?? []).map(a => (lecture.has(a.empId) ? astreinteSansMotif(a) : a)).map(a => (a.empId !== user.empId ? astreinteSansPaie(a) : a)),
     interventionsAstreinte: mine(full.interventionsAstreinte ?? []),
+    // lot 11 — notes de frais : filtre propre aux frais (équipe directe et délégations « frais »), sans note médicale d'autrui.
+    ...fraisVueSalarie(full, user, fraisIds),
   }, lues);
 }
 
@@ -626,6 +643,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
   const lecture = droits.includes('consultation');
   const formations = lecture || droits.includes('formations');
   const paie = lecture || droits.includes('paie');
+  // lot 11 — notes de frais : profil « Comptabilité » (droit « compta » seul), branche propre, liste blanche de champs.
+  if (droits.includes('compta') && !formations && !paie) return vueComptabilite(full);
   const d = new Domain(full);
   const employes = full.employes.map(sansContactUrgence).map(e => ({
     ...e,
@@ -750,6 +769,9 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // indicateurs agrégés, calculés ici sur toutes les données, sans moyenne ni taux sous 3 réponses ; rien pour la paie.
     evaluationsFormation: [],
     ...(formations ? { indicateursEvaluation: exercicesEvaluation(d).map(ex => indicateursEvaluation(d, ex, SEUIL_ANONYMAT)) } : {}),
+    // lot 11 — notes de frais : la paie (droit « paie ») reçoit les notes à rembourser, sans lignes ; ni la lecture seule
+    // (agrégats à l'étape 2), ni le référent HSE.
+    ...fraisVueProfil(full, droits.includes('paie')),
   };
 }
 

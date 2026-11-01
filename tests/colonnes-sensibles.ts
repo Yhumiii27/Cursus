@@ -29,7 +29,9 @@ export function socleCursus(): Map<string, ColonneSensible> {
 
 /** Lignes de la demande à Matrix (toutes en 'convention'). */
 export function demandeMatrix(): ColonneSensible[] {
-  return lignesCursus(lire('docs/demandes/matrix-lot8-colonnes-sensibles.sql'));
+  // lot 11 : demandes des chantiers (docs/demandes/matrix-lot11-*.sql), même forme, en attente de validation.
+  const lot11 = readdirSync(new URL('docs/demandes/', racine)).filter(f => /^matrix-lot11-[a-z0-9-]+\.sql$/.test(f)).sort();
+  return [...lignesCursus(lire('docs/demandes/matrix-lot8-colonnes-sensibles.sql')), ...lot11.flatMap(f => lignesCursus(lire(`docs/demandes/${f}`)))];
 }
 
 /**

@@ -9,7 +9,7 @@ import { nuitHorsLoi, refusPlageNuit } from './rules/repos-nuit.ts';
 import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesTexte, DOSSIER_MIN_ANS, DUREE_MAX_ANS } from './rules/conservation.ts';
 import { DELAI_JOUR_FRANC, DELAI_PREVENANCE_LEGAL } from './rules/astreintes.ts';
 import { COLONNES_PASSEPORT_DEFAUT, COLONNES_PASSEPORT_IDS } from './rules/passeport-prevention.ts';
-import type { CategorieEvaluee, ColonnePasseport, CompensationAstreinte, ContenuAgenda, ModeAttente, RepondantsFroid, Settings, StockagePieces } from './types.ts';
+import type { CategorieFrais, CircuitFrais, CategorieEvaluee, ColonnePasseport, CompensationAstreinte, ContenuAgenda, ModeAttente, RepondantsFroid, Settings, StockagePieces } from './types.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
 export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
@@ -71,6 +71,24 @@ export const texte = (max: number, libelle: string) => (v: unknown): string => {
   const t = typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '';
   if (t.length > max) throw new ReglageInvalide(`${libelle} : ${max} caractères au plus`);
   return t;
+};
+
+/**
+ * Plafonds internes des notes de frais (lot 11) : montant en euros par catégorie de frais réels, vide ou 0 : aucun
+ * plafond ; ni indemnité kilométrique ni allocation forfaitaire (leur limite est celle de l'URSSAF, saisie par année).
+ */
+const CATEGORIES_PLAFOND: readonly CategorieFrais[] = ['repas', 'repas_affaires', 'hotel', 'train', 'avion', 'taxi', 'transport', 'carburant', 'peage', 'parking', 'location', 'divers', 'medical'];
+export const plafondsFrais = (v: unknown): Partial<Record<CategorieFrais, number>> => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) throw new ReglageInvalide('Plafonds des notes de frais : liste par catégorie attendue');
+  const out: Partial<Record<CategorieFrais, number>> = {};
+  for (const c of CATEGORIES_PLAFOND) {
+    const x = (v as Record<string, unknown>)[c];
+    if (x === undefined || x === null || x === '' || x === 0) continue;
+    const n = Number(x);
+    if (!Number.isFinite(n) || n < 0 || n > 100000) throw new ReglageInvalide('Plafonds des notes de frais : montant en euros de 0 à 100 000');
+    out[c] = Math.round(n * 100) / 100;
+  }
+  return out;
 };
 
 /** Stockage des pièces justificatives : désactivé ou dossier local ; la GED n'est pas encore raccordée. */
@@ -276,6 +294,17 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   evaluationFroidDelai: { defaut: 90, controle: entier(30, 365) },
   evaluationFroidPar: { defaut: 'les_deux', controle: choix<RepondantsFroid>(['les_deux', 'salarie', 'manager']) },
   evaluationFroidCategories: { defaut: ['Réglementaire', 'Recommandée'], controle: parmi<CategorieEvaluee>(['Réglementaire', 'Recommandée', 'Interne', 'Hors catalogue']) },
+  // lot 11 — notes de frais (shared/rules/frais*.ts ; section de Paramètres à l'étape 2) : module désactivé jusqu'à l'essai
+  //   de charge et au paramétrage ; validation du manager puis contrôle ; délai de soumission de 3 mois ; plafonds internes
+  //   vides (aucune politique connue) ; justificatif toujours exigé ; indemnités à la puissance plafonnée à 7 CV ;
+  //   notes payées et justificatifs gardés 10 ans (terme comptable, art. L123-22 du Code de commerce) —
+  notesFraisActives: { defaut: false, controle: booleen },
+  fraisCircuit: { defaut: 'manager_controle', controle: choix<CircuitFrais>(['manager_controle', 'manager']) },
+  fraisDelaiSoumissionMois: { defaut: 3, controle: entier(0, 24) },
+  fraisPlafonds: { defaut: {}, controle: plafondsFrais },
+  fraisSeuilJustificatif: { defaut: 0, controle: entier(0, 1000) },
+  fraisIkCvReels: { defaut: false, controle: booleen },
+  conservationFraisAns: { defaut: 10, controle: entier(DOSSIER_MIN_ANS, DUREE_MAX_ANS) },
 };
 
 /**
@@ -325,7 +354,8 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   s => (s.conservationDossierAns < DOSSIER_MIN_ANS
     ? `Conservation des dossiers : ${DOSSIER_MIN_ANS} ans au moins pour le dossier : l’identité et le titre de séjour figurent au registre unique du personnel, gardé 5 ans après le départ (art. R1221-26)` : null),
   s => {
-    const plus = CATEGORIES.filter(c => c !== 'dossier' && s[CATEGORIES_CONSERVATION[c].reglage] > s.conservationDossierAns);
+    // lot 11 — notes de frais : gardées au-delà du dossier (l'anonymisation laisse les notes payées jusqu'à leur terme).
+    const plus = CATEGORIES.filter(c => c !== 'dossier' && !CATEGORIES_CONSERVATION[c].auDelaDuDossier && s[CATEGORIES_CONSERVATION[c].reglage] > s.conservationDossierAns);
     return plus.length ? `Conservation des dossiers : ${categoriesTexte(plus)} au-delà de la durée du dossier, dont l’anonymisation efface tout` : null;
   },
   // — Astreintes : un délai de prévenance plus court que 15 jours suppose un accord collectif (art. L3121-11) —

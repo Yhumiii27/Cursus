@@ -3927,3 +3927,76 @@ objet en parallèle. Aucun comportement ni type TypeScript ne change.
 - **Migrations PostgreSQL attribuées** : 0016_entites (C1), 0017_pwa (C2), 0018_indicateurs (C3), 0019_dossiers_opco (C4),
   0020_notes_frais (C5). Une base applique les migrations manquantes même avec un trou ; l'empreinte de chacune s'ajoute à
   `PUBLIEES` (`tests/purge-changements.test.ts`) à sa fusion.
+
+## Lot 11 : notes de frais, étape 1 (C5)
+
+Réponses du propriétaire du 31 octobre 2026 : Cursus porte tout le module ; remboursement avec la paie du mois suivant
+(colonne « montant » du fichier Sage, rubriques inactives « à saisir dans Sage » tant que la paie n'a pas confirmé ses
+codes) plus un fichier d'écritures pour la comptabilité (étape 2) ; contrôle après le manager par un nouveau profil
+« Comptabilité », qui voit aussi les frais médicaux ; lecture du reçu par saisie assistée et texte collé, sans service
+externe. Module livré désactivé (réglage `notesFraisActives`, activé dans la démonstration seulement). Les écrans, l'export
+comptable, le branchement de l'application mobile, le guide et les demandes aux autres dépôts viennent à l'étape 2.
+
+- **Règles pures** (`shared/rules/frais*.ts`, tests par valeurs : `tests/frais-regles.test.ts`) :
+  - `frais.ts` : catégories (dont `medical`), statuts et transitions, montant retenu et totaux (calculés, jamais
+    stockés), totaux d'équipe sans note médicale, doublons par (salarié, date, montant, commerçant normalisé) et par
+    empreinte de justificatif, catégorie « autre » au journal à la place de `medical` ;
+  - `frais-km.ts` : barème de l'année (table `baremesKm`, saisie par l'administrateur RH), CV plafonnés à 7 pour la
+    voiture, majoration de 20 % pour l'électrique, part marginale du montant annuel pour chaque trajet (les trajets de
+    l'année s'additionnent au montant annuel, changement de tranche compris), cumul annuel calculé, régularisation ;
+  - `frais-politique.ts` : alertes par ligne. Le dépassement de la politique interne (`fraisPlafonds`, vide par défaut)
+    est une alerte acceptée avec un motif ou plafonnée par le contrôleur (`montantRetenu`), jamais une réintégration ;
+    l'allocation au-delà de la limite d'exonération (forfait au-delà du montant URSSAF de l'année, indemnité au-delà du
+    barème plafonné) est réintégrable, signalée à la paie (FRAIS_REINT). Un frais réel justifié n'est jamais réintégrable ;
+  - `frais-cumul.ts` : jours et nuits de grand déplacement (GD_JOUR, GD_NUIT) et jours à l'étranger (ETR_JOUR) comptés
+    comme la paie (`partsSejour`), croisés jour par jour avec les repas, hôtels et forfaits de même nature : bloquant ;
+  - `frais-lecture.ts` (texte d'un reçu collé : montant, date, devise, TVA, SIRET, commerçant ; propositions),
+    `frais-tva.ts` (taux proposé, TVA récupérable par catégorie, note simplifiée de 150 € HT), `frais-paie.ts` (parts
+    d'une note, imputation des avances par séjour, éléments du lot).
+- **Tables** (`server/src/db.ts`, migration PostgreSQL `0020_notes_frais`, SQLite d'après `TABLES`) : `notesFrais`,
+  `lignesFrais`, `vehiculesPerso`, `baremesKm`, `forfaitsFrais`, `avancesFrais`, `tauxDevises` lues par l'instantané
+  (`LECTURES` ; barèmes, forfaits et taux dans `referentiels`) ; `exportsFrais` hors de l'instantané (`HORS_INSTANTANE`) ;
+  `sceauxPieces` sans révision (`TABLES_SANS_REVISION`) ; `lotsPaie.frais`. Déclencheurs `revision` et
+  `revision_lignes_*` posés par 0020 ; `lignesFrais`, fermée en entier à Matrix (demande
+  `docs/demandes/matrix-lot11-frais.sql`), n'est inscrite au journal des changements que par le marqueur « toute la
+  table » (`TABLES_CHANGEMENTS_SANS_CLE`). Commentaires « Sensible » sur les montants, commerçants, invités, kilomètres,
+  catégorie et motifs. Aucune vue `pub_`.
+- **Droits** (`server/src/actions/frais.ts`, matrice `tests/droits.test.ts`, `tests/frais-actions.test.ts`) : le salarié
+  saisit ses notes (le service RH aussi) ; le manager direct, ou son suppléant au périmètre de délégation `frais`
+  (`PerimetreDelegation`, effectif seulement le module activé), valide ; la comptabilité (droit `compta`, profil
+  `comptabilite`, contrainte `comptes_profil_rh_check` de 0020) ou le service RH contrôle ; jamais sa propre note
+  (`refuserSoiMeme`). Une note médicale et un salarié sans valideur passent d'emblée à « validée », en attente du
+  contrôle. Refus d'un élément hors du périmètre : 403, sans rien en révéler.
+- **Instantané** (`server/src/frais-vues.ts`, appelé par `dataset.ts`) : filtre propre aux frais pour le manager (équipe
+  directe et délégations `frais`, `idsFrais`), jamais `scopeIds` (ni consultation N+2, ni suppléant d'un autre
+  périmètre), sans note médicale d'autrui ni ses lignes ; justificatifs de ces notes (`ligneFrais`, `vehiculePerso`,
+  jamais `ligneFraisSante`) ; `CHAMPS_PAR_SALARIE`. Comptabilité : branche propre de `vueProfil` (liste blanche :
+  référentiels, annuaire, réglages, frais et leurs justificatifs ; aucun dossier, aucune absence). Paie : notes
+  contrôlées, en paiement ou payées, sans lignes ni mention médicale. Référent HSE et lecture seule : rien.
+- **Frais médicaux** : note séparée (`medicale`), objet de pièce `ligneFraisSante` (santé), exclus des vues et totaux du
+  manager, « autre » au journal, libellé de pièce générique, rubrique FRAIS_REMB commune dans le fichier Sage.
+- **Justificatifs** : `ObjetPiece` élargi (`ligneFrais`, `ligneFraisSante`, `vehiculePerso`) ; joints par l'action de la
+  ligne ou `piece.joindre` tant que la note se saisit (`server/src/frais-pieces.ts`) ; scellés à la soumission dans une
+  chaîne d'empreintes (`server/src/sceaux.ts`, `verifierSceaux`), puis immuables (`piece.retirer` refusé). Ni
+  horodatage qualifié ni cachet : le papier reste conservé (choix par défaut).
+- **Paie** (`server/src/frais-paie.ts`, `FAMILLE_FRAIS`) : notes contrôlées et avances validées réservées par le prochain
+  lot (« en paiement »), payées à sa confirmation, libérées à son annulation ; `ElementLot.montant` ; colonne facultative
+  `montant` de `ColonneFichierPaie`, vide pour les autres éléments (le fichier d'un lot ancien ne change pas) ; lot
+  refusé (409) si un remboursement part dans le fichier sans cette colonne au format en vigueur.
+- **Conservation** : catégorie `frais` (`conservationFraisAns`, 10 ans, au-delà du dossier) ; les étapes n'effacent que
+  les notes hors de leur terme comptable (non payées, ou payées depuis plus de la durée réglée), avec leurs lignes,
+  justificatifs, avances et véhicules ; l'anonymisation du dossier garde les autres, et leurs justificatifs, sans nom.
+- **Journal** : liste blanche (`REGLES_FRAIS` de `server/src/journal.ts`) — identifiants, statuts, nombres de lignes et de
+  pièces, catégorie (jamais `medical`), période ; jamais commerçant, invités, lieux, motifs ni montant d'une ligne. Les
+  actions du circuit, des avances et des référentiels sont dans `ACTIONS_PAIE` (archive de 3 ans).
+- **Essai de charge** (`npm run charge:frais`, `scripts/charge/frais.ts` et `mesure-frais.ts` ; critère de fusion de
+  l'étape 1) : base SQLite, jeu d'un an de la fabrique (120 fiches), puis 3 ans de frais à l'hypothèse haute de la relecture
+  (une note par salarié et par mois, 20 dépenses en moyenne : 4 320 notes, 86 720 dépenses). Mesure du 1er novembre 2026
+  (machine partagée, ordres de grandeur) : lecture brute complète 1,23 s au lieu de 0,07 s ; JSON de la vue RH 43,0 Mo au
+  lieu de 5,3 Mo (1,6 Mo en brotli au lieu de 0,18 Mo) ; relecture de toute la table `lignes_frais`, que provoque chaque
+  dépense écrite (marqueur « toute la table » du journal des changements), 0,95 s ; vues manager et collaborateur
+  (calcul seul) inchangées à quelques millisecondes près. **Budget dépassé** : le module reste désactivé. Avant son
+  activation (étape 2 ou lot suivant), les notes payées depuis plus de 13 mois sortent de l'instantané et se lisent par une
+  route filtrée par droits (fenêtre appliquée à la lecture brute et au delta), et la relecture de `lignes_frais` est
+  remesurée sur ce volume réduit (de l'ordre de 31 000 lignes à l'hypothèse haute) ; à défaut, inscription par clé de la
+  table au journal des changements, à décider avec le DPO (elle est fermée en entier à Matrix pour les frais médicaux).

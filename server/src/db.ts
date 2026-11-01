@@ -214,6 +214,8 @@ export const TABLES = {
       // Astreintes terminées dont le lot emporte les heures et la période (identifiant, salarié ; t049, lot 7) : quantités
       // dans `contenu`.
       astreintes: 'json',
+      // lot 11 — notes de frais : notes remboursées et avances versées (identifiant, salarié) ; montants dans `contenu`.
+      frais: 'json',
     },
     unique: [['cle']],
   },
@@ -462,6 +464,49 @@ export const TABLES = {
     },
     unique: [['participationId', 'type', 'repondant'], ['formationSuivieId', 'type', 'repondant']],
   },
+  // lot 11 — notes de frais (shared/rules/frais*.ts, server/src/actions/frais.ts ; migration PostgreSQL 0020_notes_frais).
+  // Totaux, alertes et cumuls kilométriques calculés, jamais stockés. Notes, lignes, véhicules, barèmes, forfaits, avances
+  // et taux lus par l'instantané ; exports figés hors de l'instantané (HORS_INSTANTANE) ; sceaux des justificatifs sans
+  // révision (TABLES_SANS_REVISION), jamais lus par l'instantané.
+  notesFrais: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', periode: 'text', voyageId: 'int', missionId: 'int', projet: 'text', medicale: 'bool', statut: 'text', creeLe: 'text', creePar: 'text',
+      soumiseLe: 'text', valideeLe: 'text', valideePar: 'text', controleeLe: 'text', controleePar: 'text', renvoyeeLe: 'text', renvoyeePar: 'text', renvoiMotif: 'text',
+      lotId: 'int', payeeLe: 'text', annuleeLe: 'text', annuleePar: 'text', annuleMotif: 'text',
+    },
+  },
+  lignesFrais: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', noteId: 'int', empId: 'int', date: 'text', categorie: 'text', montant: 'real', devise: 'text', taux: 'real', montantEur: 'real',
+      tvaTaux: 'real', tvaMontant: 'real', commercant: 'text', forfait: 'text', km: 'real', vehiculeId: 'int', depart: 'text', arrivee: 'text',
+      invites: 'text', motifDepassement: 'text', sansJustificatif: 'bool', attestation: 'bool', montantRetenu: 'real', refuseeLe: 'text', refusMotif: 'text',
+    },
+  },
+  vehiculesPerso: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', type: 'text', cv: 'int', electrique: 'bool', du: 'text', au: 'text', creeLe: 'text', creePar: 'text' } },
+  baremesKm: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', annee: 'int', type: 'text', cvMin: 'int', cvMax: 'int', kmMin: 'int', kmMax: 'int', a: 'real', b: 'real', saisiLe: 'text', saisiPar: 'text' },
+  },
+  forfaitsFrais: { pk: 'id', auto: true, cols: { id: 'int', annee: 'int', code: 'text', pays: 'text', montant: 'real', saisiLe: 'text', saisiPar: 'text' } },
+  avancesFrais: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', montant: 'real', voyageId: 'int', missionId: 'int', statut: 'text', demandeLe: 'text', valideeLe: 'text', valideePar: 'text',
+      lotId: 'int', verseeLe: 'text', annuleeLe: 'text', annuleePar: 'text', refusMotif: 'text',
+    },
+  },
+  tauxDevises: { pk: 'id', auto: true, cols: { id: 'int', devise: 'text', mois: 'text', taux: 'real', saisiLe: 'text', saisiPar: 'text' }, unique: [['devise', 'mois']] },
+  // Exports comptables figés (étape 2) : type, clé d'idempotence, notes, contenu, téléchargements ; lus par leur route.
+  exportsFrais: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', type: 'text', cle: 'text', creation: 'text', auteur: 'text', notes: 'json', contenu: 'json', telechargements: 'int', telechargeLe: 'text', telechargePar: 'text', annuleLe: 'text' },
+    unique: [['cle']],
+  },
+  // Sceaux des justificatifs (server/src/sceaux.ts) : chaîne d'empreintes, chaque pièce scellée avec le sceau précédent, à
+  // la soumission de sa note ; identifiants, empreintes et heure seulement.
+  sceauxPieces: { pk: 'id', auto: true, cols: { id: 'int', pieceId: 'int', empreinte: 'text', precedent: 'text', sceau: 'text', le: 'text' }, unique: [['pieceId']] },
 } satisfies Record<string, TableDef>;
 
 export type TableName = keyof typeof TABLES;
@@ -557,7 +602,9 @@ export function jsonLu(v: unknown): unknown {
  * (table `changements`, lot 9, chantier 1 : migration PostgreSQL 0014_changements). Une table ajoutée ici ne doit jamais
  * être lue par `lireTout`.
  */
-export const TABLES_SANS_REVISION: ReadonlySet<TableName> = new Set<TableName>(['journal', 'connexions', 'comptes', 'jetonsAgenda']);
+export const TABLES_SANS_REVISION: ReadonlySet<TableName> = new Set<TableName>(['journal', 'connexions', 'comptes', 'jetonsAgenda',
+  // lot 11 — notes de frais : sceaux des justificatifs (chaîne d'empreintes), jamais lus par l'instantané.
+  'sceauxPieces']);
 
 /**
  * Tables dont le journal des changements n'inscrit jamais les clés, seulement le marqueur « toute la table » (lot 9,
@@ -567,7 +614,9 @@ export const TABLES_SANS_REVISION: ReadonlySet<TableName> = new Set<TableName>([
  * l'ordre des écritures des lignes lisibles du même salarié, la désigneraient. Petites tables : le cache les relit en
  * entier dès qu'elles changent.
  */
-export const TABLES_CHANGEMENTS_SANS_CLE: ReadonlySet<TableName> = new Set<TableName>(['vaccinations', 'visas', 'demandesVisite', 'informationsCp', 'reprises']);
+export const TABLES_CHANGEMENTS_SANS_CLE: ReadonlySet<TableName> = new Set<TableName>(['vaccinations', 'visas', 'demandesVisite', 'informationsCp', 'reprises',
+  // lot 11 — notes de frais : dépenses (frais médicaux en mission), fermées en entier à Matrix (migration 0020).
+  'lignesFrais']);
 
 /** Valeur passée en paramètre d'une requête SQL brute (`query`, `one`, `run`). */
 export type SqlValeur = string | number | bigint | boolean | null | Uint8Array;

@@ -103,7 +103,8 @@ test('éléments : astreintes terminées seulement, mois clos en rappel, intéri
 
 test('lot de paie : AST_H et AST_PER désactivées, à saisir dans Sage ; réservées, libérées, transmises ; activées, dans le fichier', async () => {
   const { db, run, inserer, astreinte, lots, journal, ADMIN, PAIE } = await fresh();
-  assert.deepEqual(FAMILLES.map(f => f.cle), ['sorties', 'deplacements', 'rachats', 'astreintes']);
+  // lot 11 — notes de frais : famille « frais » en dernier.
+  assert.deepEqual(FAMILLES.map(f => f.cle), ['sorties', 'deplacements', 'rachats', 'astreintes', 'frais']);
   for (const code of ['AST_H', 'AST_PER', 'AST_COMP']) assert.equal(RUBRIQUES_PAIE[code].inactiveParDefaut, true, code);
   const id = await inserer('2026-09-28', '2026-10-05');
   assert.match(await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), /1 astreinte .*à saisir dans Sage/);

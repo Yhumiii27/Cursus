@@ -157,6 +157,28 @@ const TIRAGES: Record<string, Tirage> = {
   'demande.formation': ({ r, ds }) => ({ f: r.choix(ds.referentiels.formations).id, motif: 'Montée en compétence' }),
   'mandat.enregistrer': ({ r, empId, date }) => ({ empId: empId(), role: r.choix(['titulaire', 'suppleant']), du: date(-100, 0), credit: r.entre(5, 20) }),
   'astreinte.planifier': ({ empId, date }) => { const du = date(8, 40); return { empId: empId(), du, au: addD(du, 6), debut: '18:00', fin: '08:00' }; },
+  // lot 11 — notes de frais : note, dépense, véhicule et avance tirés dans l'état du moment (module activé en démonstration).
+  'frais.note.creer': ({ r, saisie, ds }) => ({ empId: saisie(), periode: ds.today.slice(0, 7), medicale: r.si(0.2) }),
+  'frais.ligne.ajouter': ({ r, ds, date }) => {
+    const n = parmi(r, (ds.notesFrais ?? []).filter(x => x.statut === 'brouillon' || x.statut === 'a_corriger'));
+    return { noteId: n?.id ?? id(r, ds.notesFrais), date: date(-20, 0), categorie: n?.medicale ? 'medical' : r.choix(['divers', 'repas', 'train']), montant: r.entre(5, 90), sansJustificatif: true, attestation: true };
+  },
+  'frais.ligne.modifier': ({ r, ds }) => ({ id: id(r, ds.lignesFrais), montant: r.entre(5, 90) }),
+  'frais.ligne.supprimer': ({ r, ds }) => ({ id: id(r, ds.lignesFrais) }),
+  'frais.note.soumettre': ({ r, ds }) => ({ id: id(r, ds.notesFrais, n => (n.statut === 'brouillon' || n.statut === 'a_corriger') && (ds.lignesFrais ?? []).some(l => l.noteId === n.id)) }),
+  'frais.note.valider': ({ r, ds }) => ({ id: id(r, ds.notesFrais, n => n.statut === 'soumise') }),
+  'frais.note.renvoyer': ({ r, ds }) => ({ id: id(r, ds.notesFrais, n => n.statut === 'soumise' || n.statut === 'validee'), motif: 'Justificatif illisible' }),
+  'frais.note.controler': ({ r, ds }) => ({ id: id(r, ds.notesFrais, n => n.statut === 'validee') }),
+  'frais.ligne.refuser': ({ r, ds }) => ({ id: id(r, ds.lignesFrais), motif: 'Dépense personnelle' }),
+  'frais.ligne.plafonner': ({ r, ds }) => ({ id: id(r, ds.lignesFrais), montant: r.entre(1, 20) }),
+  'frais.note.annuler': ({ r, ds }) => ({ id: id(r, ds.notesFrais, n => n.statut !== 'payee' && n.statut !== 'en_paiement') }),
+  'frais.vehicule.declarer': ({ r, saisie, ds }) => ({ empId: saisie(), type: 'voiture', cv: r.entre(3, 8), du: ds.today }),
+  'frais.forfait.enregistrer': ({ r }) => ({ annee: 2026, code: r.choix(['panier', 'repas_hors_locaux']), montant: r.entre(5, 12) }),
+  'frais.taux.enregistrer': ({ r, ds }) => ({ devise: r.choix(['USD', 'GBP']), mois: ds.today.slice(0, 7), taux: r.entre(80, 120) / 100 }),
+  'frais.avance.demander': ({ r, saisie }) => ({ empId: saisie(), montant: r.entre(1, 5) * 100 }),
+  'frais.avance.valider': ({ r, ds }) => ({ id: id(r, ds.avancesFrais, a => a.statut === 'demandee') }),
+  'frais.avance.refuser': ({ r, ds }) => ({ id: id(r, ds.avancesFrais, a => a.statut === 'demandee'), motif: 'Mission annulée' }),
+  'frais.avance.annuler': ({ r, ds }) => ({ id: id(r, ds.avancesFrais, a => a.statut === 'demandee') }),
 };
 
 /** Valeur d'un paramètre d'après son nom, pour les actions sans tirage ciblé. */

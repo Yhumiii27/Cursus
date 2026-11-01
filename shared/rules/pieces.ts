@@ -39,7 +39,17 @@ export const OBJETS_PIECE: Record<ObjetPiece, { label: string; sante: boolean }>
   habTitre: { label: 'Titre d’habilitation signé', sante: false },
   declaration: { label: 'Document déclaré', sante: true },
   voyage: { label: 'Pièce du dossier de déplacement', sante: false },
+  // lot 11 — notes de frais : justificatif d'une dépense ; d'une dépense médicale en mission (santé : jamais au manager) ;
+  // carte grise et attestation d'assurance du véhicule personnel (indemnités kilométriques).
+  ligneFrais: { label: 'Justificatif de frais', sante: false },
+  // Même libellé que tout justificatif de frais : il passe dans les messages et le journal, sans désigner la santé.
+  ligneFraisSante: { label: 'Justificatif de frais', sante: true },
+  vehiculePerso: { label: 'Carte grise ou attestation d’assurance', sante: false },
 };
+
+/** lot 11 — notes de frais : objets de pièce des notes de frais (droit « compta » ; le manager, par le filtre des frais). */
+export const OBJETS_FRAIS: readonly ObjetPiece[] = ['ligneFrais', 'ligneFraisSante', 'vehiculePerso'];
+export const estObjetFrais = (o: ObjetPiece) => OBJETS_FRAIS.includes(o);
 export const estObjetPiece = (o: unknown): o is ObjetPiece => typeof o === 'string' && o in OBJETS_PIECE;
 
 /** Libellés du réglage `piecesStockage` (Paramètres → Pièces justificatives). */
@@ -105,12 +115,16 @@ export const depotOuvert = (s: StockagePieces | undefined) => s === 'local';
  * Peut-on consulter cette pièce ? `equipe` : le salarié fait partie de l'équipe du manager connecté. Les règles sont les
  * mêmes pour la description (instantané) et pour le contenu (téléchargement).
  */
-export function voitPiece(user: CurrentUser, p: Pick<Piece, 'empId' | 'objet'>, equipe: (empId: number) => boolean): boolean {
+export function voitPiece(user: CurrentUser, p: Pick<Piece, 'empId' | 'objet'>, equipe: (empId: number) => boolean,
+  // lot 11 — notes de frais : salariés dont le manager valide les frais (équipe directe et délégations « frais »), jamais
+  // une pièce de frais médicaux ; sans ce filtre, aucune pièce de frais pour le manager.
+  equipeFrais: (empId: number) => boolean = () => false): boolean {
   const titre = p.objet === 'certification' || p.objet === 'habTitre';
   if (user.role === 'rh') {
     const droits = droitsRh(user);
-    return droits.includes('rh') || (droits.includes('formations') && titre);
+    return droits.includes('rh') || (droits.includes('formations') && titre) || (droits.includes('compta') && estObjetFrais(p.objet));
   }
   if (p.empId === user.empId) return true;
+  if (user.role === 'manager' && (p.objet === 'ligneFrais' || p.objet === 'vehiculePerso')) return equipeFrais(p.empId);
   return user.role === 'manager' && titre && equipe(p.empId);
 }

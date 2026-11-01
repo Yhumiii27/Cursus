@@ -1,5 +1,7 @@
 // Jeu de données de démonstration (repris du prototype Claude Design) :
 // 24 collaborateurs d'un site industriel lyonnais, CCN Industries chimiques.
+// lot 11 — notes de frais
+import { fraisDemo } from './frais-demo.ts';
 import { Domain } from '../../shared/domain.ts';
 import { addD, addM, isFerie, joursSemaine, weekday } from '../../shared/dates.ts';
 import { matricule } from '../../shared/format.ts';
@@ -544,6 +546,8 @@ export async function seedDemo(db: Db) {
     await figerFeuilles(db);
     for (const e of entretiens()) await db.insert('entretiens', e);
     await comptesDemo(db);
+    // lot 11 — notes de frais : module activé en démonstration, barème, forfaits, notes à chaque étape du circuit.
+    await fraisDemo(db);
 
     // Reprise des compteurs : jours déjà pris sur les périodes en cours, arrêtés au jour du chargement (période de CP à
     // prendre et année de RTT de cette date), plafonnés pour laisser un solde réaliste.
@@ -604,6 +608,8 @@ export const RH_DEMO = 'Sandrine Vidal';
 /** Profils des comptes de démonstration, selon le poste du salarié. */
 const PROFILS_DEMO: Record<string, ProfilRh> = {
   'Chargé RH': 'rh_gestionnaire', 'Responsable HSE': 'referent_hse', 'Gestionnaire paie': 'paie', 'Auditrice interne': 'lecture_seule',
+  // lot 11 — notes de frais : Manon Faure contrôle les notes de frais (profil « Comptabilité »).
+  'Assistante de direction': 'comptabilite',
 };
 
 /**

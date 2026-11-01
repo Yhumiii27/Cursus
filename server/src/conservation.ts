@@ -9,6 +9,7 @@
 //   fiche ni au compte d'un autre salarié (réembauche, homonyme) ;
 // - signale chaque jour au service RH les dossiers échus (`verifierConservation`), sans rien effacer de lui-même.
 // Les sauvegardes gardent les données effacées jusqu'à leur rotation (docs/SAUVEGARDE.md).
+import { addM } from '../../shared/dates.ts';
 import { fmtIso, plural } from '../../shared/format.ts';
 import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesEchues, conservationActive, nomAnonyme } from '../../shared/rules/conservation.ts';
 import type { CategorieConservation, DossierEchu, Employe, ISODate, ReouvertureFeuille, Settings } from '../../shared/types.ts';
@@ -90,6 +91,12 @@ export const TRAITEMENTS: Record<string, Traitement> = {
   // formations suivies qu'elles désignent ; l'auteur (nom) retiré par le balayage des textes.
   'declarations_passeport.emp_id': { mode: 'gardee' },
   'declarations_passeport.auteur_id': { mode: 'auteur' },
+  // lot 11 — notes de frais : lignes supprimées à l'échéance de la catégorie, sauf les notes payées encore dans leur terme
+  // comptable (étapes de la catégorie « frais », qui se protègent par leur date de paiement).
+  'notes_frais.emp_id': { mode: 'lignes', categorie: 'frais' },
+  'lignes_frais.emp_id': { mode: 'lignes', categorie: 'frais' },
+  'vehicules_perso.emp_id': { mode: 'lignes', categorie: 'frais' },
+  'avances_frais.emp_id': { mode: 'lignes', categorie: 'frais' },
 };
 
 /**
@@ -119,7 +126,20 @@ const retrait = (cx: Cx, ou: string): Etape => ({ table: 'pieces', ou: `${ou} AN
 const declarations = (db: Db, kinds: string) => `emp_id = ? AND type = 'document' AND ${db.jsonCle('declaration', 'kind')} IN (${kinds})`;
 
 /** Contexte d'un effacement : jour, auteur. */
-export interface Cx { ti: ISODate; le: string; par: string }
+export interface Cx {
+  ti: ISODate; le: string; par: string;
+  // lot 11 — notes de frais : durée de conservation des notes payées (réglage `conservationFraisAns`) ; 10 ans à défaut.
+  fraisAns?: number;
+}
+
+/**
+ * lot 11 — notes de frais : condition SQL d'une note (alias `n`) hors de son terme comptable, à effacer : non payée (ni en
+ * paiement), ou payée avant le jour `limite` (aujourd'hui moins la durée réglée). Date contrôlée, écrite en littéral.
+ */
+const noteHorsTerme = (limite: ISODate) => `NOT (n.statut IN ('en_paiement', 'payee') AND COALESCE(n.payee_le, '9999-12-31') >= '${limite.replace(/[^0-9-]/g, '')}')`;
+const avanceHorsTerme = (limite: ISODate) => `NOT (statut IN ('en_paiement', 'versee') AND COALESCE(versee_le, '9999-12-31') >= '${limite.replace(/[^0-9-]/g, '')}')`;
+/** Véhicules encore désignés par une ligne de frais gardée. */
+const VEHICULES_UTILISES = 'SELECT vehicule_id FROM lignes_frais WHERE vehicule_id IS NOT NULL';
 
 /** Étapes propres à chaque catégorie, dans l'ordre (les pièces d'un objet avant l'objet). */
 export function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number): Etape[] {
@@ -163,9 +183,29 @@ export function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number
     ];
     // Avenants de renonciation d'un forfait jours : référence et motif d'annulation (textes libres du service RH).
     case 'paie': return [{ table: 'avenants_forfait', ou: 'emp_id = ?', vider: ['reference', 'annule_motif'] }];
+    // lot 11 — notes de frais : seules les notes hors de leur terme comptable (payées depuis plus de la durée réglée, ou
+    // jamais payées) partent, avec leurs lignes, leurs justificatifs et les avances soldées ; les véhicules et leurs pièces
+    // quand plus aucune ligne gardée ne les désigne. Le dossier anonymisé garde les autres, sans nom.
+    case 'frais': {
+      const limite = addM(cx.ti || todayIso(), -12 * (cx.fraisAns ?? 10));
+      const lignes = `SELECT l.id FROM lignes_frais l JOIN notes_frais n ON n.id = l.note_id WHERE ${noteHorsTerme(limite)}`;
+      return [
+        retrait(cx, `emp_id = ? AND objet IN ('ligneFrais', 'ligneFraisSante') AND objet_id IN (${lignes})`),
+        // Pièces détachées des lignes supprimées ci-dessous (description gardée, sans objet désigné).
+        { table: 'pieces', ou: `emp_id = ? AND objet IN ('ligneFrais', 'ligneFraisSante') AND objet_id IN (${lignes})`, vider: ['objet_id'] },
+        { table: 'lignes_frais', ou: `emp_id = ? AND id IN (${lignes})`, supprimer: true },
+        { table: 'notes_frais', ou: `emp_id = ? AND id IN (SELECT n.id FROM notes_frais n WHERE ${noteHorsTerme(limite)})`, supprimer: true },
+        { table: 'avances_frais', ou: `emp_id = ? AND ${avanceHorsTerme(limite)}`, supprimer: true },
+        retrait(cx, `emp_id = ? AND objet = 'vehiculePerso' AND objet_id NOT IN (${VEHICULES_UTILISES})`),
+        { table: 'pieces', ou: `emp_id = ? AND objet = 'vehiculePerso' AND objet_id NOT IN (${VEHICULES_UTILISES})`, vider: ['objet_id'] },
+        { table: 'vehicules_perso', ou: `emp_id = ? AND id NOT IN (${VEHICULES_UTILISES})`, supprimer: true },
+      ];
+    }
     case 'dossier': return [
       // Pièces restantes (déplacements, autres déclarations) retirées, et leur nom d'origine, qui peut nommer la personne.
-      retrait(cx, 'emp_id = ?'),
+      // lot 11 — notes de frais : les justificatifs des notes encore dans leur terme comptable restent (la catégorie
+      // « frais », appliquée avant, a retiré les autres).
+      retrait(cx, `emp_id = ? AND (objet IS NULL OR objet NOT IN ('ligneFrais', 'ligneFraisSante', 'vehiculePerso') OR objet_id IS NULL)`),
       { table: 'pieces', ou: `emp_id = ? AND nom NOT LIKE 'piece-%'`, sql: { nom: `'piece-' || id` } },
       { table: 'attentes_session', ou: 'emp_id = ?', vider: ['demande_id'] },
       { table: 'demandes_collab', ou: 'emp_id = ?', supprimer: true },
@@ -250,7 +290,9 @@ const cxNeutre = (ti: ISODate): Cx => ({ ti, le: '', par: '' });
 /** Données d'une catégorie partielle encore présentes (lignes et valeurs). */
 export async function aEffacer(db: Db, empId: number, cat: CategorieConservation): Promise<number> {
   let n = 0;
-  for (const e of etapes(db, cat, cxNeutre(''), empId)) n += await compter(db, e, empId);
+  // lot 11 — notes de frais : terme comptable d'après le réglage en vigueur.
+  const cx = cat === 'frais' ? { ...cxNeutre(todayIso()), fraisAns: (await loadSettings(db)).conservationFraisAns } : cxNeutre('');
+  for (const e of etapes(db, cat, cx, empId)) n += await compter(db, e, empId);
   return n;
 }
 
@@ -367,6 +409,8 @@ export async function effacer(db: Db, empId: number, categories: readonly Catego
   const dossier = categories.includes('dossier');
   const liste = dossier ? [...CATEGORIES.filter(c => c !== 'dossier'), 'dossier' as const] : categories.filter(c => c !== 'dossier');
   const termes = dossier ? await identite(db, empId) : [];
+  // lot 11 — notes de frais : terme comptable d'après le réglage en vigueur.
+  cx = { ...cx, fraisAns: cx.fraisAns ?? (await loadSettings(db)).conservationFraisAns };
   let elements = 0;
   for (const c of liste) for (const e of etapes(db, c, cx, empId)) elements += await appliquer(db, e, empId);
   await db.insert('effacements', { empId, categories: liste, le: cx.le, par: cx.par, motif: o.motif, avantEcheance: o.avantEcheance, elements });

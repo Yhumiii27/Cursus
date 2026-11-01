@@ -153,6 +153,8 @@ export const empreinte = (octets: Buffer) => createHash('sha256').update(octets)
 /** Table de chaque objet : la pièce y désigne une ligne par son identifiant (contrôle d'intégrité, server/src/integrite.ts). */
 export const TABLE_OBJET: Record<ObjetPiece, TableName> = {
   absence: 'absences', certification: 'certifications', habTitre: 'habTitres', declaration: 'demandesCollab', voyage: 'voyages',
+  // lot 11 — notes de frais
+  ligneFrais: 'lignesFrais', ligneFraisSante: 'lignesFrais', vehiculePerso: 'vehiculesPerso',
 };
 
 /** Description transmise au navigateur : ni nom stocké, ni jeton, ni motif du retrait. */

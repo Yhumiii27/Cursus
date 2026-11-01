@@ -13,6 +13,8 @@ import { depotOuvert, estObjetPiece, MAX_PIECES_PAR_OBJET, OBJETS_PIECE } from '
 import { plural } from '../../../shared/format.ts';
 import type { Absence, Certification, DemandeCollab, HabTitre, ObjetPiece, Voyage } from '../../../shared/types.ts';
 import { nettoyerBientot, type PieceEnregistree } from '../pieces.ts';
+// lot 11 — notes de frais
+import { objetFraisVise, refusRetraitFrais } from '../frais-pieces.ts';
 import { ActionError, aDroit, type ActionHandler, type Ctx, estSoiMeme, getEmp, isRh, isSelf, refuserSoiMeme, requireFormations, requireRh, str } from './context.ts';
 
 /** Jetons reçus : une chaîne ou une liste de chaînes (au plus 10 pièces par objet et par envoi). */
@@ -89,6 +91,8 @@ async function objetVise(ctx: Ctx, objet: ObjetPiece, id: number): Promise<numbe
       return r.empId;
     }
     case 'voyage': requireRh(ctx); return (await ligne<Voyage>('voyages')).empId;
+    // lot 11 — notes de frais : lignes (justificatifs, de santé pour une note médicale) et véhicule personnel.
+    case 'ligneFrais': case 'ligneFraisSante': case 'vehiculePerso': return await objetFraisVise(ctx, objet, id);
   }
 }
 
@@ -120,6 +124,8 @@ const retirer: ActionHandler = async (ctx, p) => {
   // comme la qualification de sa propre absence ou la suppression de sa propre certification.
   if (piece.empId != null && estSoiMeme(ctx, piece.empId)) refuserSoiMeme(ctx, getEmp(ctx, piece.empId), 'Vous ne pouvez pas retirer une pièce de votre propre dossier');
   if (piece.retireeLe) return 'Pièce déjà retirée';
+  // lot 11 — notes de frais : pièce scellée ou jointe à une note soumise, immuable.
+  await refusRetraitFrais(ctx, piece);
   const motif = str(p.motif);
   if (!motif) throw new ActionError('Indiquez le motif du retrait');
   if (motif.length > MOTIF_RETRAIT_MAX) throw new ActionError(`Motif trop long (${MOTIF_RETRAIT_MAX} caractères au plus)`);

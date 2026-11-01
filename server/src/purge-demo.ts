@@ -274,6 +274,10 @@ const TOUJOURS: Partial<Record<TableName, string>> = {
     .map(t => [t, 'paie et compteurs'])),
   ...Object.fromEntries(['entretiens', 'demandesCollab', 'effacements', 'jetonsAgenda'].map(t => [t, 'entretiens, demandes et agenda'])),
   ...Object.fromEntries(['envois', 'notifications', 'releves', 'relances', 'pieces'].map(t => [t, 'envois, notifications et pièces'])),
+  // lot 11 — notes de frais : notes, dépenses, véhicules, avances, exports et sceaux fictifs ; barème, forfaits et taux de
+  // démonstration (montants cités de mémoire, à ressaisir par le service RH et la comptabilité).
+  ...Object.fromEntries(['notesFrais', 'lignesFrais', 'vehiculesPerso', 'avancesFrais', 'exportsFrais', 'sceauxPieces', 'baremesKm', 'forfaitsFrais', 'tauxDevises']
+    .map(t => [t, 'notes de frais et valeurs de démonstration'])),
   connexions: 'sessions de connexion',
   comptes: 'comptes de connexion',
   journal: 'journal des actions fictives (remplacé par la seule ligne purge.demo)',

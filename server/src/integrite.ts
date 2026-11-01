@@ -100,6 +100,13 @@ export const REFERENCES: readonly Reference[] = [
   ref('evaluations_formation', 'auteur_id', 'employes'),
   ref('evaluations_formation', 'participation_id', 'participations'),
   ref('evaluations_formation', 'formation_suivie_id', 'formations_suivies'),
+  // lot 11 — notes de frais (clés étrangères de 0020_notes_frais.sql) : salarié, déplacement, lot de paie, note, véhicule ;
+  // pièce scellée. Les missions, remplacées par Keystone, ne sont pas contrôlées.
+  ...['notes_frais', 'lignes_frais', 'vehicules_perso', 'avances_frais'].map(t => ref(t, 'emp_id', 'employes')),
+  ...['notes_frais', 'avances_frais'].flatMap(t => [ref(t, 'voyage_id', 'voyages'), ref(t, 'lot_id', 'lots_paie')]),
+  ref('lignes_frais', 'note_id', 'notes_frais'),
+  ref('lignes_frais', 'vehicule_id', 'vehicules_perso'),
+  ref('sceaux_pieces', 'piece_id', 'pieces'),
 ];
 
 export interface Integrite {

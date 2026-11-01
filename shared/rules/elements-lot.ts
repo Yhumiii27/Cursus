@@ -15,7 +15,7 @@ import { detailAstreinte } from './astreintes-paie.ts';
 import { periodeLabel } from './paie.ts';
 
 /** Contenu lu : absences, déplacements et jours rachetés du lot, liste des autres éléments laissés à Sage. */
-type ContenuASaisir = Partial<Pick<SagePush, 'absences' | 'deplacements' | 'rachats' | 'astreintes' | 'aSaisir'>>;
+type ContenuASaisir = Partial<Pick<SagePush, 'absences' | 'deplacements' | 'rachats' | 'astreintes' | 'aSaisir' | 'frais'>>;
 
 /** Libellé de la colonne « Rubrique Sage » d'un élément sans code Sage, absent du fichier. */
 export const A_SAISIR_SAGE = 'À saisir dans Sage';
@@ -27,6 +27,8 @@ export const FAMILLES_A_SAISIR: Record<string, [string, string]> = {
   nuit: ['élément d’heures de nuit', 'éléments d’heures de nuit'],
   rachats: ['jours rachetés (forfait jours)', 'jours rachetés (forfait jours)'],
   astreintes: ['élément d’astreinte', 'éléments d’astreinte'],
+  // lot 11 — notes de frais
+  frais: ['remboursement de frais', 'remboursements de frais'],
 };
 
 /**
@@ -44,6 +46,9 @@ export function elementsASaisir(contenu: ContenuASaisir, paysLabel: (code: strin
       .map(x => ({ famille: 'rachats', empId: x.empId, periode: x.periode, rubrique: x.rubrique, quantite: x.quantite, detail: detailRachat(x) })),
     ...(contenu.astreintes ?? []).filter(x => !x.codeSage)
       .map(x => ({ famille: 'astreintes', empId: x.empId, periode: x.periode, rubrique: x.rubrique, quantite: x.quantite, detail: detailAstreinte(x, periodeLabel) })),
+    // lot 11 — notes de frais : montant en euros en quantité ; le détail ne nomme jamais la nature d'une dépense.
+    ...(contenu.frais ?? []).filter(x => !x.codeSage)
+      .map(x => ({ famille: 'frais', empId: x.empId, periode: x.periode, rubrique: x.rubrique, quantite: x.montant, detail: x.note ? `note de frais n° ${x.note}, en euros` : `avance sur frais n° ${x.avance}, en euros` })),
     ...(contenu.aSaisir ?? []),
   ];
 }

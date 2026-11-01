@@ -24,6 +24,11 @@ export interface DefCategorie {
    * à l'effacement (art. 17-3-b du RGPD) ; absente : effaçable dès sa demande.
    */
   obligation?: string;
+  /**
+   * lot 11 — notes de frais : catégorie gardée au-delà du dossier : l'anonymisation du dossier n'efface pas ses données
+   * encore dans leur durée (notes payées et justificatifs, terme comptable), elle les laisse sans nom.
+   */
+  auDelaDuDossier?: true;
 }
 
 /** Catégories, dans l'ordre de l'écran ; le dossier (fiche et identité) clôt tout. */
@@ -64,6 +69,13 @@ export const CATEGORIES_CONSERVATION: Record<CategorieConservation, DefCategorie
   formations: {
     label: 'Formations et habilitations', reglage: 'conservationFormationsAns', partielle: true,
     effacement: 'motifs des corrections et des mesures, demandes de formation et d’habilitation, attestations et titres joints ; certifications et coûts gardés',
+  },
+  // lot 11 — notes de frais (server/src/conservation.ts) : durée comptée depuis la sortie, et chaque note payée gardée au
+  // moins la durée réglée depuis son paiement ; l'anonymisation du dossier ne les touche pas avant ce terme.
+  frais: {
+    label: 'Notes de frais et justificatifs', reglage: 'conservationFraisAns', partielle: true, auDelaDuDossier: true,
+    obligation: 'pièces justificatives comptables, 10 ans (art. L123-22 du Code de commerce) ; 6 ans en matière fiscale (art. L102 B du LPF)',
+    effacement: 'notes de frais, lignes, avances, véhicules déclarés et justificatifs joints, une fois leur terme comptable passé (paiement + durée réglée) ; les notes non payées aussitôt',
   },
 };
 export const CATEGORIES = Object.keys(CATEGORIES_CONSERVATION) as CategorieConservation[];

@@ -2,7 +2,7 @@
 // établissements, équipes racines et rattachées, présents de chaque équipe. Ouvert à tout l'espace RH et, selon le
 // réglage `organigrammeOuvert` (choix par défaut : tous), aux managers et aux collaborateurs.
 // - Construit sur les données déjà envoyées à tous : annuaire (nom, équipe, poste), équipes et leur manager, entités et
-//   sites ; hors du service RH, les présents viennent du serveur (`presentsOrganigramme`, sans les dates). Aucune donnée
+//   sites ; les présents viennent du serveur pour tous les espaces (`presentsOrganigramme`, sans les dates). Aucune donnée
 //   de contrat, de sortie, d'absence ni de santé ; le suppléant d'un manager n'est montré que d'après les délégations que la
 //   personne voit déjà, sans les dates.
 // - Service RH (droit `rh`) et lecture seule : anomalies (équipe sans manager, salarié à affecter, équipe racine sans
@@ -21,7 +21,7 @@ import {
 import { TYPES_CONTRAT, vuesDe } from '../../../shared/constants.ts';
 import { plural } from '../../../shared/format.ts';
 import { TYPES_ENTITE } from '../../../shared/rules/entites.ts';
-import { anomalieTexte, arbre, type MembreArbre, type NoeudEntite, type NoeudEquipe, type PersonneArbre } from '../../../shared/rules/organigramme.ts';
+import { anomalieTexte, arbre, type MembreArbre, type NoeudEntite, type NoeudEquipe } from '../../../shared/rules/organigramme.ts';
 import type { Site } from '../../../shared/types.ts';
 import { Avatar, Btn, Empty, Fine, Page, Panel, Tag } from '../components/ui.tsx';
 import { csvOrganigramme } from '../listes-csv.ts';
@@ -49,14 +49,10 @@ export function Organigramme() {
   const [recherche, setRecherche] = useState('');
 
   const brut = useMemo(() => {
-    // Service RH : les dates des fiches (présents du jour) ; ailleurs, la liste des présents transmise par le serveur.
-    const fiches = new Map(data.employes.map(e => [e.id, e]));
-    const annuaire: PersonneArbre[] = data.annuaire.map(p => {
-      const e = fiches.get(p.id);
-      return e ? { ...p, entree: e.entree, fin: e.fin, anonymiseLe: e.anonymiseLe } : p;
-    });
+    // Présents du jour : la liste transmise par le serveur (`presentsOrganigramme`, `presentsDe` : même règle `presentA`,
+    // fiches anonymisées exclues), pour tous les espaces ; elle l'emporte sur les dates dans `arbre()`.
     const etiquettes = vueRh ? new Map(data.employes.filter(e => e.typeContrat && e.typeContrat !== 'cdi').map(e => [e.id, TYPES_CONTRAT[e.typeContrat].label])) : undefined;
-    return arbre(entites, r.equipes, annuaire, data.delegations ?? [], data.today, { rh: vueRh, presents: data.presentsOrganigramme, etiquettes });
+    return arbre(entites, r.equipes, data.annuaire, data.delegations ?? [], data.today, { rh: vueRh, presents: data.presentsOrganigramme, etiquettes });
   }, [data, entites, r.equipes, vueRh]);
   const vue = useMemo(() => filtrerArbre(brut, r.equipes, entites, { entite: ui.orgEntite, site: ui.orgSite, recherche }), [brut, r.equipes, entites, ui.orgEntite, ui.orgSite, recherche]);
 

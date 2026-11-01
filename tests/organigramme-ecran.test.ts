@@ -134,6 +134,10 @@ test('CSV : une ligne par personne affichée, colonnes de l’annuaire et struct
     ['', '', '', '', 'À affecter', 'Sans Équipe', 'Poste 30', '', 'Service RH'],
   ]);
   assert.ok(!x.rows.flat().some(c => String(c).includes('Intérim')), 'étiquette du service RH absente du fichier');
+  // Filtre sur un établissement seul : la société parente reste dans la colonne « Société » (registre, OPCO, DSN par SIRET).
+  const etab = filtrerArbre(BRUT, EQUIPES, ENTITES, { ...sansFiltre, entite: 'lyon' });
+  assert.deepEqual(lignesOrganigramme(etab, { equipes: EQUIPES, entites: ENTITES, sites: SITES, nom: noms }).map(l => [l.societe, l.etablissement, l.nom]),
+    [['EPC2I', 'Lyon', 'Nadia Kaci']]);
   assert.equal(csvOrganigramme(T, [], 'lyon').fichier, 'organigramme-lyon-2026-10-10.csv');
 });
 
@@ -152,6 +156,14 @@ test('impression : une section par entité (société, puis chaque établissemen
   // Société sans équipe propre mais avec un établissement : pas de page vide.
   const seul = arbre([entite('epc2i', { nom: 'EPC2I' }), ENTITES[1]], [equipe('Commercial', 9, { entite: 'lyon' })], ANNUAIRE, [], T);
   assert.deepEqual(sectionsImpression(seul, { equipes: [], entites: ENTITES, sites: SITES, nom: noms }).map(x => x.titre), ['Lyon (EPC2I)']);
+  // Filtre sur un établissement seul : le titre garde la société parente.
+  const etab = filtrerArbre(BRUT, EQUIPES, ENTITES, { ...sansFiltre, entite: 'lyon' });
+  assert.deepEqual(sectionsImpression(etab, { equipes: EQUIPES, entites: ENTITES, sites: SITES, nom: noms }).map(x => x.titre), ['Lyon (EPC2I)']);
+  // Société ouverte sans équipe ni établissement (créée dans Référentiels → Entités et sites) : pas de page blanche.
+  const vide = arbre([...ENTITES, entite('filiale', { nom: 'Filiale vide', ordre: 2 })], EQUIPES, ANNUAIRE, [], T, { rh: true });
+  assert.ok(vide.entites.some(n => n.code === 'filiale'), 'l’entité ouverte vide reste dans l’arbre');
+  assert.deepEqual(sectionsImpression(vide, { equipes: EQUIPES, entites: ENTITES, sites: SITES, nom: noms }).map(x => x.titre),
+    ['EPC2I', 'Lyon (EPC2I)', 'Équipes sans entité', 'À affecter']);
   assert.equal(mentionEtat(T), 'Document interne — état au 10/10/2026');
 });
 

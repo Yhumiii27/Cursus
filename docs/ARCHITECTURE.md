@@ -4022,8 +4022,8 @@ Paramètres), impression, CSV, remplissage de `employes.site_code` et `unite_cod
 - **Étape 2 — écran Organigramme** (`client/src/pages/Organigramme.tsx`, vue `organigramme` de `ALLOWED_VIEWS` pour les
   trois espaces et de `PROFILS_RH.vues` des profils référent HSE, paie et lecture seule ; Comptabilité exclu). Hors espace
   RH, la vue et son entrée du menu suivent `organigrammeOuvertA` (state/store.tsx ramène une adresse fermée à l'accueil ;
-  layout/Shell.tsx, groupe « Organisation »). Arbre `arbre()` sur l'annuaire (dates des fiches pour l'espace RH, sinon
-  `presentsOrganigramme`), les délégations du jeu de données (déjà réduites à `delegationsVisibles`) et, pour le service RH
+  layout/Shell.tsx, groupe « Organisation »). Arbre `arbre()` sur l'annuaire et les présents transmis par le serveur
+  (`presentsOrganigramme`) pour tous les espaces, les délégations du jeu de données (déjà réduites à `delegationsVisibles`) et, pour le service RH
   et la lecture seule (`rh: true`), les étiquettes de contrat hors CDI. Listes imbriquées `role="tree"` / `treeitem` /
   `group`, `aria-level`, `aria-expanded`, focus itinérant (flèches, Début, Fin, Entrée, Espace) ; traits en bordures CSS
   (`.org-*` de `styles/app.css`), liste indentée sans traits sous 600 px. Filtres, recherche et dépliage : module sans
@@ -4031,8 +4031,10 @@ Paramètres), impression, CSV, remplissage de `employes.site_code` et `unite_cod
   `sectionsImpression`), testé par `tests/organigramme-ecran.test.ts`. Entité et site dans l'adresse (`?entite=…&site=…`,
   `PARAMS_URL`, champs `orgEntite`, `orgSite` de `ui`) ; la recherche reste en mémoire.
 - **Étape 2 — impression et CSV** : `printDocument(…, { paysage: true, journal: false })` (`print.ts` : sections `arbre`
-  en listes imbriquées, `saut` de page avant chaque entité, page nommée `paysage` de `styles/print.css`, mention « Document
-  interne — état au ») ; `csvOrganigramme` (`listes-csv.ts`) : société, établissement, site, chemin des équipes, équipe,
+  en listes imbriquées, `saut` de page avant chaque entité qui porte des équipes — une entité sans équipe n'a pas de page —, titre
+  d'un établissement suivi de sa société, même filtré seul, page nommée `paysage` de `styles/print.css`, mention « Document
+  interne — état au ») ; `csvOrganigramme` (`listes-csv.ts`) : société (celle de l'établissement sous un filtre
+  d'établissement), établissement, site, chemin des équipes, équipe,
   nom, poste, manager, valideur, sans contrat ni étiquette pour aucun profil ; `downloadCsv(…, { journal: false })`. Les
   deux sont signalés par `organigramme.imprimer` et `organigramme.exporter` (entité, nombre de lignes), et non par
   `/api/exports` (qui nommerait le fichier).

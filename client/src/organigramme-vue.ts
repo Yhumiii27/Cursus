@@ -10,7 +10,7 @@
 // - CSV et impression : les seules colonnes de l'annuaire (nom, poste, équipe) et la structure (entité, site, chemin des
 //   équipes, manager, valideur) ; ni contrat, ni étiquette, ni sortie, ni santé, même pour le service RH.
 import { norm } from '../../shared/format.ts';
-import { rattachementSalarie } from '../../shared/rules/entites.ts';
+import { entiteDe, rattachementSalarie, societeDe } from '../../shared/rules/entites.ts';
 import type { Arbre, MembreArbre, NoeudEntite, NoeudEquipe } from '../../shared/rules/organigramme.ts';
 import type { Entite, Equipe, ISODate, Site } from '../../shared/types.ts';
 import type { PrintArbre } from './print.ts';
@@ -116,6 +116,12 @@ interface Contexte {
   nom: (id: number) => string;
 }
 
+/**
+ * Société d'un nœud placé en haut de l'arbre : son propre nom pour une société ; pour un établissement (filtre sur un
+ * établissement seul), le nom de sa société parente lu dans les entités, pour que l'export et l'impression gardent l'employeur.
+ */
+const societeHaut = (c: Contexte, n: NoeudEntite) => (n.type === 'societe' ? n.nom : societeDe(c.entites, entiteDe(c.entites, n.code))?.nom ?? '');
+
 /** Ligne du CSV de l'organigramme : une par personne affichée. */
 export interface LigneOrganigramme {
   societe: string; etablissement: string; site: string; chemin: string; equipe: string; nom: string; poste: string; manager: string; valideur: string;
@@ -134,7 +140,7 @@ export function lignesOrganigramme(a: Pick<Arbre, 'entites' | 'sansEntite' | 'aA
     for (const f of n.equipes) equipe(f, societe, etablissement, ch);
   };
   const entite = (n: NoeudEntite, societe: string | null) => {
-    const soc = societe ?? (n.type === 'societe' ? n.nom : '');
+    const soc = societe ?? societeHaut(c, n);
     const etab = n.type === 'etablissement' ? n.nom : '';
     for (const q of n.equipes) equipe(q, soc, etab, []);
     for (const e of n.etablissements) entite(e, soc);
@@ -166,14 +172,16 @@ export function sectionsImpression(a: Pick<Arbre, 'entites' | 'sansEntite' | 'aA
   });
   // Une section (une page) par entité : la société avec ses équipes racines, puis chacun de ses établissements.
   const sections: SectionOrganigramme[] = [];
-  const section = (n: NoeudEntite, societe: string | null) => {
+  // Une entité sans équipe (société ouverte encore vide, ou dont seuls les établissements portent des équipes) n'a pas de
+  // page : ses établissements gardent la leur.
+  const section = (n: NoeudEntite, societe: string) => {
     const e = entite({ ...n, etablissements: [] });
-    if (n.equipes.length || !n.etablissements.length) {
-      sections.push({ titre: societe ? `${n.nom} (${societe})` : n.nom, sousTitre: entite(n).detail ?? '', arbre: e.enfants ?? [] });
+    if (n.equipes.length) {
+      sections.push({ titre: n.type === 'etablissement' && societe ? `${n.nom} (${societe})` : n.nom, sousTitre: entite(n).detail ?? '', arbre: e.enfants ?? [] });
     }
     for (const x of n.etablissements) section(x, n.nom);
   };
-  for (const n of a.entites) section(n, null);
+  for (const n of a.entites) section(n, societeHaut(c, n));
   if (a.sansEntite.length) sections.push({ titre: 'Équipes sans entité', sousTitre: '', arbre: a.sansEntite.map(equipe) });
   if (a.aAffecter.length) sections.push({ titre: 'À affecter', sousTitre: 'Salariés sans équipe : validations par le service RH', arbre: a.aAffecter.map(membre) });
   return sections;

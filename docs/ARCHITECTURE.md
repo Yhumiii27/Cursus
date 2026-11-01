@@ -4673,14 +4673,15 @@ du 1er novembre 2026) : aucun socle i18n, les textes restent en français. Aucun
 - **Menu** (`client/src/layout/Shell.tsx`) : registre `ENTREES_LOT12`, une fonction par chantier qui rend ses entrées
   (groupe existant de l'espace, à sa fin, ou nouveau groupe en fin de menu) et leurs pastilles ; les groupes existants ne
   changent pas.
-- **Blocs réservés**, commentés « lot 12 — Cx (…) » ; chaque chantier n'écrit que dans le sien (contrôlé par
-  `tests/lot12-socle.test.ts`) :
+- **Blocs réservés**, commentés « lot 12 — Cx (…) » ; chaque chantier n'écrit que dans le sien. `tests/lot12-socle.test.ts`
+  ne contrôle que la présence des marqueurs (et l'absence de bloc C6 avant le limiteur dans `app.ts`) ; le respect des
+  blocs se vérifie à la relecture du diff de chaque chantier :
   - serveur : `db.ts` (`TABLES`, `TABLES_SANS_REVISION`, `TABLES_CHANGEMENTS_SANS_CLE`), `lecture-brute.ts` (`Brut`,
     `lireBrut`, `assembler`, `LECTURES`, `HORS_INSTANTANE`, `FENETRES`), `vues-cache.ts` (`CHAMPS_PAR_SALARIE`,
     `CHAMPS_HORS_VUES`), `dataset.ts` (lignes d'appel), `journal.ts` (`REGLES`), `actions/index.ts` (imports et
     registre), `elements-lot.ts` (`CleFamille`, `FAMILLES` : C1), `conservation.ts` (`TRAITEMENTS`), `app.ts` (imports ;
     route d'intégration avant le limiteur, avec son propre limiteur et son `express.json` : C4 seulement si une plateforme
-    d'e-learning envoie le suivi, la route de badgeuse de C6 étant abandonnée ; gardes `exigerNavigationInterne` ; routes
+    d'e-learning envoie le suivi, la route de badgeuse de C6 étant abandonnée, et aucun bloc C6 à cet endroit ; gardes `exigerNavigationInterne` ; routes
     à la demande après la session : C2 historique des frais, C6 `GET /api/pointages/etat`) ; `tests/support/oracle.ts`
     (tirages, tables par famille, valeurs par nom) ;
   - partagé : `shared/types.ts` (`Settings`, `Dataset`, `SagePush` et `LotPaie` : C1, `EntretienType` : C3),
@@ -4690,10 +4691,11 @@ du 1er novembre 2026) : aucun socle i18n, les textes restent en français. Aucun
   - client : `App.tsx` (vue → page), `state/store.tsx` (imports, `UiState`, `INITIAL_UI`, `DialogState`, fermeture d'un
     module désactivé), `dialogs/DialogHost.tsx` (imports, dialogues), `layout/Shell.tsx` (`ENTREES_LOT12`),
     `pages/Temps.tsx` et `pages/temps-onglets.ts` (onglets : C1, C5, C6).
-- **Migrations** : seule 0021 est attribuée (S0). Chaque chantier nomme sa migration PostgreSQL `00NN_<objet>.sql` avec
-  un numéro provisoire et la renumérote au rebase, juste avant de fusionner (premier fusionné, premier servi : numéro
-  libre suivant), son empreinte ajoutée à `PUBLIEES` dans la même PR ; sa migration SQLite nommée s'ajoute en fin de
-  `MIGRATIONS` (`server/src/migrations/liste.ts`) à la fusion. Toute nouvelle table pose ses déclencheurs
+- **Migrations** : numéros PostgreSQL attribués d'avance (choix par défaut du lot, comme au lot 11) :
+  `0021_lot12_socle` (S0), 0022 (C1), 0023 (C2), 0024 (C3), 0025 (C4), 0026 (C5), 0027 (C6, seulement si nécessaire) ;
+  chaque chantier nomme sa migration `00NN_<objet>.sql` avec son numéro, sans renumérotation ; fusion groupée par le
+  coordinateur, qui ajoute l'empreinte de chaque migration à `PUBLIEES` à la fusion ; la migration SQLite nommée
+  s'ajoute en fin de `MIGRATIONS` (`server/src/migrations/liste.ts`). Toute nouvelle table pose ses déclencheurs
   `revision_lignes_*` dans sa migration (ou entre dans `TABLES_SANS_REVISION`), et se déclare dans `LECTURES` ou
   `HORS_INSTANTANE`, dans les vues par salarié et dans le banc d'oracle.
 - **Échanges avec les autres outils** : règles R2 à R5 de M-17 (section « Échanges avec les autres outils » ci-dessus),

@@ -954,7 +954,7 @@ export abstract class Db {
   /**
    * Lignes de `table` dans la fenêtre `fenetre` (lot 12, socle : `FENETRES` de server/src/lecture-brute.ts), dans l'ordre
    * de sa clé, sans les colonnes `sans` (absentes des objets rendus, comme `allSans`). Une table à fenêtre n'a pas
-   * d'autre ordre de lecture (`ORDRE_LECTURE`) : contrôlé par tests/lecture-brute.test.ts.
+   * d'autre ordre de lecture (`ORDRE_LECTURE`) : contrôlé par tests/lot12-socle.test.ts.
    */
   async allDans<T>(table: TableName, fenetre: Fenetre, sans: readonly string[] = []): Promise<T[]> {
     const def = this.def(table);

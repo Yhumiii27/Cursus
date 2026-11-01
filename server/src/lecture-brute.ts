@@ -178,7 +178,7 @@ export const COLONNES_OMISES: Partial<Record<TableName, readonly string[]>> = { 
 /**
  * Fenêtres de lecture (lot 12, socle) : pour une table, la condition (fonction du jour `today`, AAAA-MM-JJ) que vérifient
  * les seules lignes lues par l'instantané. Une table à fenêtre se lit dans l'ordre de sa clé entière (ni `ORDRE_LECTURE`
- * ni clé texte : tests/lecture-brute.test.ts) ; le reste de ses lignes n'est lu qu'à la demande, par une route dédiée.
+ * ni clé texte : tests/lot12-socle.test.ts) ; le reste de ses lignes n'est lu qu'à la demande, par une route dédiée.
  * La condition ne dépend que du jour : l'entrée du cache d'un autre jour est relue en entier. Vide au socle ; chaque
  * chantier n'écrit que dans son bloc.
  */

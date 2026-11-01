@@ -95,9 +95,9 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // lot 12 — route d'intégration réservée (socle) : montée avant le limiteur, le CSRF et l'analyse JSON, comme celle de
   // Keystone ; elle a donc son propre limiteur et son propre `express.json` (taille limitée), appelé après la vérification
   // de sa clé. Aucune au socle : la route de badgeuse de C6 est abandonnée (pas de badgeuse murale, réponse du
-  // propriétaire du 1er novembre 2026) ; C4 n'en monte une que si une plateforme d'e-learning envoie le suivi.
+  // propriétaire du 1er novembre 2026) ; C4 n'en monte une que si une plateforme d'e-learning envoie le suivi. C6 n'a ici
+  // aucun bloc : toutes ses routes (pointer, `GET /api/pointages/etat`) passent après la session, le limiteur et le CSRF.
   // lot 12 — C4 (organismes de formation et e-learning)
-  // lot 12 — C6 (badgeage virtuel)
   // Débit limité par adresse IP et par compte (429, Retry-After), puis refus des requêtes qui modifient sans venir de Cursus (CSRF).
   app.use('/api', limiterDebit(db));
   app.use(protectionCsrf());

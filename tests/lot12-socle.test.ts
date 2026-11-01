@@ -99,3 +99,15 @@ test('blocs réservés « lot 12 — Cx » posés dans les fichiers partagés', 
     for (const c of chantiers) assert.ok(texte.includes(`lot 12 — ${c} (`), `${f} : bloc « lot 12 — ${c} » absent`);
   }
 });
+
+test('app.ts : aucun bloc C6 avant le limiteur de débit (pointage derrière la session, le limiteur et le CSRF)', () => {
+  // La route de badgeuse est abandonnée (réponse du propriétaire du 1er novembre 2026) : le créneau d'intégration monté
+  // avant `limiterDebit` et `protectionCsrf` n'a de bloc que pour C4.
+  const app = readFileSync('server/src/app.ts', 'utf8');
+  const debut = app.indexOf('keystoneRoutes(db)');
+  const fin = app.indexOf("app.use('/api', limiterDebit(db))");
+  assert.ok(debut > 0 && fin > debut, 'repères de app.ts introuvables');
+  const creneau = app.slice(debut, fin);
+  assert.ok(creneau.includes('lot 12 — C4 ('), 'bloc C4 absent du créneau d’intégration');
+  assert.ok(!creneau.includes('lot 12 — C6 ('), 'bloc C6 dans le créneau d’intégration avant le limiteur');
+});

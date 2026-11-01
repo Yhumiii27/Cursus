@@ -15,6 +15,8 @@
 //   réglés hors fichier à la confirmation de ce lot-là (d'après son contenu figé).
 // - Astreintes (t049, lot 7, server/src/astreintes-paie.ts) : heures et périodes des astreintes terminées (AST_H, AST_PER) ;
 //   comme les jours rachetés, toujours réservées par le lot, sans code Sage faute de rubrique active (« à saisir dans Sage »).
+// - lot 12 — C1 : heures de la clôture d'un forfait annuel en heures (server/src/forfait-heures-paie.ts) : HFA25, HFA50,
+//   HCA10, HCA25, comme les jours rachetés ; une version qui corrige une ligne transmise fait du lot un lot correctif.
 // Ajouter une famille (heures de nuit, monétisation du CET…) : un objet `FamilleLot` dans le fichier de son chantier, une
 // ligne dans `FAMILLES`, une clé dans `SagePush` et `LotPaie` (shared/types.ts) et une colonne json de `lotsPaie`
 // (server/src/db.ts). Liste « à saisir dans Sage » : shared/rules/elements-lot.ts.
@@ -29,6 +31,7 @@ import { FAMILLE_SORTIES } from './soldes-sortie.ts';
 // lot 11 — notes de frais
 import { FAMILLE_FRAIS } from './frais-paie.ts';
 // lot 12 — C1 (forfait annuel en heures)
+import { FAMILLE_FORFAIT_HEURES } from './forfait-heures-paie.ts';
 
 /** Élément d'une famille, tel que le lit le fichier : salarié, matricule, période, rubrique interne, code Sage (null : hors fichier). */
 export interface ElementLot {
@@ -42,6 +45,7 @@ export type CleFamille = 'sorties' | 'deplacements' | 'rachats' | 'astreintes'
   // lot 11 — notes de frais
   | 'frais'
   // lot 12 — C1 (forfait annuel en heures)
+  | 'forfaitHeures'
   ;
 
 export interface FamilleLot<E extends ElementLot = ElementLot> {
@@ -62,6 +66,9 @@ export interface FamilleLot<E extends ElementLot = ElementLot> {
   confirmer: (db: Db, d: Domain, lot: Pick<LotPaie, 'id' | 'periode'>) => Promise<void>;
   /** Annulation du lot avant sa confirmation : éléments de nouveau en attente. */
   liberer: (db: Db, lot: Pick<LotPaie, 'id'>) => Promise<void>;
+  // lot 12 — C1 (forfait annuel en heures)
+  /** Éléments qui corrigent un élément déjà transmis (écart d'une nouvelle version) : le lot devient un lot correctif. */
+  correctif?: (elements: readonly E[]) => boolean;
 }
 
 /** Familles du registre, dans l'ordre du contenu et des messages. */
@@ -69,6 +76,7 @@ export const FAMILLES: readonly FamilleLot<any>[] = [FAMILLE_SORTIES, FAMILLE_DE
   // lot 11 — notes de frais
   FAMILLE_FRAIS,
   // lot 12 — C1 (forfait annuel en heures)
+  FAMILLE_FORFAIT_HEURES,
 ];
 
 /** Éléments de chaque famille pour un lot de la période `jusqua`, et ceux à saisir dans Sage. */
@@ -86,6 +94,10 @@ export async function elementsDesFamilles(db: Db, d: Domain, jusqua: string, ave
   }
   return { elements, aSaisir };
 }
+
+// lot 12 — C1 (forfait annuel en heures)
+/** Une famille emporte la correction d'un élément déjà transmis (lot correctif). */
+export const correctifDesFamilles = (e: ElementsFamilles['elements']) => FAMILLES.some(f => !!e[f.cle]?.length && !!f.correctif?.(e[f.cle]!));
 
 /** Suites du message de génération (premier lot d'une base neuve…), avant le calcul des éléments. */
 export async function avantFamilles(db: Db, d: Domain, user: CurrentUser): Promise<string> {

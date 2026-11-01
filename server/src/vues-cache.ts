@@ -379,6 +379,7 @@ export const CHAMPS_PAR_SALARIE: ReadonlySet<keyof Dataset> = new Set<keyof Data
   // équipe directe et délégations « frais », sous-ensemble du périmètre retenu de la vue).
   'notesFrais', 'lignesFrais', 'vehiculesPerso', 'avancesFrais',
   // lot 12 — C1 (forfait annuel en heures)
+  'cloturesForfaitHeures',
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)

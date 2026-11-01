@@ -193,7 +193,7 @@ test('PostgreSQL : controlerSchema refuse une table sans ses déclencheurs revis
   await assert.rejects(autre.controlerSchema(), /table changements/);
 });
 
-test('migrations PostgreSQL publiées intactes (empreintes figées, 0001 à 0021)', () => {
+test('migrations PostgreSQL publiées intactes (empreintes figées, 0001 à 0022)', () => {
   // Une migration publiée ne se modifie jamais : une nouvelle migration reçoit le numéro suivant, et son empreinte
   // s'ajoute ici une fois publiée. Fins de ligne normalisées (copie de travail sous Windows).
   const PUBLIEES: Record<string, string> = {
@@ -225,6 +225,8 @@ test('migrations PostgreSQL publiées intactes (empreintes figées, 0001 à 0021
     '0020_notes_frais': 'a6f80c29e24c6c01370b629bac909f942ff3fab0fbaabe51ef2b10a4495854ac',
     // lot 12 — socle commun
     '0021_lot12_socle': 'e9e07190fdebbc53afb5c6def2231988653a3fa497c3b26e70ff0e493493b1d4',
+    // lot 12 — C1 (forfait annuel en heures)
+    '0022_forfait_heures': 'ef7a7c5879db40e56aba879dccbad653abaf60cd2e032b2fada3ecb3c9130fcd',
   };
   const lues = new Map(migrationsPg().map(m => [m.nom, createHash('sha256').update(m.sql.replace(/\r\n/g, '\n')).digest('hex')]));
   for (const [nom, empreinte] of Object.entries(PUBLIEES)) assert.equal(lues.get(nom), empreinte, `${nom} modifiée ou absente`);

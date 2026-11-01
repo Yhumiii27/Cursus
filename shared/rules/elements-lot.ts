@@ -13,9 +13,13 @@ import { detailDeplacement } from './deplacements-paie.ts';
 import { detailRachat } from './forfait-jours.ts';
 import { detailAstreinte } from './astreintes-paie.ts';
 import { periodeLabel } from './paie.ts';
+// lot 12 — C1 (forfait annuel en heures)
+import { detailForfaitHeures } from './forfait-heures.ts';
 
 /** Contenu lu : absences, déplacements et jours rachetés du lot, liste des autres éléments laissés à Sage. */
-type ContenuASaisir = Partial<Pick<SagePush, 'absences' | 'deplacements' | 'rachats' | 'astreintes' | 'aSaisir' | 'frais'>>;
+type ContenuASaisir = Partial<Pick<SagePush, 'absences' | 'deplacements' | 'rachats' | 'astreintes' | 'aSaisir' | 'frais'
+  // lot 12 — C1 (forfait annuel en heures)
+  | 'forfaitHeures'>>;
 
 /** Libellé de la colonne « Rubrique Sage » d'un élément sans code Sage, absent du fichier. */
 export const A_SAISIR_SAGE = 'À saisir dans Sage';
@@ -29,6 +33,8 @@ export const FAMILLES_A_SAISIR: Record<string, [string, string]> = {
   astreintes: ['élément d’astreinte', 'éléments d’astreinte'],
   // lot 11 — notes de frais
   frais: ['remboursement de frais', 'remboursements de frais'],
+  // lot 12 — C1 (forfait annuel en heures)
+  forfaitHeures: ['élément de clôture du forfait annuel en heures', 'éléments de clôture du forfait annuel en heures'],
 };
 
 /**
@@ -49,6 +55,9 @@ export function elementsASaisir(contenu: ContenuASaisir, paysLabel: (code: strin
     // lot 11 — notes de frais : montant en euros en quantité ; le détail ne nomme jamais la nature d'une dépense.
     ...(contenu.frais ?? []).filter(x => !x.codeSage)
       .map(x => ({ famille: 'frais', empId: x.empId, periode: x.periode, rubrique: x.rubrique, quantite: x.montant, detail: x.note ? `note de frais n° ${x.note}, en euros` : `avance sur frais n° ${x.avance}, en euros` })),
+    // lot 12 — C1 (forfait annuel en heures) : HFA25, HFA50, HCA10, HCA25 désactivées (ou écart négatif refusé par le format).
+    ...(contenu.forfaitHeures ?? []).filter(x => !x.codeSage)
+      .map(x => ({ famille: 'forfaitHeures', empId: x.empId, periode: x.periode, rubrique: x.rubrique, quantite: x.quantite, detail: detailForfaitHeures(x) })),
     ...(contenu.aSaisir ?? []),
   ];
 }

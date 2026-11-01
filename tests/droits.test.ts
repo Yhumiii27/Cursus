@@ -630,7 +630,34 @@ const MATRICE: Ligne[] = [
   // lot 11 — notes de frais, étape 2 : exports comptables, comptabilité (tests/frais-etape2.test.ts) et service RH.
   { action: 'frais.export.generer', droits: '        O    O    -    -    -    -    -    -    -', p: async () => { await noteAvecLigne('controlee'); return {}; } },
   { action: 'frais.export.annuler', droits: '        O    O    -    -    -    -    -    -    -', p: async () => ({ id: await exportFrais() }) },
+  // lot 12 — C1 (forfait annuel en heures) : administrateur RH seul (tests/forfait-heures.test.ts).
+  { action: 'forfaitHeures.cloturer', droits: '       O    -    -    -    -    -    -    -    -', p: async () => ({ lignes: [await plageForfaitHeures()] }) },
+  { action: 'forfaitHeures.rouvrir', droits: '        O    -    -    -    -    -    -    -    -', p: async () => ({ id: await ligneForfaitHeures(), motif: 'Feuille corrigée' }) },
+  { action: 'forfaitHeures.annuler', droits: '        O    -    -    -    -    -    -    -    -', p: async () => ({ id: await ligneForfaitHeures(), motif: 'Clôture faite trop tôt' }) },
 ];
+// lot 12 — C1 (forfait annuel en heures)
+/**
+ * Plage de cinq jours sous forfait annuel en heures d'Élodie Bernard (fiche 11), terminée et sans blocage : suivi à partir
+ * du lundi 5 janvier 2026, sortie le vendredi 9, feuille validée de la semaine (transaction annulée de la ligne).
+ */
+async function plageForfaitHeures() {
+  await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), forfaitHeuresDebutSuivi: '2026-01-05' });
+  await db.run('UPDATE employes SET fin = ? WHERE id = 11', ['2026-01-09']);
+  await db.run('DELETE FROM feuilles WHERE emp_id = 11 AND week = ?', ['2026-01-05']);
+  await db.insert('feuilles', {
+    empId: 11, week: '2026-01-05', statut: 'validee', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-LOG', tache: 'Logistique', ks: false, h: [7, 7, 7, 7, 7, 0, 0] }],
+    contrat: { statut: 'cadre', typeContrat: 'cdi', temps: 'forfait_heures_annuel', heures: null, forfaitHeures: 1607, forfaitJours: null, jourOff: [] },
+  });
+  return { empId: 11, debut: '2026-01-05' };
+}
+/** Ligne de clôture confirmée d'Élodie Bernard, ni dans un lot ni transmise. */
+async function ligneForfaitHeures() {
+  return (await db.insert<{ id: number }>('cloturesForfaitHeures', {
+    empId: 11, debut: '2025-01-01', fin: '2025-12-31', motifFin: 'periode', version: 1, remplaceId: null, forfait: 1607, cible: 1607, absences: 0, realise: 1620,
+    hfa25: 13, hfa50: 0, hca10: 0, hca25: 0, nonRealise: 0, statut: 'confirmee', confirmeeLe: '2026-01-15T09:00:00.000Z', confirmeePar: 'Sandrine Vidal',
+    lotId: null, sage: false, horsFichier: false, rouverteLe: null, rouvertePar: null, rouverteMotif: null, annuleeLe: null, annuleePar: null, annuleeMotif: null,
+  })).id;
+}
 /** Entité d'essai (lot 11), ouverte ou fermée, insérée dans la transaction annulée de la ligne. */
 async function entiteEssai(ouverte = true) {
   await db.insert('entites', {

@@ -62,6 +62,10 @@ export const REFERENCES: readonly Reference[] = [
   // Avenants de renonciation d'un forfait jours (t043) : salarié et lot de paie des jours rachetés.
   ref('avenants_forfait', 'emp_id', 'employes'),
   ref('avenants_forfait', 'lot_id', 'lots_paie'),
+  // lot 12 — C1 (forfait annuel en heures) : salarié, lot de paie des heures, version transmise corrigée.
+  ref('clotures_forfait_heures', 'emp_id', 'employes'),
+  ref('clotures_forfait_heures', 'lot_id', 'lots_paie'),
+  ref('clotures_forfait_heures', 'remplace_id', 'clotures_forfait_heures'),
   // Horaire de poste par défaut d'une équipe (lot 6) ; ceux des feuilles (JSON, archivés gardés) ne sont jamais supprimés.
   ref('equipes', 'horaire', 'horaires', 'code'),
   // lot 11 — organigramme : entité d'une équipe racine, société parente d'un établissement (0016_entites.sql). Les codes de

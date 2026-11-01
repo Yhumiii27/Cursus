@@ -43,6 +43,8 @@ const TITRES: Partial<Record<TableName, string>> = {
   // lot 11 — notes de frais
   notesFrais: 'Notes de frais', lignesFrais: 'Dépenses des notes de frais', vehiculesPerso: 'Véhicules personnels déclarés (indemnités kilométriques)',
   avancesFrais: 'Avances sur frais',
+  // lot 12 — C1 (forfait annuel en heures)
+  cloturesForfaitHeures: 'Clôtures du forfait annuel en heures (régularisation de fin de période)',
 };
 /**
  * Colonnes jamais exportées : empreinte du mot de passe (secret) et du jeton d'agenda ; nom stocké et jeton d'envoi d'une pièce justificative
@@ -66,6 +68,8 @@ const RETIREES_SALARIE: Partial<Record<TableName, string[]>> = {
   declarationsPasseport: ['auteur', 'auteurId'],
   // Évaluations des formations (lot 7, t121) : qui a saisi l'avis (service RH à la clôture, manager).
   evaluationsFormation: ['auteur', 'auteurId'],
+  // lot 12 — C1 (forfait annuel en heures) : administrateur RH qui a confirmé, rouvert ou annulé la clôture.
+  cloturesForfaitHeures: ['confirmeePar', 'rouvertePar', 'annuleePar'],
 };
 
 /**

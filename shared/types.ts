@@ -3,6 +3,9 @@
 // lot 11 — notes de frais, étape 2 : gabarit du fichier d'écritures (réglage `fraisGabarit`) et ses lignes (exports).
 import type { GabaritExportComptable, LigneEcriture } from './rules/export-comptable.ts';
 import type { AlerteFrais } from './rules/frais-politique.ts';
+// lot 12 — C1 (forfait annuel en heures)
+import type { ClotureForfaitHeures, ElementForfaitHeuresPaie, EmissionForfaitHeures } from './rules/forfait-heures.ts';
+export type { ClotureForfaitHeures, ElementForfaitHeuresPaie, EmissionForfaitHeures } from './rules/forfait-heures.ts';
 
 export type ISODate = string;
 export type Role = 'rh' | 'manager' | 'collaborateur';
@@ -1364,6 +1367,21 @@ export interface Settings {
   fraisJournal: string;
   fraisGabarit: GabaritExportComptable;
   // lot 12 — C1 (forfait annuel en heures)
+  /**
+   * Forfait annuel en heures (shared/rules/forfait-heures.ts) : début de la période de référence (« MM-JJ », année civile par
+   * défaut), début du suivi dans Cursus (mise en service), référence de l'accord (exigée dès qu'une valeur ci-dessous diffère
+   * du défaut), heures par semaine travaillée majorées de 25 % avant la tranche à 50 %, natures d'absence déduites de la
+   * cible, heures déduites par jour d'absence (0 : forfait divisé par les jours ouvrés théoriques), mois d'émission des heures
+   * de la clôture, imputation sur le contingent annuel (désactivée tant que la paie ne l'a pas confirmée).
+   */
+  forfaitHeuresDebutPeriode: string;
+  forfaitHeuresDebutSuivi: ISODate;
+  forfaitHeuresAccord: string;
+  forfaitHeuresSeuil25: number;
+  forfaitHeuresAbsencesDeduites: AbsenceType[];
+  forfaitHeuresJour: number;
+  forfaitHeuresEmission: EmissionForfaitHeures;
+  forfaitHeuresContingent: boolean;
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
@@ -1581,6 +1599,8 @@ export interface SagePush {
   /** Remboursements de notes de frais et avances (montants en euros), `codeSage` null : à saisir dans Sage. */
   frais?: ElementFraisPaie[];
   // lot 12 — C1 (forfait annuel en heures)
+  /** Heures de la clôture d'un forfait annuel en heures (HFA25, HFA50, HCA10, HCA25), `codeSage` null : à saisir dans Sage. */
+  forfaitHeures?: ElementForfaitHeuresPaie[];
   /**
    * Éléments calculés que le lot n'emporte pas, faute de rubrique active (soldes de sortie) : listés « à saisir dans Sage »
    * dans le résumé du lot et l'export des variables (server/src/elements-lot.ts). Les absences et déplacements sans code
@@ -1697,6 +1717,8 @@ export interface LotPaie {
   /** Notes de frais remboursées et avances versées par le lot (identifiant, salarié ; `avance` : avance sur frais). */
   frais?: { id: number; empId: number; avance?: true }[];
   // lot 12 — C1 (forfait annuel en heures)
+  /** Lignes de clôture d'un forfait annuel en heures dont le lot emporte les heures (identifiant, salarié). */
+  forfaitHeures?: { id: number; empId: number }[];
   /**
    * Totaux du contenu figé : lignes du fichier, salariés, quantité par code Sage des heures ; `absences` : éléments
    * d'absence, salariés et quantité par code Sage (codes retirés hors droit « paie » : server/src/dataset.ts).
@@ -1713,6 +1735,8 @@ export interface LotPaie {
     /** Remboursements de frais et avances : éléments, salariés et montant total (euros). */
     frais?: { elements: number; salaries: number; montant: number };
     // lot 12 — C1 (forfait annuel en heures)
+    /** Heures de la clôture d'un forfait annuel en heures : éléments et salariés. */
+    forfaitHeures?: { elements: number; salaries: number };
     /** Éléments à saisir à la main dans Sage, nominatifs (shared/rules/elements-lot.ts) ; absent : aucun. */
     aSaisir?: ElementASaisir[];
   };
@@ -1965,6 +1989,12 @@ export interface Dataset {
   // lot 12 — blocs réservés (socle) : un champ nouveau part tel quel vers le manager et le collaborateur s'il n'est pas filtré
   // par la projection du chantier (server/src/vues-<module>.ts, contexte server/src/vues-lot12.ts).
   // lot 12 — C1 (forfait annuel en heures)
+  /**
+   * Clôtures du forfait annuel en heures (shared/rules/forfait-heures.ts) : toutes pour le service RH ; les lignes confirmées
+   * sans motifs pour la paie ; ses lignes confirmées, sans motifs ni auteurs, pour le salarié ; rien pour le manager (équipe),
+   * le référent HSE et la lecture seule (server/src/vues-forfait-heures.ts). Absent : aucune.
+   */
+  cloturesForfaitHeures?: ClotureForfaitHeures[];
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)

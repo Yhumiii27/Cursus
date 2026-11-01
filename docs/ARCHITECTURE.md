@@ -1764,6 +1764,9 @@ aucun champ du paramètre n'est recopié.
 | `employe.contactUrgence` | empId, nom, telephone (les deux, ou aucun : retiré ; téléphone : chiffres, espaces, points, tirets, « + ») : contact d'urgence de la fiche (t068), service RH et intéressé seulement ; journal : salarié, champs masqués | le salarié pour lui-même (portail), RH |
 | `forfait.avenant` | empId, annee, jours (demi-journées), taux (%), signeLe, reference? : avenant de renonciation à des jours de repos d'un forfait jours (t043), seulement avec la référence de l'accord collectif (Paramètres → Forfait jours) ; forfait plus jours rachetés de l'année dans la limite de `forfaitJoursPlafond` (235), majoration d'au moins `forfaitJoursMajorationMin` (10 %), signature passée, au plus tard le 31 décembre de l'année ; jamais pour soi-même ; journal : salarié, année, jours, taux, date, référence masquée (archive paie) | RH |
 | `forfait.annulerAvenant` | id, motif (obligatoire, gardé sur l'avenant, visible du service RH, remis au salarié dans la copie de ses données) : refusée (409) tant que les jours rachetés sont dans un lot à confirmer ; déjà transmis : annulé, à régulariser dans Sage ; journal : identifiant, salarié, motif masqué (archive paie) | RH |
+| `forfaitHeures.cloturer` | lignes : [{ empId, debut }] (500 au plus) — lot 12, C1 : chaque plage sous forfait annuel en heures recalculée (shared/rules/forfait-heures.ts), photographiée et confirmée ; une ligne déjà confirmée n'est jamais refaite ; une ligne bloquée (plage en cours, feuille non validée, semaine sans feuille ni absence, durée légale atteinte par un temps partiel) refuse toute la clôture (409) ; jamais pour soi-même ; journal : lignes (identifiant, salarié, plage, version), jamais d'heures (archive paie) | Administrateur RH |
+| `forfaitHeures.rouvrir` | id, motif (obligatoire, 500 caractères) : avant transmission, la ligne repasse « à confirmer » ; après, nouvelle version « à confirmer » dont seul l'écart partira (lot correctif) ; refusée (409) dans un lot à confirmer, sur une ligne annulée ou déjà à confirmer ; journal : identifiant, salarié, version, motif masqué | Administrateur RH |
+| `forfaitHeures.annuler` | id, motif (obligatoire) : avant transmission seulement, hors d'un lot (409 sinon) ; la plage redevient à clôturer ; journal : identifiant, salarié, statut, motif masqué | Administrateur RH |
 | `formalite.enregistrer` | empId, kind (`passeport`/`visa`/`vaccin`), numero, expire, dest, visaType, obtenu, v, date | RH (écrit dans le dossier), ou le collaborateur pour lui-même (déclaration en attente, voir ci-dessous) |
 | `voyages.importer` | texte (CSV) ; ligne sans référence : `DD-<n° du déplacement>` (suffixe si déjà prise) ; demandeur : nom du salarié reconnu, sinon tel que saisi (service RH seulement) | RH |
 | `keystone.accepter` / `keystone.refuser` | id ; refus : motif? (conservé dans Cursus, demande et message du journal, jamais transmis à Keystone) | RH (demande en attente ; l'acceptation revalide affectation, chantier actif, destination, effectifs et l'absence de déplacement déjà créé, et est refusée si le salarié est déjà en déplacement ou absent ces jours-là ; la demande reste en base avec statut, date et décideur) |
@@ -4701,3 +4704,59 @@ du 1er novembre 2026) : aucun socle i18n, les textes restent en français. Aucun
 - **Échanges avec les autres outils** : règles R2 à R5 de M-17 (section « Échanges avec les autres outils » ci-dessus),
   inventaire `docs/ECHANGES.md`. Les demandes du lot aux autres dépôts se rédigent dans `docs/demandes/` et attendent la
   validation du propriétaire.
+
+## Lot 12 : forfait annuel en heures (C1, t044), étape 1
+
+Régularisation de fin de période de référence des salariés au forfait annuel en heures (ou annualisés), transmise à la
+paie. Échéance réelle : avant la première sortie ou le premier avenant d'un salarié au forfait en 2027 ; la clôture
+annuelle 2027 tombe en janvier 2028 (2026 est clos à la main dans Sage). Étape 1 : règles, table, actions, paie, réglages
+et journal ; les écrans (bandeau et dialogue de clôture, récapitulatif de Temps, fiche, Paramètres, Lots de paie, échéance
+RH), la documentation RGPD et le guide viennent à l'étape 2.
+
+- **`cumulAnnuel` corrigé** (shared/rules/temps.ts) : seules les feuilles décomptées au forfait annuel (régime figé de
+  chaque feuille, comme le forfait jours) entrent dans le cumul — un salarié passé de 35 h au forfait en juillet ne voit
+  plus compter ses semaines à 35 h, dont les heures supplémentaires sont déjà payées ; cumul et cible partent au plus tôt
+  du début du suivi (`forfaitHeuresDebutSuivi`). La démonstration (données d'octobre 2026) est suivie depuis le
+  1er janvier 2026 (server/src/seed.ts).
+- **Règle pure** `clotureForfaitHeures(d, e, periode, debut?)` (shared/rules/forfait-heures.ts) : plages sous forfait de
+  la période de référence (12 mois à partir de `forfaitHeuresDebutPeriode`, année civile par défaut), de max(début de
+  période, entrée, début du suivi) à min(fin de période, sortie, veille de l'avenant qui fait quitter le forfait) ; cible
+  au prorata des jours calendaires de chaque segment ; absences déduites (toutes hors CP légaux, liste réglable), chaque
+  jour ouvré hors férié chômé et journée de solidarité compté au forfait divisé par les jours ouvrés théoriques de la
+  période (jours ouvrés hors fériés moins 25 jours de CP : 7,02 h pour 1 607 h en 2027) ou à la durée de l'accord, total
+  seul ; réalisé des feuilles validées sous forfait, jour par jour ; écart ventilé en HFA25 (jusqu'à
+  `forfaitHeuresSeuil25` heures par semaine travaillée sous forfait, 8 h) et HFA50, ou, sous 1 607 h, en HCA10 (jusqu'au
+  dixième de la cible) et HCA25, alerte au-delà du plafond (dixième, tiers avec accord) ; heures non réalisées affichées,
+  jamais émises. Alertes : période partielle, droits à CP incomplets (embauche), salarié non cadre, temps partiel
+  annualisé (mentions du contrat). Blocages : plage en cours, feuille non validée, semaine sans feuille ni absence, durée
+  légale atteinte par un temps partiel (art. L3123-9). `aRevoir` : ligne confirmée dont une feuille a été rouverte après
+  la confirmation, n'est plus validée, ou dont le réalisé recalculé diffère (la ligne n'est pas modifiée).
+- **Table `cloturesForfaitHeures`** (server/src/db.ts ; PostgreSQL `0022_forfait_heures.sql`, SQLite `lot12-forfait-heures`
+  pour les index) : plage (`debut`, `fin`, `motifFin`), `version` et `remplaceId`, photographie en heures, statut
+  (`proposee`, `confirmee`, `annulee`), confirmation, lot, transmission, réouverture et annulation motivées ; unicité
+  (empId, debut, version). Lue par l'instantané (`LECTURES`, `Brut`, `CHAMPS_PAR_SALARIE`), révision et journal des
+  changements par clé (un total d'heures, aucune nature) ; tirages du banc d'oracle ; conservation : motifs vidés avec la
+  catégorie « paie » ; export RGPD sans les auteurs ; colonnes sensibles demandées à Matrix
+  (docs/demandes/matrix-lot12-forfait-heures.sql). Projection (server/src/vues-forfait-heures.ts) : service RH tout ; paie
+  les lignes confirmées sans motif ; salarié ses lignes confirmées sans motif ni auteur ; manager (équipe), référent HSE,
+  lecture seule et comptabilité : rien.
+- **Actions** (server/src/actions/forfait-heures.ts, administrateur RH, jamais pour soi-même) : `forfaitHeures.cloturer`
+  (lignes cochées, recalculées ; déjà confirmée : jamais refaite ; une ligne bloquée refuse tout), `forfaitHeures.rouvrir`
+  (motif ; avant transmission, la ligne repasse à confirmer ; après, nouvelle version dont seul l'écart partira),
+  `forfaitHeures.annuler` (motif ; avant transmission, hors d'un lot). Journal (`ACTIONS_PAIE`, famille « Forfait annuel
+  en heures ») : identifiants, plage, version, statut ; jamais d'heures, de taux ni de montant, motifs masqués.
+- **Paie** : famille `FAMILLE_FORFAIT_HEURES` (server/src/forfait-heures-paie.ts, clé `lotsPaie.forfaitHeures`) ; rubriques
+  HFA25, HFA50, HCA10, HCA25 désactivées par défaut (« à saisir dans Sage », réglées hors fichier à la confirmation du
+  lot) ; période d'émission `forfaitHeuresEmission` (mois de la confirmation, ou dernier mois de la plage), un mois clos
+  partant sur la période ouverte ; plage close par la sortie : mois de la sortie, comme le solde de sortie (même lot).
+  Version qui corrige une ligne transmise : écart seul (positif ou négatif, sans code Sage si le format du fichier refuse
+  les négatifs), le lot devient correctif (`correctif` de `FamilleLot`). Export des variables de la période. Imputation
+  des heures HFA sur le contingent annuel et la COR (`contingentAnnuel`) derrière `forfaitHeuresContingent`, désactivé.
+- **Réglages** (shared/reglages.ts) : `forfaitHeuresDebutPeriode` (« 01-01 »), `forfaitHeuresDebutSuivi` (2027-01-01),
+  `forfaitHeuresAccord`, `forfaitHeuresSeuil25` (8), `forfaitHeuresAbsencesDeduites` (toutes hors CP),
+  `forfaitHeuresJour` (0 : calculé), `forfaitHeuresEmission` (`cloture`), `forfaitHeuresContingent` (faux) ; COHERENCE :
+  la référence de l'accord est exigée dès que la période, le seuil, la liste des absences ou la durée journalière
+  diffèrent du défaut ; elle est masquée au journal de `parametres.maj`.
+- **Tests** : tests/forfait-heures.test.ts (règle par valeurs : avenant en juillet, entrée, sortie, début du suivi,
+  absences, temps partiel, plafond, 1 607 h, CP incomplets ; actions : lot de paie, ligne « à revoir », réouverture après
+  transmission et lot correctif, annulation, sortie, droits de lecture, lecture incrémentale) ; matrice des droits.

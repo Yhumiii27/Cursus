@@ -19,6 +19,8 @@ import type { Domain } from '../domain.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../types.ts';
 import { present } from './contrats.ts';
 import { calcSheet, type FeuilleCalcul, type SheetCalc } from './temps.ts';
+// lot 12 — C1 (forfait annuel en heures)
+import { heuresForfaitContingent } from './forfait-heures.ts';
 
 /** Semaines de la moyenne, et de la fenêtre de la requalification du temps partiel (art. L3123-13). */
 export const SEMAINES_MOYENNE = 12;
@@ -147,7 +149,10 @@ export interface Contingent {
 export function contingentAnnuel(d: Domain, e: Employe, annee: number = d.year, feuilles = valideesDe(d, e.id)): Contingent | null {
   const s = d.ds.settings, max = s?.contingentHeuresSup ?? CONTINGENT_LEGAL, alerte = s?.contingentAlerte ?? 90;
   const reprises = heuresSupReprises(d, e.id, annee);
-  const cumul = arrondi(reprises + feuilles.reduce((n, sh) => n + heuresSupDansAnnee(d, e, sh, annee), 0));
+  // lot 12 — C1 (forfait annuel en heures) : heures au-delà du forfait des clôtures confirmées, seulement avec le réglage
+  // `forfaitHeuresContingent` (désactivé tant que la paie ne l'a pas confirmé).
+  const forfaitAnnuel = heuresForfaitContingent(d, e.id, annee);
+  const cumul = arrondi(reprises + forfaitAnnuel + feuilles.reduce((n, sh) => n + heuresSupDansAnnee(d, e, sh, annee), 0));
   const c = d.contratOf(e);
   if (!cumul && (c.forfait || c.annuel || c.dirigeant || c.partiel || c.interim)) return null;
   // Heures au-delà du contingent faites dans Cursus : celles d'avant la reprise relèvent de l'ancien outil.

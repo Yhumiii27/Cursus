@@ -283,6 +283,8 @@ const TOUJOURS: Partial<Record<TableName, string>> = {
   // démonstration (montants cités de mémoire, à ressaisir par le service RH et la comptabilité).
   ...Object.fromEntries(['notesFrais', 'lignesFrais', 'vehiculesPerso', 'avancesFrais', 'exportsFrais', 'sceauxPieces', 'baremesKm', 'forfaitsFrais', 'tauxDevises']
     .map(t => [t, 'notes de frais et valeurs de démonstration'])),
+  // lot 12 — C1 (forfait annuel en heures) : clôtures fictives (éléments de paie).
+  cloturesForfaitHeures: 'paie et compteurs',
   connexions: 'sessions de connexion',
   comptes: 'comptes de connexion',
   journal: 'journal des actions fictives (remplacé par la seule ligne purge.demo)',

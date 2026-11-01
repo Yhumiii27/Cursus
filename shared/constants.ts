@@ -532,6 +532,13 @@ export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubriqu
   FRAIS_AVANCE: { label: 'Avance sur frais versée', unite: 'eur', inactiveParDefaut: true },
   FRAIS_AVANCE_DED: { label: 'Avance sur frais déduite d’un remboursement (montant négatif)', unite: 'eur', inactiveParDefaut: true },
   // lot 12 — C1 (forfait annuel en heures)
+  // Forfait annuel en heures (shared/rules/forfait-heures.ts) : régularisation de fin de période, distincte des heures
+  // supplémentaires et complémentaires hebdomadaires pour que la paie les reconnaisse. Désactivées par défaut tant que la paie
+  // n'a pas donné ses codes : listées « à saisir dans Sage ». Heures non réalisées affichées, jamais émises.
+  HFA25: { label: 'Heures au-delà du forfait annuel, majorées à 25 % (régularisation de fin de période)', unite: 'h', inactiveParDefaut: true },
+  HFA50: { label: 'Heures au-delà du forfait annuel, majorées à 50 % (régularisation de fin de période)', unite: 'h', inactiveParDefaut: true },
+  HCA10: { label: 'Heures complémentaires annualisées, majorées à 10 % (temps partiel annualisé)', unite: 'h', inactiveParDefaut: true },
+  HCA25: { label: 'Heures complémentaires annualisées, majorées à 25 % (temps partiel annualisé)', unite: 'h', inactiveParDefaut: true },
 };
 
 /** Sections d'un compte rendu : [clé, libellé, rédacteur] — 'mgr' évaluateur, 'sal' salarié. */

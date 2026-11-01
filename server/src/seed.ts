@@ -560,6 +560,9 @@ export async function seedDemo(db: Db) {
     await comptesDemo(db);
     // lot 11 — notes de frais : module activé en démonstration, barème, forfaits, notes à chaque étape du circuit.
     await fraisDemo(db);
+    // lot 12 — C1 (forfait annuel en heures) : données d'octobre 2026, suivies depuis le 1er janvier 2026 en démonstration
+    // (en production, à partir de la mise en service : réglage `forfaitHeuresDebutSuivi`).
+    await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), forfaitHeuresDebutSuivi: '2026-01-01' });
 
     // Reprise des compteurs : jours déjà pris sur les périodes en cours, arrêtés au jour du chargement (période de CP à
     // prendre et année de RTT de cette date), plafonnés pour laisser un solde réaliste.

@@ -225,6 +225,8 @@ export const TABLES = {
       astreintes: 'json',
       // lot 11 — notes de frais : notes remboursées et avances versées (identifiant, salarié) ; montants dans `contenu`.
       frais: 'json',
+      // lot 12 — C1 (forfait annuel en heures) : lignes de clôture dont le lot emporte les heures (identifiant, salarié).
+      forfaitHeures: 'json',
     },
     unique: [['cle']],
   },
@@ -601,6 +603,22 @@ export const TABLES = {
   // lot 12 — blocs réservés (socle) : chaque chantier déclare ses tables dans le sien (migrations PostgreSQL et SQLite :
   // docs/ARCHITECTURE.md, « Lot 12 : socle commun »).
   // lot 12 — C1 (forfait annuel en heures)
+  // Clôtures du forfait annuel en heures (t044, shared/rules/forfait-heures.ts, server/src/actions/forfait-heures.ts ;
+  // migration PostgreSQL 0022_forfait_heures, SQLite lot12-forfait-heures) : une ligne par plage clôturée (salarié, début)
+  // et par version (réouverture après transmission : `remplaceId`, version transmise corrigée) ; photographie en heures,
+  // total des absences déduites sans nature ; confirmation, lot de paie, import confirmé ou réglé hors fichier ; réouverture
+  // et annulation datées, signées et motivées (textes de l'administrateur RH). Lue par l'instantané, révision et journal
+  // des changements par clé (aucune donnée de santé : un total d'heures, déclaré sensible à Matrix).
+  cloturesForfaitHeures: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', debut: 'text', fin: 'text', motifFin: 'text', version: 'int', remplaceId: 'int',
+      forfait: 'real', cible: 'real', absences: 'real', realise: 'real', hfa25: 'real', hfa50: 'real', hca10: 'real', hca25: 'real', nonRealise: 'real',
+      statut: 'text', confirmeeLe: 'text', confirmeePar: 'text', lotId: 'int', sage: 'bool', horsFichier: 'bool',
+      rouverteLe: 'text', rouvertePar: 'text', rouverteMotif: 'text', annuleeLe: 'text', annuleePar: 'text', annuleeMotif: 'text',
+    },
+    unique: [['empId', 'debut', 'version']],
+  },
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)

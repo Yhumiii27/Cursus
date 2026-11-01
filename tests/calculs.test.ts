@@ -61,7 +61,8 @@ test('t076 semaine à cheval sur deux années : année ISO pour Sage, cumul annu
   const s1 = feuille(11, '2025-12-29', [8, 8, 8, 0, 8]);
   const s53 = feuille(11, '2026-12-28', [7, 7, 7, 7, 0], 9001);
   const s2027 = feuille(11, '2027-01-04', [7, 7, 7, 7, 7], 9002);
-  const d = new Domain({ ...d0.ds, feuilles: [s1, s53, s2027] });
+  // lot 12 — C1 : cumul borné au début du suivi (2026 en démonstration) ; suivi depuis 2025 pour lire les trois années.
+  const d = new Domain({ ...d0.ds, settings: { ...d0.ds.settings, forfaitHeuresDebutSuivi: '2025-01-01' }, feuilles: [s1, s53, s2027] });
   const p = buildSagePayload(d, [s1, s53, s2027], 'TEST');
   assert.deepEqual(p.lignes.map(l => l.semaine), ['2026-S01', '2026-S53', '2027-S01']);
   const e = d.emp(11)!;

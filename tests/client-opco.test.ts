@@ -22,6 +22,7 @@ const { REGLAGES } = await import('../shared/reglages.ts');
 const { FAMILLES_JOURNAL, familleAction } = await import('../shared/journal.ts');
 const R = await import('../shared/rules/opco.ts');
 const { Budget } = await import('../client/src/pages/Budget.tsx');
+const { Echeances } = await import('../client/src/pages/Echeances.tsx');
 const { OpcoDossierDialog } = await import('../client/src/dialogs/OpcoDossierDialog.tsx');
 const { OpcoEtapeDialog } = await import('../client/src/dialogs/OpcoEtapeDialog.tsx');
 const { OpcoVersementDialog } = await import('../client/src/dialogs/OpcoVersementDialog.tsx');
@@ -311,6 +312,70 @@ test('Échéances : dossiers en cours par date, dépassées comprises ; rien pou
   const hse = await monter(db, await personne(23, 'rh'), () => createElement(EcheancesOpcoPanel));
   render(hse.element);
   assert.equal(screen.queryByRole('heading', { name: 'Dossiers OPCO' }), null);
+});
+
+test('Plan & budget : second dossier sur une ligne, accord d’un dossier abandonné hors indicateurs, compteurs par état', async () => {
+  const { db, personne, admin, accorde } = await avecDossiers();
+  // Ligne SST : un dossier accordé ; un second dossier reste possible (autre financeur), avec un avertissement si même dispositif.
+  const b = await monter(db, await personne(14, 'rh'), () => createElement(Budget));
+  render(b.element);
+  const ligne = screen.getAllByText('Sauveteur secouriste du travail (SST)')[0].closest('tr')!;
+  await act(async () => { fireEvent.click(within(ligne).getByRole('button', { name: 'Créer un autre dossier OPCO' })); });
+  assert.deepEqual(b.trace.ouverts.at(-1), { type: 'opcoDossier', planActionId: SST });
+  cleanup();
+  const dlg = await monter(db, await personne(14, 'rh'), () => createElement(OpcoDossierDialog, { planActionId: SST }));
+  render(dlg.element);
+  assert.match(document.body.textContent!, /déjà un dossier en cours pour ce dispositif \(accordé\)/);
+  fireEvent.change(screen.getByLabelText(/Dispositif/), { target: { value: 'versement_volontaire' } });
+  assert.doesNotMatch(document.body.textContent!, /déjà un dossier en cours/, 'autre dispositif : pas d’avertissement');
+  cleanup();
+
+  // Onglet : compteurs par état, facturé ; puis abandon du dossier accordé : son accord ne compte plus.
+  const o = await monter(db, await personne(14, 'rh'), () => createElement(Budget), { budgetOnglet: 'opco' });
+  render(o.element);
+  assert.match(document.body.textContent!, /Dossiers par état : Accordé : 1 · Refusé : 1/);
+  const kpiAccorde = () => [...document.querySelectorAll('.kpi')].find(k => k.querySelector('.card-kicker')?.textContent === 'Accordé')!.textContent!;
+  assert.match(kpiAccorde(), /^Accordé1\s200\s€/);
+  assert.match(document.body.textContent!, /0\s€ facturés à l’OPCO/);
+  cleanup();
+  await agir(db, admin, 'opco.abandonner', { id: accorde, de: 'accorde', motif: 'formation_annulee' });
+  const ab = await monter(db, await personne(14, 'rh'), () => createElement(Budget), { budgetOnglet: 'opco' });
+  render(ab.element);
+  assert.match(kpiAccorde(), /^Accordé0\s€/, 'accord abandonné : hors de l’accordé');
+  assert.match(document.body.textContent!, /Dossiers par état : Refusé : 1 · Abandonné : 1/);
+  await act(async () => { fireEvent.click(screen.getByLabelText('Plan & budget')); });
+  const sst = screen.getAllByText('Sauveteur secouriste du travail (SST)')[0].closest('tr')!;
+  assert.ok(within(sst).getByRole('button', { name: 'Dossier OPCO : Abandonné — ouvrir' }), 'colonne : sans montant accordé');
+});
+
+test('Plan & budget : période des versements bornée à l’exercice et recalculée à son changement', async () => {
+  const { db, personne } = await avecDossiers();
+  const periode = () => [(screen.getByLabelText('Du') as HTMLInputElement).value, (screen.getByLabelText('au') as HTMLInputElement).value];
+  const futur = await monter(db, await personne(14, 'rh'), () => createElement(Budget), { budgetOnglet: 'opco', exercice: 2027 });
+  render(futur.element);
+  assert.deepEqual(periode(), ['2026-01-01', '2026-10-10'], 'exercice futur : depuis le 1er janvier de l’année en cours');
+  assert.doesNotMatch(document.body.textContent!, /La fin précède le début/);
+  cleanup();
+  const b = await monter(db, await personne(14, 'rh'), () => createElement(Budget), { budgetOnglet: 'opco', exercice: 2025 });
+  render(b.element);
+  assert.deepEqual(periode(), ['2025-01-01', '2025-12-31'], 'exercice passé : toute l’année');
+  await act(async () => { fireEvent.click(screen.getByLabelText('2026')); });
+  assert.deepEqual(periode(), ['2026-01-01', '2026-10-10'], 'changement d’exercice : période recalculée');
+});
+
+test('Échéances : « ?type=dossiers-opco » ramené à « Tout » pour un profil qui ne voit pas les dossiers', async () => {
+  const { db, personne } = await avecDossiers();
+  const hse = await monter(db, await personne(23, 'rh'), () => createElement(Echeances), { echType: 'opco' });
+  render(hse.element);
+  assert.equal(screen.queryByRole('heading', { name: 'Dossiers OPCO' }), null);
+  assert.ok(screen.getByText('Renouvellements par mois'), 'échéances des salariés affichées');
+  assert.ok(screen.getByRole('button', { name: 'Exporter (CSV)' }));
+  assert.equal((screen.getByLabelText('Tout') as HTMLInputElement).checked, true);
+  cleanup();
+  const rh = await monter(db, await personne(14, 'rh'), () => createElement(Echeances), { echType: 'opco' });
+  render(rh.element);
+  assert.ok(screen.getByRole('heading', { name: 'Dossiers OPCO' }));
+  assert.equal(screen.queryByText('Renouvellements par mois'), null);
 });
 
 test('Paramètres → Dossiers OPCO : OPCO, subrogation et délais (bornes de shared/reglages.ts)', async () => {

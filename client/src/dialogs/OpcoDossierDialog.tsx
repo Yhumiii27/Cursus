@@ -6,11 +6,11 @@
 import { useState } from 'react';
 import { fmtEur } from '../../../shared/format.ts';
 import {
-  controlerSaisieOpco, DISPOSITIFS_OPCO, LISTE_DISPOSITIFS, CODES_OPCO, OPCOS, propositionDossier, type SaisieOpco,
+  controlerSaisieOpco, DISPOSITIFS_OPCO, dossierActif, dossiersDeLaLigne, LISTE_DISPOSITIFS, CODES_OPCO, OPCOS, propositionDossier, STATUTS_OPCO, type SaisieOpco,
 } from '../../../shared/rules/opco.ts';
 import type { CodeOpco, DispositifOpco } from '../../../shared/types.ts';
 import { CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
-import { Fine } from '../components/ui.tsx';
+import { Fine, NoteAccent } from '../components/ui.tsx';
 import { erreurTexte } from '../components/controles.ts';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -55,6 +55,9 @@ export function OpcoDossierDialog({ planActionId, id }: { planActionId?: number 
   if (!l || (id != null && !dossier)) return null;
 
   const correction = !!dossier && dossier.statut !== 'a_deposer';
+  // Création d'un second dossier sur la ligne (autre dispositif ou autre financeur) : admise, avec un avertissement quand un
+  // dossier actif du même dispositif existe déjà (risque de doublon).
+  const memeDispositif = dossier ? [] : dossiersDeLaLigne(d.ds.dossiersOpco, l.id).filter(x => dossierActif(x) && x.dispositif === dispositif);
   const annexesPermises = DISPOSITIFS_OPCO[dispositif].annexes;
   const saisie: SaisieOpco = {
     opco, dispositif, reference, du, au, heures, effectif, montantDemande: montant, montantDemandeAnnexes: annexesPermises ? annexes : '',
@@ -149,6 +152,12 @@ export function OpcoDossierDialog({ planActionId, id }: { planActionId?: number 
         <input type="checkbox" checked={qualiopi} onChange={e => setQualiopi(e.target.checked)} style={{ accentColor: 'var(--color-accent)', marginTop: 'var(--space-1)', flex: 'none' }} />
         <span>Organisme certifié Qualiopi (condition de la prise en charge)</span>
       </label>
+      {memeDispositif.length > 0 && (
+        <NoteAccent>
+          Cette ligne porte déjà {memeDispositif.length > 1 ? `${memeDispositif.length} dossiers en cours` : 'un dossier en cours'} pour ce dispositif ({memeDispositif.map(x => STATUTS_OPCO[x.statut].label.toLowerCase()).join(', ')}) :
+          un second dossier ne se justifie que pour un autre financeur.
+        </NoteAccent>
+      )}
       {correction && (
         <Field label="Motif de la correction" htmlFor="opco-motif" requis erreur={v.erreur(motifErr) || (motif.trim().length > MOTIF_MAX ? motifErr : null)}>
           <textarea className="input" id="opco-motif" rows={2} value={motif} placeholder="Numéro mal recopié, dates de la formation déplacées…" onChange={e => setMotif(e.target.value)} />

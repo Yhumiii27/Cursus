@@ -279,7 +279,7 @@ test('synthèse d’un exercice : états, montants, taux de prise en charge, res
   const s = O.syntheseOpco(2026, dossiers, [versement({ montant: 500 })], plan, DELAIS, TODAY);
   assert.equal(s.exercice, 2026);
   assert.deepEqual(Object.entries(s.parStatut).filter(([, n]) => n), [['a_deposer', 2], ['refuse', 1], ['rembourse', 1]]);
-  assert.deepEqual(s.total, { cle: 'total', dossiers: 4, demande: 6700, accorde: 1800, recu: 500, aRecuperer: 1300, attenduOrganisme: 0, refuse: 700, priseEnCharge: 1800 });
+  assert.deepEqual(s.total, { cle: 'total', dossiers: 4, demande: 6700, accorde: 1800, facture: 1800, recu: 500, aRecuperer: 1300, attenduOrganisme: 0, refuse: 700, priseEnCharge: 1800 });
   // Actions qui portent un dossier actif : 2 400 + 1 200 réels.
   assert.deepEqual([s.cout, s.resteACharge, s.tauxPriseEnCharge], [3600, 1800, 50]);
   assert.deepEqual(s.parOpco.map(l => [l.cle, l.dossiers]), [['akto', 1], ['opco2i', 3]]);
@@ -289,4 +289,16 @@ test('synthèse d’un exercice : états, montants, taux de prise en charge, res
   assert.equal(s.retards, 2, 'dépôt du dossier 3 dû le 15 septembre ; remboursement du dossier 1 attendu le 30 septembre');
   const rien = O.syntheseOpco(2030, dossiers, undefined, plan, DELAIS, TODAY);
   assert.deepEqual([rien.total.dossiers, rien.cout, rien.tauxPriseEnCharge, rien.parOpco], [0, 0, null, []]);
+});
+
+test('synthèse : un dossier accordé puis abandonné ne compte ni dans l’accordé, ni dans le facturé, ni dans le taux', () => {
+  // Deux actions réalisées à 2 000 € ; A accordé 1 000 € (et facturé) puis abandonné, B accordé 500 €.
+  const plan = [ligne({ statut: 'realise', coutReel: 2000 }), ligne({ id: 2, statut: 'realise', coutReel: 2000 })];
+  const a = accorde({ statut: 'abandonne', montantAccorde: 1000, factureLe: '2026-09-25', montantFacture: 1000, abandonLe: '2026-10-01', abandonMotif: 'formation_annulee' });
+  const b = accorde({ id: 2, planActionId: 2, montantAccorde: 500 });
+  const s = O.syntheseOpco(2026, [a, b], undefined, plan, DELAIS, TODAY);
+  assert.deepEqual([s.total.accorde, s.total.facture, s.cout, s.tauxPriseEnCharge], [500, 0, 2000, 25]);
+  assert.deepEqual(s.parOpco.map(l => [l.cle, l.dossiers, l.accorde]), [['opco2i', 2, 500]], 'l’abandonné reste compté parmi les dossiers');
+  const seul = O.syntheseOpco(2026, [a], undefined, plan, DELAIS, TODAY);
+  assert.deepEqual([seul.total.accorde, seul.cout, seul.tauxPriseEnCharge], [0, 0, null], 'seul dossier, abandonné : rien d’accordé');
 });

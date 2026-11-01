@@ -482,24 +482,31 @@ export function conservationPieceOpco(nature: NaturePiece | null | undefined, ex
 // — Synthèse par exercice —
 
 export interface LigneSyntheseOpco {
-  cle: string; dossiers: number; demande: number; accorde: number; recu: number; aRecuperer: number; attenduOrganisme: number; refuse: number;
+  /** `accorde` et `facture` : dossiers non abandonnés seulement (un accord abandonné ne finance rien). */
+  cle: string; dossiers: number; demande: number; accorde: number; facture: number; recu: number; aRecuperer: number; attenduOrganisme: number; refuse: number;
   priseEnCharge: number;
 }
 export interface SyntheseOpco {
   exercice: number;
   parStatut: Record<StatutOpco, number>;
   total: LigneSyntheseOpco;
-  /** Coût retenu des actions qui portent un dossier actif, prise en charge et reste à charge ; taux : accordé / coût. */
+  /** Coût retenu des actions qui portent un dossier actif, prise en charge et reste à charge ; taux : accordé (hors dossiers abandonnés) / coût. */
   cout: number; resteACharge: number; tauxPriseEnCharge: number | null;
   parOpco: LigneSyntheseOpco[]; parDispositif: LigneSyntheseOpco[]; parEquipe: LigneSyntheseOpco[]; parTrimestre: LigneSyntheseOpco[];
   retards: number;
 }
 
-const ligneVide = (cle: string): LigneSyntheseOpco => ({ cle, dossiers: 0, demande: 0, accorde: 0, recu: 0, aRecuperer: 0, attenduOrganisme: 0, refuse: 0, priseEnCharge: 0 });
+const ligneVide = (cle: string): LigneSyntheseOpco => ({ cle, dossiers: 0, demande: 0, accorde: 0, facture: 0, recu: 0, aRecuperer: 0, attenduOrganisme: 0, refuse: 0, priseEnCharge: 0 });
 function ajouter(l: LigneSyntheseOpco, d: DossierOpco, m: MontantsOpco) {
   l.dossiers++;
   l.demande = centimes(l.demande + m.demande);
-  l.accorde = centimes(l.accorde + m.accorde);
+  // Un dossier abandonné garde la trace de son accord et de sa facture (retour d'un cran possible), mais ne compte plus
+  // dans l'accordé ni le facturé de l'exercice, ni donc dans le taux de prise en charge (dont le coût ne retient que les
+  // actions qui portent un dossier actif).
+  if (d.statut !== 'abandonne') {
+    l.accorde = centimes(l.accorde + m.accorde);
+    l.facture = centimes(l.facture + (m.facture ?? 0));
+  }
   l.recu = centimes(l.recu + m.recuEntreprise + m.payeOrganisme);
   l.aRecuperer = centimes(l.aRecuperer + m.aRecuperer);
   l.attenduOrganisme = centimes(l.attenduOrganisme + m.attenduOrganisme);

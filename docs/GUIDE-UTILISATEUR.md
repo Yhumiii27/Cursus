@@ -343,11 +343,12 @@ Version simple retenue par l'entreprise (quelques dossiers par an) : suivi de la
 pièces et échéances, sans export comptable ni connexion au portail de l'OPCO (la saisie y reste manuelle).
 
 - Écran « Plan & budget », colonne « OPCO » : « Créer » ouvre un dossier sur la ligne du plan (une ligne reportée se
-  traite sur sa nouvelle ligne). Dates, heures, effectif et montant demandé sont proposés d'après les sessions, le
+  traite sur sa nouvelle ligne). « Nouveau dossier » en ajoute un second, pour un autre dispositif ou un autre financeur.
+  Dates, heures, effectif et montant demandé sont proposés d'après les sessions, le
   catalogue et le coût de la ligne ; OPCO et subrogation d'après Paramètres → Dossiers OPCO. SIRET, déclaration
   d'activité et certification Qualiopi de l'organisme se saisissent sur le dossier.
-- Onglet « Dossiers OPCO » : demandé, accordé, reçu, à récupérer, taux de prise en charge et reste à charge de
-  l'exercice de l'action ; dossiers en retard en tête ; filtres par état, OPCO et dispositif ; répartition par OPCO,
+- Onglet « Dossiers OPCO » : demandé, accordé, facturé, reçu, à récupérer, taux de prise en charge et reste à charge
+  de l'exercice de l'action, et nombre de dossiers par état (l'accord d'un dossier abandonné n'y compte plus) ; dossiers en retard en tête ; filtres par état, OPCO et dispositif ; répartition par OPCO,
   dispositif, équipe et trimestre. Le réalisé de l'onglet du plan affiche aussi le coût net après les versements de
   l'OPCO, sans changer les enveloppes.
 - Le dossier ouvert propose ses étapes : « Dossier déposé » (numéro de l'OPCO), « Accord reçu » ou « Refus reçu »

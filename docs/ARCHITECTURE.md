@@ -4229,12 +4229,16 @@ référent HSE, la paie, le manager et le collaborateur. Code dans `client/src/c
 
 - **Plan & budget** : onglet « Dossiers OPCO » (`ui.budgetOnglet`, dans l'adresse : `?onglet=dossiers-opco`, filtres
   `etat`, `opco`, `dispositif`, dossier ouvert `dossier-opco`) pour l'exercice affiché : indicateurs de `syntheseOpco`
-  (demandé, accordé, reçu, à récupérer, taux de prise en charge, reste à charge), dossiers en retard en tête
+  (demandé, accordé, facturé, reçu, à récupérer, refusé, taux de prise en charge, reste à charge, nombre de dossiers par
+  état ; l'accordé et le facturé d'un dossier abandonné ne comptent plus, ni dans le taux), dossiers en retard en tête
   (`echeanceOpco`), tableau filtrable (état : tout, en cours, en retard, clos ; OPCO et dispositif présents), panneau de
   détail (montants au centime, formation et organisme, chronologie datée, versements, pièces attendues et jointes, étapes
   proposées par `etapesProposees`, les mêmes contrôles que le serveur), répartition par OPCO, dispositif, équipe ou
-  trimestre, versements d'une période. Onglet du plan : colonne « OPCO » (états et accordé de la ligne, « Créer » pour le
-  service RH sur une ligne non reportée sans dossier actif, exercice clos compris) et coût net du réalisé (`coutNetPlan` :
+  trimestre, versements d'une période (l'exercice jusqu'à aujourd'hui, ou depuis le 1er janvier de l'année en cours pour un
+  exercice futur ; l'onglet est remonté à chaque changement d'exercice). Onglet du plan : colonne « OPCO » (états et
+  accordé de la ligne, hors dossier abandonné ; « Créer », ou « Nouveau dossier » à côté des dossiers existants — un par
+  dispositif ou par financeur, avertissement dans le dialogue si un dossier actif du même dispositif existe — pour le
+  service RH sur une ligne non reportée, exercice clos compris) et coût net du réalisé (`coutNetPlan` :
   réalisé moins les versements de l'OPCO sur les actions réalisées ; les enveloppes ne changent pas).
 - **Dialogues** : création préremplie (`propositionDossier` : dates des sessions non annulées de la ligne, durée du
   catalogue, effectif réel ou prévu, coût retenu ; OPCO et subrogation des réglages) et modification (correction motivée
@@ -4244,7 +4248,8 @@ référent HSE, la paie, le manager et le collaborateur. Code dans `client/src/c
   « confirmer » avec un motif (administrateur RH). Avec les pièces activées, l'envoi des justificatifs est bloqué à l'écran
   tant que facture et certificat de réalisation (ou émargement) manquent, comme par le serveur.
 - **Échéances** : filtre « Dossiers OPCO » (`echType = 'opco'`, `?type=dossiers-opco`) et panneau des échéances dépassées
-  ou des 12 prochains mois, qui ouvre le dossier dans Plan & budget.
+  ou des 12 prochains mois, qui ouvre le dossier dans Plan & budget. Pour un profil qui ne voit pas les dossiers (lien
+  partagé), le filtre lu dans l'adresse revient à « Tout ».
 - **Paramètres → Dossiers OPCO** : OPCO et subrogation proposés (enregistrés aussitôt), trois délais enregistrés au bouton
   (bornes de `shared/reglages.ts`, comparées par le test).
 - **Exports** (`csvOpco`, `csvVersementsOpco` de `client/src/listes-csv.ts`, téléchargement tracé au journal par

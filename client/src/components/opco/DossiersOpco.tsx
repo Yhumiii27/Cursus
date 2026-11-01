@@ -1,6 +1,6 @@
 // lot 11 — dossiers OPCO : onglet « Dossiers OPCO » de l'écran Plan & budget, pour l'exercice affiché (celui de l'action
-// du plan, où les montants sont comptés). Indicateurs (demandé, accordé, reçu, à récupérer, taux de prise en charge et
-// reste à charge), dossiers en retard en tête, tableau filtrable par état, OPCO et dispositif, panneau de détail du
+// du plan, où les montants sont comptés). Indicateurs (demandé, accordé, facturé, reçu, à récupérer, refusé, taux de prise
+// en charge et reste à charge, nombre de dossiers par état), dossiers en retard en tête, tableau filtrable par état, OPCO et dispositif, panneau de détail du
 // dossier ouvert, ventilation par OPCO, dispositif, équipe et trimestre, versements d'une période et exports CSV
 // (listes-csv.ts : CSV simple, sans export comptable — réponse de l'entreprise du 31 octobre 2026). Service RH en
 // modification, lecture seule en consultation (sans motifs) ; le serveur contrôle tout de nouveau.
@@ -11,7 +11,7 @@ import {
   DISPOSITIFS_OPCO, echeanceOpco, type EcheanceOpco, LISTE_DISPOSITIFS, CODES_OPCO, montantsOpco, OPCOS, STATUTS_OPCO, syntheseOpco, versementsDeLaPeriode,
   type LigneSyntheseOpco,
 } from '../../../../shared/rules/opco.ts';
-import type { CodeOpco, DispositifOpco, DossierOpco } from '../../../../shared/types.ts';
+import type { CodeOpco, DispositifOpco, DossierOpco, StatutOpco } from '../../../../shared/types.ts';
 import { Ouvrir } from '../Cliquable.tsx';
 import { Btn, Empty, Kpi, Kpis, Panel, Seg, Tag, Two } from '../ui.tsx';
 import { usePanneauVisible } from '../panneau.ts';
@@ -36,8 +36,11 @@ export function DossiersOpco({ exercice }: { exercice: number }) {
   const versements = d.ds.versementsOpco;
   const syn = useMemo(() => syntheseOpco(exercice, dossiers, versements, d.ds.plan, s, d.ti), [exercice, dossiers, versements, d, s]);
   const [axe, setAxe] = useState<Axe>('opco');
-  const [du, setDu] = useState(`${exercice}-01-01`);
-  const [au, setAu] = useState(d.ti);
+  // Période des versements : l'exercice affiché jusqu'à aujourd'hui (fin de l'exercice s'il est passé) ; pour un exercice
+  // futur, depuis le 1er janvier de l'année en cours, pour que le début ne tombe jamais après la fin. Budget.tsx remonte le
+  // composant à chaque changement d'exercice (key), qui recalcule donc la période.
+  const [du, setDu] = useState(() => [`${exercice}-01-01`, `${d.ti.slice(0, 4)}-01-01`].sort()[0]);
+  const [au, setAu] = useState(() => [d.ti, `${exercice}-12-31`].sort()[0]);
 
   // Dossiers de l'exercice, avec leur échéance et leurs montants ; en retard d'abord (du plus ancien retard), puis en cours.
   const lignes = useMemo(() => dossiers.filter(x => x.exercice === exercice).map(x => ({
@@ -75,9 +78,15 @@ export function DossiersOpco({ exercice }: { exercice: number }) {
       <Kpi kicker="Demandé" value={fmtEur(syn.total.demande)} sub={`${plural(syn.total.dossiers, 'dossier', 'dossiers')} sur l’exercice ${exercice}${syn.total.refuse ? ` · ${fmtEur(syn.total.refuse)} refusés` : ''}`} />
       <Kpi kicker="Accordé" value={fmtEur(syn.total.accorde)}
         sub={syn.tauxPriseEnCharge != null ? `${syn.tauxPriseEnCharge.toLocaleString('fr-FR')} % du coût des actions · reste à charge ${fmtEur(syn.resteACharge)}` : 'aucune action avec un dossier en cours'} />
-      <Kpi kicker="Reçu" value={fmtEur(syn.total.recu)} sub={syn.total.attenduOrganisme ? `${fmtEur(syn.total.attenduOrganisme)} encore attendus par les organismes (subrogation)` : 'entreprise et organismes (subrogation)'} />
+      <Kpi kicker="Reçu" value={fmtEur(syn.total.recu)}
+        sub={`${fmtEur(syn.total.facture)} facturés à l’OPCO · ${syn.total.attenduOrganisme ? `${fmtEur(syn.total.attenduOrganisme)} encore attendus par les organismes (subrogation)` : 'entreprise et organismes (subrogation)'}`} />
       <Kpi kicker="À récupérer" value={fmtEur(syn.total.aRecuperer)} sub={syn.retards ? plural(syn.retards, 'dossier en retard', 'dossiers en retard') : 'aucun dossier en retard'} />
     </Kpis>
+    {syn.total.dossiers > 0 && (
+      <p className="fine text-muted">
+        Dossiers par état : {Object.entries(syn.parStatut).filter(([, n]) => n).map(([k, n]) => `${STATUTS_OPCO[k as StatutOpco].label} : ${n}`).join(' · ')}
+      </p>
+    )}
 
     {retards.length > 0 && (
       <Panel highlight title="Dossiers en retard" aside={plural(retards.length, 'échéance dépassée', 'échéances dépassées')}>
@@ -159,7 +168,7 @@ export function DossiersOpco({ exercice }: { exercice: number }) {
       <Panel title="Répartition" aside={<Seg name="opcoAxe" label="Répartition par" value={axe} onChange={setAxe} options={AXES} style={{ flexWrap: 'wrap' }} />}>
         <div className="scroll-x">
           <table className="table">
-            <thead><tr><th>{AXES.find(a => a[0] === axe)![1]}</th><th className="right">Dossiers</th><th className="right">Demandé</th><th className="right">Accordé</th><th className="right">Reçu</th><th className="right">À récupérer</th></tr></thead>
+            <thead><tr><th>{AXES.find(a => a[0] === axe)![1]}</th><th className="right">Dossiers</th><th className="right">Demandé</th><th className="right">Accordé</th><th className="right">Facturé</th><th className="right">Reçu</th><th className="right">À récupérer</th></tr></thead>
             <tbody>
               {ventilation.map(v => (
                 <tr key={v.cle}>
@@ -167,6 +176,7 @@ export function DossiersOpco({ exercice }: { exercice: number }) {
                   <td className="right tnum">{v.dossiers}</td>
                   <td className="right tnum nowrap">{fmtEur(v.demande)}</td>
                   <td className="right tnum nowrap">{fmtEur(v.accorde)}</td>
+                  <td className="right tnum nowrap">{fmtEur(v.facture)}</td>
                   <td className="right tnum nowrap">{fmtEur(v.recu)}</td>
                   <td className="right tnum nowrap">{fmtEur(v.aRecuperer + v.attenduOrganisme)}</td>
                 </tr>

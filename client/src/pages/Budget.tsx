@@ -88,7 +88,7 @@ export function Budget() {
         <Seg name="budgetOnglet" label="Onglet de Plan & budget" value={onglet} onChange={v => setUi({ budgetOnglet: v, opcoSel: null })} style={{ alignSelf: 'flex-start', flexWrap: 'wrap' }}
           options={[['plan', 'Plan & budget'], ['opco', 'Dossiers OPCO']]} />
       )}
-      {onglet === 'opco' ? <DossiersOpco exercice={ex} /> : <>
+      {onglet === 'opco' ? <DossiersOpco key={ex} exercice={ex} /> : <>
       <Kpis>
         <Kpi kicker="Enveloppe annuelle" value={fmtEur(b.envTotal)} sub={`${d.equipes.length} équipes · ${plural(b.planEx.length, 'action au plan', 'actions au plan')}`} />
         <Kpi kicker="Réalisé" value={fmtEur(b.realise)}

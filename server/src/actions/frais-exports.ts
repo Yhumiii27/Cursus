@@ -43,14 +43,18 @@ const exportGenerer: ActionHandler = async (ctx, p) => {
     salaries.add(n.empId);
   }
   if (!retenues.length) throw new ActionError('Aucune note contrôlée à exporter', 409);
+  // Notes archivées comptées parmi celles que l'export emporte : une note archivée sans rien de retenu reste à exporter
+  // sans jamais entrer dans un export, et ne doit pas gonfler le compte de chaque export suivant.
+  const notesParId = new Map(notes.map(n => [n.id, n]));
+  const archiveesRetenues = retenues.filter(id => noteArchivee(notesParId.get(id)!, ti)).length;
   const t = totauxEcritures(lignes);
   const x = await ctx.db.insert<ExportFraisEnregistre>('exportsFrais', {
     type: 'compta', cle: `compta-${crypto.randomUUID()}`, creation: new Date().toISOString(), auteur: ctx.user.nom, notes: retenues,
     contenu: { lignes, ...t }, telechargements: 0, telechargeLe: null, telechargePar: null, annuleLe: null,
   });
   return {
-    message: `Export comptable n° ${x.id} généré — ${plural(retenues.length, 'note', 'notes')}${archivees ? ` (dont ${plural(archivees, 'note archivée', 'notes archivées')})` : ''}, ${plural(t.ecritures, 'ligne d’écriture', 'lignes d’écriture')} · téléchargez le fichier pour l’importer en comptabilité`,
-    result: { export: x.id, notes: retenues.length, archivees, ecritures: t.ecritures, montant: t.debit, salaries: [...salaries] },
+    message: `Export comptable n° ${x.id} généré — ${plural(retenues.length, 'note', 'notes')}${archiveesRetenues ? ` (dont ${plural(archiveesRetenues, 'note archivée', 'notes archivées')})` : ''}, ${plural(t.ecritures, 'ligne d’écriture', 'lignes d’écriture')} · téléchargez le fichier pour l’importer en comptabilité`,
+    result: { export: x.id, notes: retenues.length, archivees: archiveesRetenues, ecritures: t.ecritures, montant: t.debit, salaries: [...salaries] },
   };
 };
 

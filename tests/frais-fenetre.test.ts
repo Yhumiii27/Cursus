@@ -144,6 +144,21 @@ test('paie et export : éléments du lot sur l’instantané complété, notes a
   assert.ok(x!.notes.includes(a.nadia) && x!.notes.includes(a.medicale));
 });
 
+test('export : une note archivée sans rien de retenu (dépenses toutes refusées) n’est pas comptée parmi les notes archivées exportées', async () => {
+  const { db, a, run, refus, MANON } = await fresh();
+  await db.run(`UPDATE lignes_frais SET refusee_le = '2025-04-20T08:00:00.000Z', refus_motif = 'Essai' WHERE note_id = ?`, [a.nadia]);
+  const g = await run(MANON, 'frais.export.generer', { attendues: 1 });
+  // archivee, medicale, thomas (archivées) et bord (fenêtre) : la note de Nadia n'entre pas dans l'export.
+  assert.match(g.message, /— 4 notes \(dont 3 notes archivées\),/);
+  assert.equal(g.result.archivees, 3);
+  const x = await db.get<{ notes: number[] }>('exportsFrais', g.result.export);
+  assert.ok(!x!.notes.includes(a.nadia));
+  // Elle reste à exporter sans rien produire : l'export suivant n'a plus rien à emporter et ne la compte pas.
+  const r = await refus(MANON, 'frais.export.generer', {});
+  assert.equal(r.status, 409);
+  assert.match(r.message, /^Aucune note contrôlée à exporter/);
+});
+
 test('note archivée : toute écriture refusée (409), actions de frais et justificatifs', async () => {
   const { db, a, refus, ADMIN, KARIM, MEHDI, MANON } = await fresh();
   const archivee = (r: { status: number; message: string }) => { assert.equal(r.status, 409); assert.match(r.message, /archivée \(payée depuis plus de 13 mois\)/); };

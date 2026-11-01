@@ -755,15 +755,19 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // indicateurs agrégés, calculés ici sur toutes les données, sans moyenne ni taux sous 3 réponses ; rien pour la paie.
     evaluationsFormation: [],
     ...(formations ? { indicateursEvaluation: exercicesEvaluation(d).map(ex => indicateursEvaluation(d, ex, SEUIL_ANONYMAT)) } : {}),
-    // lot 11 — dossiers OPCO : avec le plan et le budget (lecture seule), sans aucun motif (refus, correction, suppression,
-    // annulation d'un versement) ; rien pour le référent HSE et la paie.
+    // lot 11 — dossiers OPCO : avec le plan et le budget (lecture seule), sans aucun motif (refus, abandon, correction,
+    // suppression, annulation d'un versement) ; rien pour le référent HSE et la paie.
     dossiersOpco: lecture ? (full.dossiersOpco ?? []).map(dossierOpcoSansMotif) : [],
     versementsOpco: lecture ? (full.versementsOpco ?? []).map(v => (v.annuleMotif ? { ...v, annuleMotif: null } : v)) : [],
   };
 }
 
 // lot 11 — dossiers OPCO
-/** Dossier OPCO transmis à la lecture seule : sans le motif codé d'un refus, ni ceux d'une correction ou d'une suppression. */
-const dossierOpcoSansMotif = (x: DossierOpco): DossierOpco => (x.refusMotif || x.corrigeMotif || x.annuleMotif ? { ...x, refusMotif: null, corrigeMotif: null, annuleMotif: null } : x);
+/**
+ * Dossier OPCO transmis à la lecture seule : sans le motif codé d'un refus ou d'un abandon, ni ceux d'une correction ou
+ * d'une suppression.
+ */
+const dossierOpcoSansMotif = (x: DossierOpco): DossierOpco => (x.refusMotif || x.abandonMotif || x.corrigeMotif || x.annuleMotif
+  ? { ...x, refusMotif: null, abandonMotif: null, corrigeMotif: null, annuleMotif: null } : x);
 
 

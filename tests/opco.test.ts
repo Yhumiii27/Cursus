@@ -113,6 +113,16 @@ test('transitions : depuis l’état attendu seulement ; `de` affiché contre le
   assert.deepEqual(O.controleTransition('solder', 'rembourse', 'rembourse'), { faire: true });
   assert.deepEqual(O.controleTransition('abandonner', 'solde'), { refus: 'impossible depuis l’état « Soldé »' });
   assert.deepEqual(O.STATUTS_VERSEMENT, ['accorde', 'facture', 'rembourse']);
+  // Acompte reçu avant l'envoi des justificatifs : leur envoi s'enregistre depuis « remboursé », une fois ; le solde les exige.
+  assert.deepEqual(O.controleFacturation({ statut: 'accorde', factureLe: null }, 'accorde'), { faire: true });
+  assert.deepEqual(O.controleFacturation({ statut: 'rembourse', factureLe: null }, 'rembourse'), { faire: true });
+  assert.deepEqual(O.controleFacturation({ statut: 'rembourse', factureLe: '2026-10-01' }, 'rembourse'), { deja: 'justificatifs déjà envoyés' });
+  assert.deepEqual(O.controleFacturation({ statut: 'rembourse', factureLe: '2026-10-01' }), { refus: 'justificatifs déjà envoyés' });
+  assert.deepEqual(O.controleFacturation({ statut: 'rembourse', factureLe: '2026-10-01' }, 'accorde'), { refus: 'le dossier est maintenant « Remboursé » — vérifiez-le, puis réessayez' });
+  assert.deepEqual(O.controleFacturation({ statut: 'facture', factureLe: '2026-10-01' }, 'accorde'), { deja: 'déjà justificatifs envoyés' });
+  assert.deepEqual(O.controleSolde({ statut: 'rembourse', factureLe: null }, 'rembourse'), { refus: 'justificatifs (facture, certificat de réalisation) à envoyer avant le solde' });
+  assert.deepEqual(O.controleSolde({ statut: 'rembourse', factureLe: '2026-10-01' }, 'rembourse'), { faire: true });
+  assert.deepEqual(O.controleSolde({ statut: 'solde', factureLe: '2026-10-01' }, 'rembourse'), { deja: 'déjà soldé' });
 });
 
 test('retour d’un cran : état précédent, refus pour un dossier à déposer ou remboursé, abandon défait d’après les dates', () => {
@@ -188,6 +198,9 @@ test('échéances : dépôt 30 jours avant le début, accord 7 jours avant, just
   assert.deepEqual([e(facture)!.etape, e(facture)!.echeance, e(facture)!.retard], ['remboursement', '2026-09-30', true]);
   assert.equal(e({ ...facture, statut: 'rembourse' }, [versement({ montant: 1800 })]), null, 'tout reçu : rien d’attendu');
   assert.equal(e({ ...facture, factureLe: null }), null);
+  // Remboursé par un acompte avant l'envoi des justificatifs : ceux-ci restent attendus après la fin.
+  assert.deepEqual([e(accorde({ statut: 'rembourse' }), [versement({ montant: 200 })])!.etape, e(accorde({ statut: 'rembourse' }), [versement({ montant: 200 })])!.echeance],
+    ['justificatifs', '2027-02-18']);
   assert.match(e({ ...facture, subrogation: true })!.libelle, /Paiement de l’organisme par l’OPCO/);
   for (const statut of ['refuse', 'solde', 'abandonne'] as const) assert.equal(e(dossier({ statut })), null, statut);
   assert.equal(e(dossier({ annuleLe: '2026-10-01' })), null);
@@ -206,7 +219,7 @@ test('retards : échéances dépassées seulement, de la plus ancienne à la plu
     [[3, 'depot', '2026-09-15'], [2, 'depot', '2026-09-20'], [4, 'remboursement', '2026-10-10']].filter(([, , d]) => (d as string) < TODAY));
 });
 
-test('relances : boîte du service RH, clé opco:<id>:<étape>, paliers réglés puis échue, ni montant ni nom de salarié', () => {
+test('relances : boîte du service RH, clé opco:<id>:<étape>:<échéance>, paliers réglés puis échue, ni montant ni nom de salarié', () => {
   const plan = [ligne(), ligne({ id: 2, f: null, libelle: 'Anglais technique', equipe: 'Logistique' })];
   const nom = (l: PlanAction) => `${l.f ?? l.libelle} — ${l.equipe} (${l.exercice})`;
   const dossiers = [
@@ -218,9 +231,11 @@ test('relances : boîte du service RH, clé opco:<id>:<étape>, paliers réglés
   ];
   const r = O.relancesOpco(dossiers, [], plan, DELAIS, TODAY, [90, 30, 7], nom);
   assert.deepEqual(r.map(x => [x.cle, x.palier, x.empId, x.rhSeul, x.categorie, x.sante]), [
-    ['opco:1:depot', '7', 0, true, 'opco', false],
-    ['opco:2:depot', 'echu', 0, true, 'opco', false],
+    ['opco:1:depot:2026-10-17', '7', 0, true, 'opco', false],
+    ['opco:2:depot:2026-09-20', 'echu', 0, true, 'opco', false],
   ]);
+  // Formation reportée : même étape, nouvelle échéance, nouvelle clé (les paliers repartent de zéro).
+  assert.equal(O.relancesOpco([dossier({ du: '2026-10-22' })], [], plan, DELAIS, TODAY, [90, 30, 7], nom)[0].cle, 'opco:1:depot:2026-09-22');
   assert.equal(r[1].libelle, 'Dossier OPCO — Anglais technique — Logistique (2026) : dossier à déposer avant le début de la formation');
   for (const x of r) assert.doesNotMatch(x.libelle, /€|\d{3,} ?€|Mehdi|Benali/);
 });

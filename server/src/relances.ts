@@ -7,8 +7,8 @@
 //   délégation des entretiens (t135), son suppléant reçoit aussi les entretiens dus des membres dont il décide ;
 // - chaque référent HSE (compte actif) : formations et habilitations, et la couverture minimale des équipes calculée
 //   comme à son écran, sans les absences hors chantiers (`couvertureVueHse`), sous des clés à part (`hse:couverture:…`).
-// - lot 11 : les échéances des dossiers OPCO (`opco:<id>:<étape>`, shared/rules/opco.ts) vont à la seule boîte du service
-//   RH : l'action du plan et l'échéance, sans montant ni nom de salarié.
+// - lot 11 : les échéances des dossiers OPCO (`opco:<id>:<étape>:<échéance>`, shared/rules/opco.ts) vont à la seule boîte
+//   du service RH : l'action du plan et l'échéance, sans montant ni nom de salarié.
 // Seuls les paliers franchis depuis le dernier envoi partent (table `relances`, clé de l'objet et palier) : un objet n'est
 // relancé qu'une fois par palier. Tant que la boîte du service RH, destinataire de tout le périmètre, n'est pas renseignée,
 // le passage n'envoie ni ne note rien : les paliers franchis partiront au premier passage qui suit son réglage. Règles et contenu :
@@ -123,7 +123,7 @@ export async function recapitulatifEcheances(db: Db, lire: Lecture = lectureDire
     ...relancesDues(d, d.enrich(full.settings.horizonAlerte, full.settings.uniquementReglementaire), paliers),
     // Couverture du référent HSE, calculée sans les absences hors chantiers qu'il ne reçoit pas (server/src/dataset.ts).
     ...relancesCouverture(d, couvertureVueHse({ ...full, settings: { ...full.settings, horizonAlerte: Math.max(...paliers, 90) } }), paliers, 'hse:'),
-    // lot 11 — dossiers OPCO en cours (`opco:<id>:<étape>`) : boîte du service RH seulement, sans montant ni nom.
+    // lot 11 — dossiers OPCO en cours (`opco:<id>:<étape>:<échéance>`) : boîte du service RH seulement, sans montant ni nom.
     ...relancesOpco(full.dossiersOpco ?? [], full.versementsOpco, full.plan, full.settings, today, paliers, l => nomActionPlan({ d }, l)),
   ];
   const deja = new Set((await db.query('SELECT cle, palier FROM relances') as { cle: string; palier: string }[]).map(r => `${r.cle}|${r.palier}`));

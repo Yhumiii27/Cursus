@@ -8,26 +8,28 @@
 //   opco.accorder          id, de, accordLe, montantAccorde, accordReference, plafondHoraire
 //   opco.refuser           id, de, refusLe, motif (code de MOTIFS_REFUS_OPCO)
 //   opco.facturer          id, de, factureLe, montantFacture : justificatifs envoyés (facture et certificat de réalisation
-//                          joints au dossier quand les pièces justificatives sont activées)
+//                          joints au dossier quand les pièces justificatives sont activées) ; après un acompte, le dossier
+//                          reste « remboursé »
 //   opco.versement         id, le, montant, destinataire, reference, versements (nombre affiché : double clic) → remboursé
 //   opco.annulerVersement  id (versement), motif : administrateur RH ; dernier versement annulé → état d'avant
-//   opco.solder            id, de, soldeLe, nature (perte ou partiel quand il reste un écart)
+//   opco.solder            id, de, soldeLe, nature (perte ou partiel quand il reste un écart) ; justificatifs envoyés exigés
 //   opco.abandonner        id, de, motif (code de MOTIFS_ABANDON_OPCO)
 //   opco.rouvrir           id, de, motif : administrateur RH, retour d'un cran (champs de l'état quitté effacés)
 //   opco.supprimer         id, motif : administrateur RH, dossier saisi par erreur (sans versement ni pièce en vigueur)
 // Aucun refus pour un exercice clos (les remboursements arrivent après la clôture). Une ligne du plan qui porte un dossier
-// actif ne se supprime pas (`refusLigneAvecDossier`, plan.supprimer, réouverture d'une demande) ; son report sur l'exercice
-// suivant emporte ses dossiers actifs (`transfererDossiers`, plan.cloturerExercice).
+// actif ne se supprime pas (`refusLigneAvecDossier`, plan.supprimer, réouverture d'une demande, import « remplacer ») ; son
+// report sur l'exercice suivant emporte ses dossiers actifs (`transfererDossiers`, plan.cloturerExercice).
 import { isValidDate } from '../../../shared/dates.ts';
-import { fmtEur, fmtIso, plural } from '../../../shared/format.ts';
+import { decap, fmtEur, fmtIso, plural } from '../../../shared/format.ts';
 import { erreurMotifCorrection } from '../../../shared/rules/corrections.ts';
 import {
-  CHAMPS_ETAT, controlerSaisieOpco, controleTransition, DISPOSITIFS_OPCO, dossierActif, ecartAuSolde, type EtapeOpco, estEcartSoldeOpco,
+  CHAMPS_ETAT, conservationPieceOpco, controleFacturation, controlerSaisieOpco, controleSolde, controleTransition, type Issue, DISPOSITIFS_OPCO, dossierActif, ecartAuSolde, type EtapeOpco, estEcartSoldeOpco,
   estMotifAbandonOpco, estMotifRefusOpco, estStatutOpco, montantOpco, NATURES_PIECE_OPCO, OPCOS,
   piecesPourFacturer, type SaisieOpco, statutPrecedent, STATUTS_OPCO, STATUTS_VERSEMENT, referenceValide, versementsDe,
 } from '../../../shared/rules/opco.ts';
 import { depotOuvert } from '../../../shared/rules/pieces.ts';
 import type { DestinataireVersementOpco, DossierOpco, ISODate, NaturePiece, PlanAction, VersementOpco } from '../../../shared/types.ts';
+import type { PieceEnregistree } from '../pieces.ts';
 import { ActionError, type ActionHandler, type Ctx, requireRh, requireRhAdmin, str } from './context.ts';
 
 // — Lecture et noms —
@@ -81,9 +83,12 @@ function motifDe(p: Record<string, any>): string {
   return str(p.motif);
 }
 
-/** Transition contrôlée : rien à faire (déjà faite, double clic) → message ; refus → erreur ; sinon null. */
-function transition(ctx: Ctx, d: DossierOpco, etape: EtapeOpco, de: unknown): string | null {
-  const t = controleTransition(etape, d.statut, de);
+/**
+ * Transition contrôlée : rien à faire (déjà faite, double clic) → message ; refus → erreur ; sinon null. `issue` : contrôle
+ * propre à l'étape (facturation, solde), sinon celui de TRANSITIONS_OPCO.
+ */
+function transition(ctx: Ctx, d: DossierOpco, etape: EtapeOpco, de: unknown, issue?: Issue): string | null {
+  const t = issue ?? controleTransition(etape, d.statut, de);
   if ('deja' in t) return `${nomDossier(ctx, d)} · ${t.deja}`;
   if ('refus' in t) throw new ActionError(`${nomDossier(ctx, d)} : ${t.refus}`);
   return null;
@@ -188,20 +193,21 @@ const refuser: ActionHandler = async (ctx, p) => {
 /**
  * Justificatifs envoyés (demande de remboursement) : montant facturé exigé ; quand les pièces justificatives sont
  * activées, la facture et le certificat de réalisation (ou les feuilles d'émargement) doivent être joints au dossier.
+ * Un dossier déjà remboursé par un acompte reste « remboursé » : seuls l'envoi et le montant facturé s'enregistrent.
  */
 const facturer: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const d = await dossierOf(ctx, p.id);
-  const deja = transition(ctx, d, 'facturer', p.de);
+  const deja = transition(ctx, d, 'facturer', p.de, controleFacturation(d, p.de));
   if (deja) return deja;
   const montantFacture = montantDe(p.montantFacture, 'Montant facturé');
   const factureLe = dateFait(p.factureLe, ctx, 'Envoi des justificatifs', d.accordLe);
   if (depotOuvert(ctx.ds.settings.piecesStockage)) {
     const natures = (await ctx.db.query('SELECT nature FROM pieces WHERE objet = ? AND objet_id = ? AND retiree_le IS NULL', ['dossierOpco', d.id]) as { nature: NaturePiece | null }[]).map(r => r.nature);
     const manquent = piecesPourFacturer(natures);
-    if (manquent.length) throw new ActionError(`${nomDossier(ctx, d)} : pièces à joindre avant la demande de remboursement — ${manquent.map(n => NATURES_PIECE_OPCO[n].toLowerCase()).join(', ')}`);
+    if (manquent.length) throw new ActionError(`${nomDossier(ctx, d)} : pièces à joindre avant la demande de remboursement — ${manquent.map(n => decap(NATURES_PIECE_OPCO[n])).join(', ')}`);
   }
-  await ctx.db.update<DossierOpco>('dossiersOpco', d.id, { statut: 'facture', factureLe, montantFacture });
+  await ctx.db.update<DossierOpco>('dossiersOpco', d.id, { statut: d.statut === 'rembourse' ? 'rembourse' : 'facture', factureLe, montantFacture });
   return `${nomDossier(ctx, d)} · justificatifs envoyés le ${fmtIso(factureLe)}${montantTexte(d, montantFacture)}`;
 };
 
@@ -254,12 +260,13 @@ const annulerVersement: ActionHandler = async (ctx, p) => {
 
 /**
  * Solde : l'écart accordé − reçu est figé ; s'il en reste un, il est qualifié (perte, prise en charge partielle ; proposé
- * d'après les sommes reçues) ; sinon « aucun écart ».
+ * d'après les sommes reçues) ; sinon « aucun écart ». Les justificatifs doivent avoir été envoyés (`controleSolde`) : un
+ * acompte ne dispense pas de la facture ni du certificat de réalisation.
  */
 const solder: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const d = await dossierOf(ctx, p.id);
-  const deja = transition(ctx, d, 'solder', p.de);
+  const deja = transition(ctx, d, 'solder', p.de, controleSolde(d, p.de));
   if (deja) return deja;
   const soldeLe = dateFait(p.soldeLe, ctx, 'Solde', d.factureLe);
   const { ecart, nature: proposee } = ecartAuSolde(d, await versementsActifs(ctx, d));
@@ -331,12 +338,28 @@ export async function refusLigneAvecDossier(ctx: Ctx, planActionId: number): Pro
 }
 
 /**
+ * La ligne porte-t-elle un dossier, quel qu'il soit (refusé, abandonné, supprimé compris) ? Elle ne se supprime alors pas
+ * physiquement (clé étrangère `restrict` en PostgreSQL, dossier orphelin en SQLite) : l'import « remplacer » la garde.
+ */
+export async function ligneAvecDossier(ctx: Ctx, planActionId: number): Promise<boolean> {
+  return (await ctx.db.where<DossierOpco>('dossiersOpco', 'planActionId', planActionId)).length > 0;
+}
+
+/**
  * Report d'une action sur l'exercice suivant (plan.cloturerExercice) : ses dossiers actifs suivent la nouvelle ligne et son
- * exercice ; refusés et abandonnés restent sur l'ancienne. Renvoie leur nombre.
+ * exercice (et la conservation de leurs pièces comptables, `conservationPieceOpco`) ; refusés et abandonnés restent sur
+ * l'ancienne. Renvoie leur nombre.
  */
 export async function transfererDossiers(ctx: Ctx, de: number, vers: number, exercice: number): Promise<number> {
   const actifs = (await ctx.db.where<DossierOpco>('dossiersOpco', 'planActionId', de)).filter(dossierActif);
-  for (const d of actifs) await ctx.db.update<DossierOpco>('dossiersOpco', d.id, { planActionId: vers, exercice });
+  for (const d of actifs) {
+    await ctx.db.update<DossierOpco>('dossiersOpco', d.id, { planActionId: vers, exercice });
+    // Pièces comptables (facture, accord) : leur conservation suit le nouvel exercice du dossier, jamais raccourcie.
+    for (const x of (await ctx.db.where<PieceEnregistree>('pieces', 'objetId', d.id)).filter(x => x.objet === 'dossierOpco' && x.conserverJusquau)) {
+      const fin = conservationPieceOpco(x.nature, exercice, ctx.d.ti);
+      if (fin && fin > x.conserverJusquau!) await ctx.db.update<PieceEnregistree>('pieces', x.id, { conserverJusquau: fin });
+    }
+  }
   return actifs.length;
 }
 

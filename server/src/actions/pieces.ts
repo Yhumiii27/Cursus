@@ -5,17 +5,18 @@
 //                  déplacement (service RH) ; lot 11 : un dossier OPCO (service RH), pièce sans salarié, avec sa
 //                  `nature` (facture, accord…), gardée 10 ans pour la facture et l'accord (shared/rules/opco.ts)
 //   piece.retirer  id, motif : description gardée, fichier effacé après la validation ; service RH, référent HSE pour
-//                  les certifications et habilitations, jamais sur son propre dossier
+//                  les certifications et habilitations, jamais sur son propre dossier ; pièce comptable d'un dossier OPCO
+//                  encore à conserver (`conserverJusquau`) : administrateur RH seulement
 // Au plus 10 pièces en vigueur par objet (MAX_PIECES_PAR_OBJET).
 // Les actions qui créent ou décident un objet (absence.saisir, absence.qualifier, absence.signaler, cert.ajouter,
 // hab.delivrer, formalite.enregistrer) joignent leurs pièces par `joindrePieces`, dans leur transaction.
 import { estConge } from '../../../shared/rules/absences.ts';
 import { depotOuvert, estObjetPiece, MAX_PIECES_PAR_OBJET, OBJETS_PIECE, OBJETS_SANS_SALARIE } from '../../../shared/rules/pieces.ts';
 import { conservationPieceOpco, estNaturePiece, NATURES_PIECE_OPCO } from '../../../shared/rules/opco.ts';
-import { plural } from '../../../shared/format.ts';
+import { decap, fmtIso, plural } from '../../../shared/format.ts';
 import type { Absence, Certification, DemandeCollab, DossierOpco, HabTitre, NaturePiece, ObjetPiece, Voyage } from '../../../shared/types.ts';
 import { nettoyerBientot, type PieceEnregistree } from '../pieces.ts';
-import { ActionError, aDroit, type ActionHandler, type Ctx, estSoiMeme, getEmp, isRh, isSelf, refuserSoiMeme, requireFormations, requireRh, str } from './context.ts';
+import { ActionError, aDroit, type ActionHandler, type Ctx, estSoiMeme, getEmp, isRh, isRhAdmin, isSelf, refuserSoiMeme, requireFormations, requireRh, str } from './context.ts';
 
 /** Jetons reçus : une chaîne ou une liste de chaînes (au plus 10 pièces par objet et par envoi). */
 function jetonsDe(v: unknown): string[] {
@@ -126,7 +127,7 @@ const joindre: ActionHandler = async (ctx, p) => {
   // Justificatif envoyé par l'intéressé : la réception reste une décision du service RH, qui voit la pièce « à vérifier »
   // dans la liste des absences (shared/rules/pieces.ts, `justificatifAVerifier`).
   const aVerifier = objet === 'absence' && !isRh(ctx) && !(await ctx.db.get<Absence>('absences', id))?.justificatif;
-  const nature = dossier ? ` (${NATURES_PIECE_OPCO[dossier.nature].toLowerCase()})` : '';
+  const nature = dossier ? ` (${decap(NATURES_PIECE_OPCO[dossier.nature])})` : '';
   return { message: `${OBJETS_PIECE[objet].label}${nature}${suite.replace(' · ', ' — ')}${aVerifier ? ', à vérifier par le service RH' : ''}`, result: { empId } };
 };
 
@@ -144,13 +145,18 @@ const retirer: ActionHandler = async (ctx, p) => {
   // comme la qualification de sa propre absence ou la suppression de sa propre certification.
   if (piece.empId != null && estSoiMeme(ctx, piece.empId)) refuserSoiMeme(ctx, getEmp(ctx, piece.empId), 'Vous ne pouvez pas retirer une pièce de votre propre dossier');
   if (piece.retireeLe) return 'Pièce déjà retirée';
+  // lot 11 — pièce comptable d'un dossier OPCO (facture, accord : 10 ans, art. L123-22 du Code de commerce) : avant la fin
+  // de sa conservation, seul l'administrateur RH la retire (pièce jointe par erreur).
+  if (piece.conserverJusquau && piece.conserverJusquau >= ctx.d.ti && !isRhAdmin(ctx)) {
+    throw new ActionError(`Pièce comptable à conserver jusqu’au ${fmtIso(piece.conserverJusquau)} : retrait réservé à l’administrateur RH`, 403);
+  }
   const motif = str(p.motif);
   if (!motif) throw new ActionError('Indiquez le motif du retrait');
   if (motif.length > MOTIF_RETRAIT_MAX) throw new ActionError(`Motif trop long (${MOTIF_RETRAIT_MAX} caractères au plus)`);
   await ctx.db.update<PieceEnregistree>('pieces', piece.id, { retireeLe: new Date().toISOString(), retireePar: ctx.user.nom, retireeMotif: motif });
   // Fichier effacé une fois l'action validée (une transaction annulée garderait sinon une pièce sans fichier).
   nettoyerBientot(ctx.db);
-  return `Pièce retirée du dossier (${OBJETS_PIECE[piece.objet].label.toLowerCase()}) · fichier effacé, les sauvegardes en gardent la copie jusqu’à leur rotation`;
+  return `Pièce retirée du dossier (${decap(OBJETS_PIECE[piece.objet].label)}) · fichier effacé, les sauvegardes en gardent la copie jusqu’à leur rotation`;
 };
 
 export const piecesActions = {

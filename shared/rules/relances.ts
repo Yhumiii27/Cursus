@@ -65,7 +65,7 @@ export interface Relance {
   /** Couverture calculée pour le référent HSE, sans les absences hors chantiers (clé `hse:couverture:…`) : à lui seul. */
   hse?: boolean;
   // lot 11 — dossiers OPCO
-  /** Échéance propre au service RH, sans salarié (`empId` 0) : dossier OPCO (`opco:<id>:<étape>`), à sa seule boîte. */
+  /** Échéance propre au service RH, sans salarié (`empId` 0) : dossier OPCO (`opco:<id>:<étape>:<échéance>`), à sa seule boîte. */
   rhSeul?: boolean;
 }
 

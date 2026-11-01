@@ -7,6 +7,7 @@
 --   psql -d epc2i -v ON_ERROR_STOP=1 -1 -f docs/demandes/matrix-lot11-opco.sql   (superutilisateur)
 INSERT INTO droits.colonnes_sensibles (schema_nom, table_nom, colonne_nom, motif, origine) VALUES
   ('cursus', 'dossiers_opco', 'refus_motif', 'Motif du refus de l''OPCO (code), réservé au service RH', 'convention'),
+  ('cursus', 'dossiers_opco', 'abandon_motif', 'Motif de l''abandon du dossier (code), réservé au service RH', 'convention'),
   ('cursus', 'dossiers_opco', 'corrige_motif', 'Texte libre : motif d''une correction ou d''une réouverture du dossier', 'convention'),
   ('cursus', 'dossiers_opco', 'annule_motif', 'Texte libre : motif de la suppression d''un dossier saisi par erreur', 'convention'),
   ('cursus', 'versements_opco', 'annule_motif', 'Texte libre : motif de l''annulation d''un versement saisi par erreur', 'convention')

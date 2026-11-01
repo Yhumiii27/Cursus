@@ -165,6 +165,11 @@ const dossierOpco = async (statut = 'a_deposer', champs: Record<string, unknown>
 const versementOpco = async () => (await db.insert<{ id: number }>('versementsOpco', {
   dossierId: await dossierOpco('rembourse'), le: '2026-10-06', montant: 600, destinataire: 'entreprise', reference: null, saisiLe: '2026-10-06T08:00:00.000Z', saisiPar: 'Sandrine Vidal',
 })).id;
+/** Pièce jointe à un dossier OPCO (sans salarié), de la nature et de la fin de conservation voulues ; renvoie son identifiant. */
+const pieceDossierOpco = async (nature: string, conserverJusquau: string | null) => (await db.insert<{ id: number }>('pieces', {
+  empId: null, objet: 'dossierOpco', objetId: await dossierOpco(), nature, conserverJusquau, nom: 'piece.pdf', type: 'application/pdf', taille: 5, empreinte: 'e',
+  fichier: 'c'.repeat(32), deposeLe: '2026-10-07T08:00:00.000Z', deposePar: 'Essai', deposeCompteId: null,
+})).id;
 /** Réglages modifiés pour l'essai (transaction annulée ensuite). */
 const reglages = async (r: Record<string, unknown>) => await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), ...r });
 /** Mehdi sorti à la date (démission), conservation des dossiers activée avec la décision du DPO ; renvoie son identifiant. */
@@ -287,6 +292,10 @@ const MATRICE: Ligne[] = [
   { action: 'opco.supprimer', droits: '                    O    -    -    -    -    -    -    -    -', p: async () => ({ id: await dossierOpco(), motif: 'Dossier créé deux fois' }) },
   // Pièce d'un dossier OPCO (lot 11), sans salarié : service RH seulement.
   { action: 'piece.joindre', variante: 'dossier OPCO', droits: '  O    O    -    -    -    -    -    -    -', p: async u => await ({ jetons: [await pieceEnvoyee(u)], objet: 'dossierOpco', objetId: await dossierOpco(), nature: 'convention' }) },
+  // Pièce d'un dossier OPCO : retrait par le service RH ; pièce comptable (facture, accord) encore à conserver 10 ans,
+  // administrateur RH seulement.
+  { action: 'piece.retirer', variante: 'dossier OPCO', droits: '  O    O    -    -    -    -    -    -    -', p: async () => ({ id: await pieceDossierOpco('convention', null), motif: 'Mauvais document' }) },
+  { action: 'piece.retirer', variante: 'pièce comptable OPCO', droits: 'O    -    -    -    -    -    -    -    -', p: async () => ({ id: await pieceDossierOpco('facture', '2036-12-31'), motif: 'Facture d’un autre dossier' }) },
   { action: 'demande.refuser', droits: '                     O    O    -    -    -    -    O    -    -', p: async () => ({ id: await demande('aipr') }) },
   // Demande retirée par son auteur seul (Mehdi pour la sienne, Karim pour celle qu'il a faite pour Mehdi), tant qu'elle
   // attend ; rouverte par le service RH ou le référent HSE.

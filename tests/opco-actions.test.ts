@@ -123,8 +123,14 @@ test('cycle complet : création préremplie des réglages, dépôt, accord, just
   assert.match(await msg(u.gest, 'opco.versement', { id, montant: 400, le: '2026-10-01', reference: 'VIR-1', versements: 0 }), /versement du 1 oct. 2026 \(400 €\) reçu par l’entreprise$/);
   assert.match(await msg(u.gest, 'opco.versement', { id, montant: 400, versements: 0 }), /versement déjà enregistré$/);
   assert.equal((await dossier(id)).statut, 'rembourse');
-  // Justificatifs : seulement depuis « accordé » ; le dossier remboursé par acompte se solde directement.
-  await refus(u.gest, 'opco.facturer', { id, de: 'rembourse', montantFacture: 1200 }, /impossible depuis l’état « Remboursé »/);
+  // Remboursé par acompte : le solde attend les justificatifs, dont l'envoi s'enregistre encore (le dossier reste
+  // « remboursé ») ; double clic sans effet, autre état affiché refusé.
+  await refus(u.gest, 'opco.solder', { id, de: 'rembourse' }, /justificatifs \(facture, certificat de réalisation\) à envoyer avant le solde/);
+  assert.match(await msg(u.gest, 'opco.facturer', { id, de: 'rembourse', montantFacture: 1200, factureLe: '2026-10-05' }), /justificatifs envoyés le 5 oct. 2026 \(1 200 €\)$/);
+  assert.deepEqual((({ statut, factureLe, montantFacture }) => ({ statut, factureLe, montantFacture }))(await dossier(id)), { statut: 'rembourse', factureLe: '2026-10-05', montantFacture: 1200 });
+  assert.match(await msg(u.gest, 'opco.facturer', { id, de: 'rembourse', montantFacture: 1200 }), /justificatifs déjà envoyés$/);
+  await refus(u.gest, 'opco.facturer', { id, de: 'accorde', montantFacture: 1200 }, /le dossier est maintenant « Remboursé »/);
+  await refus(u.gest, 'opco.facturer', { id, montantFacture: 1200 }, /justificatifs déjà envoyés/);
   // Solde : écart de 800 € figé, qualifié (proposé : partiel ; « aucun » refusé).
   await refus(u.gest, 'opco.solder', { id, de: 'rembourse', nature: 'aucun' }, /perte ou prise en charge partielle/);
   assert.match(await msg(u.gest, 'opco.solder', { id, de: 'rembourse' }), /soldé le 10 oct. 2026 — écart \(800 €\) : prise en charge partielle$/);
@@ -222,10 +228,16 @@ test('exercice clos sans effet ; ligne du plan retenue par un dossier actif ; do
   assert.equal((await dossier(actif)).exercice, 2025);
   // Suppression de la ligne refusée tant qu'un dossier est actif (abandonné : ne compte pas).
   await refus(u.admin, 'plan.supprimer', { id: l25, motif: 'Doublon' }, /1 dossier OPCO en cours sur cette ligne : abandonnez-le ou supprimez-le d’abord/);
+  // Facture jointe en 2025 (conservation jusqu'à fin 2035) : elle suivra le nouvel exercice du dossier.
+  const facture = (await db.insert<{ id: number }>('pieces', {
+    empId: null, objet: 'dossierOpco', objetId: actif, nature: 'facture', nom: 'facture.pdf', type: 'application/pdf', taille: 5, empreinte: 'e', fichier: 'f'.repeat(32),
+    deposeLe: '2025-12-01T08:00:00.000Z', deposePar: 'Essai', deposeCompteId: null, conserverJusquau: '2035-12-31',
+  })).id;
   const m = await msg(u.admin, 'plan.cloturerExercice', { exercice: 2025, reporter: [l25] });
   assert.match(m, /1 dossier OPCO transféré avec les actions reportées$/);
   const nouvelle = (await db.one<{ id: number }>('SELECT id FROM plan_actions WHERE report_de = ?', [l25]))!.id;
   assert.deepEqual([(await dossier(actif)).planActionId, (await dossier(actif)).exercice], [nouvelle, 2026]);
+  assert.equal((await db.get<PieceEnregistree>('pieces', facture))!.conserverJusquau, '2036-12-31', 'conservation de la facture prolongée avec l’exercice');
   assert.deepEqual([(await dossier(abandonne)).planActionId, (await dossier(abandonne)).exercice], [l25, 2025], 'abandonné : reste sur l’ancienne ligne');
   // La ligne reportée ne reçoit plus de dossier ; un exercice clos ne bloque rien sur un dossier existant.
   await refus(u.gest, 'opco.creer', { planActionId: l25 }, /action reportée sur l’exercice 2026, créez le dossier sur sa nouvelle ligne/);
@@ -241,6 +253,22 @@ test('exercice clos sans effet ; ligne du plan retenue par un dossier actif ; do
   await refus(u.admin, 'plan.supprimer', { id: CACES, motif: 'Doublon' }, /dossier OPCO en cours/);
   await run(u.gest, 'opco.abandonner', { id, de: 'a_deposer', motif: 'autre' });
   assert.match(await msg(u.admin, 'plan.supprimer', { id: CACES, motif: 'Doublon' }), /supprimée du plan 2026/);
+});
+
+test('import « remplacer » : refusé si une ligne visée porte un dossier actif ; ligne d’un dossier clos gardée', async () => {
+  const { db, u, msg, run, refus, creer } = await fresh();
+  const l = (await db.insert<{ id: number }>('planActions', { exercice: 2026, f: 'fco', libelle: null, equipe: 'Logistique', periode: 'T4', effectif: 2, cout: 700, statut: 'prevu', origine: 'import' })).id;
+  const libre = (await db.insert<{ id: number }>('planActions', { exercice: 2026, f: 'sst', libelle: null, equipe: 'Production', periode: 'T4', effectif: 2, cout: 300, statut: 'prevu', origine: 'import' })).id;
+  const id = await creer({ planActionId: l });
+  const texte = 'SST;Production;T1;2;360';
+  await refus(u.admin, 'plan.importer', { exercice: 2026, mode: 'replace', texte }, /Import « remplacer » refusé — FCO — Logistique \(2026\) : 1 dossier OPCO en cours sur cette ligne/);
+  assert.ok(await db.get('planActions', libre), 'rien de supprimé avant le refus');
+  await run(u.gest, 'opco.abandonner', { id, de: 'a_deposer', motif: 'formation_annulee' });
+  assert.match(await msg(u.admin, 'plan.importer', { exercice: 2026, mode: 'replace', texte }), /^1 ligne importée dans le plan 2026 — .* · 1 ligne gardée \(dossier OPCO refusé ou abandonné\)$/);
+  assert.ok(await db.get('planActions', l), 'ligne du dossier abandonné gardée');
+  assert.equal(await db.get('planActions', libre), undefined, 'ligne sans dossier remplacée');
+  const orph = await controlerOrphelins(db);
+  assert.deepEqual(Object.keys(orph.parReference).filter(k => /opco/.test(k)), []);
 });
 
 test('réouverture d’une demande : la ligne du plan qu’elle a créée n’est pas retirée tant qu’un dossier y est actif', async () => {
@@ -279,6 +307,16 @@ test('pièces sans salarié : nature exigée, 10 ans pour la facture et l’acco
   assert.deepEqual(pieces.map(p => [p.nature, p.empId, p.conserverJusquau]), [
     ['convention', null, null], ['accord', null, '2036-12-31'], ['facture', null, '2036-12-31'], ['emargement', null, null],
   ]);
+  // Retrait : une pièce comptable encore à conserver (accord, facture) par l'administrateur RH seulement ; les autres par le
+  // service RH ; message sans « opco » en minuscules.
+  const [convention, accord] = pieces;
+  await refus(u.gest, 'piece.retirer', { id: accord.id, motif: 'Mauvais fichier' }, /Pièce comptable à conserver jusqu’au 31 déc. 2036 : retrait réservé à l’administrateur RH/, 403);
+  assert.match(await msg(u.gest, 'piece.retirer', { id: convention.id, motif: 'Mauvais fichier' }), /^Pièce retirée du dossier \(pièce d’un dossier OPCO\)/);
+  assert.match(await msg(u.admin, 'piece.retirer', { id: accord.id, motif: 'Accord d’un autre dossier' }), /^Pièce retirée du dossier \(pièce d’un dossier OPCO\)/);
+  // Pièce dont la conservation est échue : le service RH la retire comme les autres.
+  const facture = pieces[2];
+  await db.update('pieces', facture.id, { conserverJusquau: '2026-10-09' });
+  assert.match(await msg(u.gest, 'piece.retirer', { id: facture.id, motif: 'Fin de conservation' }), /^Pièce retirée/);
   // Description : nature ajoutée aux seules pièces de dossier ; pièces de dossier gardées malgré l'absence de salarié.
   const decrites = piecesDecrites(pieces);
   assert.deepEqual(decrites.map(p => [p.objet, p.empId, p.nature]), pieces.map(p => ['dossierOpco', null, p.nature]));
@@ -292,6 +330,38 @@ test('pièces sans salarié : nature exigée, 10 ans pour la facture et l’acco
   await db.update('dossiersOpco', id2, { empId: 2 });
   await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), piecesStockage: 'local' });
   await refus(u.gest, 'piece.joindre', { jetons: [await pieceEnvoyee(u.gest, 8)], objet: 'dossierOpco', objetId: id2, nature: 'facture' }, /Dossier OPCO nominatif/);
+});
+
+test('acompte avant les justificatifs : échéance des justificatifs, pièces exigées, puis remboursement attendu et solde', async () => {
+  const { db, u, msg, run, refus, dossier, creer, pieceEnvoyee } = await fresh();
+  const { echeanceOpco, montantsOpco } = await import('../shared/rules/opco.ts');
+  const delais = { opcoDelaiDepot: 30, opcoDelaiJustificatifs: 90, opcoDelaiRemboursement: 60 };
+  const etat = async (id: number, today = '2026-10-10') => {
+    const v = await db.where<import('../shared/types.ts').VersementOpco>('versementsOpco', 'dossierId', id);
+    const d = await dossier(id);
+    return { e: echeanceOpco(d, v, delais, today), m: montantsOpco(d, v) };
+  };
+  const id = await creer({ du: '2026-08-01', au: '2026-08-02' });
+  await run(u.gest, 'opco.deposer', { id, de: 'a_deposer', deposeLe: '2026-07-01' });
+  await run(u.gest, 'opco.accorder', { id, de: 'depose', montantAccorde: 1200, accordLe: '2026-07-10' });
+  await run(u.gest, 'opco.versement', { id, montant: 200, le: '2026-08-20', versements: 0 });
+  assert.equal((await dossier(id)).statut, 'rembourse');
+  // Justificatifs encore attendus (90 jours après la fin : 31 octobre) ; relancés jusqu'à leur envoi, même bien plus tard.
+  assert.deepEqual([(await etat(id)).e?.etape, (await etat(id)).e?.echeance, (await etat(id)).m.aRecuperer], ['justificatifs', '2026-10-31', 1000]);
+  assert.equal((await etat(id, '2027-06-01')).e?.retard, true);
+  // Pièces activées : ni solde, ni envoi des justificatifs sans facture ni certificat de réalisation.
+  await run(u.gest, 'piece.joindre', { jetons: [await pieceEnvoyee(u.gest, 1)], objet: 'dossierOpco', objetId: id, nature: 'convention' });
+  await refus(u.gest, 'opco.solder', { id, de: 'rembourse' }, /justificatifs \(facture, certificat de réalisation\) à envoyer avant le solde/);
+  await refus(u.gest, 'opco.facturer', { id, de: 'rembourse', montantFacture: 1100 }, /pièces à joindre avant la demande de remboursement — facture, certificat/);
+  await run(u.gest, 'piece.joindre', { jetons: [await pieceEnvoyee(u.gest, 2), await pieceEnvoyee(u.gest, 3)], objet: 'dossierOpco', objetId: id, nature: 'facture' });
+  await run(u.gest, 'piece.joindre', { jetons: [await pieceEnvoyee(u.gest, 4)], objet: 'dossierOpco', objetId: id, nature: 'certificat_realisation' });
+  assert.match(await msg(u.gest, 'opco.facturer', { id, de: 'rembourse', montantFacture: 1100, factureLe: '2026-09-01' }), /justificatifs envoyés le 1 sept. 2026 \(1 100 €\)$/);
+  // Remboursé, facturé plus bas que l'accord : 900 € attendus (1 100 − 200), échéance 60 jours après l'envoi (31 octobre).
+  const apres = await etat(id);
+  assert.deepEqual([(await dossier(id)).statut, apres.e?.etape, apres.e?.echeance, apres.m.attendu, apres.m.aRecuperer], ['rembourse', 'remboursement', '2026-10-31', 1100, 900]);
+  await run(u.gest, 'opco.versement', { id, montant: 900, le: '2026-10-09', versements: 1 });
+  assert.equal((await etat(id)).e, null, 'tout reçu : rien d’attendu');
+  assert.match(await msg(u.gest, 'opco.solder', { id, de: 'rembourse' }), /soldé le 10 oct. 2026 — écart \(100 €\) : prise en charge partielle$/);
 });
 
 test('droits des pièces : un dossier OPCO au service RH seul ; les pièces existantes inchangées (non-régression)', async () => {
@@ -402,15 +472,19 @@ test('instantané : complet pour le service RH, sans motifs pour la lecture seul
   const refuse = await creer();
   await run(u.gest, 'opco.deposer', { id: refuse, de: 'a_deposer' });
   await run(u.gest, 'opco.refuser', { id: refuse, de: 'depose', motif: 'hors_criteres' });
+  const abandonne = await creer();
+  await run(u.gest, 'opco.abandonner', { id: abandonne, de: 'a_deposer', motif: 'renonciation' });
   const supprime = await creer();
   await db.insert('versementsOpco', { dossierId: supprime, le: '2026-10-01', montant: 10, destinataire: 'entreprise', saisiLe: '2026-10-01T08:00:00.000Z', saisiPar: 'Reprise', annuleLe: '2026-10-02T08:00:00.000Z', annulePar: 'Reprise', annuleMotif: 'Erreur' });
   await run(u.admin, 'opco.supprimer', { id: supprime, motif: 'Doublon' });
   const rh = await buildSnapshot(db, u.gest);
-  assert.deepEqual(rh.dossiersOpco!.map(d => d.id), [id, refuse]);
-  assert.deepEqual([rh.dossiersOpco![0].corrigeMotif, rh.dossiersOpco![1].refusMotif], ['Correction de la durée', 'hors_criteres']);
+  assert.deepEqual(rh.dossiersOpco!.map(d => d.id), [id, refuse, abandonne]);
+  assert.deepEqual([rh.dossiersOpco![0].corrigeMotif, rh.dossiersOpco![1].refusMotif, rh.dossiersOpco![2].abandonMotif], ['Correction de la durée', 'hors_criteres', 'renonciation']);
   assert.deepEqual(rh.versementsOpco!.map(x => [x.dossierId, x.montant, x.annuleMotif ?? null]), [[id, 300, 'Doublon'], [id, 100, null]]);
   const lecture = await buildSnapshot(db, u.lecture);
-  assert.deepEqual(lecture.dossiersOpco!.map(d => [d.id, d.corrigeMotif, d.refusMotif, d.statut, d.montantAccorde]), [[id, null, null, 'rembourse', 800], [refuse, null, null, 'refuse', null]]);
+  assert.deepEqual(lecture.dossiersOpco!.map(d => [d.id, d.corrigeMotif, d.refusMotif, d.abandonMotif, d.annuleMotif, d.statut, d.montantAccorde]), [
+    [id, null, null, null, null, 'rembourse', 800], [refuse, null, null, null, null, 'refuse', null], [abandonne, null, null, null, null, 'abandonne', null],
+  ]);
   assert.deepEqual(lecture.versementsOpco!.map(x => [x.montant, x.annuleLe != null, x.annuleMotif]), [[300, true, null], [100, false, null]]);
   for (const x of [u.hse, u.paie, u.hugo, u.mehdi]) {
     const s = await buildSnapshot(db, x);
@@ -438,13 +512,19 @@ test('relances : boîte du service RH seulement, action du plan et échéance, n
   assert.doesNotMatch(rh.texte, /4 321|€/);
   for (const e of premiers.filter(x => x.a[0] !== 'rh@entreprise.example')) assert.doesNotMatch(e.texte, /OPCO/, `pas chez ${e.a[0]}`);
   const cles = (await db.query<{ cle: string; palier: string }>("SELECT cle, palier FROM relances WHERE cle LIKE 'opco:%' ORDER BY cle")).map(r => `${r.cle}|${r.palier}`);
-  assert.deepEqual(cles, [`opco:${id}:depot|echu`, `opco:${id + 1}:depot|30`]);
-  // Passage suivant : rien de nouveau ; dossier déposé : nouvelle étape (accord attendu le 13 octobre).
+  assert.deepEqual(cles, [`opco:${id}:depot:2026-09-20|echu`, `opco:${id + 1}:depot:2026-11-01|30`]);
+  // Passage suivant : rien de nouveau.
   await passer();
   assert.equal((await recaps()).length, premiers.length);
+  // Formation reportée de 5 jours : nouvelle échéance de dépôt (25 septembre), relancée de nouveau malgré le même palier.
+  await run(u.gest, 'opco.modifier', { id, du: '2026-10-25', au: '2026-10-26' });
+  await passer();
+  assert.equal((await recaps()).length, premiers.length + 1);
+  assert.match((await recaps()).at(-1)!.texte, /dossier à déposer avant le début de la formation : dépassée depuis le 25 sept. 2026/);
+  // Dossier déposé : nouvelle étape (accord attendu le 18 octobre, 7 jours avant le début).
   await run(u.gest, 'opco.deposer', { id, de: 'a_deposer' });
   await passer();
-  assert.match((await recaps()).at(-1)!.texte, /accord de l’OPCO attendu avant le début de la formation : échéance le 13 oct. 2026/);
+  assert.match((await recaps()).at(-1)!.texte, /accord de l’OPCO attendu avant le début de la formation : échéance le 18 oct. 2026/);
 });
 
 test('banc d’oracle : actions OPCO en renfort, cache incrémental exact après chaque pas', async () => {

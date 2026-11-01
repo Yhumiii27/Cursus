@@ -4,7 +4,9 @@
 // échéances ; ni export comptable des versements, ni aide au montage, ni dossiers d'alternance (colonne `empId` réservée).
 // - États : à déposer → déposé → accordé ou refusé → justificatifs envoyés (« facturé ») → remboursé (au moins un
 //   versement) → soldé ; abandonné (motif codé) avant le solde ; retour d'un cran par l'administrateur RH (`statutPrecedent`).
-//   Chaque transition reçoit l'état affiché (`de`) : un double clic ne la refait pas (`controleTransition`).
+//   Chaque transition reçoit l'état affiché (`de`) : un double clic ne la refait pas (`controleTransition`). Un acompte
+//   reçu après l'accord fait passer à « remboursé » sans dispenser des justificatifs : leur envoi s'enregistre encore
+//   (`controleFacturation`) et le solde les exige (`controleSolde`).
 // - Montants calculés, jamais stockés (`montantsOpco`) : à récupérer = accordé (ou facturé s'il est plus bas) moins les
 //   sommes reçues par l'entreprise ; en subrogation, rien n'est à récupérer, le paiement de l'organisme est suivi ; reste à
 //   charge = coût de l'action moins la prise en charge. Comptés sur l'exercice de l'action du plan (choix par défaut).
@@ -198,7 +200,8 @@ export const TRANSITIONS_OPCO: Record<EtapeOpco, { de: readonly StatutOpco[]; ve
   deposer: { de: ['a_deposer'], vers: 'depose' },
   accorder: { de: ['depose'], vers: 'accorde' },
   refuser: { de: ['depose'], vers: 'refuse' },
-  facturer: { de: ['accorde'], vers: 'facture' },
+  // Remboursé par un acompte reçu avant l'envoi des justificatifs : l'envoi reste à faire (`controleFacturation`).
+  facturer: { de: ['accorde', 'rembourse'], vers: 'facture' },
   solder: { de: ['facture', 'rembourse'], vers: 'solde' },
   abandonner: { de: ['a_deposer', 'depose', 'accorde', 'facture'], vers: 'abandonne' },
 };
@@ -222,6 +225,30 @@ export function controleTransition(etape: EtapeOpco, statut: StatutOpco, de?: un
   }
   if (!t.de.includes(statut)) return { refus: `impossible depuis l’état « ${STATUTS_OPCO[statut].label} »` };
   return { faire: true };
+}
+
+/**
+ * Envoi des justificatifs (`opco.facturer`) : depuis l'accord, ou depuis « remboursé » quand un acompte a précédé l'envoi —
+ * le dossier reste alors « remboursé », seuls la date et le montant facturé se posent. Déjà envoyés à l'état remboursé :
+ * rien n'est refait (double clic), ou refus si l'écran affichait un autre état.
+ */
+export function controleFacturation(d: Pick<DossierOpco, 'statut' | 'factureLe'>, de?: unknown): Issue {
+  if (d.statut === 'rembourse' && d.factureLe) {
+    if (de === 'rembourse') return { deja: 'justificatifs déjà envoyés' };
+    if (de !== undefined && de !== null && de !== '') return controleTransition('facturer', d.statut, de);
+    return { refus: 'justificatifs déjà envoyés' };
+  }
+  return controleTransition('facturer', d.statut, de);
+}
+
+/**
+ * Solde (`opco.solder`) : la transition, et les justificatifs envoyés — un dossier remboursé par acompte ne se solde
+ * qu'après l'envoi de la facture et du certificat de réalisation (`opco.facturer`, avec leur contrôle).
+ */
+export function controleSolde(d: Pick<DossierOpco, 'statut' | 'factureLe'>, de?: unknown): Issue {
+  const t = controleTransition('solder', d.statut, de);
+  if ('faire' in t && !d.factureLe) return { refus: 'justificatifs (facture, certificat de réalisation) à envoyer avant le solde' };
+  return t;
 }
 
 /**
@@ -360,7 +387,8 @@ export function echeanceOpco(d: DossierOpco, versements: readonly VersementOpco[
   };
   if (d.statut === 'a_deposer') return d.du ? faire('depot', addD(d.du, -s.opcoDelaiDepot)) : null;
   if (d.statut === 'depose') return d.du ? faire('accord', addD(d.du, -DELAI_ACCORD_JOURS)) : null;
-  if (d.statut === 'accorde') return d.au ? faire('justificatifs', addD(d.au, s.opcoDelaiJustificatifs)) : null;
+  // Accordé, ou remboursé par un acompte avant l'envoi des justificatifs : ceux-ci restent attendus.
+  if (d.statut === 'accorde' || (d.statut === 'rembourse' && !d.factureLe)) return d.au ? faire('justificatifs', addD(d.au, s.opcoDelaiJustificatifs)) : null;
   if ((d.statut === 'facture' || d.statut === 'rembourse') && d.factureLe) {
     const m = montantsOpco(d, versements);
     if (m.aRecuperer > 0) return faire('remboursement', addD(d.factureLe, s.opcoDelaiRemboursement));
@@ -380,7 +408,8 @@ export type NomActionPlan = (l: PlanAction) => string;
 
 /**
  * Relances du récapitulatif des échéances (server/src/relances.ts), pour la seule boîte du service RH : une par dossier en
- * cours et par étape (`opco:<id>:<étape>`), aux paliers réglés puis échue. Ni montant ni nom de salarié : l'action du plan
+ * cours et par étape, avec la date de l'échéance (`opco:<id>:<étape>:<AAAA-MM-JJ>`, comme les autres relances : une
+ * échéance déplacée — dates de la formation reportées, retour d'un cran — repart de zéro), aux paliers réglés puis échue. Ni montant ni nom de salarié : l'action du plan
  * et l'échéance seulement.
  */
 export function relancesOpco(
@@ -395,7 +424,7 @@ export function relancesOpco(
     const palier = palierDe(e.jours, paliers);
     if (!palier) continue;
     out.push({
-      cle: `opco:${d.id}:${e.etape}`, empId: 0, categorie: 'opco', echeance: e.echeance, jours: e.jours, palier, sante: false, rhSeul: true,
+      cle: `opco:${d.id}:${e.etape}:${e.echeance}`, empId: 0, categorie: 'opco', echeance: e.echeance, jours: e.jours, palier, sante: false, rhSeul: true,
       libelle: `Dossier OPCO — ${nom(l)} : ${e.libelle.charAt(0).toLowerCase()}${e.libelle.slice(1)}`,
     });
   }

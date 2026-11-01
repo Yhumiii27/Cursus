@@ -25,6 +25,9 @@ import type { RepondantEvaluation, TypeEvaluation } from '../../../shared/types.
 // lot 11 — dossiers OPCO
 import type { CodeOpco, DispositifOpco, NaturePiece } from '../../../shared/types.ts';
 import type { EtapeOpco } from '../../../shared/rules/opco.ts';
+// lot 11 — notes de frais
+import type { TypeVehicule } from '../../../shared/types.ts';
+import type { OngletFrais } from '../components/frais/onglets.ts';
 import { api, definirEspaceOnglet, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type NomAction, type SessionState } from '../api.ts';
 import type { Tri } from '../components/tri.ts';
 import { AppelsEnCours } from './actions.ts';
@@ -85,6 +88,10 @@ export interface UiState {
   opcoCode: CodeOpco | null;
   opcoDispositif: DispositifOpco | null;
   opcoSel: number | null;
+  // lot 11 — notes de frais (pages/Frais.tsx)
+  /** Onglet de l'écran Notes de frais (selon l'espace : components/frais/onglets.ts) et note ouverte. */
+  fraisOnglet: OngletFrais;
+  fraisNote: number | null;
 }
 
 /** lot 11 — dossiers OPCO : filtre d'état de l'onglet « Dossiers OPCO ». */
@@ -102,6 +109,8 @@ const INITIAL_UI: UiState = {
   indOnglet: 'effectifs', indAnnee: null, indGroupe: 'aucun',
   // lot 11 — dossiers OPCO
   budgetOnglet: 'plan', opcoFiltre: 'tous', opcoCode: null, opcoDispositif: null, opcoSel: null,
+  // lot 11 — notes de frais
+  fraisOnglet: 'premier', fraisNote: null,
 };
 
 /** Dialogues ouverts depuis plusieurs écrans — rendus par <DialogHost />. */
@@ -217,7 +226,18 @@ export type DialogState =
   | { type: 'opcoDossier'; planActionId?: number | null; id?: number | null }
   | { type: 'opcoEtape'; id: number; etape: EtapeOpco }
   | { type: 'opcoVersement'; id: number }
-  | { type: 'opcoPiece'; id: number; nature?: NaturePiece | null };
+  | { type: 'opcoPiece'; id: number; nature?: NaturePiece | null }
+  // lot 11 — notes de frais (dialogs/Frais*Dialog.tsx) : note (création), dépense (ajout à une note, dépense rapide sans
+  // note, modification `id`), véhicule personnel, avance, plafonnement au contrôle, taux d'une devise, limite d'un forfait,
+  // tranches du barème kilométrique d'une année.
+  | { type: 'fraisNote'; empId?: number | null; voyageId?: number | null; missionId?: number | null }
+  | { type: 'fraisDepense'; noteId?: number | null; id?: number | null }
+  | { type: 'fraisVehicule'; empId?: number | null }
+  | { type: 'fraisAvance'; empId?: number | null }
+  | { type: 'fraisPlafond'; id: number }
+  | { type: 'fraisTaux' }
+  | { type: 'fraisForfait'; annee: number }
+  | { type: 'fraisBareme'; annee: number; vehicule: TypeVehicule };
 
 /** Dialogue « Planifier » : rouvert après la création d'une session (t107). */
 export type DialogePlan = { type: 'plan'; empId: number; certId?: number; inscriptionId?: number };
@@ -524,7 +544,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const role: Role = session?.role ?? 'rh';
   // lot 11 — organigramme : vue fermée au manager ou au collaborateur par le réglage `organigrammeOuvert` → page d'accueil.
-  const fermee = rawView === 'organigramme' && !!data && !organigrammeOuvertA(data.settings.organigrammeOuvert, role);
+  const fermee = (rawView === 'organigramme' && !!data && !organigrammeOuvertA(data.settings.organigrammeOuvert, role))
+    // lot 11 — notes de frais : module désactivé (réglage notesFraisActives) → page d'accueil (la comptabilité, qui n'a que
+    // cet écran, y lit que le module est désactivé).
+    || (rawView === 'frais' && !!data && !data.settings.notesFraisActives);
   const view = allowedView(role, fermee ? '' : rawView, role === 'rh' ? data?.settings.vueInitiale : undefined, (data ?? session)?.user?.profilRh);
 
   // Synchronise l'URL avec la vue effectivement affichée, sa sélection et ses filtres (state/url.ts) : l'ouverture d'une
@@ -551,7 +574,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   // lot 11 — pwa : une saisie admise hors ligne que le réseau n'a pas portée est gardée sur l'appareil, montrée dans
   // l'instantané en mémoire, puis rejouée (pwa/pilote.ts) ; toute autre action part comme avant.
-  const horsLigne = useHorsLigne({ session, sessionRef, dataRef, montrer: setData, relire: rafraichir, notifier: notify });
+  const horsLigne = useHorsLigne({ session, sessionRef, dataRef, montrer: setData, relire: rafraichir, notifier: notify, /* lot 11 — notes de frais */ fraisActifs: data ? !!data.settings.notesFraisActives : undefined });
   const horsLigneRef = useRef(horsLigne);
   horsLigneRef.current = horsLigne;
 

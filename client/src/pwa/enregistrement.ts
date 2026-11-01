@@ -66,6 +66,15 @@ export function prendreNouvelleAbsence(): boolean {
   return v;
 }
 
+// lot 11 — notes de frais : raccourci « Nouvelle dépense » (/frais?nouveau=1), relevé de même ; il ouvre la saisie d'une
+// dépense à l'écran Mes frais.
+let nouvelleDepense = false;
+export function prendreNouvelleDepense(): boolean {
+  const v = nouvelleDepense;
+  nouvelleDepense = false;
+  return v;
+}
+
 /** Demande l'installation (bouton « Installer l'application ») ; vrai si la personne l'accepte. */
 export async function installer(): Promise<boolean> {
   const i = invitation;
@@ -107,6 +116,7 @@ async function retirer(): Promise<void> {
 export function demarrerPwa(): void {
   const q = new URLSearchParams(location.search);
   nouvelleAbsence = location.pathname === '/absences' && q.get('nouveau') === '1';
+  nouvelleDepense = location.pathname === '/frais' && q.get('nouveau') === '1';
   // `source=pwa` : adresse de lancement du manifeste (start_url, raccourcis), donc application installée.
   const standalone = estStandalone() || q.get('source') === 'pwa';
   document.documentElement.classList.toggle('standalone', standalone);

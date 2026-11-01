@@ -10,21 +10,31 @@
 // - comptabilité (droit « compta » seul) : branche propre (`vueComptabilite`) — référentiels, annuaire, réglages, notes,
 //   lignes (frais médicaux compris), véhicules, avances et justificatifs des frais ; aucun dossier du personnel, aucune
 //   absence, aucune donnée de santé hors des lignes de frais médicaux.
+// Alertes des notes en circuit (`alertesFrais`, relecture de l'étape 2) : calculées ici sur l'instantané complet, pour
+// que ces vues montrent celles que le serveur applique (chantiers en grand déplacement, absences, empreintes des
+// justificatifs leur manquent) ; le texte d'une alerte ne dit ni la nature d'une absence ni à qui est un doublon.
+import { Domain } from '../../shared/domain.ts';
 import type { CurrentUser, Dataset, NoteFrais } from '../../shared/types.ts';
+import { alertesDesNotes } from '../../shared/rules/frais-alertes.ts';
 import { estObjetFrais } from '../../shared/rules/pieces.ts';
 
-/** Notes de frais vues par un manager ou un collaborateur : les siennes, et celles des salariés `idsFrais` sans les notes médicales. */
-export function fraisVueSalarie(full: Dataset, user: CurrentUser, idsFrais: ReadonlySet<number>): Pick<Dataset, 'notesFrais' | 'lignesFrais' | 'vehiculesPerso' | 'avancesFrais'> {
+/**
+ * Notes de frais vues par un manager ou un collaborateur : les siennes, et celles des salariés `idsFrais` sans les notes
+ * médicales ; `d` : domaine de l'instantané complet (alertes).
+ */
+export function fraisVueSalarie(full: Dataset, d: Domain, user: CurrentUser, idsFrais: ReadonlySet<number>): Pick<Dataset, 'notesFrais' | 'lignesFrais' | 'vehiculesPerso' | 'avancesFrais' | 'alertesFrais'> {
   const moi = user.empId;
   const voit = (empId: number) => empId === moi || idsFrais.has(empId);
   const notes = (full.notesFrais ?? []).filter(n => n.empId === moi || (idsFrais.has(n.empId) && !n.medicale));
   // Ligne par salarié : celle d'une note reçue, du même salarié (une ligne d'un autre salarié ne change jamais la vue).
   const parId = new Map(notes.map(n => [n.id, n]));
+  const lignes = (full.lignesFrais ?? []).filter(l => parId.get(l.noteId)?.empId === l.empId);
   return {
     notesFrais: notes,
-    lignesFrais: (full.lignesFrais ?? []).filter(l => parId.get(l.noteId)?.empId === l.empId),
+    lignesFrais: lignes,
     vehiculesPerso: (full.vehiculesPerso ?? []).filter(v => voit(v.empId)),
     avancesFrais: (full.avancesFrais ?? []).filter(a => voit(a.empId)),
+    alertesFrais: alertesDesNotes(d, notes, lignes),
   };
 }
 
@@ -78,6 +88,7 @@ export function vueComptabilite(full: Dataset): Dataset {
     lignesFrais: full.lignesFrais ?? [],
     vehiculesPerso: full.vehiculesPerso ?? [],
     avancesFrais: full.avancesFrais ?? [],
+    alertesFrais: alertesDesNotes(new Domain(full), full.notesFrais ?? [], full.lignesFrais ?? []),
     // Justificatifs des frais, frais médicaux compris, sans l'empreinte (service RH seulement, comme pour les autres).
     pieces: (full.pieces ?? []).filter(p => estObjetFrais(p.objet) && !p.retireeLe).map(p => ({ ...p, empreinte: null })),
   };

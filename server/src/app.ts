@@ -31,6 +31,8 @@ import { routesVariablesPaie } from './variables-paie.ts';
 import { routesPasseportPrevention } from './passeport-prevention.ts';
 // lot 11 — indicateurs
 import { routesIndicateurs } from './indicateurs.ts';
+// lot 11 — notes de frais, étape 2
+import { routesFraisExports } from './frais-exports.ts';
 import { routesPieces } from './pieces-routes.ts';
 import { CLE_INVALIDE, CleReutilisee, empreinteCorps, garderReponse, lireCle, reponseGardee } from './idempotence.ts';
 import { EN_TETE_HORS_LIGNE, refusHorsLigne } from '../../shared/hors-ligne.ts';
@@ -216,6 +218,9 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   app.get('/api/indicateurs', exigerNavigationInterne('appel'));
   app.get('/api/indicateurs/csv', exigerNavigationInterne('appel'));
   app.get('/api/indicateurs/bdese/csv', exigerNavigationInterne('appel'));
+  // lot 11 — notes de frais, étape 2 : exports comptables et leur fichier d'écritures, lus par fetch (en-tête d'espace exigé).
+  app.get('/api/frais/exports', exigerNavigationInterne('appel'));
+  app.get('/api/frais/exports/:id/fichier', exigerNavigationInterne('appel'));
   // Journal des actions (consultation filtrée et paginée, export CSV, archive paie, exports de l'interface) et
   // données personnelles d'un salarié (export RH, téléchargement par l'intéressé) : server/src/journal.ts, donnees.ts.
   app.use(routesJournal(db));
@@ -230,6 +235,9 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // lot 11 — indicateurs : indicateurs sociaux légaux (BDESE, préparation de l'index d'égalité), agrégats masqués calculés
   // hors de l'instantané, arrêtés figés, export CSV tracé (droit « consultation ») : server/src/indicateurs.ts.
   app.use(routesIndicateurs(db));
+  // lot 11 — notes de frais, étape 2 : exports comptables (comptabilité et service RH, téléchargement tracé) :
+  // server/src/frais-exports.ts.
+  app.use(routesFraisExports(db));
   // Pièces justificatives : envoi (corps brut, 10 Mo au plus) et consultation contrôlée par les droits, tracées :
   // server/src/pieces-routes.ts.
   app.use(routesPieces(db));

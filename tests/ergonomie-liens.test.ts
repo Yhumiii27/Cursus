@@ -30,6 +30,8 @@ const UI: UiState = {
   indOnglet: 'effectifs', indAnnee: null, indGroupe: 'aucun',
   // lot 11 — dossiers OPCO
   budgetOnglet: 'plan', opcoFiltre: 'tous', opcoCode: null, opcoDispositif: null, opcoSel: null,
+  // lot 11 — notes de frais
+  fraisOnglet: 'premier', fraisNote: null,
 };
 
 async function fresh() {

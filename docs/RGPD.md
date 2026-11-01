@@ -229,6 +229,12 @@ Contact : le DPO (Paramètres → Confidentialité), sinon le service RH.
   Photo d'un justificatif prise avec le téléphone (`client/src/pwa/photo.ts`, notes de frais) : métadonnées retirées
   avant l'envoi (EXIF et XMP, dont la position GPS que l'appareil photo d'Android peut y écrire ; seule l'orientation
   est gardée), Cursus ne demandant jamais la géolocalisation (`Permissions-Policy geolocation=()`).
+- Notes de frais (lot 11, étape 2) : dépense avec la photo du reçu gardée chiffrée sur le téléphone quand le réseau
+  manque (jamais des frais médicaux) et, pour la dépense rapide d'une ouverture sans réseau, identifiants du dernier compte
+  connecté (compte, espace, salarié : rien d'autre), effacés à la déconnexion et sur un appareil partagé ; texte d'un reçu
+  collé lu dans le navigateur, jamais gardé ni envoyé ; fichier d'écritures pour la comptabilité nominatif (nom et
+  matricule, montants par note), frais médicaux au compte et au libellé génériques ; e-mails et notifications sans montant
+  ni motif. Finalité « remboursement des frais professionnels » à inscrire au registre et à la page Confidentialité.
 - Accès depuis Internet, smartphone compris (décision de l'entreprise) : téléphones fournis, verrouillage imposé par
   la gestion de flotte (`docs/DEPLOIEMENT.md`, « Postes et téléphones »).
 - Organigramme (lot 11) : inscription de la finalité au registre et information des salariés (page Confidentialité) ;

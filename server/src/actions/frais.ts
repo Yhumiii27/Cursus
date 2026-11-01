@@ -4,15 +4,19 @@
 //   frais.note.creer        empId, periode, medicale, voyageId, missionId, projet : le salarié pour lui-même, ou le service RH
 //   frais.ligne.ajouter     noteId, date, categorie, montant, devise, taux | montantEur, tvaTaux, tvaMontant, commercant,
 //                           forfait, km, vehiculeId, depart, arrivee, invites, motifDepassement, sansJustificatif,
-//                           attestation, jetons : note en brouillon ou à corriger, l'intéressé ou le service RH
+//                           attestation, jetons : note en brouillon ou à corriger, l'intéressé ou le service RH ; sans
+//                           noteId (étape 2 : dépense rapide du téléphone, admise hors ligne), empId : brouillon ordinaire
+//                           du mois de la dépense, sans rattachement, créé au besoin (jamais une note médicale)
 //   frais.ligne.modifier    id, mêmes champs ; frais.ligne.supprimer id (ses pièces sont retirées)
 //   frais.note.soumettre    id : alertes bloquantes refusées, justificatifs scellés ; « validée » d'emblée (sans manager)
 //                           pour une note médicale ou un salarié sans valideur
 //   frais.note.valider      id : manager direct ou suppléant au périmètre « frais », service RH ; jamais sa propre note
-//   frais.note.renvoyer     id, motif : valideur (note soumise) ou contrôleur (validée, contrôlée) ; motif jamais au journal
+//   frais.note.renvoyer     id, motif : valideur (note soumise) ou contrôleur (validée, contrôlée) ; motif jamais au journal ;
+//                           refusé pour une note d'un export comptable en vigueur (l'annuler d'abord)
 //   frais.note.controler    id : comptabilité ou service RH, jamais sa propre note ; alertes bloquantes refusées
 //   frais.ligne.refuser     id, motif ; frais.ligne.plafonner id, montant : contrôleur, note validée
-//   frais.note.annuler      id, motif : l'intéressé avant la validation, le service RH avant le paiement
+//   frais.note.annuler      id, motif : l'intéressé avant la validation, le service RH avant le paiement, hors d'un
+//                           export comptable en vigueur
 //   frais.vehicule.declarer empId, type, cv, electrique, du, au, jetons : l'intéressé ou le service RH
 //   frais.bareme.enregistrer annee, type, tranches : administrateur RH ; frais.forfait.enregistrer annee, code, pays,
 //                           montant : service RH ; frais.taux.enregistrer devise, mois, taux : comptabilité ou service RH
@@ -22,23 +26,24 @@
 import { addD, isValidDate } from '../../../shared/dates.ts';
 import { plural } from '../../../shared/format.ts';
 import { periodeLabel } from '../../../shared/rules/paie.ts';
-import { sejoursPaie } from '../../../shared/rules/deplacements-paie.ts';
 import {
-  doublonsDe, doublonsEmpreinte, enEuros, erreurCategoriePourNote, estCategorieFrais, estDevise, estPeriodeFrais, lignesDe, montantRetenu, noteModifiable, notePayee,
+  doublonsDe, enEuros, erreurCategoriePourNote, estCategorieFrais, estDevise, estPeriodeFrais, lignesDe, montantRetenu, noteModifiable, notePayee,
   r2, statutApresValidation, statutASoumission,
 } from '../../../shared/rules/frais.ts';
 import { cumulKm, ikDuTrajet, indemnitesIkAnnee, lignesIkDeLAnnee, TYPES_VEHICULE, vehiculeAuJour } from '../../../shared/rules/frais-km.ts';
-import { ikTransmises, limitesIk } from '../../../shared/rules/frais-paie.ts';
-import { cumulsForfait, joursForfait, joursSejour } from '../../../shared/rules/frais-cumul.ts';
-import { type AlerteFrais, alertesLigne, bloquantes, estCodeForfait, forfaitDeLaLigne, limiteForfait } from '../../../shared/rules/frais-politique.ts';
+import { ikTransmises } from '../../../shared/rules/frais-paie.ts';
+import { alertesDeNote } from '../../../shared/rules/frais-alertes.ts';
+import { type AlerteFrais, bloquantes, estCodeForfait, forfaitDeLaLigne, limiteForfait } from '../../../shared/rules/frais-politique.ts';
 import { estTauxTva } from '../../../shared/rules/frais-tva.ts';
-import type { AvanceFrais, BaremeKm, Employe, LigneFrais, NoteFrais, ObjetPiece, TauxDevise, TypeVehicule, VehiculePerso } from '../../../shared/types.ts';
+import type { AvanceFrais, BaremeKm, Employe, ExportFraisEnregistre, LigneFrais, NoteFrais, ObjetPiece, TauxDevise, TypeVehicule, VehiculePerso } from '../../../shared/types.ts';
 import { scellerPieces } from '../sceaux.ts';
 import {
   ActionError, type ActionHandler, type Ctx, getEmp, isControleurFrais, isManagerOf, isRh, isSelf, refuserSoiMeme, requireControleurFrais, requireRh,
   requireRhAdmin, str,
 } from './context.ts';
 import { joindrePieces, retirerPiecesDe } from './pieces.ts';
+// lot 11 — notes de frais, étape 2 : e-mails et notifications du circuit.
+import { notifierNoteAControler, notifierNoteRenvoyee, notifierNoteSoumise, notifierNoteValidee } from '../frais-notifications.ts';
 
 /** Longueur au plus des textes libres d'une ligne (commerçant, lieux, invités, motifs). */
 export const TEXTE_FRAIS_MAX = 300;
@@ -238,13 +243,37 @@ export async function recalculerIk(ctx: Ctx, empId: number, annees: Iterable<num
 /** Année d'une ligne kilométrique (recalcul de ses voisines), sinon aucune. */
 const anneeIk = (l: Pick<LigneFrais, 'categorie' | 'date'> | undefined): number[] => (l?.categorie === 'ik' ? [Number(l.date.slice(0, 4))] : []);
 
+/**
+ * Note d'une dépense rapide (lot 11, étape 2 : téléphone, page « Hors ligne ») : le brouillon ordinaire du mois de la
+ * dépense, sans déplacement, mission ni projet, le plus ancien ; créé au besoin. Une dépense médicale n'y entre jamais
+ * (`erreurCategoriePourNote` : elle forme une note séparée, créée depuis l'écran « Mes frais »).
+ */
+async function noteRapide(ctx: Ctx, p: Record<string, any>): Promise<{ n: NoteFrais; creee: boolean }> {
+  const e = salarieSaisi(ctx, p.empId);
+  const date = str(p.date);
+  if (!isValidDate(date)) throw new ActionError('Date de la dépense invalide');
+  const periode = date.slice(0, 7);
+  const n = (ctx.ds.notesFrais ?? []).filter(x => x.empId === e.id && x.periode === periode && x.statut === 'brouillon' && !x.medicale && !x.voyageId && !x.missionId && !x.projet)
+    .sort((a, b) => a.id - b.id)[0];
+  if (n) return { n, creee: false };
+  if (p.categorie === 'medical') throw new ActionError(erreurCategoriePourNote({ medicale: false }, 'medical')!);
+  return {
+    n: await ctx.db.insert<NoteFrais>('notesFrais', {
+      empId: e.id, periode, voyageId: null, missionId: null, projet: null, medicale: false, statut: 'brouillon', creeLe: maintenant(), creePar: ctx.user.nom,
+      soumiseLe: null, valideeLe: null, valideePar: null, controleeLe: null, controleePar: null, renvoyeeLe: null, renvoyeePar: null, renvoiMotif: null,
+      lotId: null, payeeLe: null, annuleeLe: null, annuleePar: null, annuleMotif: null,
+    }),
+    creee: true,
+  };
+}
+
 const ligneAjouter: ActionHandler = async (ctx, p) => {
   requireActif(ctx);
-  const n = await noteEnSaisie(ctx, p.noteId);
+  const { n, creee } = p.noteId ? { n: await noteEnSaisie(ctx, p.noteId), creee: false } : await noteRapide(ctx, p);
   const l = await ctx.db.insert<LigneFrais>('lignesFrais', { noteId: n.id, empId: n.empId, ...lireLigne(ctx, n, p) });
   await recalculerIk(ctx, n.empId, anneeIk(l));
   const pieces = await joindrePieces(ctx, p.jetons ?? p.jeton, objetLigne(n), l.id, n.empId);
-  return { message: `Dépense ajoutée à la note de frais n° ${n.id}${pieces}${avertirDoublons(ctx, l)}`, result: { note: n.id, ligne: l.id, empId: n.empId } };
+  return { message: `Dépense ajoutée à la note de frais n° ${n.id}${creee ? ` (créée — ${periodeLabel(n.periode)})` : ''}${pieces}${avertirDoublons(ctx, l)}`, result: { note: n.id, ligne: l.id, empId: n.empId } };
 };
 
 const ligneModifier: ActionHandler = async (ctx, p) => {
@@ -274,30 +303,8 @@ const ligneSupprimer: ActionHandler = async (ctx, p) => {
   return { message: `Dépense retirée de la note de frais n° ${n.id}${retirees ? ` · ${plural(retirees, 'pièce retirée', 'pièces retirées')}` : ''}`, result: { note: n.id, ligne: l.id, empId: n.empId } };
 };
 
-/**
- * Alertes de chaque ligne en vigueur d'une note (shared/rules/frais-politique.ts) : justificatifs joints, cumul avec les
- * forfaits de grand déplacement et de mission à l'étranger du salarié, absences, barème et limites, doublons.
- */
-export function alertesNote(ctx: Ctx, n: NoteFrais, lignes: readonly LigneFrais[] = lignesDe(ctx.ds.lignesFrais, n.id)): Map<number, AlerteFrais[]> {
-  const e = ctx.d.emp(n.empId);
-  const absent = (j: string) => !!ctx.d.absOn(n.empId, j);
-  const jours = joursForfait(sejoursPaie(ctx.d).filter(s => s.empId === n.empId).map(s => joursSejour(s, absent, e?.fin ?? null)));
-  const cumuls = new Map(cumulsForfait(lignes, jours).map(c => [c.ligneId, c]));
-  const pieces = (ctx.ds.pieces ?? []).filter(x => (x.objet === 'ligneFrais' || x.objet === 'ligneFraisSante') && !x.retireeLe);
-  const parEmpreinte = doublonsEmpreinte(pieces.map(x => ({ ligneId: x.objetId, empreinte: x.empreinte })));
-  const out = new Map<number, AlerteFrais[]>();
-  const limites = limitesIk(ctx);
-  for (const l of lignes) {
-    // Limite d'exonération d'après le cumul ordonné de l'année (recalculé : saisie dans le désordre, refus, barème).
-    const limiteIk = l.categorie === 'ik' ? limites(l) : undefined;
-    const doublons = [...new Set([...doublonsDe(l, ctx.ds.lignesFrais ?? [], ctx.ds.notesFrais ?? []), ...parEmpreinte.filter(g => g.includes(l.id)).flat().filter(id => id !== l.id)])];
-    out.set(l.id, alertesLigne(l, {
-      settings: ctx.ds.settings, today: ctx.d.ti, justificatifs: pieces.filter(x => x.objetId === l.id).length, forfaits: ctx.ds.referentiels.forfaitsFrais,
-      limiteIk, absent: absent(l.date), cumul: cumuls.get(l.id) ?? null, doublons,
-    }));
-  }
-  return out;
-}
+/** Alertes de chaque ligne en vigueur d'une note (shared/rules/frais-alertes.ts, mêmes que celles des écrans). */
+export const alertesNote = (ctx: Ctx, n: NoteFrais, lignes: readonly LigneFrais[] = lignesDe(ctx.ds.lignesFrais, n.id)): Map<number, AlerteFrais[]> => alertesDeNote(ctx.d, n, lignes);
 
 /** Refus si une ligne porte une alerte bloquante : la première, avec la date de la dépense. */
 function refuserBloquantes(ctx: Ctx, n: NoteFrais, quoi: string) {
@@ -323,6 +330,9 @@ const noteSoumettre: ActionHandler = async (ctx, p) => {
   const pieces = (ctx.ds.pieces ?? []).filter(x => (x.objet === 'ligneFrais' || x.objet === 'ligneFraisSante') && ids.has(x.objetId) && !x.retireeLe).map(x => x.id);
   const scellees = await scellerPieces(ctx.db, pieces);
   await ctx.db.update<NoteFrais>('notesFrais', n.id, { statut, soumiseLe: maintenant(), renvoyeeLe: null, renvoyeePar: null, renvoiMotif: null });
+  // Au valideur, ou, sans manager (note médicale, salarié sans valideur), à la boîte du service RH : même message.
+  if (statut === 'soumise') await notifierNoteSoumise(ctx, e, n);
+  else await notifierNoteAControler(ctx, e, n);
   return {
     // Message identique quel que soit le circuit (il est recopié au journal) : « transmise directement au contrôle »
     // désignerait une note médicale d'un salarié qui a un manager. L'écran montre le statut.
@@ -342,6 +352,9 @@ const noteValider: ActionHandler = async (ctx, p) => {
   const statut = valide === 'controlee' && rienARembourser(ctx, n) ? 'payee' : valide;
   const le = maintenant();
   await ctx.db.update<NoteFrais>('notesFrais', n.id, { statut, valideeLe: le, valideePar: ctx.user.nom, ...(valide === 'controlee' ? { controleeLe: le, controleePar: ctx.user.nom } : {}), ...(statut === 'payee' ? { payeeLe: ctx.d.ti } : {}) });
+  const e = getEmp(ctx, n.empId);
+  if (statut === 'validee') await notifierNoteAControler(ctx, e, n);
+  else await notifierNoteValidee(ctx, e, n, statut === 'payee');
   return { message: `Note de frais n° ${n.id} validée${statut === 'payee' ? ' · rien à rembourser, note close' : statut === 'controlee' ? ' · en attente de la paie' : ' · en attente du contrôle'}`, result: { note: n.id, empId: n.empId, statut } };
 };
 
@@ -353,6 +366,17 @@ function motif(v: unknown): string {
   return m;
 }
 
+/**
+ * Refus si la note figure dans un export comptable en vigueur (relecture de l'étape 2) : ses écritures y sont figées, et
+ * une note déjà exportée n'entre plus dans un export suivant. La renvoyer ou l'annuler laisserait la comptabilité créditer
+ * le salarié d'un montant que la paie ne rembourse plus ; on annule d'abord l'export (Notes de frais → Exports
+ * comptables), ce qui remet ses notes à exporter.
+ */
+async function refuserSiExportee(ctx: Ctx, n: NoteFrais, quoi: string) {
+  const x = (await ctx.db.all<ExportFraisEnregistre>('exportsFrais')).find(e => !e.annuleLe && (e.notes ?? []).includes(n.id));
+  if (x) throw new ActionError(`${quoi} impossible : la note de frais n° ${n.id} figure dans l’export comptable n° ${x.id} ; annulez d’abord cet export (Notes de frais → Exports comptables)`, 409);
+}
+
 const noteRenvoyer: ActionHandler = async (ctx, p) => {
   requireActif(ctx);
   const n = await noteDe(ctx, p.id, x => valideur(ctx)(x) || isControleurFrais(ctx));
@@ -360,7 +384,9 @@ const noteRenvoyer: ActionHandler = async (ctx, p) => {
   const parValideur = n.statut === 'soumise' && valideur(ctx)(n);
   const parControleur = (n.statut === 'validee' || n.statut === 'controlee') && isControleurFrais(ctx);
   if (!parValideur && !parControleur) throw new ActionError(`Note de frais n° ${n.id} : renvoi impossible à cette étape`, 409);
+  if (n.statut === 'controlee') await refuserSiExportee(ctx, n, 'Renvoi');
   await ctx.db.update<NoteFrais>('notesFrais', n.id, { statut: 'a_corriger', renvoyeeLe: maintenant(), renvoyeePar: ctx.user.nom, renvoiMotif: motif(p.motif), valideeLe: null, valideePar: null, controleeLe: null, controleePar: null });
+  await notifierNoteRenvoyee(ctx, getEmp(ctx, n.empId), n);
   return { message: `Note de frais n° ${n.id} renvoyée pour correction`, result: { note: n.id, empId: n.empId, statut: 'a_corriger' } };
 };
 
@@ -386,6 +412,7 @@ const noteControler: ActionHandler = async (ctx, p) => {
   refuserBloquantes(ctx, n, 'Contrôle');
   const le = maintenant(), rien = rienARembourser(ctx, n);
   await ctx.db.update<NoteFrais>('notesFrais', n.id, { statut: 'controlee', controleeLe: le, controleePar: ctx.user.nom, ...(rien ? { statut: 'payee', payeeLe: ctx.d.ti } : {}) });
+  await notifierNoteValidee(ctx, getEmp(ctx, n.empId), n, rien);
   return {
     message: `Note de frais n° ${n.id} contrôlée · ${rien ? 'rien à rembourser (dépenses refusées), note close' : 'remboursée avec la prochaine paie'}`,
     result: { note: n.id, empId: n.empId, statut: rien ? 'payee' : 'controlee' },
@@ -427,6 +454,7 @@ const noteAnnuler: ActionHandler = async (ctx, p) => {
   const avantValidation = n.statut === 'brouillon' || n.statut === 'soumise' || n.statut === 'a_corriger';
   if (!isRh(ctx) && !avantValidation) throw new ActionError(`Note de frais n° ${n.id} déjà validée : adressez-vous au service RH`, 409);
   if (isRh(ctx) && !avantValidation) refuserSoiMeme(ctx, getEmp(ctx, n.empId), 'Vous n’annulez pas votre propre note de frais validée');
+  if (!avantValidation) await refuserSiExportee(ctx, n, 'Annulation');
   await ctx.db.update<NoteFrais>('notesFrais', n.id, { statut: 'annulee', annuleeLe: maintenant(), annuleePar: ctx.user.nom, annuleMotif: str(p.motif).slice(0, TEXTE_FRAIS_MAX) || null });
   await recalculerIk(ctx, n.empId, lignesDe(ctx.ds.lignesFrais, n.id).flatMap(anneeIk));
   return { message: `Note de frais n° ${n.id} annulée`, result: { note: n.id, empId: n.empId, statut: 'annulee' } };

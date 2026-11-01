@@ -99,6 +99,9 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // interne, justificatif toujours exigé, puissance plafonnée à 7 CV, notes payées gardées 10 ans.
     notesFraisActives: false, fraisCircuit: 'manager_controle', fraisDelaiSoumissionMois: 3, fraisPlafonds: {}, fraisSeuilJustificatif: 0, fraisIkCvReels: false,
     conservationFraisAns: 10,
+    // Lot 11, chantier C5, étape 2 : fichier d'écritures (comptes proposés, journal OD, gabarit du fichier de paie).
+    fraisComptes: {}, fraisCompteGenerique: '6256', fraisCompteTva: '44566', fraisCompteSalarie: '421', fraisJournal: 'OD',
+    fraisGabarit: { separateur: ';', colonnes: ['journal', 'date', 'compte', 'compteTiers', 'piece', 'libelle', 'debit', 'credit'], decimale: ',', entete: true, encodage: 'utf-8', formatDate: 'JJ/MM/AAAA' },
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(await loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

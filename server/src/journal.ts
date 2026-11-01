@@ -88,6 +88,14 @@ const REGLES_FRAIS: Record<string, Regle> = {
   'frais.avance.valider': { champs: ['id'], salaries: salarieFrais },
   'frais.avance.refuser': { champs: ['id'], extra: p => ({ motif: typeof p.motif === 'string' && p.motif.trim() ? MENTION_TEXTE : null }), salaries: salarieFrais },
   'frais.avance.annuler': { champs: ['id'], salaries: salarieFrais },
+  // lot 11 — notes de frais, étape 2 : exports comptables (identifiant, nombre de notes et de lignes, total : agrégat utile à
+  // l'audit comptable, jamais le montant d'une note).
+  'frais.export.generer': {
+    champs: ['attendues'],
+    bilan: (_p, x) => { const r = (x.result ?? {}) as { export?: number; notes?: number; ecritures?: number; montant?: number }; return { export: r.export ?? null, notes: r.notes ?? 0, lignes: r.ecritures ?? 0, montant: r.montant ?? 0 }; },
+    salaries: (_p, x) => ((x.result ?? {}) as { salaries?: number[] }).salaries ?? [],
+  },
+  'frais.export.annuler': { champs: ['id'], bilan: (_p, x) => ({ notes: ((x.result ?? {}) as { notes?: number }).notes ?? 0 }) },
 };
 
 interface Cible {

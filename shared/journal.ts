@@ -54,10 +54,11 @@ export const ACTIONS_PAIE: readonly string[] = [
   // Astreintes (t049, lot 7) : périodes planifiées, modifiées ou annulées (compensation) et interventions (travail effectif).
   'astreinte.planifier', 'astreinte.modifier', 'astreinte.annuler', 'astreinte.intervention', 'astreinte.retirerIntervention',
   // lot 11 — notes de frais : circuit jusqu'au contrôle (remboursement par la paie : lots de paie ci-dessus), avances,
-  // barème et forfaits (limites d'exonération), taux des devises ; les exports comptables seront tracés sous `frais.export`.
+  // barème et forfaits (limites d'exonération), taux des devises ; exports comptables (génération, annulation, fichier
+  // téléchargé, tracé comme sage.fichier : étape 2).
   'frais.note.soumettre', 'frais.note.valider', 'frais.note.renvoyer', 'frais.note.controler', 'frais.note.annuler', 'frais.ligne.refuser',
   'frais.ligne.plafonner', 'frais.avance.valider', 'frais.avance.refuser', 'frais.avance.annuler', 'frais.bareme.enregistrer', 'frais.forfait.enregistrer',
-  'frais.taux.enregistrer',
+  'frais.taux.enregistrer', 'frais.export.generer', 'frais.export.annuler', 'frais.export.fichier',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -226,6 +227,9 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'frais.avance.valider': 'Avance sur frais validée',
   'frais.avance.refuser': 'Avance sur frais refusée',
   'frais.avance.annuler': 'Avance sur frais annulée',
+  'frais.export.generer': 'Export comptable des notes de frais généré',
+  'frais.export.annuler': 'Export comptable des notes de frais annulé',
+  'frais.export.fichier': 'Fichier d’écritures des notes de frais téléchargé',
   // Absences et congés
   'absence.demander': 'Demande d’absence',
   'absence.decider': 'Décision sur une absence',

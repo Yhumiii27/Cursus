@@ -2,7 +2,8 @@
 // tunnel, au fond d'un atelier). Réponse du propriétaire du 31 octobre 2026 : aucune donnée n'est gardée sur le
 // téléphone, donc rien à afficher hors de la file d'attente : les saisies déjà gardées sur l'appareil, envoyées dès que
 // Cursus s'ouvrira avec du réseau. Nouvel essai au retour du réseau, ou par « Réessayer ».
-// (Les notes de frais, chantier C5, y ajouteront la dépense rapide : photo, montant, date.)
+// lot 11 — notes de frais : dépense rapide (photo, montant, date, catégorie), gardée dans la file pour le dernier compte
+// connecté avec les notes de frais activées (components/frais/DepenseHorsLigne.tsx).
 import { useEffect, useState } from 'react';
 import { CloudSlashIcon } from '@phosphor-icons/react';
 import { plural } from '../../../shared/format.ts';
@@ -10,11 +11,13 @@ import { FileEnAttente } from '../components/FileEnAttente.tsx';
 import { Btn, Fine, Page, Panel } from '../components/ui.tsx';
 import { fileAppareil } from '../pwa/useHorsLigne.ts';
 import type { EntreeFile } from '../state/hors-ligne.ts';
+import { DepenseHorsLigne } from '../components/frais/DepenseHorsLigne.tsx';
 
 export function HorsLigne({ erreur, recharger }: { erreur: string; recharger: () => void }) {
   const [entrees, setEntrees] = useState<EntreeFile[]>([]);
+  const lister = () => { void fileAppareil()?.listerTout().then(setEntrees).catch(() => {}); };
   useEffect(() => {
-    void fileAppareil()?.listerTout().then(setEntrees).catch(() => {});
+    lister();
     addEventListener('online', recharger);
     return () => removeEventListener('online', recharger);
   }, [recharger]);
@@ -27,6 +30,7 @@ export function HorsLigne({ erreur, recharger }: { erreur: string; recharger: ()
         </div>
         <div><Btn small variant="primary" onClick={recharger}>Réessayer</Btn></div>
       </Panel>
+      <DepenseHorsLigne onGardee={lister} />
       <Panel title="Saisies gardées sur cet appareil" aside={entrees.length ? <span className="text-muted sub">{plural(entrees.length, 'saisie', 'saisies')}</span> : undefined}>
         {entrees.length
           ? <FileEnAttente entrees={entrees} />

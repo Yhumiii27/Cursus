@@ -276,6 +276,9 @@ export const EMAIL_LABEL: Record<string, string> = {
   'delegation.debut': 'Début d’une délégation des validations (demandes en attente)',
   'delegation.fin': 'Délégation des validations révoquée',
   // Astreintes (t049, lot 7, server/src/astreintes.ts) : au salarié, avec l'événement d'agenda (.ics).
+  // lot 11 — notes de frais (server/src/frais-notifications.ts) : circuit et remboursement, sans montant ni motif.
+  'frais.soumise': 'Note de frais à valider', 'frais.acontroler': 'Note de frais à contrôler', 'frais.renvoyee': 'Note de frais renvoyée pour correction',
+  'frais.validee': 'Note de frais validée', 'frais.payee': 'Note de frais remboursée',
   'astreinte.planifiee': 'Astreinte planifiée',
   'astreinte.modifiee': 'Astreinte modifiée',
   'astreinte.annulee': 'Astreinte annulée',
@@ -569,9 +572,11 @@ export const ALLOWED_VIEWS = {
   // lot 11 — organigramme (pages/Organigramme.tsx) : `organigramme`, toujours ouvert à l'espace RH ; au manager et au
   // collaborateur selon le réglage `organigrammeOuvert` (shared/rules/organigramme.ts, `organigrammeOuvertA`).
   // lot 11 — indicateurs : indicateurs sociaux légaux (BDESE, index d'égalité), droit « consultation » (service RH et lecture seule).
-  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'miseEnService', 'prevention', 'organigramme', 'indicateurs'],
-  manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions', 'organigramme'],
-  collaborateur: ['portail', 'temps', 'absences', 'entretiens', 'organigramme'],
+  // lot 11 — notes de frais (pages/Frais.tsx) : `frais`, contrôle (service RH, comptabilité), validation de l'équipe
+  // (manager), « Mes frais » (collaborateur) ; dans le menu seulement le module activé (réglage notesFraisActives).
+  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'miseEnService', 'prevention', 'organigramme', 'indicateurs', 'frais'],
+  manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions', 'organigramme', 'frais'],
+  collaborateur: ['portail', 'temps', 'absences', 'entretiens', 'organigramme', 'frais'],
 } as const;
 /**
  * Vues ouvertes dans tous les espaces et sans connexion : information sur les données personnelles (shared/confidentialite.ts)
@@ -626,7 +631,8 @@ export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits:
   comptabilite: {
     label: 'Comptabilité', espace: 'Compta', droits: ['compta'],
     aide: 'Contrôle des notes de frais validées, frais médicaux compris (ils ne passent jamais par le manager), taux des devises et exports comptables ; aucun dossier du personnel, ni absences, ni temps, ni formations',
-    vues: ['dashboard'],
+    // lot 11 — notes de frais, étape 2 : l'écran Notes de frais seul (contrôle, avances, exports, tableau de bord, taux).
+    vues: ['frais'],
   },
 };
 export const aDroitRh = (p: ProfilRh | undefined, droit: DroitRh) => !!p && !!PROFILS_RH[p]?.droits.includes(droit);

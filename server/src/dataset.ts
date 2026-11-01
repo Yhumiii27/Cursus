@@ -580,7 +580,7 @@ export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre 
     dossiersOpco: [],
     versementsOpco: [],
     // lot 11 — notes de frais : filtre propre aux frais (équipe directe et délégations « frais »), sans note médicale d'autrui.
-    ...fraisVueSalarie(full, user, fraisIds),
+    ...fraisVueSalarie(full, d, user, fraisIds),
   }, lues);
 }
 

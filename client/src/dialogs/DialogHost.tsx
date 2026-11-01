@@ -82,6 +82,13 @@ import { ArreteCseDialog } from './ArreteCseDialog.tsx';
 import { OpcoDossierDialog } from './OpcoDossierDialog.tsx';
 import { OpcoEtapeDialog } from './OpcoEtapeDialog.tsx';
 import { OpcoPieceDialog } from './OpcoPieceDialog.tsx';
+// lot 11 — notes de frais
+import { FraisAvanceDialog } from './FraisAvanceDialog.tsx';
+import { FraisDepenseDialog } from './FraisDepenseDialog.tsx';
+import { FraisNoteDialog } from './FraisNoteDialog.tsx';
+import { FraisPlafondDialog } from './FraisPlafondDialog.tsx';
+import { FraisBaremeDialog, FraisForfaitDialog, FraisTauxDialog } from './FraisReferentielDialog.tsx';
+import { FraisVehiculeDialog } from './FraisVehiculeDialog.tsx';
 import { OpcoVersementDialog } from './OpcoVersementDialog.tsx';
 
 export function DialogHost() {
@@ -177,5 +184,14 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'opcoEtape': return <OpcoEtapeDialog {...d} />;
     case 'opcoVersement': return <OpcoVersementDialog {...d} />;
     case 'opcoPiece': return <OpcoPieceDialog {...d} />;
+    // lot 11 — notes de frais
+    case 'fraisNote': return <FraisNoteDialog {...d} />;
+    case 'fraisDepense': return <FraisDepenseDialog {...d} />;
+    case 'fraisVehicule': return <FraisVehiculeDialog {...d} />;
+    case 'fraisAvance': return <FraisAvanceDialog {...d} />;
+    case 'fraisPlafond': return <FraisPlafondDialog {...d} />;
+    case 'fraisTaux': return <FraisTauxDialog />;
+    case 'fraisForfait': return <FraisForfaitDialog {...d} />;
+    case 'fraisBareme': return <FraisBaremeDialog {...d} />;
   }
 }

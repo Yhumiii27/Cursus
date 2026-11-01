@@ -258,7 +258,7 @@ test('manifeste : lancement /?source=pwa, plein écran, couleurs Nocturne, icôn
   assert.equal(m.theme_color, fond);
   assert.deepEqual(m.icons.map((i: { sizes: string; purpose: string }) => `${i.sizes} ${i.purpose}`), ['192x192 any', '512x512 any', '512x512 maskable']);
   for (const i of m.icons) readFileSync(new URL(`../client/public${i.src}`, import.meta.url));
-  assert.deepEqual(m.shortcuts.map((s: { name: string }) => s.name), ['Saisir mes heures', 'Demander une absence']);
+  assert.deepEqual(m.shortcuts.map((s: { name: string }) => s.name), ['Saisir mes heures', 'Demander une absence', /* lot 11 — notes de frais */ 'Nouvelle dépense']);
   for (const s of m.shortcuts) assert.ok((ALLOWED_VIEWS.collaborateur as readonly string[]).includes(new URL(s.url, 'https://x').pathname.slice(1)), s.url);
   const page = lire('client/index.html');
   for (const balise of ['<link rel="manifest" href="/manifest.webmanifest" />', `<meta name="theme-color" content="${fond}" />`, '<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />',

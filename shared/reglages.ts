@@ -13,6 +13,8 @@ import type { CategorieEvaluee, CategorieFrais, CircuitFrais, CodeOpco, ColonneP
 // lot 11 — indicateurs
 import { NATURES_ABSENTEISME_DEFAUT, NATURES_ABSENTEISME_POSSIBLES, SEUIL_INDICATEURS_DEFAUT, SEUIL_INDICATEURS_MAX, SEUIL_INDICATEURS_MIN } from './rules/indicateurs-legaux.ts';
 import { CODES_OPCO } from './rules/opco.ts';
+// lot 11 — notes de frais, étape 2
+import { COMPTE_FRAIS_GENERIQUE, COMPTE_SALARIE, COMPTE_TVA_DEDUCTIBLE, estCompte, estJournal, GABARIT_FRAIS_DEFAUT, JOURNAL_FRAIS, lireComptes, lireGabarit } from './rules/frais-export.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
 export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
@@ -92,6 +94,14 @@ export const plafondsFrais = (v: unknown): Partial<Record<CategorieFrais, number
     out[c] = Math.round(n * 100) / 100;
   }
   return out;
+};
+
+// lot 11 — notes de frais, étape 2
+/** Compte comptable (chiffres et lettres majuscules, 13 caractères au plus), espaces retirés. */
+export const compteComptable = (libelle: string) => (v: unknown): string => {
+  const c = typeof v === 'string' ? v.trim().toUpperCase() : '';
+  if (!estCompte(c)) throw new ReglageInvalide(`${libelle} : chiffres et lettres, 13 caractères au plus`);
+  return c;
 };
 
 /** Stockage des pièces justificatives : désactivé ou dossier local ; la GED n'est pas encore raccordée. */
@@ -330,6 +340,19 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   // 10 ans au moins : pièces justificatives comptables (art. L123-22 du Code de commerce) ; une durée plus courte ferait
   // effacer par la cascade des notes payées et leurs justificatifs avant le terme légal.
   conservationFraisAns: { defaut: 10, controle: entier(FRAIS_MIN_ANS, DUREE_MAX_ANS) },
+  // lot 11 — notes de frais, étape 2 (shared/rules/frais-export.ts) : fichier d'écritures pour la comptabilité, comptes du
+  //   plan comptable général proposés (625x, TVA déductible 44566, salarié 421), journal « OD », gabarit du fichier de
+  //   paie ; à confirmer par la comptabilité (plan de comptes, compte du salarié, journal, format d'import) —
+  fraisComptes: { defaut: {}, controle: v => { const c = lireComptes(v); if (typeof c === 'string') throw new ReglageInvalide(c); return c; } },
+  fraisCompteGenerique: { defaut: COMPTE_FRAIS_GENERIQUE, controle: compteComptable('Compte générique des frais') },
+  fraisCompteTva: { defaut: COMPTE_TVA_DEDUCTIBLE, controle: compteComptable('Compte de TVA déductible') },
+  fraisCompteSalarie: { defaut: COMPTE_SALARIE, controle: compteComptable('Compte du salarié') },
+  fraisJournal: { defaut: JOURNAL_FRAIS, controle: v => {
+    const j = typeof v === 'string' ? v.trim().toUpperCase() : '';
+    if (!estJournal(j)) throw new ReglageInvalide('Journal comptable : 1 à 6 lettres ou chiffres');
+    return j;
+  } },
+  fraisGabarit: { defaut: GABARIT_FRAIS_DEFAUT, controle: v => { const g = lireGabarit(v); if (typeof g === 'string') throw new ReglageInvalide(`Fichier d’écritures : ${g}`); return g; } },
 };
 
 /**

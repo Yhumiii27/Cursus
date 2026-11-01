@@ -118,6 +118,11 @@ interface Stockee { id: string; rang: number; compteId: number; espace: Role; cr
 interface Chiffre { iv: Uint8Array; donnees: ArrayBuffer }
 
 const CLE = 'cle', ENTREE = 'entree:', PIECE = 'piece:';
+// lot 11 — notes de frais : dernier compte connecté avec les notes de frais activées (dépense rapide de la page « Hors
+// ligne », ouverte sans session) : identifiants seuls, comme ceux des entrées en clair ; purgé avec la file.
+const PORTEUR = 'porteur';
+/** Compte, espace et salarié à qui rattacher une dépense rapide saisie sans session (page « Hors ligne »). */
+export type PorteurFrais = Porteur & { empId: number };
 /** Âge au-delà duquel un jeton de pièce n'est plus utilisé : une heure de marge sur sa validité côté serveur (24 h). */
 const JETON_PERIME_MS = DELAI_PIECE_EN_ATTENTE_MS - 3600_000;
 const attendre = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -252,6 +257,18 @@ export class FileHorsLigne {
   /** Purge complète (clé comprise) : déconnexion, appareil partagé. */
   async purger(): Promise<void> { await this.magasin.vider(); }
 
+  // lot 11 — notes de frais
+  /** Compte de la session, gardé pour la dépense rapide d'une ouverture sans réseau (module activé seulement). */
+  async garderPorteur(p: PorteurFrais | null): Promise<void> {
+    if (p) await this.magasin.ecrire(PORTEUR, { compteId: p.compteId, espace: p.espace, empId: p.empId });
+    else await this.magasin.effacer(PORTEUR);
+  }
+  /** Compte gardé, ou null (aucune session depuis la dernière purge, notes de frais désactivées). */
+  async porteurGarde(): Promise<PorteurFrais | null> {
+    const p = await this.magasin.lire(PORTEUR) as PorteurFrais | undefined;
+    return p && Number.isInteger(p.compteId) && Number.isInteger(p.empId) && typeof p.espace === 'string' ? p : null;
+  }
+
   /** Session d'un autre compte : tout ce qui appartient à un autre compte est effacé (purge complète). Vrai si purgée. */
   async purgerAutreCompte(compteId: number): Promise<boolean> {
     if (!(await this.stockees()).some(s => s.compteId !== compteId)) return false;
@@ -265,7 +282,13 @@ export class FileHorsLigne {
     const toutes = await this.stockees();
     const anciennes = toutes.filter(s => Date.parse(s.creeLe) < limite);
     for (const s of anciennes) await this.abandonner(s.id);
-    if (anciennes.length === toutes.length) await this.purger();
+    if (anciennes.length === toutes.length) {
+      // lot 11 — notes de frais : le compte gardé pour la dépense rapide survit à la purge d'une file vide (il n'a que
+      // des identifiants ; la déconnexion et l'appareil partagé l'effacent avec tout le reste).
+      const porteur = await this.porteurGarde();
+      await this.purger();
+      if (porteur) await this.garderPorteur(porteur);
+    }
     return anciennes.length;
   }
 

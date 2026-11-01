@@ -88,6 +88,16 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           'Tablette d’atelier ou téléphone prêté : cochez « Appareil partagé » ; rien n’y est gardé. La déconnexion efface les saisies non envoyées (Cursus prévient avant).',
         ],
       },
+      // lot 11 — notes de frais
+      {
+        titre: 'Notes de frais',
+        points: [
+          'Menu « Mes frais » (deuxième onglet de l’application installée) : « Nouvelle dépense », « Photographier le reçu », montant, date et catégorie ; la dépense va dans la note du mois, créée au besoin. Le raccourci « Nouvelle dépense » de l’icône y mène directement.',
+          '« Coller le texte du reçu » : copiez le texte de la photo (Live Text sur iPhone, Google Lens sur Android), collez-le, puis « Lire le texte » propose montant, date, TVA et commerçant ; vérifiez chaque champ. Reçu perdu : cochez l’attestation sur l’honneur.',
+          '« Soumettre la note » une fois complète : les reçus deviennent définitifs, votre manager valide, la comptabilité contrôle, puis la note est remboursée avec la paie du mois suivant. Renvoyée « À corriger », le motif s’affiche sur la note.',
+          'Frais médicaux en mission (vaccin, pharmacie) : « Nouvelle note », case « Frais médicaux en mission » ; la note ne passe pas par votre manager. Indemnités kilométriques : déclarez d’abord votre véhicule. Sans réseau, une dépense avec sa photo reste gardée sur le téléphone (jamais des frais médicaux).',
+        ],
+      },
     ],
   },
   {
@@ -128,6 +138,14 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           '« Équipe » : conformité de chacun (formations, habilitations, aptitude réduite au verdict et aux restrictions). « Ajouter un membre » reprend un salarié « à affecter » ; une mutation directe passe par le service RH.',
           '« Formations » : renouvellements à prévoir. « Planifier » inscrit le collaborateur à une session ouverte ; sans session, « Demander au RH ».',
           '« Couverture minimale des équipes » (écran Équipe) : jour où votre équipe n’aura plus assez de secouristes ou d’équipiers incendie présents et formés, et pourquoi.',
+        ],
+      },
+      // lot 11 — notes de frais
+      {
+        titre: 'Valider les notes de frais',
+        points: [
+          'Menu « Notes de frais », onglet « À valider » : notes soumises de votre équipe directe et des salariés que vous remplacez pour les frais. Ouvrez la note : dépenses, reçus, alertes (plafond, doublon, jour d’absence), puis « Valider » ou « Renvoyer pour correction » avec un motif.',
+          'Avances : « Valider » ou « Refuser ». Onglet « Équipe » : notes et totaux de l’année ; les frais médicaux ne vous sont jamais montrés ni comptés. Vos propres notes : onglet « Notes ».',
         ],
       },
     ],
@@ -209,6 +227,15 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           'Écran « Plan & budget », colonne « OPCO » : « Créer » propose dates, heures, effectif et montant d’après la ligne ; onglet « Dossiers OPCO » : montants de l’exercice, retards en tête, filtres et répartition.',
           'Étapes du dossier ouvert : « Dossier déposé », « Accord reçu » ou « Refus reçu », « Justificatifs envoyés », « Versement reçu », « Solder », « Abandonner ». L’administrateur RH revient d’un cran, annule un versement ou supprime un dossier, avec un motif.',
           '« Joindre une pièce » : facture et certificat de réalisation exigés avant l’envoi des justificatifs ; facture et accord gardés 10 ans. Échéances dans l’écran « Échéances » (filtre « Dossiers OPCO ») ; délais dans Paramètres → Dossiers OPCO, à confirmer.',
+        ],
+      },
+      // lot 11 — notes de frais
+      {
+        titre: 'Notes de frais : contrôle et exports',
+        points: [
+          'Menu « Notes de frais » (service RH et profil Comptabilité) : onglet « À contrôler » ; dans la note, « Montant retenu » ramène une dépense au plafond, « Refuser » l’écarte avec un motif, puis « Contrôler la note » : elle part dans le prochain lot de paie (colonne « montant » du fichier Sage).',
+          'Onglet « Exports comptables » : « Générer l’export comptable » fige les écritures des notes contrôlées, puis « Télécharger » le fichier pour la comptabilité (frais médicaux au compte générique). Une note déjà exportée ne se renvoie ni ne s’annule : annulez d’abord l’export, ses notes redeviennent à exporter. Onglet « Tableau de bord » : notes en attente, délai, dépenses par mois et par catégorie, taux des devises.',
+          'Paramètres → Notes de frais (administrateur RH) : activation, circuit, plafonds, barème kilométrique de l’année, limites d’exonération URSSAF, comptes et format du fichier d’écritures, à confirmer par la comptabilité et la paie.',
         ],
       },
     ],

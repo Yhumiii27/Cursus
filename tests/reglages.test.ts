@@ -95,6 +95,9 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // lot 11 — dossiers OPCO : OPCO 2i, sans subrogation ; dépôt 30 jours avant, justificatifs 90 jours après, relance du
     // remboursement à 60 jours (à confirmer avec le service RH).
     opcoDefaut: 'opco2i', opcoSubrogation: false, opcoDelaiDepot: 30, opcoDelaiJustificatifs: 90, opcoDelaiRemboursement: 60,
+    // lot 12 — C3 (entretiens suivis) : objectifs actifs, facultatifs la première année, 8 au plus ; point de mi-année
+    // facultatif (fenêtre du 1er mai au 15 juillet quand il est rendu obligatoire).
+    objectifsActifs: true, objectifsFacultatifs: true, objectifsMax: 8, pointMiAnneeActif: false, pointMiAnneeDebut: '05-01', pointMiAnneeFin: '07-15',
     // Lot 11, chantier C5 : notes de frais désactivées, validation du manager puis contrôle, délai de 3 mois, aucun plafond
     // interne, justificatif toujours exigé, puissance plafonnée à 7 CV, notes payées gardées 10 ans.
     notesFraisActives: false, fraisCircuit: 'manager_controle', fraisDelaiSoumissionMois: 3, fraisPlafonds: {}, fraisSeuilJustificatif: 0, fraisIkCvReels: false,

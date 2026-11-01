@@ -41,6 +41,8 @@ import type {
 } from '../../shared/types.ts';
 // lot 11 — notes de frais
 import type { AvanceFrais, BaremeKm, ForfaitFrais, LigneFrais, NoteFrais, TauxDevise, VehiculePerso } from '../../shared/types.ts';
+// lot 12 — C3 (entretiens suivis et 360°)
+import type { Objectif, Reponse360, Sollicitation360 } from '../../shared/types.ts';
 import type { Db, Fenetre, TableName } from './db.ts';
 import { formatFichierDe } from './lots-paie.ts';
 import { messagerieDe } from './messagerie.ts';
@@ -148,6 +150,9 @@ export interface Brut {
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
+  objectifs: Objectif[];
+  feedbackSollicitations: Sollicitation360[];
+  feedbackReponses: Reponse360[];
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
@@ -306,6 +311,9 @@ export async function lireBrut(db: Db, today: string): Promise<Brut> {
     // lot 12 — C1 (forfait annuel en heures)
     // lot 12 — C2 (notes de frais : activation)
     // lot 12 — C3 (entretiens suivis et 360°)
+    objectifs: await lire('objectifs'),
+    feedbackSollicitations: await lire('feedbackSollicitations'),
+    feedbackReponses: await lire('feedbackReponses'),
     // lot 12 — C4 (organismes de formation et e-learning)
     // lot 12 — C5 (planning d'équipe)
     // lot 12 — C6 (badgeage virtuel)
@@ -516,6 +524,11 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     // lot 12 — C1 (forfait annuel en heures)
     // lot 12 — C2 (notes de frais : activation)
     // lot 12 — C3 (entretiens suivis et 360°)
+    // Objectifs (toutes les lignes) ; feedback 360° (étape 3) : sollicitations et réponses versées, filtrées par espace et
+    // par profil dans server/src/vues-entretiens-suivis.ts.
+    objectifs: brut.objectifs,
+    feedbackSollicitations: brut.feedbackSollicitations,
+    feedbackReponses: brut.feedbackReponses,
     // lot 12 — C4 (organismes de formation et e-learning)
     // lot 12 — C5 (planning d'équipe)
     // lot 12 — C6 (badgeage virtuel)
@@ -591,6 +604,9 @@ const LECTURES_ASSEMBLEES = {
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
+  objectifs: ['objectifs'],
+  feedbackSollicitations: ['feedbackSollicitations'],
+  feedbackReponses: ['feedbackReponses'],
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
@@ -636,6 +652,8 @@ export const HORS_INSTANTANE: ReadonlySet<TableName> = new Set<TableName>(['noti
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
+  // Réponses du feedback 360° en attente du versement (chiffrées) : jamais lues par l'instantané, ni pour le service RH.
+  'feedbackTampon',
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)

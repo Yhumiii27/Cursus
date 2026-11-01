@@ -84,6 +84,23 @@ const intervention = async () => {
   return (await db.insert<{ id: number }>('astreinteInterventions', { astreinteId, empId: 2, jour: '2026-10-05', debut: '22:00', fin: '23:30', heures: 1.5, declareLe: '2026-10-06T08:00:00.000Z', declarePar: 'Mehdi Benali' })).id;
 };
 const ENTRETIEN = async () => ((await db.one(`SELECT id FROM entretiens WHERE emp_id = 2 AND statut = 'planifie'`)) as { id: number }).id;
+// lot 12 — C3 (entretiens suivis)
+/** Entretien annuel 2025 de Mehdi, clos et signé : ses objectifs s'ajustent et s'évaluent à l'entretien de 2026. */
+const annuelClos = async () => (await db.insert<{ id: number }>('entretiens', {
+  empId: 2, type: 'annuel', date: '2025-11-10', statut: 'realise', cr: {}, info: true, signSal: '2025-11-12', signMgr: '2025-11-10', planifieLe: '2025-10-01',
+})).id;
+/** Objectif de Mehdi, fixé (ou proposé) à l'entretien `entretienId` (l'annuel planifié par défaut). */
+const objectifEssai = async (statut: string, entretienId?: number) => (await db.insert<{ id: number }>('objectifs', {
+  empId: 2, entretienId: entretienId ?? await ENTRETIEN(), evalueEntretienId: null, reconduitDe: null, libelle: 'Fiabiliser la presse 3', mesure: null, categorie: 'individuel',
+  poids: null, echeance: null, avancement: 0, statut, evaluation: null, commentaireSal: null, creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Karim Haddad',
+  modifieLe: null, modifiePar: null, ajusteLe: null, ajusteMotif: null, libelleInitial: null,
+})).id;
+/** Entretien annuel planifié de Mehdi, avec un souhait de formation du salarié encore sans avis (clé s1). */
+const souhaitEssai = async () => {
+  const id = await ENTRETIEN();
+  await db.update('entretiens', id, { souhaits: [{ cle: 's1', f: 'sst', libelle: null, priorite: 'normale', objectifId: null, auteur: 'sal', avis: null, demandeId: null, verseLe: null, nonVerse: null }] });
+  return id;
+};
 
 /** Absence de Mehdi le 15 décembre, dans l'état voulu (signalée par son manager, ou validée). */
 const absence = async (statut: string, type: string) => (await db.insert<{ id: number }>('absences', {
@@ -517,6 +534,20 @@ const MATRICE: Ligne[] = [
     await db.update('entretiens', id, { statut: 'realise', signMgr: '2026-10-07' });
     return { id };
   } },
+  // lot 12 — C3 (entretiens suivis) : objectifs fixés, modifiés, retirés, ajustés et évalués par l'évaluateur (manager
+  // direct, service RH) ; proposés par le salarié, qui met aussi à jour l'avancement et retire sa proposition. Souhaits de
+  // formation : le salarié ou l'évaluateur ; avis de l'évaluateur. Jamais un autre manager, un autre salarié ni un profil
+  // restreint.
+  { action: 'objectif.ajouter', droits: '                   O    O    O    -    -    -    -    -    -', p: async () => ({ entretienId: await ENTRETIEN(), libelle: 'Réduire les arrêts de la presse 3', categorie: 'individuel' }) },
+  { action: 'objectif.proposer', droits: '                  -    -    -    -    O    -    -    -    -', p: async () => ({ entretienId: await ENTRETIEN(), libelle: 'Passer l’habilitation électrique', categorie: 'developpement' }) },
+  { action: 'objectif.modifier', droits: '                  O    O    O    -    -    -    -    -    -', p: async () => ({ id: await objectifEssai('propose'), poids: 30 }) },
+  { action: 'objectif.retirer', droits: '                   O    O    O    -    -    -    -    -    -', p: async () => ({ id: await objectifEssai('ouvert') }) },
+  { action: 'objectif.retirer', variante: 'proposition du salarié', droits: 'O    O    O    -    O    -    -    -    -', p: async () => ({ id: await objectifEssai('propose') }) },
+  { action: 'objectif.avancer', droits: '                   O    O    O    -    O    -    -    -    -', p: async () => ({ id: await objectifEssai('ouvert', await annuelClos()), avancement: 40 }) },
+  { action: 'objectif.ajuster', droits: '                   O    O    O    -    -    -    -    -    -', p: async () => ({ id: await objectifEssai('ouvert', await annuelClos()), echeance: '2027-03-31', motif: 'Arrêt technique reporté' }) },
+  { action: 'objectif.evaluer', droits: '                   O    O    O    -    -    -    -    -    -', p: async () => ({ id: await objectifEssai('ouvert', await annuelClos()), entretienId: await ENTRETIEN(), statut: 'atteint' }) },
+  { action: 'entretien.souhait', droits: '                  O    O    O    -    O    -    -    -    -', p: async () => ({ id: await ENTRETIEN(), f: 'sst', priorite: 'normale' }) },
+  { action: 'entretien.avisSouhait', droits: '              O    O    O    -    -    -    -    -    -', p: async () => ({ id: await souhaitEssai(), cle: 's1', avis: 'favorable' }) },
   // Administration : administrateur RH.
   { action: 'parametres.maj', droits: '                      O    -    -    -    -    -    -    -    -', p: async () => ({ horizonAlerte: 60 }) },
   { action: 'demo.reinitialiser', droits: '                  O    -    -    -    -    -    -    -    -', p: async () => ({}) },

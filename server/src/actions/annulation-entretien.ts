@@ -6,6 +6,8 @@ import { ENT_TYPES } from '../../../shared/constants.ts';
 import { fmtIso } from '../../../shared/format.ts';
 import { crCommence } from '../../../shared/rules/entretiens.ts';
 import { annulerConvocationEntretien } from '../notifications.ts';
+// lot 12 — C3 (entretiens suivis)
+import { detacherEntretien, texteDetache } from '../objectifs-entretien.ts';
 import { ActionError, type ActionHandler, getEmp, isValidatorOf, refuserSoiMeme } from './context.ts';
 
 const annuler: ActionHandler = async (ctx, p) => {
@@ -19,10 +21,13 @@ const annuler: ActionHandler = async (ctx, p) => {
   if (crCommence(x) && p.confirmer !== true) {
     throw new ActionError(`${nom} du ${fmtIso(x.date)} au compte rendu commencé : s’il a eu lieu, clôturez-le ; sinon, confirmez l’annulation, qui supprime le compte rendu`, 409);
   }
+  // lot 12 — C3 (entretiens suivis) : objectifs fixés retirés, objectifs évalués rouverts, demandes versées détachées.
+  const detache = await detacherEntretien(ctx, x);
   await ctx.db.remove('entretiens', x.id);
   // Date passée : l'événement d'agenda est derrière le salarié, rien à retirer.
   const prevenu = x.date < ctx.d.ti ? null : await annulerConvocationEntretien(ctx, e, x);
-  return `${nom} du ${fmtIso(x.date)} annulé — ${e.nom}${prevenu === null ? '' : prevenu ? ' · annulation envoyée au salarié' : ' · à prévenir (aucune adresse e-mail)'}`;
+  const message = `${nom} du ${fmtIso(x.date)} annulé — ${e.nom}${prevenu === null ? '' : prevenu ? ' · annulation envoyée au salarié' : ' · à prévenir (aucune adresse e-mail)'}${texteDetache(detache)}`;
+  return { message, result: detache };
 };
 
 export const annulationEntretienActions = {

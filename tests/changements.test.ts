@@ -201,7 +201,8 @@ test('tables inscrites sans clé : exactement les tables fermées en entier à M
   assert.ok(liste, 'liste des tables sans clé dans 0014');
   // lot 11 — notes de frais : les tables créées après 0014 posent leurs déclencheurs dans leur propre migration (0020 :
   // lignes_frais, sans clé) ; la liste de chacune s'ajoute à celle de 0014.
-  const suivantes = ['0020_notes_frais'].flatMap(m => /IF t IN \(([^)]*)\) THEN/.exec(lire(`server/migrations-pg/${m}.sql`))?.[1].split(',') ?? []);
+  // lot 12 — C3 : 0024 (tables du feedback 360°, sans clé).
+  const suivantes = ['0020_notes_frais', '0024_entretiens_suivis'].flatMap(m => /IF t IN \(([^)]*)\) THEN/.exec(lire(`server/migrations-pg/${m}.sql`))?.[1].split(',') ?? []);
   assert.deepEqual([...liste.split(','), ...suivantes].map(t => t.trim().replace(/'/g, '')).sort(), attendues);
   assert.match(migration, /COMMENT ON TABLE "changements" IS '[^\n]*Sensible \(table entière/);
   // Nom inscrit à l'écriture, jamais figé à la création des fonctions.

@@ -45,3 +45,4 @@ demandées comme avant : elles ne copient aucune vue et ne donnent aucun accès.
 | `matrix-lot11-frais.sql`, `matrix-lot11-indicateurs.sql`, `matrix-lot11-opco.sql`, `matrix-lot11-pwa.sql`, `matrix-lot11-indicateurs.md` | Matrix | Colonnes sensibles du lot 11 | À valider |
 | `keystone-lot11-frais.md` | Keystone, Matrix | Coûts des notes de frais par projet | À valider |
 | `codex-lot11-pieces.md` | Codex | Types de documents des pièces du lot 11 | À valider |
+| `matrix-lot12-entretiens.sql` | Matrix | Colonnes et tables sensibles des entretiens suivis et du feedback 360° (lot 12, C3) | À valider |

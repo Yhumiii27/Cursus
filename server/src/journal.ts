@@ -314,6 +314,68 @@ const reportsRendus: Partial<Regle> = {
 /** Salariés des déplacements créés par un import (identifiants au-delà du dernier d'avant l'action). */
 const importes = async (x: Contexte) => (await x.db.query('SELECT emp_id AS e FROM voyages WHERE id > ? ORDER BY id', [Number(x.etat) || 0]) as { e: number }[]).map(r => r.e);
 
+// lot 12 — C3 (entretiens suivis et 360°) : objectifs et souhaits de formation, identifiants, codes, dates, statuts et
+// nombres ; jamais le libellé, la mesure, l'évaluation, un commentaire ni l'intitulé d'un souhait (textes libres), le
+// motif d'un ajustement noté seulement « renseigné ». Le feedback 360° (étape 3) ne nommera aucun répondant.
+/** Salarié d'un entretien (objectif fixé ou proposé, souhait), lu en base. */
+const salarieEntretien = async (db: Db, id: unknown) => [(await db.get<{ empId: number }>('entretiens', Number(id) || 0))?.empId];
+const resultat = (x: { result: unknown }) => (x.result ?? {}) as Record<string, unknown>;
+const entierOuNul = (v: unknown) => (v !== null && v !== '' && Number.isInteger(Number(v)) ? Number(v) : null);
+const codeDans = (v: unknown, codes: readonly string[]) => (typeof v === 'string' && codes.includes(v) ? v : null);
+const CATEGORIES_OBJ = ['individuel', 'collectif', 'developpement'] as const;
+const RESULTATS_OBJ = ['atteint', 'partiel', 'non_atteint', 'sans_objet', 'reconduit'] as const;
+/** Objectif fixé ou proposé : entretien, catégorie, échéance et poids ; identifiant créé. */
+const regleFixation: Regle = {
+  champs: ['entretienId'],
+  extra: p => ({ categorie: codeDans(p.categorie, CATEGORIES_OBJ), echeance: isValidDate(p.echeance) ? p.echeance : null, poids: entierOuNul(p.poids) }),
+  bilan: (_p, x) => ({ objectif: entierOuNul(resultat(x).id) }),
+  salaries: async (p, x) => await salarieEntretien(x.db, p.entretienId),
+};
+const cleSouhait = (v: unknown) => (typeof v === 'string' && /^s\d{1,3}$/.test(v) ? v : null);
+const REGLES_ENTRETIENS_SUIVIS: Record<string, Regle> = {
+  'objectif.ajouter': regleFixation,
+  'objectif.proposer': regleFixation,
+  'objectif.modifier': { champs: ['id'], cible: parId('objectifs', ['statut', 'categorie', 'poids', 'echeance']) },
+  'objectif.retirer': { champs: ['id'], cible: parId('objectifs', ['statut']) },
+  // Avancement : regroupé par objectif et par compte sur 30 minutes ; le commentaire du salarié seulement « renseigné ».
+  'objectif.avancer': {
+    champs: ['id'], extra: p => (typeof p.commentaire === 'string' && p.commentaire.trim() ? { commentaire: MENTION_TEXTE } : {}),
+    cible: parId('objectifs', ['avancement']), regrouper: 30,
+  },
+  'objectif.ajuster': {
+    champs: ['id'], extra: p => ({ motif: typeof p.motif === 'string' && p.motif.trim() ? MENTION_TEXTE : null }),
+    cible: { ...parId('objectifs', ['categorie', 'poids', 'echeance', 'ajusteLe', 'libelle', 'mesure']), masques: ['libelle', 'mesure'] },
+  },
+  // Évaluation : résultat (code) et entretien ; ligne reconduite créée ; jamais le commentaire de l'évaluateur.
+  'objectif.evaluer': {
+    champs: ['id', 'entretienId'], extra: p => ({ resultat: codeDans(p.statut, RESULTATS_OBJ) }),
+    cible: parId('objectifs', ['statut', 'evalueEntretienId']), bilan: (_p, x) => ({ reconduit: entierOuNul(resultat(x).reconduit) }),
+  },
+  // Souhaits de formation : entretien, opération, clé du souhait, formation du catalogue (code) et priorité ; jamais
+  // l'intitulé libre ; avis du manager (code).
+  'entretien.souhait': {
+    champs: ['id'],
+    extra: p => ({
+      op: codeDans(p.op ?? 'ajouter', ['ajouter', 'modifier', 'retirer']), f: typeof p.f === 'string' && CODE_TITRE.test(p.f) ? p.f : null,
+      priorite: codeDans(p.priorite, ['haute', 'normale', 'basse']), libre: typeof p.libelle === 'string' && !!p.libelle.trim(),
+    }),
+    bilan: (_p, x) => ({ cle: cleSouhait(resultat(x).cle) }),
+  },
+  'entretien.avisSouhait': { champs: ['id'], extra: p => ({ cle: cleSouhait(p.cle), avis: codeDans(p.avis, ['favorable', 'defavorable', 'a_discuter']) }) },
+};
+/** Versement des souhaits à la clôture d'un entretien : demandes créées (identifiants), souhaits écartés (nombre). */
+const bilanVersement = (result: unknown): Ligne => {
+  const r = (result ?? {}) as { demandes?: unknown[]; ecartes?: unknown };
+  return r.demandes?.length || r.ecartes ? { demandes: (r.demandes ?? []).map(Number).filter(Number.isInteger), ecartes: entierOuNul(r.ecartes) ?? 0 } : {};
+};
+/** Annulation d'un entretien : objectifs retirés ou rouverts, demandes versées détachées (nombres). */
+const bilanDetache = (result: unknown): Ligne => {
+  const r = (result ?? {}) as Record<string, unknown>;
+  const nombre = (k: string) => entierOuNul(r[k]) ?? 0;
+  return nombre('objectifsRetires') || nombre('objectifsRouverts') || nombre('demandesDetachees')
+    ? { objectifsRetires: nombre('objectifsRetires'), objectifsRouverts: nombre('objectifsRouverts'), demandesDetachees: nombre('demandesDetachees') } : {};
+};
+
 export const REGLES: Record<string, Regle> = {
   // Fiches et équipes
   // Réembauche : réutilisation d'un matricule de paie confirmée par l'administrateur RH (`reutiliserMatricule`).
@@ -838,12 +900,14 @@ export const REGLES: Record<string, Regle> = {
   // Entretiens : la section rédigée est nommée, jamais son contenu ; une ligne par compte rendu et par demi-heure.
   'entretien.planifier': { champs: ['empId', 'kind', 'date'] },
   // Annulation : type, date et statut de l'entretien retiré (jamais le compte rendu).
-  'entretien.annuler': { champs: ['id'], cible: parId('entretiens', ['type', 'date', 'statut']) },
+  // lot 12 — C3 : objectifs retirés ou rouverts et demandes versées gardées (nombres), le service RH en étant averti.
+  'entretien.annuler': { champs: ['id'], cible: parId('entretiens', ['type', 'date', 'statut']), bilan: (_p, x) => bilanDetache(x.result) },
   'entretien.modifier': {
     champs: ['id', 'info'], extra: p => (p.section ? { sections: [String(p.section)] } : {}),
     cible: { table: 'entretiens', cle: p => Number(p.id) || null, colonnes: [] }, regrouper: 30,
   },
-  'entretien.clore': { champs: ['id'], cible: parId('entretiens', ['statut', 'signMgr']) },
+  // lot 12 — C3 : demandes de formation versées depuis les souhaits (identifiants) et nombre de souhaits écartés.
+  'entretien.clore': { champs: ['id'], cible: parId('entretiens', ['statut', 'signMgr']), bilan: (_p, x) => bilanVersement(x.result) },
   'entretien.signer': { champs: ['id'], cible: parId('entretiens', ['signSal']) },
   // Remise du compte rendu (mode, jour) ; premier téléchargement par le salarié, tracé une fois.
   // La date envoyée n'est pas recopiée (ignorée en mode portail, donc non contrôlée) : remiseLe, avant et après, la trace.
@@ -916,6 +980,7 @@ export const REGLES: Record<string, Regle> = {
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
+  ...REGLES_ENTRETIENS_SUIVIS,
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)

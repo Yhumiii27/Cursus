@@ -43,12 +43,22 @@ const TITRES: Partial<Record<TableName, string>> = {
   // lot 11 — notes de frais
   notesFrais: 'Notes de frais', lignesFrais: 'Dépenses des notes de frais', vehiculesPerso: 'Véhicules personnels déclarés (indemnités kilométriques)',
   avancesFrais: 'Avances sur frais',
+  // lot 12 — C3 (entretiens suivis et 360°) : ses objectifs ; sollicitations et réponses du feedback 360° qui le concernent
+  // comme évalué (étape 3 : réponses sans répondant, jamais celles qu'il a données comme répondant).
+  objectifs: 'Objectifs (entretiens annuels)',
+  feedbackSollicitations: 'Feedback 360° : sollicitations',
+  feedbackReponses: 'Feedback 360° : réponses versées (sans répondant)',
 };
 /**
  * Colonnes jamais exportées : empreinte du mot de passe (secret) et du jeton d'agenda ; nom stocké et jeton d'envoi d'une pièce justificative
  * (repères internes), dont le contenu est joint à part (`contenu`, base64).
  */
-const RETIREES: Partial<Record<TableName, string[]>> = { comptes: ['motDePasse'], pieces: ['fichier', 'jeton', 'deposeCompteId'], jetonsAgenda: ['empreinte'] };
+const RETIREES: Partial<Record<TableName, string[]>> = { comptes: ['motDePasse'], pieces: ['fichier', 'jeton', 'deposeCompteId'], jetonsAgenda: ['empreinte'],
+  // lot 12 — C3 (feedback 360°, étape 3) : l'évalué ne reçoit ni qui a été sollicité ni qui a répondu, ni le contenu d'une
+  // réponse prise une à une (une seule réponse d'un N+2 le désignerait) : la synthèse, jointe à l'entretien, lui revient
+  // (art. 15-4 du RGPD, droits des répondants).
+  feedbackSollicitations: ['repondantEmpId', 'statut', 'proposeePar', 'envoyeeLe', 'relanceeLe', 'closeLe'],
+  feedbackReponses: ['notes', 'verbatim', 'verbatimStatut', 'modereLe', 'moderePar'] };
 /**
  * Colonnes retirées de l'export remis au salarié lui-même (sans journal) : elles nomment d'autres personnes, comme le
  * journal qu'il ne reçoit pas — auteur d'une ligne de l'historique des contrats, que son portail ne lui montre pas, et de

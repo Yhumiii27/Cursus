@@ -121,6 +121,20 @@ export const REFERENCES: readonly Reference[] = [
   ref('lignes_frais', 'note_id', 'notes_frais'),
   ref('lignes_frais', 'vehicule_id', 'vehicules_perso'),
   ref('sceaux_pieces', 'piece_id', 'pieces'),
+  // lot 12 — C3 (entretiens suivis et 360° ; clés étrangères de 0024_entretiens_suivis.sql) : salarié, entretien qui fixe et
+  // entretien qui évalue un objectif, objectif reconduit ; demande versée depuis un souhait ; feedback 360° (évalué,
+  // répondant, entretien, sollicitation d'une réponse en attente).
+  ref('objectifs', 'emp_id', 'employes'),
+  ref('objectifs', 'entretien_id', 'entretiens'),
+  ref('objectifs', 'evalue_entretien_id', 'entretiens'),
+  ref('objectifs', 'reconduit_de', 'objectifs'),
+  ref('demandes_collab', 'entretien_id', 'entretiens'),
+  ref('feedback_sollicitations', 'emp_id', 'employes'),
+  ref('feedback_sollicitations', 'repondant_emp_id', 'employes'),
+  ref('feedback_sollicitations', 'entretien_id', 'entretiens'),
+  ref('feedback_tampon', 'sollicitation_id', 'feedback_sollicitations'),
+  ref('feedback_reponses', 'emp_id', 'employes'),
+  ref('feedback_reponses', 'entretien_id', 'entretiens'),
 ];
 
 export interface Integrite {

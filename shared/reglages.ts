@@ -355,7 +355,15 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   fraisGabarit: { defaut: GABARIT_FRAIS_DEFAUT, controle: v => { const g = lireGabarit(v); if (typeof g === 'string') throw new ReglageInvalide(`Fichier d’écritures : ${g}`); return g; } },
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)
-  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C3 (entretiens suivis et 360°) : objectifs aux entretiens annuels, facultatifs la première année (la clôture
+  //   n'exige pas encore l'évaluation des objectifs repris), 8 au plus par entretien ; point de mi-année facultatif, dû du
+  //   1er mai au 15 juillet seulement si le service RH le rend obligatoire (choix par défaut du chantier) —
+  objectifsActifs: { defaut: true, controle: booleen },
+  objectifsFacultatifs: { defaut: true, controle: booleen },
+  objectifsMax: { defaut: 8, controle: entier(1, 20) },
+  pointMiAnneeActif: { defaut: false, controle: booleen },
+  pointMiAnneeDebut: { defaut: '05-01', controle: jourDeLAnnee },
+  pointMiAnneeFin: { defaut: '07-15', controle: jourDeLAnnee },
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
@@ -417,7 +425,8 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
     ? `Astreintes : un délai de prévenance de moins de ${DELAI_PREVENANCE_LEGAL} jours suppose un accord collectif (art. L3121-11) : indiquez sa référence` : null),
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)
-  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C3 (entretiens suivis et 360°) : fenêtre du point de mi-année dans l'année civile, l'ouverture avant la fin —
+  s => (s.pointMiAnneeDebut > s.pointMiAnneeFin ? 'Point de mi-année : le début de la fenêtre doit précéder sa fin, dans la même année' : null),
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)

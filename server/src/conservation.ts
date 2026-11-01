@@ -103,6 +103,13 @@ export const TRAITEMENTS: Record<string, Traitement> = {
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
+  // Objectifs (et souhaits, dans la ligne de l'entretien) avec les entretiens : 5 ans après le départ par défaut (choix par
+  // défaut du chantier) ; feedback 360° (étape 3) : lignes de l'évalué et du répondant supprimées avec ses entretiens (les
+  // réponses brutes sont purgées bien avant, à la clôture de l'entretien ou au plus tard 6 mois après, étape 3).
+  'objectifs.emp_id': { mode: 'lignes', categorie: 'entretiens' },
+  'feedback_sollicitations.emp_id': { mode: 'lignes', categorie: 'entretiens' },
+  'feedback_sollicitations.repondant_emp_id': { mode: 'lignes', categorie: 'entretiens' },
+  'feedback_reponses.emp_id': { mode: 'lignes', categorie: 'entretiens' },
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
@@ -167,7 +174,18 @@ export function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number
       { table: 'employes', ou: 'id = ?', vider: ['visite', 'avis', 'restrictions', 'suivi', 'prochaine_visite', 'examen_aptitude', 'expose', 'reprise_motif', 'reprise_date'] },
     ];
     case 'titreSejour': return [{ table: 'employes', ou: 'id = ?', vider: ['autorisation_travail'] }];
-    case 'entretiens': return [{ table: 'entretiens', ou: 'emp_id = ?', supprimer: true }];
+    // lot 12 — C3 (entretiens suivis) : demandes de formation versées depuis un souhait détachées (elles restent, au
+    // dossier, jusqu'à sa propre échéance) ; objectifs (reconduction retirée d'abord), feedback 360° (réponses en attente,
+    // sollicitations de l'évalué ou du répondant, réponses versées), puis les entretiens.
+    case 'entretiens': return [
+      { table: 'demandes_collab', ou: 'entretien_id IN (SELECT id FROM entretiens WHERE emp_id = ?)', vider: ['entretien_id'] },
+      { table: 'objectifs', ou: 'emp_id = ? AND reconduit_de IS NOT NULL', vider: ['reconduit_de'] },
+      { table: 'objectifs', ou: 'emp_id = ?', supprimer: true },
+      { table: 'feedback_tampon', ou: 'sollicitation_id IN (SELECT id FROM feedback_sollicitations WHERE emp_id = ? OR repondant_emp_id = ?)', supprimer: true },
+      { table: 'feedback_sollicitations', ou: 'emp_id = ? OR repondant_emp_id = ?', supprimer: true },
+      { table: 'feedback_reponses', ou: 'emp_id = ?', supprimer: true },
+      { table: 'entretiens', ou: 'emp_id = ?', supprimer: true },
+    ];
     case 'temps': return [
       retrait(cx, `emp_id = ? AND objet = 'absence'`),
       // Motif du dépassement du plafond d'un forfait jours (lot 6) et motifs des réouvertures : textes libres du valideur

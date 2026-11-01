@@ -1,6 +1,6 @@
 // Documents imprimables (passeport formation, compte rendu d'entretien, demande de visite, organigramme) et exports CSV.
 // L'organigramme (lot 11) s'imprime en paysage, une entité par page, et se signale au journal par sa propre action
-// (`organigramme.imprimer`, `organigramme.exporter` : entité et nombre de lignes seulement), d'où `journal: false`.
+// (`organigramme.imprimer`, `organigramme.exporter` : entité, nombre de lignes et service choisi), d'où `journal: false`.
 import { texteCsv } from '../../shared/csv.ts';
 import { matricule } from '../../shared/format.ts';
 import type { Employe } from '../../shared/types.ts';

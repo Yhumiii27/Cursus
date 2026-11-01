@@ -413,6 +413,13 @@ test('organigramme : impression et export tracés (entité, nombre de lignes), s
   await refus(async () => await run(KARIM, 'organigramme.exporter', { entite: 'inconnue', lignes: 1 }), /Entité introuvable/, 404);
   await refus(async () => await run(KARIM, 'organigramme.exporter', { lignes: -1 }), /Nombre de lignes invalide/);
   await refus(async () => await run(KARIM, 'organigramme.exporter', { lignes: '3' }), /Nombre de lignes invalide/);
+  // lot 12 — C7 : service choisi, nom d'une équipe du référentiel (un nom inconnu ou non textuel est refusé, sans trace).
+  assert.equal(await run(KARIM, 'organigramme.exporter', { lignes: 5, service: 'Maintenance' }), 'Organigramme exporté, service Maintenance : 5 lignes');
+  assert.deepEqual((await journalDe(db, 'organigramme.exporter'))!.payload, { entite: null, lignes: 5, service: 'Maintenance' });
+  await refus(async () => await run(KARIM, 'organigramme.exporter', { lignes: 1, service: 'Mme Dupont, en arrêt' }), /Service introuvable/, 404);
+  await refus(async () => await run(KARIM, 'organigramme.imprimer', { lignes: 1, service: 3 }), /Service introuvable/, 404);
+  assert.ok(!JSON.stringify(await db.query(`SELECT * FROM journal`)).includes('Dupont'), 'texte refusé jamais tracé');
+  assert.deepEqual((await journalDe(db, 'organigramme.imprimer'))!.payload, { entite: null, lignes: 24 }, 'sans service : rien de plus');
   await run(RH, 'parametres.maj', { organigrammeOuvert: 'managers' });
   assert.deepEqual((await journalDe(db, 'parametres.maj'))!.payload, { avant: { organigrammeOuvert: 'tous' }, apres: { organigrammeOuvert: 'managers' } });
   await refus(async () => await run(MEHDI, 'organigramme.imprimer', { lignes: 3 }), /réservé/, 403);

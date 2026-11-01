@@ -134,12 +134,15 @@ export function ArbreGraphique(p: PropsArbreGraphique) {
     );
   };
 
-  /** Boîte d'un nœud dépliable : en-tête cliquable (déplier, replier), contenu de la boîte, puis nœuds rattachés dessous. */
-  const boite = (cle: string, niveau: number, classe: string, tete: ReactNode, dedans: ReactNode, dessous: ReactNode, surClic?: () => void) => {
+  /**
+   * Boîte d'un nœud dépliable : en-tête cliquable (déplier, replier), contenu de la boîte, puis nœuds rattachés dessous.
+   * `trouve` marque aussi le treeitem (comme `org-item trouve` de la liste) : Entrée dans la recherche y place le focus.
+   */
+  const boite = (cle: string, niveau: number, classe: string, tete: ReactNode, dedans: ReactNode, dessous: ReactNode, surClic?: () => void, trouve = false) => {
     const ouvert = ouverts.has(cle);
     return (
       <li key={cle} role="treeitem" aria-level={niveau} aria-expanded={ouvert} aria-labelledby={id(cle)} data-cle={cle} tabIndex={cle === tabulable ? 0 : -1}
-        className="orgg-noeud" onFocus={ev => { if (ev.target === ev.currentTarget) { setActif(cle); surClic?.(); } }}>
+        className={`orgg-noeud${trouve ? ' trouve' : ''}`} onFocus={ev => { if (ev.target === ev.currentTarget) { setActif(cle); surClic?.(); } }}>
         <div className={`orgg-boite ${classe}`}>
           <div className="orgg-tete" id={id(cle)} onClick={() => { setActif(cle); basculer(cle); surClic?.(); }}>{tete}</div>
           {ouvert && dedans}
@@ -166,7 +169,8 @@ export function ArbreGraphique(p: PropsArbreGraphique) {
         </span>
       )}
       <span className="orgg-effectif">{plural(q.effectif, 'présent', 'présents')}</span>
-    </>, membres(q, niveau + 1), enfants(q.equipes.map(f => equipe(f, niveau + 1))), () => surEquipe?.(q.nom));
+    </>, membres(q, niveau + 1), enfants(q.equipes.map(f => equipe(f, niveau + 1))), () => surEquipe?.(q.nom),
+      vue.equipesTrouvees.has(q.nom));
   };
 
   const entite = (n: NoeudEntite, niveau: number): ReactNode => {

@@ -13,7 +13,8 @@
 // - Recherche (nom, poste, équipe) : les nœuds qui mènent aux résultats sont dépliés, les personnes surlignées, Entrée
 //   place le focus sur le premier résultat. Filtres entité et site gardés dans l'adresse (state/url.ts).
 // - Impression (paysage, une entité par page) et CSV (colonnes de l'annuaire) signalés au journal par
-//   `organigramme.imprimer` et `organigramme.exporter` : entité et nombre de lignes, jamais un nom.
+//   `organigramme.imprimer` et `organigramme.exporter` : entité et nombre de lignes, jamais le nom d'une personne (lot 12 —
+//   C7 : avec le service choisi, nom d'une équipe du référentiel, contrôlé par le serveur).
 // - lot 12 — C7 : choix d'un service (une équipe et ses sous-équipes, `?service=`), fil d'Ariane de son rattachement,
 //   « Voir ce service seul » après un clic sur une équipe ; présentation « Liste » ou « Graphique » (`?vue=`, arbre vertical
 //   de components/organigramme/ArbreGraphique.tsx, liste indentée d'office sous 600 px) ; impression de l'arbre vertical.
@@ -86,6 +87,18 @@ export function Organigramme() {
   useEffect(() => {
     if (vue.chemins.size) setOuverts(o => ([...vue.chemins].every(c => o.has(c)) ? o : new Set([...o, ...vue.chemins])));
   }, [vue.chemins]);
+  // lot 12 — C7 (organigramme) : le service choisi (champ, adresse, fil d'Ariane, « Voir ce service seul ») s'affiche
+  // déplié, avec ses sous-équipes directes, comme les équipes racines au départ : ses membres sont visibles d'emblée.
+  // Clés jointes en une chaîne : l'effet ne rejoue qu'au changement de service (« Tout replier » reste respecté).
+  const clesService = useMemo(() => {
+    const q = noeudService(brut, ui.orgService);
+    return q ? [cleEquipe(q.nom), ...q.equipes.map(f => cleEquipe(f.nom))].join('\n') : '';
+  }, [brut, ui.orgService]);
+  useEffect(() => {
+    if (!clesService) return;
+    const cles = clesService.split('\n');
+    setOuverts(o => (cles.every(c => o.has(c)) ? o : new Set([...o, ...cles])));
+  }, [clesService]);
   const basculer = (cle: string, ouvrir?: boolean) => setOuverts(o => {
     const n = new Set(o);
     if (ouvrir ?? !n.has(cle)) n.add(cle); else n.delete(cle);
@@ -121,12 +134,12 @@ export function Organigramme() {
     }
     const reduite = reduites.find(s => s.echelle < 100);
     if (reduite) notify(`Arbre trop large pour une page : imprimé réduit (jusqu’à ${Math.min(...reduites.map(s => s.echelle))} %).`);
-    void run('organigramme.imprimer', { entite: ui.orgEntite ?? '', lignes: lignes.length }, { silent: true });
+    void run('organigramme.imprimer', { entite: ui.orgEntite ?? '', lignes: lignes.length, /* lot 12 — C7 */ ...(ui.orgService ? { service: ui.orgService } : {}) }, { silent: true });
   };
   const exporter = () => {
     const x = csvOrganigramme(d.ti, lignesOrganigramme(vue, contexte), ui.orgEntite);
     downloadCsv(x.fichier, x.head, x.rows, undefined, { journal: false });
-    void run('organigramme.exporter', { entite: ui.orgEntite ?? '', lignes: x.rows.length }, { silent: true });
+    void run('organigramme.exporter', { entite: ui.orgEntite ?? '', lignes: x.rows.length, /* lot 12 — C7 */ ...(ui.orgService ? { service: ui.orgService } : {}) }, { silent: true });
     notify(`Export CSV généré — ${plural(x.rows.length, 'ligne', 'lignes')}`);
   };
 

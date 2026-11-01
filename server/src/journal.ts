@@ -150,8 +150,14 @@ const codeEntite = (v: unknown) => { const c = normaliserCodeEntite(v); return C
 const regleEntite = (colonnes: readonly string[]): Regle => ({
   extra: p => ({ code: codeEntite(p.code) }), cible: { table: 'entites', cle: p => codeEntite(p.code), colonnes, masques: ['nom'] },
 });
-/** Impression ou export de l'organigramme : entité filtrée (code) et nombre de lignes. */
-const signalementOrganigramme = (p: P): Ligne => ({ entite: codeEntite(p.entite), lignes: Number.isInteger(p.lignes) && p.lignes >= 0 ? p.lignes : null });
+/**
+ * Impression ou export de l'organigramme : entité filtrée (code) et nombre de lignes ; lot 12 — C7 : service choisi, nom
+ * d'une équipe (clé de `equipes`, déjà tracée par `equipe.*`), contrôlé par l'action contre le référentiel.
+ */
+const signalementOrganigramme = (p: P): Ligne => ({
+  entite: codeEntite(p.entite), lignes: Number.isInteger(p.lignes) && p.lignes >= 0 ? p.lignes : null,
+  ...(typeof p.service === 'string' && p.service ? { service: p.service } : {}),
+});
 
 /** Bénéficiaires enregistrés par `plan.avancer` (t116), lus dans son résultat. */
 const beneficiairesDe = (result: unknown): number[] =>

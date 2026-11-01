@@ -1742,7 +1742,7 @@ aucun champ du paramètre n'est recopié.
 | `site.enregistrer` | code (création, format de matrix.pub_sites) ou id (le code), libelle (80 caractères), actif? : cache de matrix.pub_sites tenu à la main | RH |
 | `equipe.entite` | nom (équipe racine seulement : une équipe rattachée hérite de son équipe racine), entite (code d'une entité ouverte ; vide : aucune) ; aucun valideur ne change | RH |
 | `equipe.site` / `equipe.unite` | nom, siteCode (site connu et actif ; vide : celui d'une équipe au-dessus ou de l'entité) / uniteCode (format de l'organigramme de Matrix, `PRD-MAINT`, unique ; vide : aucun) | RH |
-| `organigramme.imprimer` / `organigramme.exporter` | entite? (code), lignes (entier) : rien n'est écrit en base, le journal garde l'entité et le nombre de lignes, jamais un nom | qui voit l'organigramme (réglage `organigrammeOuvert` : l'espace RH toujours ; managers sauf « rh » ; collaborateurs si « tous », par défaut) |
+| `organigramme.imprimer` / `organigramme.exporter` | entite? (code), lignes (entier), service? (nom d'une équipe du référentiel, lot 12 — C7) : rien n'est écrit en base, le journal garde l'entité, le nombre de lignes et le service choisi, jamais le nom d'une personne | qui voit l'organigramme (réglage `organigrammeOuvert` : l'espace RH toujours ; managers sauf « rh » ; collaborateurs si « tous », par défaut) |
 | `passeport.declarer` | cles [« cert:<id> », « suivie:<id> » : lignes du Passeport de prévention, 2 000 au plus], le (jour de la déclaration sur la plateforme : ni à venir, ni avant le dernier jour d'une formation) ; ligne inconnue, annulée, d'une formation plus marquée ou déjà déclarée : refus, rien d'écrit (lot 7, `shared/rules/passeport-prevention.ts`) ; journal : jour, nombre de lignes, salariés concernés | RH, référent HSE |
 | `passeport.retirer` | cle (ligne marquée déclarée) : marque posée par erreur retirée, ligne de nouveau proposée à l'export ; journal : la clé, le salarié | RH, référent HSE |
 | `hab.demander` | empId, h : habilitation exigée jamais délivrée, titre « en attente » de délivrance (déjà demandée : rien n'est refait ; déjà délivrée ou archivée : refus) | RH, référent HSE ; jamais pour soi-même |
@@ -4730,9 +4730,14 @@ l'écran du lot 11 (réglage `organigrammeOuvert`, étiquettes de contrat, anoma
   CSP), la taille du cadre intérieur suit l'échelle (mesure par `ResizeObserver`).
 - **Impression** (`print.ts`) : section `vertical` (`arbreVerticalHtml` : boîtes et traits de `styles/print.css`),
   `echelle` appliquée par une classe `echelle-NN` (`zoom`), ni style ni script en ligne ; avertissement dans le
-  sous-titre et à l'écran quand l'arbre est réduit. En liste, un service choisi s'imprime seul. Journal inchangé :
-  `organigramme.imprimer` / `organigramme.exporter` gardent l'entité et le nombre de lignes, sans le nom du service
-  (REGLES n'admet que des codes et identifiants, le nom d'une équipe est saisi librement).
+  sous-titre et à l'écran quand l'arbre est réduit. En liste, un service choisi s'imprime seul. Journal :
+  `organigramme.imprimer` / `organigramme.exporter` gardent l'entité et le nombre de lignes et reçoivent, quand un
+  service est choisi, `service` (nom d'une équipe, clé de la table `equipes`, déjà tracée par `equipe.creer`,
+  `equipe.affecter`… ; l'action refuse un nom absent du référentiel, « Service introuvable ») : l'export d'un service se
+  distingue ainsi de celui de l'organigramme entier.
+- **Service choisi déplié** : l'équipe choisie (champ, adresse, fil d'Ariane, « Voir ce service seul ») et ses
+  sous-équipes directes s'ajoutent aux nœuds dépliés, comme les équipes racines au départ ; en vue graphique, la marque
+  `trouve` d'une équipe est posée aussi sur son treeitem (Entrée dans la recherche y place le focus, comme en liste).
 - **Tests** : `tests/organigramme-service.test.ts` (règles, adresse, échelle), `tests/client-organigramme-graphique.test.ts`
   (boîtes, traits, ARIA, clavier, « N personnes », zoom, service, export, collaborateur, téléphone, HTML imprimé),
   `e2e/organigramme.spec.ts` (service, vue graphique, dépliage ; liste sur le téléphone).

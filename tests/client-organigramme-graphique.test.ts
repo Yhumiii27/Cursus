@@ -1,6 +1,7 @@
 // Organigramme, lot 12 — C7 (pages/Organigramme.tsx, components/organigramme/) sous node --test (tests/outils/rendu.ts) :
 // vue graphique en arbre vertical (boîtes, traits, sémantique ARIA, clavier, « N personnes » au-delà de 8, zoom borné),
-// choix d'un service (champ et liste, fil d'Ariane, « Voir ce service seul »), export du service seul tracé sans nom,
+// choix d'un service (champ et liste, fil d'Ariane, « Voir ce service seul »), service choisi déplié (aussi depuis
+// l'adresse), Entrée de la recherche sur une équipe trouvée, export du service seul tracé avec le nom de l'équipe,
 // collaborateur sans étiquette ni « À affecter », liste indentée d'office sur un écran étroit, arbre vertical imprimé.
 import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -111,7 +112,7 @@ test('vue graphique : boîtes reliées par des traits, arbre ARIA au clavier, «
   assert.ok(screen.getByRole('tree', { name: 'Organigramme' }).classList.contains('org-arbre'));
 });
 
-test('choix d’un service : liste des chemins, service seul avec son rattachement, « Voir ce service seul », export du service', async () => {
+test('choix d’un service : liste des chemins, service seul déplié avec son rattachement, « Voir ce service seul », export du service', async () => {
   const { db, personne } = await base();
   const b = await monter(db, await personne(null, 'rh'), () => createElement(Organigramme), { orgVue: 'graphique' });
   render(b.element);
@@ -124,6 +125,9 @@ test('choix d’un service : liste des chemins, service seul avec son rattacheme
   const racine = screen.getAllByRole('treeitem')[0];
   assert.match(racine.querySelector('.orgg-tete')!.textContent!, /^Maintenance/);
   assert.equal(racine.getAttribute('aria-level'), '1');
+  // Le service choisi s'ouvre déplié : ses membres sont visibles d'emblée (sous-équipe, hors du dépliage initial).
+  assert.equal(racine.getAttribute('aria-expanded'), 'true', 'service choisi déplié');
+  assert.ok(within(racine).getByText('Mehdi Benali'));
   assert.equal(noeud(/^Production/), undefined, 'aucune autre équipe');
   const ariane = screen.getByRole('navigation', { name: 'Rattachement du service' });
   assert.match(ariane.textContent!, /Tous les services.*Entreprise.*Production.*Maintenance/);
@@ -140,7 +144,7 @@ test('choix d’un service : liste des chemins, service seul avec son rattacheme
     URL.createObjectURL = urlAvant;
   }
   const exp = b.trace.actions.find(a => a.name === 'organigramme.exporter')!;
-  assert.deepEqual(exp.payload, { entite: '', lignes: 5 });
+  assert.deepEqual(exp.payload, { entite: '', lignes: 5, service: 'Maintenance' });
   assert.equal(exp.r.ok, true, exp.r.error);
   // Remonter d'un niveau : la Production et sa sous-équipe.
   await act(async () => { fireEvent.click(within(ariane).getByRole('button', { name: 'Production' })); });
@@ -210,4 +214,29 @@ test('arbre vertical imprimé : boîtes, membres dans la boîte, équipes dessou
   assert.ok(!/style=|<script/.test(html), 'ni style ni script en ligne (CSP)');
   assert.match(arbreVerticalHtml([{ libelle: 'Seul', groupe: true }]), /^<div class="arbre-vertical"><ul/);
   assert.match(arbreVerticalHtml([{ libelle: 'Seul', groupe: true }], 12), /echelle-30/, 'jamais sous 30 %');
+});
+
+test('service choisi par l’adresse : déplié en graphique comme en liste ; Entrée de la recherche sur une équipe trouvée', async () => {
+  const { db, personne } = await base();
+  for (const orgVue of ['graphique', 'liste'] as const) {
+    const b = await monter(db, await personne(null, 'rh'), () => createElement(Organigramme), { orgVue, orgService: 'Maintenance' });
+    render(b.element);
+    const racine = screen.getAllByRole('treeitem')[0];
+    assert.equal(racine.dataset.cle, 'q:Maintenance', orgVue);
+    assert.equal(racine.getAttribute('aria-expanded'), 'true', `${orgVue} : service déplié`);
+    assert.ok(within(racine).getByText('Mehdi Benali'), orgVue);
+    cleanup();
+  }
+  // Recherche d'une équipe par son seul nom (« Logistique » : aucun nom ni poste de personne), puis Entrée : le focus va
+  // sur l'équipe, en graphique comme en liste.
+  for (const orgVue of ['graphique', 'liste'] as const) {
+    const b = await monter(db, await personne(null, 'rh'), () => createElement(Organigramme), { orgVue });
+    render(b.element);
+    const champ = screen.getByPlaceholderText('Nom, poste ou équipe');
+    await act(async () => { fireEvent.change(champ, { target: { value: 'Logistique' } }); });
+    champ.focus();
+    await act(async () => { fireEvent.keyDown(champ, { key: 'Enter' }); });
+    assert.equal((document.activeElement as HTMLElement).dataset.cle, 'q:Logistique', `${orgVue} : Entrée sur l’équipe trouvée`);
+    cleanup();
+  }
 });

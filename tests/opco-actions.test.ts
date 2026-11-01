@@ -530,8 +530,9 @@ test('relances : boîte du service RH seulement, action du plan et échéance, n
 test('banc d’oracle : actions OPCO en renfort, cache incrémental exact après chaque pas', async () => {
   const db = await baseDemo(nouvelleBase);
   const opco = Object.keys(ACTIONS).filter(n => n.startsWith('opco.'));
-  const renfort = [...opco, ...opco, ...Array<string>(8).fill('opco.creer'), 'opco.deposer', 'opco.accorder', 'opco.versement', 'opco.facturer'];
-  const x = await rejouer(db, { graine: 20261031, pas: 60, verifierTous: 4, jeux: 0, sql: 0.1, renfort });
+  // Renfort large : depuis la fusion du lot 11, les actions des autres modules diluent le tirage.
+  const renfort = [...opco, ...opco, ...opco, ...Array<string>(8).fill('opco.creer'), ...Array<string>(3).fill('opco.deposer'), 'opco.accorder', 'opco.accorder', 'opco.versement', 'opco.facturer'];
+  const x = await rejouer(db, { graine: 20261031, pas: 120, verifierTous: 4, jeux: 0, sql: 0.1, renfort });
   const resume = resumeRapport(x);
   assert.deepEqual(x.divergences, [], resume);
   assert.deepEqual(x.erreurs, [], resume);

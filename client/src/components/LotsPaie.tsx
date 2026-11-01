@@ -41,6 +41,9 @@ import { RubriquesPaie } from './RubriquesPaie.tsx';
 import { Btn, Fine, Panel, SectionLabel, Tag, Two } from './ui.tsx';
 import { VariablesPaie } from './VariablesPaie.tsx';
 import { ASaisirDuLot, DeplacementsEnAttente, resumeASaisir } from './ElementsLotPaie.tsx';
+// lot 12 — C1 (forfait annuel en heures) : heures des clôtures confirmées (HFA, HCA), comme les jours rachetés.
+import { elementsForfaitHeures } from '../../../shared/rules/forfait-heures.ts';
+import { ForfaitHeuresEnAttente } from './temps/ForfaitHeuresFiche.tsx';
 
 /** « le dernier jour du mois », « le 25 du mois ». */
 const clotureTexte = (jour: number) => (jour >= 1 && jour <= 28 ? `le ${jour === 1 ? '1er' : jour} du mois` : 'le dernier jour du mois');
@@ -72,7 +75,9 @@ export function LotsPaie() {
   const rachats = elementsRachats(d, '9999-12', rubriquesPaie(d.ds.rubriquesPaie));
   // Astreintes terminées (t049) : AST_H et AST_PER actives, ou à saisir dans Sage.
   const astreintes = elementsAstreintes(d, '9999-12', rubriquesPaie(d.ds.rubriquesPaie), maintenant(d.ti));
-  const aConfirmer = rubriquesAConfirmer([...rubriquesEmises(d, aTransmettre), ...absences.flatMap(g => g.rubriques), ...sorties.map(x => x.rubrique), ...deplacements.filter(x => !x.aSaisir).map(x => x.rubrique), ...rachats.filter(x => x.codeSage).map(x => x.rubrique), ...astreintes.filter(x => x.codeSage).map(x => x.rubrique)], rubriquesPaie(d.ds.rubriquesPaie));
+  // lot 12 — C1 : heures des clôtures du forfait annuel en heures (HFA25, HFA50, HCA10, HCA25), actives ou à saisir dans Sage.
+  const forfaitHeures = elementsForfaitHeures(d, '9999-12', rubriquesPaie(d.ds.rubriquesPaie));
+  const aConfirmer = rubriquesAConfirmer([...rubriquesEmises(d, aTransmettre), ...absences.flatMap(g => g.rubriques), ...sorties.map(x => x.rubrique), ...deplacements.filter(x => !x.aSaisir).map(x => x.rubrique), ...rachats.filter(x => x.codeSage).map(x => x.rubrique), ...astreintes.filter(x => x.codeSage).map(x => x.rubrique), /* lot 12 — C1 */ ...forfaitHeures.filter(x => x.codeSage).map(x => x.rubrique)], rubriquesPaie(d.ds.rubriquesPaie));
   // Absences sous une rubrique désactivée : leur nature reste à saisir dans Sage (liste du résumé du lot).
   const absencesASaisir = [...new Set(absences.flatMap(g => g.rubriques))].filter(r => !rubriquesPaie(d.ds.rubriquesPaie).find(t => t.code === r)?.active);
   const salaries = new Set(aTransmettre.map(sh => sh.empId)).size;
@@ -82,7 +87,7 @@ export function LotsPaie() {
   const format = d.ds.formatFichierPaie ?? FORMAT_FICHIER_DEFAUT;
   const perimetre = perimetreFichier(avecAbsences, s.deplacementsFichierPaie);
   // Une ligne par période de destination : le lot d'une période emporte aussi les feuilles et absences des périodes antérieures.
-  const periodes = [...new Set([...groupes.map(g => g.periode), ...absences.map(g => g.periode), ...sorties.map(x => x.periode), ...deplacements.map(x => x.periode), ...rachats.map(x => x.periode), ...astreintes.map(x => x.periode)])].sort();
+  const periodes = [...new Set([...groupes.map(g => g.periode), ...absences.map(g => g.periode), ...sorties.map(x => x.periode), ...deplacements.map(x => x.periode), ...rachats.map(x => x.periode), ...astreintes.map(x => x.periode), /* lot 12 — C1 */ ...forfaitHeures.map(x => x.periode)])].sort();
 
   const generer = (periode: string) => {
     const toutes = feuillesDuLot(aTransmettre, periode, s, d.ti);
@@ -93,7 +98,9 @@ export function LotsPaie() {
     const abs = seul ? null : absencesDuLot(absences, periode);
     const so = seul ? [] : sortiesDe(periode);
     const dep = seul ? [] : deplacements.filter(x => x.periode <= periode);
-    const ids = [...sheets.map(sh => sh.empId), ...(abs?.empIds ?? []), ...so.map(x => x.empId), ...dep.map(x => x.empId)];
+    // lot 12 — C1 : salariés dont le lot emporte des heures de clôture du forfait annuel en heures.
+    const fh = seul ? [] : forfaitHeures.filter(x => x.periode <= periode);
+    const ids = [...sheets.map(sh => sh.empId), ...(abs?.empIds ?? []), ...so.map(x => x.empId), ...dep.map(x => x.empId), ...fh.map(x => x.empId)];
     openDialog({
       type: 'confirmer', c: generationLot({
         periode, feuilles: sheets.length, salaries: new Set(ids).size, mode, perimetre, absences: abs, sorties: so.length,
@@ -165,7 +172,7 @@ export function LotsPaie() {
                         <Two main={<span className="tnum">{abs?.absences ?? 0}</span>} sub={abs?.regularisations ? plural(abs.regularisations, 'régularisation', 'régularisations') : undefined} />
                       </td>
                     )}
-                    <td className="right tnum">{new Set([...sheets.map(sh => sh.empId), ...(abs?.empIds ?? []), ...sorties.filter(x => x.periode === p).map(x => x.empId), ...deplacements.filter(x => x.periode === p).map(x => x.empId)]).size}</td>
+                    <td className="right tnum">{new Set([...sheets.map(sh => sh.empId), ...(abs?.empIds ?? []), ...sorties.filter(x => x.periode === p).map(x => x.empId), ...deplacements.filter(x => x.periode === p).map(x => x.empId), /* lot 12 — C1 */ ...forfaitHeures.filter(x => x.periode === p).map(x => x.empId)]).size}</td>
                     <td className="right">
                       {paie && (
                         <button type="button" className="btn btn-primary btn-sm" onClick={() => generer(p)}>
@@ -189,6 +196,8 @@ export function LotsPaie() {
       <DeplacementsEnAttente />
       <RachatsEnAttente />
       <AstreintesEnAttente />
+      {/* lot 12 — C1 (forfait annuel en heures) */}
+      <ForfaitHeuresEnAttente />
       {absencesASaisir.length > 0 && <Fine>Absences sous une rubrique désactivée ({absencesASaisir.join(', ')}) : leur nature est à saisir dans Sage ; chaque lot les liste dans son résumé.</Fine>}
       {mode !== 'simulation' && aConfirmer.length > 0 && (
         <div className="note-accent">Code Sage à confirmer avant toute génération de lot : {rubriquesTexte(aConfirmer)}.</div>
@@ -216,7 +225,7 @@ export function LotsPaie() {
                   <td><Two main={periodeLabel(l.periode)} sub={l.rappels.length ? `rappel de ${l.rappels.map(periodeLabel).join(', ')}` : undefined} /></td>
                   <td className="right">
                     <Two main={<span className="tnum">{l.feuilles.length}</span>}
-                      sub={l.historique ? undefined : [l.absences?.length ? plural(l.absences.length, 'absence', 'absences') : '', l.sorties?.length ? plural(l.sorties.length, 'solde de sortie', 'soldes de sortie') : '', l.deplacements?.length ? plural(l.deplacements.length, 'séjour', 'séjours') : '', plural(l.resume.lignes, 'ligne', 'lignes'), l.resume.aSaisir?.length ? resumeASaisir(l.resume.aSaisir) : ''].filter(Boolean).join(' · ')} />
+                      sub={l.historique ? undefined : [l.absences?.length ? plural(l.absences.length, 'absence', 'absences') : '', l.sorties?.length ? plural(l.sorties.length, 'solde de sortie', 'soldes de sortie') : '', l.deplacements?.length ? plural(l.deplacements.length, 'séjour', 'séjours') : '', /* lot 12 — C1 */ l.forfaitHeures?.length ? plural(l.forfaitHeures.length, 'clôture de forfait', 'clôtures de forfait') : '', plural(l.resume.lignes, 'ligne', 'lignes'), l.resume.aSaisir?.length ? resumeASaisir(l.resume.aSaisir) : ''].filter(Boolean).join(' · ')} />
                   </td>
                   <td>
                     <Two main={<Tag cls={STATUTS_LOT[l.statut].cls}>{STATUTS_LOT[l.statut].label}</Tag>}

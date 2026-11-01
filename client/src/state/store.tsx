@@ -270,6 +270,8 @@ export type DialogState =
   | { type: 'fraisForfait'; annee: number }
   | { type: 'fraisBareme'; annee: number; vehicule: TypeVehicule }
   // lot 12 — C1 (forfait annuel en heures)
+  /** Clôture du forfait annuel en heures (`periode` : début de la période de référence ; null : toutes les plages à clôturer). */
+  | { type: 'clotureForfaitHeures'; periode: string | null }
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)

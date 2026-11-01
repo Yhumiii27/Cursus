@@ -4801,6 +4801,53 @@ RH), la documentation RGPD et le guide viennent à l'étape 2.
 - **Tests** : tests/forfait-heures.test.ts (règle par valeurs : avenant en juillet, entrée, sortie, début du suivi,
   absences, temps partiel, plafond, 1 607 h, CP incomplets ; actions : lot de paie, ligne « à revoir », réouverture après
   transmission et lot correctif, annulation, sortie, droits de lecture, lecture incrémentale) ; matrice des droits.
+
+## Lot 12 : forfait annuel en heures (C1, t044), étape 2
+
+Écrans, échéance du service RH et documentation de la clôture du forfait annuel en heures (règles, table, actions et paie :
+étape 1 ci-dessus). Aucune table, colonne, action ni migration nouvelle.
+
+- **Règles des écrans** (fin de `shared/rules/forfait-heures.ts`) : `periodesSuivies` (périodes de référence de celle
+  du début du suivi à celle du jour), `concerneParForfaitHeures` (régime de la fiche, de l'historique ou d'une feuille :
+  évite de parcourir les semaines des autres salariés), `plagesAClore` (plages terminées avant le jour de Cursus, sans
+  ligne confirmée en vigueur — aucune ligne, ligne annulée, ligne rouverte à confirmer —, salariés sortis compris, dossiers
+  anonymisés exclus), `lignesARevoir` (dernière version confirmée dont `aRevoir` rend un motif), `suiviForfaitHeures`
+  (plages de la période en cours : clôture calculée à ce jour, projection au rythme des feuilles validées jusqu'au
+  dimanche de la dernière, à partir de 4 semaines couvertes, `JOURS_PROJECTION_MIN`), `echeanceCloture` (dernier jour du
+  mois qui suit la fin de la plage) et `relancesForfaitHeures`.
+- **Échéance du service RH** : `relancesForfaitHeures` entre dans `recapitulatifEcheances` (server/src/relances.ts), une
+  relance par échéance (`forfait-heures:<AAAA-MM-JJ>`, catégorie `forfaitHeures`, `rhSeul` comme les dossiers OPCO) : à la
+  seule boîte du service RH, le nombre de périodes à clôturer, ni nom ni heure, une fois par palier.
+- **Écran Temps de travail, onglet « Forfait annuel en heures »** (`forfait-heures` de `pages/temps-onglets.ts`, bloc C1 de
+  `pages/Temps.tsx` ; contenu : `components/temps/RecapForfaitHeures.tsx`) : montré seulement s'il a quelque chose à
+  montrer (`ongletForfaitHeures`, `components/temps/forfait-heures-vue.ts` ; jamais au référent HSE), avec le nombre de
+  plages à clôturer et de lignes à revoir pour le service RH. Contenu : bandeau « Clôtures du forfait annuel en heures à
+  faire » (service RH, par période de référence, bouton « Clôturer » de l'administrateur RH) ; suivi de la période en cours
+  (réalisé, cible, projection, état de la clôture) ; lignes enregistrées (service RH, paie, le salarié pour les siennes),
+  avec « Confirmer », « Rouvrir » et « Annuler » de l'administrateur RH, jamais pour soi-même (confirmations avec motif :
+  `state/confirmations-forfait-heures.ts`). Droits de l'écran, qui redisent la projection de server/src/vues-forfait-heures.ts :
+  quantités (absences déduites, cible nette, heures de paie) au service RH, à la paie et au salarié lui-même
+  (`voitQuantites`) ; le manager et la lecture seule ne voient que le réalisé, la cible au prorata et la projection.
+- **Dialogue** `dialogs/ClotureForfaitHeuresDialog.tsx` (`clotureForfaitHeures`, période de référence) : une ligne par
+  plage à clôturer, cochée d'office si rien ne la bloque ; ligne bloquée et sa propre ligne non cochables ; aucune cochée :
+  refus à l'envoi (`useVerification`, bouton jamais grisé) ; envoie `forfaitHeures.cloturer`, que le serveur recalcule.
+- **Fiche** (section Contrat & temps de travail, `components/temps/ForfaitHeuresFiche.tsx`, `ForfaitHeuresFiche`) :
+  réalisé et cible de la période en cours, projection, dernière clôture, plage à clôturer (service RH) ; jamais pour le
+  référent HSE.
+- **Lots de paie** (`components/LotsPaie.tsx`, ajouts C1) : périodes, salariés et codes à confirmer comptent les heures des
+  clôtures (`elementsForfaitHeures`) ; `ForfaitHeuresEnAttente` liste celles qui attendent un lot ou sont à saisir dans
+  Sage ; l'historique compte les clôtures d'un lot.
+- **Paramètres → Décompte des heures**, bloc « Forfait annuel en heures » (`components/temps/ReglagesForfaitHeures.tsx`,
+  formulaire enregistré d'un bouton) : début de la période (`JourMois`), début du suivi, seuil des 25 %, durée journalière
+  (vide : calculée), natures d'absence déduites, référence de l'accord (exigée hors défaut, comme COHERENCE), mois
+  d'émission, imputation sur le contingent.
+- **Documentation** : `docs/RGPD.md` (nouveau traitement : finalité, catégories, destinataires, conservation, point ouvert),
+  page Confidentialité (`shared/confidentialite.ts`), `docs/GUIDE-UTILISATEUR.md` (collaborateur, service RH, paie, avant
+  le 1er janvier 2027), demande à Matrix `docs/demandes/matrix-lot12-forfait-heures.md` (avec le `.sql` de l'étape 1).
+- **Tests** : `tests/forfait-heures-ecrans.test.ts` (règles des écrans par valeurs, relances du récapitulatif sur les deux
+  moteurs), `tests/client-forfait-heures.test.ts` (bandeau, dialogue, réouverture et annulation, manager, Paramètres,
+  lots de paie, sur le jeu de démonstration lu en janvier 2027).
+
 ## Lot 12 : notes de frais, fenêtre de 13 mois et historique (C2, étape 1)
 
 Première étape de l'activation des notes de frais : ramener l'instantané dans le budget de charge. Aucune table, aucune

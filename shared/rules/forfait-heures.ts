@@ -43,6 +43,10 @@
 //   transmission repart en nouvelle version, dont seul l'écart avec la version transmise est émis (lot correctif).
 // - Contingent : heures HFA des lignes confirmées imputées sur le contingent annuel (année de la fin de la plage) et sa
 //   contrepartie en repos, seulement avec `forfaitHeuresContingent` (désactivé tant que la paie ne l'a pas confirmé).
+// - Écrans (étape 2) : plages terminées à clôturer et lignes à revoir (`plagesAClore`, `lignesARevoir` : bandeau et dialogue
+//   de l'écran Temps, onglet « Forfait annuel en heures »), suivi de la période en cours (`suiviForfaitHeures` : réalisé,
+//   cible nette, projection au rythme des feuilles validées, état de la clôture) et échéance du récapitulatif RH
+//   (`relancesForfaitHeures` : une relance par échéance, sans nom ni heure, à la seule boîte du service RH).
 import { addD, addM, estJourneeSolidarite, isFerie, isoParis, isValidDate, joursSemaine, mondayOf, parse, weekday } from '../dates.ts';
 import type { Domain } from '../domain.ts';
 import { fH, fmtIso } from '../format.ts';
@@ -53,6 +57,8 @@ import { employeAu } from './historique-contrat.ts';
 import { plafondComplementaires } from './majorations.ts';
 import { matriculeAffiche } from './matricules.ts';
 import { moisDe, periodeOuverte, type RubriqueVue } from './paie.ts';
+import { palierDe, type Relance } from './relances.ts';
+import { segmentsContrat } from './historique-contrat.ts';
 import { calcSheet, employeDeLaFeuille } from './temps.ts';
 
 /** Durée légale annuelle (art. L3121-41) : CP légaux, fériés chômés et journée de solidarité compris. */
@@ -480,4 +486,110 @@ export function forfaitHeuresHorsDefaut(s: ReglagesForfaitHeures): boolean {
   const liste = s.forfaitHeuresAbsencesDeduites ?? ABSENCES_DEDUITES_DEFAUT;
   const memeListe = liste.length === ABSENCES_DEDUITES_DEFAUT.length && ABSENCES_DEDUITES_DEFAUT.every(x => liste.includes(x));
   return (s.forfaitHeuresDebutPeriode ?? '01-01') !== '01-01' || (s.forfaitHeuresSeuil25 ?? SEUIL_25_DEFAUT) !== SEUIL_25_DEFAUT || !memeListe || !!s.forfaitHeuresJour;
+}
+
+// — Écrans et échéance du service RH (étape 2) —
+
+/** Périodes de référence suivies au plus tard le `jour` : de celle qui contient le début du suivi à celle qui contient `jour`. */
+export function periodesSuivies(s: ReglagesForfaitHeures | undefined, jour: ISODate): PeriodeForfait[] {
+  const out: PeriodeForfait[] = [];
+  for (let p = periodeReference(s, debutSuivi(s)); p.debut <= jour; p = periodeReference(s, addD(p.fin, 1))) out.push(p);
+  return out;
+}
+
+/**
+ * Salarié concerné par le forfait annuel en heures : régime de sa fiche, d'une ligne de son historique des contrats ou
+ * d'une de ses feuilles (régime figé). Évite de parcourir les semaines des autres.
+ */
+export function concerneParForfaitHeures(d: Domain, e: Employe): boolean {
+  const annuel = (t: string | undefined) => t === 'forfait_heures_annuel';
+  return annuel(e.temps) || segmentsContrat(d, e).some(x => annuel(x.regime?.temps)) || d.ds.feuilles.some(sh => sh.empId === e.id && annuel(sh.contrat?.temps));
+}
+
+/** Plage terminée sans ligne confirmée : à clôturer (ligne en vigueur « à confirmer », ou aucune). */
+export interface PlageAClore { e: Employe; reference: PeriodeForfait; calc: CalculClotureForfait; ligne: ClotureForfaitHeures | null }
+
+/**
+ * Plages sous forfait des périodes suivies terminées avant le jour de Cursus et sans ligne confirmée (aucune ligne, ligne
+ * annulée, ou ligne rouverte à confirmer), salariés sortis compris : bandeau, dialogue de clôture et échéance du service
+ * RH. Triées par fin de plage puis par nom.
+ */
+export function plagesAClore(d: Domain): PlageAClore[] {
+  const lignes = d.ds.cloturesForfaitHeures ?? [];
+  const periodes = periodesSuivies(d.ds.settings, d.ti);
+  const out: PlageAClore[] = [];
+  for (const e of d.ds.employes) {
+    if (e.anonymiseLe || !concerneParForfaitHeures(d, e)) continue;
+    for (const reference of periodes) {
+      for (const calc of cloturesDeLaPeriode(d, e, reference)) {
+        if (calc.fin >= d.ti) continue;
+        const ligne = ligneEnVigueur(lignes, e.id, calc.debut);
+        if (ligne?.statut !== 'confirmee') out.push({ e, reference, calc, ligne });
+      }
+    }
+  }
+  return out.sort((a, b) => a.calc.fin.localeCompare(b.calc.fin) || a.e.nom.localeCompare(b.e.nom));
+}
+
+/** Lignes confirmées en vigueur à revoir (feuille rouverte, réalisé ou absences recalculés…) et leur motif. */
+export function lignesARevoir(d: Domain): { ligne: ClotureForfaitHeures; motif: string }[] {
+  const lignes = d.ds.cloturesForfaitHeures ?? [];
+  return lignes.flatMap(l => {
+    if (l.statut !== 'confirmee' || ligneEnVigueur(lignes, l.empId, l.debut)?.id !== l.id) return [];
+    const motif = aRevoir(d, l);
+    return motif ? [{ ligne: l, motif }] : [];
+  });
+}
+
+/**
+ * Échéance de la clôture d'une plage : dernier jour du mois qui suit sa fin (heures payées au plus tard sur ce mois-là ;
+ * une période civile close au 31 décembre se clôt en janvier).
+ */
+export const echeanceCloture = (fin: ISODate): ISODate => addD(addM(`${fin.slice(0, 7)}-01`, 2), -1);
+
+/**
+ * Relances du récapitulatif des échéances (server/src/relances.ts), pour la seule boîte du service RH : une par échéance de
+ * clôture (`forfait-heures:<AAAA-MM-JJ>`), aux paliers réglés puis échue, avec le nombre de plages à clôturer. Ni nom de
+ * salarié, ni heure : le détail est dans Cursus (Temps de travail, onglet « Forfait annuel en heures »).
+ */
+export function relancesForfaitHeures(d: Domain, paliers: readonly number[], plages: readonly PlageAClore[] = plagesAClore(d)): Relance[] {
+  const parEcheance = new Map<ISODate, number>();
+  for (const p of plages) parEcheance.set(echeanceCloture(p.calc.fin), (parEcheance.get(echeanceCloture(p.calc.fin)) ?? 0) + 1);
+  return [...parEcheance].sort(([a], [b]) => a.localeCompare(b)).flatMap(([echeance, n]) => {
+    const jours = Math.round((parse(echeance).getTime() - parse(d.ti).getTime()) / 864e5);
+    const palier = palierDe(jours, paliers);
+    if (!palier) return [];
+    return [{
+      cle: `forfait-heures:${echeance}`, empId: 0, categorie: 'forfaitHeures' as const, echeance, jours, palier, sante: false, rhSeul: true,
+      libelle: `Forfait annuel en heures — ${n > 1 ? `${n} périodes terminées à clôturer` : '1 période terminée à clôturer'} (Temps de travail)`,
+    }];
+  });
+}
+
+/**
+ * Suivi d'une plage de la période en cours (ou de la dernière plage d'une période passée) : clôture calculée à ce jour,
+ * projection de fin de plage au rythme des feuilles validées (réalisé rapporté aux jours couverts jusqu'au dimanche de la
+ * dernière feuille validée sous forfait ; null sans feuille validée ou sur moins de 4 semaines), et ligne enregistrée en
+ * vigueur.
+ */
+export interface SuiviForfaitHeures {
+  calc: CalculClotureForfait; enCours: boolean; couvertJusquau: ISODate | null; projection: number | null; ligne: ClotureForfaitHeures | null; revoir: string | null;
+}
+
+/** Jours couverts par les feuilles validées en deçà desquels la projection n'est pas calculée (4 semaines). */
+export const JOURS_PROJECTION_MIN = 28;
+
+/** Suivi des plages sous forfait de la période de référence qui contient `jour` (le jour de Cursus par défaut). */
+export function suiviForfaitHeures(d: Domain, e: Employe, jour: ISODate = d.ti): SuiviForfaitHeures[] {
+  const lignes = d.ds.cloturesForfaitHeures ?? [];
+  return cloturesDeLaPeriode(d, e, periodeReference(d.ds.settings, jour)).map(calc => {
+    const validees = feuillesDeLaPlage(d, e, calc).filter(sh => sh.statut === 'validee' && calcSheet(d, e, sh).c.annuel).map(sh => sh.week).sort();
+    const derniere = validees.at(-1);
+    const couvertJusquau = derniere ? minIso(addD(derniere, 6), calc.fin) : null;
+    // Projection seulement sur 4 semaines couvertes au moins : avant, le rythme ne dit rien (semaine de l'an, fériés).
+    const couverts = couvertJusquau ? joursEntre(calc.debut, couvertJusquau) : 0;
+    const projection = couvertJusquau && couverts >= JOURS_PROJECTION_MIN ? r2(calc.realise * joursEntre(calc.debut, calc.fin) / couverts) : null;
+    const ligne = ligneEnVigueur(lignes, e.id, calc.debut);
+    return { calc, enCours: calc.fin >= d.ti, couvertJusquau, projection, ligne, revoir: ligne ? aRevoir(d, ligne) : null };
+  });
 }

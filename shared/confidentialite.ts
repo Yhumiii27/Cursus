@@ -46,7 +46,7 @@ export const INFO_CONFIDENTIALITE: readonly RubriqueConfidentialite[] = [
     points: [
       ['Formations et habilitations', 'suivre les formations obligatoires et leurs recyclages, délivrer et suspendre les habilitations, organiser les sessions et vous y convoquer.'],
       ['Santé au travail', 'savoir si votre aptitude médicale est à jour et respecter les restrictions de poste décidées par le médecin du travail ; demander vos visites au service de santé au travail.'],
-      ['Temps de travail', 'enregistrer vos heures par projet, les faire valider par votre manager, calculer les heures supplémentaires et transmettre les variables de paie.'],
+      ['Temps de travail', 'enregistrer vos heures par projet, les faire valider par votre manager, calculer les heures supplémentaires et transmettre les variables de paie ; au forfait annuel en heures, clôturer chaque période (réalisé, cible nette des absences, heures à payer au-delà) et la transmettre à la paie.'],
       ['Congés et absences', 'demander et valider vos congés, suivre vos soldes, enregistrer les absences et leurs justificatifs.'],
       ['Entretiens professionnels', 'planifier vos entretiens obligatoires (parcours professionnel, état des lieux à 8 ans, forfait jours) et en conserver les comptes rendus signés.'],
       ['Déplacements et chantiers', 'préparer vos déplacements (passeport, visas, vaccinations, détachement) et vérifier, avant une affectation sur un chantier, que vous êtes disponible, apte et habilité (verdict « Go / No Go »).'],

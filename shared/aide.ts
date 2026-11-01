@@ -163,6 +163,16 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           '« Modifier le déplacement » : « Hébergement », « Contact sur place » et « Inscrit sur Ariane le ». Le dossier voyage rappelle de vérifier la vigilance avant le départ quand elle date de plus de 30 jours (réglable).',
         ],
       },
+      // lot 11 — dossiers OPCO
+      {
+        titre: 'Dossiers OPCO',
+        intro: 'Suivi simple des prises en charge de l’OPCO, de la demande au solde, rattachées aux lignes du plan ; la saisie sur le portail de l’OPCO reste manuelle.',
+        points: [
+          'Écran « Plan & budget », colonne « OPCO » : « Créer » propose dates, heures, effectif et montant d’après la ligne ; onglet « Dossiers OPCO » : montants de l’exercice, retards en tête, filtres et répartition.',
+          'Étapes du dossier ouvert : « Dossier déposé », « Accord reçu » ou « Refus reçu », « Justificatifs envoyés », « Versement reçu », « Solder », « Abandonner ». L’administrateur RH revient d’un cran, annule un versement ou supprime un dossier, avec un motif.',
+          '« Joindre une pièce » : facture et certificat de réalisation exigés avant l’envoi des justificatifs ; facture et accord gardés 10 ans. Échéances dans l’écran « Échéances » (filtre « Dossiers OPCO ») ; délais dans Paramètres → Dossiers OPCO, à confirmer.',
+        ],
+      },
     ],
   },
   {

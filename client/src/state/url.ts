@@ -10,6 +10,8 @@
 // l'entrée courante.
 import { isValidDate, weekday } from '../../../shared/dates.ts';
 import type { Dataset } from '../../../shared/types.ts';
+// lot 11 — dossiers OPCO
+import { CODES_OPCO, LISTE_DISPOSITIFS } from '../../../shared/rules/opco.ts';
 import type { UiState, View } from './store.tsx';
 
 /** Paramètre de l'adresse : champ de UiState, nom affiché, valeur par défaut (absente de l'adresse), lecture contrôlée. */
@@ -99,11 +101,20 @@ export const PARAMS_URL: Partial<Record<View, Param[]>> = {
   chantiers: [code('goSel', 'chantier', d => d.referentiels.chantiers)],
   echeances: [choix('echType', 'type', 'tous', {
     cert: 'certifications', hab: 'habilitations', med: 'visites-medicales', exigence: 'exigences', trip: 'voyages', contrat: 'contrats',
+    // lot 11 — dossiers OPCO
+    opco: 'dossiers-opco',
   })],
   referentiels: [choix('refOnglet', 'onglet', 'formations', {
     formations: 'formations', habilitations: 'habilitations', postes: 'postes', destinations: 'destinations', activites: 'activites',
   })],
-  budget: [exercice, choix('planFilter', 'statut', 'tous', { prevu: 'prevu', engage: 'engage', realise: 'realise', reporte: 'reporte' })],
+  budget: [exercice, choix('planFilter', 'statut', 'tous', { prevu: 'prevu', engage: 'engage', realise: 'realise', reporte: 'reporte' }),
+    // lot 11 — dossiers OPCO : onglet, filtres (état, OPCO, dispositif) et dossier ouvert.
+    choix('budgetOnglet', 'onglet', 'plan', { opco: 'dossiers-opco' }),
+    choix('opcoFiltre', 'etat', 'tous', { en_cours: 'en-cours', retards: 'en-retard', clos: 'clos' }),
+    choix('opcoCode', 'opco', null, Object.fromEntries(CODES_OPCO.map(c => [c, c]))),
+    choix('opcoDispositif', 'dispositif', null, Object.fromEntries(LISTE_DISPOSITIFS.map(c => [c, c.replace(/_/g, '-')]))),
+    identifiant('opcoSel', 'dossier-opco', d => d.dossiersOpco ?? []),
+  ],
 };
 
 /**

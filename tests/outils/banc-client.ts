@@ -18,6 +18,8 @@ export const UI_DEPART: UiState = {
   horizon: null, search: '', equipe: 'Toutes', statut: 'tous', selectedId: null, typeForm: 'toutes', formationFilter: null,
   habFilter: 'tous', habType: null, tripSel: null, echType: 'tous', goSel: null, exercice: 2026, planFilter: 'tous', weekStart: null, tsEmp: null,
   refOnglet: 'formations', tsJour: null, tris: {},
+  // lot 11 — dossiers OPCO
+  budgetOnglet: 'plan', opcoFiltre: 'tous', opcoCode: null, opcoDispositif: null, opcoSel: null,
 };
 
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;

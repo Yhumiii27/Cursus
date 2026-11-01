@@ -70,6 +70,11 @@ import { AstreinteDialog } from './AstreinteDialog.tsx';
 import { InterventionAstreinteDialog } from './InterventionAstreinteDialog.tsx';
 import { SuiviDialog } from './SuiviDialog.tsx';
 import { VisiteDialog } from './VisiteDialog.tsx';
+// lot 11 — dossiers OPCO
+import { OpcoDossierDialog } from './OpcoDossierDialog.tsx';
+import { OpcoEtapeDialog } from './OpcoEtapeDialog.tsx';
+import { OpcoPieceDialog } from './OpcoPieceDialog.tsx';
+import { OpcoVersementDialog } from './OpcoVersementDialog.tsx';
 
 export function DialogHost() {
   const { dialog: d } = useStore();
@@ -151,5 +156,10 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'interventionAstreinte': return <InterventionAstreinteDialog {...d} />;
     case 'evaluation': return <EvaluationDialog {...d} />;
     case 'confirmer': return <ConfirmerDialog c={d.c} />;
+    // lot 11 — dossiers OPCO
+    case 'opcoDossier': return <OpcoDossierDialog {...d} />;
+    case 'opcoEtape': return <OpcoEtapeDialog {...d} />;
+    case 'opcoVersement': return <OpcoVersementDialog {...d} />;
+    case 'opcoPiece': return <OpcoPieceDialog {...d} />;
   }
 }

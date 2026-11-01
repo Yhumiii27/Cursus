@@ -356,6 +356,11 @@ incrémental ait servi (entrées dérivées par le delta, aucun repli : compteur
   par le service RH (inscription, ligne du plan ou titre en attente défaits). Motif obligatoire, réservé au service RH ;
   rien n'est effacé : une certification ou une ligne supprimée sort des calculs et reste tracée. Une certification sur
   laquelle s'appuie une habilitation délivrée ne se corrige qu'après la suspension de l'habilitation.
+- **Dossiers OPCO** (lot 11, version simple) : prise en charge d'une action du plan, de la demande au solde (dépôt, accord
+  ou refus, justificatifs, versements, solde), montants calculés (à récupérer, reste à charge, coût net du réalisé),
+  pièces sans salarié (facture et accord gardés 10 ans), échéances (écran Échéances, récapitulatif du service RH) et
+  exports CSV des dossiers et des versements ; onglet « Dossiers OPCO » de Plan & budget, Paramètres → Dossiers OPCO.
+  Ni export comptable, ni connexion au portail de l'OPCO.
 
 ## Contrat et temps de travail
 

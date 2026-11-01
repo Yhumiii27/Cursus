@@ -17,7 +17,7 @@
 // ou seulement signalé, jamais bloquant, sauf les pièces de la demande de remboursement quand les pièces sont activées.
 import { addD, days, isValidDate, parse } from '../dates.ts';
 import type {
-  CodeOpco, DispositifOpco, DossierOpco, EcartSoldeOpco, ISODate, MotifAbandonOpco, MotifRefusOpco, NaturePiece, PlanAction, Settings, StatutOpco,
+  CodeOpco, DispositifOpco, DossierOpco, EcartSoldeOpco, ISODate, MotifAbandonOpco, MotifRefusOpco, NaturePiece, PlanAction, Session, Settings, StatutOpco,
   VersementOpco,
 } from '../types.ts';
 import { coutRetenu } from './exercices.ts';
@@ -539,3 +539,72 @@ export function syntheseOpco(
     retards: retardsOpco(siens, versements, s, today).length,
   };
 }
+
+// — Écrans (lot 11, étape 2 : Plan & budget, Échéances) —
+
+/** Montant au centime près, pour le détail d'un dossier : « 1 234,50 € » (les sommes des tableaux restent à l'euro). */
+export const eurosOpco = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** Dossiers en vigueur (non supprimés) d'une action du plan, du plus récent au plus ancien. */
+export const dossiersDeLaLigne = (dossiers: readonly DossierOpco[] | undefined, planActionId: number) =>
+  (dossiers ?? []).filter(d => d.planActionId === planActionId && !d.annuleLe).sort((a, b) => b.id - a.id);
+
+/**
+ * Champs proposés à la création d'un dossier depuis une ligne du plan : dates des sessions rattachées (non annulées ; du
+ * premier jour de la première au dernier jour de la dernière), heures de la formation du catalogue, effectif (réel une
+ * fois l'action réalisée) et coût retenu comme montant demandé. Tout reste modifiable.
+ */
+export function propositionDossier(
+  l: Pick<PlanAction, 'id' | 'statut' | 'cout' | 'coutReel' | 'effectif' | 'effectifReel'>,
+  sessions: readonly Pick<Session, 'planId' | 'date' | 'fin' | 'statut'>[], dureeHeures: number | null | undefined,
+): { du: ISODate | null; au: ISODate | null; heures: number | null; effectif: number; montantDemande: number } {
+  const siennes = sessions.filter(s => s.planId === l.id && s.statut !== 'Annulée');
+  const du = siennes.length ? siennes.map(s => s.date).sort()[0] : null;
+  const au = siennes.length ? siennes.map(s => s.fin || s.date).sort().at(-1)! : null;
+  return {
+    du, au, heures: dureeHeures ?? null,
+    effectif: l.statut === 'realise' && l.effectifReel != null ? l.effectifReel : l.effectif,
+    montantDemande: centimes(coutRetenu(l)),
+  };
+}
+
+/**
+ * Étapes proposées sur un dossier dans son état (boutons du panneau de détail), mêmes contrôles que le serveur :
+ * `rouvrir` est réservé à l'administrateur RH (l'écran le masque aux autres). Un dossier supprimé n'en a aucune.
+ */
+export function etapesProposees(d: DossierOpco, versements: number): {
+  modifier: boolean; deposer: boolean; accorder: boolean; refuser: boolean; facturer: boolean; versement: boolean; solder: boolean; abandonner: boolean;
+  rouvrir: boolean;
+} {
+  const ok = (i: Issue) => 'faire' in i;
+  const vivant = !d.annuleLe;
+  return {
+    modifier: vivant && STATUTS_OPCO[d.statut].enCours,
+    deposer: vivant && ok(controleTransition('deposer', d.statut)),
+    accorder: vivant && ok(controleTransition('accorder', d.statut)),
+    refuser: vivant && ok(controleTransition('refuser', d.statut)),
+    facturer: vivant && ok(controleFacturation(d)),
+    versement: vivant && STATUTS_VERSEMENT.includes(d.statut),
+    solder: vivant && ok(controleSolde(d)),
+    abandonner: vivant && ok(controleTransition('abandonner', d.statut)),
+    rouvrir: vivant && 'vers' in statutPrecedent(d, versements),
+  };
+}
+
+/**
+ * Coût net du plan d'un exercice : le réalisé (budgetSummary) moins les sommes versées par l'OPCO, à l'entreprise ou à
+ * l'organisme en subrogation, sur les dossiers des actions réalisées de l'exercice. Les enveloppes ne changent pas.
+ */
+export function coutNetPlan(
+  realise: number, exercice: number, plan: readonly Pick<PlanAction, 'id' | 'statut'>[], dossiers: readonly DossierOpco[] | undefined,
+  versements: readonly VersementOpco[] | undefined,
+): { verse: number; net: number } {
+  const realisees = new Set(plan.filter(l => l.statut === 'realise').map(l => l.id));
+  const verse = centimes((dossiers ?? []).filter(d => d.exercice === exercice && !d.annuleLe && d.planActionId != null && realisees.has(d.planActionId))
+    .reduce((n, d) => n + versementsDe(versements, d.id).reduce((m, v) => m + v.montant, 0), 0));
+  return { verse, net: centimes(realise - verse) };
+}
+
+/** Versements en vigueur reçus (ou payés à l'organisme) entre deux dates incluses, du plus ancien au plus récent. */
+export const versementsDeLaPeriode = (versements: readonly VersementOpco[] | undefined, du: ISODate, au: ISODate) =>
+  (versements ?? []).filter(v => !v.annuleLe && v.le >= du && v.le <= au).sort((a, b) => a.le.localeCompare(b.le) || a.id - b.id);

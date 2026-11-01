@@ -7,6 +7,7 @@
 import { isValidDate } from '../dates.ts';
 import type { CategorieObjectif, CompteurObjectifs, Employe, Entretien, EntretienType, ISODate, Objectif, Settings, StatutObjectif } from '../types.ts';
 import { SEUIL_ANONYMAT } from './evaluation-formation.ts';
+import { souhaitsDe } from './souhaits.ts';
 
 export const STATUTS_OBJECTIF = ['propose', 'ouvert', 'atteint', 'partiel', 'non_atteint', 'sans_objet', 'reconduit'] as const satisfies readonly StatutObjectif[];
 export const STATUT_OBJECTIF_LABEL: Record<StatutObjectif, string> = {
@@ -128,6 +129,22 @@ export function blocageClotureObjectifs(objectifs: readonly Objectif[], entretie
   return nonEvalues
     ? `${nonEvalues > 1 ? `${nonEvalues} objectifs de la période précédente` : 'Un objectif de la période précédente'} à évaluer avant de clore l’entretien (atteint, partiellement, non atteint, sans objet ou reconduit)`
     : null;
+}
+
+/**
+ * Saisies du suivi portées par l'entretien `x`, que son annulation effacerait (server/src/objectifs-entretien.ts) :
+ * objectifs fixés ou proposés à cet entretien, évaluations d'objectifs repris saisies à cet entretien, souhaits de
+ * formation. Liste des éléments pour le message de confirmation (vide : rien à perdre).
+ */
+export function saisiesSuivies(objectifs: readonly Objectif[], x: Pick<Entretien, 'id' | 'souhaits'>): string[] {
+  const fixes = objectifsFixesA(objectifs, x.id).length;
+  const evalues = objectifs.filter(o => o.evalueEntretienId === x.id).length;
+  const souhaits = souhaitsDe(x).length;
+  return [
+    fixes ? (fixes > 1 ? `${fixes} objectifs fixés ou proposés` : '1 objectif fixé ou proposé') : '',
+    evalues ? (evalues > 1 ? `${evalues} évaluations d’objectifs` : '1 évaluation d’objectif') : '',
+    souhaits ? (souhaits > 1 ? `${souhaits} souhaits de formation` : '1 souhait de formation') : '',
+  ].filter(Boolean);
 }
 
 /**

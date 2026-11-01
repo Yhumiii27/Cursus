@@ -126,6 +126,14 @@ const modifier: ActionHandler = async (ctx, p) => {
   return o.statut === 'propose' ? `Objectif proposé par ${e.nom} validé` : `Objectif modifié — ${e.nom}`;
 };
 
+/** Souhaits de formation de l'entretien `x` liés à l'objectif `id`, qui va être supprimé : ils n'y sont plus liés. */
+async function delierSouhaits(ctx: Ctx, x: Entretien, id: number) {
+  const souhaits = souhaitsDe(x);
+  if (souhaits.some(s => s.objectifId === id)) {
+    await ctx.db.update<Entretien>('entretiens', x.id, { souhaits: souhaits.map(s => (s.objectifId === id ? { ...s, objectifId: null } : s)) });
+  }
+}
+
 /**
  * Retrait tant que l'entretien qui le fixe est planifié : par l'évaluateur, ou par le salarié pour sa propre proposition.
  * Une ligne reconduite se défait en changeant l'évaluation de l'objectif d'origine. Un souhait de formation qui le citait
@@ -138,10 +146,7 @@ const retirer: ActionHandler = async (ctx, p) => {
   exigerPlanifie(x);
   if (o.reconduitDe) throw new ActionError('Objectif reconduit : changez l’évaluation de l’objectif d’origine pour défaire la reconduction', 409);
   if (o.statut !== 'ouvert' && o.statut !== 'propose') throw new ActionError(`Objectif ${STATUT_OBJECTIF_LABEL[o.statut].toLowerCase()} : il ne se retire plus`, 409);
-  const souhaits = souhaitsDe(x);
-  if (souhaits.some(s => s.objectifId === o.id)) {
-    await ctx.db.update<Entretien>('entretiens', x.id, { souhaits: souhaits.map(s => (s.objectifId === o.id ? { ...s, objectifId: null } : s)) });
-  }
+  await delierSouhaits(ctx, x, o.id);
   await ctx.db.remove('objectifs', o.id);
   return o.statut === 'propose' && estSalarie(ctx, e) ? 'Proposition d’objectif retirée' : `Objectif retiré — ${e.nom}`;
 };
@@ -206,7 +211,10 @@ const evaluer: ActionHandler = async (ctx, p) => {
   if (p.statut === 'sans_objet' && !evaluation) throw new ActionError('Objectif devenu sans objet : indiquez pourquoi');
   // Nouvelle évaluation d'une reconduction : la ligne reconduite à cet entretien est retirée, puis recréée si besoin.
   const reconduite = (ctx.ds.objectifs ?? []).find(y => y.reconduitDe === o.id && y.entretienId === x.id);
-  if (reconduite && p.statut !== 'reconduit') await ctx.db.remove('objectifs', reconduite.id);
+  if (reconduite && p.statut !== 'reconduit') {
+    await delierSouhaits(ctx, x, reconduite.id);
+    await ctx.db.remove('objectifs', reconduite.id);
+  }
   let nouvel: number | null = reconduite && p.statut === 'reconduit' ? reconduite.id : null;
   if (p.statut === 'reconduit' && !reconduite) {
     exigerPlace(ctx, x);

@@ -55,10 +55,10 @@ const TITRES: Partial<Record<TableName, string>> = {
  */
 const RETIREES: Partial<Record<TableName, string[]>> = { comptes: ['motDePasse'], pieces: ['fichier', 'jeton', 'deposeCompteId'], jetonsAgenda: ['empreinte'],
   // lot 12 — C3 (feedback 360°, étape 3) : l'évalué ne reçoit ni qui a été sollicité ni qui a répondu, ni le contenu d'une
-  // réponse prise une à une (une seule réponse d'un N+2 le désignerait) : la synthèse, jointe à l'entretien, lui revient
-  // (art. 15-4 du RGPD, droits des répondants).
+  // réponse prise une à une, ni la relation de son auteur (une seule réponse d'un N+2 le désignerait) : la synthèse, jointe
+  // à l'entretien, lui revient (art. 15-4 du RGPD, droits des répondants) ; le nombre de lignes n'est que le compteur global.
   feedbackSollicitations: ['repondantEmpId', 'statut', 'proposeePar', 'envoyeeLe', 'relanceeLe', 'closeLe'],
-  feedbackReponses: ['notes', 'verbatim', 'verbatimStatut', 'modereLe', 'moderePar'] };
+  feedbackReponses: ['relation', 'notes', 'verbatim', 'verbatimStatut', 'modereLe', 'moderePar'] };
 /**
  * Colonnes retirées de l'export remis au salarié lui-même (sans journal) : elles nomment d'autres personnes, comme le
  * journal qu'il ne reçoit pas — auteur d'une ligne de l'historique des contrats, que son portail ne lui montre pas, et de

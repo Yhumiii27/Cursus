@@ -19,6 +19,8 @@ import { remisePhysique, texteRemise } from '../../../shared/rules/remise.ts';
 import { CancelButton, Dialog, Field } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';
 import { annulationEntretien } from '../state/confirmations-annulations.ts';
+// lot 12 — C3 (entretiens suivis)
+import { saisiesSuivies } from '../../../shared/rules/objectifs.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { EnregistrementAuFil } from '../state/enregistrement.ts';
 import { useStore } from '../state/store.tsx';
@@ -141,7 +143,7 @@ export function EntDialog({ entId }: { entId: number }) {
   };
   // Entretien qui n'a plus lieu d'être (départ, changement de poste, doublon) : annulation confirmée, compte rendu compris
   // (la saisie en cours compte : supprimée avec lui).
-  const annuler = () => openDialog({ type: 'confirmer', c: annulationEntretien(x, e.nom, { crCommence: crCommence({ ...x, cr: { ...x.cr, ...vals } }), passe: x.date < d.ti }) });
+  const annuler = () => openDialog({ type: 'confirmer', c: annulationEntretien(x, e.nom, { crCommence: crCommence({ ...x, cr: { ...x.cr, ...vals } }), passe: x.date < d.ti, saisies: saisiesSuivies(d.ds.objectifs ?? [], x) }) });
 
   // Imprimable dès la clôture. Le salarié qui le télécharge depuis son espace : la date du premier téléchargement est
   // enregistrée (après l'ouverture de la fenêtre, que le navigateur n'autorise que pendant le clic).

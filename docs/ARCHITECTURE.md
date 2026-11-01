@@ -4746,7 +4746,8 @@ imprimé, les indicateurs et rappels, le guide et le RGPD viennent à l'étape 2
   `entretien.avisSouhait`. Évaluateur : `refuserSoiMeme` et `isValidatorOf(ctx, e, 'entretiens')`, délégation comprise.
   `entretien.clore` refuse (409) une proposition en attente ou, hors mode facultatif, un objectif repris non évalué, puis
   verse les souhaits favorables (`verserSouhaits`) : une demande `demandesCollab` de type formation par souhait, au nom du
-  manager (`parId`), rattachée à l'entretien (`entretienId`), par le contrôle des doublons extrait de `demande.formation`
+  manager (`parId` : celui qui clôt, ou le manager valideur quand le service RH clôt ; aucun quand le service RH est le
+  valideur), rattachée à l'entretien (`entretienId`), par le contrôle des doublons extrait de `demande.formation`
   (`doublonFormation`, `creerDemandeFormation` de `server/src/actions/conformite.ts`) : demande identique en attente,
   inscription à venir, souhait identique du même entretien ou formation archivée marquent le souhait (`nonVerse`) sans
   nouvelle demande ; jamais deux fois. Acceptée sans session, la demande donne une ligne du plan d'origine `entretien`
@@ -4757,8 +4758,8 @@ imprimé, les indicateurs et rappels, le guide et le RGPD viennent à l'étape 2
   son équipe directe et de ses délégations « entretiens », pour le salarié les siens (`CHAMPS_PAR_SALARIE`) ; consultation
   N+2 et lecture seule : compteurs par équipe seulement (`compteursObjectifs`, masqués sous 3 salariés), entretiens de la
   lecture seule sans compte rendu, souhaits ni synthèse ; référent HSE et paie : rien. Feedback 360° : service RH seulement
-  (`CHAMPS_HORS_VUES`). Export des données d'un salarié : ni répondants, ni statut des sollicitations, ni contenu d'une
-  réponse prise une à une.
+  (`CHAMPS_HORS_VUES`). Export des données d'un salarié : ni répondants, ni statut des sollicitations, ni contenu ou
+  relation (pair, N+2, encadré) d'une réponse prise une à une : le nombre de réponses n'est qu'un compteur global.
 - **Journal** (`REGLES_ENTRETIENS_SUIVIS`, `server/src/journal.ts`) : identifiants, codes (catégorie, résultat, avis,
   priorité, formation du catalogue), dates, poids, avancement (regroupé sur 30 minutes) ; jamais le libellé, la mesure,
   l'évaluation, un commentaire ni l'intitulé d'un souhait (« [texte renseigné] » au plus). Préfixes `objectif.` et

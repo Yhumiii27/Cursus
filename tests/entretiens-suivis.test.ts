@@ -293,17 +293,90 @@ test('souhaits : avis du manager, versement des seuls favorables à la clôture,
   const j = JSON.stringify([...await journal('entretien.souhait'), ...await journal('entretien.avisSouhait')]);
   for (const t of ['Anglais', 'Soudure', 'stress']) assert.ok(!j.includes(t), t);
   assert.deepEqual((await journal('entretien.clore')).at(-1)!.payload.demandes, [demandes[0].id]);
+  // Souhaits et avis rattachés au salarié de l'entretien (historique de sa fiche, export de ses données).
+  const rattaches = await db.query<{ action: string; salaries: unknown }>(`SELECT action, salaries FROM journal WHERE action IN ('entretien.souhait', 'entretien.avisSouhait')`);
+  assert.ok(rattaches.length >= 2);
+  for (const l of rattaches) assert.deepEqual(typeof l.salaries === 'string' ? JSON.parse(l.salaries) : l.salaries, [2], l.action);
 });
 
-test('annulation d’un entretien : objectifs fixés retirés, objectifs évalués rouverts ; sortie sans référence orpheline', async () => {
-  const { u, run, annuel, objectif, db } = await fresh();
+test('doublons de versement : intitulés libres comparés comme demande.formation ; clôture par le service RH au nom du manager', async () => {
+  const { u, run, refus, annuel, entretien, db } = await fresh();
+  const x = await annuel();
+  const s1 = (await run(u.mehdi, 'entretien.souhait', { id: x, f: 'autre', libelle: 'Sécurité incendie' })).result.cle;
+  const s2 = (await run(u.karim, 'entretien.souhait', { id: x, f: 'autre', libelle: 'securite-incendie' })).result.cle;
+  for (const cle of [s1, s2]) await run(u.karim, 'entretien.avisSouhait', { id: x, cle, avis: 'favorable' });
+  // Clos par le service RH : la demande est au nom du manager valideur de Mehdi (Karim), jamais du salarié lui-même.
+  const r = await run(u.admin, 'entretien.clore', { id: x, date: '2026-10-09' });
+  assert.match(r.message!, /1 souhait de formation versé au service RH · 1 souhait déjà demandé ou sans suite/);
+  const demandes = (await db.all<DemandeCollab>('demandesCollab')).filter(d => d.entretienId === x);
+  assert.deepEqual(demandes.map(d => [d.libelle, d.parId]), [['Sécurité incendie', 12]]);
+  assert.deepEqual((await entretien(x)).souhaits!.map(s => [s.cle, s.demandeId, s.nonVerse]), [['s1', demandes[0].id, null], ['s2', demandes[0].id, 'deja_demande']]);
+  // demande.formation compare de même : la même formation écrite autrement est refusée.
+  await refus(u.mehdi, 'demande.formation', { f: 'autre', libelle: 'SECURITE INCENDIE', motif: 'x' }, /déjà en cours/);
+});
+
+test('export des données de l’évalué : réponses 360° sans répondant, ni contenu, ni relation de leur auteur', async () => {
+  const { db, annuel } = await fresh();
+  const x = await annuel();
+  await db.insert('feedbackReponses', { id: 'c0ffee', empId: 2, entretienId: x, relation: 'n2', versionQuestionnaire: 'v1', notes: { q1: 3 }, verbatim: 'Très fiable', verbatimStatut: null, modereLe: null, moderePar: null });
+  const { donneesSalarie } = await import('../server/src/donnees.ts');
+  for (const journal of [false, true]) {
+    const ex = (await donneesSalarie(db, 2, { journal, par: 'test' }))!;
+    const lignes = ex.sections['Feedback 360° : réponses versées (sans répondant)'] as Record<string, unknown>[];
+    assert.equal(lignes.length, 1, 'compteur global');
+    for (const c of ['relation', 'notes', 'verbatim']) assert.ok(!(c in lignes[0]), c);
+  }
+});
+
+test('reconduction défaite : le souhait de formation qui citait la ligne reconduite n’y est plus lié', async () => {
+  const { u, run, annuel, entretien, db } = await fresh();
   const x = await annuel();
   const a = (await run(u.karim, 'objectif.ajouter', { entretienId: x, libelle: 'A', categorie: 'individuel' })).result.id as number;
   await run(u.karim, 'entretien.clore', { id: x, date: '2026-10-09' });
   await run(u.karim, 'entretien.planifier', { empId: 2, kind: 'annuel', date: '2026-12-01' });
   const y = await annuel();
   const enfant = (await run(u.karim, 'objectif.evaluer', { id: a, entretienId: y, statut: 'reconduit' })).result.reconduit as number;
+  await run(u.mehdi, 'entretien.souhait', { id: y, f: 'sst', objectifId: enfant });
+  assert.equal((await entretien(y)).souhaits![0].objectifId, enfant);
+  await run(u.karim, 'objectif.evaluer', { id: a, entretienId: y, statut: 'atteint' });
+  assert.equal(await db.get('objectifs', enfant), undefined);
+  assert.equal((await entretien(y)).souhaits![0].objectifId, null);
+});
+
+test('délégation : le suppléant qui a le périmètre « entretiens » fixe et évalue ; sans lui, refusé et sans objectifs', async () => {
+  const { u, run, refus, reglages, annuel, db } = await fresh();
+  await reglages({ delegationEntretiens: true });
+  const x = await annuel();
+  const g = await db.insert<{ id: number }>('delegations', { managerId: 12, suppleantId: 16, du: '2026-10-01', au: '2026-10-20', perimetre: ['absences', 'entretiens'], creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Karim Haddad' });
+  const a = (await run(u.hugo, 'objectif.ajouter', { entretienId: x, libelle: 'Objectif fixé par le suppléant', categorie: 'individuel' })).result.id as number;
+  await run(u.hugo, 'objectif.modifier', { id: a, poids: 20 });
+  const ids = async () => ((await buildSnapshot(db, u.hugo, { cache: false })).objectifs ?? []).map(o => o.empId);
+  assert.deepEqual(await ids(), [2]);
+  // Délégation des seules absences : ni objectif.ajouter, ni objectifs de Mehdi dans son instantané.
+  await db.update('delegations', g.id, { perimetre: ['absences'] });
+  await refus(u.hugo, 'objectif.ajouter', { entretienId: x, libelle: 'x', categorie: 'individuel' }, /évaluateur/, 403);
+  await refus(u.hugo, 'objectif.modifier', { id: a, poids: 30 }, /évaluateur/, 403);
+  const v = await buildSnapshot(db, u.hugo, { cache: false });
+  assert.deepEqual(v.objectifs, []);
+  assert.ok(!v.entretiens.some(y => y.empId === 2), 'ni les entretiens de Mehdi');
+  assert.ok(!JSON.stringify(v).includes('Objectif fixé par le suppléant'));
+});
+
+test('annulation d’un entretien : confirmation exigée, objectifs fixés retirés, objectifs évalués rouverts ; sortie sans référence orpheline', async () => {
+  const { u, run, refus, annuel, objectif, db } = await fresh();
+  const x = await annuel();
+  // Souhait seul (compte rendu vide) : confirmation exigée aussi.
+  await run(u.mehdi, 'entretien.souhait', { id: x, f: 'sst' });
+  await refus(u.karim, 'entretien.annuler', { id: x }, /1 souhait de formation/, 409);
+  await run(u.mehdi, 'entretien.souhait', { id: x, op: 'retirer', cle: 's1' });
+  const a = (await run(u.karim, 'objectif.ajouter', { entretienId: x, libelle: 'A', categorie: 'individuel' })).result.id as number;
+  await run(u.karim, 'entretien.clore', { id: x, date: '2026-10-09' });
+  await run(u.karim, 'entretien.planifier', { empId: 2, kind: 'annuel', date: '2026-12-01' });
+  const y = await annuel();
+  const enfant = (await run(u.karim, 'objectif.evaluer', { id: a, entretienId: y, statut: 'reconduit' })).result.reconduit as number;
   const b = (await run(u.karim, 'objectif.ajouter', { entretienId: y, libelle: 'B', categorie: 'collectif' })).result.id as number;
+  // Objectifs fixés et évaluation saisie : l'annulation, qui les retire, demande confirmation.
+  await refus(u.karim, 'entretien.annuler', { id: y }, /déjà préparé \(2 objectifs fixés ou proposés, 1 évaluation d’objectif\)/, 409);
   const r = await run(u.karim, 'entretien.annuler', { id: y, confirmer: true });
   assert.match(r.message!, /2 objectifs fixés retirés · 1 objectif évalué de nouveau en cours/);
   assert.deepEqual([(await objectif(a)).statut, (await objectif(a)).evalueEntretienId], ['ouvert', null]);

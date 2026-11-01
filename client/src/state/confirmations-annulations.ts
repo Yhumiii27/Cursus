@@ -36,13 +36,16 @@ export function annulationVoyage(t: Pick<Voyage, 'id' | 'origine' | 'chantier'>,
  * Annulation d'un entretien planifié par l'évaluateur ou le service RH : l'obligation redevient à planifier, le salarié
  * reçoit l'annulation de l'événement d'agenda (date à venir). Un compte rendu commencé est supprimé avec l'entretien (`confirmer`).
  */
-export function annulationEntretien(x: Pick<Entretien, 'id' | 'type' | 'date'>, nom: string, o: { crCommence: boolean; passe: boolean }): Confirmation {
+export function annulationEntretien(x: Pick<Entretien, 'id' | 'type' | 'date'>, nom: string, o: { crCommence: boolean; passe: boolean; saisies?: string[] }): Confirmation {
+  // lot 12 — C3 : objectifs, évaluations et souhaits de formation portés par l'entretien (`saisiesSuivies`), retirés avec lui.
+  const saisies = o.saisies ?? [];
   const type = ENT_TYPES[x.type].nom;
   return {
     titre: 'Annuler l’entretien',
     question: `Annuler l’${type.charAt(0).toLowerCase()}${type.slice(1)} de ${nom} prévu le ${fmtIso(x.date)} ?`,
     suites: [
       o.crCommence ? 'Le compte rendu déjà commencé est supprimé avec l’entretien. S’il a eu lieu, fermez plutôt ce dialogue et clôturez-le.' : '',
+      saisies.length ? `Retirés avec l’entretien : ${saisies.join(', ')} (les objectifs évalués redeviennent en cours).` : '',
       o.passe ? '' : `${nom} reçoit l’annulation de sa convocation (événement retiré de son agenda).`,
       'L’échéance qu’il couvrait redevient à planifier.',
     ].filter(Boolean),
@@ -50,6 +53,6 @@ export function annulationEntretien(x: Pick<Entretien, 'id' | 'type' | 'date'>, 
     action: 'entretien.annuler',
     // `confirmer` seulement si la confirmation a annoncé la suppression d'un compte rendu commencé : sinon, un compte rendu
     // écrit depuis la dernière relecture (le salarié rédige au fil) fait refuser l'annulation (409), affichée dans le dialogue.
-    payload: { id: x.id, ...(o.crCommence ? { confirmer: true } : {}) },
+    payload: { id: x.id, ...(o.crCommence || saisies.length ? { confirmer: true } : {}) },
   };
 }

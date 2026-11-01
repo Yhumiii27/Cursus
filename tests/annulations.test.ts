@@ -211,7 +211,10 @@ test('entretien.annuler : compte rendu écrit par le salarié depuis la dernièr
   await refus(KARIM, 'entretien.annuler', c.payload!, /compte rendu commencé/, 409);
   assert.ok(await db.get('entretiens', x.id), 'entretien et compte rendu du salarié conservés');
   // Rouverte sur des données à jour, la confirmation annonce la suppression et la confirme.
-  assert.deepEqual(annulationEntretien(x as any, 'Mehdi Benali', { crCommence: true, passe: false }).payload, { id: x.id, confirmer: true });
+  assert.deepEqual(annulationEntretien(x as any, 'Mehdi Benali', { crCommence: true, passe: false }).payload, { id: x.id, confirmer: true });  // Lot 12 (C3) : objectifs ou souhaits de formation portés par l'entretien, annoncés et confirmés de même.
+  const s = annulationEntretien(x as any, 'Mehdi Benali', { crCommence: false, passe: false, saisies: ['1 souhait de formation'] });
+  assert.deepEqual(s.payload, { id: x.id, confirmer: true });
+  assert.ok((s.suites ?? []).some(t => /1 souhait de formation/.test(t)));
 });
 
 test('obligations : entretien annuel de l’année planifié à une date dépassée, en retard ; clos, plus rien', async () => {

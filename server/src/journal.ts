@@ -352,16 +352,19 @@ const REGLES_ENTRETIENS_SUIVIS: Record<string, Regle> = {
     cible: parId('objectifs', ['statut', 'evalueEntretienId']), bilan: (_p, x) => ({ reconduit: entierOuNul(resultat(x).reconduit) }),
   },
   // Souhaits de formation : entretien, opération, clé du souhait, formation du catalogue (code) et priorité ; jamais
-  // l'intitulé libre ; avis du manager (code).
+  // l'intitulé libre ; avis du manager (code). Rattachés au salarié de l'entretien (historique de sa fiche, export de ses
+  // données), comme les objectifs.
   'entretien.souhait': {
-    champs: ['id'],
+    champs: ['id'], salaries: async (p, x) => await salarieEntretien(x.db, p.id),
     extra: p => ({
       op: codeDans(p.op ?? 'ajouter', ['ajouter', 'modifier', 'retirer']), f: typeof p.f === 'string' && CODE_TITRE.test(p.f) ? p.f : null,
       priorite: codeDans(p.priorite, ['haute', 'normale', 'basse']), libre: typeof p.libelle === 'string' && !!p.libelle.trim(),
     }),
     bilan: (_p, x) => ({ cle: cleSouhait(resultat(x).cle) }),
   },
-  'entretien.avisSouhait': { champs: ['id'], extra: p => ({ cle: cleSouhait(p.cle), avis: codeDans(p.avis, ['favorable', 'defavorable', 'a_discuter']) }) },
+  'entretien.avisSouhait': {
+    champs: ['id'], salaries: async (p, x) => await salarieEntretien(x.db, p.id), extra: p => ({ cle: cleSouhait(p.cle), avis: codeDans(p.avis, ['favorable', 'defavorable', 'a_discuter']) }),
+  },
 };
 /** Versement des souhaits à la clôture d'un entretien : demandes créées (identifiants), souhaits écartés (nombre). */
 const bilanVersement = (result: unknown): Ligne => {

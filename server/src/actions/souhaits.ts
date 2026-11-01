@@ -6,7 +6,7 @@
 //   demande de formation au service RH (réponse du propriétaire du 1er novembre 2026), par le même contrôle des doublons
 //   que `demande.formation` (server/src/actions/conformite.ts) ; jamais deux fois. Les autres restent dans le compte rendu.
 // Journal : entretien et clé du souhait, avis, nombres ; jamais l'intitulé libre (server/src/journal.ts).
-import { plural } from '../../../shared/format.ts';
+import { key, plural } from '../../../shared/format.ts';
 import {
   AVIS_SOUHAIT_LABEL, estAvisSouhait, lireSouhait, motifVersement, nouvelleCle, refusTypeSouhaits, SOUHAITS_MAX, souhaitsAVerser, souhaitsDe, souhaitTraite,
 } from '../../../shared/rules/souhaits.ts';
@@ -93,20 +93,25 @@ export interface Versement { versees: number[]; ecartes: number }
 
 /**
  * Versement des souhaits favorables de l'entretien `x`, à sa clôture (dans la transaction de `entretien.clore`) : une
- * demande de formation par souhait, au nom de l'évaluateur (manager : `parId`), motif fixe « Souhait exprimé à
+ * demande de formation par souhait, au nom de l'évaluateur (manager valideur : `parId`), motif fixe « Souhait exprimé à
  * l'entretien du … », rattachée à l'entretien. Doublon (demande identique en attente, inscription à venir, souhait
  * identique déjà versé ici) ou formation archivée : le souhait est marqué, sans nouvelle demande. Jamais deux fois.
  */
 export async function verserSouhaits(ctx: Ctx, e: Employe, x: Entretien): Promise<Versement> {
   const aVerser = souhaitsAVerser(x);
   if (!aVerser.length) return { versees: [], ecartes: 0 };
-  const parId = ctx.user.role === 'manager' && ctx.user.empId && ctx.user.empId !== e.id ? ctx.user.empId : null;
+  // Évaluateur : le manager (ou son suppléant) qui clôt ; clos par le service RH, le manager valideur du salarié
+  // (`mgrOf`), ou personne quand le service RH est lui-même le valideur (la demande est alors au nom du salarié).
+  const valideur = ctx.user.role === 'manager' ? ctx.user.empId : ctx.d.mgrOf(e);
+  const parId = valideur && valideur !== e.id ? valideur : null;
   const faites = new Map<string, number>();
   const versees: number[] = [];
   let ecartes = 0;
   const maj = new Map<string, Partial<SouhaitFormation>>();
   for (const s of aVerser) {
-    const cle = s.f ? `f:${s.f}` : `l:${(s.libelle ?? '').toLowerCase()}`;
+    // Même comparaison des intitulés libres que `doublonFormation` (accents et ponctuation ignorés) : les demandes créées
+    // dans cette boucle ne sont pas encore dans l'instantané qu'il lit.
+    const cle = s.f ? `f:${s.f}` : `l:${key(s.libelle)}`;
     const deja = faites.get(cle);
     const doublon = deja ? { code: 'deja_demande' as const, demandeId: deja } : doublonFormation(ctx, e, s.f, s.libelle);
     if (s.f && ctx.d.fm(s.f)?.archive) {

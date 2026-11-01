@@ -279,6 +279,10 @@ const TOUJOURS: Partial<Record<TableName, string>> = {
   ...Object.fromEntries(['idempotence', 'abonnementsPush', 'envoisPush'].map(t => [t, 'actions rejouées et notifications sur le téléphone'])),
   // lot 11 — dossiers OPCO : rattachés au plan de formation fictif (et, plus tard, à des salariés).
   ...Object.fromEntries(['dossiersOpco', 'versementsOpco'].map(t => [t, 'dossiers OPCO du plan de formation fictif'])),
+  // lot 11 — notes de frais : notes, dépenses, véhicules, avances, exports et sceaux fictifs ; barème, forfaits et taux de
+  // démonstration (montants cités de mémoire, à ressaisir par le service RH et la comptabilité).
+  ...Object.fromEntries(['notesFrais', 'lignesFrais', 'vehiculesPerso', 'avancesFrais', 'exportsFrais', 'sceauxPieces', 'baremesKm', 'forfaitsFrais', 'tauxDevises']
+    .map(t => [t, 'notes de frais et valeurs de démonstration'])),
   connexions: 'sessions de connexion',
   comptes: 'comptes de connexion',
   journal: 'journal des actions fictives (remplacé par la seule ligne purge.demo)',

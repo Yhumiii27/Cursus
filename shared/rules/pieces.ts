@@ -41,12 +41,22 @@ export const OBJETS_PIECE: Record<ObjetPiece, { label: string; sante: boolean }>
   voyage: { label: 'Pièce du dossier de déplacement', sante: false },
   // lot 11 — dossiers OPCO : pièce d'un dossier de prise en charge (convention, accord, facture…), sans salarié.
   dossierOpco: { label: 'Pièce d’un dossier OPCO', sante: false },
+  // lot 11 — notes de frais : justificatif d'une dépense ; d'une dépense médicale en mission (santé : jamais au manager) ;
+  // carte grise et attestation d'assurance du véhicule personnel (indemnités kilométriques).
+  ligneFrais: { label: 'Justificatif de frais', sante: false },
+  // Même libellé que tout justificatif de frais : il passe dans les messages et le journal, sans désigner la santé.
+  ligneFraisSante: { label: 'Justificatif de frais', sante: true },
+  vehiculePerso: { label: 'Carte grise ou attestation d’assurance', sante: false },
 };
 /**
  * Objets dont les pièces ne sont pas nominatives (`empId` null) : seul le dossier OPCO (lot 11), réservé au service RH.
  * Toute autre pièce désigne le salarié de son objet.
  */
 export const OBJETS_SANS_SALARIE: ReadonlySet<ObjetPiece> = new Set<ObjetPiece>(['dossierOpco']);
+
+/** lot 11 — notes de frais : objets de pièce des notes de frais (droit « compta » ; le manager, par le filtre des frais). */
+export const OBJETS_FRAIS: readonly ObjetPiece[] = ['ligneFrais', 'ligneFraisSante', 'vehiculePerso'];
+export const estObjetFrais = (o: ObjetPiece) => OBJETS_FRAIS.includes(o);
 export const estObjetPiece = (o: unknown): o is ObjetPiece => typeof o === 'string' && o in OBJETS_PIECE;
 
 /** Libellés du réglage `piecesStockage` (Paramètres → Pièces justificatives). */
@@ -112,16 +122,20 @@ export const depotOuvert = (s: StockagePieces | undefined) => s === 'local';
  * Peut-on consulter cette pièce ? `equipe` : le salarié fait partie de l'équipe du manager connecté. Les règles sont les
  * mêmes pour la description (instantané) et pour le contenu (téléchargement).
  */
-export function voitPiece(user: CurrentUser, p: Pick<Piece, 'empId' | 'objet'>, equipe: (empId: number) => boolean): boolean {
+export function voitPiece(user: CurrentUser, p: Pick<Piece, 'empId' | 'objet'>, equipe: (empId: number) => boolean,
+  // lot 11 — notes de frais : salariés dont le manager valide les frais (équipe directe et délégations « frais »), jamais
+  // une pièce de frais médicaux ; sans ce filtre, aucune pièce de frais pour le manager.
+  equipeFrais: (empId: number) => boolean = () => false): boolean {
   const titre = p.objet === 'certification' || p.objet === 'habTitre';
   // Pièce sans salarié (dossier OPCO, lot 11) : service RH seulement (droit « rh »), jamais par l'égalité de deux
   // identifiants absents (compte externe sans fiche).
   if (OBJETS_SANS_SALARIE.has(p.objet)) return user.role === 'rh' && droitsRh(user).includes('rh');
   if (user.role === 'rh') {
     const droits = droitsRh(user);
-    return droits.includes('rh') || (droits.includes('formations') && titre);
+    return droits.includes('rh') || (droits.includes('formations') && titre) || (droits.includes('compta') && estObjetFrais(p.objet));
   }
   if (p.empId == null) return false;
   if (p.empId === user.empId) return true;
+  if (user.role === 'manager' && (p.objet === 'ligneFrais' || p.objet === 'vehiculePerso')) return equipeFrais(p.empId);
   return user.role === 'manager' && titre && equipe(p.empId);
 }

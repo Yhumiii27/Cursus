@@ -16,7 +16,9 @@ import { conservationPieceOpco, estNaturePiece, NATURES_PIECE_OPCO } from '../..
 import { decap, fmtIso, plural } from '../../../shared/format.ts';
 import type { Absence, Certification, DemandeCollab, DossierOpco, HabTitre, NaturePiece, ObjetPiece, Voyage } from '../../../shared/types.ts';
 import { nettoyerBientot, type PieceEnregistree } from '../pieces.ts';
-import { ActionError, aDroit, type ActionHandler, type Ctx, estSoiMeme, getEmp, isRh, isRhAdmin, isSelf, refuserSoiMeme, requireFormations, requireRh, str } from './context.ts';
+import { ActionError, type ActionHandler, aDroit, type Ctx, estSoiMeme, getEmp, isRh, isRhAdmin, isSelf, refuserSoiMeme, requireFormations, requireRh, str } from './context.ts';
+// lot 11 — notes de frais
+import { objetFraisVise, refusRetraitFrais } from '../frais-pieces.ts';
 
 /** Jetons reçus : une chaîne ou une liste de chaînes (au plus 10 pièces par objet et par envoi). */
 function jetonsDe(v: unknown): string[] {
@@ -106,6 +108,8 @@ async function objetVise(ctx: Ctx, objet: ObjetPiece, id: number): Promise<numbe
       if (d.empId != null) throw new ActionError('Dossier OPCO nominatif : pièces pas encore prises en charge');
       return null;
     }
+    // lot 11 — notes de frais : lignes (justificatifs, de santé pour une note médicale) et véhicule personnel.
+    case 'ligneFrais': case 'ligneFraisSante': case 'vehiculePerso': return await objetFraisVise(ctx, objet, id);
   }
 }
 
@@ -150,6 +154,8 @@ const retirer: ActionHandler = async (ctx, p) => {
   if (piece.conserverJusquau && piece.conserverJusquau >= ctx.d.ti && !isRhAdmin(ctx)) {
     throw new ActionError(`Pièce comptable à conserver jusqu’au ${fmtIso(piece.conserverJusquau)} : retrait réservé à l’administrateur RH`, 403);
   }
+  // lot 11 — notes de frais : pièce scellée ou jointe à une note soumise, immuable.
+  await refusRetraitFrais(ctx, piece);
   const motif = str(p.motif);
   if (!motif) throw new ActionError('Indiquez le motif du retrait');
   if (motif.length > MOTIF_RETRAIT_MAX) throw new ActionError(`Motif trop long (${MOTIF_RETRAIT_MAX} caractères au plus)`);

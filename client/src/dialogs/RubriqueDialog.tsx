@@ -8,7 +8,7 @@ import { CancelButton, Dialog, Field, Static, SubmitButton, useVerification } fr
 import { Fine } from '../components/ui.tsx';
 import { useData, useStore } from '../state/store.tsx';
 
-const UNITE: Record<string, string> = { h: 'heures', j: 'jours', nombre: 'nombre' };
+const UNITE: Record<string, string> = { h: 'heures', j: 'jours', nombre: 'nombre', eur: 'euros' };
 
 export function RubriqueDialog({ code }: { code: string }) {
   const data = useData();

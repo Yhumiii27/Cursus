@@ -375,6 +375,9 @@ export const CHAMPS_PAR_SALARIE: ReadonlySet<keyof Dataset> = new Set<keyof Data
   'feuilles', 'absences', 'cet', 'reports', 'soldesReprise', 'clotures', 'informationsCp', 'fractionnements', 'missions', 'taches', 'voyages',
   'contratsHistorique', 'avenantsForfait', 'entretiens', 'demandesCollab', 'demandesVisite', 'inscriptions', 'participations', 'formationsSuivies',
   'habDelivrances', 'evaluationsFormation', 'astreintes', 'interventionsAstreinte',
+  // lot 11 — notes de frais : lignes par salarié, lues par la vue à travers le filtre propre aux frais (server/src/dataset.ts :
+  // équipe directe et délégations « frais », sous-ensemble du périmètre retenu de la vue).
+  'notesFrais', 'lignesFrais', 'vehiculesPerso', 'avancesFrais',
 ]);
 
 /**

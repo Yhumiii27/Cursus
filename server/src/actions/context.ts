@@ -65,6 +65,13 @@ export function requirePaie(ctx: Ctx) {
   if (!aDroit(ctx, 'paie')) throw new ActionError('Transmission à la paie réservée à l’administrateur RH et au gestionnaire de paie', 403);
 }
 
+// lot 11 — notes de frais
+/** Contrôle des notes de frais, taux des devises, exports comptables : service RH (droit « rh ») et comptabilité (« compta »). */
+export const isControleurFrais = (ctx: Ctx) => isRh(ctx) || aDroit(ctx, 'compta');
+export function requireControleurFrais(ctx: Ctx) {
+  if (!isControleurFrais(ctx)) throw new ActionError('Contrôle des notes de frais réservé à la comptabilité et au service RH', 403);
+}
+
 /**
  * Membre du service RH sur sa propre fiche (compte rattaché à ce salarié) : comme tout salarié, il ne décide pas
  * de ses propres absences, feuilles de temps ou entretiens. Règle partagée avec l'interface (shared/rules/soi-meme.ts),

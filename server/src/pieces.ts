@@ -155,6 +155,8 @@ export const TABLE_OBJET: Record<ObjetPiece, TableName> = {
   absence: 'absences', certification: 'certifications', habTitre: 'habTitres', declaration: 'demandesCollab', voyage: 'voyages',
   // lot 11 — dossiers OPCO
   dossierOpco: 'dossiersOpco',
+  // lot 11 — notes de frais
+  ligneFrais: 'lignesFrais', ligneFraisSante: 'lignesFrais', vehiculePerso: 'vehiculesPerso',
 };
 
 /** Description transmise au navigateur : ni nom stocké, ni jeton, ni motif du retrait. */

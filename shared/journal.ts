@@ -53,6 +53,11 @@ export const ACTIONS_PAIE: readonly string[] = [
   'forfait.avenant', 'forfait.annulerAvenant',
   // Astreintes (t049, lot 7) : périodes planifiées, modifiées ou annulées (compensation) et interventions (travail effectif).
   'astreinte.planifier', 'astreinte.modifier', 'astreinte.annuler', 'astreinte.intervention', 'astreinte.retirerIntervention',
+  // lot 11 — notes de frais : circuit jusqu'au contrôle (remboursement par la paie : lots de paie ci-dessus), avances,
+  // barème et forfaits (limites d'exonération), taux des devises ; les exports comptables seront tracés sous `frais.export`.
+  'frais.note.soumettre', 'frais.note.valider', 'frais.note.renvoyer', 'frais.note.controler', 'frais.note.annuler', 'frais.ligne.refuser',
+  'frais.ligne.plafonner', 'frais.avance.valider', 'frais.avance.refuser', 'frais.avance.annuler', 'frais.bareme.enregistrer', 'frais.forfait.enregistrer',
+  'frais.taux.enregistrer',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -201,6 +206,26 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'astreinte.annuler': 'Astreinte annulée',
   'astreinte.intervention': 'Intervention d’astreinte déclarée',
   'astreinte.retirerIntervention': 'Intervention d’astreinte retirée',
+  // lot 11 — notes de frais (server/src/actions/frais.ts)
+  'frais.note.creer': 'Note de frais créée',
+  'frais.ligne.ajouter': 'Dépense ajoutée à une note de frais',
+  'frais.ligne.modifier': 'Dépense d’une note de frais modifiée',
+  'frais.ligne.supprimer': 'Dépense retirée d’une note de frais',
+  'frais.note.soumettre': 'Note de frais soumise',
+  'frais.note.valider': 'Note de frais validée',
+  'frais.note.renvoyer': 'Note de frais renvoyée pour correction',
+  'frais.note.controler': 'Note de frais contrôlée',
+  'frais.ligne.refuser': 'Dépense refusée au contrôle',
+  'frais.ligne.plafonner': 'Dépense ramenée au plafond',
+  'frais.note.annuler': 'Note de frais annulée',
+  'frais.vehicule.declarer': 'Véhicule personnel déclaré',
+  'frais.bareme.enregistrer': 'Barème kilométrique enregistré',
+  'frais.forfait.enregistrer': 'Limite d’un forfait de frais enregistrée',
+  'frais.taux.enregistrer': 'Taux d’une devise enregistré',
+  'frais.avance.demander': 'Avance sur frais demandée',
+  'frais.avance.valider': 'Avance sur frais validée',
+  'frais.avance.refuser': 'Avance sur frais refusée',
+  'frais.avance.annuler': 'Avance sur frais annulée',
   // Absences et congés
   'absence.demander': 'Demande d’absence',
   'absence.decider': 'Décision sur une absence',
@@ -369,6 +394,8 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
   { id: 'pieces', label: 'Pièces justificatives', prefixes: ['piece.'] },
+  // lot 11 — notes de frais
+  { id: 'frais', label: 'Notes de frais', prefixes: ['frais.'] },
   { id: 'conservation', label: 'Conservation et agendas', prefixes: ['conservation.', 'agenda.'] },
   { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.', 'integrite.', 'migration.postgres', 'purge.demo',
     /* lot 11 — indicateurs */ 'indicateurs.'] },

@@ -22,6 +22,8 @@ import { estTypeTitre } from '../../shared/rules/contrats.ts';
 import { estDemi } from '../../shared/rules/demi-journees.ts';
 import { estObjetPiece } from '../../shared/rules/pieces.ts';
 import { estNaturePiece } from '../../shared/rules/opco.ts';
+// lot 11 — notes de frais
+import { categorieJournal, estCategorieFrais } from '../../shared/rules/frais.ts';
 import {
   ACTION_APPEL_KEYSTONE, ACTIONS_CONNEXION, ACTIONS_PAIE, changementsTexte, CONSERVATION_ARCHIVE_PAIE_MOIS, CONSERVATION_ENVOIS_MOIS,
   CONSERVATION_JOURNAL_MOIS, dossierComplet, estActionPaie, familleAction, FAMILLES_JOURNAL, JOURNAL_LABEL, lecteurJournal, libelleAction,
@@ -52,6 +54,41 @@ type P = Record<string, any>;
 type Ligne = Record<string, any>;
 
 // — Liste blanche par action —
+
+// lot 11 — notes de frais
+/** Résultat d'une action des notes de frais : note, ligne, avance, salarié, statut, nombres. */
+const resultatFrais = (x: { result: unknown }) => (x.result ?? {}) as { note?: number; ligne?: number; avance?: number; vehicule?: number; empId?: number; statut?: string; lignes?: number; pieces?: number };
+const salarieFrais = (_p: P, x: { result: unknown }) => [resultatFrais(x).empId];
+/** Catégorie reçue, recopiée seulement si elle en est une, et jamais « medical » (inscrite « divers »). */
+const categorieFrais = (p: P) => (p.categorie !== undefined ? { categorie: estCategorieFrais(p.categorie) ? categorieJournal(p.categorie) : null } : {});
+/** Pièces jointes par l'action (nombre de jetons reçus). */
+const piecesRecues = (p: P) => ({ pieces: (Array.isArray(p.jetons) ? p.jetons.length : 0) || (p.jeton ? 1 : 0) });
+const bilanFrais = (_p: P, x: { result: unknown }) => {
+  const r = resultatFrais(x);
+  return { note: r.note ?? null, ...(r.ligne ? { ligne: r.ligne } : {}), ...(r.statut ? { statut: r.statut } : {}), ...(r.lignes !== undefined ? { lignes: r.lignes } : {}), ...(r.pieces !== undefined ? { pieces: r.pieces } : {}) };
+};
+const REGLES_FRAIS: Record<string, Regle> = {
+  'frais.note.creer': { champs: ['periode', 'voyageId', 'missionId'], bilan: bilanFrais, salaries: salarieFrais },
+  'frais.ligne.ajouter': { champs: ['noteId', 'date'], extra: p => ({ ...categorieFrais(p), ...piecesRecues(p) }), bilan: bilanFrais, salaries: salarieFrais },
+  'frais.ligne.modifier': { champs: ['id', 'date'], extra: p => ({ ...categorieFrais(p), ...piecesRecues(p) }), bilan: bilanFrais, salaries: salarieFrais },
+  'frais.ligne.supprimer': { champs: ['id'], bilan: bilanFrais, salaries: salarieFrais },
+  // Sans le statut d'arrivée : « validée » d'emblée désignerait une note médicale d'un salarié qui a un manager.
+  'frais.note.soumettre': { champs: ['id'], bilan: (p, x) => { const { statut: _statut, ...b } = bilanFrais(p, x) as Record<string, unknown>; return b; }, salaries: salarieFrais },
+  'frais.note.valider': { champs: ['id'], bilan: bilanFrais, salaries: salarieFrais },
+  'frais.note.renvoyer': { champs: ['id'], extra: p => ({ motif: typeof p.motif === 'string' && p.motif.trim() ? MENTION_TEXTE : null }), bilan: bilanFrais, salaries: salarieFrais },
+  'frais.note.controler': { champs: ['id'], bilan: bilanFrais, salaries: salarieFrais },
+  'frais.ligne.refuser': { champs: ['id'], extra: p => ({ motif: typeof p.motif === 'string' && p.motif.trim() ? MENTION_TEXTE : null }), bilan: bilanFrais, salaries: salarieFrais },
+  'frais.ligne.plafonner': { champs: ['id'], bilan: bilanFrais, salaries: salarieFrais },
+  'frais.note.annuler': { champs: ['id'], bilan: bilanFrais, salaries: salarieFrais },
+  'frais.vehicule.declarer': { champs: ['type', 'cv', 'electrique', 'du', 'au'], extra: p => piecesRecues(p), bilan: (_p, x) => ({ vehicule: resultatFrais(x).vehicule ?? null }), salaries: salarieFrais },
+  'frais.bareme.enregistrer': { champs: ['annee', 'type'], extra: p => ({ tranches: Array.isArray(p.tranches) ? p.tranches.length : 0 }) },
+  'frais.forfait.enregistrer': { champs: ['annee', 'code', 'pays', 'montant'] },
+  'frais.taux.enregistrer': { champs: ['devise', 'mois', 'taux'] },
+  'frais.avance.demander': { champs: ['voyageId', 'missionId'], bilan: (_p, x) => ({ avance: resultatFrais(x).avance ?? null }), salaries: salarieFrais },
+  'frais.avance.valider': { champs: ['id'], salaries: salarieFrais },
+  'frais.avance.refuser': { champs: ['id'], extra: p => ({ motif: typeof p.motif === 'string' && p.motif.trim() ? MENTION_TEXTE : null }), salaries: salarieFrais },
+  'frais.avance.annuler': { champs: ['id'], salaries: salarieFrais },
+};
 
 interface Cible {
   table: TableName;
@@ -222,6 +259,8 @@ const lotDuResultat = (x: Contexte) => x.result as {
   rachats?: { id: number; empId: number }[];
   astreintes?: { id: number; empId: number }[];
   correctifs?: { empId: number; week: string }[];
+  // lot 11 — notes de frais : notes et avances (identifiants seuls).
+  frais?: { id: number; empId: number; avance?: true }[];
 } | null | undefined;
 const lotRetenu = (x: Contexte) => {
   const r = lotDuResultat(x);
@@ -235,12 +274,15 @@ const lotRetenu = (x: Contexte) => {
     ...(r?.rachats?.length ? { rachats: r.rachats.map(s => s.id) } : {}),
     // Astreintes terminées (t049) : identifiants seuls.
     ...(r?.astreintes?.length ? { astreintes: r.astreintes.map(s => s.id) } : {}),
+    // lot 11 — notes de frais : identifiants des notes et des avances, jamais les montants ni les catégories.
+    ...(r?.frais?.length ? { frais: r.frais.map(s => (s.avance ? `avance:${s.id}` : `note:${s.id}`)) } : {}),
   };
 };
 const salariesDuLot = (x: Contexte) => [...new Set([
   ...(lotDuResultat(x)?.feuilles ?? []).map(f => f.empId), ...(lotDuResultat(x)?.absences ?? []).map(a => a.empId), ...(lotDuResultat(x)?.sorties ?? []).map(a => a.empId),
   ...(lotDuResultat(x)?.deplacements ?? []).map(a => a.empId), ...(lotDuResultat(x)?.rachats ?? []).map(a => a.empId),
   ...(lotDuResultat(x)?.astreintes ?? []).map(a => a.empId),
+  ...(lotDuResultat(x)?.frais ?? []).map(a => a.empId),
 ])];
 /** Feuilles transmises à la paie : validées et non transmises avant l'action, marquées transmises après. */
 const transmises = async (x: Contexte) => (await Promise.all((x.etat as number[]).map(id => x.db.get<FeuilleTemps>('feuilles', id)))).filter((f): f is FeuilleTemps => !!f?.sage);
@@ -592,15 +634,17 @@ export const REGLES: Record<string, Regle> = {
   // Pièces justificatives (server/src/actions/pieces.ts) : objet et identifiants, nombre de pièces ; jamais le nom du fichier
   // (il peut nommer une donnée de santé), ni les jetons, ni le motif d'un retrait.
   'piece.joindre': {
+    // lot 11 — notes de frais : un justificatif de frais médicaux est inscrit « ligneFrais » (aucune donnée de santé).
     extra: p => ({
-      objet: estObjetPiece(p.objet) ? p.objet : null, objetId: Number(p.objetId) || null, pieces: (Array.isArray(p.jetons) ? p.jetons.length : 0) || (p.jeton ? 1 : 0),
+      objet: estObjetPiece(p.objet) ? (p.objet === 'ligneFraisSante' ? 'ligneFrais' : p.objet) : null, objetId: Number(p.objetId) || null,
+      pieces: (Array.isArray(p.jetons) ? p.jetons.length : 0) || (p.jeton ? 1 : 0),
       // lot 11 — pièce d'un dossier OPCO : sa nature (code), jamais le nom du fichier.
       ...(p.objet === 'dossierOpco' && estNaturePiece(p.nature) ? { nature: p.nature } : {}),
     }),
     salaries: (_p, x) => [(x.result as { empId?: number } | null)?.empId],
   },
   'piece.retirer': {
-    champs: ['id'], extra: (_p, av) => ({ objet: av?.objet ?? null, objetId: av?.objetId ?? null }),
+    champs: ['id'], extra: (_p, av) => ({ objet: av?.objet === 'ligneFraisSante' ? 'ligneFrais' : av?.objet ?? null, objetId: av?.objetId ?? null }),
     cible: { table: 'pieces', cle: p => Number(p.id) || null, colonnes: ['retireeLe', 'retireeMotif'], masques: ['retireeMotif'] },
   },
   // Conservation des dossiers (t016) : salariés et catégories effacées, nombre d'éléments ; jamais de nom (le message n'en
@@ -728,6 +772,10 @@ export const REGLES: Record<string, Regle> = {
     salaries: (_p, x) => [(x.result as { intervention?: Ligne } | null)?.intervention?.empId],
   },
   'astreinte.retirerIntervention': { champs: ['id'], cible: parId('astreinteInterventions', ['astreinteId', 'jour', 'debut', 'fin', 'heures']) },
+  // lot 11 — notes de frais (server/src/actions/frais.ts) : identifiants, statuts, nombres de lignes et de pièces,
+  // catégorie (« divers » pour des frais médicaux), période. Jamais le commerçant, les invités, les lieux, les motifs, le
+  // montant d'une ligne ni le caractère médical d'une note ; salariés lus dans le résultat de l'action.
+  ...REGLES_FRAIS,
   'mandat.enregistrer': { champs: ['id', 'empId'], cible: parId('mandats', ['role', 'du', 'au', 'credit']) },
   'mandat.supprimer': { champs: ['id'], cible: parId('mandats', ['role', 'du', 'au', 'credit']) },
   // Correspondance d'une rubrique avec le plan de paie Sage : codes, case « exportée », date de confirmation.

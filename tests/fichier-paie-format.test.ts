@@ -131,7 +131,8 @@ test('t019 Windows-1252 : accents sur un octet, plage 0x80–0x9F, caractère ab
 test('t019 colonnes facultatives : désactivées par défaut, code dossier, libellé figé, bornes de la période', () => {
   const d = L.FORMAT_FICHIER_DEFAUT;
   assert.deepEqual([d.colonnes, d.encodage, d.formatDate], [['matricule', 'periode', 'rubrique', 'quantite'], 'utf-8', 'JJ/MM/AAAA']);
-  assert.deepEqual(L.COLONNES_FACULTATIVES, ['dossier', 'libelle', 'debut', 'fin']);
+  // lot 11 — notes de frais : colonne « montant », absente par défaut.
+  assert.deepEqual(L.COLONNES_FACULTATIVES, ['dossier', 'libelle', 'debut', 'fin', 'montant']);
   // Sans colonne facultative : le fichier d'avant, inchangé.
   assert.equal(L.fichierLot(CONTENU), 'matricule;periode;rubrique;quantite\r\n004101;2026-09;HN;7\r\n004102;2026-10;HN;35\r\n004102;2026-10;HS25;2,5\r\n');
   const f: Format = { ...d, colonnes: ['dossier', 'matricule', 'periode', 'debut', 'fin', 'rubrique', 'libelle', 'quantite'] };

@@ -26,12 +26,20 @@ import type { Db } from './db.ts';
 import { FAMILLE_DEPLACEMENTS } from './deplacements-paie.ts';
 import { FAMILLE_RACHATS } from './forfait-jours.ts';
 import { FAMILLE_SORTIES } from './soldes-sortie.ts';
+// lot 11 — notes de frais
+import { FAMILLE_FRAIS } from './frais-paie.ts';
 
 /** Élément d'une famille, tel que le lit le fichier : salarié, matricule, période, rubrique interne, code Sage (null : hors fichier). */
-export interface ElementLot { empId: number; matricule: string; periode: string; rubrique: string; codeSage: string | null; quantite: number }
+export interface ElementLot {
+  empId: number; matricule: string; periode: string; rubrique: string; codeSage: string | null; quantite: number;
+  // lot 11 — notes de frais : montant en euros d'un élément au montant (colonne « montant » du fichier) ; absent ailleurs.
+  montant?: number;
+}
 
 /** Clé d'une famille : clé du contenu figé (`SagePush`) et colonne du lot (`LotPaie`). */
-export type CleFamille = 'sorties' | 'deplacements' | 'rachats' | 'astreintes';
+export type CleFamille = 'sorties' | 'deplacements' | 'rachats' | 'astreintes'
+  // lot 11 — notes de frais
+  | 'frais';
 
 export interface FamilleLot<E extends ElementLot = ElementLot> {
   cle: CleFamille;
@@ -54,7 +62,9 @@ export interface FamilleLot<E extends ElementLot = ElementLot> {
 }
 
 /** Familles du registre, dans l'ordre du contenu et des messages. */
-export const FAMILLES: readonly FamilleLot<any>[] = [FAMILLE_SORTIES, FAMILLE_DEPLACEMENTS, FAMILLE_RACHATS, FAMILLE_ASTREINTES];
+export const FAMILLES: readonly FamilleLot<any>[] = [FAMILLE_SORTIES, FAMILLE_DEPLACEMENTS, FAMILLE_RACHATS, FAMILLE_ASTREINTES,
+  // lot 11 — notes de frais
+  FAMILLE_FRAIS];
 
 /** Éléments de chaque famille pour un lot de la période `jusqua`, et ceux à saisir dans Sage. */
 export interface ElementsFamilles { elements: Partial<Record<CleFamille, ElementLot[]>>; aSaisir: ElementASaisir[] }

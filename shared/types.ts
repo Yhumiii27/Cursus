@@ -247,6 +247,13 @@ export interface Referentiels {
   entites?: Entite[];
   /** Sites de rattachement (cache de matrix.pub_sites), inactifs compris. */
   sites?: Site[];
+  // lot 11 — notes de frais
+  /** Barème kilométrique par année (shared/rules/frais-km.ts), saisi par l'administrateur RH ; absent : aucun. */
+  baremesKm?: BaremeKm[];
+  /** Forfaits et limites d'exonération par année (repas, grand déplacement, étranger par pays) ; absent : aucun. */
+  forfaitsFrais?: ForfaitFrais[];
+  /** Taux des devises par mois, saisis par la comptabilité ou le service RH ; absent : aucun. */
+  tauxDevises?: TauxDevise[];
 }
 
 // — Collaborateurs —
@@ -866,7 +873,9 @@ export interface InterventionAstreinte {
   declareLe: string; declarePar: string;
 }
 /** Délégation des validations d'un manager absent (t135, shared/rules/delegations-manager.ts) : ce que le suppléant valide. */
-export type PerimetreDelegation = 'absences' | 'feuilles' | 'entretiens';
+export type PerimetreDelegation = 'absences' | 'feuilles' | 'entretiens'
+  // lot 11 — notes de frais : validation des notes de l'équipe (stocké en JSON, sans contrainte CHECK)
+  | 'frais';
 /**
  * Délégation datée des validations d'un manager à un suppléant (t135), bornes comprises. Saisie par le manager pour
  * lui-même ou par le service RH ; `creePar`, `revoqueePar` : nom de l'auteur ; `revoqueeLe` : horodatage de la révocation,
@@ -1321,6 +1330,22 @@ export interface Settings {
   opcoDelaiDepot: number;
   opcoDelaiJustificatifs: number;
   opcoDelaiRemboursement: number;
+  // lot 11 — notes de frais (shared/rules/frais*.ts)
+  /**
+   * Notes de frais : module désactivé par défaut (activation après l'essai de charge et le paramétrage) ; circuit
+   * (validation du manager puis contrôle par la comptabilité ou le service RH, ou validation seule) ; délai de soumission
+   * en mois après celui de la dépense ; plafonds internes par catégorie (vides par défaut : aucune politique connue) ;
+   * justificatif exigé au-delà d'un montant (0 : toujours) ; indemnités kilométriques à la puissance réelle au-delà de 7 CV
+   * (part au-delà du barème plafonné réintégrable).
+   */
+  notesFraisActives: boolean;
+  fraisCircuit: CircuitFrais;
+  fraisDelaiSoumissionMois: number;
+  fraisPlafonds: Partial<Record<CategorieFrais, number>>;
+  fraisSeuilJustificatif: number;
+  fraisIkCvReels: boolean;
+  /** Conservation des notes de frais payées et de leurs justificatifs (10 ans, terme comptable), au-delà du dossier. */
+  conservationFraisAns: number;
 }
 /** Catégorie d'une formation pour l'évaluation à froid : type du catalogue, ou formation hors catalogue. */
 export type CategorieEvaluee = FormationType | 'Hors catalogue';
@@ -1374,7 +1399,9 @@ export interface CurrentUser {
  * Profil d'un compte dans l'espace RH (droits : PROFILS_RH dans shared/constants.ts) : deux niveaux au sein du
  * service RH, et trois profils restreints — référent HSE / formation, gestionnaire de paie, lecture seule.
  */
-export type ProfilRh = 'aucun' | 'rh_admin' | 'rh_gestionnaire' | 'referent_hse' | 'paie' | 'lecture_seule';
+export type ProfilRh = 'aucun' | 'rh_admin' | 'rh_gestionnaire' | 'referent_hse' | 'paie' | 'lecture_seule'
+  // lot 11 — notes de frais : profil restreint, contrôle des notes de frais seulement (droit « compta »)
+  | 'comptabilite';
 /** Compte Microsoft 365 de l'entreprise, ou compte propre à Cursus (mot de passe) pour le personnel sans compte d'entreprise. */
 export type CompteType = 'microsoft' | 'local';
 
@@ -1527,6 +1554,9 @@ export interface SagePush {
   rachats?: ElementRachatPaie[];
   /** Heures et périodes d'astreinte (t049, lot 7 ; AST_H, AST_PER), `codeSage` null : à saisir dans Sage. */
   astreintes?: ElementAstreintePaie[];
+  // lot 11 — notes de frais
+  /** Remboursements de notes de frais et avances (montants en euros), `codeSage` null : à saisir dans Sage. */
+  frais?: ElementFraisPaie[];
   /**
    * Éléments calculés que le lot n'emporte pas, faute de rubrique active (soldes de sortie) : listés « à saisir dans Sage »
    * dans le résumé du lot et l'export des variables (server/src/elements-lot.ts). Les absences et déplacements sans code
@@ -1639,6 +1669,9 @@ export interface LotPaie {
   rachats?: { id: number; empId: number }[];
   /** Astreintes terminées dont le lot emporte les heures et la période (identifiant, salarié ; t049, lot 7). */
   astreintes?: { id: number; empId: number }[];
+  // lot 11 — notes de frais
+  /** Notes de frais remboursées et avances versées par le lot (identifiant, salarié ; `avance` : avance sur frais). */
+  frais?: { id: number; empId: number; avance?: true }[];
   /**
    * Totaux du contenu figé : lignes du fichier, salariés, quantité par code Sage des heures ; `absences` : éléments
    * d'absence, salariés et quantité par code Sage (codes retirés hors droit « paie » : server/src/dataset.ts).
@@ -1651,6 +1684,9 @@ export interface LotPaie {
     rachats?: { elements: number; salaries: number };
     /** Heures et périodes d'astreinte (t049) : éléments et salariés. */
     astreintes?: { elements: number; salaries: number };
+    // lot 11 — notes de frais
+    /** Remboursements de frais et avances : éléments, salariés et montant total (euros). */
+    frais?: { elements: number; salaries: number; montant: number };
     /** Éléments à saisir à la main dans Sage, nominatifs (shared/rules/elements-lot.ts) ; absent : aucun. */
     aSaisir?: ElementASaisir[];
   };
@@ -1671,7 +1707,9 @@ export interface LotPaie {
  * facultatives, absentes par défaut : code du dossier de paie (SAGE_DOSSIER), libellé de la rubrique, premier et dernier
  * jour de la période.
  */
-export type ColonneFichierPaie = 'matricule' | 'periode' | 'rubrique' | 'quantite' | 'dossier' | 'libelle' | 'debut' | 'fin';
+export type ColonneFichierPaie = 'matricule' | 'periode' | 'rubrique' | 'quantite' | 'dossier' | 'libelle' | 'debut' | 'fin'
+  // lot 11 — notes de frais : montant en euros (remboursements de frais), vide pour les autres éléments
+  | 'montant';
 /** Format du fichier d'import (action `paie.formatFichier`, écran Temps) : ajusté par la paie à l'import de son Sage. */
 export interface FormatFichierPaie {
   separateur: ';' | ',' | 'tab';
@@ -1880,6 +1918,18 @@ export interface Dataset {
    */
   dossiersOpco?: DossierOpco[];
   versementsOpco?: VersementOpco[];
+  // lot 11 — notes de frais (server/src/dataset.ts, filtre propre aux frais)
+  /**
+   * Notes de frais et leurs lignes : toutes pour le service RH et la comptabilité ; pour le manager, celles de son équipe
+   * directe et des salariés dont il valide les frais par délégation (jamais une note médicale d'un autre) ; les siennes pour
+   * le salarié ; pour la paie, les notes contrôlées et payées sans les lignes ; rien pour le référent HSE et la lecture seule.
+   */
+  notesFrais?: NoteFrais[];
+  lignesFrais?: LigneFrais[];
+  /** Véhicules personnels déclarés (indemnités kilométriques) : mêmes vues que les notes. */
+  vehiculesPerso?: VehiculePerso[];
+  /** Avances sur frais : mêmes vues que les notes (la paie : celles validées ou versées). */
+  avancesFrais?: AvanceFrais[];
 }
 
 /**
@@ -1896,7 +1946,9 @@ export interface ArreteIndicateurs {
 }
 
 /** Catégorie de données d'un dossier, avec sa durée de conservation après la sortie (shared/rules/conservation.ts). */
-export type CategorieConservation = 'dossier' | 'temps' | 'paie' | 'sante' | 'passeport' | 'titreSejour' | 'entretiens' | 'formations';
+export type CategorieConservation = 'dossier' | 'temps' | 'paie' | 'sante' | 'passeport' | 'titreSejour' | 'entretiens' | 'formations'
+  // lot 11 — notes de frais : notes payées et justificatifs, gardés jusqu'au terme comptable
+  | 'frais';
 /**
  * Dossier proposé à l'effacement : catégories échues qui ont encore des données (`categories`), et `dossier` vrai quand la
  * durée du dossier est échue (anonymisation complète). Aucun nom : l'écran le lit dans la fiche.
@@ -1923,7 +1975,9 @@ export type StockagePieces = 'desactive' | 'local' | 'ged';
 /** Objet auquel une pièce est jointe : absence, certification, titre d'habilitation, document déclaré, déplacement. */
 export type ObjetPiece = 'absence' | 'certification' | 'habTitre' | 'declaration' | 'voyage'
   // lot 11 — dossiers OPCO : pièce d'un dossier de prise en charge, sans salarié (`empId` null).
-  | 'dossierOpco';
+  | 'dossierOpco'
+  // lot 11 — notes de frais : justificatif d'une ligne, d'une dépense médicale (santé), carte grise et assurance du véhicule
+  | 'ligneFrais' | 'ligneFraisSante' | 'vehiculePerso';
 /** Type de fichier accepté (contrôlé sur le contenu, pas seulement sur l'extension). */
 export type TypePiece = 'application/pdf' | 'image/jpeg' | 'image/png';
 /**
@@ -2091,4 +2145,99 @@ export interface VersementOpco {
   id: number; dossierId: number; le: ISODate; montant: number; destinataire: DestinataireVersementOpco; reference: string | null;
   saisiLe: string; saisiPar: string;
   annuleLe?: string | null; annulePar?: string | null; annuleMotif?: string | null;
+}
+// lot 11 — notes de frais (shared/rules/frais*.ts, server/src/actions/frais.ts)
+/**
+ * Catégorie d'une dépense. `ik` : indemnités kilométriques (barème) ; `forfait` : allocation forfaitaire (repas, grand
+ * déplacement, étranger), limite d'exonération par année ; `medical` : frais médicaux en mission (vaccin, pharmacie,
+ * consultation), donnée de santé, dans une note séparée qui ne passe jamais par le manager.
+ */
+export type CategorieFrais = 'repas' | 'repas_affaires' | 'hotel' | 'train' | 'avion' | 'taxi' | 'transport' | 'carburant' | 'peage' | 'parking' | 'location'
+  | 'ik' | 'forfait' | 'divers' | 'medical';
+/**
+ * Statut d'une note : brouillon → soumise → validée (manager) → contrôlée (comptabilité ou service RH) → en paiement (lot de
+ * paie) → payée (import confirmé) ; à corriger (renvoyée) et annulée. Une note médicale va de soumise à validée sans manager.
+ */
+export type StatutNoteFrais = 'brouillon' | 'soumise' | 'a_corriger' | 'validee' | 'controlee' | 'en_paiement' | 'payee' | 'annulee';
+/** Circuit : validation du manager puis contrôle (défaut), ou validation du manager seule (contrôle fait d'office). */
+export type CircuitFrais = 'manager_controle' | 'manager';
+/**
+ * Note de frais d'un salarié : mois des dépenses, rattachement facultatif (déplacement, mission Keystone, code de projet ou
+ * de chantier), circuit daté. Ses totaux et ses alertes sont calculés, jamais stockés (shared/rules/frais.ts).
+ */
+export interface NoteFrais {
+  id: number; empId: number;
+  /** Mois des dépenses (AAAA-MM). */
+  periode: string;
+  voyageId: number | null; missionId: number | null; projet: string | null;
+  /** Note de frais médicaux : séparée, contrôlée directement par la comptabilité ou le service RH, jamais par le manager. */
+  medicale: boolean;
+  statut: StatutNoteFrais;
+  creeLe: string; creePar: string;
+  soumiseLe: string | null;
+  valideeLe: string | null; valideePar: string | null;
+  controleeLe: string | null; controleePar: string | null;
+  /** Renvoi pour correction : date, auteur, motif (texte libre, jamais recopié au journal). */
+  renvoyeeLe: string | null; renvoyeePar: string | null; renvoiMotif: string | null;
+  /** Lot de paie qui rembourse la note ; jour de la confirmation de son import (payée). */
+  lotId: number | null; payeeLe: ISODate | null;
+  annuleeLe: string | null; annuleePar: string | null; annuleMotif: string | null;
+}
+/**
+ * Ligne de dépense : date, catégorie, montant TTC dans la devise de la dépense et en euros (taux saisi, ou montant débité
+ * saisi), TVA, commerçant ; indemnité kilométrique (km, véhicule, trajet) ou allocation forfaitaire (code du forfait) ;
+ * invités d'un repas d'affaires et motif d'un dépassement (textes libres, jamais au journal) ; ligne sans justificatif,
+ * avec attestation sur l'honneur. `montantRetenu` : montant ramené au plafond de la politique interne (null : demandé).
+ * Refusée au contrôle : hors des totaux, avec son motif.
+ */
+export interface LigneFrais {
+  id: number; noteId: number; empId: number; date: ISODate; categorie: CategorieFrais;
+  montant: number; devise: string; taux: number | null; montantEur: number;
+  tvaTaux: number | null; tvaMontant: number | null;
+  commercant: string | null;
+  forfait: string | null;
+  km: number | null; vehiculeId: number | null; depart: string | null; arrivee: string | null;
+  invites: string | null; motifDepassement: string | null;
+  sansJustificatif: boolean; attestation: boolean;
+  montantRetenu: number | null;
+  refuseeLe: string | null; refusMotif: string | null;
+}
+export type TypeVehicule = 'voiture' | 'deux_roues' | 'moto';
+/** Véhicule personnel déclaré par le salarié pour ses indemnités kilométriques : type, puissance fiscale, électrique, période. */
+export interface VehiculePerso {
+  id: number; empId: number; type: TypeVehicule; cv: number; electrique: boolean; du: ISODate; au: ISODate | null;
+  creeLe: string; creePar: string;
+}
+/**
+ * Tranche du barème kilométrique d'une année (BOFiP BOI-BAREME-000001) : type de véhicule, puissance fiscale (bornes
+ * comprises ; null : sans borne), distance annuelle (bornes comprises ; `kmMax` null : au-delà), formule d × a + b.
+ */
+export interface BaremeKm {
+  id: number; annee: number; type: TypeVehicule; cvMin: number; cvMax: number | null; kmMin: number; kmMax: number | null; a: number; b: number;
+  saisiLe: string; saisiPar: string;
+}
+/** Code d'un forfait : repas, panier, grand déplacement en métropole, étranger (pays : référentiel des destinations). */
+export type CodeForfaitFrais = 'repas_restaurant' | 'repas_hors_locaux' | 'panier' | 'gd_repas' | 'gd_logement_idf' | 'gd_logement_autres' | 'etranger';
+/** Limite d'exonération d'une allocation forfaitaire pour une année (montants URSSAF saisis par le service RH). */
+export interface ForfaitFrais { id: number; annee: number; code: CodeForfaitFrais; pays: string | null; montant: number; saisiLe: string; saisiPar: string }
+/** Taux d'une devise pour un mois : 1 unité de la devise vaut `taux` euros. */
+export interface TauxDevise { id: number; devise: string; mois: string; taux: number; saisiLe: string; saisiPar: string }
+export type StatutAvanceFrais = 'demandee' | 'validee' | 'en_paiement' | 'versee' | 'refusee' | 'annulee';
+/**
+ * Avance sur frais : montant, déplacement ou mission qu'elle couvre, circuit (validée par le manager ou le service RH,
+ * versée par la paie). Son solde est imputé sur les notes du même séjour (calculé, jamais stocké).
+ */
+export interface AvanceFrais {
+  id: number; empId: number; montant: number; voyageId: number | null; missionId: number | null; statut: StatutAvanceFrais;
+  demandeLe: string; valideeLe: string | null; valideePar: string | null; lotId: number | null; verseeLe: ISODate | null;
+  annuleeLe: string | null; annuleePar: string | null; refusMotif: string | null;
+}
+/**
+ * Remboursement dans un lot de paie (montant en euros, quantité 1) : note de frais (`note`) ou avance versée (`avance`),
+ * rubrique (FRAIS_REMB, FRAIS_IK, FRAIS_FORFAIT, FRAIS_REINT, FRAIS_AVANCE, FRAIS_AVANCE_DED), période ; `codeSage` null :
+ * rubrique désactivée, à saisir dans Sage. Le détail ne nomme jamais la nature d'une dépense médicale.
+ */
+export interface ElementFraisPaie {
+  note: number | null; avance: number | null; empId: number; matricule: string; periode: string; rubrique: string; codeSage: string | null;
+  quantite: number; montant: number;
 }

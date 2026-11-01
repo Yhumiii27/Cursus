@@ -1,6 +1,7 @@
 // Plan & budget : enveloppes par équipe, consommation (réalisé + engagé), plan prévisionnel de formation.
 // Tous les exercices présents en base se consultent ; un exercice clos (shared/rules/exercices.ts) est en lecture seule.
 // Le réalisé compte le coût réel saisi à la clôture de chaque action (PlanRealiserDialog), avec son écart au prévu.
+// lot 11 — dossiers OPCO : onglet « Dossiers OPCO » (components/opco/), colonne OPCO des lignes et coût net du réalisé.
 import { useMemo } from 'react';
 import { DownloadSimpleIcon, UploadSimpleIcon } from '@phosphor-icons/react';
 import { PLAN_CLS, PLAN_LABEL } from '../../../shared/constants.ts';
@@ -17,6 +18,10 @@ import { useDomain, useRole } from '../state/derived.ts';
 import { useAgir } from '../state/actions.ts';
 import { useStore } from '../state/store.tsx';
 import { IndicateursFormationPanel } from '../components/IndicateursFormation.tsx';
+// lot 11 — dossiers OPCO : onglet, colonne du plan et coût net (components/opco/, shared/rules/opco.ts).
+import { coutNetPlan } from '../../../shared/rules/opco.ts';
+import { ColonneOpco } from '../components/opco/ColonneOpco.tsx';
+import { DossiersOpco } from '../components/opco/DossiersOpco.tsx';
 
 const C_REAL = 'var(--color-accent-300)', C_ENG = 'var(--color-accent-600)', C_PREVU = 'var(--color-neutral-700)';
 const share = (x: number, base: number) => base ? Math.min(100, x / base * 100) : 0;
@@ -28,7 +33,7 @@ export function Budget() {
   const d = useDomain();
   const { ui, setUi, openDialog, run, notify } = useStore();
   // Lecture seule : plan et enveloppes consultés, sans import ni avancement.
-  const { rh, admin } = useRole();
+  const { rh, admin, consultation } = useRole();
   const { occupe, agir } = useAgir();
   const year = d.year;
   const ex = ui.exercice ?? year;
@@ -42,6 +47,10 @@ export function Budget() {
   const count = (st: PlanStatut) => b.planEx.filter(l => l.statut === st).length;
   const ecart = (n: number) => `${n > 0 ? '+' : '−'}${fmtEur(Math.abs(n))}`;
   const qMax = Math.max(1, ...b.quarters.map(q => q.r + q.g + q.p));
+  // lot 11 — dossiers OPCO : service RH et lecture seule ; coût net du plan (réalisé moins les versements de l'OPCO).
+  const voitOpco = rh || consultation;
+  const onglet = voitOpco ? ui.budgetOnglet : 'plan';
+  const net = voitOpco ? coutNetPlan(b.realise, ex, b.planEx, d.ds.dossiersOpco, d.ds.versementsOpco) : null;
   const planRows = b.planEx
     .filter(l => ui.planFilter === 'tous' || l.statut === ui.planFilter)
     .sort((a, z) => a.periode.localeCompare(z.periode) || a.equipe.localeCompare(z.equipe));
@@ -75,10 +84,15 @@ export function Budget() {
       </>}
       note={clos ? `Exercice clos le ${fmtIso(clos.le)} par ${clos.par} : plan et enveloppes en lecture seule.` : undefined}
     >
+      {voitOpco && (
+        <Seg name="budgetOnglet" label="Onglet de Plan & budget" value={onglet} onChange={v => setUi({ budgetOnglet: v, opcoSel: null })} style={{ alignSelf: 'flex-start', flexWrap: 'wrap' }}
+          options={[['plan', 'Plan & budget'], ['opco', 'Dossiers OPCO']]} />
+      )}
+      {onglet === 'opco' ? <DossiersOpco key={ex} exercice={ex} /> : <>
       <Kpis>
         <Kpi kicker="Enveloppe annuelle" value={fmtEur(b.envTotal)} sub={`${d.equipes.length} équipes · ${plural(b.planEx.length, 'action au plan', 'actions au plan')}`} />
         <Kpi kicker="Réalisé" value={fmtEur(b.realise)}
-          sub={`${b.envTotal ? Math.round(b.realise / b.envTotal * 100) : 0} % de l’enveloppe · ${plural(count('realise'), 'action réalisée', 'actions réalisées')}${b.ecart ? ` · ${ecart(b.ecart)} par rapport au prévu` : ''}`} />
+          sub={`${b.envTotal ? Math.round(b.realise / b.envTotal * 100) : 0} % de l’enveloppe · ${plural(count('realise'), 'action réalisée', 'actions réalisées')}${b.ecart ? ` · ${ecart(b.ecart)} par rapport au prévu` : ''}${net?.verse ? ` · coût net ${fmtEur(net.net)} après ${fmtEur(net.verse)} versés par l’OPCO` : ''}`} />
         <Kpi kicker="Engagé" value={fmtEur(b.engage)} sub={`${plural(count('engage'), 'session commandée', 'sessions commandées')} · à réaliser`} />
         <Kpi kicker="Disponible" value={fmtEur(b.dispo)} sub={b.dispo < 0 ? 'enveloppe dépassée' : `dont ${fmtEur(b.prevu)} déjà prévus au plan`} />
       </Kpis>
@@ -151,7 +165,7 @@ export function Budget() {
         {b.planEx.length > 0 && planRows.length > 0 && (
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Formation</th><th>Équipe</th><th>Période</th><th>Effectif</th><th>Coût</th><th>Statut</th><th></th></tr></thead>
+              <thead><tr><th>Formation</th><th>Équipe</th><th>Période</th><th>Effectif</th><th>Coût</th><th>Statut</th>{voitOpco && <th>OPCO</th>}<th></th></tr></thead>
               <tbody>
                 {planRows.map(l => {
                   const fm = (l.f && d.fm(l.f)) || null;
@@ -173,6 +187,7 @@ export function Budget() {
                         {l.statut === 'reporte' && <div className="text-muted sub nowrap">sur {l.exercice + 1}</div>}
                         {l.origine === 'report' && <div className="text-muted sub nowrap">reporté de {l.exercice - 1}</div>}
                       </td>
+                      {voitOpco && <td><ColonneOpco l={l} /></td>}
                       <td className="right">
                         {modifiable && ligneCorrigeable(l) && (
                           <div className="actions-end" style={{ flexWrap: 'nowrap' }}>
@@ -210,6 +225,7 @@ export function Budget() {
 
       {/* Indicateurs de formation de l'exercice (t122) : stagiaires, heures par catégorie, équipe et statut ; exports CSV. */}
       <IndicateursFormationPanel exercice={ex} />
+      </>}
     </Page>
   );
 }

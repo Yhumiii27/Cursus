@@ -78,6 +78,11 @@ import { VisiteDialog } from './VisiteDialog.tsx';
 import { DeconnexionDialog } from './DeconnexionDialog.tsx';
 // lot 11 — indicateurs
 import { ArreteCseDialog } from './ArreteCseDialog.tsx';
+// lot 11 — dossiers OPCO
+import { OpcoDossierDialog } from './OpcoDossierDialog.tsx';
+import { OpcoEtapeDialog } from './OpcoEtapeDialog.tsx';
+import { OpcoPieceDialog } from './OpcoPieceDialog.tsx';
+import { OpcoVersementDialog } from './OpcoVersementDialog.tsx';
 
 export function DialogHost() {
   const { dialog: d } = useStore();
@@ -167,5 +172,10 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'deconnexion': return <DeconnexionDialog {...d} />;
     // lot 11 — indicateurs
     case 'arreteCse': return <ArreteCseDialog {...d} />;
+    // lot 11 — dossiers OPCO
+    case 'opcoDossier': return <OpcoDossierDialog {...d} />;
+    case 'opcoEtape': return <OpcoEtapeDialog {...d} />;
+    case 'opcoVersement': return <OpcoVersementDialog {...d} />;
+    case 'opcoPiece': return <OpcoPieceDialog {...d} />;
   }
 }

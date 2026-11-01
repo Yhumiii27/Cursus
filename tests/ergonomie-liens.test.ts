@@ -28,6 +28,8 @@ const UI: UiState = {
   orgEntite: null, orgSite: null,
   // lot 11 — indicateurs
   indOnglet: 'effectifs', indAnnee: null, indGroupe: 'aucun',
+  // lot 11 — dossiers OPCO
+  budgetOnglet: 'plan', opcoFiltre: 'tous', opcoCode: null, opcoDispositif: null, opcoSel: null,
 };
 
 async function fresh() {

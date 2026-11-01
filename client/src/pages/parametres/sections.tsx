@@ -44,6 +44,8 @@ import { Sante } from './Sante.tsx';
 import { Suivi } from './Suivi.tsx';
 // lot 11 — indicateurs
 import { Indicateurs } from './Indicateurs.tsx';
+// lot 11 — dossiers OPCO
+import { Opco } from './Opco.tsx';
 
 export interface SectionParametres {
   /** Identifiant stable (clé de rendu). */
@@ -84,6 +86,8 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'repos', place: 'droite', Section: ReposHebdomadaire },
   { id: 'sante', place: 'gauche', Section: Sante },
   { id: 'formations', place: 'droite', Section: Formations },
+  // lot 11 — dossiers OPCO : sous les formations.
+  { id: 'opco', place: 'droite', Section: Opco },
   { id: 'liste-attente', place: 'droite', Section: ListeAttente },
   { id: 'evaluations-formation', place: 'droite', Section: EvaluationsFormation },
   { id: 'postes-risques', place: 'droite', Section: PostesRisques },

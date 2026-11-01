@@ -22,6 +22,9 @@ import type { GroupeIndicateurs } from '../../../shared/rules/indicateurs-legaux
 import type { OngletIndicateurs } from '../pages/indicateurs-onglets.ts';
 import type { CompteSession, Dataset, EntretienType, ISODate, MotifVisite, ObjetPiece, PlanStatut, ProfilRh, Role, VaccinId } from '../../../shared/types.ts';
 import type { RepondantEvaluation, TypeEvaluation } from '../../../shared/types.ts';
+// lot 11 — dossiers OPCO
+import type { CodeOpco, DispositifOpco, NaturePiece } from '../../../shared/types.ts';
+import type { EtapeOpco } from '../../../shared/rules/opco.ts';
 import { api, definirEspaceOnglet, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type NomAction, type SessionState } from '../api.ts';
 import type { Tri } from '../components/tri.ts';
 import { AppelsEnCours } from './actions.ts';
@@ -51,7 +54,9 @@ export interface UiState {
   habType: string | null;
   tripSel: number | null;
   /** `couverture` : couverture minimale des équipes (components/Couverture.tsx), à part des échéances par salarié. */
-  echType: 'tous' | 'cert' | 'hab' | 'trip' | 'med' | 'exigence' | 'contrat' | 'couverture';
+  echType: 'tous' | 'cert' | 'hab' | 'trip' | 'med' | 'exigence' | 'contrat' | 'couverture'
+    // lot 11 — dossiers OPCO : échéances des dossiers (components/opco/EcheancesOpco.tsx), à part des échéances par salarié.
+    | 'opco';
   goSel: string | null;
   exercice: number | null;
   planFilter: 'tous' | PlanStatut;
@@ -72,7 +77,18 @@ export interface UiState {
   indOnglet: OngletIndicateurs;
   indAnnee: number | null;
   indGroupe: GroupeIndicateurs;
+  // lot 11 — dossiers OPCO (écran Plan & budget, components/opco/)
+  /** Onglet de Plan & budget : plan et enveloppes, ou dossiers OPCO de l'exercice. */
+  budgetOnglet: 'plan' | 'opco';
+  /** Filtres des dossiers OPCO : état (en cours, en retard, clos), OPCO, dispositif ; dossier ouvert. */
+  opcoFiltre: FiltreOpco;
+  opcoCode: CodeOpco | null;
+  opcoDispositif: DispositifOpco | null;
+  opcoSel: number | null;
 }
+
+/** lot 11 — dossiers OPCO : filtre d'état de l'onglet « Dossiers OPCO ». */
+export type FiltreOpco = 'tous' | 'en_cours' | 'retards' | 'clos';
 
 const INITIAL_UI: UiState = {
   horizon: null, search: '', equipe: 'Toutes', statut: 'tous', selectedId: null, typeForm: 'toutes', formationFilter: null,
@@ -84,6 +100,8 @@ const INITIAL_UI: UiState = {
   orgEntite: null, orgSite: null,
   // lot 11 — indicateurs
   indOnglet: 'effectifs', indAnnee: null, indGroupe: 'aucun',
+  // lot 11 — dossiers OPCO
+  budgetOnglet: 'plan', opcoFiltre: 'tous', opcoCode: null, opcoDispositif: null, opcoSel: null,
 };
 
 /** Dialogues ouverts depuis plusieurs écrans — rendus par <DialogHost />. */
@@ -193,7 +211,13 @@ export type DialogState =
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
   | { type: 'confirmer'; c: Confirmation }
   // lot 11 — indicateurs : mise à disposition du CSE d'un arrêté annuel des indicateurs sociaux.
-  | { type: 'arreteCse'; id: number };
+  | { type: 'arreteCse'; id: number }
+  // lot 11 — dossiers OPCO (dialogs/Opco*Dialog.tsx) : création depuis une ligne du plan (`planActionId`) ou modification
+  // (`id`) ; étape (dépôt, accord, refus, justificatifs, solde, abandon) ; versement reçu ; pièce du dossier (nature proposée).
+  | { type: 'opcoDossier'; planActionId?: number | null; id?: number | null }
+  | { type: 'opcoEtape'; id: number; etape: EtapeOpco }
+  | { type: 'opcoVersement'; id: number }
+  | { type: 'opcoPiece'; id: number; nature?: NaturePiece | null };
 
 /** Dialogue « Planifier » : rouvert après la création d'une session (t107). */
 export type DialogePlan = { type: 'plan'; empId: number; certId?: number; inscriptionId?: number };

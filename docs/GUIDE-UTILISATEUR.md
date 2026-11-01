@@ -420,6 +420,36 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
   ligne des Échéances (« Compléter les fiches », filtre « Indicateurs à compléter » de l'annuaire). Seuil et absences
   comptées : Paramètres → Indicateurs sociaux (administrateur RH).
 
+### Dossiers OPCO
+
+Version simple retenue par l'entreprise (quelques dossiers par an) : suivi de la demande de prise en charge, montants,
+pièces et échéances, sans export comptable ni connexion au portail de l'OPCO (la saisie y reste manuelle).
+
+- Écran « Plan & budget », colonne « OPCO » : « Créer » ouvre un dossier sur la ligne du plan (une ligne reportée se
+  traite sur sa nouvelle ligne). « Nouveau dossier » en ajoute un second, pour un autre dispositif ou un autre financeur.
+  Dates, heures, effectif et montant demandé sont proposés d'après les sessions, le
+  catalogue et le coût de la ligne ; OPCO et subrogation d'après Paramètres → Dossiers OPCO. SIRET, déclaration
+  d'activité et certification Qualiopi de l'organisme se saisissent sur le dossier.
+- Onglet « Dossiers OPCO » : demandé, accordé, facturé, reçu, à récupérer, taux de prise en charge et reste à charge
+  de l'exercice de l'action, et nombre de dossiers par état (l'accord d'un dossier abandonné n'y compte plus) ; dossiers en retard en tête ; filtres par état, OPCO et dispositif ; répartition par OPCO,
+  dispositif, équipe et trimestre. Le réalisé de l'onglet du plan affiche aussi le coût net après les versements de
+  l'OPCO, sans changer les enveloppes.
+- Le dossier ouvert propose ses étapes : « Dossier déposé » (numéro de l'OPCO), « Accord reçu » ou « Refus reçu »
+  (motif de la liste), « Justificatifs envoyés » (montant facturé), « Versement reçu » (acompte ou solde, à
+  l'entreprise ou à l'organisme en subrogation), « Solder » (écart figé : perte ou prise en charge partielle),
+  « Abandonner ». Une modification après le dépôt est une correction motivée. L'administrateur RH revient d'un cran,
+  annule un versement saisi par erreur ou supprime un dossier créé par erreur, toujours avec un motif.
+- « Joindre une pièce » (pièces justificatives activées) : convention, programme, accord, facture, certificat de
+  réalisation… La facture et le certificat de réalisation (ou les feuilles d'émargement) sont exigés avant
+  « Justificatifs envoyés ». Facture et accord sont gardés 10 ans après l'exercice ; seul l'administrateur RH peut les
+  retirer avant. Pièces visibles du seul service RH.
+- Échéances (écran « Échéances », filtre « Dossiers OPCO », et récapitulatif e-mail du service RH sans montant ni
+  nom) : dépôt avant le début de la formation, accord attendu 7 jours avant, justificatifs après la fin, remboursement
+  après leur envoi. Délais de 30, 90 et 60 jours proposés, à confirmer avec les conditions de l'OPCO. Un exercice clos
+  ne bloque pas un dossier.
+- « Exporter (CSV) » : la liste des dossiers affichés, et les versements d'une période (date d'encaissement) pour le
+  rapprochement avec la comptabilité. La lecture seule consulte les dossiers sans les motifs ni les pièces.
+
 ## Gestionnaire de paie
 
 Profil « Gestionnaire de paie » (interne ou cabinet extérieur, compte externe) ou administrateur RH : écrans Feuilles de

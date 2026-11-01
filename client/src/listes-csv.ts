@@ -16,6 +16,9 @@ import { coutRetenu } from '../../shared/rules/exercices.ts';
 import type { Absence, Employe, ISODate, PlanAction } from '../../shared/types.ts';
 // lot 11 — organigramme
 import { ENTETE_CSV_ORGANIGRAMME, type LigneOrganigramme } from './organigramme-vue.ts';
+// lot 11 — dossiers OPCO
+import { DISPOSITIFS_OPCO, ECARTS_SOLDE_OPCO, montantsOpco, OPCOS, STATUTS_OPCO } from '../../shared/rules/opco.ts';
+import type { DossierOpco, VersementOpco } from '../../shared/types.ts';
 
 /** Fichier prêt pour `downloadCsv` : nom daté, en-tête, lignes. */
 export interface ListeCsv { fichier: string; head: string[]; rows: (string | number)[][] }
@@ -134,5 +137,55 @@ export function csvOrganigramme(today: ISODate, lignes: LigneOrganigramme[], ent
     fichier: `organigramme${entite ? `-${entite}` : ''}-${today}.csv`,
     head: ENTETE_CSV_ORGANIGRAMME,
     rows: lignes.map(l => [l.societe, l.etablissement, l.site, l.chemin, l.equipe, l.nom, l.poste, l.manager, l.valideur]),
+  };
+}
+
+// lot 11 — dossiers OPCO (onglet « Dossiers OPCO » de Plan & budget, shared/rules/opco.ts)
+
+/** Action du plan d'un dossier : formation (nom du catalogue) ou intitulé, équipe, trimestre ; vide si introuvable. */
+function actionDuDossier(d: Domain, x: Pick<DossierOpco, 'planActionId'>) {
+  const l = d.ds.plan.find(p => p.id === x.planActionId);
+  const fm = l?.f ? d.fm(l.f) : null;
+  return { formation: fm ? fm.nom : l?.libelle ?? '', organisme: fm?.organisme ?? '', equipe: l?.equipe ?? '', periode: l?.periode ?? '' };
+}
+
+/**
+ * Dossiers OPCO de l'exercice (lignes affichées, avec les filtres) : action du plan, organisme, OPCO, dispositif, état,
+ * dates, montants calculés (shared/rules/opco.ts) et numéro du dossier. Jamais de motif (refus, abandon, correction) :
+ * ils restent sur le dossier ; la nature de l'écart au solde est un code de liste fermée.
+ */
+export function csvOpco(d: Domain, exercice: number, dossiers: DossierOpco[]): ListeCsv {
+  return {
+    fichier: `dossiers-opco-${exercice}-${d.ti}.csv`,
+    head: ['Exercice', 'Formation', 'Équipe', 'Période', 'Organisme', 'SIRET organisme', 'Qualiopi', 'OPCO', 'Dispositif', 'Numéro de dossier', 'État',
+      'Formation du', 'Au', 'Heures', 'Effectif', 'Subrogation', 'Déposé le', 'Demandé (€)', 'Accordé le', 'Accordé (€)', 'Justificatifs envoyés le',
+      'Facturé (€)', 'Reçu par l’entreprise (€)', 'Payé à l’organisme (€)', 'À récupérer (€)', 'Soldé le', 'Écart au solde'],
+    rows: dossiers.map(x => {
+      const a = actionDuDossier(d, x), m = montantsOpco(x, d.ds.versementsOpco);
+      return [x.exercice, a.formation, a.equipe, a.periode, a.organisme, x.organismeSiret ?? '', x.organismeQualiopi ? 'Oui' : 'Non', OPCOS[x.opco],
+        DISPOSITIFS_OPCO[x.dispositif].label, x.reference ?? '', STATUTS_OPCO[x.statut].label, jma(x.du), jma(x.au), x.heures != null ? nombre(x.heures) : '',
+        x.effectif ?? '', x.subrogation ? 'Oui' : 'Non', jma(x.deposeLe), nombre(m.demande), jma(x.accordLe), x.accordLe ? nombre(m.accorde) : '',
+        jma(x.factureLe), m.facture != null ? nombre(m.facture) : '', nombre(m.recuEntreprise), nombre(m.payeOrganisme), nombre(m.aRecuperer),
+        jma(x.soldeLe), x.soldeLe ? ECARTS_SOLDE_OPCO[x.soldeNature ?? 'aucun'] : ''];
+    }),
+  };
+}
+
+/**
+ * Versements de l'OPCO reçus entre deux dates (date d'encaissement), pour le rapprochement avec la comptabilité : CSV
+ * simple, sans compte ni gabarit d'import comptable (réponse de l'entreprise du 31 octobre 2026 : quelques dossiers par
+ * an, pas d'export comptable OPCO).
+ */
+export function csvVersementsOpco(d: Domain, du: ISODate, au: ISODate, versements: VersementOpco[]): ListeCsv {
+  const dossiers = new Map((d.ds.dossiersOpco ?? []).map(x => [x.id, x]));
+  return {
+    fichier: `versements-opco-${du}-${au}.csv`,
+    head: ['Versé le', 'Montant (€)', 'Payé à', 'Référence du versement', 'OPCO', 'Numéro de dossier', 'Exercice', 'Formation', 'Équipe'],
+    rows: versements.map(v => {
+      const x = dossiers.get(v.dossierId);
+      const a = x ? actionDuDossier(d, x) : null;
+      return [jma(v.le), nombre(v.montant), v.destinataire === 'organisme' ? 'Organisme de formation' : 'Entreprise', v.reference ?? '',
+        x ? OPCOS[x.opco] : '', x?.reference ?? '', x?.exercice ?? '', a?.formation ?? '', a?.equipe ?? ''];
+    }),
   };
 }

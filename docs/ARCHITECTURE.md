@@ -4349,7 +4349,7 @@ Suivi des prises en charge de l'OPCO (OPCO 2i par défaut) rattachées aux actio
 (réponse de l'entreprise du 31 octobre 2026 : quelques dossiers par an ; ni export comptable des versements, ni aide au
 montage, ni dossiers d'alternance). Règles pures : `shared/rules/opco.ts` ; actions : `server/src/actions/opco.ts` ; tables
 `dossiersOpco` et `versementsOpco` (`server/src/db.ts`, migration PostgreSQL `0019_dossiers_opco.sql`). Les écrans (Plan &
-budget, Paramètres, Échéances) et l'export CSV viennent avec l'étape 2.
+budget, Paramètres, Échéances) et l'export CSV sont décrits à la section suivante (étape 2).
 
 - **Dossier** : action du plan (`planActionId`, FK `restrict`), exercice de l'action (les montants y sont comptés), OPCO et
   dispositif (listes fermées), numéro de dossier, dates et heures prévues, effectif, montants demandés (frais annexes pour
@@ -4399,6 +4399,47 @@ budget, Paramètres, Échéances) et l'export CSV viennent avec l'étape 2.
 - **Matrix** : aucune vue `pub_` ; motifs commentés « Sensible » dans 0019 et demande de fermeture
   `docs/demandes/matrix-lot11-opco.sql` (lue par `tests/colonnes-sensibles.ts` avec les autres demandes du lot 11, rejouée
   par la CI sur le socle d'essai).
+
+## Lot 11 : dossiers OPCO (C4, étape 2 : écrans et exports)
+
+Écrans du service RH (gestionnaire et administrateur) en modification, consultés par la lecture seule ; rien pour le
+référent HSE, la paie, le manager et le collaborateur. Code dans `client/src/components/opco/` (onglet, panneau, colonne,
+échéances, `commun.ts`), `client/src/dialogs/Opco*Dialog.tsx`, `client/src/state/confirmations-opco.ts`,
+`client/src/pages/parametres/Opco.tsx` ; ajouts localisés et commentés « lot 11 — dossiers OPCO » dans `Budget.tsx`,
+`Echeances.tsx`, `listes-csv.ts`, `store.tsx`, `url.ts`, `DialogHost.tsx`, `parametres/sections.tsx`. Tests :
+`tests/client-opco.test.ts` (rendu sous Node avec les vraies actions du serveur).
+
+- **Plan & budget** : onglet « Dossiers OPCO » (`ui.budgetOnglet`, dans l'adresse : `?onglet=dossiers-opco`, filtres
+  `etat`, `opco`, `dispositif`, dossier ouvert `dossier-opco`) pour l'exercice affiché : indicateurs de `syntheseOpco`
+  (demandé, accordé, facturé, reçu, à récupérer, refusé, taux de prise en charge, reste à charge, nombre de dossiers par
+  état ; l'accordé et le facturé d'un dossier abandonné ne comptent plus, ni dans le taux), dossiers en retard en tête
+  (`echeanceOpco`), tableau filtrable (état : tout, en cours, en retard, clos ; OPCO et dispositif présents), panneau de
+  détail (montants au centime, formation et organisme, chronologie datée, versements, pièces attendues et jointes, étapes
+  proposées par `etapesProposees`, les mêmes contrôles que le serveur), répartition par OPCO, dispositif, équipe ou
+  trimestre, versements d'une période (l'exercice jusqu'à aujourd'hui, ou depuis le 1er janvier de l'année en cours pour un
+  exercice futur ; l'onglet est remonté à chaque changement d'exercice). Onglet du plan : colonne « OPCO » (états et
+  accordé de la ligne, hors dossier abandonné ; « Créer », ou « Nouveau dossier » à côté des dossiers existants — un par
+  dispositif ou par financeur, avertissement dans le dialogue si un dossier actif du même dispositif existe — pour le
+  service RH sur une ligne non reportée, exercice clos compris) et coût net du réalisé (`coutNetPlan` :
+  réalisé moins les versements de l'OPCO sur les actions réalisées ; les enveloppes ne changent pas).
+- **Dialogues** : création préremplie (`propositionDossier` : dates des sessions non annulées de la ligne, durée du
+  catalogue, effectif réel ou prévu, coût retenu ; OPCO et subrogation des réglages) et modification (correction motivée
+  après le dépôt) ; une étape par dialogue (`OpcoEtapeDialog` : dépôt, accord, refus, justificatifs, solde, abandon, avec
+  l'état affiché `de`) ; versement (nombre de versements affichés envoyé contre le double clic, montant proposé à ce qui
+  reste attendu) ; pièce avec sa nature. Réouverture, annulation d'un versement et suppression passent par le dialogue
+  « confirmer » avec un motif (administrateur RH). Avec les pièces activées, l'envoi des justificatifs est bloqué à l'écran
+  tant que facture et certificat de réalisation (ou émargement) manquent, comme par le serveur.
+- **Échéances** : filtre « Dossiers OPCO » (`echType = 'opco'`, `?type=dossiers-opco`) et panneau des échéances dépassées
+  ou des 12 prochains mois, qui ouvre le dossier dans Plan & budget. Pour un profil qui ne voit pas les dossiers (lien
+  partagé), le filtre lu dans l'adresse revient à « Tout ».
+- **Paramètres → Dossiers OPCO** : OPCO et subrogation proposés (enregistrés aussitôt), trois délais enregistrés au bouton
+  (bornes de `shared/reglages.ts`, comparées par le test).
+- **Exports** (`csvOpco`, `csvVersementsOpco` de `client/src/listes-csv.ts`, téléchargement tracé au journal par
+  `downloadCsv` avec son nombre de lignes) : dossiers affichés (montants calculés, jamais de motif) ; versements d'une
+  période par date d'encaissement pour le rapprochement. CSV simple : pas d'export au gabarit comptable commun
+  (réponse de l'entreprise du 31 octobre 2026, question 8 : quelques dossiers par an).
+- **Journal** : la fusion de la vague 1 avait doublé les familles « fiches » et « formations » de `FAMILLES_JOURNAL`
+  (le filtre « Formations, plan et budget » ignorait `opco.`) ; une seule famille par identifiant, vérifié par le test.
 
 ## Lot 11 : notes de frais, étape 1 (C5)
 

@@ -22,6 +22,8 @@ export const UI_DEPART: UiState = {
   orgEntite: null, orgSite: null,
   // lot 11 — indicateurs
   indOnglet: 'effectifs', indAnnee: null, indGroupe: 'aucun',
+  // lot 11 — dossiers OPCO
+  budgetOnglet: 'plan', opcoFiltre: 'tous', opcoCode: null, opcoDispositif: null, opcoSel: null,
 };
 
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;

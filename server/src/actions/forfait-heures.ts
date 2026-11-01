@@ -12,7 +12,7 @@
 // taux, ni montant, ni motif (server/src/journal.ts).
 import { isValidDate } from '../../../shared/dates.ts';
 import { fmtIso, plural } from '../../../shared/format.ts';
-import { clotureForfaitHeures, derniereTransmise, periodeReference, versionsDe } from '../../../shared/rules/forfait-heures.ts';
+import { clotureForfaitHeures, derniereTransmise, periodeReference, sansEcartTransmis, versionsDe } from '../../../shared/rules/forfait-heures.ts';
 import { erreurMotifReouverture } from '../../../shared/rules/regularisation.ts';
 import type { ClotureForfaitHeures } from '../../../shared/types.ts';
 import { ActionError, type ActionHandler, type Ctx, getEmp, refuserSoiMeme, requireRhAdmin, REVIENT_RH, str } from './context.ts';
@@ -65,6 +65,7 @@ const cloturer: ActionHandler = async (ctx, p) => {
   if (refus.length) throw new ActionError(`Clôture refusée, rien n’est enregistré — ${refus.join(' · ')}`, 409);
   const le = new Date().toISOString();
   const lignes: Pick<ClotureForfaitHeures, 'id' | 'empId' | 'debut' | 'fin' | 'version'>[] = [];
+  const sansEcarts: number[] = [];
   for (const { calc, derniere } of aEcrire) {
     const photo = {
       fin: calc.fin, motifFin: calc.motifFin, forfait: calc.forfait, cible: calc.cible, absences: calc.absences, realise: calc.realise,
@@ -73,23 +74,31 @@ const cloturer: ActionHandler = async (ctx, p) => {
     };
     if (derniere?.statut === 'proposee') {
       // Ligne rouverte avant transmission, ou nouvelle version après transmission : recalculée et confirmée, même version.
-      await ctx.db.update<ClotureForfaitHeures>('cloturesForfaitHeures', derniere.id, photo);
+      // Nouvelle version sans aucun écart avec la version transmise : réglée tout de suite, aucun lot ne l'emporterait.
+      const sansEcart = sansEcartTransmis(toutes, { ...derniere, ...photo });
+      await ctx.db.update<ClotureForfaitHeures>('cloturesForfaitHeures', derniere.id, { ...photo, ...(sansEcart ? { sage: true } : {}) });
+      if (sansEcart) sansEcarts.push(calc.empId);
       lignes.push({ id: derniere.id, empId: calc.empId, debut: calc.debut, fin: calc.fin, version: derniere.version });
       continue;
     }
     // Première clôture, ou plage dont la ligne a été annulée : nouvelle version.
     const version = (derniere?.version ?? 0) + 1;
     const remplace = derniereTransmise(toutes, { empId: calc.empId, debut: calc.debut, version });
-    const l = await ctx.db.insert<ClotureForfaitHeures>('cloturesForfaitHeures', {
+    const ligne: Omit<ClotureForfaitHeures, 'id'> = {
       empId: calc.empId, debut: calc.debut, version, remplaceId: remplace?.id ?? null, ...photo, lotId: null, sage: false, horsFichier: false,
       rouverteLe: null, rouvertePar: null, rouverteMotif: null, annuleeLe: null, annuleePar: null, annuleeMotif: null,
-    });
+    };
+    // Plage dont la version transmise reste en vigueur sous une version annulée : sans écart, réglée tout de suite.
+    if (sansEcartTransmis(toutes, { id: 0, ...ligne })) { ligne.sage = true; sansEcarts.push(calc.empId); }
+    const l = await ctx.db.insert<ClotureForfaitHeures>('cloturesForfaitHeures', ligne);
     lignes.push({ id: l.id, empId: l.empId, debut: l.debut, fin: l.fin, version: l.version });
   }
   const noms = aEcrire.map(x => x.nom);
   return {
     message: lignes.length
-      ? `Forfait annuel en heures : ${plural(lignes.length, 'ligne clôturée', 'lignes clôturées')} (${noms.join(', ')}) · heures à transmettre par le prochain lot de paie`
+      ? `Forfait annuel en heures : ${plural(lignes.length, 'ligne clôturée', 'lignes clôturées')} (${noms.join(', ')}) · `
+        + (sansEcarts.length === lignes.length ? 'aucun écart avec la version transmise : rien à transmettre'
+          : 'heures à transmettre par le prochain lot de paie' + (sansEcarts.length ? ` (sauf ${sansEcarts.length > 1 ? 'les versions' : 'la version'} sans écart avec la version transmise)` : ''))
         + (deja.length ? ` · déjà ${deja.length > 1 ? 'confirmées' : 'confirmée'} : ${deja.join(', ')}` : '')
       : `Forfait annuel en heures : ${plural(deja.length, 'ligne déjà confirmée', 'lignes déjà confirmées')}, rien n’est refait`,
     result: { lignes },

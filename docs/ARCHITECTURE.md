@@ -4717,11 +4717,16 @@ RH), la documentation RGPD et le guide viennent à l'étape 2.
   chaque feuille, comme le forfait jours) entrent dans le cumul — un salarié passé de 35 h au forfait en juillet ne voit
   plus compter ses semaines à 35 h, dont les heures supplémentaires sont déjà payées ; cumul et cible partent au plus tôt
   du début du suivi (`forfaitHeuresDebutSuivi`). La démonstration (données d'octobre 2026) est suivie depuis le
-  1er janvier 2026 (server/src/seed.ts).
+  1er janvier 2026 (`suiviForfaitHeuresDemo`, server/src/seed.ts) ; une base de démonstration créée avant le lot 12, sans
+  ce réglage, le reçoit au démarrage (server/src/index.ts, démonstration seulement).
 - **Règle pure** `clotureForfaitHeures(d, e, periode, debut?)` (shared/rules/forfait-heures.ts) : plages sous forfait de
   la période de référence (12 mois à partir de `forfaitHeuresDebutPeriode`, année civile par défaut), de max(début de
-  période, entrée, début du suivi) à min(fin de période, sortie, veille de l'avenant qui fait quitter le forfait) ; cible
-  au prorata des jours calendaires de chaque segment ; absences déduites (toutes hors CP légaux, liste réglable), chaque
+  période, entrée, début du suivi) à min(fin de période, sortie, fin de la dernière semaine décomptée au forfait) ; le
+  régime d'un jour est celui de sa semaine (régime figé de sa feuille, sinon celui du lundi), car une feuille couvre la
+  semaine entière : un avenant d'entrée pris en milieu de semaine ouvre la plage le lundi suivant, un avenant de sortie la
+  clôt le dimanche de sa semaine (sa veille quand il prend effet un lundi), et la cible compte exactement les jours dont le
+  réalisé compte les heures (la cible de `cumulAnnuel` aussi, quand le régime change dans l'année) ; cible au prorata des
+  jours calendaires de chaque segment ; absences déduites (toutes hors CP légaux, liste réglable), chaque
   jour ouvré hors férié chômé et journée de solidarité compté au forfait divisé par les jours ouvrés théoriques de la
   période (jours ouvrés hors fériés moins 25 jours de CP : 7,02 h pour 1 607 h en 2027) ou à la durée de l'accord, total
   seul ; réalisé des feuilles validées sous forfait, jour par jour ; écart ventilé en HFA25 (jusqu'à
@@ -4730,7 +4735,8 @@ RH), la documentation RGPD et le guide viennent à l'étape 2.
   jamais émises. Alertes : période partielle, droits à CP incomplets (embauche), salarié non cadre, temps partiel
   annualisé (mentions du contrat). Blocages : plage en cours, feuille non validée, semaine sans feuille ni absence, durée
   légale atteinte par un temps partiel (art. L3123-9). `aRevoir` : ligne confirmée dont une feuille a été rouverte après
-  la confirmation, n'est plus validée, ou dont le réalisé recalculé diffère (la ligne n'est pas modifiée).
+  la confirmation, n'est plus validée, dont le réalisé ou le total des absences déduites recalculé diffère (absence posée,
+  requalifiée ou retirée après la clôture), ou dont la plage ne finit plus le même jour (la ligne n'est pas modifiée).
 - **Table `cloturesForfaitHeures`** (server/src/db.ts ; PostgreSQL `0022_forfait_heures.sql`, SQLite `lot12-forfait-heures`
   pour les index) : plage (`debut`, `fin`, `motifFin`), `version` et `remplaceId`, photographie en heures, statut
   (`proposee`, `confirmee`, `annulee`), confirmation, lot, transmission, réouverture et annulation motivées ; unicité
@@ -4739,10 +4745,13 @@ RH), la documentation RGPD et le guide viennent à l'étape 2.
   catégorie « paie » ; export RGPD sans les auteurs ; colonnes sensibles demandées à Matrix
   (docs/demandes/matrix-lot12-forfait-heures.sql). Projection (server/src/vues-forfait-heures.ts) : service RH tout ; paie
   les lignes confirmées sans motif ; salarié ses lignes confirmées sans motif ni auteur ; manager (équipe), référent HSE,
-  lecture seule et comptabilité : rien.
+  lecture seule et comptabilité : rien. La lecture seule, qui reçoit les lots de paie, les reçoit sans les heures de
+  clôture nominatives (éléments « à saisir dans Sage » de la famille, lignes emportées) : seul le décompte du résumé reste.
 - **Actions** (server/src/actions/forfait-heures.ts, administrateur RH, jamais pour soi-même) : `forfaitHeures.cloturer`
   (lignes cochées, recalculées ; déjà confirmée : jamais refaite ; une ligne bloquée refuse tout), `forfaitHeures.rouvrir`
-  (motif ; avant transmission, la ligne repasse à confirmer ; après, nouvelle version dont seul l'écart partira),
+  (motif ; avant transmission, la ligne repasse à confirmer ; après, nouvelle version dont seul l'écart partira ; confirmée
+  sans aucun écart avec la version transmise, elle est réglée tout de suite, sans lot : « aucun écart avec la version
+  transmise », `sansEcartTransmis`),
   `forfaitHeures.annuler` (motif ; avant transmission, hors d'un lot). Journal (`ACTIONS_PAIE`, famille « Forfait annuel
   en heures ») : identifiants, plage, version, statut ; jamais d'heures, de taux ni de montant, motifs masqués.
 - **Paie** : famille `FAMILLE_FORFAIT_HEURES` (server/src/forfait-heures-paie.ts, clé `lotsPaie.forfaitHeures`) ; rubriques

@@ -5,9 +5,12 @@
 //   de l'accord exigée pour une autre date (COHERENCE de shared/reglages.ts). Suivi borné par `forfaitHeuresDebutSuivi`
 //   (mise en service, 1er janvier 2027) : le réalisé d'avant n'est pas dans Cursus (2026 est clos à la main dans Sage), une
 //   période commencée avant est signalée « partielle ».
-// - Plage clôturée : jours sous forfait annuel en heures (historique des contrats) de max(début de période, entrée, début du
-//   suivi) à min(fin de période, sortie, veille de l'avenant qui fait quitter le forfait). Un avenant qui fait quitter le
-//   forfait clôt la plage à sa veille ; la sortie, à sa date (le lot du solde de sortie l'emporte).
+// - Plage clôturée : jours sous forfait annuel en heures de max(début de période, entrée, début du suivi) à min(fin de
+//   période, sortie, fin de la dernière semaine décomptée au forfait). Le régime d'un jour est celui de sa semaine (régime
+//   figé de la feuille, sinon celui du lundi) : une feuille couvre la semaine entière, et la cible ne compte que les jours
+//   dont le réalisé compte les heures. Un avenant qui fait quitter le forfait clôt la plage à sa veille quand il prend effet
+//   un lundi, sinon le dimanche de sa semaine ; un avenant d'entrée pris en milieu de semaine l'ouvre le lundi suivant. La
+//   sortie la clôt à sa date (le lot du solde de sortie l'emporte).
 // - Cible : forfait au prorata des jours calendaires de chaque segment (un changement de forfait en cours de plage fait
 //   deux segments), moins les absences déduites : toutes celles qui ne sont pas comprises dans les 1 607 h (CP légaux,
 //   jours fériés chômés et journée de solidarité le sont), liste réglable (`forfaitHeuresAbsencesDeduites`), chaque jour
@@ -46,11 +49,11 @@ import { fH, fmtIso } from '../format.ts';
 import type { AbsenceType, Employe, FeuilleTemps, ISODate, Settings } from '../types.ts';
 import { absenceBloque } from './absences.ts';
 import { moities } from './demi-journees.ts';
-import { segmentsContrat } from './historique-contrat.ts';
+import { employeAu } from './historique-contrat.ts';
 import { plafondComplementaires } from './majorations.ts';
 import { matriculeAffiche } from './matricules.ts';
 import { moisDe, periodeOuverte, type RubriqueVue } from './paie.ts';
-import { calcSheet } from './temps.ts';
+import { calcSheet, employeDeLaFeuille } from './temps.ts';
 
 /** Durée légale annuelle (art. L3121-41) : CP légaux, fériés chômés et journée de solidarité compris. */
 export const DUREE_LEGALE_ANNUELLE = 1607;
@@ -146,26 +149,39 @@ export interface SegmentForfait { du: ISODate; au: ISODate; forfait: number; cad
 export interface PlageForfait { debut: ISODate; fin: ISODate; motifFin: MotifFinForfait; segments: SegmentForfait[]; partielle: boolean }
 
 /**
+ * Régime sous lequel sont décomptées les heures de la semaine `w` (lundi) : celui de sa feuille (régime figé, comme
+ * `realiseForfait` et `cumulAnnuel`), sinon celui du lundi (historique des contrats, la fiche à défaut), qu'une feuille
+ * créée ensuite figerait (`regimeAFiger`). Une feuille couvre toute la semaine sous un seul régime : un avenant qui prend
+ * effet un autre jour que le lundi ne joue qu'à partir de la semaine suivante.
+ */
+function regimeDeLaSemaine(d: Domain, e: Employe, siennes: ReadonlyMap<ISODate, FeuilleTemps>, w: ISODate) {
+  const sh = siennes.get(w);
+  return d.contratOf(sh ? employeDeLaFeuille(e, sh, d) : employeAu(d, e, w));
+}
+
+/**
  * Plages sous forfait annuel en heures du salarié dans la période de référence `ref`, bornées par l'entrée, le début du
- * suivi et la sortie (fin de contrat). Régime de chaque période : historique des contrats (une période de régime inconnu,
- * antérieure à l'historique, compte avec celui de la fiche, comme `cumulAnnuel`).
+ * suivi et la sortie (fin de contrat). Régime de chaque jour : celui de sa semaine (`regimeDeLaSemaine`), pour que la cible
+ * compte exactement les jours dont le réalisé compte les heures. Un avenant d'entrée au forfait pris un mercredi ouvre la
+ * plage le lundi suivant ; un avenant de sortie du forfait pris un jeudi la clôt le dimanche de sa semaine (la feuille de
+ * cette semaine reste décomptée au forfait). Une période de régime inconnu, antérieure à l'historique, compte avec celui de
+ * la fiche, comme `cumulAnnuel`.
  */
 export function plagesForfait(d: Domain, e: Employe, ref: PeriodeForfait): PlageForfait[] {
   const suivi = debutSuivi(d.ds.settings);
   const bas = maxIso(ref.debut, e.entree, suivi), haut = minIso(ref.fin, e.fin);
   if (!haut || bas > haut) return [];
-  const segs = segmentsContrat(d, e);
+  const siennes = new Map(d.ds.feuilles.filter(sh => sh.empId === e.id).map(sh => [sh.week, sh] as const));
   const sous: SegmentForfait[] = [];
-  segs.forEach((s, i) => {
-    const du = maxIso(s.du, bas), au = minIso(segs[i + 1] ? addD(segs[i + 1].du, -1) : '9999-12-31', haut);
-    if (du > au) return;
-    const k = d.contratOf(s.regime ? { ...e, ...s.regime } : e);
-    if (!k.annuel) return;
+  for (let w = mondayOf(bas); w <= haut; w = addD(w, 7)) {
+    const du = maxIso(w, bas), au = minIso(addD(w, 6), haut);
+    const k = regimeDeLaSemaine(d, e, siennes, w);
+    if (!k.annuel) continue;
     const prec = sous.at(-1);
     // Même forfait que le segment précédent, et contigu : un seul segment.
     if (prec && prec.forfait === k.heuresAnnuelles && prec.cadre === k.cadre && addD(prec.au, 1) === du) prec.au = au;
     else sous.push({ du, au, forfait: k.heuresAnnuelles, cadre: k.cadre });
-  });
+  }
   const plages: PlageForfait[] = [];
   for (const s of sous) {
     const p = plages.at(-1);
@@ -177,6 +193,12 @@ export function plagesForfait(d: Domain, e: Employe, ref: PeriodeForfait): Plage
     p.partielle = p.debut === suivi && suivi > ref.debut && suivi > e.entree;
   }
   return plages;
+}
+
+/** Cible brute de segments sous forfait : chaque forfait au prorata des jours calendaires du segment dans la période. */
+export function cibleSegments(segments: readonly SegmentForfait[], ref: PeriodeForfait): number {
+  const joursRef = joursEntre(ref.debut, ref.fin);
+  return segments.reduce((n, x) => n + x.forfait * joursEntre(x.du, x.au) / joursRef, 0);
 }
 
 // — Durée journalière et absences déduites —
@@ -277,7 +299,7 @@ export const cloturesDeLaPeriode = (d: Domain, e: Employe, ref: PeriodeForfait):
 function calculerPlage(d: Domain, e: Employe, ref: PeriodeForfait, p: PlageForfait): CalculClotureForfait {
   const s = d.ds.settings;
   const joursRef = joursEntre(ref.debut, ref.fin);
-  const cible = r2(p.segments.reduce((n, x) => n + x.forfait * joursEntre(x.du, x.au) / joursRef, 0));
+  const cible = r2(cibleSegments(p.segments, ref));
   const absences = Math.min(cible, heuresAbsencesDeduites(d, e, p.segments, ref));
   const cibleNette = r2(cible - absences);
   const { realise, semaines } = realiseForfait(d, e, p);
@@ -344,8 +366,9 @@ export const ligneEnVigueur = (lignes: readonly ClotureForfaitHeures[] | undefin
   versionsDe(lignes, empId, debut).filter(l => l.statut !== 'annulee').at(-1) ?? null;
 
 /**
- * Ligne confirmée à revoir : une feuille de sa plage rouverte après la confirmation ou qui n'est plus validée, ou un
- * réalisé recalculé qui diffère de celui photographié. Rendue comme motif (null : rien à revoir).
+ * Ligne confirmée à revoir : une feuille de sa plage rouverte après la confirmation ou qui n'est plus validée, un réalisé
+ * recalculé qui diffère de celui photographié, une plage qui ne finit plus le même jour, ou un total d'absences déduites
+ * recalculé différent (absence posée, requalifiée ou retirée après la clôture). Rendue comme motif (null : rien à revoir).
  */
 export function aRevoir(d: Domain, l: ClotureForfaitHeures): string | null {
   if (l.statut !== 'confirmee' || !l.confirmeeLe) return null;
@@ -357,7 +380,12 @@ export function aRevoir(d: Domain, l: ClotureForfaitHeures): string | null {
   const nonValidee = feuilles.find((sh: FeuilleTemps) => sh.statut !== 'validee');
   if (nonValidee) return `feuille de la semaine du ${fmtIso(nonValidee.week)} non validée`;
   const r = realiseForfait(d, e, l).realise;
-  return Math.abs(r - l.realise) > 0.005 ? `réalisé recalculé : ${fH(r)} au lieu de ${fH(l.realise)}` : null;
+  if (Math.abs(r - l.realise) > 0.005) return `réalisé recalculé : ${fH(r)} au lieu de ${fH(l.realise)}`;
+  // Absence de la plage posée, requalifiée ou retirée après la clôture (arrêt déclaré tard, absence signalée devenue CP) :
+  // le total déduit de la cible, donc les heures dues, change. Total seul, jamais la nature.
+  const calc = clotureForfaitHeures(d, e, periodeReference(d.ds.settings, l.debut), l.debut);
+  if (!calc || calc.fin !== l.fin) return 'plage sous forfait recalculée différente (historique du contrat, entrée ou sortie modifiés)';
+  return Math.abs(calc.absences - l.absences) > 0.005 ? `absences déduites recalculées : ${fH(calc.absences)} au lieu de ${fH(l.absences)}` : null;
 }
 
 /** État d'une ligne pour la paie et l'écran. */
@@ -365,6 +393,8 @@ export function etatClotureForfait(l: ClotureForfaitHeures): string {
   if (l.statut === 'annulee') return 'annulée';
   if (l.statut === 'proposee') return l.rouverteLe ? 'rouverte, à confirmer' : 'à confirmer';
   if (l.horsFichier) return 'réglée hors fichier (saisie dans Sage)';
+  // Version confirmée sans écart avec la version transmise qu'elle remplace : réglée sans lot (`sansEcartTransmis`).
+  if (l.sage && l.lotId == null) return 'aucun écart avec la version transmise : rien à transmettre';
   if (l.sage) return `transmise à la paie (lot n° ${l.lotId})`;
   if (l.lotId != null) return `dans le lot de paie n° ${l.lotId}, import à confirmer`;
   return 'confirmée, en attente du prochain lot de paie';
@@ -395,6 +425,14 @@ export function quantitesAEmettre(lignes: readonly ClotureForfaitHeures[] | unde
   }
   return out;
 }
+
+/**
+ * Version qui remplace une ligne transmise sans en changer aucune quantité (feuilles revalidées à l'identique, seules les
+ * heures non réalisées ou la cible ont bougé) : rien à émettre. Elle est réglée dès sa confirmation (`sage` vrai, sans lot),
+ * pour ne pas attendre à jamais un lot de paie qui ne l'emporterait pas.
+ */
+export const sansEcartTransmis = (lignes: readonly ClotureForfaitHeures[] | undefined, l: ClotureForfaitHeures): boolean =>
+  !!derniereTransmise(lignes, l) && !Object.keys(quantitesAEmettre(lignes, l)).length;
 
 /**
  * Éléments d'un lot de la période `jusqua` : lignes confirmées ni dans un lot ni transmises, dont la période d'émission

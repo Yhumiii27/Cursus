@@ -58,13 +58,14 @@ const feuille = (week: string, h: number[], contrat: Record<string, unknown> = A
 } as unknown as Feuille);
 /**
  * Feuilles de `du` à `au` : `h` heures chaque jour ouvré non férié (heures d'un jour donné par `jour`), rien ailleurs ; une
- * semaine sans aucune heure n'a pas de feuille (congés, fériés).
+ * semaine sans aucune heure n'a pas de feuille (congés, fériés). Une feuille par semaine, comme dans l'application ; régime
+ * figé `contrat`, ou celui que la fonction rend pour le lundi de la semaine (avenant en milieu de semaine).
  */
-function feuilles(du: string, au: string, h: number, contrat: Record<string, unknown> = ANNUEL, jour: (j: string) => number | null = () => null): Feuille[] {
+function feuilles(du: string, au: string, h: number, contrat: Record<string, unknown> | ((lundi: string) => Record<string, unknown>) = ANNUEL, jour: (j: string) => number | null = () => null): Feuille[] {
   const out: Feuille[] = [];
   for (let w = mondayOf(du); w <= au; w = addD(w, 7)) {
     const hs = Array.from({ length: 7 }, (_, i) => { const j = addD(w, i); return j < du || j > au || i >= 5 || isFerie(j) ? 0 : jour(j) ?? h; });
-    if (hs.some(x => x > 0)) out.push(feuille(w, hs, contrat));
+    if (hs.some(x => x > 0)) out.push(feuille(w, hs, typeof contrat === 'function' ? contrat(w) : contrat));
   }
   return out;
 }
@@ -89,16 +90,25 @@ const valeurs = (c: ReturnType<typeof cloture>) => ({ debut: c.debut, fin: c.fin
 test('cumulAnnuel : avenant en juillet, seules les feuilles au forfait annuel comptent (heures supplémentaires déjà payées non comptées deux fois)', () => {
   // 35 h jusqu'au 30 juin 2027 (8 h par jour : 5 h supplémentaires payées chaque semaine), forfait annuel ensuite.
   const historique = [histo('2022-09-05', H35, 'embauche'), histo('2027-07-01', ANNUEL)];
-  const d = domaine({ historique, feuilles: [...feuilles('2027-01-01', '2027-06-30', 8, H35), ...feuilles('2027-07-01', '2027-12-31', 8)] });
+  // Une feuille par semaine, au régime du lundi : celle du lundi 28 juin, à 35 h, compte aussi le jeudi 1er et le vendredi 2.
+  const d = domaine({ historique, feuilles: feuilles('2027-01-01', '2027-12-31', 8, w => (w < '2027-07-01' ? H35 : ANNUEL)) });
   const k = cumulAnnuel(d, d.emp(EMP)!, 2027);
-  // 129 jours ouvrés du 1er juillet au 31 décembre 2027 (14 juillet, 1er et 11 novembre fériés) ; sans la correction, 254 jours.
-  assert.equal(k.done, 129 * 8);
-  assert.equal(k.cible, 810, 'cible : 1 607 h × 184 / 365');
-  // Clôture de la plage sous forfait : du 1er juillet, cible au prorata, 27 semaines travaillées (8 h à 25 % chacune).
+  // 127 jours ouvrés du 5 juillet au 31 décembre 2027 (14 juillet, 1er et 11 novembre fériés) : le jeudi 1er et le vendredi
+  // 2 juillet sont décomptés à 35 h par la feuille du 28 juin ; sans la correction, 254 jours.
+  assert.equal(k.done, 127 * 8);
+  assert.equal(k.cible, 792, 'cible : 1 607 h × 180 / 365, du lundi 5 juillet, comme le réalisé');
+  // Clôture de la plage sous forfait : du lundi qui suit l'avenant (la feuille de la semaine du 28 juin est à 35 h), cible au
+  // prorata des mêmes jours que le réalisé, 26 semaines travaillées (8 h à 25 % chacune).
   assert.deepEqual(valeurs(cloture(d)), {
-    debut: '2027-07-01', fin: '2027-12-31', motifFin: 'periode', cible: 810.1, absences: 0, cibleNette: 810.1, realise: 1032, ecart: 221.9,
-    hfa25: 216, hfa50: 5.9, hca10: 0, hca25: 0, nonRealise: 0, semaines: 27,
+    debut: '2027-07-05', fin: '2027-12-31', motifFin: 'periode', cible: 792.49, absences: 0, cibleNette: 792.49, realise: 1016, ecart: 223.51,
+    hfa25: 208, hfa50: 15.51, hca10: 0, hca25: 0, nonRealise: 0, semaines: 26,
   });
+  // Avenant pris un lundi (5 juillet) : la plage commence ce jour-là, sans changement.
+  const lundi = domaine({ historique: [histo('2022-09-05', H35, 'embauche'), histo('2027-07-05', ANNUEL)], feuilles: d.ds.feuilles });
+  assert.deepEqual(valeurs(cloture(lundi)), valeurs(cloture(d)));
+  // Sans feuille la semaine de l'avenant (régime du lundi) : même plage.
+  const sansFeuille = domaine({ historique, feuilles: d.ds.feuilles.filter(f => f.week !== '2027-06-28') });
+  assert.deepEqual([cloture(sansFeuille).debut, cloture(sansFeuille).cible], ['2027-07-05', 792.49]);
 });
 
 test('cumulAnnuel : cumul et cible bornés au début du suivi', () => {
@@ -150,12 +160,13 @@ test('clôture : heures au-delà du forfait, 25 % jusqu’à 8 h par semaine tra
   assert.deepEqual([n.ecart, n.nonRealise, n.hfa25, n.hfa50], [-83, 83, 0, 0]);
 });
 
-test('clôture : avenant qui fait quitter le forfait (veille de l’avenant), entrée, sortie, début du suivi', () => {
-  // Forfait jusqu'au 30 juin 2027, 35 h ensuite.
-  const quitte = domaine({ employe: { ...H35 } as unknown as Partial<Employe>, historique: [histo('2022-09-05', ANNUEL, 'embauche'), histo('2027-07-01', H35)], feuilles: [...feuilles('2027-01-01', '2027-06-30', 7), ...feuilles('2027-07-01', '2027-12-31', 7, H35)] });
+test('clôture : avenant qui fait quitter le forfait (fin de la semaine de l’avenant), entrée, sortie, début du suivi', () => {
+  // Forfait jusqu'au 30 juin 2027, 35 h à partir du jeudi 1er juillet : la feuille du 28 juin, au régime du lundi, est au
+  // forfait ; la plage va jusqu'au dimanche 4 juillet, et compte le jeudi et le vendredi dans la cible comme dans le réalisé.
+  const quitte = domaine({ employe: { ...H35 } as unknown as Partial<Employe>, historique: [histo('2022-09-05', ANNUEL, 'embauche'), histo('2027-07-01', H35)], feuilles: feuilles('2027-01-01', '2027-12-31', 7, w => (w < '2027-07-01' ? ANNUEL : H35)) });
   assert.deepEqual(valeurs(cloture(quitte)), {
-    debut: '2027-01-01', fin: '2027-06-30', motifFin: 'avenant', cible: 796.9, absences: 0, cibleNette: 796.9, realise: 875, ecart: 78.1,
-    hfa25: 78.1, hfa50: 0, hca10: 0, hca25: 0, nonRealise: 0, semaines: 26,
+    debut: '2027-01-01', fin: '2027-07-04', motifFin: 'avenant', cible: 814.51, absences: 0, cibleNette: 814.51, realise: 889, ecart: 74.49,
+    hfa25: 74.49, hfa50: 0, hca10: 0, hca25: 0, nonRealise: 0, semaines: 26,
   });
   // Entrée le 1er mars 2027 : cible au prorata, droits à congés payés incomplets (alerte, sans calcul).
   const entree = cloture(domaine({ employe: { entree: '2027-03-01' }, feuilles: feuilles('2027-03-01', '2027-12-31', 7) }));
@@ -175,8 +186,9 @@ test('clôture : avenant qui fait quitter le forfait (veille de l’avenant), en
   assert.deepEqual([p.debut, p.fin, p.partielle, p.cible], ['2027-01-01', '2027-05-31', true, 664.81]);
   assert.ok(p.alertes.some(a => /partielle, le début est à compléter dans Sage/.test(a)));
   // Deux plages dans la période (forfait quitté en juillet, repris en octobre) : une clôture chacune.
-  const deux = domaine({ historique: [histo('2022-09-05', ANNUEL, 'embauche'), histo('2027-07-01', H35), histo('2027-10-01', ANNUEL)], feuilles: feuilles('2027-01-01', '2027-12-31', 7) });
-  assert.deepEqual(F.cloturesDeLaPeriode(deux, deux.emp(EMP)!, AN_2027).map(c => [c.debut, c.fin, c.motifFin]), [['2027-01-01', '2027-06-30', 'avenant'], ['2027-10-01', '2027-12-31', 'periode']]);
+  const deux = domaine({ historique: [histo('2022-09-05', ANNUEL, 'embauche'), histo('2027-07-01', H35), histo('2027-10-01', ANNUEL)], feuilles: feuilles('2027-01-01', '2027-12-31', 7, w => (w < '2027-07-01' || w >= '2027-10-01' ? ANNUEL : H35)) });
+  // Avenants du jeudi 1er juillet et du vendredi 1er octobre : chaque plage suit les semaines de ses feuilles.
+  assert.deepEqual(F.cloturesDeLaPeriode(deux, deux.emp(EMP)!, AN_2027).map(c => [c.debut, c.fin, c.motifFin]), [['2027-01-01', '2027-07-04', 'avenant'], ['2027-10-04', '2027-12-31', 'periode']]);
   // Aucune plage sous forfait (régime 35 h toute l'année) : rien à clôturer.
   assert.equal(F.clotureForfaitHeures(domaine({ employe: { ...H35 } as unknown as Partial<Employe> }), domaine({ employe: { ...H35 } as unknown as Partial<Employe> }).emp(EMP)!, AN_2027), null);
 });
@@ -242,6 +254,23 @@ test('lignes : écart d’une nouvelle version, émission, à saisir dans Sage, 
   const rouverte = f.map(x => (x.week === '2027-06-07' ? { ...x, reouverture: { le: '2028-01-15T10:00:00.000Z', par: 'Essai', motif: 'x', renvoyee: false, transmise: true, lot: 1, rubriques: null } } as unknown as Feuille : x));
   assert.match(F.aRevoir(domaine({ feuilles: rouverte, lignes: [conf] }), conf)!, /semaine du 7 juin 2027 rouverte après la clôture/);
   assert.match(F.aRevoir(domaine({ feuilles: f.slice(1), lignes: [conf] }), conf)!, /réalisé recalculé/);
+  // Absence posée après la clôture (arrêt déclaré tard) : total déduit recalculé, donc « à revoir » ; puis une absence
+  // photographiée qui devient un CP (non déduit) : de même. Jamais la nature dans le motif.
+  const arret = absence('MALADIE', '2027-03-01', '2027-03-01');
+  const motif = F.aRevoir(domaine({ feuilles: f, lignes: [conf], absences: [arret] }), conf)!;
+  assert.match(motif, /absences déduites recalculées : 7 h au lieu de 0 h/);
+  assert.ok(!/MALADIE|maladie|arrêt/.test(motif));
+  const deduite = ligne({ realise: 254 * 7, absences: 7.02 });
+  assert.equal(F.aRevoir(domaine({ feuilles: f, lignes: [deduite], absences: [arret] }), deduite), null);
+  assert.match(F.aRevoir(domaine({ feuilles: f, lignes: [deduite], absences: [{ ...arret, type: 'CP' }] }), deduite)!, /absences déduites recalculées/);
+  // Plage qui ne finit plus le même jour (sortie posée après la clôture) : à revoir.
+  assert.match(F.aRevoir(domaine({ employe: { fin: '2027-11-30' }, feuilles: f, lignes: [conf] }), conf)!, /plage sous forfait recalculée différente/);
+  // Version sans écart avec la version transmise : réglée sans lot.
+  const v3 = ligne({ version: 2, remplaceId: v1.id, sage: true });
+  assert.equal(F.sansEcartTransmis([v1, v3], v3), true);
+  assert.equal(F.sansEcartTransmis([v1, v2], v2), false);
+  assert.equal(F.sansEcartTransmis([v1], v1), false, 'première version : jamais « sans écart »');
+  assert.equal(F.etatClotureForfait(v3), 'aucun écart avec la version transmise : rien à transmettre');
   // Contingent : imputation désactivée par défaut ; activée, les heures HFA de la dernière version confirmée.
   assert.equal(F.heuresForfaitContingent(d, EMP, 2027), 0);
   const avec = domaine({ lignes: [v1, { ...v2, statut: 'confirmee' }], settings: { forfaitHeuresContingent: true } });
@@ -302,7 +331,7 @@ async function fresh() {
 const PLAGE = { empId: EMP, debut: '2026-08-31' };
 
 test('actions : clôture confirmée, jamais refaite ; lot de paie (à saisir dans Sage, réglée hors fichier) ; ligne « à revoir » après la réouverture d’une feuille', async () => {
-  const { db, run, refus, lignes, lots, journal, d, ADMIN, PAIE, GEST } = await fresh();
+  const { db, run, refus, lignes, lots, journal, d, user, ADMIN, PAIE, GEST } = await fresh();
   const attendu = F.clotureForfaitHeures(await d(), (await d()).emp(EMP)!, { debut: '2025-10-01', fin: '2026-09-30' }, '2026-08-31')!;
   // 23 jours ouvrés à 9 h ; cible : 1 607 h × 31 / 365 ; 5 semaines travaillées.
   assert.deepEqual([attendu.fin, attendu.partielle, attendu.realise, attendu.cible, attendu.semaines, attendu.hfa25, attendu.hfa50], ['2026-09-30', true, 207, 136.48, 5, 40, 30.52]);
@@ -328,6 +357,15 @@ test('actions : clôture confirmée, jamais refaite ; lot de paie (à saisir dan
   assert.deepEqual(lot.resume.aSaisir?.filter(x => x.famille === 'forfaitHeures').map(x => [x.rubrique, x.quantite]), [['HFA25', 40], ['HFA50', 30.52]]);
   assert.ok(!L.lignesFichier(lot.contenu!).some(x => /HFA/.test(x.rubrique)));
   assert.deepEqual((await journal('paie.lotGenerer')).at(-1)!.payload.forfaitHeures, [l.id]);
+  // Lecture seule (lots de paie sans le droit « paie ») : ni les heures nominatives à saisir, ni les lignes emportées ; la
+  // paie les reçoit.
+  const lotVu = async (u: User) => (await buildSnapshot(db, u)).lotsPaie.find(x => x.id === lot.id)!;
+  const lu = await lotVu(await user(EMP, 'rh'));
+  assert.ok(!(lu.resume.aSaisir ?? []).some(x => x.famille === 'forfaitHeures'), 'lecture seule : aucune quantité');
+  assert.ok(!/HFA|HCA/.test(JSON.stringify(lu)));
+  assert.equal(lu.forfaitHeures, undefined);
+  assert.deepEqual(lu.resume.forfaitHeures, { elements: 2, salaries: 1 });
+  assert.deepEqual((await lotVu(PAIE)).resume.aSaisir?.filter(x => x.famille === 'forfaitHeures').map(x => x.quantite), [40, 30.52]);
   // Dans un lot à confirmer : ni réouverture, ni annulation.
   await refus(ADMIN, 'forfaitHeures.rouvrir', { id: l.id, motif: 'Erreur' }, 409, /annulez d’abord ce lot/);
   await refus(ADMIN, 'forfaitHeures.annuler', { id: l.id, motif: 'Erreur' }, 409, /annulez d’abord ce lot/);
@@ -371,6 +409,41 @@ test('actions : clôture confirmée, jamais refaite ; lot de paie (à saisir dan
   const v3 = (await lignes())[2];
   assert.deepEqual([v3.version, v3.remplaceId, v3.statut], [3, l.id, 'confirmee']);
   assert.deepEqual(F.quantitesAEmettre(await lignes(), v3), { HFA50: -2 });
+});
+
+test('actions : version rouverte après transmission et confirmée sans écart, réglée sans lot', async () => {
+  const { run, lignes, lots, ADMIN, PAIE } = await fresh();
+  await run(ADMIN, 'forfaitHeures.cloturer', { lignes: [PLAGE] });
+  await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  await run(PAIE, 'paie.lotConfirmer', { id: (await lots()).at(-1)!.id });
+  const [v1] = await lignes();
+  await run(ADMIN, 'forfaitHeures.rouvrir', { id: v1.id, motif: 'Vérification de la feuille du 14 septembre' });
+  // Rien n'a changé : la version 2 est confirmée, réglée tout de suite, et aucun lot ne l'attend.
+  assert.match(await run(ADMIN, 'forfaitHeures.cloturer', { lignes: [PLAGE] }), /aucun écart avec la version transmise : rien à transmettre/);
+  const v2 = (await lignes())[1];
+  assert.deepEqual([v2.version, v2.statut, v2.sage, v2.lotId, v2.hfa25, v2.hfa50], [2, 'confirmee', true, null, v1.hfa25, v1.hfa50]);
+  assert.equal(F.etatClotureForfait(v2), 'aucun écart avec la version transmise : rien à transmettre');
+  const n = (await lots()).length;
+  await assert.rejects(async () => await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }));
+  assert.equal((await lots()).length, n, 'aucun lot pour une version sans écart');
+  // Elle peut encore être rouverte : la version 3 corrigera la version 2 (transmise de fait), écart seul.
+  assert.match(await run(ADMIN, 'forfaitHeures.rouvrir', { id: v2.id, motif: 'Nouvelle vérification' }), /version 3 à confirmer/);
+});
+
+test('démonstration : début du suivi au 1er janvier 2026 posé dans une base antérieure, jamais un réglage choisi', async () => {
+  const { suiviForfaitHeuresDemo } = await import('../server/src/seed.ts');
+  const db = await nouvelleBase();
+  await seedDemo(db);
+  assert.equal((await db.getSetting<Record<string, unknown>>('app', {})).forfaitHeuresDebutSuivi, '2026-01-01');
+  // Base de démonstration créée avant le lot 12 : réglage absent, repris au démarrage.
+  const { forfaitHeuresDebutSuivi: _s, ...app } = await db.getSetting<Record<string, unknown>>('app', {});
+  await db.setSetting('app', app);
+  assert.equal(await suiviForfaitHeuresDemo(db), true);
+  assert.equal((await db.getSetting<Record<string, unknown>>('app', {})).forfaitHeuresDebutSuivi, '2026-01-01');
+  // Réglage déjà choisi : jamais touché.
+  await db.setSetting('app', { ...app, forfaitHeuresDebutSuivi: '2026-06-01' });
+  assert.equal(await suiviForfaitHeuresDemo(db), false);
+  assert.equal((await db.getSetting<Record<string, unknown>>('app', {})).forfaitHeuresDebutSuivi, '2026-06-01');
 });
 
 test('actions : blocage, sortie dans le lot du solde de sortie, droits de lecture, lecture incrémentale', async () => {

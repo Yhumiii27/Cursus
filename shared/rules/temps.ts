@@ -18,7 +18,7 @@ import { horairesDeLaFeuille } from './horaires.ts';
 import { controlesReposNuit, veilleDe } from './repos-nuit.ts';
 import { plagesInterventions } from './astreintes.ts';
 // lot 12 — C1 (forfait annuel en heures)
-import { debutSuivi } from './forfait-heures.ts';
+import { cibleSegments, debutSuivi, plagesForfait } from './forfait-heures.ts';
 
 /** Régime de temps de travail en vigueur d'une fiche, à figer sur une feuille soumise. */
 export function contratFige(e: Employe): ContratFige {
@@ -231,11 +231,9 @@ export function cumulAnnuel(d: Domain, e: Employe, year = d.year) {
   const segs = segmentsContrat(d, e).filter((s, i, l) => s.du <= `${year}-12-31` && (l[i + 1]?.du ?? '9999-12-31') > `${year}-01-01`);
   const cible = segs.every(s => !s.regime || memeRegime(s.regime, fiche))
     ? Math.round(c.heuresAnnuelles * presence)
-    : Math.round(segs.reduce((n, s, i) => {
-      const du = Math.max(debut, parse(s.du).getTime()), au = Math.min(fin, segs[i + 1] ? parse(segs[i + 1].du).getTime() : end);
-      const k = d.contratOf(s.regime ? { ...e, ...s.regime } : e);
-      return n + (k.annuel && au > du ? k.heuresAnnuelles * (au - du) / (end - start) : 0);
-    }, 0));
+    // lot 12 — C1 : jours des semaines décomptées au forfait annuel (régime figé de la feuille, sinon celui du lundi), comme la
+    // clôture : un avenant pris en milieu de semaine ne joue qu'à partir de la semaine suivante, où les heures comptent.
+    : Math.round(plagesForfait(d, e, { debut: `${year}-01-01`, fin: `${year}-12-31` }).reduce((n, p) => n + cibleSegments(p.segments, { debut: `${year}-01-01`, fin: `${year}-12-31` }), 0));
   const ecoule = fin > debut ? Math.min(1, Math.max(0, (d.today.getTime() - debut) / (fin - debut))) : 1;
   return { done, cible, prorata: cible * ecoule, depasse: done > cible, annee: year };
 }

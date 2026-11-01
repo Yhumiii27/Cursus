@@ -17,6 +17,9 @@ import { retraitDemande } from '../state/confirmations-corrections.ts';
 import { Bar, Btn, Chips, Empty, Fine, Kpi, Kpis, NoteAccent, Page, Panel, Seg, Tag } from '../components/ui.tsx';
 import { ContactUrgencePanel } from '../components/ContactUrgence.tsx';
 import { AgendaPortail } from '../components/AgendaPortail.tsx';
+// lot 11 — pwa : installation sur le téléphone, notifications et appareil partagé.
+import { InstallerApplication } from '../components/InstallerApplication.tsx';
+import { MesAppareils } from '../components/MesAppareils.tsx';
 import { AstreintesPortail } from '../components/AstreintesPortail.tsx';
 import { Aptitude } from '../components/Aptitude.tsx';
 import { ExigencesPortail } from '../components/Exigences.tsx';
@@ -314,6 +317,8 @@ export function Portail() {
 
           <ContactUrgencePanel empId={me.id} />
           <AgendaPortail />
+          <InstallerApplication />
+          <MesAppareils />
 
           <Panel title="Mes notifications par e-mail" style={{ gap: 'var(--space-3)' }}>
             <div style={{ fontSize: 14, overflowWrap: 'anywhere' }}>{me.email ?? 'Aucune adresse e-mail sur votre fiche'}</div>

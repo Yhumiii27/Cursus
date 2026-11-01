@@ -113,6 +113,14 @@ La page **Aide**, ouverte de même depuis chaque espace et depuis l'écran de co
 fournir avant la mise en service ; sa version détaillée, avec la procédure mensuelle de paie, est
 `docs/GUIDE-UTILISATEUR.md`.
 
+**Application mobile** (lot 11) : Cursus s'installe sur le téléphone depuis le navigateur (manifeste, service worker
+écrit à la main, icônes de `scripts/icones.mjs`), en HTTPS. Une application ouverte qui perd le réseau garde les
+heures, une ligne de projet et les demandes de congé, chiffrées sur l'appareil, et les envoie au retour du réseau sans
+doublon ni écrasement (refus en conflit « À reprendre ») ; ouverte sans réseau, elle ne montre que ces saisies.
+Notifications génériques sur le téléphone, choisies par la personne (« Mes appareils »), jamais de 20 h à 7 h ni le
+week-end. Barre d'onglets en mode installé. Mise en production (certificat, pare-feu, clés VAPID, limites d'iOS) :
+`docs/DEPLOIEMENT.md`, « Application mobile » ; fonctionnement : `docs/ARCHITECTURE.md`.
+
 ## Application de bureau (macOS)
 
 ```bash
@@ -121,7 +129,8 @@ npm run app
 
 Crée `Cursus.app` sur le Bureau : double-cliquez pour ouvrir Cursus dans sa propre fenêtre. L'application
 démarre le serveur local en mode démonstration (port 3217, accessible uniquement depuis ce Mac) et l'arrête à la fermeture.
-Relancez `npm run app` après une modification du code ou un déplacement du dossier. Journal du serveur :
+Relancez `npm run app` après une modification du code ou un déplacement du dossier. Elle pose `CURSUS_PWA=0` : ni
+service worker ni notifications dans sa fenêtre. Journal du serveur :
 `~/Library/Logs/Cursus/serveur.log`. L'application utilise la même base que `npm run dev`
 (`data/cursus.db`) : les deux ne peuvent pas tourner en même temps.
 
@@ -194,6 +203,7 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `CURSUS_SUPERVISION_TOKEN` | Jeton (32 caractères au moins) de l'outil de supervision : avec `Authorization: Bearer <jeton>`, `/api/health` donne aussi la version, le mode et les envois en échec. Facultatif ; ce détail est toujours donné à un appel local fait sur la machine (dans le conteneur avec Docker : `docker exec`) |
 | `CURSUS_LOG_FORMAT` | Journaux du serveur : `json` (par défaut en production : une ligne JSON par message et par requête, pour l'agrégateur de Coolify ou du service informatique) ou `texte` (par défaut ailleurs). Jamais le corps ni les paramètres des requêtes |
 | `CURSUS_COMPRESSION` | `1` par défaut : Cursus compresse ses réponses (brotli, sinon gzip) ; `0` si le proxy compresse déjà |
+| `CURSUS_PWA` | `1` par défaut (lot 11) : application installable, service worker `/sw.js` servi en `no-cache` ; `0` la coupe (`/sw.js` en 404), posée par l'application de bureau |
 | `CURSUS_BACKUP_DIR` | Dossier des sauvegardes (`backups/` à côté de la base par défaut) |
 | `CURSUS_BACKUP_KEEP` | Sauvegardes conservées par type (14 par défaut, `0` pour tout garder) |
 | `CURSUS_PIECES_DIR` | Dossier des pièces justificatives en stockage local (`pieces/` à côté de la base par défaut : `/data/pieces` dans l'image Docker). Réservé au compte du serveur (`700`, fichiers en `600`) |

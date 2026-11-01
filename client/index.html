@@ -2,10 +2,20 @@
 <html lang="fr">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- viewport-fit=cover : l'application installée occupe tout l'écran, les marges de sécurité (encoche, barre d'accueil)
+         sont reprises par la barre d'onglets (app.css, env(safe-area-inset-*)). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#161826" />
     <title>Cursus — Suivi des formations et habilitations</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <!-- Application installable (lot 11, chantier C2) : manifeste, icône de l'écran d'accueil iOS (PNG opaque), nom court. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Cursus" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   </head>
   <body>
     <div id="root"></div>

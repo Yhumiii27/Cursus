@@ -65,6 +65,8 @@ export const INFO_CONFIDENTIALITE: readonly RubriqueConfidentialite[] = [
       ['Pièces justificatives', 'si le service RH active leur dépôt : attestations de formation, titres d’habilitation signés, justificatifs d’absence (avis d’arrêt de travail…) et copies des documents que vous déclarez, jointes à votre dossier ; votre manager n’en voit que les attestations et titres d’habilitation.'],
       ['Contact d’urgence', 'nom et téléphone de la personne à prévenir, indiqués par vous depuis votre espace ou par le service RH à votre demande (facultatif) : vus du service RH seulement, jamais de votre manager ; à retirer quand vous le souhaitez.'],
       ['Connexion', 'identifiant, profil, dates de connexion et adresse IP, journal des actions effectuées ; journaux techniques du serveur (numéro de compte, adresse consultée, heure et résultat de chaque requête, jamais son contenu).'],
+      // lot 11 — pwa : application installée, file hors ligne et notifications (docs/RGPD.md, § 2, 4 et 5).
+      ['Application sur le téléphone', 'si vous installez Cursus sur votre téléphone : les saisies faites sans réseau y restent chiffrées jusqu’à leur envoi (7 jours au plus, rien sur un appareil partagé) ; si vous activez les notifications, l’adresse d’abonnement de votre appareil (gardée chiffrée) et un libellé comme « Android, Chrome ». Les notifications sont génériques, sans nom ni date ; le service de notification de l’éditeur du navigateur (Google, Apple, Mozilla ou Microsoft, en partie hors de l’Union européenne) achemine un message chiffré qu’il ne peut pas lire (' + A_COMPLETER + ').'],
     ],
   },
   {

@@ -21,7 +21,7 @@
 // - Refus du serveur (conflit, règle, droit) : l'entrée passe dans « À reprendre » avec le motif ; réseau, session expirée,
 //   serveur occupé : le rejeu s'arrête, l'entrée reste en attente.
 // - Purge : à la déconnexion, au changement de compte, après 7 jours (CONSERVATION_FILE_JOURS) et sur « appareil partagé ».
-import { ACTIONS_HORS_LIGNE, CONSERVATION_FILE_JOURS, PAUSE_REJEU_MS } from '../../../shared/hors-ligne.ts';
+import { ACTIONS_HORS_LIGNE, CONSERVATION_FILE_JOURS, FORME_CLE_IDEMPOTENCE, PAUSE_REJEU_MS } from '../../../shared/hors-ligne.ts';
 import { DELAI_PIECE_EN_ATTENTE_MS, MAX_PIECES_EN_ATTENTE } from '../../../shared/rules/pieces.ts';
 import type { Role } from '../../../shared/types.ts';
 import { type ActionResponse, api, type NomAction } from '../api.ts';
@@ -160,10 +160,12 @@ export class FileHorsLigne {
    * Met une saisie en file pour ce compte et cet espace ; renvoie son identifiant (sa clé d'idempotence). Refuse une
    * action hors du registre. `pieces` : contenu gardé chiffré, envoyé avant l'action, jetons passés dans `champPieces`.
    */
-  async ajouter(qui: Porteur, nom: NomAction, payload: Record<string, unknown>, o: { pieces?: PieceLocale[]; champPieces?: string } = {}): Promise<string> {
+  async ajouter(qui: Porteur, nom: NomAction, payload: Record<string, unknown>, o: { pieces?: PieceLocale[]; champPieces?: string; id?: string } = {}): Promise<string> {
     if (!ACTIONS_HORS_LIGNE.includes(nom)) throw new Error('Action non admise hors ligne : refaites-la une fois connecté');
     if ((o.pieces?.length ?? 0) > 10) throw new Error('10 pièces au plus par saisie');
-    const id = crypto.randomUUID();
+    // `id` (étape 2) : clé d'idempotence déjà portée par l'envoi en ligne interrompu (même saisie, même clé : jamais deux fois).
+    if (o.id !== undefined && !FORME_CLE_IDEMPOTENCE.test(o.id)) throw new Error('Clé d’idempotence invalide');
+    const id = o.id ?? crypto.randomUUID();
     const pieces: Contenu['pieces'] = [];
     for (const p of o.pieces ?? []) {
       const cle = crypto.randomUUID();
@@ -184,6 +186,19 @@ export class FileHorsLigne {
       if (s.compteId !== qui.compteId || s.espace !== qui.espace) continue;
       const c = await this.contenu(s);
       out.push({ id: s.id, nom: c.nom, payload: c.payload, creeLe: s.creeLe, etat: s.etat, motif: c.motif, tentatives: s.tentatives, pieces: c.pieces.length });
+    }
+    return out;
+  }
+
+  /**
+   * Toutes les saisies de l'appareil, sans session (page « Hors ligne » d'une ouverture sans réseau : la session n'est
+   * pas connue). La file ne garde que celles du dernier compte connecté : un autre compte la purge à sa connexion.
+   */
+  async listerTout(): Promise<(EntreeFile & Porteur)[]> {
+    const out: (EntreeFile & Porteur)[] = [];
+    for (const s of await this.stockees()) {
+      const c = await this.contenu(s);
+      out.push({ id: s.id, compteId: s.compteId, espace: s.espace, nom: c.nom, payload: c.payload, creeLe: s.creeLe, etat: s.etat, motif: c.motif, tentatives: s.tentatives, pieces: c.pieces.length });
     }
     return out;
   }

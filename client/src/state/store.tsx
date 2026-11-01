@@ -27,6 +27,8 @@ import { effacerBrouillon, lireBrouillon, sauverBrouillon, type Champs } from '.
 import { instantanePerime } from './revision.ts';
 import { executeurActions, FileAttente, lancerAction, rejouable, suiteReconnexion, type Attente } from './run.ts';
 import { adresse, ecrireUrl, lireUrl, ouvreUneFiche, pageDeRetourClient } from './url.ts';
+// lot 11 — pwa : saisie gardée hors ligne et rejouée (client/src/pwa/useHorsLigne.ts).
+import { type HorsLigne, useHorsLigne } from '../pwa/useHorsLigne.ts';
 
 export type View = (typeof ALLOWED_VIEWS)[Role][number] | (typeof VUES_COMMUNES)[number];
 
@@ -96,6 +98,8 @@ export type DialogState =
   | { type: 'renouvelerCdd'; empId: number }
   | { type: 'membre'; equipe?: string | null }
   | { type: 'equipe'; nom?: string | null }
+  // lot 11 — pwa : déconnexion avec des saisies encore gardées sur l'appareil (dialogs/DeconnexionDialog.tsx).
+  | { type: 'deconnexion'; n: number }
   | { type: 'abs'; empId: number }
   | { type: 'absSignal'; empId?: number | null }
   | { type: 'absNature'; empId?: number | null; id?: number }
@@ -220,6 +224,8 @@ export interface Store {
   abandonnerReconnexion: () => Promise<void>;
   /** Champs du dialogue `d` restaurés au retour de Microsoft, remis une seule fois (components/Dialog.tsx). */
   prendreChamps: (d: DialogState | null) => Champs | null;
+  /** lot 11 — pwa : réseau, saisies gardées sur l'appareil, rejeu, appareil partagé. */
+  horsLigne: HorsLigne;
 }
 
 // Contexte conservé d'un rechargement à chaud à l'autre (sinon les composants déjà montés perdent le fournisseur).
@@ -490,9 +496,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     window.scrollTo({ top: 0 });
   }, []);
 
+  // lot 11 — pwa : une saisie admise hors ligne que le réseau n'a pas portée est gardée sur l'appareil, montrée dans
+  // l'instantané en mémoire, puis rejouée (pwa/pilote.ts) ; toute autre action part comme avant.
+  const horsLigne = useHorsLigne({ session, sessionRef, dataRef, montrer: setData, relire: rafraichir, notifier: notify });
+  const horsLigneRef = useRef(horsLigne);
+  horsLigneRef.current = horsLigne;
+
   // Exécution d'une action, attente de la reconnexion et relecture après un refus : state/run.ts.
   const executer = useMemo(() => executeurActions({
-    appeler: (name: NomAction, payload) => api.action(name, payload, sessionRef.current?.role),
+    appeler: (name: NomAction, payload) => horsLigneRef.current.appeler(name, payload),
     connecte: () => !!sessionRef.current?.user,
     recevoir, notifier: notify, attendre, suivre, rafraichir,
   }), [notify, recevoir, attendre, suivre, rafraichir]);
@@ -573,7 +585,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   /** Déconnexion : session révoquée ; pour un compte Microsoft, passage par la déconnexion Microsoft. */
   const logout = useCallback(async () => {
     try {
+      // lot 11 — pwa : notifications de cet appareil désactivées tant que la session vaut, file purgée après.
+      await horsLigneRef.current.avantDeconnexion();
       const s = await api.logout();
+      await horsLigneRef.current.apresDeconnexion();
       effacerBrouillon();
       // La personne suivante ne reprend pas la page ni la fiche de celle qui part, y compris après la déconnexion
       // Microsoft (Précédent ne rouvre pas la fiche) : connect() relit l'adresse.
@@ -697,6 +712,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     session, data, loading, view, go, ui: effectiveUi, setUi, dialog, openDialog, closeDialog,
     toast, notify, fermerNotification, run, runIntent, switchMode, loginDemo, login, changerMotDePasse, logout, refresh: rafraichir,
     bascule, erreurChargement, recharger, reconnexion, reconnecter, reconnecterMicrosoft, abandonnerReconnexion, prendreChamps,
+    horsLigne,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

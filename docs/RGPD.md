@@ -35,6 +35,7 @@ le tenir à jour avec ce document. Le responsable du traitement et le contact du
 | Entretiens | Planifier les entretiens obligatoires et conserver les comptes rendus signés | Obligation légale (art. L6315-1 ; art. L3121-64 pour le forfait jours) ; intérêt légitime pour l'entretien annuel d'évaluation |
 | Déplacements et chantiers | Préparer les déplacements (passeport, visas, vaccinations, détachement) ; vérifier avant une affectation que la personne est disponible, apte et habilitée (verdict Go / No Go transmis à Keystone) | Obligation de sécurité (art. L4121-1) ; formalités de sécurité sociale du détachement (règlement (CE) n° 883/2004, certificat A1) ; contrat |
 | Comptes, journal des actions | Authentifier, limiter l'accès à ce que chaque profil doit voir, tracer qui a fait quoi | Intérêt légitime (sécurité du système, preuve) ; art. 32 du RGPD |
+| Application mobile (lot 11) : notifications sur le téléphone, saisie hors ligne | Prévenir la personne qui l'a choisi d'une étape à traiter (notification générique, sans nom ni date) ; garder sur l'appareil, chiffrées, les saisies faites pendant une coupure du réseau (heures, demande de congé) jusqu'à leur envoi ; ne jamais enregistrer deux fois une saisie renvoyée (journal d'idempotence) | Notifications : consentement de la personne (facultatives, coupées par défaut, retirables à tout moment dans « Mes appareils ») ; file locale et idempotence : exécution du contrat (art. 6.1.b) et sécurité (art. 32) |
 
 Aucune décision automatisée au sens de l'art. 22 : le verdict Go / No Go est une aide à la planification ; une
 réserve ou un refus est vérifié par le service RH.
@@ -92,9 +93,11 @@ motif médical.
 | Service de prévention et de santé au travail | Demande de visite : identité, poste, motif, habilitations qui exigent l'aptitude ; aucune information médicale | Convention d'adhésion |
 | Organismes de formation | Liste nominative des inscrits d'une session (nom, poste, parcours), remise par le service RH | Convention de formation |
 | Hébergeur (Docker, Coolify) et agrégateur de journaux du service informatique | Journaux techniques du serveur : numéro de compte, méthode, chemin sans paramètres, statut, heure et durée des requêtes ; aucun contenu de requête (`docs/DEPLOIEMENT.md`, « Exploitation courante ») | Service informatique interne ; à compléter par le DPO si l'hébergeur ou l'agrégateur est un prestataire |
+| Services de push des navigateurs (Google FCM, Apple APNs, Mozilla, Microsoft WNS ; lot 11) | Pour chaque notification choisie par la personne : l'adresse d'abonnement de son appareil, l'heure et la taille d'un message chiffré de bout en bout (RFC 8291), que le service ne peut pas lire ; le message lui-même est générique (« Feuille de temps renvoyée »), sans nom, sans date, sans nature d'absence ni donnée de santé | Conditions des éditeurs des navigateurs ; **transfert de métadonnées hors UE (États-Unis) : avis du DPO** et mention dans la page Confidentialité avant d'activer les notifications (clés `CURSUS_VAPID_*`) |
 | Hébergeur de Cursus et des sauvegardes | Toute la base (données de santé comprises) ; copies chiffrées avant l'envoi (`docs/SAUVEGARDE.md`) | à compléter par le DPO : prestataire, pays, contrat de sous-traitance (art. 28), question d'un hébergement certifié HDS (`docs/DEPLOIEMENT.md`) |
 
-Aucun transfert hors de l'Union européenne n'est prévu par Cursus ; à vérifier pour l'hébergeur et Microsoft 365.
+Aucun transfert hors de l'Union européenne n'est prévu par Cursus, sauf les métadonnées des notifications sur le téléphone
+(services de push, ligne ci-dessus, lot 11) ; à vérifier pour l'hébergeur et Microsoft 365.
 
 ### Serveur PostgreSQL commun EPC2I (`DATABASE_URL`, lot 8)
 
@@ -138,6 +141,10 @@ sauvegardés à part (copie restic chiffrée prise juste après le `pg_dump`, `d
 | File d'envoi (e-mails, messages à Keystone) | 1 an ; un échec non traité reste | Appliqué (`CONSERVATION_ENVOIS_MOIS`) |
 | Notifications (destinataire, objet, texte des e-mails et du récapitulatif) | 1 an après leur création, comme la file d'envoi, une fois traitées par le récapitulatif (envoyées, ou closes sans adresse) ; une notification en attente du récapitulatif, ou dont l'e-mail reste en file (échec non classé), reste | Appliqué (lot 8, `purgerNotifications` de `server/src/envois.ts`, avec la conservation du journal) |
 | Sessions de connexion | 12 heures, purgées ensuite | Appliqué |
+| Abonnements aux notifications (lot 11 : adresse du service de push et clés de l'appareil, chiffrées en base ; libellé « Android, Chrome ») | Jusqu'au désabonnement (bouton, déconnexion de l'appareil, « Appareil partagé »), à la réponse 404 ou 410 du service de push, après 90 jours sans envoi réussi, ou à la désactivation du compte (départ) | Appliqué (`purgerPush`, tâche du quart d'heure) |
+| Notifications push en file (type, abonnement, dates ; jamais de texte) | 30 jours après leur envoi ou leur échec | Appliqué (`purgerPush`) |
+| Journal d'idempotence (lot 11 : empreinte de la clé et du corps, statut, résultat réduit à des nombres) | 30 jours | Appliqué (tâche du quart d'heure) |
+| Saisies gardées sur le téléphone hors ligne (lot 11, IndexedDB chiffrée en AES-GCM, clé non extractible) | Jusqu'à leur envoi, au plus 7 jours ; purgées à la déconnexion, à la connexion d'un autre compte et sur « Appareil partagé ». Aucune donnée de Cursus (soldes, planning) n'est gardée sur l'appareil | Appliqué (`client/src/state/hors-ligne.ts`) |
 | Notifications du récapitulatif quotidien (`notifications` : objet et texte des étapes en attente) | Purge après l'envoi du récapitulatif : durée fixée par le chantier C du lot 8 (sécurité des traitements), à reporter ici à sa livraison | Supprimées avec le dossier à l'anonymisation ; d'ici la purge, gardées |
 | Astreintes et leurs interventions | Avec le temps de travail (durée préremplie de 3 ans pour les textes libres) ; motif et motif d'annulation vidés à l'échéance, périodes et heures gardées sans nom | Même dispositif que le dossier (Paramètres → Conservation des dossiers) |
 | Formations suivies, liste d'attente, évaluations des formations | Avec les formations (5 ans préremplis) : motifs de correction et d'annulation, demande d'origine de l'attente et commentaire des évaluations vidés à l'échéance ; dates, notes et efficacité gardées sans nom | Même dispositif |
@@ -203,6 +210,10 @@ Contact : le DPO (Paramètres → Confidentialité), sinon le service RH.
 - Serveur PostgreSQL commun (§ 4) : application par Matrix de la demande D1 (colonnes sensibles fermées à
   `matrix_lecture`) avant la reprise de Lucca ; fenêtre de temps de `pub_absences` ; durées des copies hors du serveur
   et des journaux de Coolify et du serveur ; chiffrement du disque de l'hôte Coolify à vérifier.
+- Application mobile (lot 11) : transfert de métadonnées des notifications vers les services de push (États-Unis) et
+  mention dans la page Confidentialité ; information du CSE (art. L2312-8 : nouvelle technologie, téléphones personnels)
+  et droit à la déconnexion (plage de silence de 20 h à 7 h et le week-end, notifications coupées par défaut ; charte de
+  l'entreprise à rapprocher) ; file locale chiffrée sur le téléphone (7 jours au plus, rien sur un appareil partagé).
 - Accès depuis Internet, smartphone compris (décision de l'entreprise) : téléphones fournis, verrouillage imposé par
   la gestion de flotte (`docs/DEPLOIEMENT.md`, « Postes et téléphones »).
 - Validation par le DPO du texte de la page Confidentialité, de l'information sur les vaccinations et de celle sur les

@@ -112,6 +112,28 @@ pas dans Cursus : la paie les traite dans Sage.
   « Astreinte » : jour, heures de début et de fin) ; ses heures vont sur la ligne « Intervention d'astreinte », qui ne se
   saisit pas à la main. Une intervention déclarée par erreur se retire tant que la feuille se saisit.
 
+### Sur le téléphone
+
+- Cursus s'installe sans magasin d'applications. Android : « Installer l'application » (accueil, aide ou menu).
+  iPhone : dans Safari, « Partager » puis « Sur l'écran d'accueil » ; on ouvre ensuite Cursus depuis l'icône et on s'y
+  connecte une fois (l'application installée a sa propre session). Les notifications sur iPhone demandent iOS 16.4 et
+  l'application installée.
+- Réseau perdu, Cursus déjà ouvert : les heures, une ligne de projet et une demande de congé (congés payés, RTT,
+  récupération) restent saisissables. Le bandeau « Hors ligne » le dit ; elles partent seules au retour du réseau, ou par
+  « Envoyer maintenant ». Rien d'autre ne se fait sans réseau (validations, pièces, paie), et Cursus ouvert sans réseau
+  ne montre que les saisies gardées : aucune donnée n'est conservée sur le téléphone. Sur iPhone, elles partent à la
+  réouverture de l'application.
+- Une saisie refusée au retour du réseau (heure changée entre-temps par le manager ou depuis le PC, feuille déjà
+  validée, solde insuffisant) passe « À reprendre » avec le motif : « Renvoyer » après correction, ou « Abandonner ».
+  Rien n'est écrasé sans le dire.
+- « Mes appareils » (accueil) : « Recevoir les notifications sur cet appareil », puis on coche celles qu'on veut
+  (toutes coupées au départ) et « Enregistrer mes choix ». Elles ne disent ni nom ni date (elles s'affichent sur l'écran
+  verrouillé) et n'arrivent jamais de 20 h à 7 h ni le week-end : elles partent le jour ouvré suivant. « Envoyer une
+  notification d'essai » vérifie l'appareil ; « Retirer » arrête un téléphone perdu ou changé.
+- Tablette d'atelier ou téléphone prêté : cocher « Appareil partagé » ; rien n'y est gardé, ni saisie ni notification.
+  La déconnexion efface les saisies pas encore envoyées (Cursus prévient avant) ; elles sont effacées aussi au bout de
+  7 jours.
+
 ## Manager
 
 Le manager a deux espaces : **Manager** pour son équipe, **Collaborateur** pour ses propres heures, absences et entretiens

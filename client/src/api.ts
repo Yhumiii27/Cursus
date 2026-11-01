@@ -5,8 +5,9 @@ import { EN_TETE_HORS_LIGNE, EN_TETE_IDEMPOTENCE } from '../../shared/hors-ligne
 // Noms des actions du serveur (t164) : import de type seulement, effacé à la compilation (aucun code serveur dans
 // l'interface) ; une faute dans un nom d'action est signalée par tsc.
 import type { NomAction } from '../../server/src/actions/index.ts';
+import type { AppareilPush } from '../../server/src/push.ts';
 
-export type { NomAction };
+export type { AppareilPush, NomAction };
 
 /** Compte proposé à la connexion de démonstration (`id` : identifiant du compte). */
 export interface LoginOption { id: number; nom: string }
@@ -251,6 +252,10 @@ export const api = {
   /** Pièce justificative envoyée seule, à joindre ensuite par une action (jeton). */
   envoyerPiece,
   comptes: () => request<CompteVue[]>('GET', '/api/comptes'),
+  /** Notifications sur le téléphone (lot 11) : actives sur le serveur, clé publique VAPID, types proposés. */
+  pushCle: () => request<{ active: boolean; cle: string | null; types: string[] }>('GET', '/api/push/cle'),
+  /** Appareils abonnés du compte connecté (Mes appareils), sans adresse ni clé. */
+  pushAppareils: () => request<{ active: boolean; appareils: AppareilPush[] }>('GET', '/api/push/appareils'),
   /** Page Confidentialité : coordonnées du responsable du traitement et du DPO, lisibles sans connexion. */
   confidentialite: () => request<ContactsConfidentialite>('GET', '/api/confidentialite'),
   envois: (statut: StatutEnvoi | null, cible: CibleEnvoi | null = null) => {
@@ -263,9 +268,11 @@ export const api = {
    * `rejeu` (lot 11, file hors ligne : client/src/state/hors-ligne.ts) : clé d'idempotence de la saisie et marque du
    * rejeu hors ligne ; une réponse déjà donnée pour cette clé est rendue sans refaire l'action (`relire`).
    */
-  async action(name: NomAction, payload: Record<string, unknown>, espace?: Role, rejeu?: { cle: string }): Promise<ActionResponse> {
+  async action(name: NomAction, payload: Record<string, unknown>, espace?: Role, rejeu?: { cle: string; horsLigne?: boolean }): Promise<ActionResponse> {
     try {
-      const entetes: Record<string, string> = rejeu ? { [EN_TETE_IDEMPOTENCE]: rejeu.cle, [EN_TETE_HORS_LIGNE]: '1' } : {};
+      // `horsLigne: false` (étape 2) : envoi en ligne d'une saisie admise hors ligne, avec sa clé, sans la marque du rejeu :
+      // interrompu par le réseau, il repart de la file avec la même clé (client/src/pwa/useHorsLigne.ts).
+      const entetes: Record<string, string> = rejeu ? { [EN_TETE_IDEMPOTENCE]: rejeu.cle, ...(rejeu.horsLigne === false ? {} : { [EN_TETE_HORS_LIGNE]: '1' }) } : {};
       const r = await request<{ message: string | null; result?: unknown; data?: Dataset; relire?: boolean }>('POST', `/api/actions/${name}`, payload, espace, entetes);
       return { ok: true, ...r };
     } catch (err) {

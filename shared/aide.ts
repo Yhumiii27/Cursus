@@ -68,6 +68,17 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           '« Mes notifications par e-mail » : chaque notification aussitôt, ou un récapitulatif chaque matin. « Télécharger mes données » donne la copie de tout ce que Cursus conserve sur vous ; la page « Confidentialité » explique leur traitement.',
         ],
       },
+      // lot 11 — pwa : application installée, saisie sans réseau, notifications, appareil partagé.
+      {
+        titre: 'Sur le téléphone',
+        points: [
+          'Cursus s’installe sans magasin d’applications. Android : « Installer l’application » (accueil, aide ou menu). iPhone : dans Safari, « Partager » puis « Sur l’écran d’accueil » ; ouvrez ensuite Cursus depuis l’icône et connectez-vous une fois.',
+          'Réseau perdu, Cursus déjà ouvert : vos heures, une ligne de projet et une demande de congé (congés payés, RTT, récupération) restent saisissables. Le bandeau « Hors ligne » le dit ; elles partent seules au retour du réseau (« Envoyer maintenant » sinon). Rien d’autre ne se fait sans réseau, et Cursus ouvert sans réseau ne montre que les saisies gardées.',
+          'Une saisie refusée au retour du réseau (heure changée entre-temps par votre manager ou depuis le PC, feuille déjà validée) passe « À reprendre » avec le motif : « Renvoyer » après correction, ou « Abandonner ». Rien n’est écrasé sans vous.',
+          '« Mes appareils » (accueil) : « Recevoir les notifications sur cet appareil », puis cochez celles que vous voulez (toutes coupées au départ) et « Enregistrer mes choix ». Elles ne disent ni nom ni date, et n’arrivent jamais de 20 h à 7 h ni le week-end. « Retirer » arrête un téléphone perdu ou changé.',
+          'Tablette d’atelier ou téléphone prêté : cochez « Appareil partagé » ; rien n’y est gardé. La déconnexion efface les saisies non envoyées (Cursus prévient avant).',
+        ],
+      },
     ],
   },
   {

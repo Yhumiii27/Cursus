@@ -442,3 +442,48 @@ th.right .th-tri, th.center .th-tri { justify-content: inherit; }
   h1, h2, h3 { break-after: avoid; page-break-after: avoid; }
   tr, .list-row, .kpi { break-inside: avoid; page-break-inside: avoid; }
 }
+
+/* — lot 11 — pwa : application mobile (bandeaux, file d'attente, installation, Mes appareils, barre d'onglets) — */
+/* Bandeaux sous l'en-tête : hors ligne, saisies en attente, nouvelle version (components/BandeauHorsLigne.tsx). */
+.bandeaux-pwa { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) calc(var(--space-8) * 1.25) 0; }
+.bandeau-pwa { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--color-surface); font-size: 13px; }
+.bandeau-pwa.hors-ligne { box-shadow: inset 3px 0 0 var(--color-accent-400); }
+.bandeau-pwa > svg { flex: none; color: var(--color-accent-300); }
+.bandeau-pwa .grow, .file-attente .grow, .liste-appareils .grow { min-width: 0; flex: 1 1 200px; }
+.file-attente, .liste-appareils { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.file-attente li, .liste-appareils li { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); padding: var(--space-2) var(--space-3); font-size: 14px; background: var(--rule-soft) no-repeat bottom / 100% 1px; }
+.file-boutons { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.etapes-installation { margin: 0; padding-left: 1.25em; font-size: 14px; display: flex; flex-direction: column; gap: var(--space-1); }
+.choix-notifications { display: flex; flex-direction: column; gap: var(--space-2); }
+.check-row { display: inline-flex; align-items: center; gap: var(--space-2); font-size: 14px; cursor: pointer; }
+.check-row input { accent-color: var(--color-accent); width: 18px; height: 18px; flex: none; }
+.installer-menu { width: 100%; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+/* Page « Hors ligne » d'une ouverture sans réseau (pages/HorsLigne.tsx). */
+.hors-ligne-page { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-4); }
+/* Barre d'onglets : application installée sur écran étroit seulement (layout/BarreOnglets.tsx). */
+.barre-onglets { display: none; }
+@media (max-width: 900px) {
+  .bandeaux-pwa { padding-left: 16px; padding-right: 16px; }
+  html.standalone .barre-onglets {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 12; padding: 4px max(4px, env(safe-area-inset-right)) max(4px, env(safe-area-inset-bottom)) max(4px, env(safe-area-inset-left));
+    background-color: color-mix(in srgb, var(--color-bg) 96%, transparent); backdrop-filter: blur(10px);
+    background-image: var(--rule); background-repeat: no-repeat; background-position: top; background-size: 100% 1px;
+  }
+  /* Contenu dégagé de la barre ; notifications au-dessus d'elle. */
+  html.standalone .content { padding-bottom: calc(var(--space-8) * 2 + 64px + env(safe-area-inset-bottom)); }
+  html.standalone .toasts { bottom: calc(72px + env(safe-area-inset-bottom)); }
+  html.standalone .topbar { padding-top: max(var(--space-3), env(safe-area-inset-top)); }
+}
+.onglet {
+  flex: 1 1 0; min-width: 0; min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  padding: 4px 2px; border: 0; border-radius: var(--radius-md); background: none; color: var(--color-neutral-400); font: inherit; font-size: 11px;
+  text-decoration: none; cursor: pointer;
+}
+.onglet > span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.onglet[aria-current='page'] { color: var(--color-text); }
+.onglet[aria-current='page'] .onglet-icone { color: var(--color-accent-300); }
+.onglet-icone { position: relative; display: inline-flex; }
+.onglet-pastille {
+  position: absolute; top: -4px; right: -10px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
+  background: var(--color-accent-600); color: #fff; font-size: 10px; line-height: 16px; text-align: center;
+}

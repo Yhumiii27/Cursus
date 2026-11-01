@@ -4019,7 +4019,7 @@ CSV, le remplissage de `employes.site_code` et `unite_code`, l'aide, le guide et
 Réponses du propriétaire du 31 octobre 2026 : hors ligne seulement pour une application déjà ouverte avec du réseau
 (aucun instantané gardé sur le téléphone) ; notifications génériques (sans nom ni date), coupées par défaut, jamais de
 20 h à 7 h ni le week-end ; aucune dépendance (ni Workbox, ni web-push). Le manifeste, les icônes, le service worker,
-CURSUS_PWA et les écrans viennent avec l'étape 2.
+CURSUS_PWA et les écrans sont venus avec l'étape 2 (section suivante).
 
 - **Idempotence** (`server/src/idempotence.ts`) : en-tête `Idempotency-Key` (16 à 100 caractères sûrs, UUID) lu sur
   `POST /api/actions/:nom` (`server/src/app.ts`) et `POST /api/pieces` (`server/src/pieces-routes.ts`). Table
@@ -4091,6 +4091,74 @@ CURSUS_PWA et les écrans viennent avec l'étape 2.
   `comptes` et `abonnements_push` en cascade, aucune vue pub_). Demande à Matrix : `docs/demandes/matrix-lot11-pwa.sql`
   (endpoint, p256dh, auth ; tables `idempotence` et `envois_push` entières), lue par `tests/colonnes-sensibles.ts` et
   appliquée par la CI au socle d'essai avec les autres demandes `docs/demandes/matrix-*.sql`.
+
+## Lot 11 : application mobile (C2), étape 2 — installation, service worker, écrans
+
+Suite de l'étape 1 (ci-dessus) : Cursus devient installable et la file hors ligne est branchée sur l'interface. Aucune
+dépendance (ni Workbox, ni vite-plugin-pwa), aucune table ni migration nouvelle, CSP inchangée (manifeste et service
+worker de même origine : `manifest-src` et `worker-src` retombent sur `default-src 'self'`).
+
+- **Manifeste** (`client/public/manifest.webmanifest`) : `start_url` `/?source=pwa` (repère aussi le lancement installé),
+  portée `/`, `standalone`, fond et thème `--color-bg` de Nocturne, raccourcis « Saisir mes heures » (`/temps`) et
+  « Demander une absence » (`/absences?nouveau=1`, relevé au démarrage par `prendreNouvelleAbsence` avant la réécriture
+  de l'adresse, qui ouvre « Poser une absence »). Balises de `client/index.html` : manifeste, `theme-color`,
+  `apple-touch-icon`, `apple-mobile-web-app-*`, `viewport-fit=cover`.
+- **Icônes** (`client/public/icons/`) : PNG 192 et 512 (« any », coins transparents), 512 « maskable » (fond plein,
+  dessin dans la zone de sécurité) et `apple-touch-icon.png` 180 opaque, produits par `scripts/icones.mjs` (encodeur PNG
+  avec `node:zlib`, dessin de `favicon.svg` suréchantillonné, sortie identique d'une exécution à l'autre : comparée au
+  contenu commité par `tests/pwa.test.ts`) puis commités.
+- **Service worker** (`client/public/sw.js`, écrit à la main) : version et liste des fichiers `/assets` à précharger
+  injectées au build par le plugin `swCursus` de `vite.config.ts` (`generateBundle` ; version = empreinte des noms
+  hachés ; polices WOFF exclues, WOFF2 gardées ; build refusé si les marques manquent). Cache `cursus-coque-<version>` :
+  coque (page, page « Hors ligne » `hors-ligne.html` et sa feuille, manifeste, icônes) et `/assets`. `/assets` en cache
+  d'abord ; navigations en réseau d'abord avec 4 s de délai, puis `index.html` gardée, puis la page « Hors ligne » ;
+  **aucune adresse `/api` servie ni gardée** (ni autre origine, ni hors GET) ; anciennes versions effacées à
+  l'activation ; `skipWaiting` seulement sur le message `SKIP_WAITING` de la page. Push : notification générique
+  toujours affichée ; clic : écran de Cursus seulement (message `NAVIGUER` à l'onglet ouvert, sans rechargement, sinon
+  nouvel onglet). Contrôlé dans un bac à sable `vm` par `tests/pwa.test.ts`.
+- **Serveur** : `GET /sw.js` servi en `no-cache` quand `CURSUS_PWA` est active (par défaut, démonstration comprise :
+  les tests Playwright tournent en démonstration), 404 quand elle vaut `0` ou que le fichier manque (jamais la page de
+  l'interface à la place). `CURSUS_PWA` : `pwaActive` / `problemesPwa` (`server/src/config.ts`), option `pwa` de
+  `createApp` ; `desktop/CursusApp.swift` la pose à `0`.
+- **Enregistrement** (`client/src/pwa/enregistrement.ts`, appelé par `main.tsx` avant le premier rendu) : si
+  `serviceWorker` et `isSecureContext`, jamais sous le serveur de Vite ; `/sw.js` en 404 : service worker et caches
+  retirés. Mise à jour : version en attente → bandeau « Nouvelle version », « Recharger » envoie `SKIP_WAITING` puis
+  recharge à `controllerchange` ; nouvelle version cherchée au retour sur l'application. Installation : événement
+  `beforeinstallprompt` gardé (« Installer l'application ») ; mode standalone (ou `?source=pwa`) → classe
+  `html.standalone`.
+- **Saisie hors ligne branchée** (`client/src/pwa/saisie-hors-ligne.ts`, `pilote.ts`, `useHorsLigne.ts` ; store.tsx :
+  `horsLigne`, et `run` passe par `horsLigne.appeler`) : une action admise (`versFile`) qui ne part pas (réponse sans
+  statut, ou appareil hors ligne) entre dans la file chiffrée de l'étape 1 et l'écran reçoit `ok` (« saisie gardée »).
+  `temps.setCell` devient `temps.saisir` (projet, tâche, jour, `base` = valeur vue) ; `temps.addLine` reçoit
+  `siAbsente` ; `absence.demander` (CP, RTT, récupération) part en ligne avec sa clé d'idempotence sans la marque
+  hors ligne (`api.action(…, { cle, horsLigne: false })`), et la file reprend la même clé : une réponse perdue n'est
+  jamais doublée. Jamais pour un autre salarié, une validation ni la paie (`refusHorsLigne` rejoué côté client). La
+  feuille affichée porte la saisie (`appliquerLocalement`, instantané en mémoire seulement ; feuille encore inexistante :
+  créée en mémoire avec l'identifiant -1) ; un congé n'est pas décompté. Rejeu à chaque session lue, au retour du
+  réseau et de l'application ; messages « N saisies envoyées au retour du réseau » et « … refusées … : voyez « À
+  reprendre » ». Purges : autre compte et 7 jours à chaque session lue ; déconnexion (`avantDeconnexion` : appareil
+  désabonné des notifications, motif `deconnexion` ; `apresDeconnexion` : file purgée une fois la déconnexion faite) ;
+  « Appareil partagé » (`pwa/appareil.ts`, localStorage : file purgée, notifications désactivées, plus rien de gardé).
+  Ouverture sans réseau : page « Hors ligne » (`pages/HorsLigne.tsx`), file seule (`listerTout`), nouvel essai à
+  l'événement `online`. Relecture périodique muette hors ligne (étape 1).
+- **Écrans** : `BandeauHorsLigne` (sous l'en-tête : hors ligne, « N saisies en attente d'envoi », « Envoyer
+  maintenant », nouvelle version), `FileEnAttente` (en attente / « À reprendre » avec le motif, « Renvoyer »,
+  « Abandonner… » confirmé sur place), `InstallerApplication` (Accueil, Aide et menu : bouton Android ; encart iPhone
+  « Partager » → « Sur l'écran d'accueil », masquable pour l'appareil), `MesAppareils` (Accueil : notifications de cet
+  appareil — permission demandée sur le geste —, préférences par type, essai, retrait d'un appareil, « Appareil
+  partagé » ; lu par `GET /api/push/appareils`, jamais par l'instantané), barre d'onglets `layout/BarreOnglets.tsx`
+  (quatre premières entrées du menu et « Menu », `html.standalone` sous 900 px, `env(safe-area-inset-*)`), dialogue
+  « Se déconnecter » quand des saisies attendent (`dialogs/DeconnexionDialog.tsx`).
+- **Photo** (`client/src/pwa/photo.ts`, pour les notes de frais de C5) : champ `capture="environment"` (appareil photo
+  natif, sans `getUserMedia` ni levée de `camera=()`) ; JPEG ou PNG de 10 Mo au plus gardé tel quel, sinon canvas →
+  JPEG 1 600 px, qualité 0,85.
+- **Tests** : `tests/pwa.test.ts` (service worker en bac à sable, plugin, icônes, manifeste et balises, `/sw.js` et
+  `CURSUS_PWA`), `tests/client-pwa.test.ts` (conversion, instantané en mémoire, pilote, photo), `e2e/pwa.spec.ts`
+  (Chromium et téléphone, en démonstration : coque gardée sans `/api`, coupure du réseau avec `context.setOffline`,
+  page « Hors ligne », rejeu, conflit « À reprendre », barre d'onglets et raccourci).
+- **Exploitation** : HTTPS public, pare-feu sortant vers les services de push, clés VAPID et limites d'iOS :
+  `docs/DEPLOIEMENT.md`, « Application mobile ». Registre : `docs/RGPD.md` ; demande à Matrix inchangée
+  (`docs/demandes/matrix-lot11-pwa.sql`, étape 1).
 
 ## Lot 11 : indicateurs sociaux légaux et BDESE (C3, t197), étape 1
 

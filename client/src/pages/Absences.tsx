@@ -2,7 +2,7 @@
 // (signalées par le manager ou le salarié, qualifiées par le service RH, prolongées, annulées),
 // règles appliquées (CCN Industries chimiques) et référentiel des natures d'absence.
 // Le manager ne reçoit jamais la nature d'un arrêt de travail : il voit « Absence », ses dates et son état.
-import { useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { ABS_CLS, ABS_LABEL, CATEGORIES_ABSENCE, NATURES_ABSENCE, STATUTS, type CategorieAbsence, type PaieAbsence } from '../../../shared/constants.ts';
 import type { Domain } from '../../../shared/domain.ts';
 import { cpPeriods, parse } from '../../../shared/dates.ts';
@@ -28,6 +28,8 @@ import { refusAbsence } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { decideur } from '../state/delegues.ts';
+// lot 11 — pwa
+import { prendreNouvelleAbsence } from '../pwa/enregistrement.ts';
 import {
   FILTRES_PERIODE, FILTRES_STATUT, FILTRES_TYPE, filtrerAbsence, filtrerSolde, rangAbsence, SANS_FILTRE, TOUTES,
   type FiltrePeriode, type FiltreStatut, type FiltreType,
@@ -142,6 +144,8 @@ export function Absences() {
   const mine = collab ? rows.find(r => r.e.id === me) : undefined;
   // « Poser une absence » pour soi-même : masqué quand aucun type n'est ouvert (intérim).
   const canPoseMe = !espaceRh && !!rows.find(r => r.e.id === me)?.poser;
+  // lot 11 — pwa : raccourci « Demander une absence » de l'application installée (manifeste, /absences?nouveau=1).
+  useEffect(() => { if (canPoseMe && me != null && prendreNouvelleAbsence()) openDialog({ type: 'abs', empId: me }); }, [canPoseMe, me, openDialog]);
   const canCet = (r: ReturnType<typeof soldeRow>) => (rh || r.e.id === me) && r.cetPlaceable;
 
   // Droits de l'utilisateur sur les absences d'un collaborateur : RH, intéressé, manager direct. Un membre du RH agit

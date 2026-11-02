@@ -1773,7 +1773,7 @@ aucun champ du paramètre n'est recopié.
 | `plan.importer` | texte, exercice, mode (`add`/`replace`) ; exercice clos refusé | RH ; `replace` (supprime les lignes prévues d'origine `import` ; celles issues d'une demande, d'un report ou sans origine sont conservées ; lot 11 : refusé si l'une d'elles porte un dossier OPCO actif, celle qui ne porte qu'un dossier clos est gardée) : administrateur RH |
 | `budget.enveloppes` | exercice, enveloppes {équipe: montant} ; exercice clos refusé | RH |
 | `plan.avancer` | id, de? (statut affiché : déjà dépassé, rien n'est refait ; revenu à « prévue », refus), coutReel (vers « réalisé », exigé : euros, 0 accepté), effectifReel?, beneficiaires? [empId] avec du, au?, duree? (t116 : formation suivie d'origine `plan` pour chacun, membre de l'équipe de la ligne ou demandeur d'une demande acceptée qui l'a créée ; refus si une session clôturée réalise la ligne) ; exercice clos ou action reportée refusés | RH |
-| `plan.modifier` | id, f? (vide : hors catalogue), libelle?, equipe?, periode? (`T1`…`T4`), effectif? (1 à 1 000), cout? (0 à 1 000 000 €), motif (obligatoire) ; ligne prévue ou engagée d'un exercice ouvert ; une session ouverte rattachée fige la formation | RH |
+| `plan.modifier` | id, f? (vide : hors catalogue), libelle?, equipe?, periode? (`T1`…`T4`), effectif? (1 à 1 000), cout? (0 à 1 000 000 €), organismeId? (lot 12, C4 : organisme prévu, vide : celui du catalogue), motif (obligatoire) ; ligne prévue ou engagée d'un exercice ouvert ; une session ouverte rattachée fige la formation | RH |
 | `plan.supprimer` | id, motif (obligatoire) : ligne prévue ou engagée d'un exercice ouvert, sans session ouverte rattachée (l'annuler d'abord) ni dossier OPCO actif (lot 11) ; gardée en base (`annuleLe`…), hors de l'instantané et des sommes | administrateur RH |
 | `plan.cloturerExercice` | exercice (passé et ouvert : jamais l'exercice en cours), reporter [id] (actions prévues ou engagées à reporter sur l'exercice suivant) | administrateur RH |
 | `opco.creer` | planActionId (action du plan non reportée ; exercice clos admis), dispositif? (`plan` par défaut), opco? et subrogation? (réglages `opcoDefaut`, `opcoSubrogation`), reference? (code sans espace, 40 caractères), du?, au?, heures?, effectif?, montantDemande?, montantDemandeAnnexes? (dispositifs qui les prévoient), organismeSiret? (clé de Luhn), organismeNda? (11 chiffres), organismeQualiopi? : dossier « à déposer » (lot 11, `controlerSaisieOpco` de shared/rules/opco.ts) | RH |
@@ -4418,7 +4418,8 @@ budget, Paramètres, Échéances) et l'export CSV sont décrits à la section su
 - **Dossier** : action du plan (`planActionId`, FK `restrict`), exercice de l'action (les montants y sont comptés), OPCO et
   dispositif (listes fermées), numéro de dossier, dates et heures prévues, effectif, montants demandés (frais annexes pour
   les seuls dispositifs qui les prévoient), subrogation, organisme (SIRET, déclaration d'activité, Qualiopi) saisi sur le
-  dossier en attendant un référentiel. `empId` est réservé aux dossiers d'alternance (plus tard) : null aujourd'hui, dossier
+  dossier (lot 12, C4 : prérempli par la fiche de l'organisme, `organismeId` ; ce qui est déclaré à l'OPCO reste saisi sur le
+  dossier). `empId` est réservé aux dossiers d'alternance (plus tard) : null aujourd'hui, dossier
   non nominatif ; ses pièces seraient refusées tant qu'ils ne sont pas cadrés.
 - **États** : à déposer → déposé → accordé ou refusé → justificatifs envoyés → remboursé (au moins un versement, un acompte
   peut suivre l'accord) → soldé ; abandonné avant le solde. Transitions contrôlées par `controleTransition` avec l'état
@@ -5002,6 +5003,50 @@ documents de l'utilisateur et du RGPD viennent à l'étape 2.
   leurs valeurs fictives (SIRET, déclaration d'activité, Qualiopi et ses dates, coordonnées, conditions) et « à vérifier ».
 - **Réglages** : `organismeAlerteQualiopiJours` (60, premier palier de relance, utilisé à l'étape 2) et
   `elearningFinAutoImport` (désactivé).
+
+## Lot 12 : organismes de formation et e-learning (C4, t190), étape 2 : écrans, alertes, évaluations
+
+- **Référentiels → Organismes** (`client/src/pages/ReferentielsOrganismes.tsx`, état d'écran
+  `components/organismes/etat.ts`, adresse `?onglet=organismes&organisme=…&filtre=…`) : encart « À vérifier » (fiches reprises,
+  Qualiopi échu ou à renouveler), liste filtrée (en vigueur, à vérifier, Qualiopi à surveiller, NDA absent, archivées) et
+  fiche à côté (dessous sur téléphone, `usePanneauVisible`) à onglets : identité et Qualiopi (avertissements, site ouvert hors
+  de Cursus), conditions (service RH), contacts et tarifs (droit « formations » seulement : rien n'arrive à la lecture seule),
+  évaluations consolidées, activité (rattachements). Boutons : modifier, confirmer la fiche (`organisme.verifier`), fusionner
+  (administrateur RH), archiver ou rétablir. Dialogues `OrganismeDialog` (identité, Qualiopi) et `OrganismeConditionsDialog`,
+  `OrganismeContactDialog`, `OrganismeTarifDialog`, `OrganismeFusionDialog` (fiche qui reste, objets réaffectés en toutes
+  lettres, motif, confirmation « pas de défusion simple », nombre d'objets envoyé : refus 409 si l'écran est en retard).
+- **Référentiels → Modules e-learning** (`ReferentielsModules.tsx`, `ModuleElearningDialog`) : lien d'accès en https ouvert
+  dans un nouvel onglet (`rel="noopener noreferrer"`, jamais d'iframe : la CSP ne change pas), coût d'une licence au droit
+  « formations » seulement.
+- **Formations → E-learning** (`components/elearning/ElearningFormations.tsx`, adresse `?onglet=e-learning&inscriptions=…`) :
+  onglet affiché dès qu'un module ou une inscription est reçu ; compteurs, inscriptions filtrées (en cours, fins à valider,
+  terminées, toutes), export CSV (statut, avancement, dates : ni motif ni temps de connexion) ; inscrire (salariés ou équipe
+  d'une ligne du plan), importer l'avancement (`ElearningImportDialog` : aperçu ligne à ligne par la règle du serveur
+  `lireImportElearning`, effet de chaque ligne, fin d'office signalée), valider la fin (service RH, jamais la sienne),
+  corriger (seuls les champs changés partent, motif), abandon, suppression (administrateur RH, motif). Le manager y voit
+  l'état de son équipe, sans bouton.
+- **Mes modules en ligne** (`components/elearning/MesModules.tsx`, portail) : ses inscriptions ouvertes et terminées de
+  l'année, lien (accès non expiré), « J'ai terminé » (`elearning.declarer`, en ligne seulement), avancement connu.
+- **Sélecteurs d'organisme** (`components/organismes/ChoixOrganisme.tsx` : fiches en vigueur, plus celle déjà désignée ;
+  avertissements Qualiopi et NDA à la date de la formation) : formation du catalogue et formation suivie (« autre » : texte
+  libre gardé, repris en fiche à vérifier au démarrage suivant), création d'une session (organisme du plan ou du catalogue,
+  envoyé pour être figé), dossier OPCO à sa création (SIRET, NDA et Qualiopi valide à la date de début repris de la fiche
+  choisie, modifiables), ligne du plan (`plan.modifier` accepte `organismeId` : vide, celui du catalogue ; tarif en vigueur
+  proposé, jamais imposé). Plan & budget marque une ligne dont l'organisme prévu a un Qualiopi échu, absent ou sans date, ou
+  pas de NDA (`avertissementsPlan`) ; le panneau d'un dossier OPCO à déposer ou déposé affiche les avertissements de sa fiche.
+- **Alertes Qualiopi** (`shared/rules/organismes-suivi.ts`, `relancesQualiopi`) : relance du récapitulatif des échéances
+  (`server/src/relances.ts`, catégorie `organisme`, clé `organisme:<id>:qualiopi:<date>`) au premier palier réglé
+  (`organismeAlerteQualiopiJours`, 60 jours), à 15 jours, puis échue ; boîte du service RH seulement (`rhSeul`). Fiche sans
+  date de validité : signalée à l'écran, sans échéance. Avertissement seulement, jamais un blocage.
+- **Évaluations consolidées** (`indicateursOrganismes`) : par fiche finale (fusion suivie), sur 3 exercices glissants
+  (`HORIZON_EVALUATIONS`, 5 au choix sur la fiche) et en cumul : sessions tenues et annulées, stagiaires, avis à chaud et à
+  froid, coût réel des actions réalisées ; organisme de la session figé (le catalogue peut changer), sinon de la formation
+  suivie ; comparatif par formation entre organismes. Vue agrégée (référent HSE, lecture seule) : calculée par le serveur
+  dans `vues-organismes.ts` pour chaque horizon proposé (`Dataset.indicateursOrganismes`, champ calculé des seules vues de
+  profil), masquée sous `SEUIL_ANONYMAT` ; le service RH la calcule sur son instantané. Jamais de commentaire.
+- **Paramètres → Formations** : premier palier de la relance Qualiopi, fin d'office d'un module à l'import.
+- Tests : `tests/organismes-suivi.test.ts` (relances, filtres, consolidation et masquage, vues de profil, `plan.modifier`,
+  récapitulatif).
 
 ## Lot 12 : planning d'équipe (C5, t192), étape 1
 

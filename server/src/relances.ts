@@ -9,6 +9,8 @@
 //   comme à son écran, sans les absences hors chantiers (`couvertureVueHse`), sous des clés à part (`hse:couverture:…`).
 // - lot 11 : les échéances des dossiers OPCO (`opco:<id>:<étape>:<échéance>`, shared/rules/opco.ts) vont à la seule boîte
 //   du service RH : l'action du plan et l'échéance, sans montant ni nom de salarié.
+// - lot 12 — C4 : la fin de validité Qualiopi des organismes de formation (`organisme:<id>:qualiopi:<date>`, 60 jours avant
+//   par défaut, 15 jours, puis échue) va aussi à la seule boîte du service RH.
 // Seuls les paliers franchis depuis le dernier envoi partent (table `relances`, clé de l'objet et palier) : un objet n'est
 // relancé qu'une fois par palier. Tant que la boîte du service RH, destinataire de tout le périmètre, n'est pas renseignée,
 // le passage n'envoie ni ne note rien : les paliers franchis partiront au premier passage qui suit son réglage. Règles et contenu :
@@ -31,6 +33,8 @@ import { relanceSecret, relanceSecretEnvoi } from './secret-microsoft.ts';
 import { relancesOpco } from '../../shared/rules/opco.ts';
 import { nomActionPlan } from './actions/opco.ts';
 import { type Lecture, lectureDirecte } from './lecture-partagee.ts';
+// lot 12 — C4 (organismes de formation et e-learning)
+import { relancesQualiopi } from '../../shared/rules/organismes-suivi.ts';
 
 /** Lecture du périmètre complet, comme le service RH. */
 const SUIVI: CurrentUser = { role: 'rh', empId: null, nom: 'Cursus', intitule: 'Relance des échéances' };
@@ -125,6 +129,9 @@ export async function recapitulatifEcheances(db: Db, lire: Lecture = lectureDire
     ...relancesCouverture(d, couvertureVueHse({ ...full, settings: { ...full.settings, horizonAlerte: Math.max(...paliers, 90) } }), paliers, 'hse:'),
     // lot 11 — dossiers OPCO en cours (`opco:<id>:<étape>:<échéance>`) : boîte du service RH seulement, sans montant ni nom.
     ...relancesOpco(full.dossiersOpco ?? [], full.versementsOpco, full.plan, full.settings, today, paliers, l => nomActionPlan({ d }, l)),
+    // lot 12 — C4 : fin de validité Qualiopi des organismes (`organisme:<id>:qualiopi:<date>`), paliers propres (60 jours
+    // réglables, 15 jours, échue) : boîte du service RH seulement.
+    ...relancesQualiopi(full.organismes, today, full.settings),
   ];
   const deja = new Set((await db.query('SELECT cle, palier FROM relances') as { cle: string; palier: string }[]).map(r => `${r.cle}|${r.palier}`));
   const nouvelles = dues.filter(r => !deja.has(`${r.cle}|${r.palier}`));

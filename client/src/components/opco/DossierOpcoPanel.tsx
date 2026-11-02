@@ -17,6 +17,8 @@ import { useStore } from '../../state/store.tsx';
 import { annulationVersementOpco, reouvertureOpco, suppressionDossierOpco } from '../../state/confirmations-opco.ts';
 import { Btn, CloseButton, Fine, SectionLabel, Tag } from '../ui.tsx';
 import { CLS_OPCO, nomDossierOpco } from './commun.ts';
+// lot 12 — C4 (organismes de formation et e-learning) : avertissements Qualiopi et NDA de la fiche de l'organisme.
+import { avertissementsOrganisme, organismeDuPlan, organismeFinal } from '../../../../shared/rules/organismes.ts';
 
 /** Ligne libellé / valeur du panneau. */
 function Ligne({ label, children }: { label: string; children: React.ReactNode }) {
@@ -47,6 +49,10 @@ export function DossierOpcoPanel({ panneau, dossier: x, onClose }: { panneau: Re
   const reouverture = admin ? reouvertureOpco(x, nom, versements.length) : null;
   const retour = statutPrecedent(x, versements.length);
   const precedent = 'vers' in retour ? retour.vers : null;
+  // lot 12 — C4 : fiche du dossier (sinon celle de la ligne du plan) ; à déposer ou déposé, avertissements à la date de début
+  // de la formation (l'OPCO ne finance pas un organisme non certifié) — jamais un blocage.
+  const fiche = organismeFinal(d.ds.organismes, x.organismeId) ?? (l ? organismeDuPlan(d.ds, l) : null);
+  const avertissements = fiche && (x.statut === 'a_deposer' || x.statut === 'depose') ? avertissementsOrganisme(fiche, x.du ?? d.ti) : [];
 
   // Chronologie : étapes datées (et signées pour la création et les corrections), versements compris.
   const chrono: { le: string; texte: string }[] = [
@@ -88,7 +94,9 @@ export function DossierOpcoPanel({ panneau, dossier: x, onClose }: { panneau: Re
         {x.reference && <span className="text-muted sub">Dossier {x.reference}</span>}
       </div>
       {e && <div className={e.retard ? 'note-accent' : 'text-muted sub'}>{e.libelle} : {fmtIso(e.echeance)} ({rel(e.jours)})</div>}
-      {x.statut === 'a_deposer' && !x.organismeQualiopi && <div className="note-accent">Organisme sans certification Qualiopi déclarée : condition de la prise en charge par l’OPCO.</div>}
+      {x.statut === 'a_deposer' && !x.organismeQualiopi && !avertissements.length && <div className="note-accent">Organisme sans certification Qualiopi déclarée : condition de la prise en charge par l’OPCO.</div>}
+      {/* lot 12 — C4 */}
+      {avertissements.map(a => <div key={a} className="note-accent">{a}</div>)}
 
       <div>
         <SectionLabel>Montants</SectionLabel>
@@ -106,7 +114,7 @@ export function DossierOpcoPanel({ panneau, dossier: x, onClose }: { panneau: Re
         <SectionLabel>Formation et organisme</SectionLabel>
         <Ligne label="Dates">{x.du ? `${fmtIso(x.du)}${x.au && x.au !== x.du ? ` → ${fmtIso(x.au)}` : ''}` : 'à préciser'}</Ligne>
         <Ligne label="Heures · effectif">{x.heures != null ? `${x.heures.toLocaleString('fr-FR')} h` : '—'} · {x.effectif ?? '—'}</Ligne>
-        {l?.f && <Ligne label="Organisme">{d.fm(l.f)?.organisme ?? '—'}</Ligne>}
+        {(fiche || l?.f) && <Ligne label="Organisme">{fiche?.nomUsuel ?? (l?.f ? d.fm(l.f)?.organisme : null) ?? '—'}</Ligne>}
         <Ligne label="SIRET · NDA">{x.organismeSiret ?? '—'} · {x.organismeNda ?? '—'}</Ligne>
         <Ligne label="Qualiopi">{x.organismeQualiopi ? 'Certifié' : 'Non déclaré'}</Ligne>
       </div>

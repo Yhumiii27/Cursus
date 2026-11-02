@@ -29,6 +29,8 @@ import { LignesEvaluationsAFaire, MesAvisFormations } from '../components/Evalua
 import { attenteActive, placeTexte } from '../../../shared/rules/liste-attente.ts';
 import { imprimerPasseport } from '../passeport.ts';
 import { DelegationsPortail, suppleanceTexte } from '../components/Delegations.tsx';
+// lot 12 — C4 (organismes de formation et e-learning)
+import { MesModules } from '../components/elearning/MesModules.tsx';
 import { useEnriched, useRole, useTrips } from '../state/derived.ts';
 import { api } from '../api.ts';
 import { useStore } from '../state/store.tsx';
@@ -168,6 +170,9 @@ export function Portail() {
 
           {/* Listes d'attente des sessions complètes (lot 7, t120) : sa place dans la file, son retrait. */}
           <ListeAttentePortail empId={me.id} />
+
+          {/* lot 12 — C4 : modules d'e-learning, lien d'accès et « J'ai terminé ». */}
+          <MesModules empId={me.id} />
 
           <Panel title="Mes certifications" style={{ gap: 'var(--space-2)' }}>
             {me.certs.map(c => {

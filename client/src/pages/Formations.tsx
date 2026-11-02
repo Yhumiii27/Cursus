@@ -21,6 +21,9 @@ import { sessionView } from './Dashboard.tsx';
 import { ResumeAttente } from '../components/ListeAttente.tsx';
 import { PasseportPrevention } from '../components/PasseportPrevention.tsx';
 import { EvaluationsManagerPanel, IndicateursEvaluationPanel } from '../components/Evaluations.tsx';
+// lot 12 — C4 (organismes de formation et e-learning) : onglet E-learning.
+import { ElearningFormations } from '../components/elearning/ElearningFormations.tsx';
+import { organismeDeSession } from '../../../shared/rules/organismes.ts';
 
 const TYPES: Record<UiState['typeForm'], string | null> = { toutes: null, reg: 'Réglementaire', rec: 'Recommandée', int: 'Interne' };
 
@@ -106,6 +109,8 @@ export function Formations() {
   /** Membres de l'équipe inscrits à une session (recyclages et formations initiales visibles du manager). */
   const enrolled = (s: Session) => inscritsDe(d, s).filter(i => scope.some(e => e.id === i.empId)).map(i => i.nom);
   const openDetail = (s: Session) => openDialog({ type: 'sessionDetail', sessionId: s.id });
+  // lot 12 — C4 : organisme de la session (figé à sa création), sinon le texte du catalogue.
+  const organismeAffiche = (s: Session, texte: string) => organismeDeSession(d.ds, s)?.nomUsuel ?? (d.ds.referentiels.organismes ?? []).find(o => o.id === s.organismeId)?.nomUsuel ?? texte;
 
   const kicker = manager
     ? [
@@ -116,13 +121,23 @@ export function Formations() {
       ].join(' · ')
     : `${plural(forms.length, 'formation suivie', 'formations suivies')} · ${plural(upcoming.length, 'session à venir', 'sessions à venir')}${aCloturer.length ? ` · ${aCloturer.length} à clôturer` : ''}`;
 
+  // lot 12 — C4 : onglet E-learning dès qu'un module existe ou qu'une inscription est reçue (manager : son équipe).
+  const voitElearning = (d.ds.modulesElearning ?? []).length > 0 || (d.ds.inscriptionsElearning ?? []).length > 0;
+  const onglet = voitElearning ? ui.formOnglet : 'sessions';
+
   return (
     <Page
       kicker={kicker}
       title="Formations"
-      actions={<Seg name="typeForm" label="Type de formation" value={ui.typeForm} onChange={v => setUi({ typeForm: v })}
-        options={[['toutes', 'Toutes'], ['reg', 'Réglementaires'], ['rec', 'Recommandées'], ['int', 'Internes']]} />}
+      actions={onglet === 'sessions' ? <Seg name="typeForm" label="Type de formation" value={ui.typeForm} onChange={v => setUi({ typeForm: v })}
+        options={[['toutes', 'Toutes'], ['reg', 'Réglementaires'], ['rec', 'Recommandées'], ['int', 'Internes']]} /> : undefined}
     >
+      {/* lot 12 — C4 : sessions (écran d'avant le lot 12) ou modules d'e-learning. */}
+      {voitElearning && (
+        <Seg name="formOnglet" label="Onglet de Formations" value={onglet} onChange={v => setUi({ formOnglet: v })} style={{ alignSelf: 'flex-start', flexWrap: 'wrap' }}
+          options={[['sessions', 'Sessions et certifications'], ['elearning', 'E-learning']]} />
+      )}
+      {onglet === 'elearning' ? <ElearningFormations /> : <>
       {/* Évaluations à froid à faire sur l'équipe directe (lot 7, t121). */}
       {manager && <EvaluationsManagerPanel />}
       {manager && (
@@ -207,7 +222,7 @@ export function Formations() {
                   return (
                     <tr key={s.id} className="clickable" onClick={() => openDetail(s)}>
                       <td className="nowrap"><Ouvrir onOpen={() => openDetail(s)}>{plageCourte(s)}</Ouvrir></td>
-                      <td><Two main={fm.nom} sub={fm.organisme} /></td>
+                      <td><Two main={fm.nom} sub={organismeAffiche(s, fm.organisme)} /></td>
                       <td className="text-muted">{s.lieu}</td>
                       <td className="tnum nowrap">{plural(s.inscrits, 'inscrit', 'inscrits')}</td>
                       <td><Tag cls={SESS_CLS[SESSION_PASSEE]}>{SESSION_PASSEE}</Tag></td>
@@ -235,7 +250,7 @@ export function Formations() {
                   return (
                     <tr key={s.id} className={espaceRh ? 'clickable' : undefined} onClick={espaceRh ? () => openDetail(s) : undefined}>
                       <td className="nowrap">{espaceRh ? <Ouvrir onOpen={() => openDetail(s)}>{plageCourte(s)}</Ouvrir> : plageCourte(s)}</td>
-                      <td><Two main={fm.nom} sub={fm.organisme} /></td>
+                      <td><Two main={fm.nom} sub={organismeAffiche(s, fm.organisme)} /></td>
                       <td className="text-muted">{s.lieu}</td>
                       <td className="tnum nowrap">{plural(s.inscrits, 'inscrit', 'inscrits')}</td>
                       {manager && <td className={team.length ? undefined : 'text-muted'} style={{ fontSize: 13 }}>{team.length ? team.join(', ') : '—'}</td>}
@@ -270,7 +285,7 @@ export function Formations() {
                 return (
                   <tr key={s.id} className={espaceRh ? 'clickable' : undefined} onClick={espaceRh ? () => openDetail(s) : undefined}>
                     <td className="nowrap">{espaceRh ? <Ouvrir onOpen={() => openDetail(s)}>{sv.plage}</Ouvrir> : sv.plage}</td>
-                    <td><Two main={sv.nom} sub={fm.organisme} /></td>
+                    <td><Two main={sv.nom} sub={organismeAffiche(s, fm.organisme)} /></td>
                     <td className="text-muted">{s.lieu}</td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -305,7 +320,7 @@ export function Formations() {
                   return (
                     <tr key={s.id} className="clickable" onClick={() => openDetail(s)}>
                       <td className="nowrap"><Ouvrir onOpen={() => openDetail(s)}>{plageCourte(s)}</Ouvrir></td>
-                      <td><Two main={fm.nom} sub={fm.organisme} /></td>
+                      <td><Two main={fm.nom} sub={organismeAffiche(s, fm.organisme)} /></td>
                       <td className="text-muted">{s.lieu}</td>
                       <td className="tnum nowrap">{s.statut === 'Annulée' ? '—' : plural(s.inscrits, 'inscrit', 'inscrits')}</td>
                       <td><Tag cls={SESS_CLS[s.statut]}>{s.statut}</Tag></td>
@@ -322,6 +337,7 @@ export function Formations() {
       {espaceRh && <PasseportPrevention />}
       {/* Évaluation des formations (lot 7, t121) : le référent HSE, qui n'a pas Plan & budget, en voit ici les agrégats. */}
       {formations && !rh && !consultation && <IndicateursEvaluationPanel />}
+      </>}
     </Page>
   );
 }

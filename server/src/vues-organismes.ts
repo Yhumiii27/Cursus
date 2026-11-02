@@ -9,6 +9,10 @@
 //   ni le collaborateur (CHAMPS_HORS_VUES de server/src/vues-cache.ts).
 // - Inscriptions : les siennes pour le collaborateur, celles du périmètre pour le manager, toutes pour le référent HSE et la
 //   lecture seule ; sans aucun motif (correction, annulation), ni auteur, ni inscription annulée hors du service RH.
+// - Étape 2 : évaluations consolidées par organisme sur 3 exercices glissants (`indicateursOrganismes`), calculées ici sur
+//   toutes les données pour le référent HSE et la lecture seule, masquées sous SEUIL_ANONYMAT (aucun avis nominatif).
+import { SEUIL_ANONYMAT } from '../../shared/rules/evaluation-formation.ts';
+import { exercicesGlissants, HORIZONS_EVALUATIONS, indicateursOrganismes } from '../../shared/rules/organismes-suivi.ts';
 import type { InscriptionElearning, ModuleElearning, Organisme } from '../../shared/types-organismes.ts';
 import type { ContexteVueProfil, ContexteVueSalarie, Projection } from './vues-lot12.ts';
 
@@ -32,6 +36,7 @@ export function organismesVueSalarie(x: ContexteVueSalarie): Projection {
     modulesElearning: (x.full.modulesElearning ?? []).map(moduleSansCout),
     // Lignes par salarié (CHAMPS_PAR_SALARIE) : lues à travers le périmètre de la vue (`mine`).
     inscriptionsElearning: inscriptionsNeutres(x.mine(x.full.inscriptionsElearning ?? [])),
+    indicateursOrganismes: [],
   };
 }
 
@@ -45,5 +50,13 @@ export function organismesVueProfil(x: ContexteVueProfil): Projection {
     organismeTarifs: formations ? x.full.organismeTarifs ?? [] : [],
     modulesElearning: voit ? (x.full.modulesElearning ?? []).map(m => (formations ? m : moduleSansCout(m))) : [],
     inscriptionsElearning: voit ? inscriptionsNeutres(x.full.inscriptionsElearning ?? []) : [],
+    ...(voit ? { indicateursOrganismes: indicateursOrganismesVue(x) } : { indicateursOrganismes: [] }),
   };
 }
+
+/**
+ * Évaluations consolidées de la vue agrégée, pour chaque horizon proposé à l'écran (3 et 5 exercices glissants) : un cumul
+ * masqué ne se recompose pas à partir de lignes déjà masquées, il est donc calculé ici pour chaque horizon.
+ */
+const indicateursOrganismesVue = (x: ContexteVueProfil) =>
+  HORIZONS_EVALUATIONS.flatMap(n => indicateursOrganismes(x.d, exercicesGlissants(x.d.ti, n), SEUIL_ANONYMAT));

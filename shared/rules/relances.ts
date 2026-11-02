@@ -47,7 +47,9 @@ export const titrePalier = (palier: string) => (palier === 'echu' ? 'Échéances
 
 export type CategorieRelance = 'formation' | 'habilitation' | 'visite' | 'formalite' | 'sanitaire' | 'deplacement' | 'entretien' | 'contrat' | 'couverture'
   // lot 11 — dossiers OPCO (shared/rules/opco.ts, `relancesOpco`)
-  | 'opco';
+  | 'opco'
+  // lot 12 — C4 : fin de validité Qualiopi d'un organisme (shared/rules/organismes-suivi.ts, `relancesQualiopi`)
+  | 'organisme';
 
 /** Objet relancé : clé stable (avec la date de l'échéance : un renouvellement repart de zéro), salarié, libellé neutre. */
 export interface Relance {

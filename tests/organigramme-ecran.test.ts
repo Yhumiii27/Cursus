@@ -176,7 +176,8 @@ test('vue « organigramme » : trois espaces et profils restreints (sauf Comptab
   const data = { referentiels: { entites: ENTITES, sites: SITES, equipes: EQUIPES } } as never;
   assert.deepEqual(lireUrl('organigramme', '?entite=lyon&site=lab67', data), { orgEntite: 'lyon', orgSite: 'lab67', orgService: null, orgVue: 'liste' });
   assert.deepEqual(lireUrl('organigramme', '?entite=inconnue&site=x', data), { orgEntite: null, orgSite: null, orgService: null, orgVue: 'liste' });
-  assert.deepEqual(lireUrl('referentiels', '?onglet=entites', data), { refOnglet: 'entites' });
+  // lot 12 — C4 : fiche d'organisme et filtre de l'onglet Organismes, à leur valeur par défaut.
+  assert.deepEqual(lireUrl('referentiels', '?onglet=entites', data), { refOnglet: 'entites', orgSel: null, orgFiltre: 'tous' });
   assert.match(adresse('organigramme', { orgEntite: 'lyon', orgSite: null } as never), /^\/organigramme\?entite=lyon$/);
 });
 

@@ -117,6 +117,9 @@ export const PARAMS_URL: Partial<Record<View, Param[]>> = {
   formations: [
     code('formationFilter', 'formation', d => d.referentiels.formations),
     choix('typeForm', 'type', 'toutes', { reg: 'reglementaires', rec: 'recommandees', int: 'internes' }),
+    // lot 12 — C4 : onglet E-learning et filtre de ses inscriptions.
+    choix('formOnglet', 'onglet', 'sessions', { elearning: 'e-learning' }),
+    choix('elFiltre', 'inscriptions', 'ouvertes', { a_valider: 'a-valider', terminees: 'terminees', toutes: 'toutes' }),
   ],
   habilitations: [
     code('habType', 'habilitation', d => d.referentiels.habilitations),
@@ -133,7 +136,12 @@ export const PARAMS_URL: Partial<Record<View, Param[]>> = {
     formations: 'formations', habilitations: 'habilitations', postes: 'postes', destinations: 'destinations', activites: 'activites',
     // lot 11 — organigramme
     entites: 'entites',
-  })],
+    // lot 12 — C4
+    organismes: 'organismes', modules: 'modules-elearning',
+  }),
+  // lot 12 — C4 : fiche d'organisme ouverte (fiches complètes : espace RH) et filtre de la liste.
+  identifiant('orgSel', 'organisme', d => d.organismes ?? []),
+  choix('orgFiltre', 'filtre', 'tous', { a_verifier: 'a-verifier', qualiopi: 'qualiopi', nda: 'nda-absent', archives: 'archives' })],
   // lot 11 — organigramme : entité et site filtrés (codes du référentiel).
   organigramme: [codeEntite('orgEntite', 'entite', d => d.referentiels.entites ?? []), codeEntite('orgSite', 'site', d => d.referentiels.sites ?? []),
     // lot 12 — C7 (organigramme) : service choisi (nom d'une équipe du référentiel reçu) et présentation (liste par défaut).

@@ -641,6 +641,20 @@ export const TABLES = {
     unique: [['empId', 'debut', 'version']],
   },
   // lot 12 — C2 (notes de frais : activation)
+  // Dépenses des notes de frais médicaux (étape 2 : scission, choix par défaut du chantier, le delta d'une dépense passant
+  // le budget avec le marqueur « toute la table » de lignes_frais) : mêmes colonnes que `lignesFrais`, fermée en entier à
+  // Matrix et inscrite au journal des changements sans clé ; les autres dépenses (`lignesFrais`) y sont inscrites par clé.
+  // Identifiants communs aux deux tables (`insererLigneFrais`, server/src/frais-sante.ts) : une dépense se désigne par son
+  // seul identifiant. Migration PostgreSQL 0029_frais_sante.sql (dépenses médicales reprises de lignes_frais), SQLite
+  // lot12-frais-sante.
+  lignesFraisSante: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', noteId: 'int', empId: 'int', date: 'text', categorie: 'text', montant: 'real', devise: 'text', taux: 'real', montantEur: 'real',
+      tvaTaux: 'real', tvaMontant: 'real', commercant: 'text', forfait: 'text', km: 'real', vehiculeId: 'int', depart: 'text', arrivee: 'text',
+      invites: 'text', motifDepassement: 'text', sansJustificatif: 'bool', attestation: 'bool', montantRetenu: 'real', refuseeLe: 'text', refusMotif: 'text',
+    },
+  },
   // lot 12 — C3 (entretiens suivis et 360°) : objectifs fixés à un entretien annuel, évalués au suivant (migration
   // PostgreSQL 0024_entretiens_suivis, SQLite d'après TABLES et `lot12-entretiens-index`) ; tables du feedback 360°
   // (étape 3, module désactivé) : sollicitations, tampon des réponses en attente (chiffré, jamais lu par l'instantané) et
@@ -885,10 +899,12 @@ export const TABLES_SANS_REVISION: ReadonlySet<TableName> = new Set<TableName>([
  * entier dès qu'elles changent.
  */
 export const TABLES_CHANGEMENTS_SANS_CLE: ReadonlySet<TableName> = new Set<TableName>(['vaccinations', 'visas', 'demandesVisite', 'informationsCp', 'reprises',
-  // lot 11 — notes de frais : dépenses (frais médicaux en mission), fermées en entier à Matrix (migration 0020).
-  'lignesFrais',
+  // lot 11 — notes de frais : dépenses fermées en entier à Matrix (migration 0020) jusqu'au lot 12 ; depuis la scission
+  // (C2, migration 0029), les seules dépenses médicales (`lignesFraisSante`, ci-dessous), les autres inscrites par clé.
   // lot 12 — C1 (forfait annuel en heures)
-  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C2 (notes de frais : activation) : dépenses des notes de frais médicaux, fermées en entier à Matrix
+  // (migration 0029, demande docs/demandes/matrix-lot12-frais-sante.sql).
+  'lignesFraisSante',
   // lot 12 — C3 (entretiens suivis et 360°) : tables du feedback 360°, fermées en entier à Matrix ; l'ordre et la clé des
   // écritures ne doivent rattacher aucune réponse à un répondant (migration 0024).
   'feedbackSollicitations', 'feedbackTampon', 'feedbackReponses',

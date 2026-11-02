@@ -221,8 +221,8 @@ jobs:
           npm run charge -- --scenario ${{ steps.charge.outputs.scenarios }} --duree 60 --marge 3 ${{ steps.charge.outputs.exactitude }}
       # lot 12 — C2 (notes de frais : activation) : contrôle de seuil des notes de frais (npm run charge:frais, base SQLite
       # temporaire, 3 et 5 ans de frais), mêmes déclenchements que l'essai de charge. Verdicts du lot 12 : vues RH, manager et
-      # collaborateur, JSON de la vue RH, lecture brute, delta d'une dépense ; seuils de temps ×3 (machines partagées), seuils
-      # de taille tels quels. Non bloquant tant que les six verdicts ne passent pas (docs/ARCHITECTURE.md, « Lot 12 : notes de
+      # collaborateur, JSON de la vue RH, lecture brute, delta d'une dépense ; seuils absolus en millisecondes ×3 (machines
+      # partagées), rapports (lecture brute contre celle sans frais du même essai) et tailles tels quels. Non bloquant tant que les six verdicts ne passent pas (docs/ARCHITECTURE.md, « Lot 12 : notes de
       # frais, étape 2 ») : à rendre bloquant (retirer continue-on-error) avec l'activation par défaut du module.
       - name: Essai de charge des notes de frais (non bloquant)
         if: steps.charge.outputs.ans

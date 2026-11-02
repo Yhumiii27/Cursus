@@ -22,6 +22,7 @@ const { ActionError, makeCtx } = await import('../server/src/actions/context.ts'
 const { PROFIL_VIDE } = await import('../shared/rules/profil.ts');
 const { createECDH } = await import('node:crypto');
 const { SAMPLE_PLAN_CSV, SAMPLE_TRIPS_CSV } = await import('../shared/rules/imports.ts');
+const { insererLigneFrais } = await import('../server/src/frais-sante.ts');
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Role = User['role'];
 
@@ -221,9 +222,10 @@ const DEPENSE = { date: '2026-10-06', categorie: 'divers', montant: 20, sansJust
 const noteFrais = async (statut: string, medicale = false) => (await db.insert<{ id: number }>('notesFrais', {
   empId: 2, periode: '2026-10', voyageId: null, missionId: null, projet: null, medicale, statut, creeLe: '2026-10-06T08:00:00.000Z', creePar: 'Mehdi Benali',
 })).id;
-const ligneFrais = async (noteId: number, medicale = false) => (await db.insert<{ id: number }>('lignesFrais', {
+// lot 12 — C2 : dépense médicale dans sa table (scission), identifiant commun aux deux tables.
+const ligneFrais = async (noteId: number, medicale = false) => (await insererLigneFrais(db, { medicale }, {
   noteId, empId: 2, ...DEPENSE, ...(medicale ? { categorie: 'medical' } : {}), devise: 'EUR', montantEur: 20,
-})).id;
+} as never)).id;
 const noteAvecLigne = async (statut: string, medicale = false) => {
   const id = await noteFrais(statut, medicale);
   await ligneFrais(id, medicale);

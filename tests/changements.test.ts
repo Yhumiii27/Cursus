@@ -203,7 +203,12 @@ test('tables inscrites sans clé : exactement les tables fermées en entier à M
   // lignes_frais, sans clé) ; la liste de chacune s'ajoute à celle de 0014.
   // lot 12 — C3 : 0024 (tables du feedback 360°, sans clé).
   // lot 12 — C4 : 0025 (contacts et tarifs des organismes, sans clé).
-  const suivantes = ['0020_notes_frais', '0024_entretiens_suivis', '0025_organismes_elearning', /* lot 12 — C6 */ '0027_badgeage'].flatMap(m => /IF t IN \(([^)]*)\) THEN/.exec(lire(`server/migrations-pg/${m}.sql`))?.[1].split(',') ?? []);
+  // lot 12 — C2 : 0029 (lignes_frais_sante, sans clé) ; lignes_frais, sans clé dans 0020, y est inscrite par clé (fonctions
+  // de ses déclencheurs remplacées).
+  const suivantes = ['0020_notes_frais', '0024_entretiens_suivis', '0025_organismes_elearning', /* lot 12 — C6 */ '0027_badgeage', /* lot 12 — C2 */ '0029_frais_sante']
+    .flatMap(m => /IF t IN \(([^)]*)\) THEN/.exec(lire(`server/migrations-pg/${m}.sql`))?.[1].split(',') ?? [])
+    .filter(t => t.trim() !== "'lignes_frais'");
+  assert.match(lire('server/migrations-pg/0029_frais_sante.sql'), /CREATE OR REPLACE FUNCTION %I\(\)[\s\S]*ARRAY\['lignes_frais_sante', 'lignes_frais'\]|ARRAY\['lignes_frais_sante', 'lignes_frais'\][\s\S]*CREATE OR REPLACE FUNCTION/);
   assert.deepEqual([...liste.split(','), ...suivantes].map(t => t.trim().replace(/'/g, '')).sort(), attendues);
   assert.match(migration, /COMMENT ON TABLE "changements" IS '[^\n]*Sensible \(table entière/);
   // Nom inscrit à l'écriture, jamais figé à la création des fonctions.

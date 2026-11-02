@@ -78,8 +78,9 @@ export interface SyntheseNote {
 }
 /**
  * Alertes d'une note : celles que le serveur a jointes à la vue (`alertesFrais` : manager, collaborateur, comptabilité,
- * dont l'instantané n'a pas tout ce qu'elles lisent) pour une note en circuit ; sinon calculées sur l'instantané (service
- * RH, qui a tout ; notes closes, dont les alertes ne décident plus de rien).
+ * service RH depuis le lot 12 — dont l'instantané n'a pas tout ce qu'elles lisent, ou plus toutes les dépenses de l'année)
+ * pour une note en circuit ; sinon calculées sur l'instantané (notes closes, dont les alertes ne décident plus de rien ;
+ * leur part réintégrable vient du serveur, `reintegrableFrais`).
  */
 export function alertesNote(d: Domain, n: NoteFrais, lignes: readonly LigneFrais[]): Map<number, AlerteFrais[]> {
   const serveur = d.ds.alertesFrais;
@@ -95,7 +96,8 @@ export function syntheseNote(d: Domain, n: NoteFrais): SyntheseNote {
   const toutes = [...alertes.values()].flat();
   return {
     n, lignes, demande: t.demande, retenu: t.retenu, nb: t.lignes, refusees: t.refusees, detail: t.detail, alertes,
-    bloquantes: bloquantes(toutes).length, reintegrable: totalReintegrable(toutes),
+    // lot 12 — C2 : part calculée par le serveur sur l'instantané complet quand la vue la porte (service RH, comptabilité).
+    bloquantes: bloquantes(toutes).length, reintegrable: d.ds.reintegrableFrais ? (d.ds.reintegrableFrais[n.id] ?? 0) : totalReintegrable(toutes),
     tva: Math.round(lignes.reduce((s, l) => s + tvaRecuperable(l), 0) * 100) / 100,
   };
 }

@@ -4,6 +4,7 @@
 // d'historique.
 import type { Db } from '../../server/src/db.ts';
 import { trancheDemo } from '../../server/src/frais-demo.ts';
+import { insererLigneFrais } from '../../server/src/frais-sante.ts';
 
 /** Borne de la fenêtre au 10 octobre 2026 : une note payée avant cette date est archivée. */
 export const BORNE_ESSAI = '2025-09-10';
@@ -51,7 +52,12 @@ export async function notesArchivees(db: Db): Promise<NotesArchivees> {
     const ligneBord = await ligne(bord, 2, '2025-08-20', 'train', 42, { commercant: 'SNCF' });
     const pieceBord = await piece(2, 'ligneFrais', ligneBord, 'empreinte-train-2025');
     const medicale = await note(2, '2025-05', '2025-06-28', { medicale: true, valideeLe: null, valideePar: null });
-    const ligneMedicale = await ligne(medicale, 2, '2025-05-10', 'medical', 35);
+    // lot 12 — C2, étape 2 : dépense médicale dans sa table (scission), identifiant commun aux deux tables.
+    const ligneMedicale = (await insererLigneFrais(db, { medicale: true }, {
+      noteId: medicale, empId: 2, date: '2025-05-10', categorie: 'medical', montant: 35, devise: 'EUR', taux: null, montantEur: 35, tvaTaux: null, tvaMontant: null,
+      commercant: null, forfait: null, km: null, vehiculeId: null, depart: null, arrivee: null, invites: null, motifDepassement: null, sansJustificatif: false,
+      attestation: false, montantRetenu: null, refuseeLe: null, refusMotif: null,
+    })).id;
     const pieceMedicale = await piece(2, 'ligneFraisSante', ligneMedicale, 'empreinte-vaccin-2025');
     const thomas = await note(6, '2025-04', '2025-05-28');
     await ligne(thomas, 6, '2025-04-10', 'hotel', 96, { commercant: 'Hôtel de la Gare' });

@@ -104,7 +104,8 @@ export const TRAITEMENTS: Record<string, Traitement> = {
   'avances_frais.emp_id': { mode: 'lignes', categorie: 'frais' },
   // lot 12 — C1 (forfait annuel en heures) : lignes gardées avec les avenants du forfait jours (élément de paie), motifs vidés.
   'clotures_forfait_heures.emp_id': { mode: 'textes', categorie: 'paie' },
-  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C2 (notes de frais : activation) : dépenses des notes médicales (scission), comme celles des autres notes.
+  'lignes_frais_sante.emp_id': { mode: 'lignes', categorie: 'frais' },
   // lot 12 — C3 (entretiens suivis et 360°)
   // Objectifs (et souhaits, dans la ligne de l'entretien) avec les entretiens : 5 ans après le départ par défaut (choix par
   // défaut du chantier) ; feedback 360° (étape 3) : lignes de l'évalué et du répondant supprimées avec ses entretiens (les
@@ -244,11 +245,15 @@ export function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number
     case 'frais': {
       const limite = addM(cx.ti || todayIso(), -12 * (cx.fraisAns ?? 10));
       const lignes = `SELECT l.id FROM lignes_frais l JOIN notes_frais n ON n.id = l.note_id WHERE ${noteHorsTerme(limite)}`;
+      // lot 12 — C2 : dépenses des notes médicales (scission), justificatifs de santé.
+      const sante = `SELECT l.id FROM lignes_frais_sante l JOIN notes_frais n ON n.id = l.note_id WHERE ${noteHorsTerme(limite)}`;
+      const pieces = `((objet = 'ligneFrais' AND objet_id IN (${lignes})) OR (objet = 'ligneFraisSante' AND objet_id IN (${sante})))`;
       return [
-        retrait(cx, `emp_id = ? AND objet IN ('ligneFrais', 'ligneFraisSante') AND objet_id IN (${lignes})`),
+        retrait(cx, `emp_id = ? AND ${pieces}`),
         // Pièces détachées des lignes supprimées ci-dessous (description gardée, sans objet désigné).
-        { table: 'pieces', ou: `emp_id = ? AND objet IN ('ligneFrais', 'ligneFraisSante') AND objet_id IN (${lignes})`, vider: ['objet_id'] },
+        { table: 'pieces', ou: `emp_id = ? AND ${pieces}`, vider: ['objet_id'] },
         { table: 'lignes_frais', ou: `emp_id = ? AND id IN (${lignes})`, supprimer: true },
+        { table: 'lignes_frais_sante', ou: `emp_id = ? AND id IN (${sante})`, supprimer: true },
         { table: 'notes_frais', ou: `emp_id = ? AND id IN (SELECT n.id FROM notes_frais n WHERE ${noteHorsTerme(limite)})`, supprimer: true },
         { table: 'avances_frais', ou: `emp_id = ? AND ${avanceHorsTerme(limite)}`, supprimer: true },
         retrait(cx, `emp_id = ? AND objet = 'vehiculePerso' AND objet_id NOT IN (${VEHICULES_UTILISES})`),

@@ -408,9 +408,11 @@ Lot 12 (C2, étape 1) : l'instantané ne porte plus que les notes payées depuis
 sont pas payées) ; les plus anciennes restent en base et se lisent par `GET /api/frais/historique` et
 `GET /api/frais/historique/:noteId`, filtrées par les mêmes droits ; une note archivée ne se modifie plus (409) ;
 essai de charge : `npm run charge:frais` (3 et 5 ans, verdicts).
-Lot 12, étape 2 : dépenses et justificatifs dans l'instantané pour les seules notes en circuit ou payées depuis moins
-de 2 mois (résumés calculés pour les autres) ; « Notes plus anciennes » (Mes frais) et onglet « Historique » (service RH,
-comptabilité) ; prérequis de l'activation dans Paramètres ; module toujours désactivé par défaut (verdicts de charge).
+Lot 12, étape 2 : vues du service RH et de la comptabilité limitées aux dépenses des notes en circuit ou payées depuis
+moins de 2 mois (résumés, parts réintégrables et alertes calculés par le serveur) ; frais médicaux dans
+`lignes_frais_sante` (migration 0029, SQLite `lot12-frais-sante`) ; « Notes plus anciennes » (Mes frais) et onglet
+« Historique » (service RH, comptabilité) ; prérequis de l'activation dans Paramètres ; module toujours désactivé par
+défaut (verdicts de charge).
 Détail : `docs/ARCHITECTURE.md` ; demandes : `docs/demandes/codex-lot11-pieces.md`, `keystone-lot11-frais.md`,
 `matrix-lot11-frais.sql`.
 

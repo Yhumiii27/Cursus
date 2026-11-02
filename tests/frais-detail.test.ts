@@ -1,10 +1,10 @@
 // Notes de frais, lot 12, chantier C2, étape 2 (option des 2 mois, réponse du propriétaire du 1er novembre 2026) : les
-// dépenses et justificatifs n'entrent dans l'instantané que pour les notes en circuit, annulées ou payées depuis moins de
-// 2 mois ; les autres notes de la fenêtre de 13 mois y ont un résumé calculé en base (`resumesFrais`) :
+// vues du service RH et de la comptabilité ne reçoivent les dépenses et justificatifs que des notes en circuit, annulées
+// ou payées depuis moins de 2 mois ; les autres notes de la fenêtre de 13 mois y ont un résumé calculé par le serveur
+// (`resumesFrais`) ; le manager et le collaborateur gardent tout le détail de la fenêtre :
 // - règles pures : borne du détail, totaux d'une note par ses dépenses ou son résumé, totaux d'équipe, catégories ;
-// - résumés par profil, filtrés comme les notes : service RH et comptabilité (frais médicaux compris), manager limité à
-//   `idsFrais` (jamais une note médicale d'autrui), collaborateur (les siens), rien pour la paie, le référent HSE et la
-//   lecture seule ;
+// - vues : résumés, parts réintégrables et alertes du service RH et de la comptabilité calculés sur l'instantané complet
+//   (cumul kilométrique exact de l'année) ; rien pour la paie, le référent HSE et la lecture seule ;
 // - prérequis de l'activation (Paramètres → Notes de frais) ; écran : notes plus anciennes et recherche de l'historique.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -20,7 +20,13 @@ const { prerequisFrais, RUBRIQUES_FRAIS } = await import('../shared/rules/frais-
 const { REGLAGES } = await import('../shared/reglages.ts');
 const { notesArchivees } = await import('./support/frais-archives.ts');
 const H = await import('../client/src/components/frais/historique.ts');
-const { depensesParMois } = await import('../client/src/components/frais/commun.ts');
+const C = await import('../client/src/components/frais/commun.ts');
+const { depensesParMois } = C;
+const { Domain } = await import('../shared/domain.ts');
+const { loadFull } = await import('../server/src/dataset.ts');
+const { limitesIk } = await import('../shared/rules/frais-paie.ts');
+const { alertesDeNote } = await import('../shared/rules/frais-alertes.ts');
+const { totalReintegrable } = await import('../shared/rules/frais-politique.ts');
 const { LIBELLES_ONGLETS_FRAIS, ongletFraisDe, ongletsFrais } = await import('../client/src/components/frais/onglets.ts');
 import type { LigneFrais, NoteFrais, ResumeNoteFrais } from '../shared/types.ts';
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
@@ -34,6 +40,7 @@ test('règle du détail : borne à 2 mois, notes en circuit, annulées et payée
   assert.equal(F.detailEnLigne({ statut: 'payee', payeeLe: '2026-08-10' }, T), true, 'payée le jour de la borne : détaillée');
   assert.equal(F.detailEnLigne({ statut: 'annulee', payeeLe: null }, T), true);
   assert.equal(F.detailEnLigne({ statut: 'controlee', payeeLe: null }, T), true);
+  assert.equal(F.detailEnLigne({ statut: 'payee', payeeLe: null }, T), true, 'payée sans date : gardée détaillée');
 });
 
 const ligne = (id: number, noteId: number, categorie: LigneFrais['categorie'], montantEur: number, o: Partial<LigneFrais> = {}) =>
@@ -98,45 +105,67 @@ test('prérequis de l’activation : comptes, rubriques FRAIS_* actives et confi
   assert.match(une[1].detail, /: FRAIS_IK ;/);
 });
 
-test('résumés par profil : filtrés comme les notes, frais médicaux jamais au manager, rien pour la paie, le HSE et la lecture seule', async () => {
+test('vues : détail de 2 mois pour le service RH et la comptabilité seulement, résumés, parts réintégrables et alertes sur l’instantané complet', async () => {
   const db = await nouvelleBase();
   await seedDemo(db);
   const a = await notesArchivees(db);
-  const note = async (empId: number, periode: string, payeeLe: string, medicale = false) => (await db.insert<{ id: number }>('notesFrais', {
-    empId, periode, voyageId: null, missionId: null, projet: null, medicale, statut: 'payee', creeLe: `${periode}-28T17:00:00.000Z`, creePar: 'Essai', payeeLe, lotId: null,
+  const note = async (empId: number, periode: string, payeeLe: string | null, o: Record<string, unknown> = {}) => (await db.insert<{ id: number }>('notesFrais', {
+    empId, periode, voyageId: null, missionId: null, projet: null, medicale: false, statut: payeeLe ? 'payee' : 'brouillon', creeLe: `${periode}-28T17:00:00.000Z`, creePar: 'Essai', payeeLe, lotId: null, ...o,
   })).id;
-  const depense = async (noteId: number, empId: number, categorie: string, montant: number) => await db.insert('lignesFrais', {
-    noteId, empId, date: '2026-05-12', categorie, montant, devise: 'EUR', montantEur: montant, sansJustificatif: true, attestation: true,
-  });
-  const medicale = await note(2, '2026-05', '2026-06-28', true);
-  await depense(medicale, 2, 'medical', 40);
+  const depense = async (noteId: number, empId: number, categorie: string, montant: number, o: Record<string, unknown> = {}) => (await db.insert<{ id: number }>('lignesFrais', {
+    noteId, empId, date: '2026-05-12', categorie, montant, devise: 'EUR', montantEur: montant, sansJustificatif: true, attestation: true, ...o,
+  })).id;
   const ordinaire = await note(2, '2026-04', '2026-05-28');
   await depense(ordinaire, 2, 'repas', 20);
   await depense(ordinaire, 2, 'train', 31.5);
+  // Payée le 1er juillet : allocation repas de 35 € pour une limite de 21,10 € (13,90 € réintégrables), hors du détail.
+  const allocation = await note(2, '2026-06', '2026-07-01');
+  await depense(allocation, 2, 'forfait', 35, { date: '2026-06-10', forfait: 'repas_restaurant' });
+  // Trajets de 6 000 km payés en juillet (hors du détail), puis une note en circuit de 300 km en octobre, véhicule de 8 CV :
+  // la limite d'exonération de la note en circuit dépend du cumul de l'année.
+  const v8 = await db.insert<{ id: number }>('vehiculesPerso', { empId: 6, type: 'voiture', cv: 8, electrique: false, du: '2026-01-01', au: null, creeLe: '2026-01-02T08:00:00.000Z', creePar: 'Essai' });
+  const trajets = await note(6, '2026-06', '2026-07-28');
+  await depense(trajets, 6, 'ik', 3500, { date: '2026-06-15', km: 6000, vehiculeId: v8.id });
+  const enCircuit = await note(6, '2026-10', null);
+  const trajet = await depense(enCircuit, 6, 'ik', 250, { date: '2026-10-05', km: 300, vehiculeId: v8.id });
   const recente = await note(2, '2026-08', '2026-09-28');
   await depense(recente, 2, 'repas', 15);
-  const nadia = await note(9, '2026-04', '2026-05-28');
-  await depense(nadia, 9, 'hotel', 90);
   const compte = async (empId: number | null) => (await db.one<{ id: number }>(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : []))!.id;
   const vue = async (empId: number | null, role: User['role']) => await buildSnapshot(db, (await currentUser(db, { compteId: await compte(empId), role, methode: 'demo' }))!);
   const ids = (ds: { resumesFrais?: ResumeNoteFrais[] }) => (ds.resumesFrais ?? []).map(r => r.noteId).sort((x, y) => x - y);
+  const full = new Domain(await loadFull(db, (await currentUser(db, { compteId: await compte(null), role: 'rh', methode: 'demo' }))!));
 
   const rh = await vue(null, 'rh');
-  assert.deepEqual(ids(rh), [a.bord, medicale, ordinaire, nadia].sort((x, y) => x - y), 'notes payées entre les deux bornes');
+  assert.deepEqual(ids(rh), [a.bord, ordinaire, allocation, trajets].sort((x, y) => x - y), 'notes payées entre les deux bornes');
   assert.deepEqual(rh.resumesFrais!.find(r => r.noteId === ordinaire), { noteId: ordinaire, empId: 2, depenses: 2, refusees: 0, demande: 51.5, retenu: 51.5, parCategorie: { repas: 20, train: 31.5 } });
   assert.ok(!rh.lignesFrais!.some(l => l.noteId === ordinaire) && rh.lignesFrais!.some(l => l.noteId === recente), 'détail des seules notes payées depuis moins de 2 mois');
+  assert.ok(!rh.pieces!.some(p => p.id === a.pieceBord), 'justificatifs des dépenses retirées : retirés aussi');
   assert.ok(rh.notesFrais!.some(n => n.id === ordinaire), 'en-tête de la note dans l’instantané');
-  assert.deepEqual(ids(await vue(21, 'rh')), ids(rh), 'comptabilité : tout, frais médicaux compris');
-  assert.deepEqual(ids(await vue(2, 'collaborateur')), [a.bord, medicale, ordinaire].sort((x, y) => x - y), 'collaborateur : les siens, médicaux compris');
+  // Part réintégrable calculée par le serveur pour une note sans son détail (tableau de bord).
+  assert.equal(rh.reintegrableFrais![allocation], 13.9);
+  const dRh = new Domain(rh);
+  assert.equal(C.syntheseNote(dRh, rh.notesFrais!.find(n => n.id === allocation)!).reintegrable, 13.9);
+  // Note en circuit : alertes et part réintégrable sur le cumul exact de l'année (les trajets de juillet sont hors de la vue).
+  const nc = rh.notesFrais!.find(n => n.id === enCircuit)!;
+  assert.notEqual(limitesIk(dRh)(rh.lignesFrais!.find(l => l.id === trajet)!), limitesIk(full)(full.ds.lignesFrais!.find(l => l.id === trajet)!), 'la vue seule tronquerait le cumul');
+  assert.deepEqual(C.syntheseNote(dRh, nc).alertes, alertesDeNote(full, nc));
+  assert.equal(C.syntheseNote(dRh, nc).reintegrable, totalReintegrable([...alertesDeNote(full, nc).values()].flat()));
+  assert.equal(rh.reintegrableFrais![enCircuit] ?? 0, totalReintegrable([...alertesDeNote(full, nc).values()].flat()));
+  // Comptabilité : même détail, frais médicaux compris.
+  const compta = await vue(21, 'rh');
+  assert.deepEqual(ids(compta), ids(rh));
+  assert.deepEqual(compta.reintegrableFrais, rh.reintegrableFrais);
+  assert.ok(!compta.lignesFrais!.some(l => l.noteId === ordinaire));
+  // Manager et collaborateur : tout le détail de la fenêtre, aucun résumé (réponse du propriétaire : vues RH et comptabilité).
+  const mehdi = await vue(2, 'collaborateur');
+  assert.deepEqual([ids(mehdi), mehdi.reintegrableFrais], [[], undefined]);
+  assert.ok(mehdi.lignesFrais!.some(l => l.noteId === ordinaire) && mehdi.lignesFrais!.some(l => l.noteId === allocation));
+  assert.equal(C.syntheseNote(new Domain(mehdi), mehdi.notesFrais!.find(n => n.id === allocation)!).reintegrable, 13.9);
   const karim = await vue(12, 'manager');
-  assert.ok(ids(karim).includes(ordinaire) && ids(karim).includes(a.bord), 'manager : notes de Mehdi Benali (idsFrais)');
-  assert.ok(!ids(karim).includes(medicale), 'jamais une note médicale d’autrui');
-  assert.ok(!ids(karim).includes(nadia), 'hors de idsFrais');
-  assert.deepEqual(ids(await vue(6, 'collaborateur')), [], 'un autre salarié : rien');
+  assert.ok(karim.lignesFrais!.some(l => l.noteId === ordinaire) && !ids(karim).length);
   for (const [empId, quoi] of [[7, 'paie'], [23, 'référent HSE'], [11, 'lecture seule']] as const) {
     const ds = await vue(empId, 'rh');
-    assert.deepEqual([ds.resumesFrais, ds.lignesFrais], [[], []], quoi);
+    assert.deepEqual([ds.resumesFrais ?? [], ds.lignesFrais, ds.reintegrableFrais], [[], [], undefined], quoi);
   }
-  assert.ok(CHAMPS_PAR_SALARIE.has('resumesFrais'));
-  assert.deepEqual(LECTURES.resumesFrais, ['notesFrais', 'lignesFrais']);
+  assert.ok(!CHAMPS_PAR_SALARIE.has('resumesFrais') && !('resumesFrais' in LECTURES), 'calculés par la vue, jamais lus');
 });

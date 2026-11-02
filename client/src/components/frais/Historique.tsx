@@ -120,14 +120,6 @@ export function DetailHistorique({ id, onClose, titre }: { id: number; onClose: 
   );
 }
 
-/** Dépenses d'une note de l'instantané payée depuis plus de 2 mois, chargées à l'ouverture (`DetailNote`). */
-export function DepensesDemandees({ note }: { note: NoteFrais }) {
-  const { h, erreur } = useNoteHistorique(note.id);
-  if (erreur) return <Fine muted={false}>Dépenses non chargées — {erreur}</Fine>;
-  if (!h) return <Fine>Chargement des dépenses…</Fine>;
-  return <ContenuHistorique h={h} />;
-}
-
 /** Pages chargées d'une recherche (une page de plus à chaque « Afficher plus »). */
 interface Lu { page: PageHistoriqueFrais; notes: NoteFrais[]; totaux: Record<number, number> }
 const cumuler = (avant: Lu | null, page: PageHistoriqueFrais): Lu => ({

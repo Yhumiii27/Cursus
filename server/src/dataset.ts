@@ -45,7 +45,7 @@ import { organigrammeOuvertA } from '../../shared/rules/organigramme.ts';
 import type { ArreteIndicateurs, DossierOpco } from '../../shared/types.ts';
 // lot 11 — dossiers OPCO
 // lot 11 — notes de frais
-import { fraisVueProfil, fraisVueSalarie, piecesFraisManager, vueComptabilite } from './frais-vues.ts';
+import { fraisVueGestion, fraisVueProfil, fraisVueSalarie, piecesFraisManager, vueComptabilite } from './frais-vues.ts';
 // lot 12 — projections des chantiers, chacune dans son fichier (contexte : server/src/vues-lot12.ts).
 import { forfaitHeuresVueProfil, forfaitHeuresVueSalarie } from './vues-forfait-heures.ts';
 import { entretiensSuivisVueProfil, entretiensSuivisVueSalarie } from './vues-entretiens-suivis.ts';
@@ -415,6 +415,8 @@ export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre 
         ...full, taches: tachesProches(full.taches, full.today), ...(droits.includes('paie') ? {} : sansCodesAbsences(full)), couverture: etatsCouverture(full, full.settings.horizonAlerte),
         // Compte professionnel de prévention (t052) : synthèse calculée ici sur toutes les feuilles validées.
         c2p: c2pDe(full),
+        // lot 12 — C2 (notes de frais : activation) : détail de 2 mois, résumés, parts réintégrables et alertes.
+        ...fraisVueGestion(full, new Domain(full)),
       }
       : vueProfil(full, droits);
   }

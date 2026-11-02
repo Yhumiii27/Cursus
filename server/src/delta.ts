@@ -21,7 +21,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { Dataset, Envoi } from '../../shared/types.ts';
 import { type Changements, type Db, TABLES, type TableName } from './db.ts';
-import { lireResumesFrais } from './frais-base.ts';
 import {
   type Brut, COLONNES_OMISES, DEP_PAIE, fenetreDe, LECTURES, lireReglages, lireTable, ORDRE_LECTURE, type ReglagesBruts, statutsDesEnvois,
 } from './lecture-brute.ts';
@@ -30,7 +29,7 @@ import {
 export const SEUIL_RELECTURE = 2000;
 
 /** Tables de la lecture brute : chaque propriété de `Brut` sauf le jour, les réglages et le statut des envois porte le nom de sa table. */
-type TableBrute = Exclude<keyof Brut, 'jour' | 'reglages' | 'statutsEnvoi' | 'resumesFrais'>;
+type TableBrute = Exclude<keyof Brut, 'jour' | 'reglages' | 'statutsEnvoi'>;
 type Ligne = Record<string, unknown>;
 
 /** Lignes relues d'une table : toute la table (`tout`), ou les lignes encore présentes parmi les clés changées `cles`. */
@@ -49,8 +48,6 @@ export interface Delta {
    * tous les relevés (`tous`) ou les seuls concernés. Null si ni les relevés ni les envois n'ont changé.
    */
   statuts: { tous: boolean; ids: ReadonlySet<number>; valeurs: ReadonlyMap<number, Envoi['statut']> } | null;
-  /** lot 12 — C2 : résumés des notes de frais sans leurs dépenses, relus si les notes ou les dépenses ont changé, sinon null. */
-  resumesFrais: Brut['resumesFrais'] | null;
 }
 
 /** Issue de la fusion d'un delta : la lecture brute suivante et ce qui a changé. */
@@ -208,10 +205,7 @@ export async function lireDelta(db: Db, brut: Brut, changements: Changements): P
     }
     statuts = { tous, ids, valeurs: ids.size ? await statutsDesEnvois(db, [...ids].map(envoiId => ({ envoiId }))) : new Map() };
   }
-  // lot 12 — C2 : résumés des notes de frais (agrégats en base, `lireResumesFrais`), relus dès que les notes ou les
-  // dépenses ont changé : le marqueur « toute la table » de lignes_frais ne dit pas quelle note est touchée.
-  const resumesFrais = changements.has('notesFrais') || changements.has('lignesFrais') ? await lireResumesFrais(db, today) : null;
-  return { changements, tables, reglages, statuts, resumesFrais };
+  return { changements, tables, reglages, statuts };
 }
 
 /**
@@ -242,23 +236,6 @@ export function appliquerDelta(brut: Brut, delta: Delta): Fusion {
       if (s !== undefined) statuts.set(id, s);
     }
     if (!isDeepStrictEqual(statuts, brut.statutsEnvoi)) { out.statutsEnvoi = statuts; changees.add('envois'); }
-  }
-  // lot 12 — C2 : résumés relus, repris par identité s'ils n'ont pas changé ; sinon comptés au titre des dépenses (leur
-  // table au journal), salariés des résumés changés touchés.
-  if (delta.resumesFrais) {
-    const avant = new Map(brut.resumesFrais.map(r => [r.noteId, r]));
-    let change = avant.size !== delta.resumesFrais.length;
-    const out2 = delta.resumesFrais.map(r => {
-      const a = avant.get(r.noteId);
-      avant.delete(r.noteId);
-      if (a && isDeepStrictEqual(a, r)) return a;
-      change = true;
-      if (a) touches.add(a.empId);
-      touches.add(r.empId);
-      return r;
-    });
-    for (const a of avant.values()) touches.add(a.empId);
-    if (change) { out.resumesFrais = out2; changees.add('lignesFrais'); }
   }
   const champsChanges = new Set<keyof Dataset>();
   for (const [champ, tables] of Object.entries(LECTURES) as [keyof Dataset, readonly TableName[]][]) {

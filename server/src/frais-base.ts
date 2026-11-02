@@ -8,9 +8,7 @@
 //   d'avance déjà transmises par des notes archivées ;
 // - notes à exporter en comptabilité : toutes celles de la base, une note payée et jamais exportée ne disparaît pas.
 // `avecHistorique` complète un instantané des lignes utiles à ces règles, sans jamais le modifier en place.
-import type { CategorieFrais, Dataset, LigneFrais, NoteFrais, ResumeNoteFrais } from '../../shared/types.ts';
-import { borneDetailFrais, borneFrais } from '../../shared/rules/frais-fenetre.ts';
-import { r2 } from '../../shared/rules/frais.ts';
+import type { Dataset, LigneFrais, NoteFrais } from '../../shared/types.ts';
 import { STATUTS_EXPORTABLES } from '../../shared/rules/frais-export.ts';
 import { lignesIkDeLAnnee } from '../../shared/rules/frais-km.ts';
 import type { Db, SqlValeur } from './db.ts';
@@ -35,10 +33,23 @@ async function idsParPaquets(db: Db, sql: (marques: string) => string, liste: re
 }
 
 /** Lignes de `table` désignées par `cles`, décodées (`Db.lireLignes`) ; aucune pour une liste vide. */
-const lire = async <T>(db: Db, table: 'notesFrais' | 'lignesFrais' | 'pieces', cles: Iterable<number>): Promise<T[]> => {
+const lire = async <T>(db: Db, table: 'notesFrais' | 'lignesFrais' | 'lignesFraisSante' | 'pieces', cles: Iterable<number>): Promise<T[]> => {
   const l = [...new Set(cles)];
   return l.length ? await db.lireLignes<T>(table, l.map(String)) : [];
 };
+
+/**
+ * lot 12 — C2 : dépenses désignées par `cles`, ordinaires et médicales (deux tables aux identifiants communs,
+ * server/src/frais-sante.ts), dans l'ordre des identifiants.
+ */
+const lireDepenses = async (db: Db, cles: Iterable<number>): Promise<LigneFrais[]> => {
+  const l = [...new Set(cles)];
+  if (!l.length) return [];
+  return [...await lire<LigneFrais>(db, 'lignesFrais', l), ...await lire<LigneFrais>(db, 'lignesFraisSante', l)].sort((a, b) => a.id - b.id);
+};
+
+/** lot 12 — C2 : la même condition `ou` sur les deux tables de dépenses (paramètres répétés), identifiants réunis. */
+const dansLesDeux = (ou: string) => `SELECT id FROM lignes_frais WHERE ${ou} UNION ALL SELECT id FROM lignes_frais_sante WHERE ${ou}`;
 
 /** Bornes AAAA-MM-JJ d'une année civile. */
 const annee = (a: number): [string, string] => [`${a}-01-01`, `${a}-12-31`];
@@ -47,6 +58,7 @@ const annee = (a: number): [string, string] => [`${a}-01-01`, `${a}-12-31`];
  * Lignes kilométriques d'un salarié pour une année, toutes lues en base (archivées comprises), et leurs notes : de quoi
  * appliquer `lignesIkDeLAnnee`, `ikTransmises` et `indemnitesIkAnnee` sur le cumul exact de l'année.
  */
+// Indemnités kilométriques : jamais dans une note médicale (`erreurCategoriePourNote`), donc dans `lignes_frais` seule.
 export async function lignesIkEnBase(db: Db, empId: number, a: number): Promise<{ lignes: LigneFrais[]; notes: NoteFrais[] }> {
   const lignes = await lire<LigneFrais>(db, 'lignesFrais', await ids(db, `SELECT id FROM lignes_frais WHERE emp_id = ? AND categorie = 'ik' AND date >= ? AND date <= ?`, [empId, ...annee(a)]));
   const notes = await lire<NoteFrais>(db, 'notesFrais', lignes.map(l => l.noteId));
@@ -82,7 +94,7 @@ export async function avecHistorique(db: Db, ds: Dataset, lignes: readonly Depen
     const cle = `${l.empId}|${l.date}`;
     if (!vus.has(cle)) {
       vus.add(cle);
-      for (const id of await ids(db, 'SELECT id FROM lignes_frais WHERE emp_id = ? AND date = ?', [l.empId, l.date])) cherchees.add(id);
+      for (const id of await ids(db, dansLesDeux('emp_id = ? AND date = ?'), [l.empId, l.date, l.empId, l.date])) cherchees.add(id);
     }
     const ik = `${l.empId}|ik|${l.date.slice(0, 4)}`;
     if (l.categorie === 'ik' && !vus.has(ik)) {
@@ -97,7 +109,7 @@ export async function avecHistorique(db: Db, ds: Dataset, lignes: readonly Depen
   const pieces = await lire<PieceEnregistree>(db, 'pieces', (await idsParPaquets(db, m => `SELECT id FROM pieces WHERE objet IN ('ligneFrais', 'ligneFraisSante') AND retiree_le IS NULL AND empreinte IN (${m})`, empreintes))
     .filter(id => !piecesDeja.has(id)));
   for (const p of pieces) if (p.objetId) cherchees.add(p.objetId);
-  const extra = await lire<LigneFrais>(db, 'lignesFrais', [...cherchees].filter(id => !deja.has(id)));
+  const extra = await lireDepenses(db, [...cherchees].filter(id => !deja.has(id)));
   if (!extra.length && !pieces.length) return ds;
   const notesDeja = new Set((ds.notesFrais ?? []).map(n => n.id));
   const notes = await lire<NoteFrais>(db, 'notesFrais', extra.map(l => l.noteId).filter(id => !notesDeja.has(id)));
@@ -137,45 +149,14 @@ export async function notesExportablesEnBase(db: Db): Promise<NoteFrais[]> {
 
 /** Dépenses des notes `notes`, lues en base. */
 export async function lignesDesNotesEnBase(db: Db, notes: readonly number[]): Promise<LigneFrais[]> {
-  return await lire<LigneFrais>(db, 'lignesFrais', await idsParPaquets(db, m => `SELECT id FROM lignes_frais WHERE note_id IN (${m})`, notes));
+  // Une note n'a de dépenses que dans une table (sa nature ne change pas) : les deux sont lues.
+  return await lireDepenses(db, [
+    ...await idsParPaquets(db, m => `SELECT id FROM lignes_frais WHERE note_id IN (${m})`, notes),
+    ...await idsParPaquets(db, m => `SELECT id FROM lignes_frais_sante WHERE note_id IN (${m})`, notes),
+  ]);
 }
 
 /** Justificatifs (en vigueur ou retirés) des dépenses `lignes`, lus en base. */
 export async function piecesDesLignesEnBase(db: Db, lignes: readonly number[]): Promise<PieceEnregistree[]> {
   return await lire<PieceEnregistree>(db, 'pieces', await idsParPaquets(db, m => `SELECT id FROM pieces WHERE objet IN ('ligneFrais', 'ligneFraisSante') AND objet_id IN (${m})`, lignes));
-}
-
-// lot 12 — C2, étape 2 (option des 2 mois) : résumés des notes de la fenêtre dont les dépenses ne sont pas dans
-// l'instantané (payées avant `borneDetailFrais`), calculés en base à chaque lecture brute et à chaque delta qui touche les
-// notes ou les dépenses (server/src/delta.ts), jamais stockés. Deux agrégats indexés (notes_frais (statut, payee_le),
-// lignes_frais (note_id)) ; montants arrondis au centime ici, pour que la relecture complète et le delta rendent les mêmes
-// valeurs sur les deux moteurs.
-
-/** Résumés des notes payées entre la borne de la fenêtre et celle du détail au jour `today`, dans l'ordre des notes. */
-export async function lireResumesFrais(db: Db, today: string): Promise<ResumeNoteFrais[]> {
-  // Dépenses du salarié de la note seulement (`lignesDesNotes`, server/src/frais-vues.ts) ; `+l.emp_id` : comparaison sans
-  // index, pour que le plan parte de l'index des notes payées et non de celui des dépenses par salarié.
-  const groupes = await db.query<{ note_id: number; emp_id: number; categorie: CategorieFrais; refusee: number; n: number; demande: number | null; retenu: number | null }>(
-    `SELECT l.note_id, n.emp_id, l.categorie, CASE WHEN l.refusee_le IS NULL THEN 0 ELSE 1 END AS refusee, COUNT(*) AS n,`
-    + ` SUM(l.montant_eur) AS demande, SUM(COALESCE(l.montant_retenu, l.montant_eur)) AS retenu`
-    + ` FROM lignes_frais l JOIN notes_frais n ON n.id = l.note_id WHERE +l.emp_id = n.emp_id AND n.statut = 'payee' AND n.payee_le >= ? AND n.payee_le < ?`
-    + ` GROUP BY l.note_id, n.emp_id, l.categorie, CASE WHEN l.refusee_le IS NULL THEN 0 ELSE 1 END ORDER BY l.note_id`,
-    [borneFrais(today), borneDetailFrais(today)]);
-  // Une note sans dépense n'a pas de résumé : ses totaux sont nuls, comme calculés sur ses dépenses (aucune).
-  const out = new Map<number, ResumeNoteFrais>();
-  for (const g of groupes) {
-    const id = Number(g.note_id);
-    let r = out.get(id);
-    if (!r) out.set(id, r = { noteId: id, empId: Number(g.emp_id), depenses: 0, refusees: 0, demande: 0, retenu: 0, parCategorie: {} });
-    if (Number(g.refusee)) { r.refusees += Number(g.n); continue; }
-    r.depenses += Number(g.n);
-    r.demande += Number(g.demande ?? 0);
-    r.retenu += Number(g.retenu ?? 0);
-    r.parCategorie[g.categorie] = (r.parCategorie[g.categorie] ?? 0) + Number(g.retenu ?? 0);
-  }
-  // Arrondis au centime une fois les groupes réunis, dans l'ordre des catégories (même objet en relecture et en delta).
-  return [...out.values()].sort((a, b) => a.noteId - b.noteId).map(r => ({
-    ...r, demande: r2(r.demande), retenu: r2(r.retenu),
-    parCategorie: Object.fromEntries(Object.entries(r.parCategorie).sort(([a], [b]) => a.localeCompare(b)).map(([c, v]) => [c, r2(v)])),
-  }));
 }

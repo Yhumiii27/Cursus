@@ -4,13 +4,19 @@
 // (server/src/frais-historique.ts). Les règles qui ont besoin de l'historique (indemnités kilométriques de l'année,
 // doublons, notes à exporter, déductions d'avance) le lisent en base (server/src/frais-base.ts). Une note hors de la
 // fenêtre est archivée : toute écriture qui la vise est refusée (409).
-// Étape 2 (option des 2 mois, réponse du propriétaire du 1er novembre 2026, retenue sur la remesure) : les dépenses et
-// leurs justificatifs n'entrent dans l'instantané que pour les notes en circuit et celles payées depuis moins de 2 mois
-// (`detailEnLigne`) ; les autres notes de la fenêtre y gardent leur en-tête et un résumé calculé en base
-// (`ResumeNoteFrais`), leur détail se lit par la route d'historique. `totauxVue` rend les totaux d'une note dans les deux cas.
+// Étape 2 (option des 2 mois, réponse du propriétaire du 1er novembre 2026, retenue sur la remesure) : les vues du service
+// RH et de la comptabilité — elles seules, comme le dit la réponse — ne reçoivent les dépenses et leurs justificatifs que
+// des notes en circuit et de celles payées depuis moins de 2 mois (`detailEnLigne`, appliquée par server/src/frais-vues.ts
+// à l'instantané complet) ; les autres notes de la fenêtre y gardent leur en-tête et un résumé calculé par le serveur
+// (`resumesDesLignes`), leur détail se lit par la route d'historique. Le manager et le collaborateur gardent le détail des
+// 13 mois. `totauxVue` rend les totaux d'une note dans les deux cas ; la part réintégrable de chaque note est calculée par
+// le serveur sur l'instantané complet (`reintegrableDesNotes`), cumul kilométrique de l'année compris.
 import { addM } from '../dates.ts';
 import type { CategorieFrais, LigneFrais, NoteFrais, ResumeNoteFrais } from '../types.ts';
+import type { Domain } from '../domain.ts';
 import { r2, totauxEquipe, totauxNote, type TotauxNote } from './frais.ts';
+import { limitesIk } from './frais-paie.ts';
+import { reintegrable } from './frais-politique.ts';
 
 /** Mois après le paiement pendant lesquels une note reste dans l'instantané (choix par défaut du lot 12). */
 export const FENETRE_FRAIS_MOIS = 13;
@@ -31,7 +37,10 @@ export const noteArchivee = (n: Pick<NoteFrais, 'statut' | 'payeeLe'>, today: st
 /** Borne du détail au jour `today` : les dépenses d'une note payée avant cette date ne sont pas dans l'instantané. */
 export const borneDetailFrais = (today: string): string => addM(today, -DETAIL_FRAIS_MOIS);
 
-/** Dépenses de la note dans l'instantané au jour `today` : note en circuit, annulée, ou payée depuis moins de 2 mois. */
+/**
+ * Dépenses de la note dans les vues du service RH et de la comptabilité au jour `today` : note en circuit, annulée, ou
+ * payée depuis moins de 2 mois (une note payée sans date de paiement est gardée détaillée). Seule définition de la règle.
+ */
 export const detailEnLigne = (n: Pick<NoteFrais, 'statut' | 'payeeLe'>, today: string): boolean =>
   !(n.statut === 'payee' && !!n.payeeLe && n.payeeLe < borneDetailFrais(today));
 
@@ -78,6 +87,46 @@ export function retenuParCategorie(ids: ReadonlySet<number>, lignes: readonly Li
   for (const l of lignes) if (ids.has(l.noteId) && !l.refuseeLe) ajouter(l.categorie, l.montantRetenu ?? l.montantEur);
   for (const r of resumes) if (ids.has(r.noteId)) for (const [c, v] of Object.entries(r.parCategorie) as [CategorieFrais, number][]) ajouter(c, v);
   return out;
+}
+
+/**
+ * Résumés des notes `notes` d'après leurs dépenses `lignes` (dépenses du salarié de la note seulement, comme
+ * `lignesDesNotes`) : nombre de dépenses en vigueur et refusées, montants demandé et retenu, retenu par catégorie (ordre
+ * alphabétique), arrondis au centime ; une note sans dépense a un résumé nul.
+ */
+export function resumesDesLignes(notes: readonly Pick<NoteFrais, 'id' | 'empId'>[], lignes: readonly LigneFrais[]): ResumeNoteFrais[] {
+  const parNote = new Map<number, LigneFrais[]>(notes.map(n => [n.id, []]));
+  const empDe = new Map(notes.map(n => [n.id, n.empId]));
+  for (const l of lignes) if (empDe.get(l.noteId) === l.empId) parNote.get(l.noteId)!.push(l);
+  return notes.map(n => {
+    const ls = parNote.get(n.id)!, t = totauxNote(ls);
+    const cat = new Map<string, number>();
+    for (const l of ls) if (!l.refuseeLe) cat.set(l.categorie, (cat.get(l.categorie) ?? 0) + (l.montantRetenu ?? l.montantEur));
+    return {
+      noteId: n.id, empId: n.empId, depenses: t.lignes, refusees: t.refusees, demande: t.demande, retenu: t.retenu,
+      parCategorie: Object.fromEntries([...cat].sort(([a], [b]) => a.localeCompare(b)).map(([c, v]) => [c, r2(v)])),
+    };
+  });
+}
+
+/**
+ * Part réintégrable de chaque note `notes` (allocations forfaitaires et indemnités kilométriques au-delà des limites
+ * d'exonération, comme `totalReintegrable` des alertes), calculée sur l'instantané `d` — complet côté serveur : cumul
+ * kilométrique de toute l'année ; limites manquantes non comptées. Notes sans part réintégrable absentes.
+ */
+export function reintegrableDesNotes(d: Pick<Domain, 'ds'>, notes: readonly Pick<NoteFrais, 'id' | 'empId'>[]): Record<number, number> {
+  const ids = new Map(notes.map(n => [n.id, n.empId]));
+  // Limites kilométriques sur les seules indemnités (`limitesIk` relit, pour chaque salarié et chaque année, les dépenses
+  // qu'on lui donne) : même résultat, sans parcourir toutes les dépenses à chaque salarié.
+  const ik = (d.ds.lignesFrais ?? []).filter(l => l.categorie === 'ik');
+  const limites = limitesIk({ ds: { ...d.ds, lignesFrais: ik } }), forfaits = d.ds.referentiels.forfaitsFrais;
+  const parNote = new Map<number, number>();
+  for (const l of d.ds.lignesFrais ?? []) {
+    if (ids.get(l.noteId) !== l.empId || (l.categorie !== 'ik' && l.categorie !== 'forfait')) continue;
+    const r = reintegrable(l, { forfaits, limiteIk: l.categorie === 'ik' ? limites(l) : undefined });
+    if (r) parNote.set(l.noteId, (parNote.get(l.noteId) ?? 0) + r);
+  }
+  return Object.fromEntries([...parNote].filter(([, v]) => v > 0).map(([id, v]) => [id, r2(v)]));
 }
 
 /** Message du refus d'une écriture sur une note archivée. */

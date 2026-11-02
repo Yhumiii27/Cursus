@@ -40,7 +40,7 @@ const moisAvant = (m: string, n: number) => {
  */
 export async function peuplerFrais(db: Db, r: Aleatoire, empIds: readonly number[], today: string, o: OptionsFrais, inserer: InsererLignes): Promise<JeuFrais> {
   const suivant = async (table: string) => Number((await db.one<{ n: number }>(`SELECT COALESCE(MAX(id), 0) AS n FROM ${table}`))?.n ?? 0) + 1;
-  let noteId = await suivant('notes_frais'), ligneId = await suivant('lignes_frais'), vehId = await suivant('vehicules_perso');
+  let noteId = await suivant('notes_frais'), ligneId = Math.max(await suivant('lignes_frais'), await suivant('lignes_frais_sante')), vehId = await suivant('vehicules_perso');
   const vehicules: unknown[][] = [], avances: unknown[][] = [];
   const vehiculeDe = new Map<number, number>();
   for (const e of empIds) {
@@ -54,7 +54,7 @@ export async function peuplerFrais(db: Db, r: Aleatoire, empIds: readonly number
   const avecPieces = o.justificatifs ?? true, avecMedicales = o.medicales ?? true;
   const mois = Array.from({ length: 12 * o.ans }, (_, i) => moisAvant(today.slice(0, 7), 12 * o.ans - i));
   for (const m of mois) {
-    const n: unknown[][] = [], l: unknown[][] = [], p: unknown[][] = [];
+    const n: unknown[][] = [], l: unknown[][] = [], ls: unknown[][] = [], p: unknown[][] = [];
     const recent = m >= moisAvant(today.slice(0, 7), 1);
     for (const e of empIds) {
       const statut = !recent ? 'payee' : r.choix(['brouillon', 'soumise', 'validee', 'controlee']);
@@ -69,7 +69,8 @@ export async function peuplerFrais(db: Db, r: Aleatoire, empIds: readonly number
           p.push([e, medicale ? 'ligneFraisSante' : 'ligneFrais', ligneId, `recu-${ligneId}.jpg`, 'image/jpeg', 180_000 + (ligneId % 50_000),
             `${String(ligneId).padStart(16, '0')}${'0'.repeat(48)}`, `charge-frais-${ligneId}.bin`, `${date}T19:00:00.000Z`, 'Essai de charge']);
         }
-        l.push([ligneId++, noteId, e, date, categorie, montant, 'EUR', montant, categorie === 'ik' || categorie === 'forfait' ? null : 10,
+        // lot 12 — C2, étape 2 : dépenses médicales dans leur table (scission), identifiants communs aux deux tables.
+        (medicale ? ls : l).push([ligneId++, noteId, e, date, categorie, montant, 'EUR', montant, categorie === 'ik' || categorie === 'forfait' ? null : 10,
           categorie === 'ik' || categorie === 'forfait' ? null : r.choix(COMMERCANTS), categorie === 'forfait' ? 'repas_restaurant' : null,
           categorie === 'ik' ? r.entre(10, 300) : null, categorie === 'ik' ? vehiculeDe.get(e)! : null, false, false]);
       }
@@ -77,9 +78,11 @@ export async function peuplerFrais(db: Db, r: Aleatoire, empIds: readonly number
       notes++;
     }
     await inserer('notes_frais', ['id', 'emp_id', 'periode', 'medicale', 'statut', 'cree_le', 'cree_par', 'soumise_le', 'payee_le'], n);
-    await inserer('lignes_frais', ['id', 'note_id', 'emp_id', 'date', 'categorie', 'montant', 'devise', 'montant_eur', 'tva_taux', 'commercant', 'forfait', 'km', 'vehicule_id', 'sans_justificatif', 'attestation'], l);
+    const colonnes = ['id', 'note_id', 'emp_id', 'date', 'categorie', 'montant', 'devise', 'montant_eur', 'tva_taux', 'commercant', 'forfait', 'km', 'vehicule_id', 'sans_justificatif', 'attestation'];
+    await inserer('lignes_frais', colonnes, l);
+    if (ls.length) await inserer('lignes_frais_sante', colonnes, ls);
     if (p.length) await inserer('pieces', ['emp_id', 'objet', 'objet_id', 'nom', 'type', 'taille', 'empreinte', 'fichier', 'depose_le', 'depose_par'], p);
-    lignes += l.length;
+    lignes += l.length + ls.length;
     pieces += p.length;
   }
   return { notes, lignes, vehicules: vehicules.length, avances: avances.length, pieces, medicales };

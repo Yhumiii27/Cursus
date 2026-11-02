@@ -4,7 +4,7 @@
 // une note par salarié et par mois, 20 dépenses en moyenne, justificatifs de ~75 % des dépenses, 2 % de notes de frais
 // médicaux). Mesures, médiane de 5 essais : lecture brute complète (`lireBrut`, fenêtre de 13 mois après paiement des
 // notes de frais, lot 12), assemblage, vue RH (dérivés repris, et à froid : lot 12) et sa sérialisation, vue d'un manager
-// et d'un collaborateur, taille du JSON de la vue RH (brut et brotli), relecture complète de `lignes_frais` dans la fenêtre (marqueur « toute la table » du journal des changements)
+// et d'un collaborateur, taille du JSON de la vue RH (brut et brotli), relecture complète de `lignes_frais` dans la fenêtre
 // et delta d'une dépense écrite (journal des changements, relecture, fusion).
 // Verdicts (docs/ARCHITECTURE.md, « Performances » ; lot 12, chantier C2) :
 // - vue RH calculée en deçà de 800 ms ; vues manager et collaborateur en deçà de 300 ms ;
@@ -12,10 +12,12 @@
 // - delta d'une dépense écrite en deçà de 100 ms.
 // Les seuils de l'essai de charge (scripts/charge/seuils.ts) ne changent pas. Code de sortie 1 si un verdict échoue
 // (contrôle de seuil).
-// Étape 2 (option des 2 mois) : dépenses et justificatifs des seules notes en circuit ou payées depuis moins de 2 mois dans
-// la lecture brute, résumés calculés en base pour les autres notes de la fenêtre (comptés, et relus par le delta d'une
-// dépense). `--marge` multiplie les seuils de temps (pas ceux de taille) : la CI le passe à 3 sur ses machines partagées,
-// comme l'essai de charge (.github/workflows/ci.yml).
+// Étape 2 : option des 2 mois (vues du service RH et de la comptabilité : dépenses et justificatifs des seules notes en
+// circuit ou payées depuis moins de 2 mois, résumés calculés pour les autres ; la lecture brute garde la fenêtre de 13
+// mois) et scission des frais médicaux (`lignes_frais_sante` : le delta d'une dépense ordinaire relit sa seule ligne).
+// `--marge` multiplie les seuils absolus en millisecondes (vues, delta), pas ceux qui comparent deux mesures du même
+// essai (lecture brute, rapportée à celle sans frais sur la même machine) ni ceux de taille : la CI le passe à 3 sur ses
+// machines partagées, comme l'essai de charge (.github/workflows/ci.yml).
 //   npm run charge:frais [-- --ans 3] [-- --marge 3]
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -69,8 +71,9 @@ async function mesurer(db: Db, titre: string): Promise<Mesure> {
     notesEnBase: await compter('SELECT COUNT(*) AS n FROM notes_frais'), notesFrais: brut.notesFrais.length,
     lignesEnBase: await compter('SELECT COUNT(*) AS n FROM lignes_frais'), lignesFrais: brut.lignesFrais.length,
     piecesEnBase: await compter('SELECT COUNT(*) AS n FROM pieces'), pieces: brut.pieces.length,
-    // lot 12 — C2, étape 2 : notes de la fenêtre résumées (dépenses hors de la lecture brute).
-    resumes: brut.resumesFrais.length,
+    // lot 12 — C2, étape 2 : dépenses médicales (scission), et notes résumées dans la vue RH (dépenses hors de la vue).
+    lignesSanteEnBase: await compter('SELECT COUNT(*) AS n FROM lignes_frais_sante'), lignesSante: brut.lignesFraisSante.length,
+    resumesVueRh: (vueDe(full, rh).resumesFrais ?? []).length, lignesVueRh: (vueDe(full, rh).lignesFrais ?? []).length,
     lectureBruteMs: await mediane(async () => await db.lecture(async () => await lireBrut(db, T))),
     assemblageMs: await mediane(() => assembler(brut, T, 0, rh)),
     vueRhMs: await mediane(() => vueDe(assembler(brut, T, 1, rh), rh)),
@@ -94,8 +97,8 @@ const copie = <B extends object>(brut: B): B => Object.fromEntries(Object.entrie
 
 /**
  * Delta d'une dépense écrite (médiane de 5) : une dépense d'une note en saisie modifiée, puis, comme le cache
- * incrémental, journal des changements, relecture des tables changées (`lignes_frais` en entier dans sa fenêtre) et
- * fusion dans la lecture brute précédente. Sans note en saisie (jeu sans frais) : 0.
+ * incrémental, journal des changements, relecture des tables changées (la seule ligne écrite de `lignes_frais`, inscrite
+ * par clé depuis la scission des frais médicaux) et fusion dans la lecture brute précédente. Sans note en saisie (jeu sans frais) : 0.
  */
 async function deltaDepense(db: Db): Promise<number> {
   const ligne = await db.one<{ id: number }>(`SELECT l.id FROM lignes_frais l JOIN notes_frais n ON n.id = l.note_id WHERE n.statut = 'brouillon' ORDER BY l.id DESC LIMIT 1`);
@@ -119,13 +122,14 @@ async function deltaDepense(db: Db): Promise<number> {
 /** Verdicts d'une durée : mesure avec frais contre budgets et mesure sans frais. */
 function verdicts(sans: Mesure, avec: Mesure): { critere: string; mesure: string; seuil: string; ok: boolean }[] {
   const b = BUDGETS_FRAIS, m = MARGE;
-  // Seuils de temps multipliés par la marge (`--marge`) ; la lecture brute est comparée à celle sans frais du même essai.
+  // Seuils absolus en millisecondes multipliés par la marge (`--marge`) ; la lecture brute est comparée à celle sans frais du
+  // même essai, sur la même machine : rapport déjà relatif, sans marge (sinon le contrôle ne verrait plus rien).
   return [
     { critere: 'vue RH (à froid)', mesure: `${avec.vueRhFroideMs} ms`, seuil: `< ${b.vueRhMs * m} ms`, ok: avec.vueRhFroideMs < b.vueRhMs * m },
     { critere: 'vue manager', mesure: `${avec.vueManagerMs} ms`, seuil: `< ${b.vueSalarieMs * m} ms`, ok: avec.vueManagerMs < b.vueSalarieMs * m },
     { critere: 'vue collaborateur', mesure: `${avec.vueCollaborateurMs} ms`, seuil: `< ${b.vueSalarieMs * m} ms`, ok: avec.vueCollaborateurMs < b.vueSalarieMs * m },
     { critere: 'JSON de la vue RH', mesure: `${avec.jsonRhMo} Mo (${Math.round((avec.jsonRhMo / sans.jsonRhMo) * 100) / 100} ×)`, seuil: `≤ ${b.jsonRhFacteur} × ${sans.jsonRhMo} Mo`, ok: avec.jsonRhMo <= b.jsonRhFacteur * sans.jsonRhMo },
-    { critere: 'lecture brute', mesure: `${avec.lectureBruteMs} ms`, seuil: `≤ ${b.lectureBruteFacteur * m} × ${sans.lectureBruteMs} ms`, ok: avec.lectureBruteMs <= b.lectureBruteFacteur * m * sans.lectureBruteMs },
+    { critere: 'lecture brute', mesure: `${avec.lectureBruteMs} ms`, seuil: `≤ ${b.lectureBruteFacteur} × ${sans.lectureBruteMs} ms`, ok: avec.lectureBruteMs <= b.lectureBruteFacteur * sans.lectureBruteMs },
     { critere: 'delta d’une dépense', mesure: `${avec.deltaDepenseMs} ms`, seuil: `< ${b.deltaDepenseMs * m} ms`, ok: avec.deltaDepenseMs < b.deltaDepenseMs * m },
   ];
 }
@@ -142,7 +146,7 @@ for (const ans of DUREES) {
     const jeu = await peuplerJeu(db, aleatoire(42), { ans: 1, effectif: 100, interimaires: 20 }, insererPortable(db), t => console.log(`  ${t}`));
     const sans = await mesurer(db, 'Sans frais');
     const f = await db.tx(async () => await peuplerFrais(db, aleatoire(7), jeu.employes.map(e => e.id), jeu.today, { ans, lignesMin: 10, lignesMax: 30 }, insererPortable(db)));
-    console.log(`Frais : ${f.notes} notes (${f.medicales} médicales), ${f.lignes} dépenses, ${f.pieces} justificatifs, ${f.vehicules} véhicules, ${f.avances} avances sur ${ans} an${ans > 1 ? 's' : ''} ; fenêtre : notes payées depuis le ${borneFrais(T)}, dépenses des notes payées depuis le ${borneDetailFrais(T)}${MARGE > 1 ? ` ; marge ×${MARGE} sur les seuils de temps` : ''}`);
+    console.log(`Frais : ${f.notes} notes (${f.medicales} médicales), ${f.lignes} dépenses, ${f.pieces} justificatifs, ${f.vehicules} véhicules, ${f.avances} avances sur ${ans} an${ans > 1 ? 's' : ''} ; fenêtre : notes payées depuis le ${borneFrais(T)}, dépenses des notes payées depuis le ${borneDetailFrais(T)} dans les vues RH et comptabilité${MARGE > 1 ? ` ; marge ×${MARGE} sur les seuils absolus en millisecondes` : ''}`);
     const avec = await mesurer(db, `Avec ${ans} an${ans > 1 ? 's' : ''} de frais`);
     console.log('Écart :', Object.fromEntries(Object.entries(avec).map(([k, v]) => [k, Math.round((v - sans[k]) * 100) / 100])));
     const v = verdicts(sans, avec);

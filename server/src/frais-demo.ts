@@ -3,6 +3,8 @@
 // l'éclaireur, à vérifier sur urssaf.fr et au BOFiP : valeurs de démonstration, jamais des valeurs par défaut), un véhicule,
 // des notes à chaque étape du circuit, dont une note de frais médicaux en attente du contrôle, et une avance demandée.
 import type { Db } from './db.ts';
+// lot 12 — C2 (notes de frais : activation)
+import { insererLigneFrais } from './frais-sante.ts';
 
 /** Barème kilométrique « voiture » de démonstration (d × a + b, par puissance et tranche de distance). */
 const BAREME_VOITURE: readonly [number, number | null, [number, number, number, number, number]][] = [
@@ -60,5 +62,10 @@ export async function fraisDemo(db: Db): Promise<void> {
   await ligne(n3, 9, '2026-09-15', 'repas_affaires', 84, { commercant: 'Le Comptoir', invites: 'Deux acheteurs du client', tvaTaux: 10, sansJustificatif: true, attestation: true });
   // Clara Roussel : frais médicaux en mission (vaccin avant un départ), note séparée, en attente du contrôle sans manager.
   const n4 = await note(19, '2026-09', 'validee', { medicale: true });
-  await ligne(n4, 19, '2026-09-10', 'medical', 35, { sansJustificatif: true, attestation: true });
+  // lot 12 — C2 : dépense médicale dans sa table (scission), identifiant commun aux deux tables.
+  await insererLigneFrais(db, { medicale: true }, {
+    noteId: n4, empId: 19, date: '2026-09-10', categorie: 'medical', montant: 35, devise: 'EUR', taux: null, montantEur: 35, tvaTaux: null, tvaMontant: null,
+    commercant: null, forfait: null, km: null, vehiculeId: null, depart: null, arrivee: null, invites: null, motifDepassement: null, sansJustificatif: true,
+    attestation: true, montantRetenu: null, refuseeLe: null, refusMotif: null,
+  });
 }

@@ -44,9 +44,7 @@ import type { AvanceFrais, BaremeKm, ForfaitFrais, LigneFrais, NoteFrais, TauxDe
 // lot 12 — C1 (forfait annuel en heures)
 import type { ClotureForfaitHeures, CorrectionPointage, Objectif, Reponse360, Sollicitation360 } from '../../shared/types.ts';
 // lot 12 — C2 (notes de frais : activation)
-import { borneDetailFrais, borneFrais } from '../../shared/rules/frais-fenetre.ts';
-import type { ResumeNoteFrais } from '../../shared/types.ts';
-import { lireResumesFrais } from './frais-base.ts';
+import { borneFrais } from '../../shared/rules/frais-fenetre.ts';
 // lot 12 — C3 (entretiens suivis et 360°)
 // lot 12 — C4 (organismes de formation et e-learning)
 import type { InscriptionElearning, ModuleElearning, Organisme, OrganismeContact, OrganismeTarif } from '../../shared/types-organismes.ts';
@@ -161,12 +159,9 @@ export interface Brut {
   tauxDevises: TauxDevise[];
   // lot 12 — C1 (forfait annuel en heures)
   cloturesForfaitHeures: ClotureForfaitHeures[];
-  // lot 12 — C2 (notes de frais : activation)
-  /**
-   * Résumés des notes de la fenêtre dont les dépenses n'y sont pas (payées depuis plus de 2 mois), calculés en base
-   * (`lireResumesFrais`, server/src/frais-base.ts) ; relus par un delta dès que les notes ou les dépenses changent.
-   */
-  resumesFrais: ResumeNoteFrais[];
+  // lot 12 — C2 (notes de frais : activation) : dépenses des notes médicales (scission), réunies aux autres dans
+  // `Dataset.lignesFrais` par `assembler`.
+  lignesFraisSante: LigneFrais[];
   // lot 12 — C3 (entretiens suivis et 360°)
   objectifs: Objectif[];
   feedbackSollicitations: Sollicitation360[];
@@ -219,22 +214,25 @@ export const COLONNES_OMISES: Partial<Record<TableName, readonly string[]>> = { 
  */
 export const FENETRES: Partial<Record<TableName, (today: string) => Fenetre>> = {
   // lot 12 — C2 (notes de frais) : notes payées depuis moins de 13 mois et toutes celles qui ne sont pas payées
-  // (shared/rules/frais-fenetre.ts) ; dépenses et justificatifs des seules notes en circuit, annulées ou payées depuis moins
-  // de 2 mois (option des 2 mois, étape 2 : les autres notes de la fenêtre n'ont que leur résumé, `Brut.resumesFrais`). Une
-  // note archivée ne revient jamais par une écriture (refus 409, server/src/actions/frais.ts), une note payée ne se modifie
-  // plus : seul le passage du temps fait sortir une note ou ses dépenses, et l'entrée du cache d'un autre jour est relue en
-  // entier. Conditions corrélées par le nom de la table (lecture complète `allDans` comme relecture par clé `lireLignes`),
-  // menées par l'index des notes payées (migration 0023) puis celui des dépenses d'une note.
+  // (shared/rules/frais-fenetre.ts), dépenses de ces notes, justificatifs de ces dépenses. Une note archivée ne revient
+  // jamais par une écriture (refus 409, server/src/actions/frais.ts) : seul le passage du temps la fait sortir, et l'entrée
+  // du cache d'un autre jour est relue en entier. Conditions corrélées par le nom de la table (lecture complète `allDans`
+  // comme relecture par clé `lireLignes`) ; index de la migration 0023.
   notesFrais: today => ({ where: `NOT (statut = 'payee' AND payee_le < ?)`, params: [borneFrais(today)] }),
   lignesFrais: today => ({
-    where: `lignes_frais.note_id IN (SELECT n.id FROM notes_frais n WHERE NOT (n.statut = 'payee' AND n.payee_le < ?))`, params: [borneDetailFrais(today)],
+    where: `NOT EXISTS (SELECT 1 FROM notes_frais n WHERE n.id = lignes_frais.note_id AND n.statut = 'payee' AND n.payee_le < ?)`, params: [borneFrais(today)],
   }),
-  // Justificatifs : toute pièce qui n'est pas d'une dépense (en attente, détachée par la conservation comprises), et celles
-  // des dépenses retenues ; une dépense supprimée détache ses pièces (objet vidé, server/src/actions/frais.ts).
+  // Étape 2 (scission) : dépenses médicales dans `lignes_frais_sante`, même fenêtre ; un justificatif `ligneFraisSante`
+  // désigne une dépense de cette table, `ligneFrais` une de l'autre.
+  lignesFraisSante: today => ({
+    where: `NOT EXISTS (SELECT 1 FROM notes_frais n WHERE n.id = lignes_frais_sante.note_id AND n.statut = 'payee' AND n.payee_le < ?)`, params: [borneFrais(today)],
+  }),
   pieces: today => ({
-    where: `(pieces.objet IS NULL OR pieces.objet_id IS NULL OR pieces.objet NOT IN ('ligneFrais', 'ligneFraisSante') OR pieces.objet_id IN (SELECT l.id FROM lignes_frais l WHERE l.note_id IN`
-      + ` (SELECT n.id FROM notes_frais n WHERE NOT (n.statut = 'payee' AND n.payee_le < ?))))`,
-    params: [borneDetailFrais(today)],
+    where: `NOT (pieces.objet = 'ligneFrais' AND EXISTS (SELECT 1 FROM lignes_frais l JOIN notes_frais n ON n.id = l.note_id`
+      + ` WHERE l.id = pieces.objet_id AND n.statut = 'payee' AND n.payee_le < ?))`
+      + ` AND NOT (pieces.objet = 'ligneFraisSante' AND EXISTS (SELECT 1 FROM lignes_frais_sante l JOIN notes_frais n ON n.id = l.note_id`
+      + ` WHERE l.id = pieces.objet_id AND n.statut = 'payee' AND n.payee_le < ?))`,
+    params: [borneFrais(today), borneFrais(today)],
   }),
   // lot 12 — C5 (planning d'équipe) : de 8 semaines passées à 12 semaines à venir (server/src/planning-lecture.ts).
   creneaux: fenetreCreneaux,
@@ -359,7 +357,7 @@ export async function lireBrut(db: Db, today: string): Promise<Brut> {
     // lot 12 — C1 (forfait annuel en heures)
     cloturesForfaitHeures: await lire('cloturesForfaitHeures'),
     // lot 12 — C2 (notes de frais : activation)
-    resumesFrais: await lireResumesFrais(db, today),
+    lignesFraisSante: await lire('lignesFraisSante'),
     // lot 12 — C3 (entretiens suivis et 360°)
     objectifs: await lire('objectifs'),
     feedbackSollicitations: await lire('feedbackSollicitations'),
@@ -505,6 +503,18 @@ const versementsOpcoDe = memo((lignes: VersementOpco[], dossiers: DossierOpco[])
 });
 
 /**
+ * lot 12 — C2 : dépenses ordinaires et médicales (deux listes triées par identifiant) réunies dans cet ordre ; la première
+ * telle quelle si la seconde est vide ; mémoïsée comme les autres dérivés (même lecture : même tableau).
+ */
+const fusionParId = memo((a: LigneFrais[], b: LigneFrais[]): LigneFrais[] => {
+  if (!b.length) return a;
+  const out: LigneFrais[] = [];
+  let i = 0, j = 0;
+  while (i < a.length || j < b.length) out.push(j >= b.length || (i < a.length && a[i].id < b[j].id) ? a[i++] : b[j++]);
+  return out;
+});
+
+/**
  * Instantané complet tiré de la lecture brute, sans lire la base ni modifier `brut` : le Dataset de `loadFull`, ligne
  * pour ligne et dans le même ordre, sans les absences et déplacements en attente du fichier de paie (ajoutés par
  * `loadFull`). Pose les jours fériés réglés (état de module de shared/dates.ts), comme la lecture d'avant, avant tout
@@ -587,15 +597,14 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     versementsOpco: versementsOpcoDe(brut.versementsOpco, brut.dossiersOpco),
     // lot 11 — notes de frais : filtrées par espace et par profil dans server/src/dataset.ts (filtre propre aux frais).
     notesFrais: brut.notesFrais,
-    lignesFrais: brut.lignesFrais,
+    // lot 12 — C2 : dépenses ordinaires et médicales réunies, dans l'ordre des identifiants (communs aux deux tables).
+    lignesFrais: fusionParId(brut.lignesFrais, brut.lignesFraisSante),
     vehiculesPerso: brut.vehiculesPerso,
     avancesFrais: brut.avancesFrais,
     // lot 12 — C1 (forfait annuel en heures)
     // Clôtures du forfait annuel en heures : filtrées par espace et par profil (server/src/vues-forfait-heures.ts).
     cloturesForfaitHeures: brut.cloturesForfaitHeures,
     // lot 12 — C2 (notes de frais : activation)
-    // Résumés des notes sans leurs dépenses : filtrés comme les notes (server/src/frais-vues.ts).
-    resumesFrais: brut.resumesFrais,
     // lot 12 — C3 (entretiens suivis et 360°)
     // Objectifs (toutes les lignes) ; feedback 360° (étape 3) : sollicitations et réponses versées, filtrées par espace et
     // par profil dans server/src/vues-entretiens-suivis.ts.
@@ -687,13 +696,12 @@ const LECTURES_ASSEMBLEES = {
   versementsOpco: ['versementsOpco', 'dossiersOpco'],
   // lot 11 — notes de frais
   notesFrais: ['notesFrais'],
-  lignesFrais: ['lignesFrais'],
+  lignesFrais: ['lignesFrais', /* lot 12 — C2 : dépenses médicales (scission) */ 'lignesFraisSante'],
   vehiculesPerso: ['vehiculesPerso'],
   avancesFrais: ['avancesFrais'],
   // lot 12 — C1 (forfait annuel en heures)
   cloturesForfaitHeures: ['cloturesForfaitHeures'],
   // lot 12 — C2 (notes de frais : activation)
-  resumesFrais: ['notesFrais', 'lignesFrais'],
   // lot 12 — C3 (entretiens suivis et 360°)
   objectifs: ['objectifs'],
   feedbackSollicitations: ['feedbackSollicitations'],

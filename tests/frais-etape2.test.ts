@@ -448,9 +448,10 @@ test('alertes de la vue manager, collaborateur et comptabilité : celles du serv
       assert.deepEqual(C.syntheseNote(d, x).alertes, alertesDeNote(dFull, full.notesFrais!.find(m => m.id === x.id)!), `${u.nom}, note ${x.id}`);
     }
   }
-  // Le service RH reçoit l'instantané complet : alertes recalculées, identiques.
+  // Le service RH : alertes jointes par le serveur depuis le lot 12 (C2, étape 2 : sa vue n'a plus toutes les dépenses
+  // de l'année), identiques.
   const rh = await snap(ADMIN);
-  assert.equal(rh.alertesFrais, undefined);
+  assert.ok(rh.alertesFrais);
   assert.deepEqual(C.syntheseNote(new Domain(rh), n1).alertes, attendu);
 });
 

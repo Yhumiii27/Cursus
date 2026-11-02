@@ -2,15 +2,16 @@
 // l'instantané, jamais stockés : notes en attente par étape, délai moyen de la soumission au contrôle, dépenses des
 // douze derniers mois par mois et par catégorie, allocations réintégrables, avances non soldées. Le manager a ses propres
 // totaux d'équipe (pages/Frais.tsx, sans les frais médicaux : `totauxEquipe`).
-// lot 12 — C2 (notes de frais : activation) : l'instantané porte les notes payées depuis moins de 13 mois (les dépenses des
-// douze derniers mois restent couvertes) mais les dépenses des seules notes en circuit ou payées depuis moins de 2 mois ;
-// mois et catégories reprennent les résumés calculés par le serveur pour les autres (`resumesFrais`). Chaque indicateur
-// dit sa période ; le réintégrable (alertes des dépenses) ne porte que sur les notes dont le détail est dans l'instantané.
+// lot 12 — C2 (notes de frais : activation) : la vue du service RH et de la comptabilité porte les notes payées depuis
+// moins de 13 mois (les dépenses des douze derniers mois restent couvertes) mais les dépenses des seules notes en circuit
+// ou payées depuis moins de 2 mois ; mois et catégories reprennent les résumés calculés par le serveur pour les autres
+// (`resumesFrais`), et le réintégrable, la part de chaque note calculée par le serveur sur l'instantané complet
+// (`reintegrableFrais`, cumul kilométrique exact de l'année). Chaque indicateur dit sa période.
 import { addM } from '../../../../shared/dates.ts';
 import { plural } from '../../../../shared/format.ts';
 import { periodeLabel } from '../../../../shared/rules/paie.ts';
 import { CATEGORIES_FRAIS } from '../../../../shared/rules/frais.ts';
-import { DETAIL_FRAIS_MOIS, retenuParCategorie } from '../../../../shared/rules/frais-fenetre.ts';
+import { FENETRE_FRAIS_MOIS, retenuParCategorie } from '../../../../shared/rules/frais-fenetre.ts';
 import { useDomain } from '../../state/derived.ts';
 import { Bar, Empty, Kpi, Kpis, Panel } from '../ui.tsx';
 import { depensesParMois, euros, syntheseNote } from './commun.ts';
@@ -31,8 +32,9 @@ export function TableauFrais() {
   // Délai moyen, en jours, de la soumission au contrôle (notes contrôlées des douze derniers mois).
   const delais = notes.filter(n => n.soumiseLe && n.controleeLe && n.periode >= depuis.slice(0, 7)).map(n => (Date.parse(n.controleeLe!) - Date.parse(n.soumiseLe!)) / 86_400_000);
   const delai = delais.length ? Math.round(delais.reduce((s, x) => s + x, 0) / delais.length) : null;
-  // Réintégrable : alertes des dépenses, calculées sur les seules notes dont le détail est dans l'instantané.
-  const reintegrable = notes.filter(n => n.statut !== 'annulee' && n.statut !== 'brouillon').map(n => syntheseNote(d, n)).filter(s => s.detail).reduce((s, x) => s + x.reintegrable, 0);
+  // Réintégrable : part de chaque note soumise de la fenêtre, calculée par le serveur (à défaut, par les alertes de la note).
+  const parts = d.ds.reintegrableFrais;
+  const reintegrable = notes.filter(n => n.statut !== 'annulee' && n.statut !== 'brouillon').reduce((s, n) => s + (parts ? parts[n.id] ?? 0 : syntheseNote(d, n).reintegrable), 0);
   const avances = (d.ds.avancesFrais ?? []).filter(a => a.statut === 'validee' || a.statut === 'en_paiement' || a.statut === 'versee');
 
   return (
@@ -64,7 +66,7 @@ export function TableauFrais() {
         )}
       </Panel>
       <Kpis>
-        <Kpi kicker="Réintégrable" value={euros(Math.round(reintegrable * 100) / 100)} sub={`allocations au-delà des limites d’exonération, notes en circuit ou payées depuis moins de ${DETAIL_FRAIS_MOIS} mois`} />
+        <Kpi kicker="Réintégrable" value={euros(Math.round(reintegrable * 100) / 100)} sub={`allocations au-delà des limites d’exonération, notes soumises en circuit ou payées depuis moins de ${FENETRE_FRAIS_MOIS} mois`} />
         <Kpi kicker="Avances en cours" value={euros(avances.reduce((s, a) => s + a.montant, 0))} sub={plural(avances.length, 'avance validée ou versée', 'avances validées ou versées')} />
       </Kpis>
     </>

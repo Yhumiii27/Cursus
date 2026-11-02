@@ -1350,8 +1350,10 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
      sortie 2. La commande affiche ensuite les étapes suivantes de la mise en production.
   Démonstration commune (`server/src/seed-commun.ts`, `docs/DEMO-COMMUNE.md`) : avec le réglage `demoCommun`, les
   fiches 25 à 81 reconnues à leur nom sont du jeu (pas des ajouts de visiteurs) ; après les tables vidées,
-  `retirerReferentielCommun` supprime les équipes, les sites et les postes que `npm run demo-commun` a ajoutés et remet
-  à vide le site et l'unité de Matrix posés sur les équipes gardées et sur l'entité (décomptes dans la ligne `purge.demo`).
+  `retirerReferentielCommun` ne retire que ce que le réglage `demoCommun` relève (ce que `npm run demo-commun` a
+  réellement créé ou posé, cumulé sur ses exécutions) : équipes, sites et postes créés, site et unité posés sur les
+  équipes existantes et site posé sur l'entité, remis à vide seulement s'ils valent encore la valeur posée ; le
+  paramétrage du service RH, d'avant ou d'après l'ajout, reste (décomptes dans la ligne `purge.demo`).
   Garde-fous (`refusDemo`, `server/src/marqueurs.ts`) : `server/src/index.ts` refuse de démarrer avec `CURSUS_DEMO=1`
   sur une base qui porte `purge.demo` au journal ou le réglage `exploitation` (« base de production »), avant toute
   écriture ; `npm run reset-demo` refuse de la recharger. Procédure : `docs/DEPLOIEMENT.md`, « Passage de la

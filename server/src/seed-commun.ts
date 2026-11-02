@@ -13,8 +13,9 @@
 //   CURSUS_DEMO_COMMUN=1, premier amorçage de la démonstration (server/src/index.ts), « Réinitialiser la démonstration »
 //   (server/src/actions/parametres.ts) et npm run reset-demo. seedDemo n'en dépend jamais : les 24 salariés des tests restent.
 // - Purge (npm run purge-demo) : fiches, comptes, certifications, projets, chantiers et missions partent avec les données
-//   fictives ; `retirerReferentielCommun` retire en plus, après les fiches, les équipes, les sites et les postes ajoutés ici,
-//   et défait le site et l'unité posés sur les équipes gardées et sur l'entité (server/src/purge-demo-execution.ts).
+//   fictives ; `retirerReferentielCommun` retire en plus, après les fiches, ce que le réglage `demoCommun` relève : les
+//   équipes, les sites et les postes créés ici, le site et l'unité posés sur les équipes gardées et sur l'entité (s'ils
+//   valent encore la valeur posée) ; jamais le paramétrage du service RH (server/src/purge-demo-execution.ts).
 // Aucune table, aucune colonne, aucune migration : tout passe par les tables existantes (cache incrémental compris, les
 // déclencheurs de révision suivent ces écritures comme celles d'une action).
 import { matricule, plural } from '../../shared/format.ts';
@@ -31,9 +32,12 @@ import { refusDemo, REGLAGE_DEMO } from './marqueurs.ts';
 import { historiqueDepuisFiches } from './migrations/lot6-contrats.ts';
 import { postesDepuisFiches } from './migrations/referentiels.ts';
 import { recalerRattachements } from './rattachements.ts';
-import { CREE_PAR_DEMO, SALARIES_DEMO } from './seed.ts';
+import { CREE_PAR_DEMO } from './seed.ts';
 
-/** Réglage posé par l'ajout du référentiel commun : instant et version ; lu par la purge (server/src/purge-demo.ts). */
+/**
+ * Réglage posé par l'ajout du référentiel commun : instant, version et ce que l'ajout a réellement créé ou posé (cumulé sur
+ * les exécutions successives) ; lu par la purge (server/src/purge-demo.ts), qui ne retire que cela.
+ */
 export const REGLAGE_DEMO_COMMUN = 'demoCommun';
 /** Code de journal de l'ajout (libellé : shared/journal.ts) ; décomptes seulement, jamais un nom. */
 export const ACTION_DEMO_COMMUN = 'demo.commun';
@@ -45,7 +49,48 @@ export const DERNIER_ID_COMMUN = 81;
 
 export class ReferentielCommunRefuse extends Error {}
 
-export interface MarqueurDemoCommun { ajouteLe: string; version: string }
+/** Site ou unité posé par l'ajout sur une équipe existante (null : champ laissé tel quel, déjà renseigné). */
+export interface RattachementPose { nom: string; siteCode: string | null; uniteCode: string | null }
+
+export interface MarqueurDemoCommun {
+  ajouteLe: string;
+  version: string;
+  /** Sites créés (codes absents avant l'ajout) ; un site déjà présent, saisi par le service RH ou venu de Matrix, n'y est pas. */
+  sites: string[];
+  /** Équipes créées (noms absents avant l'ajout) ; une équipe homonyme préexistante n'y est pas. */
+  equipes: string[];
+  /** Postes du référentiel créés par `postesDepuisFiches` pour les fiches ajoutées (identifiants). */
+  postes: number[];
+  /** Site et unité posés sur les équipes existantes. */
+  rattachements: RattachementPose[];
+  /** Site posé sur l'entité (son nom, s'il a été complété, reste : il n'est pas un rattachement). */
+  entite: { code: string; siteCode: string } | null;
+}
+
+/** Marqueur lu, champs absents remis à vide (réglage posé par une version antérieure : rien n'est alors retiré). */
+export async function lireMarqueurCommun(db: Db): Promise<MarqueurDemoCommun | null> {
+  const m = await db.getSetting<Partial<MarqueurDemoCommun> | null>(REGLAGE_DEMO_COMMUN, null);
+  if (!m) return null;
+  return {
+    ajouteLe: m.ajouteLe ?? '', version: m.version ?? '', sites: m.sites ?? [], equipes: m.equipes ?? [], postes: m.postes ?? [],
+    rattachements: m.rattachements ?? [], entite: m.entite ?? null,
+  };
+}
+
+/** Cumul de deux relevés de ce que l'ajout a posé (exécutions successives) ; un champ déjà posé n'est jamais oublié. */
+function cumuler(avant: MarqueurDemoCommun | null, apres: MarqueurDemoCommun): MarqueurDemoCommun {
+  if (!avant) return apres;
+  const uniques = <T>(a: readonly T[], b: readonly T[]) => [...new Set([...a, ...b])];
+  const ratt = new Map(avant.rattachements.map(r => [r.nom, { ...r }]));
+  for (const r of apres.rattachements) {
+    const p = ratt.get(r.nom);
+    ratt.set(r.nom, p ? { nom: r.nom, siteCode: p.siteCode ?? r.siteCode, uniteCode: p.uniteCode ?? r.uniteCode } : r);
+  }
+  return {
+    ...apres, sites: uniques(avant.sites, apres.sites), equipes: uniques(avant.equipes, apres.equipes), postes: uniques(avant.postes, apres.postes),
+    rattachements: [...ratt.values()], entite: avant.entite ?? apres.entite,
+  };
+}
 
 // — Sites (cache de matrix.pub_sites) : les trois sites de Matrix, libellés de Matrix ; la zone d'essais de Vigie (ville-b)
 //   et le site d'essais de Crucible (RD-SITE), hors format de Matrix chez eux, sous des codes au format —
@@ -313,16 +358,22 @@ export async function ajouterReferentielCommun(db: Db, maintenant = new Date()):
     const plan = await planReferentielCommun(db);
     if (planVide(plan)) return plan;
 
+    // Ce que cette exécution crée ou pose, cumulé au réglage : la purge ne retire que cela (retirerReferentielCommun).
+    const pose: MarqueurDemoCommun = {
+      ajouteLe: maintenant.toISOString(), version: VERSION, sites: [...plan.sites], equipes: [...plan.equipes], postes: [], rattachements: [], entite: null,
+    };
     // 1. Sites, puis entité complétée (nom de la société, site du siège).
     for (const s of SITES_COMMUNS) if (plan.sites.includes(s.code)) await db.insert<Site>('sites', s);
     const entite = await entiteCible(db);
     if (entite && plan.entite) {
       await db.update<Entite>('entites', entite.code, { ...(entite.nom === 'Entreprise' ? { nom: 'EPC2I' } : {}), ...(entite.siteCode ? {} : { siteCode: 'lyon' }) });
+      if (!entite.siteCode) pose.entite = { code: entite.code, siteCode: 'lyon' };
     }
     // 2. Équipes de la démonstration : site et unité de Matrix (un champ déjà posé par le service RH n'est jamais remplacé).
     for (const nom of plan.rattachements) {
       const q = (await db.get<Equipe>('equipes', nom))!, r = UNITES_EQUIPES_DEMO[nom];
       await db.update<Equipe>('equipes', nom, { siteCode: q.siteCode ?? r.siteCode, uniteCode: q.uniteCode ?? r.uniteCode });
+      pose.rattachements.push({ nom, siteCode: q.siteCode ? null : r.siteCode, uniteCode: q.uniteCode ? null : r.uniteCode });
     }
     // 3. Équipes nouvelles, après les existantes ; managers posés avant leurs fiches (clé différée en PostgreSQL).
     let ordre = Number((await db.one<{ n: number | null }>('SELECT MAX(ordre) AS n FROM equipes'))?.n ?? -1);
@@ -346,7 +397,9 @@ export async function ajouterReferentielCommun(db: Db, maintenant = new Date()):
       });
     }
     if (plan.fiches.length) {
+      const avant = new Set((await db.query<{ id: number }>('SELECT id FROM postes')).map(p => Number(p.id)));
       await postesDepuisFiches(db);
+      pose.postes = (await db.query<{ id: number }>('SELECT id FROM postes ORDER BY id')).map(p => Number(p.id)).filter(id => !avant.has(id));
       await historiqueDepuisFiches(db);
     }
     // Site et unité des fiches tirés de leur équipe (server/src/rattachements.ts) : nouvelles fiches et équipes rattachées.
@@ -389,7 +442,7 @@ export async function ajouterReferentielCommun(db: Db, maintenant = new Date()):
     }
     // 8. Séquences PostgreSQL au-delà des identifiants fixés (sans effet en SQLite), marqueur et journal (décomptes seuls).
     await db.resyncIds();
-    await db.setSetting(REGLAGE_DEMO_COMMUN, { ajouteLe: maintenant.toISOString(), version: VERSION } satisfies MarqueurDemoCommun);
+    await db.setSetting(REGLAGE_DEMO_COMMUN, cumuler(await lireMarqueurCommun(db), pose));
     await journaliser(db, {
       actor: 'Cursus', role: null, action: ACTION_DEMO_COMMUN,
       message: `Référentiel commun de démonstration ajouté : ${plural(plan.fiches.length, 'fiche', 'fiches')}, ${plural(plan.equipes.length, 'équipe', 'équipes')}, `
@@ -425,37 +478,43 @@ export function textePlan(p: PlanCommun, fait: boolean): string[] {
 /** Bilan du retrait : lignes supprimées et lignes gardées ajustées, par table (noms SQL). */
 export interface RetraitCommun { supprimees: Record<string, number>; ajustees: Record<string, number> }
 
-/** Postes déduits des intitulés du référentiel commun, absents du jeu de démonstration (supprimés quand plus rien ne les désigne). */
-export async function postesCommuns(db: Db): Promise<string[]> {
-  const jeu = new Set((await db.query<{ poste: string | null }>('SELECT poste FROM employes WHERE id <= ?', [SALARIES_DEMO.length])).map(e => (e.poste ?? '').trim().toLowerCase()));
-  return [...new Set(PERSONNES_COMMUNES.map(p => p[2]))].filter(p => !jeu.has(p.toLowerCase()));
-}
-
 /**
  * Retrait de ce que l'ajout a posé hors des tables vidées par la purge, après la suppression des fiches, dans la
- * transaction de la purge : équipes ajoutées (rattachées d'abord), sites ajoutés, postes du référentiel commun qu'aucune
- * fiche ne désigne plus ; site et unité de Matrix posés sur les équipes gardées et site posé sur l'entité, remis à vide
- * quand ils valent encore ce que l'ajout y a mis (un rattachement refait par le service RH est gardé). `postes` : noms
- * relevés avant la suppression des fiches (`postesCommuns`).
+ * transaction de la purge, d'après le réglage `demoCommun` (`marqueur`, lu avant que la purge ne retire les réglages) :
+ * seulement les éléments que l'ajout a créés ou posés, jamais un homonyme qui existait avant lui ni le paramétrage
+ * saisi ensuite par le service RH.
+ * - Équipes créées (rattachées d'abord), sauf celles qu'une fiche gardée ou une équipe du service RH désigne encore.
+ * - Site et unité posés sur les équipes existantes et site posé sur l'entité, remis à vide seulement s'ils valent encore
+ *   la valeur posée (un rattachement refait par le service RH est gardé).
+ * - Sites créés ; une équipe ou une entité rattachée depuis à l'un d'eux voit son site remis à vide (le site n'existe plus).
+ * - Postes créés pour les fiches ajoutées, qu'aucune fiche ne désigne plus.
  */
-export async function retirerReferentielCommun(db: Db, postes: readonly string[]): Promise<RetraitCommun> {
+export async function retirerReferentielCommun(db: Db, marqueur: MarqueurDemoCommun): Promise<RetraitCommun> {
   const supprimees: Record<string, number> = {}, ajustees: Record<string, number> = {};
   const compter = (o: Record<string, number>, t: string, n: number) => { if (n) o[t] = (o[t] ?? 0) + n; };
+  const creees = new Set(marqueur.equipes);
   for (const q of [...EQUIPES_COMMUNES].reverse()) {
+    if (!creees.has(q.nom)) continue;
     // Une équipe encore désignée (fiche gardée, équipe rattachée par le service RH) reste : la purge le signalerait.
     const membres = Number((await db.one<{ n: number }>('SELECT COUNT(*) AS n FROM employes WHERE equipe = ?', [q.nom]))!.n);
     const filles = Number((await db.one<{ n: number }>('SELECT COUNT(*) AS n FROM equipes WHERE parente = ?', [q.nom]))!.n);
     if (!membres && !filles) compter(supprimees, 'equipes', (await db.run('DELETE FROM equipes WHERE nom = ?', [q.nom])).changes);
   }
-  for (const [nom, r] of Object.entries(UNITES_EQUIPES_DEMO)) {
-    compter(ajustees, 'equipes', (await db.run('UPDATE equipes SET site_code = NULL, unite_code = NULL WHERE nom = ? AND site_code = ? AND unite_code = ?', [nom, r.siteCode, r.uniteCode])).changes);
+  for (const r of marqueur.rattachements) {
+    if (r.siteCode) compter(ajustees, 'equipes', (await db.run('UPDATE equipes SET site_code = NULL WHERE nom = ? AND site_code = ?', [r.nom, r.siteCode])).changes);
+    if (r.uniteCode) compter(ajustees, 'equipes', (await db.run('UPDATE equipes SET unite_code = NULL WHERE nom = ? AND unite_code = ?', [r.nom, r.uniteCode])).changes);
   }
-  const codes = SITES_COMMUNS.map(s => s.code), marques = codes.map(() => '?').join(', ');
-  compter(ajustees, 'entites', (await db.run(`UPDATE entites SET site_code = NULL WHERE site_code IN (${marques})`, codes)).changes);
-  compter(ajustees, 'equipes', (await db.run(`UPDATE equipes SET site_code = NULL WHERE site_code IN (${marques})`, codes)).changes);
-  compter(supprimees, 'sites', (await db.run(`DELETE FROM sites WHERE code IN (${marques})`, codes)).changes);
-  for (const p of postes) {
-    compter(supprimees, 'postes', (await db.run('DELETE FROM postes WHERE nom = ? AND NOT EXISTS (SELECT 1 FROM employes WHERE poste_id = postes.id)', [p])).changes);
+  if (marqueur.entite) {
+    compter(ajustees, 'entites', (await db.run('UPDATE entites SET site_code = NULL WHERE code = ? AND site_code = ?', [marqueur.entite.code, marqueur.entite.siteCode])).changes);
+  }
+  if (marqueur.sites.length) {
+    const codes = marqueur.sites, marques = codes.map(() => '?').join(', ');
+    compter(ajustees, 'entites', (await db.run(`UPDATE entites SET site_code = NULL WHERE site_code IN (${marques})`, codes)).changes);
+    compter(ajustees, 'equipes', (await db.run(`UPDATE equipes SET site_code = NULL WHERE site_code IN (${marques})`, codes)).changes);
+    compter(supprimees, 'sites', (await db.run(`DELETE FROM sites WHERE code IN (${marques})`, codes)).changes);
+  }
+  for (const id of marqueur.postes) {
+    compter(supprimees, 'postes', (await db.run('DELETE FROM postes WHERE id = ? AND NOT EXISTS (SELECT 1 FROM employes WHERE poste_id = postes.id)', [id])).changes);
   }
   return { supprimees, ajustees };
 }

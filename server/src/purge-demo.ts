@@ -29,7 +29,7 @@ import { ACTION_REPRISE } from './reprise-postgres.ts';
 import { dossierSauvegardes, listerSauvegardes } from './sauvegarde.ts';
 import { CREE_PAR_DEMO, DOMAINE_DEMO, HABILITATIONS, LOT_DEMO, SALARIES_DEMO } from './seed.ts';
 // Démonstration commune des outils
-import { EQUIPES_COMMUNES, REGLAGE_DEMO_COMMUN, SALARIES_COMMUNS, SITES_COMMUNS } from './seed-commun.ts';
+import { EQUIPES_COMMUNES, lireMarqueurCommun, REGLAGE_DEMO_COMMUN, SALARIES_COMMUNS, SITES_COMMUNS } from './seed-commun.ts';
 
 export class PurgeRefusee extends Error {}
 
@@ -423,8 +423,8 @@ export interface ApercuPurge {
   /** Avertissements qui n'empêchent pas la purge. */
   avertissements: string[];
   /**
-   * Démonstration commune (npm run demo-commun) : équipes et sites ajoutés, retirés après les fiches
-   * (`retirerReferentielCommun`, server/src/seed-commun.ts) ; absent sans le réglage `demoCommun`.
+   * Démonstration commune (npm run demo-commun) : équipes et sites créés par l'ajout (réglage `demoCommun`) et encore
+   * présents, retirés après les fiches (`retirerReferentielCommun`, server/src/seed-commun.ts) ; absent sans ce réglage.
    */
   referentielCommun?: { equipes: string[]; sites: string[] };
 }
@@ -534,11 +534,15 @@ export async function apercuPurge(db: Db, options: Pick<OptionsPurge, 'garder' |
   };
 }
 
-/** Équipes et sites du référentiel commun présents dans la base (aperçu de la purge). */
+/** Équipes et sites créés par l'ajout du référentiel commun (réglage `demoCommun`) et présents dans la base (aperçu de la purge). */
 async function referentielCommunPresent(db: Db): Promise<NonNullable<ApercuPurge['referentielCommun']>> {
+  const m = await lireMarqueurCommun(db);
   const equipes = new Set((await db.query<{ nom: string }>('SELECT nom FROM equipes')).map(q => q.nom));
   const sites = new Set((await db.query<{ code: string }>('SELECT code FROM sites')).map(s => s.code));
-  return { equipes: EQUIPES_COMMUNES.map(q => q.nom).filter(n => equipes.has(n)), sites: SITES_COMMUNS.map(s => s.code).filter(c => sites.has(c)) };
+  return {
+    equipes: EQUIPES_COMMUNES.map(q => q.nom).filter(n => equipes.has(n) && !!m?.equipes.includes(n)),
+    sites: SITES_COMMUNS.map(s => s.code).filter(c => sites.has(c) && !!m?.sites.includes(c)),
+  };
 }
 
 const SORT_LIBELLE: Record<RegleTable['sort'], string> = { supprimer: 'vidée', garder: 'gardée', ajuster: 'gardée, ajustée' };

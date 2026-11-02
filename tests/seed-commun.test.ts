@@ -3,7 +3,9 @@
 // attendus (EMP-0025 Marie Lefebvre, EMP-0061 Antoine Leroy de Crucible, EMP-0014 inchangé), sites et unités de Matrix,
 // entité complétée, projets et affectations de Keystone, séquence au-delà des identifiants fixés ; cache de l'instantané
 // (delta et relecture complète identiques, vues de lecteurs choisis) ; purge complète (npm run purge-demo : rien de ce
-// que l'ajout a posé ne reste) ; réglage CURSUS_DEMO_COMMUN. seedDemo par défaut garde ses 24 salariés (oracle intact).
+// que l'ajout a posé ne reste, le paramétrage du service RH d'avant ou d'après l'ajout reste) ; réglage
+// CURSUS_DEMO_COMMUN (branchements : tests/seed-commun-branchements.test.ts). seedDemo par défaut garde ses 24 salariés
+// (oracle intact).
 // Sur SQLite en mémoire, et sur PostgreSQL par npm run test:pg.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -225,6 +227,49 @@ test('purge : fiches, équipes, sites, postes, projets et rattachements du réf�
   assert.equal(await db.getSetting(REGLAGE_DEMO_COMMUN, null), null);
   assert.equal((await controlerOrphelins(db)).orphelins, 0);
   assert.ok(await plusGrandIdEmploye(db) >= 1000, 'le premier vrai salarié reçoit EMP-1001');
+  if (PG) await db.fermer();
+});
+
+test('purge : seul ce que l’ajout a créé ou posé part ; site, équipes, postes et rattachements du service RH gardés, avant comme après l’ajout', async () => {
+  const db = await demoPourPurge();
+  const postesAvant = await db.count('postes');
+  // Avant l'ajout, le service RH prépare la production : site lyon (code de Matrix) posé sur l'entité, Production rattachée
+  // à lyon sous une autre unité, postes « Magasinier » et « Juriste » (intitulés du référentiel commun) avec leurs
+  // exigences, équipe « Direction » (homonyme d'une équipe du référentiel commun).
+  await db.insert('sites', { code: 'lyon', libelle: 'Lyon (service RH)', actif: true, ordre: 1 });
+  await db.run('UPDATE entites SET site_code = ? WHERE code = ?', ['lyon', CODE_ENTITE_AMORCEE]);
+  await db.run('UPDATE equipes SET site_code = ?, unite_code = ? WHERE nom = ?', ['lyon', 'CHA-ATELIER', 'Production']);
+  await db.insert('postes', { nom: 'Magasinier', formations: ['caces489'], habilitations: [], archive: null });
+  await db.insert('postes', { nom: 'Juriste', formations: ['sst'], habilitations: [], archive: null });
+  const ordre = await n(db, 'SELECT MAX(ordre) AS n FROM equipes');
+  await db.insert('equipes', { nom: 'Direction', managerId: null, ordre: ordre + 1, parente: null, siteCode: null, uniteCode: null });
+  const plan = await ajouterReferentielCommun(db);
+  assert.ok(!plan.sites.includes('lyon') && !plan.equipes.includes('Direction') && !plan.rattachements.includes('Production'));
+  // Second passage sans effet : le relevé de l'ajout reste celui du premier.
+  assert.ok(planVide(await ajouterReferentielCommun(db)));
+  // Après l'ajout : équipe du service RH au site lyon, une autre au site d'essais R&D créé par l'ajout ; Maintenance
+  // rattachée par l'ajout, puis son unité refaite par le service RH.
+  await db.insert('equipes', { nom: 'Laboratoire', managerId: null, ordre: ordre + 50, parente: null, siteCode: 'lyon', uniteCode: 'QUA-LABO' });
+  await db.insert('equipes', { nom: 'Bancs', managerId: null, ordre: ordre + 51, parente: null, siteCode: 'site_rd', uniteCode: 'RDI-BANCS' });
+  await db.run('UPDATE equipes SET unite_code = ? WHERE nom = ?', ['CHA-ENTRETIEN', 'Maintenance']);
+  const apercu = await apercuPurge(db, lireOptionsPurge([]));
+  assert.ok(!apercu.referentielCommun?.sites.includes('lyon') && !apercu.referentielCommun?.equipes.includes('Direction'));
+  const b = await executerPurge(db, { ...lireOptionsPurge([]), oui: true }, { sauvegarder: () => '/sauvegardes/avant-purge.db' });
+  assert.equal(b.statut, 'faite');
+  assert.deepEqual((await db.query<{ code: string }>('SELECT code FROM sites')).map(x => x.code), ['lyon'], 'site du service RH gardé, sites ajoutés retirés');
+  assert.equal(await n(db, 'SELECT COUNT(*) AS n FROM entites WHERE site_code = ?', ['lyon']), 1, 'site de l’entité posé par le service RH gardé');
+  const equipe = async (nom: string) => await db.one<{ site_code: string | null; unite_code: string | null }>('SELECT site_code, unite_code FROM equipes WHERE nom = ?', [nom]);
+  assert.deepEqual({ ...await equipe('Production') }, { site_code: 'lyon', unite_code: 'CHA-ATELIER' });
+  assert.deepEqual({ ...await equipe('Laboratoire') }, { site_code: 'lyon', unite_code: 'QUA-LABO' });
+  assert.deepEqual({ ...await equipe('Bancs') }, { site_code: null, unite_code: 'RDI-BANCS' }, 'site retiré avec le site ajouté');
+  assert.deepEqual({ ...await equipe('Maintenance') }, { site_code: null, unite_code: 'CHA-ENTRETIEN' }, 'site posé par l’ajout retiré, unité refaite gardée');
+  assert.deepEqual({ ...await equipe('Logistique') }, { site_code: null, unite_code: null });
+  assert.ok(await equipe('Direction'), 'équipe homonyme du service RH gardée');
+  assert.equal(await equipe('Projets'), undefined);
+  const postes = await db.query<{ nom: string; formations: unknown }>('SELECT nom, formations FROM postes WHERE nom IN (?, ?) ORDER BY nom', ['Juriste', 'Magasinier']);
+  assert.deepEqual(postes.map(x => [x.nom, typeof x.formations === 'string' ? JSON.parse(x.formations) : x.formations]), [['Juriste', ['sst']], ['Magasinier', ['caces489']]]);
+  assert.equal(await db.count('postes'), postesAvant + 2, 'postes créés par l’ajout retirés, ceux du jeu et du service RH gardés');
+  assert.equal((await controlerOrphelins(db)).orphelins, 0);
   if (PG) await db.fermer();
 });
 

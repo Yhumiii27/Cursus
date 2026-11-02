@@ -20,9 +20,22 @@ Vigie et Crucible, sous des matricules fixés ici. **Toutes ces données sont fi
   démonstration » (Paramètres) et `npm run reset-demo` ajoutent aussi le référentiel commun. Sans elle, la démonstration
   garde ses 24 salariés (tests, application de bureau).
 - Journal : une ligne `demo.commun` (décomptes et codes de sites, jamais un nom).
-- Purge : fiches, comptes, certifications, projets, chantier et affectations partent avec les données fictives ; les
-  équipes, les sites et les postes ajoutés sont retirés après les fiches ; le site et l'unité posés sur les six équipes du
-  jeu et le site de l'entité sont remis à vide (`retirerReferentielCommun`). Le nom « EPC2I » donné à l'entité reste.
+- Purge : fiches, comptes, certifications, projets, chantier et affectations partent avec les données fictives. Le
+  réglage `demoCommun` relève ce que l'ajout a réellement créé ou posé (cumulé sur les exécutions successives) : sites
+  et équipes absents avant lui, postes créés pour ses fiches, site et unité posés sur les équipes existantes (seulement
+  les champs alors vides), site posé sur l'entité. `retirerReferentielCommun` ne retire que cela, après les fiches :
+  équipes et postes créés qu'aucune fiche ne désigne plus, sites créés (une équipe ou l'entité rattachée depuis à l'un
+  d'eux voit son site remis à vide), site et unité remis à vide seulement s'ils valent encore la valeur posée. Le
+  paramétrage du service RH, saisi avant ou après l'ajout (site `lyon` créé à la main, équipe « Direction » homonyme,
+  poste « Magasinier » avec ses exigences, équipe rattachée à `lyon`, rattachement refait), est gardé, comme le profil
+  `parametrage` le veut. Le nom « EPC2I » donné à l'entité reste.
+- Adresses : celles des personas de Keystone sont gardées en `@epc2i.fr`, **le domaine réel de l'entreprise** (celui
+  d'Entra ID), pour le rapprochement par e-mail de Keystone ; les autres sont en `@epc2i.example` (domaine réservé). Aucun
+  e-mail ne part d'une instance de démonstration, même avec `CURSUS_MAIL_*` posées (`configMail`, server/src/config.ts :
+  toujours en simulation avec `CURSUS_DEMO=1`) ; ne pas lever cette garde sur l'instance commune. Le passage de ces
+  personas en `@epc2i.example` est demandé à Keystone (`docs/demandes/demo-commune-keystone.md`). Ces fiches et leurs
+  comptes partent avec la purge comme les autres (reconnues par le réglage `demoCommun` et `cree_par`, pas par le
+  domaine).
 
 ## Sites (cache de `matrix.pub_sites`)
 

@@ -36,6 +36,7 @@ import type { OngletTemps } from '../pages/temps-onglets.ts';
 import type { OngletEntretiens } from '../pages/entretiens-onglets.ts';
 import type { ModeObjectif } from '../dialogs/ObjectifDialog.tsx';
 // lot 12 — C4 (organismes de formation et e-learning)
+import type { FiltreElearning, FiltreOrganismes, OngletFormations } from '../components/organismes/etat.ts';
 // lot 12 — C5 (planning d'équipe)
 // lot 12 — C6 (badgeage virtuel)
 import { api, definirEspaceOnglet, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type NomAction, type SessionState } from '../api.ts';
@@ -76,7 +77,7 @@ export interface UiState {
   weekStart: ISODate | null;
   tsEmp: number | null;
   /** Onglet de l'écran Référentiels (`entites` : Entités et sites, lot 11). */
-  refOnglet: ReferentielId | 'postes' | 'activites' | 'horaires' | 'entites';
+  refOnglet: ReferentielId | 'postes' | 'activites' | 'horaires' | 'entites' | /* lot 12 — C4 */ 'organismes' | 'modules';
   /** Saisie des heures jour par jour (téléphone, tablette) : jour affiché, du lundi (0) au dimanche (6) ; null : le jour courant. */
   tsJour: number | null;
   /** Tri choisi par un clic sur un en-tête, par liste (components/tri.ts) ; absent : l'ordre par défaut de l'écran. */
@@ -117,6 +118,12 @@ export interface UiState {
   objStatut: 'tous' | 'ouverts' | 'proposes' | 'evalues';
   objEcheance: 'toutes' | 'proches' | 'depassees';
   // lot 12 — C4 (organismes de formation et e-learning)
+  /** Référentiels → Organismes : fiche ouverte, filtre de la liste (components/organismes/etat.ts). */
+  orgSel: number | null;
+  orgFiltre: FiltreOrganismes;
+  /** Formations : onglet (sessions, e-learning) et filtre des inscriptions de l'onglet E-learning. */
+  formOnglet: OngletFormations;
+  elFiltre: FiltreElearning;
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
 }
@@ -147,6 +154,7 @@ const INITIAL_UI: UiState = {
   // lot 12 — C3 (entretiens suivis et 360°)
   entOnglet: 'echeances', objStatut: 'tous', objEcheance: 'toutes',
   // lot 12 — C4 (organismes de formation et e-learning)
+  orgSel: null, orgFiltre: 'tous', formOnglet: 'sessions', elFiltre: 'ouvertes',
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
 };
@@ -286,7 +294,18 @@ export type DialogState =
   | { type: 'objectifAvancer'; id: number; retour?: number }
   | { type: 'objectifEvaluer'; id: number; entretienId: number; retour?: number }
   | { type: 'souhait'; entretienId: number; cle?: string }
-  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C4 (organismes de formation et e-learning) : fiche (identité et Qualiopi), conditions commerciales, contact,
+  // tarif, fusion d'un doublon ; module d'e-learning, inscription, fin validée, correction, import d'avancement.
+  | { type: 'organisme'; id?: number | null }
+  | { type: 'organismeConditions'; id: number }
+  | { type: 'organismeContact'; organismeId: number; id?: number | null }
+  | { type: 'organismeTarif'; organismeId: number; id?: number | null }
+  | { type: 'organismeFusion'; source: number }
+  | { type: 'moduleElearning'; id?: number | null }
+  | { type: 'elearningInscrire'; moduleId?: number | null; empId?: number | null; planActionId?: number | null }
+  | { type: 'elearningTerminer'; id: number }
+  | { type: 'elearningCorriger'; id: number }
+  | { type: 'elearningImport' }
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
   ;

@@ -12,6 +12,8 @@
 // - lot 12 — C1 : les clôtures du forfait annuel en heures à faire (`forfait-heures:<échéance>`, dernier jour du mois qui
 //   suit la fin de la plage, du mois de la sortie pour une plage close par la sortie ; shared/rules/forfait-heures.ts) vont
 //   à la seule boîte du service RH : un nombre de plages et de salariés, ni nom ni heure.
+// - lot 12 — C4 : la fin de validité Qualiopi des organismes de formation (`organisme:<id>:qualiopi:<date>`, 60 jours avant
+//   par défaut, 15 jours, puis échue) va aussi à la seule boîte du service RH.
 // Seuls les paliers franchis depuis le dernier envoi partent (table `relances`, clé de l'objet et palier) : un objet n'est
 // relancé qu'une fois par palier. Tant que la boîte du service RH, destinataire de tout le périmètre, n'est pas renseignée,
 // le passage n'envoie ni ne note rien : les paliers franchis partiront au premier passage qui suit son réglage. Règles et contenu :
@@ -36,6 +38,8 @@ import { nomActionPlan } from './actions/opco.ts';
 import { type Lecture, lectureDirecte } from './lecture-partagee.ts';
 // lot 12 — C1 (forfait annuel en heures)
 import { relancesForfaitHeures } from '../../shared/rules/forfait-heures.ts';
+// lot 12 — C4 (organismes de formation et e-learning)
+import { relancesQualiopi } from '../../shared/rules/organismes-suivi.ts';
 
 /** Lecture du périmètre complet, comme le service RH. */
 const SUIVI: CurrentUser = { role: 'rh', empId: null, nom: 'Cursus', intitule: 'Relance des échéances' };
@@ -133,6 +137,9 @@ export async function recapitulatifEcheances(db: Db, lire: Lecture = lectureDire
     // lot 12 — C1 : clôtures du forfait annuel en heures à faire (`forfait-heures:<échéance>`) : boîte du service RH
     // seulement, le nombre de plages et de salariés, ni nom ni heure.
     ...relancesForfaitHeures(d, paliers),
+    // lot 12 — C4 : fin de validité Qualiopi des organismes (`organisme:<id>:qualiopi:<date>`), paliers propres (60 jours
+    // réglables, 15 jours, échue) : boîte du service RH seulement.
+    ...relancesQualiopi(full.organismes, today, full.settings),
   ];
   const deja = new Set((await db.query('SELECT cle, palier FROM relances') as { cle: string; palier: string }[]).map(r => `${r.cle}|${r.palier}`));
   const nouvelles = dues.filter(r => !deja.has(`${r.cle}|${r.palier}`));

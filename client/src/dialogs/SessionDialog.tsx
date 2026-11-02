@@ -19,6 +19,9 @@ import { Fine } from '../components/ui.tsx';
 import { useEnriched } from '../state/derived.ts';
 import { useStore, type DialogePlan } from '../state/store.tsx';
 import { apresCreation } from './retour-session.ts';
+// lot 12 — C4 (organismes de formation et e-learning) : organisme de la session, figé à sa création.
+import { ChoixOrganisme } from '../components/organismes/ChoixOrganisme.tsx';
+import { organismeDuPlan, organismeFinal } from '../../../shared/rules/organismes.ts';
 
 /** Horaires saisis : aucun (journées entières), les mêmes chaque jour, ou un par jour. */
 type ModeHoraires = 'aucun' | 'commun' | 'jour';
@@ -74,6 +77,8 @@ export function SessionDialog({ f: f0, planId, places: places0, sessionId, retou
     Object.fromEntries(s && s.horaires.length > 1 ? s.jours.map((j, i) => [j, saisi(s.horaires[i])]) : []));
   const [places, setPlaces] = useState(String(s?.places ?? places0 ?? 8));
   const [lieu, setLieu] = useState(s?.lieu ?? '');
+  // lot 12 — C4 : organisme choisi à la création ; null : celui de la ligne du plan ou du catalogue (suivi quand la formation change).
+  const [organisme, setOrganisme] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const v = useVerification();
   if (sessionId != null && !s) return null;
@@ -106,6 +111,9 @@ export function SessionDialog({ f: f0, planId, places: places0, sessionId, retou
   // Heures prévues (feuilles de temps) : horaires, pause déduite ; sinon la durée du catalogue répartie sur les jours.
   const prevues = !err.champs.horaires && horaires.length ? horaires.length === 1 ? heuresHoraire(horaires[0]) * coches.length : horaires.reduce((n, h) => n + heuresHoraire(h), 0) : null;
   const catalogue = dureeHeures(fm?.duree);
+  // lot 12 — C4 : organisme proposé (ligne du plan, sinon catalogue), envoyé tel quel : la session le garde.
+  const organismeDefaut = plan ? organismeDuPlan(d.ds, plan)?.id ?? null : organismeFinal(d.ds.organismes, fm?.organismeId)?.id ?? fm?.organismeId ?? null;
+  const organismeValeur = organisme ?? (organismeDefaut != null ? String(organismeDefaut) : '');
 
   const cocher = (j: ISODate, oui: boolean) => setJours((jours ?? joursOuvres(date, dernier)).filter(x => x !== j).concat(oui ? [j] : []).sort());
 
@@ -115,7 +123,7 @@ export function SessionDialog({ f: f0, planId, places: places0, sessionId, retou
     const plage = { fin: dernier, jours: coches, horaires };
     const r = s
       ? await run('session.modifier', { id: s.id, date, ...plage, lieu: lieu.trim(), places: Number(places) })
-      : await run('session.creer', { f, date, ...plage, lieu: lieu.trim(), places: Number(places), planId });
+      : await run('session.creer', { f, date, ...plage, lieu: lieu.trim(), places: Number(places), planId, /* lot 12 — C4 */ organismeId: organismeValeur });
     setBusy(false);
     if (!r.ok) return;
     if (s) openDialog({ type: 'sessionDetail', sessionId: s.id });
@@ -186,6 +194,11 @@ export function SessionDialog({ f: f0, planId, places: places0, sessionId, retou
         <input className="input" id="sess-places" type="number" min={Math.max(1, s?.inscrits ?? 1)} max={60} step={1} value={places} onChange={e => setPlaces(e.target.value)} />
       </Field>
       <Field label="Lieu" htmlFor="sess-lieu" requis erreur={erreur('lieu')}><input className="input" id="sess-lieu" type="text" maxLength={200} placeholder="Site de Lyon — salle B" value={lieu} onChange={e => setLieu(e.target.value)} /></Field>
+      {/* lot 12 — C4 : organisme de la session, figé à la création (l'historique ne bascule plus avec le catalogue). */}
+      {!s && (
+        <ChoixOrganisme id="sess-organisme" valeur={organismeValeur} onChange={setOrganisme} actuel={organismeDefaut} vide={organismeDefaut != null ? 'Celui proposé (plan ou catalogue)' : 'Aucun (le catalogue n’en indique pas)'}
+          le={isValidDate(date) ? date : d.ti} aide="Proposé d’après le plan ou le catalogue ; la session le garde, même si le catalogue change ensuite." />
+      )}
       {s ? (
         <Fine>
           {plural(s.inscrits, 'inscrit', 'inscrits')} · session {plageTexte(s)}.

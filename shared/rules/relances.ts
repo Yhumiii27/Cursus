@@ -59,7 +59,9 @@ export type CategorieRelance = 'formation' | 'habilitation' | 'visite' | 'formal
   // lot 12 — C1 (forfait annuel en heures) : clôtures à faire (shared/rules/forfait-heures.ts, `relancesForfaitHeures`)
   | 'forfaitHeures'
   // lot 12 — C3 (entretiens suivis) : objectif en cours à échéance sans mise à jour (shared/rules/objectifs-suivi.ts)
-  | 'objectif';
+  | 'objectif'
+  // lot 12 — C4 : fin de validité Qualiopi d'un organisme (shared/rules/organismes-suivi.ts, `relancesQualiopi`)
+  | 'organisme';
 
 /** Objet relancé : clé stable (avec la date de l'échéance : un renouvellement repart de zéro), salarié, libellé neutre. */
 export interface Relance {

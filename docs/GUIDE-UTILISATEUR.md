@@ -102,6 +102,11 @@ déduites, environ 7 h par jour ouvré d'absence hors congés payés), projectio
   travail : « Répondre ». Un e-mail vous le rappelle. Seul le service RH lit vos commentaires ; votre manager ne voit pas vos
   avis. « Mes avis sur les formations » les reprend, modifiables tant que l'évaluation est ouverte.
 
+- **Mes modules en ligne** (lot 12) : les modules d'e-learning auxquels le service RH vous a inscrit. « Ouvrir le module »
+  ouvre le site de l'organisme dans un nouvel onglet ; une fois fini, « J'ai terminé » (en ligne) prévient le service RH,
+  qui valide la fin : la formation entre alors dans votre passeport. Cursus ne garde que le statut, l'avancement transmis par
+  l'organisme et la fin, jamais votre temps de connexion.
+
 ### Entretiens et portail
 
 - L'encart « À faire » de l'accueil et les pastilles du menu signalent ce qui attend : feuille renvoyée, semaine passée à
@@ -232,6 +237,9 @@ Les feuilles validées partent à la paie avec le lot du mois : le manager n'a r
   l'équipe (90 jours par défaut, formations réglementaires et recommandées), « Évaluer » : efficace, partiellement ou pas
   efficace, et un commentaire facultatif. Demandée par e-mail, puis relancée 15 et 30 jours après. Le salarié donne aussi
   son avis ; chacun ne voit que le sien, le service RH lit les commentaires.
+
+- Onglet « E-learning » de l'écran Formations (lot 12) : statut, avancement et fin des modules d'e-learning de l'équipe, en
+  lecture ; les inscriptions et la validation des fins relèvent du service RH.
 
 ### Planning et équipe
 
@@ -371,6 +379,25 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
   reçu sur papier. Sous les indicateurs de Plan & budget, le panneau Évaluation des formations donne, par organisme et par
   formation, la moyenne à chaud, le taux d'efficacité et les taux de réponse (« Exporter les évaluations »). Le référent
   HSE le voit dans Formations, sans moyenne ni taux sous 3 réponses. Réglages : Paramètres, section Évaluation des formations.
+
+- Organismes de formation (lot 12, Référentiels → Organismes) : une fiche par organisme (SIRET, déclaration d'activité,
+  Qualiopi et sa date de validité, conditions, contacts, tarifs) à la place du texte libre. Les textes existants ont été
+  repris en fiches « à vérifier » : ouvrir chacune (encart « À vérifier » ou filtre), compléter, puis « Confirmer la fiche » ;
+  un doublon (par exemple APAVE Sud Europe et Apave) se fusionne par « Fusionner dans… » (administrateur RH, motif, liste des
+  objets réaffectés : pas de défusion simple ; deux SIRET différents ne se fusionnent jamais). Les dialogues Formation,
+  Session (organisme figé à la création), Formation suivie (« autre » : texte libre), Plan (organisme prévu, tarif proposé)
+  et Dossier OPCO (SIRET, NDA et Qualiopi proposés) choisissent la fiche. Qualiopi absent ou échu : avertissement (fiche,
+  dossier OPCO, marque « Qualiopi à vérifier » dans Plan & budget), jamais un blocage ; le récapitulatif des échéances
+  relance le service RH 60 jours avant la fin de validité (Paramètres → Formations), 15 jours avant, puis à l'échéance.
+  Onglet « Évaluations » de la fiche : avis des stagiaires sur 3 exercices (ou 5) et en cumul, comparés par formation entre
+  organismes.
+- E-learning (lot 12) : Référentiels → Modules e-learning (code, lien https, organisme, formation validée, durée, coût d'une
+  licence, validité de l'accès, attestation exigée). Écran Formations, onglet « E-learning » : « Inscrire » des salariés ou
+  l'équipe d'une ligne du plan ; « Importer l'avancement » (CSV de la plateforme : matricule ou e-mail, module, statut,
+  avancement, date de fin, réussite ; toute autre colonne fait refuser le fichier ; aperçu avant d'appliquer) ; « Fins à
+  valider » : « Valider la fin » (service RH) crée la formation suivie et, pour un module rattaché au catalogue et réussi, la
+  certification ; « Corriger », « Abandon », « Supprimer » (administrateur RH, motif). Fin d'office à l'import : réglage de
+  Paramètres → Formations, désactivé par défaut.
 
 ### Congés et absences
 

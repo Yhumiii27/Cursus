@@ -205,7 +205,8 @@ export function demandesEvaluation(d: Domain): DemandeEvaluation[] {
 const pct = (n: number, sur: number) => (sur ? Math.round(n / sur * 100) : null);
 const moyenne = (l: number[]) => (l.length ? Math.round(l.reduce((a, b) => a + b, 0) / l.length * 10) / 10 : null);
 
-interface Element { cible: CibleEvaluation; evaluations: EvaluationFormation[]; froidAttendus: number }
+/** Formation évaluable et ses évaluations (lot 12 — C4 : exporté pour la consolidation par organisme, shared/rules/organismes-suivi.ts). */
+export interface Element { cible: CibleEvaluation; evaluations: EvaluationFormation[]; froidAttendus: number }
 
 /**
  * Avis à froid attendus pour une formation, selon les règles des demandes : aucun avant l'échéance ni pour une formation
@@ -221,7 +222,7 @@ export function avisFroidAttendus(d: Domain, c: CibleEvaluation): number {
   return repondantsFroid(s).filter(r => r === 'salarie' || (!!mgr && mgr !== e.id)).length;
 }
 
-function ligneEvaluation(cle: string, elements: Element[], notesSessions: number[], seuil: number): LigneEvaluation {
+export function ligneEvaluation(cle: string, elements: Element[], notesSessions: number[], seuil: number): LigneEvaluation {
   const evals = elements.flatMap(e => e.evaluations);
   const chauds = evals.filter(e => e.type === 'chaud' && e.note != null).map(e => e.note!);
   const froids = evals.filter(e => e.type === 'froid' && e.efficacite);

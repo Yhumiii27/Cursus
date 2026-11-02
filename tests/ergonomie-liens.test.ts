@@ -41,6 +41,7 @@ const UI: UiState = {
   // lot 12 — C3 (entretiens suivis et 360°)
   entOnglet: 'echeances', objStatut: 'tous', objEcheance: 'toutes',
   // lot 12 — C4 (organismes de formation et e-learning)
+  orgSel: null, orgFiltre: 'tous', formOnglet: 'sessions', elFiltre: 'ouvertes',
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
 };

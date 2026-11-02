@@ -384,6 +384,13 @@ avec les autres outils » ; inventaire et conformité dans `docs/ECHANGES.md` ; 
   pièces sans salarié (facture et accord gardés 10 ans), échéances (écran Échéances, récapitulatif du service RH) et
   exports CSV des dossiers et des versements ; onglet « Dossiers OPCO » de Plan & budget, Paramètres → Dossiers OPCO.
   Ni export comptable, ni connexion au portail de l'OPCO.
+- **Organismes de formation et e-learning** (lot 12, C4) : référentiel des organismes (Référentiels → Organismes : SIRET,
+  déclaration d'activité, Qualiopi et sa date, conditions, contacts, tarifs ; fiches reprises des textes libres « à
+  vérifier », fusion des doublons), choisi dans les dialogues (session figée à sa création, plan, dossier OPCO, formation
+  suivie) ; relances Qualiopi au service RH (60 jours, 15 jours, échue ; avertissement, jamais un blocage) ; évaluations
+  consolidées par organisme sur 3 exercices. Modules d'e-learning sans plateforme intégrée (lien https, ni SCORM ni xAPI) :
+  inscriptions et import d'avancement (onglet E-learning de Formations), « Mes modules en ligne » du portail, fin validée
+  par le service RH (formation suivie et certification, heures comptées une fois).
 
 ## Indicateurs sociaux et BDESE (lot 11)
 

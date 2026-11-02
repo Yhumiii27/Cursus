@@ -348,6 +348,25 @@ export function tarifEnVigueur(tarifs: readonly OrganismeTarif[] | undefined, or
     .sort((a, b) => b.valableDu.localeCompare(a.valableDu) || b.id - a.id)[0] ?? null;
 }
 
+/** Heures d'une journée de formation, pour un tarif « par jour » (journée de 7 h, demi-journée commencée comptée). */
+export const HEURES_JOURNEE_TARIF = 7;
+
+/**
+ * Coût proposé d'après un tarif (dialogue de correction d'une ligne du plan) : par stagiaire ou par licence, multiplié par
+ * l'effectif ; par session, un seul montant ; par heure, multiplié par la durée en heures du catalogue ; par jour, par le
+ * nombre de journées de 7 h (demi-journée commencée comptée). Sans durée connue, aucun montant n'est proposé (null) : le
+ * tarif unitaire est seulement affiché. Proposé, jamais imposé.
+ */
+export function coutDuTarif(t: Pick<OrganismeTarif, 'montantHt' | 'unite'>, x: { effectif: number; heures: number | null | undefined }): number | null {
+  const heures = x.heures != null && x.heures > 0 ? x.heures : null;
+  const quantite = t.unite === 'stagiaire' || t.unite === 'licence' ? Math.max(0, x.effectif || 0)
+    : t.unite === 'session' ? 1
+    : heures == null ? null
+    : t.unite === 'heure' ? heures
+    : Math.ceil((heures / HEURES_JOURNEE_TARIF) * 2 - 1e-9) / 2;
+  return quantite == null ? null : Math.round(t.montantHt * quantite * 100) / 100;
+}
+
 // — Fusion —
 
 /** Objets rattachés à une fiche, réaffectés par une fusion (comptés dans la confirmation et le journal). */

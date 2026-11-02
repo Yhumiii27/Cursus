@@ -16,6 +16,13 @@ import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { AIDE_MOTIF_OPCO } from '../state/confirmations-opco.ts';
 import { MOTIF_MAX } from '../state/confirmations.ts';
+// lot 12 — C4 (organismes de formation et e-learning) : organisme du dossier (fiche), qui préremplit SIRET, NDA et Qualiopi.
+import { ChoixOrganisme } from '../components/organismes/ChoixOrganisme.tsx';
+import { organismeDuPlan, organismeFinal, qualiopiValideLe } from '../../../shared/rules/organismes.ts';
+import type { Organisme } from '../../../shared/types-organismes.ts';
+
+/** lot 12 — C4 : SIRET, NDA et Qualiopi (valide à la date `le`) proposés par une fiche ; vides sans fiche. */
+const declaresPar = (o: Organisme | null, le: string) => ({ organismeSiret: o?.siret ?? null, organismeNda: o?.nda ?? null, organismeQualiopi: !!o && qualiopiValideLe(o, le) });
 
 /** Nombre affiché dans un champ (virgule décimale), vide pour null. */
 const champ = (n: number | null | undefined) => (n == null ? '' : String(n).replace('.', ','));
@@ -27,13 +34,17 @@ export function OpcoDossierDialog({ planActionId, id }: { planActionId?: number 
   const l = d.ds.plan.find(x => x.id === (dossier?.planActionId ?? planActionId)) ?? null;
   const fm = l?.f ? d.fm(l.f) : null;
   const s = d.ds.settings;
+  // lot 12 — C4 : à la création, organisme de la ligne du plan (ou du catalogue), modifiable ; ensuite, celui du dossier.
+  const ficheDe = (id: number | null | undefined) => organismeFinal(d.ds.organismes, id);
+  const organismeDefaut = l ? organismeDuPlan(d.ds, l) : null;
+  const [organismeId, setOrganismeId] = useState(organismeDefaut ? String(organismeDefaut.id) : '');
   const [v0] = useState(() => {
     if (dossier) return dossier;
     const p = l ? propositionDossier(l, d.ds.sessions, fm?.dureeHeures) : null;
     return {
       opco: s.opcoDefaut, dispositif: 'plan' as DispositifOpco, reference: null, du: p?.du ?? null, au: p?.au ?? null, heures: p?.heures ?? null,
       effectif: p?.effectif ?? null, montantDemande: p?.montantDemande ?? null, montantDemandeAnnexes: null, subrogation: s.opcoSubrogation,
-      organismeSiret: null, organismeNda: null, organismeQualiopi: false,
+      ...declaresPar(organismeDefaut, p?.du ?? d.ti),
     };
   });
   const [opco, setOpco] = useState<CodeOpco>(v0.opco);
@@ -53,6 +64,13 @@ export function OpcoDossierDialog({ planActionId, id }: { planActionId?: number 
   const [busy, setBusy] = useState(false);
   const v = useVerification();
   if (!l || (id != null && !dossier)) return null;
+  // lot 12 — C4 : autre fiche choisie à la création → ses SIRET, NDA et Qualiopi remplacent ceux proposés (tout reste modifiable).
+  const choisirOrganisme = (v: string) => {
+    setOrganismeId(v);
+    const x = declaresPar(ficheDe(Number(v) || null), du || d.ti);
+    setSiret(x.organismeSiret ?? ''); setNda(x.organismeNda ?? ''); setQualiopi(x.organismeQualiopi);
+  };
+  const ficheDossier = dossier ? ficheDe(dossier.organismeId) ?? organismeDefaut : null;
 
   const correction = !!dossier && dossier.statut !== 'a_deposer';
   // Création d'un second dossier sur la ligne (autre dispositif ou autre financeur) : admise, avec un avertissement quand un
@@ -78,7 +96,7 @@ export function OpcoDossierDialog({ planActionId, id }: { planActionId?: number 
     };
     const r = dossier
       ? await run('opco.modifier', { id: dossier.id, ...champs, ...(correction ? { motif: motif.trim() } : {}) })
-      : await run('opco.creer', { planActionId: l.id, ...champs });
+      : await run('opco.creer', { planActionId: l.id, ...champs, /* lot 12 — C4 */ organismeId });
     setBusy(false);
     if (!r.ok) return;
     closeDialog();
@@ -140,6 +158,13 @@ export function OpcoDossierDialog({ planActionId, id }: { planActionId?: number 
         <input type="checkbox" checked={subrogation} onChange={e => setSubrogation(e.target.checked)} style={{ accentColor: 'var(--color-accent)', marginTop: 'var(--space-1)', flex: 'none' }} />
         <span>Subrogation : l’OPCO paie directement l’organisme de formation</span>
       </label>
+      {/* lot 12 — C4 : organisme du dossier ; ses SIRET, NDA et Qualiopi sont proposés, ce qui est déclaré à l'OPCO reste saisi ici. */}
+      {dossier
+        ? <Field label="Organisme de formation"><Static>{ficheDossier?.nomUsuel ?? fm?.organisme ?? '—'}</Static></Field>
+        : <ChoixOrganisme id="opco-organisme" valeur={organismeId} onChange={choisirOrganisme} actuel={organismeDefaut?.id ?? null} vide="Aucun (saisie manuelle)" le={du || d.ti} />}
+      {subrogation && (dossier ? ficheDossier : ficheDe(Number(organismeId) || null))?.subrogationAcceptee === false && (
+        <Fine>L’organisme n’a pas déclaré accepter la subrogation (fiche du référentiel) : à vérifier avec lui.</Fine>
+      )}
       <div className="grid-2">
         <Field label="SIRET de l’organisme" htmlFor="opco-siret" erreur={siret.trim() ? err('organismeSiret') : null}>
           <input className="input tnum" id="opco-siret" inputMode="numeric" value={siret} placeholder="14 chiffres" onChange={e => setSiret(e.target.value)} autoComplete="off" />

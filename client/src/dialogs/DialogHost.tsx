@@ -98,6 +98,12 @@ import { ObjectifDialog } from './ObjectifDialog.tsx';
 import { ObjectifEvaluerDialog } from './ObjectifEvaluerDialog.tsx';
 import { SouhaitDialog } from './SouhaitDialog.tsx';
 // lot 12 — C4 (organismes de formation et e-learning)
+import { ElearningCorrigerDialog, ElearningInscrireDialog, ElearningTerminerDialog } from './ElearningDialogs.tsx';
+import { ElearningImportDialog } from './ElearningImportDialog.tsx';
+import { ModuleElearningDialog } from './ModuleElearningDialog.tsx';
+import { OrganismeContactDialog, OrganismeTarifDialog } from './OrganismeContactDialog.tsx';
+import { OrganismeConditionsDialog, OrganismeDialog } from './OrganismeDialog.tsx';
+import { OrganismeFusionDialog } from './OrganismeFusionDialog.tsx';
 // lot 12 — C5 (planning d'équipe)
 // lot 12 — C6 (badgeage virtuel)
 import { OpcoVersementDialog } from './OpcoVersementDialog.tsx';
@@ -213,6 +219,16 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'objectifEvaluer': return <ObjectifEvaluerDialog {...d} />;
     case 'souhait': return <SouhaitDialog {...d} />;
     // lot 12 — C4 (organismes de formation et e-learning)
+    case 'organisme': return <OrganismeDialog {...d} />;
+    case 'organismeConditions': return <OrganismeConditionsDialog {...d} />;
+    case 'organismeContact': return <OrganismeContactDialog {...d} />;
+    case 'organismeTarif': return <OrganismeTarifDialog {...d} />;
+    case 'organismeFusion': return <OrganismeFusionDialog {...d} />;
+    case 'moduleElearning': return <ModuleElearningDialog {...d} />;
+    case 'elearningInscrire': return <ElearningInscrireDialog {...d} />;
+    case 'elearningTerminer': return <ElearningTerminerDialog {...d} />;
+    case 'elearningCorriger': return <ElearningCorrigerDialog {...d} />;
+    case 'elearningImport': return <ElearningImportDialog />;
     // lot 12 — C5 (planning d'équipe)
     // lot 12 — C6 (badgeage virtuel)
   }

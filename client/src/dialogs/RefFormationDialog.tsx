@@ -13,6 +13,8 @@ import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { dureeHeuresDe } from '../../../shared/rules/heures-formation.ts';
 import { ARTICLE_PASSEPORT, passeportPropose } from '../../../shared/rules/passeport-prevention.ts';
+// lot 12 — C4 (organismes de formation et e-learning) : organisme par défaut choisi dans le référentiel.
+import { ChoixOrganisme } from '../components/organismes/ChoixOrganisme.tsx';
 
 export function RefFormationDialog({ id }: { id?: string | null }) {
   const d = useDomain();
@@ -30,6 +32,9 @@ export function RefFormationDialog({ id }: { id?: string | null }) {
   // Durée en heures (t122), facultative : proposée d'après le texte de la durée tant qu'elle n'est pas saisie.
   const [dureeHeures, setDureeHeures] = useState(avant?.dureeHeures != null ? String(avant.dureeHeures) : '');
   const [organisme, setOrganisme] = useState(avant?.organisme ?? '');
+  // lot 12 — C4 : fiche de l'organisme par défaut ('' : aucune, texte libre) ; choisie, son nom usuel devient le texte.
+  const [organismeId, setOrganismeId] = useState(avant?.organismeId != null ? String(avant.organismeId) : '');
+  const fiche = (d.ds.organismes ?? d.ds.referentiels.organismes ?? []).find(o => o.id === Number(organismeId)) ?? null;
   const [cout, setCout] = useState(avant ? String(avant.cout) : '');
   // Passeport de prévention (lot 7, t066) : jamais coché d'office à la création ; proposé pour une formation santé-sécurité.
   const [passeport, setPasseport] = useState(!!avant?.passeportPrevention);
@@ -41,7 +46,7 @@ export function RefFormationDialog({ id }: { id?: string | null }) {
   // Code proposé d'après le nom court tant que la personne n'en saisit pas un autre.
   const propose = court.trim() ? codeSuggere(court, liste.map(f => f.id)) : '';
   const codeFinal = code.trim() || propose;
-  const champs = { nom, court, type, validite, validation, duree, organisme, cout, dureeHeures: dureeHeures.trim().replace(',', '.'), passeportPrevention: passeport };
+  const champs = { nom, court, type, validite, validation, duree, organisme: fiche ? fiche.nomUsuel : organisme, cout, dureeHeures: dureeHeures.trim().replace(',', '.'), passeportPrevention: passeport, /* lot 12 — C4 */ organismeId };
   const { erreurs, formation } = controlerFormation({ ...champs, code: codeFinal }, liste, avant?.id ?? null);
   // Champ vide : signalé à l'envoi ; saisie incorrecte (format, doublon, borne) : dès la saisie.
   const erreur = (k: ChampFormation, saisi: string) => (saisi.trim() ? erreurs[k] ?? null : v.erreur(erreurs[k]));
@@ -120,9 +125,13 @@ export function RefFormationDialog({ id }: { id?: string | null }) {
               onChange={e => setDureeHeures(e.target.value)} />
           </Field>
         </div>
-        <Field label="Organisme" htmlFor="rf-organisme" erreur={erreur('organisme', organisme)}>
-          <input className="input" id="rf-organisme" type="text" value={organisme} maxLength={80} placeholder="Interne · HSE" onChange={e => setOrganisme(e.target.value)} />
-        </Field>
+        {/* lot 12 — C4 : organisme du référentiel ; « autre » : texte libre, repris en fiche à vérifier au démarrage suivant. */}
+        <ChoixOrganisme id="rf-organisme-id" valeur={organismeId} onChange={setOrganismeId} actuel={avant?.organismeId ?? null} label="Organisme" vide="Autre (texte libre)" />
+        {!fiche && (
+          <Field label="Organisme (texte libre)" htmlFor="rf-organisme" erreur={erreur('organisme', organisme)}>
+            <input className="input" id="rf-organisme" type="text" value={organisme} maxLength={80} placeholder="Interne · HSE" onChange={e => setOrganisme(e.target.value)} />
+          </Field>
+        )}
         <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-2)', fontSize: 14 }}>
           <input type="checkbox" checked={passeport} onChange={e => setPasseport(e.target.checked)} style={{ accentColor: 'var(--color-accent)', marginTop: 3 }} />
           <span>

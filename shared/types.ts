@@ -8,6 +8,7 @@ import type { ClotureForfaitHeures, ElementForfaitHeuresPaie, EmissionForfaitHeu
 export type { ClotureForfaitHeures, ElementForfaitHeuresPaie, EmissionForfaitHeures } from './rules/forfait-heures.ts';
 // lot 12 — C4 : organismes de formation et e-learning (shared/types-organismes.ts).
 import type { InscriptionElearning, ModuleElearning, Organisme, OrganismeContact, OrganismeResume, OrganismeTarif } from './types-organismes.ts';
+import type { IndicateursOrganisme } from './rules/organismes-suivi.ts';
 // lot 12 — C5 (planning d'équipe) : modèle du planning (shared/types-planning.ts).
 import type { BesoinPoste, Creneau, Cycle, EchangePoste, PublicationPlanning, Roulement } from './types-planning.ts';
 
@@ -2201,6 +2202,12 @@ export interface Dataset {
    * périmètre pour le manager, toutes pour le droit « formations » et la lecture seule ; jamais un motif hors du service RH.
    */
   inscriptionsElearning?: InscriptionElearning[];
+  /**
+   * Évaluations consolidées par organisme sur plusieurs exercices glissants (étape 2, shared/rules/organismes-suivi.ts) :
+   * calculées par le serveur pour la vue agrégée du référent HSE et de la lecture seule (masquées sous 3 réponses) ;
+   * absentes ailleurs (le service RH les calcule sur l'instantané).
+   */
+  indicateursOrganismes?: IndicateursOrganisme[];
   // lot 12 — C5 (planning d'équipe)
   /**
    * Planning d'équipe (server/src/vues-planning.ts) : cycles, besoins par poste et publications (champs communs) ;

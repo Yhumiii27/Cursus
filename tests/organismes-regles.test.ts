@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import {
   aliasApresFusion, avertissementsOrganisme, cleOrganisme, clesFiche, codePropose, controlerConditions, controlerContact, controlerOrganisme, controlerTarif,
   estInterne, etatQualiopi, graphieDominante, ndaManquant, organismeDeSession, organismeDeSuivie, organismeDuPlan, organismeFinal, qualiopiValideLe, rattachementsDe,
-  refusFusion, resumeOrganisme, siteWebValide, tarifEnVigueur, texteOrganisme,
+  refusFusion, resumeOrganisme, siteWebValide, tarifEnVigueur, texteOrganisme, coutDuTarif,
 } from '../shared/rules/organismes.ts';
 import {
   avancementDe, controlerModule, dateSaisie, effetImport, etatInscription, finAcces, finAutomatique, finAValider, heuresRetenues, inscriptionOuverte, inscriptionOuverteDe,
@@ -227,4 +227,21 @@ test('import d’avancement : colonnes fermées (aucun temps de connexion), rapp
   assert.equal(effetImport(l2, inscription({ id: 10, statut: 'en_cours', avancement: 100, avancementSource: 'import', avancementLe: '2026-10-08', reussi: true }), '2026-10-10'), null);
   assert.ok(finAutomatique(true, module(), l2) && !finAutomatique(false, module(), l2) && !finAutomatique(true, module({ attestationRequise: true }), l2) && !finAutomatique(true, module(), l1));
   assert.match((lireImportElearning('matricule;module\nEMP-0002;RGPD-EL\nEMP-0006;RGPD-EL;x', { ...d, inscriptionsElearning: [] }, '2026-10-10') as { lignes: { errs: string[] }[] }).lignes[0].errs[0], /aucune inscription ouverte/);
+});
+
+test('coût proposé d’après un tarif : effectif, session, durée du catalogue en heures ou en journées ; rien sans durée connue', () => {
+  const t = (unite: OrganismeTarif['unite'], montantHt: number) => ({ unite, montantHt });
+  assert.equal(coutDuTarif(t('stagiaire', 250), { effectif: 4, heures: 14 }), 1000);
+  assert.equal(coutDuTarif(t('licence', 39.9), { effectif: 3, heures: null }), 119.7);
+  assert.equal(coutDuTarif(t('session', 1800), { effectif: 8, heures: 14 }), 1800);
+  // Par jour : 3 jours (21 h) à 1 200 € ; 2 jours (14 h) à 600 € ; demi-journée commencée comptée (4 h : une journée, 2 h : une demi).
+  assert.equal(coutDuTarif(t('jour', 1200), { effectif: 6, heures: 21 }), 3600);
+  assert.equal(coutDuTarif(t('jour', 600), { effectif: 6, heures: 14 }), 1200);
+  assert.equal(coutDuTarif(t('jour', 600), { effectif: 6, heures: 4 }), 600);
+  assert.equal(coutDuTarif(t('jour', 600), { effectif: 6, heures: 2 }), 300);
+  // Par heure : 14 h à 90 €.
+  assert.equal(coutDuTarif(t('heure', 90), { effectif: 6, heures: 14 }), 1260);
+  // Durée inconnue : aucun montant (le tarif unitaire seul est affiché).
+  assert.equal(coutDuTarif(t('jour', 600), { effectif: 6, heures: null }), null);
+  assert.equal(coutDuTarif(t('heure', 90), { effectif: 6, heures: 0 }), null);
 });

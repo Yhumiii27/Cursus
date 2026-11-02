@@ -13,15 +13,21 @@
 //                               ligne qui neutralise le pointage visé (aucune saisie n'est modifiée ni supprimée)
 //   pointage.refuserCorrection  id, motif (texte, jamais au journal) : même valideur
 //   pointage.annulerCorrection  id : le salarié (sa demande en attente), ou son valideur
+//   pointage.reprendreFeuille   empId, week (étape 2) : feuille au mode « calcule » encore modifiable (mêmes droits que la
+//                               saisie des heures) ; la ligne PTG reprend le pointé du moment, moins la ventilation
+//                               (shared/rules/pointage-feuille.ts) ; rien n'est réécrit si elle n'a pas changé
 // Messages sans commentaire ni motif de refus (ils sont recopiés au journal).
 import { addD, isoParis, mondayOf } from '../../../shared/dates.ts';
-import { fmtIso } from '../../../shared/format.ts';
+import { fH, fmtIso } from '../../../shared/format.ts';
 import {
   apparier, estMotifCorrection, estNatureCorrection, estSens, hhmmParis, instantValide, MOTIFS_CORRECTION, postesDesPointages, refusDelaiCorrection,
   refusHeureAppareil, TEXTE_CORRECTION_MAX,
 } from '../../../shared/rules/pointage.ts';
 import type { CorrectionPointage, Employe, FeuilleTemps, ISODate, Pointage, SensPointage } from '../../../shared/types.ts';
-import { instantServeur, lirePointages, modeDuSalarie } from '../pointages.ts';
+import { instantServeur, lirePointages, modeDuSalarie, pointeDeLaFeuille } from '../pointages.ts';
+import { avecLignePointee, ecartsTexte, feuilleCalculee, memesLignes } from '../../../shared/rules/pointage-feuille.ts';
+import { joursSemaine } from '../../../shared/dates.ts';
+import { editable } from './temps.ts';
 import { ActionError, type ActionHandler, type Ctx, getEmp, isRh, isValidatorOf, refuserSoiMeme, str } from './context.ts';
 
 /** Instant du serveur (ISO), à la date du jour de Cursus (server/src/pointages.ts). */
@@ -230,10 +236,25 @@ const annulerCorrection: ActionHandler = async (ctx, p) => {
   return { message: `Demande de correction retirée : ${libelle(ctx, c)}`, result: resultat(v) };
 };
 
+// — Mode « calcule » (étape 2) —
+
+const reprendreFeuille: ActionHandler = async (ctx, p) => {
+  const { sh } = await editable(ctx, p);
+  if (!feuilleCalculee(sh)) throw new ActionError('Feuille déclarative : ses heures se saisissent, elles ne viennent pas des pointages', 409);
+  const { lignes, ecarts } = avecLignePointee(sh.lignes, await pointeDeLaFeuille(ctx.db, sh.empId, sh.week));
+  if (!memesLignes(lignes, sh.lignes)) await ctx.db.update<FeuilleTemps>('feuilles', sh.id, { lignes });
+  const reste = lignes[0].h.reduce((n, h) => n + h, 0);
+  return {
+    message: `Pointé repris sur la feuille${reste > 0 ? ` : ${fH(reste)} restent à répartir sur les projets` : ''}${ecarts.length ? ` · ventilation au-delà du pointé — ${ecartsTexte(ecarts, joursSemaine(sh.week).map(j => fmtIso(j)))}` : ''}`,
+    result: { empId: sh.empId, week: sh.week, ecarts: ecarts.length },
+  };
+};
+
 export const pointageActions = {
   'pointage.pointer': pointer,
   'pointage.corriger': corriger,
   'pointage.validerCorrection': validerCorrection,
   'pointage.refuserCorrection': refuserCorrection,
   'pointage.annulerCorrection': annulerCorrection,
+  'pointage.reprendreFeuille': reprendreFeuille,
 } satisfies Record<string, ActionHandler>;

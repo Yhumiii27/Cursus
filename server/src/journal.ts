@@ -1081,6 +1081,18 @@ export const REGLES: Record<string, Regle> = {
   'pointage.validerCorrection': { champs: ['id'], bilan: (_p, x) => bilanCorrection(x), salaries: (_p, x) => [resultatCorrection(x).empId] },
   'pointage.refuserCorrection': { champs: ['id'], bilan: (_p, x) => bilanCorrection(x), salaries: (_p, x) => [resultatCorrection(x).empId] },
   'pointage.annulerCorrection': { champs: ['id'], bilan: (_p, x) => bilanCorrection(x), salaries: (_p, x) => [resultatCorrection(x).empId] },
+  // Étape 2 : ligne PTG d'une feuille au mode « calcule » reprise du pointé (salarié et semaine, nombre de jours où la
+  // ventilation dépasse le pointé ; jamais une heure). Horaire variable : code, booléen, nombre de plages, minutes, et le
+  // seul fait qu'une référence d'accord soit renseignée (texte jamais recopié).
+  'pointage.reprendreFeuille': { champs: ['empId', 'week'], bilan: (_p, x) => ({ ecarts: Number((x.result as { ecarts?: number } | undefined)?.ecarts) || 0 }) },
+  'referentiel.horaire.variable': {
+    extra: p => ({ code: codeHoraire(p) }),
+    cible: { table: 'horaires', cle: p => codeHoraire(p), colonnes: ['variable', 'dureeReference', 'reportMaxSemaine', 'cumulMax'] },
+    bilan: async (p, x) => {
+      const h = await x.db.get<Ligne>('horaires', codeHoraire(p) ?? '');
+      return { plages: Array.isArray(h?.plages) ? h.plages.length : 0, accord: !!h?.accordVariable };
+    },
+  },
 };
 
 // lot 11 — pwa (chantier C2) : saisie du jour rejouable, désignée par la ligne (projet, tâche) et non par son indice ; tracée

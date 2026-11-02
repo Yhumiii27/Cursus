@@ -70,6 +70,8 @@ import type { OngletTemps } from './temps-onglets.ts';
 // lot 12 — C1 (forfait annuel en heures)
 // lot 12 — C5 (planning d'équipe)
 // lot 12 — C6 (badgeage virtuel)
+import { PointagesSemaine } from '../components/temps/Pointages.tsx';
+import { estLignePointee } from '../../../shared/rules/pointage-feuille.ts';
 
 /** Année d'une feuille : celle de sa semaine ISO (son jeudi) ; le cumul annuel ventile une semaine à cheval jour par jour. */
 const anneeDe = (week: ISODate) => isoWeekYear(week);
@@ -226,7 +228,12 @@ export function Temps() {
   const contenus: Partial<Record<OngletTemps, ReactNode>> = {};
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C5 (planning d'équipe)
-  // lot 12 — C6 (badgeage virtuel)
+  // lot 12 — C6 (badgeage virtuel) : semaine de pointages du salarié affiché, le module activé (pas pour les profils
+  // restreints, qui lisent la feuille).
+  if (data.settings.pointageActif && (rh || manager || collab)) {
+    onglets.push(['pointages', 'Pointages']);
+    contenus.pointages = tsEmp ? <PointagesSemaine key={`${tsEmp.id}|${wk}`} emp={tsEmp} wk={wk} /> : null;
+  }
   const onglet: OngletTemps = onglets.some(([o]) => o === ui.tempsOnglet) ? ui.tempsOnglet : 'feuilles';
 
   return (
@@ -465,7 +472,9 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
 
         {vueJour ? (
           <SaisieJour wk={wk} days={days} lignes={lignes} perDay={calc.perDay} total={calc.total} editable={editable} occupe={occupe}
-            projet={code => d.projet(code)} alerteDe={alerteDe} enregistrer={enregistrer} supprimer={supprimer} horaires={horaires} />
+            projet={code => d.projet(code)} alerteDe={alerteDe} enregistrer={enregistrer} supprimer={supprimer} horaires={horaires}
+            /* lot 12 — C6 (badgeage virtuel) : bouton « Pointer » sur sa propre feuille de la semaine en cours. */
+            pointer={emp.id === me && wk === mondayOf(data.today)} />
         ) : (
         <div className="scroll-x">
           <table className="table" style={{ fontSize: 13 }}>
@@ -500,7 +509,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
                     const alerte = alerteDe(li, di), alerteId = `ts-alerte-${li}-${di}`;
                     return (
                       <td key={di} className={`center${days[di].weekend ? ' col-weekend' : ''}`}>
-                        <ChampHeures value={num(l.h[di])} disabled={!editable || (days[di].locked && !alerte) || ligneAstreinte(l)} label={nomChamp(l, days[di].long)}
+                        <ChampHeures value={num(l.h[di])} disabled={!editable || (days[di].locked && !alerte) || ligneAstreinte(l) || /* lot 12 — C6 */ estLignePointee(l)} label={nomChamp(l, days[di].long)}
                           alerte={alerte} alerteId={alerteId} onCommit={raw => enregistrer(li, di, raw)}
                           style={{ width: 56, textAlign: 'right', padding: '0 var(--space-3)' }} />
                         {alerte && <span id={alerteId} className="sr-only">{alerte}</span>}
@@ -509,7 +518,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
                   })}
                   {!voirWeekEnd && <td className="center col-weekend tnum nowrap">{heuresWeekEnd(l.h) ? fH(heuresWeekEnd(l.h)) : '—'}</td>}
                   <td className="right nowrap tnum">{fH(l.h.reduce((n, v) => n + num(v), 0))}</td>
-                  <td className="right">{editable && !(ligneAstreinte(l) && l.h.some(v => num(v) > 0)) && <CloseButton size={28} label={`Supprimer la ligne ${l.projet}`} disabled={occupe} onClick={ev => supprimer(li, ev)} />}</td>
+                  <td className="right">{editable && !(ligneAstreinte(l) && l.h.some(v => num(v) > 0)) && /* lot 12 — C6 */ !estLignePointee(l) && <CloseButton size={28} label={`Supprimer la ligne ${l.projet}`} disabled={occupe} onClick={ev => supprimer(li, ev)} />}</td>
                 </tr>
               ))}
               <tr>

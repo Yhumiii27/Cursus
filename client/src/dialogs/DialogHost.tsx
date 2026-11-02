@@ -95,6 +95,8 @@ import { FraisVehiculeDialog } from './FraisVehiculeDialog.tsx';
 // lot 12 — C4 (organismes de formation et e-learning)
 // lot 12 — C5 (planning d'équipe)
 // lot 12 — C6 (badgeage virtuel)
+import { CorrectionPointageDialog } from './CorrectionPointageDialog.tsx';
+import { HoraireVariableDialog } from './HoraireVariableDialog.tsx';
 import { OpcoVersementDialog } from './OpcoVersementDialog.tsx';
 
 export function DialogHost() {
@@ -205,5 +207,7 @@ function Dialogue({ d }: { d: DialogState }) {
     // lot 12 — C4 (organismes de formation et e-learning)
     // lot 12 — C5 (planning d'équipe)
     // lot 12 — C6 (badgeage virtuel)
+    case 'correctionPointage': return <CorrectionPointageDialog {...d} />;
+    case 'horaireVariable': return <HoraireVariableDialog {...d} />;
   }
 }

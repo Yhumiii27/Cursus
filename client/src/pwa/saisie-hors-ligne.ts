@@ -28,7 +28,7 @@ const heures = (h: readonly number[], di: number) => num(h[di]);
  * Forme hors ligne d'une action lancée par l'écran, ou null si elle ne peut pas attendre le réseau (elle échoue alors
  * comme avant, avec le message « Connexion au serveur impossible »).
  */
-export function versFile(nom: NomAction, payload: Record<string, unknown>, data: Dataset | null): MiseEnFile | null {
+export function versFile(nom: NomAction, payload: Record<string, unknown>, data: Dataset | null, maintenant: () => Date = () => new Date()): MiseEnFile | null {
   const empId = data?.user.empId ?? null;
   if (!data || empId == null || Number(payload.empId) !== empId) return null;
   let mf: MiseEnFile | null = null;
@@ -42,6 +42,9 @@ export function versFile(nom: NomAction, payload: Record<string, unknown>, data:
   // lot 11 — notes de frais : dépense sans photo (indemnité kilométrique, attestation) ; avec photo, l'écran la garde
   // lui-même avec sa pièce (pilote.ts, `garderAvecPieces`). Jamais de frais médicaux (refusHorsLigne).
   else if (nom === 'frais.ligne.ajouter' && !payload.jetons) mf = { nom, payload };
+  // lot 12 — C6 (badgeage virtuel) : pointage gardé avec l'heure de l'appareil au moment du clic, envoyé « différé » au retour
+  // du réseau ; jamais de position (refusHorsLigne). En ligne, l'action part sans elle (heure du serveur).
+  else if (nom === 'pointage.pointer') mf = { nom, payload: { empId, horodatageAppareil: maintenant().toISOString() } };
   return mf && refusHorsLigne(mf.nom, mf.payload, empId) === null ? mf : null;
 }
 
@@ -87,6 +90,11 @@ export function libelleSaisie(nom: string, p: Record<string, unknown>): string {
     const c = CATEGORIES_FRAIS[String(p.categorie) as CategorieFrais]?.label ?? 'Dépense';
     const m = Number(String(p.montant ?? '').replace(',', '.'));
     return `Dépense · ${c} · le ${fmtIso(String(p.date) as ISODate)}${m > 0 ? ` : ${m.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${String(p.devise ?? 'EUR') === 'EUR' ? '€' : String(p.devise)}` : ''}`;
+  }
+  // lot 12 — C6 (badgeage virtuel) : heure de l'appareil seulement.
+  if (nom === 'pointage.pointer') {
+    const t = typeof p.horodatageAppareil === 'string' ? new Date(p.horodatageAppareil) : null;
+    return `Pointage différé${t && !Number.isNaN(t.getTime()) ? ` · ${t.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })} à ${t.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ''}`;
   }
   return 'Saisie';
 }

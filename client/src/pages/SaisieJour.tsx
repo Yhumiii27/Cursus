@@ -15,6 +15,9 @@ import { cellText, cellValue, jourParDefaut, nomChamp, VUE_JOUR } from '../compo
 import { useMedia } from '../components/media.ts';
 import { CloseButton } from '../components/ui.tsx';
 import { ligneAstreinte } from '../components/astreintes-etat.ts';
+// lot 12 — C6 (badgeage virtuel) : bouton « Pointer » au-dessus de la saisie du jour ; ligne PTG non saisissable.
+import { BoutonPointer } from '../components/BoutonPointer.tsx';
+import { estLignePointee } from '../../../shared/rules/pointage-feuille.ts';
 import { ChoixHoraire, type HorairesFeuille } from '../components/HorairesFeuille.tsx';
 import { useStore } from '../state/store.tsx';
 
@@ -67,7 +70,7 @@ export interface JourFeuille {
   weekend?: boolean;
 }
 
-export function SaisieJour({ wk, days, lignes, perDay, total, editable, occupe, projet, alerteDe, enregistrer, supprimer, horaires }: {
+export function SaisieJour({ wk, days, lignes, perDay, total, editable, occupe, projet, alerteDe, enregistrer, supprimer, horaires, pointer }: {
   wk: ISODate; days: JourFeuille[]; lignes: LigneTemps[]; perDay: number[]; total: number; editable: boolean; occupe: boolean;
   /** Libellé d'un projet (Keystone ou activité interne). */
   projet: (code: string) => string;
@@ -77,6 +80,8 @@ export function SaisieJour({ wk, days, lignes, perDay, total, editable, occupe, 
   supprimer: (li: number, ev: MouseEvent) => void;
   /** Horaire de poste de chaque jour (null : aucun à montrer). */
   horaires?: HorairesFeuille | null;
+  /** lot 12 — C6 (badgeage virtuel) : bouton « Pointer » en tête (sa propre feuille, semaine en cours). */
+  pointer?: boolean;
 }) {
   const { ui, setUi, data } = useStore();
   const jour = Math.min(days.length - 1, Math.max(0, ui.tsJour ?? jourParDefaut(days.map(x => x.day), data?.today ?? '', perDay)));
@@ -85,6 +90,7 @@ export function SaisieJour({ wk, days, lignes, perDay, total, editable, occupe, 
 
   return (
     <div className="saisie-jour">
+      {pointer && <BoutonPointer titre="Pointer" />}
       <div className={`jours-semaine${days.length > 5 ? ' sept' : ''}`} role="group" aria-label="Jour affiché">
         {days.map((j, i) => (
           <button key={j.day} type="button" className={`jour-btn${j.weekend ? ' weekend' : ''}`} aria-pressed={i === jour} onClick={() => setUi({ tsJour: i })}>
@@ -120,9 +126,9 @@ export function SaisieJour({ wk, days, lignes, perDay, total, editable, occupe, 
               </div>
               {/* Une clé par jour : la saisie en cours d'un jour ne passe pas au suivant. */}
               <ChampHeures key={`${li}-${jour}`} className="champ-jour" value={num(l.h[jour])} label={nomChamp(l, x.long)}
-                disabled={!editable || (x.locked && !alerte) || ligneAstreinte(l)} alerte={alerte} alerteId={alerteId}
+                disabled={!editable || (x.locked && !alerte) || ligneAstreinte(l) || /* lot 12 — C6 */ estLignePointee(l)} alerte={alerte} alerteId={alerteId}
                 onCommit={raw => enregistrer(li, jour, raw)} />
-              {editable && !(ligneAstreinte(l) && l.h.some(v => Number(v) > 0)) && <CloseButton label={`Supprimer la ligne ${l.projet}`} disabled={occupe} onClick={ev => supprimer(li, ev)} />}
+              {editable && !(ligneAstreinte(l) && l.h.some(v => Number(v) > 0)) && /* lot 12 — C6 */ !estLignePointee(l) && <CloseButton label={`Supprimer la ligne ${l.projet}`} disabled={occupe} onClick={ev => supprimer(li, ev)} />}
             </div>
           );
         })}

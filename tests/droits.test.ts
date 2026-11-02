@@ -252,10 +252,10 @@ const echangePlanning = async (statut: string) => {
 const roulementPlanning = async () => (await db.insert<{ id: number }>('roulements', { empId: 2, cycle: 'JOUR', groupe: 'A', du: '2026-11-02', au: null, equipe: 'Maintenance', creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Karim Haddad' })).id;
 // lot 12 — C6 (badgeage virtuel) : module activé (accord, avis du CSE, Maintenance en mode « controle ») dans la
 // transaction de la ligne ; demande de correction de Mehdi en attente (ajout d'une arrivée le jour même).
-const badgeageActif = async () => {
+const badgeageActif = async (mode = 'controle') => {
   await db.setSetting('app', {
     ...await db.getSetting<Record<string, unknown>>('app', {}), pointageActif: true, pointageAccord: 'Accord d’entreprise du 1er mars 2026', pointageCseLe: '2026-02-15',
-    pointagePopulations: [{ critere: 'equipe', valeur: 'Maintenance', mode: 'controle', effet: '2026-01-01' }],
+    pointagePopulations: [{ critere: 'equipe', valeur: 'Maintenance', mode, effet: '2026-01-01' }],
   });
 };
 const correctionPointage = async () => {
@@ -760,11 +760,18 @@ const MATRICE: Ligne[] = [
   { action: 'pointage.pointer', droits: '            -    -    -    -    O    -    -    -    -', p: async () => { await badgeageActif(); return { empId: 2 }; } },
   { action: 'pointage.corriger', droits: '           O    O    O    -    O    -    -    -    -', p: async () => {
     await badgeageActif();
-    return { empId: 2, nature: 'ajout', horodatage: '2026-10-07T05:00:00.000Z', sens: 'E', motif: 'oubli' };
+    // La veille du jour des tests : jamais « à venir », quelle que soit l'heure à laquelle la suite tourne.
+    return { empId: 2, nature: 'ajout', horodatage: '2026-10-06T05:00:00.000Z', sens: 'E', motif: 'oubli' };
   } },
   { action: 'pointage.validerCorrection', droits: '   O    O    O    -    -    -    -    -    -', p: async () => ({ id: await correctionPointage() }) },
   { action: 'pointage.refuserCorrection', droits: '   O    O    O    -    -    -    -    -    -', p: async () => ({ id: await correctionPointage(), motif: 'Présence non constatée' }) },
   { action: 'pointage.annulerCorrection', droits: '   O    O    O    -    O    -    -    -    -', p: async () => ({ id: await correctionPointage() }) },
+  // Étape 2 : pointé repris sur une feuille au mode « calcule » (mêmes droits que la saisie des heures) ; horaire variable
+  // (service RH, comme l'enregistrement d'un horaire).
+  { action: 'pointage.reprendreFeuille', droits: '    O    O    O    -    O    -    -    -    -', p: async () => { await badgeageActif('calcule'); return { empId: 2, week: '2026-10-19' }; } },
+  { action: 'referentiel.horaire.variable', droits: ' O    O    -    -    -    -    -    -    -', p: () => ({
+    id: 'J', variable: true, plages: [{ type: 'mobile', debut: '08:00', fin: '09:00' }, { type: 'fixe', debut: '09:00', fin: '11:30' }, { type: 'mobile', debut: '11:30', fin: '16:00' }],
+  }) },
 ];
 // lot 12 — C1 (forfait annuel en heures)
 /**

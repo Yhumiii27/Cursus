@@ -13,7 +13,8 @@ import {
 import { estActiviteInterne } from '../../../shared/rules/activites.ts';
 import { regimeAFiger } from '../../../shared/rules/historique-contrat.ts';
 // lot 12 — C6 (badgeage virtuel)
-import { modeAFiger } from '../pointages.ts';
+import { modeAFiger, pointeDeLaFeuille } from '../pointages.ts';
+import { avecLignePointee, ecartsTexte, estLignePointee, feuilleCalculee } from '../../../shared/rules/pointage-feuille.ts';
 import { completerSemaine, JOURS_FEUILLE } from '../../../shared/rules/semaine.ts';
 import { ferieRefus } from '../../../shared/rules/majorations.ts';
 import { horairesAFiger } from '../../../shared/rules/horaires.ts';
@@ -85,8 +86,29 @@ function motifDepassement(ctx: Ctx, emp: Employe, sh: FeuilleTemps, p: Record<st
 }
 
 export async function saveLines(ctx: Ctx, sh: FeuilleTemps, lignes: LigneTemps[]) {
+  // lot 12 — C6 (badgeage virtuel) : mode « calcule », ligne PTG recalculée (pointé moins la ventilation).
+  if (feuilleCalculee(sh)) lignes = avecLignePointee(lignes, await pointeDeLaFeuille(ctx.db, sh.empId, sh.week)).lignes;
   // Une feuille corrigée par son valideur reste « soumise » ; une feuille renvoyée reste « à corriger ».
   await ctx.db.update<FeuilleTemps>('feuilles', sh.id, { lignes, statut: sh.statut === 'rejetee' || sh.statut === 'soumise' ? sh.statut : 'brouillon' });
+}
+
+// lot 12 — C6 (badgeage virtuel)
+/** Ligne PTG du mode « calcule » : tirée des pointages, jamais saisie ni supprimée (shared/rules/pointage-feuille.ts). */
+const LIGNE_POINTEE = 'Ligne des heures pointées : elle suit les pointages (mode « calculé »), répartissez-les sur vos projets ; un pointage oublié se corrige dans « Pointages »';
+
+/**
+ * Mode « calcule » (lot 12, C6) : feuille dont la ligne PTG est recalculée sur le pointé du moment, et pointé à figer
+ * (`pointeFige`), à la soumission et à la validation. Une ventilation qui dépasse le pointé d'un jour est refusée : les
+ * heures payées viennent des pointages. Feuille déclarative ou contrôlée : inchangée, rien à figer.
+ */
+async function pointeAFiger(ctx: Ctx, sh: FeuilleTemps, quand: string): Promise<{ sh: FeuilleTemps; champs: Partial<FeuilleTemps> }> {
+  if (!feuilleCalculee(sh)) return { sh, champs: {} };
+  const pointe = await pointeDeLaFeuille(ctx.db, sh.empId, sh.week);
+  const { lignes, ecarts } = avecLignePointee(sh.lignes, pointe);
+  if (ecarts.length) {
+    throw new ActionError(`Heures ventilées au-delà du pointé — ${ecartsTexte(ecarts, joursSemaine(sh.week).map(j => fmtIso(j)))} : réduisez la ventilation, ou demandez la correction d’un pointage oublié, ${quand}`);
+  }
+  return { sh: { ...sh, lignes }, champs: { lignes, pointeFige: pointe } };
 }
 
 /**
@@ -107,6 +129,8 @@ const heuresSaisies = (v: unknown) => Math.round(Math.max(0, Math.min(24, num(St
 /** Écrit `v` heures dans la cellule (ligne `li`, jour `di`) d'une feuille modifiable, avec toutes les règles de la saisie. */
 async function ecrireCellule(ctx: Ctx, emp: Employe, sh: FeuilleTemps, li: number, di: number, v: number) {
   if (!sh.lignes[li] || !(Number.isInteger(di) && di >= 0 && di < JOURS_FEUILLE)) throw new ActionError('Cellule invalide');
+  // lot 12 — C6 (badgeage virtuel) : ligne PTG du mode « calcule », tenue par les pointages.
+  if (estLignePointee(sh.lignes[li])) throw new ActionError(LIGNE_POINTEE);
   // Ligne des interventions d'astreinte (t049) : tenue par leur déclaration, avec les heures de début et de fin.
   if (sh.lignes[li].projet === ACTIVITE_ASTREINTE.code) throw new ActionError(INTERVENTION_A_DECLARER);
   // Aucune heure un jour d'absence (validée ou signalée) ni hors contrat ; vider la cellule reste toujours possible, pour corriger.
@@ -188,6 +212,8 @@ const removeLine: ActionHandler = async (ctx, p) => {
       throw new ActionError('La feuille a changé entre-temps : vérifiez la ligne à supprimer, puis réessayez');
     }
   }
+  // lot 12 — C6 (badgeage virtuel) : la ligne PTG reste sur une feuille au mode « calcule ».
+  if (sh.lignes[li] && estLignePointee(sh.lignes[li])) throw new ActionError(LIGNE_POINTEE);
   if (sh.lignes[li]?.projet === ACTIVITE_ASTREINTE.code && sh.lignes[li].h.some(v => num(v) > 0)) {
     throw new ActionError('Ligne des interventions d’astreinte : retirez d’abord les interventions déclarées cette semaine');
   }
@@ -222,8 +248,10 @@ const suggest: ActionHandler = async (ctx, p) => {
 };
 
 const submit: ActionHandler = async (ctx, p) => {
-  const { emp, sh } = await editable(ctx, p);
-  if (sh.statut === 'soumise') throw new ActionError('Feuille déjà soumise');
+  const { emp, sh: saisie } = await editable(ctx, p);
+  if (saisie.statut === 'soumise') throw new ActionError('Feuille déjà soumise');
+  // lot 12 — C6 (badgeage virtuel) : mode « calcule », ligne PTG sur le pointé du moment, pointé figé.
+  const { sh, champs: pointe } = await pointeAFiger(ctx, saisie, 'avant de soumettre la feuille');
   const total = sh.lignes.reduce((n, l) => n + l.h.reduce((a, b) => a + num(b), 0), 0);
   // Semaine d'arrêt, de congés… : aucun jour travaillé attendu, la feuille se soumet sans heure.
   const couverte = !(total > 0) && semaineCouverte(ctx.d, emp, sh.week, sh);
@@ -239,7 +267,7 @@ const submit: ActionHandler = async (ctx, p) => {
   const reouverture = sh.reouverture?.renvoyee ? { reouverture: { ...sh.reouverture, renvoyee: false } } : {};
   // Horaires de poste du jour (shared/rules/horaires.ts) : ceux affichés, figés à la soumission (les choix restent à part).
   const horaires = horairesAFiger(ctx.ds.referentiels, emp.equipe, sh, calcSheet(ctx.d, emp, { ...sh, contrat }).perDay);
-  await ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'soumise', comment: null, contrat, motifDepassement: motif, ...reouverture, ...horaires });
+  await ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'soumise', comment: null, contrat, motifDepassement: motif, ...reouverture, ...horaires, ...pointe });
   await notifierFeuilleSoumise(ctx, emp, sh.week, ctx.d.mgrOf(emp));
   return `Feuille de temps soumise ${ctx.d.mgrDest(ctx.d.mgrOf(emp))}${couverte ? ' — semaine d’absence, sans heure' : ''}`;
 };
@@ -276,7 +304,9 @@ export function remplacerFeuille(ctx: Ctx, ligne: FeuilleTemps) {
  * notées pour la fin de la tranche (`relevesDeFinDeTranche` de server/src/actions/suivi-feuilles.ts).
  */
 export async function validerFeuille(ctx: Ctx, p: Record<string, any>, relevesEnFin?: Map<string, { agence: string; semaine: string }>): Promise<{ message: string; alertes: string[] }> {
-  const { emp, sh } = submitted(ctx, p);
+  const { emp, sh: soumise } = submitted(ctx, p);
+  // lot 12 — C6 (badgeage virtuel) : mode « calcule », pointé refigé (correction validée depuis la soumission).
+  const { sh, champs: pointe } = await pointeAFiger(ctx, soumise, 'ou renvoyez la feuille avant de la valider');
   // Soumise sans heure parce que la semaine était couverte : l'absence a pu être annulée ou raccourcie depuis.
   const total = sh.lignes.reduce((n, l) => n + l.h.reduce((a, b) => a + num(b), 0), 0);
   if (!(total > 0) && !semaineCouverte(ctx.d, emp, sh.week, sh)) throw new ActionError('La semaine n’est plus couverte par une absence : renvoyez la feuille pour saisie des heures');
@@ -307,7 +337,7 @@ export async function validerFeuille(ctx: Ctx, p: Record<string, any>, relevesEn
   const forfait = controleForfaitJours(ctx, emp, validee, p);
   // Horaires de poste refigés après une éventuelle correction du valideur (heures d'un code déjà figé inchangées).
   const horaires = horairesAFiger(ctx.ds.referentiels, emp.equipe, sh, calcSheet(ctx.d, emp, { ...sh, contrat }).perDay);
-  await ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif, heuresSup, majDimanche, majFerie, majNuit, cor, ...horaires, ...forfait.champs });
+  await ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif, heuresSup, majDimanche, majFerie, majNuit, cor, ...horaires, ...forfait.champs, ...pointe });
   // Seuils franchis par cette feuille (moyenne sur 12 semaines, temps partiel, contingent) : signalés, sans blocage.
   const autres = ctx.ds.feuilles.filter(f => f.empId === emp.id && f.statut === 'validee' && f.id !== sh.id);
   const alertes = [...alertesValidation(ctx.d, emp, autres, [...autres, { ...validee, cor }], sh.week, corDeLaFeuille({ cor })), ...forfait.alertes];

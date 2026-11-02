@@ -1893,6 +1893,8 @@ aucun champ du paramètre n'est recopié.
 | `pointage.corriger` | empId, nature (`ajout` : horodatage avec fuseau, sens ; `neutralisation` : pointageId), motif (`oubli`/`appareil`/`mission`/`formation`/`autre`), commentaire? (300 caractères, jamais au journal) ; jour passé, sous `pointageDelaiCorrectionJours` jours (le service RH sans délai) ; feuille validée de la semaine du jour ou de celle du jour de rattachement du poste (sortie du lundi d'un poste de nuit du dimanche) : 409 (réouverture), aussi à la validation ; saisie par le valideur : validée d'emblée | salarié, manager direct ou suppléant « feuilles », RH |
 | `pointage.validerCorrection` / `pointage.refuserCorrection` | id ; refus : motif (300 caractères, jamais au journal) ; validation : ligne ajoutée (pointage, ou neutralisation du pointage visé), feuille validée : 409 | manager direct ou suppléant « feuilles », RH ; jamais pour soi |
 | `pointage.annulerCorrection` | id : demande en attente retirée | le salarié, son valideur |
+| `pointage.reprendreFeuille` | empId, week : feuille au mode « calcule » encore modifiable ; la ligne PTG reprend le pointé du moment moins la ventilation, rien n'est réécrit si elle n'a pas changé ; feuille déclarative : 409 ; journal : salarié, semaine, nombre de jours où la ventilation dépasse le pointé, jamais une heure (lot 12, C6, étape 2) | salarié, manager (périmètre « feuilles »), RH |
+| `referentiel.horaire.variable` | id (code), variable, plages [{ type `fixe`/`mobile`, debut, fin }], dureeReference, reportMaxSemaine, cumulMax (heures saisies ; vides : durée de l'horaire et plafonds supplétifs 3 h et 10 h), accordVariable (exigée pour d'autres plafonds, jamais au journal) ; contrôles de shared/rules/horaires-variables.ts (lot 12, C6, étape 2) | RH |
 
 ## Journal des actions
 
@@ -5183,6 +5185,56 @@ géolocalisation à l'étape 3.
 - **Essai de charge** (`npm run charge:pointages`, base SQLite temporaire, 100 salariés, 3 ans) : 275 492 pointages (91 800
   par an), 53 Mo de base ; instantané inchangé (lecture brute 111 → 120 ms, bruit de mesure ; vue RH 2 ms) ; six semaines
   d'un salarié 15 ms, état du jour 2 ms, présences d'une équipe de 19 salariés 19 ms, insertion 0,5 ms, purge 0,4 ms.
+## Lot 12 : badgeage virtuel (C6, t191), étape 2
+
+Écrans, mode « calcule », horaires variables, RGPD. Tout reste désactivé tant que l'administrateur RH n'active pas le
+module (Paramètres → Badgeage, avec la référence de l'accord et la date de l'avis du CSE).
+
+- **Écran Pointages** (`client/src/pages/Pointages.tsx`, vue `pointages` des trois espaces, jamais des profils restreints ;
+  fermée module inactif par `state/store.tsx`) : bouton « Pointer » de la personne connectée, « Corrections de pointage à
+  valider » et « Présences du jour » (manager, service RH), sa semaine de pointages. Entrée du menu « Pointages » (« Mes
+  pointages » pour un collaborateur qui pointe) dans « Temps & absences », pastille : corrections à valider
+  (`correctionsAValider`, components/temps/pointage-etat.ts : manager direct ou suppléant « feuilles », service RH, jamais
+  les siennes). Raccourci « Pointer » de l'application installée (`/pointages?source=pwa`, manifest.webmanifest).
+- **Bouton « Pointer »** (`client/src/components/BoutonPointer.tsx`) : Accueil du collaborateur, saisie du jour au
+  téléphone (sa propre feuille de la semaine en cours), écran Pointages ; montré le module actif et pour un salarié d'une
+  population badgée ce jour-là (`pointe`, mêmes règles que le serveur). État du jour et débit-crédit lus par
+  `GET /api/pointages/etat`, relus chaque minute tant que la page est visible et après chaque pointage, sans websocket.
+  Hors ligne : `versFile` (pwa/saisie-hors-ligne.ts) garde `pointage.pointer` avec `horodatageAppareil` (heure du clic),
+  jamais de position ; en ligne, l'action part sans elle (heure du serveur) ; le rejeu s'appuie sur le doublon sous 60 s.
+- **Onglet « Pointages » de Temps de travail** (`components/temps/Pointages.tsx`, `PointagesSemaine`) : semaine du salarié
+  choisi, postes du jour de rattachement, pauses, pointé, théorique et solde (champ `jours` de `GET /api/pointages`, sans
+  motif ni nature d'absence), points à justifier, détail des pointages avec leur origine (pointage, différé, correction
+  validée, retiré) ; « Signaler un oubli » / « Ajouter un pointage » et « Retirer » ouvrent
+  `dialogs/CorrectionPointageDialog.tsx` (heure de Paris convertie par `instantParis`, motif de la liste fermée,
+  commentaire facultatif) ; demandes du salarié et « Retirer la demande ». Refus : motif obligatoire
+  (`state/confirmations-pointage.ts`).
+- **Mode « calcule »** (`shared/rules/pointage-feuille.ts`) : ligne système `PTG` (`LigneTemps.pt`) en tête de la feuille,
+  qui porte le pointé non ventilé (pointé du jour moins les heures des autres lignes, jamais négatif) : la somme de la
+  feuille vaut le pointé. Recalculée à chaque enregistrement des lignes (`saveLines` de server/src/actions/temps.ts : saisie,
+  ligne ajoutée ou supprimée, proposition Keystone), par `pointage.reprendreFeuille`, et à la soumission et à la
+  validation (`pointeAFiger`), qui figent le pointé (`pointeFige`, heures par jour) et refusent une ventilation au-delà du
+  pointé d'un jour. Ni saisie ni suppression de la ligne (grille, saisie du jour, serveur) ; jamais renvoyée à Keystone
+  (`heuresKeystone`) ; `calcSheet` et `sageRubriques` inchangés. Un pointage postérieur à la validation n'est jamais
+  réécrit : anomalie `apres_validation`, réouverture. Mode « controle » : feuille inchangée, écart signalé.
+- **Horaires variables** (`shared/rules/horaires-variables.ts`, `server/src/actions/horaires-variables.ts`, dialogue
+  `HoraireVariableDialog.tsx` depuis Référentiels → Horaires) : plages fixes et mobiles dans l'amplitude, au moins une
+  fixe, la première et la dernière mobiles, pas d'horaire de nuit ; durée de référence (par défaut celle de l'horaire) qui
+  remplace celle de l'horaire dans le théorique du débit-crédit (`theoriques`, server/src/pointages.ts) ; plafonds du
+  report (3 h par semaine, 10 h de cumul, supplétifs) appliqués par `cumulPeriode`, d'autres valeurs exigent la référence
+  de l'accord. Anomalie `plage_fixe` (`horsPlagesFixes`) : plage fixe d'un jour pointé non couverte. Les plages ne sont pas
+  figées sur la feuille (`horairesFiges` ne porte que code, début, fin et pause) : elles sont lues au référentiel.
+- **Paramètres → Badgeage** (`client/src/pages/parametres/Badgeage.tsx`) : activation, accord, avis du CSE, populations
+  (mode « contrôlé » proposé pour une nouvelle), intérimaires, hors ligne, délai des corrections, seuils, conservation ;
+  enregistrés ensemble (`parametres.maj`, COHERENCE). Mention d'information des salariés générée d'après les réglages
+  (`mentionInformationPointage`, shared/rules/pointage-information.ts), à copier, à relire par le DPO.
+- **Confidentialité et registre** : rubriques « Pointage des heures » et « Pointages » de shared/confidentialite.ts ;
+  docs/RGPD.md, § « Badgeage virtuel » (traitement, AIPD à mener, mention d'information) ; demandes
+  `docs/demandes/matrix-lot12-badgeage.md` et `codex-lot12-badgeage.md`.
+- **Plages réelles** : les anomalies (repos, pause, amplitude, nuit) se calculent déjà sur les instants réels ; le décompte
+  des feuilles (`controlesReposNuit` dans `calcSheet`) garde les plages estimées, puisque `calcSheet` ne change pas et que
+  les pointages ne sont pas dans l'instantané.
+
 ## Lot 12 : organigramme graphique et choix d'un service (C7)
 
 Demande du propriétaire du 1er novembre 2026 : vue de l'organigramme en arbre vertical et choix d'un service. Chantier

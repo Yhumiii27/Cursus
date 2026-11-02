@@ -411,6 +411,18 @@ essai de charge : `npm run charge:frais` (3 et 5 ans, verdicts).
 Détail : `docs/ARCHITECTURE.md` ; demandes : `docs/demandes/codex-lot11-pieces.md`, `keystone-lot11-frais.md`,
 `matrix-lot11-frais.sql`.
 
+## Badgeage virtuel (lot 12, C6)
+
+Module désactivé par défaut, y compris dans la démonstration : l'administrateur RH l'active dans Paramètres → Badgeage avec
+la référence de l'accord d'entreprise et la date de l'avis du CSE, puis désigne les populations qui pointent (mode
+« contrôlé » : écarts signalés ; « calculé » : heures de la feuille tirées des pointages, ligne « PTG »). Pas de badgeuse :
+bouton « Pointer » sur le téléphone ou l'ordinateur (accueil, saisie du jour, écran « Pointages », raccourci « Pointer » de
+l'application installée), hors ligne admis (« différé »), aucune position. Corrections demandées par le salarié et validées
+par son manager ; présences du jour et corrections à valider pour le manager et le service RH ; horaires variables dans
+Référentiels → Horaires. Pointages lus à la demande (`GET /api/pointages`, `GET /api/pointages/etat`), jamais dans
+l'instantané ; essai de charge : `npm run charge:pointages`. Détail : `docs/ARCHITECTURE.md` (« Lot 12 : badgeage
+virtuel ») et `docs/RGPD.md` ; demandes : `docs/demandes/matrix-lot12-badgeage.sql` et `.md`, `codex-lot12-badgeage.md`.
+
 ## Contrat et temps de travail
 
 Chaque fiche distingue le **statut** (catégories de la CCN Industries chimiques : ouvrier / employé,

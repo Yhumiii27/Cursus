@@ -51,6 +51,8 @@ export const INFO_CONFIDENTIALITE: readonly RubriqueConfidentialite[] = [
       ['Entretiens professionnels', 'planifier vos entretiens obligatoires (parcours professionnel, état des lieux à 8 ans, forfait jours) et en conserver les comptes rendus signés.'],
       ['Déplacements et chantiers', 'préparer vos déplacements (passeport, visas, vaccinations, détachement) et vérifier, avant une affectation sur un chantier, que vous êtes disponible, apte et habilité (verdict « Go / No Go »).'],
       ['Sécurité de l’outil', 'gérer votre compte, tracer qui a fait quoi (journal des actions) et protéger l’accès.'],
+      // lot 12 — C6 (badgeage virtuel) : module désactivé par défaut (docs/RGPD.md, traitement « Badgeage virtuel »).
+      ['Pointage des heures', 'si l’entreprise l’active pour votre équipe, après l’avis du CSE et sur la base d’un accord : enregistrer vos heures d’arrivée et de départ (bouton « Pointer » sur le téléphone ou l’ordinateur), décompter le temps de travail et contrôler les repos ; jamais une surveillance de votre activité.'],
     ],
   },
   {
@@ -64,6 +66,8 @@ export const INFO_CONFIDENTIALITE: readonly RubriqueConfidentialite[] = [
       ['Déplacements', 'destinations et dates, numéro et validité du passeport, visas, formalités de détachement ; coordonnées sur place (hébergement, contact local) et date d’inscription sur Ariane, tenues par le service RH ; jours de grand déplacement, jours à l’étranger et trajets transmis à la paie.'],
       ['Pièces justificatives', 'si le service RH active leur dépôt : attestations de formation, titres d’habilitation signés, justificatifs d’absence (avis d’arrêt de travail…) et copies des documents que vous déclarez, jointes à votre dossier ; votre manager n’en voit que les attestations et titres d’habilitation.'],
       ['Contact d’urgence', 'nom et téléphone de la personne à prévenir, indiqués par vous depuis votre espace ou par le service RH à votre demande (facultatif) : vus du service RH seulement, jamais de votre manager ; à retirer quand vous le souhaitez.'],
+      // lot 12 — C6 (badgeage virtuel)
+      ['Pointages', 'si le pointage est activé pour votre équipe : heure de chaque arrivée et de chaque départ (heure du serveur, ou de votre téléphone pour un pointage fait sans réseau, marqué « différé »), demandes de correction et leur motif. Ni position, ni photo, ni donnée biométrique. Votre manager voit les pointages de son équipe et les présences du jour, jamais la nature d’une absence.'],
       ['Connexion', 'identifiant, profil, dates de connexion et adresse IP, journal des actions effectuées ; journaux techniques du serveur (numéro de compte, adresse consultée, heure et résultat de chaque requête, jamais son contenu).'],
       // lot 11 — pwa : application installée, file hors ligne et notifications (docs/RGPD.md, § 2, 4 et 5).
       ['Application sur le téléphone', 'si vous installez Cursus sur votre téléphone : les saisies faites sans réseau y restent chiffrées jusqu’à leur envoi (7 jours au plus, rien sur un appareil partagé) ; si vous activez les notifications, l’adresse d’abonnement de votre appareil (gardée chiffrée) et un libellé comme « Android, Chrome ». Les notifications sont génériques, sans nom ni date ; le service de notification de l’éditeur du navigateur (Google, Apple, Mozilla ou Microsoft, en partie hors de l’Union européenne) achemine un message chiffré qu’il ne peut pas lire (' + A_COMPLETER + ').'],
@@ -103,6 +107,8 @@ export const INFO_CONFIDENTIALITE: readonly RubriqueConfidentialite[] = [
       ['Données de santé et vaccinations', `durée fixée de même (${A_COMPLETER} ; référence usuelle : 5 ans après le départ), effacées sur confirmation du service RH ; tant que ces durées ne sont pas validées, rien n’est effacé.`],
       ['Passeport, visas et titre de séjour', `passeport et visas effacés après votre départ, titre de séjour 5 ans après (registre unique du personnel), sur confirmation du service RH (${A_COMPLETER}).`],
       ['Pièces justificatives', `comme le dossier qu’elles justifient ; une pièce retirée ou jointe à une déclaration refusée est effacée, ses copies quittent les sauvegardes avec leur rotation.`],
+      // lot 12 — C6 (badgeage virtuel) : réglage conservationPointagesAns (1 à 5 ans, 3 par défaut).
+      ['Pointages', `3 ans par défaut (de 1 à 5 ans selon le réglage de l’entreprise, durée à confirmer avec le DPO), puis effacés chaque nuit ; les heures validées restent sur la feuille de temps.`],
       ['Sauvegardes', `copies chiffrées, gardées selon le calendrier du service informatique (${A_COMPLETER}).`],
     ],
   },

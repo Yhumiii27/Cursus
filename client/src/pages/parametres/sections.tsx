@@ -48,6 +48,8 @@ import { Indicateurs } from './Indicateurs.tsx';
 import { Opco } from './Opco.tsx';
 // lot 11 — notes de frais
 import { NotesFrais } from './NotesFrais.tsx';
+// lot 12 — C6 (badgeage virtuel)
+import { Badgeage } from './Badgeage.tsx';
 
 export interface SectionParametres {
   /** Identifiant stable (clé de rendu). */
@@ -86,6 +88,8 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'astreintes', place: 'droite', Section: Astreintes },
   { id: 'feuilles', place: 'gauche', Section: FeuillesTemps },
   { id: 'repos', place: 'droite', Section: ReposHebdomadaire },
+  // lot 12 — C6 (badgeage virtuel) : activation, accord et avis du CSE, populations, corrections, conservation.
+  { id: 'badgeage', place: 'gauche', Section: Badgeage },
   { id: 'sante', place: 'gauche', Section: Sante },
   { id: 'formations', place: 'droite', Section: Formations },
   // lot 11 — dossiers OPCO : sous les formations.

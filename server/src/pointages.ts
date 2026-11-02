@@ -19,11 +19,13 @@ import { delegationPour } from '../../shared/rules/delegations-manager.ts';
 import { estDemi } from '../../shared/rules/demi-journees.ts';
 import { employeAu } from '../../shared/rules/historique-contrat.ts';
 import { horaireDe, horaireEquipe } from '../../shared/rules/horaires.ts';
+import { estVariable } from '../../shared/rules/horaires-variables.ts';
+import { pointeDeLaSemaine } from '../../shared/rules/pointage-feuille.ts';
 import {
   type AnomaliePointage, anomaliesPointage, apparier, type ContextePopulation, heureParis, hhmmParis, instantParis, LECTURE_MAX_JOURS, modeTempsAu, postesDe,
-  realiseParJour,
+  postesDesPointages, realiseParJour,
 } from '../../shared/rules/pointage.ts';
-import type { CurrentUser, Dataset, Employe, ISODate, ModeTemps, Pointage } from '../../shared/types.ts';
+import type { CurrentUser, Dataset, Employe, Horaire, ISODate, ModeTemps, PlageHoraire, Pointage } from '../../shared/types.ts';
 import { jeuEnLecture } from './cache-instantane.ts';
 import { identite, type Identite } from './connexion.ts';
 import { loadFull, loadSettings, todayIso } from './dataset.ts';
@@ -90,7 +92,11 @@ function absencesParJour(ds: Dataset, empId: number, du: ISODate, au: ISODate): 
  * pointe ce jour-là (population badgée en vigueur : `pointe`). Un jour où il ne pointe pas encore (avant la date d'effet de
  * sa population, avant son entrée dans une équipe badgée) n'est ni « prévu » pour les anomalies, ni compté au débit-crédit.
  */
-export interface TheoriqueJour { minutes: number; absence: 'journee' | 'demi' | null; horsContrat: boolean; pointe: boolean }
+export interface TheoriqueJour {
+  minutes: number; absence: 'journee' | 'demi' | null; horsContrat: boolean; pointe: boolean;
+  /** Étape 2 : horaire variable du jour (référentiel), pour ses plages fixes et ses plafonds de report ; null : horaire fixe. */
+  variable?: Horaire | null;
+}
 
 /** Théorique de chaque jour d'une période (minutes), d'après le contrat, l'horaire, les absences et les fériés. */
 export function theoriques(ds: Dataset, e: Employe, du: ISODate, au: ISODate): Map<ISODate, TheoriqueJour> {
@@ -102,11 +108,15 @@ export function theoriques(ds: Dataset, e: Employe, du: ISODate, au: ISODate): M
     const i = (new Date(`${j}T12:00:00Z`).getUTCDay() + 6) % 7;
     const choisi = sh?.horairesFiges?.[i] ?? (sh?.horaires?.[i] != null ? horaireDe(ds.referentiels, sh.horaires[i] || null) : horaireEquipe(ds.referentiels, x.equipe));
     const horsContrat = x.entree > j || (!!x.fin && x.fin < j);
+    // Horaire variable (étape 2, shared/rules/horaires-variables.ts) : la durée de référence remplace celle de l'horaire.
+    const ref = choisi ? horaireDe(ds.referentiels, choisi.code) : null, variable = estVariable(ref) ? ref : null;
     const t = theoriqueDuJour({
       jour: j, horaire: choisi ? { code: choisi.code, debut: choisi.debut, fin: choisi.fin, pause: choisi.pause } : null, absence: absences.get(j) ?? null,
       ferie: isFerie(j), horsContrat, jourOff: c.jourOff, heuresSemaine: c.base,
     });
-    out.set(j, { minutes: t.minutes, absence: absences.get(j) ?? null, horsContrat, pointe: modeDuSalarie(ds, e, j) !== 'declaratif' });
+    const minutes = variable?.dureeReference && t.motif === 'travaille' ? variable.dureeReference
+      : variable?.dureeReference && t.motif === 'absence' && t.minutes > 0 ? Math.round(variable.dureeReference / 2) : t.minutes;
+    out.set(j, { minutes, absence: absences.get(j) ?? null, horsContrat, pointe: modeDuSalarie(ds, e, j) !== 'declaratif', variable });
   }
   return out;
 }
@@ -135,10 +145,12 @@ export function bilanPeriode(ds: Dataset, e: Employe, pointages: readonly Pointa
   const horsContrat = new Set([...t].filter(([, x]) => x.horsContrat).map(([j]) => j));
   const f = feuillesParJour(ds, e.id, du, au), figes = f.figes;
   const declare = new Map([...f.declare].filter(([j]) => t.get(j)?.pointe));
+  // Horaire variable (étape 2) : plages fixes des jours prévus, où la présence est obligatoire.
+  const plagesFixes = new Map<ISODate, readonly PlageHoraire[]>([...t].flatMap(([j, x]) => (x.variable && prevus.has(j) ? [[j, x.variable.plages ?? []] as const] : [])));
   const a = apparier(pointages, maintenant);
   const postes = postesDe(a, maintenant);
   const anomalies: AnomaliePointage[] = anomaliesPointage({
-    du, au, pointages, maintenant, prevus, absents, demiAbsents, horsContrat, declare, figes,
+    du, au, pointages, maintenant, prevus, absents, demiAbsents, horsContrat, declare, figes, plagesFixes,
     ecartMin: ds.settings.pointageEcartAnomalieMin, differeMin: ds.settings.pointageEcartDiffereMin,
   });
   return { theoriques: t, postes, appariement: a, anomalies };
@@ -165,11 +177,24 @@ export function etatDuSalarie(ds: Dataset, e: Employe, pointages: readonly Point
     debitCredit: {
       jour: { realise: realise.get(today) ?? 0, theorique: theorique(today), solde: (realise.get(today) ?? 0) - theorique(today) },
       semaine: { realise: semaine.realise, theorique: semaine.theorique, solde: semaine.solde },
-      // Report plafonné (supplétif : 3 h par semaine, 10 h de cumul), sur la seule semaine en cours.
-      periode: cumulPeriode([semaine]),
+      // Report plafonné (supplétif : 3 h par semaine, 10 h de cumul ; ceux de l'horaire variable du jour, étape 2), sur la
+      // seule semaine en cours.
+      periode: cumulPeriode([semaine], plafondsDuJour(b.theoriques.get(today))),
     },
     anomalies: b.anomalies,
   };
+}
+
+/** Plafonds du report de l'horaire variable du jour (supplétifs sans horaire variable). */
+const plafondsDuJour = (t: TheoriqueJour | undefined) => ({ reportMaxSemaine: t?.variable?.reportMaxSemaine ?? null, cumulMax: t?.variable?.cumulMax ?? null });
+
+/**
+ * Mode « calcule » (étape 2, shared/rules/pointage-feuille.ts) : pointé de chaque jour de la semaine `week` (heures), lu
+ * dans la base à l'instant du serveur ; postes de nuit compris (veille et lendemain lus).
+ */
+export async function pointeDeLaFeuille(db: Db, empId: number, week: ISODate): Promise<number[]> {
+  const pointages = await lirePointages(db, [empId], addD(week, -1), addD(week, 7));
+  return pointeDeLaSemaine(postesDesPointages(pointages, instantServeur()), week);
 }
 
 /** Présence du jour d'un salarié du périmètre : présent, parti, non pointé, absent (sans la nature de l'absence). */
@@ -179,6 +204,19 @@ export function presenceDuJour(ds: Dataset, e: Employe, pointages: readonly Poin
   const etat = b.appariement.enCours ? 'present' : b.postes.some(p => p.jour === today) ? 'parti' : b.theoriques.get(today)?.absence === 'journee' ? 'absent' : 'non_pointe';
   return { empId: e.id, etat, depuis: b.appariement.enCours ? hhmmParis(b.appariement.enCours.horodatage) : null, anomalies: b.anomalies.length };
 }
+
+// Réponses des routes, lues par l'interface (client/src/api.ts, types seulement).
+/** GET /api/pointages : pointages bruts, postes (instants ISO), anomalies, théorique et réalisé de chaque jour (minutes). */
+export interface LecturePointages {
+  empId: number; du: ISODate; au: ISODate; pointages: Pointage[];
+  postes: { jour: ISODate; debut: string; fin: string; travail: number; pauses: number[]; enCours: boolean }[];
+  anomalies: AnomaliePointage[];
+  jours: { jour: ISODate; theorique: number; realise: number }[];
+}
+/** GET /api/pointages/etat : état du jour et débit-crédit. */
+export type EtatPointages = ReturnType<typeof etatDuSalarie>;
+/** GET /api/pointages/etat?equipe=1 : présences du jour du périmètre. */
+export interface PresencesPointages { jour: ISODate; presences: ReturnType<typeof presenceDuJour>[] }
 
 /** Jeu de la lecture en cours (partagé avec l'instantané en cache), pour les droits et les calculs. */
 async function jeu(db: Db, user: CurrentUser): Promise<Dataset> {
@@ -217,6 +255,8 @@ export function routesPointages(db: Db): Router {
       pointages: lu.pointages.filter(p => p.jour >= du && p.jour <= au),
       postes: b.postes.filter(p => p.jour >= du && p.jour <= au).map(p => ({ jour: p.jour, debut: new Date(p.debut).toISOString(), fin: new Date(p.fin).toISOString(), travail: p.travail, pauses: p.pauses, enCours: p.enCours })),
       anomalies: b.anomalies,
+      // Étape 2 : théorique et réalisé de chaque jour (minutes ; jour de rattachement), sans motif ni nature d'absence.
+      jours: [...b.theoriques].filter(([j]) => j >= du && j <= au).map(([jour, t]) => ({ jour, theorique: t.pointe ? t.minutes : 0, realise: realiseParJour(b.postes).get(jour) ?? 0 })),
     });
   });
 

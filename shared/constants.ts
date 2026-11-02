@@ -607,7 +607,8 @@ export const ALLOWED_VIEWS = {
     // lot 12 — C3 (entretiens suivis et 360°)
     // lot 12 — C4 (organismes de formation et e-learning)
     // lot 12 — C5 (planning d'équipe)
-    // lot 12 — C6 (badgeage virtuel)
+    // lot 12 — C6 (badgeage virtuel) : pointages (pages/Pointages.tsx), le module activé (réglage pointageActif).
+    'pointages',
   ],
   manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions', 'organigramme', 'frais',
     // lot 12 — C1 (forfait annuel en heures)
@@ -615,7 +616,8 @@ export const ALLOWED_VIEWS = {
     // lot 12 — C3 (entretiens suivis et 360°)
     // lot 12 — C4 (organismes de formation et e-learning)
     // lot 12 — C5 (planning d'équipe)
-    // lot 12 — C6 (badgeage virtuel)
+    // lot 12 — C6 (badgeage virtuel) : pointages (pages/Pointages.tsx), le module activé (réglage pointageActif).
+    'pointages',
   ],
   collaborateur: ['portail', 'temps', 'absences', 'entretiens', 'organigramme', 'frais',
     // lot 12 — C1 (forfait annuel en heures)
@@ -623,7 +625,8 @@ export const ALLOWED_VIEWS = {
     // lot 12 — C3 (entretiens suivis et 360°)
     // lot 12 — C4 (organismes de formation et e-learning)
     // lot 12 — C5 (planning d'équipe)
-    // lot 12 — C6 (badgeage virtuel)
+    // lot 12 — C6 (badgeage virtuel) : pointages (pages/Pointages.tsx), le module activé (réglage pointageActif).
+    'pointages',
   ],
 } as const;
 /**

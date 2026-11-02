@@ -274,7 +274,10 @@ export type DialogState =
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
-  // lot 12 — C6 (badgeage virtuel)
+  // lot 12 — C6 (badgeage virtuel) : demande ou saisie d'une correction de pointage (ajout d'un pointage oublié, retrait
+  // d'un pointage erroné : `pointageId`, `jour` du pointage visé) ; horaire variable d'un horaire du référentiel.
+  | { type: 'correctionPointage'; empId: number; nature: 'ajout' | 'neutralisation'; pointageId?: number; jour?: ISODate; heure?: string; sens?: 'E' | 'S' }
+  | { type: 'horaireVariable'; code: string }
   ;
 
 /** Dialogue « Planifier » : rouvert après la création d'une session (t107). */
@@ -592,7 +595,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // lot 12 — C3 (entretiens suivis et 360°)
     // lot 12 — C4 (organismes de formation et e-learning)
     // lot 12 — C5 (planning d'équipe)
-    // lot 12 — C6 (badgeage virtuel)
+    // lot 12 — C6 (badgeage virtuel) : module désactivé (réglage pointageActif) → page d'accueil.
+    || (rawView === 'pointages' && !!data && !data.settings.pointageActif)
     ;
   const view = allowedView(role, fermee ? '' : rawView, role === 'rh' ? data?.settings.vueInitiale : undefined, (data ?? session)?.user?.profilRh);
 

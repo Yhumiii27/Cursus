@@ -20,9 +20,10 @@
 import { addD, debutJourParis, isoParis, isValidDate, mondayOf } from '../dates.ts';
 import { fH } from '../format.ts';
 import type {
-  CriterePopulation, Employe, Equipe, ISODate, ModeTemps, MotifCorrectionPointage, NatureCorrectionPointage, Pointage, PopulationPointage, SensPointage,
+  CriterePopulation, Employe, Equipe, ISODate, ModeTemps, MotifCorrectionPointage, NatureCorrectionPointage, PlageHoraire, Pointage, PopulationPointage, SensPointage,
   Settings,
 } from '../types.ts';
+import { horsPlagesFixes } from './horaires-variables.ts';
 import { entiteEquipe, rattachementSalarie } from './entites.ts';
 import { ancetres } from './hierarchie.ts';
 import type { PlageTravail, ReglagesNuit } from './repos-nuit.ts';
@@ -369,13 +370,16 @@ export function plagesReelles(postes: readonly Poste[], week: ISODate, s?: Parti
 
 export type CodeAnomaliePointage =
   | 'sortie_manquante' | 'entree_manquante' | 'differe' | 'sans_pointage' | 'pendant_absence' | 'hors_contrat' | 'amplitude'
-  | 'repos_quotidien' | 'pause' | 'duree_jour' | 'duree_semaine' | 'ecart_declare' | 'apres_validation';
+  | 'repos_quotidien' | 'pause' | 'duree_jour' | 'duree_semaine' | 'ecart_declare' | 'apres_validation'
+  // Étape 2 : horaire variable, plage fixe non couverte (shared/rules/horaires-variables.ts).
+  | 'plage_fixe';
 export const ANOMALIES_POINTAGE: Record<CodeAnomaliePointage, string> = {
   sortie_manquante: 'Sortie manquante', entree_manquante: 'Entrée manquante', differe: 'Pointage différé (hors ligne)',
   sans_pointage: 'Jour prévu sans pointage', pendant_absence: 'Pointage un jour d’absence', hors_contrat: 'Pointage hors contrat',
   amplitude: `Amplitude de plus de ${AMPLITUDE_MAX_H} h`, repos_quotidien: 'Repos quotidien de 11 h non respecté', pause: 'Pause insuffisante',
   duree_jour: `Plus de ${JOURNEE_MAX_H} h dans la journée`, duree_semaine: `Plus de ${SEMAINE_MAX_H} h dans la semaine`,
   ecart_declare: 'Écart entre heures déclarées et pointées', apres_validation: 'Pointage postérieur à la validation de la feuille',
+  plage_fixe: 'Hors plage fixe de l’horaire variable',
 };
 export interface AnomaliePointage { code: CodeAnomaliePointage; jour: ISODate; texte: string }
 
@@ -405,6 +409,8 @@ export interface EntreeAnomalies {
   /** Total pointé figé à la validation (heures par jour, `pointeFige`) des feuilles validées : un écart y est postérieur. */
   figes?: ReadonlyMap<ISODate, number>;
   /** Salarié de moins de 18 ans : seuils de repos et de pause de repos-nuit.ts (non contrôlés ici). */
+  /** Étape 2 : plages fixes de l'horaire variable de chaque jour prévu (présence obligatoire, `horsPlagesFixes`). */
+  plagesFixes?: ReadonlyMap<ISODate, readonly PlageHoraire[]>;
 }
 
 const minutesTexte = (m: number) => fH(m / 60);
@@ -442,6 +448,13 @@ export function anomaliesPointage(x: EntreeAnomalies): AnomaliePointage[] {
     const declare = x.declare?.get(j);
     if (declare != null && Math.abs(declare * 60 - m) > (x.ecartMin ?? 15) && j < aujourdhui) {
       out.push({ code: 'ecart_declare', jour: j, texte: `${fH(declare)} déclarées, ${minutesTexte(m)} pointées` });
+    }
+    // Horaire variable (étape 2) : plage fixe non couverte un jour pointé.
+    const fixes = x.plagesFixes?.get(j);
+    if (fixes?.length && m && !x.absents?.has(j)) {
+      for (const f of horsPlagesFixes(fixes, j, postes.filter(p => p.jour === j).flatMap(p => p.paires))) {
+        out.push({ code: 'plage_fixe', jour: j, texte: `Plage fixe ${f.plage.debut} – ${f.plage.fin} non couverte (dès ${f.manque})` });
+      }
     }
     const fige = x.figes?.get(j);
     if (fige != null && Math.abs(fige * 60 - m) > 1) out.push({ code: 'apres_validation', jour: j, texte: `Pointé changé depuis la validation de la feuille (${fH(fige)} figées, ${minutesTexte(m)} pointées) : réouverture à demander` });

@@ -440,6 +440,9 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'pointage.refuserCorrection': 'Correction de pointage refusée',
   'pointage.annulerCorrection': 'Demande de correction de pointage retirée',
   'pointage.reprendreFeuille': 'Pointé repris sur la feuille (mode calculé)',
+  // Étape 3 : zones de la géolocalisation (jamais les coordonnées).
+  'pointage.zone.enregistrer': 'Zone de pointage enregistrée',
+  'pointage.zone.supprimer': 'Zone de pointage supprimée',
   'referentiel.horaire.variable': 'Horaire variable (plages et plafonds)',
 };
 
@@ -656,6 +659,8 @@ export const CHAMP_LABEL: Record<string, string> = {
   pointageCseLe: 'Badgeage : avis du CSE le', pointageInterim: 'Badgeage : intérimaires inclus', pointageDelaiCorrectionJours: 'Badgeage : délai de correction (jours)',
   pointageHorsLigne: 'Badgeage : pointage hors ligne admis', pointageEcartDiffereMin: 'Badgeage : écart toléré hors ligne (minutes)',
   pointageEcartAnomalieMin: 'Badgeage : écart déclaré / pointé signalé (minutes)', conservationPointagesAns: 'Conservation des pointages (ans)',
+  geolocActive: 'Géolocalisation au pointage activée', geolocPopulations: 'Géolocalisation : populations', geolocFinalite: 'Géolocalisation : finalité',
+  geolocAipdLe: 'Géolocalisation : AIPD validée le', geolocPrecisionM: 'Géolocalisation : précision exigée (mètres)',
   motif: 'Motif',
 };
 

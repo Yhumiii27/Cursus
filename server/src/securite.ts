@@ -21,9 +21,16 @@ export const CSP = [
   "form-action 'self'",
 ].join('; ');
 
-/** Fonctions du navigateur refusées à la page : Cursus n'en utilise aucune. */
-const PERMISSIONS = ['accelerometer', 'camera', 'display-capture', 'geolocation', 'gyroscope', 'magnetometer', 'microphone', 'payment', 'usb']
-  .map(f => `${f}=()`).join(', ');
+/**
+ * Fonctions du navigateur refusées à la page : Cursus n'en utilise aucune, sauf la géolocalisation au pointage (lot 12, C6,
+ * étape 3), admise pour Cursus seul (`geolocation=(self)`) quand l'option est active (server/src/geolocalisation.ts,
+ * `politiqueGeoloc`, qui remplace l'en-tête des pages) ; fermée sinon.
+ */
+export function permissionsPolicy(geoloc = false): string {
+  return ['accelerometer', 'camera', 'display-capture', 'geolocation', 'gyroscope', 'magnetometer', 'microphone', 'payment', 'usb']
+    .map(f => `${f}=${f === 'geolocation' && geoloc ? '(self)' : '()'}`).join(', ');
+}
+const PERMISSIONS = permissionsPolicy(false);
 
 /** HSTS : un an, posé seulement en production et sur une requête arrivée en HTTPS (via le reverse proxy). */
 export const HSTS = 'max-age=31536000; includeSubDomains';

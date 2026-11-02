@@ -41,7 +41,10 @@ export function Pointages() {
       {collab && !jePointe && <Empty>Vous ne faites pas partie d’une population qui pointe : votre temps se déclare sur la feuille de temps.</Empty>}
       <Fine>
         Les pointages sont gardés {d.ds.settings.conservationPointagesAns} ans, puis effacés. Ils ne sont lus que par le salarié, son manager (ou son suppléant
-        pour les feuilles) et le service RH. Aucune position, aucune photo ni donnée biométrique n’est enregistrée (page Confidentialité).
+        pour les feuilles) et le service RH. {d.ds.settings.geolocActive
+          // Étape 3 : géolocalisation au pointage active (populations désignées seulement).
+          ? 'Aucune position n’est enregistrée : pour les équipes désignées, seul le résultat de la vérification du lieu (dans la zone, hors zone…) est gardé. Aucune photo ni donnée biométrique (page Confidentialité).'
+          : 'Aucune position, aucune photo ni donnée biométrique n’est enregistrée (page Confidentialité).'}
       </Fine>
     </Page>
   );

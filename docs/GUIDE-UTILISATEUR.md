@@ -214,8 +214,9 @@ publiée, et vous recevez alors un e-mail (et une notification sur le téléphon
 - Bouton « Pointer l'arrivée » puis « Pointer le départ » : sur l'accueil, en haut de la saisie du jour sur le téléphone,
   dans le menu « Mes pointages » et par le raccourci « Pointer » de l'icône de l'application installée. L'heure est celle
   du serveur ; un double appui ne compte qu'une fois. Sans réseau, le pointage est gardé sur le téléphone avec son heure
-  et part « différé » au retour du réseau, si l'entreprise l'admet (sinon, pointez une fois connecté). Aucune position,
-  aucune photo. Le raccourci « Pointer » figure sur l'icône de tous les téléphones : tant que le pointage n'est pas
+  et part « différé » au retour du réseau, si l'entreprise l'admet (sinon, pointez une fois connecté). Aucune photo ;
+  aucune position, sauf pour une équipe de chantier itinérante dont l'entreprise a activé la vérification du lieu (voir
+  plus bas). Le raccourci « Pointer » figure sur l'icône de tous les téléphones : tant que le pointage n'est pas
   activé, il ramène à l'accueil avec le message « Le pointage n'est pas activé pour vous ».
 - Sous le bouton : présent depuis quelle heure, les pointages du jour, le temps du jour et de la semaine et le solde
   (débit-crédit). « Mes pointages » montre la semaine, les points à justifier (sortie manquante, pause courte…) et vos
@@ -224,6 +225,13 @@ publiée, et vous recevez alors un e-mail (et une notification sur le téléphon
   demande, faite dans les 7 jours, est validée par votre manager ; rien n'est effacé, la correction s'ajoute.
 - Mode « calculé » : la ligne « PTG » de votre feuille de temps reprend vos heures pointées ; répartissez-les sur vos
   projets (la ligne garde ce qui reste à répartir). Une répartition qui dépasse le pointé d'un jour bloque la soumission.
+- Vérification du lieu (équipes itinérantes seulement, si l'entreprise l'a activée) : le texte sous le bouton le dit. Au
+  clic sur « Pointer », le téléphone demande une fois l'autorisation de lire votre position ; Cursus n'en garde que le
+  résultat (« dans la zone », « hors zone », « position imprécise » ou « non partagée »), affiché à côté de l'heure.
+  Vous pouvez refuser : le pointage est enregistré quand même, sans sanction ; sans réponse à la demande, il part au plus
+  tard 12 secondes après le clic. Jamais en continu, jamais sans réseau (un pointage fait sans réseau est marqué
+  « position non partagée »). Si
+  le navigateur refuse sans rien demander, rechargez l'application (l'option vient d'être activée).
 
 ## Manager
 
@@ -353,6 +361,9 @@ semaine en haut de l'écran : la grille et l'affichage sont alors lus dans l'his
 - Menu « Pointages » (le badgeage activé) : « Corrections de pointage à valider » (pastille du menu) — « Valider » ajoute le
   pointage oublié ou retire le pointage erroné, « Refuser » demande un motif, lu par le salarié — et « Présences du jour »
   (présent, parti, non pointé, absent, sans la nature d'une absence).
+- Vérification du lieu (si l'entreprise l'a activée pour l'équipe) : le détail des pointages dit « dans la zone » ou
+  « hors zone » ; une position imprécise ou non partagée n'y figure pas, seulement un point à justifier « Position non
+  vérifiée », qui ne distingue pas un refus.
 - La semaine d'un salarié : Temps de travail, onglet « Pointages » (postes, pauses, solde, points à justifier) ;
   « Ajouter un pointage » ou « Retirer » y enregistre une correction validée d'emblée, dont le salarié voit l'origine.
   Une semaine déjà validée se corrige après sa réouverture par le service RH.
@@ -558,6 +569,11 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
   pointage hors ligne, conservation. « Afficher la mention d’information des salariés » propose le texte à afficher et à
   remettre. Horaires variables : Référentiels → Horaires, « Rendre variable » (plages fixes et mobiles, plafonds du
   report ; d'autres plafonds que 3 h et 10 h exigent la référence de l'accord).
+- Géolocalisation au pointage (désactivée par défaut, même section, administrateur RH) : seulement pour des équipes
+  itinérantes qui n'ont aucun autre moyen de pointer sur place, après l'avis du CSE et l'analyse d'impact (AIPD) du DPO.
+  Finalité écrite, date de l'AIPD et au moins une population exigées ; précision exigée (100 m par défaut). « Ajouter une
+  zone » : libellé, site ou chantier, centre en degrés décimaux (clic droit sur une carte en ligne) et rayon. Sans zone
+  active, la position n'est pas demandée. Le changement vaut au rechargement de l'application.
 
 ### Déplacements et vigilance
 

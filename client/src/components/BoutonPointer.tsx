@@ -6,6 +6,9 @@
 //   « différé » (pwa/saisie-hors-ligne.ts), jamais avec une position.
 // - État du jour et débit-crédit : lus à la demande (GET /api/pointages/etat), jamais dans l'instantané, relus toutes les
 //   minutes tant que l'écran est ouvert (sans websocket) et après chaque pointage.
+// - Étape 3 (géolocalisation, option désactivée) : la position est lue au clic, une seule fois (pwa/position.ts), quand
+//   l'état du jour la demande (`geoloc` : population géolocalisée, zone active) et que l'appareil est en ligne ; un refus
+//   ou une position introuvable n'empêche jamais de pointer. Seul le verdict est gardé par le serveur.
 import { useCallback, useEffect, useState } from 'react';
 import { SignInIcon, SignOutIcon } from '@phosphor-icons/react';
 import { plural } from '../../../shared/format.ts';
@@ -13,7 +16,8 @@ import { api, type EtatPointages } from '../api.ts';
 import { useRole } from '../state/derived.ts';
 import { useData, useStore } from '../state/store.tsx';
 import { Fine, Panel, Tag } from './ui.tsx';
-import { fMinutes, fSolde, pointe } from './temps/pointage-etat.ts';
+import { fMinutes, fSolde, pointe, verdictTexte } from './temps/pointage-etat.ts';
+import { GARDE_POSITION_MS, positionAuClic } from '../pwa/position.ts';
 
 /** Relecture de l'état du jour : toutes les minutes. */
 const RELECTURE_MS = 60_000;
@@ -46,13 +50,19 @@ export function BoutonPointer({ titre = 'Pointage du jour' }: { titre?: string }
   const actif = pointe(data, me);
   const { etat, erreur, recharger } = useEtatPointage(actif);
   const [busy, setBusy] = useState(false);
+  const [localise, setLocalise] = useState(false);
   if (!actif || me == null) return null;
 
   const present = !!etat?.present;
   const pointer = async () => {
     if (busy) return;
     setBusy(true);
-    const r = await run('pointage.pointer', { empId: me });
+    // Étape 3 : position lue au clic seulement, en ligne, quand le serveur la demande ; jamais dans la file hors ligne.
+    const geoloc = !!etat?.geoloc && navigator.onLine;
+    setLocalise(geoloc);
+    const position = geoloc ? await positionAuClic() : null;
+    setLocalise(false);
+    const r = await run('pointage.pointer', { empId: me, ...(position ? { position } : {}) });
     setBusy(false);
     if (r.ok) void recharger();
   };
@@ -63,11 +73,11 @@ export function BoutonPointer({ titre = 'Pointage du jour' }: { titre?: string }
     <Panel title={titre} aside={etat ? <Tag cls={present ? 'tag-accent' : 'tag-outline'}>{present ? `Présent depuis ${etat.depuis}` : etat.postes.length ? 'Parti' : 'Non pointé'}</Tag> : undefined}>
       <div className="row-wrap" style={{ alignItems: 'center', gap: 'var(--space-3)' }}>
         <button type="button" className="btn btn-primary" disabled={busy} onClick={pointer} style={{ minHeight: 44 }}>
-          {present ? <SignOutIcon size={16} /> : <SignInIcon size={16} />} {present ? 'Pointer le départ' : 'Pointer l’arrivée'}
+          {present ? <SignOutIcon size={16} /> : <SignInIcon size={16} />} {localise ? 'Lecture de la position…' : present ? 'Pointer le départ' : 'Pointer l’arrivée'}
         </button>
         {etat && etat.pointages.length > 0 && (
           <span className="text-muted sub">
-            {etat.pointages.map(p => `${p.heure} ${p.sens === 'S' ? 'départ' : 'arrivée'}${p.differe ? ' (différé)' : ''}`).join(' · ')}
+            {etat.pointages.map(p => `${p.heure} ${p.sens === 'S' ? 'départ' : 'arrivée'}${p.differe ? ' (différé)' : ''}${p.zone ? ` (${verdictTexte(p.zone)})` : ''}`).join(' · ')}
           </span>
         )}
       </div>
@@ -89,7 +99,9 @@ export function BoutonPointer({ titre = 'Pointage du jour' }: { titre?: string }
         {data.settings.pointageHorsLigne
           ? 'Sans réseau, le pointage est gardé sur l’appareil avec son heure et part « différé » au retour du réseau.'
           : 'Sans réseau, le pointage n’est pas possible : pointez une fois connecté.'}{' '}
-        Aucune position n’est enregistrée.
+        {etat?.geoloc
+          ? `En ligne, votre position est lue une fois, au clic, pour vérifier que vous êtes sur une zone de pointage : seul le résultat (dans la zone, hors zone…) est gardé, jamais la position. Vous pouvez refuser : le pointage est enregistré quand même, et part au plus tard ${Math.round(GARDE_POSITION_MS / 1000)} secondes après le clic.`
+          : 'Aucune position n’est enregistrée.'}
       </Fine>
     </Panel>
   );

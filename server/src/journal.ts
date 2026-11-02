@@ -989,7 +989,7 @@ export const REGLES: Record<string, Regle> = {
   'parametres.maj': {
     cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche', 'nuitAccord', 'forfaitJoursAccord', 'fractionnementAccord', 'conservationDecisionDpo', 'astreinteAccord',
       /* lot 12 — C1 */ 'forfaitHeuresAccord', /* lot 12 — C5 */ 'planningAccord',
-      /* lot 12 — C6 (badgeage virtuel) */ 'pointageAccord',
+      /* lot 12 — C6 (badgeage virtuel) */ 'pointageAccord', 'geolocFinalite',
       /* lot 12 — C3 (feedback 360°) */ 'feedback360Cse', 'feedback360Aipd'] },
   },
   // Jours fériés d'une année (lot 6) : année, réglage avant et après ; le motif d'une année engagée (texte libre) n'est
@@ -1107,6 +1107,15 @@ export const REGLES: Record<string, Regle> = {
       return { plages: Array.isArray(h?.plages) ? h.plages.length : 0, accord: !!h?.accordVariable };
     },
   },
+  // Étape 3 : zones de la géolocalisation (administrateur RH) : identifiant, site ou chantier, rayon et état ; jamais les
+  // coordonnées du centre (le libellé, nom du site ou du chantier, ne figure que dans le message).
+  'pointage.zone.enregistrer': {
+    bilan: (_p, x) => {
+      const r = (x.result ?? {}) as { id?: number; siteCode?: string | null; chantierId?: string | null; rayonM?: number; actif?: boolean; creee?: boolean };
+      return { id: r.id ?? null, site: r.siteCode ?? null, chantier: r.chantierId ?? null, rayonM: r.rayonM ?? null, actif: r.actif ?? null, creee: !!r.creee };
+    },
+  },
+  'pointage.zone.supprimer': { champs: ['id'] },
 };
 
 // lot 11 — pwa (chantier C2) : saisie du jour rejouable, désignée par la ligne (projet, tâche) et non par son indice ; tracée

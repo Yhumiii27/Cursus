@@ -1897,12 +1897,14 @@ aucun champ du paramètre n'est recopié.
 | `planning.creneau.ajouter` / `.modifier` / `.annuler` | equipe (celle du salarié), jour (au plus tard le dernier jour des 12 semaines à venir), horaire, empId? (absent : à pourvoir) / id, horaire (« » : repos) : brouillon corrigé, ou nouvelle version d'un créneau publié / id, motif (exigé pour un créneau publié, communiqué au salarié, jamais journalisé) ; jour passé : 409, sauf le retrait d'un brouillon (jamais communiqué) | planificateur |
 | `planning.publier` | equipe, du, au (jamais au-delà des 12 semaines à venir), motif? (circonstances exceptionnelles, exigé sous `planningDelaiPrevenance`), motifAlertes? (exigé en cas d'alerte) : période ramenée à aujourd'hui (brouillons passés ignorés) ; brouillon d'un salarié que l'on ne planifie pas : 403, avant tout contrôle ; refus (habilitation absente, retirée, suspendue — prérequis échu compris — ou expirée avant la partie à venir de la période ; nuit d'un mineur ; hors contrat ; semaine dont la feuille est validée) en 409 ; version suivante de l'équipe, salariés prévenus par e-mail aussitôt (`communiqueLe`) | planificateur de l'équipe, jamais pour son propre créneau |
 | `planning.echange.proposer` / `.accepter` / `.valider` / `.refuser` / `.annuler` | creneauId, partenaireId (même équipe), creneauPartenaire? (absent : cession) / id / id, motifAlertes? / id, motif? / id ; expiré dès qu'un des créneaux commence | proposer, annuler : le salarié du créneau ; accepter : le collègue ; valider : le manager des deux (ou son suppléant « planning ») ou RH ; refuser : le collègue (proposé), le valideur (accepté) |
-| `pointage.pointer` | empId (soi-même), sens? (`E`/`S`, déduit sinon de l'entrée en cours) ; instant du serveur ; rejeu hors ligne : horodatageAppareil (instant avec fuseau, moins de 7 jours, au plus 5 min d'avance), marqué « différé », refusé (409) dans une semaine dont la feuille est validée ; jamais de position ; doublon sous 60 s : rien d'ajouté ; module actif et population badgée exigés (409) ; jamais au journal (lot 12, C6) | chacun pour lui-même |
+| `pointage.pointer` | empId (soi-même), sens? (`E`/`S`, déduit sinon de l'entrée en cours) ; instant du serveur ; rejeu hors ligne : horodatageAppareil (instant avec fuseau, moins de 7 jours, au plus 5 min d'avance), marqué « différé », refusé (409) dans une semaine dont la feuille est validée ; jamais de position hors ligne (400 ; salarié géolocalisé : verdict `refusee`) ; étape 3 : position? ({ lat, lng, precision }, `refusee` ou `indisponible` ; illisible : 400) transformée en verdict (`zone`) pour une population géolocalisée avec une zone active, ignorée sinon, jamais écrite ; doublon sous 60 s : rien d'ajouté ; module actif et population badgée exigés (409) ; jamais au journal (lot 12, C6) | chacun pour lui-même |
 | `pointage.corriger` | empId, nature (`ajout` : horodatage avec fuseau, sens ; `neutralisation` : pointageId), motif (`oubli`/`appareil`/`mission`/`formation`/`autre`), commentaire? (300 caractères, jamais au journal) ; jour passé, sous `pointageDelaiCorrectionJours` jours (le service RH sans délai) ; feuille validée de la semaine du jour ou de celle du jour de rattachement du poste (sortie du lundi d'un poste de nuit du dimanche) : 409 (réouverture), aussi à la validation ; saisie par le valideur : validée d'emblée | salarié, manager direct ou suppléant « feuilles », RH |
 | `pointage.validerCorrection` / `pointage.refuserCorrection` | id ; refus : motif (300 caractères, jamais au journal) ; validation : ligne ajoutée (pointage, ou neutralisation du pointage visé), feuille validée : 409 | manager direct ou suppléant « feuilles », RH ; jamais pour soi |
 | `pointage.annulerCorrection` | id : demande en attente retirée | le salarié, son valideur |
 | `pointage.reprendreFeuille` | empId, week : feuille au mode « calcule » encore modifiable ; la ligne PTG reprend le pointé du moment moins la ventilation, rien n'est réécrit si elle n'a pas changé ; feuille déclarative : 409 ; journal : salarié, semaine, nombre de jours où la ventilation dépasse le pointé, jamais une heure (lot 12, C6, étape 2) | salarié, manager (périmètre « feuilles »), RH |
 | `referentiel.horaire.variable` | id (code), variable, plages [{ type `fixe`/`mobile`, debut, fin }], dureeReference, reportMaxSemaine, cumulMax (heures saisies ; vides : durée de l'horaire et plafonds supplétifs 3 h et 10 h), accordVariable (exigée pour d'autres plafonds, jamais au journal) ; contrôles de shared/rules/horaires-variables.ts (lot 12, C6, étape 2) | RH |
+| `pointage.zone.enregistrer` | id? (modification), libelle, siteCode?, chantierId?, lat, lng (degrés décimaux), rayonM (10 à 10 000), actif ; 200 zones au plus ; journal : identifiant, site, chantier, rayon, état, jamais les coordonnées (libellé dans le message seulement) (lot 12, C6, étape 3) | RH administrateur |
+| `pointage.zone.supprimer` | id ; les verdicts déjà gardés restent (lot 12, C6, étape 3) | RH administrateur |
 
 ## Journal des actions
 
@@ -5682,6 +5684,50 @@ module (Paramètres → Badgeage, avec la référence de l'accord et la date de 
 - **Plages réelles** : les anomalies (repos, pause, amplitude, nuit) se calculent déjà sur les instants réels ; le décompte
   des feuilles (`controlesReposNuit` dans `calcSheet`) garde les plages estimées, puisque `calcSheet` ne change pas et que
   les pointages ne sont pas dans l'instantané.
+
+## Lot 12 : badgeage virtuel (C6, t191), étape 3 : géolocalisation au pointage
+
+Option désactivée par défaut (`geolocActive`), sous le badgeage. Pas de badgeuse (réponse du propriétaire du 1er novembre
+2026) : ni appareils, ni badges, ni route d'intégration, ni import ; aucune table ni migration nouvelle (`zones_pointage`
+et `pointages.zone` sont dans 0027 et `lot12-badgeage-pointages`).
+
+- **Règles** (`shared/rules/geolocalisation.ts`) : `lirePosition` (objet borné, `refusee`, `indisponible`), `distanceM`
+  (haversine), `verdictZone` (aucune position : `refusee` ; position impossible : `imprecise` ; cercle d'incertitude
+  entier dans une zone active : `dans`, quelle que soit la précision ; précision au-delà de `geolocPrecisionM` :
+  `imprecise` ; centre dans le cercle d'une zone active : `dans` ; cercle d'incertitude qui touche
+  une zone : `imprecise`, le doute profite au salarié ; sinon `hors`), `verdictPourLecteur` (manager : `dans` / `hors`
+  seulement, null pour une position imprécise ou non partagée), `geolocAu` (option active, salarié qui pointe ce jour-là,
+  désigné par `geolocPopulations` : jamais une population qui pointe sur place), `lirePopulationsGeoloc`, `lireZone`,
+  `refusActivationGeoloc` (COHERENCE : badgeage actif, finalité écrite, date de l'AIPD, une population au moins).
+  Anomalies `hors_zone` et `zone_non_verifiee` (`anomaliesPointage`, d'après le seul verdict ; même texte pour un refus et
+  une imprécision).
+- **Réglages** (`shared/reglages.ts`, bloc C6) : `geolocActive` (false), `geolocPopulations` ([]), `geolocFinalite`
+  (texte, masqué au journal de `parametres.maj`), `geolocAipdLe`, `geolocPrecisionM` (100, de 20 à 1 000).
+- **Serveur** (`server/src/geolocalisation.ts`) : `positionDemandee` (population géolocalisée et au moins une zone active),
+  lue par `pointage.pointer` (verdict calculé, coordonnées jetées ; position ignorée hors population ; jamais de position hors ligne,
+  `refusHorsLigne` et l'action ; rejeu hors ligne d'un salarié géolocalisé : verdict `refusee`, « position non vérifiée »,
+  pour que couper le réseau ne contourne pas la vérification sans trace) et par `GET /api/pointages/etat` (`geoloc`, pour le salarié lui-même) ; verdict des
+  pointages servi en entier au salarié et au service RH, réduit pour le manager (`/etat` et `GET /api/pointages`).
+  Zones : actions `pointage.zone.enregistrer` / `.supprimer` (`server/src/actions/pointage-zones.ts`, administrateur
+  RH) et `GET /api/pointages/zones` (droit « rh », refus tracé `acces.refuse`), hors de l'instantané (`HORS_INSTANTANE`).
+- **Permissions-Policy dynamique** : `permissionsPolicy(geoloc)` (`server/src/securite.ts`) ; `securityHeaders` pose
+  `geolocation=()` partout, puis `politiqueGeoloc(db)` (monté juste après dans `app.ts`, bloc C6, avant les routes) le
+  remplace par `geolocation=(self)` sur les pages (hors `/api`) quand l'option et le badgeage sont actifs. Réglage relu
+  après chaque écriture de l'instance (`Db.revision`) et au plus toutes les 30 s (autres instances). La page est servie
+  avant toute session et gardée par le service worker (`client/public/sw.js`, navigations en réseau d'abord) : l'en-tête
+  vaut pour tous, le changement vaut au rechargement de la coque, et c'est le code qui limite la demande de position.
+- **Client** : `client/src/pwa/position.ts` (`positionAuClic` : un `getCurrentPosition`, 10 s, `maximumAge` 0 ; refus :
+  `refusee`, autre échec : `indisponible` ; minuteur de garde `GARDE_POSITION_MS`, 12 s invite d'autorisation comprise,
+  qui rend `indisponible` et ignore un rappel tardif : une invite laissée ouverte ne bloque jamais le pointage), appelé par le bouton « Pointer » quand `etat.geoloc` et en ligne ; verdict à
+  côté de l'heure (bouton, détail des pointages : `verdictTexte`). Paramètres → Badgeage, `components/temps/GeolocPointage.tsx` :
+  activation, finalité, date de l'AIPD, précision, populations (enregistrées à part), zones lues à la demande
+  (`api.zonesPointage`), dialogue `ZonePointageDialog.tsx` (formulaire, validation explicite) et suppression confirmée
+  (`suppressionZonePointage`, state/confirmations-pointage.ts).
+- **RGPD** : mention d'information (paragraphe de la géolocalisation quand elle est active), page Confidentialité,
+  docs/RGPD.md (traitement, catégorie « Verdict de géolocalisation », trame d'AIPD à compléter par le DPO).
+- **Tests** : `tests/pointage-geoloc.test.ts` (règles, anomalies, COHERENCE, verdict seul gardé, refus sans blocage,
+  journal sans coordonnées, droits des routes, verdict réduit pour le manager, Permissions-Policy) ; matrice des droits
+  (`tests/droits.test.ts`, zones).
 
 ## Lot 12 : organigramme graphique et choix d'un service (C7)
 

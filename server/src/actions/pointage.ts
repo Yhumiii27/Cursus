@@ -1,9 +1,12 @@
 // Badgeage virtuel (lot 12, chantier C6, t191 ; règles : shared/rules/pointage.ts). Module désactivé par défaut (réglage
 // `pointageActif`, activable avec la référence de l'accord et la date de l'avis du CSE) : pointer et demander une
 // correction sont refusés tant qu'il ne l'est pas, et pour un salarié hors d'une population badgée.
-//   pointage.pointer            empId (soi-même), sens, horodatageAppareil (hors ligne seulement) : instant du serveur ;
+//   pointage.pointer            empId (soi-même), sens, horodatageAppareil (hors ligne seulement), position (étape 3 : en
+//                               ligne, population géolocalisée ; { lat, lng, precision }, « refusee » ou « indisponible »,
+//                               transformée en verdict, seul gardé) : instant du serveur ;
 //                               hors ligne (rejeu de la file, réglage `pointageHorsLigne`) : heure de l'appareil, marqué
-//                               « différé » ; jamais de position hors ligne. Doublon sous 60 s : rien n'est ajouté.
+//                               « différé » ; jamais de position hors ligne (salarié géolocalisé : verdict « refusee »,
+//                               position non vérifiée). Doublon sous 60 s : rien n'est ajouté.
 //                               Jamais au journal (la table des pointages en est la trace).
 //   pointage.corriger           empId, nature (ajout | neutralisation), horodatage et sens (ajout) ou pointageId
 //                               (neutralisation), motif (liste fermée), commentaire : le salarié pour lui-même, dans le délai
@@ -28,6 +31,9 @@ import { instantServeur, lirePointages, modeDuSalarie, pointeDeLaFeuille } from 
 import { avecLignePointee, ecartsTexte, feuilleCalculee, memesLignes } from '../../../shared/rules/pointage-feuille.ts';
 import { joursSemaine } from '../../../shared/dates.ts';
 import { editable } from './temps.ts';
+import { lirePosition, type PositionRecue, VERDICTS_ZONE, verdictZone } from '../../../shared/rules/geolocalisation.ts';
+import { lireZones, positionDemandee } from '../geolocalisation.ts';
+import { zoneActions } from './pointage-zones.ts';
 import { ActionError, type ActionHandler, type Ctx, getEmp, isRh, isValidatorOf, refuserSoiMeme, str } from './context.ts';
 
 /** Instant du serveur (ISO), à la date du jour de Cursus (server/src/pointages.ts). */
@@ -106,10 +112,19 @@ const pointer: ActionHandler = async (ctx, p) => {
   } else if (p.horodatageAppareil != null) {
     throw new ActionError('L’heure d’un pointage en ligne est celle du serveur', 400);
   }
-  // Jamais de position hors ligne ; la géolocalisation (étape 3) est désactivée : aucune position n'est reçue.
-  if (p.position != null) throw new ActionError('Géolocalisation désactivée : aucune position n’est enregistrée', 400);
+  // Étape 3 (géolocalisation) : jamais de position hors ligne ; une position illisible est refusée, sans rien enregistrer.
+  if (horsLigne && p.position != null) throw new ActionError('Hors ligne, un pointage ne porte jamais de position', 400);
+  const position = lirePosition(p.position);
+  if (position && typeof position === 'object' && 'refus' in position) throw new ActionError(position.refus, 400);
   const jour = isoParis(new Date(horodatage));
   requirePopulation(ctx, e, jour);
+  // Verdict de la position (salarié d'une population géolocalisée, zone active) ; les coordonnées ne sont gardées nulle
+  // part. Hors de ces populations, une position reçue est ignorée ; aucune position (refus) n'empêche jamais de pointer.
+  // Rejeu hors ligne d'un salarié géolocalisé : aucune position n'est lue, le pointage est « position non vérifiée »
+  // (« refusee », même anomalie qu'un refus), pour que couper le réseau ne contourne pas la vérification sans trace.
+  const zone = !await positionDemandee(ctx.db, ctx.ds, e, jour) ? null
+    : horsLigne ? 'refusee' as const
+    : verdictZone(position as PositionRecue | null, await lireZones(ctx.db, true), ctx.ds.settings.geolocPrecisionM);
   if (p.sens != null && !estSens(p.sens)) throw new ActionError('Sens du pointage invalide');
   const voisins = await lirePointages(ctx.db, [e.id], addD(jour, -2), addD(jour, 1));
   const avant = voisins.filter(x => Date.parse(x.horodatage) <= Date.parse(horodatage));
@@ -129,9 +144,12 @@ const pointer: ActionHandler = async (ctx, p) => {
     await refusFeuilleValidee(ctx, e.id, jour, Date.parse(horodatage), { sens }, 'Feuille de la semaine déjà validée : ce pointage hors ligne n’est pas enregistré, demandez une correction après sa réouverture');
   }
   const row = await ctx.db.insert<Pointage>('pointages', {
-    empId: e.id, horodatage, jour, sens, source: 'virtuel', horsLigne, horodatageAppareil: horsLigne ? horodatage : null, recuLe: recu, zone: null, annuleId: null, correctionId: null,
+    empId: e.id, horodatage, jour, sens, source: 'virtuel', horsLigne, horodatageAppareil: horsLigne ? horodatage : null, recuLe: recu, zone, annuleId: null, correctionId: null,
   });
-  return { message: `${dit(sens)} à ${hhmmParis(horodatage)}${horsLigne ? ' (pointage différé, fait hors ligne)' : ''}`, result: { id: row.id, sens, horodatage } };
+  return {
+    message: `${dit(sens)} à ${hhmmParis(horodatage)}${horsLigne ? ' (pointage différé, fait hors ligne)' : ''}${zone ? ` · ${VERDICTS_ZONE[zone].toLowerCase()}${zone === 'dans' || zone === 'hors' ? '' : ', pointage enregistré'}` : ''}`,
+    result: { id: row.id, sens, horodatage, ...(zone ? { zone } : {}) },
+  };
 };
 
 // — Corrections —
@@ -257,4 +275,6 @@ export const pointageActions = {
   'pointage.refuserCorrection': refuserCorrection,
   'pointage.annulerCorrection': annulerCorrection,
   'pointage.reprendreFeuille': reprendreFeuille,
+  // Étape 3 : zones de la géolocalisation (server/src/actions/pointage-zones.ts).
+  ...zoneActions,
 } satisfies Record<string, ActionHandler>;

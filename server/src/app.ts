@@ -43,6 +43,7 @@ import { routesFeedback360 } from './feedback360.ts';
 import { routesPlanningHistorique } from './planning-historique.ts';
 // lot 12 — C6 (badgeage virtuel)
 import { routesPointages } from './pointages.ts';
+import { politiqueGeoloc } from './geolocalisation.ts';
 import { routesPieces } from './pieces-routes.ts';
 import { CLE_INVALIDE, CleReutilisee, empreinteCorps, garderReponse, lireCle, reponseGardee } from './idempotence.ts';
 import { EN_TETE_HORS_LIGNE, refusHorsLigne } from '../../shared/hors-ligne.ts';
@@ -87,6 +88,9 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   const compresser = options.compression ?? compressionActive();
   if (compresser) app.use(compression());
   app.use(securityHeaders(production));
+  // lot 12 — C6 (badgeage virtuel, étape 3) : Permissions-Policy des pages, géolocalisation admise pour Cursus seul quand
+  // l'option est active (server/src/geolocalisation.ts) ; l'API garde l'en-tête fermé.
+  app.use(politiqueGeoloc(db));
   // Démonstration en production (application de bureau) : requêtes de ce poste uniquement, jamais via le proxy.
   // Démonstration en production : poste local seulement, sauf instance publiée explicitement (CURSUS_DEMO_PUBLIQUE=1).
   if (DEMO && production && !demoPublique()) app.use(demoPosteLocal());

@@ -92,7 +92,7 @@ test('pointer : pour soi, population badgée, sens déduit, doublon, jamais au j
   // Hugo Lambert (Logistique) n'est pas dans une population badgée.
   await refuse(P.autM, 'pointage.pointer', { empId: 16 }, /ne faites pas partie d’une population/, 409);
   await refuse(P.coll, 'pointage.pointer', { empId: 2, horodatageAppareil: '2026-10-10T05:00:00Z' }, /celle du serveur/);
-  await refuse(P.coll, 'pointage.pointer', { empId: 2, position: { lat: 48.5, lng: 7.7 } }, /Géolocalisation désactivée/);
+  // Position : étape 3, tests/pointage-geoloc.test.ts (ignorée hors d'une population géolocalisée, jamais écrite).
   await refuse(P.coll, 'pointage.pointer', { empId: 2, sens: 'X' }, /Sens du pointage invalide/);
   const a = await run(P.coll, 'pointage.pointer', { empId: 2 });
   assert.match(a.message, /^Arrivée pointée à \d{2}:\d{2}$/);

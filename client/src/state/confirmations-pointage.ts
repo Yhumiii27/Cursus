@@ -1,7 +1,7 @@
 // Confirmations du badgeage virtuel (lot 12, chantier C6, étape 2), affichées par dialogs/ConfirmerDialog.tsx (modèle :
 // state/confirmations.ts) : refus d'une demande de correction de pointage par son valideur, motif obligatoire (lu par le
 // salarié, jamais recopié au journal), et retrait d'une demande en attente.
-import type { CorrectionPointage } from '../../../shared/types.ts';
+import type { CorrectionPointage, ZonePointage } from '../../../shared/types.ts';
 import { objetCorrection } from '../components/temps/pointage-etat.ts';
 import type { Confirmation } from './confirmations.ts';
 
@@ -30,5 +30,17 @@ export function retraitCorrectionPointage(c: Pick<CorrectionPointage, 'id' | 'na
     bouton: 'Retirer la demande',
     action: 'pointage.annulerCorrection',
     payload: { id: c.id },
+  };
+}
+
+/** Étape 3 : suppression d'une zone de la géolocalisation (administrateur RH) ; les verdicts déjà gardés restent. */
+export function suppressionZonePointage(z: Pick<ZonePointage, 'id' | 'libelle'>): Confirmation {
+  return {
+    titre: 'Supprimer la zone de pointage',
+    question: `Supprimer la zone « ${z.libelle} » ?`,
+    suites: ['Les pointages déjà faits gardent leur verdict.', 'Sans zone active, la position n’est plus demandée au pointage.'],
+    bouton: 'Supprimer la zone',
+    action: 'pointage.zone.supprimer',
+    payload: { id: z.id },
   };
 }

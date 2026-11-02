@@ -419,7 +419,11 @@ Limites d'iPhone et d'iPad (iOS et iPadOS, à revérifier sur la version de la f
 Recette : installer l'application sur un iPhone et un Android de la flotte, s'y connecter (compte local et
 Microsoft), saisir une heure en mode avion puis la voir partir au retour du réseau, recevoir la notification d'essai
 (« Envoyer une notification d'essai »), prendre une photo avec l'appareil (Permissions-Policy `camera=()` : le champ
-de fichier ouvre l'appareil photo natif, à vérifier).
+de fichier ouvre l'appareil photo natif, à vérifier). Géolocalisation au pointage (lot 12, C6, étape 3, désactivée par
+défaut) : une fois l'option activée, recharger l'application installée (la Permissions-Policy `geolocation=(self)` vient
+avec la page), pointer sur un chantier depuis un téléphone de la flotte, vérifier la demande d'autorisation, le verdict
+affiché et qu'un refus enregistre le pointage ; derrière le reverse proxy, ne pas journaliser le corps des requêtes
+`/api/actions/pointage.pointer` (la position y passe, Cursus ne l'écrit nulle part).
 
 L'application de bureau macOS (`npm run app`) pose `CURSUS_PWA=0` : ni service worker ni notification dans sa vue
 WebKit en `http://127.0.0.1`.

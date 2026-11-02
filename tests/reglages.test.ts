@@ -124,6 +124,8 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // exclus ; corrections sous 7 jours ; hors ligne admis, signalé au-delà de 5 min ; écart de 15 min ; 3 ans.
     pointageActif: false, pointagePopulations: [], pointageAccord: '', pointageCseLe: null, pointageInterim: false, pointageDelaiCorrectionJours: 7,
     pointageHorsLigne: true, pointageEcartDiffereMin: 5, pointageEcartAnomalieMin: 15, conservationPointagesAns: 3,
+    // Étape 3 : géolocalisation au pointage désactivée, sans population, finalité et AIPD à saisir ; précision de 100 m.
+    geolocActive: false, geolocPopulations: [], geolocFinalite: '', geolocAipdLe: null, geolocPrecisionM: 100,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(await loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

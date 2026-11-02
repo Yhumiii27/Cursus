@@ -203,7 +203,7 @@ export function refusActivationPointage(s: Pick<Settings, 'pointageActif' | 'poi
 // — Appariement —
 
 /** Ce que lisent l'appariement et les anomalies d'un pointage brut. */
-export type PointageLu = Pick<Pointage, 'id' | 'horodatage' | 'sens' | 'annuleId'> & Partial<Pick<Pointage, 'horsLigne' | 'horodatageAppareil' | 'recuLe' | 'source'>>;
+export type PointageLu = Pick<Pointage, 'id' | 'horodatage' | 'sens' | 'annuleId'> & Partial<Pick<Pointage, 'horsLigne' | 'horodatageAppareil' | 'recuLe' | 'source' | 'zone'>>;
 
 const instant = (p: Pick<Pointage, 'horodatage'>) => Date.parse(p.horodatage);
 const parInstant = (a: PointageLu, b: PointageLu) => instant(a) - instant(b) || a.id - b.id;
@@ -372,7 +372,9 @@ export type CodeAnomaliePointage =
   | 'sortie_manquante' | 'entree_manquante' | 'differe' | 'sans_pointage' | 'pendant_absence' | 'hors_contrat' | 'amplitude'
   | 'repos_quotidien' | 'pause' | 'duree_jour' | 'duree_semaine' | 'ecart_declare' | 'apres_validation'
   // Étape 2 : horaire variable, plage fixe non couverte (shared/rules/horaires-variables.ts).
-  | 'plage_fixe';
+  | 'plage_fixe'
+  // Étape 3 : géolocalisation (shared/rules/geolocalisation.ts), d'après le seul verdict gardé sur le pointage.
+  | 'hors_zone' | 'zone_non_verifiee';
 export const ANOMALIES_POINTAGE: Record<CodeAnomaliePointage, string> = {
   sortie_manquante: 'Sortie manquante', entree_manquante: 'Entrée manquante', differe: 'Pointage différé (hors ligne)',
   sans_pointage: 'Jour prévu sans pointage', pendant_absence: 'Pointage un jour d’absence', hors_contrat: 'Pointage hors contrat',
@@ -380,6 +382,7 @@ export const ANOMALIES_POINTAGE: Record<CodeAnomaliePointage, string> = {
   duree_jour: `Plus de ${JOURNEE_MAX_H} h dans la journée`, duree_semaine: `Plus de ${SEMAINE_MAX_H} h dans la semaine`,
   ecart_declare: 'Écart entre heures déclarées et pointées', apres_validation: 'Pointage postérieur à la validation de la feuille',
   plage_fixe: 'Hors plage fixe de l’horaire variable',
+  hors_zone: 'Pointage hors zone', zone_non_verifiee: 'Position non vérifiée',
 };
 export interface AnomaliePointage { code: CodeAnomaliePointage; jour: ISODate; texte: string }
 
@@ -432,6 +435,15 @@ export function anomaliesPointage(x: EntreeAnomalies): AnomaliePointage[] {
     if (!dans(j) || !p.horsLigne) continue;
     const recu = p.recuLe ? Date.parse(p.recuLe) : instant(p);
     if (Math.abs(recu - instant(p)) > differe) out.push({ code: 'differe', jour: j, texte: `Pointage de ${hhmmParis(instant(p))} fait hors ligne, reçu ${minutesTexte(Math.round((recu - instant(p)) / 60_000))} plus tard : heure de l’appareil à vérifier` });
+  }
+  // Étape 3 : verdict de géolocalisation (pointages géolocalisés seulement). Une position imprécise et une position non
+  // partagée ont le même texte : le refus ne se distingue pas, et le pointage reste enregistré.
+  for (const p of pointagesEffectifs(x.pointages)) {
+    const j = heureParis(instant(p)).jour;
+    if (!dans(j) || !p.zone || p.zone === 'dans') continue;
+    out.push(p.zone === 'hors'
+      ? { code: 'hors_zone', jour: j, texte: `Pointage de ${hhmmParis(instant(p))} en dehors des zones de pointage` }
+      : { code: 'zone_non_verifiee', jour: j, texte: `Pointage de ${hhmmParis(instant(p))} enregistré sans position vérifiée (imprécise ou non partagée)` });
   }
   const realise = realiseParJour(postes);
   const pointes = new Set(pointagesEffectifs(x.pointages).map(q => heureParis(instant(q)).jour));

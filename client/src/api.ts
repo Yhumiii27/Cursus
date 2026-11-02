@@ -17,6 +17,7 @@ import type { ContenuReponse360 } from '../../shared/rules/feedback360.ts';
 /** Commentaire d'une réponse 360° versée, à relire par le service RH (GET /api/feedback360/moderation). */
 export interface Commentaire360 { id: string; entretienId: number; empId: number; verbatim: string; statut: 'a_moderer' | 'retenu' | 'retire' | null }
 export type { EtatPointages, LecturePointages, PresencesPointages };
+import type { ZonePointage } from '../../shared/types.ts';
 
 /** Compte proposé à la connexion de démonstration (`id` : identifiant du compte). */
 export interface LoginOption { id: number; nom: string }
@@ -300,6 +301,8 @@ export const api = {
   etatPointages: (empId?: number) => request<EtatPointages>('GET', `/api/pointages/etat${empId != null ? `?empId=${empId}` : ''}`, undefined, espaceOnglet),
   /** Présences du jour du périmètre (manager, service RH), sans la nature d'une absence. */
   presencesPointages: () => request<PresencesPointages>('GET', '/api/pointages/etat?equipe=1', undefined, espaceOnglet),
+  /** Étape 3 : zones de la géolocalisation au pointage (service RH), Paramètres → Badgeage. */
+  zonesPointage: () => request<{ zones: ZonePointage[] }>('GET', '/api/pointages/zones', undefined, espaceOnglet),
   /**
    * `rejeu` (lot 11, file hors ligne : client/src/state/hors-ligne.ts) : clé d'idempotence de la saisie et marque du
    * rejeu hors ligne ; une réponse déjà donnée pour cette clé est rendue sans refaire l'action (`relire`).

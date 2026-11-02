@@ -4,7 +4,8 @@
 // première), forfait jours et cadres dirigeants toujours exclus, intérimaires sur option ; délai des corrections, pointage
 // hors ligne, seuils des anomalies, conservation des pointages bruts. Mention d'information des salariés générée d'après
 // ces réglages (shared/rules/pointage-information.ts). Réglages de l'administrateur RH ; le service RH et la lecture seule
-// consultent. Les champs s'enregistrent ensemble, au bouton « Enregistrer ».
+// consultent. Les champs s'enregistrent ensemble, au bouton « Enregistrer ». Étape 3 : géolocalisation au pointage et zones
+// (components/temps/GeolocPointage.tsx), enregistrées à part.
 import { useEffect, useState } from 'react';
 import { TEMPS_TRAVAIL } from '../../../../shared/constants.ts';
 import type { CriterePopulation, ModeTemps, PopulationPointage, Settings } from '../../../../shared/types.ts';
@@ -15,6 +16,7 @@ import { Btn, CloseButton, Fine, NoteAccent, Panel } from '../../components/ui.t
 import { useRole } from '../../state/derived.ts';
 import { useData, useStore } from '../../state/store.tsx';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
+import { GeolocPointage } from '../../components/temps/GeolocPointage.tsx';
 
 /** Régimes qui peuvent pointer (jamais le forfait jours ni le cadre dirigeant). */
 const REGIMES = (['35h', '39h_rtt', 'forfait_heures_hebdo', 'forfait_heures_annuel', 'partiel'] as const).map(r => [r, TEMPS_TRAVAIL[r].label] as const);
@@ -139,9 +141,11 @@ export function Badgeage({ s }: SectionProps) {
       {!s.pointageActif && <NoteAccent>Badgeage désactivé : aucun bouton « Pointer », aucune entrée « Pointages » dans les menus. Avant l’activation : avis du CSE, accord, analyse d’impact (AIPD) avec le DPO et information des salariés.</NoteAccent>}
       <Fine>
         Conservation : 1 an au moins (art. D3171-16), 5 ans au plus (référentiel CNIL de la gestion du personnel) ; durée à confirmer avec le DPO. Pas de badgeuse
-        murale ni de géolocalisation : le pointage se fait dans Cursus, sur le téléphone ou l’ordinateur. Aucun rappel « sortie manquante » n’est envoyé : l’anomalie
+        murale : le pointage se fait dans Cursus, sur le téléphone ou l’ordinateur. Aucun rappel « sortie manquante » n’est envoyé : l’anomalie
         s’affiche à l’ouverture et dans la file du manager.
       </Fine>
+      {/* Étape 3 : géolocalisation au pointage (option désactivée) et zones (components/temps/GeolocPointage.tsx). */}
+      <GeolocPointage s={s} />
       <div>
         <button type="button" className="btn btn-ghost btn-sm" aria-expanded={mention} onClick={() => setMention(m => !m)}>{mention ? 'Masquer la mention d’information des salariés' : 'Afficher la mention d’information des salariés'}</button>
       </div>

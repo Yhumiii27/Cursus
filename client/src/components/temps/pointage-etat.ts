@@ -3,8 +3,9 @@
 // (layout/Shell.tsx) et les tests du client.
 import type { Domain } from '../../../../shared/domain.ts';
 import { fmtIso } from '../../../../shared/format.ts';
+import { VERDICTS_ZONE } from '../../../../shared/rules/geolocalisation.ts';
 import { hhmmParis, modeTempsAu, MOTIFS_CORRECTION } from '../../../../shared/rules/pointage.ts';
-import type { CorrectionPointage, Dataset, ISODate, ModeTemps } from '../../../../shared/types.ts';
+import type { CorrectionPointage, Dataset, ISODate, ModeTemps, VerdictZone } from '../../../../shared/types.ts';
 import { decideur } from '../../state/delegues.ts';
 
 /** « 7 h 30 », « 45 min », « 0 h » : durée en minutes. */
@@ -58,3 +59,6 @@ export const PRESENCES: Record<string, { label: string; cls: string }> = {
   non_pointe: { label: 'Non pointé', cls: 'tag-outline' },
   absent: { label: 'Absent', cls: 'tag-outline' },
 };
+
+/** Étape 3 : verdict de géolocalisation d'un pointage, en minuscules (« dans la zone », « hors zone »…). */
+export const verdictTexte = (v: VerdictZone) => VERDICTS_ZONE[v].toLowerCase();

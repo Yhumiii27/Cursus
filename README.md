@@ -444,7 +444,9 @@ la référence de l'accord d'entreprise et la date de l'avis du CSE, puis désig
 « contrôlé » : écarts signalés ; « calculé » : heures de la feuille tirées des pointages, ligne « PTG »). Pas de badgeuse :
 bouton « Pointer » sur le téléphone ou l'ordinateur (accueil, saisie du jour, écran « Pointages », raccourci « Pointer » de
 l'application installée, statique : module inactif, il ramène à l'accueil avec un message), hors ligne admis (« différé »,
-réglage `pointageHorsLigne` : décoché, rien n'est gardé sur l'appareil), aucune position. Corrections demandées par le salarié et validées
+réglage `pointageHorsLigne` : décoché, rien n'est gardé sur l'appareil), aucune position (sauf l'option de géolocalisation, étape 3,
+désactivée : pour les populations itinérantes désignées, position lue au clic et verdict seul gardé, zones tenues dans
+Paramètres → Badgeage, Permissions-Policy `geolocation=(self)` seulement l'option active). Corrections demandées par le salarié et validées
 par son manager ; présences du jour et corrections à valider pour le manager et le service RH ; horaires variables dans
 Référentiels → Horaires. Pointages lus à la demande (`GET /api/pointages`, `GET /api/pointages/etat`), jamais dans
 l'instantané ; essai de charge : `npm run charge:pointages`. Détail : `docs/ARCHITECTURE.md` (« Lot 12 : badgeage

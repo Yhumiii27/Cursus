@@ -20,7 +20,7 @@ import type { ReferentielId } from '../../../shared/rules/referentiels.ts';
 // lot 11 — indicateurs
 import type { GroupeIndicateurs } from '../../../shared/rules/indicateurs-legaux.ts';
 import type { OngletIndicateurs } from '../pages/indicateurs-onglets.ts';
-import type { CompteSession, Dataset, EntretienType, ISODate, MotifVisite, ObjetPiece, PlanStatut, ProfilRh, Role, VaccinId } from '../../../shared/types.ts';
+import type { CompteSession, Dataset, EntretienType, ISODate, MotifVisite, ObjetPiece, PlanStatut, ProfilRh, Role, VaccinId, ZonePointage } from '../../../shared/types.ts';
 import type { RepondantEvaluation, TypeEvaluation } from '../../../shared/types.ts';
 // lot 11 — dossiers OPCO
 import type { CodeOpco, DispositifOpco, NaturePiece } from '../../../shared/types.ts';
@@ -331,6 +331,8 @@ export type DialogState =
   // d'un pointage erroné : `pointageId`, `jour` du pointage visé) ; horaire variable d'un horaire du référentiel.
   | { type: 'correctionPointage'; empId: number; nature: 'ajout' | 'neutralisation'; pointageId?: number; jour?: ISODate; heure?: string; sens?: 'E' | 'S' }
   | { type: 'horaireVariable'; code: string }
+  // Étape 3 : zone de la géolocalisation au pointage (création, ou modification de `zone`), Paramètres → Badgeage.
+  | { type: 'zonePointage'; zone?: ZonePointage }
   ;
 
 /** Dialogue « Planifier » : rouvert après la création d'une session (t107). */

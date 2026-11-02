@@ -809,6 +809,11 @@ const MATRICE: Ligne[] = [
   { action: 'referentiel.horaire.variable', droits: ' O    O    -    -    -    -    -    -    -', p: () => ({
     id: 'J', variable: true, plages: [{ type: 'mobile', debut: '08:00', fin: '09:00' }, { type: 'fixe', debut: '09:00', fin: '11:30' }, { type: 'mobile', debut: '11:30', fin: '16:00' }],
   }) },
+  // Étape 3 : zones de la géolocalisation, tenues par l'administrateur RH seul (comme les réglages du badgeage).
+  { action: 'pointage.zone.enregistrer', droits: '   O    -    -    -    -    -    -    -    -', p: () => ({ libelle: 'Chantier de Strasbourg', lat: 48.5734, lng: 7.7521, rayonM: 300 }) },
+  { action: 'pointage.zone.supprimer', droits: '     O    -    -    -    -    -    -    -    -', p: async () => ({
+    id: (await db.insert<{ id: number }>('zonesPointage', { libelle: 'Chantier de Colmar', siteCode: null, chantierId: null, lat: 48.079, lng: 7.358, rayonM: 200, actif: true })).id,
+  }) },
 ];
 // lot 12 — C1 (forfait annuel en heures)
 /**

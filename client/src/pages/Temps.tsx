@@ -20,7 +20,7 @@
 // l'équipe, figée à la soumission ; journée de solidarité travaillée (shared/rules/feries.ts) signalée sur son jour.
 // Forfait jours (t043, components/ForfaitJours.tsx) : cumul annuel au récapitulatif et dans la file de validation, alerte au
 // seuil ; au-delà du plafond (forfait, plus les jours rachetés par avenant), motif du valideur exigé à la validation.
-import { useState, type MouseEvent, type ReactNode } from 'react';
+import { useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
 import { ABS_ABREGE, ACTIVITE_ASTREINTE, TEMPS_TRAVAIL, TS_CLS, TS_LABEL } from '../../../shared/constants.ts';
 import type { Domain } from '../../../shared/domain.ts';
@@ -68,6 +68,8 @@ import { ligneAstreinte } from '../components/astreintes-etat.ts';
 // lot 12 — socle : onglets de l'écran (le contenu de chaque onglet de chantier est dans un composant à lui).
 import type { OngletTemps } from './temps-onglets.ts';
 // lot 12 — C1 (forfait annuel en heures)
+import { RecapForfaitHeures, useDroitsForfaitHeures } from '../components/temps/RecapForfaitHeures.tsx';
+import { ongletForfaitHeures } from '../components/temps/forfait-heures-vue.ts';
 // lot 12 — C5 (planning d'équipe)
 // lot 12 — C6 (badgeage virtuel)
 
@@ -224,7 +226,11 @@ export function Temps() {
   // absent pour cet espace (adresse d'un autre) ramène aux feuilles de temps.
   const onglets: [OngletTemps, string][] = [['feuilles', 'Feuilles de temps']];
   const contenus: Partial<Record<OngletTemps, ReactNode>> = {};
-  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C1 (forfait annuel en heures) : bandeau de clôture, suivi de la période, lignes enregistrées (onglet affiché
+  // seulement s'il a quelque chose à montrer ; jamais au référent HSE).
+  const droitsForfait = useDroitsForfaitHeures();
+  const libelleForfait = useMemo(() => ongletForfaitHeures(d, droitsForfait), [d, droitsForfait]);
+  if (libelleForfait) { onglets.push(['forfait-heures', libelleForfait]); contenus['forfait-heures'] = <RecapForfaitHeures />; }
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
   const onglet: OngletTemps = onglets.some(([o]) => o === ui.tempsOnglet) ? ui.tempsOnglet : 'feuilles';

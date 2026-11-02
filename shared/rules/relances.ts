@@ -47,7 +47,9 @@ export const titrePalier = (palier: string) => (palier === 'echu' ? 'Échéances
 
 export type CategorieRelance = 'formation' | 'habilitation' | 'visite' | 'formalite' | 'sanitaire' | 'deplacement' | 'entretien' | 'contrat' | 'couverture'
   // lot 11 — dossiers OPCO (shared/rules/opco.ts, `relancesOpco`)
-  | 'opco';
+  | 'opco'
+  // lot 12 — C1 (forfait annuel en heures) : clôtures à faire (shared/rules/forfait-heures.ts, `relancesForfaitHeures`)
+  | 'forfaitHeures';
 
 /** Objet relancé : clé stable (avec la date de l'échéance : un renouvellement repart de zéro), salarié, libellé neutre. */
 export interface Relance {
@@ -65,7 +67,10 @@ export interface Relance {
   /** Couverture calculée pour le référent HSE, sans les absences hors chantiers (clé `hse:couverture:…`) : à lui seul. */
   hse?: boolean;
   // lot 11 — dossiers OPCO
-  /** Échéance propre au service RH, sans salarié (`empId` 0) : dossier OPCO (`opco:<id>:<étape>:<échéance>`), à sa seule boîte. */
+  /**
+   * Échéance propre au service RH, sans salarié (`empId` 0) : dossier OPCO (`opco:<id>:<étape>:<échéance>`), à sa seule boîte ;
+   * lot 12 — C1 : clôture du forfait annuel en heures (`forfait-heures:<échéance>`).
+   */
   rhSeul?: boolean;
 }
 

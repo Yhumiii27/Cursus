@@ -4,6 +4,7 @@
 // seulement), et met son contenu dans un composant à lui. Sans import d'interface : lu aussi par les tests.
 export const ONGLETS_TEMPS = ['feuilles',
   // lot 12 — C1 (forfait annuel en heures) : récapitulatif du forfait (RecapForfaitHeures)
+  'forfait-heures',
   // lot 12 — C5 (planning d'équipe) : planning (PlanningEquipe)
   // lot 12 — C6 (badgeage virtuel) : pointages (Pointages)
 ] as const;

@@ -9,6 +9,9 @@
 //   comme à son écran, sans les absences hors chantiers (`couvertureVueHse`), sous des clés à part (`hse:couverture:…`).
 // - lot 11 : les échéances des dossiers OPCO (`opco:<id>:<étape>:<échéance>`, shared/rules/opco.ts) vont à la seule boîte
 //   du service RH : l'action du plan et l'échéance, sans montant ni nom de salarié.
+// - lot 12 — C1 : les clôtures du forfait annuel en heures à faire (`forfait-heures:<échéance>`, dernier jour du mois qui
+//   suit la fin de la plage, du mois de la sortie pour une plage close par la sortie ; shared/rules/forfait-heures.ts) vont
+//   à la seule boîte du service RH : un nombre de plages et de salariés, ni nom ni heure.
 // Seuls les paliers franchis depuis le dernier envoi partent (table `relances`, clé de l'objet et palier) : un objet n'est
 // relancé qu'une fois par palier. Tant que la boîte du service RH, destinataire de tout le périmètre, n'est pas renseignée,
 // le passage n'envoie ni ne note rien : les paliers franchis partiront au premier passage qui suit son réglage. Règles et contenu :
@@ -31,6 +34,8 @@ import { relanceSecret, relanceSecretEnvoi } from './secret-microsoft.ts';
 import { relancesOpco } from '../../shared/rules/opco.ts';
 import { nomActionPlan } from './actions/opco.ts';
 import { type Lecture, lectureDirecte } from './lecture-partagee.ts';
+// lot 12 — C1 (forfait annuel en heures)
+import { relancesForfaitHeures } from '../../shared/rules/forfait-heures.ts';
 
 /** Lecture du périmètre complet, comme le service RH. */
 const SUIVI: CurrentUser = { role: 'rh', empId: null, nom: 'Cursus', intitule: 'Relance des échéances' };
@@ -125,6 +130,9 @@ export async function recapitulatifEcheances(db: Db, lire: Lecture = lectureDire
     ...relancesCouverture(d, couvertureVueHse({ ...full, settings: { ...full.settings, horizonAlerte: Math.max(...paliers, 90) } }), paliers, 'hse:'),
     // lot 11 — dossiers OPCO en cours (`opco:<id>:<étape>:<échéance>`) : boîte du service RH seulement, sans montant ni nom.
     ...relancesOpco(full.dossiersOpco ?? [], full.versementsOpco, full.plan, full.settings, today, paliers, l => nomActionPlan({ d }, l)),
+    // lot 12 — C1 : clôtures du forfait annuel en heures à faire (`forfait-heures:<échéance>`) : boîte du service RH
+    // seulement, le nombre de plages et de salariés, ni nom ni heure.
+    ...relancesForfaitHeures(d, paliers),
   ];
   const deja = new Set((await db.query('SELECT cle, palier FROM relances') as { cle: string; palier: string }[]).map(r => `${r.cle}|${r.palier}`));
   const nouvelles = dues.filter(r => !deja.has(`${r.cle}|${r.palier}`));

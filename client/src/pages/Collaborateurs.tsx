@@ -31,6 +31,8 @@ import { MandatsFiche } from '../components/Delegation.tsx';
 import { LectureSeule, useLectureSeule } from '../components/Hierarchie.tsx';
 import { ContactUrgenceFiche } from '../components/ContactUrgence.tsx';
 import { ForfaitJoursFiche } from '../components/ForfaitJours.tsx';
+// lot 12 — C1 (forfait annuel en heures)
+import { ForfaitHeuresFiche } from '../components/temps/ForfaitHeuresFiche.tsx';
 import { ActionsCertification, CertsAnnulees, DemandesFiche } from '../components/Corrections.tsx';
 import { downloadCsv } from '../print.ts';
 // lot 11 — indicateurs
@@ -581,6 +583,8 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
         <ContratFiche e={e} />
         <HistoriqueContrat e={e} />
         <ForfaitJoursFiche e={e} />
+        {/* lot 12 — C1 (forfait annuel en heures) */}
+        <ForfaitHeuresFiche e={e} />
         <MineurFiche e={e} />
         <TravailNuitFiche e={e} />
         <MandatsFiche e={e} />

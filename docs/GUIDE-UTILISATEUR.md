@@ -63,6 +63,12 @@ Aucune heure ne se saisit un jour d'absence validée ; une demi-journée de cong
 plus. Une semaine entière d'absence se soumet sans heure. Les heures de nuit ne se saisissent pas dans Cursus : la paie
 les traite dans Sage. Les frais engagés pendant un déplacement se déclarent dans « Mes frais » (ci-dessous).
 
+**Forfait annuel en heures** (lot 12) : l'onglet « Forfait annuel en heures » de « Mes heures » montre la période en
+cours (l'année civile par défaut) : heures validées, cible (le forfait au prorata de la plage, moins les absences
+déduites, environ 7 h par jour ouvré d'absence hors congés payés), projection au rythme des feuilles validées (après
+4 semaines) et, une fois la période clôturée par le service RH, la ligne de clôture : heures au-delà de la cible payées
+(25 % puis 50 %), heures non réalisées affichées, jamais retenues.
+
 ### Demander une absence
 
 1. Menu « Mes absences » : soldes de congés payés (période en cours et période d'acquisition), RTT ou jours de repos,
@@ -381,6 +387,27 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
   annuel d'heures supplémentaires sont reprises dans des encarts de l'écran.
 - Seul l'administrateur RH rouvre une feuille validée : « Rouvrir la feuille », motif obligatoire (voir Correction après l'envoi,
   ci-dessous).
+- **Forfait annuel en heures** (lot 12, onglet « Forfait annuel en heures » de l'écran Temps de travail ; le nombre à côté
+  de l'onglet compte les plages à clôturer et les lignes à revoir) :
+  1. À la fin de chaque période de référence (le 1er janvier pour l'année civile), à la sortie d'un salarié ou à l'avenant
+     qui lui fait quitter le forfait, le bandeau « Clôtures du forfait annuel en heures à faire » propose la plage ; le
+     récapitulatif des échéances de la boîte du service RH la rappelle (échéance : fin du mois qui suit la fin de la plage ; pour une sortie, fin du mois de la sortie, avec le solde de sortie).
+  2. L'administrateur RH ouvre « Clôturer » : une ligne par salarié, avec la cible au prorata, les absences déduites (un
+     total, jamais la nature), la cible nette, le réalisé et les heures à payer (HFA25 et HFA50, ou HCA10 et HCA25 pour un
+     temps partiel annualisé), ou les heures non réalisées (jamais retenues). Les alertes (période commencée avant le
+     suivi, droits à congés incomplets, salarié non cadre, temps partiel) se vérifient sans bloquer ; une ligne
+     **bloquée** (feuille à valider, semaine sans feuille ni absence, durée légale atteinte par un temps partiel) ne se
+     coche pas : levez le blocage, puis relancez. Sa propre ligne se clôture par un autre administrateur RH.
+  3. Les heures partent dans le prochain lot de paie (mois de la confirmation par défaut ; mois de la sortie avec le
+     solde de sortie) ; tant que la paie n'a pas donné les codes HFA et HCA, elles sont listées « à saisir dans Sage ».
+  4. Une ligne marquée **à revoir** (feuille rouverte ou absence modifiée après la clôture) se corrige par « Rouvrir »
+     (motif) : avant la transmission, elle repasse à confirmer ; après, une nouvelle version n'envoie que l'écart (lot
+     correctif). « Annuler » (motif) n'est possible qu'avant la transmission.
+  Réglages (période, début du suivi, seuil des 25 %, absences déduites, durée journalière, mois d'émission, contingent) :
+  Paramètres → Décompte des heures, « Forfait annuel en heures » ; hors défaut, la référence de l'accord est exigée.
+  Une fois une clôture enregistrée, changer le début du suivi ou de la période de référence demande une confirmation :
+  les clôtures gardent leurs dates et passent « à revoir », et une plage qui en chevauche une reste bloquée (ses heures
+  ne sont jamais payées deux fois).
 
 ### Déplacements et vigilance
 
@@ -556,6 +583,12 @@ d'un mois clos enregistrée en retard part entière, en rappel.
   dans Paramètres → Forfait jours. JREN est désactivée tant que la paie n'a pas donné son code : les jours sont alors
   listés « À saisir dans Sage » dans le résumé du lot du mois de la signature (ou de décembre, selon le réglage), et
   réglés hors fichier quand ce lot est confirmé. Un avenant enregistré après la génération du lot attend le lot suivant.
+- Heures de la clôture d'un forfait annuel en heures (lot 12) : au-delà du forfait, HFA25 (jusqu'à 8 h par semaine
+  travaillée sous forfait, réglable) et HFA50 ; pour un temps partiel annualisé, HCA10 et HCA25. Une ligne par salarié
+  et par rubrique, au mois de la confirmation par l'administrateur RH (ou au dernier mois de la plage, selon le réglage ;
+  au mois de la sortie avec le solde de sortie). Rubriques désactivées tant que la paie n'a pas donné leurs codes : listées
+  « À saisir dans Sage » dans le résumé du lot ; une version rouverte après l'envoi n'envoie que l'écart (lot correctif).
+  Les heures non réalisées ne partent jamais.
 - Astreintes terminées : heures d'astreinte du mois (AST_H, réparties entre les mois de la période) et périodes (AST_PER,
   au mois de leur début). Rubriques désactivées tant que la paie n'a pas donné leurs codes : listées « À saisir dans Sage »
   dans le résumé du lot et l'export des variables. La compensation (AST_COMP : montant, ou repos) suivra l'accord sur les
@@ -643,6 +676,11 @@ questions encore ouvertes).
   solidarité ») : lundi de Pentecôte chômé et tous les fériés chômés par défaut ; la modalité retenue après avis du CSE
   (Pentecôte ou autre férié de semaine travaillé, fractionnée ou sur un RTT) se règle année par année, sans effet sur les années
   passées. Une année déjà engagée (absences transmises à la paie, congés clôturés) ne se modifie qu'avec un motif.
+- **Forfait annuel en heures** (lot 12) : codes Sage de HFA25, HFA50, HCA10 et HCA25 ; imputation des heures au-delà du
+  forfait sur le contingent et la contrepartie en repos (désactivée en attendant) ; accord sur la période de référence,
+  les majorations et les absences déduites, à référencer dans Paramètres → Décompte des heures. Le forfait 2026 se clôt
+  à la main dans Sage : Cursus suit à partir du 1er janvier 2027 (contrats des non-cadres et des forfaits sous 1 607 h à
+  vérifier).
 
 ### Organisation et reprise
 

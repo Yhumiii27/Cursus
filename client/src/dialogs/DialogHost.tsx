@@ -90,6 +90,7 @@ import { FraisPlafondDialog } from './FraisPlafondDialog.tsx';
 import { FraisBaremeDialog, FraisForfaitDialog, FraisTauxDialog } from './FraisReferentielDialog.tsx';
 import { FraisVehiculeDialog } from './FraisVehiculeDialog.tsx';
 // lot 12 — C1 (forfait annuel en heures)
+import { ClotureForfaitHeuresDialog } from './ClotureForfaitHeuresDialog.tsx';
 // lot 12 — C2 (notes de frais : activation)
 // lot 12 — C3 (entretiens suivis et 360°)
 // lot 12 — C4 (organismes de formation et e-learning)
@@ -200,6 +201,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'fraisForfait': return <FraisForfaitDialog {...d} />;
     case 'fraisBareme': return <FraisBaremeDialog {...d} />;
     // lot 12 — C1 (forfait annuel en heures)
+    case 'clotureForfaitHeures': return <ClotureForfaitHeuresDialog {...d} />;
     // lot 12 — C2 (notes de frais : activation)
     // lot 12 — C3 (entretiens suivis et 360°)
     // lot 12 — C4 (organismes de formation et e-learning)

@@ -44,6 +44,25 @@ export function demoPublique(env: Env = process.env): boolean {
 }
 
 /**
+ * Démonstration commune (server/src/seed-commun.ts) : le référentiel commun des outils (personnes fictives de Keystone,
+ * Codex, Vigie et Crucible, sites et unités de Matrix) est ajouté au premier amorçage de la démonstration et à chaque
+ * réinitialisation, avec CURSUS_DEMO_COMMUN=1 posée en démonstration. Sans elle, la démonstration garde ses 24 salariés
+ * (npm run demo-commun l'ajoute à la demande).
+ */
+export function demoCommunActive(env: Env = process.env): boolean {
+  return demoActive(env) && (env.CURSUS_DEMO_COMMUN ?? '').trim() === '1';
+}
+
+/** CURSUS_DEMO_COMMUN illisible, ou posée hors démonstration : elle resterait sans effet sans que rien ne le dise. */
+export function problemesDemoCommun(env: Env = process.env): string[] {
+  const v = (env.CURSUS_DEMO_COMMUN ?? '').trim();
+  if (!v) return [];
+  if (!['0', '1'].includes(v)) return [`CURSUS_DEMO_COMMUN vaut « ${v} » : indiquez 1 (référentiel commun des outils ajouté à la démonstration) ou 0.`];
+  if (v === '1' && !demoActive(env)) return ['CURSUS_DEMO_COMMUN=1 est définie sans CURSUS_DEMO=1 : elle n’a d’effet qu’en démonstration. Retirez-la.'];
+  return [];
+}
+
+/**
  * Écoute sur la boucle locale posée explicitement (CURSUS_HOST ou HOST), démonstration ou non : application de bureau,
  * essais locaux avec NODE_ENV=production. Même critère que demoSurBoucleLocale, sans exiger la démonstration.
  */
@@ -487,6 +506,8 @@ export function problemesConfig(env: Env = process.env, opts: OptionsConfig = {}
     if (env.CURSUS_TODAY) out.push(`CURSUS_TODAY est définie (${env.CURSUS_TODAY}) : elle fige la date du jour et reste réservée à la démonstration et aux tests.`);
     if (demo && !local && !demoPublique(env)) out.push(`Le mode démonstration (CURSUS_DEMO=1) ouvre l’espace RH sans mot de passe : il n’est admis que sur la boucle locale posée explicitement (CURSUS_HOST=127.0.0.1, application de bureau), ou derrière le reverse proxy avec CURSUS_DEMO_PUBLIQUE=1 (instance de démonstration aux données fictives, accès restreint en amont) ; écoute actuelle : ${hote}.`);
     if (env.CURSUS_DEMO_PUBLIQUE === '1' && !demo) out.push('CURSUS_DEMO_PUBLIQUE=1 est définie sans CURSUS_DEMO=1 : elle n’a d’effet qu’en démonstration. Retirez-la.');
+    // Démonstration commune (server/src/seed-commun.ts).
+    out.push(...problemesDemoCommun(env));
     if (env.CURSUS_INSECURE_COOKIE === '1' && !local) out.push('CURSUS_INSECURE_COOKIE=1 retire l’attribut Secure du cookie de session : réservé à l’application de bureau (démonstration sur la boucle locale).');
   }
   out.push(...problemesOidc(env));
@@ -520,11 +541,11 @@ export function avertissementsConfig(env: Env = process.env, opts: OptionsConfig
   if (opts.reglesDemo === false) return out;
   if (demoActive(env) && cibleBase(env)?.role === 'postgres') {
     out.push('Démonstration (CURSUS_DEMO=1) connectée au serveur PostgreSQL avec le rôle postgres (superutilisateur) : elle a tous les droits sur ce serveur. '
-      + 'Utilisez un rôle propre à la démonstration, ou une application à part en SQLite (docs/BASCULE-PRODUCTION.md) ; refusé hors démonstration.');
+      + 'Utilisez le rôle cursus_app (docs/BASCULE-PRODUCTION.md) ; refusé hors démonstration.');
   }
   if (demoSurBaseCommune(env)) {
     out.push(`Démonstration (CURSUS_DEMO=1) branchée sur la base ${BASE_COMMUNE} du serveur commun : ses salariés fictifs sont publiés aux autres outils par les vues pub_. `
-      + 'Déplacez-la sur une application à part, en SQLite (docs/BASCULE-PRODUCTION.md) ; elle sera refusée au jour de la bascule.');
+      + 'Choix retenu (docs/BASCULE-PRODUCTION.md, Q1) : à la mise en production dans cette même application, purge des données fictives (npm run purge-demo), puis CURSUS_DEMO retirée ; la démonstration y est ensuite refusée.');
   }
   const liaisons = definies(env, ['KEYSTONE_URL', 'MATRIX_URL']);
   if (liaisonsCoupees(env) && liaisons.length) {

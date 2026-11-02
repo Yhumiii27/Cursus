@@ -307,6 +307,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'migration.postgres': 'Reprise : base SQLite copiée sur le serveur PostgreSQL commun',
   // Passage de la démonstration à la production (npm run purge-demo, lot 8) : seule ligne laissée au journal vidé.
   'purge.demo': 'Purge des données de démonstration avant la mise en production',
+  // Démonstration commune (npm run demo-commun, server/src/seed-commun.ts) : décomptes et codes de sites, jamais un nom.
+  'demo.commun': 'Démonstration : référentiel commun des outils ajouté (personnes, équipes, sites, projets)',
   // Contrôle d'intégrité du démarrage (server/src/integrite.ts) : références orphelines, nombres seulement.
   'integrite.orphelins': 'Contrôle d’intégrité : références orphelines dans la base',
   // Pièces justificatives (server/src/pieces.ts) : identifiants, objet, type et taille ; jamais le nom du fichier.

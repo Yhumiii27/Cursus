@@ -40,6 +40,8 @@ import {
   type ApercuPurge, apercuPurge, motConfirmationPurge, type OptionsPurge, planPurge, plusGrandIdEmploye, PurgeRefusee, type RegleTable,
 } from './purge-demo.ts';
 import { dossierSauvegardes, listerSauvegardes, sauvegarderBase } from './sauvegarde.ts';
+// Démonstration commune des outils
+import { lireMarqueurCommun, retirerReferentielCommun } from './seed-commun.ts';
 
 /** Auteur de la ligne `purge.demo` du journal. */
 export const ACTEUR_PURGE = 'Ligne de commande (npm run purge-demo)';
@@ -283,6 +285,8 @@ async function appliquer(db: Db, options: OptionsPurge, attendus: number | null,
   const plusGrand = await plusGrandIdEmploye(db);
   const supprimees: Record<string, number> = {}, ajustees: Record<string, number> = {};
   const compter = (o: Record<string, number>, t: string, n: number) => { if (n) o[t] = (o[t] ?? 0) + n; };
+  // Démonstration commune : ce que l'ajout a créé ou posé, lu avant que l'étape 2 ne retire le réglage `demoCommun`.
+  const marqueurCommun = a.referentielCommun ? await lireMarqueurCommun(db) : null;
 
   // 1. Lignes gardées : références vers les données fictives remises à NULL (avant les suppressions, pour les clés
   //    étrangères) ; comptes gardés rendus externes (les autres partent avec les tables vidées, à l'étape 3) ;
@@ -325,6 +329,14 @@ async function appliquer(db: Db, options: OptionsPurge, attendus: number | null,
       ? await db.run(`DELETE FROM comptes WHERE id NOT IN (${gardes.map(() => '?').join(', ')})`, gardes)
       : await db.run(`DELETE FROM ${snake(t)}`);
     compter(supprimees, snake(t), r.changes);
+  }
+  // 3 bis. Démonstration commune (npm run demo-commun) : équipes, sites et postes créés par l'ajout, site et unité de Matrix
+  //    qu'il a posés sur les équipes gardées et sur l'entité, retirés une fois les fiches parties ; seulement ce que le
+  //    réglage `demoCommun` relève, jamais le paramétrage du service RH (server/src/seed-commun.ts).
+  if (marqueurCommun) {
+    const r = await retirerReferentielCommun(db, marqueurCommun);
+    for (const [t, n] of Object.entries(r.supprimees)) compter(supprimees, t, n);
+    for (const [t, n] of Object.entries(r.ajustees)) compter(ajustees, t, n);
   }
   // 4. Amorçages d'une base neuve, séquence des salariés.
   const amorcages = await reposerAmorcages(db, plan.tables);

@@ -62,7 +62,7 @@ export interface Controle {
 
 const PROCEDURE = 'docs/BASCULE-PRODUCTION.md';
 /** Variables de démonstration et de test, absentes d'une instance de production. */
-export const VARIABLES_DEMO = ['CURSUS_DEMO', 'CURSUS_DEMO_PUBLIQUE', 'CURSUS_DEMO_LIAISONS', 'CURSUS_TODAY', 'CURSUS_INSECURE_COOKIE', 'CURSUS_OIDC_AUTORITE'] as const;
+export const VARIABLES_DEMO = ['CURSUS_DEMO', 'CURSUS_DEMO_PUBLIQUE', 'CURSUS_DEMO_LIAISONS', 'CURSUS_DEMO_COMMUN', 'CURSUS_TODAY', 'CURSUS_INSECURE_COOKIE', 'CURSUS_OIDC_AUTORITE'] as const;
 /** Secrets qui doivent tous différer (jamais affichés : seuls leurs noms le sont). */
 export const SECRETS = ['CURSUS_SECRET', 'KEYSTONE_API_KEY', 'KEYSTONE_TOKEN', 'CURSUS_SUPERVISION_TOKEN', 'MATRIX_TOKEN', 'CURSUS_OIDC_CLIENT_SECRET', 'CURSUS_MAIL_CLIENT_SECRET'] as const;
 /** Paires admises à l'égalité : l'envoi des e-mails peut passer par l'application Entra de la connexion (même secret). */

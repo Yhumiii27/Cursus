@@ -28,6 +28,8 @@ import { dossierMiroir } from './pieces-sauvegarde.ts';
 import { ACTION_REPRISE } from './reprise-postgres.ts';
 import { dossierSauvegardes, listerSauvegardes } from './sauvegarde.ts';
 import { CREE_PAR_DEMO, DOMAINE_DEMO, HABILITATIONS, LOT_DEMO, SALARIES_DEMO } from './seed.ts';
+// Démonstration commune des outils
+import { EQUIPES_COMMUNES, lireMarqueurCommun, REGLAGE_DEMO_COMMUN, SALARIES_COMMUNS, SITES_COMMUNS } from './seed-commun.ts';
 
 export class PurgeRefusee extends Error {}
 
@@ -159,12 +161,16 @@ export async function releverBase(db: Db): Promise<ConstatBase> {
     const comptesReels = await db.one<{ n: number }>(`SELECT COUNT(*) AS n FROM comptes WHERE oid IS NOT NULL AND oid <> '' AND identifiant NOT ${db.like} ?`, [finDomaine]);
     const employes = await db.query<{ id: number; nom: string | null; entree: string | null }>('SELECT id, nom, entree FROM employes ORDER BY id');
     const jeu = new Map(SALARIES_DEMO.map(s => [s.id, s.nom]));
+    // Démonstration commune : fiches 25 à 81 ajoutées par npm run demo-commun (réglage posé), reconnues à leur nom ; une
+    // fiche d'un visiteur sous l'un de ces identifiants reste un ajout.
+    const commun = await db.getSetting<unknown>(REGLAGE_DEMO_COMMUN, null)
+      ? new Map(SALARIES_COMMUNS.map(s => [s.id, s.nom])) : new Map<number, string>();
     const comptes = await db.query<{ cree_par: string | null; creation: string | null }>('SELECT cree_par, creation FROM comptes');
     const domaine = await db.one<{ n: number }>(`SELECT (SELECT COUNT(*) FROM comptes WHERE identifiant ${db.like} ?) + (SELECT COUNT(*) FROM employes WHERE email ${db.like} ?) AS n`, [finDomaine, finDomaine]);
     const lots = await db.query<{ auteur: string | null; historique: unknown; creation: string | null; telecharge_le: string | null }>('SELECT auteur, historique, creation, telecharge_le FROM lots_paie');
     const estLotDemo = (l: (typeof lots)[number]) => l.auteur === LOT_DEMO && !!l.historique;
     // Date d'arrivée d'une fiche ajoutée : sa création ou son import tracés au journal, à défaut inconnue.
-    const ajoutees = employes.filter(e => !jeu.has(e.id));
+    const ajoutees = employes.filter(e => !jeu.has(e.id) && commun.get(Number(e.id)) !== e.nom);
     const creees = new Map<number, string>();
     if (ajoutees.length) {
       const traces = await db.query<{ at: string; salaries: unknown }>(`SELECT at, salaries FROM journal WHERE action = 'employe.creer' OR action ${db.like} 'reprise.%' ORDER BY id`);
@@ -321,6 +327,8 @@ export const REGLAGES_SUPPRIMES_PARAMETRAGE: readonly string[] = [
   'secret', 'lastSagePush', 'journalExpurge', 'messagerie', REGLAGE_DEMO, MODE_VERDICTS,
   'conservationSignales', 'conservationVerifieeLe', 'relancesEcheancesLe', 'recapitulatifLe', 'evaluationsDemandeesLe',
   CLE_DEPUIS, CLE_JUSQUA, CLE_DEPUIS_DEPLACEMENTS,
+  // Démonstration commune : marqueur de l'ajout (server/src/seed-commun.ts).
+  REGLAGE_DEMO_COMMUN,
 ];
 
 /**
@@ -414,6 +422,11 @@ export interface ApercuPurge {
   sequence: { plusGrand: number; prochain: number; matricule: string };
   /** Avertissements qui n'empêchent pas la purge. */
   avertissements: string[];
+  /**
+   * Démonstration commune (npm run demo-commun) : équipes et sites créés par l'ajout (réglage `demoCommun`) et encore
+   * présents, retirés après les fiches (`retirerReferentielCommun`, server/src/seed-commun.ts) ; absent sans ce réglage.
+   */
+  referentielCommun?: { equipes: string[]; sites: string[] };
 }
 
 const TABLE_DE_SNAKE = new Map((Object.keys(TABLES) as TableName[]).map(t => [snake(t), t]));
@@ -517,6 +530,18 @@ export async function apercuPurge(db: Db, options: Pick<OptionsPurge, 'garder' |
     reglages: { supprimes, gardes: cles.filter(k => !supprimes.includes(k)) }, comptesGardes: trouves, signataires: await signatairesFictifs(db, plan),
     copies: copiesAnterieures(db),
     sequence: { plusGrand, prochain, matricule: matricule(prochain) }, avertissements,
+    ...(await db.getSetting<unknown>(REGLAGE_DEMO_COMMUN, null) ? { referentielCommun: await referentielCommunPresent(db) } : {}),
+  };
+}
+
+/** Équipes et sites créés par l'ajout du référentiel commun (réglage `demoCommun`) et présents dans la base (aperçu de la purge). */
+async function referentielCommunPresent(db: Db): Promise<NonNullable<ApercuPurge['referentielCommun']>> {
+  const m = await lireMarqueurCommun(db);
+  const equipes = new Set((await db.query<{ nom: string }>('SELECT nom FROM equipes')).map(q => q.nom));
+  const sites = new Set((await db.query<{ code: string }>('SELECT code FROM sites')).map(s => s.code));
+  return {
+    equipes: EQUIPES_COMMUNES.map(q => q.nom).filter(n => equipes.has(n) && !!m?.equipes.includes(n)),
+    sites: SITES_COMMUNS.map(s => s.code).filter(c => sites.has(c) && !!m?.sites.includes(c)),
   };
 }
 
@@ -551,6 +576,10 @@ export function texteApercu(a: ApercuPurge): string[] {
   if (a.copies.dossier) {
     out.push(`Copies antérieures qui contiennent encore les données fictives (${a.copies.dossier}) : ${a.copies.fichiers.length ? a.copies.fichiers.join(', ') : 'aucune'}`
       + `${a.copies.miroir ? ` ; miroir des pièces ${a.copies.miroir}` : ''}.`);
+  }
+  if (a.referentielCommun) {
+    out.push(`Démonstration commune (npm run demo-commun) : retirées après les fiches, équipes ${a.referentielCommun.equipes.join(', ') || 'aucune'} ; `
+      + `sites ${a.referentielCommun.sites.join(', ') || 'aucun'} ; postes du référentiel commun ; site et unité de Matrix des équipes gardées remis à vide.`);
   }
   out.push(`Salariés supprimés : ${a.salaries}. Prochain salarié : identifiant ${a.sequence.prochain} (${a.sequence.matricule}), plus grand identifiant attribué ${a.sequence.plusGrand}.`);
   out.push(...a.avertissements.map(m => `Attention : ${m}`));

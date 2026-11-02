@@ -242,7 +242,9 @@ test('plan par profil : chaque table a un sort ; données de personnes toujours 
   assert.deepEqual(param.reglagesSupprimes, REGLAGES_SUPPRIMES_PARAMETRAGE);
   assert.deepEqual([...REGLAGES_SUPPRIMES_PARAMETRAGE], ['secret', 'lastSagePush', 'journalExpurge', 'messagerie', 'demo', 'verdictsKeystoneMode',
     'conservationSignales', 'conservationVerifieeLe', 'relancesEcheancesLe', 'recapitulatifLe', 'evaluationsDemandeesLe',
-    'absencesPaieDepuis', 'absencesPaieJusqua', 'deplacementsPaieDepuis']);
+    'absencesPaieDepuis', 'absencesPaieJusqua', 'deplacementsPaieDepuis',
+    // Démonstration commune (server/src/seed-commun.ts) : marqueur de l'ajout du référentiel commun.
+    'demoCommun']);
   const cat = planPurge('catalogue');
   assert.equal(cat.tables.postes.sort, 'supprimer');
   assert.deepEqual([cat.tables.horaires.sort, cat.tables.horaires.amorcee], ['supprimer', true]);

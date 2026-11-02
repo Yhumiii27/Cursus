@@ -14,6 +14,9 @@ import {
 } from './reinitialisation.ts';
 import { SauvegardeError, sauvegarderBase, serveurActif } from './sauvegarde.ts';
 import { seedDemo } from './seed.ts';
+// Démonstration commune des outils
+import { demoCommunActive } from './config.ts';
+import { ajouterReferentielCommun } from './seed-commun.ts';
 
 function refuser(err: unknown): never {
   const message = err instanceof Error ? err.message : String(err);
@@ -81,4 +84,6 @@ if (existait) {
   }
 }
 await seedDemo(db);
+// Démonstration commune (CURSUS_DEMO_COMMUN=1) : référentiel commun des outils ajouté (server/src/seed-commun.ts).
+if (demoCommunActive()) await ajouterReferentielCommun(db);
 console.log(`Données de démonstration rechargées (${await db.count('employes')} collaborateurs).`);

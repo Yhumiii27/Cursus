@@ -279,6 +279,28 @@ const TIRAGES_OPCO: Record<string, Tirage> = {
   'opco.supprimer': ({ r, ds }) => ({ id: dossierOpcoDans(ds, r, 'a_deposer', 'abandonne')?.id ?? r.entre(1, 20), motif: 'Doublon (banc d’oracle)' }),
 };
 
+// lot 12 — C3 (entretiens suivis et 360°)
+/**
+ * Tirages du feedback 360° (étape 3) : sollicitations de trois salariés au plus sur un entretien annuel planifié, réponse
+ * ou refus d'une sollicitation envoyée (par son répondant quand il est l'acteur), relance et clôture d'une collecte
+ * ouverte. Hors des cibles (`TIRAGES`), comme le badgeage, et hors du tirage générique (`noms` de `rejouer`) : tirés
+ * seulement par le test du chantier (tests/feedback360.test.ts, `seulement`), module activé ; les suites des autres
+ * chantiers gardent leurs tirages.
+ */
+const TIRAGES_FEEDBACK360: Record<string, Tirage> = {
+  'feedback360.solliciter': ({ r, ds }) => {
+    const x = parmi(r, ds.entretiens.filter(y => y.type === 'annuel' && y.statut === 'planifie'));
+    return { entretienId: x?.id ?? r.entre(1, 50), repondantIds: [0, 1, 2].map(() => r.choix(ds.employes.filter(e => e.id !== x?.empId)).id) };
+  },
+  'feedback360.repondre': ({ r, ds, user }) => {
+    const s = parmi(r, (ds.feedbackSollicitations ?? []).filter(y => y.statut === 'envoyee' && (y.repondantEmpId === user.empId || r.si(0.3))));
+    return { id: s?.id ?? r.entre(1, 20), notes: { cooperation: r.entre(1, 4), fiabilite: r.entre(1, 4) }, verbatim: r.si(0.3) ? `Avis ${r.entre(1, 99)}` : '' };
+  },
+  'feedback360.decliner': ({ r, ds, user }) => ({ id: id(r, ds.feedbackSollicitations, y => y.repondantEmpId === user.empId) }),
+  'feedback360.relancer': ({ r, ds }) => ({ entretienId: id(r, ds.entretiens, y => (ds.feedbackSollicitations ?? []).some(s => s.entretienId === y.id)) }),
+  'feedback360.clore': ({ r, ds }) => ({ entretienId: id(r, ds.entretiens, y => (ds.feedbackSollicitations ?? []).some(s => s.entretienId === y.id)) }),
+};
+
 // lot 12 — C6 (badgeage virtuel)
 /**
  * Tirages des actions du badgeage (lot 12, chantier C6) : pointage pour soi (refusé tant que le module est inactif),
@@ -536,7 +558,9 @@ export async function rejouer(db: Db, o: OptionsOracle): Promise<RapportOracle> 
   const r = aleatoire(o.graine);
   const banc = await ouvrirBanc(db);
   const rapport: RapportOracle = { actions: {}, sql: {}, motifs: {}, ecritures: 0, comparaisons: 0, triviales: 0, verifications: 0, divergences: [], erreurs: [] };
-  const noms = Object.keys(ACTIONS).filter(n => !EXCLUES.has(n));
+  // lot 12 — C3 : les actions du feedback 360° sortent aussi du tirage générique (module désactivé par défaut, tirées par leur
+  // seul test, `seulement`) : sans quoi elles déplaceraient les tirages des graines des autres chantiers.
+  const noms = Object.keys(ACTIONS).filter(n => !EXCLUES.has(n) && !n.startsWith('feedback360.'));
   // Saisie et absences plus souvent que le reste, comme dans la journée de travail.
   const cibles = [
     ...Object.keys(TIRAGES), ...Array<string>(5).fill('temps.setCell'), 'temps.addLine', 'temps.submit', 'temps.submit', 'temps.validate', 'temps.validate',
@@ -616,7 +640,7 @@ export async function rejouer(db: Db, o: OptionsOracle): Promise<RapportOracle> 
       validables,
       soumises: rr => { const f = parmi(rr, ds.feuilles.filter(y => y.statut === 'soumise' && validables.has(y.empId))); return f && { empId: f.empId, week: f.week }; },
     };
-    const p = (TIRAGES[nom] ?? TIRAGES_OPCO[nom] ?? /* lot 12 — C6 */ TIRAGES_POINTAGE[nom] ?? ((y: Parameters<Tirage>[0]) => tirageGenerique(nom, y)))(x);
+    const p = (TIRAGES[nom] ?? TIRAGES_OPCO[nom] ?? /* lot 12 — C6 */ TIRAGES_POINTAGE[nom] ?? /* lot 12 — C3 */ TIRAGES_FEEDBACK360[nom] ?? ((y: Parameters<Tirage>[0]) => tirageGenerique(nom, y)))(x);
     // Jeu remis à l'action : celui que sa transaction lirait (aucune autre écriture ne s'intercale ici).
     // Entrée d'une révision dépassée (vérification sautée au pas précédent, `verifierTous` > 1) : l'action lit tout
     // directement, la comparaison est triviale et comptée à part.

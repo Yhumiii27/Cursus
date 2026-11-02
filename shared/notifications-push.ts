@@ -42,7 +42,9 @@ export const NOTIFICATIONS_PUSH: Readonly<Record<string, ModeleNotificationPush>
   'push.essai': { titre: 'Notifications de Cursus', corps: 'Les notifications fonctionnent sur cet appareil.' },
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)
-  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C3 (entretiens suivis et 360°) : feedback 360°, au répondant ; texte générique, jamais le nom de l'évalué.
+  'feedback360.demande': { titre: 'Avis demandé', corps: 'Un avis vous est demandé.', vue: 'avis' },
+  'feedback360.relance': { titre: 'Avis demandé', corps: 'Un avis vous est toujours demandé.', vue: 'avis' },
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe) : publication et modification du planning (jamais le point de départ du délai de
   // prévenance : la plage de silence peut retarder la notification), étapes d'un échange de poste.

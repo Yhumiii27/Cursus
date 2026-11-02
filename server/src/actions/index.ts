@@ -67,6 +67,7 @@ import { forfaitHeuresActions } from './forfait-heures.ts';
 // lot 12 — C3 (entretiens suivis et 360°)
 import { objectifsActions } from './objectifs.ts';
 import { souhaitsActions } from './souhaits.ts';
+import { feedback360Actions } from './feedback360.ts';
 // lot 12 — C4 (organismes de formation et e-learning)
 import { organismesActions } from './organismes.ts';
 import { elearningActions } from './elearning.ts';
@@ -151,6 +152,7 @@ const REGISTRE = {
   // lot 12 — C3 (entretiens suivis et 360°)
   ...objectifsActions,
   ...souhaitsActions,
+  ...feedback360Actions,
   // lot 12 — C4 (organismes de formation et e-learning)
   ...organismesActions,
   ...elearningActions,

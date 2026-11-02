@@ -299,6 +299,10 @@ export type DialogState =
   | { type: 'objectifAvancer'; id: number; retour?: number }
   | { type: 'objectifEvaluer'; id: number; entretienId: number; retour?: number }
   | { type: 'souhait'; entretienId: number; cle?: string }
+  // Feedback 360° (étape 3) : répondants proposés (salarié) ou sollicités (évaluateur) ; avis du répondant (jamais gardé
+  // sur l'appareil : state/brouillon.ts).
+  | { type: 'feedback360Solliciter'; entretienId: number; retour?: number }
+  | { type: 'avis360'; id: number }
   // lot 12 — C4 (organismes de formation et e-learning) : fiche (identité et Qualiopi), conditions commerciales, contact,
   // tarif, fusion d'un doublon ; module d'e-learning, inscription, fin validée, correction, import d'avancement.
   | { type: 'organisme'; id?: number | null }
@@ -643,6 +647,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // lot 12 — C2 (notes de frais : activation)
     // lot 12 — C3 (entretiens suivis et 360°) : « Mes objectifs », objectifs non suivis (réglage objectifsActifs).
     || (rawView === 'objectifs' && !!data && !data.settings.objectifsActifs)
+    // Feedback 360° (étape 3) : « Avis demandés », module désactivé (réglage feedback360Actif).
+    || (rawView === 'avis' && !!data && !data.settings.feedback360Actif)
     // lot 12 — C4 (organismes de formation et e-learning)
     // lot 12 — C5 (planning d'équipe) : « Mon planning », module désactivé (réglage planningActif).
     || (rawView === 'planning' && !!data && !data.settings.planningActif)

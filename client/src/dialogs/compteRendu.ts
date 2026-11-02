@@ -9,7 +9,7 @@ import { texteRemise } from '../../../shared/rules/remise.ts';
 import type { Entretien } from '../../../shared/types.ts';
 import { matriculesImprimes, printDocument, type PrintSection } from '../print.ts';
 // lot 12 — C3 (entretiens suivis) : objectifs et souhaits de formation imprimés après les sections rédigées.
-import { sectionsSuivi } from './compteRendu-suivi.ts';
+import { annexeFeedback360, sectionsSuivi } from './compteRendu-suivi.ts';
 import { objectifsDuCompteRendu, TYPES_FIXATION } from '../../../shared/rules/objectifs.ts';
 
 export const FIN_CARRIERE: EntSection = ['fincarriere', 'Fin de carrière : maintien dans l’emploi, aménagements souhaités', 'sal'];
@@ -55,6 +55,8 @@ export function imprimerCompteRendu(d: Domain, x: Entretien): boolean {
       ['Salarié', x.signSal ? `${e.nom} — signé le ${fmtIso(x.signSal)}` : 'Non signé par le salarié'],
       ...(remise ? [['Remise de la copie', remise] as [string, string]] : []),
     ] },
+    // lot 12 — C3 (feedback 360°, étape 3) : synthèse jointe, en annexe distincte.
+    ...annexeFeedback360(x),
   ];
   return printDocument(`${T0.nom} — compte rendu`, `${e.nom} · ${e.poste} · ${fmtIso(x.date)}${x.signSal ? '' : ' · non signé par le salarié'}`, doc, e.id, matriculesImprimes(e));
 }

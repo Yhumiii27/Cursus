@@ -54,6 +54,8 @@ const PAGES: Record<View, ComponentType> = {
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°) : « Mes objectifs » (espace collaborateur).
   objectifs: aLaDemande(() => import('./pages/MesObjectifs.tsx'), 'MesObjectifs'),
+  // « Avis demandés » : avis 360° à donner comme répondant (espaces manager et collaborateur), module activé.
+  avis: aLaDemande(() => import('./pages/AvisDemandes.tsx'), 'AvisDemandes'),
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe) : « Mon planning » du collaborateur (le planning de l'équipe est un onglet de Temps).
   planning: aLaDemande(() => import('./pages/MonPlanning.tsx'), 'MonPlanning'),

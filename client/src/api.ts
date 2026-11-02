@@ -12,6 +12,10 @@ import type { AppareilPush } from '../../server/src/push.ts';
 export type { AppareilPush, NomAction };
 // lot 12 — C6 (badgeage virtuel) : réponses des lectures de pointages (types seulement, server/src/pointages.ts).
 import type { EtatPointages, LecturePointages, PresencesPointages } from '../../server/src/pointages.ts';
+// lot 12 — C3 (feedback 360°)
+import type { ContenuReponse360 } from '../../shared/rules/feedback360.ts';
+/** Commentaire d'une réponse 360° versée, à relire par le service RH (GET /api/feedback360/moderation). */
+export interface Commentaire360 { id: string; entretienId: number; empId: number; verbatim: string; statut: 'a_moderer' | 'retenu' | 'retire' | null }
 export type { EtatPointages, LecturePointages, PresencesPointages };
 
 /** Compte proposé à la connexion de démonstration (`id` : identifiant du compte). */
@@ -284,6 +288,11 @@ export const api = {
     if (cible) q.set('cible', cible);
     return request<EnvoisState>('GET', `/api/envois${q.size ? `?${q}` : ''}`);
   },
+  // lot 12 — C3 (feedback 360°, server/src/feedback360.ts) : jamais dans l'instantané ni en cache.
+  /** Commentaires des réponses versées à relire avant leur restitution (service RH), sans relation ni notes. */
+  moderation360: () => request<{ commentaires: Commentaire360[] }>('GET', '/api/feedback360/moderation', undefined, espaceOnglet),
+  /** Réponse en attente du versement, relue par son auteur tant que la collecte est ouverte (null : rien d'enregistré). */
+  reponse360: (sollicitationId: number) => request<{ reponse: ContenuReponse360 | null }>('GET', `/api/feedback360/reponse/${sollicitationId}`, undefined, espaceOnglet),
   // lot 12 — C6 (badgeage virtuel) : pointages lus à la demande, jamais dans l'instantané (server/src/pointages.ts).
   /** Pointages bruts, postes, anomalies et théorique de chaque jour d'un salarié (6 semaines au plus). */
   pointages: (empId: number, du: string, au: string) => request<LecturePointages>('GET', `/api/pointages?empId=${empId}&du=${du}&au=${au}`, undefined, espaceOnglet),

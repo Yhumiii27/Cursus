@@ -380,6 +380,16 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'objectif.evaluer': 'Objectif évalué',
   'entretien.souhait': 'Souhait de formation exprimé à l’entretien',
   'entretien.avisSouhait': 'Avis du manager sur un souhait de formation',
+  // Feedback 360° (étape 3, server/src/actions/feedback360.ts) : jamais le nom d'un répondant, ni une réponse ; la réponse
+  // et le refus d'un répondant ne sont pas tracés (la sollicitation en tient lieu).
+  'feedback360.solliciter': 'Feedback 360° : répondants proposés ou sollicités',
+  'feedback360.retirer': 'Feedback 360° : proposition de répondant retirée',
+  'feedback360.relancer': 'Feedback 360° : répondants relancés',
+  'feedback360.repondre': 'Feedback 360° : avis donné',
+  'feedback360.decliner': 'Feedback 360° : sollicitation déclinée',
+  'feedback360.clore': 'Feedback 360° : collecte close, réponses versées',
+  'feedback360.moderer': 'Feedback 360° : commentaire relu par le service RH',
+  'feedback360.purge': 'Feedback 360° : réponses brutes supprimées (conservation)',
   // lot 12 — C4 (organismes de formation et e-learning) : famille « Référentiels » pour organisme.*, « Formations, plan et
   // budget » pour elearning.*.
   'organisme.enregistrer': 'Organisme de formation enregistré',
@@ -621,7 +631,9 @@ export const CHAMP_LABEL: Record<string, string> = {
   // lot 12 — C3 (entretiens suivis et 360°)
   objectifsActifs: 'Objectifs suivis aux entretiens annuels', objectifsFacultatifs: 'Objectifs facultatifs (clôture sans évaluation exigée)',
   objectifsMax: 'Objectifs au plus par entretien', pointMiAnneeActif: 'Point de mi-année obligatoire', pointMiAnneeDebut: 'Point de mi-année : début',
-  pointMiAnneeFin: 'Point de mi-année : fin', avancement: 'Avancement (%)', poids: 'Poids (%)', echeance: 'Échéance', ajusteLe: 'Ajusté le',
+  pointMiAnneeFin: 'Point de mi-année : fin', feedback360Actif: 'Feedback 360° activé', feedback360Cse: 'Feedback 360° : référence de l’avis du CSE',
+  feedback360Aipd: 'Feedback 360° : référence de l’AIPD', feedback360Seuil: 'Feedback 360° : seuil de restitution', feedback360FenetreJours: 'Feedback 360° : fenêtre de réponse (jours)',
+  feedback360ConservationMois: 'Feedback 360° : conservation des réponses (mois)', avancement: 'Avancement (%)', poids: 'Poids (%)', echeance: 'Échéance', ajusteLe: 'Ajusté le',
   evalueEntretienId: 'Évalué à l’entretien', mesure: 'Mesure',
   // lot 12 — C4 (organismes de formation et e-learning) : réglages, colonnes d'une fiche, d'un tarif, d'un module et d'une
   // inscription (jamais un nom, une URL, un avancement ni un motif).

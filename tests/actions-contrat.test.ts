@@ -22,7 +22,8 @@ function sources(dossier: string): string[] {
  * Noms d'action écrits en toutes lettres dans le client : `run('…')`, `api.action('…')`, les enveloppes des écrans
  * (`agir('…')`, `act('…')`, `agir(c, '…')` des comptes) et les confirmations (`action: '…'`).
  */
-const APPEL = /\b(?:run|action|agir|act)\(\s*(?:\w+,\s*)?'([a-zA-Z]+\.[a-zA-Z.]+)'|\baction:\s*'([a-zA-Z]+\.[a-zA-Z.]+)'/g;
+// lot 12 — C3 : famille `feedback360.` (chiffres admis dans le nom de la famille, après sa première lettre).
+const APPEL = /\b(?:run|action|agir|act)\(\s*(?:\w+,\s*)?'([a-zA-Z][a-zA-Z0-9]*\.[a-zA-Z.]+)'|\baction:\s*'([a-zA-Z][a-zA-Z0-9]*\.[a-zA-Z.]+)'/g;
 function nomsAppeles() {
   const noms = new Map<string, string>();
   for (const f of sources(CLIENT)) {
@@ -61,7 +62,7 @@ test('le registre garde les noms de chaque famille : NomAction couvre toutes les
   assert.ok(Object.hasOwn(ACTIONS, vrai));
   // Chaque nom est une chaîne « famille.action » et chaque entrée une fonction.
   for (const [n, h] of Object.entries(ACTIONS)) {
-    assert.match(n, /^[a-zA-Z]+(\.[a-zA-Z]+)+$/, n);
+    assert.match(n, /^[a-zA-Z][a-zA-Z0-9]*(\.[a-zA-Z]+)+$/, n);
     assert.equal(typeof h, 'function', n);
   }
 });

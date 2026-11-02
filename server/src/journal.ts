@@ -422,6 +422,17 @@ const REGLES_ENTRETIENS_SUIVIS: Record<string, Regle> = {
   'entretien.avisSouhait': {
     champs: ['id'], salaries: async (p, x) => await salarieEntretien(x.db, p.id), extra: p => ({ cle: cleSouhait(p.cle), avis: codeDans(p.avis, ['favorable', 'defavorable', 'a_discuter']) }),
   },
+  // Feedback 360° (étape 3, server/src/actions/feedback360.ts) : entretien et nombres (par relation), jamais un répondant
+  // (ni son nom, ni son identifiant, ni sa sollicitation) ; seul l'évalué est rattaché à la ligne. La réponse et le refus
+  // d'un répondant ne sont pas tracés : la sollicitation en tient lieu, sans heure de réponse au journal.
+  'feedback360.solliciter': { champs: ['entretienId'], bilan: (_p, x) => garder(resultat(x), ['proposees', 'envoyees', 'parRelation']), salaries: (_p, x) => [resultat(x).empId] },
+  'feedback360.retirer': { bilan: (_p, x) => garder(resultat(x), ['entretienId']), salaries: (_p, x) => [resultat(x).empId] },
+  'feedback360.relancer': { champs: ['entretienId'], bilan: (_p, x) => garder(resultat(x), ['relances']), salaries: (_p, x) => [resultat(x).empId] },
+  'feedback360.repondre': { tracer: () => false },
+  'feedback360.decliner': { tracer: () => false },
+  'feedback360.clore': { champs: ['entretienId'], bilan: (_p, x) => garder(resultat(x), ['envoyees', 'reponses', 'versees']), salaries: (_p, x) => [resultat(x).empId] },
+  // Relecture d'un commentaire : entretien et décision (code), jamais le commentaire ni l'identifiant de la réponse.
+  'feedback360.moderer': { bilan: (_p, x) => garder(resultat(x), ['entretienId', 'decision']), salaries: (_p, x) => [resultat(x).empId] },
 };
 /** Versement des souhaits à la clôture d'un entretien : demandes créées (identifiants), souhaits écartés (nombre). */
 const bilanVersement = (result: unknown): Ligne => {
@@ -978,7 +989,8 @@ export const REGLES: Record<string, Regle> = {
   'parametres.maj': {
     cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche', 'nuitAccord', 'forfaitJoursAccord', 'fractionnementAccord', 'conservationDecisionDpo', 'astreinteAccord',
       /* lot 12 — C1 */ 'forfaitHeuresAccord', /* lot 12 — C5 */ 'planningAccord',
-      /* lot 12 — C6 (badgeage virtuel) */ 'pointageAccord'] },
+      /* lot 12 — C6 (badgeage virtuel) */ 'pointageAccord',
+      /* lot 12 — C3 (feedback 360°) */ 'feedback360Cse', 'feedback360Aipd'] },
   },
   // Jours fériés d'une année (lot 6) : année, réglage avant et après ; le motif d'une année engagée (texte libre) n'est
   // jamais recopié, seulement le fait qu'il soit renseigné. Salariés dont une absence est recalculée (résultat).

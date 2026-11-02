@@ -102,6 +102,28 @@ const souhaitEssai = async () => {
   await db.update('entretiens', id, { souhaits: [{ cle: 's1', f: 'sst', libelle: null, priorite: 'normale', objectifId: null, auteur: 'sal', avis: null, demandeId: null, verseLe: null, nonVerse: null }] });
   return id;
 };
+/** Feedback 360° activé (références de l'avis du CSE et de l'AIPD), dans la transaction annulée de la ligne. */
+const actif360 = async () => {
+  await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), feedback360Actif: true, feedback360Cse: 'Avis du CSE du 12 mars 2027', feedback360Aipd: 'AIPD-2027-02' });
+};
+/**
+ * Collecte 360° de l'entretien annuel planifié de Mehdi : Thomas Garnier (autre collaborateur), Sophie Lemaire et Julien
+ * Moreau sollicités (`statut`), fenêtre jusqu'au 28 octobre ; une réponse versée avec un commentaire à relire. Rend
+ * l'entretien, la sollicitation de Thomas et la réponse.
+ */
+const collecte360 = async (statut = 'envoyee') => {
+  await actif360();
+  const entretienId = await ENTRETIEN();
+  const ids: number[] = [];
+  for (const r of [6, 3, 8]) {
+    ids.push((await db.insert<{ id: number }>('feedbackSollicitations', {
+      empId: 2, entretienId, repondantEmpId: r, relation: 'pair', statut, proposeeLe: null, proposeePar: 'Karim Haddad',
+      envoyeeLe: statut === 'proposee' ? null : '2026-10-07T08:00:00.000Z', echeance: statut === 'proposee' ? null : '2026-10-28', relanceeLe: null, closeLe: null,
+    })).id);
+  }
+  await db.insert('feedbackReponses', { id: 'a1b2c3d4e5f6a1b2c3d4e5f6', empId: 2, entretienId, relation: 'pair', versionQuestionnaire: '2027-1', notes: { cooperation: 3 }, verbatim: 'Toujours disponible pour aider', verbatimStatut: 'a_moderer' });
+  return { entretienId, thomas: ids[0], reponse: 'a1b2c3d4e5f6a1b2c3d4e5f6' };
+};
 
 /** Absence de Mehdi le 15 décembre, dans l'état voulu (signalée par son manager, ou validée). */
 const absence = async (statut: string, type: string) => (await db.insert<{ id: number }>('absences', {
@@ -610,6 +632,16 @@ const MATRICE: Ligne[] = [
   { action: 'objectif.evaluer', droits: '                   O    O    O    -    -    -    -    -    -', p: async () => ({ id: await objectifEssai('ouvert', await annuelClos()), entretienId: await ENTRETIEN(), statut: 'atteint' }) },
   { action: 'entretien.souhait', droits: '                  O    O    O    -    O    -    -    -    -', p: async () => ({ id: await ENTRETIEN(), f: 'sst', priorite: 'normale' }) },
   { action: 'entretien.avisSouhait', droits: '              O    O    O    -    -    -    -    -    -', p: async () => ({ id: await souhaitEssai(), cle: 's1', avis: 'favorable' }) },
+  // lot 12 — C3 (feedback 360°, étape 3), module activé : le salarié propose des répondants, l'évaluateur (manager direct,
+  // service RH) les sollicite, relance et clôt la collecte ; seul le répondant sollicité répond ou décline (Thomas Garnier,
+  // « autC ») ; le service RH relit les commentaires. Jamais un autre manager ni un profil restreint.
+  { action: 'feedback360.solliciter', droits: '             O    O    O    -    O    -    -    -    -', p: async () => { await actif360(); return { entretienId: await ENTRETIEN(), repondantIds: [6, 3, 8] }; } },
+  { action: 'feedback360.retirer', droits: '                O    O    O    -    O    -    -    -    -', p: async () => ({ id: (await collecte360('proposee')).thomas }) },
+  { action: 'feedback360.relancer', droits: '               O    O    O    -    -    -    -    -    -', p: async () => ({ entretienId: (await collecte360()).entretienId }) },
+  { action: 'feedback360.repondre', droits: '               -    -    -    -    -    O    -    -    -', p: async () => ({ id: (await collecte360()).thomas, notes: { cooperation: 4, fiabilite: 3 }, verbatim: '' }) },
+  { action: 'feedback360.decliner', droits: '               -    -    -    -    -    O    -    -    -', p: async () => ({ id: (await collecte360()).thomas }) },
+  { action: 'feedback360.clore', droits: '                  O    O    O    -    -    -    -    -    -', p: async () => ({ entretienId: (await collecte360()).entretienId }) },
+  { action: 'feedback360.moderer', droits: '                O    O    -    -    -    -    -    -    -', p: async () => ({ id: (await collecte360()).reponse, decision: 'retenu' }) },
   // Administration : administrateur RH.
   { action: 'parametres.maj', droits: '                      O    -    -    -    -    -    -    -    -', p: async () => ({ horizonAlerte: 60 }) },
   { action: 'demo.reinitialiser', droits: '                  O    -    -    -    -    -    -    -    -', p: async () => ({}) },

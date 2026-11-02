@@ -295,6 +295,8 @@ export const EMAIL_LABEL: Record<string, string> = {
   // au salarié, efficacité à froid demandée au manager pour son équipe ; demandes puis relances, sans note ni commentaire.
   'evaluation.demande': 'Évaluation d’une formation à donner',
   'evaluation.manager': 'Efficacité des formations de l’équipe à évaluer',
+  // lot 12 — C3 (feedback 360°, server/src/feedback360.ts) : au répondant, texte générique (ni l'évalué ni les autres répondants).
+  'feedback360.demande': 'Avis demandé (feedback 360°)', 'feedback360.relance': 'Rappel : avis demandé (feedback 360°)',
   // lot 12 — C5 (planning d'équipe, server/src/planning-envois.ts) : au salarié, aussitôt ; étapes d'un échange de poste.
   'planning.publie': 'Planning publié', 'planning.modifie': 'Planning modifié', 'planning.annule': 'Poste annulé',
   'planning.echange.demande': 'Échange de poste à traiter', 'planning.echange.valider': 'Échange de poste à valider',
@@ -614,7 +616,9 @@ export const ALLOWED_VIEWS = {
   manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions', 'organigramme', 'frais',
     // lot 12 — C1 (forfait annuel en heures)
     // lot 12 — C2 (notes de frais : activation)
-    // lot 12 — C3 (entretiens suivis et 360°)
+    // lot 12 — C3 (entretiens suivis et 360°) : « Avis demandés » (pages/AvisDemandes.tsx) d'un manager sollicité comme
+    // répondant d'un feedback 360° (N+2, collègue), le module activé (réglage feedback360Actif).
+    'avis',
     // lot 12 — C4 (organismes de formation et e-learning)
     // lot 12 — C5 (planning d'équipe) : « Mon planning » d'un manager lui-même planifié (membre d'une équipe en cycle) : ses
     // postes publiés, les échanges qu'on lui propose.
@@ -625,8 +629,9 @@ export const ALLOWED_VIEWS = {
   collaborateur: ['portail', 'temps', 'absences', 'entretiens', 'organigramme', 'frais',
     // lot 12 — C1 (forfait annuel en heures)
     // lot 12 — C2 (notes de frais : activation)
-    // lot 12 — C3 (entretiens suivis et 360°) : « Mes objectifs » (pages/MesObjectifs.tsx), le réglage objectifsActifs ouvert.
-    'objectifs',
+    // lot 12 — C3 (entretiens suivis et 360°) : « Mes objectifs » (pages/MesObjectifs.tsx), le réglage objectifsActifs ouvert ;
+    // « Avis demandés » (pages/AvisDemandes.tsx), avis 360° à donner comme répondant, le module activé (feedback360Actif).
+    'objectifs', 'avis',
     // lot 12 — C4 (organismes de formation et e-learning)
     // lot 12 — C5 (planning d'équipe) : « Mon planning » (pages/MonPlanning.tsx), le module activé (réglage planningActif).
     'planning',

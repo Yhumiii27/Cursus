@@ -98,6 +98,8 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // lot 12 — C3 (entretiens suivis) : objectifs actifs, facultatifs la première année, 8 au plus ; point de mi-année
     // facultatif (fenêtre du 1er mai au 15 juillet quand il est rendu obligatoire).
     objectifsActifs: true, objectifsFacultatifs: true, objectifsMax: 8, pointMiAnneeActif: false, pointMiAnneeDebut: '05-01', pointMiAnneeFin: '07-15',
+    // lot 12 — C3 (feedback 360°, étape 3) : désactivé, références de l'avis du CSE et de l'AIPD vides, seuil 3, 21 jours, 6 mois.
+    feedback360Actif: false, feedback360Cse: '', feedback360Aipd: '', feedback360Seuil: 3, feedback360FenetreJours: 21, feedback360ConservationMois: 6,
     // Lot 11, chantier C5 : notes de frais désactivées, validation du manager puis contrôle, délai de 3 mois, aucun plafond
     // interne, justificatif toujours exigé, puissance plafonnée à 7 CV, notes payées gardées 10 ans.
     notesFraisActives: false, fraisCircuit: 'manager_controle', fraisDelaiSoumissionMois: 3, fraisPlafonds: {}, fraisSeuilJustificatif: 0, fraisIkCvReels: false,

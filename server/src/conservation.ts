@@ -19,6 +19,8 @@ import { snake, type SqlValeur, TABLES, type Db, type TableName } from './db.ts'
 import { log } from './logs.ts';
 import { lireMessagerie } from './messagerie.ts';
 import { nettoyerBientot } from './pieces.ts';
+// lot 12 — C3 (entretiens suivis et 360°)
+import { tacheFeedback360 } from './feedback360.ts';
 // lot 12 — C6 (badgeage virtuel)
 import { purgerPointages } from './pointages.ts';
 
@@ -529,6 +531,8 @@ export async function demarrerConservation(db: Db): Promise<() => void> {
     try { await verifierConservation(db); } catch (err) { log.erreur(`Conservation des dossiers : ${err instanceof Error ? err.message : err}`); }
     // lot 12 — C6 (badgeage virtuel) : pointages bruts au-delà de leur durée de conservation.
     try { await purgerPointages(db); } catch (err) { log.erreur(`Conservation des pointages : ${err instanceof Error ? err.message : err}`); }
+    // lot 12 — C3 (feedback 360°) : fenêtres échues closes, relances avant l'échéance, réponses brutes au-delà de 6 mois.
+    try { await tacheFeedback360(db); } catch (err) { log.erreur(`Feedback 360° : ${err instanceof Error ? err.message : err}`); }
   };
   await passer();
   const t = setInterval(async () => await passer(), 3600_000);

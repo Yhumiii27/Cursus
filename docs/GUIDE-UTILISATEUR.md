@@ -129,6 +129,12 @@ déduites, environ 7 h par jour ouvré d'absence hors congés payés), projectio
 - Entretien annuel prévu : « Proposer un objectif » ; votre évaluateur le valide ou le reformule avant la clôture. Dans le compte rendu, « Ajouter un souhait » de formation : avec l'avis favorable de votre manager, il devient à la clôture une demande au service RH, dont vous suivez la réponse.
 - Un objectif décrit un résultat de travail : jamais de donnée de santé. L'entretien de parcours professionnel ne porte pas d'objectif (il ne sert pas à évaluer le travail).
 
+### Avis demandés (feedback 360°, si l'entreprise l'a activé)
+
+- Votre entretien annuel : dans le compte rendu, « Proposer des répondants » (collègues, N+2, collaborateurs encadrés) ; votre évaluateur les sollicite. Vous voyez combien ont répondu, jamais qui.
+- Un collègue vous demande un avis : menu « Avis demandés », « Donner mon avis » (une note de 1 à 4 par question, ou « Je ne peux pas me prononcer », et un commentaire facultatif), modifiable avec « Modifier mon avis » jusqu'à l'échéance ; « Décliner » si vous ne souhaitez pas répondre.
+- Votre avis est confidentiel : gardé chiffré jusqu'à la fin de la collecte, versé avec les autres sans votre nom, restitué seulement en moyenne à partir de 3 réponses ; votre commentaire est relu par le service RH avant d'être restitué. Il ne se donne pas hors ligne.
+
 ### Organigramme
 
 - Menu « Organigramme » : sociétés, établissements, équipes et leurs membres présents ce jour, avec le manager de chaque
@@ -262,6 +268,7 @@ Les feuilles validées partent à la paie avec le lot du mois : le manager n'a r
 - Entretien annuel : « Fixer un objectif » (mesure, échéance, poids facultatif), valider ou reformuler ceux proposés par le salarié ; les objectifs de l'année passée s'évaluent (« Évaluer » : atteint, partiellement, non atteint, sans objet, reconduit).
 - Souhaits de formation : donnez votre avis sur chacun dans le compte rendu ; à la clôture, seuls les souhaits à avis favorable deviennent une demande au service RH. Onglet « Objectifs » : les objectifs de l'équipe, ce qui reste à arbitrer avant la clôture, et « Ajuster » en cours d'année avec un motif.
 - Onglet « Points de suivi » : « Planifier un point » de mi-année ou de suivi, facultatif sauf réglage du service RH ; il porte l'avancement des objectifs, pas leur évaluation.
+- Feedback 360° (si activé) : dans le compte rendu d'un entretien annuel ou de mi-année, « Solliciter des répondants » (3 au moins, 8 au plus, dont ceux proposés par le salarié), « Relancer » ceux qui n'ont rien fait sans savoir qui, puis « Clore la collecte » avant l'entretien : la synthèse s'y joint. Vous ne voyez jamais qui a répondu ni ce qu'une personne a répondu.
 
 ### Évaluer les formations de l'équipe
 
@@ -639,7 +646,9 @@ pièces et échéances, sans export comptable ni connexion au portail de l'OPCO 
 ### Entretiens suivis
 
 - Paramètres → Objectifs et points de suivi (administrateur RH) : objectifs suivis ou non, « Objectifs facultatifs (première année) » (la clôture n'exige pas l'évaluation), nombre au plus par entretien, point de mi-année obligatoire et sa fenêtre.
-- Les demandes de formation nées d'un entretien portent le badge « Entretien » (tableau de bord, fiche) ; acceptées, la ligne du plan porte l'origine « issue d'un entretien ». Le feedback 360° reste désactivé jusqu'à l'avis du CSE et l'analyse d'impact.
+- Les demandes de formation nées d'un entretien portent le badge « Entretien » (tableau de bord, fiche) ; acceptées, la ligne du plan porte l'origine « issue d'un entretien ».
+- Feedback 360° : désactivé jusqu'à l'avis du CSE et l'analyse d'impact (AIPD) ; l'administrateur RH saisit leurs références dans Paramètres → Objectifs et points de suivi, puis l'active (seuil de restitution, fenêtre de réponse, conservation des réponses).
+- Entretiens, onglet « Feedback 360° » : relisez chaque commentaire avant sa restitution, « Restituer » ou « Ne pas restituer » (jamais modifié ; jamais ceux qui vous concernent), et suivez chaque collecte : qui a été sollicité et le nombre d'avis reçus, jamais qui a répondu ni qui a dit quoi.
 
 ## Gestionnaire de paie
 

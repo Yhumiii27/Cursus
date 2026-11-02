@@ -1850,6 +1850,13 @@ aucun champ du paramètre n'est recopié.
 | `objectif.evaluer` | id, entretienId (annuel suivant, planifié), statut (`atteint`, `partiel`, `non_atteint`, `sans_objet` avec motif, `reconduit`), evaluation?, echeance? (ligne reconduite) ; refaisable tant que l'entretien n'est pas clos | évaluateur |
 | `entretien.souhait` | id, op (`ajouter`, `modifier`, `retirer`), cle (modification, retrait), f (catalogue) ou libelle, priorite?, objectifId? ; entretien planifié de type parcours, reprise, annuel ou mi-année ; chacun ses souhaits ; souhait du salarié réécrit : avis effacé | salarié ou évaluateur |
 | `entretien.avisSouhait` | id, cle, avis (`favorable`, `defavorable`, `a_discuter`, ou null) ; entretien planifié | évaluateur |
+| `feedback360.solliciter` | entretienId (annuel ou mi-année planifié ; module activé), repondantIds : propositions (salarié) ou envoi (évaluateur : 3 au moins au total, 8 au plus ; ni l'évalué, ni l'évaluateur, ni un salarié sorti) ; une collecte par entretien (lot 12, C3, étape 3) | salarié (propositions) ; évaluateur (manager direct, RH, suppléant « entretiens »), jamais pour soi-même |
+| `feedback360.retirer` | id d'une proposition pas encore envoyée | salarié (les siennes) ou évaluateur |
+| `feedback360.relancer` | entretienId ; collecte ouverte ; une fois par jour, tous ceux qui n'ont rien fait | évaluateur |
+| `feedback360.repondre` | id (sa sollicitation), notes (1 à 4 par question), verbatim? (500) ; fenêtre ouverte, modifiable ; jamais tracé au journal ni hors ligne | le répondant sollicité seul |
+| `feedback360.decliner` | id (sa sollicitation) ; efface une réponse donnée ; jamais tracé | le répondant sollicité seul |
+| `feedback360.clore` | entretienId ; collecte ouverte : versement par lot, synthèse jointe | évaluateur |
+| `feedback360.moderer` | id (réponse versée), decision (`retenu`, `retire`) ; synthèse recalculée | RH, jamais pour soi-même |
 | `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, santeMiCarriereAge…, cpMaladie, feriesTravaillesAutorises, tauxMajorationFerie, plafondHeuresComplementaires, heuresComplementairesAccord, moyenne12SemainesMax, moyenne12SemainesAccord, contingentHeuresSup, contingentAlerte, contingentAccord, absencesFichierPaie, absencesPaieAPartirDu, piecesStockage, formationRenforceeCode, entretienMiCarriereActif, entretienMiCarriereMois, consultationN2, deplacementsFichierPaie, deplacementsPaieAPartirDu, vigilanceRappelJours, fractionnementRegle, fractionnementAccord, fractionnementDebut, fractionnementFin, cetPlafondRtt, cetPlafondCp), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture, fractionnement fixé par accord ou écarté sans référence, période du congé principal inversée) : 400, rien n'est enregistré | administrateur RH |
 | `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, santeMiCarriereAge…, cpMaladie, feriesTravaillesAutorises, tauxMajorationFerie, plafondHeuresComplementaires, heuresComplementairesAccord, moyenne12SemainesMax, moyenne12SemainesAccord, contingentHeuresSup, contingentAlerte, contingentAccord, absencesFichierPaie, absencesPaieAPartirDu), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
 | `parametres.feries` | annee (de l'année en cours, 2027 au plus tôt, à deux ans après), solidarite (`pentecote_chomee`/`pentecote_travaillee`/`autre_ferie`/`hors_calendrier`), solidariteFerie? (`autre_ferie` : ni le 1er mai, ni le lundi de Pentecôte, ni un férié qui tombe un samedi ou un dimanche de l'année), nonChomes [codes des fériés, jamais `1er_mai`], motif? (exigé, 409 sinon, pour une année engagée : absences de l'année transmises à la paie ou dans un lot, congés clôturés sur une période qui la couvre ; 500 caractères, service RH seulement, jamais au journal) : clé `calendrierFeries` de la table settings ; message : absences dont le décompte change (salariés rattachés à la ligne du journal) ; même réglage : rien n'est refait | administrateur RH |
@@ -5085,7 +5092,7 @@ imprimé, les indicateurs et rappels, le guide et le RGPD viennent à l'étape 2
   son équipe directe et de ses délégations « entretiens », pour le salarié les siens (`CHAMPS_PAR_SALARIE`) ; consultation
   N+2 et lecture seule : compteurs par équipe seulement (`compteursObjectifs`, masqués sous 3 salariés), entretiens de la
   lecture seule sans compte rendu, souhaits ni synthèse ; référent HSE et paie : rien. Feedback 360° : service RH seulement
-  (`CHAMPS_HORS_VUES`). Export des données d'un salarié : ni répondants, ni statut des sollicitations, ni contenu ou
+  (`CHAMPS_HORS_VUES` ; étape 3 : voir plus bas, sollicitations masquées pour tous). Export des données d'un salarié : ni répondants, ni statut des sollicitations, ni contenu ou
   relation (pair, N+2, encadré) d'une réponse prise une à une : le nombre de réponses n'est qu'un compteur global.
 - **Journal** (`REGLES_ENTRETIENS_SUIVIS`, `server/src/journal.ts`) : identifiants, codes (catégorie, résultat, avis,
   priorité, formation du catalogue), dates, poids, avancement (regroupé sur 30 minutes) ; jamais le libellé, la mesure,
@@ -5149,6 +5156,77 @@ feedback 360° reste désactivé (étape 3).
 - **Documents** : `docs/RGPD.md` (finalité, catégories, destinataires, points ouverts), guide (`shared/aide.ts`,
   `docs/GUIDE-UTILISATEUR.md`), demande à Matrix commentée (`docs/demandes/matrix-lot12-entretiens.md`). Tests :
   `tests/entretiens-suivis-ecrans.test.ts`.
+
+## Lot 12 : entretiens suivis (C3, t194), étape 3 — feedback 360°
+
+Réponses du propriétaire du 1er novembre 2026 : livré au lot 12, **désactivé par défaut**. Choix par défaut du chantier :
+répondants internes (collègues, N+2, collaborateurs encadrés) proposés par le salarié et validés par le manager, seuil de
+restitution 3, verbatims restitués après modération du service RH, réponses brutes supprimées à la clôture de l'entretien,
+6 mois au plus tard. Aucune table, colonne ni migration nouvelle : les tables de l'étape 1 suffisent (`feedback_*`,
+`entretiens.synthese_feedback`).
+
+- **Activation** (`shared/reglages.ts`, Paramètres → Objectifs et points de suivi) : `feedback360Actif` (non),
+  `feedback360Cse` et `feedback360Aipd` (références exigées pour activer : `refusActivation360` dans `COHERENCE`, refus
+  400), `feedback360Seuil` (3 à 5, jamais sous 3), `feedback360FenetreJours` (21), `feedback360ConservationMois` (6 au
+  plus) ; références masquées au journal de `parametres.maj`. Module coupé : plus de sollicitation, les synthèses jointes
+  restent ; une collecte ouverte n'empêche plus la clôture de l'entretien (ses réponses en attente sont supprimées).
+- **Règles pures** (`shared/rules/feedback360.ts`) : types admis (annuel, mi-année ; jamais un entretien de parcours
+  professionnel, L6315-1), questionnaire fixe et versionné (`QUESTIONNAIRE_360`, 8 comportements professionnels, notes de 1
+  à 4, « je ne peux pas me prononcer »), réponse contrôlée (`lireReponse360`), relation déduite de l'organisation
+  (`relation360` : N+2, encadré, sinon collègue, jamais déclarée), collecte (`collecte360`), compteur global (`suivi360`),
+  sollicitation masquée (`sollicitationMasquee` : « Sollicité », jamais répondu ou décliné), groupes restitués
+  (`groupes360` : partition d'au moins `seuil` réponses, construite d'après les catégories **sollicitées** et non d'après
+  celles qui ont répondu ; catégories sous le seuil, aucune réponse comprise, toujours versées dans le plus petit groupe
+  au seuil et citées dans son intitulé, ou un seul groupe ; jamais un groupe sous le seuil : la réponse du N+2, une
+  personne au plus, ne change que nombres et moyennes, jamais les groupes ni leurs intitulés), synthèse (`synthese360` : moyenne par question masquée sous le seuil, dans le
+  groupe et dans l'ensemble ; `sollicitees`, catégories des sollicitations envoyées, gardées dans la synthèse ; relations de
+  l'ensemble = `sollicitees` ; verbatims retenus, ordre alphabétique), relance automatique (`aRelancer360`, 3 jours avant
+  l'échéance, une fois), conservation (`limiteConservation360`).
+- **Confidentialité** (`server/src/feedback360.ts`) : la réponse attend la clôture dans `feedback_tampon`, chiffrée
+  (`sceller360` / `ouvrir360` : AES-256-GCM, clé `CURSUS_PIECES_KEY`, sollicitation en données authentifiées ; en clair
+  « CLAIR1: » seulement hors production sans clé, refus `refusSansCle360` en production) ; jamais lue par l'instantané
+  (`HORS_INSTANTANE`). À la clôture de la collecte (`clore360`, une transaction) : réponses déchiffrées, mélangées
+  (`melanger`, Fisher-Yates sur `node:crypto`), insérées dans `feedback_reponses` sous un identifiant aléatoire
+  (`idReponse360`), sans répondant, sollicitation ni date ; tampon purgé ; sollicitations sans réponse « Sans réponse » ;
+  sous le seuil, rien n'est versé. Les trois tables restent dans `TABLES_CHANGEMENTS_SANS_CLE` ; `feedback_reponses` sort
+  de l'instantané (étape 3 : `HORS_INSTANTANE`, plus dans `LECTURES`) ; synthèse jointe à l'entretien (`majSynthese360`,
+  aussi après chaque modération). Horodatages par `instant360` (heure de Paris du jour simulé en démonstration).
+- **Actions** (`server/src/actions/feedback360.ts`, matrice `tests/droits.test.ts`) : `feedback360.solliciter` (salarié :
+  propositions ; évaluateur, `refuserSoiMeme` et `isValidatorOf(ctx, e, 'entretiens')` : envoi, 3 à 8 répondants, jamais
+  l'évalué, son évaluateur ni un salarié sorti ; e-mail et notification génériques), `retirer` (une proposition seulement :
+  retirer une sollicitation partie dirait si la personne avait répondu), `relancer` (tous ceux qui n'ont rien fait, une
+  fois par jour), `repondre` et `decliner` (le répondant seul, fenêtre ouverte, modifiable ; non tracés au journal :
+  `tracer: () => false`), `clore` (versement), `moderer` (service RH, jamais sur soi-même ; « Restituer » ou « Ne pas
+  restituer », jamais une réécriture). `entretien.clore` refuse (409) tant que la collecte est ouverte, puis supprime
+  réponses brutes, tampon et sollicitations (`finirFeedback360`) ; les commentaires jamais relus sont comptés
+  (`nonRelus`) et jamais restitués. Tâche horaire de la conservation (`tacheFeedback360`, `demarrerConservation`) :
+  fenêtres échues closes, relance automatique, collectes closes envoyées depuis plus de `feedback360ConservationMois` purgées.
+- **Vues** (`server/src/vues-entretiens-suivis.ts`) : service RH, toutes les sollicitations, masquées comme pour
+  l'évaluateur (`entretiensSuivisVueRh` : il conduit lui aussi des entretiens, et les répondants ont lu que l'évaluateur
+  ne sait pas qui a répondu), et `suiviFeedback` ; évaluateur et évalué, celles des entretiens de leur périmètre direct
+  masquées, et `suiviFeedback` (compteur global calculé par la
+  vue, jamais lu en base, comme `resumesFrais`) ; répondant, ses sollicitations (hors propositions) ; ni la consultation
+  N+2, ni les profils restreints. `feedbackSollicitations` quitte `CHAMPS_HORS_VUES` : champ commun (deux salariés par
+  ligne), dont l'écriture, rare, recalcule toutes les vues. Routes (`routesFeedback360`, en-tête d'espace exigé, jamais en
+  cache) : `GET /api/feedback360/moderation` (service RH : commentaire, entretien, évalué, décision ; ni relation ni notes ;
+  jamais les siens, `commentaires360`) et `GET /api/feedback360/reponse/:id` (son auteur seul, collecte ouverte).
+- **Écrans** : bloc « Feedback 360° » du compte rendu (`components/Feedback360Bloc.tsx` : répondants « Proposé, à valider »
+  ou « Sollicité », compteur global, « Proposer des répondants », « Solliciter des répondants », « Relancer », « Clore la
+  collecte » ; synthèse `components/Synthese360.tsx`, aussi masquée pour le service RH dans ce bloc),
+  `dialogs/Feedback360SolliciterDialog.tsx`, `dialogs/Avis360Dialog.tsx` (jamais gardé dans le brouillon de reconnexion :
+  `SANS_BROUILLON` de `state/brouillon.ts` ; jamais dans la file hors ligne : absent de `ACTIONS_HORS_LIGNE`) ; vue
+  « Avis demandés » (`pages/AvisDemandes.tsx`, espaces collaborateur et manager, fermée sans `feedback360Actif`, pastille
+  `avisADonner` de `shared/rules/a-faire.ts`, ligne de l'« À faire » de l'accueil) ; onglet « Feedback 360° » de l'écran
+  Entretiens pour le service RH (`pages/EntretiensFeedback360.tsx` : commentaires à relire, collectes avec le seul compteur
+  global) ; Paramètres
+  (`pages/parametres/ObjectifsSuivis.tsx`) ; annexe distincte du compte rendu imprimé (`annexeFeedback360`, saut de page).
+- **Notifications** : `feedback360.demande` et `feedback360.relance` (e-mail `EMAIL_LABEL`, push `NOTIFICATIONS_PUSH` vers
+  « Avis demandés ») : texte générique, sans le nom de l'évalué. Vocabulaire : « confidentiel », jamais « anonyme ».
+- **Documents** : AIPD à compléter par le DPO (`docs/RGPD.md`, § 8), registre (finalités, catégories, destinataires,
+  durées, droits), page Confidentialité, guide (Aide et `docs/GUIDE-UTILISATEUR.md`). Noms d'action : la famille
+  `feedback360.` porte des chiffres (`tests/actions-contrat.test.ts` les admet après la première lettre). Tests :
+  `tests/feedback360.test.ts` (règles, cycle, absence de lien entre une réponse et sa sollicitation — colonnes, ordre
+  d'insertion, identifiants, journal des changements sans clé, journal des actions —, seuil, tâche horaire, refus).
 
 ## Lot 12 : organismes de formation et e-learning (C4, t190), étape 1
 

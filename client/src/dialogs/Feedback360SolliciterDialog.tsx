@@ -15,7 +15,7 @@ import { useStore } from '../state/store.tsx';
 
 export function Feedback360SolliciterDialog({ entretienId, retour }: { entretienId: number; retour?: number }) {
   const d = useDomain();
-  const { me } = useRole();
+  const { me, soi } = useRole();
   const { run, openDialog, closeDialog } = useStore();
   const x = d.ds.entretiens.find(y => y.id === entretienId);
   const e = x ? d.emp(x.empId) : undefined;
@@ -34,7 +34,7 @@ export function Feedback360SolliciterDialog({ entretienId, retour }: { entretien
   // Personnes proposables : l'annuaire, hors l'évalué, son évaluateur (manager valideur), soi-même et ceux déjà sollicités.
   const mgr = d.mgrOf(e);
   const candidats: Suggere[] = d.ds.annuaire
-    .filter(p => p.id !== e.id && p.id !== mgr && p.id !== me && !deja.has(p.id) && !ajoutes.includes(p.id))
+    .filter(p => p.id !== e.id && p.id !== mgr && p.id !== me && p.id !== soi && !deja.has(p.id) && !ajoutes.includes(p.id))
     .map(p => ({ ...p, matriculePaie: '' }));
   const envoyees = collecte360(d.ds.feedbackSollicitations ?? [], entretienId).envoyees;
   const choisis = [...(evaluateur ? coches : []), ...ajoutes];

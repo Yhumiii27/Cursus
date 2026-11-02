@@ -188,6 +188,11 @@ export interface Synthese360 {
   envoyees: number; reponses: number;
   /** Moins de réponses que le seuil : rien n'est restitué (réponses supprimées aussitôt). */
   insuffisant: boolean;
+  /**
+   * Catégories des sollicitations envoyées (pas celles qui ont répondu) : elles fixent les groupes et leurs intitulés.
+   * Absent d'une synthèse antérieure : catégories des réponses versées.
+   */
+  sollicitees?: Relation360[];
   /** Partition des réponses en groupes d'au moins `seuil` réponses (catégories fusionnées en dessous). */
   groupes: Groupe360[];
   ensemble: Groupe360 | null;
@@ -205,24 +210,28 @@ const moyennes = (rs: readonly Pick<Reponse360, 'notes'>[], seuil: number): Reco
 }));
 
 /**
- * Groupes restitués : chaque catégorie d'au moins `seuil` réponses seule ; les autres réunies si elles atteignent le seuil
- * ensemble, sinon versées dans le plus petit groupe restitué (jamais un groupe sous le seuil, ni deux groupes dont la
- * différence désignerait une petite catégorie). Moins de `seuil` réponses en tout : aucun groupe.
+ * Groupes restitués, construits d'après les catégories **sollicitées** (`sollicitees`, connues à la clôture) et non d'après
+ * celles qui ont répondu : chaque catégorie d'au moins `seuil` réponses seule ; les autres (moins de `seuil` réponses,
+ * aucune comprise) toujours versées dans le plus petit de ces groupes, et toujours citées dans son intitulé, qu'elles aient
+ * répondu ou non. Sans catégorie au seuil, un seul groupe (l'ensemble). Ainsi la réponse d'une petite catégorie (le N+2,
+ * une personne au plus) ne change que les nombres et les moyennes, jamais les groupes ni leurs intitulés : personne ne lit
+ * dans la synthèse quelle sollicitation a répondu. Jamais un groupe sous le seuil, ni deux groupes dont la différence
+ * désignerait une petite catégorie. Moins de `seuil` réponses en tout : aucun groupe.
  */
-export function groupes360(reponses: readonly Pick<Reponse360, 'relation' | 'notes'>[], seuil: number): Groupe360[] {
+export function groupes360(reponses: readonly Pick<Reponse360, 'relation' | 'notes'>[], seuil: number, sollicitees: readonly Relation360[] = []): Groupe360[] {
   if (reponses.length < seuil) return [];
   const par = new Map<Relation360, Pick<Reponse360, 'relation' | 'notes'>[]>();
   for (const r of reponses) par.set(r.relation, [...(par.get(r.relation) ?? []), r]);
   const grands: { relations: Relation360[]; rs: Pick<Reponse360, 'relation' | 'notes'>[] }[] = [];
   const petits: { relations: Relation360[]; rs: Pick<Reponse360, 'relation' | 'notes'>[] } = { relations: [], rs: [] };
-  for (const rel of RELATIONS_360) {
+  for (const rel of relationsRestituees(reponses, sollicitees)) {
     const rs = par.get(rel) ?? [];
-    if (!rs.length) continue;
     if (rs.length >= seuil) grands.push({ relations: [rel], rs });
     else { petits.relations.push(rel); petits.rs.push(...rs); }
   }
-  if (petits.rs.length >= seuil) grands.push(petits);
-  else if (petits.rs.length) {
+  if (!grands.length) grands.push(petits);
+  else if (petits.relations.length) {
+    // Le plus petit groupe ne dépend que des catégories au seuil : la réponse d'une petite catégorie ne le change pas.
     const cible = [...grands].sort((a, b) => a.rs.length - b.rs.length)[0];
     cible.relations = RELATIONS_360.filter(r => cible.relations.includes(r) || petits.relations.includes(r));
     cible.rs = [...cible.rs, ...petits.rs];
@@ -230,19 +239,29 @@ export function groupes360(reponses: readonly Pick<Reponse360, 'relation' | 'not
   return grands.map(g => ({ relations: g.relations, reponses: g.rs.length, moyennes: moyennes(g.rs, seuil) }));
 }
 
-/** Synthèse d'après les réponses versées de l'entretien ; verbatims restitués : retenus par le service RH, seuil atteint. */
-export function synthese360(reponses: readonly Reponse360[], x: { envoyees: number; closeLe: ISODate; seuil: number }): Synthese360 {
+/** Catégories restituées : celles qui ont été sollicitées (et, par sûreté, celles qui ont répondu), dans l'ordre de RELATIONS_360. */
+const relationsRestituees = (reponses: readonly Pick<Reponse360, 'relation'>[], sollicitees: readonly Relation360[]) =>
+  RELATIONS_360.filter(r => sollicitees.includes(r) || reponses.some(y => y.relation === r));
+
+/**
+ * Synthèse d'après les réponses versées de l'entretien ; verbatims restitués : retenus par le service RH, seuil atteint.
+ * `sollicitees` : catégories des sollicitations envoyées (gardées dans la synthèse, car les sollicitations sont purgées) ;
+ * les groupes et les relations de l'ensemble en dépendent, jamais des catégories qui ont répondu.
+ */
+export function synthese360(reponses: readonly Reponse360[], x: { envoyees: number; closeLe: ISODate; seuil: number; sollicitees?: readonly Relation360[] }): Synthese360 {
   const seuil = Math.max(SEUIL_360_MIN, x.seuil);
+  const sollicitees = relationsRestituees(reponses, x.sollicitees ?? []);
   const insuffisant = reponses.length < seuil;
-  const groupes = insuffisant ? [] : groupes360(reponses, seuil);
+  const groupes = insuffisant ? [] : groupes360(reponses, seuil, sollicitees);
   const ensemble = insuffisant ? null : moyennes(reponses, seuil);
   // Question masquée dans un groupe (moins de `seuil` notes) : masquée aussi dans l'ensemble, sans quoi la différence avec
   // les autres groupes donnerait la moyenne de quelques personnes.
   if (ensemble && groupes.length > 1) for (const q of Object.keys(ensemble)) if (groupes.some(g => g.moyennes[q] === null)) ensemble[q] = null;
   return {
     version: reponses[0]?.versionQuestionnaire ?? QUESTIONNAIRE_360.version, closeLe: x.closeLe, seuil, envoyees: x.envoyees, reponses: reponses.length, insuffisant,
+    sollicitees,
     groupes: groupes.length > 1 ? groupes : [],
-    ensemble: ensemble ? { relations: RELATIONS_360.filter(r => reponses.some(y => y.relation === r)), reponses: reponses.length, moyennes: ensemble } : null,
+    ensemble: ensemble ? { relations: sollicitees, reponses: reponses.length, moyennes: ensemble } : null,
     verbatims: insuffisant ? [] : reponses.filter(r => r.verbatim && r.verbatimStatut === 'retenu').map(r => r.verbatim!).sort((a, b) => a.localeCompare(b, 'fr')),
     aModerer: insuffisant ? 0 : reponses.filter(r => r.verbatim && r.verbatimStatut === 'a_moderer').length,
   };

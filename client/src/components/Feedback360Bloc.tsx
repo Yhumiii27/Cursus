@@ -2,8 +2,8 @@
 // dialogs/EntDialog.tsx sous les objectifs et les souhaits, le module activé (ou une synthèse déjà jointe) :
 // - le salarié propose des répondants internes, l'évaluateur les valide ou en sollicite d'autres (3 à 8), relance ceux
 //   qui n'ont rien fait sans savoir qui, et clôt la collecte (réponses versées par lot, synthèse jointe) ;
-// - qui a été sollicité est affiché, jamais qui a répondu : un compteur global seulement, pour tous (le service RH suit
-//   l'état de chaque sollicitation dans l'onglet « Feedback 360° » de l'écran Entretiens, jamais pour lui-même) ;
+// - qui a été sollicité est affiché, jamais qui a répondu : un compteur global seulement, pour tous, service RH compris
+//   (il conduit lui aussi des entretiens ; onglet « Feedback 360° » de l'écran Entretiens : même compteur) ;
 // - après la clôture : la synthèse (moyennes par groupe d'au moins 3 réponses, commentaires relus par le service RH).
 // Vocabulaire : « confidentiel », jamais « anonyme ».
 import { fmtIso, plural } from '../../../shared/format.ts';
@@ -31,7 +31,7 @@ export function Feedback360Bloc({ x, e, ouvrir }: { x: Entretien; e: Employe; ou
   const planifie = x.statut === 'planifie';
   const brutes = (d.ds.feedbackSollicitations ?? []).filter(s => s.entretienId === x.id && s.statut !== 'annulee');
   // Même vue pour tous dans le compte rendu : qui a été sollicité, jamais qui a répondu (le serveur masque déjà pour
-  // l'évaluateur et l'évalué ; le service RH, qui reçoit l'état réel, le lit ici masqué aussi).
+  // l'évaluateur, l'évalué et le service RH ; masquée ici aussi par sûreté).
   const liste = brutes.map(sollicitationMasquee).sort((a, b) => a.statut.localeCompare(b.statut) || a.id - b.id);
   const suivi = d.ds.suiviFeedback?.find(s => s.entretienId === x.id) ?? suivi360(brutes, x.id);
   const c = collecte360(brutes, x.id);

@@ -648,7 +648,7 @@ pièces et échéances, sans export comptable ni connexion au portail de l'OPCO 
 - Paramètres → Objectifs et points de suivi (administrateur RH) : objectifs suivis ou non, « Objectifs facultatifs (première année) » (la clôture n'exige pas l'évaluation), nombre au plus par entretien, point de mi-année obligatoire et sa fenêtre.
 - Les demandes de formation nées d'un entretien portent le badge « Entretien » (tableau de bord, fiche) ; acceptées, la ligne du plan porte l'origine « issue d'un entretien ».
 - Feedback 360° : désactivé jusqu'à l'avis du CSE et l'analyse d'impact (AIPD) ; l'administrateur RH saisit leurs références dans Paramètres → Objectifs et points de suivi, puis l'active (seuil de restitution, fenêtre de réponse, conservation des réponses).
-- Entretiens, onglet « Feedback 360° » : relisez chaque commentaire avant sa restitution, « Restituer » ou « Ne pas restituer » (jamais modifié ; jamais ceux qui vous concernent), et suivez la participation de chaque collecte, sans jamais savoir qui a dit quoi.
+- Entretiens, onglet « Feedback 360° » : relisez chaque commentaire avant sa restitution, « Restituer » ou « Ne pas restituer » (jamais modifié ; jamais ceux qui vous concernent), et suivez chaque collecte : qui a été sollicité et le nombre d'avis reçus, jamais qui a répondu ni qui a dit quoi.
 
 ## Gestionnaire de paie
 

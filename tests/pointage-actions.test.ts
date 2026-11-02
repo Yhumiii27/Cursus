@@ -377,9 +377,7 @@ test('banc d’oracle : actions du badgeage en renfort, module activé, aucune d
     await db.insert('correctionsPointage', { empId, jour: '2026-10-09', nature: 'ajout', horodatage: '2026-10-09T05:00:00.000Z', sens: 'E', motif: 'oubli', statut: 'demandee', demandeLe: '2026-10-09T08:00:00.000Z', demandePar: 'Essai', demandeParInteresse: true });
   }
   const renfort = ['pointage.pointer', 'pointage.corriger', 'pointage.corriger', 'pointage.validerCorrection', 'pointage.refuserCorrection', 'pointage.annulerCorrection'].flatMap(a => Array<string>(6).fill(a));
-  // lot 12 — C3 (étape 3) : tirage limité aux actions du badgeage et à la saisie (`seulement`), indépendant du nombre
-  // d'actions du registre, qu'un autre chantier change (les actions du feedback 360° déplaçaient les tirages de la graine).
-  const rapport = await rejouer(db, { graine: 26, pas: 20, seulement: [...renfort, 'temps.setCell', 'absence.demander', 'absence.decider'] });
+  const rapport = await rejouer(db, { graine: 26, pas: 20, renfort });
   assert.equal(rapport.erreurs.length, 0, rapport.erreurs.join('\n'));
   assert.equal(rapport.divergences.length, 0, resumeRapport(rapport));
   const ok = Object.entries(rapport.actions).filter(([a]) => a.startsWith('pointage.')).reduce((n, [, v]) => n + v.ok, 0);

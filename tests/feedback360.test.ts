@@ -76,13 +76,41 @@ test('règles : groupes restitués, une partition d’au moins 3 réponses (cat�
   // 3 collègues seuls, un N+2 et un encadré : le reste (2) ne fait pas un groupe, il rejoint le plus petit groupe.
   const g1 = R.groupes360([rep('pair', 2, 1), rep('pair', 2, 2), rep('pair', 2, 3), rep('n2', 4), rep('encadre', 4)], 3);
   assert.deepEqual(g1.map(g => [g.relations, g.reponses]), [[['pair', 'n2', 'encadre'], 5]]);
-  // 4 collègues, 3 encadrés, 1 N+2 : le N+2 rejoint le plus petit groupe (encadrés), jamais seul.
-  const g2 = R.groupes360([...[1, 2, 3, 4].map(i => rep('pair', 3, i)), ...[1, 2, 3].map(i => rep('encadre', 2, i)), rep('n2', 4)], 3);
+  // 4 collègues, 3 encadrés, 1 N+2 sollicités : le N+2 rejoint le plus petit groupe au seuil (encadrés), jamais seul ;
+  // l'intitulé est le même qu'il ait répondu ou non (catégories sollicitées, pas celles qui ont répondu).
+  const sollicitees: Reponse360['relation'][] = ['pair', 'n2', 'encadre'];
+  const g2 = R.groupes360([...[1, 2, 3, 4].map(i => rep('pair', 3, i)), ...[1, 2, 3].map(i => rep('encadre', 2, i)), rep('n2', 4)], 3, sollicitees);
   assert.deepEqual(g2.map(g => [g.relations, g.reponses]), [[['pair'], 4], [['n2', 'encadre'], 4]]);
-  // Les catégories sous le seuil assez nombreuses ensemble forment leur groupe.
-  const g3 = R.groupes360([...[1, 2, 3].map(i => rep('pair', 3, i)), rep('n2', 1), rep('encadre', 1, 1), rep('encadre', 1, 2)], 3);
-  assert.deepEqual(g3.map(g => [g.relations, g.reponses]), [[['pair'], 3], [['n2', 'encadre'], 3]]);
-  for (const g of [...g1, ...g2, ...g3]) assert.ok(g.reponses >= 3, 'aucun groupe sous le seuil');
+  const g2sans = R.groupes360([...[1, 2, 3, 4].map(i => rep('pair', 3, i)), ...[1, 2, 3].map(i => rep('encadre', 2, i))], 3, sollicitees);
+  assert.deepEqual(g2sans.map(g => [g.relations, g.reponses]), [[['pair'], 4], [['n2', 'encadre'], 3]]);
+  // Les catégories sous le seuil sont toujours versées dans le plus petit groupe au seuil, même assez nombreuses ensemble :
+  // sans quoi leur groupe propre existerait ou non selon que le N+2 a répondu.
+  const g3 = R.groupes360([...[1, 2, 3].map(i => rep('pair', 3, i)), rep('n2', 1), rep('encadre', 1, 1), rep('encadre', 1, 2)], 3, sollicitees);
+  assert.deepEqual(g3.map(g => [g.relations, g.reponses]), [[['pair', 'n2', 'encadre'], 6]]);
+  // Sans catégorie au seuil : un seul groupe, toutes les catégories sollicitées citées.
+  const g4 = R.groupes360([rep('pair', 3, 1), rep('pair', 3, 2), rep('encadre', 2, 1)], 3, sollicitees);
+  assert.deepEqual(g4.map(g => [g.relations, g.reponses]), [[['pair', 'n2', 'encadre'], 3]]);
+  for (const g of [...g1, ...g2, ...g2sans, ...g3, ...g4]) assert.ok(g.reponses >= 3, 'aucun groupe sous le seuil');
+});
+
+test('règles : la synthèse ne dit pas si le N+2 (ou toute petite catégorie) a répondu', () => {
+  // Scénarios des relecteurs : 4 collègues, le N+2 et 2 ou 3 encadrés sollicités ; le N+2 répond ou non.
+  const cas: [Reponse360[], Reponse360['relation'][]][] = [
+    [[...[1, 2, 3].map(i => rep('pair', 3, i)), ...[1, 2, 3].map(i => rep('encadre', 2, i))], ['pair', 'n2', 'encadre']],
+    [[...[1, 2, 3].map(i => rep('pair', 3, i)), ...[1, 2].map(i => rep('encadre', 2, i))], ['pair', 'n2', 'encadre']],
+    [[1, 2, 3].map(i => rep('pair', 3, i)), ['pair', 'n2']],
+  ];
+  // Forme de la synthèse sans les nombres ni les moyennes : groupes (intitulés, relations) et relations de l'ensemble.
+  const forme = (s: ReturnType<typeof R.synthese360>) => ({
+    groupes: s.groupes.map(g => [R.libelleGroupe360(g), g.relations]), ensemble: s.ensemble?.relations, sollicitees: s.sollicitees, insuffisant: s.insuffisant,
+  });
+  for (const [rs, sollicitees] of cas) {
+    const o = { envoyees: 8, closeLe: '2026-10-20', seuil: 3, sollicitees };
+    const sans = R.synthese360(rs, o);
+    const avec = R.synthese360([...rs, rep('n2', 4)], o);
+    assert.deepEqual(forme(avec), forme(sans), JSON.stringify(forme(avec)));
+    assert.ok(sans.ensemble!.relations.includes('n2'), 'catégorie sollicitée citée, qu’elle ait répondu ou non');
+  }
 });
 
 test('règles : synthèse (ensemble, moyennes masquées sous le seuil, verbatims retenus seulement)', () => {
@@ -221,6 +249,14 @@ test('cycle : proposition, sollicitation, réponses chiffrées, compteur global,
     assert.deepEqual(v.suiviFeedback?.find(s => s.entretienId === x), { entretienId: x, envoyees: 4, reponses: 3, declinees: 1, echeance: '2026-10-31', close: false });
     assert.ok(!JSON.stringify(v).includes('aider'));
   }
+  // Le service RH conduit lui aussi des entretiens (évaluateur de tout salarié) : même vue masquée, même compteur global.
+  for (const user of [u.admin, u.gest]) {
+    const v = await snap(user);
+    const l = (v.feedbackSollicitations ?? []).filter(s => s.entretienId === x);
+    assert.equal(l.length, 4);
+    assert.ok(l.every(s => s.statut === 'envoyee' && s.relanceeLe === null), `${user.nom} (service RH) : statut masqué`);
+    assert.deepEqual(v.suiviFeedback?.find(s => s.entretienId === x), { entretienId: x, envoyees: 4, reponses: 3, declinees: 1, echeance: '2026-10-31', close: false });
+  }
   // Le répondant ne voit que sa sollicitation ; un autre manager et les profils restreints, rien.
   const vt = await snap(u.thomas);
   assert.deepEqual((vt.feedbackSollicitations ?? []).map(s => [s.repondantEmpId, s.statut]), [[6, 'repondue']]);
@@ -311,7 +347,7 @@ test('absence de lien entre une réponse et sa sollicitation : colonnes, ordre, 
 });
 
 test('sous le seuil : rien n’est versé ni restitué ; tâche horaire : clôture à l’échéance, relance, purge à 6 mois', async () => {
-  const { db, u, run, annuel, entretien, sollicitations, sienne } = await fresh();
+  const { db, u, run, refus, annuel, entretien, sollicitations, sienne } = await fresh();
   const x = await annuel();
   await run(u.karim, 'feedback360.solliciter', { entretienId: x, repondantIds: [6, 3, 8] });
   await run(u.thomas, 'feedback360.repondre', { id: (await sienne(x, 6)).id, notes: NOTES(3), verbatim: 'Commentaire unique' });
@@ -338,7 +374,10 @@ test('sous le seuil : rien n’est versé ni restitué ; tâche horaire : clôtu
   assert.equal((await F.tacheFeedback360(db, '2027-04-30')).purgees, 1);
   assert.equal((await sollicitations(x)).length, 0);
   assert.ok(R.lireSynthese360((await entretien(x)).syntheseFeedback));
-  void u;
+  // L'entretien, reporté, est encore planifié : la synthèse jointe vaut collecte close, aucune nouvelle collecte ne l'écrase.
+  assert.equal((await entretien(x)).statut, 'planifie');
+  await refus(u.karim, 'feedback360.solliciter', { entretienId: x, repondantIds: [6, 3, 8] }, /un seul feedback/, 409);
+  await refus(u.mehdi, 'feedback360.solliciter', { entretienId: x, repondantIds: [6] }, /un seul feedback/, 409);
 });
 
 test('refus : type d’entretien, module désactivé, fenêtre échue, sollicitation envoyée non retirable, hors périmètre', async () => {
@@ -348,6 +387,8 @@ test('refus : type d’entretien, module désactivé, fenêtre échue, sollicita
   await refus(u.karim, 'feedback360.solliciter', { entretienId: epp, repondantIds: [6, 3, 8] }, /L6315-1/);
   const x = await annuel();
   await refus(u.hugo, 'feedback360.solliciter', { entretienId: x, repondantIds: [6, 3, 8] }, /évaluateur/, 403);
+  // Le membre du service RH qui conduit la collecte (compte RH, salarié rattaché 14) ne se désigne pas répondant.
+  await refus(u.gest, 'feedback360.solliciter', { entretienId: x, repondantIds: [6, 3, 14] }, /conduit l’entretien/);
   await run(u.karim, 'feedback360.solliciter', { entretienId: x, repondantIds: [6, 3, 8] });
   await refus(u.karim, 'feedback360.retirer', { id: (await sienne(x, 6)).id }, /ne se retire plus/, 409);
   await refus(u.thomas, 'feedback360.repondre', { id: (await sienne(x, 6)).id, notes: {} }, /au moins une question/);

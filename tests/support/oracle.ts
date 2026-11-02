@@ -283,8 +283,9 @@ const TIRAGES_OPCO: Record<string, Tirage> = {
 /**
  * Tirages du feedback 360° (étape 3) : sollicitations de trois salariés au plus sur un entretien annuel planifié, réponse
  * ou refus d'une sollicitation envoyée (par son répondant quand il est l'acteur), relance et clôture d'une collecte
- * ouverte. Hors des cibles (`TIRAGES`), comme le badgeage : tirés seulement par le test du chantier
- * (tests/feedback360.test.ts), module activé ; les suites des autres chantiers gardent leurs tirages.
+ * ouverte. Hors des cibles (`TIRAGES`), comme le badgeage, et hors du tirage générique (`noms` de `rejouer`) : tirés
+ * seulement par le test du chantier (tests/feedback360.test.ts, `seulement`), module activé ; les suites des autres
+ * chantiers gardent leurs tirages.
  */
 const TIRAGES_FEEDBACK360: Record<string, Tirage> = {
   'feedback360.solliciter': ({ r, ds }) => {
@@ -557,7 +558,9 @@ export async function rejouer(db: Db, o: OptionsOracle): Promise<RapportOracle> 
   const r = aleatoire(o.graine);
   const banc = await ouvrirBanc(db);
   const rapport: RapportOracle = { actions: {}, sql: {}, motifs: {}, ecritures: 0, comparaisons: 0, triviales: 0, verifications: 0, divergences: [], erreurs: [] };
-  const noms = Object.keys(ACTIONS).filter(n => !EXCLUES.has(n));
+  // lot 12 — C3 : les actions du feedback 360° sortent aussi du tirage générique (module désactivé par défaut, tirées par leur
+  // seul test, `seulement`) : sans quoi elles déplaceraient les tirages des graines des autres chantiers.
+  const noms = Object.keys(ACTIONS).filter(n => !EXCLUES.has(n) && !n.startsWith('feedback360.'));
   // Saisie et absences plus souvent que le reste, comme dans la journée de travail.
   const cibles = [
     ...Object.keys(TIRAGES), ...Array<string>(5).fill('temps.setCell'), 'temps.addLine', 'temps.submit', 'temps.submit', 'temps.validate', 'temps.validate',

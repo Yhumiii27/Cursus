@@ -20,7 +20,7 @@ import {
 } from '../../../shared/rules/feedback360.ts';
 import type { Employe, Entretien, Reponse360, Sollicitation360 } from '../../../shared/types.ts';
 import { clore360, instant360, majSynthese360, notifierRepondant, purgerEntretien360, refusSansCle360, sceller360 } from '../feedback360.ts';
-import { ActionError, type ActionHandler, type Ctx, getEmp, isValidatorOf, refuserSoiMeme, requireRh, str } from './context.ts';
+import { ActionError, type ActionHandler, type Ctx, estSoiMeme, getEmp, isValidatorOf, refuserSoiMeme, requireRh, str } from './context.ts';
 
 
 function exigerActif(ctx: Ctx) {
@@ -69,7 +69,9 @@ const solliciter: ActionHandler = async (ctx, p) => {
   if (!TYPES_360.includes(x.type)) throw new ActionError('Feedback 360° seulement pour l’entretien annuel ou le point de mi-année (jamais pour un entretien de parcours professionnel, art. L6315-1)');
   if (x.statut !== 'planifie') throw new ActionError('Entretien clos : le feedback 360° se prépare avant l’entretien', 409);
   const c = collecte360(ctx.ds.feedbackSollicitations ?? [], x.id);
-  if (c.close) throw new ActionError('Collecte déjà close pour cet entretien : un seul feedback 360° par entretien', 409);
+  // Une synthèse jointe vaut collecte close, même après la purge de ses sollicitations (6 mois au plus après l'envoi, entretien
+  // reporté) : une nouvelle collecte l'écraserait à sa clôture.
+  if (c.close || lireSynthese360(x.syntheseFeedback)) throw new ActionError('Collecte déjà close pour cet entretien : un seul feedback 360° par entretien', 409);
   if (c.ouverte && c.echeance && c.echeance < ctx.d.ti) throw new ActionError('Fenêtre de réponse échue : la collecte va être close', 409);
   const ids = idsRecus(p);
   if (!ids.length) throw new ActionError('Choisissez au moins un répondant');
@@ -79,7 +81,7 @@ const solliciter: ActionHandler = async (ctx, p) => {
   for (const id of ids) {
     const r = getEmp(ctx, id);
     if (r.id === e.id) throw new ActionError('Le salarié ne se sollicite pas lui-même');
-    if (r.id === evaluateur || (!salarie && r.id === ctx.user.empId)) throw new ActionError(`${r.nom} conduit l’entretien : son avis s’y donne, pas dans le feedback 360°`);
+    if (r.id === evaluateur || (!salarie && estSoiMeme(ctx, r.id))) throw new ActionError(`${r.nom} conduit l’entretien : son avis s’y donne, pas dans le feedback 360°`);
     if (!present(r, ctx.d.ti)) throw new ActionError(`${r.nom} a quitté l’entreprise`);
   }
   const nouveaux = ids.filter(id => !parRepondant.has(id));

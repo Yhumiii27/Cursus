@@ -7,15 +7,17 @@
 //   formation voyagent avec l'entretien (colonne `souhaits`), donc avec les mêmes règles.
 // - Profils restreints : aucun objectif ; la lecture seule (direction, DPO, auditeur) reçoit les compteurs par équipe, et
 //   ses entretiens sans compte rendu (dataset.ts) ni souhaits ni synthèse 360° ; référent HSE et paie : rien.
-// - Feedback 360° (étape 3) : le service RH a toutes les sollicitations (qui est sollicité, qui a répondu) ; l'évaluateur et
-//   l'évalué, celles des entretiens de leur périmètre direct, sans savoir lesquelles ont répondu (`sollicitationMasquee`),
-//   avec un compteur global par collecte (`suiviFeedback`) ; le répondant, les siennes seulement. Les réponses versées
+// - Feedback 360° (étape 3) : le service RH, qui conduit lui aussi des entretiens (évaluateur d'un salarié sans manager,
+//   d'un membre de son équipe), reçoit toutes les sollicitations masquées comme l'évaluateur (`entretiensSuivisVueRh`) :
+//   qui est sollicité, jamais qui a répondu, avec un compteur global par collecte ; l'évaluateur et l'évalué, celles des
+//   entretiens de leur périmètre direct, sans savoir lesquelles ont répondu (`sollicitationMasquee`), avec le même
+//   compteur (`suiviFeedback`) ; le répondant, les siennes seulement. Les réponses versées
 //   n'entrent dans aucun instantané (synthèse jointe à l'entretien) ; ni la consultation N+2, ni les profils restreints.
 import { sollicitationMasquee, suivi360 } from '../../shared/rules/feedback360.ts';
 import { compteursObjectifs } from '../../shared/rules/objectifs.ts';
 import { needsFinCarriere } from '../../shared/rules/entretiens.ts';
 import { deleguesA } from '../../shared/rules/delegations-manager.ts';
-import type { Entretien, Objectif } from '../../shared/types.ts';
+import type { Dataset, Entretien, Objectif } from '../../shared/types.ts';
 import type { ContexteVueProfil, ContexteVueSalarie, Projection } from './vues-lot12.ts';
 
 /** Entretien vu sans ses textes : ni compte rendu, ni souhaits de formation, ni synthèse du feedback 360°. */
@@ -40,6 +42,20 @@ export function entretiensSuivisVueSalarie(x: ContexteVueSalarie): Projection {
     compteursObjectifs: lecture.size ? compteursObjectifs(lignes.filter(o => lecture.has(o.empId)), full.employes) : [],
     feedbackSollicitations: [...evalues.map(sollicitationMasquee), ...repondant],
     suiviFeedback: [...new Set(evalues.map(s => s.entretienId))].map(id => suivi360(sollicitations, id)),
+  };
+}
+
+/**
+ * Feedback 360° vu par le service RH (droit « rh », instantané complet par ailleurs) : sollicitations masquées et compteur
+ * global par collecte. Le service RH conduit des entretiens (il est l'évaluateur de tout salarié, `isValidatorOf`) ; le
+ * texte promis aux répondants (« ni l'évalué ni son évaluateur ne savent qui a répondu ») vaut donc aussi pour lui. Les
+ * actions lisent l'état réel côté serveur (`loadFull`).
+ */
+export function entretiensSuivisVueRh(full: Dataset): Pick<Projection, 'feedbackSollicitations' | 'suiviFeedback'> {
+  const sollicitations = full.feedbackSollicitations ?? [];
+  return {
+    feedbackSollicitations: sollicitations.map(sollicitationMasquee),
+    suiviFeedback: [...new Set(sollicitations.map(s => s.entretienId))].map(id => suivi360(sollicitations, id)),
   };
 }
 

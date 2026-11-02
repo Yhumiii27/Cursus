@@ -5092,7 +5092,7 @@ imprimé, les indicateurs et rappels, le guide et le RGPD viennent à l'étape 2
   son équipe directe et de ses délégations « entretiens », pour le salarié les siens (`CHAMPS_PAR_SALARIE`) ; consultation
   N+2 et lecture seule : compteurs par équipe seulement (`compteursObjectifs`, masqués sous 3 salariés), entretiens de la
   lecture seule sans compte rendu, souhaits ni synthèse ; référent HSE et paie : rien. Feedback 360° : service RH seulement
-  (`CHAMPS_HORS_VUES`). Export des données d'un salarié : ni répondants, ni statut des sollicitations, ni contenu ou
+  (`CHAMPS_HORS_VUES` ; étape 3 : voir plus bas, sollicitations masquées pour tous). Export des données d'un salarié : ni répondants, ni statut des sollicitations, ni contenu ou
   relation (pair, N+2, encadré) d'une réponse prise une à une : le nombre de réponses n'est qu'un compteur global.
 - **Journal** (`REGLES_ENTRETIENS_SUIVIS`, `server/src/journal.ts`) : identifiants, codes (catégorie, résultat, avis,
   priorité, formation du catalogue), dates, poids, avancement (regroupé sur 30 minutes) ; jamais le libellé, la mesure,
@@ -5175,9 +5175,12 @@ restitution 3, verbatims restitués après modération du service RH, réponses 
   à 4, « je ne peux pas me prononcer »), réponse contrôlée (`lireReponse360`), relation déduite de l'organisation
   (`relation360` : N+2, encadré, sinon collègue, jamais déclarée), collecte (`collecte360`), compteur global (`suivi360`),
   sollicitation masquée (`sollicitationMasquee` : « Sollicité », jamais répondu ou décliné), groupes restitués
-  (`groupes360` : partition d'au moins `seuil` réponses, catégories sous le seuil réunies, ou versées dans le plus petit
-  groupe ; jamais un groupe sous le seuil), synthèse (`synthese360` : moyenne par question masquée sous le seuil, dans le
-  groupe et dans l'ensemble ; verbatims retenus, ordre alphabétique), relance automatique (`aRelancer360`, 3 jours avant
+  (`groupes360` : partition d'au moins `seuil` réponses, construite d'après les catégories **sollicitées** et non d'après
+  celles qui ont répondu ; catégories sous le seuil, aucune réponse comprise, toujours versées dans le plus petit groupe
+  au seuil et citées dans son intitulé, ou un seul groupe ; jamais un groupe sous le seuil : la réponse du N+2, une
+  personne au plus, ne change que nombres et moyennes, jamais les groupes ni leurs intitulés), synthèse (`synthese360` : moyenne par question masquée sous le seuil, dans le
+  groupe et dans l'ensemble ; `sollicitees`, catégories des sollicitations envoyées, gardées dans la synthèse ; relations de
+  l'ensemble = `sollicitees` ; verbatims retenus, ordre alphabétique), relance automatique (`aRelancer360`, 3 jours avant
   l'échéance, une fois), conservation (`limiteConservation360`).
 - **Confidentialité** (`server/src/feedback360.ts`) : la réponse attend la clôture dans `feedback_tampon`, chiffrée
   (`sceller360` / `ouvrir360` : AES-256-GCM, clé `CURSUS_PIECES_KEY`, sollicitation en données authentifiées ; en clair
@@ -5198,8 +5201,10 @@ restitution 3, verbatims restitués après modération du service RH, réponses 
   réponses brutes, tampon et sollicitations (`finirFeedback360`) ; les commentaires jamais relus sont comptés
   (`nonRelus`) et jamais restitués. Tâche horaire de la conservation (`tacheFeedback360`, `demarrerConservation`) :
   fenêtres échues closes, relance automatique, collectes closes envoyées depuis plus de `feedback360ConservationMois` purgées.
-- **Vues** (`server/src/vues-entretiens-suivis.ts`) : service RH, toutes les sollicitations (participation) ; évaluateur
-  et évalué, celles des entretiens de leur périmètre direct masquées, et `suiviFeedback` (compteur global calculé par la
+- **Vues** (`server/src/vues-entretiens-suivis.ts`) : service RH, toutes les sollicitations, masquées comme pour
+  l'évaluateur (`entretiensSuivisVueRh` : il conduit lui aussi des entretiens, et les répondants ont lu que l'évaluateur
+  ne sait pas qui a répondu), et `suiviFeedback` ; évaluateur et évalué, celles des entretiens de leur périmètre direct
+  masquées, et `suiviFeedback` (compteur global calculé par la
   vue, jamais lu en base, comme `resumesFrais`) ; répondant, ses sollicitations (hors propositions) ; ni la consultation
   N+2, ni les profils restreints. `feedbackSollicitations` quitte `CHAMPS_HORS_VUES` : champ commun (deux salariés par
   ligne), dont l'écriture, rare, recalcule toutes les vues. Routes (`routesFeedback360`, en-tête d'espace exigé, jamais en
@@ -5212,7 +5217,8 @@ restitution 3, verbatims restitués après modération du service RH, réponses 
   `SANS_BROUILLON` de `state/brouillon.ts` ; jamais dans la file hors ligne : absent de `ACTIONS_HORS_LIGNE`) ; vue
   « Avis demandés » (`pages/AvisDemandes.tsx`, espaces collaborateur et manager, fermée sans `feedback360Actif`, pastille
   `avisADonner` de `shared/rules/a-faire.ts`, ligne de l'« À faire » de l'accueil) ; onglet « Feedback 360° » de l'écran
-  Entretiens pour le service RH (`pages/EntretiensFeedback360.tsx` : commentaires à relire, collectes) ; Paramètres
+  Entretiens pour le service RH (`pages/EntretiensFeedback360.tsx` : commentaires à relire, collectes avec le seul compteur
+  global) ; Paramètres
   (`pages/parametres/ObjectifsSuivis.tsx`) ; annexe distincte du compte rendu imprimé (`annexeFeedback360`, saut de page).
 - **Notifications** : `feedback360.demande` et `feedback360.relance` (e-mail `EMAIL_LABEL`, push `NOTIFICATIONS_PUSH` vers
   « Avis demandés ») : texte générique, sans le nom de l'évalué. Vocabulaire : « confidentiel », jamais « anonyme ».

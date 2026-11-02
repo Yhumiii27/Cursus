@@ -537,9 +537,7 @@ test('banc d’oracle : actions organisme.* et elearning.* en renfort, cache inc
   const db = await baseDemo(nouvelleBase);
   const noms = Object.keys(ACTIONS).filter(n => n.startsWith('organisme.') || n.startsWith('elearning.'));
   const renfort = [...noms, ...noms, ...noms, ...Array<string>(6).fill('organisme.enregistrer'), ...Array<string>(6).fill('elearning.inscrire'), 'elearning.terminer', 'elearning.importer', 'organisme.fusionner'];
-  // lot 12 — C3 (étape 3) : tirage limité aux actions du chantier et à la saisie (`seulement`), indépendant du nombre
-  // d'actions du registre, qu'un autre chantier change (les 7 actions du feedback 360° faisaient tomber la graine sous 3).
-  const x = await rejouer(db, { graine: 20261101, pas: 120, verifierTous: 4, jeux: 0, sql: 0.1, seulement: [...renfort, 'temps.setCell', 'absence.demander', 'absence.decider'] });
+  const x = await rejouer(db, { graine: 20261101, pas: 120, verifierTous: 4, jeux: 0, sql: 0.1, renfort });
   const resume = resumeRapport(x);
   assert.deepEqual(x.divergences, [], resume);
   assert.deepEqual(x.erreurs, [], resume);

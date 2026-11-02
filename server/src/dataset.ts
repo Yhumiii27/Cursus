@@ -48,7 +48,7 @@ import type { ArreteIndicateurs, DossierOpco } from '../../shared/types.ts';
 import { fraisVueGestion, fraisVueProfil, fraisVueSalarie, piecesFraisManager, vueComptabilite } from './frais-vues.ts';
 // lot 12 — projections des chantiers, chacune dans son fichier (contexte : server/src/vues-lot12.ts).
 import { forfaitHeuresVueProfil, forfaitHeuresVueSalarie } from './vues-forfait-heures.ts';
-import { entretiensSuivisVueProfil, entretiensSuivisVueSalarie } from './vues-entretiens-suivis.ts';
+import { entretiensSuivisVueProfil, entretiensSuivisVueRh, entretiensSuivisVueSalarie } from './vues-entretiens-suivis.ts';
 import { organismesVueProfil, organismesVueSalarie } from './vues-organismes.ts';
 import { colleguesVisibles, planningVueProfil, planningVueSalarie } from './vues-planning.ts';
 import { pointageVueProfil, pointageVueSalarie } from './vues-pointage.ts';
@@ -417,6 +417,8 @@ export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre 
         c2p: c2pDe(full),
         // lot 12 — C2 (notes de frais : activation) : détail de 2 mois, résumés, parts réintégrables et alertes.
         ...fraisVueGestion(full, new Domain(full)),
+        // lot 12 — C3 (feedback 360°) : sollicitations masquées, compteur global (jamais qui a répondu).
+        ...entretiensSuivisVueRh(full),
       }
       : vueProfil(full, droits);
   }

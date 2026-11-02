@@ -18,7 +18,8 @@ import express, { type Request, type Response, type Router } from 'express';
 import { droitsRh } from '../../shared/constants.ts';
 import { fmtIso, plural } from '../../shared/format.ts';
 import {
-  aRelancer360, type ContenuReponse360, jour360, limiteConservation360, lireReponse360, sollicitationEnvoyee, synthese360,
+  aRelancer360, type ContenuReponse360, jour360, limiteConservation360, lireReponse360, type Relation360, RELATIONS_360, sollicitationEnvoyee,
+  synthese360,
 } from '../../shared/rules/feedback360.ts';
 import type { CurrentUser, Entretien, ISODate, Reponse360, Sollicitation360 } from '../../shared/types.ts';
 import { makeCtx, type Ctx } from './actions/context.ts';
@@ -136,7 +137,9 @@ export async function clore360(cx: { db: Db; ds: { settings: { feedback360Seuil:
       versees++;
     }
   }
-  await majSynthese360(db, x.id, { envoyees: sols.length, closeLe: jour360(closeLe), seuil, reponses: contenus.length });
+  // Catégories sollicitées (et non celles qui ont répondu) : elles fixent les groupes de la synthèse et leurs intitulés.
+  const sollicitees = RELATIONS_360.filter(r => sols.some(s => s.relation === r));
+  await majSynthese360(db, x.id, { envoyees: sols.length, closeLe: jour360(closeLe), seuil, reponses: contenus.length, sollicitees });
   return { envoyees: sols.length, reponses: contenus.length, versees };
 }
 
@@ -144,12 +147,16 @@ export async function clore360(cx: { db: Db; ds: { settings: { feedback360Seuil:
  * Synthèse de l'entretien recalculée d'après ses réponses versées (clôture, relecture d'un commentaire) et jointe à
  * l'entretien. `reponses` : nombre reçu à la clôture quand rien n'a été versé (sous le seuil) ; sinon repris de la synthèse.
  */
-export async function majSynthese360(db: Db, entretienId: number, o: { envoyees?: number; closeLe?: ISODate; seuil: number; reponses?: number }) {
+export async function majSynthese360(db: Db, entretienId: number, o: { envoyees?: number; closeLe?: ISODate; seuil: number; reponses?: number; sollicitees?: Relation360[] }) {
   const x = await db.get<Entretien>('entretiens', entretienId);
   if (!x) return;
-  const avant = (x.syntheseFeedback ?? null) as { envoyees?: number; closeLe?: string } | null;
+  const avant = (x.syntheseFeedback ?? null) as { envoyees?: number; closeLe?: string; sollicitees?: Relation360[] } | null;
   const rs = await reponsesDe(db, entretienId);
-  const s = synthese360(rs, { envoyees: o.envoyees ?? avant?.envoyees ?? rs.length, closeLe: o.closeLe ?? avant?.closeLe ?? todayIso(), seuil: o.seuil });
+  // Après une relecture, les catégories sollicitées sont reprises de la synthèse (les sollicitations peuvent être purgées).
+  const s = synthese360(rs, {
+    envoyees: o.envoyees ?? avant?.envoyees ?? rs.length, closeLe: o.closeLe ?? avant?.closeLe ?? todayIso(), seuil: o.seuil,
+    sollicitees: o.sollicitees ?? (Array.isArray(avant?.sollicitees) ? avant.sollicitees : undefined),
+  });
   // Sous le seuil, rien n'a été versé : le nombre de réponses reçues reste le seul renseignement.
   if (o.reponses !== undefined && !rs.length) s.reponses = o.reponses;
   await db.update<Entretien>('entretiens', entretienId, { syntheseFeedback: s });

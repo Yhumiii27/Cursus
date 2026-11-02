@@ -1,5 +1,7 @@
 // Appels à l'API Cursus.
 import type { CibleEnvoi, CompteSession, CompteVue, CurrentUser, Dataset, Envoi, EtatEnvois, ExportFraisVue, Role, SageMode, StatutEnvoi } from '../../shared/types.ts';
+// lot 12 — C2 (notes de frais : activation)
+import type { NoteHistoriqueFrais, PageHistoriqueFrais } from '../../shared/types.ts';
 import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
 import { EN_TETE_HORS_LIGNE, EN_TETE_IDEMPOTENCE } from '../../shared/hors-ligne.ts';
 // Noms des actions du serveur (t164) : import de type seulement, effacé à la compilation (aucun code serveur dans
@@ -8,6 +10,14 @@ import type { NomAction } from '../../server/src/actions/index.ts';
 import type { AppareilPush } from '../../server/src/push.ts';
 
 export type { AppareilPush, NomAction };
+// lot 12 — C6 (badgeage virtuel) : réponses des lectures de pointages (types seulement, server/src/pointages.ts).
+import type { EtatPointages, LecturePointages, PresencesPointages } from '../../server/src/pointages.ts';
+// lot 12 — C3 (feedback 360°)
+import type { ContenuReponse360 } from '../../shared/rules/feedback360.ts';
+/** Commentaire d'une réponse 360° versée, à relire par le service RH (GET /api/feedback360/moderation). */
+export interface Commentaire360 { id: string; entretienId: number; empId: number; verbatim: string; statut: 'a_moderer' | 'retenu' | 'retire' | null }
+export type { EtatPointages, LecturePointages, PresencesPointages };
+import type { ZonePointage } from '../../shared/types.ts';
 
 /** Compte proposé à la connexion de démonstration (`id` : identifiant du compte). */
 export interface LoginOption { id: number; nom: string }
@@ -231,6 +241,16 @@ export const api = {
   exportsFrais: () => request<{ exports: ExportFraisVue[] }>('GET', '/api/frais/exports', undefined, espaceOnglet),
   /** Fichier d'écritures d'un export comptable (téléchargement tracé et compté sur l'export). */
   fichierExportFrais: (id: number) => telecharger(`/api/frais/exports/${id}/fichier`),
+  // lot 12 — C2 (notes de frais : activation) : historique hors de l'instantané (server/src/frais-historique.ts), filtré par
+  // les droits de la personne connectée ; la consultation des notes d'autrui par le service RH ou la comptabilité est tracée.
+  /** Page de l'historique : salarié, mois des dépenses (AAAA-MM, 24 mois au plus), statut, page de 100 notes. */
+  historiqueFrais: (f: { empId?: number | null; du?: string; au?: string; statut?: string | null; page?: number }) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') q.set(k, String(v));
+    return request<PageHistoriqueFrais>('GET', `/api/frais/historique${q.size ? `?${q}` : ''}`, undefined, espaceOnglet);
+  },
+  /** Une note de l'historique (ou de l'instantané sans ses dépenses) : dépenses et justificatifs, en lecture. */
+  noteHistoriqueFrais: (id: number) => request<NoteHistoriqueFrais>('GET', `/api/frais/historique/${id}`, undefined, espaceOnglet),
   /** Paie : variables d'une période de paie (lots et attente), export CSV tracé (server/src/variables-paie.ts). */
   variablesPaie: (periode: string) => telecharger(`/api/paie/variables/${encodeURIComponent(periode)}`),
   /**
@@ -269,6 +289,20 @@ export const api = {
     if (cible) q.set('cible', cible);
     return request<EnvoisState>('GET', `/api/envois${q.size ? `?${q}` : ''}`);
   },
+  // lot 12 — C3 (feedback 360°, server/src/feedback360.ts) : jamais dans l'instantané ni en cache.
+  /** Commentaires des réponses versées à relire avant leur restitution (service RH), sans relation ni notes. */
+  moderation360: () => request<{ commentaires: Commentaire360[] }>('GET', '/api/feedback360/moderation', undefined, espaceOnglet),
+  /** Réponse en attente du versement, relue par son auteur tant que la collecte est ouverte (null : rien d'enregistré). */
+  reponse360: (sollicitationId: number) => request<{ reponse: ContenuReponse360 | null }>('GET', `/api/feedback360/reponse/${sollicitationId}`, undefined, espaceOnglet),
+  // lot 12 — C6 (badgeage virtuel) : pointages lus à la demande, jamais dans l'instantané (server/src/pointages.ts).
+  /** Pointages bruts, postes, anomalies et théorique de chaque jour d'un salarié (6 semaines au plus). */
+  pointages: (empId: number, du: string, au: string) => request<LecturePointages>('GET', `/api/pointages?empId=${empId}&du=${du}&au=${au}`, undefined, espaceOnglet),
+  /** État du jour et débit-crédit d'un salarié (sans `empId` : la personne connectée). */
+  etatPointages: (empId?: number) => request<EtatPointages>('GET', `/api/pointages/etat${empId != null ? `?empId=${empId}` : ''}`, undefined, espaceOnglet),
+  /** Présences du jour du périmètre (manager, service RH), sans la nature d'une absence. */
+  presencesPointages: () => request<PresencesPointages>('GET', '/api/pointages/etat?equipe=1', undefined, espaceOnglet),
+  /** Étape 3 : zones de la géolocalisation au pointage (service RH), Paramètres → Badgeage. */
+  zonesPointage: () => request<{ zones: ZonePointage[] }>('GET', '/api/pointages/zones', undefined, espaceOnglet),
   /**
    * `rejeu` (lot 11, file hors ligne : client/src/state/hors-ligne.ts) : clé d'idempotence de la saisie et marque du
    * rejeu hors ligne ; une réponse déjà donnée pour cette clé est rendue sans refaire l'action (`relire`).

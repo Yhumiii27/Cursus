@@ -9,6 +9,11 @@ import { CancelButton, Dialog, Field, SubmitButton, useVerification } from '../c
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+// lot 12 — C4 (organismes de formation et e-learning) : organisme prévu et tarif en vigueur (proposé, jamais imposé).
+import { ChoixOrganisme } from '../components/organismes/ChoixOrganisme.tsx';
+import { coutDuTarif, organismeDeFormation, tarifEnVigueur, UNITES_TARIF } from '../../../shared/rules/organismes.ts';
+import { dureeHeuresDe } from '../../../shared/rules/heures-formation.ts';
+import { Btn } from '../components/ui.tsx';
 
 /** Valeur du sélecteur de formation pour une action hors catalogue. */
 const HORS = '';
@@ -24,9 +29,20 @@ export function PlanLigneDialog({ id }: { id: number }) {
   const [effectif, setEffectif] = useState(l ? String(l.effectif) : '');
   const [cout, setCout] = useState(l ? String(l.cout) : '');
   const [motif, setMotif] = useState('');
+  // lot 12 — C4 : organisme prévu ('' : celui du catalogue).
+  const [organismeId, setOrganismeId] = useState(l?.organismeId != null ? String(l.organismeId) : '');
   const [busy, setBusy] = useState(false);
   const v = useVerification();
   if (!l) return null;
+  // lot 12 — C4 : tarif en vigueur de l'organisme retenu pour la formation, au début du trimestre (ou aujourd'hui).
+  const fiche = organismeId ? (d.ds.organismes ?? []).find(o => o.id === Number(organismeId)) ?? null
+    : f ? organismeDeFormation(d.ds, d.ds.referentiels.formations.find(x => x.id === f)) : null;
+  const debut = `${l.exercice}-${String((Number(periode.slice(1)) - 1) * 3 + 1).padStart(2, '0')}-01`;
+  const tarif = fiche && f ? tarifEnVigueur(d.ds.organismeTarifs, fiche.id, f, debut > d.ti ? debut : d.ti) : null;
+  // Durée du catalogue (tarif par jour ou par heure) ; inconnue : le tarif seul, sans montant proposé.
+  const fmChoisie = f ? d.ds.referentiels.formations.find(x => x.id === f) : undefined;
+  const coutTarif = tarif ? coutDuTarif(tarif, { effectif: Number(effectif) || 0, heures: fmChoisie?.dureeHeures ?? dureeHeuresDe(fmChoisie?.duree) }) : null;
+  const catalogue = f ? organismeDeFormation(d.ds, d.ds.referentiels.formations.find(x => x.id === f)) : null;
   // Formations du catalogue en vigueur, et celle de la ligne même archivée depuis.
   const formations = d.ds.referentiels.formations.filter(x => !x.archive || x.id === l.f);
   const equipes = d.equipes.includes(l.equipe) ? d.equipes : [l.equipe, ...d.equipes];
@@ -39,6 +55,9 @@ export function PlanLigneDialog({ id }: { id: number }) {
     setBusy(true);
     const r = await run('plan.modifier', {
       id: l.id, f: f || null, libelle: f ? undefined : libelle.trim(), equipe, periode, effectif: effectif.trim(), cout: cout.trim().replace(/\s/g, '').replace(',', '.'), motif: motif.trim(),
+      // lot 12 — C4 : s'il change, ou avec une autre formation (le sélecteur est alors revenu au catalogue, sauf nouveau
+      // choix) : l'écran et le serveur concordent.
+      ...(organismeId !== (l.organismeId != null ? String(l.organismeId) : '') || (f || null) !== (l.f ?? null) ? { organismeId } : {}),
     });
     setBusy(false);
     if (r.ok) closeDialog();
@@ -50,7 +69,7 @@ export function PlanLigneDialog({ id }: { id: number }) {
       <SubmitButton busy={busy}>Enregistrer la correction</SubmitButton>
     </>}>
       <Field label="Formation" htmlFor="pl-f" requis erreur={v.erreur(e.formation) || (f !== (l.f ?? HORS) ? e.formation : null)}>
-        <select className="input" id="pl-f" value={f} onChange={ev => setF(ev.target.value)} disabled={!!session}>
+        <select className="input" id="pl-f" value={f} onChange={ev => { setF(ev.target.value); setOrganismeId(''); }} disabled={!!session}>
           {formations.map(o => <option key={o.id} value={o.id}>{o.nom}</option>)}
           <option value={HORS}>Hors catalogue</option>
         </select>
@@ -78,6 +97,18 @@ export function PlanLigneDialog({ id }: { id: number }) {
           <input className="input tnum" id="pl-cout" inputMode="decimal" value={cout} onChange={ev => setCout(ev.target.value)} />
         </Field>
       </div>
+      {/* lot 12 — C4 : organisme prévu (avertissements Qualiopi au début du trimestre) et tarif en vigueur proposé. */}
+      <ChoixOrganisme id="pl-organisme" valeur={organismeId} onChange={setOrganismeId} actuel={l.organismeId ?? null} label="Organisme prévu"
+        vide={catalogue ? `Celui du catalogue (${catalogue.nomUsuel})` : 'Celui du catalogue'} le={debut > d.ti ? debut : d.ti} />
+      {tarif && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+          <span className="text-muted sub">
+            Tarif en vigueur : {fmtEur(tarif.montantHt)} {UNITES_TARIF[tarif.unite]}
+            {coutTarif == null ? ' (durée du catalogue inconnue : coût à calculer)' : coutTarif !== tarif.montantHt ? `, soit ${fmtEur(coutTarif)}` : ''}.
+          </span>
+          {coutTarif != null && String(coutTarif) !== cout.trim().replace(',', '.') && <Btn small onClick={() => setCout(String(coutTarif))}>Reprendre ce coût</Btn>}
+        </div>
+      )}
       <Field label="Motif de la correction" htmlFor="pl-motif" requis erreur={v.erreur(motifErr)}>
         <textarea className="input mid" id="pl-motif" rows={2} maxLength={MOTIF_CORRECTION_MAX} placeholder="Erreur de trimestre à l’import, effectif revu…"
           value={motif} onChange={ev => setMotif(ev.target.value)} />

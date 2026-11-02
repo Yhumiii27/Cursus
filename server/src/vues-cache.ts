@@ -378,6 +378,24 @@ export const CHAMPS_PAR_SALARIE: ReadonlySet<keyof Dataset> = new Set<keyof Data
   // lot 11 — notes de frais : lignes par salarié, lues par la vue à travers le filtre propre aux frais (server/src/dataset.ts :
   // équipe directe et délégations « frais », sous-ensemble du périmètre retenu de la vue).
   'notesFrais', 'lignesFrais', 'vehiculesPerso', 'avancesFrais',
+  // lot 12 — C1 (forfait annuel en heures)
+  'cloturesForfaitHeures',
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // Objectifs : lignes par salarié, lues par la vue à travers `direct(mine(…))` comme les entretiens.
+  'objectifs',
+  // lot 12 — C4 (organismes de formation et e-learning) : inscriptions aux modules d'e-learning, les siennes ou celles du
+  // périmètre (server/src/vues-organismes.ts). Fiches et modules (`referentiels.organismes`, `modulesElearning`) : champs
+  // communs, leur écriture, rare, recalcule toutes les vues.
+  'inscriptionsElearning',
+  // lot 12 — C5 (planning d'équipe) : créneaux nominatifs et affectations au roulement, lus à travers le périmètre de la vue
+  // (collègues compris quand le réglage `planningCollegues` les ouvre au collaborateur : ajoutés aux salariés lus par
+  // server/src/dataset.ts). Les créneaux « à pourvoir », les échanges (deux salariés), les cycles, les besoins et les
+  // publications sont des champs communs.
+  'creneaux', 'roulements',
+  // lot 12 — C6 (badgeage virtuel)
+  // Demandes de correction de pointage : lignes par salarié, lues par la vue à travers `mine(…)` (server/src/vues-pointage.ts).
+  'correctionsPointage',
 ]);
 
 /**
@@ -392,6 +410,15 @@ export const CHAMPS_HORS_VUES: ReadonlySet<keyof Dataset> = new Set<keyof Datase
   'indicateursArretes',
   // lot 11 — dossiers OPCO : service RH et lecture seule seulement.
   'dossiersOpco', 'versementsOpco',
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // Feedback 360° (étape 3) : les sollicitations sont lues par la vue de l'évaluateur, de l'évalué et du répondant (deux
+  // salariés par ligne) : champ commun, leur écriture, rare, recalcule toutes les vues ; réponses hors de l'instantané.
+  // lot 12 — C4 (organismes de formation et e-learning) : fiches complètes, contacts et tarifs, vides hors de l'espace RH.
+  'organismes', 'organismeContacts', 'organismeTarifs',
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
 ]);
 
 /** Salariés lus par chaque vue collaborateur ou manager calculée par `vueDe` (jamais une propriété de la vue : rien n'en part au navigateur). */

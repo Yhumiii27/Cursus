@@ -23,6 +23,19 @@ import { C2P_COLONNES, PASSEPORT_PREVENTION } from './lot7-prevention.ts';
 import { INDEX_ATTENTES, INDEX_EVALUATIONS } from './lot7-formations.ts';
 import { PIECES_CHIFFREES } from './lot8-pieces.ts';
 import { INDEX_JOURNAL_COMPTE } from './lot8-index-journal.ts';
+// lot 12 — C1 (forfait annuel en heures)
+import { FORFAIT_HEURES } from './lot12-forfait-heures.ts';
+// lot 12 — C2 (notes de frais : activation)
+import { INDEX_FRAIS_FENETRE } from './lot12-frais.ts';
+import { FRAIS_SANTE } from './lot12-frais-sante.ts';
+// lot 12 — C3 (entretiens suivis et 360°)
+import { ENTRETIENS_SUIVIS_INDEX } from './lot12-entretiens.ts';
+// lot 12 — C4 (organismes de formation et e-learning)
+import { ELEARNING_INDEX, ORGANISMES } from './lot12-organismes.ts';
+// lot 12 — C5 (planning d'équipe)
+import { PLANNING_EQUIPE } from './lot12-planning.ts';
+// lot 12 — C6 (badgeage virtuel)
+import { BADGEAGE } from './lot12-badgeage.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   INDEX_JOURNAL,
@@ -61,4 +74,19 @@ export const MIGRATIONS: readonly Migration[] = [
   INDEX_EVALUATIONS,
   PIECES_CHIFFREES,
   INDEX_JOURNAL_COMPTE,
+  // lot 12 — C1 (forfait annuel en heures)
+  FORFAIT_HEURES,
+  // lot 12 — C2 (notes de frais : activation)
+  INDEX_FRAIS_FENETRE,
+  // lot 12 — C3 (entretiens suivis et 360°)
+  ENTRETIENS_SUIVIS_INDEX,
+  // lot 12 — C4 (organismes de formation et e-learning)
+  ORGANISMES,
+  ELEARNING_INDEX,
+  // lot 12 — C5 (planning d'équipe)
+  PLANNING_EQUIPE,
+  // lot 12 — C6 (badgeage virtuel)
+  BADGEAGE,
+  // lot 12 — C2, étape 2 (notes de frais : scission des frais médicaux), ajoutée en fin de liste à la fusion.
+  FRAIS_SANTE,
 ];

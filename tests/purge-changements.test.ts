@@ -193,7 +193,7 @@ test('PostgreSQL : controlerSchema refuse une table sans ses déclencheurs revis
   await assert.rejects(autre.controlerSchema(), /table changements/);
 });
 
-test('migrations PostgreSQL publiées intactes (empreintes figées, 0001 à 0020)', () => {
+test('migrations PostgreSQL publiées intactes (empreintes figées, 0001 à 0022)', () => {
   // Une migration publiée ne se modifie jamais : une nouvelle migration reçoit le numéro suivant, et son empreinte
   // s'ajoute ici une fois publiée. Fins de ligne normalisées (copie de travail sous Windows).
   const PUBLIEES: Record<string, string> = {
@@ -223,11 +223,27 @@ test('migrations PostgreSQL publiées intactes (empreintes figées, 0001 à 0020
     '0019_dossiers_opco': '163ffa3e5b8ead112791390aa9f7b7dfb7e900ed40921801b02e049a85951a9a',
     // lot 11 — notes de frais
     '0020_notes_frais': 'a6f80c29e24c6c01370b629bac909f942ff3fab0fbaabe51ef2b10a4495854ac',
+    // lot 12 — socle commun
+    '0021_lot12_socle': 'e9e07190fdebbc53afb5c6def2231988653a3fa497c3b26e70ff0e493493b1d4',
+    // lot 12 — C1 (forfait annuel en heures)
+    '0022_forfait_heures': 'ef7a7c5879db40e56aba879dccbad653abaf60cd2e032b2fada3ecb3c9130fcd',
+    // lot 12 — C2 (notes de frais : activation) : index de la fenêtre des notes de frais
+    '0023_frais_fenetre': 'db8e6ecc7c927084337a1a3cc106354e6efc516deac79e209cf9ac9a4af73f54',
+    // lot 12 — C3 (entretiens suivis et 360°)
+    '0024_entretiens_suivis': 'b934dc365ccff22c5250c9142f383b07c901cbe7a3817ae246254f3fe65693dd',
+    // lot 12 — C4 (organismes de formation et e-learning)
+    '0025_organismes_elearning': '667c37b53a1ccf06880adfa6defcaee4b07ab954d520ba4a6a1ce6a147f045ac',
+    // lot 12 — C5 (planning d'équipe)
+    '0026_planning_equipe': '76fb4a6b9769013348de362431ee385e950d3529f8481475c6dbd1f75f431d21',
+    // lot 12 — C6 (badgeage virtuel)
+    '0027_badgeage': '3f7be6c9911954cdb62454291f7ee71043bd73f79b84509983f5098b4c16e408',
+    // lot 12 — C2, étape 2 : scission des frais médicaux.
+    '0029_frais_sante': '5f9c1c5293d0578ad79d3f5956232cf60e122cdb207833d63425090ee0b32972',
   };
   const lues = new Map(migrationsPg().map(m => [m.nom, createHash('sha256').update(m.sql.replace(/\r\n/g, '\n')).digest('hex')]));
   for (const [nom, empreinte] of Object.entries(PUBLIEES)) assert.equal(lues.get(nom), empreinte, `${nom} modifiée ou absente`);
   const suivantes = [...lues.keys()].filter(n => !(n in PUBLIEES));
-  assert.ok(suivantes.every(n => n > '0020'), `migrations nouvelles numérotées après 0020 : ${suivantes.join(', ')}`);
+  assert.ok(suivantes.every(n => n > '0021'), `migrations nouvelles numérotées après 0021 : ${suivantes.join(', ')}`);
 });
 
 test('npm run revision:epoque : époque du fichier SQLite changée, option inconnue refusée', { skip: PG && 'commande lancée sur le fichier SQLite' }, async () => {

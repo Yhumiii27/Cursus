@@ -5,7 +5,7 @@
 import { isValidDate } from './dates.ts';
 import { CONTRATS_EXCLUABLES, PREAVIS_TOUTE_ANNEE } from './rules/campagne.ts';
 import { JOURS_RELANCE, paliersRelance } from './rules/relances.ts';
-import { nuitHorsLoi, refusPlageNuit } from './rules/repos-nuit.ts';
+import { nuitHorsLoi, refusPlageNuit, REPOS_QUOTIDIEN } from './rules/repos-nuit.ts';
 import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesTexte, DOSSIER_MIN_ANS, DUREE_MAX_ANS, FRAIS_MIN_ANS } from './rules/conservation.ts';
 import { DELAI_JOUR_FRANC, DELAI_PREVENANCE_LEGAL } from './rules/astreintes.ts';
 import { COLONNES_PASSEPORT_DEFAUT, COLONNES_PASSEPORT_IDS } from './rules/passeport-prevention.ts';
@@ -14,7 +14,17 @@ import type { CategorieEvaluee, CategorieFrais, CircuitFrais, CodeOpco, ColonneP
 import { NATURES_ABSENTEISME_DEFAUT, NATURES_ABSENTEISME_POSSIBLES, SEUIL_INDICATEURS_DEFAUT, SEUIL_INDICATEURS_MAX, SEUIL_INDICATEURS_MIN } from './rules/indicateurs-legaux.ts';
 import { CODES_OPCO } from './rules/opco.ts';
 // lot 11 — notes de frais, étape 2
+// lot 12 — C5 (planning d'équipe)
+import { DELAI_PREVENANCE_PLANNING, DELAI_PREVENANCE_PLANNING_MIN, NUIT_JOUR_ACCORD_MAX, NUIT_JOUR_LEGAL, NUIT_MOYENNE_ACCORD_MAX, NUIT_MOYENNE_LEGALE, planningHorsLoi, refusActivationPlanning, REPOS_QUOTIDIEN_ACCORD_MIN } from './rules/planning-controles.ts';
 import { COMPTE_FRAIS_GENERIQUE, COMPTE_SALARIE, COMPTE_TVA_DEDUCTIBLE, estCompte, estJournal, GABARIT_FRAIS_DEFAUT, JOURNAL_FRAIS, lireComptes, lireGabarit } from './rules/frais-export.ts';
+// lot 12 — C1 (forfait annuel en heures)
+import { ABSENCES_DEDUCTIBLES, ABSENCES_DEDUITES_DEFAUT, DEBUT_SUIVI_DEFAUT, forfaitHeuresHorsDefaut, SEUIL_25_DEFAUT } from './rules/forfait-heures.ts';
+import type { EmissionForfaitHeures } from './rules/forfait-heures.ts';
+// lot 12 — C3 (entretiens suivis et 360°)
+import { CONSERVATION_360_MAX_MOIS, FENETRE_360_DEFAUT, refusActivation360, SEUIL_360_MAX, SEUIL_360_MIN } from './rules/feedback360.ts';
+// lot 12 — C6 (badgeage virtuel)
+import { CONSERVATION_POINTAGES_MAX, CONSERVATION_POINTAGES_MIN, lirePopulations, refusActivationPointage } from './rules/pointage.ts';
+import { FINALITE_MAX, lirePopulationsGeoloc, PRECISION_DEFAUT_M, PRECISION_MAX_M, PRECISION_MIN_M, refusActivationGeoloc } from './rules/geolocalisation.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
 export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
@@ -284,7 +294,8 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   // — Agenda personnel (parametres/Agenda.tsx, server/src/agenda.ts, t036) : flux par abonnement désactivé par défaut ;
   //   absences toujours publiées sous le libellé neutre « Absent » —
   agendaFluxActif: { defaut: false, controle: booleen },
-  agendaContenu: { defaut: ['sessions', 'entretiens', 'absences', 'deplacements'], controle: parmi<ContenuAgenda>(['sessions', 'entretiens', 'absences', 'deplacements']) },
+  // lot 12 — C5 : « postes » (postes publiés du planning d'équipe, le module activé), compris par défaut.
+  agendaContenu: { defaut: ['sessions', 'entretiens', 'absences', 'deplacements', 'postes'], controle: parmi<ContenuAgenda>(['sessions', 'entretiens', 'absences', 'deplacements', 'postes']) },
   // — Astreintes (t049, lot 7, shared/rules/astreintes.ts ; section de Paramètres à l'étape 2) : accord inconnu (réponse de
   //   l'entreprise du 23 octobre 2026) — délai de prévenance légal de 15 jours (art. R3121-3), compensation financière,
   //   aucune astreinte pour un salarié mineur, référence de l'accord vide —
@@ -353,6 +364,76 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
     return j;
   } },
   fraisGabarit: { defaut: GABARIT_FRAIS_DEFAUT, controle: v => { const g = lireGabarit(v); if (typeof g === 'string') throw new ReglageInvalide(`Fichier d’écritures : ${g}`); return g; } },
+  // lot 12 — C1 (forfait annuel en heures)
+  // Forfait annuel en heures (shared/rules/forfait-heures.ts) : année civile, suivi à partir de la mise en service (le
+  //   réalisé de 2026 n'est pas repris), 25 % jusqu'à 8 h par semaine travaillée sous forfait puis 50 %, toutes les absences
+  //   hors CP légaux déduites au forfait divisé par les jours ouvrés théoriques (réponses du propriétaire du 1er novembre
+  //   2026), émission au mois de la confirmation, sans imputation sur le contingent tant que la paie ne l'a pas confirmée —
+  forfaitHeuresDebutPeriode: { defaut: '01-01', controle: jourDeLAnnee },
+  forfaitHeuresDebutSuivi: { defaut: DEBUT_SUIVI_DEFAUT, controle: v => { const d = dateOuVide('Début du suivi du forfait annuel en heures')(v); if (!d) throw new ReglageInvalide('Début du suivi du forfait annuel en heures : date attendue'); return d; } },
+  forfaitHeuresAccord: { defaut: '', controle: texte(120, 'Référence de l’accord sur le forfait annuel en heures') },
+  forfaitHeuresSeuil25: { defaut: SEUIL_25_DEFAUT, controle: entier(0, 48) },
+  forfaitHeuresAbsencesDeduites: { defaut: [...ABSENCES_DEDUITES_DEFAUT], controle: parmi(ABSENCES_DEDUCTIBLES) },
+  forfaitHeuresJour: { defaut: 0, controle: (v, actuelle: number) => { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.min(12, Math.round(n * 100) / 100)) : actuelle; } },
+  forfaitHeuresEmission: { defaut: 'cloture', controle: choix<EmissionForfaitHeures>(['cloture', 'periode']) },
+  forfaitHeuresContingent: { defaut: false, controle: booleen },
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°) : objectifs aux entretiens annuels, facultatifs la première année (la clôture
+  //   n'exige pas encore l'évaluation des objectifs repris), 8 au plus par entretien ; point de mi-année facultatif, dû du
+  //   1er mai au 15 juillet seulement si le service RH le rend obligatoire (choix par défaut du chantier) —
+  objectifsActifs: { defaut: true, controle: booleen },
+  objectifsFacultatifs: { defaut: true, controle: booleen },
+  objectifsMax: { defaut: 8, controle: entier(1, 20) },
+  pointMiAnneeActif: { defaut: false, controle: booleen },
+  pointMiAnneeDebut: { defaut: '05-01', controle: jourDeLAnnee },
+  pointMiAnneeFin: { defaut: '07-15', controle: jourDeLAnnee },
+  //   Feedback 360° (étape 3) : désactivé, activé seulement avec les références de l'avis du CSE et de l'AIPD (COHERENCE) ;
+  //   seuil de restitution 3 par catégorie (jamais moins) ; fenêtre de 21 jours ; réponses brutes gardées 6 mois au plus —
+  feedback360Actif: { defaut: false, controle: booleen },
+  feedback360Cse: { defaut: '', controle: texte(120, 'Feedback 360°, référence de l’avis du CSE') },
+  feedback360Aipd: { defaut: '', controle: texte(120, 'Feedback 360°, référence de l’analyse d’impact (AIPD)') },
+  feedback360Seuil: { defaut: SEUIL_360_MIN, controle: entier(SEUIL_360_MIN, SEUIL_360_MAX) },
+  feedback360FenetreJours: { defaut: FENETRE_360_DEFAUT, controle: entier(7, 42) },
+  feedback360ConservationMois: { defaut: CONSERVATION_360_MAX_MOIS, controle: entier(1, CONSERVATION_360_MAX_MOIS) },
+  // lot 12 — C4 (organismes de formation et e-learning)
+  //   Qualiopi : première relance du service RH 60 jours avant la fin de validité (puis 15 jours et l'échéance), avertissement
+  //   seulement ; fin d'un module d'e-learning validée par le service RH, pas d'office à l'import (choix par défaut du chantier) —
+  organismeAlerteQualiopiJours: { defaut: 60, controle: entier(16, 180) },
+  elearningFinAutoImport: { defaut: false, controle: booleen },
+  // lot 12 — C5 (planning d'équipe, shared/rules/planning*.ts ; section de Paramètres à l'étape 2) : module désactivé
+  //   jusqu'à l'avis du CSE ; délai de prévenance de 7 jours (supplétif, art. L3121-47) ; repos quotidien de 11 h, durées du
+  //   travailleur de nuit de la loi (8 h, 40 h) tant que l'accord n'est pas connu ; planning des collègues fermé —
+  planningActif: { defaut: false, controle: booleen },
+  planningDelaiPrevenance: { defaut: DELAI_PREVENANCE_PLANNING, controle: entier(DELAI_PREVENANCE_PLANNING_MIN, 60) },
+  planningReposQuotidienAccord: { defaut: REPOS_QUOTIDIEN, controle: entier(REPOS_QUOTIDIEN_ACCORD_MIN, REPOS_QUOTIDIEN) },
+  planningNuitJour: { defaut: NUIT_JOUR_LEGAL, controle: entier(NUIT_JOUR_LEGAL, NUIT_JOUR_ACCORD_MAX) },
+  planningNuitMoyenne: { defaut: NUIT_MOYENNE_LEGALE, controle: entier(NUIT_MOYENNE_LEGALE, NUIT_MOYENNE_ACCORD_MAX) },
+  planningAccord: { defaut: '', controle: texte(120, 'Référence de l’accord sur le planning') },
+  planningCollegues: { defaut: false, controle: booleen },
+  // Date de l'avis du CSE, exigée pour activer le module (COHERENCE), comme pour le badgeage (C6).
+  planningCseLe: { defaut: null, controle: dateOuVide('Planning d’équipe, date de l’avis du CSE') },
+  // lot 12 — C6 (badgeage virtuel) (shared/rules/pointage.ts ; section Paramètres → Badgeage à l'étape 2) : module désactivé ;
+  //   aucune population ; référence de l'accord et date de l'avis du CSE exigées pour l'activer (COHERENCE) ; intérimaires
+  //   exclus ; corrections demandées sous 7 jours ; hors ligne admis, signalé au-delà de 5 min d'écart ; écart déclaré /
+  //   pointé signalé au-delà de 15 min par jour ; pointages bruts gardés 3 ans (1 an au moins, art. D3171-16 ; 5 ans au plus,
+  //   référentiel CNIL), durée à confirmer avec le DPO —
+  pointageActif: { defaut: false, controle: booleen },
+  pointagePopulations: { defaut: [], controle: v => { const l = lirePopulations(v); if (typeof l === 'string') throw new ReglageInvalide(l); return l; } },
+  pointageAccord: { defaut: '', controle: texte(200, 'Badgeage, référence de l’accord') },
+  pointageCseLe: { defaut: null, controle: dateOuVide('Badgeage, date de l’avis du CSE') },
+  pointageInterim: { defaut: false, controle: booleen },
+  pointageDelaiCorrectionJours: { defaut: 7, controle: entier(1, 31) },
+  pointageHorsLigne: { defaut: true, controle: booleen },
+  pointageEcartDiffereMin: { defaut: 5, controle: entier(1, 60) },
+  pointageEcartAnomalieMin: { defaut: 15, controle: entier(0, 240) },
+  conservationPointagesAns: { defaut: 3, controle: entier(CONSERVATION_POINTAGES_MIN, CONSERVATION_POINTAGES_MAX) },
+  // Étape 3 (shared/rules/geolocalisation.ts) : géolocalisation au pointage désactivée ; aucune population ; finalité écrite
+  //   (jamais au journal) et date de l'AIPD exigées pour l'activer (COHERENCE) ; précision exigée de 100 m.
+  geolocActive: { defaut: false, controle: booleen },
+  geolocPopulations: { defaut: [], controle: v => { const l = lirePopulationsGeoloc(v); if (typeof l === 'string') throw new ReglageInvalide(l); return l; } },
+  geolocFinalite: { defaut: '', controle: texte(FINALITE_MAX, 'Géolocalisation, finalité') },
+  geolocAipdLe: { defaut: null, controle: dateOuVide('Géolocalisation, date de l’analyse d’impact (AIPD)') },
+  geolocPrecisionM: { defaut: PRECISION_DEFAUT_M, controle: entier(PRECISION_MIN_M, PRECISION_MAX_M) },
 };
 
 /**
@@ -409,6 +490,32 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   // — Astreintes : un délai de prévenance plus court que 15 jours suppose un accord collectif (art. L3121-11) —
   s => (s.astreinteDelaiPrevenance < DELAI_PREVENANCE_LEGAL && !s.astreinteAccord
     ? `Astreintes : un délai de prévenance de moins de ${DELAI_PREVENANCE_LEGAL} jours suppose un accord collectif (art. L3121-11) : indiquez sa référence` : null),
+  // lot 12 — C1 (forfait annuel en heures)
+  // Forfait annuel en heures : une autre période de référence, un autre seuil de la tranche à 25 %, d'autres absences
+  // déduites ou une autre durée journalière supposent l'accord collectif (art. L3121-64 et L3121-63, 3°) —
+  s => (forfaitHeuresHorsDefaut(s) && !s.forfaitHeuresAccord
+    ? 'Forfait annuel en heures : une période de référence, une majoration, des absences déduites ou une durée journalière autres que celles par défaut supposent un accord collectif (art. L3121-63 et L3121-64) : indiquez sa référence' : null),
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°) : fenêtre du point de mi-année dans l'année civile, l'ouverture avant la fin —
+  s => (s.pointMiAnneeDebut > s.pointMiAnneeFin ? 'Point de mi-année : le début de la fenêtre doit précéder sa fin, dans la même année' : null),
+  // Feedback 360° : moyen d'évaluation des salariés, activé seulement après l'avis du CSE (art. L2312-38) et l'analyse
+  // d'impact (RGPD art. 35), dont les références sont notées —
+  s => refusActivation360(s),
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe) : un délai de prévenance plus court que 7 jours (art. L3121-42 et L3121-44), un repos
+  // quotidien réduit (art. L3131-2, D3131-1 et suivants) ou d'autres durées du travailleur de nuit (art. L3122-6 et
+  // L3122-7) supposent un accord collectif —
+  s => (planningHorsLoi(s) && !s.planningAccord
+    ? 'Planning d’équipe : un délai de prévenance de moins de 7 jours, un repos quotidien réduit ou d’autres durées du travail de nuit supposent un accord collectif : indiquez sa référence' : null),
+  // L'organisation en cycles et l'outil de planning relèvent de la consultation du CSE (art. L2312-8) : activation après son
+  // avis, dont la date est notée —
+  s => refusActivationPlanning(s),
+  // lot 12 — C6 (badgeage virtuel) : moyen de contrôle de l'activité, activé seulement après l'information et la
+  // consultation du CSE (art. L2312-38) et sur le fondement de l'accord d'entreprise ; sans elles, des pointages seraient
+  // inopposables (art. L1222-4) —
+  s => refusActivationPointage(s),
+  // Étape 3 : la géolocalisation suppose le badgeage, une finalité écrite, l'AIPD validée par le DPO et ses populations —
+  s => refusActivationGeoloc(s),
 ];
 
 /** Vue non typée de la table, pour la parcourir (les contrôles reçoivent la valeur en vigueur du même champ). */

@@ -29,10 +29,16 @@ import { LignesEvaluationsAFaire, MesAvisFormations } from '../components/Evalua
 import { attenteActive, placeTexte } from '../../../shared/rules/liste-attente.ts';
 import { imprimerPasseport } from '../passeport.ts';
 import { DelegationsPortail, suppleanceTexte } from '../components/Delegations.tsx';
+// lot 12 — C4 (organismes de formation et e-learning)
+import { MesModules } from '../components/elearning/MesModules.tsx';
 import { useEnriched, useRole, useTrips } from '../state/derived.ts';
 import { api } from '../api.ts';
 import { useStore } from '../state/store.tsx';
+// lot 12 — C3 (entretiens suivis)
+import { BadgeEntretien } from '../components/OrigineEntretien.tsx';
 import { reqKind, reqLabel } from './Dashboard.tsx';
+// lot 12 — C6 (badgeage virtuel)
+import { BoutonPointer } from '../components/BoutonPointer.tsx';
 
 const docCls = (k: string) => k === 'exp' ? 'tag-accent' : k === 'due' ? 'tag-outline' : 'tag-neutral';
 /** Ligne de liste du portail : filet estompé, espacement du prototype. */
@@ -74,7 +80,9 @@ export function Portail() {
   const mgrId = d.mgrOf(me);
   // Ce qui attend le collaborateur : les mêmes nombres que les pastilles du menu (layout/Shell.tsx).
   const aFaire = aFaireCollaborateur(d, me.id);
-  const nAFaire = aFaire.comptesRendus.length + aFaire.feuilles.length + aFaire.evaluations.length;
+  const nAFaire = aFaire.comptesRendus.length + aFaire.feuilles.length + aFaire.evaluations.length
+    // lot 12 — C3 (entretiens suivis) : objectifs à mettre à jour ; avis 360° demandés (étape 3).
+    + aFaire.objectifs.length + aFaire.avis360.length;
 
   return (
     <div className="page">
@@ -98,6 +106,9 @@ export function Portail() {
           <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'reqForm' })}>Demander une formation</Btn>
         </div>
       </header>
+
+      {/* lot 12 — C6 (badgeage virtuel) : bouton « Pointer », pour un salarié d'une population badgée, le module activé. */}
+      <BoutonPointer />
 
       {nAFaire > 0 && (
         <Panel highlight title="À faire" aside={plural(nAFaire, 'action attendue', 'actions attendues')} style={{ gap: 'var(--space-2)' }}>
@@ -126,6 +137,26 @@ export function Portail() {
             ))}
             {/* Évaluations de formation attendues (lot 7, t121) : avis à chaud, efficacité à froid. */}
             <LignesEvaluationsAFaire liste={aFaire.evaluations} />
+            {/* lot 12 — C3 (entretiens suivis) : objectifs proches de leur échéance sans mise à jour depuis un mois. */}
+            {aFaire.objectifs.map(o => (
+              <div key={`o${o.id}`} className="list-row">
+                <div className="grow">
+                  <div style={{ fontSize: 14 }}>{o.libelle}</div>
+                  <div className="text-muted sub">Objectif à échéance le {fmt(parse(o.echeance!))}, sans mise à jour depuis un mois : où en êtes-vous ?</div>
+                </div>
+                <Btn small variant="secondary" style={{ flex: 'none' }} onClick={() => openDialog({ type: 'objectifAvancer', id: o.id })}>Mettre à jour</Btn>
+              </div>
+            ))}
+            {/* lot 12 — C3 (feedback 360°, étape 3) : avis demandés, à donner ou décliner dans « Avis demandés ». */}
+            {aFaire.avis360.length > 0 && (
+              <div className="list-row">
+                <div className="grow">
+                  <div style={{ fontSize: 14 }}>{plural(aFaire.avis360.length, 'avis confidentiel vous est demandé', 'avis confidentiels vous sont demandés')} (feedback 360°)</div>
+                  <div className="text-muted sub">À donner ou décliner avant le {fmt(parse(aFaire.avis360[0].echeance ?? d.ti))}</div>
+                </div>
+                <Btn small variant="secondary" style={{ flex: 'none' }} onClick={() => go('avis')}>Voir les avis demandés</Btn>
+              </div>
+            )}
           </div>
         </Panel>
       )}
@@ -168,6 +199,9 @@ export function Portail() {
 
           {/* Listes d'attente des sessions complètes (lot 7, t120) : sa place dans la file, son retrait. */}
           <ListeAttentePortail empId={me.id} />
+
+          {/* lot 12 — C4 : modules d'e-learning, lien d'accès et « J'ai terminé ». */}
+          <MesModules empId={me.id} />
 
           <Panel title="Mes certifications" style={{ gap: 'var(--space-2)' }}>
             {me.certs.map(c => {
@@ -278,7 +312,8 @@ export function Portail() {
               <div key={r.id} className="list-row stack" style={{ ...rowStyle, gap: 'var(--space-1)' }}>
                 <div className="item-head">
                   <div>
-                    <div style={{ fontSize: 14 }}>{reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom)}</div>
+                    {/* lot 12 — C3 (entretiens suivis) : souhait exprimé en entretien, versé au service RH. */}
+                    <div style={{ fontSize: 14 }}>{reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom)}<BadgeEntretien d={d} r={r} /></div>
                     <div className="text-muted sub">{reqKind(r)} · {r.parId && r.parId !== me.id ? `demandée par ${d.personName(r.parId)} (manager) le` : 'envoyée le'} {fmtShort(parse(r.date))}</div>
                   </div>
                   <Tag cls={REQ_CLS[r.statut]} style={{ flex: 'none' }}>{REQ_LABEL[r.statut]}</Tag>

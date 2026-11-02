@@ -3,6 +3,14 @@
 // lot 11 — notes de frais, étape 2 : gabarit du fichier d'écritures (réglage `fraisGabarit`) et ses lignes (exports).
 import type { GabaritExportComptable, LigneEcriture } from './rules/export-comptable.ts';
 import type { AlerteFrais } from './rules/frais-politique.ts';
+// lot 12 — C1 (forfait annuel en heures)
+import type { ClotureForfaitHeures, ElementForfaitHeuresPaie, EmissionForfaitHeures } from './rules/forfait-heures.ts';
+export type { ClotureForfaitHeures, ElementForfaitHeuresPaie, EmissionForfaitHeures } from './rules/forfait-heures.ts';
+// lot 12 — C4 : organismes de formation et e-learning (shared/types-organismes.ts).
+import type { InscriptionElearning, ModuleElearning, Organisme, OrganismeContact, OrganismeResume, OrganismeTarif } from './types-organismes.ts';
+import type { IndicateursOrganisme } from './rules/organismes-suivi.ts';
+// lot 12 — C5 (planning d'équipe) : modèle du planning (shared/types-planning.ts).
+import type { BesoinPoste, Creneau, Cycle, EchangePoste, PublicationPlanning, Roulement } from './types-planning.ts';
 
 export type ISODate = string;
 export type Role = 'rh' | 'manager' | 'collaborateur';
@@ -60,7 +68,10 @@ export type AbsenceType = CongeType | NatureAbsence | 'ABSENCE';
 /** `signalee` : absence imprévue signalée, à qualifier par le service RH ; `annulee` : demande retirée ou absence annulée. */
 export type AbsenceStatut = 'demandee' | 'validee' | 'refusee' | 'signalee' | 'annulee';
 export type FeuilleStatut = 'brouillon' | 'soumise' | 'validee' | 'rejetee';
-export type EntretienType = 'epp' | 'reprise' | 'bilan' | 'annuel' | 'forfait';
+export type EntretienType = 'epp' | 'reprise' | 'bilan' | 'annuel' | 'forfait'
+  // lot 12 — C3 (entretiens suivis et 360°) : point de mi-année et point de suivi, sans obligation (sauf réglage).
+  | 'mi_annee' | 'point'
+  ;
 export type PlanStatut = 'prevu' | 'engage' | 'realise' | 'reporte';
 export type Trimestre = 'T1' | 'T2' | 'T3' | 'T4';
 export type VoyageOrigine = 'formulaire' | 'keystone' | 'cursus';
@@ -88,6 +99,9 @@ export interface Formation {
    * modifiable dans Référentiels → Formations ; absente ou fausse : non déclarée.
    */
   passeportPrevention?: boolean;
+  // lot 12 — C4
+  /** Organisme par défaut du catalogue (fiche, shared/types-organismes.ts) ; `organisme` reste son nom usuel, tenu à jour. */
+  organismeId?: number | null;
 }
 export interface HabType {
   id: string; nom: string; detail: string; prereqs: string[]; medical: boolean; validite: number; signataire: string; archive?: ISODate | null;
@@ -214,6 +228,15 @@ export interface Horaire {
    * pas encore qualifié (ses nuits comptent comme travail de nuit, signalées « à qualifier ») ; faux : non alternant.
    */
   alternant?: boolean | null;
+  // lot 12 — C6 (badgeage virtuel) : horaires variables (art. L3121-48 à L3121-52, étape 2) ; colonnes posées par la
+  // migration du chantier. Plages fixes et mobiles, durée de référence (minutes), plafonds du report d'une semaine à
+  // l'autre et du cumul (minutes ; supplétifs 3 h et 10 h), référence de l'accord exigée pour d'autres plafonds.
+  variable?: boolean | null;
+  plages?: PlageHoraire[] | null;
+  dureeReference?: number | null;
+  reportMaxSemaine?: number | null;
+  cumulMax?: number | null;
+  accordVariable?: string | null;
 }
 /** Horaire figé sur une feuille de temps : code, début, fin et pause au moment de la soumission ou de la validation. */
 export type HoraireFige = Pick<Horaire, 'code' | 'debut' | 'fin' | 'pause'>;
@@ -257,6 +280,9 @@ export interface Referentiels {
   forfaitsFrais?: ForfaitFrais[];
   /** Taux des devises par mois, saisis par la comptabilité ou le service RH ; absent : aucun. */
   tauxDevises?: TauxDevise[];
+  // lot 12 — C4
+  /** Organismes de formation réduits à leur nom (archivés et fusionnés compris) : transmis à tous les espaces. */
+  organismes?: OrganismeResume[];
 }
 
 // — Collaborateurs —
@@ -274,6 +300,9 @@ export interface Certification { id: number; empId: number; f: string; obtenue: 
    * elle est annulée ou change de formation (server/src/actions/inscriptions-closes.ts). Service RH seulement.
    */
   inscriptionsCloses?: Inscription[] | null;
+  // lot 12 — C4
+  /** Organisme saisi par un autre outil (Vigie, colonne du serveur commun, D09) ; aligné en SQLite au lot 12. */
+  organisme?: string | null;
 }
 /** Mesure prise sur un titre après un incident ou une restriction : suspension (réversible) ou retrait (définitif). */
 export type HabMesure = 'suspension' | 'retrait';
@@ -294,7 +323,9 @@ export interface HabDelivrance {
   le: ISODate; auteur: string | null; auteurId: number | null;
 }
 /** Origine d'une formation suivie : demande hors catalogue acceptée, action du plan réalisée, session, saisie directe. */
-export type OrigineFormationSuivie = 'demande' | 'plan' | 'session' | 'saisie';
+export type OrigineFormationSuivie = 'demande' | 'plan' | 'session' | 'saisie'
+  // lot 12 — C4 : fin d'un module d'e-learning validée par le service RH (shared/rules/elearning.ts).
+  | 'elearning';
 /**
  * Formation suivie par un salarié (t116, shared/rules/formations-suivies.ts), du catalogue (`f`) ou hors catalogue
  * (`libelle`) : dates, durée en heures (null : celle du catalogue, sinon inconnue), organisme, formation obligatoire ou non
@@ -307,6 +338,9 @@ export interface FormationSuivie {
   le: ISODate; auteur: string | null; auteurId: number | null;
   corrigeLe?: ISODate | null; corrigePar?: string | null; corrigeMotif?: string | null;
   annuleLe?: ISODate | null; annulePar?: string | null; annuleMotif?: string | null;
+  // lot 12 — C4
+  /** Fiche de l'organisme (null : texte libre seul, ou celui du catalogue). */
+  organismeId?: number | null;
 }
 /** Avis du médecin du travail à l'issue d'une visite : apte, apte avec restrictions ou aménagements de poste, inapte. */
 export type AvisMedical = 'apte' | 'restrictions' | 'inapte';
@@ -538,6 +572,9 @@ export interface Session {
   planId: number | null;
   /** Clôture (évaluation à chaud) ou annulation (motif) : date et auteur. */
   bilan: SessionBilan | null;
+  // lot 12 — C4
+  /** Organisme de la session, figé à sa création depuis le catalogue (l'historique ne bascule plus quand le catalogue change). */
+  organismeId?: number | null;
 }
 /** Horaire d'un jour de session : début et fin (« HH:MM », heure de Paris), pause non comptée en minutes. */
 export interface HoraireSession { debut: string; fin: string; pause: number }
@@ -625,7 +662,7 @@ export interface LigneEvaluation {
 export interface IndicateursEvaluation { exercice: number; total: LigneEvaluation; parOrganisme: LigneEvaluation[]; parFormation: LigneEvaluation[] }
 export interface PlanAction {
   id: number; exercice: number; f: string | null; libelle: string | null; equipe: string; periode: Trimestre; effectif: number; cout: number; statut: PlanStatut;
-  /** `import` (plan importé), `demande` (demande acceptée), `report` (action reportée d'un exercice clos) ; null : ancienne base, démonstration. */
+  /** `import` (plan importé), `demande` (demande acceptée), `entretien` (demande versée depuis un souhait d'entretien, lot 12), `report` (action reportée d'un exercice clos) ; null : ancienne base, démonstration. */
   origine: string | null;
   /** Coût et effectif réels, saisis à la clôture de l'action (« réalisé ») : le réalisé des enveloppes (shared/rules/budget.ts). */
   coutReel?: number | null;
@@ -638,6 +675,9 @@ export interface PlanAction {
    */
   corrigeLe?: ISODate | null; corrigePar?: string | null; corrigeMotif?: string | null;
   annuleLe?: ISODate | null; annulePar?: string | null; annuleMotif?: string | null;
+  // lot 12 — C4
+  /** Organisme prévu (fiche) ; null : celui du catalogue (shared/rules/organismes.ts, `organismeDuPlan`). */
+  organismeId?: number | null;
 }
 /** Exercice du plan de formation clos (`plan.cloturerExercice`) : plan et enveloppes en lecture seule. */
 export interface ExerciceClos { exercice: number; le: ISODate; par: string }
@@ -684,7 +724,12 @@ export interface Mission { id: number; empId: number; projet: string; lieu: stri
 export interface TacheKeystone { id: number; ref: string | null; empId: number; projet: string; tache: string; debut: ISODate; fin: ISODate; heures: Record<ISODate, number> }
 
 // — Temps & absences —
-export interface LigneTemps { projet: string; tache: string; ks: boolean; h: number[] }
+export interface LigneTemps {
+  projet: string; tache: string; ks: boolean; h: number[];
+  // lot 12 — C6 (badgeage virtuel) : ligne système PTG du mode « calcule » (shared/rules/pointage-feuille.ts), tirée des
+  // pointages, jamais saisie ni renvoyée à Keystone ; absente ailleurs.
+  pt?: boolean;
+}
 /** Régime de temps de travail figé sur une feuille soumise : un changement de contrat ultérieur ne la recalcule pas. */
 export type ContratFige = Pick<Employe, 'statut' | 'typeContrat' | 'temps' | 'heures' | 'forfaitHeures' | 'forfaitJours' | 'jourOff'>;
 /**
@@ -772,6 +817,15 @@ export interface FeuilleTemps {
    * celles du dimanche et des fériés. Null avant : le réglage s'applique.
    */
   majNuit?: number | null;
+  // lot 12 — C6 (badgeage virtuel)
+  /**
+   * Mode de décompte du temps figé à la création de la feuille (population badgée du salarié ce jour-là,
+   * shared/rules/pointage.ts) : une modification des populations ne recalcule jamais une semaine passée. Null ou absent :
+   * déclaratif. `pointeFige` : total pointé de chaque jour (heures), figé à la soumission puis à la validation (mode
+   * « calcule », étape 2).
+   */
+  modeTemps?: ModeTemps | null;
+  pointeFige?: number[] | null;
 }
 /**
  * Réouverture d'une feuille validée (action `temps.rouvrir`, administrateur RH seul, motif obligatoire) : ce qui était
@@ -878,7 +932,10 @@ export interface InterventionAstreinte {
 /** Délégation des validations d'un manager absent (t135, shared/rules/delegations-manager.ts) : ce que le suppléant valide. */
 export type PerimetreDelegation = 'absences' | 'feuilles' | 'entretiens'
   // lot 11 — notes de frais : validation des notes de l'équipe (stocké en JSON, sans contrainte CHECK)
-  | 'frais';
+  | 'frais'
+  // lot 12 — socle : publication du planning de l'équipe (chantier C5) ; stocké en JSON, sans contrainte CHECK. Ni retenu,
+  // ni proposé, ni accepté au socle (shared/rules/delegations-manager.ts) : C5 l'ouvre dans son bloc avec son module.
+  | 'planning';
 /**
  * Délégation datée des validations d'un manager à un suppléant (t135), bornes comprises. Saisie par le manager pour
  * lui-même ou par le service RH ; `creePar`, `revoqueePar` : nom de l'auteur ; `revoqueeLe` : horodatage de la révocation,
@@ -1066,9 +1123,76 @@ export interface Entretien {
    * le serveur sur l'âge exact à la date de l'entretien (`needsFinCarriere`, shared/rules/entretiens.ts).
    */
   finCarriere?: boolean;
+  // lot 12 — C3 (entretiens suivis et 360°)
+  /**
+   * Souhaits de formation exprimés à l'entretien (shared/rules/souhaits.ts), donnée sensible comme le compte rendu ;
+   * versés au service RH à la clôture s'ils ont l'avis favorable du manager. Absent : aucun (ancienne base, vues filtrées).
+   */
+  souhaits?: SouhaitFormation[] | null;
+  /** Synthèse du feedback 360° jointe à l'entretien (étape 3, module désactivé) : agrégats seulement, jamais une réponse. */
+  syntheseFeedback?: unknown;
 }
 /** Remise du compte rendu : en main propre, après un refus de signer, ou mis à disposition dans le portail (lien par e-mail). */
 export type ModeRemise = 'main_propre' | 'refus' | 'portail';
+// lot 12 — C3 (entretiens suivis et 360°)
+/**
+ * État d'un objectif (shared/rules/objectifs.ts) : `propose` par le salarié, à valider par le manager ; `ouvert` (fixé,
+ * suivi en cours d'année) ; puis évalué à l'entretien annuel suivant : atteint, partiellement, non atteint, devenu sans
+ * objet, ou reconduit (une nouvelle ligne `reconduitDe` le reprend).
+ */
+export type StatutObjectif = 'propose' | 'ouvert' | 'atteint' | 'partiel' | 'non_atteint' | 'sans_objet' | 'reconduit';
+export type CategorieObjectif = 'individuel' | 'collectif' | 'developpement';
+/**
+ * Objectif fixé à un entretien annuel (`entretienId`), évalué à l'entretien annuel suivant (`evalueEntretienId`). Textes
+ * libres (libellé, mesure, évaluation, commentaire du salarié, motif d'ajustement) sensibles : jamais au journal ni dans
+ * une vue `pub_`. `ajusteLe` : dernier ajustement en cours d'année (`objectif.ajuster`), `libelleInitial` : libellé fixé
+ * avant le premier ajustement qui l'a changé.
+ */
+export interface Objectif {
+  id: number; empId: number; entretienId: number; evalueEntretienId: number | null; reconduitDe: number | null;
+  libelle: string; mesure: string | null; categorie: CategorieObjectif; poids: number | null; echeance: ISODate | null;
+  avancement: number; statut: StatutObjectif; evaluation: string | null; commentaireSal: string | null;
+  creeLe: string; creePar: string; modifieLe: string | null; modifiePar: string | null;
+  ajusteLe: ISODate | null; ajusteMotif: string | null; libelleInitial: string | null;
+}
+/** Avis du manager sur un souhait de formation : seul l'avis favorable le verse au service RH à la clôture. */
+export type AvisSouhait = 'favorable' | 'defavorable' | 'a_discuter';
+export type PrioriteSouhait = 'haute' | 'normale' | 'basse';
+/**
+ * Souhait de formation exprimé à l'entretien (colonne `entretiens.souhaits`) : formation du catalogue (`f`) ou intitulé
+ * libre, priorité, objectif lié éventuel, auteur (salarié ou évaluateur), avis du manager ; à la clôture, demande de
+ * formation créée (`demandeId`, `verseLe`), ou raison codée de ne pas la créer (`nonVerse` : déjà demandée, déjà inscrit,
+ * formation archivée).
+ */
+export interface SouhaitFormation {
+  cle: string; f: string | null; libelle: string | null; priorite: PrioriteSouhait; objectifId: number | null;
+  auteur: 'sal' | 'mgr'; avis: AvisSouhait | null; demandeId: number | null; verseLe: ISODate | null;
+  nonVerse: 'deja_demande' | 'deja_inscrit' | 'archivee' | null;
+}
+/**
+ * Sollicitation d'un répondant au feedback 360° (étape 3, module désactivé) : évalué, entretien, répondant interne et sa
+ * relation (pair, N+2, collaborateur encadré), état et dates. Seule la sollicitation sait qu'une personne a répondu.
+ */
+export interface Sollicitation360 {
+  id: number; empId: number; entretienId: number; repondantEmpId: number; relation: 'pair' | 'n2' | 'encadre';
+  statut: 'proposee' | 'envoyee' | 'repondue' | 'declinee' | 'expiree' | 'annulee';
+  proposeeLe: string | null; proposeePar: string | null; envoyeeLe: string | null; echeance: ISODate | null; relanceeLe: string | null; closeLe: string | null;
+}
+/**
+ * Réponse au feedback 360° versée à la clôture de la fenêtre (étape 3) : identifiant non séquentiel, sans répondant ni
+ * date de réception ; verbatim restitué après modération du service RH.
+ */
+/** Compteur global d'une collecte 360° (shared/rules/feedback360.ts, `suivi360`) : nombres seulement. */
+export interface Suivi360 { entretienId: number; envoyees: number; reponses: number; declinees: number; echeance: ISODate | null; close: boolean }
+export interface Reponse360 {
+  id: string; empId: number; entretienId: number; relation: 'pair' | 'n2' | 'encadre'; versionQuestionnaire: string;
+  notes: Record<string, number>; verbatim: string | null; verbatimStatut: 'a_moderer' | 'retenu' | 'retire' | null; modereLe: string | null; moderePar: string | null;
+}
+/**
+ * Compteurs des objectifs d'une équipe (profil en lecture seule, consultation N+2) : nombres seulement, jamais un libellé
+ * ni un résultat ; `masque` sous le seuil d'anonymat (moins de 3 salariés concernés).
+ */
+export interface CompteurObjectifs { equipe: string; salaries: number; objectifs: number; ouverts: number; evalues: number; masque?: boolean }
 /** Demande au service RH, émise par le collaborateur ou par son manager (`parId`). */
 export interface DemandeCollab { id: number; empId: number; type: DemandeType; f: string | null; h: string | null; libelle: string | null; label: string | null; sessionId: number | null; motif: string | null; date: ISODate;
   /** `retiree` : retirée par son auteur tant qu'elle était en attente (`demande.annuler`). */
@@ -1080,6 +1204,9 @@ export interface DemandeCollab { id: number; empId: number; type: DemandeType; f
   suite?: SuiteDemande | null;
   /** Dernière réouverture par le service RH (`demande.reouvrir`) : le motif (texte libre) reste au service RH. */
   rouverteLe?: ISODate | null; rouvertePar?: string | null; rouverteMotif?: string | null;
+  // lot 12 — C3 (entretiens suivis et 360°)
+  /** Demande de formation versée depuis un souhait exprimé à cet entretien (origine « Entretien du … ») ; null sinon. */
+  entretienId?: number | null;
 }
 /**
  * Suite donnée à une demande acceptée : inscription à la session souhaitée (recyclage `certId` ou formation initiale
@@ -1358,6 +1485,106 @@ export interface Settings {
   fraisCompteSalarie: string;
   fraisJournal: string;
   fraisGabarit: GabaritExportComptable;
+  // lot 12 — C1 (forfait annuel en heures)
+  /**
+   * Forfait annuel en heures (shared/rules/forfait-heures.ts) : début de la période de référence (« MM-JJ », année civile par
+   * défaut), début du suivi dans Cursus (mise en service), référence de l'accord (exigée dès qu'une valeur ci-dessous diffère
+   * du défaut), heures par semaine travaillée majorées de 25 % avant la tranche à 50 %, natures d'absence déduites de la
+   * cible, heures déduites par jour d'absence (0 : forfait divisé par les jours ouvrés théoriques), mois d'émission des heures
+   * de la clôture, imputation sur le contingent annuel (désactivée tant que la paie ne l'a pas confirmée).
+   */
+  forfaitHeuresDebutPeriode: string;
+  forfaitHeuresDebutSuivi: ISODate;
+  forfaitHeuresAccord: string;
+  forfaitHeuresSeuil25: number;
+  forfaitHeuresAbsencesDeduites: AbsenceType[];
+  forfaitHeuresJour: number;
+  forfaitHeuresEmission: EmissionForfaitHeures;
+  forfaitHeuresContingent: boolean;
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  /**
+   * Entretiens suivis (shared/rules/objectifs.ts) : objectifs structurés aux entretiens annuels ; « objectifs facultatifs »
+   * (activé la première année) : la clôture n'exige pas l'évaluation des objectifs repris ; nombre d'objectifs au plus par
+   * entretien ; point de mi-année facultatif, ou dû dans une fenêtre (« MM-JJ ») quand il est rendu obligatoire.
+   */
+  objectifsActifs: boolean;
+  objectifsFacultatifs: boolean;
+  objectifsMax: number;
+  pointMiAnneeActif: boolean;
+  pointMiAnneeDebut: string;
+  pointMiAnneeFin: string;
+  /**
+   * Feedback 360° (shared/rules/feedback360.ts, étape 3) : désactivé ; activable seulement avec la référence de l'avis du
+   * CSE et celle de l'analyse d'impact (AIPD) ; seuil de restitution par catégorie (3 à 5), fenêtre de réponse (jours),
+   * conservation des réponses brutes après la sollicitation (mois, 6 au plus).
+   */
+  feedback360Actif: boolean;
+  feedback360Cse: string;
+  feedback360Aipd: string;
+  feedback360Seuil: number;
+  feedback360FenetreJours: number;
+  feedback360ConservationMois: number;
+  // lot 12 — C4 (organismes de formation et e-learning)
+  /**
+   * Relance du service RH avant la fin de validité Qualiopi d'un organisme : premier palier en jours (60 par défaut), puis
+   * 15 jours et l'échéance (shared/rules/organismes.ts) ; avertissement seulement, jamais un blocage.
+   */
+  organismeAlerteQualiopiJours: number;
+  /**
+   * Fin automatique d'un module d'e-learning à l'import d'un avancement « terminé » et « réussi », pour les modules sans
+   * attestation exigée (désactivée : le service RH valide chaque fin).
+   */
+  elearningFinAutoImport: boolean;
+  // lot 12 — C5 (planning d'équipe)
+  /**
+   * Planning d'équipe (shared/rules/planning*.ts) : module désactivé jusqu'à l'avis du CSE ; délai de prévenance d'une
+   * publication ou d'une modification (7 jours, art. L3121-47 à défaut d'accord) ; repos quotidien réduit par l'accord en
+   * travail posté (11 h : la loi ; 9 h au moins, art. D3131-1 et suivants, jamais pour un mineur) ; durées du travailleur de
+   * nuit (8 h par jour, 40 h en moyenne sur 12 semaines, art. L3122-6 et L3122-7 ; jusqu'à 12 h et 44 h par accord) ;
+   * référence de l'accord, exigée dès qu'une valeur s'écarte de la loi ; planning des collègues visible du collaborateur
+   * (leurs seuls postes planifiés, jamais leurs absences), fermé par défaut.
+   */
+  planningActif: boolean;
+  planningDelaiPrevenance: number;
+  planningReposQuotidienAccord: number;
+  planningNuitJour: number;
+  planningNuitMoyenne: number;
+  planningAccord: string;
+  planningCollegues: boolean;
+  /** Date de l'avis du CSE sur l'organisation en cycles et l'outil de planning (art. L2312-8) : exigée pour activer le module. */
+  planningCseLe: ISODate | null;
+  // lot 12 — C6 (badgeage virtuel)
+  /**
+   * Badgeage virtuel (lot 12, chantier C6, shared/rules/pointage.ts) : module désactivé ; activation refusée sans la
+   * référence de l'accord (`pointageAccord`, texte court jamais recopié au journal) ni la date de l'avis du CSE
+   * (`pointageCseLe`, art. L2312-38 et L1222-4). Populations badgées (critère, mode, date d'effet) ; forfait jours et cadres
+   * dirigeants toujours exclus, intérimaires exclus sauf `pointageInterim`. Corrections demandées sous
+   * `pointageDelaiCorrectionJours` jours ; pointage hors ligne admis (`pointageHorsLigne`), signalé au-delà de
+   * `pointageEcartDiffereMin` minutes d'écart ; écart entre déclaré et pointé signalé au-delà de `pointageEcartAnomalieMin`
+   * minutes par jour (mode « controle »). Pointages bruts gardés `conservationPointagesAns` ans (1 à 5).
+   */
+  pointageActif: boolean;
+  pointagePopulations: PopulationPointage[];
+  pointageAccord: string;
+  pointageCseLe: ISODate | null;
+  pointageInterim: boolean;
+  pointageDelaiCorrectionJours: number;
+  pointageHorsLigne: boolean;
+  pointageEcartDiffereMin: number;
+  pointageEcartAnomalieMin: number;
+  conservationPointagesAns: number;
+  /**
+   * Étape 3 : géolocalisation au pointage, désactivée (`geolocActive`). Activation refusée sans le badgeage actif, la
+   * finalité écrite (`geolocFinalite`, texte jamais recopié au journal), la date de l'analyse d'impact validée par le DPO
+   * (`geolocAipdLe`) et au moins une population (`geolocPopulations` : équipes itinérantes, qui n'ont pas d'autre moyen de
+   * pointer sur place). Position demandée au clic seulement ; précision exigée `geolocPrecisionM` mètres ; verdict seul gardé.
+   */
+  geolocActive: boolean;
+  geolocPopulations: PopulationGeoloc[];
+  geolocFinalite: string;
+  geolocAipdLe: ISODate | null;
+  geolocPrecisionM: number;
 }
 /** Catégorie d'une formation pour l'évaluation à froid : type du catalogue, ou formation hors catalogue. */
 export type CategorieEvaluee = FormationType | 'Hors catalogue';
@@ -1385,7 +1612,9 @@ export interface ElementRachatPaie {
   avenant: number; empId: number; matricule: string; periode: string; rubrique: string; codeSage: string | null; quantite: number; taux: number; annee: number; signeLe: ISODate;
 }
 /** Ce que publie le flux d'agenda personnel (t036). */
-export type ContenuAgenda = 'sessions' | 'entretiens' | 'absences' | 'deplacements';
+export type ContenuAgenda = 'sessions' | 'entretiens' | 'absences' | 'deplacements'
+  // lot 12 — C5 (planning d'équipe) : postes publiés, le module activé.
+  | 'postes';
 /** Plafond des heures complémentaires du temps partiel : le dixième (art. L3123-28) ou le tiers avec un accord (art. L3123-20). */
 export type PlafondComplementaires = 'dixieme' | 'tiers';
 
@@ -1569,6 +1798,9 @@ export interface SagePush {
   // lot 11 — notes de frais
   /** Remboursements de notes de frais et avances (montants en euros), `codeSage` null : à saisir dans Sage. */
   frais?: ElementFraisPaie[];
+  // lot 12 — C1 (forfait annuel en heures)
+  /** Heures de la clôture d'un forfait annuel en heures (HFA25, HFA50, HCA10, HCA25), `codeSage` null : à saisir dans Sage. */
+  forfaitHeures?: ElementForfaitHeuresPaie[];
   /**
    * Éléments calculés que le lot n'emporte pas, faute de rubrique active (soldes de sortie) : listés « à saisir dans Sage »
    * dans le résumé du lot et l'export des variables (server/src/elements-lot.ts). Les absences et déplacements sans code
@@ -1684,6 +1916,9 @@ export interface LotPaie {
   // lot 11 — notes de frais
   /** Notes de frais remboursées et avances versées par le lot (identifiant, salarié ; `avance` : avance sur frais). */
   frais?: { id: number; empId: number; avance?: true }[];
+  // lot 12 — C1 (forfait annuel en heures)
+  /** Lignes de clôture d'un forfait annuel en heures dont le lot emporte les heures (identifiant, salarié). */
+  forfaitHeures?: { id: number; empId: number }[];
   /**
    * Totaux du contenu figé : lignes du fichier, salariés, quantité par code Sage des heures ; `absences` : éléments
    * d'absence, salariés et quantité par code Sage (codes retirés hors droit « paie » : server/src/dataset.ts).
@@ -1699,6 +1934,9 @@ export interface LotPaie {
     // lot 11 — notes de frais
     /** Remboursements de frais et avances : éléments, salariés et montant total (euros). */
     frais?: { elements: number; salaries: number; montant: number };
+    // lot 12 — C1 (forfait annuel en heures)
+    /** Heures de la clôture d'un forfait annuel en heures : éléments et salariés. */
+    forfaitHeures?: { elements: number; salaries: number };
     /** Éléments à saisir à la main dans Sage, nominatifs (shared/rules/elements-lot.ts) ; absent : aucun. */
     aSaisir?: ElementASaisir[];
   };
@@ -1948,6 +2186,90 @@ export interface Dataset {
    * comptabilité, qui n'ont pas tout ce que les alertes lisent. Absent (service RH, tests, outils) : calcul sur l'instantané.
    */
   alertesFrais?: Record<number, AlerteFrais[]>;
+  // lot 12 — blocs réservés (socle) : un champ nouveau part tel quel vers le manager et le collaborateur s'il n'est pas filtré
+  // par la projection du chantier (server/src/vues-<module>.ts, contexte server/src/vues-lot12.ts).
+  // lot 12 — C1 (forfait annuel en heures)
+  /**
+   * Clôtures du forfait annuel en heures (shared/rules/forfait-heures.ts) : toutes pour le service RH ; les lignes confirmées
+   * sans motifs pour la paie ; ses lignes confirmées, sans motifs ni auteurs, pour le salarié ; rien pour le manager (équipe),
+   * le référent HSE et la lecture seule (server/src/vues-forfait-heures.ts). Absent : aucune.
+   */
+  cloturesForfaitHeures?: ClotureForfaitHeures[];
+  // lot 12 — C2 (notes de frais : activation)
+  /**
+   * Résumés des notes dont les dépenses ne sont pas dans la vue (payées depuis plus de 2 mois) : vues du service RH et
+   * de la comptabilité seulement (server/src/frais-vues.ts, `fraisVueGestion`), calculés sur l'instantané complet,
+   * jamais stockés ; le détail se lit à la demande (GET /api/frais/historique/:noteId). Absent : aucun.
+   */
+  resumesFrais?: ResumeNoteFrais[];
+  /**
+   * Part réintégrable de chaque note de la vue (euros ; note absente : aucune), calculée par le serveur sur l'instantané
+   * complet (cumul kilométrique exact de l'année) : vues du service RH et de la comptabilité. Absent : calculée par l'écran.
+   */
+  reintegrableFrais?: Record<number, number>;
+  // lot 12 — C3 (entretiens suivis et 360°)
+  /**
+   * Objectifs (server/src/vues-entretiens-suivis.ts) : tous pour le service RH ; ceux de l'équipe directe (et des délégations
+   * « entretiens ») pour le manager, les siens pour le salarié ; rien pour les profils restreints. Compteurs par équipe
+   * pour la lecture seule et la consultation N+2 (`compteursObjectifs`).
+   */
+  objectifs?: Objectif[];
+  compteursObjectifs?: CompteurObjectifs[];
+  /**
+   * Feedback 360° (étape 3, server/src/vues-entretiens-suivis.ts) : sollicitations, toutes pour le service RH ; celles des
+   * entretiens de son périmètre pour l'évaluateur et l'évalué, sans dire lesquelles ont répondu (`sollicitationMasquee`),
+   * et les siennes comme répondant. Les réponses versées n'entrent jamais dans l'instantané (route de modération du
+   * service RH, synthèse jointe à l'entretien).
+   */
+  feedbackSollicitations?: Sollicitation360[];
+  /** Compteur global de chaque collecte, calculé par la vue de l'évaluateur et de l'évalué (jamais lu en base). */
+  suiviFeedback?: Suivi360[];
+  // lot 12 — C4 (organismes de formation et e-learning)
+  /**
+   * Fiches complètes des organismes (Qualiopi, déclaration d'activité, conditions), fusionnées comprises : service RH,
+   * référent HSE / formation et lecture seule (sans le motif d'une fusion) ; ni le manager, ni le collaborateur, ni la paie.
+   */
+  organismes?: Organisme[];
+  /** Contacts des organismes (données de tiers) : droit « formations » seulement (service RH, référent HSE). */
+  organismeContacts?: OrganismeContact[];
+  /** Tarifs des organismes : droit « formations » seulement. */
+  organismeTarifs?: OrganismeTarif[];
+  /** Modules d'e-learning, archivés compris : tous les espaces sauf la paie, sans le coût hors du droit « formations ». */
+  modulesElearning?: ModuleElearning[];
+  /**
+   * Inscriptions aux modules d'e-learning (annulées : service RH seulement) : les siennes pour le collaborateur, celles du
+   * périmètre pour le manager, toutes pour le droit « formations » et la lecture seule ; jamais un motif hors du service RH.
+   */
+  inscriptionsElearning?: InscriptionElearning[];
+  /**
+   * Évaluations consolidées par organisme sur plusieurs exercices glissants (étape 2, shared/rules/organismes-suivi.ts) :
+   * calculées par le serveur pour la vue agrégée du référent HSE et de la lecture seule (masquées sous 3 réponses) ;
+   * absentes ailleurs (le service RH les calcule sur l'instantané).
+   */
+  indicateursOrganismes?: IndicateursOrganisme[];
+  // lot 12 — C5 (planning d'équipe)
+  /**
+   * Planning d'équipe (server/src/vues-planning.ts) : cycles, besoins par poste et publications (champs communs) ;
+   * affectations au roulement et créneaux nominatifs (8 semaines passées à 12 semaines à venir : `FENETRES`, l'historique
+   * par GET /api/planning/historique) ; créneaux « à pourvoir » (sans salarié, rattachés à l'équipe) ; échanges de poste.
+   * Complets pour le service RH ; le manager, ceux de son périmètre (sans motifs en consultation N+2) ; le collaborateur,
+   * ses créneaux publiés (et les postes planifiés de ses collègues si le réglage l'ouvre). Absent : aucun.
+   */
+  cycles?: Cycle[];
+  besoinsPoste?: BesoinPoste[];
+  publicationsPlanning?: PublicationPlanning[];
+  roulements?: Roulement[];
+  creneaux?: Creneau[];
+  creneauxAPourvoir?: Creneau[];
+  echangesPoste?: EchangePoste[];
+  // lot 12 — C6 (badgeage virtuel)
+  /**
+   * Demandes de correction de pointage (file de validation) : toutes pour le service RH ; pour le manager, celles de son
+   * équipe directe et des salariés dont il valide les feuilles par délégation ; les siennes pour le salarié ; rien pour
+   * les profils restreints (server/src/vues-pointage.ts). Les pointages eux-mêmes ne sont jamais dans l'instantané : ils se
+   * lisent par GET /api/pointages et GET /api/pointages/etat (server/src/pointages.ts). Absent : aucune.
+   */
+  correctionsPointage?: CorrectionPointage[];
 }
 
 /**
@@ -2157,6 +2479,12 @@ export interface DossierOpco {
   creeLe: string; creePar: string;
   corrigeLe?: ISODate | null; corrigePar?: string | null; corrigeMotif?: string | null;
   annuleLe?: ISODate | null; annulePar?: string | null; annuleMotif?: string | null;
+  // lot 12 — C4
+  /**
+   * Organisme (fiche) qui préremplit SIRET, déclaration d'activité et Qualiopi ; ces trois champs restent ce qui a été déclaré
+   * à l'OPCO au dépôt.
+   */
+  organismeId?: number | null;
 }
 /** Versement de l'OPCO (acompte, solde) ; annulé avec un motif quand il a été saisi par erreur (hors des sommes). */
 export interface VersementOpco {
@@ -2179,6 +2507,24 @@ export type CategorieFrais = 'repas' | 'repas_affaires' | 'hotel' | 'train' | 'a
 export type StatutNoteFrais = 'brouillon' | 'soumise' | 'a_corriger' | 'validee' | 'controlee' | 'en_paiement' | 'payee' | 'annulee';
 /** Circuit : validation du manager puis contrôle (défaut), ou validation du manager seule (contrôle fait d'office). */
 export type CircuitFrais = 'manager_controle' | 'manager';
+/**
+ * lot 12 — C2 : totaux d'une note dont les dépenses ne sont pas dans la vue du service RH ou de la comptabilité
+ * (`resumesDesLignes`, shared/rules/frais-fenetre.ts) : dépenses en vigueur et refusées, montants demandé et retenu
+ * (euros), montant retenu par catégorie (tableau de bord).
+ */
+export interface ResumeNoteFrais {
+  noteId: number; empId: number; depenses: number; refusees: number; demande: number; retenu: number;
+  parCategorie: Partial<Record<CategorieFrais, number>>;
+}
+/** lot 12 — C2 : page de l'historique des notes de frais (GET /api/frais/historique, server/src/frais-historique.ts). */
+export interface PageHistoriqueFrais {
+  du: string; au: string; page: number; parPage: number; total: number; pages: number;
+  notes: NoteFrais[];
+  /** Total remboursé de chaque note (aucun pour la paie). */
+  totaux: Record<number, number>;
+}
+/** lot 12 — C2 : une note de l'historique, ses dépenses et la description de leurs justificatifs (GET /api/frais/historique/:noteId). */
+export interface NoteHistoriqueFrais { note: NoteFrais; lignes: LigneFrais[]; pieces: Piece[] }
 /**
  * Note de frais d'un salarié : mois des dépenses, rattachement facultatif (déplacement, mission Keystone, code de projet ou
  * de chantier), circuit daté. Ses totaux et ses alertes sont calculés, jamais stockés (shared/rules/frais.ts).
@@ -2269,4 +2615,66 @@ export type ExportFraisVue = Omit<ExportFraisEnregistre, 'contenu' | 'cle'> & { 
 export interface ElementFraisPaie {
   note: number | null; avance: number | null; empId: number; matricule: string; periode: string; rubrique: string; codeSage: string | null;
   quantite: number; montant: number;
+}
+
+// lot 12 — C6 (badgeage virtuel) : pointages (shared/rules/pointage.ts, shared/rules/debit-credit.ts, server/src/pointages.ts).
+/**
+ * Mode de décompte du temps d'une population (réglage `pointagePopulations`), figé sur la feuille à sa création
+ * (`FeuilleTemps.modeTemps`) : « declaratif » (rien ne change), « controle » (la feuille reste déclarative ; le
+ * rapprochement avec les pointages produit des anomalies), « calcule » (le total de chaque jour vient des pointages, étape 2).
+ */
+export type ModeTemps = 'declaratif' | 'controle' | 'calcule';
+/** Critère d'une population badgée : équipe (et ses équipes rattachées), entité, site de rattachement, régime de temps. */
+export type CriterePopulation = 'equipe' | 'entite' | 'site' | 'regime';
+/** Population badgée : critère, valeur (nom d'équipe, code d'entité ou de site, régime), mode et date d'effet. */
+export interface PopulationPointage { critere: CriterePopulation; valeur: string; mode: ModeTemps; effet: ISODate }
+/** Sens d'un pointage : entrée ou sortie ; null : déduit en alternance (appariement). */
+export type SensPointage = 'E' | 'S';
+/** Origine d'un pointage : bouton « Pointer » (téléphone, ordinateur), ou correction validée. */
+export type SourcePointage = 'virtuel' | 'correction';
+/** Verdict de géolocalisation (étape 3, option désactivée) : seul le verdict est gardé, jamais la position. */
+export type VerdictZone = 'dans' | 'hors' | 'imprecise' | 'refusee';
+/**
+ * Pointage brut (table `pointages`, ajouts seulement, hors de l'instantané) : instant (UTC, celui du serveur en ligne ; celui
+ * de l'appareil pour un pointage différé, gardé aussi dans `horodatageAppareil`), jour calendaire de Paris de l'instant
+ * (index de lecture ; le jour de rattachement du poste est calculé), sens, origine, réception par le serveur (`recuLe`).
+ * Une correction ajoute une ligne (`correctionId`) ou en neutralise une autre par une ligne qui la désigne (`annuleId`) :
+ * jamais de modification ni de suppression d'une saisie, hors conservation.
+ */
+export interface Pointage {
+  id: number; empId: number; horodatage: string; jour: ISODate; sens: SensPointage | null; source: SourcePointage; horsLigne: boolean;
+  horodatageAppareil: string | null; recuLe: string; zone: VerdictZone | null; annuleId: number | null; correctionId: number | null;
+}
+/** Correction demandée : ajout d'un pointage oublié, ou neutralisation d'un pointage erroné. */
+export type NatureCorrectionPointage = 'ajout' | 'neutralisation';
+/** Motif d'une correction, tiré d'une liste fermée (jamais de texte libre au journal). */
+export type MotifCorrectionPointage = 'oubli' | 'appareil' | 'mission' | 'formation' | 'autre';
+export type StatutCorrectionPointage = 'demandee' | 'validee' | 'refusee' | 'annulee';
+/**
+ * Demande de correction de pointage (table `corrections_pointage`, dans l'instantané par salarié) : jour, nature, instant
+ * et sens demandés (ajout) ou pointage visé (neutralisation), motif codé, commentaire facultatif (texte libre, jamais au
+ * journal, effacé par la conservation), demande, décision (valideur au périmètre « feuilles », jamais soi-même) et motif
+ * d'un refus (texte, jamais au journal), pointage créé par la validation.
+ */
+export interface CorrectionPointage {
+  id: number; empId: number; jour: ISODate; nature: NatureCorrectionPointage; horodatage: string | null; sens: SensPointage | null;
+  pointageId: number | null; motif: MotifCorrectionPointage; commentaire: string | null; statut: StatutCorrectionPointage;
+  demandeLe: string; demandePar: string | null; demandeParInteresse: boolean;
+  decideLe: string | null; decidePar: string | null; motifRefus: string | null; pointageCreeId: number | null;
+}
+/** Plage d'un horaire variable (étape 2) : fixe (présence obligatoire) ou mobile, heures « HH:MM ». */
+export interface PlageHoraire { type: 'fixe' | 'mobile'; debut: string; fin: string }
+/**
+ * Géolocalisation au pointage (étape 3, option désactivée, shared/rules/geolocalisation.ts) : population à qui la position
+ * est demandée au clic sur « Pointer » (critère et valeur, comme une population badgée ; mode et date d'effet sont ceux de
+ * sa population badgée).
+ */
+export interface PopulationGeoloc { critere: CriterePopulation; valeur: string }
+/**
+ * Zone de pointage (table `zones_pointage`, hors de l'instantané, tenue par l'administrateur RH) : site ou chantier,
+ * centre (degrés décimaux WGS 84) et rayon en mètres (10 à 10 000). Seul le verdict d'un pointage est gardé, jamais la
+ * position du salarié.
+ */
+export interface ZonePointage {
+  id: number; libelle: string; siteCode: string | null; chantierId: string | null; lat: number; lng: number; rayonM: number; actif: boolean;
 }

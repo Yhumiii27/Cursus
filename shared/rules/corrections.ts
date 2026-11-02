@@ -145,7 +145,8 @@ export function suiteAcceptation(d: Domain, r: DemandeCollab, emp: Employe): Sui
     if (i) return { sessionId: r.sessionId, inscriptionId: i.id, cree: true };
   }
   const l = d.ds.plan
-    .filter(x => x.origine === 'demande' && x.equipe === emp.equipe && (r.f ? x.f === r.f : !x.f && key(x.libelle ?? '') === key(r.libelle ?? '')))
+    // lot 12 — C3 : ligne d'une demande versée depuis un souhait d'entretien comprise (origine « entretien »).
+    .filter(x => (x.origine === 'demande' || x.origine === 'entretien') && x.equipe === emp.equipe && (r.f ? x.f === r.f : !x.f && key(x.libelle ?? '') === key(r.libelle ?? '')))
     .sort((a, b) => b.id - a.id)[0];
   return l ? { planId: l.id } : {};
 }

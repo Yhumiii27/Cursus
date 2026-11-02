@@ -235,7 +235,8 @@ const accepterDemande: ActionHandler = async (ctx, p) => {
     // Exercice en cours, ou le suivant s'il est déjà clos (plan.cloturerExercice) : alors au premier trimestre.
     const ex = exerciceOuvert(ctx.ds, ctx.d.year);
     const tri = ex > ctx.d.year ? 'T1' : `T${Math.floor(ctx.d.today.getMonth() / 3) + 1}`;
-    const l = await ctx.db.insert<PlanAction>('planActions', { exercice: ex, f: r.f, libelle: r.libelle, equipe: emp.equipe, periode: tri, effectif: 1, cout: r.f ? ctx.d.fm(r.f).cout : 0, statut: 'prevu', origine: 'demande' });
+    // lot 12 — C3 : origine « entretien » pour une demande versée depuis un souhait d'entretien (bilan formation, OPCO).
+    const l = await ctx.db.insert<PlanAction>('planActions', { exercice: ex, f: r.f, libelle: r.libelle, equipe: emp.equipe, periode: tri, effectif: 1, cout: r.f ? ctx.d.fm(r.f).cout : 0, statut: 'prevu', origine: r.entretienId ? 'entretien' : 'demande' });
     // Session demandée complète : la réponse le dit, le salarié sait pourquoi il n'est pas inscrit.
     const complete = demandee ? `Session du ${fmt(parse(demandee.date))} complète — ajoutée` : 'Ajoutée';
     await done(`${complete} au plan de formation ${ex} (${tri})${demandee ? ' : le service RH vous inscrira à une prochaine session' : ''}`, { planId: l.id });
@@ -304,6 +305,33 @@ function demandeur(ctx: Ctx, p: Record<string, any>) {
   throw new ActionError('Le service RH inscrit directement les collaborateurs', 403);
 }
 
+// lot 12 — C3 (entretiens suivis) : contrôle des doublons et création d'une demande de formation extraits de
+// `demande.formation`, pour le versement des souhaits exprimés à l'entretien (server/src/actions/souhaits.ts), qui garde
+// ainsi le même anti-doublon.
+/** Doublon d'une demande de formation : demande identique en attente, ou inscription à une session à venir. */
+export interface DoublonFormation { code: 'deja_demande' | 'deja_inscrit'; demandeId?: number; session?: { date: string } }
+
+/**
+ * Doublons d'une demande de formation pour `emp` : une demande identique attend la réponse du service RH (hors catalogue :
+ * même intitulé), ou le salarié est déjà inscrit à une session à venir de cette formation. Null : aucun.
+ */
+export function doublonFormation(ctx: Ctx, emp: Employe, f: string | null, libelle: string | null): DoublonFormation | null {
+  const identique = ctx.ds.demandesCollab.find(r => r.empId === emp.id && r.type === 'formation' && r.statut === 'attente'
+    && (!f ? !r.f && key(r.libelle) === key(libelle) : r.f === f));
+  if (identique) return { code: 'deja_demande', demandeId: identique.id };
+  const inscrit = !f ? undefined : sessionsInscrit(ctx.d, emp.id).find(s => s.formation === f && s.date >= ctx.d.ti);
+  return inscrit ? { code: 'deja_inscrit', session: { date: inscrit.date } } : null;
+}
+
+/** Demande de formation enregistrée, en attente du service RH ; `entretienId` : versée depuis un souhait d'entretien. */
+export async function creerDemandeFormation(ctx: Ctx, emp: Employe, x: { f: string | null; libelle: string | null; sessionId: number | null; motif: string; parId: number | null; entretienId?: number | null }) {
+  return await ctx.db.insert<DemandeCollab>('demandesCollab', {
+    empId: emp.id, type: 'formation', f: x.f, h: null, libelle: x.f ? null : x.libelle, label: null,
+    sessionId: x.sessionId, motif: x.motif, date: ctx.d.ti, statut: 'attente', reponse: null, parId: x.parId,
+    ...(x.entretienId ? { entretienId: x.entretienId } : {}),
+  });
+}
+
 /** Demandes envoyées depuis l'espace collaborateur ou par le manager pour son équipe. */
 const demandeFormation: ActionHandler = async (ctx, p) => {
   const { emp, parId } = demandeur(ctx, p);
@@ -315,21 +343,16 @@ const demandeFormation: ActionHandler = async (ctx, p) => {
   // Doublons : une demande identique attend la réponse du service RH (hors catalogue : même intitulé), ou le salarié
   // est déjà inscrit à une session à venir de cette formation.
   const qui = parId ? emp.nom : 'vous';
-  const identique = ctx.ds.demandesCollab.some(r => r.empId === emp.id && r.type === 'formation' && r.statut === 'attente'
-    && (autre ? !r.f && key(r.libelle) === key(libelle) : r.f === p.f));
-  if (identique) throw new ActionError(`Une demande pour cette formation est déjà en cours pour ${qui}, en attente de réponse du service RH`);
-  const inscrit = autre ? undefined : sessionsInscrit(ctx.d, emp.id).find(s => s.formation === p.f && s.date >= ctx.d.ti);
-  if (inscrit) throw new ActionError(`${parId ? `${emp.nom} est` : 'Vous êtes'} déjà inscrit à la session du ${fmt(parse(inscrit.date))}`);
+  const doublon = doublonFormation(ctx, emp, autre ? null : p.f, libelle);
+  if (doublon?.code === 'deja_demande') throw new ActionError(`Une demande pour cette formation est déjà en cours pour ${qui}, en attente de réponse du service RH`);
+  if (doublon?.session) throw new ActionError(`${parId ? `${emp.nom} est` : 'Vous êtes'} déjà inscrit à la session du ${fmt(parse(doublon.session.date))}`);
   if (p.sessionId) {
     const s = ctx.d.session(Number(p.sessionId));
     if (autre || !s || s.formation !== p.f || s.date < ctx.d.ti || !sessionActive(s)) throw new ActionError('Session invalide pour cette formation');
     const conflit = blocage(conflitsSession(ctx.d, emp.id, s));
     if (conflit) throw new ActionError(conflit);
   }
-  await ctx.db.insert<DemandeCollab>('demandesCollab', {
-    empId: emp.id, type: 'formation', f: autre ? null : p.f, h: null, libelle: autre ? libelle : null, label: null,
-    sessionId: p.sessionId ? Number(p.sessionId) : null, motif, date: ctx.d.ti, statut: 'attente', reponse: null, parId,
-  });
+  await creerDemandeFormation(ctx, emp, { f: autre ? null : p.f, libelle: autre ? libelle : null, sessionId: p.sessionId ? Number(p.sessionId) : null, motif, parId });
   return parId ? `Demande de formation pour ${emp.nom} envoyée au service RH` : 'Demande de formation envoyée au service RH';
 };
 

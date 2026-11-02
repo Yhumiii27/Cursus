@@ -75,6 +75,9 @@ test('lignes cliquables : un bouton « Ouvrir » sur le nom, la ligne restant cl
     // lot 11 — organigramme : ligne d'un nœud d'arbre ARIA, doublon à la souris du nœud `treeitem` qui la contient,
     // focalisable (focus itinérant ; Entrée, Espace et flèches : pages/Organigramme.tsx).
     if (/className="org-ligne"/.test(x.attributs) && x.fichier.endsWith('Organigramme.tsx')) return false;
+    // lot 12 — C7 (organigramme) : en-tête de boîte, ligne d'une personne et « N personnes » de la vue graphique, même
+    // doublon à la souris du `treeitem` focalisable qui les contient (components/organigramme/clavier.ts).
+    if (/className="orgg-(tete|personne-ligne|replie-ligne)"/.test(x.attributs) && x.fichier.endsWith('ArbreGraphique.tsx')) return false;
     return !/<Ouvrir\b/.test(x.corps);
   });
   assert.deepEqual(sansClavier.map(x => `${x.fichier}:${x.ligne} <${x.nom}>`), [], 'élément cliquable sans élément focalisable');

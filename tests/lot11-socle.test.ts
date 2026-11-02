@@ -13,10 +13,14 @@ const { ALLOWED_VIEWS } = await import('../shared/constants.ts');
 const { ACTIONS_HORS_LIGNE } = await import('../shared/hors-ligne.ts');
 const { NOTIFICATIONS_PUSH } = await import('../shared/notifications-push.ts');
 
-/** Valeurs de la dernière définition de pieces_objet_check dans la chaîne des migrations PostgreSQL. */
-function objetsAdmisPg(): string[] {
+/**
+ * Valeurs de la dernière définition de pieces_objet_check dans la chaîne des migrations PostgreSQL (jusqu'à la migration
+ * `jusqua` comprise, si elle est donnée).
+ */
+function objetsAdmisPg(jusqua?: string): string[] {
   let valeurs: string[] = [];
   for (const m of migrationsPg()) {
+    if (jusqua && m.nom > jusqua) break;
     for (const r of m.sql.matchAll(/"pieces_objet_check" CHECK \("objet" IN \(([^)]*)\)\)/g)) valeurs = [...r[1].matchAll(/'([^']+)'/g)].map(v => v[1]);
   }
   return valeurs;
@@ -28,7 +32,8 @@ test('0015_lot11_socle : pieces_objet_check admet les objets existants et les qu
   assert.match(m.sql, /ALTER TABLE "pieces" DROP CONSTRAINT "pieces_objet_check";/);
   // Seule la contrainte change : ni table, ni colonne, ni vue, ni schéma.
   assert.doesNotMatch(m.sql.replace(/^--.*$/gm, ''), /CREATE|ADD COLUMN|DROP TABLE|DROP COLUMN|pub_/);
-  assert.deepEqual(objetsAdmisPg(),
+  // Définition posée par 0015 (le lot 12 l'élargit à son tour : tests/lot12-socle.test.ts).
+  assert.deepEqual(objetsAdmisPg('0015_lot11_socle'),
     ['absence', 'certification', 'habTitre', 'declaration', 'voyage', 'dossierOpco', 'ligneFrais', 'ligneFraisSante', 'vehiculePerso']);
 });
 

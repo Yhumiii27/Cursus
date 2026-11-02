@@ -75,7 +75,7 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // 2026) ; flux d'agenda personnel désactivé, contenu complet.
     conservationActive: false, conservationDecisionDpo: '', conservationDossierAns: 5, conservationTempsAns: 3, conservationPaieAns: 5,
     conservationSanteAns: 5, conservationPasseportAns: 0, conservationTitreSejourAns: 5, conservationEntretiensAns: 5, conservationFormationsAns: 5,
-    agendaFluxActif: false, agendaContenu: ['sessions', 'entretiens', 'absences', 'deplacements'],
+    agendaFluxActif: false, agendaContenu: ['sessions', 'entretiens', 'absences', 'deplacements', 'postes'],
     // Lot 7 (t049) : astreintes communiquées 15 jours avant (art. R3121-3), compensation financière (réponse du 23 octobre
     // 2026), aucune astreinte pour un salarié mineur, accord inconnu.
     astreinteDelaiPrevenance: 15, astreinteCompensation: 'financiere', astreinteMineurs: false, astreinteAccord: '',
@@ -95,6 +95,11 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // lot 11 — dossiers OPCO : OPCO 2i, sans subrogation ; dépôt 30 jours avant, justificatifs 90 jours après, relance du
     // remboursement à 60 jours (à confirmer avec le service RH).
     opcoDefaut: 'opco2i', opcoSubrogation: false, opcoDelaiDepot: 30, opcoDelaiJustificatifs: 90, opcoDelaiRemboursement: 60,
+    // lot 12 — C3 (entretiens suivis) : objectifs actifs, facultatifs la première année, 8 au plus ; point de mi-année
+    // facultatif (fenêtre du 1er mai au 15 juillet quand il est rendu obligatoire).
+    objectifsActifs: true, objectifsFacultatifs: true, objectifsMax: 8, pointMiAnneeActif: false, pointMiAnneeDebut: '05-01', pointMiAnneeFin: '07-15',
+    // lot 12 — C3 (feedback 360°, étape 3) : désactivé, références de l'avis du CSE et de l'AIPD vides, seuil 3, 21 jours, 6 mois.
+    feedback360Actif: false, feedback360Cse: '', feedback360Aipd: '', feedback360Seuil: 3, feedback360FenetreJours: 21, feedback360ConservationMois: 6,
     // Lot 11, chantier C5 : notes de frais désactivées, validation du manager puis contrôle, délai de 3 mois, aucun plafond
     // interne, justificatif toujours exigé, puissance plafonnée à 7 CV, notes payées gardées 10 ans.
     notesFraisActives: false, fraisCircuit: 'manager_controle', fraisDelaiSoumissionMois: 3, fraisPlafonds: {}, fraisSeuilJustificatif: 0, fraisIkCvReels: false,
@@ -102,6 +107,25 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // Lot 11, chantier C5, étape 2 : fichier d'écritures (comptes proposés, journal OD, gabarit du fichier de paie).
     fraisComptes: {}, fraisCompteGenerique: '6256', fraisCompteTva: '44566', fraisCompteSalarie: '421', fraisJournal: 'OD',
     fraisGabarit: { separateur: ';', colonnes: ['journal', 'date', 'compte', 'compteTiers', 'piece', 'libelle', 'debit', 'credit'], decimale: ',', entete: true, encodage: 'utf-8', formatDate: 'JJ/MM/AAAA' },
+    // Lot 12, chantier C1 : forfait annuel en heures sur l'année civile, suivi depuis la mise en service, 25 % jusqu'à 8 h par
+    // semaine travaillée, toutes les absences hors CP déduites au forfait / jours ouvrés théoriques, émission au mois de la
+    // confirmation, sans imputation sur le contingent.
+    forfaitHeuresDebutPeriode: '01-01', forfaitHeuresDebutSuivi: '2027-01-01', forfaitHeuresAccord: '', forfaitHeuresSeuil25: 8,
+    forfaitHeuresAbsencesDeduites: ['RTT', 'RECUP', 'CET', 'MALADIE', 'ALD', 'AT', 'TRAJET', 'MP', 'MATERNITE', 'PATERNITE', 'ADOPTION', 'PARENTAL', 'MARIAGE',
+      'MARIAGE_ENFANT', 'NAISSANCE', 'DECES_ENFANT', 'DECES_ENFANT_JEUNE', 'DEUIL_ENFANT', 'DECES_PROCHE', 'HANDICAP_ENFANT', 'ENFANT_MALADE', 'SANS_SOLDE',
+      'INJUSTIFIEE', 'ABSENCE'],
+    forfaitHeuresJour: 0, forfaitHeuresEmission: 'cloture', forfaitHeuresContingent: false,
+    // lot 12 — C4 : relance Qualiopi 60 jours avant la fin de validité ; fin d'un module d'e-learning validée par le service RH.
+    organismeAlerteQualiopiJours: 60, elearningFinAutoImport: false,
+    // lot 12 — C5 (planning d'équipe) : module désactivé jusqu'à l'avis du CSE ; valeurs de la loi, planning des collègues fermé.
+    planningActif: false, planningDelaiPrevenance: 7, planningReposQuotidienAccord: 11, planningNuitJour: 8, planningNuitMoyenne: 40, planningAccord: '',
+    planningCollegues: false, planningCseLe: null,
+    // lot 12 — C6 (badgeage virtuel) : module désactivé, sans population, accord et avis du CSE à saisir ; intérimaires
+    // exclus ; corrections sous 7 jours ; hors ligne admis, signalé au-delà de 5 min ; écart de 15 min ; 3 ans.
+    pointageActif: false, pointagePopulations: [], pointageAccord: '', pointageCseLe: null, pointageInterim: false, pointageDelaiCorrectionJours: 7,
+    pointageHorsLigne: true, pointageEcartDiffereMin: 5, pointageEcartAnomalieMin: 15, conservationPointagesAns: 3,
+    // Étape 3 : géolocalisation au pointage désactivée, sans population, finalité et AIPD à saisir ; précision de 100 m.
+    geolocActive: false, geolocPopulations: [], geolocFinalite: '', geolocAipdLe: null, geolocPrecisionM: 100,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(await loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

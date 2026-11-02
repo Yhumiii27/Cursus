@@ -19,7 +19,11 @@ import { LiensPieces } from '../components/PieceJointe.tsx';
 import { CouverturePanel } from '../components/Couverture.tsx';
 import { DossiersEchusPanel } from '../components/DossiersEchus.tsx';
 import { sessionDemandeeComplete } from '../../../shared/rules/liste-attente.ts';
+// lot 12 — C3 (entretiens suivis)
+import { BadgeEntretien } from '../components/OrigineEntretien.tsx';
 import { AIDE_SOI_MEME, fichePropre } from '../../../shared/rules/soi-meme.ts';
+// lot 12 — C5 (planning d'équipe, étape 3) : couverture minimale par poste planifié
+import { CouvertureCreneauxPanel } from '../components/planning/CouvertureCreneaux.tsx';
 
 /** Ligne d'échéance (tableau de bord, page Échéances). */
 export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; onAct: () => unknown }) {
@@ -150,7 +154,8 @@ export function Dashboard() {
                     return (
                       <tr key={r.id} className="clickable" onClick={() => openEmp(r.empId)}>
                         <td><Two main={<Ouvrir onOpen={() => openEmp(r.empId)}>{e?.nom ?? d.personName(r.empId)}</Ouvrir>} sub={`${equipeLabel(e)} · Reçue le ${fmtShort(parse(r.date))}`} nowrap /></td>
-                        <td><Two main={reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom)} sub={sub} /></td>
+                        {/* lot 12 — C3 (entretiens suivis) : badge d'origine d'un souhait versé à la clôture d'un entretien. */}
+                        <td><Two main={<>{reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom)}<BadgeEntretien d={d} r={r} /></>} sub={sub} /></td>
                         {x && e
                           // Document déclaré : contenu saisi et valeur du dossier qu'il remplacera à la validation
                           // (sauf déclaration reprise d'une ancienne base, encore au dossier : un refus l'en retire).
@@ -201,6 +206,8 @@ export function Dashboard() {
 
         {/* Couverture minimale des équipes en SST et équipiers incendie (shared/rules/couverture.ts). */}
         <CouverturePanel style={{ flex: '1 1 100%' }} />
+        {/* lot 12 — C5 (planning d'équipe, étape 3) : même couverture, poste par poste, sur les postes publiés. */}
+        <CouvertureCreneauxPanel />
 
         <Panel style={{ flex: '1 1 560px' }} title="Échéances prioritaires"
           aside={<a href="/echeances" className="link-more" onClick={e => { e.preventDefault(); go('echeances'); }}>Toutes les échéances →</a>}>

@@ -11,6 +11,8 @@ import { Fine } from '../components/ui.tsx';
 import { AIDE_MOTIF_CORRECTION } from '../state/confirmations-corrections.ts';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+// lot 12 — C4 (organismes de formation et e-learning) : organisme choisi dans le référentiel, texte libre admis à défaut.
+import { ChoixOrganisme } from '../components/organismes/ChoixOrganisme.tsx';
 
 /** Valeur du sélecteur pour une formation hors catalogue. */
 const HORS = '';
@@ -27,6 +29,8 @@ export function FormationSuivieDialog({ empId, id, demandeId }: { empId: number;
   const [au, setAu] = useState(avant?.au ?? '');
   const [duree, setDuree] = useState(avant?.duree != null ? String(avant.duree) : '');
   const [organisme, setOrganisme] = useState(avant?.organisme ?? '');
+  // lot 12 — C4 : fiche de l'organisme ('' : aucune, le texte libre est gardé).
+  const [organismeId, setOrganismeId] = useState(avant?.organismeId != null ? String(avant.organismeId) : '');
   const [obligatoire, setObligatoire] = useState<boolean | null>(avant ? avant.obligatoire : null);
   const [motif, setMotif] = useState('');
   const [busy, setBusy] = useState(false);
@@ -38,14 +42,17 @@ export function FormationSuivieDialog({ empId, id, demandeId }: { empId: number;
   const fm = f ? d.fm(f) : null;
   // Case « obligatoire » : la valeur par défaut de la formation tant qu'elle n'a pas été touchée.
   const oblig = obligatoire ?? obligatoireParDefaut(fm);
-  const { erreurs, valeur } = controlerSuivie(d, { f, libelle, du, au, duree, organisme, obligatoire: oblig }, avant);
+  // lot 12 — C4 : une fiche choisie donne son nom usuel au texte (comme le serveur).
+  const fiche = (d.ds.organismes ?? d.ds.referentiels.organismes ?? []).find(o => o.id === Number(organismeId)) ?? null;
+  const texteOrganisme = fiche ? fiche.nomUsuel : organisme;
+  const { erreurs, valeur } = controlerSuivie(d, { f, libelle, du, au, duree, organisme: texteOrganisme, obligatoire: oblig }, avant);
   const motifErr = avant && !motif.trim() ? 'Indiquez le motif de la correction.' : null;
   const erreur = (k: keyof typeof erreurs, saisi: string) => (saisi.trim() ? erreurs[k] ?? null : v.erreur(erreurs[k]));
 
   const envoyer = async () => {
     if (busy || !v.verifier(...Object.values(erreurs), motifErr) || !valeur) return;
     setBusy(true);
-    const champs = { f, libelle: f ? '' : libelle.trim(), du, au: au || du, duree: duree.trim().replace(',', '.'), organisme: organisme.trim(), obligatoire: oblig };
+    const champs = { f, libelle: f ? '' : libelle.trim(), du, au: au || du, duree: duree.trim().replace(',', '.'), organisme: texteOrganisme.trim(), obligatoire: oblig, /* lot 12 — C4 */ organismeId };
     const r = avant
       ? await run('formationSuivie.modifier', { id: avant.id, ...champs, motif: motif.trim() })
       : await run('formationSuivie.enregistrer', { empId, ...champs, ...(demande ? { demandeId: demande.id } : {}) });
@@ -82,10 +89,15 @@ export function FormationSuivieDialog({ empId, id, demandeId }: { empId: number;
         <Field label="Durée (heures)" htmlFor="fs-duree" erreur={erreur('duree', duree)}>
           <input className="input tnum" id="fs-duree" inputMode="decimal" value={duree} placeholder={fm?.dureeHeures != null ? `${fm.dureeHeures} (catalogue)` : '14'} onChange={e => setDuree(e.target.value)} />
         </Field>
-        <Field label="Organisme" htmlFor="fs-organisme" erreur={erreur('organisme', organisme)}>
+        {/* lot 12 — C4 : organisme du référentiel ; « autre » : texte libre, repris en fiche à vérifier au démarrage suivant. */}
+        <ChoixOrganisme id="fs-organisme-id" valeur={organismeId} onChange={setOrganismeId} actuel={avant?.organismeId ?? null} label="Organisme"
+          vide={fm?.organisme ? `Celui du catalogue (${fm.organisme}) ou autre` : 'Autre (texte libre)'} />
+      </div>
+      {!fiche && (
+        <Field label="Organisme (texte libre)" htmlFor="fs-organisme" erreur={erreur('organisme', organisme)}>
           <input className="input" id="fs-organisme" type="text" value={organisme} maxLength={ORGANISME_SUIVIE_MAX} placeholder={fm?.organisme || 'Organisme de formation'} onChange={e => setOrganisme(e.target.value)} />
         </Field>
-      </div>
+      )}
       <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
         <input type="checkbox" checked={oblig} onChange={e => setObligatoire(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
         Formation obligatoire (exigée par une règle ou une convention)

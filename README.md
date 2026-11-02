@@ -159,6 +159,8 @@ service worker ni notifications dans sa fenêtre. Journal du serveur :
 | `npm run mesure` | Taille de l'instantané et durée des actions sur une base temporaire de 100 salariés et 3 ans (`npm run mesure -- 200` : autre effectif) |
 | `npm run charge:generer -- --ans 5` puis `npm run charge -- --scenario S3 --duree 120` | Essai de charge sur PostgreSQL (`CURSUS_TEST_DATABASE_URL` : serveur de test, jamais le serveur commun) : jeu réaliste de 5 ans dans un schéma jetable, scénarios simultanés S1 à S6, rapport et seuils dans `data/charge/rapports/` (`docs/ARCHITECTURE.md`, « Performances ») ; `-- --supprimer` retire les schémas de l'essai ; `--verifier-exactitude [k]` compare en plus, toutes les k actions validées, le cache à la relecture complète (invariant « 0 divergence ») ; `--client-brut` fait lire chaque réponse d'un bloc et la décompresser en une opération (temps du serveur, sans le décodage morceau par morceau de fetch dans la boucle de Cursus) ; `--sans-prechauffage-vues` ne préchauffe que l'entrée du cache |
 | `npm run charge:indicateurs [-- --effectif 500 --ans 3]` | Lot 11 : durée du calcul des indicateurs sociaux (premier calcul, mémoire, onglet BDESE, arrêté) sur une base SQLite temporaire, comparée aux budgets (`docs/ARCHITECTURE.md`, indicateurs sociaux, étape 2) ; code 1 au-delà |
+| `npm run charge:planning [-- --ans 3]` | Lot 12 (C5) : instantané avec trois ans de planning d'équipe (3x8, un créneau par salarié et par jour) sur une base SQLite temporaire : lecture brute, vues, relecture de la fenêtre des créneaux, contrôles d'une publication, historique d'un an (`docs/ARCHITECTURE.md`, « Lot 12 : planning d'équipe ») |
+| `npm run charge:pointages [-- --ans 3]` | Lot 12 (C6, badgeage) : instantané, lecture des pointages (6 semaines, état du jour, présences d'une équipe), insertion et purge, sur une base SQLite temporaire avec 3 ans de pointages (environ 90 000 par an) |
 | `npm run backup` | Copie à chaud vérifiée de la base dans `data/backups`, avec rotation |
 | `npm run restore -- <fichier>` | Remplace la base par une sauvegarde (serveur arrêté) |
 | `DATABASE_URL=… npm run reprise-postgres -- [<base SQLite>] [--a-blanc]` | Reprise d'une base SQLite sur le serveur PostgreSQL commun, une fois, service arrêté ; `--a-blanc` : contrôles et compte rendu sans rien écrire (`docs/DEPLOIEMENT.md`) |
@@ -321,6 +323,10 @@ incrémental ait servi (entrées dérivées par le delta, aucun repli : compteur
 
 ## Ce qui reste simulé
 
+Échanges avec les autres outils du groupe : règles de la décision M-17 de Matrix (lire par les vues `pub_`, écrire par
+une API ou une fonction `pub_`, besoins d'accès déclarés au registre de Matrix) dans `docs/ARCHITECTURE.md`, « Échanges
+avec les autres outils » ; inventaire et conformité dans `docs/ECHANGES.md` ; demandes en cours dans `docs/demandes/`.
+
 - **Keystone** : les appels entrants sont réels — API versionnée `/api/integrations/keystone/v1`
   (projets, chantiers, affectations, tâches planifiées, synchronisation complète, verdict Go / No Go,
   demandes de déplacement), contrat OpenAPI `docs/keystone-openapi.json` et guide du développeur de
@@ -378,6 +384,13 @@ incrémental ait servi (entrées dérivées par le delta, aucun repli : compteur
   pièces sans salarié (facture et accord gardés 10 ans), échéances (écran Échéances, récapitulatif du service RH) et
   exports CSV des dossiers et des versements ; onglet « Dossiers OPCO » de Plan & budget, Paramètres → Dossiers OPCO.
   Ni export comptable, ni connexion au portail de l'OPCO.
+- **Organismes de formation et e-learning** (lot 12, C4) : référentiel des organismes (Référentiels → Organismes : SIRET,
+  déclaration d'activité, Qualiopi et sa date, conditions, contacts, tarifs ; fiches reprises des textes libres « à
+  vérifier », fusion des doublons), choisi dans les dialogues (session figée à sa création, plan, dossier OPCO, formation
+  suivie) ; relances Qualiopi au service RH (60 jours, 15 jours, échue ; avertissement, jamais un blocage) ; évaluations
+  consolidées par organisme sur 3 exercices. Modules d'e-learning sans plateforme intégrée (lien https, ni SCORM ni xAPI) :
+  inscriptions et import d'avancement (onglet E-learning de Formations), « Mes modules en ligne » du portail, fin validée
+  par le service RH (formation suivie et certification, heures comptées une fois).
 
 ## Indicateurs sociaux et BDESE (lot 11)
 
@@ -398,8 +411,46 @@ raccourci « Nouvelle dépense » de l'application installée), validation par l
 médicaux), contrôle par la comptabilité (profil « Comptabilité ») ou le service RH, remboursement avec la paie du mois
 suivant (colonne « montant » du fichier Sage), fichier d'écritures pour la comptabilité (`GET /api/frais/exports/:id/fichier`,
 tracé), tableau de bord, notes rattachées dans Missions et Voyages. Pas de virement SEPA (remboursement par la paie).
+Lot 12 (C2, étape 1) : l'instantané ne porte plus que les notes payées depuis moins de 13 mois (et toutes celles qui ne
+sont pas payées) ; les plus anciennes restent en base et se lisent par `GET /api/frais/historique` et
+`GET /api/frais/historique/:noteId`, filtrées par les mêmes droits ; une note archivée ne se modifie plus (409) ;
+essai de charge : `npm run charge:frais` (3 et 5 ans, verdicts).
+Lot 12, étape 2 : vues du service RH et de la comptabilité limitées aux dépenses des notes en circuit ou payées depuis
+moins de 2 mois (résumés, parts réintégrables et alertes calculés par le serveur) ; frais médicaux dans
+`lignes_frais_sante` (migration 0029, SQLite `lot12-frais-sante`) ; « Notes plus anciennes » (Mes frais) et onglet
+« Historique » (service RH, comptabilité) ; prérequis de l'activation dans Paramètres ; module toujours désactivé par
+défaut (verdicts de charge).
 Détail : `docs/ARCHITECTURE.md` ; demandes : `docs/demandes/codex-lot11-pieces.md`, `keystone-lot11-frais.md`,
 `matrix-lot11-frais.sql`.
+
+## Planning d'équipe (lot 12, C5)
+
+Module désactivé par défaut, activé par l'administrateur RH après l'avis du CSE, dont la date est exigée (Paramètres →
+Planning d'équipe). Cycles
+de roulement et besoins de poste dans Référentiels (modèles Journée, 2x8, 3x8, 5x8) ; onglet « Planning d'équipe » de Temps
+de travail (grille de deux semaines, affectations, générer, modifier, publier avec le délai de prévenance et les contrôles
+légaux et d'habilitation, échanges à valider, affichage D3171-7 imprimé ou en CSV) ; « Mon planning » du collaborateur
+(et du manager lui-même planifié : postes publiés, échanges, aussi dans l'application installée) ; horaire du poste publié proposé sur la feuille de temps ;
+postes publiés dans le flux d'agenda (contenu « postes ») ; période hors des semaines chargées (8 passées, 12 à venir) lue
+dans l'historique ; reprise des équipes par quart (Paramètres → Planning d'équipe → Reprendre…) ; étape 3 : conflits avec
+les missions et tâches Keystone, les sessions et les astreintes signalés au planificateur (« ! », sans blocage), couverture
+minimale par créneau dans la grille, l'aperçu de la publication et le tableau de bord (référent HSE compris, sans absences). Pour
+l'essayer en démonstration : noter la date de l'avis du CSE, activer le module, affecter des salariés de la Maintenance au 2x8, générer puis publier.
+Détail : `docs/ARCHITECTURE.md`, « Lot 12 : planning d'équipe ».
+## Badgeage virtuel (lot 12, C6)
+
+Module désactivé par défaut, y compris dans la démonstration : l'administrateur RH l'active dans Paramètres → Badgeage avec
+la référence de l'accord d'entreprise et la date de l'avis du CSE, puis désigne les populations qui pointent (mode
+« contrôlé » : écarts signalés ; « calculé » : heures de la feuille tirées des pointages, ligne « PTG »). Pas de badgeuse :
+bouton « Pointer » sur le téléphone ou l'ordinateur (accueil, saisie du jour, écran « Pointages », raccourci « Pointer » de
+l'application installée, statique : module inactif, il ramène à l'accueil avec un message), hors ligne admis (« différé »,
+réglage `pointageHorsLigne` : décoché, rien n'est gardé sur l'appareil), aucune position (sauf l'option de géolocalisation, étape 3,
+désactivée : pour les populations itinérantes désignées, position lue au clic et verdict seul gardé, zones tenues dans
+Paramètres → Badgeage, Permissions-Policy `geolocation=(self)` seulement l'option active). Corrections demandées par le salarié et validées
+par son manager ; présences du jour et corrections à valider pour le manager et le service RH ; horaires variables dans
+Référentiels → Horaires. Pointages lus à la demande (`GET /api/pointages`, `GET /api/pointages/etat`), jamais dans
+l'instantané ; essai de charge : `npm run charge:pointages`. Détail : `docs/ARCHITECTURE.md` (« Lot 12 : badgeage
+virtuel ») et `docs/RGPD.md` ; demandes : `docs/demandes/matrix-lot12-badgeage.sql` et `.md`, `codex-lot12-badgeage.md`.
 
 ## Contrat et temps de travail
 

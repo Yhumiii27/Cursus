@@ -7,8 +7,8 @@
 // région insérée avec son texte) : les succès en « status », les erreurs en « alert ».
 import { useMemo, useRef, type ReactNode } from 'react';
 import {
-  AirplaneIcon, BellIcon, BookOpenIcon, BooksIcon, BriefcaseIcon, CalendarBlankIcon, ChartBarIcon, ChartLineIcon, ChatIcon, CheckIcon, ClockIcon, GearSixIcon, HardHatIcon,
-  HouseIcon, KeyIcon, LifebuoyIcon, LockSimpleIcon, MapPinIcon, PlusIcon, ReceiptIcon, ShieldCheckIcon, SignOutIcon, TreeStructureIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
+  AirplaneIcon, BellIcon, BookOpenIcon, /* lot 12 — C5 */ CalendarCheckIcon, BooksIcon, BriefcaseIcon, CalendarBlankIcon, ChartBarIcon, ChartLineIcon, ChatIcon, CheckIcon, ClockIcon, GearSixIcon, HardHatIcon,
+  HouseIcon, KeyIcon, LifebuoyIcon, LockSimpleIcon, MapPinIcon, PlusIcon, ReceiptIcon, ShieldCheckIcon, SignOutIcon, TargetIcon, TreeStructureIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
 } from '@phosphor-icons/react';
 import { droitsRh, PROFILS_RH, vuesDe } from '../../../shared/constants.ts';
 import { aFaireCollaborateur } from '../../../shared/rules/a-faire.ts';
@@ -29,9 +29,72 @@ import { BandeauHorsLigne } from '../components/BandeauHorsLigne.tsx';
 import { InstallerApplication } from '../components/InstallerApplication.tsx';
 import { BarreOnglets } from './BarreOnglets.tsx';
 import { ongletsDe } from './onglets.ts';
+// lot 12 — C5 (planning d'équipe)
+import { planifieLuiMeme } from '../components/planning/planning-vue.ts';
+// lot 12 — C3 (entretiens suivis et 360°)
+import { ChatsCircleIcon } from '@phosphor-icons/react';
+import { avisADonner } from '../../../shared/rules/a-faire.ts';
+// lot 12 — C6 (badgeage virtuel)
+import { TimerIcon } from '@phosphor-icons/react';
+import { correctionsAValider, pointe } from '../components/temps/pointage-etat.ts';
 
 interface NavItem { view: View; label: string; icon: Icon; badge?: number }
 type NavGroup = [string, NavItem[]];
+
+/**
+ * lot 12 — entrées du menu des chantiers (socle) : une fonction par chantier, dans son bloc, qui rend ses entrées pour
+ * l'espace affiché, chacune avec le groupe où elle se range (un groupe existant de l'espace, à sa fin, ou un nouveau
+ * groupe, en fin de menu) et sa pastille. Les groupes de `navGroups` ne changent pas ; dans l'espace RH, les entrées sont
+ * filtrées ensuite par les écrans du profil, comme les autres.
+ */
+type EntreesMenu = (data: Dataset, d: ReturnType<typeof domaineDe>, role: Role) => [string, NavItem][];
+const ENTREES_LOT12: readonly EntreesMenu[] = [
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°) : « Mes objectifs » du collaborateur (réglage objectifsActifs), pastille : objectifs
+  // proches de leur échéance sans mise à jour (shared/rules/a-faire.ts).
+  (data, d, role) => (role === 'collaborateur' && data.settings.objectifsActifs
+    ? [['Mon espace', { view: 'objectifs', label: 'Mes objectifs', icon: TargetIcon, badge: aFaireCollaborateur(d, data.user.empId).objectifs.length }]] : []),
+  // Feedback 360° (étape 3) : « Avis demandés » le module activé, pour qui est ou a été sollicité comme répondant
+  // (collaborateur ; manager sollicité comme N+2 ou collègue) ; pastille : avis encore à donner.
+  (data, d, role) => {
+    const me = data.user.empId;
+    if (!data.settings.feedback360Actif || me == null || role === 'rh') return [];
+    if (role === 'manager' && !(data.feedbackSollicitations ?? []).some(s => s.repondantEmpId === me)) return [];
+    return [['Mon espace', { view: 'avis', label: 'Avis demandés', icon: ChatsCircleIcon, badge: avisADonner(data.feedbackSollicitations ?? [], me, d.ti).length }]];
+  },
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe) : « Mon planning » du collaborateur, le module activé ; pastille : échanges proposés à
+  // lui, à accepter ou refuser. Le planning de l'équipe est un onglet de Temps de travail.
+  // Le manager lui-même planifié (ses postes ou des échanges qui le concernent dans son instantané) l'a aussi.
+  (data, _d, role) => (data.settings.planningActif && (role === 'collaborateur' || (role === 'manager' && data.user.empId != null && planifieLuiMeme(data, data.user.empId)))
+    ? [['Temps & absences', { view: 'planning', label: 'Mon planning', icon: CalendarCheckIcon, badge: (data.echangesPoste ?? []).filter(e => e.statut === 'propose' && e.partenaireId === data.user.empId).length }]]
+    : []),
+  // lot 12 — C6 (badgeage virtuel) : entrée « Pointages » le module activé, pour qui pointe ou décide de corrections
+  // (manager, service RH ; profils restreints : jamais, `vuesDe`) ; pastille : corrections à valider.
+  (data, d, role) => {
+    if (!data.settings.pointageActif) return [];
+    const rh = droitsRh(data.user).includes('rh'), me = data.user.empId, soi = data.user.salarieId ?? null;
+    if (role === 'collaborateur' && !pointe(data, me)) return [];
+    const badge = correctionsAValider(d, { rh, manager: role === 'manager', me, soi }).length;
+    return [['Temps & absences', { view: 'pointages', label: role === 'collaborateur' ? 'Mes pointages' : 'Pointages', icon: TimerIcon, badge }]];
+  },
+];
+
+/** Entrées du lot 12 pour cet espace (`ENTREES_LOT12`). */
+const entreesLot12: EntreesMenu = (data, d, role) => ENTREES_LOT12.flatMap(f => f(data, d, role));
+
+/** Groupes du menu avec les entrées du lot 12 (`entreesLot12`) rangées dans leur groupe. */
+function avecLot12(groupes: NavGroup[], entrees: readonly [string, NavItem][]): NavGroup[] {
+  if (!entrees.length) return groupes;
+  const out = groupes.map(([g, items]): NavGroup => [g, [...items]]);
+  for (const [g, item] of entrees) {
+    const groupe = out.find(([nom]) => nom === g);
+    if (groupe) groupe[1].push(item);
+    else out.push([g, [item]]);
+  }
+  return out;
+}
 
 function navGroups(data: Dataset | null, role: Role): NavGroup[] {
   if (!data) return [];
@@ -73,12 +136,12 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
       ['Administration', [{ view: 'referentiels', label: 'Référentiels', icon: BooksIcon }, { view: 'parametres', label: 'Paramètres', icon: GearSixIcon }]],
     ];
     // Profil Paie : le groupe « Collaborateurs » ne garde que l'organigramme (lot 11).
-    return groupes.map(([g, items]): NavGroup => [g, items.filter(i => vues.includes(i.view))]).filter(([, items]) => items.length > 0);
+    return avecLot12(groupes, entreesLot12(data, d, role)).map(([g, items]): NavGroup => [g, items.filter(i => vues.includes(i.view))]).filter(([, items]) => items.length > 0);
   }
   // lot 11 — organigramme : entrée du menu selon le réglage `organigrammeOuvert` (shared/rules/organigramme.ts).
   const organigramme: NavItem[] = organigrammeOuvertA(data.settings.organigrammeOuvert, role) ? [{ view: 'organigramme', label: 'Organigramme', icon: TreeStructureIcon }] : [];
   if (role === 'manager') {
-    return [
+    return avecLot12([
       // Formations : évaluations à froid à faire sur l'équipe directe (lot 7, t121, shared/rules/evaluation-formation.ts).
       ['Mon équipe', [{ view: 'collaborateurs', label: 'Équipe', icon: UserIcon }, { view: 'formations', label: 'Formations', icon: BookOpenIcon, badge: evaluationsAFaireManager(d, me).length }, { view: 'entretiens', label: 'Entretiens', icon: ChatIcon, badge: late }]],
       ['Temps & absences', [{ view: 'temps', label: 'Feuilles de temps', icon: ClockIcon, badge: nQ }, { view: 'absences', label: 'Congés & absences', icon: CalendarBlankIcon, badge: nAbs }]],
@@ -86,19 +149,19 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
         // lot 11 — notes de frais
         ...frais('Notes de frais', notesFrais.filter(n => n.statut === 'soumise' && !n.medicale && canValidate(n.empId, 'frais')).length)]],
       ...(organigramme.length ? [['Organisation', organigramme] as NavGroup] : []),
-    ];
+    ], entreesLot12(data, d, role));
   }
   // Collaborateur : comptes rendus à signer, feuilles renvoyées ou semaine passée à soumettre, évaluations de formation
   // attendues (accueil, lot 7 t121) : shared/rules/a-faire.ts.
   const aFaire = aFaireCollaborateur(d, me);
-  return [
+  return avecLot12([
     ['Mon espace', [{ view: 'portail', label: 'Accueil', icon: HouseIcon, badge: aFaire.evaluations.length },
       // lot 11 — notes de frais : en deuxième, pour la barre d'onglets de l'application installée (saisie au téléphone).
       ...frais('Mes frais', notesFrais.filter(n => n.empId === me && n.statut === 'a_corriger').length),
       { view: 'entretiens', label: 'Mes entretiens', icon: ChatIcon, badge: aFaire.comptesRendus.length }]],
     ['Temps & absences', [{ view: 'temps', label: 'Mes heures', icon: ClockIcon, badge: aFaire.feuilles.length }, { view: 'absences', label: 'Mes absences', icon: CalendarBlankIcon }]],
     ...(organigramme.length ? [['Organisation', organigramme] as NavGroup] : []),
-  ];
+  ], entreesLot12(data, d, role));
 }
 
 const VUES: [Role, string][] = [['rh', 'RH'], ['manager', 'Manager'], ['collaborateur', 'Utilisateur']];

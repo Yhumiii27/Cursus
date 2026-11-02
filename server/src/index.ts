@@ -32,7 +32,7 @@ import { dossierSauvegardes, poserVerrou } from './sauvegarde.ts';
 import { Arret, hoteAffiche } from './service.ts';
 import { demarrerSurveillance } from './supervision.ts';
 import type { Db } from './db.ts';
-import { comptesDemo, seedDemo } from './seed.ts';
+import { comptesDemo, seedDemo, suiviForfaitHeuresDemo } from './seed.ts';
 
 /** Hôte, port et base de DATABASE_URL, pour le journal du démarrage : jamais l'identifiant ni le mot de passe. */
 function cibleAffichee(url: string): string {
@@ -133,6 +133,8 @@ if (await marquerExploitation(db, VERSION)) log.info('Premier démarrage en prod
 if (demoPublique()) log.avertissement('Démonstration publiée (CURSUS_DEMO_PUBLIQUE=1) : l’espace RH s’ouvre sans mot de passe à qui atteint cette adresse. Données fictives seulement ; restreignez l’accès en amont (authentification du proxy).');
 // Base de démonstration antérieure aux comptes : un compte par salarié et la RH de démonstration.
 if (DEMO) await db.tx(async () => { if (await db.count('employes') > 0) await comptesDemo(db); });
+// lot 12 — C1 : base de démonstration antérieure au forfait annuel en heures, suivie depuis le 1er janvier 2026 comme une neuve.
+if (DEMO) await db.tx(async () => { if (await db.count('employes') > 0) await suiviForfaitHeuresDemo(db); });
 // Références orphelines (salarié, session, formation… absents) : signalées dans les journaux, le journal des actions
 // et le point de santé, sans bloquer le démarrage (server/src/integrite.ts).
 await controlerIntegrite(db);

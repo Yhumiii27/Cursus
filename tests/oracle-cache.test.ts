@@ -166,7 +166,11 @@ for (const graine of GRAINES) {
     // Jeux d'action de tous les lecteurs tous les 5 pas (celui de l'acteur avant chaque action, toujours) ; tout au dernier pas.
     // Saisie et absences en renfort : depuis le lot 11, les actions des nouveaux modules (frais, OPCO, organigramme…) diluent
     // le tirage, et la suite doit toujours exercer ces chemins.
-    const renfort = ['temps.setCell', 'temps.setCell', 'temps.addLine', 'temps.submit', 'temps.validate', 'absence.demander', 'absence.decider'];
+    // Lot 12 (forfait heures, objectifs, organismes, planning, badgeage…) : au passage long, renfort multiplié par six (la graine
+    // 42 tombait à 58 actions validées en 300 pas, sans divergence) ; le passage court de 60 pas garde le renfort simple, qui
+    // y suffit (multiplié, il fait tirer davantage de saisies refusées faute de feuille modifiable).
+    const renfort = ['temps.setCell', 'temps.setCell', 'temps.addLine', 'temps.submit', 'temps.validate', 'absence.demander', 'absence.decider']
+      .flatMap(a => Array<string>(COMPLET ? 6 : 1).fill(a));
     const x = await rejouer(db, { graine, pas: PAS, verifierTous: 1, jeux: COMPLET ? 1 : 5, sql: 0.25, renfort });
     const stats = statistiquesCache(db);
     const resume = `${resumeRapport(x)}\ncache : ${JSON.stringify(stats)}`;
@@ -218,7 +222,9 @@ test('jeu de charge d’un an : suite d’écritures, lecture partagée identiqu
     return [...rh.slice(-5), ...tous.filter(u => u.role === 'manager'), ...new Set(Array.from({ length: 6 }, () => r.choix(collaborateurs)))];
   };
   const x = await rejouer(db, {
-    graine: GRAINES[0], pas: COMPLET ? 60 : 4, verifierTous: 1, sql: 0.3, jeux: COMPLET ? 10 : 0, lecteurs: echantillon,
+    graine: GRAINES[0], pas: COMPLET ? 60 : 6, verifierTous: 1, sql: 0.3, jeux: COMPLET ? 10 : 0, lecteurs: echantillon,
+    // Lot 12 : les actions nouvelles diluent le tirage ; renfort d'écritures courantes pour que les pas écrivent.
+    renfort: COMPLET ? undefined : ['temps.setCell', 'temps.addLine', 'absence.demander', 'absence.decider', 'temps.validate'].flatMap(a => Array<string>(12).fill(a)),
     lecteursFinaux: COMPLET ? undefined : tous => [
       ...tous.filter(u => u.role === 'rh').slice(-5), ...tous.filter(u => u.role === 'manager').slice(0, 4), ...tous.filter(u => u.role === 'collaborateur').slice(0, 4),
     ],

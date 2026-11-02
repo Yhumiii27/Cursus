@@ -147,7 +147,9 @@ export interface LigneFichier {
 }
 
 /** Contenu lu par le fichier : lignes des feuilles et, depuis le lot 5, éléments d'absence et soldes de sortie. */
-type ContenuFichier = Pick<SagePush, 'lignes'> & Partial<Pick<SagePush, 'absences' | 'sorties' | 'deplacements' | 'rachats' | 'astreintes' | 'aSaisir' | 'frais'>>;
+type ContenuFichier = Pick<SagePush, 'lignes'> & Partial<Pick<SagePush, 'absences' | 'sorties' | 'deplacements' | 'rachats' | 'astreintes' | 'aSaisir' | 'frais'
+  // lot 12 — C1 (forfait annuel en heures)
+  | 'forfaitHeures'>>;
 
 /**
  * Quantités du contenu par matricule, période et code Sage : heures des feuilles, puis absences et soldes de sortie.
@@ -164,6 +166,8 @@ function quantites(contenu: ContenuFichier): { matricule: string; periode: strin
     ...(contenu.rachats ?? []).flatMap(x => (x.codeSage ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
     // Heures et périodes d'astreinte (t049) : sans code Sage (AST_H, AST_PER désactivées), à saisir dans Sage, hors du fichier.
     ...(contenu.astreintes ?? []).flatMap(x => (x.codeSage ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
+    // lot 12 — C1 (forfait annuel en heures) : sans code Sage (rubriques désactivées), à saisir dans Sage, hors du fichier.
+    ...(contenu.forfaitHeures ?? []).flatMap(x => (x.codeSage ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
   ];
 }
 
@@ -260,6 +264,8 @@ export function resumeContenu(contenu: ContenuFichier, paysLabel?: (code: string
     ...(contenu.astreintes?.length ? { astreintes: { elements: contenu.astreintes.length, salaries: new Set(contenu.astreintes.map(x => x.empId)).size } } : {}),
     // lot 11 — notes de frais : éléments, salariés et montant total (agrégat, sans nature de dépense).
     ...(contenu.frais?.length ? { frais: { elements: contenu.frais.length, salaries: new Set(contenu.frais.map(x => x.empId)).size, montant: r2(contenu.frais.reduce((n, x) => n + x.montant, 0)) } } : {}),
+    // lot 12 — C1 (forfait annuel en heures)
+    ...(contenu.forfaitHeures?.length ? { forfaitHeures: { elements: contenu.forfaitHeures.length, salaries: new Set(contenu.forfaitHeures.map(x => x.empId)).size } } : {}),
     ...(aSaisir.length ? { aSaisir } : {}),
   };
 }

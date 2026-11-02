@@ -12,6 +12,9 @@ import { ligneCorrigeable, sessionsDeLaLigne } from '../../../shared/rules/corre
 import { suppressionLignePlan } from '../state/confirmations-corrections.ts';
 import type { PlanAction, PlanStatut } from '../../../shared/types.ts';
 import { Bar, Btn, Empty, Kpi, Kpis, Page, Panel, Seg, StackBar, Tag, Two } from '../components/ui.tsx';
+// lot 12 — C4 (organismes de formation et e-learning) : marque Qualiopi et NDA de l'organisme prévu d'une ligne.
+import { avertissementsPlan } from '../../../shared/rules/organismes-suivi.ts';
+import { organismeDuPlan } from '../../../shared/rules/organismes.ts';
 import { csvPlan } from '../listes-csv.ts';
 import { downloadCsv } from '../print.ts';
 import { useDomain, useRole } from '../state/derived.ts';
@@ -169,9 +172,14 @@ export function Budget() {
               <tbody>
                 {planRows.map(l => {
                   const fm = (l.f && d.fm(l.f)) || null;
+                  // lot 12 — C4 : organisme prévu (fiche) et ses avertissements (Qualiopi échu ou absent, NDA absent).
+                  const prevu = organismeDuPlan(d.ds, l), avert = avertissementsPlan(d.ds, l, d.ti);
                   return (
                     <tr key={l.id}>
-                      <td><Two main={fm ? fm.nom : l.libelle} sub={fm ? `${fm.type} · ${fm.organisme}` : 'Hors catalogue'} /></td>
+                      <td>
+                        <Two main={fm ? fm.nom : l.libelle} sub={fm ? `${fm.type} · ${prevu?.nomUsuel ?? fm.organisme}` : prevu ? `Hors catalogue · ${prevu.nomUsuel}` : 'Hors catalogue'} />
+                        {avert.length > 0 && <div className="sub" style={{ color: 'var(--color-accent-300)' }} title={avert.join(' · ')}>{avert.some(a => a.includes('Qualiopi')) ? 'Qualiopi à vérifier' : 'NDA absent'}</div>}
+                      </td>
                       <td className="text-muted nowrap">{l.equipe}</td>
                       <td>{l.periode}</td>
                       <td className="tnum">{l.statut === 'realise' && l.effectifReel != null ? l.effectifReel : l.effectif}</td>
@@ -186,6 +194,8 @@ export function Budget() {
                         <Tag cls={PLAN_CLS[l.statut]}>{PLAN_LABEL[l.statut]}</Tag>
                         {l.statut === 'reporte' && <div className="text-muted sub nowrap">sur {l.exercice + 1}</div>}
                         {l.origine === 'report' && <div className="text-muted sub nowrap">reporté de {l.exercice - 1}</div>}
+                        {/* lot 12 — C3 (entretiens suivis) : ligne née d'un souhait exprimé en entretien (bilan formation, dossier OPCO). */}
+                        {l.origine === 'entretien' && <div className="text-muted sub nowrap">issue d’un entretien</div>}
                       </td>
                       {voitOpco && <td><ColonneOpco l={l} /></td>}
                       <td className="right">

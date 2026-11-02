@@ -59,6 +59,8 @@ export const ACTIONS_PAIE: readonly string[] = [
   'frais.note.soumettre', 'frais.note.valider', 'frais.note.renvoyer', 'frais.note.controler', 'frais.note.annuler', 'frais.ligne.refuser',
   'frais.ligne.plafonner', 'frais.avance.valider', 'frais.avance.refuser', 'frais.avance.annuler', 'frais.bareme.enregistrer', 'frais.forfait.enregistrer',
   'frais.taux.enregistrer', 'frais.export.generer', 'frais.export.annuler', 'frais.export.fichier',
+  // lot 12 — C1 (forfait annuel en heures) : clôture, réouverture et annulation de la régularisation de fin de période.
+  'forfaitHeures.cloturer', 'forfaitHeures.rouvrir', 'forfaitHeures.annuler',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -360,6 +362,88 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'opco.abandonner': 'Dossier OPCO abandonné',
   'opco.rouvrir': 'Dossier OPCO rouvert (retour d’un cran)',
   'opco.supprimer': 'Dossier OPCO supprimé (saisie erronée)',
+  // lot 12 — C1 (forfait annuel en heures)
+  // Clôture du forfait annuel en heures (server/src/actions/forfait-heures.ts) : famille « Forfait annuel en heures » (paie).
+  'forfaitHeures.cloturer': 'Forfait annuel en heures : période clôturée',
+  'forfaitHeures.rouvrir': 'Forfait annuel en heures : clôture rouverte',
+  'forfaitHeures.annuler': 'Forfait annuel en heures : clôture annulée',
+  // lot 12 — C2 (notes de frais : activation) : consultation de l'historique d'autrui (notes payées depuis plus de 13 mois
+  // comprises) par le service RH ou la comptabilité, tracée par sa route (server/src/frais-historique.ts).
+  'frais.historique.consulter': 'Historique des notes de frais consulté',
+  // lot 12 — C3 (entretiens suivis et 360°)
+  'objectif.ajouter': 'Objectif fixé à l’entretien annuel',
+  'objectif.proposer': 'Objectif proposé par le salarié',
+  'objectif.modifier': 'Objectif modifié ou proposition validée',
+  'objectif.retirer': 'Objectif retiré',
+  'objectif.avancer': 'Avancement d’un objectif',
+  'objectif.ajuster': 'Objectif ajusté en cours d’année',
+  'objectif.evaluer': 'Objectif évalué',
+  'entretien.souhait': 'Souhait de formation exprimé à l’entretien',
+  'entretien.avisSouhait': 'Avis du manager sur un souhait de formation',
+  // Feedback 360° (étape 3, server/src/actions/feedback360.ts) : jamais le nom d'un répondant, ni une réponse ; la réponse
+  // et le refus d'un répondant ne sont pas tracés (la sollicitation en tient lieu).
+  'feedback360.solliciter': 'Feedback 360° : répondants proposés ou sollicités',
+  'feedback360.retirer': 'Feedback 360° : proposition de répondant retirée',
+  'feedback360.relancer': 'Feedback 360° : répondants relancés',
+  'feedback360.repondre': 'Feedback 360° : avis donné',
+  'feedback360.decliner': 'Feedback 360° : sollicitation déclinée',
+  'feedback360.clore': 'Feedback 360° : collecte close, réponses versées',
+  'feedback360.moderer': 'Feedback 360° : commentaire relu par le service RH',
+  'feedback360.purge': 'Feedback 360° : réponses brutes supprimées (conservation)',
+  // lot 12 — C4 (organismes de formation et e-learning) : famille « Référentiels » pour organisme.*, « Formations, plan et
+  // budget » pour elearning.*.
+  'organisme.enregistrer': 'Organisme de formation enregistré',
+  'organisme.conditions': 'Conditions d’un organisme de formation enregistrées',
+  'organisme.archiver': 'Organisme de formation archivé ou rétabli',
+  'organisme.verifier': 'Organisme de formation vérifié',
+  'organisme.fusionner': 'Organismes de formation fusionnés (doublon)',
+  'organisme.contact.enregistrer': 'Contact d’un organisme enregistré',
+  'organisme.contact.retirer': 'Contact d’un organisme retiré',
+  'organisme.tarif.enregistrer': 'Tarif d’un organisme enregistré',
+  'organisme.tarif.archiver': 'Tarif d’un organisme archivé',
+  'migration.organismes': 'Reprise des organismes de formation (textes libres)',
+  'elearning.module.enregistrer': 'Module d’e-learning enregistré',
+  'elearning.module.archiver': 'Module d’e-learning archivé ou rétabli',
+  'elearning.inscrire': 'Inscription à un module d’e-learning',
+  'elearning.declarer': 'Fin d’un module d’e-learning déclarée',
+  'elearning.importer': 'Avancement e-learning importé',
+  'elearning.terminer': 'Fin d’un module d’e-learning validée',
+  'elearning.abandonner': 'Inscription à un module d’e-learning abandonnée',
+  'elearning.corriger': 'Inscription à un module d’e-learning corrigée',
+  'elearning.annuler': 'Inscription à un module d’e-learning supprimée (saisie erronée)',
+  'planning.cycle.creer': 'Cycle de roulement créé',
+  'planning.cycle.modifier': 'Cycle de roulement modifié',
+  'planning.cycle.archiver': 'Cycle de roulement archivé ou rétabli',
+  'planning.besoin.creer': 'Besoin par poste enregistré',
+  'planning.besoin.modifier': 'Besoin par poste modifié',
+  'planning.besoin.archiver': 'Besoin par poste archivé',
+  'planning.roulement.affecter': 'Salarié affecté à un cycle de roulement',
+  'planning.roulement.terminer': 'Affectation au roulement terminée',
+  'planning.reprise': 'Équipes par quart reprises en groupes de roulement',
+  'planning.generer': 'Planning d’équipe généré (brouillon)',
+  'planning.creneau.ajouter': 'Créneau ajouté au planning',
+  'planning.creneau.modifier': 'Créneau du planning modifié',
+  'planning.creneau.annuler': 'Créneau du planning annulé ou retiré',
+  'planning.publier': 'Planning d’équipe publié',
+  'planning.echange.proposer': 'Échange de poste proposé',
+  'planning.echange.accepter': 'Échange de poste accepté par le collègue',
+  'planning.echange.valider': 'Échange de poste validé',
+  'planning.echange.refuser': 'Échange de poste refusé',
+  'planning.echange.annuler': 'Échange de poste retiré',
+  // lot 12 — C6 (badgeage virtuel)
+  // Badgeage (server/src/actions/pointage.ts) : famille « Temps — badgeage ». Jamais de ligne par pointage ordinaire (la
+  // table des pointages est elle-même la trace) ; corrections : identifiant, salarié, jour, nature et motif codé, jamais le
+  // commentaire ni le motif d'un refus.
+  'pointage.pointer': 'Pointage (jamais tracé : la table des pointages en est la trace)',
+  'pointage.corriger': 'Correction de pointage demandée',
+  'pointage.validerCorrection': 'Correction de pointage validée',
+  'pointage.refuserCorrection': 'Correction de pointage refusée',
+  'pointage.annulerCorrection': 'Demande de correction de pointage retirée',
+  'pointage.reprendreFeuille': 'Pointé repris sur la feuille (mode calculé)',
+  // Étape 3 : zones de la géolocalisation (jamais les coordonnées).
+  'pointage.zone.enregistrer': 'Zone de pointage enregistrée',
+  'pointage.zone.supprimer': 'Zone de pointage supprimée',
+  'referentiel.horaire.variable': 'Horaire variable (plages et plafonds)',
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
@@ -387,14 +471,15 @@ export const dossierComplet = (u: Pick<CurrentUser, 'role' | 'profilRh'>) => dro
 export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly string[] }[] = [
   // Une entrée par famille (la fusion du lot 11 avait doublé « fiches » et « formations » : clés React en double à l'écran).
   { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.', 'migration.contratsHistorique', /* lot 11 — organigramme */ 'entite.', 'site.', 'organigramme.'] },
-  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel', 'attente.', 'passeport.', 'evaluation.', 'migration.passeportPrevention', 'opco.'] },
+  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel', 'attente.', 'passeport.', 'evaluation.', 'migration.passeportPrevention', 'opco.',
+    /* lot 12 — C4 */ 'elearning.'] },
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.', 'migration.habDelivrances'] },
-  { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes'] },
+  { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes', /* lot 12 — C4 */ 'organisme.', 'migration.organismes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
   { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement', 'migration.referencesDeplacements', 'chantier.', 'migration.deplacementsPaie'] },
-  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'forfait.', 'astreinte.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie', 'migration.rubriquesFeuilles'] },
+  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'forfait.', 'astreinte.', /* lot 12 — C5 (planning d'équipe) */ 'planning.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie', 'migration.rubriquesFeuilles'] },
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
-  { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
+  { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.', /* lot 12 — C3 (entretiens suivis et 360°) */ 'objectif.', 'feedback360.'] },
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
   { id: 'pieces', label: 'Pièces justificatives', prefixes: ['piece.'] },
   // lot 11 — notes de frais
@@ -409,6 +494,15 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   },
   // lot 11 — pwa
   { id: 'mobile', label: 'Application mobile et notifications', prefixes: ['push.'] },
+  // lot 12 — blocs réservés (socle) : préfixes d'une nouvelle famille (une entrée par famille, jamais une famille en double).
+  // lot 12 — C1 (forfait annuel en heures)
+  { id: 'forfaitHeures', label: 'Forfait annuel en heures (clôture)', prefixes: ['forfaitHeures.'] },
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
+  { id: 'badgeage', label: 'Temps — badgeage', prefixes: ['pointage.'] },
 ];
 
 /** Famille d'un code : la première qui le reconnaît. */
@@ -531,6 +625,43 @@ export const CHAMP_LABEL: Record<string, string> = {
   deposeLe: 'Déposé le', accordLe: 'Accordé le', montantAccorde: 'Montant accordé', accordReference: 'Référence de l’accord', plafondHoraire: 'Plafond horaire',
   refusLe: 'Refusé le', refusMotif: 'Motif du refus', factureLe: 'Justificatifs envoyés le', montantFacture: 'Montant facturé', soldeLe: 'Soldé le',
   soldeEcart: 'Écart au solde', soldeNature: 'Nature de l’écart', abandonLe: 'Abandonné le', abandonMotif: 'Motif de l’abandon', planActionId: 'Action du plan',
+  // lot 12 — C1 (forfait annuel en heures)
+  forfaitHeuresDebutPeriode: 'Forfait annuel en heures : début de la période de référence', forfaitHeuresDebutSuivi: 'Forfait annuel en heures : début du suivi',
+  forfaitHeuresAccord: 'Référence de l’accord sur le forfait annuel en heures', forfaitHeuresSeuil25: 'Forfait annuel en heures : heures à 25 % par semaine',
+  forfaitHeuresAbsencesDeduites: 'Forfait annuel en heures : absences déduites', forfaitHeuresJour: 'Forfait annuel en heures : heures déduites par jour d’absence',
+  forfaitHeuresEmission: 'Forfait annuel en heures : mois d’émission', forfaitHeuresContingent: 'Forfait annuel en heures : imputation sur le contingent',
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  objectifsActifs: 'Objectifs suivis aux entretiens annuels', objectifsFacultatifs: 'Objectifs facultatifs (clôture sans évaluation exigée)',
+  objectifsMax: 'Objectifs au plus par entretien', pointMiAnneeActif: 'Point de mi-année obligatoire', pointMiAnneeDebut: 'Point de mi-année : début',
+  pointMiAnneeFin: 'Point de mi-année : fin', feedback360Actif: 'Feedback 360° activé', feedback360Cse: 'Feedback 360° : référence de l’avis du CSE',
+  feedback360Aipd: 'Feedback 360° : référence de l’AIPD', feedback360Seuil: 'Feedback 360° : seuil de restitution', feedback360FenetreJours: 'Feedback 360° : fenêtre de réponse (jours)',
+  feedback360ConservationMois: 'Feedback 360° : conservation des réponses (mois)', avancement: 'Avancement (%)', poids: 'Poids (%)', echeance: 'Échéance', ajusteLe: 'Ajusté le',
+  evalueEntretienId: 'Évalué à l’entretien', mesure: 'Mesure',
+  // lot 12 — C4 (organismes de formation et e-learning) : réglages, colonnes d'une fiche, d'un tarif, d'un module et d'une
+  // inscription (jamais un nom, une URL, un avancement ni un motif).
+  organismeAlerteQualiopiJours: 'Qualiopi : première relance avant la fin de validité (jours)', elearningFinAutoImport: 'E-learning : fin validée d’office à l’import',
+  organismeId: 'Organisme', nda: 'Déclaration d’activité', qualiopi: 'Certifié Qualiopi', qualiopiCategories: 'Catégories Qualiopi',
+  qualiopiValideJusquau: 'Qualiopi valable jusqu’au', qualiopiVerifieLe: 'Qualiopi vérifié le', aVerifier: 'À vérifier', subrogationAcceptee: 'Subrogation acceptée',
+  delaiAnnulationJours: 'Délai d’annulation (jours)', conditions: 'Conditions', principal: 'Contact principal', modalite: 'Modalité', unite: 'Unité',
+  montantHt: 'Montant HT', valableDu: 'Valable du', valableAu: 'Valable jusqu’au', url: 'Lien d’accès', intitule: 'Intitulé', langue: 'Langue',
+  coutLicence: 'Coût d’une licence', accesMois: 'Validité de l’accès (mois)', attestationRequise: 'Attestation exigée', declareLe: 'Fin déclarée le',
+  termineLe: 'Terminé le', suivieId: 'Formation suivie', certId: 'Certification',
+  // lot 12 — C5 (planning d'équipe) : réglages, colonnes d'un cycle, d'un besoin par poste et d'une affectation.
+  planningActif: 'Planning d’équipe activé', planningDelaiPrevenance: 'Planning : délai de prévenance (jours)',
+  planningReposQuotidienAccord: 'Planning : repos quotidien de l’accord (heures)', planningNuitJour: 'Planning : durée d’un poste de nuit (heures)',
+  planningNuitMoyenne: 'Planning : moyenne du travailleur de nuit sur 12 semaines (heures)', planningAccord: 'Référence de l’accord sur le planning',
+  planningCollegues: 'Planning des collègues visible du salarié', planningCseLe: 'Planning : avis du CSE le',
+  longueur: 'Longueur du cycle (jours)', sequence: 'Séquence des horaires', groupes: 'Groupes et décalages', origine: 'Jour d’origine du cycle',
+  effectifMin: 'Effectif minimal', posteId: 'Poste', exigences: 'Exigences du créneau',
+  // lot 12 — C6 (badgeage virtuel)
+  pointageActif: 'Badgeage activé', pointagePopulations: 'Badgeage : populations', pointageAccord: 'Badgeage : référence de l’accord',
+  pointageCseLe: 'Badgeage : avis du CSE le', pointageInterim: 'Badgeage : intérimaires inclus', pointageDelaiCorrectionJours: 'Badgeage : délai de correction (jours)',
+  pointageHorsLigne: 'Badgeage : pointage hors ligne admis', pointageEcartDiffereMin: 'Badgeage : écart toléré hors ligne (minutes)',
+  pointageEcartAnomalieMin: 'Badgeage : écart déclaré / pointé signalé (minutes)', conservationPointagesAns: 'Conservation des pointages (ans)',
+  geolocActive: 'Géolocalisation au pointage activée', geolocPopulations: 'Géolocalisation : populations', geolocFinalite: 'Géolocalisation : finalité',
+  geolocAipdLe: 'Géolocalisation : AIPD validée le', geolocPrecisionM: 'Géolocalisation : précision exigée (mètres)',
+  motif: 'Motif',
 };
 
 const valeur = (v: unknown): string => {

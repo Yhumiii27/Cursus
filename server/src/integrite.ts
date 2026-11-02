@@ -62,6 +62,10 @@ export const REFERENCES: readonly Reference[] = [
   // Avenants de renonciation d'un forfait jours (t043) : salarié et lot de paie des jours rachetés.
   ref('avenants_forfait', 'emp_id', 'employes'),
   ref('avenants_forfait', 'lot_id', 'lots_paie'),
+  // lot 12 — C1 (forfait annuel en heures) : salarié, lot de paie des heures, version transmise corrigée.
+  ref('clotures_forfait_heures', 'emp_id', 'employes'),
+  ref('clotures_forfait_heures', 'lot_id', 'lots_paie'),
+  ref('clotures_forfait_heures', 'remplace_id', 'clotures_forfait_heures'),
   // Horaire de poste par défaut d'une équipe (lot 6) ; ceux des feuilles (JSON, archivés gardés) ne sont jamais supprimés.
   ref('equipes', 'horaire', 'horaires', 'code'),
   // lot 11 — organigramme : entité d'une équipe racine, société parente d'un établissement (0016_entites.sql). Les codes de
@@ -121,6 +125,57 @@ export const REFERENCES: readonly Reference[] = [
   ref('lignes_frais', 'note_id', 'notes_frais'),
   ref('lignes_frais', 'vehicule_id', 'vehicules_perso'),
   ref('sceaux_pieces', 'piece_id', 'pieces'),
+  // lot 12 — C2 : dépenses des notes médicales (scission, 0029_frais_sante.sql), mêmes références que lignes_frais.
+  ref('lignes_frais_sante', 'emp_id', 'employes'),
+  ref('lignes_frais_sante', 'note_id', 'notes_frais'),
+  // lot 12 — C3 (entretiens suivis et 360° ; clés étrangères de 0024_entretiens_suivis.sql) : salarié, entretien qui fixe et
+  // entretien qui évalue un objectif, objectif reconduit ; demande versée depuis un souhait ; feedback 360° (évalué,
+  // répondant, entretien, sollicitation d'une réponse en attente).
+  ref('objectifs', 'emp_id', 'employes'),
+  ref('objectifs', 'entretien_id', 'entretiens'),
+  ref('objectifs', 'evalue_entretien_id', 'entretiens'),
+  ref('objectifs', 'reconduit_de', 'objectifs'),
+  ref('demandes_collab', 'entretien_id', 'entretiens'),
+  ref('feedback_sollicitations', 'emp_id', 'employes'),
+  ref('feedback_sollicitations', 'repondant_emp_id', 'employes'),
+  ref('feedback_sollicitations', 'entretien_id', 'entretiens'),
+  ref('feedback_tampon', 'sollicitation_id', 'feedback_sollicitations'),
+  ref('feedback_reponses', 'emp_id', 'employes'),
+  ref('feedback_reponses', 'entretien_id', 'entretiens'),
+  // lot 12 — C4 (clés étrangères de 0025_organismes_elearning.sql) : fiche des objets rattachés à un organisme, fiche qui en a
+  // absorbé une autre, formation d'un tarif ou d'un module ; salarié, module, ligne du plan, certification et formation
+  // suivie produites d'une inscription à un module d'e-learning.
+  ...['formations', 'sessions', 'formations_suivies', 'plan_actions', 'dossiers_opco', 'organisme_contacts', 'organisme_tarifs', 'modules_elearning']
+    .map(t => ref(t, 'organisme_id', 'organismes')),
+  ref('organismes', 'fusionne_dans', 'organismes'),
+  ref('organisme_tarifs', 'formation', 'formations'),
+  ref('modules_elearning', 'formation', 'formations'),
+  ref('inscriptions_elearning', 'emp_id', 'employes'),
+  ref('inscriptions_elearning', 'module_id', 'modules_elearning'),
+  ref('inscriptions_elearning', 'plan_action_id', 'plan_actions'),
+  ref('inscriptions_elearning', 'cert_id', 'certifications'),
+  ref('inscriptions_elearning', 'suivie_id', 'formations_suivies'),
+  // lot 12 — C5 (planning d'équipe ; clés étrangères de 0026_planning_equipe.sql) : salarié d'une affectation, d'un créneau
+  // (vide : à pourvoir) et des deux côtés d'un échange, suppléant qui l'a validé ; cycle, besoin, créneau remplacé, poste.
+  ref('roulements', 'emp_id', 'employes'),
+  ref('roulements', 'cycle', 'cycles', 'code'),
+  ref('creneaux', 'emp_id', 'employes'),
+  ref('creneaux', 'besoin_id', 'besoins_poste'),
+  ref('creneaux', 'remplace_id', 'creneaux'),
+  ref('besoins_poste', 'poste_id', 'postes'),
+  ref('echanges_poste', 'demandeur_id', 'employes'),
+  ref('echanges_poste', 'partenaire_id', 'employes'),
+  ref('echanges_poste', 'par_delegation_de', 'employes'),
+  ref('echanges_poste', 'creneau_demandeur', 'creneaux'),
+  ref('echanges_poste', 'creneau_partenaire', 'creneaux'),
+  // lot 12 — C6 (badgeage virtuel ; clés étrangères de 0027_badgeage.sql) : salarié, pointage neutralisé, correction qui a
+  // créé le pointage ; pointage visé par une demande et pointage créé par sa validation.
+  ref('pointages', 'emp_id', 'employes'),
+  ref('pointages', 'annule_id', 'pointages'),
+  ref('pointages', 'correction_id', 'corrections_pointage'),
+  ref('corrections_pointage', 'emp_id', 'employes'),
+  ref('corrections_pointage', 'pointage_id', 'pointages'),
+  ref('corrections_pointage', 'pointage_cree_id', 'pointages'),
 ];
 
 export interface Integrite {

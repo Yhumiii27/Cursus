@@ -65,6 +65,8 @@ export function heuresKeystone(lignes: LigneTemps[]): Record<string, number> {
   const out: Record<string, number> = {};
   for (const l of lignes) {
     if (ACTIVITES_INTERNES.test(l.projet)) continue;
+    // lot 12 — C6 (badgeage virtuel) : ligne PTG du mode « calcule » (pointé non ventilé), jamais un projet Keystone.
+    if (l.pt) continue;
     const h = l.h.reduce((a, b) => a + num(b), 0);
     if (h > 0) out[l.projet] = (out[l.projet] ?? 0) + h;
   }

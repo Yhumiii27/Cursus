@@ -16,6 +16,8 @@ import { amorcerHoraires } from './migrations/lot6-horaires.ts';
 import { rattacherFiches } from './migrations/referentiels.ts';
 import { amorcerActivites } from './migrations/temps.ts';
 import { amorcerActiviteAstreinte } from './migrations/lot7-astreintes.ts';
+// lot 12 — C5 (planning d'équipe)
+import { amorcerCycles } from './migrations/lot12-planning.ts';
 // lot 11 — organigramme
 import { plural } from '../../shared/format.ts';
 import { entiteOuverte, equipesRessemblantAUnSite, NOM_ENTITE_MAX } from '../../shared/rules/entites.ts';
@@ -23,6 +25,8 @@ import type { Entite, Equipe } from '../../shared/types.ts';
 import { journaliser } from './comptes.ts';
 import { lireConfidentialite } from './confidentialite.ts';
 import { recalerRattachements } from './rattachements.ts';
+// lot 12 — C4 (organismes de formation et e-learning)
+import { reprendreOrganismes } from './reprise-organismes.ts';
 
 /**
  * Reprises et migrations de la base ouverte. SQLite : une MigrationError d'une migration nommée interrompue est rendue
@@ -44,7 +48,12 @@ export async function mettreAJourBase(db: Db): Promise<void> {
       });
     }
     await rattacherFiches(db);
+    // lot 12 — C5 (planning d'équipe) : modèles de cycles amorcés une fois (table vide), base neuve ou déjà en service.
+    await db.tx(async () => { await amorcerCycles(db); });
   }
+  // lot 12 — C4 : organismes saisis en texte libre repris en fiches, sur les deux moteurs, après les migrations (étape
+  // idempotente : rien quand il ne reste aucun texte sans fiche ; server/src/reprise-organismes.ts).
+  await reprendreOrganismes(db);
   // lot 11 — organigramme : entité unique amorcée sur les deux moteurs, une fois les réglages lisibles.
   await amorcerEntites(db);
   // Site et unité de rattachement des fiches tirés de leur équipe (étape 2) : une base d'avant le lot 11 les reçoit ici, et

@@ -20,7 +20,7 @@
 // l'équipe, figée à la soumission ; journée de solidarité travaillée (shared/rules/feries.ts) signalée sur son jour.
 // Forfait jours (t043, components/ForfaitJours.tsx) : cumul annuel au récapitulatif et dans la file de validation, alerte au
 // seuil ; au-delà du plafond (forfait, plus les jours rachetés par avenant), motif du valideur exigé à la validation.
-import { useState, type MouseEvent } from 'react';
+import { useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
 import { ABS_ABREGE, ACTIVITE_ASTREINTE, TEMPS_TRAVAIL, TS_CLS, TS_LABEL } from '../../../shared/constants.ts';
 import type { Domain } from '../../../shared/domain.ts';
@@ -41,7 +41,7 @@ import { feriesDeLaSemaine, MAJORATION_1ER_MAI, mentionFerie, plafondComplementa
 import { contingentsDeLaSemaine, contingentTexte, moyenne12Semaines, moyenneTexte, requalificationPartiel, requalificationTexte } from '../../../shared/rules/durees.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
 import { ChoixCollaborateur } from '../components/ChoixCollaborateur.tsx';
-import { CloseButton, Fine, Page, Panel, stop, Tag, Two } from '../components/ui.tsx';
+import { CloseButton, Fine, Page, Panel, Seg, stop, Tag, Two } from '../components/ui.tsx';
 import { Ouvrir } from '../components/Cliquable.tsx';
 import { LotsPaie } from '../components/LotsPaie.tsx';
 import { SuiviFeuilles } from '../components/SuiviFeuilles.tsx';
@@ -65,6 +65,16 @@ import { controleValidationForfait } from '../../../shared/rules/forfait-jours.t
 import { decideur } from '../state/delegues.ts';
 import { InterventionsFeuille, PlanningAstreintes } from '../components/Astreintes.tsx';
 import { ligneAstreinte } from '../components/astreintes-etat.ts';
+// lot 12 — socle : onglets de l'écran (le contenu de chaque onglet de chantier est dans un composant à lui).
+import type { OngletTemps } from './temps-onglets.ts';
+// lot 12 — C1 (forfait annuel en heures)
+import { RecapForfaitHeures, useDroitsForfaitHeures } from '../components/temps/RecapForfaitHeures.tsx';
+import { ongletForfaitHeures } from '../components/temps/forfait-heures-vue.ts';
+// lot 12 — C5 (planning d'équipe)
+import { PlanningEquipe } from '../components/planning/PlanningEquipe.tsx';
+// lot 12 — C6 (badgeage virtuel)
+import { PointagesSemaine } from '../components/temps/Pointages.tsx';
+import { estLignePointee } from '../../../shared/rules/pointage-feuille.ts';
 
 /** Année d'une feuille : celle de sa semaine ISO (son jeudi) ; le cumul annuel ventile une semaine à cheval jour par jour. */
 const anneeDe = (week: ISODate) => isoWeekYear(week);
@@ -214,6 +224,26 @@ export function Temps() {
     .filter((q): q is { sh: FeuilleTemps; e: Employe } => !!q.e && (espaceRh || (manager && decideur(d, q.e, me, 'feuilles'))));
   const valide = (e: Employe) => (rh && e.id !== soi) || (manager && decideur(d, e, me, 'feuilles'));
 
+  // Onglets de l'écran (lot 12, socle ; pages/temps-onglets.ts) : chaque chantier n'ajoute que son onglet (libellé, et
+  // contenu dans un composant à lui), dans son bloc. La barre n'est montrée qu'à partir de deux onglets ; un onglet
+  // absent pour cet espace (adresse d'un autre) ramène aux feuilles de temps.
+  const onglets: [OngletTemps, string][] = [['feuilles', 'Feuilles de temps']];
+  const contenus: Partial<Record<OngletTemps, ReactNode>> = {};
+  // lot 12 — C1 (forfait annuel en heures) : bandeau de clôture, suivi de la période, lignes enregistrées (onglet affiché
+  // seulement s'il a quelque chose à montrer ; jamais au référent HSE).
+  const droitsForfait = useDroitsForfaitHeures();
+  const libelleForfait = useMemo(() => ongletForfaitHeures(d, droitsForfait), [d, droitsForfait]);
+  if (libelleForfait) { onglets.push(['forfait-heures', libelleForfait]); contenus['forfait-heures'] = <RecapForfaitHeures />; }
+  // lot 12 — C5 (planning d'équipe) : module activé ; service RH, paie et lecture seule, manager (ses équipes).
+  if (data.settings.planningActif && !collab) { onglets.push(['planning', 'Planning d’équipe']); contenus.planning = <PlanningEquipe />; }
+  // lot 12 — C6 (badgeage virtuel) : semaine de pointages du salarié affiché, le module activé (pas pour les profils
+  // restreints, qui lisent la feuille).
+  if (data.settings.pointageActif && (rh || manager || collab)) {
+    onglets.push(['pointages', 'Pointages']);
+    contenus.pointages = tsEmp ? <PointagesSemaine key={`${tsEmp.id}|${wk}`} emp={tsEmp} wk={wk} /> : null;
+  }
+  const onglet: OngletTemps = onglets.some(([o]) => o === ui.tempsOnglet) ? ui.tempsOnglet : 'feuilles';
+
   return (
     <Page
       kicker={`Semaine ${isoWeek(wk)} · ${fmtShort(parse(wdays[0]))} → ${fmt(parse(wdays[DIMANCHE]))}`}
@@ -233,6 +263,11 @@ export function Temps() {
         <CopierLien chemin={`/temps?${collab || tsId == null ? '' : `salarie=${tsId}&`}semaine=${wk}`} />
       </>}
     >
+      {onglets.length > 1 && (
+        <Seg name="tempsOnglet" label="Onglet de Temps de travail" value={onglet} onChange={v => setUi({ tempsOnglet: v })} style={{ alignSelf: 'flex-start', flexWrap: 'wrap' }}
+          options={onglets} />
+      )}
+      {onglet !== 'feuilles' ? contenus[onglet] : <>
       {!collab && queue.length > 0 && (
         <Panel highlight title="Feuilles à valider" aside={plural(queue.length, 'feuille à valider', 'feuilles à valider')}>
           <div className="scroll-x">
@@ -283,6 +318,7 @@ export function Temps() {
       {espaceRh && <LotsPaie />}
 
       {rh && <RelevesPanel wk={wk} />}
+      </>}
     </Page>
   );
 }
@@ -444,7 +480,9 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
 
         {vueJour ? (
           <SaisieJour wk={wk} days={days} lignes={lignes} perDay={calc.perDay} total={calc.total} editable={editable} occupe={occupe}
-            projet={code => d.projet(code)} alerteDe={alerteDe} enregistrer={enregistrer} supprimer={supprimer} horaires={horaires} />
+            projet={code => d.projet(code)} alerteDe={alerteDe} enregistrer={enregistrer} supprimer={supprimer} horaires={horaires}
+            /* lot 12 — C6 (badgeage virtuel) : bouton « Pointer » sur sa propre feuille de la semaine en cours. */
+            pointer={emp.id === me && wk === mondayOf(data.today)} />
         ) : (
         <div className="scroll-x">
           <table className="table" style={{ fontSize: 13 }}>
@@ -479,7 +517,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
                     const alerte = alerteDe(li, di), alerteId = `ts-alerte-${li}-${di}`;
                     return (
                       <td key={di} className={`center${days[di].weekend ? ' col-weekend' : ''}`}>
-                        <ChampHeures value={num(l.h[di])} disabled={!editable || (days[di].locked && !alerte) || ligneAstreinte(l)} label={nomChamp(l, days[di].long)}
+                        <ChampHeures value={num(l.h[di])} disabled={!editable || (days[di].locked && !alerte) || ligneAstreinte(l) || /* lot 12 — C6 */ estLignePointee(l)} label={nomChamp(l, days[di].long)}
                           alerte={alerte} alerteId={alerteId} onCommit={raw => enregistrer(li, di, raw)}
                           style={{ width: 56, textAlign: 'right', padding: '0 var(--space-3)' }} />
                         {alerte && <span id={alerteId} className="sr-only">{alerte}</span>}
@@ -488,7 +526,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
                   })}
                   {!voirWeekEnd && <td className="center col-weekend tnum nowrap">{heuresWeekEnd(l.h) ? fH(heuresWeekEnd(l.h)) : '—'}</td>}
                   <td className="right nowrap tnum">{fH(l.h.reduce((n, v) => n + num(v), 0))}</td>
-                  <td className="right">{editable && !(ligneAstreinte(l) && l.h.some(v => num(v) > 0)) && <CloseButton size={28} label={`Supprimer la ligne ${l.projet}`} disabled={occupe} onClick={ev => supprimer(li, ev)} />}</td>
+                  <td className="right">{editable && !(ligneAstreinte(l) && l.h.some(v => num(v) > 0)) && /* lot 12 — C6 */ !estLignePointee(l) && <CloseButton size={28} label={`Supprimer la ligne ${l.projet}`} disabled={occupe} onClick={ev => supprimer(li, ev)} />}</td>
                 </tr>
               ))}
               <tr>

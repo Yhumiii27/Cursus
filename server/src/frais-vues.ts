@@ -14,9 +14,49 @@
 // que ces vues montrent celles que le serveur applique (chantiers en grand déplacement, absences, empreintes des
 // justificatifs leur manquent) ; le texte d'une alerte ne dit ni la nature d'une absence ni à qui est un doublon.
 import { Domain } from '../../shared/domain.ts';
-import type { CurrentUser, Dataset, NoteFrais } from '../../shared/types.ts';
+import type { CurrentUser, Dataset, LigneFrais, NoteFrais, Piece } from '../../shared/types.ts';
 import { alertesDesNotes } from '../../shared/rules/frais-alertes.ts';
+import { detailEnLigne, reintegrableDesNotes, resumesDesLignes } from '../../shared/rules/frais-fenetre.ts';
 import { estObjetFrais } from '../../shared/rules/pieces.ts';
+
+// lot 12 — C2 (notes de frais : activation) : règles de projection par ligne, communes à l'instantané (ci-dessous) et à la
+// route d'historique (server/src/frais-historique.ts), qui les applique aux notes lues en base : une seule définition de
+// ce que chacun voit des frais.
+
+/** Notes d'un manager ou d'un collaborateur `moi` : les siennes, et celles des salariés `idsFrais` sans les notes médicales. */
+export const notesVuesSalarie = <N extends Pick<NoteFrais, 'empId' | 'medicale'>>(notes: readonly N[], moi: number | null | undefined, idsFrais: ReadonlySet<number>): N[] =>
+  notes.filter(n => n.empId === moi || (idsFrais.has(n.empId) && !n.medicale));
+
+/** Lignes des notes reçues, du même salarié que leur note (une ligne d'un autre salarié ne change jamais la vue). */
+export function lignesDesNotes<L extends Pick<LigneFrais, 'noteId' | 'empId'>>(lignes: readonly L[], notes: readonly Pick<NoteFrais, 'id' | 'empId'>[]): L[] {
+  const parId = new Map(notes.map(n => [n.id, n]));
+  return lignes.filter(l => parId.get(l.noteId)?.empId === l.empId);
+}
+
+/**
+ * Justificatifs de frais d'un manager : ceux des salariés `idsFrais` (hors les siens), jamais une pièce médicale ; sans
+ * l'empreinte. Ses propres pièces lui viennent par `piecesVisibles` (server/src/pieces.ts).
+ */
+export const piecesFraisDeManager = (pieces: readonly Piece[], moi: number | null | undefined, idsFrais: ReadonlySet<number>): Piece[] =>
+  pieces.filter(p => p.empId != null && p.empId !== moi && idsFrais.has(p.empId) && !p.retireeLe && (p.objet === 'ligneFrais' || p.objet === 'vehiculePerso'))
+    .map(p => ({ ...p, empreinte: null }));
+
+/** Statuts que la paie reçoit : notes contrôlées, en paiement ou payées. */
+export const POUR_LA_PAIE: readonly NoteFrais['statut'][] = ['controlee', 'en_paiement', 'payee'];
+
+/**
+ * Notes reçues par la paie : contrôlées, en paiement ou payées, sans le motif d'un renvoi ou d'une annulation (textes
+ * libres) ; une note médicale n'y est qu'un remboursement : ni l'indicateur, ni les dates et auteurs du circuit, qui la
+ * trahiraient (validation du manager absente pour un salarié qui a un manager). La paie n'en a pas l'usage : statut, lot
+ * et date de paiement lui suffisent. Jamais leurs lignes.
+ */
+export const notesPourLaPaie = (notes: readonly NoteFrais[]): NoteFrais[] => notes.filter(n => POUR_LA_PAIE.includes(n.statut)).map(n => ({
+  ...n, renvoiMotif: null, annuleMotif: null, medicale: false,
+  soumiseLe: null, valideeLe: null, valideePar: null, controleeLe: null, controleePar: null, renvoyeeLe: null, renvoyeePar: null,
+}));
+
+/** Justificatifs de frais de la comptabilité : frais médicaux compris, en vigueur, sans l'empreinte (service RH seulement). */
+export const piecesFraisComptabilite = (pieces: readonly Piece[]): Piece[] => pieces.filter(p => estObjetFrais(p.objet) && !p.retireeLe).map(p => ({ ...p, empreinte: null }));
 
 /**
  * Notes de frais vues par un manager ou un collaborateur : les siennes, et celles des salariés `idsFrais` sans les notes
@@ -25,10 +65,8 @@ import { estObjetFrais } from '../../shared/rules/pieces.ts';
 export function fraisVueSalarie(full: Dataset, d: Domain, user: CurrentUser, idsFrais: ReadonlySet<number>): Pick<Dataset, 'notesFrais' | 'lignesFrais' | 'vehiculesPerso' | 'avancesFrais' | 'alertesFrais'> {
   const moi = user.empId;
   const voit = (empId: number) => empId === moi || idsFrais.has(empId);
-  const notes = (full.notesFrais ?? []).filter(n => n.empId === moi || (idsFrais.has(n.empId) && !n.medicale));
-  // Ligne par salarié : celle d'une note reçue, du même salarié (une ligne d'un autre salarié ne change jamais la vue).
-  const parId = new Map(notes.map(n => [n.id, n]));
-  const lignes = (full.lignesFrais ?? []).filter(l => parId.get(l.noteId)?.empId === l.empId);
+  const notes = notesVuesSalarie(full.notesFrais ?? [], moi, idsFrais);
+  const lignes = lignesDesNotes(full.lignesFrais ?? [], notes);
   return {
     notesFrais: notes,
     lignesFrais: lignes,
@@ -41,24 +79,14 @@ export function fraisVueSalarie(full: Dataset, d: Domain, user: CurrentUser, ids
 /** Justificatifs de frais d'un manager : ceux des salariés `idsFrais` (hors les siens, déjà reçus), jamais une pièce médicale. */
 export function piecesFraisManager(full: Dataset, user: CurrentUser, idsFrais: ReadonlySet<number>): NonNullable<Dataset['pieces']> {
   if (user.role !== 'manager') return [];
-  return (full.pieces ?? []).filter(p => p.empId != null && p.empId !== user.empId && idsFrais.has(p.empId) && !p.retireeLe && (p.objet === 'ligneFrais' || p.objet === 'vehiculePerso'))
-    .map(p => ({ ...p, empreinte: null }));
+  return piecesFraisDeManager(full.pieces ?? [], user.empId, idsFrais);
 }
-
-/** Statuts que la paie reçoit : notes contrôlées, en paiement ou payées. */
-const POUR_LA_PAIE: readonly NoteFrais['statut'][] = ['controlee', 'en_paiement', 'payee'];
 
 /** Notes de frais d'un profil restreint de l'espace RH autre que la comptabilité (paie, référent HSE, lecture seule). */
 export function fraisVueProfil(full: Dataset, paie: boolean): Pick<Dataset, 'notesFrais' | 'lignesFrais' | 'vehiculesPerso' | 'avancesFrais'> {
   if (!paie) return { notesFrais: [], lignesFrais: [], vehiculesPerso: [], avancesFrais: [] };
   return {
-    // Sans le motif d'un renvoi ou d'une annulation (textes libres) ; une note médicale n'y est qu'un remboursement : ni
-    // l'indicateur, ni les dates et auteurs du circuit, qui la trahiraient (validation du manager absente pour un salarié
-    // qui a un manager). La paie n'en a pas l'usage : statut, lot et date de paiement lui suffisent.
-    notesFrais: (full.notesFrais ?? []).filter(n => POUR_LA_PAIE.includes(n.statut)).map(n => ({
-      ...n, renvoiMotif: null, annuleMotif: null, medicale: false,
-      soumiseLe: null, valideeLe: null, valideePar: null, controleeLe: null, controleePar: null, renvoyeeLe: null, renvoyeePar: null,
-    })),
+    notesFrais: notesPourLaPaie(full.notesFrais ?? []),
     lignesFrais: [],
     vehiculesPerso: [],
     avancesFrais: (full.avancesFrais ?? []).filter(a => a.statut === 'validee' || a.statut === 'en_paiement' || a.statut === 'versee').map(a => ({ ...a, refusMotif: null })),
@@ -71,6 +99,8 @@ export function fraisVueProfil(full: Dataset, paie: boolean): Pick<Dataset, 'not
  */
 export function vueComptabilite(full: Dataset): Dataset {
   const r = full.referentiels;
+  // lot 12 — C2, étape 2 : détail de 2 mois, résumés, parts réintégrables et alertes calculés sur l'instantané complet.
+  const g = fraisVueGestion(full, new Domain(full));
   return {
     today: full.today, revision: full.revision, user: full.user, settings: full.settings,
     // Destinations (devise du pays), projets et chantiers (imputation) ; ni postes, ni équipes et leurs exigences.
@@ -85,11 +115,43 @@ export function vueComptabilite(full: Dataset): Dataset {
     demandesVisite: [], debutSaisieFeuilles: null, lotsPaie: [], formatFichierPaie: null, rubriquesPaie: [], messagerie: null, releves: [], reprises: [],
     calendrierFeries: full.calendrierFeries && Object.fromEntries(Object.entries(full.calendrierFeries).map(([annee, x]) => [annee, { ...x, motif: null }])),
     notesFrais: full.notesFrais ?? [],
-    lignesFrais: full.lignesFrais ?? [],
+    lignesFrais: g.lignesFrais,
     vehiculesPerso: full.vehiculesPerso ?? [],
     avancesFrais: full.avancesFrais ?? [],
-    alertesFrais: alertesDesNotes(new Domain(full), full.notesFrais ?? [], full.lignesFrais ?? []),
-    // Justificatifs des frais, frais médicaux compris, sans l'empreinte (service RH seulement, comme pour les autres).
-    pieces: (full.pieces ?? []).filter(p => estObjetFrais(p.objet) && !p.retireeLe).map(p => ({ ...p, empreinte: null })),
+    alertesFrais: g.alertesFrais,
+    // lot 12 — C2 : résumés des notes payées depuis plus de 2 mois et parts réintégrables (frais médicaux compris).
+    resumesFrais: g.resumesFrais,
+    reintegrableFrais: g.reintegrableFrais,
+    // Justificatifs des frais, frais médicaux compris, sans l'empreinte (service RH seulement, comme pour les autres), des
+    // seules dépenses reçues.
+    pieces: piecesFraisComptabilite(g.pieces),
+  };
+}
+
+/**
+ * lot 12 — C2, étape 2 (option des 2 mois, réponse du propriétaire du 1er novembre 2026 : « les vues RH et comptabilité ne
+ * reçoivent le détail des notes payées depuis plus de 2 mois qu'à la demande ») : vue des frais du service RH (droit « rh »,
+ * server/src/dataset.ts) et de la comptabilité (`vueComptabilite`), calculée sur l'instantané complet `full` (fenêtre de 13
+ * mois, toutes les dépenses) et son domaine `d` :
+ * - dépenses et justificatifs des seules notes détaillées (`detailEnLigne` : en circuit, annulées, payées depuis moins de 2
+ *   mois) ; toute pièce qui n'est pas celle d'une dépense retirée reste ;
+ * - résumé des autres notes (`resumesDesLignes`), leur détail se lit par GET /api/frais/historique/:noteId ;
+ * - part réintégrable de chaque note (`reintegrableDesNotes`, tableau de bord et détail d'une note), sur le cumul
+ *   kilométrique exact de l'année ;
+ * - alertes des notes en circuit (`alertesDesNotes`), elles aussi sur l'instantané complet : l'écran ne les recalcule pas
+ *   sur des dépenses tronquées.
+ */
+export function fraisVueGestion(full: Dataset, d: Domain): Pick<Dataset, 'lignesFrais' | 'alertesFrais' | 'resumesFrais' | 'reintegrableFrais'> & { pieces: Piece[] } {
+  const notes = full.notesFrais ?? [], toutes = full.lignesFrais ?? [];
+  const sans = notes.filter(n => !detailEnLigne(n, full.today));
+  const sansIds = new Set(sans.map(n => n.id));
+  const lignes = toutes.filter(l => !sansIds.has(l.noteId));
+  const retirees = new Set(toutes.filter(l => sansIds.has(l.noteId)).map(l => l.id));
+  return {
+    lignesFrais: lignes,
+    pieces: retirees.size ? (full.pieces ?? []).filter(p => !((p.objet === 'ligneFrais' || p.objet === 'ligneFraisSante') && p.objetId != null && retirees.has(p.objetId))) : full.pieces ?? [],
+    resumesFrais: resumesDesLignes(sans, toutes.filter(l => retirees.has(l.id))),
+    reintegrableFrais: reintegrableDesNotes(d, notes),
+    alertesFrais: alertesDesNotes(d, notes, lignes),
   };
 }

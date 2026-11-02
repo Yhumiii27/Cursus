@@ -156,7 +156,8 @@ const uniteEquipe: ActionHandler = async (ctx, p) => {
 };
 
 /**
- * Impression ou export de l'organigramme (`entite` : code de l'entité filtrée, ou vide ; `lignes` : nombre de lignes),
+ * Impression ou export de l'organigramme (`entite` : code de l'entité filtrée, ou vide ; `lignes` : nombre de lignes ;
+ * lot 12 — C7 : `service`, nom de l'équipe choisie, facultatif),
  * signalés au journal par qui le voit (réglage `organigrammeOuvert`) ; rien n'est écrit en base.
  */
 const signaler = (nature: 'imprimé' | 'exporté'): ActionHandler => (ctx, p) => {
@@ -166,7 +167,12 @@ const signaler = (nature: 'imprimé' | 'exporté'): ActionHandler => (ctx, p) =>
   // Un nombre entier, tel que le journal le recopie (jamais une chaîne convertie).
   const n = p.lignes as number;
   if (!Number.isInteger(n) || n < 0 || n > 100_000) throw new ActionError('Nombre de lignes invalide');
-  return `Organigramme ${nature}${code ? ` (${entiteDe(entitesDe(ctx), code)!.nom})` : ''} : ${plural(n, 'ligne', 'lignes')}`;
+  // lot 12 — C7 (organigramme) : service choisi, nom d'une équipe du référentiel (jamais un texte libre au journal).
+  if (p.service !== undefined && p.service !== null && p.service !== '' && (typeof p.service !== 'string' || !ctx.ds.referentiels.equipes.some(q => q.nom === p.service))) {
+    throw new ActionError('Service introuvable', 404);
+  }
+  const service = typeof p.service === 'string' && p.service ? `, service ${p.service}` : '';
+  return `Organigramme ${nature}${code ? ` (${entiteDe(entitesDe(ctx), code)!.nom})` : ''}${service} : ${plural(n, 'ligne', 'lignes')}`;
 };
 
 export const entitesActions = {

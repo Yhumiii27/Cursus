@@ -62,5 +62,7 @@ export function statutEntretien(x: Entretien): [string, string] {
   if (x.signSal) return ['Signé', 'tag-neutral'];
   if (x.remiseMode === 'portail') return x.telechargeLe ? ['Téléchargé', 'tag-neutral'] : ['Mis à disposition', 'tag-outline'];
   if (x.remiseMode) return [MODES_REMISE[x.remiseMode].court, 'tag-neutral'];
+  // lot 12 — C3 : point de suivi, signature du salarié facultative (jamais rappelée dans « À faire ») : clos, pas « à signer ».
+  if (x.type === 'point') return ['Clos', 'tag-neutral'];
   return ['À signer', 'tag-outline'];
 }

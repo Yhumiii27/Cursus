@@ -8,12 +8,14 @@ import { useEffect, useState } from 'react';
 import { CATEGORIES_FRAIS } from '../../../../shared/rules/frais.ts';
 import { baremeSaisi, TYPES_VEHICULE } from '../../../../shared/rules/frais-km.ts';
 import { FORFAITS_FRAIS } from '../../../../shared/rules/frais-politique.ts';
+// lot 12 — C2 (notes de frais : activation)
+import { prerequisFrais } from '../../../../shared/rules/frais-activation.ts';
 import { COLONNES_ECRITURE, COLONNES_ECRITURE_FACULTATIVES, compteDeCharge, COMPTES_FRAIS_DEFAUT, estCompte, estJournal, LISTE_COLONNES_ECRITURE } from '../../../../shared/rules/frais-export.ts';
 import { DECIMALES, ENCODAGES, FORMATS_DATE, SEPARATEURS } from '../../../../shared/rules/lots-paie.ts';
 import type { ColonneEcriture, GabaritExportComptable } from '../../../../shared/rules/export-comptable.ts';
 import type { CategorieFrais, CircuitFrais, TypeVehicule } from '../../../../shared/types.ts';
 import { Field } from '../../components/Dialog.tsx';
-import { Btn, Fine, NoteAccent, Panel } from '../../components/ui.tsx';
+import { Btn, Fine, NoteAccent, Panel, Tag, Two } from '../../components/ui.tsx';
 import { euros } from '../../components/frais/commun.ts';
 import { nombreSaisi } from '../../components/frais/saisie.ts';
 import { useDomain, useRole } from '../../state/derived.ts';
@@ -73,7 +75,16 @@ export function NotesFrais({ s }: SectionProps) {
         <input type="checkbox" checked={s.notesFraisActives} disabled={!admin} onChange={e => save({ notesFraisActives: e.target.checked })} />
         <span>Notes de frais activées (saisie, validation, contrôle, remboursement avec la paie)</span>
       </label>
-      {!s.notesFraisActives && <Fine>Désactivées par défaut : l’essai de charge sur trois ans de frais dépasse le budget de l’instantané (docs/ARCHITECTURE.md). Préparez barème, limites et comptes avant d’activer.</Fine>}
+      {!s.notesFraisActives && <Fine>Désactivées par défaut : l’essai de charge (trois et cinq ans de frais) ne tient pas encore tous ses budgets (docs/ARCHITECTURE.md). L’activation est votre décision : vérifiez d’abord les prérequis ci-dessous.</Fine>}
+      {/* lot 12 — C2 : prérequis de l'activation (comptes, rubriques FRAIS_*, barème de l'année), jamais bloquants. */}
+      <div role="list" aria-label="Prérequis de l’activation" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+        {prerequisFrais(s, d.ds.rubriquesPaie, d.ds.referentiels.baremesKm, annee).map(p => (
+          <div key={p.cle} role="listitem" className="list-row" style={{ gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+            <Tag cls={p.ok ? 'tag-neutral' : 'tag-accent'}>{p.ok ? 'Prêt' : 'À faire'}</Tag>
+            <div style={{ flex: '1 1 220px', minWidth: 0 }}><Two main={p.libelle} sub={p.detail} /></div>
+          </div>
+        ))}
+      </div>
       <div className="row-wrap" style={{ gap: 'var(--space-3)' }}>
         <Field label="Circuit" htmlFor="frais-circuit">
           <select className="input" id="frais-circuit" value={s.fraisCircuit} disabled={!admin} onChange={e => save({ fraisCircuit: e.target.value as CircuitFrais })} style={{ maxWidth: 320 }}>

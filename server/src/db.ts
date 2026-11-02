@@ -18,7 +18,9 @@ export const TABLES = {
   // du titre imprimé (t115, client/src/titre-habilitation.ts).
   // `passeportPrevention` : formation santé-sécurité à déclarer au Passeport de prévention (lot 7, t066), amorcée par la
   // migration lot7-prevention-passeport.
-  formations: { pk: 'id', cols: { id: 'text', nom: 'text', court: 'text', type: 'text', validite: 'int', duree: 'text', organisme: 'text', cout: 'real', validation: 'text', archive: 'text', dureeHeures: 'real', passeportPrevention: 'bool' } },
+  formations: { pk: 'id', cols: { id: 'text', nom: 'text', court: 'text', type: 'text', validite: 'int', duree: 'text', organisme: 'text', cout: 'real', validation: 'text', archive: 'text', dureeHeures: 'real', passeportPrevention: 'bool',
+    // lot 12 — C4 : organisme par défaut (fiche) ; `organisme` reste son nom usuel, tenu à jour (contrat pub_titres_detenus).
+    organismeId: 'int' } },
   habilitations: { pk: 'id', cols: { id: 'text', nom: 'text', detail: 'text', prereqs: 'json', medical: 'bool', validite: 'int', signataire: 'text', archive: 'text', sir: 'bool', modele: 'text' } },
   // `secu` : formalité de sécurité sociale du détachement (null : déduite du code pays, shared/constants.ts).
   destinations: { pk: 'code', cols: { code: 'text', pays: 'text', visa: 'text', visaSub: 'text', oblig: 'json', rec: 'json', passMois: 'int', secu: 'text', archive: 'text',
@@ -41,7 +43,10 @@ export const TABLES = {
   // début et fin « HH:MM » (fin avant le début : le lendemain), pause en minutes ; `horaire` d'une équipe : proposé par défaut.
   // `alternant` : horaire d'un roulement en équipes successives alternantes (C2P, shared/rules/c2p.ts, lot 7) ; JSON pour
   // garder null, horaire pas encore qualifié, distinct de « non ».
-  horaires: { pk: 'code', cols: { code: 'text', nom: 'text', debut: 'text', fin: 'text', pause: 'int', archive: 'text', alternant: 'json' } },
+  horaires: { pk: 'code', cols: { code: 'text', nom: 'text', debut: 'text', fin: 'text', pause: 'int', archive: 'text', alternant: 'json',
+    // lot 12 — C6 (badgeage virtuel) : horaires variables (étape 2) ; plages fixes et mobiles, durée de référence et
+    // plafonds du report en minutes, référence de l'accord (migration PostgreSQL 0027_badgeage).
+    variable: 'json', plages: 'json', dureeReference: 'int', reportMaxSemaine: 'int', cumulMax: 'int', accordVariable: 'text' } },
   projets: { pk: 'code', cols: { code: 'text', nom: 'text', statut: 'text' } },
   chantiers: { pk: 'id', cols: { id: 'text', nom: 'text', client: 'text', lieu: 'text', pays: 'text', debut: 'text', fin: 'text', chef: 'text', habs: 'json', certs: 'json', ressources: 'json', statut: 'text',
     // Grand déplacement (t031) : qualification du service RH, jamais écrite par Keystone ; JSON pour garder null (à qualifier).
@@ -107,6 +112,8 @@ export const TABLES = {
       corrigeLe: 'text', corrigePar: 'text', corrigeMotif: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
       // Inscriptions en formation initiale closes par la certification, rendues à son annulation (actions/inscriptions-closes.ts).
       inscriptionsCloses: 'json',
+      // lot 12 — C4 : organisme saisi par un autre outil (Vigie) ; colonne du serveur commun (0002_partage), alignée en SQLite.
+      organisme: 'text',
     },
   },
   habTitres: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', h: 'text', delivree: 'text', par: 'text', demande: 'text', mesure: 'text', mesureDate: 'text', mesureMotif: 'text', mesurePar: 'text' } },
@@ -123,13 +130,17 @@ export const TABLES = {
       id: 'int', empId: 'int', f: 'text', libelle: 'text', du: 'text', au: 'text', duree: 'real', organisme: 'text', obligatoire: 'bool', origine: 'text',
       planActionId: 'int', demandeId: 'int', le: 'text', auteur: 'text', auteurId: 'int',
       corrigeLe: 'text', corrigePar: 'text', corrigeMotif: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+      // lot 12 — C4 : fiche de l'organisme.
+      organismeId: 'int',
     },
   },
   visas: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', dest: 'text', type: 'text', obtenu: 'text', expire: 'text' } },
   vaccinations: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', v: 'text', date: 'text' } },
   // Le nombre d'inscrits n'est pas stocké : il est calculé au chargement (server/src/dataset.ts).
   // `fin`, `jours`, `horaires` : session sur plusieurs jours (shared/rules/plage-session.ts ; migrations/formations.ts).
-  sessions: { pk: 'id', auto: true, cols: { id: 'int', formation: 'text', date: 'text', lieu: 'text', places: 'int', statut: 'text', planId: 'int', bilan: 'json', fin: 'text', jours: 'json', horaires: 'json' } },
+  sessions: { pk: 'id', auto: true, cols: { id: 'int', formation: 'text', date: 'text', lieu: 'text', places: 'int', statut: 'text', planId: 'int', bilan: 'json', fin: 'text', jours: 'json', horaires: 'json',
+    // lot 12 — C4 : organisme figé à la création depuis le catalogue.
+    organismeId: 'int' } },
   inscriptions: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', sessionId: 'int', convoc: 'text', date: 'text', convocLe: 'text' }, unique: [['empId', 'sessionId']] },
   // `reussi` peut rester indéterminé (null) : stocké en JSON pour garder true / false / null.
   participations: { pk: 'id', auto: true, cols: { id: 'int', sessionId: 'int', empId: 'int', parcours: 'text', present: 'bool', reussi: 'json', certId: 'int' }, unique: [['sessionId', 'empId']] },
@@ -141,6 +152,8 @@ export const TABLES = {
       coutReel: 'real', effectifReel: 'int', reportDe: 'int',
       // Correction et suppression d'une ligne saisie par erreur (actions/corrections.ts) ; supprimée, hors des calculs.
       corrigeLe: 'text', corrigePar: 'text', corrigeMotif: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+      // lot 12 — C4 : organisme prévu (fiche) ; null : celui du catalogue.
+      organismeId: 'int',
     },
   },
   budgets: { pk: 'id', auto: true, cols: { id: 'int', exercice: 'int', equipe: 'text', montant: 'real' }, unique: [['exercice', 'equipe']] },
@@ -182,6 +195,8 @@ export const TABLES = {
       horaires: 'json',
       // Horaires retenus (code, début, fin, pause), figés à la soumission et à la validation (lot 6).
       horairesFiges: 'json',
+      // lot 12 — C6 (badgeage virtuel) : mode de décompte figé à la création, total pointé figé (étape 2).
+      modeTemps: 'text', pointeFige: 'json',
       // Majoration des heures de nuit (%) figée à la validation (lot 6, shared/rules/repos-nuit.ts).
       majNuit: 'int',
       // Motif du dépassement du plafond d'un forfait jours, donné à la validation (t043, shared/rules/forfait-jours.ts).
@@ -225,6 +240,8 @@ export const TABLES = {
       astreintes: 'json',
       // lot 11 — notes de frais : notes remboursées et avances versées (identifiant, salarié) ; montants dans `contenu`.
       frais: 'json',
+      // lot 12 — C1 (forfait annuel en heures) : lignes de clôture dont le lot emporte les heures (identifiant, salarié).
+      forfaitHeures: 'json',
     },
     unique: [['cle']],
   },
@@ -331,6 +348,8 @@ export const TABLES = {
     cols: {
       id: 'int', empId: 'int', type: 'text', date: 'text', statut: 'text', cr: 'json', info: 'bool', signSal: 'text', signMgr: 'text', planifieLe: 'text',
       remiseLe: 'text', remiseMode: 'text', remisePar: 'text', telechargeLe: 'text',
+      // lot 12 — C3 (entretiens suivis) : souhaits de formation (sensibles comme `cr`) ; synthèse du feedback 360° (étape 3).
+      souhaits: 'json', syntheseFeedback: 'json',
     },
   },
   demandesCollab: {
@@ -340,6 +359,8 @@ export const TABLES = {
     cols: {
       id: 'int', empId: 'int', type: 'text', f: 'text', h: 'text', libelle: 'text', label: 'text', sessionId: 'int', motif: 'text', date: 'text', statut: 'text', reponse: 'text', parId: 'int', declaration: 'json', motifRefus: 'text',
       suite: 'json', rouverteLe: 'text', rouvertePar: 'text', rouverteMotif: 'text',
+      // lot 12 — C3 (entretiens suivis) : entretien dont le souhait a été versé (origine de la demande, anti-doublon).
+      entretienId: 'int',
     },
   },
   settings: { pk: 'key', cols: { key: 'text', value: 'json' } },
@@ -546,6 +567,8 @@ export const TABLES = {
       deposeLe: 'text', accordLe: 'text', montantAccorde: 'real', accordReference: 'text', plafondHoraire: 'real', refusLe: 'text', refusMotif: 'text',
       factureLe: 'text', montantFacture: 'real', soldeLe: 'text', soldeEcart: 'real', soldeNature: 'text', abandonLe: 'text', abandonMotif: 'text',
       creeLe: 'text', creePar: 'text', corrigeLe: 'text', corrigePar: 'text', corrigeMotif: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+      // lot 12 — C4 : fiche de l'organisme (préremplissage ; SIRET, NDA et Qualiopi restent ceux déclarés à l'OPCO).
+      organismeId: 'int',
     },
   },
   versementsOpco: {
@@ -598,6 +621,167 @@ export const TABLES = {
   // Sceaux des justificatifs (server/src/sceaux.ts) : chaîne d'empreintes, chaque pièce scellée avec le sceau précédent, à
   // la soumission de sa note ; identifiants, empreintes et heure seulement.
   sceauxPieces: { pk: 'id', auto: true, cols: { id: 'int', pieceId: 'int', empreinte: 'text', precedent: 'text', sceau: 'text', le: 'text' }, unique: [['pieceId']] },
+  // lot 12 — blocs réservés (socle) : chaque chantier déclare ses tables dans le sien (migrations PostgreSQL et SQLite :
+  // docs/ARCHITECTURE.md, « Lot 12 : socle commun »).
+  // lot 12 — C1 (forfait annuel en heures)
+  // Clôtures du forfait annuel en heures (t044, shared/rules/forfait-heures.ts, server/src/actions/forfait-heures.ts ;
+  // migration PostgreSQL 0022_forfait_heures, SQLite lot12-forfait-heures) : une ligne par plage clôturée (salarié, début)
+  // et par version (réouverture après transmission : `remplaceId`, version transmise corrigée) ; photographie en heures,
+  // total des absences déduites sans nature ; confirmation, lot de paie, import confirmé ou réglé hors fichier ; réouverture
+  // et annulation datées, signées et motivées (textes de l'administrateur RH). Lue par l'instantané, révision et journal
+  // des changements par clé (aucune donnée de santé : un total d'heures, déclaré sensible à Matrix).
+  cloturesForfaitHeures: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', debut: 'text', fin: 'text', motifFin: 'text', version: 'int', remplaceId: 'int',
+      forfait: 'real', cible: 'real', absences: 'real', realise: 'real', hfa25: 'real', hfa50: 'real', hca10: 'real', hca25: 'real', nonRealise: 'real',
+      statut: 'text', confirmeeLe: 'text', confirmeePar: 'text', lotId: 'int', sage: 'bool', horsFichier: 'bool',
+      rouverteLe: 'text', rouvertePar: 'text', rouverteMotif: 'text', annuleeLe: 'text', annuleePar: 'text', annuleeMotif: 'text',
+    },
+    unique: [['empId', 'debut', 'version']],
+  },
+  // lot 12 — C2 (notes de frais : activation)
+  // Dépenses des notes de frais médicaux (étape 2 : scission, choix par défaut du chantier, le delta d'une dépense passant
+  // le budget avec le marqueur « toute la table » de lignes_frais) : mêmes colonnes que `lignesFrais`, fermée en entier à
+  // Matrix et inscrite au journal des changements sans clé ; les autres dépenses (`lignesFrais`) y sont inscrites par clé.
+  // Identifiants communs aux deux tables (`insererLigneFrais`, server/src/frais-sante.ts) : une dépense se désigne par son
+  // seul identifiant. Migration PostgreSQL 0029_frais_sante.sql (dépenses médicales reprises de lignes_frais), SQLite
+  // lot12-frais-sante.
+  lignesFraisSante: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', noteId: 'int', empId: 'int', date: 'text', categorie: 'text', montant: 'real', devise: 'text', taux: 'real', montantEur: 'real',
+      tvaTaux: 'real', tvaMontant: 'real', commercant: 'text', forfait: 'text', km: 'real', vehiculeId: 'int', depart: 'text', arrivee: 'text',
+      invites: 'text', motifDepassement: 'text', sansJustificatif: 'bool', attestation: 'bool', montantRetenu: 'real', refuseeLe: 'text', refusMotif: 'text',
+    },
+  },
+  // lot 12 — C3 (entretiens suivis et 360°) : objectifs fixés à un entretien annuel, évalués au suivant (migration
+  // PostgreSQL 0024_entretiens_suivis, SQLite d'après TABLES et `lot12-entretiens-index`) ; tables du feedback 360°
+  // (étape 3, module désactivé) : sollicitations, tampon des réponses en attente (chiffré, jamais lu par l'instantané) et
+  // réponses versées par lot, sans répondant ni date de réception, sous un identifiant non séquentiel.
+  objectifs: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', entretienId: 'int', evalueEntretienId: 'int', reconduitDe: 'int', libelle: 'text', mesure: 'text', categorie: 'text', poids: 'int',
+      echeance: 'text', avancement: 'int', statut: 'text', evaluation: 'text', commentaireSal: 'text', creeLe: 'text', creePar: 'text', modifieLe: 'text', modifiePar: 'text',
+      ajusteLe: 'text', ajusteMotif: 'text', libelleInitial: 'text',
+    },
+  },
+  feedbackSollicitations: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', entretienId: 'int', repondantEmpId: 'int', relation: 'text', statut: 'text', proposeeLe: 'text', proposeePar: 'text', envoyeeLe: 'text',
+      echeance: 'text', relanceeLe: 'text', closeLe: 'text',
+    },
+  },
+  feedbackTampon: { pk: 'id', auto: true, cols: { id: 'int', sollicitationId: 'int', contenu: 'text', version: 'text' }, unique: [['sollicitationId']] },
+  feedbackReponses: {
+    pk: 'id',
+    cols: {
+      id: 'text', empId: 'int', entretienId: 'int', relation: 'text', versionQuestionnaire: 'text', notes: 'json', verbatim: 'text', verbatimStatut: 'text',
+      modereLe: 'text', moderePar: 'text',
+    },
+  },
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // Organismes de formation (server/src/actions/organismes.ts, shared/rules/organismes.ts ; PostgreSQL 0025, SQLite
+  // lot12-organismes) : fiche (identité, SIRET, déclaration d'activité, Qualiopi, conditions du service RH, alias repris des
+  // textes libres), archivée au lieu d'être supprimée ; fusion d'un doublon : fiche archivée qui désigne celle qui l'absorbe,
+  // motif du service RH. Contacts (données de tiers) et tarifs : sous-tables, retirés par archivage.
+  organismes: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', code: 'text', raisonSociale: 'text', nomUsuel: 'text', type: 'text', siret: 'text', nda: 'text', ndaRegion: 'text',
+      qualiopi: 'bool', qualiopiCategories: 'json', qualiopiCertificateur: 'text', qualiopiNumero: 'text', qualiopiValideJusquau: 'text', qualiopiVerifieLe: 'text',
+      adresse: 'text', siteWeb: 'text', subrogationAcceptee: 'bool', delaiAnnulationJours: 'int', conditions: 'text', alias: 'json', aVerifier: 'bool', source: 'text',
+      archive: 'text', creeLe: 'text', creePar: 'text', fusionneDans: 'int', fusionneLe: 'text', fusionnePar: 'text', fusionneMotif: 'text',
+    },
+    unique: [['code']],
+  },
+  organismeContacts: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', organismeId: 'int', nom: 'text', fonction: 'text', email: 'text', telephone: 'text', role: 'text', principal: 'bool', archive: 'text', creeLe: 'text', creePar: 'text' },
+  },
+  organismeTarifs: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', organismeId: 'int', formation: 'text', libelle: 'text', modalite: 'text', unite: 'text', montantHt: 'real', valableDu: 'text', valableAu: 'text',
+      archive: 'text', creeLe: 'text', creePar: 'text',
+    },
+  },
+  // Modules d'e-learning (shared/rules/elearning.ts) et inscriptions des salariés (une ouverte par salarié et module :
+  // index de lot12-elearning-index et de 0025) ; fin validée par le service RH (formation suivie, certification).
+  modulesElearning: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', code: 'text', intitule: 'text', organismeId: 'int', formation: 'text', url: 'text', dureeHeures: 'real', langue: 'text', coutLicence: 'real',
+      accesMois: 'int', attestationRequise: 'bool', archive: 'text', creeLe: 'text', creePar: 'text',
+    },
+    unique: [['code']],
+  },
+  inscriptionsElearning: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', moduleId: 'int', planActionId: 'int', inscritLe: 'text', inscritPar: 'text', echeance: 'text', statut: 'text',
+      avancement: 'int', avancementSource: 'text', avancementLe: 'text', declareLe: 'text', termineLe: 'text', heures: 'real', reussi: 'json',
+      certId: 'int', suivieId: 'int', abandonLe: 'text',
+      corrigeLe: 'text', corrigePar: 'text', corrigeMotif: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+    },
+  },
+  // lot 12 — C5 (planning d'équipe, shared/types-planning.ts, server/src/actions/planning.ts ; migration PostgreSQL
+  // 0026_planning_equipe.sql, SQLite lot12-planning) : cycles de roulement (référentiel commun, archivés jamais supprimés),
+  // affectations au roulement (sans chevauchement), besoins par poste (communs), créneaux (un par salarié et par jour
+  // planifié, repos compris ; `empId` null : « à pourvoir », rattaché à l'équipe ; jamais supprimés une fois publiés :
+  // remplacés ou annulés), publications versionnées (registre pour l'inspection du travail), échanges de poste. Motifs et
+  // alertes acceptées : textes libres et codes jamais journalisés.
+  cycles: { pk: 'code', cols: { code: 'text', nom: 'text', longueur: 'int', sequence: 'json', groupes: 'json', origine: 'text', archive: 'text', creeLe: 'text', creePar: 'text' } },
+  roulements: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', empId: 'int', cycle: 'text', groupe: 'text', du: 'text', au: 'text', equipe: 'text', creeLe: 'text', creePar: 'text', finLe: 'text', finPar: 'text', finMotif: 'text' },
+  },
+  besoinsPoste: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', equipe: 'text', horaire: 'text', jours: 'json', effectifMin: 'int', posteId: 'int', activite: 'text', exigences: 'json', du: 'text', au: 'text', archive: 'text' },
+  },
+  creneaux: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', jour: 'text', equipe: 'text', horaire: 'text', debut: 'text', fin: 'text', pause: 'int', besoinId: 'int',
+      source: 'text', statut: 'text', remplaceId: 'int', version: 'int', publieLe: 'text', publiePar: 'text', communiqueLe: 'text',
+      horsDelai: 'bool', motif: 'text', motifAlertes: 'text', alertesAcceptees: 'json',
+      creeLe: 'text', creePar: 'text', modifieLe: 'text', modifiePar: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+    },
+  },
+  publicationsPlanning: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', equipe: 'text', du: 'text', au: 'text', version: 'int', publieLe: 'text', publiePar: 'text', communiqueLe: 'text', creneaux: 'int', horsDelai: 'int' },
+    unique: [['equipe', 'version']],
+  },
+  echangesPoste: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', demandeurId: 'int', partenaireId: 'int', creneauDemandeur: 'int', creneauPartenaire: 'int', statut: 'text', creeLe: 'text', accepteLe: 'text',
+      decideLe: 'text', decidePar: 'text', parDelegationDe: 'int', motifRefus: 'text', alertesAcceptees: 'json',
+    },
+  },
+  // lot 12 — C6 (badgeage virtuel) : pointages bruts (ajouts seulement : une correction ajoute une ligne ou en neutralise
+  // une autre ; hors de l'instantané, lus à la demande par server/src/pointages.ts), demandes de correction (dans
+  // l'instantané par salarié), zones de géolocalisation (étape 3, option désactivée). Migration PostgreSQL 0027_badgeage,
+  // SQLite d'après TABLES et `lot12-badgeage-pointages`. Ni badges ni appareils : pas de badgeuse (réponse du propriétaire).
+  pointages: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', horodatage: 'text', jour: 'text', sens: 'text', source: 'text', horsLigne: 'bool', horodatageAppareil: 'text', recuLe: 'text',
+      zone: 'text', annuleId: 'int', correctionId: 'int',
+    },
+  },
+  correctionsPointage: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', jour: 'text', nature: 'text', horodatage: 'text', sens: 'text', pointageId: 'int', motif: 'text', commentaire: 'text', statut: 'text',
+      demandeLe: 'text', demandePar: 'text', demandeParInteresse: 'bool', decideLe: 'text', decidePar: 'text', motifRefus: 'text', pointageCreeId: 'int',
+    },
+  },
+  zonesPointage: { pk: 'id', auto: true, cols: { id: 'int', libelle: 'text', siteCode: 'text', chantierId: 'text', lat: 'real', lng: 'real', rayonM: 'int', actif: 'bool' } },
 } satisfies Record<string, TableDef>;
 
 export type TableName = keyof typeof TABLES;
@@ -697,7 +881,14 @@ export const TABLES_SANS_REVISION: ReadonlySet<TableName> = new Set<TableName>([
   // lot 11 — pwa : idempotence des actions rejouées, abonnements et file des notifications push (routes et tâches dédiées).
   'idempotence', 'abonnementsPush', 'envoisPush',
   // lot 11 — notes de frais : sceaux des justificatifs (chaîne d'empreintes), jamais lus par l'instantané.
-  'sceauxPieces']);
+  'sceauxPieces',
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
+]);
 
 /**
  * Tables dont le journal des changements n'inscrit jamais les clés, seulement le marqueur « toute la table » (lot 9,
@@ -708,11 +899,33 @@ export const TABLES_SANS_REVISION: ReadonlySet<TableName> = new Set<TableName>([
  * entier dès qu'elles changent.
  */
 export const TABLES_CHANGEMENTS_SANS_CLE: ReadonlySet<TableName> = new Set<TableName>(['vaccinations', 'visas', 'demandesVisite', 'informationsCp', 'reprises',
-  // lot 11 — notes de frais : dépenses (frais médicaux en mission), fermées en entier à Matrix (migration 0020).
-  'lignesFrais']);
+  // lot 11 — notes de frais : dépenses fermées en entier à Matrix (migration 0020) jusqu'au lot 12 ; depuis la scission
+  // (C2, migration 0029), les seules dépenses médicales (`lignesFraisSante`, ci-dessous), les autres inscrites par clé.
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation) : dépenses des notes de frais médicaux, fermées en entier à Matrix
+  // (migration 0029, demande docs/demandes/matrix-lot12-frais-sante.sql).
+  'lignesFraisSante',
+  // lot 12 — C3 (entretiens suivis et 360°) : tables du feedback 360°, fermées en entier à Matrix ; l'ordre et la clé des
+  // écritures ne doivent rattacher aucune réponse à un répondant (migration 0024).
+  'feedbackSollicitations', 'feedbackTampon', 'feedbackReponses',
+  // lot 12 — C4 (organismes de formation et e-learning) : contacts (données de tiers) et tarifs, fermés en entier à Matrix
+  // (migration 0025, demande docs/demandes/matrix-lot12-organismes.sql).
+  'organismeContacts', 'organismeTarifs',
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel) : pointages, demandes de correction et zones, fermés en entier à Matrix (migration 0027,
+  // docs/demandes/matrix-lot12-badgeage.sql) ; les pointages et les zones ne sont pas lus par l'instantané (aucun coût), les
+  // demandes de correction sont relues en entier quand elles changent (petite table).
+  'pointages', 'correctionsPointage', 'zonesPointage',
+]);
 
 /** Valeur passée en paramètre d'une requête SQL brute (`query`, `one`, `run`). */
 export type SqlValeur = string | number | bigint | boolean | null | Uint8Array;
+/**
+ * Fenêtre de lecture d'une table (lot 12, socle) : condition SQL commune aux deux moteurs (noms de colonnes de la base,
+ * paramètres `?`) et ses paramètres. Seules les lignes qui la vérifient entrent dans la lecture brute de l'instantané
+ * (`FENETRES` de server/src/lecture-brute.ts), relue en entier ou par clé (server/src/delta.ts).
+ */
+export interface Fenetre { where: string; params: readonly SqlValeur[] }
 /** Issue d'une écriture SQL brute (`run`) : lignes touchées, identifiant de la dernière insertion. */
 export interface Ecriture { changes: number; lastInsertRowid: number }
 
@@ -886,15 +1099,17 @@ export abstract class Db {
    * comme par `all`, par paquets de `PAQUET_LIGNES` clés ; triées par clé (ordre global pour une clé entière, dans chaque
    * paquet pour une clé texte). Une clé disparue (ligne supprimée) ne rend rien.
    */
-  async lireLignes<T>(table: TableName, pks: Iterable<string>): Promise<T[]> {
+  async lireLignes<T>(table: TableName, pks: Iterable<string>, fenetre?: Fenetre): Promise<T[]> {
     const def = this.def(table), type = def.cols[def.pk], entiere = type === 'int' || type === 'real';
     const cles = [...new Set(pks)];
     if (entiere) cles.sort((x, y) => Number(x) - Number(y)); else cles.sort();
     const out: T[] = [];
+    // lot 12 — socle : fenêtre de lecture (`FENETRES`) ; une clé changée hors de la fenêtre ne rend rien, comme une ligne supprimée.
+    const dans = fenetre ? ` AND (${fenetre.where})` : '';
     for (let i = 0; i < cles.length; i += PAQUET_LIGNES) {
       const paquet = cles.slice(i, i + PAQUET_LIGNES);
-      const lignes = await this.query(`SELECT * FROM ${snake(table)} WHERE ${snake(def.pk)} IN (${paquet.map(() => '?').join(', ')}) ORDER BY ${snake(def.pk)}`,
-        paquet.map(k => this.versBase(type, k)));
+      const lignes = await this.query(`SELECT * FROM ${snake(table)} WHERE ${snake(def.pk)} IN (${paquet.map(() => '?').join(', ')})${dans} ORDER BY ${snake(def.pk)}`,
+        [...paquet.map(k => this.versBase(type, k)), ...(fenetre?.params ?? [])]);
       for (const r of lignes) out.push(this.decode<T>(table, r));
     }
     return out;
@@ -915,6 +1130,21 @@ export abstract class Db {
     const def = this.def(table);
     const cols = Object.keys(def.cols).filter(c => !sans.includes(c));
     return (await this.query(`SELECT ${cols.map(snake).join(', ')} FROM ${snake(table)} ORDER BY ${snake(def.pk)}`)).map(r => {
+      const o = this.decode<Row>(table, r);
+      for (const c of sans) delete o[c];
+      return o as T;
+    });
+  }
+
+  /**
+   * Lignes de `table` dans la fenêtre `fenetre` (lot 12, socle : `FENETRES` de server/src/lecture-brute.ts), dans l'ordre
+   * de sa clé, sans les colonnes `sans` (absentes des objets rendus, comme `allSans`). Une table à fenêtre n'a pas
+   * d'autre ordre de lecture (`ORDRE_LECTURE`) : contrôlé par tests/lot12-socle.test.ts.
+   */
+  async allDans<T>(table: TableName, fenetre: Fenetre, sans: readonly string[] = []): Promise<T[]> {
+    const def = this.def(table);
+    const cols = Object.keys(def.cols).filter(c => !sans.includes(c));
+    return (await this.query(`SELECT ${cols.map(snake).join(', ')} FROM ${snake(table)} WHERE ${fenetre.where} ORDER BY ${snake(def.pk)}`, fenetre.params)).map(r => {
       const o = this.decode<Row>(table, r);
       for (const c of sans) delete o[c];
       return o as T;

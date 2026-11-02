@@ -48,6 +48,12 @@ import { Indicateurs } from './Indicateurs.tsx';
 import { Opco } from './Opco.tsx';
 // lot 11 — notes de frais
 import { NotesFrais } from './NotesFrais.tsx';
+// lot 12 — C3 (entretiens suivis)
+import { ObjectifsSuivis } from './ObjectifsSuivis.tsx';
+// lot 12 — C5 (planning d'équipe)
+import { Planning } from './Planning.tsx';
+// lot 12 — C6 (badgeage virtuel)
+import { Badgeage } from './Badgeage.tsx';
 
 export interface SectionParametres {
   /** Identifiant stable (clé de rendu). */
@@ -68,6 +74,8 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'suivi', place: 'gauche', Section: Suivi },
   { id: 'entretiens', place: 'gauche', Section: Entretiens },
   { id: 'entretien-mi-carriere', place: 'gauche', Section: EntretienMiCarriere },
+  // lot 12 — C3 (entretiens suivis) : objectifs, point de mi-année, souhaits de formation, feedback 360° (désactivé).
+  { id: 'objectifs-suivis', place: 'gauche', Section: ObjectifsSuivis },
   { id: 'demonstration', place: 'gauche', Section: Demonstration },
   { id: 'keystone', place: 'droite', Section: Keystone },
   { id: 'sage', place: 'droite', Section: SagePaie },
@@ -84,8 +92,12 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'deplacements-paie', place: 'droite', Section: DeplacementsPaie },
   { id: 'forfait-jours', place: 'droite', Section: ForfaitJours },
   { id: 'astreintes', place: 'droite', Section: Astreintes },
+  // lot 12 — C5 (planning d'équipe) : activation, délai de prévenance, valeurs de l'accord, collègues, reprise des équipes par quart.
+  { id: 'planning', place: 'droite', Section: Planning },
   { id: 'feuilles', place: 'gauche', Section: FeuillesTemps },
   { id: 'repos', place: 'droite', Section: ReposHebdomadaire },
+  // lot 12 — C6 (badgeage virtuel) : activation, accord et avis du CSE, populations, corrections, conservation.
+  { id: 'badgeage', place: 'gauche', Section: Badgeage },
   { id: 'sante', place: 'gauche', Section: Sante },
   { id: 'formations', place: 'droite', Section: Formations },
   // lot 11 — dossiers OPCO : sous les formations.

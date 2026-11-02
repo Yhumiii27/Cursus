@@ -31,6 +31,8 @@ import { ACTION_PURGE_DEMO } from './marqueurs.ts';
 import { amorcerActiviteFormation } from './migrations/formations.ts';
 import { amorcerHoraires } from './migrations/lot6-horaires.ts';
 import { amorcerActiviteAstreinte } from './migrations/lot7-astreintes.ts';
+// lot 12 — C5 (planning d'équipe)
+import { amorcerCycles } from './migrations/lot12-planning.ts';
 import { amorcerActivites } from './migrations/temps.ts';
 import { depotDe, dossierPiecesDe, NOM_LOCAL } from './pieces.ts';
 import { dossierMiroir, elaguerPieces } from './pieces-sauvegarde.ts';
@@ -249,6 +251,8 @@ async function reposerAmorcages(db: Db, tables: Record<TableName, RegleTable>): 
     out.push(...(await db.query<{ code: string }>('SELECT code FROM projets ORDER BY code')).map(p => p.code));
   }
   if (tables.horaires.amorcee) out.push(...await amorcerHoraires(db));
+  // lot 12 — C5 (planning d'équipe) : modèles de cycles, après les horaires d'exemple qu'ils enchaînent.
+  if (tables.cycles.amorcee) out.push(...await amorcerCycles(db));
   return out;
 }
 
@@ -298,6 +302,12 @@ async function appliquer(db: Db, options: OptionsPurge, attendus: number | null,
   const signataires = a.signataires.map(h => h.id);
   if (signataires.length) {
     compter(ajustees, 'habilitations', (await db.run(`UPDATE habilitations SET signataire = '' WHERE id IN (${signataires.map(() => '?').join(', ')})`, signataires)).changes);
+  }
+  // lot 12 — C4 : fiches des organismes gardées remises « à vérifier », sans Qualiopi ni subrogation déclarés (valeurs
+  //    fictives de la démonstration ; SIRET, déclaration d'activité et dates remis à NULL ci-dessus).
+  if (plan.tables.organismes.sort === 'ajuster') {
+    compter(ajustees, 'organismes', (await db.run(`UPDATE organismes SET a_verifier = TRUE, qualiopi = FALSE, qualiopi_categories = '[]', subrogation_acceptee = FALSE
+      WHERE NOT a_verifier OR qualiopi OR subrogation_acceptee`)).changes);
   }
   // 2. Réglages retirés (remis à leur valeur par défaut).
   const cles = plan.reglagesSupprimes === '*' ? a.reglages.supprimes : a.reglages.supprimes.filter(k => plan.reglagesSupprimes.includes(k));

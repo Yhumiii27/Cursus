@@ -22,6 +22,7 @@ const { ActionError, makeCtx } = await import('../server/src/actions/context.ts'
 const { PROFIL_VIDE } = await import('../shared/rules/profil.ts');
 const { createECDH } = await import('node:crypto');
 const { SAMPLE_PLAN_CSV, SAMPLE_TRIPS_CSV } = await import('../shared/rules/imports.ts');
+const { insererLigneFrais } = await import('../server/src/frais-sante.ts');
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Role = User['role'];
 
@@ -84,6 +85,45 @@ const intervention = async () => {
   return (await db.insert<{ id: number }>('astreinteInterventions', { astreinteId, empId: 2, jour: '2026-10-05', debut: '22:00', fin: '23:30', heures: 1.5, declareLe: '2026-10-06T08:00:00.000Z', declarePar: 'Mehdi Benali' })).id;
 };
 const ENTRETIEN = async () => ((await db.one(`SELECT id FROM entretiens WHERE emp_id = 2 AND statut = 'planifie'`)) as { id: number }).id;
+// lot 12 — C3 (entretiens suivis)
+/** Entretien annuel 2025 de Mehdi, clos et signé : ses objectifs s'ajustent et s'évaluent à l'entretien de 2026. */
+const annuelClos = async () => (await db.insert<{ id: number }>('entretiens', {
+  empId: 2, type: 'annuel', date: '2025-11-10', statut: 'realise', cr: {}, info: true, signSal: '2025-11-12', signMgr: '2025-11-10', planifieLe: '2025-10-01',
+})).id;
+/** Objectif de Mehdi, fixé (ou proposé) à l'entretien `entretienId` (l'annuel planifié par défaut). */
+const objectifEssai = async (statut: string, entretienId?: number) => (await db.insert<{ id: number }>('objectifs', {
+  empId: 2, entretienId: entretienId ?? await ENTRETIEN(), evalueEntretienId: null, reconduitDe: null, libelle: 'Fiabiliser la presse 3', mesure: null, categorie: 'individuel',
+  poids: null, echeance: null, avancement: 0, statut, evaluation: null, commentaireSal: null, creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Karim Haddad',
+  modifieLe: null, modifiePar: null, ajusteLe: null, ajusteMotif: null, libelleInitial: null,
+})).id;
+/** Entretien annuel planifié de Mehdi, avec un souhait de formation du salarié encore sans avis (clé s1). */
+const souhaitEssai = async () => {
+  const id = await ENTRETIEN();
+  await db.update('entretiens', id, { souhaits: [{ cle: 's1', f: 'sst', libelle: null, priorite: 'normale', objectifId: null, auteur: 'sal', avis: null, demandeId: null, verseLe: null, nonVerse: null }] });
+  return id;
+};
+/** Feedback 360° activé (références de l'avis du CSE et de l'AIPD), dans la transaction annulée de la ligne. */
+const actif360 = async () => {
+  await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), feedback360Actif: true, feedback360Cse: 'Avis du CSE du 12 mars 2027', feedback360Aipd: 'AIPD-2027-02' });
+};
+/**
+ * Collecte 360° de l'entretien annuel planifié de Mehdi : Thomas Garnier (autre collaborateur), Sophie Lemaire et Julien
+ * Moreau sollicités (`statut`), fenêtre jusqu'au 28 octobre ; une réponse versée avec un commentaire à relire. Rend
+ * l'entretien, la sollicitation de Thomas et la réponse.
+ */
+const collecte360 = async (statut = 'envoyee') => {
+  await actif360();
+  const entretienId = await ENTRETIEN();
+  const ids: number[] = [];
+  for (const r of [6, 3, 8]) {
+    ids.push((await db.insert<{ id: number }>('feedbackSollicitations', {
+      empId: 2, entretienId, repondantEmpId: r, relation: 'pair', statut, proposeeLe: null, proposeePar: 'Karim Haddad',
+      envoyeeLe: statut === 'proposee' ? null : '2026-10-07T08:00:00.000Z', echeance: statut === 'proposee' ? null : '2026-10-28', relanceeLe: null, closeLe: null,
+    })).id);
+  }
+  await db.insert('feedbackReponses', { id: 'a1b2c3d4e5f6a1b2c3d4e5f6', empId: 2, entretienId, relation: 'pair', versionQuestionnaire: '2027-1', notes: { cooperation: 3 }, verbatim: 'Toujours disponible pour aider', verbatimStatut: 'a_moderer' });
+  return { entretienId, thomas: ids[0], reponse: 'a1b2c3d4e5f6a1b2c3d4e5f6' };
+};
 
 /** Absence de Mehdi le 15 décembre, dans l'état voulu (signalée par son manager, ou validée). */
 const absence = async (statut: string, type: string) => (await db.insert<{ id: number }>('absences', {
@@ -188,6 +228,15 @@ const abonnementPush = async (u: User) => (await db.insert<{ id: number }>('abon
 // `p` reçoit la personne qui agit (pièce justificative envoyée par son compte) ; les autres lignes l'ignorent.
 interface Ligne { action: string; variante?: string; droits: string; p: (u: User) => Record<string, unknown> | Promise<Record<string, unknown>>; env?: Record<string, string> }
 
+// lot 12 — C4 (organismes de formation et e-learning) : fiches, contacts, tarifs, modules et inscriptions de la démonstration
+// (server/src/seed-organismes.ts), désignés par leur code.
+const organisme = async (code: string) => ((await db.one('SELECT id FROM organismes WHERE code = ?', [code])) as { id: number }).id;
+const moduleEl = async (code: string) => ((await db.one('SELECT id FROM modules_elearning WHERE code = ?', [code])) as { id: number }).id;
+const contactOrganisme = async () => ((await db.one('SELECT id FROM organisme_contacts ORDER BY id LIMIT 1')) as { id: number }).id;
+const tarifOrganisme = async () => ((await db.one('SELECT id FROM organisme_tarifs ORDER BY id LIMIT 1')) as { id: number }).id;
+/** Inscription ouverte au module RGPD-EL de la fiche `empId` (Mehdi : en cours ; Thomas : fin déclarée). */
+const inscriptionEl = async (empId = 2) => ((await db.one(`SELECT i.id FROM inscriptions_elearning i JOIN modules_elearning m ON m.id = i.module_id WHERE i.emp_id = ? AND m.code = 'RGPD-EL'`, [empId])) as { id: number }).id;
+
 //                                                        admin gest mgr autM coll autC  hse paie lect
 // lot 11 — notes de frais : note de Mehdi d'octobre dans l'état voulu, dépense « divers » sans justificatif, avec attestation
 // (hors du cumul avec un forfait de grand déplacement), avance demandée.
@@ -195,9 +244,10 @@ const DEPENSE = { date: '2026-10-06', categorie: 'divers', montant: 20, sansJust
 const noteFrais = async (statut: string, medicale = false) => (await db.insert<{ id: number }>('notesFrais', {
   empId: 2, periode: '2026-10', voyageId: null, missionId: null, projet: null, medicale, statut, creeLe: '2026-10-06T08:00:00.000Z', creePar: 'Mehdi Benali',
 })).id;
-const ligneFrais = async (noteId: number, medicale = false) => (await db.insert<{ id: number }>('lignesFrais', {
+// lot 12 — C2 : dépense médicale dans sa table (scission), identifiant commun aux deux tables.
+const ligneFrais = async (noteId: number, medicale = false) => (await insererLigneFrais(db, { medicale }, {
   noteId, empId: 2, ...DEPENSE, ...(medicale ? { categorie: 'medical' } : {}), devise: 'EUR', montantEur: 20,
-})).id;
+} as never)).id;
 const noteAvecLigne = async (statut: string, medicale = false) => {
   const id = await noteFrais(statut, medicale);
   await ligneFrais(id, medicale);
@@ -210,7 +260,58 @@ const exportFrais = async () => (await db.insert<{ id: number }>('exportsFrais',
   contenu: { lignes: [], ecritures: 0, debit: 0, credit: 0 }, telechargements: 0,
 })).id;
 
+// lot 12 — C5 (planning d'équipe) : module activé pour la transaction du cas ; créneaux et échanges de Mehdi (Maintenance)
+// et de Thomas, son collègue.
+const planningActif = async () => await reglages({ planningActif: true });
+const creneauPlanning = async (statut: string, jour: string, empId: number | null = 2, horaire: string | null = 'J') => (await db.insert<{ id: number }>('creneaux', {
+  empId, jour, equipe: 'Maintenance', horaire, debut: horaire ? '08:00' : null, fin: horaire ? '16:00' : null, pause: horaire ? 60 : 0,
+  source: 'manuel', statut, version: statut === 'publie' ? 1 : null, publieLe: statut === 'publie' ? '2026-10-01T08:00:00.000Z' : null, communiqueLe: statut === 'publie' ? '2026-10-01' : null,
+  horsDelai: false, creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Karim Haddad',
+})).id;
+const echangePlanning = async (statut: string) => {
+  await planningActif();
+  const a = await creneauPlanning('publie', '2026-11-20');
+  return (await db.insert<{ id: number }>('echangesPoste', { demandeurId: 2, partenaireId: 6, creneauDemandeur: a, creneauPartenaire: null, statut, creeLe: '2026-10-06T08:00:00.000Z' })).id;
+};
+const roulementPlanning = async () => (await db.insert<{ id: number }>('roulements', { empId: 2, cycle: 'JOUR', groupe: 'A', du: '2026-11-02', au: null, equipe: 'Maintenance', creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Karim Haddad' })).id;
+// lot 12 — C6 (badgeage virtuel) : module activé (accord, avis du CSE, Maintenance en mode « controle ») dans la
+// transaction de la ligne ; demande de correction de Mehdi en attente (ajout d'une arrivée le jour même).
+const badgeageActif = async (mode = 'controle') => {
+  await db.setSetting('app', {
+    ...await db.getSetting<Record<string, unknown>>('app', {}), pointageActif: true, pointageAccord: 'Accord d’entreprise du 1er mars 2026', pointageCseLe: '2026-02-15',
+    pointagePopulations: [{ critere: 'equipe', valeur: 'Maintenance', mode, effet: '2026-01-01' }],
+  });
+};
+const correctionPointage = async () => {
+  await badgeageActif();
+  return (await db.insert<{ id: number }>('correctionsPointage', {
+    empId: 2, jour: '2026-10-07', nature: 'ajout', horodatage: '2026-10-07T05:00:00.000Z', sens: 'E', pointageId: null, motif: 'oubli', commentaire: null, statut: 'demandee',
+    demandeLe: '2026-10-07T09:00:00.000Z', demandePar: 'Mehdi Benali', demandeParInteresse: true, decideLe: null, decidePar: null, motifRefus: null, pointageCreeId: null,
+  })).id;
+};
+
 const MATRICE: Ligne[] = [
+  // lot 12 — C4 : organismes — droit « formations » (service RH, référent HSE) pour la fiche et les contacts ; service RH pour
+  // les conditions et les tarifs ; administrateur RH pour la fusion. Modules et inscriptions : droit « formations » ; fin
+  // validée par le service RH ; suppression d'une inscription par l'administrateur RH ; fin déclarée par le salarié inscrit.
+  { action: 'organisme.enregistrer', droits: '              O    O    -    -    -    -    O    -    -', p: async () => ({ id: await organisme('APAVE'), qualiopiVerifieLe: '2026-10-01' }) },
+  { action: 'organisme.conditions', droits: '               O    O    -    -    -    -    -    -    -', p: async () => ({ id: await organisme('APAVE'), delaiAnnulationJours: 15 }) },
+  { action: 'organisme.archiver', droits: '                 O    O    -    -    -    -    O    -    -', p: async () => ({ id: await organisme('APAVE-SUD') }) },
+  { action: 'organisme.verifier', droits: '                 O    O    -    -    -    -    O    -    -', p: async () => ({ id: await organisme('CROIX-ROUGE-FRANCAISE') }) },
+  { action: 'organisme.fusionner', droits: '                O    -    -    -    -    -    -    -    -', p: async () => ({ source: await organisme('APAVE-SUD'), cible: await organisme('APAVE'), motif: 'Agence saisie deux fois' }) },
+  { action: 'organisme.contact.enregistrer', droits: '      O    O    -    -    -    -    O    -    -', p: async () => ({ organismeId: await organisme('APAVE'), nom: 'Paul Durand', role: 'formateur' }) },
+  { action: 'organisme.contact.retirer', droits: '          O    O    -    -    -    -    O    -    -', p: async () => ({ id: await contactOrganisme() }) },
+  { action: 'organisme.tarif.enregistrer', droits: '        O    O    -    -    -    -    -    -    -', p: async () => ({ organismeId: await organisme('APAVE'), formation: 'atex', montantHt: 350 }) },
+  { action: 'organisme.tarif.archiver', droits: '           O    O    -    -    -    -    -    -    -', p: async () => ({ id: await tarifOrganisme() }) },
+  { action: 'elearning.module.enregistrer', droits: '       O    O    -    -    -    -    O    -    -', p: async () => ({ id: await moduleEl('RGPD-EL'), dureeHeures: 3 }) },
+  { action: 'elearning.module.archiver', droits: '          O    O    -    -    -    -    O    -    -', p: async () => ({ id: await moduleEl('ATEX-THEO') }) },
+  { action: 'elearning.inscrire', droits: '                 O    O    -    -    -    -    O    -    -', p: async () => ({ moduleId: await moduleEl('ATEX-THEO'), empId: 2 }) },
+  { action: 'elearning.declarer', droits: '                 -    -    -    -    O    -    -    -    -', p: async () => ({ id: await inscriptionEl() }) },
+  { action: 'elearning.importer', droits: '                 O    O    -    -    -    -    O    -    -', p: () => ({ texte: 'matricule;module;avancement\nEMP-0002;RGPD-EL;60' }) },
+  { action: 'elearning.terminer', droits: '                 O    O    -    -    -    -    -    -    -', p: async () => ({ id: await inscriptionEl(6), de: 'en_cours' }) },
+  { action: 'elearning.abandonner', droits: '               O    O    -    -    -    -    O    -    -', p: async () => ({ id: await inscriptionEl(), de: 'en_cours' }) },
+  { action: 'elearning.corriger', droits: '                 O    O    -    -    -    -    O    -    -', p: async () => ({ id: await inscriptionEl(), echeance: '2026-12-15', motif: 'Report demandé' }) },
+  { action: 'elearning.annuler', droits: '                  O    -    -    -    -    -    -    -    -', p: async () => ({ id: await inscriptionEl(), motif: 'Inscription en double' }) },
   // Fiches et équipes
   { action: 'employe.creer', droits: '                       O    O    -    -    -    -    -    -    -', p: async () => ({ ...PROFIL_VIDE('Maintenance', '2026-10-07'), nom: 'Nouvel Embauché', poste: 'Technicien' }) },
   { action: 'employe.modifier', droits: '                    O    O    O    -    -    -    -    -    -', p: async () => ({ id: 2, poste: 'Technicien de maintenance confirmé' }) },
@@ -517,6 +618,30 @@ const MATRICE: Ligne[] = [
     await db.update('entretiens', id, { statut: 'realise', signMgr: '2026-10-07' });
     return { id };
   } },
+  // lot 12 — C3 (entretiens suivis) : objectifs fixés, modifiés, retirés, ajustés et évalués par l'évaluateur (manager
+  // direct, service RH) ; proposés par le salarié, qui met aussi à jour l'avancement et retire sa proposition. Souhaits de
+  // formation : le salarié ou l'évaluateur ; avis de l'évaluateur. Jamais un autre manager, un autre salarié ni un profil
+  // restreint.
+  { action: 'objectif.ajouter', droits: '                   O    O    O    -    -    -    -    -    -', p: async () => ({ entretienId: await ENTRETIEN(), libelle: 'Réduire les arrêts de la presse 3', categorie: 'individuel' }) },
+  { action: 'objectif.proposer', droits: '                  -    -    -    -    O    -    -    -    -', p: async () => ({ entretienId: await ENTRETIEN(), libelle: 'Passer l’habilitation électrique', categorie: 'developpement' }) },
+  { action: 'objectif.modifier', droits: '                  O    O    O    -    -    -    -    -    -', p: async () => ({ id: await objectifEssai('propose'), poids: 30 }) },
+  { action: 'objectif.retirer', droits: '                   O    O    O    -    -    -    -    -    -', p: async () => ({ id: await objectifEssai('ouvert') }) },
+  { action: 'objectif.retirer', variante: 'proposition du salarié', droits: 'O    O    O    -    O    -    -    -    -', p: async () => ({ id: await objectifEssai('propose') }) },
+  { action: 'objectif.avancer', droits: '                   O    O    O    -    O    -    -    -    -', p: async () => ({ id: await objectifEssai('ouvert', await annuelClos()), avancement: 40 }) },
+  { action: 'objectif.ajuster', droits: '                   O    O    O    -    -    -    -    -    -', p: async () => ({ id: await objectifEssai('ouvert', await annuelClos()), echeance: '2027-03-31', motif: 'Arrêt technique reporté' }) },
+  { action: 'objectif.evaluer', droits: '                   O    O    O    -    -    -    -    -    -', p: async () => ({ id: await objectifEssai('ouvert', await annuelClos()), entretienId: await ENTRETIEN(), statut: 'atteint' }) },
+  { action: 'entretien.souhait', droits: '                  O    O    O    -    O    -    -    -    -', p: async () => ({ id: await ENTRETIEN(), f: 'sst', priorite: 'normale' }) },
+  { action: 'entretien.avisSouhait', droits: '              O    O    O    -    -    -    -    -    -', p: async () => ({ id: await souhaitEssai(), cle: 's1', avis: 'favorable' }) },
+  // lot 12 — C3 (feedback 360°, étape 3), module activé : le salarié propose des répondants, l'évaluateur (manager direct,
+  // service RH) les sollicite, relance et clôt la collecte ; seul le répondant sollicité répond ou décline (Thomas Garnier,
+  // « autC ») ; le service RH relit les commentaires. Jamais un autre manager ni un profil restreint.
+  { action: 'feedback360.solliciter', droits: '             O    O    O    -    O    -    -    -    -', p: async () => { await actif360(); return { entretienId: await ENTRETIEN(), repondantIds: [6, 3, 8] }; } },
+  { action: 'feedback360.retirer', droits: '                O    O    O    -    O    -    -    -    -', p: async () => ({ id: (await collecte360('proposee')).thomas }) },
+  { action: 'feedback360.relancer', droits: '               O    O    O    -    -    -    -    -    -', p: async () => ({ entretienId: (await collecte360()).entretienId }) },
+  { action: 'feedback360.repondre', droits: '               -    -    -    -    -    O    -    -    -', p: async () => ({ id: (await collecte360()).thomas, notes: { cooperation: 4, fiabilite: 3 }, verbatim: '' }) },
+  { action: 'feedback360.decliner', droits: '               -    -    -    -    -    O    -    -    -', p: async () => ({ id: (await collecte360()).thomas }) },
+  { action: 'feedback360.clore', droits: '                  O    O    O    -    -    -    -    -    -', p: async () => ({ entretienId: (await collecte360()).entretienId }) },
+  { action: 'feedback360.moderer', droits: '                O    O    -    -    -    -    -    -    -', p: async () => ({ id: (await collecte360()).reponse, decision: 'retenu' }) },
   // Administration : administrateur RH.
   { action: 'parametres.maj', droits: '                      O    -    -    -    -    -    -    -    -', p: async () => ({ horizonAlerte: 60 }) },
   { action: 'demo.reinitialiser', droits: '                  O    -    -    -    -    -    -    -    -', p: async () => ({}) },
@@ -630,7 +755,89 @@ const MATRICE: Ligne[] = [
   // lot 11 — notes de frais, étape 2 : exports comptables, comptabilité (tests/frais-etape2.test.ts) et service RH.
   { action: 'frais.export.generer', droits: '        O    O    -    -    -    -    -    -    -', p: async () => { await noteAvecLigne('controlee'); return {}; } },
   { action: 'frais.export.annuler', droits: '        O    O    -    -    -    -    -    -    -', p: async () => ({ id: await exportFrais() }) },
+  // lot 12 — C1 (forfait annuel en heures) : administrateur RH seul (tests/forfait-heures.test.ts).
+  { action: 'forfaitHeures.cloturer', droits: '       O    -    -    -    -    -    -    -    -', p: async () => ({ lignes: [await plageForfaitHeures()] }) },
+  { action: 'forfaitHeures.rouvrir', droits: '        O    -    -    -    -    -    -    -    -', p: async () => ({ id: await ligneForfaitHeures(), motif: 'Feuille corrigée' }) },
+  { action: 'forfaitHeures.annuler', droits: '        O    -    -    -    -    -    -    -    -', p: async () => ({ id: await ligneForfaitHeures(), motif: 'Clôture faite trop tôt' }) },
+  // lot 12 — C5 (planning d'équipe) : cycles et besoins, service RH ; roulement, génération, créneaux et publication, le
+  // planificateur (manager direct ou service RH, jamais pour soi-même) ; échanges : le salarié propose et retire, le collègue
+  // accepte ou refuse, le manager des deux (ou le service RH) valide ou refuse.
+  { action: 'planning.cycle.creer', droits: '          O    O    -    -    -    -    -    -    -', p: () => ({ code: 'ESSAI', nom: 'Essai', longueur: 7, sequence: ['J', 'J', 'J', 'J', 'J', '', ''], groupes: [{ code: 'A', decalage: 0 }], origine: '2027-01-04' }) },
+  { action: 'planning.cycle.modifier', droits: '       O    O    -    -    -    -    -    -    -', p: () => ({ code: '2X8', nom: '2x8 de l’atelier' }) },
+  { action: 'planning.cycle.archiver', droits: '       O    O    -    -    -    -    -    -    -', p: () => ({ code: '5X8' }) },
+  { action: 'planning.besoin.creer', droits: '         O    O    -    -    -    -    -    -    -', p: () => ({ equipe: 'Maintenance', horaire: 'J', jours: [0, 1, 2, 3, 4], effectifMin: 2, du: '2026-11-02' }) },
+  { action: 'planning.besoin.modifier', droits: '      O    O    -    -    -    -    -    -    -', p: async () => ({ id: (await db.insert<{ id: number }>('besoinsPoste', { equipe: 'Maintenance', horaire: 'J', jours: [0], effectifMin: 1, exigences: { formations: [], habilitations: [] }, du: '2026-11-02' })).id, effectifMin: 3 }) },
+  { action: 'planning.besoin.archiver', droits: '      O    O    -    -    -    -    -    -    -', p: async () => ({ id: (await db.insert<{ id: number }>('besoinsPoste', { equipe: 'Maintenance', horaire: 'J', jours: [0], effectifMin: 1, exigences: { formations: [], habilitations: [] }, du: '2026-11-02' })).id }) },
+  { action: 'planning.roulement.affecter', droits: '   O    O    O    -    -    -    -    -    -', p: async () => { await planningActif(); return { empId: 2, cycle: 'JOUR', groupe: 'A', du: '2026-11-02' }; } },
+  { action: 'planning.roulement.affecter', variante: 'roulement du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: async () => { await planningActif(); return { empId: 14, cycle: 'JOUR', groupe: 'A', du: '2026-11-02' }; } },
+  { action: 'planning.roulement.terminer', droits: '   O    O    O    -    -    -    -    -    -', p: async () => { await planningActif(); return { id: await roulementPlanning(), au: '2026-12-31' }; } },
+  // Étape 2 : reprise des équipes par quart en groupes de roulement (Paramètres → Planning), service RH.
+  { action: 'planning.reprise', droits: '              O    O    -    -    -    -    -    -    -', p: async () => { await planningActif(); return { cycle: 'JOUR', du: '2026-11-02', equipes: ['Maintenance'] }; } },
+  { action: 'planning.generer', droits: '              O    O    O    -    -    -    -    -    -', p: async () => { await planningActif(); await roulementPlanning(); return { equipe: 'Maintenance', du: '2026-11-02', au: '2026-11-29' }; } },
+  { action: 'planning.creneau.ajouter', droits: '      O    O    O    -    -    -    -    -    -', p: async () => { await planningActif(); return { equipe: 'Maintenance', jour: '2026-11-03', horaire: 'J', empId: 2 }; } },
+  { action: 'planning.creneau.modifier', droits: '     O    O    O    -    -    -    -    -    -', p: async () => { await planningActif(); return { id: await creneauPlanning('brouillon', '2026-11-03'), horaire: 'M' }; } },
+  { action: 'planning.creneau.annuler', droits: '      O    O    O    -    -    -    -    -    -', p: async () => { await planningActif(); return { id: await creneauPlanning('publie', '2026-11-03'), motif: 'Arrêt technique reporté' }; } },
+  { action: 'planning.publier', droits: '              O    O    O    -    -    -    -    -    -', p: async () => {
+    await planningActif();
+    // Un repos : la publication ne bute sur aucune habilitation (celle de Mehdi est expirée, refus éprouvé par
+    // tests/planning-actions.test.ts).
+    await creneauPlanning('brouillon', '2026-11-17', 2, null);
+    return { equipe: 'Maintenance', du: '2026-11-16', au: '2026-11-22' };
+  } },
+  { action: 'planning.echange.proposer', droits: '     -    -    -    -    O    -    -    -    -', p: async () => { await planningActif(); return { creneauId: await creneauPlanning('publie', '2026-11-20'), partenaireId: 6 }; } },
+  { action: 'planning.echange.accepter', droits: '     -    -    -    -    -    O    -    -    -', p: async () => ({ id: await echangePlanning('propose') }) },
+  { action: 'planning.echange.valider', droits: '      O    O    O    -    -    -    -    -    -', p: async () => ({ id: await echangePlanning('accepte'), motifAlertes: 'Habilitations en cours de renouvellement' }) },
+  { action: 'planning.echange.refuser', droits: '      -    -    -    -    -    O    -    -    -', p: async () => ({ id: await echangePlanning('propose') }) },
+  { action: 'planning.echange.refuser', variante: 'échange accepté', droits: 'O    O    O    -    -    -    -    -    -', p: async () => ({ id: await echangePlanning('accepte') }) },
+  { action: 'planning.echange.annuler', droits: '       -    -    -    -    O    -    -    -    -', p: async () => ({ id: await echangePlanning('propose') }) },
+  // lot 12 — C6 (badgeage virtuel) : chacun pointe pour lui-même (tests/pointage-actions.test.ts) ; correction demandée par
+  // le salarié, ou saisie et validée d'emblée par son valideur (manager, service RH) ; validation et refus par le valideur,
+  // jamais pour soi ; retrait par le salarié ou son valideur. Paie, référent HSE, lecture seule : rien.
+  { action: 'pointage.pointer', droits: '            -    -    -    -    O    -    -    -    -', p: async () => { await badgeageActif(); return { empId: 2 }; } },
+  { action: 'pointage.corriger', droits: '           O    O    O    -    O    -    -    -    -', p: async () => {
+    await badgeageActif();
+
+    // La veille du jour des tests : jamais « à venir », quelle que soit l'heure à laquelle la suite tourne.
+    return { empId: 2, nature: 'ajout', horodatage: '2026-10-06T05:00:00.000Z', sens: 'E', motif: 'oubli' };
+  } },
+  { action: 'pointage.validerCorrection', droits: '   O    O    O    -    -    -    -    -    -', p: async () => ({ id: await correctionPointage() }) },
+  { action: 'pointage.refuserCorrection', droits: '   O    O    O    -    -    -    -    -    -', p: async () => ({ id: await correctionPointage(), motif: 'Présence non constatée' }) },
+  { action: 'pointage.annulerCorrection', droits: '   O    O    O    -    O    -    -    -    -', p: async () => ({ id: await correctionPointage() }) },
+  // Étape 2 : pointé repris sur une feuille au mode « calcule » (mêmes droits que la saisie des heures) ; horaire variable
+  // (service RH, comme l'enregistrement d'un horaire).
+  { action: 'pointage.reprendreFeuille', droits: '    O    O    O    -    O    -    -    -    -', p: async () => { await badgeageActif('calcule'); return { empId: 2, week: '2026-10-19' }; } },
+  { action: 'referentiel.horaire.variable', droits: ' O    O    -    -    -    -    -    -    -', p: () => ({
+    id: 'J', variable: true, plages: [{ type: 'mobile', debut: '08:00', fin: '09:00' }, { type: 'fixe', debut: '09:00', fin: '11:30' }, { type: 'mobile', debut: '11:30', fin: '16:00' }],
+  }) },
+  // Étape 3 : zones de la géolocalisation, tenues par l'administrateur RH seul (comme les réglages du badgeage).
+  { action: 'pointage.zone.enregistrer', droits: '   O    -    -    -    -    -    -    -    -', p: () => ({ libelle: 'Chantier de Strasbourg', lat: 48.5734, lng: 7.7521, rayonM: 300 }) },
+  { action: 'pointage.zone.supprimer', droits: '     O    -    -    -    -    -    -    -    -', p: async () => ({
+    id: (await db.insert<{ id: number }>('zonesPointage', { libelle: 'Chantier de Colmar', siteCode: null, chantierId: null, lat: 48.079, lng: 7.358, rayonM: 200, actif: true })).id,
+  }) },
 ];
+// lot 12 — C1 (forfait annuel en heures)
+/**
+ * Plage de cinq jours sous forfait annuel en heures d'Élodie Bernard (fiche 11), terminée et sans blocage : suivi à partir
+ * du lundi 5 janvier 2026, sortie le vendredi 9, feuille validée de la semaine (transaction annulée de la ligne).
+ */
+async function plageForfaitHeures() {
+  await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), forfaitHeuresDebutSuivi: '2026-01-05' });
+  await db.run('UPDATE employes SET fin = ? WHERE id = 11', ['2026-01-09']);
+  await db.run('DELETE FROM feuilles WHERE emp_id = 11 AND week = ?', ['2026-01-05']);
+  await db.insert('feuilles', {
+    empId: 11, week: '2026-01-05', statut: 'validee', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-LOG', tache: 'Logistique', ks: false, h: [7, 7, 7, 7, 7, 0, 0] }],
+    contrat: { statut: 'cadre', typeContrat: 'cdi', temps: 'forfait_heures_annuel', heures: null, forfaitHeures: 1607, forfaitJours: null, jourOff: [] },
+  });
+  return { empId: 11, debut: '2026-01-05' };
+}
+/** Ligne de clôture confirmée d'Élodie Bernard, ni dans un lot ni transmise. */
+async function ligneForfaitHeures() {
+  return (await db.insert<{ id: number }>('cloturesForfaitHeures', {
+    empId: 11, debut: '2025-01-01', fin: '2025-12-31', motifFin: 'periode', version: 1, remplaceId: null, forfait: 1607, cible: 1607, absences: 0, realise: 1620,
+    hfa25: 13, hfa50: 0, hca10: 0, hca25: 0, nonRealise: 0, statut: 'confirmee', confirmeeLe: '2026-01-15T09:00:00.000Z', confirmeePar: 'Sandrine Vidal',
+    lotId: null, sage: false, horsFichier: false, rouverteLe: null, rouvertePar: null, rouverteMotif: null, annuleeLe: null, annuleePar: null, annuleeMotif: null,
+  })).id;
+}
 /** Entité d'essai (lot 11), ouverte ou fermée, insérée dans la transaction annulée de la ligne. */
 async function entiteEssai(ouverte = true) {
   await db.insert('entites', {

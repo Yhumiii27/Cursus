@@ -13,6 +13,8 @@ import { reouvertureDemande, retraitDemande, suppressionCertification } from '..
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { reqKind, reqLabel } from '../pages/Dashboard.tsx';
+// lot 12 — C3 (entretiens suivis)
+import { BadgeEntretien } from './OrigineEntretien.tsx';
 import { SectionLabel, Tag } from './ui.tsx';
 
 /** Boutons de correction d'une certification du dossier (en vigueur ou remplacée). */
@@ -83,7 +85,8 @@ export function DemandesFiche({ e, membre }: { e: EmpX; membre: boolean }) {
           <div key={r.id} className="list-row stack">
             <div className="item-head">
               <div>
-                <div style={{ fontSize: 14 }}>{objet}</div>
+                {/* lot 12 — C3 (entretiens suivis) : badge d'origine d'un souhait versé à la clôture d'un entretien. */}
+                <div style={{ fontSize: 14 }}>{objet}<BadgeEntretien d={d} r={r} /></div>
                 <div className="text-muted sub">
                   {reqKind(r)} · {r.parId ? `par ${d.personName(r.parId)} (manager)` : 'par le collaborateur'} le {fmtShort(parse(r.date))}
                   {r.rouverteLe ? ` · rouverte le ${fmtShort(parse(r.rouverteLe))}${r.rouvertePar ? ` par ${r.rouvertePar}` : ''}` : ''}

@@ -26,6 +26,8 @@ import {
 } from './context.ts';
 import { devientDeconseillee } from '../../../shared/rules/vigilance.ts';
 import { alerterVigilance } from '../vigilance.ts';
+// lot 12 — C4 (organismes de formation et e-learning)
+import { ficheDuTexte, organismeChoisi } from './organismes.ts';
 
 /** Élément visé par une modification ou un archivage (`id` : son code), introuvable : 404. */
 function trouver<T>(liste: readonly T[], cle: (x: T) => string, id: string, nature: string): T {
@@ -66,8 +68,10 @@ const enregistrerFormation: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const liste = ctx.ds.referentiels.formations;
   const avant = p.id != null && p.id !== '' ? trouver(liste, f => f.id, codeTitre(p.id), 'Formation') : null;
-  const { erreurs, formation: f } = controlerFormation(p, liste, avant?.id ?? null);
-  if (!f) refuser(erreurs);
+  const { erreurs, formation: saisie } = controlerFormation(p, liste, avant?.id ?? null);
+  if (!saisie) refuser(erreurs);
+  // lot 12 — C4 : organisme par défaut (fiche) ; rattachée, la formation porte son nom usuel (contrat pub_titres_detenus).
+  const f: Formation = { ...saisie, ...organismeDeLaFormation(ctx, p.organismeId, avant, saisie.organisme) };
   if (!avant) {
     await ctx.db.insert<Formation>('formations', f);
     return `Formation « ${f.court} » ajoutée au catalogue`;
@@ -100,6 +104,19 @@ const archiverFormation: ActionHandler = async (ctx, p) => {
   await ctx.db.update<Formation>('formations', f.id, { archive: ctx.d.ti });
   return `Formation « ${f.court} » archivée — plus proposée ni suivie ; les certifications restent au dossier${attenteTexte(demandesEnAttente(ctx.ds, 'formations', f.id))}`;
 };
+
+// lot 12 — C4 (organismes de formation et e-learning)
+/**
+ * Organisme d'une formation enregistrée : `organismeId` reçu (vide : texte libre seul), sinon celui qu'elle avait tant que
+ * le texte reçu le désigne (nom usuel ou alias). Rattachée à une fiche, `organisme` vaut son nom usuel, recopié dans la même
+ * transaction que toute modification de la fiche.
+ */
+function organismeDeLaFormation(ctx: Ctx, v: unknown, avant: Formation | null, texte: string): Pick<Formation, 'organismeId' | 'organisme'> {
+  // Texte seul (dialogue sans sélecteur) : fiche gardée s'il la désigne encore, sinon détachée (texte saisi gardé).
+  const organismeId = v === undefined ? ficheDuTexte(ctx, avant?.organismeId, texte) : organismeChoisi(ctx, v, avant?.organismeId ?? null);
+  const fiche = organismeId == null ? null : (ctx.ds.organismes ?? []).find(o => o.id === organismeId);
+  return { organismeId, organisme: fiche ? fiche.nomUsuel : texte };
+}
 
 // — Habilitations —
 

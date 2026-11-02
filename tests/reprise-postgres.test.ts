@@ -226,7 +226,7 @@ test('commande : à blanc, reprise, puis « déjà faite » ; refus sans rien é
     r = lancer([src], env);
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stdout, /Reprise faite depuis/);
-    assert.match(r.stdout, /posez le partage \(20-cursus\.sql, 90-droits\.sql, 95-matrix-journal-unifie\.sql\)/);
+    assert.match(r.stdout, /faites reprendre ses vues pub_ par Matrix \(14-reprise-publications\.sql -v outils=cursus\) et posez les droits \(90-droits\.sql, 95-matrix-journal-unifie\.sql\)/);
     assert.equal((await surServeur<{ n: number }>(url, 'SELECT count(*)::int AS n FROM cursus.employes'))[0].n, 24);
     r = lancer([], env);
     assert.equal(r.status, 0, r.stderr);

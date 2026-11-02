@@ -29,6 +29,10 @@ import { lotHistorique } from './migrations/paie.ts';
 import { amorcerActivites } from './migrations/temps.ts';
 import { amorcerHoraires } from './migrations/lot6-horaires.ts';
 import { amorcerActiviteAstreinte } from './migrations/lot7-astreintes.ts';
+// lot 12 — C4 (organismes de formation et e-learning)
+import { organismesDemo } from './seed-organismes.ts';
+// lot 12 — C5 (planning d'équipe)
+import { amorcerCycles } from './migrations/lot12-planning.ts';
 
 // Mode de validation : évaluation réussie pour les habilitations électriques, CACES, SST, ATEX, AIPR et PRAP ;
 // la présence suffit pour les sensibilisations et formations d'information.
@@ -533,6 +537,8 @@ export async function seedDemo(db: Db) {
     // l'Administration, équipe du matin à la Production (2x8 : l'après-midi se choisit sur la feuille).
     await amorcerHoraires(db);
     for (const [nom, horaire] of [['Maintenance', 'J'], ['Administration', 'J'], ['Production', 'M']]) await db.update('equipes', nom, { horaire });
+    // lot 12 — C5 (planning d'équipe) : modèles de cycles (Journée, 2x8, 3x8, 5x8), comme la migration d'une base neuve.
+    await amorcerCycles(db);
     // Mandat au CSE de Julien Moreau : titulaire, crédit de la table R2314-1 pour une centaine de salariés.
     await db.insert('mandats', { empId: 8, role: 'titulaire', du: '2025-11-01', au: null, credit: 21 });
 
@@ -560,6 +566,11 @@ export async function seedDemo(db: Db) {
     await comptesDemo(db);
     // lot 11 — notes de frais : module activé en démonstration, barème, forfaits, notes à chaque étape du circuit.
     await fraisDemo(db);
+    // lot 12 — C1 (forfait annuel en heures) : données d'octobre 2026, suivies depuis le 1er janvier 2026 en démonstration
+    // (en production, à partir de la mise en service : réglage `forfaitHeuresDebutSuivi`).
+    await suiviForfaitHeuresDemo(db, true);
+    // lot 12 — C4 : organismes repris des textes libres (comme une base existante), complétés ; modules et inscriptions.
+    await organismesDemo(db);
 
     // Reprise des compteurs : jours déjà pris sur les périodes en cours, arrêtés au jour du chargement (période de CP à
     // prendre et année de RTT de cette date), plafonnés pour laisser un solde réaliste.
@@ -633,6 +644,19 @@ const PROFILS_DEMO: Record<string, ProfilRh> = {
  * (Comptes et accès).
  * Appelé aussi au démarrage pour une base de démonstration antérieure aux comptes.
  */
+/**
+ * lot 12 — C1 (forfait annuel en heures) : début du suivi de la démonstration au 1er janvier 2026. Base neuve (`force`,
+ * après les réglages par défaut de seedDemo) ; base de démonstration créée avant le lot 12, dont les réglages n'ont pas la
+ * clé, reprise au démarrage par server/src/index.ts — un réglage déjà présent n'y est jamais touché. Sans lui, le défaut
+ * (mise en service au 1er janvier 2027) viderait le cumul et la cible de 2026 dans l'écran Temps. Démonstration seulement.
+ */
+export async function suiviForfaitHeuresDemo(db: Db, force = false): Promise<boolean> {
+  const app = await db.getSetting<Record<string, unknown>>('app', {});
+  if (!force && app.forfaitHeuresDebutSuivi !== undefined) return false;
+  await db.setSetting('app', { ...app, forfaitHeuresDebutSuivi: '2026-01-01' });
+  return true;
+}
+
 export async function comptesDemo(db: Db) {
   if (await db.count('comptes')) return;
   // Une ancienne base de démonstration a pu renommer la RH unique (paramètre rhNom) : même personne.

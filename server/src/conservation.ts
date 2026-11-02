@@ -19,6 +19,10 @@ import { snake, type SqlValeur, TABLES, type Db, type TableName } from './db.ts'
 import { log } from './logs.ts';
 import { lireMessagerie } from './messagerie.ts';
 import { nettoyerBientot } from './pieces.ts';
+// lot 12 — C3 (entretiens suivis et 360°)
+import { tacheFeedback360 } from './feedback360.ts';
+// lot 12 — C6 (badgeage virtuel)
+import { purgerPointages } from './pointages.ts';
 
 /**
  * Traitement de chaque référence à un salarié (clé « table.colonne » de REFERENCES) :
@@ -100,6 +104,35 @@ export const TRAITEMENTS: Record<string, Traitement> = {
   'lignes_frais.emp_id': { mode: 'lignes', categorie: 'frais' },
   'vehicules_perso.emp_id': { mode: 'lignes', categorie: 'frais' },
   'avances_frais.emp_id': { mode: 'lignes', categorie: 'frais' },
+  // lot 12 — C1 (forfait annuel en heures) : lignes gardées avec les avenants du forfait jours (élément de paie), motifs vidés.
+  'clotures_forfait_heures.emp_id': { mode: 'textes', categorie: 'paie' },
+  // lot 12 — C2 (notes de frais : activation) : dépenses des notes médicales (scission), comme celles des autres notes.
+  'lignes_frais_sante.emp_id': { mode: 'lignes', categorie: 'frais' },
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // Objectifs (et souhaits, dans la ligne de l'entretien) avec les entretiens : 5 ans après le départ par défaut (choix par
+  // défaut du chantier) ; feedback 360° (étape 3) : lignes de l'évalué et du répondant supprimées avec ses entretiens (les
+  // réponses brutes sont purgées bien avant, à la clôture de l'entretien ou au plus tard 6 mois après, étape 3).
+  'objectifs.emp_id': { mode: 'lignes', categorie: 'entretiens' },
+  'feedback_sollicitations.emp_id': { mode: 'lignes', categorie: 'entretiens' },
+  'feedback_sollicitations.repondant_emp_id': { mode: 'lignes', categorie: 'entretiens' },
+  'feedback_reponses.emp_id': { mode: 'lignes', categorie: 'entretiens' },
+  // lot 12 — C4 (organismes de formation et e-learning) : inscriptions aux modules d'e-learning gardées avec les formations
+  // suivies qu'elles ont produites (statut, dates, heures), motifs (textes libres du service RH) vidés ; l'auteur de
+  // l'inscription (nom) retiré par le balayage des textes.
+  'inscriptions_elearning.emp_id': { mode: 'textes', categorie: 'formations' },
+  // lot 12 — C5 (planning d'équipe) : créneaux, affectations et échanges gardés avec les feuilles de temps (catégorie
+  // « temps », au moins un an : art. D3171-16), motifs et codes d'alerte (textes libres, réserve d'aptitude) vidés ; le
+  // suppléant qui a validé un échange est un auteur, son nom retiré par le balayage.
+  'creneaux.emp_id': { mode: 'textes', categorie: 'temps' },
+  'roulements.emp_id': { mode: 'textes', categorie: 'temps' },
+  'echanges_poste.demandeur_id': { mode: 'textes', categorie: 'temps' },
+  'echanges_poste.partenaire_id': { mode: 'textes', categorie: 'temps' },
+  'echanges_poste.par_delegation_de': { mode: 'auteur' },
+  // lot 12 — C6 (badgeage virtuel) : pointages bruts et demandes de correction supprimés avec les temps (le commentaire et
+  // le motif d'un refus partent avec eux) ; la tâche quotidienne purge en plus les pointages de plus de
+  // `conservationPointagesAns` ans (server/src/pointages.ts, `purgerPointages`).
+  'pointages.emp_id': { mode: 'lignes', categorie: 'temps' },
+  'corrections_pointage.emp_id': { mode: 'lignes', categorie: 'temps' },
 };
 
 /**
@@ -161,7 +194,18 @@ export function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number
       { table: 'employes', ou: 'id = ?', vider: ['visite', 'avis', 'restrictions', 'suivi', 'prochaine_visite', 'examen_aptitude', 'expose', 'reprise_motif', 'reprise_date'] },
     ];
     case 'titreSejour': return [{ table: 'employes', ou: 'id = ?', vider: ['autorisation_travail'] }];
-    case 'entretiens': return [{ table: 'entretiens', ou: 'emp_id = ?', supprimer: true }];
+    // lot 12 — C3 (entretiens suivis) : demandes de formation versées depuis un souhait détachées (elles restent, au
+    // dossier, jusqu'à sa propre échéance) ; objectifs (reconduction retirée d'abord), feedback 360° (réponses en attente,
+    // sollicitations de l'évalué ou du répondant, réponses versées), puis les entretiens.
+    case 'entretiens': return [
+      { table: 'demandes_collab', ou: 'entretien_id IN (SELECT id FROM entretiens WHERE emp_id = ?)', vider: ['entretien_id'] },
+      { table: 'objectifs', ou: 'emp_id = ? AND reconduit_de IS NOT NULL', vider: ['reconduit_de'] },
+      { table: 'objectifs', ou: 'emp_id = ?', supprimer: true },
+      { table: 'feedback_tampon', ou: 'sollicitation_id IN (SELECT id FROM feedback_sollicitations WHERE emp_id = ? OR repondant_emp_id = ?)', supprimer: true },
+      { table: 'feedback_sollicitations', ou: 'emp_id = ? OR repondant_emp_id = ?', supprimer: true },
+      { table: 'feedback_reponses', ou: 'emp_id = ?', supprimer: true },
+      { table: 'entretiens', ou: 'emp_id = ?', supprimer: true },
+    ];
     case 'temps': return [
       retrait(cx, `emp_id = ? AND objet = 'absence'`),
       // Motif du dépassement du plafond d'un forfait jours (lot 6) et motifs des réouvertures : textes libres du valideur
@@ -172,12 +216,21 @@ export function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number
       { table: 'reports', ou: 'emp_id = ?', vider: ['motif'] },
       { table: 'clotures', ou: 'emp_id = ?', vider: ['motif'] },
       { table: 'astreintes', ou: 'emp_id = ?', vider: ['motif', 'annule_motif'] },
+      // lot 12 — C5 (planning d'équipe) : motifs et codes des alertes acceptées (réserve d'aptitude) ; postes et jours gardés.
+      { table: 'creneaux', ou: 'emp_id = ?', vider: ['motif', 'motif_alertes', 'alertes_acceptees', 'annule_motif'] },
+      { table: 'roulements', ou: 'emp_id = ?', vider: ['fin_motif'] },
+      { table: 'echanges_poste', ou: 'demandeur_id = ? OR partenaire_id = ?', vider: ['motif_refus', 'alertes_acceptees'] },
+      // lot 12 — C6 (badgeage virtuel) : demandes de correction puis pointages (clé de la correction vérifiée à la fin).
+      { table: 'corrections_pointage', ou: 'emp_id = ?', supprimer: true },
+      { table: 'pointages', ou: 'emp_id = ?', supprimer: true },
     ];
     case 'formations': return [
       retrait(cx, `emp_id = ? AND objet IN ('certification', 'habTitre')`),
       { table: 'certifications', ou: 'emp_id = ?', vider: ['corrige_motif', 'annule_motif'] },
       { table: 'hab_titres', ou: 'emp_id = ?', vider: ['mesure_motif'] },
       { table: 'formations_suivies', ou: 'emp_id = ?', vider: ['corrige_motif', 'annule_motif'] },
+      // lot 12 — C4 : inscriptions aux modules d'e-learning, motifs vidés (statut, dates, heures gardés).
+      { table: 'inscriptions_elearning', ou: 'emp_id = ?', vider: ['corrige_motif', 'annule_motif'] },
       // Évaluations des formations (lot 7, t121) : commentaire vidé, note et efficacité gardées.
       { table: 'evaluations_formation', ou: 'emp_id = ?', vider: ['commentaire'] },
       // Liste d'attente (lot 7, t120) : la demande supprimée ci-dessous n'y est plus désignée.
@@ -185,18 +238,24 @@ export function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number
       { table: 'demandes_collab', ou: `emp_id = ? AND type IN ('formation', 'habilitation')`, supprimer: true },
     ];
     // Avenants de renonciation d'un forfait jours : référence et motif d'annulation (textes libres du service RH).
-    case 'paie': return [{ table: 'avenants_forfait', ou: 'emp_id = ?', vider: ['reference', 'annule_motif'] }];
+    case 'paie': return [{ table: 'avenants_forfait', ou: 'emp_id = ?', vider: ['reference', 'annule_motif'] },
+      // lot 12 — C1 (forfait annuel en heures) : motifs de réouverture et d'annulation des clôtures (textes de l'administrateur RH).
+      { table: 'clotures_forfait_heures', ou: 'emp_id = ?', vider: ['rouverte_motif', 'annulee_motif'] }];
     // lot 11 — notes de frais : seules les notes hors de leur terme comptable (payées depuis plus de la durée réglée, ou
     // jamais payées) partent, avec leurs lignes, leurs justificatifs et les avances soldées ; les véhicules et leurs pièces
     // quand plus aucune ligne gardée ne les désigne. Le dossier anonymisé garde les autres, sans nom.
     case 'frais': {
       const limite = addM(cx.ti || todayIso(), -12 * (cx.fraisAns ?? 10));
       const lignes = `SELECT l.id FROM lignes_frais l JOIN notes_frais n ON n.id = l.note_id WHERE ${noteHorsTerme(limite)}`;
+      // lot 12 — C2 : dépenses des notes médicales (scission), justificatifs de santé.
+      const sante = `SELECT l.id FROM lignes_frais_sante l JOIN notes_frais n ON n.id = l.note_id WHERE ${noteHorsTerme(limite)}`;
+      const pieces = `((objet = 'ligneFrais' AND objet_id IN (${lignes})) OR (objet = 'ligneFraisSante' AND objet_id IN (${sante})))`;
       return [
-        retrait(cx, `emp_id = ? AND objet IN ('ligneFrais', 'ligneFraisSante') AND objet_id IN (${lignes})`),
+        retrait(cx, `emp_id = ? AND ${pieces}`),
         // Pièces détachées des lignes supprimées ci-dessous (description gardée, sans objet désigné).
-        { table: 'pieces', ou: `emp_id = ? AND objet IN ('ligneFrais', 'ligneFraisSante') AND objet_id IN (${lignes})`, vider: ['objet_id'] },
+        { table: 'pieces', ou: `emp_id = ? AND ${pieces}`, vider: ['objet_id'] },
         { table: 'lignes_frais', ou: `emp_id = ? AND id IN (${lignes})`, supprimer: true },
+        { table: 'lignes_frais_sante', ou: `emp_id = ? AND id IN (${sante})`, supprimer: true },
         { table: 'notes_frais', ou: `emp_id = ? AND id IN (SELECT n.id FROM notes_frais n WHERE ${noteHorsTerme(limite)})`, supprimer: true },
         { table: 'avances_frais', ou: `emp_id = ? AND ${avanceHorsTerme(limite)}`, supprimer: true },
         retrait(cx, `emp_id = ? AND objet = 'vehiculePerso' AND objet_id NOT IN (${VEHICULES_UTILISES})`),
@@ -363,7 +422,9 @@ async function identite(db: Db, empId: number): Promise<string[]> {
  * nom de l'action au journal (code).
  */
 const LIGNES_DU_SALARIE: Partial<Record<string, string>> = { employes: 'id', comptes: 'emp_id' };
-const TABLES_EXCLUES = new Set(['settings']);
+// lot 12 — C6 (badgeage virtuel) : pointages bruts, sans aucun texte nommé (instants, jours, codes), écartés du balayage :
+// des centaines de milliers de lignes relues pour rien à chaque anonymisation.
+const TABLES_EXCLUES = new Set(['settings', 'pointages']);
 const COLONNES_EXCLUES = new Set(['journal.action']);
 
 const echapper = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -468,6 +529,10 @@ export async function verifierConservation(db: Db, ti: ISODate = todayIso()): Pr
 export async function demarrerConservation(db: Db): Promise<() => void> {
   const passer = async () => {
     try { await verifierConservation(db); } catch (err) { log.erreur(`Conservation des dossiers : ${err instanceof Error ? err.message : err}`); }
+    // lot 12 — C6 (badgeage virtuel) : pointages bruts au-delà de leur durée de conservation.
+    try { await purgerPointages(db); } catch (err) { log.erreur(`Conservation des pointages : ${err instanceof Error ? err.message : err}`); }
+    // lot 12 — C3 (feedback 360°) : fenêtres échues closes, relances avant l'échéance, réponses brutes au-delà de 6 mois.
+    try { await tacheFeedback360(db); } catch (err) { log.erreur(`Feedback 360° : ${err instanceof Error ? err.message : err}`); }
   };
   await passer();
   const t = setInterval(async () => await passer(), 3600_000);

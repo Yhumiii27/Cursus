@@ -13,10 +13,12 @@ import {
   heureTexte, jourIntervention, MOTIF_ASTREINTE_MAX, periodeAstreinteTexte, premiereErreur, semaineIntervention,
 } from '../../../shared/rules/astreintes.ts';
 import { ferieRefus } from '../../../shared/rules/majorations.ts';
+import { feuilleCalculee, totalDuJour } from '../../../shared/rules/pointage-feuille.ts';
 import { completerSemaine } from '../../../shared/rules/semaine.ts';
 import { absenceCeJour, calcSheet, HEURES_JOUR_MAX, joursAbsence } from '../../../shared/rules/temps.ts';
 import type { Astreinte, Employe, FeuilleTemps, InterventionAstreinte, LigneTemps } from '../../../shared/types.ts';
 import { instantPresent, prevenirAstreinte } from '../astreintes.ts';
+import { pointeDeLaFeuille } from '../pointages.ts';
 import { ActionError, type ActionHandler, type Ctx, getEmp, isManagerOf, isRh, isSelf, refuserSoiMeme, str } from './context.ts';
 import { editable, saveLines } from './temps.ts';
 
@@ -166,7 +168,8 @@ const intervention: ActionHandler = async (ctx, p) => {
   const lignes = sh.lignes.map(l => ({ ...l, h: completerSemaine(l.h) }));
   const li = ligneAstreinte(ctx, lignes);
   lignes[li] = { ...lignes[li], h: lignes[li].h.map((v, j) => (j === di ? Math.round((Number(v) + x.heures) * 100) / 100 : v)) };
-  const jour = lignes.reduce((n, l) => n + Number(l.h[di] || 0), 0);
+  // lot 12 — C6 (badgeage virtuel) : en mode « calcule », la ligne PTG n'est pas additionnée à la ventilation (totalDuJour).
+  const jour = totalDuJour(lignes, di, feuilleCalculee(sh) ? await pointeDeLaFeuille(ctx.db, sh.empId, sh.week) : null);
   if (jour > HEURES_JOUR_MAX) throw new ActionError(`Plus de 24 h le ${fmtIso(x.jour)} avec cette intervention (${fH(jour)} toutes lignes cumulées) : une journée compte 24 h au plus`);
   await saveLines(ctx, sh, lignes);
   const n = await ctx.db.insert<InterventionAstreinte>('astreinteInterventions', {

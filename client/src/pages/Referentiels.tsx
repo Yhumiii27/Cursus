@@ -22,13 +22,24 @@ import { Postes } from './ReferentielsPostes.tsx';
 import { Activites } from './ReferentielsActivites.tsx';
 import { Horaires } from './ReferentielsHoraires.tsx';
 import { EntitesEtSites } from './ReferentielsEntites.tsx';
+// lot 12 — C4 (organismes de formation et e-learning) : onglets Organismes et Modules e-learning.
+import { Organismes } from './ReferentielsOrganismes.tsx';
+import { ModulesElearning } from './ReferentielsModules.tsx';
+// lot 12 — C5 (planning d'équipe) : cycles de roulement et besoins de poste.
+import { Besoins, Cycles } from './ReferentielsCycles.tsx';
 
-const ONGLETS: [ReferentielId | 'postes' | 'activites' | 'horaires' | 'entites', string][] = [
+const ONGLETS: [ReferentielId | 'postes' | 'activites' | 'horaires' | 'entites' | 'organismes' | 'modules' | /* lot 12 — C5 */ 'cycles' | 'besoins', string][] = [
   ['formations', 'Formations'], ['habilitations', 'Habilitations'], ['postes', 'Postes'], ['destinations', 'Destinations'], ['activites', 'Activités internes'],
   ['horaires', 'Horaires'],
   // lot 11 — organigramme
   ['entites', 'Entités et sites'],
+  // lot 12 — C4 : droit « formations » et lecture seule (fiches complètes).
+  ['organismes', 'Organismes'], ['modules', 'Modules e-learning'],
+  // lot 12 — C5 (planning d'équipe)
+  ['cycles', 'Cycles'], ['besoins', 'Besoins de poste'],
 ];
+/** lot 12 — C4 : onglets réservés au droit « formations » et à la lecture seule (paie : ni fiches ni modules). */
+const ONGLETS_FORMATIONS = new Set(['organismes', 'modules']);
 
 /** État d'un élément : en vigueur, ou archivé (date). */
 const Etat = ({ archive }: { archive?: ISODate | null }) => (archive
@@ -38,6 +49,10 @@ const Etat = ({ archive }: { archive?: ISODate | null }) => (archive
 export function Referentiels() {
   const d = useDomain();
   const { ui, setUi } = useStore();
+  // lot 12 — C4
+  const { formations, consultation } = useRole();
+  const onglets = formations || consultation ? ONGLETS : ONGLETS.filter(([o]) => !ONGLETS_FORMATIONS.has(o));
+  const onglet = onglets.some(([o]) => o === ui.refOnglet) ? ui.refOnglet : 'formations';
   const r = d.ds.referentiels;
   const kicker = [
     plural(actifs(r.formations).length, 'formation', 'formations'),
@@ -47,14 +62,20 @@ export function Referentiels() {
   ].join(' · ') + ' en vigueur';
   return (
     <Page kicker={kicker} title="Référentiels"
-      actions={<Seg name="refOnglet" label="Référentiel" value={ui.refOnglet} onChange={x => setUi({ refOnglet: x })} options={ONGLETS} />}>
-      {ui.refOnglet === 'formations' && <Formations />}
-      {ui.refOnglet === 'habilitations' && <Habilitations />}
-      {ui.refOnglet === 'postes' && <Postes />}
-      {ui.refOnglet === 'destinations' && <Destinations />}
-      {ui.refOnglet === 'activites' && <Activites />}
-      {ui.refOnglet === 'horaires' && <Horaires />}
-      {ui.refOnglet === 'entites' && <EntitesEtSites />}
+      actions={<Seg name="refOnglet" label="Référentiel" value={onglet} onChange={x => setUi({ refOnglet: x })} options={onglets} style={{ flexWrap: 'wrap' }} />}>
+      {onglet === 'formations' && <Formations />}
+      {onglet === 'habilitations' && <Habilitations />}
+      {onglet === 'postes' && <Postes />}
+      {onglet === 'destinations' && <Destinations />}
+      {onglet === 'activites' && <Activites />}
+      {onglet === 'horaires' && <Horaires />}
+      {onglet === 'entites' && <EntitesEtSites />}
+      {/* lot 12 — C4 */}
+      {onglet === 'organismes' && <Organismes />}
+      {onglet === 'modules' && <ModulesElearning />}
+      {/* lot 12 — C5 (planning d'équipe) */}
+      {onglet === 'cycles' && <Cycles />}
+      {onglet === 'besoins' && <Besoins />}
     </Page>
   );
 }

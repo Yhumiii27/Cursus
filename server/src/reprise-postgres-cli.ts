@@ -58,7 +58,7 @@ function afficher(cr: CompteRendu) {
     if (p.manquants) console.error(`  Attention : ${plural(p.manquants, 'fichier absent', 'fichiers absents')} de ce dossier : copiez-y ceux de ${p.dossierSource}.`);
   }
   if (cr.statut === 'a-blanc') console.log('Relancez sans --a-blanc pour faire la reprise.');
-  else console.log('Démarrez Cursus avec DATABASE_URL, puis posez le partage (20-cursus.sql, 90-droits.sql, 95-matrix-journal-unifie.sql).');
+  else console.log('Démarrez Cursus avec DATABASE_URL, puis faites reprendre ses vues pub_ par Matrix (14-reprise-publications.sql -v outils=cursus) et posez les droits (90-droits.sql, 95-matrix-journal-unifie.sql) : docs/DEPLOIEMENT.md.');
 }
 
 let db: PgDb | null = null;

@@ -9,7 +9,9 @@
 // - après chaque pas (ou tous les `verifierTous` pas) : vue de chaque compte, espace et profil RH (PROFILS_RH), entrée du
 //   cache et jeu d'action de chaque lecteur, contre la lecture directe (`instantaneDirect`, `loadFull`).
 // Il juge le cache tel qu'il est : depuis l'étape 2 du lot 9, le cache incrémental (entrée dérivée par le delta des lignes
-// changées, vues reportées ; compteurs `statistiquesCache` de server/src/cache-instantane.ts).
+// changées, vues reportées ; compteurs `statistiquesCache` de server/src/cache-instantane.ts). La relecture complète
+// (`loadFull`) lit les tables dans leur fenêtre de lecture du jour (`FENETRES`, lot 12, socle) : le banc compare donc à
+// la lecture brute fenêtrée, comme le cache.
 // Un appel refusé (4xx) fait partie du jeu : il ne doit rien changer. Une 5xx est une erreur du banc ou de Cursus.
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -181,6 +183,74 @@ const TIRAGES: Record<string, Tirage> = {
   'frais.avance.valider': ({ r, ds }) => ({ id: id(r, ds.avancesFrais, a => a.statut === 'demandee') }),
   'frais.avance.refuser': ({ r, ds }) => ({ id: id(r, ds.avancesFrais, a => a.statut === 'demandee'), motif: 'Mission annulée' }),
   'frais.avance.annuler': ({ r, ds }) => ({ id: id(r, ds.avancesFrais, a => a.statut === 'demandee') }),
+  // lot 12 — C1 (forfait annuel en heures)
+  // Clôture d'une plage de l'an passé ou de l'année (le plus souvent refusée : plage en cours, semaines sans feuille), puis
+  // réouverture ou annulation d'une ligne existante.
+  'forfaitHeures.cloturer': ({ r, empId, ds }) => ({ lignes: [{ empId: empId(), debut: `${Number(ds.today.slice(0, 4)) - r.entre(0, 1)}-01-01` }] }),
+  'forfaitHeures.rouvrir': ({ r, ds }) => ({ id: id(r, ds.cloturesForfaitHeures, l => l.statut === 'confirmee'), motif: 'Feuille corrigée (banc d’oracle)' }),
+  'forfaitHeures.annuler': ({ r, ds }) => ({ id: id(r, ds.cloturesForfaitHeures, l => l.statut !== 'annulee'), motif: 'Clôture faite trop tôt (banc d’oracle)' }),
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // Objectifs et souhaits : entretien annuel planifié (fixation, évaluation), objectif de l'état voulu, codes fixes.
+  'objectif.ajouter': ({ r, ds, date }) => ({ entretienId: id(r, ds.entretiens, x => x.type === 'annuel' && x.statut === 'planifie'), libelle: `Objectif ${r.entre(1, 99)}`, categorie: r.choix(['individuel', 'collectif', 'developpement']), echeance: date(60, 300) }),
+  'objectif.proposer': ({ r, ds }) => ({ entretienId: id(r, ds.entretiens, x => x.type === 'annuel' && x.statut === 'planifie'), libelle: `Proposition ${r.entre(1, 99)}`, categorie: 'developpement' }),
+  'objectif.modifier': ({ r, ds }) => ({ id: id(r, ds.objectifs, o => o.statut === 'propose' || o.statut === 'ouvert'), poids: r.si(0.5) ? r.entre(0, 30) : null }),
+  'objectif.retirer': ({ r, ds }) => ({ id: id(r, ds.objectifs, o => o.statut === 'propose' || o.statut === 'ouvert') }),
+  'objectif.avancer': ({ r, ds }) => ({ id: id(r, ds.objectifs, o => o.statut === 'ouvert'), avancement: r.entre(0, 100) }),
+  'objectif.ajuster': ({ r, ds, date }) => ({ id: id(r, ds.objectifs, o => o.statut === 'ouvert'), echeance: date(30, 200), motif: 'Ajustement (banc d’oracle)' }),
+  'objectif.evaluer': ({ r, ds }) => {
+    const o = parmi(r, (ds.objectifs ?? []).filter(y => y.statut === 'ouvert'));
+    return { id: o?.id ?? r.entre(1, 20), entretienId: id(r, ds.entretiens, x => x.type === 'annuel' && x.statut === 'planifie' && (!o || x.empId === o.empId)), statut: r.choix(['atteint', 'partiel', 'reconduit']) };
+  },
+  'entretien.souhait': ({ r, ds }) => ({ id: id(r, ds.entretiens, x => x.statut === 'planifie' && ['epp', 'reprise', 'annuel', 'mi_annee'].includes(x.type)), f: r.choix(ds.referentiels.formations).id, priorite: 'normale' }),
+  'entretien.avisSouhait': ({ r, ds }) => {
+    const x = parmi(r, ds.entretiens.filter(y => y.statut === 'planifie' && (y.souhaits ?? []).length));
+    return { id: x?.id ?? r.entre(1, 50), cle: x ? r.choix(x.souhaits!).cle : 's1', avis: r.choix(['favorable', 'defavorable', 'a_discuter']) };
+  },
+  // lot 12 — C4 (organismes de formation et e-learning) : fiches (créées, renommées — nom recopié dans le catalogue —,
+  // Qualiopi), conditions, archivage, vérification, fusion de deux fiches du même type, contacts, tarifs, modules,
+  // inscriptions (individuelles), fin déclarée, import d'un fichier d'avancement, fin validée, abandon, correction, annulation.
+  'organisme.enregistrer': ({ r, ds, date }) => {
+    const o = parmi(r, (ds.organismes ?? []).filter(x => x.fusionneDans == null));
+    const qualiopi = { qualiopi: r.si(0.6), qualiopiValideJusquau: date(-30, 400) };
+    return o && r.si(0.6) ? { id: o.id, ...qualiopi, ...(r.si(0.4) ? { nomUsuel: `${o.nomUsuel.replace(/ \(\d+\)$/, '')} (${r.entre(1, 99)})` } : {}) }
+      : { nomUsuel: `Organisme oracle ${r.entre(1, 999)}`, type: r.choix(['externe', 'independant']), ...qualiopi };
+  },
+  'organisme.conditions': ({ r, ds }) => ({ id: id(r, ds.organismes), subrogationAcceptee: r.si(0.5), delaiAnnulationJours: r.entre(0, 30) }),
+  'organisme.archiver': ({ r, ds }) => ({ id: id(r, ds.organismes), archive: r.si(0.7) }),
+  'organisme.verifier': ({ r, ds }) => ({ id: id(r, ds.organismes, o => o.aVerifier) }),
+  'organisme.fusionner': ({ r, ds }) => {
+    const actives = (ds.organismes ?? []).filter(o => o.fusionneDans == null && !o.archive);
+    const s = parmi(r, actives), c = parmi(r, actives.filter(o => s && o.id !== s.id && (o.type === 'interne') === (s.type === 'interne')));
+    return { source: s?.id ?? r.entre(1, 20), cible: c?.id ?? r.entre(1, 20), motif: 'Doublon (banc d’oracle)' };
+  },
+  'organisme.contact.enregistrer': ({ r, ds }) => ({ organismeId: id(r, ds.organismes), nom: `Contact ${r.entre(1, 99)}`, role: r.choix(['commercial', 'formateur']), principal: r.si(0.5) }),
+  'organisme.contact.retirer': ({ r, ds }) => ({ id: id(r, ds.organismeContacts, c => !c.archive) }),
+  'organisme.tarif.enregistrer': ({ r, ds }) => ({ organismeId: id(r, ds.organismes), formation: r.choix(ds.referentiels.formations).id, montantHt: r.entre(50, 900), unite: 'stagiaire' }),
+  'organisme.tarif.archiver': ({ r, ds }) => ({ id: id(r, ds.organismeTarifs, t => !t.archive) }),
+  'elearning.module.enregistrer': ({ r, ds }) => (r.si(0.5) && ds.modulesElearning?.length
+    ? { id: id(r, ds.modulesElearning), dureeHeures: r.entre(1, 8), accesMois: r.entre(1, 12) }
+    : { code: `MOD-${r.entre(1, 999)}`, intitule: 'Module du banc d’oracle', url: 'https://elearning.entreprise.example/m', organismeId: id(r, ds.organismes, o => !o.archive && o.fusionneDans == null), dureeHeures: r.entre(1, 8) }),
+  'elearning.module.archiver': ({ r, ds }) => ({ id: id(r, ds.modulesElearning), archive: r.si(0.7) }),
+  'elearning.inscrire': ({ r, ds, empId }) => ({ moduleId: id(r, ds.modulesElearning, m => !m.archive), empIds: [empId(), empId()], echeance: addD(ds.today, r.entre(10, 90)) }),
+  'elearning.declarer': ({ r, ds }) => ({ id: id(r, ds.inscriptionsElearning, i => i.statut === 'inscrit' || i.statut === 'en_cours') }),
+  'elearning.importer': ({ r, ds }) => {
+    const ouvertes = (ds.inscriptionsElearning ?? []).filter(i => i.statut === 'inscrit' || i.statut === 'en_cours');
+    const ligne = (i: (typeof ouvertes)[number]) => `EMP-${String(i.empId).padStart(4, '0')};${ds.modulesElearning?.find(m => m.id === i.moduleId)?.code ?? '?'};${r.choix(['en cours', 'terminé'])};${r.entre(0, 100)}`;
+    return { texte: ['matricule;module;statut;avancement', ...ouvertes.slice(0, 3).map(ligne)].join('\n'), apercu: r.si(0.2) };
+  },
+  'elearning.terminer': ({ r, ds }) => {
+    const i = parmi(r, (ds.inscriptionsElearning ?? []).filter(x => x.statut === 'inscrit' || x.statut === 'en_cours'));
+    return { id: i?.id ?? r.entre(1, 20), de: i?.statut, reussi: r.si(0.8) };
+  },
+  'elearning.abandonner': ({ r, ds }) => {
+    const i = parmi(r, (ds.inscriptionsElearning ?? []).filter(x => x.statut === 'inscrit' || x.statut === 'en_cours'));
+    return { id: i?.id ?? r.entre(1, 20), de: i?.statut };
+  },
+  'elearning.corriger': ({ r, ds }) => ({ id: id(r, ds.inscriptionsElearning, i => i.statut === 'en_cours'), echeance: addD(ds.today, r.entre(10, 90)), motif: 'Correction (banc d’oracle)' }),
+  'elearning.annuler': ({ r, ds }) => ({ id: id(r, ds.inscriptionsElearning, i => !i.suivieId), motif: 'Doublon (banc d’oracle)' }),
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel) : tirages des pointages à part (`TIRAGES_POINTAGE`), comme ceux des dossiers OPCO.
 };
 
 // lot 11 — dossiers OPCO
@@ -209,6 +279,45 @@ const TIRAGES_OPCO: Record<string, Tirage> = {
   'opco.supprimer': ({ r, ds }) => ({ id: dossierOpcoDans(ds, r, 'a_deposer', 'abandonne')?.id ?? r.entre(1, 20), motif: 'Doublon (banc d’oracle)' }),
 };
 
+// lot 12 — C3 (entretiens suivis et 360°)
+/**
+ * Tirages du feedback 360° (étape 3) : sollicitations de trois salariés au plus sur un entretien annuel planifié, réponse
+ * ou refus d'une sollicitation envoyée (par son répondant quand il est l'acteur), relance et clôture d'une collecte
+ * ouverte. Hors des cibles (`TIRAGES`), comme le badgeage, et hors du tirage générique (`noms` de `rejouer`) : tirés
+ * seulement par le test du chantier (tests/feedback360.test.ts, `seulement`), module activé ; les suites des autres
+ * chantiers gardent leurs tirages.
+ */
+const TIRAGES_FEEDBACK360: Record<string, Tirage> = {
+  'feedback360.solliciter': ({ r, ds }) => {
+    const x = parmi(r, ds.entretiens.filter(y => y.type === 'annuel' && y.statut === 'planifie'));
+    return { entretienId: x?.id ?? r.entre(1, 50), repondantIds: [0, 1, 2].map(() => r.choix(ds.employes.filter(e => e.id !== x?.empId)).id) };
+  },
+  'feedback360.repondre': ({ r, ds, user }) => {
+    const s = parmi(r, (ds.feedbackSollicitations ?? []).filter(y => y.statut === 'envoyee' && (y.repondantEmpId === user.empId || r.si(0.3))));
+    return { id: s?.id ?? r.entre(1, 20), notes: { cooperation: r.entre(1, 4), fiabilite: r.entre(1, 4) }, verbatim: r.si(0.3) ? `Avis ${r.entre(1, 99)}` : '' };
+  },
+  'feedback360.decliner': ({ r, ds, user }) => ({ id: id(r, ds.feedbackSollicitations, y => y.repondantEmpId === user.empId) }),
+  'feedback360.relancer': ({ r, ds }) => ({ entretienId: id(r, ds.entretiens, y => (ds.feedbackSollicitations ?? []).some(s => s.entretienId === y.id)) }),
+  'feedback360.clore': ({ r, ds }) => ({ entretienId: id(r, ds.entretiens, y => (ds.feedbackSollicitations ?? []).some(s => s.entretienId === y.id)) }),
+};
+
+// lot 12 — C6 (badgeage virtuel)
+/**
+ * Tirages des actions du badgeage (lot 12, chantier C6) : pointage pour soi (refusé tant que le module est inactif),
+ * correction d'un salarié que l'acteur peut saisir, décisions sur une demande en attente, motifs codés. Hors des cibles
+ * (`TIRAGES`) : ajoutés en renfort par le test du chantier (tests/pointage-actions.test.ts), module activé.
+ */
+const TIRAGES_POINTAGE: Record<string, Tirage> = {
+  'pointage.pointer': ({ r, user }) => ({ empId: user.empId ?? 2, ...(r.si(0.3) ? { sens: r.choix(['E', 'S']) } : {}) }),
+  'pointage.corriger': ({ r, saisie, ds }) => ({
+    empId: saisie(), nature: 'ajout', horodatage: `${addD(ds.today, -r.entre(0, 5))}T0${r.entre(5, 9)}:${String(r.entre(0, 59)).padStart(2, '0')}:00.000Z`,
+    sens: r.choix(['E', 'S']), motif: r.choix(['oubli', 'appareil', 'mission', 'formation', 'autre']), ...(r.si(0.5) ? { commentaire: 'Banc d’oracle' } : {}),
+  }),
+  'pointage.validerCorrection': ({ r, ds }) => ({ id: id(r, ds.correctionsPointage, c => c.statut === 'demandee') }),
+  'pointage.refuserCorrection': ({ r, ds }) => ({ id: id(r, ds.correctionsPointage, c => c.statut === 'demandee'), motif: 'Refus (banc d’oracle)' }),
+  'pointage.annulerCorrection': ({ r, ds }) => ({ id: id(r, ds.correctionsPointage, c => c.statut === 'demandee') }),
+};
+
 /** Valeur d'un paramètre d'après son nom, pour les actions sans tirage ciblé. */
 function valeur(nom: string, action: string, x: Parameters<Tirage>[0]): unknown {
   const { r, ds, empId, semaine, date } = x;
@@ -222,6 +331,17 @@ function valeur(nom: string, action: string, x: Parameters<Tirage>[0]): unknown 
     indicateurs: 'indicateursArretes',
     // lot 11 — dossiers OPCO
     opco: 'dossiersOpco',
+    // lot 12 — C1 (forfait annuel en heures)
+    forfaitHeures: 'cloturesForfaitHeures',
+    // lot 12 — C2 (notes de frais : activation)
+    // lot 12 — C3 (entretiens suivis et 360°)
+    objectif: 'objectifs',
+    // lot 12 — C4 (organismes de formation et e-learning)
+    organisme: 'organismes', elearning: 'inscriptionsElearning',
+    // lot 12 — C5 (planning d'équipe) : `id` d'une action du planning désigne un créneau (les échanges ont leur tirage par nom).
+    planning: 'creneaux',
+    // lot 12 — C6 (badgeage virtuel)
+    pointage: 'correctionsPointage',
   };
   const lignes = (nomListe: string | undefined) => (nomListe ? (ds as unknown as Record<string, { id: number }[] | undefined>)[nomListe] : undefined);
   const parFamille = (f: string) => (f === 'cert' ? ds.employes.flatMap(e => e.certs) : lignes(tables[f]));
@@ -271,6 +391,18 @@ function valeur(nom: string, action: string, x: Parameters<Tirage>[0]): unknown 
     case 'profilRh': return r.choix(Object.keys(PROFILS_RH).filter(p => p !== 'rh_admin'));
     case 'perimetre': return ['feuilles', 'absences'];
     case 'motif': case 'comment': case 'commentaire': case 'reponse': case 'libelle': case 'texte': case 'lieu': case 'par': case 'reference': case 'numero': case 'telephone': case 'info': return `Banc d’oracle ${r.entre(1, 999)}`;
+    // lot 12 — C1 (forfait annuel en heures)
+    // lot 12 — C2 (notes de frais : activation)
+    // lot 12 — C3 (entretiens suivis et 360°)
+    // lot 12 — C4 (organismes de formation et e-learning)
+    // lot 12 — C5 (planning d'équipe) : pour ses seules actions (les autres familles gardent leur tirage) : cycle et groupe
+    // amorcés, horaire d'exemple, jour à venir, créneau publié (échanges), collègue, motif des alertes.
+    case 'cycle': case 'groupe': case 'horaire': case 'jour': case 'creneauId': case 'creneauPartenaire': case 'partenaireId': case 'motifAlertes':
+      if (famille !== 'planning') return undefined;
+      return nom === 'cycle' ? r.choix(['JOUR', '2X8', '3X8', '5X8']) : nom === 'groupe' ? r.choix(['A', 'B', 'C']) : nom === 'horaire' ? r.choix(['J', 'M', 'AM', 'N', ''])
+        : nom === 'jour' ? date(0, 40) : nom === 'partenaireId' ? r.choix(ds.employes).id : nom === 'motifAlertes' ? `Banc d’oracle ${r.entre(1, 999)}`
+          : id(r, (ds.creneaux ?? []).filter(c => c.statut === 'publie' && c.horaire));
+    // lot 12 — C6 (badgeage virtuel)
     default: return undefined;
   }
 }
@@ -318,6 +450,11 @@ export interface OptionsOracle {
   verifier?: boolean;
   /** Actions ajoutées aux cibles, tirées d'autant plus souvent (lot 10, chantier B : validation groupée). */
   renfort?: string[];
+  /**
+   * Seules actions tirées (à la place des cibles et du registre) : le tirage ne dépend plus du nombre d'actions exportées,
+   * qu'un autre chantier peut changer (lot 12 — C5, relecture : banc des notes de frais).
+   */
+  seulement?: string[];
   /**
    * Validations groupées tirées par salarié (toutes les feuilles soumises de quelques salariés, 30 au plus) plutôt que
    * de une à quatre feuilles prises au hasard dans toute la base (lot 10, chantier B).
@@ -376,6 +513,15 @@ const SQL_DIRECT: Record<string, (db: Db, ds: Dataset, r: Aleatoire) => Promise<
   },
   // lot 11 — dossiers OPCO : correction et versement écrits par un outil (reprise d'un tableur), sur un dossier existant.
   'UPDATE dossiers_opco': async (db, ds, r) => { const d = parmi(r, ds.dossiersOpco ?? []); if (d) await db.run('UPDATE dossiers_opco SET heures = ? WHERE id = ?', [r.entre(1, 40), d.id]); },
+  // lot 12 — C4 : fiche corrigée par un outil (Qualiopi), avancement importé hors de Cursus.
+  'UPDATE organismes': async (db, ds, r) => {
+    const o = parmi(r, ds.organismes ?? []);
+    if (o) await db.run('UPDATE organismes SET qualiopi_valide_jusquau = ? WHERE id = ?', [addD(ds.today, r.entre(-60, 400)), o.id]);
+  },
+  'UPDATE inscriptions_elearning': async (db, ds, r) => {
+    const i = parmi(r, (ds.inscriptionsElearning ?? []).filter(x => x.statut === 'en_cours' || x.statut === 'inscrit'));
+    if (i) await db.run(`UPDATE inscriptions_elearning SET avancement = ?, avancement_source = 'import', avancement_le = ? WHERE id = ?`, [r.entre(0, 99), ds.today, i.id]);
+  },
   'INSERT versements_opco': async (db, ds, r) => {
     const d = parmi(r, (ds.dossiersOpco ?? []).filter(x => x.statut === 'rembourse'));
     if (d) await db.run(`INSERT INTO versements_opco (dossier_id, le, montant, destinataire, saisi_le, saisi_par) VALUES (?, ?, ?, 'entreprise', ?, 'Reprise')`, [d.id, ds.today, r.entre(10, 200), new Date().toISOString()]);
@@ -412,7 +558,9 @@ export async function rejouer(db: Db, o: OptionsOracle): Promise<RapportOracle> 
   const r = aleatoire(o.graine);
   const banc = await ouvrirBanc(db);
   const rapport: RapportOracle = { actions: {}, sql: {}, motifs: {}, ecritures: 0, comparaisons: 0, triviales: 0, verifications: 0, divergences: [], erreurs: [] };
-  const noms = Object.keys(ACTIONS).filter(n => !EXCLUES.has(n));
+  // lot 12 — C3 : les actions du feedback 360° sortent aussi du tirage générique (module désactivé par défaut, tirées par leur
+  // seul test, `seulement`) : sans quoi elles déplaceraient les tirages des graines des autres chantiers.
+  const noms = Object.keys(ACTIONS).filter(n => !EXCLUES.has(n) && !n.startsWith('feedback360.'));
   // Saisie et absences plus souvent que le reste, comme dans la journée de travail.
   const cibles = [
     ...Object.keys(TIRAGES), ...Array<string>(5).fill('temps.setCell'), 'temps.addLine', 'temps.submit', 'temps.submit', 'temps.validate', 'temps.validate',
@@ -467,7 +615,7 @@ export async function rejouer(db: Db, o: OptionsOracle): Promise<RapportOracle> 
   };
   const agir = async (acteurTire: Acteur, userTire: CurrentUser, ds: Dataset, avant: number) => {
     // Action ciblée sept fois sur dix, sinon n'importe quelle action du registre.
-    const nom = r.si(0.7) ? r.choix(cibles) : r.choix(noms);
+    const nom = o.seulement?.length ? r.choix(o.seulement) : r.si(0.7) ? r.choix(cibles) : r.choix(noms);
     // Saisie, validation des feuilles et absences : acteur repris neuf fois sur dix parmi ceux qui en ont le droit (le
     // chemin que le cache incrémental doit tenir exact) ; la dixième fois, l'acteur tiré, refusé le plus souvent.
     // Lot 11 : de même pour les dossiers OPCO (service RH, administrateur RH pour les annulations).
@@ -492,7 +640,7 @@ export async function rejouer(db: Db, o: OptionsOracle): Promise<RapportOracle> 
       validables,
       soumises: rr => { const f = parmi(rr, ds.feuilles.filter(y => y.statut === 'soumise' && validables.has(y.empId))); return f && { empId: f.empId, week: f.week }; },
     };
-    const p = (TIRAGES[nom] ?? TIRAGES_OPCO[nom] ?? ((y: Parameters<Tirage>[0]) => tirageGenerique(nom, y)))(x);
+    const p = (TIRAGES[nom] ?? TIRAGES_OPCO[nom] ?? /* lot 12 — C6 */ TIRAGES_POINTAGE[nom] ?? /* lot 12 — C3 */ TIRAGES_FEEDBACK360[nom] ?? ((y: Parameters<Tirage>[0]) => tirageGenerique(nom, y)))(x);
     // Jeu remis à l'action : celui que sa transaction lirait (aucune autre écriture ne s'intercale ici).
     // Entrée d'une révision dépassée (vérification sautée au pas précédent, `verifierTous` > 1) : l'action lit tout
     // directement, la comparaison est triviale et comptée à part.

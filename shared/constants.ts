@@ -295,6 +295,12 @@ export const EMAIL_LABEL: Record<string, string> = {
   // au salarié, efficacité à froid demandée au manager pour son équipe ; demandes puis relances, sans note ni commentaire.
   'evaluation.demande': 'Évaluation d’une formation à donner',
   'evaluation.manager': 'Efficacité des formations de l’équipe à évaluer',
+  // lot 12 — C3 (feedback 360°, server/src/feedback360.ts) : au répondant, texte générique (ni l'évalué ni les autres répondants).
+  'feedback360.demande': 'Avis demandé (feedback 360°)', 'feedback360.relance': 'Rappel : avis demandé (feedback 360°)',
+  // lot 12 — C5 (planning d'équipe, server/src/planning-envois.ts) : au salarié, aussitôt ; étapes d'un échange de poste.
+  'planning.publie': 'Planning publié', 'planning.modifie': 'Planning modifié', 'planning.annule': 'Poste annulé',
+  'planning.echange.demande': 'Échange de poste à traiter', 'planning.echange.valider': 'Échange de poste à valider',
+  'planning.echange.decision': 'Décision sur un échange de poste',
 };
 export const CIBLE_LABEL = { keystone: 'Keystone', sage: 'Sage Paie', email: 'E-mail' } as const;
 export const MODE_NOTIFICATION_LABEL = { immediat: 'Aussitôt', quotidien: 'Récapitulatif quotidien' } as const;
@@ -531,6 +537,14 @@ export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubriqu
   FRAIS_REINT: { label: 'Allocations de frais au-delà de la limite d’exonération (soumises à cotisations)', unite: 'eur', inactiveParDefaut: true },
   FRAIS_AVANCE: { label: 'Avance sur frais versée', unite: 'eur', inactiveParDefaut: true },
   FRAIS_AVANCE_DED: { label: 'Avance sur frais déduite d’un remboursement (montant négatif)', unite: 'eur', inactiveParDefaut: true },
+  // lot 12 — C1 (forfait annuel en heures)
+  // Forfait annuel en heures (shared/rules/forfait-heures.ts) : régularisation de fin de période, distincte des heures
+  // supplémentaires et complémentaires hebdomadaires pour que la paie les reconnaisse. Désactivées par défaut tant que la paie
+  // n'a pas donné ses codes : listées « à saisir dans Sage ». Heures non réalisées affichées, jamais émises.
+  HFA25: { label: 'Heures au-delà du forfait annuel, majorées à 25 % (régularisation de fin de période)', unite: 'h', inactiveParDefaut: true },
+  HFA50: { label: 'Heures au-delà du forfait annuel, majorées à 50 % (régularisation de fin de période)', unite: 'h', inactiveParDefaut: true },
+  HCA10: { label: 'Heures complémentaires annualisées, majorées à 10 % (temps partiel annualisé)', unite: 'h', inactiveParDefaut: true },
+  HCA25: { label: 'Heures complémentaires annualisées, majorées à 25 % (temps partiel annualisé)', unite: 'h', inactiveParDefaut: true },
 };
 
 /** Sections d'un compte rendu : [clé, libellé, rédacteur] — 'mgr' évaluateur, 'sal' salarié. */
@@ -561,6 +575,19 @@ export const ENT_TYPES: Record<EntretienType, { nom: string; court: string; base
     base: 'Art. L3121-64 — chaque année : charge de travail, organisation, articulation vie pro / perso, rémunération, droit à la déconnexion.',
     sections: [['charge', 'Charge de travail', 'sal'], ['organisation', 'Organisation du travail dans l’entreprise', 'sal'], ['equilibre', 'Articulation vie professionnelle / personnelle', 'sal'], ['remuneration', 'Rémunération', 'mgr'], ['deconnexion', 'Droit à la déconnexion', 'mgr']],
   },
+  // lot 12 — C3 (entretiens suivis et 360°) : points de suivi des objectifs, sans obligation (point de mi-année obligatoire
+  // seulement par le réglage `pointMiAnneeActif`, shared/rules/entretiens.ts) ; ni l'un ni l'autre n'est un entretien de
+  // parcours professionnel (art. L6315-1) : objectifs suivis, évaluation à l'entretien annuel.
+  mi_annee: {
+    nom: 'Point de mi-année', court: 'Mi-année',
+    base: 'Facultatif — avancement des objectifs fixés à l’entretien annuel, difficultés et besoins ; méthodes portées à la connaissance du salarié (art. L1222-3).',
+    sections: [['avancement', 'Avancement des objectifs', 'mgr'], ['difficultes', 'Difficultés et besoins', 'mgr'], ['avis', 'Commentaire du salarié', 'sal']],
+  },
+  point: {
+    nom: 'Point de suivi', court: 'Point',
+    base: 'Facultatif — court échange sur l’avancement des objectifs, sans évaluation ; signature du salarié facultative.',
+    sections: [['notes', 'Points abordés', 'mgr'], ['avis', 'Commentaire du salarié', 'sal']],
+  },
 };
 
 export const TRIMESTRES = ['T1', 'T2', 'T3', 'T4'] as const;
@@ -574,9 +601,43 @@ export const ALLOWED_VIEWS = {
   // lot 11 — indicateurs : indicateurs sociaux légaux (BDESE, index d'égalité), droit « consultation » (service RH et lecture seule).
   // lot 11 — notes de frais (pages/Frais.tsx) : `frais`, contrôle (service RH, comptabilité), validation de l'équipe
   // (manager), « Mes frais » (collaborateur) ; dans le menu seulement le module activé (réglage notesFraisActives).
-  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'miseEnService', 'prevention', 'organigramme', 'indicateurs', 'frais'],
-  manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions', 'organigramme', 'frais'],
-  collaborateur: ['portail', 'temps', 'absences', 'entretiens', 'organigramme', 'frais'],
+  // lot 12 — blocs réservés (socle) : une vue nouvelle se déclare ici, dans le bloc de son chantier et de chaque espace,
+  // avec sa page (client/src/App.tsx), son entrée du menu (client/src/layout/Shell.tsx) et, pour un module désactivable, sa
+  // fermeture (client/src/state/store.tsx).
+  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'miseEnService', 'prevention', 'organigramme', 'indicateurs', 'frais',
+    // lot 12 — C1 (forfait annuel en heures)
+    // lot 12 — C2 (notes de frais : activation)
+    // lot 12 — C3 (entretiens suivis et 360°)
+    // lot 12 — C4 (organismes de formation et e-learning)
+    // lot 12 — C5 (planning d'équipe)
+    // lot 12 — C6 (badgeage virtuel) : pointages (pages/Pointages.tsx), le module activé (réglage pointageActif).
+    'pointages',
+  ],
+  manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions', 'organigramme', 'frais',
+    // lot 12 — C1 (forfait annuel en heures)
+    // lot 12 — C2 (notes de frais : activation)
+    // lot 12 — C3 (entretiens suivis et 360°) : « Avis demandés » (pages/AvisDemandes.tsx) d'un manager sollicité comme
+    // répondant d'un feedback 360° (N+2, collègue), le module activé (réglage feedback360Actif).
+    'avis',
+    // lot 12 — C4 (organismes de formation et e-learning)
+    // lot 12 — C5 (planning d'équipe) : « Mon planning » d'un manager lui-même planifié (membre d'une équipe en cycle) : ses
+    // postes publiés, les échanges qu'on lui propose.
+    'planning',
+    // lot 12 — C6 (badgeage virtuel) : pointages (pages/Pointages.tsx), le module activé (réglage pointageActif).
+    'pointages',
+  ],
+  collaborateur: ['portail', 'temps', 'absences', 'entretiens', 'organigramme', 'frais',
+    // lot 12 — C1 (forfait annuel en heures)
+    // lot 12 — C2 (notes de frais : activation)
+    // lot 12 — C3 (entretiens suivis et 360°) : « Mes objectifs » (pages/MesObjectifs.tsx), le réglage objectifsActifs ouvert ;
+    // « Avis demandés » (pages/AvisDemandes.tsx), avis 360° à donner comme répondant, le module activé (feedback360Actif).
+    'objectifs', 'avis',
+    // lot 12 — C4 (organismes de formation et e-learning)
+    // lot 12 — C5 (planning d'équipe) : « Mon planning » (pages/MonPlanning.tsx), le module activé (réglage planningActif).
+    'planning',
+    // lot 12 — C6 (badgeage virtuel) : pointages (pages/Pointages.tsx), le module activé (réglage pointageActif).
+    'pointages',
+  ],
 } as const;
 /**
  * Vues ouvertes dans tous les espaces et sans connexion : information sur les données personnelles (shared/confidentialite.ts)

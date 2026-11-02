@@ -16,6 +16,10 @@ import type { UiState, View } from './store.tsx';
 // lot 11 — indicateurs
 import { anneeIndicateursValide, GROUPES_INDICATEURS } from '../../../shared/rules/indicateurs-legaux.ts';
 import { ONGLETS_INDICATEURS } from '../pages/indicateurs-onglets.ts';
+// lot 12 — socle
+import { ONGLETS_TEMPS } from '../pages/temps-onglets.ts';
+// lot 12 — C3 (entretiens suivis)
+import { ONGLETS_ENTRETIENS } from '../pages/entretiens-onglets.ts';
 
 /** Paramètre de l'adresse : champ de UiState, nom affiché, valeur par défaut (absente de l'adresse), lecture contrôlée. */
 interface Param<K extends keyof UiState = keyof UiState> {
@@ -94,6 +98,14 @@ function codeEntite<K extends keyof UiState>(cle: K, nom: string, liste: (data: 
   });
 }
 
+// lot 12 — C7 (organigramme)
+/** Service de l'organigramme : nom d'une équipe du référentiel reçu (déjà limité au périmètre), sinon tous les services. */
+const serviceOrganigramme = param<'orgService'>({
+  cle: 'orgService', nom: 'service', defaut: null,
+  lire: (brut, data) => data.referentiels.equipes.some(e => e.nom === brut) ? brut : undefined,
+  ecrire: v => String(v),
+});
+
 /** Paramètres de chaque vue ; une vue absente n'a rien dans l'adresse. */
 export const PARAMS_URL: Partial<Record<View, Param[]>> = {
   collaborateurs: [
@@ -101,10 +113,17 @@ export const PARAMS_URL: Partial<Record<View, Param[]>> = {
     equipe,
     choix('statut', 'statut', 'tous', { ok: 'a-jour', due: 'a-renouveler', exp: 'non-conforme', sortis: 'sortis', /* lot 11 — indicateurs */ acompleter: 'a-completer' }),
   ],
-  temps: [identifiant('tsEmp', 'salarie', d => d.employes), semaine],
+  temps: [identifiant('tsEmp', 'salarie', d => d.employes), semaine,
+    // lot 12 — socle : onglet de l'écran (pages/temps-onglets.ts) ; « feuilles » par défaut, absent de l'adresse.
+    choix('tempsOnglet', 'onglet', 'feuilles', Object.fromEntries(ONGLETS_TEMPS.map(o => [o, o]))),
+    // lot 12 — C5 (planning d'équipe) : équipe de l'onglet Planning (nom d'une équipe du référentiel reçu).
+    param<'planEquipe'>({ cle: 'planEquipe', nom: 'equipe', defaut: null, lire: (brut, data) => data.referentiels.equipes.some(e => e.nom === brut) ? brut : undefined, ecrire: v => String(v) })],
   formations: [
     code('formationFilter', 'formation', d => d.referentiels.formations),
     choix('typeForm', 'type', 'toutes', { reg: 'reglementaires', rec: 'recommandees', int: 'internes' }),
+    // lot 12 — C4 : onglet E-learning et filtre de ses inscriptions.
+    choix('formOnglet', 'onglet', 'sessions', { elearning: 'e-learning' }),
+    choix('elFiltre', 'inscriptions', 'ouvertes', { a_valider: 'a-valider', terminees: 'terminees', toutes: 'toutes' }),
   ],
   habilitations: [
     code('habType', 'habilitation', d => d.referentiels.habilitations),
@@ -121,9 +140,18 @@ export const PARAMS_URL: Partial<Record<View, Param[]>> = {
     formations: 'formations', habilitations: 'habilitations', postes: 'postes', destinations: 'destinations', activites: 'activites',
     // lot 11 — organigramme
     entites: 'entites',
-  })],
+    // lot 12 — C4
+    organismes: 'organismes', modules: 'modules-elearning',
+    // lot 12 — C5 (planning d'équipe)
+    cycles: 'cycles', besoins: 'besoins-de-poste',
+  }),
+  // lot 12 — C4 : fiche d'organisme ouverte (fiches complètes : espace RH) et filtre de la liste.
+  identifiant('orgSel', 'organisme', d => d.organismes ?? []),
+  choix('orgFiltre', 'filtre', 'tous', { a_verifier: 'a-verifier', qualiopi: 'qualiopi', nda: 'nda-absent', archives: 'archives' })],
   // lot 11 — organigramme : entité et site filtrés (codes du référentiel).
-  organigramme: [codeEntite('orgEntite', 'entite', d => d.referentiels.entites ?? []), codeEntite('orgSite', 'site', d => d.referentiels.sites ?? [])],
+  organigramme: [codeEntite('orgEntite', 'entite', d => d.referentiels.entites ?? []), codeEntite('orgSite', 'site', d => d.referentiels.sites ?? []),
+    // lot 12 — C7 (organigramme) : service choisi (nom d'une équipe du référentiel reçu) et présentation (liste par défaut).
+    serviceOrganigramme, choix('orgVue', 'vue', 'liste', { graphique: 'graphique' })],
   budget: [exercice, choix('planFilter', 'statut', 'tous', { prevu: 'prevu', engage: 'engage', realise: 'realise', reporte: 'reporte' }),
     // lot 11 — dossiers OPCO : onglet, filtres (état, OPCO, dispositif) et dossier ouvert.
     choix('budgetOnglet', 'onglet', 'plan', { opco: 'dossiers-opco' }),
@@ -142,9 +170,19 @@ export const PARAMS_URL: Partial<Record<View, Param[]>> = {
     }),
     choix('indGroupe', 'groupe', 'aucun', Object.fromEntries(Object.keys(GROUPES_INDICATEURS).map(g => [g, g]))),
   ],
+  // lot 12 — C3 (entretiens suivis) : onglet de l'écran, filtres de l'onglet Objectifs (statut, échéance).
+  entretiens: [
+    choix('entOnglet', 'onglet', 'echeances', Object.fromEntries(ONGLETS_ENTRETIENS.map(o => [o, o]))),
+    choix('objStatut', 'statut', 'tous', { ouverts: 'en-cours', proposes: 'proposes', evalues: 'evalues' }),
+    choix('objEcheance', 'echeance', 'toutes', { proches: 'sous-30-jours', depassees: 'depassees' }),
+  ],
+  // lot 12 — C5 (planning d'équipe) : « Mon planning », semaine de départ (lundi).
+  planning: [semaine],
   // lot 11 — notes de frais : onglet et note ouverte (identifiant d'une note du jeu de données du rôle).
   frais: [
-    choix('fraisOnglet', 'onglet', 'premier', { notes: 'notes', valider: 'a-valider', equipe: 'equipe', controle: 'a-controler', avances: 'avances', exports: 'exports', tableau: 'tableau-de-bord' }),
+    choix('fraisOnglet', 'onglet', 'premier', { notes: 'notes', valider: 'a-valider', equipe: 'equipe', controle: 'a-controler', avances: 'avances', exports: 'exports', tableau: 'tableau-de-bord',
+      // lot 12 — C2 : recherche dans l'historique (service RH, comptabilité).
+      historique: 'historique' }),
     identifiant('fraisNote', 'note', d => d.notesFrais ?? []),
   ],
 };

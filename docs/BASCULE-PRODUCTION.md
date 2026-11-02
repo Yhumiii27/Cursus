@@ -120,7 +120,8 @@ variables de l'application `cursus-prod` (jamais dans le dépôt ni dans l'image
    - vider le schéma : `npm run purge-demo` (chantier A du lot 8 : aperçu `--a-blanc`, puis exécution), ou le
      supprimer et le recréer par le socle de Matrix (`DROP SCHEMA cursus CASCADE`, `init/02-schemas.sql`,
      `init/03-droits.sql`) ;
-   - au besoin, rejouer le partage (`partage/20-cursus.sql`, `90-droits.sql`, `95-matrix-journal-unifie.sql`) et
+   - au besoin, reposer le partage : reprise des vues de Cursus par Matrix (`partage/14-reprise-publications.sql
+     -v outils=cursus`, décision M-18 ; plus `20-cursus.sql`), `90-droits.sql`, `95-matrix-journal-unifie.sql`, et
      vérifier que `droits.verifier()` ne renvoie aucune erreur ;
    - prévenir les lecteurs des vues `pub_` (Keystone, Vigie, Crucible, Codex, Matrix) qu'ils vident leurs copies des
      matricules EMP-0001 à EMP-0024 (§ 8).
@@ -176,7 +177,8 @@ après la reprise, données d'un salarié visibles d'un autre.
   2. arrêter `cursus-prod` ;
   3. restaurer le dump de l'étape J0-4 (ou du dernier § 5) : README de Matrix, « Restaurer le schéma d'un outil »
      (`DROP SCHEMA cursus CASCADE`, socle, `pg_restore --schema=cursus --no-owner --no-privileges --single-transaction`) ;
-  4. rejouer le partage (`20-cursus.sql`, `90-droits.sql`, `95`), contrôler `droits.verifier()` ;
+  4. reposer le partage : reprise des vues par Matrix (`14-reprise-publications.sql -v outils=cursus`, M-18 : les vues
+     restaurées n'appartiennent plus à `matrix_gestion`), `90-droits.sql`, `95`, puis contrôler `droits.verifier()` ;
   5. redéployer l'image précédente (étiquette notée au § 5) ;
   6. `npm run verifier-production -- --url …` ;
   7. prévenir les autres outils (vues `pub_` revenues à l'état du dump).

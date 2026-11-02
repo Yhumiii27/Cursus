@@ -10,6 +10,8 @@ import { PlusIcon } from '@phosphor-icons/react';
 import { fH, plural } from '../../../shared/format.ts';
 import { dureeHoraire, equipesDeLHoraire, horairesDe, plageTexte } from '../../../shared/rules/horaires.ts';
 import { alternantTexte, horaireDeNuitC2p } from '../../../shared/rules/c2p.ts';
+// lot 12 — C6 (badgeage virtuel)
+import { estVariable } from '../../../shared/rules/horaires-variables.ts';
 import type { Horaire } from '../../../shared/types.ts';
 import { Btn, Empty, Fine, Panel, Tag, Two } from '../components/ui.tsx';
 import { useAgir } from '../state/actions.ts';
@@ -79,7 +81,7 @@ export function Horaires() {
                 return (
                   <tr key={h.code}>
                     <td><Two main={<><span style={{ color: 'var(--color-accent-300)' }}>{h.code}</span> · {h.nom}</>} /></td>
-                    <td className="nowrap"><Two main={plageTexte(h)} sub={h.pause ? `pause ${h.pause} min` : 'sans pause'} /></td>
+                    <td className="nowrap"><Two main={plageTexte(h)} sub={<>{h.pause ? `pause ${h.pause} min` : 'sans pause'}{/* lot 12 — C6 (badgeage virtuel) */ estVariable(h) && <> · <Tag cls="tag-accent-2">Variable</Tag></>}</>} /></td>
                     <td className="right tnum nowrap">{fH(dureeHoraire(h))}</td>
                     <td>{equipes.length ? equipes.join(', ') : <span className="text-muted">—</span>}</td>
                     <td><QualificationC2p h={h} peut={formations} /></td>
@@ -88,6 +90,8 @@ export function Horaires() {
                       {rh && (
                         <div className="actions-end">
                           <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'refHoraire', code: h.code })}>Modifier</button>
+                          {/* lot 12 — C6 (badgeage virtuel) : plages fixes et mobiles, plafonds du report. */}
+                          {!h.archive && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'horaireVariable', code: h.code })}>{estVariable(h) ? 'Horaire variable' : 'Rendre variable'}</button>}
                           {h.archive
                             ? <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={agir(() => run('referentiel.horaire.archiver', { id: h.code, archive: false }))}>Rétablir</button>
                             : <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={() => openDialog({ type: 'confirmer', c: archivageHoraire(h) })}>Archiver</button>}

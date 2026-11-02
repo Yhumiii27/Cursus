@@ -22,6 +22,8 @@ import { refusLigneAvecDossier } from './opco.ts';
 import { attendCloture, signaler } from './conformite.ts';
 import { clore, rendre } from './inscriptions-closes.ts';
 import { ActionError, type ActionHandler, type Ctx, getEmp, refuserSoiMeme, requireFormations, requireRh, requireRhAdmin, str } from './context.ts';
+// lot 12 — C4 (organismes de formation et e-learning) : organisme prévu d'une ligne du plan.
+import { organismeChoisi } from './organismes.ts';
 
 /** Motif d'une correction : obligatoire, 500 caractères au plus. */
 function motifDe(p: Record<string, any>): string {
@@ -191,8 +193,14 @@ const modifierLigne: ActionHandler = async (ctx, p) => {
   const patch = {
     f: v.f, libelle: v.f ? l.libelle : v.libelle.trim(), equipe: v.equipe, periode: v.periode as Trimestre, effectif: effectifPlan(v.effectif)!, cout: montantReel(v.cout)!,
   };
+  // lot 12 — C4 : organisme prévu choisi (vide : celui du catalogue) ; une autre formation, sans choix, retombe sur celui de
+  // son catalogue.
+  const organismeId = p.organismeId !== undefined ? organismeChoisi(ctx, p.organismeId, l.organismeId ?? null)
+    : patch.f !== l.f ? null : l.organismeId ?? null;
   const changes = [
     patch.f !== l.f || (!patch.f && patch.libelle !== l.libelle) ? `formation : ${patch.f ? ctx.d.fm(patch.f).court : patch.libelle}` : '',
+    // Code de la fiche, jamais son nom usuel (celui d'un formateur indépendant est une donnée personnelle) : le message va au journal.
+    organismeId !== (l.organismeId ?? null) ? `organisme : ${(ctx.ds.organismes ?? []).find(o => o.id === organismeId)?.code ?? 'celui du catalogue'}` : '',
     patch.equipe !== l.equipe ? `équipe : ${patch.equipe}` : '',
     patch.periode !== l.periode ? `période : ${patch.periode}` : '',
     patch.effectif !== l.effectif ? `effectif : ${patch.effectif}` : '',
@@ -200,7 +208,8 @@ const modifierLigne: ActionHandler = async (ctx, p) => {
   ].filter(Boolean);
   if (!changes.length) return 'Aucune modification';
   const motif = motifDe(p);
-  await ctx.db.update<PlanAction>('planActions', l.id, { ...patch, ...marque(ctx, 'corrige', motif) });
+  const organisme = organismeId !== (l.organismeId ?? null) ? { organismeId } : {};
+  await ctx.db.update<PlanAction>('planActions', l.id, { ...patch, ...organisme, ...marque(ctx, 'corrige', motif) });
   return `${nomLigne(ctx, l)} (${l.exercice}) corrigée — ${changes.join(' · ')}`;
 };
 

@@ -6,6 +6,9 @@
 //                          l'affichage, et un double clic (409)
 //   frais.export.annuler   id : export annulé (gardé et daté ; l'auteur est au journal), ses notes redeviennent à exporter
 // Messages sans montant ni nom : ils sont recopiés au journal (les totaux y figurent comme agrégats, dans le détail).
+// lot 12 — C2 (notes de frais : activation) : notes à exporter et leurs dépenses lues en base, archivées comprises (une
+// note payée depuis plus de 13 mois et jamais exportée n'est jamais perdue) ; `attendues` reste le nombre de notes que
+// l'écran affiche, celles de la fenêtre de l'instantané.
 import { plural } from '../../../shared/format.ts';
 import { lignesDe } from '../../../shared/rules/frais.ts';
 import { matriculeAffiche } from '../../../shared/rules/matricules.ts';
@@ -13,22 +16,26 @@ import { dateEcriture, ecrituresNote, notesAExporter, totauxEcritures } from '..
 import type { LigneEcriture } from '../../../shared/rules/export-comptable.ts';
 import type { ExportFraisEnregistre } from '../../../shared/types.ts';
 import { ActionError, type ActionHandler, requireControleurFrais } from './context.ts';
+// lot 12 — C2 (notes de frais : activation)
+import { noteArchivee } from '../../../shared/rules/frais-fenetre.ts';
+import { lignesDesNotesEnBase, notesExportablesEnBase } from '../frais-base.ts';
 
 const exportGenerer: ActionHandler = async (ctx, p) => {
   requireControleurFrais(ctx);
   if (!ctx.ds.settings.notesFraisActives) throw new ActionError('Notes de frais désactivées : l’administrateur RH les active dans Paramètres', 409);
   const exports = await ctx.db.all<ExportFraisEnregistre>('exportsFrais');
-  const notes = notesAExporter(ctx.ds.notesFrais ?? [], exports);
-  if (p.attendues !== undefined && Number(p.attendues) !== notes.length) {
-    throw new ActionError(`La liste des notes à exporter a changé (${plural(notes.length, 'note', 'notes')} maintenant) : vérifiez-la, puis générez de nouveau`, 409);
+  const notes = notesAExporter(await notesExportablesEnBase(ctx.db), exports);
+  const archivees = notes.filter(n => noteArchivee(n, ctx.d.ti)).length;
+  if (p.attendues !== undefined && Number(p.attendues) !== notes.length - archivees) {
+    throw new ActionError(`La liste des notes à exporter a changé (${plural(notes.length - archivees, 'note', 'notes')} maintenant) : vérifiez-la, puis générez de nouveau`, 409);
   }
-  const s = ctx.ds.settings, ti = ctx.d.ti;
+  const s = ctx.ds.settings, ti = ctx.d.ti, lignesEnBase = await lignesDesNotesEnBase(ctx.db, notes.map(n => n.id));
   const lignes: LigneEcriture[] = [];
   const retenues: number[] = [], salaries = new Set<number>();
   for (const n of notes) {
     const e = ctx.d.emp(n.empId);
     const nom = e?.nom ?? ctx.ds.annuaire.find(x => x.id === n.empId)?.nom ?? `Salarié ${n.empId}`;
-    const ecr = ecrituresNote(n, lignesDe(ctx.ds.lignesFrais, n.id), { nom, compteTiers: matriculeAffiche({ id: n.empId, matriculePaie: e?.matriculePaie ?? null }) }, s, dateEcriture(n, ti));
+    const ecr = ecrituresNote(n, lignesDe(lignesEnBase, n.id), { nom, compteTiers: matriculeAffiche({ id: n.empId, matriculePaie: e?.matriculePaie ?? null }) }, s, dateEcriture(n, ti));
     // Note sans rien de retenu (dépenses toutes refusées) : aucune écriture, et elle n'entre pas dans l'export.
     if (!ecr.length) continue;
     lignes.push(...ecr);
@@ -36,14 +43,18 @@ const exportGenerer: ActionHandler = async (ctx, p) => {
     salaries.add(n.empId);
   }
   if (!retenues.length) throw new ActionError('Aucune note contrôlée à exporter', 409);
+  // Notes archivées comptées parmi celles que l'export emporte : une note archivée sans rien de retenu reste à exporter
+  // sans jamais entrer dans un export, et ne doit pas gonfler le compte de chaque export suivant.
+  const notesParId = new Map(notes.map(n => [n.id, n]));
+  const archiveesRetenues = retenues.filter(id => noteArchivee(notesParId.get(id)!, ti)).length;
   const t = totauxEcritures(lignes);
   const x = await ctx.db.insert<ExportFraisEnregistre>('exportsFrais', {
     type: 'compta', cle: `compta-${crypto.randomUUID()}`, creation: new Date().toISOString(), auteur: ctx.user.nom, notes: retenues,
     contenu: { lignes, ...t }, telechargements: 0, telechargeLe: null, telechargePar: null, annuleLe: null,
   });
   return {
-    message: `Export comptable n° ${x.id} généré — ${plural(retenues.length, 'note', 'notes')}, ${plural(t.ecritures, 'ligne d’écriture', 'lignes d’écriture')} · téléchargez le fichier pour l’importer en comptabilité`,
-    result: { export: x.id, notes: retenues.length, ecritures: t.ecritures, montant: t.debit, salaries: [...salaries] },
+    message: `Export comptable n° ${x.id} généré — ${plural(retenues.length, 'note', 'notes')}${archiveesRetenues ? ` (dont ${plural(archiveesRetenues, 'note archivée', 'notes archivées')})` : ''}, ${plural(t.ecritures, 'ligne d’écriture', 'lignes d’écriture')} · téléchargez le fichier pour l’importer en comptabilité`,
+    result: { export: x.id, notes: retenues.length, archivees: archiveesRetenues, ecritures: t.ecritures, montant: t.debit, salaries: [...salaries] },
   };
 };
 

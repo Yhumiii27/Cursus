@@ -413,6 +413,13 @@ test('organigramme : impression et export tracés (entité, nombre de lignes), s
   await refus(async () => await run(KARIM, 'organigramme.exporter', { entite: 'inconnue', lignes: 1 }), /Entité introuvable/, 404);
   await refus(async () => await run(KARIM, 'organigramme.exporter', { lignes: -1 }), /Nombre de lignes invalide/);
   await refus(async () => await run(KARIM, 'organigramme.exporter', { lignes: '3' }), /Nombre de lignes invalide/);
+  // lot 12 — C7 : service choisi, nom d'une équipe du référentiel (un nom inconnu ou non textuel est refusé, sans trace).
+  assert.equal(await run(KARIM, 'organigramme.exporter', { lignes: 5, service: 'Maintenance' }), 'Organigramme exporté, service Maintenance : 5 lignes');
+  assert.deepEqual((await journalDe(db, 'organigramme.exporter'))!.payload, { entite: null, lignes: 5, service: 'Maintenance' });
+  await refus(async () => await run(KARIM, 'organigramme.exporter', { lignes: 1, service: 'Mme Dupont, en arrêt' }), /Service introuvable/, 404);
+  await refus(async () => await run(KARIM, 'organigramme.imprimer', { lignes: 1, service: 3 }), /Service introuvable/, 404);
+  assert.ok(!JSON.stringify(await db.query(`SELECT * FROM journal`)).includes('Dupont'), 'texte refusé jamais tracé');
+  assert.deepEqual((await journalDe(db, 'organigramme.imprimer'))!.payload, { entite: null, lignes: 24 }, 'sans service : rien de plus');
   await run(RH, 'parametres.maj', { organigrammeOuvert: 'managers' });
   assert.deepEqual((await journalDe(db, 'parametres.maj'))!.payload, { avant: { organigrammeOuvert: 'tous' }, apres: { organigrammeOuvert: 'managers' } });
   await refus(async () => await run(MEHDI, 'organigramme.imprimer', { lignes: 3 }), /réservé/, 403);
@@ -460,7 +467,7 @@ test('cache : delta et oracle après la création, le renommage et la fermeture 
   const db = await demo();
   const run = runSur(db);
   const lecteurs = await lecteursDe(db);
-  const depart = async () => await db.lecture(async () => ({ n: (await db.etatRevision()).n, brut: geler(await lireBrut(db)) }));
+  const depart = async () => await db.lecture(async () => ({ n: (await db.etatRevision()).n, brut: geler(await lireBrut(db, T)) }));
   let etat: { n: number; brut: Brut } = await depart();
   // Entrée du cache lue avant la suite : chaque révision suivante en est dérivée par le delta.
   assert.deepEqual((await verifierExactitude(db, lecteurs, { jeux: true })).divergences, []);
@@ -471,7 +478,7 @@ test('cache : delta et oracle après la création, le renommage et la fermeture 
       const ch = await db.lireChangements(etat.n, n);
       assert.ok(ch, `${quoi} : écart connu`);
       const f = appliquerDelta(etat.brut, await lireDelta(db, etat.brut, ch));
-      const ref = await lireBrut(db);
+      const ref = await lireBrut(db, T);
       assert.deepStrictEqual(f.brut, ref, `${quoi} : lecture brute`);
       assert.deepStrictEqual(assembler(f.brut, T, 1, RH), assembler(ref, T, 1, RH), `${quoi} : instantané assemblé`);
       for (const c of champs) assert.ok(f.champsChanges.has(c as never), `${quoi} : champ ${c} changé`);

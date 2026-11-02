@@ -20,12 +20,25 @@ export const UI_DEPART: UiState = {
   refOnglet: 'formations', tsJour: null, tris: {},
   // lot 11 — organigramme
   orgEntite: null, orgSite: null,
+  // lot 12 — C7 (organigramme)
+  orgService: null, orgVue: 'liste',
   // lot 11 — indicateurs
   indOnglet: 'effectifs', indAnnee: null, indGroupe: 'aucun',
   // lot 11 — dossiers OPCO
   budgetOnglet: 'plan', opcoFiltre: 'tous', opcoCode: null, opcoDispositif: null, opcoSel: null,
   // lot 11 — notes de frais
   fraisOnglet: 'premier', fraisNote: null,
+  // lot 12 — socle
+  tempsOnglet: 'feuilles',
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  entOnglet: 'echeances', objStatut: 'tous', objEcheance: 'toutes',
+  // lot 12 — C4 (organismes de formation et e-learning)
+  orgSel: null, orgFiltre: 'tous', formOnglet: 'sessions', elFiltre: 'ouvertes',
+  // lot 12 — C5 (planning d'équipe)
+  planEquipe: null,
+  // lot 12 — C6 (badgeage virtuel)
 };
 
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;

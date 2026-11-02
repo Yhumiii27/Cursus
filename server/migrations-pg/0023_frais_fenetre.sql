@@ -1,0 +1,11 @@
+-- Cursus : migration 0023 du schéma PostgreSQL, lot 12, chantier C2 (activation des notes de frais), étape 1. Index
+-- seulement : aucune table, aucune colonne, aucune contrainte, aucune vue pub_ touchée, aucune migration publiée modifiée.
+-- Fenêtre des notes de frais dans l'instantané (`FENETRES`, server/src/lecture-brute.ts) : une note payée depuis plus de
+-- 13 mois sort de la lecture brute, avec ses dépenses et leurs justificatifs ; condition « NOT (statut = 'payee' AND
+-- payee_le < borne) », relue à chaque lecture complète et à chaque relecture par clé du delta.
+-- 1. `notes_frais_statut_payee` : notes payées avant la borne, cherchées par la fenêtre des notes, celle des dépenses
+--    (sous-requête par note) et celle des justificatifs ; recherche de l'historique par statut (server/src/frais-historique.ts).
+-- Déjà présents, non recréés : `lignes_frais_note` et `lignes_frais_emp` (0020_notes_frais.sql : dépenses d'une note,
+-- doublons et cumul kilométrique lus en base), `pieces_objet` (0001_init.sql : justificatifs d'une dépense).
+--> statement-breakpoint
+CREATE INDEX "notes_frais_statut_payee" ON "notes_frais" USING btree ("statut", "payee_le");

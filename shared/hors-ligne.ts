@@ -21,6 +21,14 @@ export const ACTIONS_HORS_LIGNE: readonly string[] = [
   // lot 11 — notes de frais : dépense (photo du reçu, montant, date) ajoutée à sa propre note, ou au brouillon du mois
   // (dépense rapide, sans note désignée) ; jamais une dépense médicale (donnée de santé), ni une soumission ou une validation.
   'frais.ligne.ajouter',
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel) : pointage du salarié pour lui-même, marqué « différé » avec l'heure de l'appareil,
+  // jamais avec une position (server/src/actions/pointage.ts) ; jamais une correction ni sa validation.
+  'pointage.pointer',
 ];
 
 /** En-tête de la clé d'idempotence d'un envoi (UUID tiré par le client, server/src/idempotence.ts). */
@@ -54,6 +62,11 @@ export function refusHorsLigne(nom: string, p: Record<string, unknown>, empId: n
   if (nom === 'absence.demander') {
     if (!CONGES_HORS_LIGNE.includes(String(p.kind ?? ''))) return 'Hors ligne, seuls les congés payés, RTT et récupérations peuvent être demandés';
     if (p.jetons != null || p.pieces != null) return 'Hors ligne, une demande de congé part sans pièce justificative';
+  }
+  // lot 12 — C6 (badgeage virtuel) : heure de l'appareil exigée (pointage différé), jamais de position hors ligne.
+  if (nom === 'pointage.pointer') {
+    if (typeof p.horodatageAppareil !== 'string' || !p.horodatageAppareil) return 'Hors ligne, un pointage part avec l’heure de l’appareil : pointez de nouveau';
+    if (p.position != null) return 'Hors ligne, un pointage ne porte jamais de position';
   }
   return null;
 }

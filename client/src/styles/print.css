@@ -29,3 +29,31 @@ section.saut { break-before: page; page-break-before: always; }
 .arbre li.groupe { break-inside: auto; page-break-inside: auto; }
 .arbre li.groupe > .libelle { font-weight: 600; color: #423a6a; }
 .arbre .detail { color: #595d6c; font-size: 11px; }
+
+/* lot 12 — C7 (organigramme) : arbre vertical (client/src/print.ts, `vertical`) ; boîtes reliées par des traits en
+   pseudo-éléments, réduites par une classe `echelle-NN` quand l'arbre est plus large que la page. */
+.arbre-vertical { margin-top: 6px; }
+.arbre-vertical ul.racines, .arbre-vertical ul.enfants { list-style: none; margin: 0; padding: 0; display: flex; justify-content: center; align-items: flex-start; }
+.arbre-vertical ul.racines { gap: 8px; }
+.arbre-vertical ul.enfants { position: relative; padding-top: 14px; }
+.arbre-vertical ul.enfants::before { content: ''; position: absolute; top: 0; left: 50%; height: 14px; border-left: 1px solid #9aa0b8; }
+.arbre-vertical ul.racines > li, .arbre-vertical ul.enfants > li { position: relative; display: flex; flex-direction: column; align-items: center; padding: 14px 3px 0; }
+.arbre-vertical ul.racines > li { padding-top: 0; }
+.arbre-vertical ul.enfants > li::before, .arbre-vertical ul.enfants > li::after { content: ''; position: absolute; top: 0; width: 50%; height: 14px; border-top: 1px solid #9aa0b8; }
+.arbre-vertical ul.enfants > li::before { right: 50%; }
+.arbre-vertical ul.enfants > li::after { left: 50%; border-left: 1px solid #9aa0b8; }
+.arbre-vertical ul.enfants > li:first-child::before, .arbre-vertical ul.enfants > li:last-child::after { border-top: 0; }
+.arbre-vertical ul.enfants > li:only-child::after { border-top: 0; }
+.arbre-vertical .boite { width: 42mm; box-sizing: border-box; border: 1px solid #9aa0b8; border-radius: 4px; padding: 4px 6px; background: #fff; break-inside: avoid; page-break-inside: avoid; }
+.arbre-vertical .boite > .libelle { display: block; font-weight: 600; color: #423a6a; }
+.arbre-vertical .boite > .detail { display: block; }
+.arbre-vertical .detail { color: #595d6c; font-size: 10px; }
+.arbre-vertical ul.membres { list-style: none; margin: 4px 0 0; padding: 4px 0 0; border-top: 1px solid #e2e4ee; font-size: 11px; }
+.arbre-vertical ul.membres li { padding: 1px 0; }
+.arbre-vertical.echelle-90 { zoom: 0.9; }
+.arbre-vertical.echelle-80 { zoom: 0.8; }
+.arbre-vertical.echelle-70 { zoom: 0.7; }
+.arbre-vertical.echelle-60 { zoom: 0.6; }
+.arbre-vertical.echelle-50 { zoom: 0.5; }
+.arbre-vertical.echelle-40 { zoom: 0.4; }
+.arbre-vertical.echelle-30 { zoom: 0.3; }

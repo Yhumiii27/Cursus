@@ -45,7 +45,13 @@ import { organigrammeOuvertA } from '../../shared/rules/organigramme.ts';
 import type { ArreteIndicateurs, DossierOpco } from '../../shared/types.ts';
 // lot 11 — dossiers OPCO
 // lot 11 — notes de frais
-import { fraisVueProfil, fraisVueSalarie, piecesFraisManager, vueComptabilite } from './frais-vues.ts';
+import { fraisVueGestion, fraisVueProfil, fraisVueSalarie, piecesFraisManager, vueComptabilite } from './frais-vues.ts';
+// lot 12 — projections des chantiers, chacune dans son fichier (contexte : server/src/vues-lot12.ts).
+import { forfaitHeuresVueProfil, forfaitHeuresVueSalarie } from './vues-forfait-heures.ts';
+import { entretiensSuivisVueProfil, entretiensSuivisVueRh, entretiensSuivisVueSalarie } from './vues-entretiens-suivis.ts';
+import { organismesVueProfil, organismesVueSalarie } from './vues-organismes.ts';
+import { colleguesVisibles, planningVueProfil, planningVueSalarie } from './vues-planning.ts';
+import { pointageVueProfil, pointageVueSalarie } from './vues-pointage.ts';
 
 /** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
 export const DEFAULT_SETTINGS: Settings = REGLAGES_DEFAUT;
@@ -84,10 +90,12 @@ export async function loadFull(db: Db, user: CurrentUser): Promise<Dataset> {
  * server/src/deplacements-paie.ts) : lit la table des éléments émis.
  */
 async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
-  const brut = await lireBrut(db);
+  // Jour de la lecture : celui des fenêtres de lecture (`FENETRES`, lot 12) et de l'instantané assemblé.
+  const today = todayIso();
+  const brut = await lireBrut(db, today);
   // Lecture brute gelée de même sous node --test : un delta (server/src/delta.ts) ne la modifie jamais, il en fait une autre.
   if (gelEnTest()) geler(brut);
-  const ds = assembler(brut, todayIso(), db.revision, user);
+  const ds = assembler(brut, today, db.revision, user);
   // Lecture brute retenue avec l'instantané (étape 2) : l'entrée du cache, le jeu d'une action et le suivi des verdicts
   // en dérivent l'état suivant par le seul delta des lignes changées (server/src/cache-instantane.ts).
   return retenirBrut({ ...ds, absencesPaie: await resumeAbsencesPaie(db, user, ds), deplacementsPaie: await resumeDeplacementsPaie(db, user, ds) }, brut);
@@ -407,6 +415,10 @@ export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre 
         ...full, taches: tachesProches(full.taches, full.today), ...(droits.includes('paie') ? {} : sansCodesAbsences(full)), couverture: etatsCouverture(full, full.settings.horizonAlerte),
         // Compte professionnel de prévention (t052) : synthèse calculée ici sur toutes les feuilles validées.
         c2p: c2pDe(full),
+        // lot 12 — C2 (notes de frais : activation) : détail de 2 mois, résumés, parts réintégrables et alertes.
+        ...fraisVueGestion(full, new Domain(full)),
+        // lot 12 — C3 (feedback 360°) : sollicitations masquées, compteur global (jamais qui a répondu).
+        ...entretiensSuivisVueRh(full),
       }
       : vueProfil(full, droits);
   }
@@ -471,6 +483,10 @@ export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre 
   // lot 11 — notes de frais : salariés dont il valide les frais, sous-ensemble de son périmètre (`ids`) ; ajoutés aux lus.
   const fraisIds = idsFrais(d, user);
   for (const id of fraisIds) lues.add(id);
+  // lot 12 — C5 (planning d'équipe) : collègues dont le collaborateur voit les postes planifiés (réglage `planningCollegues`).
+  for (const id of colleguesVisibles(full, user)) lues.add(id);
+  // lot 12 — contexte des projections des chantiers (server/src/vues-lot12.ts).
+  const lot12 = { full, d, user, ids, mine, lecture };
   return retenirPerimetre<Dataset>({
     ...full,
     // Facteurs d'exposition du C2P cochés sur les postes : avec le poste d'un membre, ils diraient son exposition.
@@ -581,6 +597,16 @@ export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre 
     versementsOpco: [],
     // lot 11 — notes de frais : filtre propre aux frais (équipe directe et délégations « frais »), sans note médicale d'autrui.
     ...fraisVueSalarie(full, d, user, fraisIds),
+    // lot 12 — C1 (forfait annuel en heures)
+    ...forfaitHeuresVueSalarie(lot12),
+    // lot 12 — C3 (entretiens suivis et 360°)
+    ...entretiensSuivisVueSalarie(lot12),
+    // lot 12 — C4 (organismes de formation et e-learning)
+    ...organismesVueSalarie(lot12),
+    // lot 12 — C5 (planning d'équipe)
+    ...planningVueSalarie(lot12),
+    // lot 12 — C6 (badgeage virtuel)
+    ...pointageVueSalarie(lot12),
   }, lues);
 }
 
@@ -796,6 +822,16 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // lot 11 — notes de frais : la paie (droit « paie ») reçoit les notes à rembourser, sans lignes ; ni la lecture seule
     // (agrégats à l'étape 2), ni le référent HSE.
     ...fraisVueProfil(full, droits.includes('paie')),
+    // lot 12 — C1 (forfait annuel en heures)
+    ...forfaitHeuresVueProfil({ full, d, droits }),
+    // lot 12 — C3 (entretiens suivis et 360°)
+    ...entretiensSuivisVueProfil({ full, d, droits }),
+    // lot 12 — C4 (organismes de formation et e-learning)
+    ...organismesVueProfil({ full, d, droits }),
+    // lot 12 — C5 (planning d'équipe)
+    ...planningVueProfil({ full, d, droits }),
+    // lot 12 — C6 (badgeage virtuel)
+    ...pointageVueProfil({ full, d, droits }),
   };
 }
 

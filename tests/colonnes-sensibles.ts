@@ -18,7 +18,8 @@ export const MARQUE = /Sensible|à exclure de matrix_lecture/;
 /** Lignes `('cursus', 'table', 'colonne', 'motif', 'origine')` d'un fichier SQL (apostrophes doublées comprises). */
 function lignesCursus(sql: string): ColonneSensible[] {
   const out: ColonneSensible[] = [];
-  const re = /\(\s*'cursus'\s*,\s*'([a-z_]+)'\s*,\s*'([a-z_*]+)'\s*,\s*'(?:[^']|'')*'\s*,\s*'([a-z]+)'\s*\)/g;
+  // lot 12 — C1 : chiffres admis dans un nom de colonne (hfa25, hca10…).
+  const re = /\(\s*'cursus'\s*,\s*'([a-z_]+)'\s*,\s*'([a-z0-9_*]+)'\s*,\s*'(?:[^']|'')*'\s*,\s*'([a-z]+)'\s*\)/g;
   for (const m of sql.matchAll(re)) out.push({ table: m[1], colonne: m[2], origine: m[3] });
   return out;
 }
@@ -46,7 +47,7 @@ export function declareesSensibles(): ColonneSensible[] {
   const dossier = new URL('server/migrations-pg/', racine);
   for (const f of readdirSync(dossier).filter(f => /^\d{4}_[a-z0-9_]+\.sql$/.test(f)).sort()) {
     const sql = readFileSync(new URL(f, dossier), 'utf8');
-    for (const m of sql.matchAll(/COMMENT ON COLUMN "([a-z_]+)"\."([a-z_]+)" IS '((?:[^']|'')*)'/g)) dernier.set(`${m[1]}.${m[2]}`, m[3]);
+    for (const m of sql.matchAll(/COMMENT ON COLUMN "([a-z_]+)"\."([a-z0-9_]+)" IS '((?:[^']|'')*)'/g)) dernier.set(`${m[1]}.${m[2]}`, m[3]);
     for (const m of sql.matchAll(/COMMENT ON TABLE "([a-z_]+)" IS '((?:[^']|'')*)'/g)) dernier.set(`${m[1]}.*`, m[2]);
   }
   return [...dernier].filter(([, texte]) => MARQUE.test(texte)).map(([k]) => {

@@ -68,6 +68,23 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           '« Mes notifications par e-mail » : chaque notification aussitôt, ou un récapitulatif chaque matin. « Télécharger mes données » donne la copie de tout ce que Cursus conserve sur vous ; la page « Confidentialité » explique leur traitement.',
         ],
       },
+      // lot 12 — C3 (entretiens suivis)
+      {
+        titre: 'Mes objectifs et souhaits de formation',
+        points: [
+          'Menu « Mes objectifs » : les objectifs fixés à votre entretien annuel. « Mettre à jour l’avancement » en cours d’année (de 0 à 100 %, avec un court commentaire) ; un objectif proche de son échéance sans mise à jour depuis un mois apparaît dans « À faire ».',
+          'Entretien annuel prévu : « Proposer un objectif » ; votre évaluateur le valide ou le reformule avant la clôture. Dans le compte rendu, « Ajouter un souhait » de formation : avec l’avis favorable de votre manager, il devient à la clôture une demande au service RH, dont vous suivez la réponse.',
+          'Un objectif décrit un résultat de travail : jamais de donnée de santé. L’entretien de parcours professionnel ne porte pas d’objectif (il ne sert pas à évaluer le travail).',
+        ],
+      },
+      {
+        titre: 'Avis demandés (feedback 360°, si l’entreprise l’a activé)',
+        points: [
+          'Votre entretien annuel : dans le compte rendu, « Proposer des répondants » (collègues, N+2, collaborateurs encadrés) ; votre évaluateur les sollicite. Vous voyez combien ont répondu, jamais qui.',
+          'Un collègue vous demande un avis : menu « Avis demandés », « Donner mon avis » (une note de 1 à 4 par question, ou « Je ne peux pas me prononcer », et un commentaire facultatif), modifiable avec « Modifier mon avis » jusqu’à l’échéance ; « Décliner » si vous ne souhaitez pas répondre.',
+          'Votre avis est confidentiel : gardé chiffré jusqu’à la fin de la collecte, versé avec les autres sans votre nom, restitué seulement en moyenne à partir de 3 réponses ; votre commentaire est relu par le service RH avant d’être restitué. Il ne se donne pas hors ligne.',
+        ],
+      },
       // lot 11 — organigramme
       {
         titre: 'Organigramme',
@@ -75,6 +92,9 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           'Menu « Organigramme » (si l’entreprise l’a ouvert à tous, ce qui est le réglage par défaut ; managers et collaborateurs le voient aussi) : sociétés, établissements, équipes et leurs membres présents ce jour, avec le manager de chaque équipe.',
           'Il ne montre que l’annuaire : nom, poste, équipe, manager. Ni contrat, ni absence, ni santé ; le suppléant d’un manager absent n’apparaît que pour qui voit déjà sa délégation, sans les dates.',
           'Cherchez un nom, un poste ou une équipe : les résultats sont surlignés et Entrée y place le curseur. Au clavier : flèches pour parcourir, droite et gauche pour déplier ou replier ; « Tout déplier » ouvre tout l’arbre. « Imprimer » (en paysage, une entité par page) et « Exporter (CSV) » reprennent les personnes affichées.',
+          // lot 12 — C7 (organigramme)
+          'Champ « Service » : choisissez une équipe dans la liste (son chemin, par exemple « Production › Maintenance ») pour n’afficher qu’elle et ses sous-équipes ; la recherche ne porte plus que sur elle. Le fil d’Ariane rappelle son rattachement et remonte d’un niveau ; un clic sur une équipe de l’arbre propose « Voir ce service seul ».',
+          'Présentation « Liste » ou « Graphique » : la vue graphique dessine l’arbre de haut en bas, une boîte par équipe avec son manager, ses présents et ses membres (au-delà de huit, derrière « N personnes »). « Réduire » et « Agrandir » changent sa taille ; sur un téléphone, la liste s’affiche à sa place. En vue graphique, « Imprimer » imprime l’arbre vertical, réduit s’il est trop large pour la page.',
         ],
       },
       // lot 11 — pwa : application installée, saisie sans réseau, notifications, appareil partagé.
@@ -96,6 +116,15 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           '« Coller le texte du reçu » : copiez le texte de la photo (Live Text sur iPhone, Google Lens sur Android), collez-le, puis « Lire le texte » propose montant, date, TVA et commerçant ; vérifiez chaque champ. Reçu perdu : cochez l’attestation sur l’honneur.',
           '« Soumettre la note » une fois complète : les reçus deviennent définitifs, votre manager valide, la comptabilité contrôle, puis la note est remboursée avec la paie du mois suivant. Renvoyée « À corriger », le motif s’affiche sur la note.',
           'Frais médicaux en mission (vaccin, pharmacie) : « Nouvelle note », case « Frais médicaux en mission » ; la note ne passe pas par votre manager. Indemnités kilométriques : déclarez d’abord votre véhicule. Sans réseau, une dépense avec sa photo reste gardée sur le téléphone (jamais des frais médicaux).',
+        ],
+      },
+      // lot 12 — C5 (planning d'équipe)
+      {
+        titre: 'Mon planning',
+        points: [
+          'Module activé (après l’avis du CSE) : menu « Mon planning ». Vos postes publiés sur quatre semaines, avec la version et la date où ils vous ont été communiqués ; un jour sans poste reste vide. Un changement vous arrive par e-mail (et par notification si vous l’avez choisie).',
+          '« Échanger… » sur un poste à venir : choisissez un collègue de votre équipe. Il accepte ou refuse dans son « Mon planning », puis votre manager valide. « Retirer » annule votre proposition tant qu’elle n’est pas décidée.',
+          'Sur la feuille de temps, l’horaire du poste publié vous est proposé les jours où vous saisissez des heures ; les heures restent à saisir.',
         ],
       },
     ],
@@ -131,6 +160,16 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           'Vos propres entretiens, menés par votre responsable, se préparent dans votre espace collaborateur.',
         ],
       },
+      // lot 12 — C3 (entretiens suivis)
+      {
+        titre: 'Objectifs et souhaits de formation',
+        points: [
+          'Entretien annuel : « Fixer un objectif » (mesure, échéance, poids facultatif), valider ou reformuler ceux proposés par le salarié ; les objectifs de l’année passée s’évaluent (« Évaluer » : atteint, partiellement, non atteint, sans objet, reconduit).',
+          'Souhaits de formation : donnez votre avis sur chacun dans le compte rendu ; à la clôture, seuls les souhaits à avis favorable deviennent une demande au service RH. Onglet « Objectifs » : les objectifs de l’équipe, ce qui reste à arbitrer avant la clôture, et « Ajuster » en cours d’année avec un motif.',
+          'Onglet « Points de suivi » : « Planifier un point » de mi-année ou de suivi, facultatif sauf réglage du service RH ; il porte l’avancement des objectifs, pas leur évaluation.',
+          'Feedback 360° (si activé) : dans le compte rendu d’un entretien annuel ou de mi-année, « Solliciter des répondants » (3 au moins, 8 au plus, dont ceux proposés par le salarié), « Relancer » ceux qui n’ont rien fait sans savoir qui, puis « Clore la collecte » avant l’entretien : la synthèse s’y joint. Vous ne voyez jamais qui a répondu ni ce qu’une personne a répondu.',
+        ],
+      },
       {
         titre: 'Planning et équipe',
         points: [
@@ -141,6 +180,17 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
         ],
       },
       // lot 11 — notes de frais
+      // lot 12 — C5 (planning d'équipe)
+      {
+        titre: 'Planning d’équipe',
+        points: [
+          'Temps de travail, onglet « Planning d’équipe » (module activé) : une lettre par case (horaire, R repos, A absent sans la nature), un astérisque pour ce qui n’est pas publié, une ligne « Couverture » face au besoin minimal.',
+          '« Affecter » chaque salarié à un cycle, « Générer » les brouillons, cliquer une case pour corriger, puis « Publier » : une habilitation manquante bloque ; les alertes et un délai de prévenance court demandent un motif, jamais recopié au journal.',
+          'Échanges acceptés par les deux salariés : « Examiner », puis Valider ou Refuser. « Imprimer l’affichage » ou « Exporter (CSV) » : horaire collectif et composition des équipes (art. D3171-7).',
+          '« ! » après la lettre d’une case : le salarié est aussi en mission ou sur une tâche Keystone, en formation ou d’astreinte pendant le poste (détail sous la grille). Simple information, sans blocage. La ligne « Couverture » signale aussi un horaire sans le minimum de secouristes de l’équipe.',
+          'Vous êtes vous-même planifié avec votre équipe : menu « Mon planning » pour vos postes et les échanges qu’on vous propose. Une semaine ancienne se relit en reculant la semaine (historique).',
+        ],
+      },
       {
         titre: 'Valider les notes de frais',
         points: [
@@ -236,6 +286,16 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           'Menu « Notes de frais » (service RH et profil Comptabilité) : onglet « À contrôler » ; dans la note, « Montant retenu » ramène une dépense au plafond, « Refuser » l’écarte avec un motif, puis « Contrôler la note » : elle part dans le prochain lot de paie (colonne « montant » du fichier Sage).',
           'Onglet « Exports comptables » : « Générer l’export comptable » fige les écritures des notes contrôlées, puis « Télécharger » le fichier pour la comptabilité (frais médicaux au compte générique). Une note déjà exportée ne se renvoie ni ne s’annule : annulez d’abord l’export, ses notes redeviennent à exporter. Onglet « Tableau de bord » : notes en attente, délai, dépenses par mois et par catégorie, taux des devises.',
           'Paramètres → Notes de frais (administrateur RH) : activation, circuit, plafonds, barème kilométrique de l’année, limites d’exonération URSSAF, comptes et format du fichier d’écritures, à confirmer par la comptabilité et la paie.',
+        ],
+      },
+      // lot 12 — C3 (entretiens suivis)
+      {
+        titre: 'Entretiens suivis',
+        points: [
+          'Paramètres → Objectifs et points de suivi (administrateur RH) : objectifs suivis ou non, « Objectifs facultatifs (première année) » (la clôture n’exige pas l’évaluation), nombre au plus par entretien, point de mi-année obligatoire et sa fenêtre.',
+          'Les demandes de formation nées d’un entretien portent le badge « Entretien » (tableau de bord, fiche) ; acceptées, la ligne du plan porte l’origine « issue d’un entretien ».',
+          'Feedback 360° : désactivé jusqu’à l’avis du CSE et l’analyse d’impact (AIPD) ; l’administrateur RH saisit leurs références dans Paramètres → Objectifs et points de suivi, puis l’active (seuil de restitution, fenêtre de réponse, conservation des réponses).',
+          'Entretiens, onglet « Feedback 360° » : relisez chaque commentaire avant sa restitution, « Restituer » ou « Ne pas restituer » (jamais modifié ; jamais ceux qui vous concernent), et suivez chaque collecte : qui a été sollicité et le nombre d’avis reçus, jamais qui a répondu ni qui a dit quoi.',
         ],
       },
     ],

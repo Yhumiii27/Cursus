@@ -7,6 +7,10 @@ import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
 import { horsContratLe } from '../../../shared/rules/contrats.ts';
 import { debutCloture, needsFinCarriere, reprogrammation } from '../../../shared/rules/entretiens.ts';
 import { remisePhysique } from '../../../shared/rules/remise.ts';
+// lot 12 — C3 (entretiens suivis)
+import { blocageClotureObjectifs } from '../../../shared/rules/objectifs.ts';
+import { texteVersement, verserSouhaits } from './souhaits.ts';
+import { finirFeedback360, refusClotureFeedback } from './feedback360.ts';
 import type { Entretien, EntretienType } from '../../../shared/types.ts';
 import { convoquerEntretien, notifierEntretienClos } from '../notifications.ts';
 import { ActionError, type ActionHandler, type Ctx, getEmp, isValidatorOf, refuserSoiMeme, str } from './context.ts';
@@ -88,9 +92,23 @@ const clore: ActionHandler = async (ctx, p) => {
   }
   const debut = debutCloture(ctx.d, x);
   if (date < debut.min) throw new ActionError(`Date de l’entretien : le ${fmt(parse(debut.min))} au plus tôt (${debut.raison})`);
+  // lot 12 — C3 (entretiens suivis) : propositions d'objectifs à valider ou retirer ; objectifs repris à évaluer, sauf en
+  // mode « objectifs facultatifs » (shared/rules/objectifs.ts).
+  const objectifs = blocageClotureObjectifs(ctx.ds.objectifs ?? [], ctx.ds.entretiens, x, ctx.ds.settings);
+  if (objectifs) throw new ActionError(objectifs, 409);
+  // lot 12 — C3 (feedback 360°, étape 3) : collecte encore ouverte (server/src/actions/feedback360.ts).
+  const feedback = refusClotureFeedback(ctx, x);
+  if (feedback) throw new ActionError(feedback, 409);
   await ctx.db.update<Entretien>('entretiens', x.id, { statut: 'realise', date, signMgr: ctx.d.ti });
+  // lot 12 — C3 : souhaits de formation à avis favorable versés au service RH (server/src/actions/souhaits.ts).
+  const versement = await verserSouhaits(ctx, e, { ...x, date });
+  // lot 12 — C3 (feedback 360°, étape 3) : réponses brutes supprimées, synthèse gardée ; commentaires jamais relus comptés.
+  const nonRelus = await finirFeedback360(ctx, x);
   await notifierEntretienClos(ctx, e, { ...x, date });
-  return `Compte rendu clos et signé${date !== x.date ? ` — entretien daté du ${fmt(parse(date))}` : ''} — transmis au salarié pour signature`;
+  return {
+    message: `Compte rendu clos et signé${date !== x.date ? ` — entretien daté du ${fmt(parse(date))}` : ''} — transmis au salarié pour signature${texteVersement(versement)}${nonRelus ? ` · ${nonRelus > 1 ? `${nonRelus} commentaires 360° non relus, non restitués` : '1 commentaire 360° non relu, non restitué'}` : ''}`,
+    result: { demandes: versement.versees, ecartes: versement.ecartes },
+  };
 };
 
 const signer: ActionHandler = async (ctx, p) => {

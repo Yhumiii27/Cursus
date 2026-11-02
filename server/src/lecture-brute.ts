@@ -1,7 +1,8 @@
 // Lecture brute de la base et assemblage de l'instantané complet (lot 9, chantier 2, étape 1). La lecture complète
 // (`loadFull`, server/src/dataset.ts) se fait désormais en deux temps :
-// - `lireBrut(db)` lit les tables telles quelles (lignes décodées, dans l'ordre de leur clé ou de la colonne de tri de
-//   `ORDRE_LECTURE`), plus cinq réglages et le statut des envois des relevés : aucune jointure ni aucun calcul ;
+// - `lireBrut(db, today)` lit les tables telles quelles (lignes décodées, dans l'ordre de leur clé ou de la colonne de tri
+//   de `ORDRE_LECTURE`, limitées à leur fenêtre de lecture du jour `FENETRES`), plus cinq réglages et le statut des envois
+//   des relevés : aucune jointure ni aucun calcul ;
 // - `assembler(brut, today, revision, user)` en tire le Dataset, sans lire la base : jointure des employés et de leurs
 //   titres, nombre d'inscrits et places proposées des sessions, positions dans les listes d'attente, annuaire, début de
 //   la saisie des feuilles, effectif du site, budgets, plan, reprises (de la plus récente à la plus ancienne), lots de
@@ -14,6 +15,11 @@
 // tables à révision jamais lues par l'instantané. tests/lecture-brute.test.ts contrôle, par un espion sur `db.query`, que
 // les tables réellement lues par `loadFull` sont exactement l'union de `LECTURES`, et que chaque table de TABLES est
 // lue, hors de l'instantané ou sans révision (`TABLES_SANS_REVISION`).
+// Fenêtres de lecture (lot 12, socle) : `FENETRES` limite, pour une table qui grossit sans fin, les lignes lues par
+// l'instantané à celles d'une période qui dépend du jour (notes de frais des 13 derniers mois, créneaux du planning…).
+// Lecture brute, relecture complète et relecture par clé du delta (server/src/delta.ts) appliquent la même fenêtre ; une
+// ligne qui en sort par le seul passage du temps n'est pas au journal des changements, mais l'entrée du cache d'un autre
+// jour est relue en entier (server/src/cache-instantane.ts).
 import { configurerFeries } from '../../shared/dates.ts';
 import { reglagesParDefaut } from '../../shared/reglages.ts';
 import { avecPositions, avecProposees } from '../../shared/rules/liste-attente.ts';
@@ -35,7 +41,19 @@ import type {
 } from '../../shared/types.ts';
 // lot 11 — notes de frais
 import type { AvanceFrais, BaremeKm, ForfaitFrais, LigneFrais, NoteFrais, TauxDevise, VehiculePerso } from '../../shared/types.ts';
-import type { Db, TableName } from './db.ts';
+// lot 12 — C1 (forfait annuel en heures)
+import type { ClotureForfaitHeures, CorrectionPointage, Objectif, Sollicitation360 } from '../../shared/types.ts';
+// lot 12 — C2 (notes de frais : activation)
+import { borneFrais } from '../../shared/rules/frais-fenetre.ts';
+// lot 12 — C3 (entretiens suivis et 360°)
+// lot 12 — C4 (organismes de formation et e-learning)
+import type { InscriptionElearning, ModuleElearning, Organisme, OrganismeContact, OrganismeTarif } from '../../shared/types-organismes.ts';
+import { organismePublie, resumeOrganisme } from '../../shared/rules/organismes.ts';
+// lot 12 — C6 (badgeage virtuel)
+import type { Db, Fenetre, TableName } from './db.ts';
+// lot 12 — C5 (planning d'équipe)
+import type { BesoinPoste, Creneau, Cycle, EchangePoste, PublicationPlanning, Roulement } from '../../shared/types-planning.ts';
+import { creneauxAPourvoir, creneauxNominatifs, fenetreCreneaux } from './planning-lecture.ts';
 import { formatFichierDe } from './lots-paie.ts';
 import { messagerieDe } from './messagerie.ts';
 import { type PieceEnregistree, piecesDe } from './pieces.ts';
@@ -68,6 +86,8 @@ export interface ReglagesBruts {
  * en fait une nouvelle, qui reprend les tableaux des tables inchangées.
  */
 export interface Brut {
+  /** Jour de la lecture (AAAA-MM-JJ) : celui des fenêtres de lecture (`FENETRES`, lot 12), repris par un delta. */
+  jour: string;
   certifications: Certification[];
   habTitres: HabTitre[];
   visas: Visa[];
@@ -137,6 +157,29 @@ export interface Brut {
   forfaitsFrais: ForfaitFrais[];
   avancesFrais: AvanceFrais[];
   tauxDevises: TauxDevise[];
+  // lot 12 — C1 (forfait annuel en heures)
+  cloturesForfaitHeures: ClotureForfaitHeures[];
+  // lot 12 — C2 (notes de frais : activation) : dépenses des notes médicales (scission), réunies aux autres dans
+  // `Dataset.lignesFrais` par `assembler`.
+  lignesFraisSante: LigneFrais[];
+  // lot 12 — C3 (entretiens suivis et 360°)
+  objectifs: Objectif[];
+  feedbackSollicitations: Sollicitation360[];
+  // lot 12 — C4 (organismes de formation et e-learning)
+  organismes: Organisme[];
+  organismeContacts: OrganismeContact[];
+  organismeTarifs: OrganismeTarif[];
+  modulesElearning: ModuleElearning[];
+  inscriptionsElearning: InscriptionElearning[];
+  // lot 12 — C5 (planning d'équipe) : créneaux dans leur fenêtre de lecture (`FENETRES`), « à pourvoir » compris.
+  cycles: Cycle[];
+  roulements: Roulement[];
+  besoinsPoste: BesoinPoste[];
+  creneaux: Creneau[];
+  publicationsPlanning: PublicationPlanning[];
+  echangesPoste: EchangePoste[];
+  // lot 12 — C6 (badgeage virtuel)
+  correctionsPointage: CorrectionPointage[];
   reglages: ReglagesBruts;
   /** Statut de l'e-mail de chaque relevé (envois désignés par `releves.envoiId` seulement). */
   statutsEnvoi: ReadonlyMap<number, Envoi['statut']>;
@@ -161,9 +204,50 @@ export const COLONNES_OMISES: Partial<Record<TableName, readonly string[]>> = { 
   // lot 11 — indicateurs : agrégats figés d'un arrêté annuel, lus par la seule route GET /api/indicateurs?arrete=.
   indicateursArretes: ['donnees'] };
 
-/** Lignes de la table `t` telles que les lit la lecture brute : ordre de sa clé ou de `ORDRE_LECTURE`, sans `COLONNES_OMISES`. */
-export async function lireTable<T>(db: Db, t: TableName): Promise<T[]> {
+/**
+ * Fenêtres de lecture (lot 12, socle) : pour une table, la condition (fonction du jour `today`, AAAA-MM-JJ) que vérifient
+ * les seules lignes lues par l'instantané. Une table à fenêtre se lit dans l'ordre de sa clé entière (ni `ORDRE_LECTURE`
+ * ni clé texte : tests/lot12-socle.test.ts) ; le reste de ses lignes n'est lu qu'à la demande, par une route dédiée.
+ * La condition ne dépend que du jour : l'entrée du cache d'un autre jour est relue en entier. Vide au socle ; chaque
+ * chantier n'écrit que dans son bloc.
+ */
+export const FENETRES: Partial<Record<TableName, (today: string) => Fenetre>> = {
+  // lot 12 — C2 (notes de frais) : notes payées depuis moins de 13 mois et toutes celles qui ne sont pas payées
+  // (shared/rules/frais-fenetre.ts), dépenses de ces notes, justificatifs de ces dépenses. Une note archivée ne revient
+  // jamais par une écriture (refus 409, server/src/actions/frais.ts) : seul le passage du temps la fait sortir, et l'entrée
+  // du cache d'un autre jour est relue en entier. Conditions corrélées par le nom de la table (lecture complète `allDans`
+  // comme relecture par clé `lireLignes`) ; index de la migration 0023.
+  notesFrais: today => ({ where: `NOT (statut = 'payee' AND payee_le < ?)`, params: [borneFrais(today)] }),
+  lignesFrais: today => ({
+    where: `NOT EXISTS (SELECT 1 FROM notes_frais n WHERE n.id = lignes_frais.note_id AND n.statut = 'payee' AND n.payee_le < ?)`, params: [borneFrais(today)],
+  }),
+  // Étape 2 (scission) : dépenses médicales dans `lignes_frais_sante`, même fenêtre ; un justificatif `ligneFraisSante`
+  // désigne une dépense de cette table, `ligneFrais` une de l'autre.
+  lignesFraisSante: today => ({
+    where: `NOT EXISTS (SELECT 1 FROM notes_frais n WHERE n.id = lignes_frais_sante.note_id AND n.statut = 'payee' AND n.payee_le < ?)`, params: [borneFrais(today)],
+  }),
+  pieces: today => ({
+    where: `NOT (pieces.objet = 'ligneFrais' AND EXISTS (SELECT 1 FROM lignes_frais l JOIN notes_frais n ON n.id = l.note_id`
+      + ` WHERE l.id = pieces.objet_id AND n.statut = 'payee' AND n.payee_le < ?))`
+      + ` AND NOT (pieces.objet = 'ligneFraisSante' AND EXISTS (SELECT 1 FROM lignes_frais_sante l JOIN notes_frais n ON n.id = l.note_id`
+      + ` WHERE l.id = pieces.objet_id AND n.statut = 'payee' AND n.payee_le < ?))`,
+    params: [borneFrais(today), borneFrais(today)],
+  }),
+  // lot 12 — C5 (planning d'équipe) : de 8 semaines passées à 12 semaines à venir (server/src/planning-lecture.ts).
+  creneaux: fenetreCreneaux,
+};
+
+/** Fenêtre de lecture de la table `t` au jour `today`, s'il y en a une. */
+export const fenetreDe = (t: TableName, today: string): Fenetre | undefined => FENETRES[t]?.(today);
+
+/**
+ * Lignes de la table `t` telles que les lit la lecture brute au jour `today` : ordre de sa clé ou de `ORDRE_LECTURE`,
+ * sans `COLONNES_OMISES`, limitées à sa fenêtre (`FENETRES`).
+ */
+export async function lireTable<T>(db: Db, t: TableName, today: string): Promise<T[]> {
   const sans = COLONNES_OMISES[t];
+  const fenetre = fenetreDe(t, today);
+  if (fenetre) return await db.allDans<T>(t, fenetre, sans);
   return sans ? await db.allSans<T>(t, sans) : await db.all<T>(t, ORDRE_LECTURE[t]);
 }
 
@@ -193,13 +277,14 @@ export async function statutsDesEnvois(db: Db, releves: readonly Pick<ReleveInte
 }
 
 /**
- * Lecture brute de la base, à faire dans une lecture stable (`Db.lecture`) ou une transaction : les tables, les réglages
- * et le statut des envois des relevés, tels quels.
+ * Lecture brute de la base au jour `today`, à faire dans une lecture stable (`Db.lecture`) ou une transaction : les
+ * tables (dans leur fenêtre de lecture, `FENETRES`), les réglages et le statut des envois des relevés, tels quels.
  */
-export async function lireBrut(db: Db): Promise<Brut> {
-  const lire = async <T>(t: TableName) => await lireTable<T>(db, t);
+export async function lireBrut(db: Db, today: string): Promise<Brut> {
+  const lire = async <T>(t: TableName) => await lireTable<T>(db, t, today);
   const releves = await lire<Omit<ReleveInterim, 'envoi'>>('releves');
   return {
+    jour: today,
     certifications: await lire('certifications'),
     habTitres: await lire('habTitres'),
     visas: await lire('visas'),
@@ -268,6 +353,28 @@ export async function lireBrut(db: Db): Promise<Brut> {
     forfaitsFrais: await lire('forfaitsFrais'),
     avancesFrais: await lire('avancesFrais'),
     tauxDevises: await lire('tauxDevises'),
+    // lot 12 — C1 (forfait annuel en heures)
+    cloturesForfaitHeures: await lire('cloturesForfaitHeures'),
+    // lot 12 — C2 (notes de frais : activation)
+    lignesFraisSante: await lire('lignesFraisSante'),
+    // lot 12 — C3 (entretiens suivis et 360°)
+    objectifs: await lire('objectifs'),
+    feedbackSollicitations: await lire('feedbackSollicitations'),
+    // lot 12 — C4 (organismes de formation et e-learning)
+    organismes: await lire('organismes'),
+    organismeContacts: await lire('organismeContacts'),
+    organismeTarifs: await lire('organismeTarifs'),
+    modulesElearning: await lire('modulesElearning'),
+    inscriptionsElearning: await lire('inscriptionsElearning'),
+    // lot 12 — C5 (planning d'équipe)
+    cycles: await lire('cycles'),
+    roulements: await lire('roulements'),
+    besoinsPoste: await lire('besoinsPoste'),
+    creneaux: await lire('creneaux'),
+    publicationsPlanning: await lire('publicationsPlanning'),
+    echangesPoste: await lire('echangesPoste'),
+    // lot 12 — C6 (badgeage virtuel)
+    correctionsPointage: await lire('correctionsPointage'),
     reglages: await lireReglages(db),
     statutsEnvoi: await statutsDesEnvois(db, releves),
   };
@@ -377,6 +484,13 @@ const referentielsDe = memo((formations: Formation[], habilitations: HabType[], 
   // lot 11 — notes de frais : barèmes kilométriques, forfaits et taux des devises (aucune donnée personnelle).
   baremesKm: BaremeKm[], forfaitsFrais: ForfaitFrais[], tauxDevises: TauxDevise[]) =>
   ({ formations, habilitations, destinations, postes, equipes, horaires, projets, chantiers, entites, sites, baremesKm, forfaitsFrais, tauxDevises }));
+// lot 12 — C4 (organismes de formation et e-learning) : fiches réduites à leur nom (id, code, nom usuel, type, archivage),
+// fusionnées comprises (pour nommer un ancien rattachement), ajoutées aux référentiels transmis à tous les espaces ; ni
+// formateur indépendant ni texte repris encore à vérifier, sauf rattachés au catalogue (`organismePublie`).
+const avecOrganismes = memo((r: Dataset['referentiels'], organismes: Organisme[]) => {
+  const catalogue = new Set(r.formations.map(f => f.organismeId).filter((id): id is number => id != null));
+  return { ...r, organismes: organismes.filter(o => organismePublie(o, catalogue)).map(resumeOrganisme) };
+});
 /** lot 11 — organigramme : présents du jour et non anonymisés (`presentsDe`), sur les fiches telles qu'enregistrées. */
 const presentsOrganigrammeDe = memo((lignes: EmpRow[], today: string) => presentsDe(lignes, today));
 // lot 11 — dossiers OPCO : un dossier supprimé (saisie erronée, `opco.supprimer`) sort de l'instantané, avec ses versements.
@@ -384,6 +498,18 @@ const dossiersOpcoDe = memo((lignes: DossierOpco[]) => lignes.filter(d => !d.ann
 const versementsOpcoDe = memo((lignes: VersementOpco[], dossiers: DossierOpco[]) => {
   const supprimes = new Set(dossiers.filter(d => d.annuleLe).map(d => d.id));
   return supprimes.size ? lignes.filter(v => !supprimes.has(v.dossierId)) : lignes;
+});
+
+/**
+ * lot 12 — C2 : dépenses ordinaires et médicales (deux listes triées par identifiant) réunies dans cet ordre ; la première
+ * telle quelle si la seconde est vide ; mémoïsée comme les autres dérivés (même lecture : même tableau).
+ */
+const fusionParId = memo((a: LigneFrais[], b: LigneFrais[]): LigneFrais[] => {
+  if (!b.length) return a;
+  const out: LigneFrais[] = [];
+  let i = 0, j = 0;
+  while (i < a.length || j < b.length) out.push(j >= b.length || (i < a.length && a[i].id < b[j].id) ? a[i++] : b[j++]);
+  return out;
 });
 
 /**
@@ -407,8 +533,8 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     // espaces, qui en ont besoin pour nommer les titres et écarter les archivées des listes ; aucune donnée personnelle.
     // Postes et exigences (shared/rules/exigences.ts), horaires de poste (shared/rules/horaires.ts) : idem.
     // Entités et sites (lot 11) : données d'entreprise publiques (SIREN, SIRET, IDCC), transmises à tous pour l'organigramme.
-    referentiels: referentielsDe(brut.formations, brut.habilitations, brut.destinations, brut.postes, brut.equipes, brut.horaires, brut.projets, brut.chantiers,
-      brut.entites, brut.sites, brut.baremesKm, brut.forfaitsFrais, brut.tauxDevises),
+    referentiels: avecOrganismes(referentielsDe(brut.formations, brut.habilitations, brut.destinations, brut.postes, brut.equipes, brut.horaires, brut.projets, brut.chantiers,
+      brut.entites, brut.sites, brut.baremesKm, brut.forfaitsFrais, brut.tauxDevises), /* lot 12 — C4 */ brut.organismes),
     annuaire: annuaireDe(employes),
     employes,
     sessions: sessionsDe(brut.sessions, certs, brut.inscriptions, brut.participations, attentesSession, calendrierFeries),
@@ -469,9 +595,38 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     versementsOpco: versementsOpcoDe(brut.versementsOpco, brut.dossiersOpco),
     // lot 11 — notes de frais : filtrées par espace et par profil dans server/src/dataset.ts (filtre propre aux frais).
     notesFrais: brut.notesFrais,
-    lignesFrais: brut.lignesFrais,
+    // lot 12 — C2 : dépenses ordinaires et médicales réunies, dans l'ordre des identifiants (communs aux deux tables).
+    lignesFrais: fusionParId(brut.lignesFrais, brut.lignesFraisSante),
     vehiculesPerso: brut.vehiculesPerso,
     avancesFrais: brut.avancesFrais,
+    // lot 12 — C1 (forfait annuel en heures)
+    // Clôtures du forfait annuel en heures : filtrées par espace et par profil (server/src/vues-forfait-heures.ts).
+    cloturesForfaitHeures: brut.cloturesForfaitHeures,
+    // lot 12 — C2 (notes de frais : activation)
+    // lot 12 — C3 (entretiens suivis et 360°)
+    // Objectifs (toutes les lignes) ; feedback 360° (étape 3) : sollicitations, filtrées par espace et par profil dans
+    // server/src/vues-entretiens-suivis.ts (les réponses versées n'entrent jamais dans l'instantané).
+    objectifs: brut.objectifs,
+    feedbackSollicitations: brut.feedbackSollicitations,
+    // lot 12 — C4 (organismes de formation et e-learning) : filtrés par espace et par profil dans server/src/vues-organismes.ts.
+    organismes: brut.organismes,
+    organismeContacts: brut.organismeContacts,
+    organismeTarifs: brut.organismeTarifs,
+    modulesElearning: brut.modulesElearning,
+    inscriptionsElearning: brut.inscriptionsElearning,
+    // lot 12 — C5 (planning d'équipe) : filtrés par espace et par profil dans server/src/vues-planning.ts. Les créneaux « à
+    // pourvoir » (sans salarié) forment un champ commun, rattaché aux équipes (server/src/planning-lecture.ts).
+    cycles: brut.cycles,
+    besoinsPoste: brut.besoinsPoste,
+    publicationsPlanning: brut.publicationsPlanning,
+    roulements: brut.roulements,
+    creneaux: creneauxNominatifs(brut.creneaux),
+    creneauxAPourvoir: creneauxAPourvoir(brut.creneaux),
+    echangesPoste: brut.echangesPoste,
+    // lot 12 — C6 (badgeage virtuel)
+    // Demandes de correction de pointage (toutes) ; filtrées par espace et par profil dans server/src/vues-pointage.ts. Les
+    // pointages eux-mêmes ne sont jamais lus ici (HORS_INSTANTANE).
+    correctionsPointage: brut.correctionsPointage,
   };
 }
 
@@ -482,7 +637,7 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
 const LECTURES_ASSEMBLEES = {
   settings: ['settings'],
   referentiels: ['formations', 'habilitations', 'destinations', 'postes', 'equipes', 'horaires', 'projets', 'chantiers', /* lot 11 — organigramme */ 'entites', 'sites',
-    /* lot 11 — notes de frais */ 'baremesKm', 'forfaitsFrais', 'tauxDevises'],
+    /* lot 11 — notes de frais */ 'baremesKm', 'forfaitsFrais', 'tauxDevises', /* lot 12 — C4 */ 'organismes'],
   annuaire: ['employes'],
   employes: ['employes', 'certifications', 'habTitres', 'visas', 'vaccinations'],
   sessions: ['sessions', 'certifications', 'inscriptions', 'participations', 'attentesSession', 'settings'],
@@ -538,9 +693,31 @@ const LECTURES_ASSEMBLEES = {
   versementsOpco: ['versementsOpco', 'dossiersOpco'],
   // lot 11 — notes de frais
   notesFrais: ['notesFrais'],
-  lignesFrais: ['lignesFrais'],
+  lignesFrais: ['lignesFrais', /* lot 12 — C2 : dépenses médicales (scission) */ 'lignesFraisSante'],
   vehiculesPerso: ['vehiculesPerso'],
   avancesFrais: ['avancesFrais'],
+  // lot 12 — C1 (forfait annuel en heures)
+  cloturesForfaitHeures: ['cloturesForfaitHeures'],
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  objectifs: ['objectifs'],
+  feedbackSollicitations: ['feedbackSollicitations'],
+  // lot 12 — C4 (organismes de formation et e-learning)
+  organismes: ['organismes'],
+  organismeContacts: ['organismeContacts'],
+  organismeTarifs: ['organismeTarifs'],
+  modulesElearning: ['modulesElearning'],
+  inscriptionsElearning: ['inscriptionsElearning'],
+  // lot 12 — C5 (planning d'équipe)
+  cycles: ['cycles'],
+  besoinsPoste: ['besoinsPoste'],
+  publicationsPlanning: ['publicationsPlanning'],
+  roulements: ['roulements'],
+  creneaux: ['creneaux'],
+  creneauxAPourvoir: ['creneaux'],
+  echangesPoste: ['echangesPoste'],
+  // lot 12 — C6 (badgeage virtuel)
+  correctionsPointage: ['correctionsPointage'],
 } as const satisfies Partial<Record<keyof Dataset, readonly TableName[]>>;
 
 /**
@@ -579,7 +756,21 @@ export const LECTURES = {
  */
 export const HORS_INSTANTANE: ReadonlySet<TableName> = new Set<TableName>(['notifications', 'verdictsKeystone', 'relances', 'effacements',
   // lot 11 — notes de frais : exports comptables figés, lus par leur route de téléchargement.
-  'exportsFrais']);
+  'exportsFrais',
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  // Réponses du feedback 360° en attente du versement (chiffrées) : jamais lues par l'instantané, ni pour le service RH.
+  // Étape 3 : réponses versées non plus (relation, notes et commentaire d'une réponse prise seule) ; synthèse jointe à
+  // l'entretien, commentaires à relire servis au service RH par leur route (server/src/feedback360.ts).
+  'feedbackTampon', 'feedbackReponses',
+  // lot 12 — C4 (organismes de formation et e-learning)
+  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C6 (badgeage virtuel)
+  // Pointages bruts (lus à la demande par GET /api/pointages et /etat, server/src/pointages.ts : l'état du jour dépend de
+  // l'heure, il ne peut pas être gardé dans un cache indexé par révision et par jour) et zones de géolocalisation (étape 3).
+  'pointages', 'zonesPointage',
+]);
 
 /** Tables lues par l'instantané complet : l'union de `LECTURES`. */
 export const TABLES_LUES: ReadonlySet<TableName> = new Set<TableName>(Object.values(LECTURES).flat());

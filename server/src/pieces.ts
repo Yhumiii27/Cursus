@@ -156,7 +156,8 @@ export const TABLE_OBJET: Record<ObjetPiece, TableName> = {
   // lot 11 — dossiers OPCO
   dossierOpco: 'dossiersOpco',
   // lot 11 — notes de frais
-  ligneFrais: 'lignesFrais', ligneFraisSante: 'lignesFrais', vehiculePerso: 'vehiculesPerso',
+  // lot 12 — C2 : un justificatif de santé désigne une dépense de la table des frais médicaux (scission).
+  ligneFrais: 'lignesFrais', ligneFraisSante: 'lignesFraisSante', vehiculePerso: 'vehiculesPerso',
 };
 
 /** Description transmise au navigateur : ni nom stocké, ni jeton, ni motif du retrait. */

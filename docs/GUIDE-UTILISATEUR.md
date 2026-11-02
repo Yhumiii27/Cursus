@@ -63,6 +63,12 @@ Aucune heure ne se saisit un jour d'absence validée ; une demi-journée de cong
 plus. Une semaine entière d'absence se soumet sans heure. Les heures de nuit ne se saisissent pas dans Cursus : la paie
 les traite dans Sage. Les frais engagés pendant un déplacement se déclarent dans « Mes frais » (ci-dessous).
 
+**Forfait annuel en heures** (lot 12) : l'onglet « Forfait annuel en heures » de « Mes heures » montre la période en
+cours (l'année civile par défaut) : heures validées, cible (le forfait au prorata de la plage, moins les absences
+déduites, environ 7 h par jour ouvré d'absence hors congés payés), projection au rythme des feuilles validées (après
+4 semaines) et, une fois la période clôturée par le service RH, la ligne de clôture : heures au-delà de la cible payées
+(25 % puis 50 %), heures non réalisées affichées, jamais retenues.
+
 ### Demander une absence
 
 1. Menu « Mes absences » : soldes de congés payés (période en cours et période d'acquisition), RTT ou jours de repos,
@@ -96,6 +102,11 @@ les traite dans Sage. Les frais engagés pendant un déplacement se déclarent d
   travail : « Répondre ». Un e-mail vous le rappelle. Seul le service RH lit vos commentaires ; votre manager ne voit pas vos
   avis. « Mes avis sur les formations » les reprend, modifiables tant que l'évaluation est ouverte.
 
+- **Mes modules en ligne** (lot 12) : les modules d'e-learning auxquels le service RH vous a inscrit. « Ouvrir le module »
+  ouvre le site de l'organisme dans un nouvel onglet ; une fois fini, « J'ai terminé » (en ligne) prévient le service RH,
+  qui valide la fin : la formation entre alors dans votre passeport. Cursus ne garde que le statut, l'avancement transmis par
+  l'organisme et la fin, jamais votre temps de connexion.
+
 ### Entretiens et portail
 
 - L'encart « À faire » de l'accueil et les pastilles du menu signalent ce qui attend : feuille renvoyée, semaine passée à
@@ -112,6 +123,18 @@ les traite dans Sage. Les frais engagés pendant un déplacement se déclarent d
   « Astreinte » : jour, heures de début et de fin) ; ses heures vont sur la ligne « Intervention d'astreinte », qui ne se
   saisit pas à la main. Une intervention déclarée par erreur se retire tant que la feuille se saisit.
 
+### Mes objectifs et souhaits de formation
+
+- Menu « Mes objectifs » : les objectifs fixés à votre entretien annuel. « Mettre à jour l'avancement » en cours d'année (de 0 à 100 %, avec un court commentaire) ; un objectif proche de son échéance sans mise à jour depuis un mois apparaît dans « À faire ».
+- Entretien annuel prévu : « Proposer un objectif » ; votre évaluateur le valide ou le reformule avant la clôture. Dans le compte rendu, « Ajouter un souhait » de formation : avec l'avis favorable de votre manager, il devient à la clôture une demande au service RH, dont vous suivez la réponse.
+- Un objectif décrit un résultat de travail : jamais de donnée de santé. L'entretien de parcours professionnel ne porte pas d'objectif (il ne sert pas à évaluer le travail).
+
+### Avis demandés (feedback 360°, si l'entreprise l'a activé)
+
+- Votre entretien annuel : dans le compte rendu, « Proposer des répondants » (collègues, N+2, collaborateurs encadrés) ; votre évaluateur les sollicite. Vous voyez combien ont répondu, jamais qui.
+- Un collègue vous demande un avis : menu « Avis demandés », « Donner mon avis » (une note de 1 à 4 par question, ou « Je ne peux pas me prononcer », et un commentaire facultatif), modifiable avec « Modifier mon avis » jusqu'à l'échéance ; « Décliner » si vous ne souhaitez pas répondre.
+- Votre avis est confidentiel : gardé chiffré jusqu'à la fin de la collecte, versé avec les autres sans votre nom, restitué seulement en moyenne à partir de 3 réponses ; votre commentaire est relu par le service RH avant d'être restitué. Il ne se donne pas hors ligne.
+
 ### Organigramme
 
 - Menu « Organigramme » : sociétés, établissements, équipes et leurs membres présents ce jour, avec le manager de chaque
@@ -126,6 +149,18 @@ les traite dans Sage. Les frais engagés pendant un déplacement se déclarent d
 - « Imprimer » : document en paysage, une entité par page, « Document interne — état au » jour de l'impression.
   « Exporter (CSV) » : une ligne par personne affichée (société, établissement, site, chemin des équipes, nom, poste,
   manager, valideur). L'impression et l'export sont notés au journal avec l'entité et le nombre de lignes, jamais un nom.
+- **Choisir un service** (lot 12) : le champ « Service » propose les équipes de l'arbre avec leur chemin (« Production ›
+  Maintenance ») ; on peut y taper pour filtrer la liste. Le service choisi s'affiche seul, avec ses sous-équipes ; le fil
+  d'Ariane au-dessus rappelle son entité et ses équipes parentes (un clic remonte d'un niveau, « Tous les services »
+  revient à l'arbre entier). La recherche ne porte alors que sur ce service ; l'impression et l'export aussi. Un clic sur
+  une équipe de l'arbre propose « Voir ce service seul ». Le service choisi reste dans l'adresse de la page.
+- **Vue graphique** (lot 12) : « Liste » ou « Graphique ». La vue graphique dessine l'arbre de haut en bas : l'entité (ou
+  le service choisi) en haut, ses équipes dessous, reliées par des traits ; chaque boîte donne le manager (et son
+  suppléant, aux mêmes conditions que la liste), le nombre de présents et, dépliée, les membres (au-delà de huit,
+  derrière « N personnes », à déplier). Un arbre large défile dans son cadre ; « Réduire » et « Agrandir » changent sa
+  taille (de 50 à 150 %). Le clavier fonctionne comme dans la liste. Sous 600 px (téléphone), la liste s'affiche à sa
+  place, avec un message ; le choix est gardé. En vue graphique, « Imprimer » imprime l'arbre vertical (le service
+  choisi, ou une page par entité), réduit à l'échelle de la page s'il est trop large, ce que le document signale.
 ### Sur le téléphone
 
 - Cursus s'installe sans magasin d'applications. Android : « Installer l'application » (accueil, aide ou menu).
@@ -156,6 +191,47 @@ les traite dans Sage. Les frais engagés pendant un déplacement se déclarent d
 - « Coller le texte du reçu » : copiez le texte de la photo (Live Text sur iPhone, Google Lens sur Android), collez-le, puis « Lire le texte » propose montant, date, TVA et commerçant ; vérifiez chaque champ. Reçu perdu : cochez l'attestation sur l'honneur.
 - « Soumettre la note » une fois complète : les reçus deviennent définitifs, votre manager valide, la comptabilité contrôle, puis la note est remboursée avec la paie du mois suivant. Renvoyée « À corriger », le motif s'affiche sur la note.
 - Frais médicaux en mission (vaccin, pharmacie) : « Nouvelle note », case « Frais médicaux en mission » ; la note ne passe pas par votre manager. Indemnités kilométriques : déclarez d'abord votre véhicule. Sans réseau, une dépense avec sa photo reste gardée sur le téléphone (jamais des frais médicaux).
+- Notes anciennes : une note payée depuis plus de 13 mois quitte la liste ; bouton « Notes plus anciennes » en bas de « Mes frais » (24 mois à la fois, puis « Mois précédents »), en consultation seule.
+
+### Mon planning (planning d'équipe)
+
+Quand le planning d'équipe est activé (après l'avis du CSE), le menu **Temps & absences → Mon planning** montre vos postes
+(un manager qui fait lui-même partie d'une équipe en cycle l'a aussi, dans son espace) publiés sur quatre semaines : jour, horaire et pause, version et date à laquelle ils vous ont été communiqués. Un jour sans
+poste s'affiche vide. Seuls les postes publiés y figurent : une modification en préparation ne vous est montrée qu'une fois
+publiée, et vous recevez alors un e-mail (et une notification sur le téléphone si vous l'avez choisie).
+
+- **Échanger un poste** : « Échanger… » sur un poste à venir, puis choisissez le collègue de votre équipe. Vous lui cédez
+  votre poste, ou vous l'échangez contre l'un des siens si les postes de l'équipe vous sont montrés. Votre collègue accepte
+  ou refuse dans son propre « Mon planning », puis votre manager valide : le repos et les habilitations de chacun sont
+  contrôlés à ce moment-là. L'échange expire si un des postes commence avant. Tant qu'il n'est pas décidé, « Retirer »
+  l'annule.
+- **Feuille de temps** : l'horaire de votre poste publié vous est proposé (en italique) les jours où vous saisissez des
+  heures ; changez-le si vous avez tenu un autre poste. Les heures restent à saisir : le planning n'est qu'une prévision.
+- **Agenda** : si vous êtes abonné au flux de Cursus (Accueil → Agenda), vos postes publiés y apparaissent.
+
+### Pointer (si l'entreprise l'a activé pour votre équipe)
+
+- Bouton « Pointer l'arrivée » puis « Pointer le départ » : sur l'accueil, en haut de la saisie du jour sur le téléphone,
+  dans le menu « Mes pointages » et par le raccourci « Pointer » de l'icône de l'application installée. L'heure est celle
+  du serveur ; un double appui ne compte qu'une fois. Sans réseau, le pointage est gardé sur le téléphone avec son heure
+  et part « différé » au retour du réseau, si l'entreprise l'admet (sinon, pointez une fois connecté). Aucune photo ;
+  aucune position, sauf pour une équipe de chantier itinérante dont l'entreprise a activé la vérification du lieu (voir
+  plus bas). Le raccourci « Pointer » figure sur l'icône de tous les téléphones : tant que le pointage n'est pas
+  activé, il ramène à l'accueil avec le message « Le pointage n'est pas activé pour vous ».
+- Sous le bouton : présent depuis quelle heure, les pointages du jour, le temps du jour et de la semaine et le solde
+  (débit-crédit). « Mes pointages » montre la semaine, les points à justifier (sortie manquante, pause courte…) et vos
+  demandes.
+- Oubli : « Signaler un oubli » (jour, heure, arrivée ou départ, motif) ; pointage erroné : « Retirer » sur sa ligne. La
+  demande, faite dans les 7 jours, est validée par votre manager ; rien n'est effacé, la correction s'ajoute.
+- Mode « calculé » : la ligne « PTG » de votre feuille de temps reprend vos heures pointées ; répartissez-les sur vos
+  projets (la ligne garde ce qui reste à répartir). Une répartition qui dépasse le pointé d'un jour bloque la soumission.
+- Vérification du lieu (équipes itinérantes seulement, si l'entreprise l'a activée) : le texte sous le bouton le dit. Au
+  clic sur « Pointer », le téléphone demande une fois l'autorisation de lire votre position ; Cursus n'en garde que le
+  résultat (« dans la zone », « hors zone », « position imprécise » ou « non partagée »), affiché à côté de l'heure.
+  Vous pouvez refuser : le pointage est enregistré quand même, sans sanction ; sans réponse à la demande, il part au plus
+  tard 12 secondes après le clic. Jamais en continu, jamais sans réseau (un pointage fait sans réseau est marqué
+  « position non partagée »). Si
+  le navigateur refuse sans rien demander, rechargez l'application (l'option vient d'être activée).
 
 ## Manager
 
@@ -195,12 +271,22 @@ Les feuilles validées partent à la paie avec le lot du mois : le manager n'a r
   relit et signe à son tour ; « Remettre la copie » trace la remise (main propre, refus de signer, mise à disposition).
 - Ses propres entretiens, menés par son responsable, se préparent dans l'espace collaborateur.
 
+### Objectifs et souhaits de formation
+
+- Entretien annuel : « Fixer un objectif » (mesure, échéance, poids facultatif), valider ou reformuler ceux proposés par le salarié ; les objectifs de l'année passée s'évaluent (« Évaluer » : atteint, partiellement, non atteint, sans objet, reconduit).
+- Souhaits de formation : donnez votre avis sur chacun dans le compte rendu ; à la clôture, seuls les souhaits à avis favorable deviennent une demande au service RH. Onglet « Objectifs » : les objectifs de l'équipe, ce qui reste à arbitrer avant la clôture, et « Ajuster » en cours d'année avec un motif.
+- Onglet « Points de suivi » : « Planifier un point » de mi-année ou de suivi, facultatif sauf réglage du service RH ; il porte l'avancement des objectifs, pas leur évaluation.
+- Feedback 360° (si activé) : dans le compte rendu d'un entretien annuel ou de mi-année, « Solliciter des répondants » (3 au moins, 8 au plus, dont ceux proposés par le salarié), « Relancer » ceux qui n'ont rien fait sans savoir qui, puis « Clore la collecte » avant l'entretien : la synthèse s'y joint. Vous ne voyez jamais qui a répondu ni ce qu'une personne a répondu.
+
 ### Évaluer les formations de l'équipe
 
 - « Évaluations à froid à faire » (écran Formations, pastille du menu) : quelques mois après une formation d'un membre de
   l'équipe (90 jours par défaut, formations réglementaires et recommandées), « Évaluer » : efficace, partiellement ou pas
   efficace, et un commentaire facultatif. Demandée par e-mail, puis relancée 15 et 30 jours après. Le salarié donne aussi
   son avis ; chacun ne voit que le sien, le service RH lit les commentaires.
+
+- Onglet « E-learning » de l'écran Formations (lot 12) : statut, avancement et fin des modules d'e-learning de l'équipe, en
+  lecture ; les inscriptions et la validation des fins relèvent du service RH.
 
 ### Planning et équipe
 
@@ -234,6 +320,53 @@ Les feuilles validées partent à la paie avec le lot du mois : le manager n'a r
   (réglage du service RH) ; en dessous, les circonstances exceptionnelles sont à indiquer, et jamais moins d'un jour franc.
   Le salarié reçoit un e-mail avec l'événement pour son agenda. Avant son début, l'astreinte se modifie ou s'annule (motif
   communiqué au salarié) ; commencée, seule sa fin s'avance. Le service RH planifie aussi, et vous en êtes prévenu.
+
+### Planning d'équipe
+
+Module activé, l'écran **Temps de travail** a un onglet **Planning d'équipe**. Choisissez l'équipe ; la grille montre deux
+semaines à partir de la semaine choisie en haut de l'écran. Chaque case porte une lettre : le code de l'horaire (M, AM, N…),
+R pour un repos, A pour un salarié absent (sans la nature de l'absence) ; un astérisque marque ce qui n'est pas encore
+publié. La ligne **Couverture** compare les postes du jour au besoin minimal de l'équipe (« ! » quand il manque quelqu'un).
+Au clavier, les flèches passent d'une case à l'autre et Entrée ouvre le poste.
+
+1. **Affecter** chaque salarié à un cycle (2x8, 3x8…) et à son groupe, à partir d'une date (Affectations au roulement).
+2. **Générer** le planning d'une période (12 semaines au plus, et jamais au-delà des 12 semaines à venir) : les postes sont
+   créés en brouillon d'après le cycle ; un jour férié devient un repos, sauf travail en continu.
+3. Corriger au besoin : cliquer une case pour changer l'horaire, mettre en repos, ajouter un poste à pourvoir, retirer un
+   brouillon ou annuler un poste publié (avec un motif communiqué au salarié).
+4. **Publier** : le dialogue montre ce qui sera communiqué et ce que Cursus a relevé. Une habilitation absente, retirée ou
+   suspendue, la nuit d'un mineur ou une semaine déjà validée empêchent la publication. Les alertes (repos, durées,
+   habilitation qui expire pendant la période, formation, aptitude à vérifier avec le service RH) demandent un motif. Un
+   poste communiqué moins de 7 jours avant (ou le délai de votre accord) demande le motif des circonstances
+   exceptionnelles, que le salarié reçoit dans son e-mail. Ces motifs ne sont jamais recopiés au journal.
+
+Un « ! » après la lettre d'une case signale un **conflit** : le salarié est aussi prévu en mission ou sur une tâche Keystone,
+inscrit à une session de formation (pendant le poste, un jour de repos, ou trop près du poste : moins que le repos
+quotidien de 11 h, ou celui de votre accord, entre la session et le poste de la veille, du jour ou du lendemain, puisque
+le temps de formation est du temps de travail), ou d'astreinte pendant le poste (le détail s'affiche sous la grille et dans le dialogue
+Publier). C'est une information : rien n'est bloqué, aucun motif n'est demandé ; à vous de réorganiser si besoin. La ligne
+**Couverture** signale aussi un horaire qui n'a pas le minimum de secouristes ou d'équipiers d'intervention fixé pour
+l'équipe (Référentiels → Postes), par exemple : SST au poste N (0 sur 1).
+
+Les **échanges** acceptés par les deux salariés s'affichent sous la grille : « Examiner » montre les contrôles recalculés
+pour les deux, puis Valider (avec un motif s'il y a des alertes) ou Refuser. Un suppléant qui a reçu une délégation
+« planning » fait de même pendant l'absence du manager.
+
+**Affichage réglementaire** : « Imprimer l'affichage » ou « Exporter (CSV) » donne l'horaire collectif de l'équipe et la
+composition nominative de chaque poste, jour par jour, d'après les postes publiés des deux semaines affichées (art.
+D3171-7), à afficher ou à tenir en registre. Pour une période plus ancienne (au-delà de 8 semaines passées), reculez la
+semaine en haut de l'écran : la grille et l'affichage sont alors lus dans l'historique, gardé au moins un an.
+### Pointages de l'équipe
+
+- Menu « Pointages » (le badgeage activé) : « Corrections de pointage à valider » (pastille du menu) — « Valider » ajoute le
+  pointage oublié ou retire le pointage erroné, « Refuser » demande un motif, lu par le salarié — et « Présences du jour »
+  (présent, parti, non pointé, absent, sans la nature d'une absence).
+- Vérification du lieu (si l'entreprise l'a activée pour l'équipe) : le détail des pointages dit « dans la zone » ou
+  « hors zone » ; une position imprécise ou non partagée n'y figure pas, seulement un point à justifier « Position non
+  vérifiée », qui ne distingue pas un refus.
+- La semaine d'un salarié : Temps de travail, onglet « Pointages » (postes, pauses, solde, points à justifier) ;
+  « Ajouter un pointage » ou « Retirer » y enregistre une correction validée d'emblée, dont le salarié voit l'origine.
+  Une semaine déjà validée se corrige après sa réouverture par le service RH.
 
 ### Valider les notes de frais
 
@@ -341,6 +474,25 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
   formation, la moyenne à chaud, le taux d'efficacité et les taux de réponse (« Exporter les évaluations »). Le référent
   HSE le voit dans Formations, sans moyenne ni taux sous 3 réponses. Réglages : Paramètres, section Évaluation des formations.
 
+- Organismes de formation (lot 12, Référentiels → Organismes) : une fiche par organisme (SIRET, déclaration d'activité,
+  Qualiopi et sa date de validité, conditions, contacts, tarifs) à la place du texte libre. Les textes existants ont été
+  repris en fiches « à vérifier » : ouvrir chacune (encart « À vérifier » ou filtre), compléter, puis « Confirmer la fiche » ;
+  un doublon (par exemple APAVE Sud Europe et Apave) se fusionne par « Fusionner dans… » (administrateur RH, motif, liste des
+  objets réaffectés : pas de défusion simple ; deux SIRET différents ne se fusionnent jamais). Les dialogues Formation,
+  Session (organisme figé à la création), Formation suivie (« autre » : texte libre), Plan (organisme prévu, tarif proposé)
+  et Dossier OPCO (SIRET, NDA et Qualiopi proposés) choisissent la fiche. Qualiopi absent ou échu : avertissement (fiche,
+  dossier OPCO, marque « Qualiopi à vérifier » dans Plan & budget), jamais un blocage ; le récapitulatif des échéances
+  relance le service RH 60 jours avant la fin de validité (Paramètres → Formations), 15 jours avant, puis à l'échéance.
+  Onglet « Évaluations » de la fiche : avis des stagiaires sur 3 exercices (ou 5) et en cumul, comparés par formation entre
+  organismes.
+- E-learning (lot 12) : Référentiels → Modules e-learning (code, lien https, organisme, formation validée, durée, coût d'une
+  licence, validité de l'accès, attestation exigée). Écran Formations, onglet « E-learning » : « Inscrire » des salariés ou
+  l'équipe d'une ligne du plan ; « Importer l'avancement » (CSV de la plateforme : matricule ou e-mail, module, statut,
+  avancement, date de fin, réussite ; toute autre colonne fait refuser le fichier ; aperçu avant d'appliquer) ; « Fins à
+  valider » : « Valider la fin » (service RH) crée la formation suivie et, pour un module rattaché au catalogue et réussi, la
+  certification ; « Corriger », « Abandon », « Supprimer » (administrateur RH, motif). Fin d'office à l'import : réglage de
+  Paramètres → Formations, désactivé par défaut.
+
 ### Congés et absences
 
 - « Absences à qualifier » : chaque absence signalée attend sa nature et son justificatif (« Qualifier »). « Saisir une
@@ -369,6 +521,59 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
   annuel d'heures supplémentaires sont reprises dans des encarts de l'écran.
 - Seul l'administrateur RH rouvre une feuille validée : « Rouvrir la feuille », motif obligatoire (voir Correction après l'envoi,
   ci-dessous).
+- **Forfait annuel en heures** (lot 12, onglet « Forfait annuel en heures » de l'écran Temps de travail ; le nombre à côté
+  de l'onglet compte les plages à clôturer et les lignes à revoir) :
+  1. À la fin de chaque période de référence (le 1er janvier pour l'année civile), à la sortie d'un salarié ou à l'avenant
+     qui lui fait quitter le forfait, le bandeau « Clôtures du forfait annuel en heures à faire » propose la plage ; le
+     récapitulatif des échéances de la boîte du service RH la rappelle (échéance : fin du mois qui suit la fin de la plage ; pour une sortie, fin du mois de la sortie, avec le solde de sortie).
+  2. L'administrateur RH ouvre « Clôturer » : une ligne par salarié, avec la cible au prorata, les absences déduites (un
+     total, jamais la nature), la cible nette, le réalisé et les heures à payer (HFA25 et HFA50, ou HCA10 et HCA25 pour un
+     temps partiel annualisé), ou les heures non réalisées (jamais retenues). Les alertes (période commencée avant le
+     suivi, droits à congés incomplets, salarié non cadre, temps partiel) se vérifient sans bloquer ; une ligne
+     **bloquée** (feuille à valider, semaine sans feuille ni absence, durée légale atteinte par un temps partiel) ne se
+     coche pas : levez le blocage, puis relancez. Sa propre ligne se clôture par un autre administrateur RH.
+  3. Les heures partent dans le prochain lot de paie (mois de la confirmation par défaut ; mois de la sortie avec le
+     solde de sortie) ; tant que la paie n'a pas donné les codes HFA et HCA, elles sont listées « à saisir dans Sage ».
+  4. Une ligne marquée **à revoir** (feuille rouverte ou absence modifiée après la clôture) se corrige par « Rouvrir »
+     (motif) : avant la transmission, elle repasse à confirmer ; après, une nouvelle version n'envoie que l'écart (lot
+     correctif). « Annuler » (motif) n'est possible qu'avant la transmission.
+  Réglages (période, début du suivi, seuil des 25 %, absences déduites, durée journalière, mois d'émission, contingent) :
+  Paramètres → Décompte des heures, « Forfait annuel en heures » ; hors défaut, la référence de l'accord est exigée.
+  Une fois une clôture enregistrée, changer le début du suivi ou de la période de référence demande une confirmation :
+  les clôtures gardent leurs dates et passent « à revoir », et une plage qui en chevauche une reste bloquée (ses heures
+  ne sont jamais payées deux fois).
+
+### Planning d'équipe : préparation et activation
+
+- **Référentiels → Cycles** : les modèles Journée, 2x8, 3x8 et 5x8 sont prêts ; remplacez-les par vos tableaux de roulement
+  réels (séquence des horaires jour par jour, « - » pour un repos, groupes et décalages). Les indicateurs (heures moyennes
+  par semaine, nuits, dimanches) s'affichent à la saisie.
+- **Référentiels → Besoins de poste** : effectif minimal par équipe, horaire et jour, et exigences propres au poste
+  (exemple : un cariste CACES la nuit), contrôlées à la date de chaque créneau.
+- **Paramètres → Planning d'équipe** (administrateur RH) : noter la date de l'avis du CSE, puis activer le module (Cursus
+  refuse l'activation sans cette date) ; délai de prévenance
+  (7 jours par défaut), repos quotidien réduit et durées du travail de nuit de votre accord, avec sa référence ; planning des
+  collègues visible ou non. **Reprendre…** affecte au cycle choisi les membres des équipes créées par quart pour la
+  couverture minimale (la première équipe prend le groupe A, la deuxième le B…) ; la reprise se rejoue sans doublon.
+- **Tableau de bord → Couverture minimale par poste planifié** (service RH, référent HSE, lecture seule ; module
+  activé ; pas la paie, qui ne reçoit ni les seuils de couverture ni les certifications) : les postes publiés des deux
+  semaines à venir qui manquent d'effectif ou de secouristes et d'équipiers d'intervention, horaire par horaire. Les jours
+  pas encore publiés ne sont pas suivis. Le service RH voit la couverture une fois les absents retirés ; le référent HSE
+  et la lecture seule la voient sans les absences (un poste peut donc être découvert par une absence : à vérifier avec le
+  service RH).
+- Avant l'activation, faites compléter par le DPO l'analyse d'impact du planning (`docs/RGPD.md`, section 8, points ouverts pour
+  l'AIPD).
+- Badgeage (désactivé par défaut) : Paramètres → Badgeage, par l'administrateur RH, une fois l'avis du CSE rendu et
+  l'accord signé (leur référence et leur date sont exigées), l'analyse d'impact faite avec le DPO : populations qui
+  pointent (équipe, entité, site ou régime ; mode « contrôlé » ou « calculé » ; date d'effet), délai des corrections,
+  pointage hors ligne, conservation. « Afficher la mention d’information des salariés » propose le texte à afficher et à
+  remettre. Horaires variables : Référentiels → Horaires, « Rendre variable » (plages fixes et mobiles, plafonds du
+  report ; d'autres plafonds que 3 h et 10 h exigent la référence de l'accord).
+- Géolocalisation au pointage (désactivée par défaut, même section, administrateur RH) : seulement pour des équipes
+  itinérantes qui n'ont aucun autre moyen de pointer sur place, après l'avis du CSE et l'analyse d'impact (AIPD) du DPO.
+  Finalité écrite, date de l'AIPD et au moins une population exigées ; précision exigée (100 m par défaut). « Ajouter une
+  zone » : libellé, site ou chantier, centre en degrés décimaux (clic droit sur une carte en ligne) et rayon. Sans zone
+  active, la position n'est pas demandée. Le changement vaut au rechargement de l'application.
 
 ### Déplacements et vigilance
 
@@ -467,6 +672,15 @@ pièces et échéances, sans export comptable ni connexion au portail de l'OPCO 
 - Menu « Notes de frais » (service RH et profil Comptabilité) : onglet « À contrôler » ; dans la note, « Montant retenu » ramène une dépense au plafond, « Refuser » l'écarte avec un motif, puis « Contrôler la note » : elle part dans le prochain lot de paie (colonne « montant » du fichier Sage).
 - Onglet « Exports comptables » : « Générer l'export comptable » fige les écritures des notes contrôlées, puis « Télécharger » le fichier pour la comptabilité (frais médicaux au compte générique). Une note déjà exportée ne se renvoie ni ne s'annule : annulez d'abord l'export, ses notes redeviennent à exporter. Onglet « Tableau de bord » : notes en attente, délai, dépenses par mois et par catégorie, taux des devises.
 - Paramètres → Notes de frais (administrateur RH) : activation, circuit, plafonds, barème kilométrique de l'année, limites d'exonération URSSAF, comptes et format du fichier d'écritures, à confirmer par la comptabilité et la paie.
+- Onglet « Historique » : recherche dans toutes les notes, archivées comprises (salarié, mois de début et de fin, 24 mois au plus, statut, ou numéro de note) ; chaque recherche qui montre les notes d'un autre salarié, et l'ouverture d'une note archivée (payée depuis plus de 13 mois), sont tracées au journal. Une note payée depuis plus de 2 mois affiche ses totaux ; ses dépenses se chargent quand vous l'ouvrez. Le tableau de bord indique la période de chaque chiffre ; le réintégrable porte sur toutes les notes soumises des 13 derniers mois, calculé par le serveur.
+- Activation : Paramètres → Notes de frais liste les prérequis (comptes de charge, rubriques FRAIS_* actives et confirmées par la paie, barème kilométrique de l'année) ; l'activation reste la décision de l'administrateur RH.
+
+### Entretiens suivis
+
+- Paramètres → Objectifs et points de suivi (administrateur RH) : objectifs suivis ou non, « Objectifs facultatifs (première année) » (la clôture n'exige pas l'évaluation), nombre au plus par entretien, point de mi-année obligatoire et sa fenêtre.
+- Les demandes de formation nées d'un entretien portent le badge « Entretien » (tableau de bord, fiche) ; acceptées, la ligne du plan porte l'origine « issue d'un entretien ».
+- Feedback 360° : désactivé jusqu'à l'avis du CSE et l'analyse d'impact (AIPD) ; l'administrateur RH saisit leurs références dans Paramètres → Objectifs et points de suivi, puis l'active (seuil de restitution, fenêtre de réponse, conservation des réponses).
+- Entretiens, onglet « Feedback 360° » : relisez chaque commentaire avant sa restitution, « Restituer » ou « Ne pas restituer » (jamais modifié ; jamais ceux qui vous concernent), et suivez chaque collecte : qui a été sollicité et le nombre d'avis reçus, jamais qui a répondu ni qui a dit quoi.
 
 ## Gestionnaire de paie
 
@@ -544,6 +758,12 @@ d'un mois clos enregistrée en retard part entière, en rappel.
   dans Paramètres → Forfait jours. JREN est désactivée tant que la paie n'a pas donné son code : les jours sont alors
   listés « À saisir dans Sage » dans le résumé du lot du mois de la signature (ou de décembre, selon le réglage), et
   réglés hors fichier quand ce lot est confirmé. Un avenant enregistré après la génération du lot attend le lot suivant.
+- Heures de la clôture d'un forfait annuel en heures (lot 12) : au-delà du forfait, HFA25 (jusqu'à 8 h par semaine
+  travaillée sous forfait, réglable) et HFA50 ; pour un temps partiel annualisé, HCA10 et HCA25. Une ligne par salarié
+  et par rubrique, au mois de la confirmation par l'administrateur RH (ou au dernier mois de la plage, selon le réglage ;
+  au mois de la sortie avec le solde de sortie). Rubriques désactivées tant que la paie n'a pas donné leurs codes : listées
+  « À saisir dans Sage » dans le résumé du lot ; une version rouverte après l'envoi n'envoie que l'écart (lot correctif).
+  Les heures non réalisées ne partent jamais.
 - Astreintes terminées : heures d'astreinte du mois (AST_H, réparties entre les mois de la période) et périodes (AST_PER,
   au mois de leur début). Rubriques désactivées tant que la paie n'a pas donné leurs codes : listées « À saisir dans Sage »
   dans le résumé du lot et l'export des variables. La compensation (AST_COMP : montant, ou repos) suivra l'accord sur les
@@ -631,6 +851,11 @@ questions encore ouvertes).
   solidarité ») : lundi de Pentecôte chômé et tous les fériés chômés par défaut ; la modalité retenue après avis du CSE
   (Pentecôte ou autre férié de semaine travaillé, fractionnée ou sur un RTT) se règle année par année, sans effet sur les années
   passées. Une année déjà engagée (absences transmises à la paie, congés clôturés) ne se modifie qu'avec un motif.
+- **Forfait annuel en heures** (lot 12) : codes Sage de HFA25, HFA50, HCA10 et HCA25 ; imputation des heures au-delà du
+  forfait sur le contingent et la contrepartie en repos (désactivée en attendant) ; accord sur la période de référence,
+  les majorations et les absences déduites, à référencer dans Paramètres → Décompte des heures. Le forfait 2026 se clôt
+  à la main dans Sage : Cursus suit à partir du 1er janvier 2027 (contrats des non-cadres et des forfaits sous 1 607 h à
+  vérifier).
 
 ### Organisation et reprise
 

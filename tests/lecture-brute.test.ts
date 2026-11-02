@@ -100,12 +100,12 @@ test('assembler est pur : lecture brute gelée intacte, même Dataset que loadFu
   const db = await demo();
   for (const u of [RH_ADMIN, HSE]) {
     const full = await loadFull(db, u);
-    const brut = geler(await db.lecture(async () => await lireBrut(db)));
+    const brut = geler(await db.lecture(async () => await lireBrut(db, '2026-10-10')));
     const ds = assembler(brut, full.today, full.revision, u);
     const { absencesPaie: _a, deplacementsPaie: _d, ...attendu } = full;
     assert.deepStrictEqual(ds, attendu, u.profilRh);
   }
-  const brut = geler(await db.lecture(async () => await lireBrut(db)));
+  const brut = geler(await db.lecture(async () => await lireBrut(db, '2026-10-10')));
   const a = assembler(brut, '2026-10-10', 1, HSE);
   // Même lecture brute : chaque dérivé est repris tel quel (mêmes objets), seuls les champs de tête changent.
   const b = assembler(brut, '2026-10-10', 2, RH_ADMIN);
@@ -132,7 +132,7 @@ test('assembler est pur : lecture brute gelée intacte, même Dataset que loadFu
 
 test('jointure des employés et de leurs titres : la même que le filtre par salarié', async () => {
   const db = await demo();
-  const brut = await db.lecture(async () => await lireBrut(db));
+  const brut = await db.lecture(async () => await lireBrut(db, '2026-10-10'));
   const ds = assembler(brut, '2026-10-10', 1, RH_ADMIN);
   const certs = brut.certifications.filter(c => !c.annuleLe), annulees = brut.certifications.filter(c => c.annuleLe);
   assert.equal(ds.employes.length, brut.employes.length);
@@ -154,7 +154,7 @@ test('jours des sessions : un changement du seul calendrier des fériés les rec
   const formation = (await db.all<{ formation: string }>('sessions'))[0].formation;
   await db.tx(async () => { await db.insert('sessions', { formation, date: '2027-11-10', fin: '2027-11-12', jours: [], horaires: [], lieu: 'Site', places: 8, statut: 'À confirmer', planId: null, bilan: null }); });
   const joursDe = (ds: { sessions: { date: string; jours: string[] }[] }) => ds.sessions.find(s => s.date === '2027-11-10')?.jours;
-  const brut = geler(await db.lecture(async () => await lireBrut(db)));
+  const brut = geler(await db.lecture(async () => await lireBrut(db, '2026-10-10')));
   const a = assembler(brut, '2026-10-10', 1, HSE);
   assert.deepEqual(joursDe(a), ['2027-11-10', '2027-11-12']);
   // Delta qui ne touche que le réglage du calendrier (table `settings` relue) : 11 novembre 2027 non chômé.
@@ -195,4 +195,27 @@ test('résumés de la paie : une absence validée change les absences en attente
   const apres = await loadFull(db, RH_ADMIN);
   assert.notDeepStrictEqual(apres.absencesPaie, avant.absencesPaie, 'absences en attente du fichier de paie changées');
   assert.ok(DEP_PAIE.includes('absences'));
+});
+
+// lot 12 — C2 (notes de frais : activation) : fenêtre de 13 mois après paiement.
+test('fenêtre des notes de frais : aucune note payée avant la borne, ni ses dépenses ni leurs justificatifs ; la note payée le jour de la borne reste', async () => {
+  const { BORNE_ESSAI, notesArchivees } = await import('./support/frais-archives.ts');
+  const { borneFrais } = await import('../shared/rules/frais-fenetre.ts');
+  assert.equal(borneFrais('2026-10-10'), BORNE_ESSAI);
+  const db = await demo();
+  const a = await notesArchivees(db);
+  const brut = await db.lecture(async () => await lireBrut(db, '2026-10-10'));
+  assert.ok(brut.notesFrais.every(n => !(n.statut === 'payee' && n.payeeLe && n.payeeLe < borneFrais(brut.jour))), 'aucune note payée avant la borne');
+  const notes = new Set(brut.notesFrais.map(n => n.id));
+  for (const id of [a.archivee, a.medicale, a.thomas, a.nadia]) assert.ok(!notes.has(id), `note ${id} archivée`);
+  assert.ok(notes.has(a.bord), 'payée le jour de la borne : encore dans la fenêtre');
+  assert.ok(brut.lignesFrais.every(l => notes.has(l.noteId)), 'dépenses des seules notes retenues');
+  assert.ok(brut.lignesFrais.some(l => l.id === a.ligneBord));
+  const lignes = new Set(brut.lignesFrais.map(l => l.id));
+  assert.ok(brut.pieces.filter(p => p.objet === 'ligneFrais' || p.objet === 'ligneFraisSante').every(p => lignes.has(p.objetId!)), 'justificatifs des seules dépenses retenues');
+  assert.deepEqual(brut.pieces.filter(p => [a.pieceRepas, a.pieceMedicale, a.pieceBord].includes(p.id)).map(p => p.id), [a.pieceBord]);
+  // En base, tout reste : conservation comptable, historique à la demande.
+  assert.equal((await db.all('notesFrais')).length, brut.notesFrais.length + 4);
+  // Le service RH reçoit l'instantané fenêtré, comme tous.
+  assert.ok(!(await loadFull(db, RH_ADMIN)).notesFrais!.some(n => n.id === a.archivee));
 });

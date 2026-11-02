@@ -3,8 +3,8 @@ import { ENT_TYPES } from '../constants.ts';
 import { addD, addM, parse } from '../dates.ts';
 import { fmt, fmtIso, norm } from '../format.ts';
 import type { Domain } from '../domain.ts';
-import type { Dataset, Employe, Entretien, EntretienType, ISODate } from '../types.ts';
-import { campagne, concerneParCampagne } from './campagne.ts';
+import type { Dataset, Employe, Entretien, EntretienType, ISODate, Settings } from '../types.ts';
+import { campagne, concerneParCampagne, jourEtMois } from './campagne.ts';
 import type { Conflit } from './conflits.ts';
 import { present } from './contrats.ts';
 import { ageAu } from './mineurs.ts';
@@ -27,6 +27,13 @@ export const statutObligation = (o: Pick<Obligation, 'st' | 'pl'>): [string, str
   o.pl && o.st === 'late' ? ['Planifié, date dépassée', 'tag-accent'] : ENT_ST[o.st];
 
 /** « de congé parental », « d’absence longue » : élision devant une voyelle. */
+// lot 12 — C3 (entretiens suivis)
+/** Fenêtre du point de mi-année de l'année `annee`, quand le réglage le rend obligatoire ; null s'il reste facultatif. */
+export function miAnnee(s: Settings, annee: number): { debut: ISODate; fin: ISODate; libelle: string } | null {
+  if (!s.pointMiAnneeActif) return null;
+  return { debut: `${annee}-${s.pointMiAnneeDebut}`, fin: `${annee}-${s.pointMiAnneeFin}`, libelle: `Point de mi-année ${annee} — du ${jourEtMois(s.pointMiAnneeDebut)} au ${jourEtMois(s.pointMiAnneeFin)}` };
+}
+
 const de = (s: string) => /^[aeiouy]/.test(norm(s)) ? `d’${s}` : `de ${s}`;
 
 export function obligations(d: Domain, scopeIds: number[]): Obligation[] {
@@ -87,6 +94,14 @@ export function obligations(d: Domain, scopeIds: number[]): Obligation[] {
       out.push({ id, e, kind: 'annuel', due: camp.fin, pl: depasse, st: 'late', detail: camp.libelle });
     } else if (Ti >= camp.visibleDes && concerneParCampagne(d, e, camp) && present(e, camp.fin) && !annuels.length) {
       out.push({ id, e, kind: 'annuel', due: camp.fin, st: 'todo', detail: camp.libelle });
+    }
+    // lot 12 — C3 (entretiens suivis) : point de mi-année, facultatif sauf réglage `pointMiAnneeActif` ; dû alors dans sa
+    // fenêtre de l'année (du 1er mai au 15 juillet par défaut), pour la population de la campagne annuelle, affiché dès
+    // son ouverture ; un point de mi-année de l'année déjà tenu, ou planifié, le couvre. Le point de suivi n'est jamais dû.
+    const pm = miAnnee(d.ds.settings, Y);
+    if (pm && Ti >= pm.debut && concerneParCampagne(d, e, camp) && present(e, pm.fin)
+      && !list.some(x => x.type === 'mi_annee' && x.statut === 'realise' && x.date >= `${Y}-01-01`)) {
+      push('mi_annee', pm.fin, pm.libelle);
     }
   });
   return out;

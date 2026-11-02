@@ -8,7 +8,7 @@
 import type { Domain } from '../domain.ts';
 import type { LigneFrais, NoteFrais } from '../types.ts';
 import { sejoursPaie } from './deplacements-paie.ts';
-import { doublonsDe, doublonsEmpreinte, lignesDe } from './frais.ts';
+import { doublonsEmpreinte, indexDoublons, lignesDe } from './frais.ts';
 import { cumulsForfait, joursForfait, joursSejour } from './frais-cumul.ts';
 import { limitesIk } from './frais-paie.ts';
 import { type AlerteFrais, alertesLigne } from './frais-politique.ts';
@@ -16,13 +16,27 @@ import { type AlerteFrais, alertesLigne } from './frais-politique.ts';
 /** Ce que les alertes lisent de tout l'instantané, préparé une fois pour plusieurs notes. */
 interface Preparation {
   sejours: ReturnType<typeof sejoursPaie>;
-  pieces: NonNullable<Domain['ds']['pieces']>;
+  /** Justificatifs en vigueur par ligne (lot 12 — C2 : comptés une fois, plutôt qu'un parcours de toutes les pièces par ligne). */
+  justificatifs: Map<number, number>;
   parEmpreinte: number[][];
   limites: ReturnType<typeof limitesIk>;
+  /** Doublons par clé (salarié, date, montant, commerçant), indexés une fois (lot 12 — C2). */
+  doublons: ReturnType<typeof indexDoublons>;
 }
+
+/** Nombre de justificatifs de chaque ligne. */
+function compterParLigne(pieces: readonly { objetId: number }[]): Map<number, number> {
+  const m = new Map<number, number>();
+  for (const x of pieces) m.set(x.objetId, (m.get(x.objetId) ?? 0) + 1);
+  return m;
+}
+
 function preparer(d: Domain): Preparation {
   const pieces = (d.ds.pieces ?? []).filter(x => (x.objet === 'ligneFrais' || x.objet === 'ligneFraisSante') && !x.retireeLe);
-  return { sejours: sejoursPaie(d), pieces, parEmpreinte: doublonsEmpreinte(pieces.map(x => ({ ligneId: x.objetId, empreinte: x.empreinte }))), limites: limitesIk(d) };
+  return {
+    sejours: sejoursPaie(d), justificatifs: compterParLigne(pieces), parEmpreinte: doublonsEmpreinte(pieces.map(x => ({ ligneId: x.objetId, empreinte: x.empreinte }))), limites: limitesIk(d),
+    doublons: indexDoublons(d.ds.lignesFrais ?? [], d.ds.notesFrais ?? []),
+  };
 }
 
 function alertesAvec(d: Domain, p: Preparation, n: Pick<NoteFrais, 'id' | 'empId'>, lignes: readonly LigneFrais[]): Map<number, AlerteFrais[]> {
@@ -34,9 +48,9 @@ function alertesAvec(d: Domain, p: Preparation, n: Pick<NoteFrais, 'id' | 'empId
   for (const l of lignes) {
     // Limite d'exonération d'après le cumul ordonné de l'année (recalculé : saisie dans le désordre, refus, barème).
     const limiteIk = l.categorie === 'ik' ? p.limites(l) : undefined;
-    const doublons = [...new Set([...doublonsDe(l, d.ds.lignesFrais ?? [], d.ds.notesFrais ?? []), ...p.parEmpreinte.filter(g => g.includes(l.id)).flat().filter(id => id !== l.id)])];
+    const doublons = [...new Set([...p.doublons(l), ...p.parEmpreinte.filter(g => g.includes(l.id)).flat().filter(id => id !== l.id)])];
     out.set(l.id, alertesLigne(l, {
-      settings: d.ds.settings, today: d.ti, justificatifs: p.pieces.filter(x => x.objetId === l.id).length, forfaits: d.ds.referentiels.forfaitsFrais,
+      settings: d.ds.settings, today: d.ti, justificatifs: p.justificatifs.get(l.id) ?? 0, forfaits: d.ds.referentiels.forfaitsFrais,
       limiteIk, absent: absent(l.date), cumul: cumuls.get(l.id) ?? null, doublons,
     }));
   }

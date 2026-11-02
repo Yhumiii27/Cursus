@@ -13,6 +13,8 @@ import { useDomain, useRole } from '../../state/derived.ts';
 import { useStore } from '../../state/store.tsx';
 import { Ouvrir } from '../Cliquable.tsx';
 import { Btn, Empty, Fine, Kpi, Kpis, Panel, Tag, Two } from '../ui.tsx';
+// lot 12 — C2 (notes de frais : activation)
+import { DetailHistorique } from './Historique.tsx';
 import { clsAlerte, decideAvance, droitsNote, euros, justificatifs, nomNote, rattachement, STATUTS_AVANCE, syntheseNote } from './commun.ts';
 
 /** Liste de notes : une ligne par note (salarié si `avecNom`, mois, statut, dépenses, total) ; un clic ouvre le détail. */
@@ -29,7 +31,7 @@ export function ListeNotes({ notes, avecNom, vide }: { notes: readonly NoteFrais
           <div key={n.id} className="list-row top clickable" onClick={ouvrir} style={{ gap: 'var(--space-3)', flexWrap: 'wrap' }}>
             <div style={{ flex: '1 1 220px', minWidth: 0 }}>
               <Ouvrir pressed={sel} onOpen={ouvrir}>{avecNom ? `${d.personName(n.empId)} — ` : ''}{nomNote(n)}</Ouvrir>
-              <div className="text-muted sub">{rattachement(d, n) || 'Sans rattachement'} · {plural(s.nb, 'dépense', 'dépenses')}{s.refusees ? ` · ${plural(s.refusees, 'refusée', 'refusées')}` : ''}</div>
+              <div className="text-muted sub">{rattachement(d, n) || 'Sans rattachement'} · {plural(s.nb, 'dépense', 'dépenses')}{s.refusees ? ` · ${plural(s.refusees, 'refusée', 'refusées')}` : ''}{s.detail ? '' : ' · détail à la demande'}</div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
               {s.bloquantes > 0 && <Tag cls="tag-accent">{plural(s.bloquantes, 'point bloquant', 'points bloquants')}</Tag>}
@@ -52,6 +54,9 @@ export function DetailNote({ id, onClose }: { id: number; onClose: () => void })
   const n = (d.ds.notesFrais ?? []).find(x => x.id === id);
   if (!n) return null;
   const s = syntheseNote(d, n), dr = droitsNote(d, user, n), nom = d.personName(n.empId);
+  // lot 12 — C2 : note payée depuis plus de 2 mois, sans ses dépenses dans l'instantané : détail chargé à la demande, en
+  // lecture (plus aucune action sur une note payée).
+  if (!s.detail) return <DetailHistorique id={n.id} onClose={onClose} />;
   const soi = n.empId === user.empId;
   const st = STATUTS_NOTE_FRAIS[n.statut];
   const circuit = [

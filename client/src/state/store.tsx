@@ -20,7 +20,7 @@ import type { ReferentielId } from '../../../shared/rules/referentiels.ts';
 // lot 11 — indicateurs
 import type { GroupeIndicateurs } from '../../../shared/rules/indicateurs-legaux.ts';
 import type { OngletIndicateurs } from '../pages/indicateurs-onglets.ts';
-import type { CompteSession, Dataset, EntretienType, ISODate, MotifVisite, ObjetPiece, PlanStatut, ProfilRh, Role, VaccinId } from '../../../shared/types.ts';
+import type { CompteSession, Dataset, EntretienType, ISODate, MotifVisite, ObjetPiece, PlanStatut, ProfilRh, Role, VaccinId, ZonePointage } from '../../../shared/types.ts';
 import type { RepondantEvaluation, TypeEvaluation } from '../../../shared/types.ts';
 // lot 11 — dossiers OPCO
 import type { CodeOpco, DispositifOpco, NaturePiece } from '../../../shared/types.ts';
@@ -28,6 +28,17 @@ import type { EtapeOpco } from '../../../shared/rules/opco.ts';
 // lot 11 — notes de frais
 import type { TypeVehicule } from '../../../shared/types.ts';
 import type { OngletFrais } from '../components/frais/onglets.ts';
+// lot 12 — socle : onglets de l'écran Temps de travail.
+import type { OngletTemps } from '../pages/temps-onglets.ts';
+// lot 12 — C1 (forfait annuel en heures)
+// lot 12 — C2 (notes de frais : activation)
+// lot 12 — C3 (entretiens suivis et 360°)
+import type { OngletEntretiens } from '../pages/entretiens-onglets.ts';
+import type { ModeObjectif } from '../dialogs/ObjectifDialog.tsx';
+// lot 12 — C4 (organismes de formation et e-learning)
+import type { FiltreElearning, FiltreOrganismes, OngletFormations } from '../components/organismes/etat.ts';
+// lot 12 — C5 (planning d'équipe)
+// lot 12 — C6 (badgeage virtuel)
 import { api, definirEspaceOnglet, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type NomAction, type SessionState } from '../api.ts';
 import type { Tri } from '../components/tri.ts';
 import { AppelsEnCours } from './actions.ts';
@@ -66,7 +77,9 @@ export interface UiState {
   weekStart: ISODate | null;
   tsEmp: number | null;
   /** Onglet de l'écran Référentiels (`entites` : Entités et sites, lot 11). */
-  refOnglet: ReferentielId | 'postes' | 'activites' | 'horaires' | 'entites';
+  refOnglet: ReferentielId | 'postes' | 'activites' | 'horaires' | 'entites' | /* lot 12 — C4 */ 'organismes' | 'modules'
+    // lot 12 — C5 (planning d'équipe) : cycles de roulement et besoins par poste (pages/ReferentielsCycles.tsx).
+    | 'cycles' | 'besoins';
   /** Saisie des heures jour par jour (téléphone, tablette) : jour affiché, du lundi (0) au dimanche (6) ; null : le jour courant. */
   tsJour: number | null;
   /** Tri choisi par un clic sur un en-tête, par liste (components/tri.ts) ; absent : l'ordre par défaut de l'écran. */
@@ -75,6 +88,10 @@ export interface UiState {
   /** Organigramme : entité (code) et site (code) filtrés ; null : tous. */
   orgEntite: string | null;
   orgSite: string | null;
+  // lot 12 — C7 (organigramme)
+  /** Organigramme : service choisi (nom d'équipe ; null : tous) et présentation (liste indentée ou arbre vertical). */
+  orgService: string | null;
+  orgVue: 'liste' | 'graphique';
   // lot 11 — indicateurs
   /** Écran Indicateurs sociaux (pages/Indicateurs.tsx) : onglet, année civile (null : l'année en cours) et groupement. */
   indOnglet: OngletIndicateurs;
@@ -92,6 +109,27 @@ export interface UiState {
   /** Onglet de l'écran Notes de frais (selon l'espace : components/frais/onglets.ts) et note ouverte. */
   fraisOnglet: OngletFrais;
   fraisNote: number | null;
+  // lot 12 — socle
+  /** Onglet de l'écran Temps de travail (pages/temps-onglets.ts) : les feuilles, ou celui d'un chantier du lot 12. */
+  tempsOnglet: OngletTemps;
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  /** Écran Entretiens : onglet (échéances, objectifs de l'équipe, points de suivi), filtres de l'onglet Objectifs. */
+  entOnglet: OngletEntretiens;
+  objStatut: 'tous' | 'ouverts' | 'proposes' | 'evalues';
+  objEcheance: 'toutes' | 'proches' | 'depassees';
+  // lot 12 — C4 (organismes de formation et e-learning)
+  /** Référentiels → Organismes : fiche ouverte, filtre de la liste (components/organismes/etat.ts). */
+  orgSel: number | null;
+  orgFiltre: FiltreOrganismes;
+  /** Formations : onglet (sessions, e-learning) et filtre des inscriptions de l'onglet E-learning. */
+  formOnglet: OngletFormations;
+  elFiltre: FiltreElearning;
+  // lot 12 — C5 (planning d'équipe)
+  /** Onglet Planning d'équipe de Temps de travail (components/planning/PlanningEquipe.tsx) : équipe affichée (null : la première). */
+  planEquipe: string | null;
+  // lot 12 — C6 (badgeage virtuel)
 }
 
 /** lot 11 — dossiers OPCO : filtre d'état de l'onglet « Dossiers OPCO ». */
@@ -105,12 +143,25 @@ const INITIAL_UI: UiState = {
   tris: {},
   // lot 11 — organigramme
   orgEntite: null, orgSite: null,
+  // lot 12 — C7 (organigramme)
+  orgService: null, orgVue: 'liste',
   // lot 11 — indicateurs
   indOnglet: 'effectifs', indAnnee: null, indGroupe: 'aucun',
   // lot 11 — dossiers OPCO
   budgetOnglet: 'plan', opcoFiltre: 'tous', opcoCode: null, opcoDispositif: null, opcoSel: null,
   // lot 11 — notes de frais
   fraisOnglet: 'premier', fraisNote: null,
+  // lot 12 — socle
+  tempsOnglet: 'feuilles',
+  // lot 12 — C1 (forfait annuel en heures)
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°)
+  entOnglet: 'echeances', objStatut: 'tous', objEcheance: 'toutes',
+  // lot 12 — C4 (organismes de formation et e-learning)
+  orgSel: null, orgFiltre: 'tous', formOnglet: 'sessions', elFiltre: 'ouvertes',
+  // lot 12 — C5 (planning d'équipe)
+  planEquipe: null,
+  // lot 12 — C6 (badgeage virtuel)
 };
 
 /** Dialogues ouverts depuis plusieurs écrans — rendus par <DialogHost />. */
@@ -237,7 +288,52 @@ export type DialogState =
   | { type: 'fraisPlafond'; id: number }
   | { type: 'fraisTaux' }
   | { type: 'fraisForfait'; annee: number }
-  | { type: 'fraisBareme'; annee: number; vehicule: TypeVehicule };
+  | { type: 'fraisBareme'; annee: number; vehicule: TypeVehicule }
+  // lot 12 — C1 (forfait annuel en heures)
+  /** Clôture du forfait annuel en heures (`periode` : début de la période de référence ; null : toutes les plages à clôturer). */
+  | { type: 'clotureForfaitHeures'; periode: string | null }
+  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C3 (entretiens suivis et 360°) : objectif (fixer, proposer, modifier, ajuster), avancement, évaluation, souhait
+  // de formation ; `retour` : compte rendu d'où le dialogue est ouvert, rouvert ensuite.
+  | { type: 'objectif'; mode: ModeObjectif; entretienId?: number; id?: number; retour?: number }
+  | { type: 'objectifAvancer'; id: number; retour?: number }
+  | { type: 'objectifEvaluer'; id: number; entretienId: number; retour?: number }
+  | { type: 'souhait'; entretienId: number; cle?: string }
+  // Feedback 360° (étape 3) : répondants proposés (salarié) ou sollicités (évaluateur) ; avis du répondant (jamais gardé
+  // sur l'appareil : state/brouillon.ts).
+  | { type: 'feedback360Solliciter'; entretienId: number; retour?: number }
+  | { type: 'avis360'; id: number }
+  // lot 12 — C4 (organismes de formation et e-learning) : fiche (identité et Qualiopi), conditions commerciales, contact,
+  // tarif, fusion d'un doublon ; module d'e-learning, inscription, fin validée, correction, import d'avancement.
+  | { type: 'organisme'; id?: number | null }
+  | { type: 'organismeConditions'; id: number }
+  | { type: 'organismeContact'; organismeId: number; id?: number | null }
+  | { type: 'organismeTarif'; organismeId: number; id?: number | null }
+  | { type: 'organismeFusion'; source: number }
+  | { type: 'moduleElearning'; id?: number | null }
+  | { type: 'elearningInscrire'; moduleId?: number | null; empId?: number | null; planActionId?: number | null }
+  | { type: 'elearningTerminer'; id: number }
+  | { type: 'elearningCorriger'; id: number }
+  | { type: 'elearningImport' }
+  // lot 12 — C5 (planning d'équipe) (dialogs/Planning*Dialog.tsx, RefCycleDialog.tsx, RefBesoinDialog.tsx) : générer et publier
+  // le planning d'une équipe, ajouter ou modifier un créneau (`id`), affecter au roulement ou terminer une affectation (`id`),
+  // proposer un échange (collaborateur), valider un échange, reprendre les équipes par quart ; cycle et besoin de poste.
+  | { type: 'planningGenerer'; equipe: string; du?: ISODate | null }
+  | { type: 'planningPublier'; equipe: string; du: ISODate; au: ISODate }
+  | { type: 'planningCreneau'; equipe: string; jour: ISODate; empId: number | null; id?: number | null }
+  | { type: 'planningRoulement'; equipe: string; empId?: number | null; id?: number | null }
+  | { type: 'planningEchange'; creneauId: number }
+  | { type: 'planningEchangeValider'; id: number }
+  | { type: 'planningReprise' }
+  | { type: 'refCycle'; code?: string | null }
+  | { type: 'refBesoin'; id?: number | null; equipe?: string | null }
+  // lot 12 — C6 (badgeage virtuel) : demande ou saisie d'une correction de pointage (ajout d'un pointage oublié, retrait
+  // d'un pointage erroné : `pointageId`, `jour` du pointage visé) ; horaire variable d'un horaire du référentiel.
+  | { type: 'correctionPointage'; empId: number; nature: 'ajout' | 'neutralisation'; pointageId?: number; jour?: ISODate; heure?: string; sens?: 'E' | 'S' }
+  | { type: 'horaireVariable'; code: string }
+  // Étape 3 : zone de la géolocalisation au pointage (création, ou modification de `zone`), Paramètres → Badgeage.
+  | { type: 'zonePointage'; zone?: ZonePointage }
+  ;
 
 /** Dialogue « Planifier » : rouvert après la création d'une session (t107). */
 export type DialogePlan = { type: 'plan'; empId: number; certId?: number; inscriptionId?: number };
@@ -547,8 +643,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const fermee = (rawView === 'organigramme' && !!data && !organigrammeOuvertA(data.settings.organigrammeOuvert, role))
     // lot 11 — notes de frais : module désactivé (réglage notesFraisActives) → page d'accueil (la comptabilité, qui n'a que
     // cet écran, y lit que le module est désactivé).
-    || (rawView === 'frais' && !!data && !data.settings.notesFraisActives);
+    || (rawView === 'frais' && !!data && !data.settings.notesFraisActives)
+    // lot 12 — blocs réservés (socle) : vue d'un module désactivé (réglage du chantier) → page d'accueil.
+    // lot 12 — C1 (forfait annuel en heures)
+    // lot 12 — C2 (notes de frais : activation)
+    // lot 12 — C3 (entretiens suivis et 360°) : « Mes objectifs », objectifs non suivis (réglage objectifsActifs).
+    || (rawView === 'objectifs' && !!data && !data.settings.objectifsActifs)
+    // Feedback 360° (étape 3) : « Avis demandés », module désactivé (réglage feedback360Actif).
+    || (rawView === 'avis' && !!data && !data.settings.feedback360Actif)
+    // lot 12 — C4 (organismes de formation et e-learning)
+    // lot 12 — C5 (planning d'équipe) : « Mon planning », module désactivé (réglage planningActif).
+    || (rawView === 'planning' && !!data && !data.settings.planningActif)
+    // lot 12 — C6 (badgeage virtuel) : module désactivé (réglage pointageActif) → page d'accueil.
+    || (rawView === 'pointages' && !!data && !data.settings.pointageActif)
+    ;
   const view = allowedView(role, fermee ? '' : rawView, role === 'rh' ? data?.settings.vueInitiale : undefined, (data ?? session)?.user?.profilRh);
+  // lot 12 — C6 (badgeage virtuel) : le raccourci « Pointer » du manifeste (statique) se montre même module inactif ; son
+  // ouverture ne renvoie pas à l'accueil en silence.
+  const pointageFerme = rawView === 'pointages' && !!data && !data.settings.pointageActif;
+  useEffect(() => { if (pointageFerme) notify('Le pointage n’est pas activé pour vous : votre temps se déclare sur la feuille de temps'); }, [pointageFerme, notify]);
 
   // Synchronise l'URL avec la vue effectivement affichée, sa sélection et ses filtres (state/url.ts) : l'ouverture d'une
   // fiche dans la même vue ajoute une entrée à l'historique, tout autre changement remplace l'entrée courante (go a déjà

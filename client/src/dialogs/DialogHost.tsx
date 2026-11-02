@@ -89,6 +89,30 @@ import { FraisNoteDialog } from './FraisNoteDialog.tsx';
 import { FraisPlafondDialog } from './FraisPlafondDialog.tsx';
 import { FraisBaremeDialog, FraisForfaitDialog, FraisTauxDialog } from './FraisReferentielDialog.tsx';
 import { FraisVehiculeDialog } from './FraisVehiculeDialog.tsx';
+// lot 12 — C1 (forfait annuel en heures)
+import { ClotureForfaitHeuresDialog } from './ClotureForfaitHeuresDialog.tsx';
+// lot 12 — C2 (notes de frais : activation)
+// lot 12 — C3 (entretiens suivis et 360°)
+import { ObjectifAvancerDialog } from './ObjectifAvancerDialog.tsx';
+import { ObjectifDialog } from './ObjectifDialog.tsx';
+import { ObjectifEvaluerDialog } from './ObjectifEvaluerDialog.tsx';
+import { SouhaitDialog } from './SouhaitDialog.tsx';
+import { Avis360Dialog } from './Avis360Dialog.tsx';
+import { Feedback360SolliciterDialog } from './Feedback360SolliciterDialog.tsx';
+// lot 12 — C4 (organismes de formation et e-learning)
+import { ElearningCorrigerDialog, ElearningInscrireDialog, ElearningTerminerDialog } from './ElearningDialogs.tsx';
+import { ElearningImportDialog } from './ElearningImportDialog.tsx';
+import { ModuleElearningDialog } from './ModuleElearningDialog.tsx';
+import { OrganismeContactDialog, OrganismeTarifDialog } from './OrganismeContactDialog.tsx';
+import { OrganismeConditionsDialog, OrganismeDialog } from './OrganismeDialog.tsx';
+import { OrganismeFusionDialog } from './OrganismeFusionDialog.tsx';
+// lot 12 — C5 (planning d'équipe)
+import { PlanningCreneauDialog, PlanningEchangeDialog, PlanningEchangeValiderDialog, PlanningGenererDialog, PlanningPublierDialog, PlanningRepriseDialog, PlanningRoulementDialog } from './PlanningDialog.tsx';
+import { RefBesoinDialog, RefCycleDialog } from './RefCycleDialog.tsx';
+// lot 12 — C6 (badgeage virtuel)
+import { CorrectionPointageDialog } from './CorrectionPointageDialog.tsx';
+import { HoraireVariableDialog } from './HoraireVariableDialog.tsx';
+import { ZonePointageDialog } from './ZonePointageDialog.tsx';
 import { OpcoVersementDialog } from './OpcoVersementDialog.tsx';
 
 export function DialogHost() {
@@ -193,5 +217,40 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'fraisTaux': return <FraisTauxDialog />;
     case 'fraisForfait': return <FraisForfaitDialog {...d} />;
     case 'fraisBareme': return <FraisBaremeDialog {...d} />;
+    // lot 12 — C1 (forfait annuel en heures)
+    case 'clotureForfaitHeures': return <ClotureForfaitHeuresDialog {...d} />;
+    // lot 12 — C2 (notes de frais : activation)
+    // lot 12 — C3 (entretiens suivis et 360°)
+    case 'objectif': return <ObjectifDialog {...d} />;
+    case 'objectifAvancer': return <ObjectifAvancerDialog {...d} />;
+    case 'objectifEvaluer': return <ObjectifEvaluerDialog {...d} />;
+    case 'souhait': return <SouhaitDialog {...d} />;
+    case 'feedback360Solliciter': return <Feedback360SolliciterDialog {...d} />;
+    case 'avis360': return <Avis360Dialog {...d} />;
+    // lot 12 — C4 (organismes de formation et e-learning)
+    case 'organisme': return <OrganismeDialog {...d} />;
+    case 'organismeConditions': return <OrganismeConditionsDialog {...d} />;
+    case 'organismeContact': return <OrganismeContactDialog {...d} />;
+    case 'organismeTarif': return <OrganismeTarifDialog {...d} />;
+    case 'organismeFusion': return <OrganismeFusionDialog {...d} />;
+    case 'moduleElearning': return <ModuleElearningDialog {...d} />;
+    case 'elearningInscrire': return <ElearningInscrireDialog {...d} />;
+    case 'elearningTerminer': return <ElearningTerminerDialog {...d} />;
+    case 'elearningCorriger': return <ElearningCorrigerDialog {...d} />;
+    case 'elearningImport': return <ElearningImportDialog />;
+    // lot 12 — C5 (planning d'équipe)
+    case 'planningGenerer': return <PlanningGenererDialog {...d} />;
+    case 'planningPublier': return <PlanningPublierDialog {...d} />;
+    case 'planningCreneau': return <PlanningCreneauDialog {...d} />;
+    case 'planningRoulement': return <PlanningRoulementDialog {...d} />;
+    case 'planningEchange': return <PlanningEchangeDialog {...d} />;
+    case 'planningEchangeValider': return <PlanningEchangeValiderDialog {...d} />;
+    case 'planningReprise': return <PlanningRepriseDialog />;
+    case 'refCycle': return <RefCycleDialog {...d} />;
+    case 'refBesoin': return <RefBesoinDialog {...d} />;
+    // lot 12 — C6 (badgeage virtuel)
+    case 'correctionPointage': return <CorrectionPointageDialog {...d} />;
+    case 'horaireVariable': return <HoraireVariableDialog {...d} />;
+    case 'zonePointage': return <ZonePointageDialog {...d} />;
   }
 }

@@ -289,7 +289,21 @@ test('t072 migration nommée : compteurs et reports d’une base existante daté
     // Lot 8, chantier D, étape 2 : pièces existantes notées en clair (chiffrement au repos).
     'lot8-pieces-chiffrees',
     // Lot 8, chantier E, étape 2 : index du journal par compte et par action.
-    'lot8-index-journal']);
+    'lot8-index-journal',
+    // Lot 12, chantier C1 : index des clôtures du forfait annuel en heures.
+    'lot12-forfait-heures',
+    // lot 12 — C2 (notes de frais : activation) : index de la fenêtre des notes de frais.
+    'lot12-frais-index',
+    // lot 12 — C3 (entretiens suivis) : index des objectifs, des demandes versées et du feedback 360°.
+    'lot12-entretiens-index',
+    // lot 12 — C4 : index des organismes et des inscriptions e-learning.
+    'lot12-organismes-index', 'lot12-elearning-index',
+    // lot 12 — C5 (planning d'équipe) : index du planning (cycles d'exemple déjà chargés par la démonstration).
+    'lot12-planning-equipe',
+    // lot 12 — C6 (badgeage virtuel) : index des pointages et des demandes de correction, pointages en ajouts seulement.
+    'lot12-badgeage-pointages',
+    // lot 12 — C2, étape 2 : scission des frais médicaux (dépenses médicales reprises, index).
+    'lot12-frais-sante']);
   const ds = await loadFull(db, ADMIN);
   assert.ok(ds.soldesReprise.every(s => s.arreteLe === '2026-10-10'), 'date de mise en service de cette version');
   const recu = ds.reports.find(r => r.empId === 6)!, accorde = ds.reports.find(r => r.empId === 2)!;

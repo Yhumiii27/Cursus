@@ -148,7 +148,9 @@ const TEXTES_GARDES: Record<string, readonly string[]> = {
   // Contrat : dates, nature et régime codés ; auteur (nom) balayé. La référence (texte libre) est vidée.
   contrats_historique: ['effet', 'nature', 'regime', 'jusquau', 'signe_le', 'le', 'par', 'annule_le', 'fin'],
   // Certification : code de formation, dates, inscriptions closes (identifiants) ; auteurs (noms) balayés.
-  certifications: ['f', 'obtenue', 'convoc', 'convoc_le', 'corrige_le', 'corrige_par', 'annule_le', 'annule_par', 'inscriptions_closes'],
+  certifications: ['f', 'obtenue', 'convoc', 'convoc_le', 'corrige_le', 'corrige_par', 'annule_le', 'annule_par', 'inscriptions_closes',
+    // lot 12 — C4 : organisme (saisi par Vigie sur le serveur commun), pas une donnée sur la personne.
+    'organisme'],
   // Titre d'habilitation : code, dates, mesure codée ; auteurs (noms) balayés. Le motif de la mesure est vidé.
   hab_titres: ['h', 'delivree', 'par', 'demande', 'mesure', 'mesure_date', 'mesure_par'],
   // Formation suivie : code, intitulé et organisme de la formation (pas une donnée sur la personne), dates, origine
@@ -160,7 +162,7 @@ const TEXTES_GARDES: Record<string, readonly string[]> = {
   // Demande de Keystone : chantier, destination, dates, référence, statut ; décideur (nom) balayé.
   demandes_keystone: ['chantier', 'dest', 'depart', 'retour', 'recue', 'ref', 'statut', 'decidee', 'decideur'],
   // Feuille : semaine, statut, heures et contrat figés, mode des heures supplémentaires, contrepartie en repos, horaires.
-  feuilles: ['week', 'statut', 'lignes', 'contrat', 'heures_sup', 'cor', 'horaires', 'horaires_figes'],
+  feuilles: ['week', 'statut', 'lignes', 'contrat', 'heures_sup', 'cor', 'horaires', 'horaires_figes', /* lot 12 — C6 : mode figé, pointé figé */ 'mode_temps', 'pointe_fige'],
   // Avenant de forfait : dates ; auteurs (noms) balayés.
   avenants_forfait: ['signe_le', 'cree_le', 'cree_par', 'annule_le', 'annule_par'],
   // Absence : type, dates, demi-journées et statut codés ; auteurs (noms) balayés.
@@ -175,6 +177,16 @@ const TEXTES_GARDES: Record<string, readonly string[]> = {
   attentes_session: ['le', 'par', 'statut', 'proposee_le', 'issue_le', 'issue_par', 'issue'],
   // Évaluation de formation : type, répondant et efficacité codés, date ; auteur (nom) balayé.
   evaluations_formation: ['type', 'repondant', 'efficacite', 'le', 'auteur'],
+  // lot 12 — C1 (forfait annuel en heures) : plage, motif de fin et statut codés, dates ; auteurs (noms) balayés.
+  clotures_forfait_heures: ['debut', 'fin', 'motif_fin', 'statut', 'confirmee_le', 'confirmee_par', 'rouverte_le', 'rouverte_par', 'annulee_le', 'annulee_par'],
+  // lot 12 — C4 : inscription à un module d'e-learning — dates, statut, source de l'avancement et réussite codés ; auteurs
+  // (noms) balayés.
+  inscriptions_elearning: ['inscrit_le', 'inscrit_par', 'echeance', 'statut', 'avancement_source', 'avancement_le', 'declare_le', 'termine_le', 'reussi',
+    'abandon_le', 'corrige_le', 'corrige_par', 'annule_le', 'annule_par'],
+  // lot 12 — C5 (planning d'équipe) : jour, équipe, horaire et heures, statut et origine codés, dates ; auteurs (noms) balayés.
+  creneaux: ['jour', 'equipe', 'horaire', 'debut', 'fin', 'source', 'statut', 'publie_le', 'publie_par', 'communique_le', 'cree_le', 'cree_par', 'modifie_le', 'modifie_par', 'annule_le', 'annule_par'],
+  roulements: ['cycle', 'groupe', 'du', 'au', 'equipe', 'cree_le', 'cree_par', 'fin_le', 'fin_par'],
+  echanges_poste: ['statut', 'cree_le', 'accepte_le', 'decide_le', 'decide_par'],
 };
 
 test('conservation : chaque colonne de texte libre d’une table gardée (mode « textes ») est vidée ou sur la liste blanche', async () => {
@@ -236,6 +248,19 @@ async function garnir(db: Db, fin: string) {
   await db.insert('pieces', { empId: 2, objet: 'voyage', objetId: 1, nom: 'billet Mehdi Benali.pdf', type: 'application/pdf', taille: 5, empreinte: 'e', fichier: 'c'.repeat(32), deposeLe: '2025-01-01T08:00:00.000Z', deposePar: 'Mehdi Benali' });
   await db.insert('envois', { cible: 'email', type: 'absence.decision', cle: 'essai-conservation', contenu: { a: ['mehdi.benali@entreprise.example'], objet: 'Congés', texte: 'Bonjour Mehdi Benali' }, statut: 'envoye', tentatives: 1, creation: '2025-01-01T08:00:00.000Z' });
   await db.insert('jetonsAgenda', { empId: 2, empreinte: 'f'.repeat(64), creeLe: '2025-01-01T08:00:00.000Z' });
+  // lot 12 — C3 (entretiens suivis) : objectif reconduit, demande versée depuis un souhait, feedback 360° comme évalué et
+  // comme répondant d'un autre salarié (réponse en attente comprise).
+  const ent = await db.insert<{ id: number }>('entretiens', { empId: 2, type: 'annuel', date: '2025-01-15', statut: 'realise', cr: { bilan: 'Mehdi Benali progresse' }, info: true, signSal: '2025-01-16', signMgr: '2025-01-15',
+    souhaits: [{ cle: 's1', f: null, libelle: 'Anglais pour Mehdi Benali', priorite: 'normale', objectifId: null, auteur: 'sal', avis: 'favorable', demandeId: null, verseLe: '2025-01-15', nonVerse: null }] });
+  const objectif = { empId: 2, entretienId: ent.id, evalueEntretienId: null, libelle: 'Objectif de Mehdi Benali', mesure: null, categorie: 'individuel', poids: null, echeance: null, avancement: 0, statut: 'reconduit', evaluation: 'Évaluation de Mehdi Benali', commentaireSal: null, creeLe: '2025-01-15T08:00:00.000Z', creePar: 'Karim Haddad' };
+  const parent = await db.insert<{ id: number }>('objectifs', { ...objectif, reconduitDe: null });
+  await db.insert('objectifs', { ...objectif, statut: 'ouvert', evaluation: null, reconduitDe: parent.id });
+  await db.insert('demandesCollab', { empId: 2, type: 'formation', libelle: 'Anglais', motif: 'Souhait exprimé à l’entretien du 15 janv. 2025', date: '2025-01-15', statut: 'attente', entretienId: ent.id });
+  const autre = await db.insert<{ id: number }>('entretiens', { empId: 6, type: 'annuel', date: '2026-11-20', statut: 'planifie', cr: {}, info: false, signSal: null, signMgr: null });
+  const sol = await db.insert<{ id: number }>('feedbackSollicitations', { empId: 6, entretienId: autre.id, repondantEmpId: 2, relation: 'pair', statut: 'envoyee', echeance: '2026-11-15' });
+  await db.insert('feedbackTampon', { sollicitationId: sol.id, contenu: 'chiffré', version: 'v1' });
+  await db.insert('feedbackSollicitations', { empId: 2, entretienId: ent.id, repondantEmpId: 6, relation: 'pair', statut: 'repondue' });
+  await db.insert('feedbackReponses', { id: 'c0ffee', empId: 2, entretienId: ent.id, relation: 'pair', versionQuestionnaire: 'v1', notes: { q1: 3 }, verbatim: 'Mehdi Benali est fiable' });
   // Autre salarié dont la ligne cite Mehdi comme auteur.
   await db.insert('absences', { empId: 6, type: 'ABSENCE', du: '2025-02-03', au: '2025-02-03', statut: 'signalee', keystone: false, justificatif: false, signaleLe: '2025-02-03', signalePar: 'Mehdi Benali' });
   await journaliser(db, { actor: 'Mehdi Benali', role: 'collaborateur', action: 'absence.demander', message: 'Demande de congés payés de Mehdi Benali', compte: { id: await compteDe(db, 2), identifiant: 'mehdi.benali@entreprise.example' } as never, salaries: [2] });

@@ -18,10 +18,20 @@ feu vert de chaque étape), le **responsable du serveur commun** (Matrix : socle
 
 ## 1. Décision préalable
 
-**Question Q1 (ouverte) : sur quelle base tourne la démonstration en ligne actuelle ?** Le propriétaire la vérifie dans
-Coolify (variables de l'application de démonstration : `DATABASE_URL` présente ou non). D'ici la bascule, une
-démonstration branchée sur le serveur commun est seulement signalée : avertissement au démarrage, état `degrade`
-(`demo-base-commune`) du point de santé ; elle n'est jamais arrêtée par Cursus.
+**Question Q1 (tranchée le 2 novembre 2026) : la démonstration en ligne tourne sur sa base SQLite, qui ne contient que
+des données de démonstration** (réponse du propriétaire). Conséquences :
+
+- **pas de `npm run reprise-postgres`** : il n'y a aucune donnée réelle à reprendre (la commande ne sert qu'à une base
+  SQLite en service avec de vraies données) ; la répétition du 2 novembre 2026 sur une copie de démonstration a
+  seulement éprouvé l'outil ;
+- **la production démarre vide** sur le serveur commun (`cursus-prod`, schéma `cursus`), puis reçoit les données de
+  Lucca (J0-3) ;
+- le schéma `cursus` du serveur commun ne porte pas la démonstration : l'étape J-1-2 (purge du schéma) est sans objet,
+  sauf si un essai y a été branché entre-temps (le vérifier : aucune table remplie dans `cursus`) ;
+- la démonstration reste en SQLite, dans son application, sans `DATABASE_URL`.
+
+D'ici la bascule, une démonstration branchée sur le serveur commun serait seulement signalée : avertissement au
+démarrage, état `degrade` (`demo-base-commune`) du point de santé ; elle n'est jamais arrêtée par Cursus.
 
 **Choix retenu : une nouvelle application Coolify `cursus-prod`, sur un volume neuf.** La démonstration reste à part,
 dans son application, en SQLite (sans `DATABASE_URL`), derrière l'authentification basique de Coolify, aux données

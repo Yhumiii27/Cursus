@@ -19,7 +19,8 @@ const { journaliserAction, preparerTrace } = await import('../server/src/journal
 const { Domain } = await import('../shared/domain.ts');
 const { SEUIL_ANONYMAT } = await import('../shared/rules/evaluation-formation.ts');
 const {
-  avertissementsPlan, comparatifFormation, exercicesGlissants, indicateursOrganismes, indicateursOrganismesAffiches, organismesASurveiller, relancesQualiopi,
+  avertissementsPlan, comparatifFormation, exercicesGlissants, indicateursOrganismes, indicateursOrganismesAffiches, indicateursOrganismesAgreges, organismesASurveiller,
+  relancesQualiopi,
 } = await import('../shared/rules/organismes-suivi.ts');
 const { filtrerInscriptions, filtrerOrganismes } = await import('../client/src/components/organismes/etat.ts');
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
@@ -129,11 +130,15 @@ test('évaluations consolidées : par fiche de la session (figée), plusieurs ex
   assert.equal(x.horizon, 3);
   assert.ok(!tous.some(i => i.organismeId === inrs && i.cumul.ligne.participants > 0), 'rien ne bascule vers le nouvel organisme du catalogue');
   assert.deepEqual(comparatifFormation(tous, 'sst', croix)[0], { organismeId: croix, ligne: x.parFormation.find(f => f.formation === 'sst')!.ligne });
-  // Vue agrégée : sous 3 réponses, ni moyenne (2026 : 2 avis) ; le cumul (5 avis) reste lisible.
-  const agregee = indicateursOrganismes(d, exercicesGlissants(d.ti), SEUIL_ANONYMAT).find(i => i.organismeId === croix)!;
+  // Vue agrégée : sous 3 réponses, ni moyenne (2026 : 2 avis) ; le cumul (5 avis) est masqué lui aussi, sinon il redonnerait
+  // la moyenne de 2026 (5 × 3,6 − 3 × 4) ; 2025 (3 avis) reste lisible.
+  const agregee = indicateursOrganismesAgreges(d, [3], SEUIL_ANONYMAT).find(i => i.organismeId === croix)!;
   assert.equal(agregee.exercices[2].ligne.moyenneChaud, null);
   assert.equal(agregee.exercices[2].ligne.masque, true);
-  assert.equal(agregee.cumul.ligne.moyenneChaud, 3.6);
+  assert.equal(agregee.exercices[1].ligne.moyenneChaud, 4);
+  assert.equal(agregee.cumul.ligne.moyenneChaud, null);
+  assert.equal(indicateursOrganismes(d, exercicesGlissants(d.ti), SEUIL_ANONYMAT).find(i => i.organismeId === croix)!.cumul.ligne.moyenneChaud, 3.6,
+    'masquage ligne par ligne seul : le cumul resterait lisible');
   // Instantané : le référent HSE et la lecture seule reçoivent les indicateurs calculés (3 et 5 exercices), sans aucun
   // avis nominatif ; le service RH les calcule lui-même ; manager et paie n'en reçoivent pas.
   for (const user of [u.hse, u.lecture]) {
@@ -148,16 +153,103 @@ test('évaluations consolidées : par fiche de la session (figée), plusieurs ex
   for (const user of [u.karim, u.paie]) assert.deepEqual((await buildSnapshot(db, user)).indicateursOrganismes ?? [], []);
 });
 
+type Indicateurs = import('../shared/rules/organismes-suivi.ts').IndicateursOrganisme;
+type Ligne = import('../shared/types.ts').LigneEvaluation;
+
+/**
+ * Aucune soustraction entre lignes publiées ne redonne un groupe de 1 à 2 réponses : cumul moins exercices lisibles,
+ * horizon long moins horizon court (cumul et formations), cumul moins formations lisibles ; pour les avis à chaud et à froid.
+ */
+function aucuneLigneRecalculable(liste: readonly Indicateurs[]) {
+  const dims: [string, (l: Ligne) => number, (l: Ligne) => boolean][] = [
+    ['chaud', l => l.chaud, l => l.chaud > 0 && l.moyenneChaud != null],
+    ['froid', l => l.froid, l => l.froid > 0 && l.tauxEfficacite != null],
+  ];
+  const sous = (n: number) => n > 0 && n < SEUIL_ANONYMAT;
+  for (const [nom, n, visible] of dims) {
+    for (const x of liste) {
+      for (const e of x.exercices) assert.ok(!(visible(e.ligne) && sous(n(e.ligne))), `${nom} : exercice ${e.exercice} lisible sous le seuil`);
+      if (visible(x.cumul.ligne)) {
+        assert.ok(!sous(x.exercices.reduce((k, e) => k + (n(e.ligne) > 0 && !visible(e.ligne) ? n(e.ligne) : 0), 0)), `${nom} : cumul moins exercices (${x.horizon})`);
+        assert.ok(!sous(n(x.cumul.ligne) - x.parFormation.reduce((k, f) => k + (visible(f.ligne) ? n(f.ligne) : 0), 0)), `${nom} : cumul moins formations (${x.horizon})`);
+      } else if (n(x.cumul.ligne) > 0 && x.parFormation.some(f => visible(f.ligne))) {
+        assert.notEqual(x.parFormation.reduce((k, f) => k + (visible(f.ligne) ? n(f.ligne) : 0), 0), n(x.cumul.ligne), `${nom} : cumul masqué recomposé par les formations (${x.horizon})`);
+      }
+      for (const y of liste.filter(y => y.organismeId === x.organismeId && y.horizon > x.horizon)) {
+        if (visible(x.cumul.ligne) && visible(y.cumul.ligne)) assert.ok(!sous(n(y.cumul.ligne) - n(x.cumul.ligne)), `${nom} : cumul ${y.horizon} moins cumul ${x.horizon}`);
+        for (const f of y.parFormation) {
+          const c = x.parFormation.find(g => g.formation === f.formation);
+          if (c && visible(c.ligne) && visible(f.ligne)) assert.ok(!sous(n(f.ligne) - n(c.ligne)), `${nom} : ${f.formation} ${y.horizon} moins ${x.horizon}`);
+        }
+      }
+    }
+  }
+}
+
+test('évaluations consolidées, vue agrégée : aucune ligne masquée ne se recalcule par différence (cumul, horizons, formations)', async () => {
+  const { db, u, code } = await fresh();
+  const croix = await code('CROIX-ROUGE-FRANCAISE');
+  // Session SST de la Croix-Rouge, présences, avis à chaud (note) et à froid (efficacité).
+  const session = async (date: string, avis: [number, number, 'efficace' | 'partielle' | 'non'][]) => {
+    const s = await db.insert<{ id: number }>('sessions', {
+      formation: 'sst', date, fin: date, jours: [date], horaires: [], lieu: 'Salle', places: 12, statut: 'Clôturée', planId: null, organismeId: croix,
+      bilan: { le: date, par: 'RH', note: null, commentaire: null, motif: null },
+    });
+    for (const [empId, note, efficacite] of avis) {
+      const p = await db.insert<{ id: number }>('participations', { sessionId: s.id, empId, present: true, resultat: 'acquis', certId: null });
+      const ev = { participationId: p.id, formationSuivieId: null, empId, repondant: 'salarie', commentaire: null, le: date, saisiPar: null, recueilli: false };
+      await db.insert('evaluationsFormation', { ...ev, type: 'chaud', note, efficacite: null });
+      await db.insert('evaluationsFormation', { ...ev, type: 'froid', note: null, efficacite });
+    }
+  };
+  // Cas 3 + 1 : 2025, trois avis (4, 5, 3 ; efficaces) ; 2026, un seul stagiaire (emp 5 : 1, « non »).
+  await session('2025-03-10', [[2, 4, 'efficace'], [3, 5, 'efficace'], [4, 3, 'efficace']]);
+  await session('2026-02-10', [[5, 1, 'non']]);
+  // 2023 (hors des 3 exercices, dans les 5) : un seul avis ; l'écart entre les deux horizons porterait sur lui.
+  await session('2023-05-10', [[6, 2, 'partielle']]);
+  const d = new Domain(await loadFull(db, u.gest));
+  const brut = indicateursOrganismes(d, exercicesGlissants(d.ti), SEUIL_ANONYMAT).find(i => i.organismeId === croix)!;
+  assert.deepEqual([brut.cumul.ligne.chaud, brut.cumul.ligne.non], [4, 1], 'sans masquage complémentaire, 2026 = cumul − 2025');
+  const liste = indicateursOrganismesAgreges(d, [3, 5], SEUIL_ANONYMAT);
+  aucuneLigneRecalculable(liste);
+  const trois = liste.find(i => i.organismeId === croix && i.horizon === 3)!, cinq = liste.find(i => i.organismeId === croix && i.horizon === 5)!;
+  assert.equal(trois.exercices.find(e => e.exercice === 2025)!.ligne.moyenneChaud, 4, 'un exercice d’au moins 3 avis reste lisible');
+  assert.equal(trois.exercices.find(e => e.exercice === 2025)!.ligne.efficaces, 3);
+  for (const x of [trois, cinq]) {
+    assert.equal(x.cumul.ligne.moyenneChaud, null);
+    assert.deepEqual([x.cumul.ligne.non, x.cumul.ligne.tauxEfficacite], [0, null]);
+    assert.equal(x.parFormation.find(f => f.formation === 'sst')!.ligne.moyenneChaud, null, 'la formation n’est que le cumul');
+  }
+  // Instantané du référent HSE et de la lecture seule : même garantie.
+  for (const user of [u.hse, u.lecture]) aucuneLigneRecalculable((await buildSnapshot(db, user)).indicateursOrganismes!);
+});
+
+test('session.creer : un choix d’organisme vide fige celui du catalogue, qui peut changer ensuite', async () => {
+  const { db, u, run, code } = await fresh();
+  const inrs = await code('INRS');
+  const avant = (await db.one<{ organisme_id: number | null }>(`SELECT organisme_id FROM formations WHERE id = 'sst'`))!.organisme_id;
+  assert.ok(avant != null && avant !== inrs, 'le catalogue SST indique une fiche');
+  for (const organismeId of ['', null]) {
+    const r = await run(u.gest, 'session.creer', { f: 'sst', date: '2026-12-01', lieu: 'Salle B', places: 8, organismeId });
+    assert.equal((await db.one<{ organisme_id: number | null }>('SELECT organisme_id FROM sessions WHERE id = ?', [r.result.id]))!.organisme_id, avant, `organismeId ${JSON.stringify(organismeId)}`);
+  }
+  // Le catalogue passe à l'INRS : les sessions créées gardent leur organisme.
+  await db.run(`UPDATE formations SET organisme_id = ?, organisme = 'INRS' WHERE id = 'sst'`, [inrs]);
+  const full = await loadFull(db, u.gest);
+  assert.ok(full.sessions.filter(x => x.date === '2026-12-01' && x.formation === 'sst').every(x => x.organismeId === avant));
+});
+
 test('plan : organisme prévu choisi par plan.modifier (motif, journal), retour au catalogue, marque Qualiopi de Plan & budget', async () => {
   const { db, u, run, code } = await fresh();
   const socotec = await code('SOCOTEC');
   const l = (await db.one<{ id: number }>(`SELECT id FROM plan_actions WHERE statut = 'prevu' AND f IS NOT NULL ORDER BY id LIMIT 1`))!;
   await assert.rejects(async () => await run(u.gest, 'plan.modifier', { id: l.id, organismeId: socotec, motif: '' }), (e: unknown) => e instanceof ActionError && /Motif/.test(e.message));
   const m = await run(u.gest, 'plan.modifier', { id: l.id, organismeId: socotec, motif: 'Prestataire changé' });
-  assert.match(m.message!, /organisme : Socotec/);
+  assert.match(m.message!, /organisme : SOCOTEC/, 'le code de la fiche, jamais son nom usuel');
   assert.equal((await db.one<{ organisme_id: number }>('SELECT organisme_id FROM plan_actions WHERE id = ?', [l.id]))!.organisme_id, socotec);
-  const j = (await db.query<{ payload: string }>(`SELECT payload FROM journal WHERE action = 'plan.modifier' ORDER BY id DESC LIMIT 1`))[0];
+  const j = (await db.query<{ payload: string; message: string | null }>(`SELECT payload, message FROM journal WHERE action = 'plan.modifier' ORDER BY id DESC LIMIT 1`))[0];
   const payload = typeof j.payload === 'string' ? JSON.parse(j.payload) : j.payload;
+  assert.ok(!`${j.message} ${JSON.stringify(payload)}`.includes('Socotec'), 'jamais le nom usuel de la fiche au journal');
   assert.ok(!JSON.stringify(payload).includes('Prestataire changé'), 'jamais le motif');
   assert.ok(JSON.stringify(payload).includes('organismeId'), 'le changement d’organisme est tracé');
   // Socotec échu le 30 septembre 2026 : marque de la ligne.

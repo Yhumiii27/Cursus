@@ -2,7 +2,8 @@
 // - Évaluations consolidées par organisme (fiche, `organisme_id`, et non plus par le texte) sur plusieurs exercices
 //   glissants (3 par défaut) et en cumul : sessions tenues ou annulées, stagiaires, avis à chaud et à froid, coût réel des
 //   actions du plan réalisées ; même masquage sous SEUIL_ANONYMAT que les indicateurs de l'exercice (vue agrégée du
-//   référent HSE et de la lecture seule, calculée par le serveur : server/src/vues-organismes.ts) ; jamais de commentaire.
+//   référent HSE et de la lecture seule, calculée par le serveur : server/src/vues-organismes.ts), complété pour qu'aucune
+//   soustraction entre lignes publiées ne redonne une ligne masquée (`masquageComplementaire`) ; jamais de commentaire.
 //   Les évaluations supprimées par la conservation ne sont plus comptées.
 // - Alertes Qualiopi : relance du service RH au premier palier réglé (`organismeAlerteQualiopiJours`, 60 jours), à 15
 //   jours, puis « échue » (récapitulatif des échéances, server/src/relances.ts) ; fiches à surveiller de l'onglet
@@ -116,6 +117,81 @@ export function indicateursOrganismes(d: Domain, exercices: readonly number[], s
       }),
     };
   });
+}
+
+/** Dimension d'une ligne masquée sous le seuil : nombre de réponses, valeur publiée ou non, masquage (comme `ligneEvaluation`). */
+interface DimensionMasquee { n: (l: LigneEvaluation) => number; visible: (l: LigneEvaluation) => boolean; masquer: (l: LigneEvaluation) => void }
+const DIMENSIONS: DimensionMasquee[] = [
+  // Avis à chaud : la moyenne.
+  { n: l => l.chaud, visible: l => l.chaud > 0 && l.moyenneChaud != null, masquer: l => { l.moyenneChaud = null; l.masque = true; } },
+  // Avis à froid : la répartition et le taux d'efficacité (le nombre de réponses reste affiché).
+  {
+    n: l => l.froid, visible: l => l.froid > 0 && l.tauxEfficacite != null,
+    masquer: l => { Object.assign(l, { efficaces: 0, partielles: 0, non: 0, tauxEfficacite: null }); l.masque = true; },
+  },
+];
+
+/**
+ * Masquage complémentaire de la vue agrégée (référent HSE, lecture seule) : masquer chaque ligne sous le seuil ne suffit
+ * pas, une soustraction entre lignes publiées redonnerait la ligne masquée (avec un seul répondant : son avis). Pour chaque
+ * dimension (avis à chaud, avis à froid), aucune différence calculable entre lignes publiées ne porte sur 1 à `seuil` − 1
+ * réponses :
+ * 1. cumul moins les exercices lisibles : le cumul est masqué si les exercices masqués réunissent moins de `seuil` réponses ;
+ * 2. horizon long moins horizon court (5 et 3 exercices), pour le cumul et pour chaque formation : la ligne de l'horizon long
+ *    est masquée si l'écart est sous le seuil ;
+ * 3. cumul moins les formations lisibles (les formations hors catalogue n'ont pas de ligne) : tant que le reste est sous le
+ *    seuil, la plus petite formation lisible est masquée à son tour ; pour un cumul masqué, tant que le reste n'atteint pas
+ *    le seuil (un reste nul recomposerait le cumul).
+ * Les lignes sont modifiées sur place (elles viennent d'être calculées par `indicateursOrganismes`).
+ */
+export function masquageComplementaire(liste: IndicateursOrganisme[], seuil: number): IndicateursOrganisme[] {
+  if (seuil <= 0) return liste;
+  const sous = (n: number) => n > 0 && n < seuil;
+  for (const dim of DIMENSIONS) {
+    // 1. Cumul et exercices.
+    for (const x of liste) {
+      const caches = x.exercices.reduce((n, e) => n + (dim.n(e.ligne) > 0 && !dim.visible(e.ligne) ? dim.n(e.ligne) : 0), 0);
+      if (dim.visible(x.cumul.ligne) && sous(caches)) dim.masquer(x.cumul.ligne);
+    }
+    // 2. Horizons d'un même organisme (chaque horizon contient les plus courts).
+    const parOrganisme = new Map<number, IndicateursOrganisme[]>();
+    for (const x of liste) parOrganisme.set(x.organismeId, [...(parOrganisme.get(x.organismeId) ?? []), x]);
+    for (const horizons of parOrganisme.values()) {
+      const tries = [...horizons].sort((a, b) => a.horizon - b.horizon);
+      for (const [i, court] of tries.entries()) {
+        for (const long of tries.slice(i + 1)) {
+          const ecart = (a: LigneEvaluation, b: LigneEvaluation) => dim.visible(a) && dim.visible(b) && sous(dim.n(b) - dim.n(a));
+          if (ecart(court.cumul.ligne, long.cumul.ligne)) dim.masquer(long.cumul.ligne);
+          for (const f of long.parFormation) {
+            const c = court.parFormation.find(g => g.formation === f.formation);
+            if (c && ecart(c.ligne, f.ligne)) dim.masquer(f.ligne);
+          }
+        }
+      }
+    }
+    // 3. Cumul et formations. Un cumul masqué ne doit pas non plus se recomposer par la somme des formations lisibles (il
+    //    redonnerait, moins les exercices lisibles, les exercices masqués) : son reste doit atteindre le seuil.
+    for (const x of liste) {
+      if (dim.n(x.cumul.ligne) === 0) continue;
+      const cumulVisible = dim.visible(x.cumul.ligne);
+      let reste = dim.n(x.cumul.ligne) - x.parFormation.reduce((n, f) => n + (dim.visible(f.ligne) ? dim.n(f.ligne) : 0), 0);
+      while (cumulVisible ? sous(reste) : reste < seuil) {
+        const plusPetite = x.parFormation.filter(f => dim.visible(f.ligne)).sort((a, b) => dim.n(a.ligne) - dim.n(b.ligne))[0];
+        if (!plusPetite) break;
+        reste += dim.n(plusPetite.ligne);
+        dim.masquer(plusPetite.ligne);
+      }
+    }
+  }
+  return liste;
+}
+
+/**
+ * Évaluations consolidées de la vue agrégée pour chaque horizon (`horizons` exercices glissants finissant l'année de
+ * `today`), masquées sous `seuil` ligne par ligne puis par le masquage complémentaire.
+ */
+export function indicateursOrganismesAgreges(d: Domain, horizons: readonly number[], seuil: number): IndicateursOrganisme[] {
+  return masquageComplementaire(horizons.flatMap(n => indicateursOrganismes(d, exercicesGlissants(d.ti, n), seuil)), seuil);
 }
 
 /**

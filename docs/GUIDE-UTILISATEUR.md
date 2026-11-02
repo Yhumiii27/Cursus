@@ -364,7 +364,7 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
 - Organismes de formation (lot 12, Référentiels → Organismes) : une fiche par organisme (SIRET, déclaration d'activité,
   Qualiopi et sa date de validité, conditions, contacts, tarifs) à la place du texte libre. Les textes existants ont été
   repris en fiches « à vérifier » : ouvrir chacune (encart « À vérifier » ou filtre), compléter, puis « Confirmer la fiche » ;
-  un doublon (« APAVE Sud Europe » et « Apave ») se fusionne par « Fusionner dans… » (administrateur RH, motif, liste des
+  un doublon (par exemple APAVE Sud Europe et Apave) se fusionne par « Fusionner dans… » (administrateur RH, motif, liste des
   objets réaffectés : pas de défusion simple ; deux SIRET différents ne se fusionnent jamais). Les dialogues Formation,
   Session (organisme figé à la création), Formation suivie (« autre » : texte libre), Plan (organisme prévu, tarif proposé)
   et Dossier OPCO (SIRET, NDA et Qualiopi proposés) choisissent la fiche. Qualiopi absent ou échu : avertissement (fiche,

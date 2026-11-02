@@ -196,7 +196,7 @@ export function SessionDialog({ f: f0, planId, places: places0, sessionId, retou
       <Field label="Lieu" htmlFor="sess-lieu" requis erreur={erreur('lieu')}><input className="input" id="sess-lieu" type="text" maxLength={200} placeholder="Site de Lyon — salle B" value={lieu} onChange={e => setLieu(e.target.value)} /></Field>
       {/* lot 12 — C4 : organisme de la session, figé à la création (l'historique ne bascule plus avec le catalogue). */}
       {!s && (
-        <ChoixOrganisme id="sess-organisme" valeur={organismeValeur} onChange={setOrganisme} actuel={organismeDefaut} vide="Celui du catalogue, sans le figer"
+        <ChoixOrganisme id="sess-organisme" valeur={organismeValeur} onChange={setOrganisme} actuel={organismeDefaut} vide={organismeDefaut != null ? 'Celui proposé (plan ou catalogue)' : 'Aucun (le catalogue n’en indique pas)'}
           le={isValidDate(date) ? date : d.ti} aide="Proposé d’après le plan ou le catalogue ; la session le garde, même si le catalogue change ensuite." />
       )}
       {s ? (

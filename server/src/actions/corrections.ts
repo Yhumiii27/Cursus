@@ -199,7 +199,8 @@ const modifierLigne: ActionHandler = async (ctx, p) => {
     : patch.f !== l.f ? null : l.organismeId ?? null;
   const changes = [
     patch.f !== l.f || (!patch.f && patch.libelle !== l.libelle) ? `formation : ${patch.f ? ctx.d.fm(patch.f).court : patch.libelle}` : '',
-    organismeId !== (l.organismeId ?? null) ? `organisme : ${(ctx.ds.organismes ?? []).find(o => o.id === organismeId)?.nomUsuel ?? 'celui du catalogue'}` : '',
+    // Code de la fiche, jamais son nom usuel (celui d'un formateur indépendant est une donnée personnelle) : le message va au journal.
+    organismeId !== (l.organismeId ?? null) ? `organisme : ${(ctx.ds.organismes ?? []).find(o => o.id === organismeId)?.code ?? 'celui du catalogue'}` : '',
     patch.equipe !== l.equipe ? `équipe : ${patch.equipe}` : '',
     patch.periode !== l.periode ? `période : ${patch.periode}` : '',
     patch.effectif !== l.effectif ? `effectif : ${patch.effectif}` : '',

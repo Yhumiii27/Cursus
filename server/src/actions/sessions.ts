@@ -58,7 +58,9 @@ const creer: ActionHandler = async (ctx, p) => {
   }
   const places = Number(p.places), lieu = str(p.lieu);
   // lot 12 — C4 : organisme choisi, sinon celui de la ligne du plan ou du catalogue, figé (le catalogue peut changer ensuite).
-  const organismeId = organismeChoisi(ctx, p.organismeId, plan?.organismeId ?? fm.organismeId);
+  // Un choix vide (`''` ou null) fige lui aussi l'organisme proposé : une session sans organisme figé basculerait avec le
+  // catalogue (historique et évaluations consolidées réattribués au nouveau prestataire).
+  const organismeId = organismeChoisi(ctx, p.organismeId === '' || p.organismeId === null ? undefined : p.organismeId, plan?.organismeId ?? fm.organismeId);
   const s = await ctx.db.insert<Session>('sessions', { formation: fm.id, date: p.date, ...plage, lieu, places, statut: 'À confirmer', planId: plan?.id ?? null, bilan: null, organismeId });
   if (plan) await ctx.db.update<PlanAction>('planActions', plan.id, { statut: 'engage' });
   const pour = plage.fin === p.date ? `pour le ${fmt(parse(p.date))}` : plageTexte({ date: p.date, ...plage });

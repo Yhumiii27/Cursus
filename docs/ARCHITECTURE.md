@@ -5043,7 +5043,9 @@ documents de l'utilisateur et du RGPD viennent à l'étape 2.
   froid, coût réel des actions réalisées ; organisme de la session figé (le catalogue peut changer), sinon de la formation
   suivie ; comparatif par formation entre organismes. Vue agrégée (référent HSE, lecture seule) : calculée par le serveur
   dans `vues-organismes.ts` pour chaque horizon proposé (`Dataset.indicateursOrganismes`, champ calculé des seules vues de
-  profil), masquée sous `SEUIL_ANONYMAT` ; le service RH la calcule sur son instantané. Jamais de commentaire.
+  profil), masquée sous `SEUIL_ANONYMAT` ligne par ligne puis par le masquage complémentaire (`masquageComplementaire` :
+  aucune soustraction entre lignes envoyées — cumul moins exercices, horizon 5 moins horizon 3, cumul moins formations — ne
+  redonne un groupe de 1 ou 2 réponses) ; le service RH la calcule sur son instantané. Jamais de commentaire.
 - **Paramètres → Formations** : premier palier de la relance Qualiopi, fin d'office d'un module à l'import.
 - Tests : `tests/organismes-suivi.test.ts` (relances, filtres, consolidation et masquage, vues de profil, `plan.modifier`,
   récapitulatif).

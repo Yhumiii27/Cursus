@@ -447,8 +447,10 @@ export function PlanningEchangeValiderDialog({ id }: { id: number }) {
           aide="Gardé sur les nouveaux créneaux, vu du planificateur et du service RH seulement ; jamais recopié au journal." placeholder="Repos compensateur accordé…" />
       </>}
       {a && !a.refus && !a.alertes.refus.length && !a.alertes.alertes.length && <Fine muted={false}>Aucune alerte : repos, durées et habilitations respectés pour les deux salariés.</Fine>}
-      {/* lot 12 — C5 étape 3 : informations (conflits avec une mission, une session, une astreinte ; moyennes), sans motif. */}
-      {a && !a.refus && a.alertes.infos.length > 0 && <Controles msgs={a.alertes.infos.map(x => ({ text: ligneAlerte(nom, x), bad: false }))} />}
+      {/* lot 12 — C5 étape 3 : informations (conflits avec une mission, une session, une astreinte ; moyennes), sans motif,
+          plafonnées comme dans Publier pour garder le motif et les boutons à portée sur téléphone. */}
+      {a && !a.refus && a.alertes.infos.length > 0 && <Controles msgs={a.alertes.infos.slice(0, 12).map(x => ({ text: ligneAlerte(nom, x), bad: false }))} />}
+      {a && !a.refus && a.alertes.infos.length > 12 && <Fine>Et {a.alertes.infos.length - 12} autre{a.alertes.infos.length - 12 > 1 ? 's' : ''} information{a.alertes.infos.length - 12 > 1 ? 's' : ''}.</Fine>}
       {v.tente && bloque && <Bloquant>{bloque}</Bloquant>}
       <Fine>Pas de nouveau délai de prévenance : l’échange vient des intéressés. Chacun est prévenu de la décision.</Fine>
     </Dialog>

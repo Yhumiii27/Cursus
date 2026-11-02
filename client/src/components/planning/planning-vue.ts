@@ -125,7 +125,7 @@ export function grilleEquipe(d: Domain, equipe: string, jours: readonly ISODate[
     lignes.push({ empId: null, nom: 'À pourvoir', cases, resume: plural(aPourvoir.length, 'poste à pourvoir', 'postes à pourvoir') });
   }
   // Couverture minimale par créneau (formations de l'équipe à chaque horaire tenu), absences retirées pour le planificateur.
-  const parCreneau = couvertureCreneaux(d.ds, equipe, jours, nominatifs, planificateur);
+  const parCreneau = couvertureCreneaux(d.ds, equipe, jours, [...nominatifs, ...aPourvoir], planificateur);
   const court = (f: string) => d.fm(f)?.court ?? f;
   const couverture = jours.map((jour, i): CouvertureJour => {
     const parCode = new Map<string, number>();
@@ -252,7 +252,9 @@ export interface ManqueCreneau { equipe: string; jour: ISODate; horaire: string;
  */
 export function couvertureAVenir(d: Domain, n: number, avecAbsences: boolean): { creneaux: number; manques: ManqueCreneau[] } {
   const jours = joursDe(d.ti, n);
-  const publies = (d.ds.creneaux ?? []).filter(c => c.statut === 'publie' && c.jour >= jours[0] && c.jour <= jours.at(-1)!);
+  // Postes, repos et « à pourvoir » publiés : un jour sans rien de publié pour une équipe (semaine pas encore publiée,
+  // brouillon) n'est pas suivi, même si l'équipe a des besoins de poste ce jour-là.
+  const publies = [...(d.ds.creneaux ?? []), ...(d.ds.creneauxAPourvoir ?? [])].filter(c => c.statut === 'publie' && c.jour >= jours[0] && c.jour <= jours.at(-1)!);
   const court = (f: string) => d.fm(f)?.court ?? f;
   const equipes = d.ds.referentiels.equipes.filter(q => publies.some(c => c.equipe === q.nom)).sort((a, b) => a.ordre - b.ordre || a.nom.localeCompare(b.nom));
   let creneaux = 0;

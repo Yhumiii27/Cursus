@@ -2,7 +2,7 @@
 // Haddad, 12, manager de la Maintenance ; Thomas Garnier, 6, sans SST, groupe A du 2x8 ; Romain Chevalier, 18, SST valide,
 // groupe B ; Laura, 23, référente HSE) : conflits marqués dans la grille (planificateur seul), couverture minimale par
 // créneau dans la ligne de couverture et l'aperçu de la publication, panneau du tableau de bord (service RH avec les
-// absences, référent HSE sans elles).
+// absences, référent HSE et lecture seule sans elles, jamais la paie ; jours pas encore publiés non suivis).
 import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
@@ -73,7 +73,7 @@ test('grille : conflit marqué « ! » pour le planificateur seul, secouristes m
 });
 
 test('tableau de bord : couverture par poste publié, absences retirées pour le service RH, jamais pour le référent HSE', async () => {
-  const { db, RH, KARIM, HSE } = await prepare();
+  const { db, personne, RH, KARIM, HSE } = await prepare();
   await agir(db, KARIM, 'planning.publier', { equipe: 'Maintenance', du: '2026-10-19', au: '2026-10-25', motifAlertes: 'Visite programmée' });
   // Absence validée de Romain (SST) le mercredi 21 : le matin perd son secouriste pour le service RH seulement.
   await db.insert('absences', { empId: 18, type: 'CP', du: '2026-10-21', au: '2026-10-21', jours: 1, statut: 'validee', creeLe: '2026-10-01T08:00:00Z' });
@@ -97,6 +97,24 @@ test('tableau de bord : couverture par poste publié, absences retirées pour le
   assert.ok(screen.getByText(/Les salariés absents ce jour-là ne comptent pas/));
   assert.ok(screen.getByText(/6 postes sous le minimum/));
   cleanup();
+  // La paie ne reçoit ni seuils de couverture ni certifications : jamais le panneau (il dirait les secouristes au minimum).
+  // La lecture seule, qui reçoit la couverture du jour, le voit sans les absences.
+  const paie = await personne(7, 'rh');
+  assert.equal(paie.profilRh, 'paie');
+  const pp = await monter(db, paie, () => createElement(CouvertureCreneauxPanel));
+  assert.equal(render(pp.element).container.textContent, '');
+  cleanup();
+  const lecture = await personne(11, 'rh');
+  assert.equal(lecture.profilRh, 'lecture_seule');
+  const lp = await monter(db, lecture, () => createElement(CouvertureCreneauxPanel));
+  render(lp.element);
+  assert.ok(screen.getByText(/Couverture calculée sans les absences/));
+  assert.equal(screen.getAllByText('SST').length, 5);
+  cleanup();
+  // Besoin d'un poste du matin chaque jour : la deuxième semaine, générée mais pas publiée, n'est pas suivie.
+  await db.insert('besoinsPoste', { equipe: 'Maintenance', horaire: 'M', jours: [0, 1, 2, 3, 4, 5, 6], effectifMin: 1, posteId: null, activite: null, exigences: { formations: [], habilitations: [] }, du: '2026-01-01', au: null, archive: null });
+  const besoin = V.couvertureAVenir(new Domain(await loadFull(db, HSE)), 14, false);
+  assert.ok(besoin.manques.length > 0 && besoin.manques.every(x => x.jour <= '2026-10-25'), besoin.manques.map(cle).join());
   // Minimum tenu partout : le panneau le dit ; module désactivé ou manager : rien.
   await db.update('equipes', 'Maintenance', { couverture: [] });
   const ok = await monter(db, HSE, () => createElement(CouvertureCreneauxPanel));

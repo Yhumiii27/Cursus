@@ -1,8 +1,10 @@
 // Couverture minimale par poste planifié (lot 12, chantier C5, étape 3), sur le tableau de bord de l'espace RH : service
-// RH, référent HSE, paie et lecture seule, le module activé (réglage `planningActif`). Postes publiés des deux semaines à
+// RH, référent HSE et lecture seule (ceux qui reçoivent la couverture du jour, server/src/dataset.ts), le module activé
+// (réglage `planningActif`). Jamais la paie : son instantané n'a ni seuils de couverture ni certifications, le panneau
+// dirait à tort les secouristes au minimum. Postes publiés des deux semaines à
 // venir, équipe par équipe et horaire par horaire : effectif face au besoin de poste, secouristes et équipiers
 // d'intervention de l'équipe à chaque horaire tenu (calcul : components/planning/planning-vue.ts, `couvertureAVenir`).
-// Le service RH voit la couverture absences retirées ; les autres profils, sans absences (le référent HSE ne doit pas
+// Le service RH voit la couverture absences retirées ; le référent HSE et la lecture seule, sans absences (le référent HSE ne doit pas
 // pouvoir désigner un absent), avec un renvoi au service RH. Rien quand aucun planning n'est publié sur la période.
 import { useMemo } from 'react';
 import { plural } from '../../../../shared/format.ts';
@@ -15,8 +17,8 @@ export const JOURS_COUVERTURE = 14;
 
 export function CouvertureCreneauxPanel() {
   const d = useDomain();
-  const { espaceRh, rh } = useRole();
-  const actif = espaceRh && !!d.ds.settings.planningActif;
+  const { rh, formations, consultation } = useRole();
+  const actif = (rh || formations || consultation) && !!d.ds.settings.planningActif;
   const c = useMemo(() => (actif ? couvertureAVenir(d, JOURS_COUVERTURE, rh) : null), [d, actif, rh]);
   if (!c || !c.creneaux) return null;
   return (

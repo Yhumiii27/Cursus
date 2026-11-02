@@ -326,7 +326,9 @@ Au clavier, les flèches passent d'une case à l'autre et Entrée ouvre le poste
    exceptionnelles, que le salarié reçoit dans son e-mail. Ces motifs ne sont jamais recopiés au journal.
 
 Un « ! » après la lettre d'une case signale un **conflit** : le salarié est aussi prévu en mission ou sur une tâche Keystone,
-inscrit à une session de formation, ou d'astreinte pendant le poste (le détail s'affiche sous la grille et dans le dialogue
+inscrit à une session de formation (pendant le poste, un jour de repos, ou trop près du poste : moins que le repos
+quotidien de 11 h, ou celui de votre accord, entre la session et le poste de la veille, du jour ou du lendemain, puisque
+le temps de formation est du temps de travail), ou d'astreinte pendant le poste (le détail s'affiche sous la grille et dans le dialogue
 Publier). C'est une information : rien n'est bloqué, aucun motif n'est demandé ; à vous de réorganiser si besoin. La ligne
 **Couverture** signale aussi un horaire qui n'a pas le minimum de secouristes ou d'équipiers d'intervention fixé pour
 l'équipe (Référentiels → Postes), par exemple : SST au poste N (0 sur 1).
@@ -535,11 +537,12 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
   (7 jours par défaut), repos quotidien réduit et durées du travail de nuit de votre accord, avec sa référence ; planning des
   collègues visible ou non. **Reprendre…** affecte au cycle choisi les membres des équipes créées par quart pour la
   couverture minimale (la première équipe prend le groupe A, la deuxième le B…) ; la reprise se rejoue sans doublon.
-- **Tableau de bord → Couverture minimale par poste planifié** (service RH, référent HSE, paie, lecture seule ; module
-  activé) : les postes publiés des deux semaines à venir qui manquent d'effectif ou de secouristes et d'équipiers
-  d'intervention, horaire par horaire. Le service RH voit la couverture une fois les absents retirés ; le référent HSE,
-  la paie et la lecture seule la voient sans les absences (un poste peut donc être découvert par une absence : à vérifier
-  avec le service RH).
+- **Tableau de bord → Couverture minimale par poste planifié** (service RH, référent HSE, lecture seule ; module
+  activé ; pas la paie, qui ne reçoit ni les seuils de couverture ni les certifications) : les postes publiés des deux
+  semaines à venir qui manquent d'effectif ou de secouristes et d'équipiers d'intervention, horaire par horaire. Les jours
+  pas encore publiés ne sont pas suivis. Le service RH voit la couverture une fois les absents retirés ; le référent HSE
+  et la lecture seule la voient sans les absences (un poste peut donc être découvert par une absence : à vérifier avec le
+  service RH).
 - Avant l'activation, faites compléter par le DPO l'analyse d'impact du planning (`docs/RGPD.md`, section 8, points ouverts pour
   l'AIPD).
 - Badgeage (désactivé par défaut) : Paramètres → Badgeage, par l'administrateur RH, une fois l'avis du CSE rendu et

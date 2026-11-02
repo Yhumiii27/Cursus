@@ -3,8 +3,10 @@
 // d'effectif (Référentiels → Besoins de poste) s'appliquent à chaque horaire tenu ce jour-là (exemple : un SST au poste de
 // nuit), et non plus à la journée. Calculé, jamais stocké.
 // - Créneau : une équipe, un jour, un horaire. Il existe dès qu'un salarié de l'équipe y est planifié ou qu'un besoin
-//   d'effectif le demande (tous ses salariés absents : il reste, découvert). Une équipe sans planning ce jour-là n'a aucun créneau : sa couverture reste celle du jour
-//   (`etatsCouverture`), qui garde les « équipes par quart » tant que leur reprise en groupes de roulement n'est pas faite.
+//   d'effectif le demande (tous ses salariés absents : il reste, découvert), mais seulement un jour où l'équipe a au moins
+//   un créneau dans la source lue (poste, repos ou « à pourvoir »). Une équipe sans planning ce jour-là (semaine pas encore
+//   générée ni publiée) n'a aucun créneau : sa couverture reste celle du jour (`etatsCouverture`), qui garde les « équipes
+//   par quart » tant que leur reprise en groupes de roulement n'est pas faite.
 // - Postes : salariés planifiés sur l'horaire (les « à pourvoir » ne comptent pas). Titulaire : certification en vigueur
 //   de la formation, valide à la date du créneau (même règle que `etatsCouverture`).
 // - Absences : retirées pour le planificateur seul (`avecAbsences`), sans jamais lire leur nature. Le référent HSE, la
@@ -48,7 +50,8 @@ export function titulaireLe(e: Pick<Employe, 'certs'>, f: Pick<Formation, 'id' |
 
 /**
  * Couverture de chaque créneau de l'équipe `equipe` sur `jours`, d'après `creneaux` (ceux qui comptent pour le lecteur :
- * un par salarié et par jour, ceux d'une autre équipe ignorés). `avecAbsences` : absences en vigueur retirées
+ * un par salarié et par jour, « à pourvoir » compris, ceux d'une autre équipe ignorés). Un jour sans aucun créneau de
+ * l'équipe n'est pas suivi. `avecAbsences` : absences en vigueur retirées
  * (planificateur seul). Triée par jour puis par horaire.
  */
 export function couvertureCreneaux(ds: SourceCouvertureCreneaux, equipe: string, jours: readonly ISODate[],
@@ -59,7 +62,10 @@ export function couvertureCreneaux(ds: SourceCouvertureCreneaux, equipe: string,
   const employes = new Map(ds.employes.map(e => [e.id, e]));
   const codesBesoin = [...new Set((ds.besoinsPoste ?? []).filter(b => b.equipe === equipe && !b.archive).map(b => b.horaire))];
   const out: CouvertureCreneau[] = [];
+  // Jours où l'équipe a un planning (poste, repos ou « à pourvoir ») : les seuls où un besoin crée un créneau.
+  const planifies = new Set(creneaux.filter(c => c.equipe === equipe).map(c => c.jour));
   for (const jour of jours) {
+    if (!planifies.has(jour)) continue;
     const parCode = new Map<string, number[]>();
     for (const c of creneaux) {
       if (c.jour !== jour || c.equipe !== equipe || c.empId == null || !c.horaire) continue;

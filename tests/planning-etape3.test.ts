@@ -60,8 +60,8 @@ async function engagements(db: Db) {
   await db.insert('missions', { empId: 6, projet: 'HLT-026', lieu: 'Lyon', du: '2026-10-20', au: '2026-10-21', type: 'Mission', ref: null });
   await db.insert('missions', { empId: 6, projet: 'NDC-031', lieu: '', du: '2026-10-23', au: '2026-10-23', type: 'Mission', ref: null });
   await db.insert('taches', { ref: null, empId: 6, projet: 'HLT-026', tache: 'Montage', debut: '2026-10-19', fin: '2026-10-21', heures: { '2026-10-19': 3, '2026-10-21': 4 } });
-  // Session sans horaire le 19 (journée entière) ; session du matin le 22 (le poste de nuit ne la chevauche pas), puis le
-  // 24, jour de repos planifié.
+  // Session sans horaire le 19 (journée entière) ; session du matin le 22 (le poste de nuit ne la chevauche pas, mais le
+  // repos qui les sépare est trop court), puis le 24, jour de repos planifié.
   const s1 = (await db.insert<{ id: number }>('sessions', { formation: 'sst', date: '2026-10-19', fin: '2026-10-19', jours: ['2026-10-19'], horaires: [], lieu: 'Site', places: 8, statut: 'Confirmée' })).id;
   const s2 = (await db.insert<{ id: number }>('sessions', {
     formation: 'epi', date: '2026-10-22', fin: '2026-10-24', jours: ['2026-10-22', '2026-10-24'], horaires: [{ debut: '09:00', fin: '12:00', pause: 0 }], lieu: 'Site', places: 8, statut: 'Confirmée',
@@ -88,21 +88,44 @@ test('conflits : mission (poste ou repos), heures Keystone un jour de repos, ses
     ['2026-10-19', 'conflit_session'],
     ['2026-10-20', 'conflit_mission'],
     ['2026-10-21', 'conflit_mission'], ['2026-10-21', 'conflit_mission'], ['2026-10-21', 'conflit_mission'],
-    ['2026-10-22', 'conflit_astreinte'],
+    ['2026-10-22', 'conflit_session'], ['2026-10-22', 'conflit_astreinte'],
     ['2026-10-24', 'conflit_session'],
-  ], 'heures Keystone un jour de poste (19) : rien ; session du matin pendant la nuit (22) : rien ; astreinte annulée (20) : rien');
+  ], 'heures Keystone un jour de poste (19) : rien ; astreinte annulée (20) : rien');
+  // Session du matin le jour d'un poste de nuit (22) : le temps de formation est du temps de travail, 9 h de repos seulement.
+  assert.match(conflitsDuJour(c, 6, '2026-10-22')[0].texte,
+    /^22 oct\. 2026 : session de formation EPI incendie de 09:00 à 12:00 : 9 h de repos avant le poste N planifié, moins que le repos quotidien de 11 h \(art\. L3131-1\)$/);
   assert.match(conflitsDuJour(c, 6, '2026-10-20')[0].texte, /^20 oct\. 2026 : mission Keystone HLT-026 \(Lyon\) pendant le poste J planifié$/);
   assert.deepEqual(conflitsDuJour(c, 6, '2026-10-21').map(x => x.texte.replace(/^.* : /, '')), [
     'mission Keystone HLT-026 (Lyon) un jour de repos planifié', '8 h prévues par Keystone (INT-MAINT) un jour de repos planifié', '4 h prévues par Keystone (HLT-026) un jour de repos planifié',
   ], 'la tâche INT-MAINT de démonstration compte aussi');
   assert.match(conflitsDuJour(c, 6, '2026-10-19')[0].texte, /session de formation SST pendant le poste J planifié/);
-  assert.match(conflitsDuJour(c, 6, '2026-10-22')[0].texte, /astreinte du 22 oct\. 2026 18:00 au 23 oct\. 2026 08:00 pendant le poste N planifié/);
+  assert.match(conflitsDuJour(c, 6, '2026-10-22')[1].texte, /astreinte du 22 oct\. 2026 18:00 au 23 oct\. 2026 08:00 pendant le poste N planifié/);
   assert.match(conflitsDuJour(c, 6, '2026-10-24')[0].texte, /session de formation EPI incendie de 09:00 à 12:00 un jour de repos planifié/);
   // Sans absence : la mission du 23 (sans lieu) apparaît ; hors période ou sans jour planifié : rien.
   assert.match(conflitsPlanning(d, 6, jours, '2026-10-23', '2026-10-23')[0].texte, /mission Keystone NDC-031 pendant le poste J planifié$/);
   assert.deepEqual(conflitsPlanning(d, 6, jours, '2026-11-02', '2026-11-08'), []);
   assert.deepEqual(conflitsPlanning(d, 18, jours, '2026-10-19', '2026-10-25').map(x => x.texte), ['21 oct. 2026 : 8 h prévues par Keystone (K-2614) un jour de repos planifié'],
     'Romain : sa seule tâche de démonstration, aucun engagement de Thomas');
+  // Session à 08:00 le lendemain d'un poste de nuit fini à 05:00, ce lendemain étant un jour de poste de l'après-midi
+  // (instantané modifié en mémoire ; la session de démonstration du 27 est écartée du constat) : 3 h de repos après la nuit, 1 h avant l'après-midi ; rattachées au jour de chaque
+  // poste, une seule fois par paire. Repos réduit par l'accord (9 h) : la session du 22 (9 h avant la nuit) passe.
+  const matin = { ...d.ds.sessions[0], id: 998, formation: 'sst', date: '2026-10-28', fin: '2026-10-28', jours: ['2026-10-28'], horaires: [{ debut: '08:00', fin: '12:00', pause: 0 }], statut: 'Confirmée' as const };
+  const dm = new Domain({ ...d.ds, sessions: [...d.ds.sessions, matin], inscriptions: [...d.ds.inscriptions, { id: 998, empId: 6, sessionId: 998, convoc: 'now', date: '2026-10-01', convocLe: null }] });
+  const nuitPuisAm = [{ jour: '2026-10-27', horaire: H.N }, { jour: '2026-10-28', horaire: H.AM }];
+  assert.deepEqual(conflitsPlanning(dm, 6, nuitPuisAm, '2026-10-26', '2026-11-01').filter(x => x.texte.includes(' SST ')).map(x => x.texte), [
+    '27 oct. 2026 : session de formation SST du 28 oct. 2026 de 08:00 à 12:00 : 3 h de repos après le poste N planifié, moins que le repos quotidien de 11 h (art. L3131-1)',
+    '28 oct. 2026 : session de formation SST de 08:00 à 12:00 : 1 h de repos avant le poste AM planifié, moins que le repos quotidien de 11 h (art. L3131-1)',
+  ]);
+  // Poste de la nuit hors de la période : la session de la période reste signalée au jour de son poste.
+  assert.deepEqual(conflitsPlanning(dm, 6, nuitPuisAm, '2026-10-28', '2026-10-28').filter(x => x.texte.includes(' SST ')).map(x => x.texte.replace(/ :.*?: /, ' : ')), [
+    '28 oct. 2026 : 3 h de repos après le poste N du 27 oct. 2026, moins que le repos quotidien de 11 h (art. L3131-1)',
+    '28 oct. 2026 : 1 h de repos avant le poste AM planifié, moins que le repos quotidien de 11 h (art. L3131-1)',
+  ]);
+  const reduit = new Domain({ ...d.ds, settings: { ...d.ds.settings, planningReposQuotidienAccord: 9 } });
+  assert.deepEqual(conflitsPlanning(reduit, 6, jours, '2026-10-22', '2026-10-22').map(x => x.code), ['conflit_astreinte']);
+  // Salarié mineur : 12 h exigées, même avec l'accord.
+  const mineur = new Domain({ ...reduit.ds, employes: reduit.ds.employes.map(e => (e.id === 6 ? { ...e, naissance: 2010, naissanceLe: '2010-01-01' } : e)) });
+  assert.match(conflitsPlanning(mineur, 6, jours, '2026-10-22', '2026-10-22')[0].texte, /9 h de repos avant le poste N planifié, moins que le repos quotidien de 12 h \(salarié de moins de 18 ans, art\. L3164-1\)$/);
   // Formation inconnue du référentiel (instantané modifié en mémoire : la base l'interdit) : son code.
   const inconnue = { ...d.ds.sessions[0], id: 999, formation: 'inconnue', date: '2026-10-25', fin: '2026-10-25', jours: ['2026-10-25'], horaires: [], statut: 'Confirmée' as const };
   const di = new Domain({ ...d.ds, sessions: [...d.ds.sessions, inconnue], inscriptions: [...d.ds.inscriptions, { id: 999, empId: 6, sessionId: 999, convoc: 'now', date: '2026-10-01', convocLe: null }] });
@@ -192,6 +215,22 @@ test('couverture par créneau : effectif face au besoin, secouristes à chaque h
   // Équipe sans ligne de couverture ni besoin : effectif seul.
   assert.deepEqual(couvertureCreneaux(ds, 'R', ['2026-10-20'], creneaux, false).map(x => [x.horaire, x.postes, x.formations.length, x.manque]), [['J', 1, 0, false]]);
   assert.deepEqual(couvertureCreneaux({ ...ds, besoinsPoste: undefined }, 'Q', ['2026-10-22'], creneaux, false), []);
+  // Jour sans aucun créneau de l'équipe (semaine pas encore générée ni publiée) : aucun créneau, même avec des besoins.
+  assert.deepEqual(couvertureCreneaux(ds, 'Q', ['2026-10-22', '2026-10-27'], creneaux, false), []);
+  // Un repos ou un « à pourvoir » suffit à dire que l'équipe a un planning ce jour-là : le besoin crée alors son créneau.
+  assert.deepEqual(couvertureCreneaux(ds, 'Q', ['2026-10-22'], [c(4, '2026-10-22', null)], false).map(x => [x.horaire, x.postes, x.besoin, x.manque]), [['N', 0, 2, true]]);
+  assert.deepEqual(couvertureCreneaux(ds, 'Q', ['2026-10-22'], [c(null, '2026-10-22', 'N')], false).map(x => [x.horaire, x.postes, x.besoin]), [['N', 0, 2]]);
+});
+
+test('couverture par créneau : une équipe publiée sur une seule semaine n’a aucun manque la semaine suivante', () => {
+  const ds = {
+    employes: [{ id: 1, certs: [] }] as never,
+    referentiels: { equipes: [{ nom: 'M', couverture: [{ formation: 'sst', min: 1 }] }] as never, formations: [{ id: 'sst', validite: 24, archive: null }] },
+    besoinsPoste: [{ id: 1, equipe: 'M', horaire: 'N', jours: [0, 1, 2, 3, 4, 5, 6], effectifMin: 1, posteId: null, activite: null, exigences: { formations: [], habilitations: [] }, du: '2026-01-01', au: null, archive: null }],
+    absences: [],
+  };
+  const r = couvertureCreneaux(ds, 'M', ['2026-10-19', '2026-10-26'], [{ empId: 1, jour: '2026-10-19', equipe: 'M', horaire: 'N' }], false);
+  assert.deepEqual(r.map(x => [x.jour, x.horaire, x.postes, x.besoin, x.manque]), [['2026-10-19', 'N', 1, 1, true]], 'le 26 : rien de planifié, rien de suivi');
 });
 
 test('couverture par créneau dans l’aperçu de la publication ; référent HSE sans postes « à pourvoir »', async () => {

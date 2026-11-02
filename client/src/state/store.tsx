@@ -599,6 +599,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     || (rawView === 'pointages' && !!data && !data.settings.pointageActif)
     ;
   const view = allowedView(role, fermee ? '' : rawView, role === 'rh' ? data?.settings.vueInitiale : undefined, (data ?? session)?.user?.profilRh);
+  // lot 12 — C6 (badgeage virtuel) : le raccourci « Pointer » du manifeste (statique) se montre même module inactif ; son
+  // ouverture ne renvoie pas à l'accueil en silence.
+  const pointageFerme = rawView === 'pointages' && !!data && !data.settings.pointageActif;
+  useEffect(() => { if (pointageFerme) notify('Le pointage n’est pas activé pour vous : votre temps se déclare sur la feuille de temps'); }, [pointageFerme, notify]);
 
   // Synchronise l'URL avec la vue effectivement affichée, sa sélection et ses filtres (state/url.ts) : l'ouverture d'une
   // fiche dans la même vue ajoute une entrée à l'historique, tout autre changement remplace l'entrée courante (go a déjà

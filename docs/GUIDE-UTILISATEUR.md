@@ -174,7 +174,9 @@ les traite dans Sage. Les frais engagés pendant un déplacement se déclarent d
 - Bouton « Pointer l'arrivée » puis « Pointer le départ » : sur l'accueil, en haut de la saisie du jour sur le téléphone,
   dans le menu « Mes pointages » et par le raccourci « Pointer » de l'icône de l'application installée. L'heure est celle
   du serveur ; un double appui ne compte qu'une fois. Sans réseau, le pointage est gardé sur le téléphone avec son heure
-  et part « différé » au retour du réseau. Aucune position, aucune photo.
+  et part « différé » au retour du réseau, si l'entreprise l'admet (sinon, pointez une fois connecté). Aucune position,
+  aucune photo. Le raccourci « Pointer » figure sur l'icône de tous les téléphones : tant que le pointage n'est pas
+  activé, il ramène à l'accueil avec le message « Le pointage n'est pas activé pour vous ».
 - Sous le bouton : présent depuis quelle heure, les pointages du jour, le temps du jour et de la semaine et le solde
   (débit-crédit). « Mes pointages » montre la semaine, les points à justifier (sortie manquante, pause courte…) et vos
   demandes.

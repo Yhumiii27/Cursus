@@ -23,8 +23,11 @@ import { completerSemaine, JOURS_FEUILLE } from './semaine.ts';
 export const CODE_PTG = 'PTG';
 export const TACHE_PTG = 'Heures pointées, reste à ventiler';
 
-/** Ligne tirée des pointages (mode « calcule ») : ni saisie, ni supprimée, ni renvoyée à Keystone. */
-export const estLignePointee = (l: Pick<LigneTemps, 'projet'> & { pt?: boolean }) => !!l.pt || l.projet === CODE_PTG;
+/**
+ * Ligne tirée des pointages (mode « calcule ») : ni saisie, ni supprimée, ni renvoyée à Keystone. Reconnue au seul
+ * marqueur `pt`, jamais à son code : « PTG » n'est pas réservé, et un projet Keystone de ce code reste une ligne ordinaire.
+ */
+export const estLignePointee = (l: Pick<LigneTemps, 'projet'> & { pt?: boolean }) => !!l.pt;
 
 /** Feuille au mode « calcule » (figé à sa création, shared/rules/pointage.ts) : ses heures viennent des pointages. */
 export const feuilleCalculee = (sh: Pick<FeuilleTemps, 'modeTemps'> | null | undefined) => sh?.modeTemps === 'calcule';
@@ -55,6 +58,18 @@ export function avecLignePointee(lignes: readonly LigneTemps[], pointe: readonly
     return centieme(Math.max(0, p - v));
   });
   return { lignes: [{ projet: CODE_PTG, tache: TACHE_PTG, ks: false, pt: true, h }, ...autres.map(l => ({ ...l, h: completerSemaine(l.h) }))], ecarts };
+}
+
+/**
+ * Total d'un jour de la feuille (indice `di`), toutes lignes cumulées, pour les contrôles de saisie (24 h, demi-journée).
+ * Mode « calcule » (`pointe` : pointé de la semaine) : la ligne PTG est recalculée, et le total vaut le plus grand du
+ * pointé et de la ventilation ; une heure ventilée n'est jamais comptée deux fois, dans la PTG encore pleine puis sur
+ * son projet. Feuille déclarative ou contrôlée (`pointe` absent) : somme des lignes.
+ */
+export function totalDuJour(lignes: readonly LigneTemps[], di: number, pointe?: readonly number[] | null): number {
+  const somme = (l: readonly LigneTemps[]) => centieme(l.reduce((n, x) => n + num(x.h[di]), 0));
+  if (!pointe) return somme(lignes);
+  return Math.max(centieme(num(pointe[di])), somme(lignes.filter(l => !estLignePointee(l))));
 }
 
 /** « mardi 6 : 9 h ventilées pour 7,5 h pointées » ; `jours` : libellé de chaque jour de la semaine. */

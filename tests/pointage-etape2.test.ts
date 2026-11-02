@@ -21,9 +21,9 @@ const { ActionError, makeCtx } = await import('../server/src/actions/context.ts'
 const { journaliserAction, preparerTrace } = await import('../server/src/journal.ts');
 const { bilanPeriode, etatDuSalarie, lirePointages, theoriques } = await import('../server/src/pointages.ts');
 const { heuresKeystone } = await import('../server/src/integrations/keystone.ts');
-const { instantParis, postesDesPointages } = await import('../shared/rules/pointage.ts');
-const { avecLignePointee, CODE_PTG, ecartsTexte, estLignePointee, memesLignes, pointeDeLaSemaine } = await import('../shared/rules/pointage-feuille.ts');
-const { controlerHoraireVariable, horsPlagesFixes, minutesSaisies, SANS_VARIABLE } = await import('../shared/rules/horaires-variables.ts');
+const { anomaliesPointage, instantParis, postesDesPointages } = await import('../shared/rules/pointage.ts');
+const { avecLignePointee, CODE_PTG, ecartsTexte, estLignePointee, memesLignes, pointeDeLaSemaine, totalDuJour } = await import('../shared/rules/pointage-feuille.ts');
+const { controlerHoraireVariable, horsPlagesFixes, minutesSaisies, refusModificationVariable, SANS_VARIABLE } = await import('../shared/rules/horaires-variables.ts');
 const { mentionInformationPointage } = await import('../shared/rules/pointage-information.ts');
 const { INFO_CONFIDENTIALITE } = await import('../shared/confidentialite.ts');
 const { calcSheet } = await import('../shared/rules/temps.ts');
@@ -104,6 +104,46 @@ test('plage fixe : arrivée après le début, sortie pendant la plage ; couverte
   assert.deepEqual(horsPlagesFixes(fixes, '2026-10-06', []), [], 'jour sans pointage : « jour prévu sans pointage » suffit');
 });
 
+test('plage fixe : jugée le jour même une fois finie seulement, jamais un jour de demi-journée d’absence', () => {
+  const fixes = [{ type: 'fixe' as const, debut: '09:30', fin: '11:30' }, { type: 'fixe' as const, debut: '14:00', fin: '16:00' }];
+  const j = '2026-10-06';
+  const p = (id: number, hhmm: string, sens: 'E' | 'S') => ({ id, horodatage: iso(j, hhmm), sens, annuleId: null });
+  const base = { du: j, au: j, prevus: new Set([j]), plagesFixes: new Map([[j, fixes]]) };
+  const fixe = (x: Parameters<typeof anomaliesPointage>[0]) => anomaliesPointage(x).filter(a => a.code === 'plage_fixe').map(a => a.texte);
+  // Arrivée à 8 h 30, lecture à 10 h : aucune plage n'est encore manquée (poste en cours, plages à venir).
+  assert.deepEqual(fixe({ ...base, pointages: [p(1, '08:30', 'E')], maintenant: instantParis(j, 600) }), []);
+  // Arrivée à 10 h, pause à midi, lecture à 12 h 30 : la plage du matin, finie, est manquée ; celle de l'après-midi pas encore.
+  assert.deepEqual(fixe({ ...base, pointages: [p(1, '10:00', 'E'), p(2, '12:00', 'S')], maintenant: instantParis(j, 750) }), ['Plage fixe 09:30 – 11:30 non couverte (dès 09:30)']);
+  // Demi-journée de congé le matin, pointage de 13 h 30 à 17 h 30 : rien, ni le jour même ni le lendemain.
+  const apresMidi = [p(1, '13:30', 'E'), p(2, '17:30', 'S')];
+  for (const maintenant of [instantParis(j, 18 * 60), instantParis('2026-10-07', 600)]) {
+    assert.deepEqual(fixe({ ...base, pointages: apresMidi, demiAbsents: new Map([[j, 240]]), maintenant }), []);
+  }
+  // Témoin : sans la demi-journée d'absence, la plage du matin serait manquée.
+  assert.deepEqual(fixe({ ...base, pointages: apresMidi, maintenant: instantParis('2026-10-07', 600) }), ['Plage fixe 09:30 – 11:30 non couverte (dès 09:30)']);
+});
+
+test('horaire variable : début, fin ou pause modifiés seulement si les plages tiennent encore', () => {
+  const J = { code: 'J', nom: 'Journée', debut: '08:00', fin: '16:00', pause: 60, variable: true, dureeReference: 420, reportMaxSemaine: 180, cumulMax: 600, accordVariable: null,
+    plages: [{ type: 'mobile' as const, debut: '08:00', fin: '09:30' }, { type: 'fixe' as const, debut: '09:30', fin: '11:30' }, { type: 'mobile' as const, debut: '11:30', fin: '16:00' }] };
+  assert.equal(refusModificationVariable(J, { code: 'J', debut: '07:30', fin: '17:00', pause: 45 }), null, 'amplitude élargie');
+  assert.match(refusModificationVariable(J, { code: 'J', debut: '22:00', fin: '06:00', pause: 30 }) ?? '', /horaire de nuit[^]*Repassez-le d’abord en horaire fixe/);
+  assert.match(refusModificationVariable(J, { code: 'J', debut: '08:30', fin: '16:00', pause: 60 }) ?? '', /amplitude de l’horaire \(08:30 – 16:00\)/);
+  assert.equal(refusModificationVariable({ ...J, ...SANS_VARIABLE }, { code: 'J', debut: '22:00', fin: '06:00', pause: 30 }), null, 'horaire fixe : rien à contrôler');
+});
+
+test('total du jour en mode « calcule » : le plus grand du pointé et de la ventilation, jamais leur somme', () => {
+  const projet = { projet: 'KS-001', tache: 'Montage', ks: false, h: [3, 13, 0, 0, 0, 0, 0] };
+  const { lignes } = avecLignePointee([projet], [3, 13, 2, 0, 0, 0, 0]);
+  assert.deepEqual([0, 1, 2].map(di => totalDuJour(lignes, di, [3, 13, 2, 0, 0, 0, 0])), [3, 13, 2]);
+  // Ligne PTG encore pleine (avant recalcul) : la ventilation ajoutée n'est pas comptée deux fois.
+  const pleine = [{ ...lignes[0], h: [3, 13, 2, 0, 0, 0, 0] }, projet];
+  assert.deepEqual([0, 1].map(di => totalDuJour(pleine, di, [3, 13, 2, 0, 0, 0, 0])), [3, 13]);
+  assert.equal(totalDuJour(pleine, 0, null), 6, 'feuille déclarative : somme des lignes');
+  // Seul le marqueur `pt` désigne la ligne système : un projet Keystone de code « PTG » reste une ligne ordinaire.
+  assert.ok(!estLignePointee({ projet: CODE_PTG }));
+});
+
 test('mention d’information et page Confidentialité : finalité, fondement, populations, conservation, ni position ni biométrie', () => {
   const m = mentionInformationPointage({
     pointageAccord: ACCORD, pointageCseLe: '2026-02-15', pointageDelaiCorrectionJours: 7, pointageHorsLigne: true, conservationPointagesAns: 3,
@@ -111,6 +151,13 @@ test('mention d’information et page Confidentialité : finalité, fondement, p
   });
   const t = m.join('\n');
   for (const x of [ACCORD, 'L2312-38', 'D3171-8', 'Maintenance', '7 jours', '3 ans', 'forfait jours', 'Aucune position, aucune photo ni donnée biométrique', 'CNIL']) assert.ok(t.includes(x), x);
+  // Intérimaires : exclus par défaut (`pointageInterim` faux), et la mention le dit ; inclus, elle ne les exclut plus.
+  assert.match(t, /cadres dirigeants, ni les intérimaires\./);
+  const avecInterim = mentionInformationPointage({
+    pointageAccord: ACCORD, pointageCseLe: '2026-02-15', pointageDelaiCorrectionJours: 7, pointageHorsLigne: true, conservationPointagesAns: 3, pointageInterim: true,
+    pointagePopulations: [{ critere: 'equipe', valeur: 'Maintenance', mode: 'controle', effet: '2027-01-04' }],
+  }).join('\n');
+  assert.ok(!avecInterim.includes('intérimaires') && avecInterim.includes('cadres dirigeants.'));
   assert.match(mentionInformationPointage({ pointageAccord: '', pointageCseLe: null, pointageDelaiCorrectionJours: 7, pointageHorsLigne: false, conservationPointagesAns: 1, pointagePopulations: [] }).join('\n'),
     /\[référence à compléter\][^]*\[date à compléter\][^]*aucune population[^]*1 an,/);
   const page = JSON.stringify(INFO_CONFIDENTIALITE);
@@ -259,4 +306,56 @@ test('referentiel.horaire.variable : service RH, contrôles, journal sans la ré
   await run(P.admin, 'referentiel.horaire.variable', { id: 'J', variable: false });
   const fixe = await db.get<Record<string, unknown>>('horaires', 'J');
   assert.deepEqual([fixe!.variable, fixe!.plages, fixe!.dureeReference, fixe!.accordVariable], [false, null, null, null]);
+});
+
+test('mode « calcule » : ventilation d’un jour de demi-journée d’absence ou de plus de 12 h, jamais comptée deux fois', async () => {
+  const { db, P, run, refuse } = await fresh();
+  // CP de Mehdi le lundi 5 octobre au matin (validé).
+  await db.tx(async () => { await db.insert('absences', { empId: 2, type: 'CP', du: '2026-10-05', au: '2026-10-05', statut: 'validee', keystone: false, debutDemi: 'matin' }); });
+  const ds = await loadFull(db, P.admin);
+  const d = new Domain(ds);
+  const { demiJoursAbsence } = await import('../shared/rules/temps.ts');
+  const demi = demiJoursAbsence(d, 2, '2026-10-05')[0];
+  assert.ok(demi && demi.max >= 3 && demi.max < 6, 'demi-journée d’absence de Mehdi le lundi 5 octobre');
+  // Lundi : 3 h pointées l'après-midi ; mardi : 13 h d'affilée.
+  for (const [j, h, sens] of [['2026-10-05', '13:30', 'E'], ['2026-10-05', '16:30', 'S'], ['2026-10-06', '07:00', 'E'], ['2026-10-06', '20:00', 'S']] as const) await pointer(db, j, h, sens);
+  await run(P.coll, 'temps.addLine', { empId: 2, week: '2026-10-05', projet: 'INT-MAINT' });
+  assert.deepEqual((await feuille(db)).lignes[0].h.slice(0, 2), [3, 13]);
+  await run(P.coll, 'temps.setCell', { empId: 2, week: '2026-10-05', li: 1, di: 0, value: '3' });
+  await run(P.coll, 'temps.setCell', { empId: 2, week: '2026-10-05', li: 1, di: 1, value: '13' });
+  const f = await feuille(db);
+  assert.deepEqual(f.lignes.map(l => l.h.slice(0, 2)), [[0, 0], [3, 13]]);
+  // Au-delà du pointé, la demi-journée reste contrôlée sur le total réel du jour.
+  await refuse(P.coll, 'temps.setCell', { empId: 2, week: '2026-10-05', li: 1, di: 0, value: String(demi.max + 1) }, /Demi-journée d’absence/);
+});
+
+test('projet Keystone de code « PTG » : ligne ordinaire, jamais confondue avec la ligne système', async () => {
+  const { db, P, run } = await fresh();
+  await db.tx(async () => { await db.insert('projets', { code: 'PTG', nom: 'Projet PTG', statut: 'actif' }); });
+  await pointer(db, '2026-10-06', '08:00', 'E');
+  await pointer(db, '2026-10-06', '15:00', 'S');
+  await run(P.coll, 'temps.addLine', { empId: 2, week: '2026-10-05', projet: 'PTG' });
+  let f = await feuille(db);
+  assert.deepEqual(f.lignes.map(l => [l.projet, !!l.pt]), [[CODE_PTG, true], ['PTG', false]]);
+  await run(P.coll, 'temps.setCell', { empId: 2, week: '2026-10-05', li: 1, di: 1, value: '4' });
+  f = await feuille(db);
+  assert.deepEqual(f.lignes.map(l => l.h[1]), [3, 4]);
+  assert.deepEqual(heuresKeystone(f.lignes), { PTG: 4 });
+  await run(P.coll, 'temps.removeLine', { empId: 2, week: '2026-10-05', li: 1 });
+  assert.deepEqual((await feuille(db)).lignes.map(l => l.projet), [CODE_PTG]);
+});
+
+test('referentiel.horaire.enregistrer : un horaire variable ne devient ni de nuit ni trop court pour ses plages', async () => {
+  const { db, P, run, refuse } = await fresh('controle');
+  const plages = [{ type: 'mobile', debut: '08:00', fin: '09:30' }, { type: 'fixe', debut: '09:30', fin: '11:30' }, { type: 'mobile', debut: '11:30', fin: '16:00' }];
+  await run(P.admin, 'referentiel.horaire.variable', { id: 'J', variable: true, plages });
+  const J = (await db.get<Record<string, unknown>>('horaires', 'J'))!;
+  await refuse(P.admin, 'referentiel.horaire.enregistrer', { id: 'J', nom: J.nom, debut: '22:00', fin: '06:00', pause: 30 }, /horaire de nuit[^]*horaire fixe/);
+  await refuse(P.admin, 'referentiel.horaire.enregistrer', { id: 'J', nom: J.nom, debut: '08:30', fin: J.fin, pause: J.pause }, /amplitude/);
+  assert.deepEqual([(await db.get<Record<string, unknown>>('horaires', 'J'))!.debut], [J.debut], 'rien d’enregistré');
+  // Nom ou pause seuls : admis.
+  await run(P.admin, 'referentiel.horaire.enregistrer', { id: 'J', nom: 'Journée variable', debut: J.debut, fin: J.fin, pause: 45 });
+  // Redevenu fixe : toute modification est de nouveau admise.
+  await run(P.admin, 'referentiel.horaire.variable', { id: 'J', variable: false });
+  await run(P.admin, 'referentiel.horaire.enregistrer', { id: 'J', nom: 'Nuit', debut: '22:00', fin: '06:00', pause: 30 });
 });

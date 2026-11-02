@@ -14,7 +14,7 @@ import { estActiviteInterne } from '../../../shared/rules/activites.ts';
 import { regimeAFiger } from '../../../shared/rules/historique-contrat.ts';
 // lot 12 — C6 (badgeage virtuel)
 import { modeAFiger, pointeDeLaFeuille } from '../pointages.ts';
-import { avecLignePointee, ecartsTexte, estLignePointee, feuilleCalculee } from '../../../shared/rules/pointage-feuille.ts';
+import { avecLignePointee, ecartsTexte, estLignePointee, feuilleCalculee, totalDuJour } from '../../../shared/rules/pointage-feuille.ts';
 import { completerSemaine, JOURS_FEUILLE } from '../../../shared/rules/semaine.ts';
 import { ferieRefus } from '../../../shared/rules/majorations.ts';
 import { horairesAFiger } from '../../../shared/rules/horaires.ts';
@@ -144,10 +144,14 @@ async function ecrireCellule(ctx: Ctx, emp: Employe, sh: FeuilleTemps, li: numbe
   const lignes = sh.lignes.map((l, i) => i === li ? { ...l, h: completerSemaine(l.h).map((x, j) => j === di ? v : x) } : l);
   // Deux lignes de 20 h le même jour ne font pas une journée : 24 h au plus, toutes lignes cumulées (baisser une cellule
   // d'une journée déjà au-delà, saisie avant ce contrôle, reste possible).
-  const jour = lignes.reduce((n, l) => n + num(l.h[di]), 0);
-  if (jour > HEURES_JOUR_MAX && v > num(sh.lignes[li].h[di])) throw new ActionError(`Plus de 24 h ce jour-là (${fH(jour)} toutes lignes cumulées) : une journée compte 24 h au plus`);
+  // lot 12 — C6 (badgeage virtuel) : en mode « calcule », total du jour = le plus grand du pointé et de la ventilation
+  // (totalDuJour) ; une ventilation qui reste dans le pointé ne change pas la journée et n'est jamais refusée ici.
+  const pointe = feuilleCalculee(sh) ? await pointeDeLaFeuille(ctx.db, sh.empId, sh.week) : null;
+  const jour = totalDuJour(lignes, di, pointe);
+  const hausse = v > num(sh.lignes[li].h[di]) && jour > totalDuJour(sh.lignes, di, pointe) + 1e-9;
+  if (jour > HEURES_JOUR_MAX && hausse) throw new ActionError(`Plus de 24 h ce jour-là (${fH(jour)} toutes lignes cumulées) : une journée compte 24 h au plus`);
   // Demi-journée d'absence : au plus une demi-journée de travail ce jour-là (baisser une cellule reste possible).
-  const demi = v > num(sh.lignes[li].h[di]) ? demiJourneeRefus(ctx.d, sh, di, jour) : null;
+  const demi = hausse ? demiJourneeRefus(ctx.d, sh, di, jour) : null;
   if (demi) throw new ActionError(demi);
   await saveLines(ctx, sh, lignes);
 }
@@ -185,7 +189,7 @@ const saisir: ActionHandler = async (ctx, p) => {
 const addLine: ActionHandler = async (ctx, p) => {
   const { sh } = await editable(ctx, p);
   const projet = str(p.projet);
-  if (p.siAbsente === true && sh.lignes.some(l => l.projet === projet)) return null;
+  if (p.siAbsente === true && sh.lignes.some(l => l.projet === projet && /* lot 12 — C6 */ !estLignePointee(l))) return null;
   // Projets transmis par Keystone (server/src/integrations/keystone-entrant.ts) ; un projet archivé n'est plus proposé.
   const pr = ctx.ds.referentiels.projets.find(x => x.code === projet);
   if (!pr) throw new ActionError('Projet inconnu');
@@ -232,7 +236,9 @@ const suggest: ActionHandler = async (ctx, p) => {
   // Rien de planifié cette semaine : la feuille n'est pas vidée.
   if (!l.length) throw new ActionError('Aucune tâche Keystone ni session de formation planifiée pour ce salarié cette semaine');
   // Heures de formation réduites au besoin ; tâches Keystone et lignes gardées au-delà de 24 h : refus.
-  const f = fusionProposition(sh.lignes, l);
+  // lot 12 — C6 (badgeage virtuel) : en mode « calcule », la ligne PTG (pointé non ventilé) n'entre pas dans la place prise
+  // chaque jour ; saveLines la recalcule ensuite sur la nouvelle ventilation.
+  const f = fusionProposition(feuilleCalculee(sh) ? sh.lignes.filter(x => !estLignePointee(x)) : sh.lignes, l);
   controleJournees(sh, f.lignes, 'Tâches Keystone et lignes déjà saisies : plus de 24 h');
   const ajoutees = f.lignes.length - f.conservees;
   if (!ajoutees) throw new ActionError('Aucune heure de formation à proposer : les jours de la session comptent déjà 24 h, toutes lignes cumulées');

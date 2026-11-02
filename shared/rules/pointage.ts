@@ -449,10 +449,12 @@ export function anomaliesPointage(x: EntreeAnomalies): AnomaliePointage[] {
     if (declare != null && Math.abs(declare * 60 - m) > (x.ecartMin ?? 15) && j < aujourdhui) {
       out.push({ code: 'ecart_declare', jour: j, texte: `${fH(declare)} déclarées, ${minutesTexte(m)} pointées` });
     }
-    // Horaire variable (étape 2) : plage fixe non couverte un jour pointé.
+    // Horaire variable (étape 2) : plage fixe non couverte un jour pointé. Jamais un jour d'absence, même d'une demi-journée
+    // (la plage fixe de la demi-journée absente serait « manquée ») ; le jour même, seules les plages fixes déjà finies
+    // sont jugées (une plage à venir, ou en cours pendant la pause de midi, n'est pas encore manquée).
     const fixes = x.plagesFixes?.get(j);
-    if (fixes?.length && m && !x.absents?.has(j)) {
-      for (const f of horsPlagesFixes(fixes, j, postes.filter(p => p.jour === j).flatMap(p => p.paires))) {
+    if (fixes?.length && m && !x.absents?.has(j) && !x.demiAbsents?.has(j) && j <= aujourdhui) {
+      for (const f of horsPlagesFixes(fixes, j, postes.filter(p => p.jour === j).flatMap(p => p.paires), j === aujourdhui ? x.maintenant : undefined)) {
         out.push({ code: 'plage_fixe', jour: j, texte: `Plage fixe ${f.plage.debut} – ${f.plage.fin} non couverte (dès ${f.manque})` });
       }
     }

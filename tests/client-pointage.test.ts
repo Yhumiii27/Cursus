@@ -26,7 +26,7 @@ const correction = (x: Partial<CorrectionPointage>): CorrectionPointage => ({
 function donnees(actif = true): Dataset {
   return {
     today: '2026-10-10', user: { empId: 12 },
-    settings: { pointageActif: actif, pointageInterim: false, pointagePopulations: [{ critere: 'equipe', valeur: 'Maintenance', mode: 'controle', effet: '2026-10-01' }] },
+    settings: { pointageActif: actif, pointageInterim: false, pointageHorsLigne: true, pointagePopulations: [{ critere: 'equipe', valeur: 'Maintenance', mode: 'controle', effet: '2026-10-01' }] },
     employes: [
       { id: 2, nom: 'Mehdi Benali', equipe: 'Maintenance', temps: '35h', typeContrat: 'cdi', entree: '2020-01-01', fin: null },
       { id: 5, nom: 'Claire Dumas', equipe: 'Maintenance', temps: 'forfait_jours', typeContrat: 'cdi', entree: '2020-01-01', fin: null },
@@ -84,6 +84,9 @@ test('hors ligne : pointage gardé avec l’heure de l’appareil, pour soi seul
   assert.equal(versFile('pointage.pointer', { empId: 16 }, d, () => t), null, 'jamais pour un autre');
   assert.equal(versFile('pointage.corriger', { empId: 2, nature: 'ajout' }, d, () => t), null, 'une correction attend le réseau');
   assert.match(libelleSaisie('pointage.pointer', { empId: 2, horodatageAppareil: '2026-10-10T06:02:00.000Z' }), /^Pointage différé · samedi 10 octobre à \d{2}:02$/);
+  // Pointage hors ligne non admis (Paramètres → Badgeage) : rien n'est gardé, le serveur refuserait le rejeu.
+  const sansHorsLigne = { ...d, settings: { ...d.settings, pointageHorsLigne: false } } as Dataset;
+  assert.equal(versFile('pointage.pointer', { empId: 2 }, sansHorsLigne, () => t), null, 'réglage pointageHorsLigne décoché');
 });
 
 test('écran Pointages : trois espaces, jamais les profils restreints ; raccourci « Pointer » de l’application installée', () => {

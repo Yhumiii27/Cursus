@@ -5216,16 +5216,23 @@ module (Paramètres → Badgeage, avec la référence de l'accord et la date de 
   validation (`pointeAFiger`), qui figent le pointé (`pointeFige`, heures par jour) et refusent une ventilation au-delà du
   pointé d'un jour. Ni saisie ni suppression de la ligne (grille, saisie du jour, serveur) ; jamais renvoyée à Keystone
   (`heuresKeystone`) ; `calcSheet` et `sageRubriques` inchangés. Un pointage postérieur à la validation n'est jamais
-  réécrit : anomalie `apres_validation`, réouverture. Mode « controle » : feuille inchangée, écart signalé.
+  réécrit : anomalie `apres_validation`, réouverture. Mode « controle » : feuille inchangée, écart signalé. Contrôles de
+  saisie (24 h, demi-journée d'absence, intervention d'astreinte) sur `totalDuJour` : le plus grand du pointé et de la
+  ventilation, jamais leur somme ; une ventilation qui reste dans le pointé n'y est jamais refusée. La ligne système se
+  reconnaît au seul marqueur `pt` (`estLignePointee`) : un projet Keystone de code « PTG » reste une ligne ordinaire.
 - **Horaires variables** (`shared/rules/horaires-variables.ts`, `server/src/actions/horaires-variables.ts`, dialogue
   `HoraireVariableDialog.tsx` depuis Référentiels → Horaires) : plages fixes et mobiles dans l'amplitude, au moins une
   fixe, la première et la dernière mobiles, pas d'horaire de nuit ; durée de référence (par défaut celle de l'horaire) qui
   remplace celle de l'horaire dans le théorique du débit-crédit (`theoriques`, server/src/pointages.ts) ; plafonds du
   report (3 h par semaine, 10 h de cumul, supplétifs) appliqués par `cumulPeriode`, d'autres valeurs exigent la référence
-  de l'accord. Anomalie `plage_fixe` (`horsPlagesFixes`) : plage fixe d'un jour pointé non couverte. Les plages ne sont pas
+  de l'accord. Anomalie `plage_fixe` (`horsPlagesFixes`) : plage fixe d'un jour pointé non couverte ; le jour même, seules
+  les plages déjà finies sont jugées ; jamais un jour d'absence, même d'une demi-journée. Un horaire variable ne se modifie
+  (`referentiel.horaire.enregistrer`) que si ses plages tiennent dans la nouvelle amplitude et qu'il ne devient pas un
+  horaire de nuit (`refusModificationVariable`) ; sinon il repasse d'abord en horaire fixe. Les plages ne sont pas
   figées sur la feuille (`horairesFiges` ne porte que code, début, fin et pause) : elles sont lues au référentiel.
 - **Paramètres → Badgeage** (`client/src/pages/parametres/Badgeage.tsx`) : activation, accord, avis du CSE, populations
-  (mode « contrôlé » proposé pour une nouvelle), intérimaires, hors ligne, délai des corrections, seuils, conservation ;
+  (mode « contrôlé » proposé pour une nouvelle), intérimaires, hors ligne (décoché : la file de l'appareil ne garde aucun
+  pointage, `versFile`), délai des corrections, seuils, conservation ;
   enregistrés ensemble (`parametres.maj`, COHERENCE). Mention d'information des salariés générée d'après les réglages
   (`mentionInformationPointage`, shared/rules/pointage-information.ts), à copier, à relire par le DPO.
 - **Confidentialité et registre** : rubriques « Pointage des heures » et « Pointages » de shared/confidentialite.ts ;

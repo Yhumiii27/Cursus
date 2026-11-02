@@ -84,7 +84,13 @@ export function BoutonPointer({ titre = 'Pointage du jour' }: { titre?: string }
         </Fine>
       )}
       {erreur && <Fine>État du jour indisponible : {erreur}</Fine>}
-      <Fine>Heure du serveur. Sans réseau, le pointage est gardé sur l’appareil avec son heure et part « différé » au retour du réseau. Aucune position n’est enregistrée.</Fine>
+      <Fine>
+        Heure du serveur.{' '}
+        {data.settings.pointageHorsLigne
+          ? 'Sans réseau, le pointage est gardé sur l’appareil avec son heure et part « différé » au retour du réseau.'
+          : 'Sans réseau, le pointage n’est pas possible : pointez une fois connecté.'}{' '}
+        Aucune position n’est enregistrée.
+      </Fine>
     </Panel>
   );
 }

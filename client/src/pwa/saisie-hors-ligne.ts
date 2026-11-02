@@ -43,8 +43,9 @@ export function versFile(nom: NomAction, payload: Record<string, unknown>, data:
   // lui-même avec sa pièce (pilote.ts, `garderAvecPieces`). Jamais de frais médicaux (refusHorsLigne).
   else if (nom === 'frais.ligne.ajouter' && !payload.jetons) mf = { nom, payload };
   // lot 12 — C6 (badgeage virtuel) : pointage gardé avec l'heure de l'appareil au moment du clic, envoyé « différé » au retour
-  // du réseau ; jamais de position (refusHorsLigne). En ligne, l'action part sans elle (heure du serveur).
-  else if (nom === 'pointage.pointer') mf = { nom, payload: { empId, horodatageAppareil: maintenant().toISOString() } };
+  // du réseau ; jamais de position (refusHorsLigne). En ligne, l'action part sans elle (heure du serveur). Pointage hors ligne
+  // non admis (réglage `pointageHorsLigne`, refusé au rejeu par le serveur) : rien n'est gardé, l'action échoue tout de suite.
+  else if (nom === 'pointage.pointer' && data.settings.pointageHorsLigne) mf = { nom, payload: { empId, horodatageAppareil: maintenant().toISOString() } };
   return mf && refusHorsLigne(mf.nom, mf.payload, empId) === null ? mf : null;
 }
 

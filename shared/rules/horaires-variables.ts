@@ -92,6 +92,22 @@ export function controlerHoraireVariable(h: Pick<Horaire, 'code' | 'debut' | 'fi
   return { erreurs, champs: { variable: true, plages, dureeReference: duree, reportMaxSemaine: report, cumulMax: cumul, accordVariable: accord || null } };
 }
 
+/**
+ * Modification du début, de la fin ou de la pause d'un horaire déjà variable (`referentiel.horaire.enregistrer`) : refus
+ * quand ses plages enregistrées ne tiennent plus dans la nouvelle amplitude, ou quand il devient un horaire de nuit (mêmes
+ * contrôles que `controlerHoraireVariable`). Il faut alors le repasser d'abord en horaire fixe, puis le rendre variable
+ * de nouveau avec des plages adaptées. Horaire fixe, ou plages toujours valides : null.
+ */
+export function refusModificationVariable(avant: Horaire, apres: Pick<Horaire, 'code' | 'debut' | 'fin' | 'pause'>): string | null {
+  if (!estVariable(avant)) return null;
+  const { erreurs } = controlerHoraireVariable(apres, {
+    variable: true, plages: avant.plages, dureeReference: avant.dureeReference ?? '', reportMaxSemaine: avant.reportMaxSemaine ?? '',
+    cumulMax: avant.cumulMax ?? '', accordVariable: avant.accordVariable ?? '',
+  });
+  if (!erreurs.plages) return null;
+  return `Horaire ${avant.code} variable (${plagesTexte(avant.plages ?? [])}) : ${erreurs.plages.replace(/\.$/, '')}. Repassez-le d’abord en horaire fixe (« Horaire variable »), puis rendez-le variable avec des plages adaptées.`;
+}
+
 /** Horaire variable en vigueur (plages enregistrées) : sinon null. */
 export const estVariable = (h: Pick<Horaire, 'variable' | 'plages'> | null | undefined): boolean => !!h?.variable && (h.plages?.length ?? 0) > 0;
 
@@ -104,15 +120,17 @@ export interface ManquePlageFixe { plage: PlageHoraire; manque: string }
 /**
  * Plages fixes du jour `jour` (heure de Paris) que les intervalles travaillés `paires` (instants en ms) ne couvrent pas
  * entièrement : arrivée après le début, départ avant la fin, ou sortie pendant la plage. Rendues avec l'heure du premier
- * manque. Un jour sans aucun pointage n'en rend aucune (« jour prévu sans pointage » le dit déjà).
+ * manque. Un jour sans aucun pointage n'en rend aucune (« jour prévu sans pointage » le dit déjà). `jusqua` (ms, jour en
+ * cours) : seules les plages fixes finies à cet instant sont jugées, une plage à venir ou en cours n'est pas encore manquée.
  */
-export function horsPlagesFixes(plages: readonly PlageHoraire[], jour: ISODate, paires: readonly (readonly [number, number])[]): ManquePlageFixe[] {
+export function horsPlagesFixes(plages: readonly PlageHoraire[], jour: ISODate, paires: readonly (readonly [number, number])[], jusqua?: number): ManquePlageFixe[] {
   if (!paires.length) return [];
   const tri = [...paires].sort((a, b) => a[0] - b[0]);
   const out: ManquePlageFixe[] = [];
   for (const p of plages) {
     if (p.type !== 'fixe') continue;
     const de = instantParis(jour, minutes(p.debut)), a = instantParis(jour, minutes(p.fin));
+    if (jusqua != null && a > jusqua) continue;
     let t = de;
     for (const [x, y] of tri) {
       if (y <= t) continue;

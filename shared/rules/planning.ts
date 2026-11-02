@@ -58,6 +58,27 @@ export function refusPeriode(du: unknown, au: unknown): string | null {
 }
 
 /**
+ * Fenêtre de l'instantané pour les créneaux (server/src/planning-lecture.ts) : de 8 semaines passées à 12 semaines à venir.
+ * Au-delà, la grille, l'aperçu de la publication et « Mon planning » ne voient rien : un créneau n'est donc jamais généré,
+ * ajouté ni publié après le dernier jour de cette fenêtre (`refusHorizon`) ; les jours passés plus anciens se lisent par
+ * l'historique (GET /api/planning/historique).
+ */
+export const SEMAINES_PASSEES = 8;
+export const SEMAINES_A_VENIR = 12;
+/** Premier et dernier jour de la fenêtre au jour `ti`, bornes comprises. */
+export const fenetrePlanning = (ti: ISODate): { du: ISODate; au: ISODate } => ({ du: addD(ti, -7 * SEMAINES_PASSEES), au: addD(ti, 7 * SEMAINES_A_VENIR) });
+/** Dernier jour `au` au-delà de la fenêtre de l'instantané (12 semaines à venir) : message, ou null. */
+export function refusHorizon(au: ISODate, ti: ISODate): string | null {
+  const fin = fenetrePlanning(ti).au;
+  return au > fin ? `Planning limité aux ${SEMAINES_A_VENIR} semaines à venir : jusqu’au ${fmtIso(fin)} au plus tard` : null;
+}
+/** Période qui sort, en tout ou partie, de la fenêtre de l'instantané : ses créneaux se lisent par l'historique. */
+export const horsFenetre = (du: ISODate, au: ISODate, ti: ISODate): boolean => {
+  const f = fenetrePlanning(ti);
+  return du < f.du || au > f.au;
+};
+
+/**
  * Créneaux en vigueur pour le planificateur : un par salarié et par jour (le brouillon qui remplacera une version publiée
  * passe devant elle), « à pourvoir » compris ; ni remplacés, ni annulés.
  */

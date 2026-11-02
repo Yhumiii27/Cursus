@@ -61,7 +61,7 @@ export const compteursPush = () => ({ ...compteurs });
  */
 export function chargePush(type: string): { type: string; titre: string; corps: string; url: string } | null {
   const n = Object.hasOwn(NOTIFICATIONS_PUSH, type) ? NOTIFICATIONS_PUSH[type] : null;
-  return n ? { type, titre: n.titre, corps: n.corps, url: n.vue ? `/${n.vue}` : '/' } : null;
+  return n ? { type, titre: n.titre, corps: n.corps, url: n.vue ? `/${n.vue}${n.onglet ? `?onglet=${encodeURIComponent(n.onglet)}` : ''}` : '/' } : null;
 }
 
 /** La notification d'essai (push.tester) part aussitôt ; toutes les autres respectent la plage de silence. */

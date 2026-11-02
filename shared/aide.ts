@@ -160,6 +160,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           'Temps de travail, onglet « Planning d’équipe » (module activé) : une lettre par case (horaire, R repos, A absent sans la nature), un astérisque pour ce qui n’est pas publié, une ligne « Couverture » face au besoin minimal.',
           '« Affecter » chaque salarié à un cycle, « Générer » les brouillons, cliquer une case pour corriger, puis « Publier » : une habilitation manquante bloque ; les alertes et un délai de prévenance court demandent un motif, jamais recopié au journal.',
           'Échanges acceptés par les deux salariés : « Examiner », puis Valider ou Refuser. « Imprimer l’affichage » ou « Exporter (CSV) » : horaire collectif et composition des équipes (art. D3171-7).',
+          'Vous êtes vous-même planifié avec votre équipe : menu « Mon planning » pour vos postes et les échanges qu’on vous propose. Une semaine ancienne se relit en reculant la semaine (historique).',
         ],
       },
       {

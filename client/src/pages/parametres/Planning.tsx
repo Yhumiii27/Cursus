@@ -4,13 +4,16 @@
 // 40 h, jusqu'à 12 h et 44 h par accord), référence de l'accord (exigée dès qu'une valeur s'écarte de la loi : COHERENCE de
 // shared/reglages.ts), planning des collègues visible du salarié (fermé par défaut : leurs postes planifiés seulement,
 // jamais leurs absences), et reprise des équipes par quart en groupes de roulement, proposée une fois le module activé.
+// Date de l'avis du CSE (`planningCseLe`) : notée avant l'activation, qui la suppose (COHERENCE, comme le badgeage).
 // Réglages de l'administrateur RH ; les autres profils de l'espace RH consultent. Les cases s'enregistrent aussitôt ; les
 // valeurs et la référence de l'accord, ensemble, au bouton « Enregistrer ».
 import { useState } from 'react';
 import {
-  DELAI_PREVENANCE_PLANNING, DELAI_PREVENANCE_PLANNING_MIN, NUIT_JOUR_ACCORD_MAX, NUIT_JOUR_LEGAL, NUIT_MOYENNE_ACCORD_MAX, NUIT_MOYENNE_LEGALE, planningHorsLoi, REPOS_QUOTIDIEN_ACCORD_MIN,
+  DELAI_PREVENANCE_PLANNING, DELAI_PREVENANCE_PLANNING_MIN, MSG_AVIS_CSE_PLANNING, NUIT_JOUR_ACCORD_MAX, NUIT_JOUR_LEGAL, NUIT_MOYENNE_ACCORD_MAX, NUIT_MOYENNE_LEGALE, planningHorsLoi,
+  REPOS_QUOTIDIEN_ACCORD_MIN,
 } from '../../../../shared/rules/planning-controles.ts';
 import { equipesParQuart } from '../../../../shared/rules/planning-reprise.ts';
+import { fmtIso } from '../../../../shared/format.ts';
 import { REPOS_QUOTIDIEN } from '../../../../shared/rules/repos-nuit.ts';
 import { Field } from '../../components/Dialog.tsx';
 import { Btn, Fine, NoteAccent, Panel } from '../../components/ui.tsx';
@@ -35,12 +38,15 @@ export function Planning({ s }: SectionProps) {
   const save = useEnregistrerReglages();
   const [valeurs, setValeurs] = useState(() => valeursDe(s));
   const [accord, setAccord] = useState(s.planningAccord);
+  const [cseLe, setCseLe] = useState(s.planningCseLe ?? '');
   const [tente, setTente] = useState(false);
+  // Activation demandée sans date d'avis du CSE enregistrée : refus à l'écran, sous la case.
+  const [sansAvis, setSansAvis] = useState(false);
   const [busy, setBusy] = useState(false);
   // Réglages changés ailleurs (enregistrement, autre administrateur) : la saisie repart des valeurs en vigueur.
-  const cle = `${VALEURS.map(([k]) => s[k]).join('|')}|${s.planningAccord}`;
+  const cle = `${VALEURS.map(([k]) => s[k]).join('|')}|${s.planningAccord}|${s.planningCseLe ?? ''}`;
   const [source, setSource] = useState(cle);
-  if (source !== cle) { setSource(cle); setValeurs(valeursDe(s)); setAccord(s.planningAccord); setTente(false); }
+  if (source !== cle) { setSource(cle); setValeurs(valeursDe(s)); setAccord(s.planningAccord); setCseLe(s.planningCseLe ?? ''); setTente(false); setSansAvis(false); }
   if (!espaceRh) return null;
 
   const erreurs = Object.fromEntries(VALEURS.map(([k, , min, max]) => {
@@ -50,20 +56,28 @@ export function Planning({ s }: SectionProps) {
   const nombres = Object.fromEntries(VALEURS.map(([k]) => [k, Number(valeurs[k])])) as Record<Cle, number>;
   const erreurAccord = !Object.values(erreurs).some(Boolean) && planningHorsLoi(nombres) && !accord.trim()
     ? 'Un délai de moins de 7 jours, un repos quotidien réduit ou d’autres durées du travail de nuit supposent un accord collectif : indiquez sa référence.' : null;
-  const modifie = VALEURS.some(([k]) => nombres[k] !== s[k]) || accord.trim() !== s.planningAccord;
+  // Date de l'avis : facultative tant que le module est désactivé ; jamais effacée quand il est actif.
+  const erreurCse = cseLe && !/^\d{4}-\d{2}-\d{2}$/.test(cseLe) ? 'Une date (jour, mois, année).'
+    : !cseLe && s.planningActif ? 'Module activé : la date de l’avis du CSE reste exigée.' : null;
+  const modifie = VALEURS.some(([k]) => nombres[k] !== s[k]) || accord.trim() !== s.planningAccord || (cseLe || null) !== s.planningCseLe;
   const enregistrer = async () => {
-    const erreur = [...VALEURS.map(([k]) => [`pla-${k}`, erreurs[k]] as const), ['pla-accord', erreurAccord] as const].find(([, e]) => e);
+    const erreur = [...VALEURS.map(([k]) => [`pla-${k}`, erreurs[k]] as const), ['pla-accord', erreurAccord] as const, ['pla-cse', erreurCse] as const].find(([, e]) => e);
     if (erreur) { setTente(true); document.getElementById(erreur[0])?.focus(); return; }
     setBusy(true);
-    await save({ ...nombres, planningAccord: accord.trim() });
+    await save({ ...nombres, planningAccord: accord.trim(), planningCseLe: cseLe || null });
     setBusy(false);
+  };
+  const activer = (oui: boolean) => {
+    if (oui && !s.planningCseLe) { setSansAvis(true); document.getElementById('pla-cse')?.focus(); return; }
+    setSansAvis(false);
+    void save({ planningActif: oui });
   };
   const quarts = equipesParQuart(data.referentiels.equipes);
 
   return (
     <Panel title="Planning d’équipe" style={{ gap: 'var(--space-4)' }}>
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
-        <input type="checkbox" checked={s.planningActif} disabled={!admin} onChange={e => save({ planningActif: e.target.checked })}
+        <input type="checkbox" checked={s.planningActif} disabled={!admin} onChange={e => activer(e.target.checked)} aria-describedby={sansAvis ? 'pla-sans-avis' : undefined}
           style={{ accentColor: 'var(--color-accent)', marginTop: 'var(--space-1)', flex: 'none' }} />
         <span>
           Activer le planning d’équipe
@@ -72,7 +86,12 @@ export function Planning({ s }: SectionProps) {
           </span>
         </span>
       </label>
+      {sansAvis && <p className="field-erreur" id="pla-sans-avis" role="alert">{MSG_AVIS_CSE_PLANNING} : notez-la ci-dessous et enregistrez, puis activez.</p>}
       {!s.planningActif && <NoteAccent>Module désactivé : l’organisation en cycles et l’outil de planning relèvent de la consultation du CSE (art. L2312-8). Activez-le après son avis.</NoteAccent>}
+      {s.planningActif && s.planningCseLe && <Fine>Activé après l’avis du CSE du {fmtIso(s.planningCseLe)}.</Fine>}
+      <Field label={<>Date de l’avis du CSE{!s.planningActif && <span className="who"> · exigée pour activer</span>}</>} htmlFor="pla-cse" requis={s.planningActif} erreur={(tente || sansAvis) && erreurCse}>
+        <input className="input" id="pla-cse" type="date" value={cseLe} disabled={!admin} onChange={e => setCseLe(e.target.value)} style={{ maxWidth: 200 }} />
+      </Field>
 
       <div className="grid-2">
         {VALEURS.map(([k, label]) => (

@@ -1,4 +1,5 @@
-// « Mon planning » (lot 12, chantier C5, étape 2) : espace collaborateur, le module activé (réglage `planningActif`), aussi
+// « Mon planning » (lot 12, chantier C5, étape 2) : espace collaborateur, et espace manager pour un manager lui-même planifié
+// (membre d'une équipe en cycle : ses postes, les échanges qu'on lui propose), le module activé (réglage `planningActif`), aussi
 // dans l'application installée (lecture hors ligne par le cache de l'instantané ; aucune action de planning dans la file
 // hors ligne : un échange exige un état frais). Le salarié voit ses postes publiés (la version communiquée, jamais un
 // brouillon) sur quatre semaines à partir de la semaine choisie, avec la version et la date de communication ; un jour sans
@@ -6,17 +7,18 @@
 // échanges qu'on lui propose et retire les siens. Les postes de ses collègues (nom, horaire ; jamais une absence ni un repos)
 // ne s'affichent que si le réglage `planningCollegues` l'ouvre. Notifications sur le téléphone : planning publié ou modifié,
 // étapes d'un échange (préférences dans l'accueil) ; agenda : les postes publiés figurent dans le flux personnel (.ics).
+// Semaines hors de la fenêtre de l'instantané : postes lus dans l'historique (client/src/planning-api.ts).
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
 import { addD, mondayOf } from '../../../shared/dates.ts';
 import { fmtIso, plural } from '../../../shared/format.ts';
-import { debutCreneau, ECHANGE_OUVERT } from '../../../shared/rules/planning.ts';
-import { instantParis } from '../../../shared/rules/planning-controles.ts';
+import { debutCreneau, ECHANGE_OUVERT, horsFenetre } from '../../../shared/rules/planning.ts';
 import { Empty, Fine, Page, Panel, Tag, Two } from '../components/ui.tsx';
 import { echangeTexte, joursDe, joursDuSalarie, jourCourt, jourLong, posteTexte } from '../components/planning/planning-vue.ts';
 import { useAgir } from '../state/actions.ts';
-import { refusEchange } from '../dialogs/PlanningDialog.tsx';
+import { maintenant as maintenantParis, refusEchange } from '../dialogs/PlanningDialog.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
-import { useStore } from '../state/store.tsx';
+import { useData, useStore } from '../state/store.tsx';
+import { useHistoriquePlanning } from '../planning-api.ts';
 
 /** Semaines affichées. */
 const SEMAINES = 4;
@@ -28,12 +30,19 @@ export function MonPlanning() {
   const { occupe, agir } = useAgir();
   const wk = ui.weekStart ?? mondayOf(d.ti);
   const jours = joursDe(wk, 7 * SEMAINES);
+  // Semaines hors de la fenêtre de l'instantané (plus de 8 semaines passées, plus de 12 à venir) : lues dans l'historique.
+  const data = useData();
+  const hist = useHistoriquePlanning(horsFenetre(jours[0], jours.at(-1)!, d.ti) ? { du: jours[0], au: jours.at(-1)!, equipe: null } : null, data.user.role, data.revision);
   if (!me) return <Page title="Mon planning"><Empty>Aucun salarié rattaché à votre compte.</Empty></Page>;
-  const siens = joursDuSalarie(d.ds.creneaux, me, jours);
-  const maintenant = instantParis(d.ti, '00:00');
+  const lus = hist ? hist.creneaux ?? [] : d.ds.creneaux;
+  const siens = joursDuSalarie(lus, me, jours);
+  // Heure réelle de Paris, comme le dialogue : un poste du jour déjà commencé ne s'échange plus.
+  const maintenant = maintenantParis(d.ti);
   const echanges = (d.ds.echangesPoste ?? []).filter(e => e.demandeurId === me || e.partenaireId === me).sort((a, b) => b.creeLe.localeCompare(a.creeLe)).slice(0, 12);
   const enEchange = new Set((d.ds.echangesPoste ?? []).filter(e => ECHANGE_OUVERT.includes(e.statut)).flatMap(e => [e.creneauDemandeur, e.creneauPartenaire]));
-  const collegues = (d.ds.creneaux ?? []).filter(c => c.empId !== me && c.empId != null && c.statut === 'publie' && c.horaire && c.jour >= jours[0] && c.jour <= jours.at(-1)!);
+  // Collègues de son équipe seulement (un manager planifié reçoit aussi les postes des équipes qu'il encadre).
+  const monEquipe = d.emp(me)?.equipe ?? null;
+  const collegues = (lus ?? []).filter(c => c.empId !== me && c.empId != null && c.equipe === monEquipe && c.statut === 'publie' && c.horaire && c.jour >= jours[0] && c.jour <= jours.at(-1)!);
   const derniere = siens.map(j => j.creneau).filter(c => c != null).sort((a, b) => (b!.publieLe ?? '').localeCompare(a!.publieLe ?? ''))[0];
   return (
     <Page title="Mon planning" kicker={`Du ${fmtIso(jours[0])} au ${fmtIso(jours.at(-1)!)}`}
@@ -45,7 +54,9 @@ export function MonPlanning() {
         </div>
       }>
       <Panel title="Mes postes" aside={derniere ? `version ${derniere.version ?? 1} · communiquée le ${fmtIso(derniere.communiqueLe ?? d.ti)}` : undefined}>
-        {siens.every(j => !j.creneau) ? <Empty pad="sm">Aucun poste publié sur ces quatre semaines.</Empty> : (
+        {hist?.erreur ? <Empty pad="sm">Historique illisible : {hist.erreur}</Empty>
+          : hist && !hist.creneaux ? <Empty pad="sm">Lecture de l’historique…</Empty>
+          : siens.every(j => !j.creneau) ? <Empty pad="sm">Aucun poste publié sur ces quatre semaines.</Empty> : (
           <div className="mon-planning">
             {siens.map(j => {
               const c = j.creneau;

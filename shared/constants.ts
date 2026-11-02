@@ -297,7 +297,8 @@ export const EMAIL_LABEL: Record<string, string> = {
   'evaluation.manager': 'Efficacité des formations de l’équipe à évaluer',
   // lot 12 — C5 (planning d'équipe, server/src/planning-envois.ts) : au salarié, aussitôt ; étapes d'un échange de poste.
   'planning.publie': 'Planning publié', 'planning.modifie': 'Planning modifié', 'planning.annule': 'Poste annulé',
-  'planning.echange.demande': 'Échange de poste à traiter', 'planning.echange.decision': 'Décision sur un échange de poste',
+  'planning.echange.demande': 'Échange de poste à traiter', 'planning.echange.valider': 'Échange de poste à valider',
+  'planning.echange.decision': 'Décision sur un échange de poste',
 };
 export const CIBLE_LABEL = { keystone: 'Keystone', sage: 'Sage Paie', email: 'E-mail' } as const;
 export const MODE_NOTIFICATION_LABEL = { immediat: 'Aussitôt', quotidien: 'Récapitulatif quotidien' } as const;
@@ -614,7 +615,9 @@ export const ALLOWED_VIEWS = {
     // lot 12 — C2 (notes de frais : activation)
     // lot 12 — C3 (entretiens suivis et 360°)
     // lot 12 — C4 (organismes de formation et e-learning)
-    // lot 12 — C5 (planning d'équipe)
+    // lot 12 — C5 (planning d'équipe) : « Mon planning » d'un manager lui-même planifié (membre d'une équipe en cycle) : ses
+    // postes publiés, les échanges qu'on lui propose.
+    'planning',
     // lot 12 — C6 (badgeage virtuel)
   ],
   collaborateur: ['portail', 'temps', 'absences', 'entretiens', 'organigramme', 'frais',

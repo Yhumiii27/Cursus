@@ -77,6 +77,11 @@ export const planningHorsLoi = (s: Partial<ReglagesPlanning>) => {
     || r.planningNuitJour > NUIT_JOUR_LEGAL || r.planningNuitMoyenne > NUIT_MOYENNE_LEGALE;
 };
 
+/** Activation sans la date de l'avis du CSE (art. L2312-8) : message de refus, sinon null (COHERENCE de shared/reglages.ts). */
+export const MSG_AVIS_CSE_PLANNING = 'Planning d’équipe : l’activation suppose la date de l’avis du CSE sur l’organisation en cycles et l’outil de planning (art. L2312-8)';
+export const refusActivationPlanning = (s: { planningActif: boolean; planningCseLe?: string | null }): string | null =>
+  (s.planningActif && !s.planningCseLe ? MSG_AVIS_CSE_PLANNING : null);
+
 // — Heure de Paris —
 
 const minutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));

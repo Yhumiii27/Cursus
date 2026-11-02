@@ -26,6 +26,7 @@ const { JOURNAL_LABEL } = await import('../shared/journal.ts');
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Creneau = import('../shared/types-planning.ts').Creneau;
 type Equipe = import('../shared/types.ts').Equipe;
+type ContenuAgenda = import('../shared/types.ts').ContenuAgenda;
 
 horloge.maintenant = () => new Date('2026-10-10T09:00:00+02:00');
 
@@ -162,7 +163,7 @@ test('flux d’agenda : postes publiés (ni brouillon, ni repos), module activé
   await run(KARIM, 'planning.roulement.affecter', { empId: 6, cycle: '3X8', groupe: 'C', du: '2026-10-19' });
   await run(KARIM, 'planning.generer', { equipe: 'Maintenance', du: '2026-10-19', au: '2026-11-01' });
   await run(KARIM, 'planning.publier', { equipe: 'Maintenance', du: '2026-10-19', au: '2026-10-25', motifAlertes: 'Visite programmée' });
-  const s = { agendaContenu: [] as never[], planningActif: true };
+  const s = { agendaContenu: ['postes'] as ContenuAgenda[], planningActif: true };
   const evs = await evenementsAgenda(db, 6, s, '2026-10-10');
   const postes = evs.filter(e => e.uid.startsWith('poste-'));
   assert.equal(postes.length, 5, 'cinq nuits publiées ; les repos et les brouillons de la semaine suivante n’y sont pas');
@@ -170,6 +171,8 @@ test('flux d’agenda : postes publiés (ni brouillon, ni repos), module activé
   assert.match(postes[0].uid, /^poste-6-2026-10-19@/);
   assert.match(calendrierFlux(postes), /DTSTART;TZID=Europe\/Paris:20261019T210000/);
   assert.equal((await evenementsAgenda(db, 6, { ...s, planningActif: false }, '2026-10-10')).filter(e => e.uid.startsWith('poste-')).length, 0);
+  // Contenu réglé par l'administrateur (Paramètres → Agenda) : sans « postes », aucun poste dans le flux.
+  assert.equal((await evenementsAgenda(db, 6, { ...s, agendaContenu: ['sessions'] }, '2026-10-10')).filter(e => e.uid.startsWith('poste-')).length, 0);
 });
 
 test('reprise des équipes par quart : détection, règle, action (service RH, rejouable, journal sans texte libre)', async () => {
@@ -212,4 +215,76 @@ test('reprise des équipes par quart : détection, règle, action (service RH, r
   // Module désactivé : 409.
   const x = await fresh(false);
   await x.refuse(x.RH, 'planning.reprise', { cycle: '2X8', du: '2026-10-19', equipes: ['Maintenance'] }, /désactivé/, 409);
+});
+
+// — Relecture de l'étape 2 —
+
+test('horizon : rien n’est généré, ajouté ni publié au-delà des 12 semaines de l’instantané ; en deçà, l’aperçu voit tout', async () => {
+  const { refusHorizon, horsFenetre, fenetrePlanning } = await import('../shared/rules/planning.ts');
+  assert.deepEqual(fenetrePlanning('2026-10-10'), { du: '2026-08-15', au: '2027-01-02' });
+  assert.equal(refusHorizon('2027-01-02', '2026-10-10'), null);
+  assert.match(refusHorizon('2027-01-03', '2026-10-10')!, /12 semaines à venir : jusqu’au 2 janv\. 2027 au plus tard/);
+  assert.equal(horsFenetre('2026-10-12', '2026-10-25', '2026-10-10'), false);
+  assert.equal(horsFenetre('2026-07-27', '2026-08-09', '2026-10-10'), true, 'plus de 8 semaines passées');
+  assert.equal(horsFenetre('2026-12-28', '2027-01-10', '2026-10-10'), true, 'au-delà des 12 semaines à venir');
+
+  const { run, refuse, domaine, KARIM } = await fresh();
+  for (const [empId, groupe] of [[6, 'A'], [18, 'B']] as const) await run(KARIM, 'planning.roulement.affecter', { empId, cycle: '2X8', groupe, du: '2026-10-12' });
+  // Le cas relevé : janvier 2027 généré puis publié le 10 octobre, invisible de l'écran. Refusé désormais.
+  await refuse(KARIM, 'planning.generer', { equipe: 'Maintenance', du: '2027-01-11', au: '2027-02-07' }, /12 semaines à venir/);
+  // Douze semaines depuis le lundi suivant un samedi : elles débordent de la fenêtre de deux jours ; refusé aussi.
+  await refuse(KARIM, 'planning.generer', { equipe: 'Maintenance', du: '2026-10-12', au: '2027-01-03' }, /12 semaines à venir/);
+  await refuse(KARIM, 'planning.creneau.ajouter', { equipe: 'Maintenance', jour: '2027-01-03', horaire: 'J' }, /12 semaines à venir/);
+  await refuse(KARIM, 'planning.publier', { equipe: 'Maintenance', du: '2026-12-28', au: '2027-01-10', motifAlertes: 'x' }, /12 semaines à venir/);
+  // Jusqu'au dernier jour de la fenêtre : généré, et l'aperçu du dialogue voit chacun des brouillons créés.
+  const g = await run(KARIM, 'planning.generer', { equipe: 'Maintenance', du: '2026-12-07', au: '2027-01-02' });
+  const crees = (g.result as { crees: number }).crees;
+  assert.ok(crees > 0);
+  assert.equal(apercuPublication(await domaine(KARIM), 'Maintenance', '2026-12-07', '2027-01-02').brouillons.length, crees);
+});
+
+test('manager lui-même planifié : « Mon planning » ouvert, échange proposé par un collègue accepté depuis son espace', async () => {
+  const { ALLOWED_VIEWS } = await import('../shared/constants.ts');
+  const { planifieLuiMeme } = await import('../client/src/components/planning/planning-vue.ts');
+  const { db, run, domaine, KARIM } = await fresh();
+  const MEHDI = await (async () => {
+    const c = (await db.one('SELECT id FROM comptes WHERE emp_id = ?', [2])) as { id: number };
+    return (await currentUser(db, { compteId: c.id, role: 'collaborateur', methode: 'demo' }))!;
+  })();
+  assert.ok((ALLOWED_VIEWS.manager as readonly string[]).includes('planning'));
+  assert.equal((await domaine(KARIM)).emp(12)?.equipe, 'Maintenance', 'Karim, manager, est membre de l’équipe qu’il encadre');
+  assert.equal(planifieLuiMeme((await domaine(KARIM)).ds, 12), false, 'pas encore planifié : pas d’entrée « Mon planning »');
+  const sien = (await db.insert<Creneau>('creneaux', {
+    empId: 2, jour: '2026-10-21', equipe: 'Maintenance', horaire: 'J', debut: '08:00', fin: '16:00', pause: 60, source: 'manuel', statut: 'publie', version: 1,
+    publieLe: '2026-10-01T08:00:00.000Z', publiePar: 'Karim Haddad', communiqueLe: '2026-10-01', horsDelai: false, creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Karim Haddad',
+  })).id;
+  const p = await run(MEHDI, 'planning.echange.proposer', { creneauId: sien, partenaireId: 12 });
+  const id = (p.result as { echange: number }).echange;
+  // Son instantané de manager porte l'échange qu'on lui propose : l'entrée « Mon planning » s'affiche, avec sa pastille.
+  const dk = await domaine(KARIM);
+  assert.ok(dk.ds.echangesPoste!.some(e => e.id === id && e.partenaireId === 12 && e.statut === 'propose'));
+  assert.equal(planifieLuiMeme(dk.ds, 12), true);
+  await run(KARIM, 'planning.echange.accepter', { id });
+  assert.equal((await db.get<{ statut: string }>('echangesPoste', id))!.statut, 'accepte');
+});
+
+test('notification push de l’échange à valider : onglet Planning d’équipe de Temps de travail, distincte de celle du collègue', async () => {
+  const { chargePush } = await import('../server/src/envois-push.ts');
+  const { ALLOWED_VIEWS } = await import('../shared/constants.ts');
+  assert.equal(chargePush('planning.echange.valider')!.url, '/temps?onglet=planning');
+  assert.equal(chargePush('planning.echange.demande')!.url, '/planning');
+  assert.ok((ALLOWED_VIEWS.manager as readonly string[]).includes('temps'));
+});
+
+test('Paramètres → Planning : activation refusée sans la date de l’avis du CSE (COHERENCE), comme le badgeage', async () => {
+  const { appliquerReglages, reglagesParDefaut, ReglageInvalide } = await import('../shared/reglages.ts');
+  const DEFAULT_SETTINGS = reglagesParDefaut();
+  assert.equal(DEFAULT_SETTINGS.planningCseLe, null);
+  assert.throws(() => appliquerReglages(DEFAULT_SETTINGS, { planningActif: true }), (e: unknown) => e instanceof ReglageInvalide && /avis du CSE/.test(e.message));
+  assert.throws(() => appliquerReglages(DEFAULT_SETTINGS, { planningCseLe: '2026-02-30' }), ReglageInvalide);
+  const s = appliquerReglages(DEFAULT_SETTINGS, { planningActif: true, planningCseLe: '2026-10-01' });
+  assert.deepEqual([s.planningActif, s.planningCseLe], [true, '2026-10-01']);
+  // Module activé : la date ne s'efface plus ; désactivé, elle reste notée.
+  assert.throws(() => appliquerReglages(s, { planningCseLe: '' }), ReglageInvalide);
+  assert.equal(appliquerReglages(s, { planningActif: false }).planningCseLe, '2026-10-01');
 });

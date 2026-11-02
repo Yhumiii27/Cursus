@@ -8,16 +8,19 @@
 // Sous la grille : échanges de poste (validation par le manager des deux, son suppléant « planning » ou le service RH),
 // affectations au roulement, versions publiées (registre gardé pour l'inspection du travail) et affichage réglementaire de
 // l'horaire collectif et de la composition des équipes successives (art. D3171-7), à imprimer ou à exporter.
+// Période hors de la fenêtre de l'instantané (plus de 8 semaines passées, plus de 12 semaines à venir) : la grille et
+// l'affichage se calculent sur les créneaux lus à la demande par l'historique (client/src/planning-api.ts), filtrés par droits.
 import { useRef, useState, type KeyboardEvent } from 'react';
 import { CalendarPlusIcon, ExportIcon, MegaphoneIcon, PlusIcon, PrinterIcon } from '@phosphor-icons/react';
 import { addD, mondayOf, parse } from '../../../../shared/dates.ts';
 import type { Domain } from '../../../../shared/domain.ts';
 import { fH, fmtIso, plural } from '../../../../shared/format.ts';
-import { ECHANGE_OUVERT, STATUT_ECHANGE } from '../../../../shared/rules/planning.ts';
+import { ECHANGE_OUVERT, horsFenetre, STATUT_ECHANGE } from '../../../../shared/rules/planning.ts';
+import { useHistoriquePlanning } from '../../planning-api.ts';
 import { downloadCsv, printDocument } from '../../print.ts';
 import { useDomain, useRole } from '../../state/derived.ts';
 import { decideur } from '../../state/delegues.ts';
-import { useStore } from '../../state/store.tsx';
+import { useData, useStore } from '../../state/store.tsx';
 import { Btn, Empty, Fine, Panel, Tag, Two } from '../ui.tsx';
 import { affichageEquipe, csvAffichage, equipesDuPlanning, grilleEquipe, jourCourt, joursDe, posteTexte, type CaseEquipe, type CouvertureJour, type LigneEquipe } from './planning-vue.ts';
 
@@ -119,14 +122,20 @@ export function PlanningEquipe() {
   const equipe = ui.planEquipe && equipes.includes(ui.planEquipe) ? ui.planEquipe : avecPlanning ?? equipes[0] ?? null;
   const wk = ui.weekStart ?? mondayOf(d.ti);
   const jours = joursDe(wk, JOURS_GRILLE);
+  const fin = jours.at(-1)!;
+  // Hors de la fenêtre de l'instantané : créneaux de la période lus à la demande (registre, art. D3171-16).
+  const data = useData();
+  const hors = !!equipe && horsFenetre(jours[0], fin, d.ti);
+  const hist = useHistoriquePlanning(hors ? { du: jours[0], au: fin, equipe } : null, data.user.role, data.revision);
   if (!equipe) return <Panel title="Planning d’équipe"><Empty pad="sm">Aucune équipe à planifier dans votre périmètre.</Empty></Panel>;
   const planif = planifieEquipe(d, { rh, manager, me }, equipe);
-  const g = grilleEquipe(d, equipe, jours, planif);
+  const historique = hist?.creneaux ?? null;
+  const enAttente = !!hist && !hist.creneaux;
+  const g = grilleEquipe(d, equipe, jours, planif, historique);
   const ouvrir = planif ? (l: LigneEquipe, c: CaseEquipe) => {
     if (c.jour < d.ti && !(c.creneau?.statut === 'brouillon')) return;
     openDialog({ type: 'planningCreneau', equipe, jour: c.jour, empId: l.empId, id: c.creneau?.id ?? null });
   } : null;
-  const fin = jours.at(-1)!;
   const membres = new Set(d.ds.employes.filter(e => e.equipe === equipe).map(e => e.id));
   const echanges = (d.ds.echangesPoste ?? []).filter(e => membres.has(e.demandeurId) || membres.has(e.partenaireId))
     .filter(e => ECHANGE_OUVERT.includes(e.statut) || (e.decideLe ?? e.creeLe) >= addD(d.ti, -14)).sort((a, b) => b.creeLe.localeCompare(a.creeLe));
@@ -137,7 +146,8 @@ export function PlanningEquipe() {
   const roulements = (d.ds.roulements ?? []).filter(r => r.equipe === equipe && !(r.au && r.au < r.du) && (!r.au || r.au >= d.ti)).sort((a, b) => d.personName(a.empId).localeCompare(d.personName(b.empId)));
   const publications = (d.ds.publicationsPlanning ?? []).filter(p => p.equipe === equipe).sort((a, b) => b.version - a.version).slice(0, 8);
   const imprimer = () => {
-    const a = affichageEquipe(d, equipe, jours);
+    if (enAttente) return;
+    const a = affichageEquipe(d, equipe, jours, historique);
     printDocument(`Horaire collectif et composition des équipes — ${equipe}`, `Du ${fmtIso(jours[0])} au ${fmtIso(fin)} · postes publiés (art. D3171-7)`, [
       { title: 'Horaire collectif', table: { head: ['Horaire', 'Libellé', 'Plage', 'Pause', 'Durée'], rows: a.horaires.map(h => [h.code, h.nom, h.plage, h.pause ? `${h.pause} min` : '—', fH(h.duree)]) } },
       ...(a.groupes.length ? [{ title: 'Groupes de roulement', table: { head: ['Cycle', 'Groupe', 'Salariés'], rows: a.groupes.map(x => [x.cycle, x.groupe, x.salaries.join(', ')]) } }] : []),
@@ -145,7 +155,8 @@ export function PlanningEquipe() {
     ]);
   };
   const exporter = () => {
-    const x = csvAffichage(equipe, jours, affichageEquipe(d, equipe, jours));
+    if (enAttente) return;
+    const x = csvAffichage(equipe, jours, affichageEquipe(d, equipe, jours, historique));
     downloadCsv(x.fichier, x.head, x.rows);
   };
   return (
@@ -169,12 +180,15 @@ export function PlanningEquipe() {
           </div>
         </div>
       }>
-        {g.lignes.length === 0 ? <Empty pad="sm">Aucun salarié dans cette équipe sur la période.</Empty> : (
+        {hist?.erreur ? <Empty pad="sm">Historique illisible : {hist.erreur}</Empty>
+          : enAttente ? <Empty pad="sm">Période hors des semaines chargées : lecture de l’historique…</Empty>
+          : g.lignes.length === 0 ? <Empty pad="sm">Aucun salarié dans cette équipe sur la période.</Empty> : (
           <div className="scroll-x">
             <GrilleEquipe key={`${equipe}|${wk}`} jours={jours} lignes={g.lignes} couverture={g.couverture} ti={d.ti} ouvrir={ouvrir} />
           </div>
         )}
         <Fine>
+          {hors && 'Période hors des semaines chargées avec l’écran (8 semaines passées, 12 à venir) : postes lus dans l’historique. '}
           Lettre de chaque case : code de l’horaire (R : repos{planif ? ', A : absent, sans la nature de l’absence' : ''}) ; * : brouillon ou modification à publier, que
           le salarié ne voit pas encore. Couverture : postes planifiés du jour sur le besoin minimal de l’équipe (Référentiels → Besoins de poste), « ! » quand il
           n’est pas couvert. Le planning reste une prévision : les heures réellement faites se déclarent sur la feuille de temps.
@@ -228,8 +242,8 @@ export function PlanningEquipe() {
       </Panel>
 
       <Panel title="Versions publiées et affichage" aside={<div className="actions-end">
-        <Btn small icon={<PrinterIcon size={14} />} onClick={imprimer}>Imprimer l’affichage</Btn>
-        <Btn small icon={<ExportIcon size={14} />} onClick={exporter}>Exporter (CSV)</Btn>
+        <Btn small icon={<PrinterIcon size={14} />} disabled={enAttente} onClick={imprimer}>Imprimer l’affichage</Btn>
+        <Btn small icon={<ExportIcon size={14} />} disabled={enAttente} onClick={exporter}>Exporter (CSV)</Btn>
       </div>}>
         {publications.length === 0 ? <Empty pad="sm">Aucune version publiée pour cette équipe.</Empty> : (
           <div className="scroll-x">
@@ -252,7 +266,8 @@ export function PlanningEquipe() {
         <Fine>
           Affichage réglementaire (art. D3171-7) : horaire collectif de l’équipe et composition nominative des équipes successives sur les deux semaines affichées,
           d’après les postes publiés — à afficher ou à tenir en registre. Les versions publiées sont gardées au moins un an pour l’inspection du travail
-          (art. D3171-16) ; les plus anciennes se consultent par l’historique.
+          (art. D3171-16) : reculez la semaine dans l’en-tête de l’écran pour afficher, imprimer ou exporter une période plus ancienne (lue dans
+          l’historique).
         </Fine>
       </Panel>
     </>

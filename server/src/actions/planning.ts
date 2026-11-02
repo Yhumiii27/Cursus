@@ -15,7 +15,7 @@ import { delegationActive, valideursDe } from '../../../shared/rules/delegations
 import { horaireDe, normaliserCodeHoraire } from '../../../shared/rules/horaires.ts';
 import {
   controlerBesoin, controlerRoulement, creneauxPlanificateur, debutCreneau, ECHANGE_OUVERT, echangeExpire, figerHoraire, genererCreneaux,
-  horaireDuCreneau, MOTIF_PLANNING_MAX, postesApresEchange, prevenanceCreneau, refusPeriode, refusPublication, sortGenere,
+  horaireDuCreneau, MOTIF_PLANNING_MAX, postesApresEchange, prevenanceCreneau, refusHorizon, refusPeriode, refusPublication, sortGenere,
 } from '../../../shared/rules/planning.ts';
 import {
   type AlertePlanning, codesAcceptes, type JourPlanifie, reglagesPlanning, trierAlertes,
@@ -287,7 +287,7 @@ const reprise: ActionHandler = async (ctx, p) => {
 // — Génération, corrections —
 
 /**
- * `equipe`, `du`, `au` (12 semaines au plus, à partir d'aujourd'hui) : créneaux en brouillon d'après les affectations. Seuls
+ * `equipe`, `du`, `au` (12 semaines au plus, à partir d'aujourd'hui, jamais au-delà des 12 semaines à venir) : créneaux en brouillon d'après les affectations. Seuls
  * les salariés qui font aujourd'hui partie de l'équipe et que la personne connectée planifie sont générés : une affectation
  * garde l'équipe de sa saisie, et un salarié muté depuis relève de son nouveau planificateur (comptés à part).
  */
@@ -298,6 +298,9 @@ const generer: ActionHandler = async (ctx, p) => {
   if (refus) throw new ActionError(refus);
   const du = String(p.du) < ctx.d.ti ? ctx.d.ti : String(p.du), au = String(p.au);
   if (au < du) throw new ActionError('Période passée : un jour passé se corrige sur la feuille de temps');
+  // Rien au-delà de la fenêtre de l'instantané : ni la grille, ni l'aperçu, ni « Mon planning » ne le verraient.
+  const horizon = refusHorizon(au, ctx.d.ti);
+  if (horizon) throw new ActionError(horizon);
   const g = genererCreneaux({
     equipe: q.nom, du, au, roulements: ctx.ds.roulements ?? [], cycles: ctx.ds.cycles ?? [], horaires: ctx.ds.referentiels.horaires ?? [],
     employes: ctx.ds.employes, derogation: !!derogationDe(ctx.ds, { equipe: q.nom }),
@@ -348,6 +351,8 @@ const creneauAjouter: ActionHandler = async (ctx, p) => {
   const jour = str(p.jour);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(jour)) throw new ActionError('Jour invalide');
   if (jour < ctx.d.ti) throw new ActionError('Jour passé : il se corrige sur la feuille de temps', 409);
+  const horizon = refusHorizon(jour, ctx.d.ti);
+  if (horizon) throw new ActionError(horizon);
   const h = horaireRecu(ctx, p.horaire, false);
   if (emp) {
     refusPoste(emp, jour, h);
@@ -443,7 +448,7 @@ const creneauAnnuler: ActionHandler = async (ctx, p) => {
 // — Publication —
 
 /**
- * `equipe`, `du`, `au` (12 semaines au plus), `motif` (circonstances exceptionnelles, exigé quand un créneau est communiqué
+ * `equipe`, `du`, `au` (12 semaines au plus, jamais au-delà des 12 semaines à venir), `motif` (circonstances exceptionnelles, exigé quand un créneau est communiqué
  * sous le délai de prévenance), `motifAlertes` (exigé quand les contrôles relèvent des alertes) : les brouillons de
  * l'équipe sur la période sont publiés en une version, les salariés prévenus. La période commence au plus tôt aujourd'hui :
  * les brouillons des jours passés (jamais communiqués) sont ignorés, et les contrôles d'habilitation partent de là. Refus :
@@ -457,6 +462,9 @@ const publier: ActionHandler = async (ctx, p) => {
   if (refus) throw new ActionError(refus);
   const du = String(p.du) < ctx.d.ti ? ctx.d.ti : String(p.du), au = String(p.au);
   if (au < du) throw new ActionError('Période passée : un jour passé se corrige sur la feuille de temps');
+  // Rien au-delà de la fenêtre de l'instantané : ni la grille, ni l'aperçu, ni « Mon planning » ne le verraient.
+  const horizon = refusHorizon(au, ctx.d.ti);
+  if (horizon) throw new ActionError(horizon);
   const brouillons = await lireCreneaux(ctx, 'equipe = ? AND jour >= ? AND jour <= ? AND statut = ?', [q.nom, du, au, 'brouillon']);
   if (!brouillons.length) return 'Rien à publier sur cette période : aucun brouillon';
   const soi = brouillons.find(c => c.empId != null && (c.empId === ctx.user.empId || estSoiMeme(ctx, c.empId)));
@@ -568,7 +576,7 @@ const echangeProposer: ActionHandler = async (ctx, p) => {
     demandeurId: moi.id, partenaireId: autre.id, creneauDemandeur: a.id, creneauPartenaire: b?.id ?? null, statut: 'propose', creeLe: new Date().toISOString(),
     accepteLe: null, decideLe: null, decidePar: null, parDelegationDe: null, motifRefus: null, alertesAcceptees: null,
   });
-  await notifierEchange(ctx, autre.id, true, `Échange de poste proposé par ${moi.nom}`,
+  await notifierEchange(ctx, autre.id, 'demande', `Échange de poste proposé par ${moi.nom}`,
     `${moi.nom} vous propose ${b ? `d’échanger son poste du ${fmtIso(a.jour)} contre le vôtre du ${fmtIso(b.jour)}` : `de reprendre son poste du ${fmtIso(a.jour)}`}. Répondez dans Cursus ; l’échange sera ensuite validé par votre manager.`);
   return { message: `Échange proposé à ${autre.nom} : il doit l’accepter, puis votre manager le valider`, result: { echange: x.id, statut: x.statut, salaries: [moi.id, autre.id] } };
 };
@@ -584,8 +592,8 @@ const echangeAccepter: ActionHandler = async (ctx, p) => {
   const a = getEmp(ctx, e.demandeurId), b = getEmp(ctx, e.partenaireId);
   // Valideurs : le manager de chacun et, pendant sa délégation « planning », son suppléant (service RH : récapitulatif).
   const valideurs = new Set([a, b].flatMap(x => valideursDe(ctx.ds, x, ctx.d.ti, 'planning').map(v => v.id)).filter(id => id && id !== a.id && id !== b.id));
-  for (const v of valideurs) await notifierEchange(ctx, v, true, `Échange de poste à valider — ${a.nom} et ${b.nom}`, `${a.nom} et ${b.nom} demandent à échanger un poste. L’échange attend votre validation dans Cursus.`);
-  await notifierEchange(ctx, a.id, false, 'Échange de poste accepté', `${b.nom} accepte votre échange de poste ; il attend la validation de votre manager.`);
+  for (const v of valideurs) await notifierEchange(ctx, v, 'valider', `Échange de poste à valider — ${a.nom} et ${b.nom}`, `${a.nom} et ${b.nom} demandent à échanger un poste. L’échange attend votre validation dans Cursus.`);
+  await notifierEchange(ctx, a.id, 'decision', 'Échange de poste accepté', `${b.nom} accepte votre échange de poste ; il attend la validation de votre manager.`);
   return { message: 'Échange accepté : il attend la validation du manager', result: { echange: e.id, statut: 'accepte', salaries: [e.demandeurId, e.partenaireId] } };
 };
 
@@ -630,7 +638,7 @@ const echangeValider: ActionHandler = async (ctx, p) => {
   await ctx.db.update<EchangePoste>('echangesPoste', e.id, {
     statut: 'valide', decideLe: le, decidePar: ctx.user.nom, parDelegationDe: [...ctx.parDelegation][0] ?? null, alertesAcceptees: codesTous.size ? [...codesTous] : null,
   });
-  for (const x of [ea, eb]) await notifierEchange(ctx, x.id, false, 'Échange de poste validé', `L’échange de poste entre ${ea.nom} et ${eb.nom} est validé : votre planning est mis à jour dans Cursus.`);
+  for (const x of [ea, eb]) await notifierEchange(ctx, x.id, 'decision', 'Échange de poste validé', `L’échange de poste entre ${ea.nom} et ${eb.nom} est validé : votre planning est mis à jour dans Cursus.`);
   return {
     message: `Échange entre ${ea.nom} et ${eb.nom} validé : planning mis à jour${codesTous.size ? ` · ${plural(codesTous.size, 'alerte acceptée', 'alertes acceptées')}` : ''}`,
     result: { echange: e.id, statut: 'valide', alertes: codesTous.size, salaries: [ea.id, eb.id] },
@@ -652,7 +660,7 @@ const echangeRefuser: ActionHandler = async (ctx, p) => {
     statut: 'refuse', decideLe: new Date().toISOString(), decidePar: ctx.user.nom, motifRefus: motif, parDelegationDe: [...ctx.parDelegation][0] ?? null,
   });
   for (const x of e.statut === 'propose' ? [ea] : [ea, eb]) {
-    await notifierEchange(ctx, x.id, false, 'Échange de poste refusé', `L’échange de poste entre ${ea.nom} et ${eb.nom} est refusé${motif ? ` : ${motif}` : ''}.`);
+    await notifierEchange(ctx, x.id, 'decision', 'Échange de poste refusé', `L’échange de poste entre ${ea.nom} et ${eb.nom} est refusé${motif ? ` : ${motif}` : ''}.`);
   }
   return { message: 'Échange refusé', result: { echange: e.id, statut: 'refuse', salaries: [ea.id, eb.id] } };
 };
@@ -664,7 +672,7 @@ const echangeAnnuler: ActionHandler = async (ctx, p) => {
   if (e.demandeurId !== ctx.user.empId) throw new ActionError('Seul le salarié qui a proposé l’échange le retire', 403);
   if (!ECHANGE_OUVERT.includes(e.statut)) throw new ActionError('Échange déjà traité', 409);
   await ctx.db.update<EchangePoste>('echangesPoste', e.id, { statut: 'annule', decideLe: new Date().toISOString(), decidePar: ctx.user.nom });
-  if (e.statut === 'accepte') await notifierEchange(ctx, e.partenaireId, false, 'Échange de poste retiré', `${ctx.d.personName(e.demandeurId)} retire l’échange de poste proposé.`);
+  if (e.statut === 'accepte') await notifierEchange(ctx, e.partenaireId, 'decision', 'Échange de poste retiré', `${ctx.d.personName(e.demandeurId)} retire l’échange de poste proposé.`);
   return { message: 'Échange retiré', result: { echange: e.id, statut: 'annule', salaries: [e.demandeurId, e.partenaireId] } };
 };
 

@@ -19,7 +19,7 @@ import { fmtIso, plural } from '../../../shared/format.ts';
 import { cycleDe, cyclesEnVigueur, horaireDuCycle } from '../../../shared/rules/cycles.ts';
 import { horairesEnVigueur, horaireTexte } from '../../../shared/rules/horaires.ts';
 import { apercuEchange, apercuPublication } from '../../../shared/rules/planning-apercu.ts';
-import { controlerRoulement, debutCreneau, MOTIF_PLANNING_MAX, refusPeriode, SEMAINES_MAX } from '../../../shared/rules/planning.ts';
+import { controlerRoulement, debutCreneau, fenetrePlanning, MOTIF_PLANNING_MAX, refusHorizon, refusPeriode, SEMAINES_A_VENIR, SEMAINES_MAX } from '../../../shared/rules/planning.ts';
 import { type AlertePlanning, instantParis } from '../../../shared/rules/planning-controles.ts';
 import { equipesParQuart, proposerReprise } from '../../../shared/rules/planning-reprise.ts';
 import type { ISODate } from '../../../shared/types.ts';
@@ -50,6 +50,11 @@ function Motif({ id, label, valeur, onChange, requis, erreur, aide, placeholder 
 /** Erreur d'un motif saisi : vide alors qu'il est exigé, ou trop long. */
 const erreurMotif = (v: string, requis: boolean, vide: string) => (requis && !v.trim() ? vide : v.trim().length > MOTIF_PLANNING_MAX ? `${MOTIF_PLANNING_MAX} caractères au plus.` : null);
 
+/** Refus du serveur qui exige le motif des circonstances exceptionnelles (délai de prévenance). */
+export const motifExige = (erreur: string | null | undefined) => !!erreur && /délai de prévenance/.test(erreur) && /circonstances exceptionnelles/.test(erreur);
+/** Refus du serveur qui exige le motif des alertes acceptées. */
+export const alertesExigees = (erreur: string | null | undefined) => !!erreur && /alertes à motiver/.test(erreur);
+
 // — Générer —
 
 export function PlanningGenererDialog({ equipe, du: duPropose }: { equipe: string; du?: ISODate | null }) {
@@ -60,8 +65,9 @@ export function PlanningGenererDialog({ equipe, du: duPropose }: { equipe: strin
   const [au, setAu] = useState(addD(duPropose && duPropose >= d.ti ? duPropose : lundi, 27));
   const [busy, setBusy] = useState(false);
   const v = useVerification();
-  const refus = DATE.test(du) && DATE.test(au) ? refusPeriode(du, au) : 'Indiquez le premier et le dernier jour.';
+  const refus = DATE.test(du) && DATE.test(au) ? refusPeriode(du, au) ?? refusHorizon(au, d.ti) : 'Indiquez le premier et le dernier jour.';
   const passe = !refus && au < d.ti ? 'Période passée : un jour passé se corrige sur la feuille de temps.' : null;
+  const max = fenetrePlanning(d.ti).au;
   const affectes = (d.ds.roulements ?? []).filter(r => r.equipe === equipe && r.du <= au && (!r.au || r.au >= du) && !(r.au && r.au < r.du));
   const envoyer = async () => {
     if (busy || !v.verifier(refus, passe)) return;
@@ -74,10 +80,10 @@ export function PlanningGenererDialog({ equipe, du: duPropose }: { equipe: strin
     <Dialog title={`Générer le planning — ${equipe}`} width={520} onSubmit={envoyer} actions={<><CancelButton /><SubmitButton busy={busy}>Générer en brouillon</SubmitButton></>}>
       <div className="grid-2">
         <Field label="Premier jour" htmlFor="gen-du" requis erreur={v.erreur(refus && !DATE.test(du) ? refus : null)}>
-          <input className="input" id="gen-du" type="date" value={du} min={d.ti} onChange={e => setDu(e.target.value)} />
+          <input className="input" id="gen-du" type="date" value={du} min={d.ti} max={max} onChange={e => setDu(e.target.value)} />
         </Field>
         <Field label="Dernier jour" htmlFor="gen-au" requis erreur={v.erreur((DATE.test(du) && refus) || passe)}>
-          <input className="input" id="gen-au" type="date" value={au} min={du || undefined} onChange={e => setAu(e.target.value)} />
+          <input className="input" id="gen-au" type="date" value={au} min={du || undefined} max={max} onChange={e => setAu(e.target.value)} />
         </Field>
       </div>
       <Fine muted={false}>
@@ -86,7 +92,7 @@ export function PlanningGenererDialog({ equipe, du: duPropose }: { equipe: strin
           : 'Aucun salarié de l’équipe n’est affecté à un cycle sur cette période : affectez-les d’abord (Affectations au roulement).'}
       </Fine>
       <Fine>
-        {SEMAINES_MAX} semaines au plus, à partir d’aujourd’hui. Les créneaux sont créés en brouillon, d’après le cycle et le groupe de chacun ; un jour férié
+        {SEMAINES_MAX} semaines au plus, à partir d’aujourd’hui et jusqu’au {fmtIso(max)} ({SEMAINES_A_VENIR} semaines à venir). Les créneaux sont créés en brouillon, d’après le cycle et le groupe de chacun ; un jour férié
         chômé devient un repos, sauf dérogation au repos dominical de l’équipe. Un créneau publié ou corrigé à la main n’est jamais remplacé. Rien n’est
         communiqué avant la publication.
       </Fine>
@@ -103,21 +109,26 @@ export function PlanningPublierDialog({ equipe, du, au }: { equipe: string; du: 
   const [fin, setFin] = useState(au);
   const [motif, setMotif] = useState('');
   const [motifAlertes, setMotifAlertes] = useState('');
+  // Motifs exigés par le serveur alors que l'aperçu ne voit ni alerte ni délai court (instantané en retard sur la base) :
+  // le champ s'affiche quand même, pour que le planificateur puisse le saisir.
+  const [exiges, setExiges] = useState({ motif: false, alertes: false });
   const [busy, setBusy] = useState(false);
   const v = useVerification();
-  const refus = DATE.test(debut) && DATE.test(fin) ? refusPeriode(debut, fin) : 'Indiquez le premier et le dernier jour.';
+  const refus = DATE.test(debut) && DATE.test(fin) ? refusPeriode(debut, fin) ?? refusHorizon(fin, d.ti) : 'Indiquez le premier et le dernier jour.';
   const a = useMemo(() => (refus ? null : apercuPublication(d, equipe, debut, fin)), [d, equipe, debut, fin, refus]);
   const nom = (id: number) => d.personName(id);
   const vide = !!a && !a.brouillons.length ? 'Aucun brouillon à publier sur cette période : générez le planning ou modifiez un créneau d’abord.' : null;
   const bloque = a && (a.verrou.length || a.alertes.refus.length) ? 'Publication impossible : corrigez d’abord les refus ci-dessus.' : null;
-  const eMotif = a ? erreurMotif(motif, a.horsDelai.length > 0, 'Indiquez les circonstances exceptionnelles qui justifient le délai court.') : null;
-  const eAlertes = a ? erreurMotif(motifAlertes, a.alertes.alertes.length > 0, 'Indiquez pourquoi le planning est publié malgré les alertes.') : null;
+  const avecMotif = !!a && (a.horsDelai.length > 0 || exiges.motif), avecAlertes = !!a && (a.alertes.alertes.length > 0 || exiges.alertes);
+  const eMotif = a ? erreurMotif(motif, avecMotif, 'Indiquez les circonstances exceptionnelles qui justifient le délai court.') : null;
+  const eAlertes = a ? erreurMotif(motifAlertes, avecAlertes, 'Indiquez pourquoi le planning est publié malgré les alertes.') : null;
   const envoyer = async () => {
     if (busy || !v.verifier(refus, vide, bloque, eMotif, eAlertes)) return;
     setBusy(true);
     const r = await run('planning.publier', { equipe, du: debut, au: fin, motif: motif.trim(), motifAlertes: motifAlertes.trim() });
     setBusy(false);
     if (r.ok) closeDialog();
+    else setExiges(x => ({ motif: x.motif || motifExige(r.error), alertes: x.alertes || alertesExigees(r.error) }));
   };
   return (
     <Dialog title={`Publier le planning — ${equipe}`} width={640} tall onSubmit={envoyer} actions={<><CancelButton /><SubmitButton busy={busy}>Publier</SubmitButton></>}>
@@ -140,16 +151,18 @@ export function PlanningPublierDialog({ equipe, du, au }: { equipe: string; du: 
             <Controles msgs={[...a.verrou, ...a.alertes.refus.map(x => ligneAlerte(nom, x))].map(text => ({ text, bad: true }))} />
           </div>
         )}
-        {a.horsDelai.length > 0 && <>
-          <Fine muted={false}>
-            {plural(a.horsDelai.length, 'créneau communiqué', 'créneaux communiqués')} moins de {a.delai} jours avant leur date (dès le {fmtIso(a.horsDelai[0].jour)}) : délai de
-            prévenance non tenu.
-          </Fine>
+        {avecMotif && <>
+          {a.horsDelai.length > 0 && (
+            <Fine muted={false}>
+              {plural(a.horsDelai.length, 'créneau communiqué', 'créneaux communiqués')} moins de {a.delai} jours avant leur date (dès le {fmtIso(a.horsDelai[0].jour)}) : délai de
+              prévenance non tenu.
+            </Fine>
+          )}
           <Motif id="pub-motif" label="Circonstances exceptionnelles" valeur={motif} onChange={setMotif} requis erreur={v.erreur(eMotif)}
             aide="Communiqué aux salariés concernés dans l’e-mail ; gardé sur le créneau, jamais recopié au journal. N’y indiquez aucune information médicale."
             placeholder="Remplacement d’un salarié absent, panne d’une ligne…" />
         </>}
-        {a.alertes.alertes.length > 0 && <>
+        {avecAlertes && <>
           <div role="group" aria-label="Alertes à motiver">
             <Controles msgs={a.alertes.alertes.slice(0, 12).map(x => ({ text: ligneAlerte(nom, x), bad: false }))} />
             {a.alertes.alertes.length > 12 && <Fine>Et {a.alertes.alertes.length - 12} autre{a.alertes.alertes.length - 12 > 1 ? 's' : ''}.</Fine>}
@@ -192,9 +205,11 @@ export function PlanningCreneauDialog({ equipe, jour, empId, id }: { equipe: str
   const horaires = horairesEnVigueur(d.ds.referentiels);
   const disparu = id != null && !c;
   const passe = jour < d.ti;
+  // Jour au-delà des 12 semaines à venir : aucun poste ne s'y ajoute (le serveur le refuse aussi).
+  const loin = !c && !passe ? refusHorizon(jour, d.ti) : null;
   const eHoraire = !horaire && (empId == null || !c) ? 'Choisissez l’horaire du poste.' : null;
   const envoyer = async () => {
-    if (busy || !v.verifier(eHoraire, disparu, passe ? 'Jour passé : il se corrige sur la feuille de temps.' : null)) return;
+    if (busy || !v.verifier(eHoraire, disparu, passe ? 'Jour passé : il se corrige sur la feuille de temps.' : null, loin)) return;
     setBusy(true);
     const r = c ? await run('planning.creneau.modifier', { id: c.id, horaire }) : await run('planning.creneau.ajouter', { equipe, jour, horaire, ...(empId != null ? { empId } : {}) });
     setBusy(false);
@@ -209,11 +224,11 @@ export function PlanningCreneauDialog({ equipe, jour, empId, id }: { equipe: str
   };
   return (
     <Dialog title={c ? `Poste du ${jourCourt(jour)} — ${qui}` : `Ajouter un poste — ${qui}`} width={520} onSubmit={envoyer}
-      actions={disparu || passe ? <CancelButton label="Fermer" /> : <><CancelButton /><SubmitButton busy={busy}>{c ? 'Enregistrer' : 'Ajouter en brouillon'}</SubmitButton></>}>
+      actions={disparu || passe || loin ? <CancelButton label="Fermer" /> : <><CancelButton /><SubmitButton busy={busy}>{c ? 'Enregistrer' : 'Ajouter en brouillon'}</SubmitButton></>}>
       {disparu ? <Bloquant>Ce créneau n’existe plus.</Bloquant> : <>
         <Static>{jourLong(jour)} · équipe {equipe}</Static>
         {c && <Fine muted={false}>{c.statut === 'publie' ? `Publié (version ${c.version ?? 1}) : ${posteTexte(c)}.` : `Brouillon : ${posteTexte(c)}.`}{enCours ? ` Modification à publier : ${posteTexte(enCours)}.` : ''}</Fine>}
-        {passe ? <Fine muted={false}>Jour passé : le poste réellement tenu se déclare et se corrige sur la feuille de temps.</Fine> : <>
+        {passe ? <Fine muted={false}>Jour passé : le poste réellement tenu se déclare et se corrige sur la feuille de temps.</Fine> : loin ? <Fine muted={false}>{loin}.</Fine> : <>
           <Field label="Horaire" htmlFor="cren-horaire" requis={empId == null || !c} erreur={v.erreur(eHoraire)}>
             <select className="input" id="cren-horaire" value={horaire} onChange={e => setHoraire(e.target.value)} autoFocus>
               <option value="">{empId != null && c ? 'Repos' : 'Choisir…'}</option>
@@ -322,8 +337,8 @@ export function PlanningRoulementDialog({ equipe, empId, id }: { equipe: string;
 
 // — Échanges —
 
-/** Instant présent, en minutes réelles à l'heure de Paris (expiration d'un échange). */
-const maintenant = (ti: ISODate) => {
+/** Instant présent, en minutes réelles à l'heure de Paris (expiration d'un échange ; « Échanger… » de Mon planning). */
+export const maintenant = (ti: ISODate) => {
   const p = Object.fromEntries(new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date()).map(x => [x.type, x.value]));
   return instantParis(ti, `${p.hour}:${p.minute}`);
 };

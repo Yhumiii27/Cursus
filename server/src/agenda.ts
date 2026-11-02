@@ -4,7 +4,7 @@
 //   stable `absence-<n°>` : l'annulation du congé envoie le même événement annulé) — `icsConge`, server/src/notifications.ts ;
 // - un flux personnel par abonnement (`GET /api/agenda/<jeton>.ics`, hors session : le client d'agenda n'a pas de
 //   cookie) : sessions de formation inscrites, entretiens planifiés, absences en vigueur et déplacements ; lot 12 — C5 : postes
-//   publiés du planning d'équipe, le module activé. Désactivé par
+//   publiés du planning d'équipe, le module activé (contenu « postes »). Désactivé par
 //   défaut (réglage `agendaFluxActif`, Paramètres → Agenda) ; absences toujours sous le libellé neutre « Absent », quelle
 //   que soit leur nature, comme ce que voit le manager. Jeton long et aléatoire (256 bits), montré une seule fois au
 //   salarié, stocké haché (SHA-256), révocable par lui (Portail) et en bloc par l'administrateur RH ; un jeton inconnu,
@@ -121,8 +121,8 @@ export async function evenementsAgenda(db: Db, empId: number, s: Pick<Settings, 
   }
   // lot 12 — C5 (planning d'équipe) : postes publiés (la version communiquée, jamais un brouillon ni un repos), un événement
   // par jour à l'heure de Paris, au même UID d'une version à l'autre (une modification remplace l'événement, une annulation
-  // le retire du flux). Module désactivé : aucun.
-  if (s.planningActif) {
+  // le retire du flux). Module désactivé, ou contenu « postes » retiré dans Paramètres → Agenda : aucun.
+  if (s.planningActif && contenu.has('postes')) {
     for (const c of await db.allDans<Creneau>('creneaux', { where: 'emp_id = ? AND statut = ? AND jour >= ? AND jour <= ?', params: [empId, 'publie', du, au] })) {
       if (!c.horaire || !c.debut || !c.fin) continue;
       evs.push({ uid: `poste-${empId}-${c.jour}@${domaineAgenda()}`, date: c.jour, titre: `Poste ${c.horaire}`, plage: { debut: c.debut, finJour: c.fin <= c.debut ? addD(c.jour, 1) : c.jour, fin: c.fin } });

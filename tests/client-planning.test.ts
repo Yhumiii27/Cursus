@@ -97,8 +97,19 @@ test('Paramètres → Planning : activation, valeurs de l’accord exigeant sa r
   const b = await monter(db, await personne(null, 'rh'), () => createElement(Section));
   render(b.element);
   assert.ok(screen.getByText(/Module désactivé/));
+  // Activation sans la date de l'avis du CSE : refusée à l'écran, rien d'envoyé.
+  const n0 = b.trace.actions.length;
+  await act(async () => { fireEvent.click(screen.getByRole('checkbox', { name: /Activer le planning/ })); });
+  assert.equal(b.trace.actions.length, n0);
+  assert.equal(b.donnees().settings.planningActif, false);
+  assert.ok(screen.getByRole('alert').textContent!.includes('date de l’avis du CSE'));
+  fireEvent.change(screen.getByLabelText(/Date de l’avis du CSE/), { target: { value: '2026-10-01' } });
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Enregistrer les valeurs' })); });
+  assert.equal(derniere(b).r.ok, true, derniere(b).r.error);
+  assert.equal(b.donnees().settings.planningCseLe, '2026-10-01');
   await act(async () => { fireEvent.click(screen.getByRole('checkbox', { name: /Activer le planning/ })); });
   assert.equal(b.donnees().settings.planningActif, true);
+  assert.ok(screen.getByText(/Activé après l’avis du CSE du 1 oct\. 2026/));
   const n = b.trace.actions.length;
   fireEvent.change(screen.getByLabelText(/Délai de prévenance/), { target: { value: '4' } });
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Enregistrer les valeurs' })); });

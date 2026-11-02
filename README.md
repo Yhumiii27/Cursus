@@ -413,13 +413,15 @@ Détail : `docs/ARCHITECTURE.md` ; demandes : `docs/demandes/codex-lot11-pieces.
 
 ## Planning d'équipe (lot 12, C5)
 
-Module désactivé par défaut, activé par l'administrateur RH après l'avis du CSE (Paramètres → Planning d'équipe). Cycles
+Module désactivé par défaut, activé par l'administrateur RH après l'avis du CSE, dont la date est exigée (Paramètres →
+Planning d'équipe). Cycles
 de roulement et besoins de poste dans Référentiels (modèles Journée, 2x8, 3x8, 5x8) ; onglet « Planning d'équipe » de Temps
 de travail (grille de deux semaines, affectations, générer, modifier, publier avec le délai de prévenance et les contrôles
 légaux et d'habilitation, échanges à valider, affichage D3171-7 imprimé ou en CSV) ; « Mon planning » du collaborateur
-(postes publiés, échanges, aussi dans l'application installée) ; horaire du poste publié proposé sur la feuille de temps ;
-postes publiés dans le flux d'agenda ; reprise des équipes par quart (Paramètres → Planning d'équipe → Reprendre…). Pour
-l'essayer en démonstration : activer le module, affecter des salariés de la Maintenance au 2x8, générer puis publier.
+(et du manager lui-même planifié : postes publiés, échanges, aussi dans l'application installée) ; horaire du poste publié proposé sur la feuille de temps ;
+postes publiés dans le flux d'agenda (contenu « postes ») ; période hors des semaines chargées (8 passées, 12 à venir) lue
+dans l'historique ; reprise des équipes par quart (Paramètres → Planning d'équipe → Reprendre…). Pour
+l'essayer en démonstration : noter la date de l'avis du CSE, activer le module, affecter des salariés de la Maintenance au 2x8, générer puis publier.
 Détail : `docs/ARCHITECTURE.md`, « Lot 12 : planning d'équipe ».
 
 ## Contrat et temps de travail

@@ -14,6 +14,8 @@ const CONTENUS: [ContenuAgenda, string][] = [
   ['entretiens', 'Entretiens planifiés'],
   ['absences', 'Absences et congés en vigueur (sous « Absent »)'],
   ['deplacements', 'Déplacements (pays et dates)'],
+  // lot 12 — C5 (planning d'équipe)
+  ['postes', 'Postes publiés du planning d’équipe (module activé)'],
 ];
 
 /** Révocation de tous les abonnements : chacun en recrée un depuis son espace. */

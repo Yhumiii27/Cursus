@@ -54,14 +54,25 @@ function salariesDeLEquipe(d: Domain, equipe: string, jours: readonly ISODate[],
 }
 
 /**
- * Grille de l'équipe `equipe` sur `jours` : `planificateur` (service RH, manager ou suppléant qui planifie l'équipe) voit les
- * absences (sans nature) ; les autres lecteurs, les seuls postes et repos.
+ * Créneaux d'où se calculent la grille et l'affichage : ceux de l'instantané, ou, pour une période hors de sa fenêtre, ceux
+ * lus à la demande par l'historique (client/src/planning-api.ts, déjà filtrés par droits), nominatifs et « à pourvoir ».
  */
-export function grilleEquipe(d: Domain, equipe: string, jours: readonly ISODate[], planificateur: boolean): { lignes: LigneEquipe[]; couverture: CouvertureJour[]; brouillons: number } {
+export function sourceCreneaux(d: Domain, historique?: readonly Creneau[] | null): { nominatifs: readonly Creneau[]; aPourvoir: readonly Creneau[] } {
+  if (!historique) return { nominatifs: d.ds.creneaux ?? [], aPourvoir: d.ds.creneauxAPourvoir ?? [] };
+  return { nominatifs: historique.filter(c => c.empId != null), aPourvoir: historique.filter(c => c.empId == null) };
+}
+
+/**
+ * Grille de l'équipe `equipe` sur `jours` : `planificateur` (service RH, manager ou suppléant qui planifie l'équipe) voit les
+ * absences (sans nature) ; les autres lecteurs, les seuls postes et repos. `historique` : créneaux lus à la demande pour une
+ * période hors de la fenêtre de l'instantané.
+ */
+export function grilleEquipe(d: Domain, equipe: string, jours: readonly ISODate[], planificateur: boolean, historique?: readonly Creneau[] | null): { lignes: LigneEquipe[]; couverture: CouvertureJour[]; brouillons: number } {
   const premier = jours[0], dernier = jours.at(-1)!;
   const dans = (c: Creneau) => c.jour >= premier && c.jour <= dernier;
-  const nominatifs = creneauxPlanificateur((d.ds.creneaux ?? []).filter(dans));
-  const aPourvoir = creneauxPlanificateur((d.ds.creneauxAPourvoir ?? []).filter(c => dans(c) && c.equipe === equipe));
+  const source = sourceCreneaux(d, historique);
+  const nominatifs = creneauxPlanificateur(source.nominatifs.filter(dans));
+  const aPourvoir = creneauxPlanificateur(source.aPourvoir.filter(c => dans(c) && c.equipe === equipe));
   const parCle = new Map(nominatifs.filter(c => c.empId != null).map(c => [`${c.empId}|${c.jour}`, c]));
   const absences = planificateur ? d.ds.absences : [];
   const lignes: LigneEquipe[] = salariesDeLEquipe(d, equipe, jours, nominatifs).map(empId => {
@@ -131,6 +142,16 @@ export function equipesDuPlanning(d: Domain, me: number | null, rh: boolean): st
 
 // — Mon planning —
 
+/**
+ * Le salarié `empId` est-il lui-même planifié ? Un poste publié, une affectation au roulement ou un échange de poste qui le
+ * concerne dans l'instantané : « Mon planning » s'ouvre alors aussi à un compte manager (membre d'une équipe en cycle).
+ */
+export function planifieLuiMeme(ds: { creneaux?: readonly Creneau[]; echangesPoste?: readonly EchangePoste[]; roulements?: readonly { empId: number }[] }, empId: number): boolean {
+  return (ds.creneaux ?? []).some(c => c.empId === empId && c.statut === 'publie')
+    || (ds.roulements ?? []).some(r => r.empId === empId)
+    || (ds.echangesPoste ?? []).some(e => e.demandeurId === empId || e.partenaireId === empId);
+}
+
 export interface JourSalarie { jour: ISODate; creneau: Creneau | null; texte: string }
 
 /** Postes publiés du salarié `empId`, jour par jour (un jour sans poste publié : rien, affiché vide comme un repos). */
@@ -160,10 +181,13 @@ export interface Affichage {
   groupes: { cycle: string; groupe: string; salaries: string[] }[];
 }
 
-/** Affichage de l'équipe `equipe` sur `jours`, d'après les postes publiés et les affectations en vigueur. */
-export function affichageEquipe(d: Domain, equipe: string, jours: readonly ISODate[]): Affichage {
+/**
+ * Affichage de l'équipe `equipe` sur `jours`, d'après les postes publiés et les affectations en vigueur ; `historique` :
+ * créneaux lus à la demande pour une période hors de la fenêtre de l'instantané.
+ */
+export function affichageEquipe(d: Domain, equipe: string, jours: readonly ISODate[], historique?: readonly Creneau[] | null): Affichage {
   const premier = jours[0], dernier = jours.at(-1)!;
-  const publies = (d.ds.creneaux ?? []).filter(c => c.statut === 'publie' && c.equipe === equipe && c.horaire && c.empId != null && c.jour >= premier && c.jour <= dernier);
+  const publies = sourceCreneaux(d, historique).nominatifs.filter(c => c.statut === 'publie' && c.equipe === equipe && c.horaire && c.empId != null && c.jour >= premier && c.jour <= dernier);
   const codes = [...new Set(publies.map(c => c.horaire!))].sort();
   const horaires = codes.map(code => {
     const ref = horaireDe(d.ds.referentiels, code), h = ref ?? publies.map(horaireDuCreneau).find(x => x?.code === code) ?? null;

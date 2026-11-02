@@ -429,6 +429,11 @@ export interface OptionsOracle {
   /** Actions ajoutées aux cibles, tirées d'autant plus souvent (lot 10, chantier B : validation groupée). */
   renfort?: string[];
   /**
+   * Seules actions tirées (à la place des cibles et du registre) : le tirage ne dépend plus du nombre d'actions exportées,
+   * qu'un autre chantier peut changer (lot 12 — C5, relecture : banc des notes de frais).
+   */
+  seulement?: string[];
+  /**
    * Validations groupées tirées par salarié (toutes les feuilles soumises de quelques salariés, 30 au plus) plutôt que
    * de une à quatre feuilles prises au hasard dans toute la base (lot 10, chantier B).
    */
@@ -586,7 +591,7 @@ export async function rejouer(db: Db, o: OptionsOracle): Promise<RapportOracle> 
   };
   const agir = async (acteurTire: Acteur, userTire: CurrentUser, ds: Dataset, avant: number) => {
     // Action ciblée sept fois sur dix, sinon n'importe quelle action du registre.
-    const nom = r.si(0.7) ? r.choix(cibles) : r.choix(noms);
+    const nom = o.seulement?.length ? r.choix(o.seulement) : r.si(0.7) ? r.choix(cibles) : r.choix(noms);
     // Saisie, validation des feuilles et absences : acteur repris neuf fois sur dix parmi ceux qui en ont le droit (le
     // chemin que le cache incrémental doit tenir exact) ; la dixième fois, l'acteur tiré, refusé le plus souvent.
     // Lot 11 : de même pour les dossiers OPCO (service RH, administrateur RH pour les annulations).

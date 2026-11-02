@@ -172,7 +172,7 @@ les traite dans Sage. Les frais engagés pendant un déplacement se déclarent d
 ### Mon planning (planning d'équipe)
 
 Quand le planning d'équipe est activé (après l'avis du CSE), le menu **Temps & absences → Mon planning** montre vos postes
-publiés sur quatre semaines : jour, horaire et pause, version et date à laquelle ils vous ont été communiqués. Un jour sans
+(un manager qui fait lui-même partie d'une équipe en cycle l'a aussi, dans son espace) publiés sur quatre semaines : jour, horaire et pause, version et date à laquelle ils vous ont été communiqués. Un jour sans
 poste s'affiche vide. Seuls les postes publiés y figurent : une modification en préparation ne vous est montrée qu'une fois
 publiée, et vous recevez alors un e-mail (et une notification sur le téléphone si vous l'avez choisie).
 
@@ -272,8 +272,8 @@ publié. La ligne **Couverture** compare les postes du jour au besoin minimal de
 Au clavier, les flèches passent d'une case à l'autre et Entrée ouvre le poste.
 
 1. **Affecter** chaque salarié à un cycle (2x8, 3x8…) et à son groupe, à partir d'une date (Affectations au roulement).
-2. **Générer** le planning d'une période (12 semaines au plus) : les postes sont créés en brouillon d'après le cycle ; un
-   jour férié devient un repos, sauf travail en continu.
+2. **Générer** le planning d'une période (12 semaines au plus, et jamais au-delà des 12 semaines à venir) : les postes sont
+   créés en brouillon d'après le cycle ; un jour férié devient un repos, sauf travail en continu.
 3. Corriger au besoin : cliquer une case pour changer l'horaire, mettre en repos, ajouter un poste à pourvoir, retirer un
    brouillon ou annuler un poste publié (avec un motif communiqué au salarié).
 4. **Publier** : le dialogue montre ce qui sera communiqué et ce que Cursus a relevé. Une habilitation absente, retirée ou
@@ -288,7 +288,8 @@ pour les deux, puis Valider (avec un motif s'il y a des alertes) ou Refuser. Un 
 
 **Affichage réglementaire** : « Imprimer l'affichage » ou « Exporter (CSV) » donne l'horaire collectif de l'équipe et la
 composition nominative de chaque poste, jour par jour, d'après les postes publiés des deux semaines affichées (art.
-D3171-7), à afficher ou à tenir en registre.
+D3171-7), à afficher ou à tenir en registre. Pour une période plus ancienne (au-delà de 8 semaines passées), reculez la
+semaine en haut de l'écran : la grille et l'affichage sont alors lus dans l'historique, gardé au moins un an.
 
 ### Valider les notes de frais
 
@@ -432,7 +433,8 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
   par semaine, nuits, dimanches) s'affichent à la saisie.
 - **Référentiels → Besoins de poste** : effectif minimal par équipe, horaire et jour, et exigences propres au poste
   (exemple : un cariste CACES la nuit), contrôlées à la date de chaque créneau.
-- **Paramètres → Planning d'équipe** (administrateur RH) : activer le module après l'avis du CSE ; délai de prévenance
+- **Paramètres → Planning d'équipe** (administrateur RH) : noter la date de l'avis du CSE, puis activer le module (Cursus
+  refuse l'activation sans cette date) ; délai de prévenance
   (7 jours par défaut), repos quotidien réduit et durées du travail de nuit de votre accord, avec sa référence ; planning des
   collègues visible ou non. **Reprendre…** affecte au cycle choisi les membres des équipes créées par quart pour la
   couverture minimale (la première équipe prend le groupe A, la deuxième le B…) ; la reprise se rejoue sans doublon.

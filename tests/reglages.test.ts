@@ -75,7 +75,7 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // 2026) ; flux d'agenda personnel désactivé, contenu complet.
     conservationActive: false, conservationDecisionDpo: '', conservationDossierAns: 5, conservationTempsAns: 3, conservationPaieAns: 5,
     conservationSanteAns: 5, conservationPasseportAns: 0, conservationTitreSejourAns: 5, conservationEntretiensAns: 5, conservationFormationsAns: 5,
-    agendaFluxActif: false, agendaContenu: ['sessions', 'entretiens', 'absences', 'deplacements'],
+    agendaFluxActif: false, agendaContenu: ['sessions', 'entretiens', 'absences', 'deplacements', 'postes'],
     // Lot 7 (t049) : astreintes communiquées 15 jours avant (art. R3121-3), compensation financière (réponse du 23 octobre
     // 2026), aucune astreinte pour un salarié mineur, accord inconnu.
     astreinteDelaiPrevenance: 15, astreinteCompensation: 'financiere', astreinteMineurs: false, astreinteAccord: '',
@@ -117,7 +117,7 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     organismeAlerteQualiopiJours: 60, elearningFinAutoImport: false,
     // lot 12 — C5 (planning d'équipe) : module désactivé jusqu'à l'avis du CSE ; valeurs de la loi, planning des collègues fermé.
     planningActif: false, planningDelaiPrevenance: 7, planningReposQuotidienAccord: 11, planningNuitJour: 8, planningNuitMoyenne: 40, planningAccord: '',
-    planningCollegues: false,
+    planningCollegues: false, planningCseLe: null,
     // lot 12 — C6 (badgeage virtuel) : module désactivé, sans population, accord et avis du CSE à saisir ; intérimaires
     // exclus ; corrections sous 7 jours ; hors ligne admis, signalé au-delà de 5 min ; écart de 15 min ; 3 ans.
     pointageActif: false, pointagePopulations: [], pointageAccord: '', pointageCseLe: null, pointageInterim: false, pointageDelaiCorrectionJours: 7,

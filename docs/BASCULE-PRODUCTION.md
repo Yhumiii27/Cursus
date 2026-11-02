@@ -18,26 +18,26 @@ feu vert de chaque étape), le **responsable du serveur commun** (Matrix : socle
 
 ## 1. Décision préalable
 
-**Question Q1 (tranchée le 2 novembre 2026) : la démonstration en ligne tourne sur sa base SQLite, qui ne contient que
-des données de démonstration** (réponse du propriétaire). Conséquences :
+**Question Q1 (tranchée le 2 novembre 2026, réponses du propriétaire) : la démonstration en ligne tourne sur sa base
+SQLite, aux données fictives seulement ; elle passe sous PostgreSQL dans la même application Coolify, avec ses données
+fictives.** « Je ne veux pas perdre les données fictives, il faut les reprendre dans le postgre » ; « je ne veux pas
+lancer une nouvelle application dans Coolify ». Donc :
 
-- **pas de `npm run reprise-postgres`** : il n'y a aucune donnée réelle à reprendre (la commande ne sert qu'à une base
-  SQLite en service avec de vraies données) ; la répétition du 2 novembre 2026 sur une copie de démonstration a
-  seulement éprouvé l'outil ;
-- **la production démarre vide** sur le serveur commun (`cursus-prod`, schéma `cursus`), puis reçoit les données de
-  Lucca (J0-3) ;
-- le schéma `cursus` du serveur commun ne porte pas la démonstration : l'étape J-1-2 (purge du schéma) est sans objet,
-  sauf si un essai y a été branché entre-temps (le vérifier : aucune table remplie dans `cursus`) ;
-- la démonstration reste en SQLite, dans son application, sans `DATABASE_URL`.
-
-D'ici la bascule, une démonstration branchée sur le serveur commun serait seulement signalée : avertissement au
-démarrage, état `degrade` (`demo-base-commune`) du point de santé ; elle n'est jamais arrêtée par Cursus.
-
-**Choix retenu : une nouvelle application Coolify `cursus-prod`, sur un volume neuf.** La démonstration reste à part,
-dans son application, en SQLite (sans `DATABASE_URL`), derrière l'authentification basique de Coolify, aux données
-fictives seulement. Reconvertir l'application de démonstration en production est possible, mais déconseillé : son volume
-et, le cas échéant, son schéma portent des données fictives, des comptes de visiteurs et un historique à purger, et
-une erreur de variable remettrait la démonstration sur la base de production.
+- **même application Coolify** (celle de la démonstration), même volume `/data` : pas d'application `cursus-prod` ;
+- **données fictives reprises** dans le schéma `cursus` du serveur commun par `npm run reprise-postgres` (à blanc
+  d'abord), procédure « Passage de la démonstration sous PostgreSQL » de `docs/DEPLOIEMENT.md` ; répétée le 2 novembre
+  2026 (641 lignes dans 54 tables, démonstration servie sur PostgreSQL, parcours complet sans problème, avant et après
+  la reprise des vues `pub_` par Matrix) ;
+- la démonstration reste en mode démonstration (`CURSUS_DEMO=1`, `CURSUS_DEMO_PUBLIQUE=1`, authentification basique de
+  Coolify) : le point de santé l'indique en `degrade` (`demo-base-commune`, réponse 200, sans effet sur le contrôle
+  de santé du conteneur), car **ses salariés fictifs (EMP-0001 à EMP-0024) sont publiés aux autres outils** par les
+  vues `pub_` : Keystone, Vigie, Codex, Crucible et Matrix les lisent comme des salariés tant que la démonstration
+  occupe le schéma ;
+- **mise en production plus tard, dans cette même application** : arrêt, sauvegarde « avant purge », `npm run
+  purge-demo` (à blanc puis réelle), retrait de `CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE` et `CURSUS_TODAY`, premier
+  démarrage en production (réglage `exploitation`), puis étapes J0 ci-dessous ; à partir de là, la démonstration est
+  refusée sur cette base (règles ci-dessous). Les autres outils vident leurs copies des matricules fictifs (§ 8).
+  Si une démonstration est encore voulue après la production, elle repart dans une application à part, en SQLite.
 
 Une fois la base de production démarrée, deux règles deviennent bloquantes d'elles-mêmes :
 
@@ -106,6 +106,11 @@ variables de l'application `cursus-prod` (jamais dans le dépôt ni dans l'image
 4. Recette sur une instance de recette séparée (base ou schéma distincts : jamais `epc2i/cursus`).
 
 ### J-7 : application de production, sans la démarrer
+
+> **Choix Q1 (2 novembre 2026)** : pas de nouvelle application. « L'application `cursus-prod` » désigne ci-dessous
+> l'application de la démonstration, déjà sous PostgreSQL : ses variables de production sont préparées à J-7 et posées
+> à J-1, après la purge des données fictives (J-1-2) ; son volume `/data` (pièces) est gardé et vidé des pièces fictives
+> par la purge.
 
 1. Créer l'application `cursus-prod` : même image, étiquetée (version et commit : `docker inspect`), volume `/data`
    neuf. Pour que les étiquettes ne valent pas « inconnue » : dans Coolify, cocher « Include Source Commit in Build »

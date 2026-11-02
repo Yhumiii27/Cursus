@@ -735,6 +735,38 @@ l'identifiant) : chacun se reconnecte une fois.
    repos, obligatoire en production) ; copie restic chiffrée du volume juste après le `pg_dump` du schéma, restauration
    contrôlée par `npm run pieces:verifier` : `docs/SAUVEGARDE.md`, section 10.
 
+### Passage de la démonstration sous PostgreSQL (même application Coolify)
+
+Choix du propriétaire du 2 novembre 2026 (`docs/BASCULE-PRODUCTION.md`, Q1) : l'application de démonstration passe sur
+le serveur commun en gardant ses données fictives ; aucune nouvelle application. Répété le 2 novembre 2026 sur
+PostgreSQL 16 avec le socle et le partage de Matrix à jour.
+
+1. **Prérequis (Matrix)** : socle à jour de la décision M-18 (rôle `matrix_gestion`), mot de passe de `cursus_app`
+   connu, schéma `cursus` vide. Fermetures de colonnes sensibles (`docs/demandes/matrix-*.sql`) appliquées avant toute
+   donnée réelle (elles ne bloquent pas la démonstration).
+2. **Arrêt** de l'application de démonstration dans Coolify (la base SQLite ne doit plus être en service), puis copie
+   de sécurité du volume (`/data/cursus.db`, `/data/pieces`).
+3. **Variables** de l'application : ajouter `DATABASE_URL=postgres://cursus_app:<mot de passe>@epc2i-postgres:5432/epc2i`
+   (secret), retirer `CURSUS_BASE=sqlite` s'il est posé ; **garder** `CURSUS_DB=/data/cursus.db` (lue par la reprise),
+   `CURSUS_DEMO=1`, `CURSUS_DEMO_PUBLIQUE=1`, `CURSUS_TODAY` et l'authentification basique de Coolify.
+4. **Reprise à blanc**, dans un conteneur ponctuel de l'application (onglet « Terminal », application arrêtée) :
+   `npm run reprise-postgres -- --a-blanc`. Lire le compte rendu : comptes identiques table par table (environ 640
+   lignes dans 54 tables pour le jeu de démonstration), valeurs « aucun » écrites NULL, pièces absentes du dossier. Un
+   refus n'écrit rien : corriger, relancer.
+5. **Reprise réelle** : `npm run reprise-postgres` (une transaction, comptes contrôlés, tracée au journal ; relancée,
+   elle répond « déjà faite »).
+6. **Démarrage** de l'application : le journal affiche « base PostgreSQL …/epc2i, schéma cursus » et « mode
+   démonstration » ; `/api/health` répond 200 avec l'état `degrade` et l'alerte `demo-base-commune` (attendu : salariés
+   fictifs publiés aux autres outils). Se connecter et parcourir les écrans.
+7. **Partage (Matrix)** : reprise des vues de Cursus (`partage/14-reprise-publications.sql -v outils=cursus`),
+   `90-droits.sql`, `95-matrix-journal-unifie.sql`, puis `droits.verifier()` sans erreur (étape 3 ci-dessus).
+8. **Repli** : arrêter l'application, retirer `DATABASE_URL` et redémarrer : elle repart sur `/data/cursus.db`, que la
+   reprise n'a jamais modifiée. Garder ce fichier jusqu'à la mise en production.
+
+« Réinitialiser la démonstration » (Paramètres) fonctionne aussi sur PostgreSQL : le jeu fictif est rechargé dans le
+schéma `cursus`, sans copie de fichier (la sauvegarde est celle du serveur commun). Mise en production plus tard, dans
+la même application : purge des données fictives (`npm run purge-demo`), puis `docs/BASCULE-PRODUCTION.md`.
+
 L'application de bureau (macOS) garde sa base SQLite : elle ignore `DATABASE_URL`.
 
 ## Vérifications après installation

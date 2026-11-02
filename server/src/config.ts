@@ -520,11 +520,11 @@ export function avertissementsConfig(env: Env = process.env, opts: OptionsConfig
   if (opts.reglesDemo === false) return out;
   if (demoActive(env) && cibleBase(env)?.role === 'postgres') {
     out.push('Démonstration (CURSUS_DEMO=1) connectée au serveur PostgreSQL avec le rôle postgres (superutilisateur) : elle a tous les droits sur ce serveur. '
-      + 'Utilisez un rôle propre à la démonstration, ou une application à part en SQLite (docs/BASCULE-PRODUCTION.md) ; refusé hors démonstration.');
+      + 'Utilisez le rôle cursus_app (docs/BASCULE-PRODUCTION.md) ; refusé hors démonstration.');
   }
   if (demoSurBaseCommune(env)) {
     out.push(`Démonstration (CURSUS_DEMO=1) branchée sur la base ${BASE_COMMUNE} du serveur commun : ses salariés fictifs sont publiés aux autres outils par les vues pub_. `
-      + 'Déplacez-la sur une application à part, en SQLite (docs/BASCULE-PRODUCTION.md) ; elle sera refusée au jour de la bascule.');
+      + 'Choix retenu (docs/BASCULE-PRODUCTION.md, Q1) : à la mise en production dans cette même application, purge des données fictives (npm run purge-demo), puis CURSUS_DEMO retirée ; la démonstration y est ensuite refusée.');
   }
   const liaisons = definies(env, ['KEYSTONE_URL', 'MATRIX_URL']);
   if (liaisonsCoupees(env) && liaisons.length) {

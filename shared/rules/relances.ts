@@ -45,6 +45,11 @@ export function palierDe(jours: number, paliers: readonly number[]): string | nu
 }
 
 /** Intitulé d'un palier dans le récapitulatif. */
+/**
+ * lot 12 — C3 : libellé fixe de la relance d'un objectif à échéance. La lecture seule n'en lit pas la ligne nominative dans
+ * le récapitulatif (server/src/envois-lecteur.ts) : pour elle, objectifs en compteurs par équipe seulement (docs/RGPD.md).
+ */
+export const LIBELLE_RELANCE_OBJECTIF = 'Objectif à échéance, avancement à mettre à jour';
 export const titrePalier = (palier: string) => (palier === 'echu' ? 'Échéances dépassées' : `Sous ${palier} jours`);
 
 export type CategorieRelance = 'formation' | 'habilitation' | 'visite' | 'formalite' | 'sanitaire' | 'deplacement' | 'entretien' | 'contrat' | 'couverture'
@@ -141,7 +146,7 @@ export function relancesDues(d: Domain, emps: EmpX[], paliers: readonly number[]
   // une échéance de travail n'étant pas une donnée de santé (manager et service RH).
   if (d.ds.settings.objectifsActifs) {
     for (const o of objectifsSansMiseAJour((d.ds.objectifs ?? []).filter(x => ids.has(x.empId)), d.ds.entretiens, d.ti)) {
-      ajouter({ cle: `objectif:${o.id}:${o.echeance}`, empId: o.empId, echeance: o.echeance!, categorie: 'objectif', sante: false, libelle: 'Objectif à échéance, avancement à mettre à jour' });
+      ajouter({ cle: `objectif:${o.id}:${o.echeance}`, empId: o.empId, echeance: o.echeance!, categorie: 'objectif', sante: false, libelle: LIBELLE_RELANCE_OBJECTIF });
     }
   }
   // Fins de contrat prévues (CDD, mission, alternance), tant qu'aucune sortie n'est enregistrée.

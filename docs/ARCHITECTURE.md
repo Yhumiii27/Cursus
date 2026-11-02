@@ -4945,7 +4945,11 @@ feedback 360° reste désactivé (étape 3).
   ou reformuler » une proposition, « Proposer un objectif » pour le salarié, « Retirer ma proposition »), avec le nombre
   au plus et le poids réparti ; mi-année et point : « Objectifs en cours » (« Avancement », « Ajuster »). Souhaits de
   formation : avis du manager dans une liste (`entretien.avisSouhait`, aussitôt), « Ajouter un souhait », état après la
-  clôture (demande en attente, acceptée, refusée ; raison `nonVerse`). Mêmes droits que le serveur : évaluateur = service
+  clôture (demande en attente, acceptée, refusée ; raison `nonVerse`). Objectifs affichés et imprimés selon
+  `objectifsDuCompteRendu` : un annuel clos ne montre que les objectifs fixés ou évalués à cet entretien (jamais ceux d'un
+  annuel postérieur), quel que soit le réglage `objectifsActifs`, qui ne règle que la saisie. « Objectif lié » d'un
+  souhait : seulement dans un entretien à objectifs (annuel, mi-année, point), refusé aussi par le serveur (L6315-1).
+  Point de suivi clos sans signature du salarié : « Clos » (`statutEntretien`). Mêmes droits que le serveur : évaluateur = service
   RH hors soi-même, manager valideur ou suppléant « entretiens » (`useEvaluateur`, `decideur`). Chaque saisie s'ouvre
   dans son dialogue (`ObjectifDialog` : ajouter, proposer, modifier, ajuster avec motif, retrait confirmé à la place des
   boutons ; `ObjectifAvancerDialog` ; `ObjectifEvaluerDialog` ; `SouhaitDialog`), après l'enregistrement des sections en

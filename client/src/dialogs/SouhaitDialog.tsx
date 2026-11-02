@@ -4,7 +4,7 @@
 // compte rendu. À la clôture, seuls les souhaits à avis favorable deviennent une demande de formation au service RH
 // (réponse du propriétaire du 1er novembre 2026). Toujours ouvert depuis le compte rendu, rouvert après l'envoi.
 import { useState } from 'react';
-import { CATEGORIE_OBJECTIF_LABEL } from '../../../shared/rules/objectifs.ts';
+import { CATEGORIE_OBJECTIF_LABEL, TYPES_AVEC_OBJECTIFS } from '../../../shared/rules/objectifs.ts';
 import { LIBELLE_SOUHAIT_MAX, PRIORITE_SOUHAIT_LABEL, PRIORITES_SOUHAIT, souhaitsDe } from '../../../shared/rules/souhaits.ts';
 import type { PrioriteSouhait } from '../../../shared/types.ts';
 import { CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
@@ -33,13 +33,17 @@ export function SouhaitDialog({ entretienId, cle }: { entretienId: number; cle?:
 
   // Catalogue en vigueur, plus la formation du souhait si elle a été archivée depuis (le serveur la refuse alors).
   const formations = d.ds.referentiels.formations.filter(y => !y.archive || y.id === s?.f).sort((a, b) => a.nom.localeCompare(b.nom));
-  // Objectifs du salarié qu'un souhait peut servir : fixés ou repris à cet entretien, ou encore en cours.
-  const objectifs = (d.ds.objectifs ?? []).filter(o => o.empId === e.id && (o.statut === 'ouvert' || o.entretienId === x.id));
+  // Objectifs du salarié qu'un souhait peut servir : fixés ou repris à cet entretien, ou encore en cours ; seulement dans un
+  // entretien qui porte des objectifs, réglage actif (jamais un parcours professionnel ni une reprise : art. L6315-1).
+  const avecObjectif = d.ds.settings.objectifsActifs && TYPES_AVEC_OBJECTIFS.includes(x.type);
+  const objectifs = avecObjectif ? (d.ds.objectifs ?? []).filter(o => o.empId === e.id && (o.statut === 'ouvert' || o.entretienId === x.id)) : [];
   const fErr = !f ? 'Choisissez une formation du catalogue, ou « Autre (intitulé libre) ».' : null;
   const libelleErr = f !== AUTRE ? null : !libelle.trim() ? 'Indiquez l’intitulé de la formation souhaitée.'
     : libelle.trim().length > LIBELLE_SOUHAIT_MAX ? `${LIBELLE_SOUHAIT_MAX} caractères au plus.` : null;
   const revenir = () => openDialog({ type: 'ent', entId: x.id });
-  const saisie = { f: f === AUTRE ? null : f, libelle: f === AUTRE ? libelle : null, priorite, objectifId: objectifId ? Number(objectifId) : null };
+  const saisie = { f: f === AUTRE ? null : f, libelle: f === AUTRE ? libelle : null, priorite,
+    // Réglage coupé sur un annuel : lien déjà posé gardé tel quel (champ absent) ; hors des types à objectifs : aucun lien.
+    objectifId: avecObjectif ? (objectifId ? Number(objectifId) : null) : TYPES_AVEC_OBJECTIFS.includes(x.type) ? undefined : null };
 
   const envoyer = async () => {
     if (busy || !v.verifier(fErr, libelleErr)) return;

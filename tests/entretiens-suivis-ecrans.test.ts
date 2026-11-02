@@ -19,6 +19,8 @@ const { aFaireCollaborateur } = await import('../shared/rules/a-faire.ts');
 const { relancesDues } = await import('../shared/rules/relances.ts');
 const O = await import('../shared/rules/objectifs-suivi.ts');
 const { sectionsSuivi } = await import('../client/src/dialogs/compteRendu-suivi.ts');
+const { statutEntretien } = await import('../shared/rules/remise.ts');
+const R = await import('../shared/rules/objectifs.ts');
 const { adresse, lireUrl } = await import('../client/src/state/url.ts');
 type Objectif = import('../shared/types.ts').Objectif;
 type Entretien = import('../shared/types.ts').Entretien;
@@ -174,6 +176,73 @@ test('compte rendu imprimé : objectifs repris et évalués, objectifs fixés, s
   const mi = sectionsSuivi(d, d.ds.entretiens.find(x => x.id === 9013)!);
   assert.equal(mi[0].title, 'Objectifs en cours');
   assert.deepEqual(mi[0].table!.rows.map(r => r[0]), ['Former deux apprentis']);
+});
+
+test('compte rendu imprimé d’un annuel clos : ses seuls objectifs, même quand l’annuel suivant est clos, même réglage coupé', async () => {
+  const base = await domaine();
+  const full = { ...base, entretiens: [...base.entretiens] } as Dataset;
+  // Annuel 2025 (O10 fixé), annuel 2026 clos (O10 évalué atteint, O20 fixé, en cours), annuel 2027 planifié.
+  full.entretiens.push(ent({ id: 9101, empId: 2, date: '2025-11-10', cr: {} }), ent({ id: 9102, empId: 2, date: '2026-10-02' }),
+    ent({ id: 9103, empId: 2, date: '2027-10-02', statut: 'planifie' }));
+  full.objectifs = [
+    obj({ id: 10, entretienId: 9101, libelle: 'O10', statut: 'atteint', evalueEntretienId: 9102, evaluation: 'Bien' }),
+    obj({ id: 20, entretienId: 9102, libelle: 'O20' }),
+  ];
+  const d = new Domain(full);
+  const x = (id: number) => d.ds.entretiens.find(y => y.id === id)!;
+  // Sections des objectifs seulement (celle des souhaits de formation suit son propre réglage).
+  const objs = (dd: typeof d, id: number) => sectionsSuivi(dd, x(id)).filter(y => y.title.startsWith('Objectifs'));
+  const titres = (id: number) => objs(d, id).map(y => y.title);
+  // 2025 : O10 fixé ; rien de la période précédente (O20 vient d'un annuel postérieur).
+  assert.deepEqual(titres(9101), ['Objectifs fixés pour la période à venir']);
+  assert.deepEqual(objs(d, 9101)[0].table!.rows.map(r => r[0]), ['O10']);
+  assert.deepEqual(R.objectifsARevoir(d.ds.objectifs!, d.ds.entretiens, x(9101)), []);
+  // 2026 : O10 évalué à cet entretien, O20 fixé.
+  const n = objs(d, 9102);
+  assert.deepEqual(n.map(y => y.title), ['Objectifs de la période précédente · Évaluateur', 'Objectifs fixés pour la période à venir']);
+  assert.deepEqual([n[0].table!.rows.map(r => [r[0], r[2]]), n[1].table!.rows.map(r => r[0])], [[['O10', 'Atteint']], ['O20']]);
+  // 2027 planifié : O20 à évaluer.
+  assert.deepEqual(R.objectifsARevoir(d.ds.objectifs!, d.ds.entretiens, x(9103)).map(o => o.id), [20]);
+  // Réglage coupé après coup : le compte rendu clos garde ses objectifs ; l'annuel planifié et le point n'en montrent plus.
+  const eteint = new Domain({ ...full, settings: { ...full.settings, objectifsActifs: false } });
+  assert.deepEqual(objs(eteint, 9102), n);
+  // Même règle pour la section texte « Objectifs de l'année à venir » (dialogs/compteRendu.ts, sectionsDe) : remplacée
+  // tant que le bloc des objectifs s'affiche, de retour pour l'annuel planifié réglage coupé.
+  const off = { objectifsActifs: false };
+  assert.equal(R.objectifsDuCompteRendu(d.ds.objectifs!, d.ds.entretiens, x(9102), off).avec, true);
+  assert.deepEqual(objs(eteint, 9103), []);
+  assert.equal(R.objectifsDuCompteRendu(d.ds.objectifs!, d.ds.entretiens, x(9103), off).avec, false);
+  assert.equal(R.objectifsDuCompteRendu(d.ds.objectifs!, d.ds.entretiens, { ...x(9102), type: 'point' }, off).avec, false);
+});
+
+test('statut d’un point de suivi clos sans signature du salarié : « Clos », comme dans l’onglet Points de suivi', () => {
+  assert.deepEqual(statutEntretien(ent({ type: 'point' })), ['Clos', 'tag-neutral']);
+  assert.deepEqual(statutEntretien(ent({ type: 'point', signSal: '2026-10-06' })), ['Signé', 'tag-neutral']);
+  assert.deepEqual(statutEntretien(ent({ type: 'point', statut: 'planifie' })), ['Planifié', 'tag-outline']);
+  assert.deepEqual(statutEntretien(ent({ type: 'mi_annee' })), ['À signer', 'tag-outline']);
+});
+
+test('récapitulatif des échéances lu par la lecture seule : relances d’objectif sans le nom du salarié', async () => {
+  const db = await nouvelleBase();
+  await seedDemo(db);
+  const { envoyerEmail } = await import('../server/src/integrations/email.ts');
+  const { envoisPourLecteur, LIGNE_OBJECTIF_RESERVEE } = await import('../server/src/envois-lecteur.ts');
+  const { listerEnvois } = await import('../server/src/envois.ts');
+  const texte = ['Bonjour,', '', 'Sous 30 jours :', '• Mehdi Benali (Maintenance) — Objectif à échéance, avancement à mettre à jour : échéance le 31 oct. 2026',
+    '• Mehdi Benali (Maintenance) — Formation SST : échéance le 2 nov. 2026'].join('\n');
+  await envoyerEmail(db, 'echeances.recapitulatif', { a: ['rh@entreprise.example'], objet: 'Cursus — échéances à traiter : 2 nouvelles relances', texte });
+  const envois = await listerEnvois(db, { cible: 'email' });
+  const recap = envois.find(e => e.type === 'echeances.recapitulatif')!;
+  const compte = async (empId: number | null) => (await db.one<Compte>(empId ? 'SELECT * FROM comptes WHERE emp_id = ?' : 'SELECT * FROM comptes WHERE emp_id IS NULL', empId ? [empId] : []))!;
+  const rh = (await currentUser(db, { compteId: (await compte(null)).id, role: 'rh', methode: 'demo' }))!;
+  const lecture = (await currentUser(db, { compteId: (await compte(11)).id, role: 'rh', methode: 'demo' }))!;
+  assert.deepEqual(await envoisPourLecteur(db, rh, envois), envois);
+  const lu = (await envoisPourLecteur(db, lecture, envois)).find(e => e.id === recap.id)!;
+  const t = (lu.contenu as { texte: string }).texte;
+  assert.doesNotMatch(t, /Mehdi Benali \(Maintenance\) — Objectif/);
+  assert.ok(t.includes(LIGNE_OBJECTIF_RESERVEE));
+  assert.match(t, /Mehdi Benali \(Maintenance\) — Formation SST/, 'les autres relances restent lisibles');
+  assert.equal(lu.type, 'echeances.recapitulatif');
 });
 
 test('écrans : onglet et filtres d’Entretiens dans l’adresse, « Mes objectifs » dans l’espace collaborateur seulement', async () => {

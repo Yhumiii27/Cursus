@@ -237,7 +237,7 @@ export function OngletPoints({ ids }: { ids: number[] }) {
                 <div style={{ fontSize: 14 }}><Ouvrir onOpen={() => openDialog({ type: 'ent', entId: x.id })}>{e?.nom ?? d.personName(x.empId)} · {ENT_TYPES[x.type].nom}</Ouvrir></div>
                 <div className="text-muted sub">{fmtIso(x.date)}</div>
               </div>
-              <Tag cls={x.type === 'point' && x.statut === 'realise' && !x.signSal ? 'tag-neutral' : cls} style={{ flex: 'none' }}>{x.type === 'point' && x.statut === 'realise' && !x.signSal ? 'Clos' : statut}</Tag>
+              <Tag cls={cls} style={{ flex: 'none' }}>{statut}</Tag>
             </div>
           );
         })}

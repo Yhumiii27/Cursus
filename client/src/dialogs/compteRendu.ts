@@ -10,7 +10,7 @@ import type { Entretien } from '../../../shared/types.ts';
 import { matriculesImprimes, printDocument, type PrintSection } from '../print.ts';
 // lot 12 — C3 (entretiens suivis) : objectifs et souhaits de formation imprimés après les sections rédigées.
 import { sectionsSuivi } from './compteRendu-suivi.ts';
-import { TYPES_FIXATION } from '../../../shared/rules/objectifs.ts';
+import { objectifsDuCompteRendu, TYPES_FIXATION } from '../../../shared/rules/objectifs.ts';
 
 export const FIN_CARRIERE: EntSection = ['fincarriere', 'Fin de carrière : maintien dans l’emploi, aménagements souhaités', 'sal'];
 export const INFO_LABEL = 'Information remise : CPF, VAE, conseil en évolution professionnelle (CEP), abondement employeur';
@@ -23,7 +23,9 @@ export const whoLabel = (who: EntSection[2]) => who === 'mgr' ? 'Évaluateur' : 
  */
 export function sectionsDe(d: Domain, x: Entretien): EntSection[] {
   const e = d.emp(x.empId);
-  const remplacee = (k: string) => k === 'objectifs' && d.ds.settings.objectifsActifs && TYPES_FIXATION.includes(x.type) && !x.cr.objectifs?.trim();
+  // Même règle que le bloc des objectifs (annuel clos : affiché quel que soit le réglage s'il porte des objectifs).
+  const avecObjectifs = TYPES_FIXATION.includes(x.type) && objectifsDuCompteRendu(d.ds.objectifs ?? [], d.ds.entretiens, x, d.ds.settings).avec;
+  const remplacee = (k: string) => k === 'objectifs' && avecObjectifs && !x.cr.objectifs?.trim();
   return e ? [...ENT_TYPES[x.type].sections.filter(([k]) => !remplacee(k)), ...(needsFinCarriere(d, e, x) ? [FIN_CARRIERE] : [])] : [];
 }
 

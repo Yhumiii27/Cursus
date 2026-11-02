@@ -191,8 +191,15 @@ test('types interdits : aucun objectif ni proposition dans un entretien de parco
   const mi = (await db.one<{ id: number }>(`SELECT id FROM entretiens WHERE emp_id = 2 AND type = 'mi_annee'`))!.id;
   await refus(u.karim, 'objectif.ajouter', { entretienId: mi, libelle: 'Objectif', categorie: 'individuel' }, /fixent et s’évaluent à l’entretien annuel/);
   // Souhaits : l'entretien de parcours professionnel les recueille ; pas le forfait jours.
-  await run(u.mehdi, 'entretien.souhait', { id: epp, f: 'sst' });
+  const cle = (await run(u.mehdi, 'entretien.souhait', { id: epp, f: 'sst' })).result.cle as string;
   assert.equal(await db.one<{ n: number }>('SELECT COUNT(*) AS n FROM objectifs').then(r => Number(r!.n)), 0);
+  // Mais jamais lié à un objectif : un objectif (de l'annuel) n'entre pas dans un parcours professionnel par un souhait.
+  const o = (await run(u.karim, 'objectif.ajouter', { entretienId: (await db.one<{ id: number }>(`SELECT id FROM entretiens WHERE emp_id = 2 AND type = 'annuel' AND statut = 'planifie'`))!.id,
+    libelle: 'Réduire les rebuts de la ligne 3', categorie: 'individuel' })).result.id as number;
+  await refus(u.mehdi, 'entretien.souhait', { id: epp, f: 'caces489', objectifId: o }, /Pas d’objectif dans ce type d’entretien/);
+  await refus(u.mehdi, 'entretien.souhait', { id: epp, op: 'modifier', cle, objectifId: o }, /Pas d’objectif dans ce type d’entretien/);
+  await refus(u.karim, 'entretien.souhait', { id: epp, f: 'caces489', objectifId: o }, /Pas d’objectif dans ce type d’entretien/);
+  assert.deepEqual((await db.get<Entretien>('entretiens', epp))!.souhaits!.map(x => x.objectifId), [null]);
 });
 
 test('cycle d’un objectif : fixé, proposé puis validé, clôture, avancement, ajustement motivé, évaluation et reconduction', async () => {

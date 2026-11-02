@@ -14,7 +14,7 @@ import type { ReactNode } from 'react';
 import { REQ_CLS, REQ_LABEL } from '../../../shared/constants.ts';
 import { fmtIso, plural } from '../../../shared/format.ts';
 import {
-  blocageClotureObjectifs, CATEGORIE_OBJECTIF_LABEL, estEvalue, objectifsARevoir, objectifsFixesA, STATUT_OBJECTIF_LABEL, TYPES_AVEC_OBJECTIFS, TYPES_FIXATION,
+  blocageClotureObjectifs, CATEGORIE_OBJECTIF_LABEL, estEvalue, objectifsDuCompteRendu, STATUT_OBJECTIF_LABEL, TYPES_AVEC_OBJECTIFS, TYPES_FIXATION,
 } from '../../../shared/rules/objectifs.ts';
 import {
   AVIS_SOUHAIT, AVIS_SOUHAIT_LABEL, NON_VERSE_LABEL, PRIORITE_SOUHAIT_LABEL, souhaitsDe, souhaitsSansAvis, souhaitTraite, TYPES_SOUHAITS,
@@ -58,13 +58,12 @@ export function EntretienSuivi({ x, e, ouvrir }: { x: Entretien; e: Employe; ouv
   const planifie = x.statut === 'planifie';
   const s = d.ds.settings;
   const objectifs = d.ds.objectifs ?? [];
-  const avecObjectifs = s.objectifsActifs && TYPES_AVEC_OBJECTIFS.includes(x.type);
+  // Annuel clos : ses objectifs (fixés ou évalués à cet entretien) restent affichés même réglage coupé ; la saisie, non.
+  const { avec: avecObjectifs, aRevoir, fixes } = objectifsDuCompteRendu(objectifs, d.ds.entretiens, x, s);
   const fixation = TYPES_FIXATION.includes(x.type);
   const avecSouhaits = TYPES_SOUHAITS.includes(x.type);
   if (!avecObjectifs && !avecSouhaits) return null;
 
-  const fixes = fixation ? objectifsFixesA(objectifs, x.id) : [];
-  const aRevoir = fixation ? objectifsARevoir(objectifs, d.ds.entretiens, x) : [];
   // Point de mi-année, point de suivi : les objectifs en cours du salarié, fixés à un entretien clos.
   const clos = new Set(d.ds.entretiens.filter(y => y.statut === 'realise').map(y => y.id));
   const enCours = fixation ? [] : objectifs.filter(o => o.empId === e.id && o.statut === 'ouvert' && clos.has(o.entretienId));
@@ -74,7 +73,7 @@ export function EntretienSuivi({ x, e, ouvrir }: { x: Entretien; e: Employe; ouv
   const sansAvis = souhaitsSansAvis(x).length;
 
   /** Boutons de suivi d'un objectif en cours (entretien de fixation clos) : avancement, ajustement. */
-  const suivi = (o: Objectif) => o.statut === 'ouvert' && clos.has(o.entretienId) && (<>
+  const suivi = (o: Objectif) => s.objectifsActifs && o.statut === 'ouvert' && clos.has(o.entretienId) && (<>
     {(evaluateur || (collab && o.empId === me)) && <button type="button" className="btn btn-ghost btn-sm" onClick={() => ouvrir({ type: 'objectifAvancer', id: o.id, retour: x.id })}>Avancement</button>}
     {evaluateur && <button type="button" className="btn btn-ghost btn-sm" onClick={() => ouvrir({ type: 'objectif', mode: 'ajuster', id: o.id, retour: x.id })}>Ajuster</button>}
   </>);
@@ -165,7 +164,8 @@ export function EntretienSuivi({ x, e, ouvrir }: { x: Entretien; e: Employe; ouv
       {souhaits.length > 0 ? (
         <div className="list">
           {souhaits.map(sh => {
-            const objectif = sh.objectifId ? objectifs.find(o => o.id === sh.objectifId) : undefined;
+            // Objectif lié : seulement dans un entretien qui porte des objectifs (jamais un parcours professionnel, L6315-1).
+            const objectif = sh.objectifId && TYPES_AVEC_OBJECTIFS.includes(x.type) ? objectifs.find(o => o.id === sh.objectifId) : undefined;
             const modifiable = planifie && !souhaitTraite(sh) && ((salarie && sh.auteur === 'sal') || (evaluateur && sh.auteur === 'mgr'));
             return (
               <div key={sh.cle} className="list-row stack">

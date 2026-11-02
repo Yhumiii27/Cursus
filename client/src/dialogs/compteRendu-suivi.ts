@@ -6,7 +6,7 @@
 // Synthèse du feedback 360° : annexe distincte et facultative, à l'étape 3 (module désactivé).
 import type { Domain } from '../../../shared/domain.ts';
 import { fmtIso } from '../../../shared/format.ts';
-import { CATEGORIE_OBJECTIF_LABEL, objectifsARevoir, objectifsFixesA, STATUT_OBJECTIF_LABEL, TYPES_AVEC_OBJECTIFS, TYPES_FIXATION } from '../../../shared/rules/objectifs.ts';
+import { CATEGORIE_OBJECTIF_LABEL, objectifsDuCompteRendu, STATUT_OBJECTIF_LABEL, TYPES_FIXATION } from '../../../shared/rules/objectifs.ts';
 import { AVIS_SOUHAIT_LABEL, NON_VERSE_LABEL, PRIORITE_SOUHAIT_LABEL, souhaitsDe, TYPES_SOUHAITS } from '../../../shared/rules/souhaits.ts';
 import { REQ_LABEL } from '../../../shared/constants.ts';
 import type { Entretien, Objectif } from '../../../shared/types.ts';
@@ -18,16 +18,16 @@ const detail = (o: Objectif) => [o.mesure ? `Mesure : ${o.mesure}` : '', o.recon
 export function sectionsSuivi(d: Domain, x: Entretien): PrintSection[] {
   const out: PrintSection[] = [];
   const objectifs = d.ds.objectifs ?? [];
-  if (d.ds.settings.objectifsActifs && TYPES_AVEC_OBJECTIFS.includes(x.type)) {
+  // Annuel clos : objectifs fixés et évalués à cet entretien, quel que soit le réglage actuel (compte rendu signé inchangé).
+  const { avec, aRevoir: revus, fixes } = objectifsDuCompteRendu(objectifs, d.ds.entretiens, x, d.ds.settings);
+  if (avec) {
     if (TYPES_FIXATION.includes(x.type)) {
-      const revus = objectifsARevoir(objectifs, d.ds.entretiens, x);
       if (revus.length) {
         out.push({ title: 'Objectifs de la période précédente · Évaluateur', table: {
           head: ['Objectif', 'Échéance', 'Résultat', 'Commentaire'],
           rows: revus.map(o => [o.libelle, o.echeance ? fmtIso(o.echeance) : '—', o.statut === 'ouvert' ? 'Non évalué' : STATUT_OBJECTIF_LABEL[o.statut], o.evaluation ?? '']),
         } });
       }
-      const fixes = objectifsFixesA(objectifs, x.id);
       out.push(fixes.length
         ? { title: 'Objectifs fixés pour la période à venir', table: {
           head: ['Objectif', 'Catégorie', 'Poids', 'Échéance', 'Précisions'],

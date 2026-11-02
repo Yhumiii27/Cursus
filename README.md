@@ -432,7 +432,9 @@ de travail (grille de deux semaines, affectations, générer, modifier, publier 
 légaux et d'habilitation, échanges à valider, affichage D3171-7 imprimé ou en CSV) ; « Mon planning » du collaborateur
 (et du manager lui-même planifié : postes publiés, échanges, aussi dans l'application installée) ; horaire du poste publié proposé sur la feuille de temps ;
 postes publiés dans le flux d'agenda (contenu « postes ») ; période hors des semaines chargées (8 passées, 12 à venir) lue
-dans l'historique ; reprise des équipes par quart (Paramètres → Planning d'équipe → Reprendre…). Pour
+dans l'historique ; reprise des équipes par quart (Paramètres → Planning d'équipe → Reprendre…) ; étape 3 : conflits avec
+les missions et tâches Keystone, les sessions et les astreintes signalés au planificateur (« ! », sans blocage), couverture
+minimale par créneau dans la grille, l'aperçu de la publication et le tableau de bord (référent HSE compris, sans absences). Pour
 l'essayer en démonstration : noter la date de l'avis du CSE, activer le module, affecter des salariés de la Maintenance au 2x8, générer puis publier.
 Détail : `docs/ARCHITECTURE.md`, « Lot 12 : planning d'équipe ».
 ## Badgeage virtuel (lot 12, C6)

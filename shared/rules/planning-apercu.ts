@@ -9,18 +9,23 @@
 //   à la date de chaque créneau ; réserve d'aptitude neutre (jamais datée).
 // - Aperçu d'une publication (`apercuPublication`) et d'un échange (`apercuEchange`) : refus, alertes à motiver,
 //   informations, créneaux communiqués sous le délai de prévenance, semaines verrouillées.
+// - Étape 3 : conflits avec les missions et tâches Keystone, les sessions de formation et les astreintes, rendus en
+//   informations (shared/rules/planning-conflits.ts) ; couverture minimale par créneau de l'équipe après la publication
+//   (shared/rules/couverture-creneaux.ts), en information elle aussi : rien n'est bloqué ni motivé.
 import { addD, mondayOf } from '../dates.ts';
 import type { Domain, EmpX } from '../domain.ts';
 import type { Employe, ISODate } from '../types.ts';
 import type { Creneau, EchangePoste } from '../types-planning.ts';
 import { absenceBloque } from './absences.ts';
+import { type CouvertureCreneau, couvertureCreneaux } from './couverture-creneaux.ts';
 import { exigencesDe } from './exigences.ts';
 import {
   besoinsDuJour, creneauxPlanificateur, horaireDuCreneau, postesApresEchange, prevenanceCreneau, refusPublication, sansBrouillonsPasses,
 } from './planning.ts';
 import {
-  type AlertePlanning, alertesHabilitations, controlesPlanning, JOURS_APRES, type JourPlanifie, reglagesPlanning, SEMAINES_AVANT, trierAlertes,
+  type AlertePlanning, alertesHabilitations, controlesPlanning, GRAVITE, JOURS_APRES, type JourPlanifie, reglagesPlanning, SEMAINES_AVANT, trierAlertes,
 } from './planning-controles.ts';
+import { conflitsPlanning } from './planning-conflits.ts';
 import { statutNuit } from './repos-nuit.ts';
 import { derogationDe } from './semaine.ts';
 
@@ -59,6 +64,8 @@ export function controlesSalarie(d: Domain, emp: Employe, ex: Pick<EmpX, 'id' | 
     employe: emp, jours, du, au, reglages: ds.settings, derogationDominicale: !!derogationDe(ds, emp), absents,
     travailleurNuit: statutNuit(ds, emp.id, d.ti).travailleur, dureesExclues: c.dirigeant || c.forfait,
   });
+  // Étape 3 : conflits avec les autres engagements du salarié, en information.
+  out.push(...conflitsPlanning(d, emp.id, jours, du, au, absents).map(x => ({ empId: x.empId, jour: x.jour, portee: 'jour' as const, code: x.code, gravite: GRAVITE[x.code], texte: x.texte })));
   if (!ex) return out;
   const noms = {
     habilitation: (id: string) => ds.referentiels.habilitations.find(h => h.id === id)?.nom ?? id,
@@ -95,6 +102,8 @@ export interface ApercuPublication {
   horsDelai: Creneau[];
   delai: number;
   alertes: ReturnType<typeof trierAlertes>;
+  /** Étape 3 : créneaux de l'équipe sous la couverture minimale une fois la période publiée (information). */
+  couverture: CouvertureCreneau[];
 }
 
 /**
@@ -115,7 +124,12 @@ export function apercuPublication(d: Domain, equipe: string, duSaisi: ISODate, a
     const emp = d.emp(empId);
     if (emp) alertes.push(...controlesSalarie(d, emp, fiches.get(empId), joursPlanifiesDe(ds.creneaux ?? [], empId, du, au, ti), du, au));
   }
-  return { du, au, brouillons, salaries, verrou, horsDelai, delai, alertes: trierAlertes(alertes) };
+  // Couverture par créneau après publication : ce que verra le planificateur (brouillons compris), absences retirées.
+  const jours: ISODate[] = [];
+  for (let j = du; j <= au && jours.length < 7 * 12; j = addD(j, 1)) jours.push(j);
+  const vus = creneauxPlanificateur(sansBrouillonsPasses(tous.filter(c => c.equipe === equipe && c.jour >= du && c.jour <= au), ti));
+  const couverture = brouillons.length ? couvertureCreneaux(ds, equipe, jours, vus, true).filter(x => x.manque) : [];
+  return { du, au, brouillons, salaries, verrou, horsDelai, delai, alertes: trierAlertes(alertes), couverture };
 }
 
 /**

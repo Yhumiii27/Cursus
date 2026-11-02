@@ -187,6 +187,9 @@ test('clé VAPID, iOS, application installée, barre d’onglets', () => {
   const item = (view: string) => ({ view, label: view, icon: (() => null) as never });
   assert.deepEqual(ongletsDe([['A', [item('portail'), item('entretiens')]], ['B', [item('temps'), item('absences'), item('missions')]]] as never).map(o => o.view),
     ['portail', 'entretiens', 'temps', 'absences']);
+  // Lot 12 : des entrées ajoutées avant les heures (objectifs, avis, frais) ne les chassent pas de la barre.
+  assert.deepEqual(ongletsDe([['A', [item('portail'), item('frais'), item('entretiens'), item('objectifs')]], ['B', [item('temps'), item('absences'), item('planning')]]] as never).map(o => o.view),
+    ['portail', 'frais', 'temps', 'absences']);
 });
 
 // — Constats de relecture (étape 2) —

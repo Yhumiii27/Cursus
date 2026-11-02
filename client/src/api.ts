@@ -13,6 +13,7 @@ export type { AppareilPush, NomAction };
 // lot 12 — C6 (badgeage virtuel) : réponses des lectures de pointages (types seulement, server/src/pointages.ts).
 import type { EtatPointages, LecturePointages, PresencesPointages } from '../../server/src/pointages.ts';
 export type { EtatPointages, LecturePointages, PresencesPointages };
+import type { ZonePointage } from '../../shared/types.ts';
 
 /** Compte proposé à la connexion de démonstration (`id` : identifiant du compte). */
 export interface LoginOption { id: number; nom: string }
@@ -291,6 +292,8 @@ export const api = {
   etatPointages: (empId?: number) => request<EtatPointages>('GET', `/api/pointages/etat${empId != null ? `?empId=${empId}` : ''}`, undefined, espaceOnglet),
   /** Présences du jour du périmètre (manager, service RH), sans la nature d'une absence. */
   presencesPointages: () => request<PresencesPointages>('GET', '/api/pointages/etat?equipe=1', undefined, espaceOnglet),
+  /** Étape 3 : zones de la géolocalisation au pointage (service RH), Paramètres → Badgeage. */
+  zonesPointage: () => request<{ zones: ZonePointage[] }>('GET', '/api/pointages/zones', undefined, espaceOnglet),
   /**
    * `rejeu` (lot 11, file hors ligne : client/src/state/hors-ligne.ts) : clé d'idempotence de la saisie et marque du
    * rejeu hors ligne ; une réponse déjà donnée pour cette clé est rendue sans refaire l'action (`relire`).

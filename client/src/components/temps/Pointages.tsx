@@ -23,7 +23,7 @@ import { useDomain, useRole } from '../../state/derived.ts';
 import { useStore } from '../../state/store.tsx';
 import { Btn, Empty, Fine, NoteAccent, Panel, stop, Tag, Two } from '../ui.tsx';
 import { Ouvrir } from '../Cliquable.tsx';
-import { correctionsAValider, fMinutes, fSolde, modeDe, motifCorrection, objetCorrection, PRESENCES, STATUTS_CORRECTION, valideurPointages } from './pointage-etat.ts';
+import { correctionsAValider, fMinutes, fSolde, modeDe, motifCorrection, objetCorrection, PRESENCES, STATUTS_CORRECTION, valideurPointages, verdictTexte } from './pointage-etat.ts';
 
 /** Lecture à la demande, relue quand l'instantané change (une correction validée ajoute un pointage). */
 function useLecture<T>(lire: () => Promise<T>, cles: readonly unknown[]) {
@@ -124,7 +124,11 @@ export function PointagesSemaine({ emp, wk }: { emp: Employe; wk: ISODate }) {
                       <td className="nowrap">{jourCourt(j)}</td>
                       <td className="tnum">{retire ? <s>{hhmmParis(p.horodatage)}</s> : hhmmParis(p.horodatage)}</td>
                       <td>{p.sens === 'S' ? 'Départ' : p.sens === 'E' ? 'Arrivée' : '—'}</td>
-                      <td className="text-muted sub">{retire ? 'retiré par une correction' : p.source === 'correction' ? 'correction validée' : p.horsLigne ? 'différé (hors ligne)' : 'pointage'}</td>
+                      <td className="text-muted sub">
+                        {retire ? 'retiré par une correction' : p.source === 'correction' ? 'correction validée' : p.horsLigne ? 'différé (hors ligne)' : 'pointage'}
+                        {/* Étape 3 : verdict de géolocalisation (entier pour le salarié et le service RH, « dans » ou « hors » pour le manager). */}
+                        {!retire && p.zone && <> · {verdictTexte(p.zone)}</>}
+                      </td>
                       <td className="right">
                         {peutCorriger && !retire && !enAttente.has(p.id) && (
                           <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'correctionPointage', empId: emp.id, nature: 'neutralisation', pointageId: p.id, jour: p.jour, heure: hhmmParis(p.horodatage), sens: p.sens ?? undefined })}>

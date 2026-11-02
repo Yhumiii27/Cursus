@@ -21,6 +21,8 @@ import { employeAu } from '../../shared/rules/historique-contrat.ts';
 import { horaireDe, horaireEquipe } from '../../shared/rules/horaires.ts';
 import { estVariable } from '../../shared/rules/horaires-variables.ts';
 import { pointeDeLaSemaine } from '../../shared/rules/pointage-feuille.ts';
+import { verdictPourLecteur } from '../../shared/rules/geolocalisation.ts';
+import { positionDemandee, routesZones } from './geolocalisation.ts';
 import {
   type AnomaliePointage, anomaliesPointage, apparier, type ContextePopulation, heureParis, hhmmParis, instantParis, LECTURE_MAX_JOURS, modeTempsAu, postesDe,
   postesDesPointages, realiseParJour,
@@ -73,6 +75,9 @@ export function voitPointages(user: CurrentUser, ds: Dataset, d: Domain, empId: 
   const e = d.emp(empId);
   return !!e && (d.mgrOf(e) === user.empId || !!delegationPour(ds, e, user.empId, ds.today, 'feuilles'));
 }
+
+/** Verdict de géolocalisation lu en entier : le salarié lui-même et le service RH (le manager : « dans » ou « hors »). */
+const detailZone = (user: CurrentUser, empId: number) => user.empId === empId || droitsRh(user).includes('rh');
 
 /** Absences du salarié par jour : journée entière ou demi-journée, toute nature confondue (validées ou signalées). */
 function absencesParJour(ds: Dataset, empId: number, du: ISODate, au: ISODate): Map<ISODate, 'journee' | 'demi'> {
@@ -156,8 +161,12 @@ export function bilanPeriode(ds: Dataset, e: Employe, pointages: readonly Pointa
   return { theoriques: t, postes, appariement: a, anomalies };
 }
 
-/** État du jour et débit-crédit d'un salarié à l'instant `maintenant` (pointages du lundi précédent au lendemain). */
-export function etatDuSalarie(ds: Dataset, e: Employe, pointages: readonly Pointage[], maintenant: number) {
+/**
+ * État du jour et débit-crédit d'un salarié à l'instant `maintenant` (pointages du lundi précédent au lendemain). Étape 3 :
+ * `geoloc` (position à demander au clic, pour le salarié lui-même) et `detailZone` (verdict entier : le salarié et le
+ * service RH ; le manager ne lit que « dans » ou « hors » zone, shared/rules/geolocalisation.ts).
+ */
+export function etatDuSalarie(ds: Dataset, e: Employe, pointages: readonly Pointage[], maintenant: number, o: { geoloc?: boolean; detailZone?: boolean } = {}) {
   const today = heureParis(maintenant).jour, week = mondayOf(today);
   const b = bilanPeriode(ds, e, pointages, week, today, maintenant);
   const realise = realiseParJour(b.postes);
@@ -172,7 +181,9 @@ export function etatDuSalarie(ds: Dataset, e: Employe, pointages: readonly Point
   return {
     empId: e.id, jour: today, mode: modeDuSalarie(ds, e, today),
     present: !!b.appariement.enCours, depuis: b.appariement.enCours ? hhmmParis(b.appariement.enCours.horodatage) : null,
-    pointages: effectifs.map(p => ({ id: p.id, heure: hhmmParis(p.horodatage), sens: p.sens, source: p.source, differe: p.horsLigne })),
+    pointages: effectifs.map(p => ({ id: p.id, heure: hhmmParis(p.horodatage), sens: p.sens, source: p.source, differe: p.horsLigne, zone: verdictPourLecteur(p.zone, o.detailZone ?? true) })),
+    // Étape 3 : position demandée au clic sur « Pointer » (option active, population désignée, zone active).
+    geoloc: !!o.geoloc,
     postes: duJour.map(p => ({ debut: hhmmParis(p.debut), fin: p.enCours ? null : hhmmParis(p.fin), travail: p.travail, pauses: p.pauses })),
     debitCredit: {
       jour: { realise: realise.get(today) ?? 0, theorique: theorique(today), solde: (realise.get(today) ?? 0) - theorique(today) },
@@ -252,7 +263,8 @@ export function routesPointages(db: Db): Router {
     res.set('Cache-Control', 'no-store');
     res.json({
       empId: lu.e.id, du, au,
-      pointages: lu.pointages.filter(p => p.jour >= du && p.jour <= au),
+      // Étape 3 : verdict de géolocalisation entier pour le salarié et le service RH, « dans » ou « hors » pour le manager.
+      pointages: lu.pointages.filter(p => p.jour >= du && p.jour <= au).map(p => ({ ...p, zone: verdictPourLecteur(p.zone, detailZone(id.user, lu.e.id)) })),
       postes: b.postes.filter(p => p.jour >= du && p.jour <= au).map(p => ({ jour: p.jour, debut: new Date(p.debut).toISOString(), fin: new Date(p.fin).toISOString(), travail: p.travail, pauses: p.pauses, enCours: p.enCours })),
       anomalies: b.anomalies,
       // Étape 2 : théorique et réalisé de chaque jour (minutes ; jour de rattachement), sans motif ni nature d'absence.
@@ -275,7 +287,8 @@ export function routesPointages(db: Db): Router {
       }
       const empId = Number(q.empId ?? id.user.empId), e = Number.isInteger(empId) ? d.emp(empId) : undefined;
       if (!e || !voitPointages(id.user, ds, d, e.id)) return { refus: true as const };
-      return { ds, e, pointages: await lirePointages(db, [e.id], addD(lundi, -1), addD(today, 1)) };
+      const geoloc = e.id === id.user.empId && await positionDemandee(db, ds, e, today);
+      return { ds, e, geoloc, pointages: await lirePointages(db, [e.id], addD(lundi, -1), addD(today, 1)) };
     });
     if ('refus' in lu) return await refuser(db, res, id, 'État des pointages');
     res.set('Cache-Control', 'no-store');
@@ -283,8 +296,11 @@ export function routesPointages(db: Db): Router {
       const d = new Domain(lu.ds);
       return res.json({ jour: today, presences: lu.equipe.map(empId => presenceDuJour(lu.ds, d.emp(empId)!, lu.pointages.filter(p => p.empId === empId), maintenant)) });
     }
-    res.json(etatDuSalarie(lu.ds, lu.e, lu.pointages, maintenant));
+    res.json(etatDuSalarie(lu.ds, lu.e, lu.pointages, maintenant, { geoloc: lu.geoloc, detailZone: detailZone(id.user, lu.e.id) }));
   });
+
+  // Étape 3 : zones de la géolocalisation (service RH), server/src/geolocalisation.ts.
+  r.use(routesZones(db));
 
   return r;
 }

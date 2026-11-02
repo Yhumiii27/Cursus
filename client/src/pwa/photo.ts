@@ -3,8 +3,9 @@
 // lever `camera=()` de la Permissions-Policy (server/src/securite.ts) ; à vérifier sur iOS et Android avant la mise en
 // service. Les pièces n'acceptent que PDF, JPEG et PNG de 10 Mo au plus (shared/rules/pieces.ts) :
 // - un JPEG ou un PNG de 10 Mo au plus garde son image telle quelle, mais perd ses métadonnées (`sansMetadonnees`) :
-//   l'appareil photo d'Android y écrit la position GPS quand la localisation est activée, alors que Cursus n'en demande
-//   jamais (Permissions-Policy geolocation=(), en attendant l'accord du CSE). JPEG : segments APP1 (EXIF, XMP), APP13
+//   l'appareil photo d'Android y écrit la position GPS quand la localisation est activée, alors que Cursus n'en garde
+//   jamais (la géolocalisation facultative du pointage, lot 12, C6, lit une position au clic sur « Pointer » et n'en garde
+//   que le verdict ; jamais celle d'une photo). JPEG : segments APP1 (EXIF, XMP), APP13
 //   (IPTC) et commentaires retirés, seule l'orientation est réécrite dans un EXIF minimal (sinon un reçu photographié
 //   en portrait s'afficherait couché) ; PNG : blocs eXIf, tEXt, zTXt et iTXt retirés. Les pixels ne changent pas ;
 //   l'empreinte probante de la pièce est celle du fichier nettoyé, le seul envoyé ;

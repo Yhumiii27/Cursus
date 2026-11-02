@@ -1561,6 +1561,17 @@ export interface Settings {
   pointageEcartDiffereMin: number;
   pointageEcartAnomalieMin: number;
   conservationPointagesAns: number;
+  /**
+   * Étape 3 : géolocalisation au pointage, désactivée (`geolocActive`). Activation refusée sans le badgeage actif, la
+   * finalité écrite (`geolocFinalite`, texte jamais recopié au journal), la date de l'analyse d'impact validée par le DPO
+   * (`geolocAipdLe`) et au moins une population (`geolocPopulations` : équipes itinérantes, qui n'ont pas d'autre moyen de
+   * pointer sur place). Position demandée au clic seulement ; précision exigée `geolocPrecisionM` mètres ; verdict seul gardé.
+   */
+  geolocActive: boolean;
+  geolocPopulations: PopulationGeoloc[];
+  geolocFinalite: string;
+  geolocAipdLe: ISODate | null;
+  geolocPrecisionM: number;
 }
 /** Catégorie d'une formation pour l'évaluation à froid : type du catalogue, ou formation hors catalogue. */
 export type CategorieEvaluee = FormationType | 'Hors catalogue';
@@ -2634,3 +2645,17 @@ export interface CorrectionPointage {
 }
 /** Plage d'un horaire variable (étape 2) : fixe (présence obligatoire) ou mobile, heures « HH:MM ». */
 export interface PlageHoraire { type: 'fixe' | 'mobile'; debut: string; fin: string }
+/**
+ * Géolocalisation au pointage (étape 3, option désactivée, shared/rules/geolocalisation.ts) : population à qui la position
+ * est demandée au clic sur « Pointer » (critère et valeur, comme une population badgée ; mode et date d'effet sont ceux de
+ * sa population badgée).
+ */
+export interface PopulationGeoloc { critere: CriterePopulation; valeur: string }
+/**
+ * Zone de pointage (table `zones_pointage`, hors de l'instantané, tenue par l'administrateur RH) : site ou chantier,
+ * centre (degrés décimaux WGS 84) et rayon en mètres (10 à 10 000). Seul le verdict d'un pointage est gardé, jamais la
+ * position du salarié.
+ */
+export interface ZonePointage {
+  id: number; libelle: string; siteCode: string | null; chantierId: string | null; lat: number; lng: number; rayonM: number; actif: boolean;
+}

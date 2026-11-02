@@ -22,6 +22,7 @@ import { ABSENCES_DEDUCTIBLES, ABSENCES_DEDUITES_DEFAUT, DEBUT_SUIVI_DEFAUT, for
 import type { EmissionForfaitHeures } from './rules/forfait-heures.ts';
 // lot 12 — C6 (badgeage virtuel)
 import { CONSERVATION_POINTAGES_MAX, CONSERVATION_POINTAGES_MIN, lirePopulations, refusActivationPointage } from './rules/pointage.ts';
+import { FINALITE_MAX, lirePopulationsGeoloc, PRECISION_DEFAUT_M, PRECISION_MAX_M, PRECISION_MIN_M, refusActivationGeoloc } from './rules/geolocalisation.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
 export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
@@ -416,6 +417,13 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   pointageEcartDiffereMin: { defaut: 5, controle: entier(1, 60) },
   pointageEcartAnomalieMin: { defaut: 15, controle: entier(0, 240) },
   conservationPointagesAns: { defaut: 3, controle: entier(CONSERVATION_POINTAGES_MIN, CONSERVATION_POINTAGES_MAX) },
+  // Étape 3 (shared/rules/geolocalisation.ts) : géolocalisation au pointage désactivée ; aucune population ; finalité écrite
+  //   (jamais au journal) et date de l'AIPD exigées pour l'activer (COHERENCE) ; précision exigée de 100 m.
+  geolocActive: { defaut: false, controle: booleen },
+  geolocPopulations: { defaut: [], controle: v => { const l = lirePopulationsGeoloc(v); if (typeof l === 'string') throw new ReglageInvalide(l); return l; } },
+  geolocFinalite: { defaut: '', controle: texte(FINALITE_MAX, 'Géolocalisation, finalité') },
+  geolocAipdLe: { defaut: null, controle: dateOuVide('Géolocalisation, date de l’analyse d’impact (AIPD)') },
+  geolocPrecisionM: { defaut: PRECISION_DEFAUT_M, controle: entier(PRECISION_MIN_M, PRECISION_MAX_M) },
 };
 
 /**
@@ -493,6 +501,8 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   // consultation du CSE (art. L2312-38) et sur le fondement de l'accord d'entreprise ; sans elles, des pointages seraient
   // inopposables (art. L1222-4) —
   s => refusActivationPointage(s),
+  // Étape 3 : la géolocalisation suppose le badgeage, une finalité écrite, l'AIPD validée par le DPO et ses populations —
+  s => refusActivationGeoloc(s),
 ];
 
 /** Vue non typée de la table, pour la parcourir (les contrôles reçoivent la valeur en vigueur du même champ). */

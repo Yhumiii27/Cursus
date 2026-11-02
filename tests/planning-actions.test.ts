@@ -162,7 +162,9 @@ test('publication : alertes à motiver (codes gardés sur le créneau, jamais au
   await db.insert('feuilles', { empId: 6, week: '2026-11-09', statut: 'validee', comment: null, sage: false, keystone: false, lignes: [] });
   await refuse(RH, 'planning.publier', { equipe: 'Maintenance', du: '2026-11-09', au: '2026-11-15' }, /Feuille de temps déjà validée : Thomas Garnier \(semaine du 9 nov\. 2026\)/, 409);
   // Nuit d'un mineur et hors contrat : refusés dès la saisie.
-  await refuse(KARIM, 'planning.creneau.ajouter', { equipe: 'Maintenance', jour: '2027-09-01', horaire: 'J', empId: 24 }, /hors du contrat/);
+  // Fin du contrat avancée au 30 novembre (le 31 août 2027 est au-delà des 12 semaines planifiables).
+  await db.update('employes', 24, { fin: '2026-11-30' });
+  await refuse(KARIM, 'planning.creneau.ajouter', { equipe: 'Maintenance', jour: '2026-12-02', horaire: 'J', empId: 24 }, /hors du contrat/);
 });
 
 test('annulation d’un créneau publié : motif exigé, communiqué au salarié, jamais journalisé ; échanges ouverts annulés', async () => {

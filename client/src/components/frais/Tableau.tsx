@@ -2,32 +2,39 @@
 // l'instantané, jamais stockés : notes en attente par étape, délai moyen de la soumission au contrôle, dépenses des
 // douze derniers mois par mois et par catégorie, allocations réintégrables, avances non soldées. Le manager a ses propres
 // totaux d'équipe (pages/Frais.tsx, sans les frais médicaux : `totauxEquipe`).
+// lot 12 — C2 (notes de frais : activation) : la vue du service RH et de la comptabilité porte les notes payées depuis
+// moins de 13 mois (les dépenses des douze derniers mois restent couvertes) mais les dépenses des seules notes en circuit
+// ou payées depuis moins de 2 mois ; mois et catégories reprennent les résumés calculés par le serveur pour les autres
+// (`resumesFrais`), et le réintégrable, la part de chaque note calculée par le serveur sur l'instantané complet
+// (`reintegrableFrais`, cumul kilométrique exact de l'année). Chaque indicateur dit sa période.
 import { addM } from '../../../../shared/dates.ts';
 import { plural } from '../../../../shared/format.ts';
 import { periodeLabel } from '../../../../shared/rules/paie.ts';
 import { CATEGORIES_FRAIS } from '../../../../shared/rules/frais.ts';
-import type { CategorieFrais } from '../../../../shared/types.ts';
+import { FENETRE_FRAIS_MOIS, retenuParCategorie } from '../../../../shared/rules/frais-fenetre.ts';
 import { useDomain } from '../../state/derived.ts';
 import { Bar, Empty, Kpi, Kpis, Panel } from '../ui.tsx';
 import { depensesParMois, euros, syntheseNote } from './commun.ts';
 
 export function TableauFrais() {
   const d = useDomain();
-  const notes = d.ds.notesFrais ?? [], lignes = d.ds.lignesFrais ?? [];
+  const notes = d.ds.notesFrais ?? [], lignes = d.ds.lignesFrais ?? [], resumes = d.ds.resumesFrais ?? [];
   const compte = (s: string[]) => notes.filter(n => s.includes(n.statut)).length;
   const depuis = addM(`${d.ti.slice(0, 7)}-01`, -11);
-  const mois = depensesParMois(notes, lignes, depuis);
+  const mois = depensesParMois(notes, lignes, depuis, resumes);
+  const periode = `${periodeLabel(depuis.slice(0, 7))} à ${periodeLabel(d.ti.slice(0, 7))}`;
   const max = Math.max(1, ...mois.map(m => m.montant));
   // Par catégorie, sur les notes soumises des douze derniers mois (dépenses retenues).
   const ids = new Set(notes.filter(n => n.statut !== 'brouillon' && n.statut !== 'annulee' && n.periode >= depuis.slice(0, 7)).map(n => n.id));
-  const parCat = new Map<CategorieFrais, number>();
-  for (const l of lignes) if (ids.has(l.noteId) && !l.refuseeLe) parCat.set(l.categorie, (parCat.get(l.categorie) ?? 0) + (l.montantRetenu ?? l.montantEur));
+  const parCat = retenuParCategorie(ids, lignes, resumes);
   const cats = [...parCat.entries()].sort((a, b) => b[1] - a[1]);
   const maxCat = Math.max(1, ...cats.map(([, v]) => v));
   // Délai moyen, en jours, de la soumission au contrôle (notes contrôlées des douze derniers mois).
   const delais = notes.filter(n => n.soumiseLe && n.controleeLe && n.periode >= depuis.slice(0, 7)).map(n => (Date.parse(n.controleeLe!) - Date.parse(n.soumiseLe!)) / 86_400_000);
   const delai = delais.length ? Math.round(delais.reduce((s, x) => s + x, 0) / delais.length) : null;
-  const reintegrable = notes.filter(n => n.statut !== 'annulee' && n.statut !== 'brouillon').reduce((s, n) => s + syntheseNote(d, n).reintegrable, 0);
+  // Réintégrable : part de chaque note soumise de la fenêtre, calculée par le serveur (à défaut, par les alertes de la note).
+  const parts = d.ds.reintegrableFrais;
+  const reintegrable = notes.filter(n => n.statut !== 'annulee' && n.statut !== 'brouillon').reduce((s, n) => s + (parts ? parts[n.id] ?? 0 : syntheseNote(d, n).reintegrable), 0);
   const avances = (d.ds.avancesFrais ?? []).filter(a => a.statut === 'validee' || a.statut === 'en_paiement' || a.statut === 'versee');
 
   return (
@@ -36,9 +43,9 @@ export function TableauFrais() {
         <Kpi kicker="À valider (manager)" value={compte(['soumise'])} sub="notes soumises" />
         <Kpi kicker="À contrôler" value={compte(['validee'])} sub="notes validées" />
         <Kpi kicker="En attente de la paie" value={compte(['controlee', 'en_paiement'])} sub="contrôlées ou dans un lot" />
-        <Kpi kicker="Délai moyen" value={delai === null ? '—' : `${delai} j`} sub="de la soumission au contrôle" />
+        <Kpi kicker="Délai moyen" value={delai === null ? '—' : `${delai} j`} sub="de la soumission au contrôle, notes des douze derniers mois" />
       </Kpis>
-      <Panel title="Dépenses des douze derniers mois" aside="montants retenus, notes soumises">
+      <Panel title="Dépenses des douze derniers mois" aside={`${periode} · montants retenus, notes soumises`}>
         {mois.length === 0 ? <Empty>Aucune dépense sur la période.</Empty> : (
           <table className="table">
             <thead><tr><th>Mois</th><th>Notes</th><th>Montant</th><th><span className="sr-only">Part</span></th></tr></thead>
@@ -48,7 +55,7 @@ export function TableauFrais() {
           </table>
         )}
       </Panel>
-      <Panel title="Par catégorie" aside="douze derniers mois">
+      <Panel title="Par catégorie" aside={`${periode} · montants retenus`}>
         {cats.length === 0 ? <Empty>Aucune dépense sur la période.</Empty> : (
           <table className="table">
             <thead><tr><th>Catégorie</th><th>Montant</th><th><span className="sr-only">Part</span></th></tr></thead>
@@ -59,7 +66,7 @@ export function TableauFrais() {
         )}
       </Panel>
       <Kpis>
-        <Kpi kicker="Réintégrable" value={euros(Math.round(reintegrable * 100) / 100)} sub="allocations au-delà des limites d’exonération, signalées à la paie" />
+        <Kpi kicker="Réintégrable" value={euros(Math.round(reintegrable * 100) / 100)} sub={`allocations au-delà des limites d’exonération, notes soumises en circuit ou payées depuis moins de ${FENETRE_FRAIS_MOIS} mois`} />
         <Kpi kicker="Avances en cours" value={euros(avances.reduce((s, a) => s + a.montant, 0))} sub={plural(avances.length, 'avance validée ou versée', 'avances validées ou versées')} />
       </Kpis>
     </>

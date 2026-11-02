@@ -52,6 +52,7 @@ import { notifierNoteAControler, notifierNoteRenvoyee, notifierNoteSoumise, noti
 import { Domain } from '../../../shared/domain.ts';
 import { noteArchivee, refusNoteArchivee } from '../../../shared/rules/frais-fenetre.ts';
 import { avecHistorique, ikDeLAnneeEnBase, salariesIkDeLAnnee } from '../frais-base.ts';
+import { insererLigneFrais, ligneFraisParId, tableLignesFrais } from '../frais-sante.ts';
 
 /** Longueur au plus des textes libres d'une ligne (commerçant, lieux, invités, motifs). */
 export const TEXTE_FRAIS_MAX = 300;
@@ -122,7 +123,8 @@ const valideur = (ctx: Ctx) => (n: NoteFrais) => {
 
 /** Ligne désignée et sa note, dans le périmètre de `voit`. */
 async function ligneDe(ctx: Ctx, id: unknown, voit: (n: NoteFrais) => boolean): Promise<{ l: LigneFrais; n: NoteFrais }> {
-  const l = await ctx.db.get<LigneFrais>('lignesFrais', Number(id) || 0);
+  // lot 12 — C2 : dépense ordinaire ou médicale (deux tables, identifiants communs).
+  const l = (await ligneFraisParId(ctx.db, Number(id) || 0))?.l;
   const n = l ? await ctx.db.get<NoteFrais>('notesFrais', l.noteId) : undefined;
   if (!l || !n || !voit(n)) throw horsPerimetre(ctx, 'Dépense', !!n);
   return { l, n: horsArchive(ctx, n) };
@@ -257,7 +259,8 @@ export async function recalculerIk(ctx: Ctx, empId: number, annees: Iterable<num
       if (transmises.has(l.id)) continue;
       const m = montants.get(l.id) ?? 0;
       if (m === l.montantEur && m === l.montant) continue;
-      // Montant retenu par le contrôleur gardé s'il reste en deçà de la nouvelle indemnité.
+      // Montant retenu par le contrôleur gardé s'il reste en deçà de la nouvelle indemnité (indemnité kilométrique : jamais
+      // dans une note médicale, `lignesFrais`).
       await ctx.db.update<LigneFrais>('lignesFrais', l.id, { montant: m, montantEur: m, ...(l.montantRetenu !== null && l.montantRetenu > m ? { montantRetenu: m } : {}) });
     }
   }
@@ -293,7 +296,7 @@ async function noteRapide(ctx: Ctx, p: Record<string, any>): Promise<{ n: NoteFr
 const ligneAjouter: ActionHandler = async (ctx, p) => {
   requireActif(ctx);
   const { n, creee } = p.noteId ? { n: await noteEnSaisie(ctx, p.noteId), creee: false } : await noteRapide(ctx, p);
-  const l = await ctx.db.insert<LigneFrais>('lignesFrais', { noteId: n.id, empId: n.empId, ...await lireLigne(ctx, n, p) });
+  const l = await insererLigneFrais(ctx.db, n, { noteId: n.id, empId: n.empId, ...await lireLigne(ctx, n, p) });
   await recalculerIk(ctx, n.empId, anneeIk(l));
   const pieces = await joindrePieces(ctx, p.jetons ?? p.jeton, objetLigne(n), l.id, n.empId);
   return { message: `Dépense ajoutée à la note de frais n° ${n.id}${creee ? ` (créée — ${periodeLabel(n.periode)})` : ''}${pieces}${await avertirDoublons(ctx, l)}`, result: { note: n.id, ligne: l.id, empId: n.empId } };
@@ -304,7 +307,7 @@ const ligneModifier: ActionHandler = async (ctx, p) => {
   const { l, n } = await ligneDe(ctx, p.id, proprietaire(ctx));
   await noteEnSaisie(ctx, n.id);
   const champs = await lireLigne(ctx, n, p, l);
-  await ctx.db.update<LigneFrais>('lignesFrais', l.id, champs);
+  await ctx.db.update<LigneFrais>(tableLignesFrais(n), l.id, champs);
   await recalculerIk(ctx, n.empId, [...anneeIk(l), ...anneeIk(champs)]);
   const pieces = await joindrePieces(ctx, p.jetons ?? p.jeton, objetLigne(n), l.id, n.empId);
   return { message: `Dépense de la note de frais n° ${n.id} modifiée${pieces}${await avertirDoublons(ctx, { ...l, ...champs })}`, result: { note: n.id, ligne: l.id, empId: n.empId } };
@@ -321,7 +324,7 @@ const ligneSupprimer: ActionHandler = async (ctx, p) => {
   // Pièces de la ligne retirées (fichiers effacés après la validation) avant la ligne, qu'elles désignent.
   const retirees = await retirerPiecesDe(ctx, objetLigne(n), l.id, 'Dépense supprimée de la note de frais');
   await ctx.db.run('UPDATE pieces SET objet_id = NULL, objet = NULL WHERE objet IN (?, ?) AND objet_id = ? AND retiree_le IS NOT NULL', ['ligneFrais', 'ligneFraisSante', l.id]);
-  await ctx.db.remove('lignesFrais', l.id);
+  await ctx.db.remove(tableLignesFrais(n), l.id);
   await recalculerIk(ctx, n.empId, anneeIk(l));
   return { message: `Dépense retirée de la note de frais n° ${n.id}${retirees ? ` · ${plural(retirees, 'pièce retirée', 'pièces retirées')}` : ''}`, result: { note: n.id, ligne: l.id, empId: n.empId } };
 };
@@ -458,7 +461,7 @@ async function ligneAControler(ctx: Ctx, id: unknown) {
 const ligneRefuser: ActionHandler = async (ctx, p) => {
   requireActif(ctx);
   const { l, n } = await ligneAControler(ctx, p.id);
-  await ctx.db.update<LigneFrais>('lignesFrais', l.id, { refuseeLe: maintenant(), refusMotif: motif(p.motif) });
+  await ctx.db.update<LigneFrais>(tableLignesFrais(n), l.id, { refuseeLe: maintenant(), refusMotif: motif(p.motif) });
   await recalculerIk(ctx, n.empId, anneeIk(l));
   return { message: `Dépense refusée dans la note de frais n° ${n.id}`, result: { note: n.id, ligne: l.id, empId: n.empId } };
 };
@@ -468,7 +471,7 @@ const lignePlafonner: ActionHandler = async (ctx, p) => {
   const { l, n } = await ligneAControler(ctx, p.id);
   const montant = nombre(p.montant, 'Montant retenu');
   if (montant !== null && montant > l.montantEur) throw new ActionError('Montant retenu supérieur au montant de la dépense');
-  await ctx.db.update<LigneFrais>('lignesFrais', l.id, { montantRetenu: montant === null ? null : r2(montant) });
+  await ctx.db.update<LigneFrais>(tableLignesFrais(n), l.id, { montantRetenu: montant === null ? null : r2(montant) });
   return { message: `Dépense de la note de frais n° ${n.id} ${montant === null ? 'remise au montant demandé' : 'ramenée au plafond'}`, result: { note: n.id, ligne: l.id, empId: n.empId } };
 };
 

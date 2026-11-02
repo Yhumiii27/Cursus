@@ -397,7 +397,8 @@ test('vues : écran frais dans les trois espaces et seul écran de la comptabili
   const dm = new Domain(await db.lecture(async () => await buildSnapshot(db, MANON, { cache: false })) as Dataset);
   const validee = dm.ds.notesFrais!.find(x => x.statut === 'validee')!;
   assert.ok(C.droitsNote(dm, dm.ds.user, validee).controler && C.controleur(dm.ds.user));
-  assert.deepEqual(O.ongletsFrais('rh'), ['controle', 'notes', 'avances', 'exports', 'tableau']);
+  // lot 12 — C2 : onglet Historique (recherche dans toute la base) en dernier.
+  assert.deepEqual(O.ongletsFrais('rh'), ['controle', 'notes', 'avances', 'exports', 'tableau', 'historique']);
   assert.equal(O.ongletFraisDe('rh', 'premier'), 'controle');
   assert.equal(O.ongletFraisDe('manager', 'controle'), 'valider');
   assert.equal(O.ongletFraisDe('manager', 'notes'), 'notes');
@@ -447,9 +448,10 @@ test('alertes de la vue manager, collaborateur et comptabilité : celles du serv
       assert.deepEqual(C.syntheseNote(d, x).alertes, alertesDeNote(dFull, full.notesFrais!.find(m => m.id === x.id)!), `${u.nom}, note ${x.id}`);
     }
   }
-  // Le service RH reçoit l'instantané complet : alertes recalculées, identiques.
+  // Le service RH : alertes jointes par le serveur depuis le lot 12 (C2, étape 2 : sa vue n'a plus toutes les dépenses
+  // de l'année), identiques.
   const rh = await snap(ADMIN);
-  assert.equal(rh.alertesFrais, undefined);
+  assert.ok(rh.alertesFrais);
   assert.deepEqual(C.syntheseNote(new Domain(rh), n1).alertes, attendu);
 });
 

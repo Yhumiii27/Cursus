@@ -22,7 +22,8 @@ export async function objetFraisVise(ctx: Ctx, objet: Extract<ObjetPiece, 'ligne
     if (!v || !(isRh(ctx) || isSelf(ctx, v.empId))) throw introuvable();
     return v.empId;
   }
-  const l = await ctx.db.get<LigneFrais>('lignesFrais', id);
+  // lot 12 — C2 : dépense de la table de son objet (frais médicaux à part, server/src/frais-sante.ts).
+  const l = await ctx.db.get<LigneFrais>(objet === 'ligneFraisSante' ? 'lignesFraisSante' : 'lignesFrais', id);
   const n = l ? await ctx.db.get<NoteFrais>('notesFrais', l.noteId) : undefined;
   if (!l || !n || !(isRh(ctx) || isSelf(ctx, l.empId))) throw introuvable();
   // L'objet suit la note : justificatif de santé pour une note médicale, ordinaire sinon.
@@ -39,7 +40,7 @@ export async function refusRetraitFrais(ctx: Ctx, piece: PieceEnregistree): Prom
     return;
   }
   if (await pieceScellee(ctx.db, piece.id)) throw new ActionError('Justificatif scellé à la soumission de la note de frais : il ne se retire plus', 409);
-  const l = piece.objetId ? await ctx.db.get<LigneFrais>('lignesFrais', piece.objetId) : undefined;
+  const l = piece.objetId ? await ctx.db.get<LigneFrais>(piece.objet === 'ligneFraisSante' ? 'lignesFraisSante' : 'lignesFrais', piece.objetId) : undefined;
   const n = l ? await ctx.db.get<NoteFrais>('notesFrais', l.noteId) : undefined;
   if (n && noteArchivee(n, ctx.d.ti)) throw new ActionError(refusNoteArchivee(n.id), 409);
   if (n && !noteModifiable(n)) throw new ActionError('Note de frais soumise : ses justificatifs ne se retirent plus', 409);

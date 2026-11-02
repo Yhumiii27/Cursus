@@ -43,6 +43,8 @@ const TITRES: Partial<Record<TableName, string>> = {
   // lot 11 — notes de frais
   notesFrais: 'Notes de frais', lignesFrais: 'Dépenses des notes de frais', vehiculesPerso: 'Véhicules personnels déclarés (indemnités kilométriques)',
   avancesFrais: 'Avances sur frais',
+  // lot 12 — C2 : dépenses des notes de frais médicaux (table à part depuis la scission).
+  lignesFraisSante: 'Dépenses des notes de frais médicaux',
   // lot 12 — C1 (forfait annuel en heures)
   cloturesForfaitHeures: 'Clôtures du forfait annuel en heures (régularisation de fin de période)',
   // lot 12 — C3 (entretiens suivis et 360°) : ses objectifs ; sollicitations et réponses du feedback 360° qui le concernent

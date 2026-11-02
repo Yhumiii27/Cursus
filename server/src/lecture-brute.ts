@@ -159,7 +159,9 @@ export interface Brut {
   tauxDevises: TauxDevise[];
   // lot 12 — C1 (forfait annuel en heures)
   cloturesForfaitHeures: ClotureForfaitHeures[];
-  // lot 12 — C2 (notes de frais : activation)
+  // lot 12 — C2 (notes de frais : activation) : dépenses des notes médicales (scission), réunies aux autres dans
+  // `Dataset.lignesFrais` par `assembler`.
+  lignesFraisSante: LigneFrais[];
   // lot 12 — C3 (entretiens suivis et 360°)
   objectifs: Objectif[];
   feedbackSollicitations: Sollicitation360[];
@@ -220,10 +222,17 @@ export const FENETRES: Partial<Record<TableName, (today: string) => Fenetre>> = 
   lignesFrais: today => ({
     where: `NOT EXISTS (SELECT 1 FROM notes_frais n WHERE n.id = lignes_frais.note_id AND n.statut = 'payee' AND n.payee_le < ?)`, params: [borneFrais(today)],
   }),
+  // Étape 2 (scission) : dépenses médicales dans `lignes_frais_sante`, même fenêtre ; un justificatif `ligneFraisSante`
+  // désigne une dépense de cette table, `ligneFrais` une de l'autre.
+  lignesFraisSante: today => ({
+    where: `NOT EXISTS (SELECT 1 FROM notes_frais n WHERE n.id = lignes_frais_sante.note_id AND n.statut = 'payee' AND n.payee_le < ?)`, params: [borneFrais(today)],
+  }),
   pieces: today => ({
-    where: `NOT (pieces.objet IN ('ligneFrais', 'ligneFraisSante') AND EXISTS (SELECT 1 FROM lignes_frais l JOIN notes_frais n ON n.id = l.note_id`
+    where: `NOT (pieces.objet = 'ligneFrais' AND EXISTS (SELECT 1 FROM lignes_frais l JOIN notes_frais n ON n.id = l.note_id`
+      + ` WHERE l.id = pieces.objet_id AND n.statut = 'payee' AND n.payee_le < ?))`
+      + ` AND NOT (pieces.objet = 'ligneFraisSante' AND EXISTS (SELECT 1 FROM lignes_frais_sante l JOIN notes_frais n ON n.id = l.note_id`
       + ` WHERE l.id = pieces.objet_id AND n.statut = 'payee' AND n.payee_le < ?))`,
-    params: [borneFrais(today)],
+    params: [borneFrais(today), borneFrais(today)],
   }),
   // lot 12 — C5 (planning d'équipe) : de 8 semaines passées à 12 semaines à venir (server/src/planning-lecture.ts).
   creneaux: fenetreCreneaux,
@@ -348,6 +357,7 @@ export async function lireBrut(db: Db, today: string): Promise<Brut> {
     // lot 12 — C1 (forfait annuel en heures)
     cloturesForfaitHeures: await lire('cloturesForfaitHeures'),
     // lot 12 — C2 (notes de frais : activation)
+    lignesFraisSante: await lire('lignesFraisSante'),
     // lot 12 — C3 (entretiens suivis et 360°)
     objectifs: await lire('objectifs'),
     feedbackSollicitations: await lire('feedbackSollicitations'),
@@ -493,6 +503,18 @@ const versementsOpcoDe = memo((lignes: VersementOpco[], dossiers: DossierOpco[])
 });
 
 /**
+ * lot 12 — C2 : dépenses ordinaires et médicales (deux listes triées par identifiant) réunies dans cet ordre ; la première
+ * telle quelle si la seconde est vide ; mémoïsée comme les autres dérivés (même lecture : même tableau).
+ */
+const fusionParId = memo((a: LigneFrais[], b: LigneFrais[]): LigneFrais[] => {
+  if (!b.length) return a;
+  const out: LigneFrais[] = [];
+  let i = 0, j = 0;
+  while (i < a.length || j < b.length) out.push(j >= b.length || (i < a.length && a[i].id < b[j].id) ? a[i++] : b[j++]);
+  return out;
+});
+
+/**
  * Instantané complet tiré de la lecture brute, sans lire la base ni modifier `brut` : le Dataset de `loadFull`, ligne
  * pour ligne et dans le même ordre, sans les absences et déplacements en attente du fichier de paie (ajoutés par
  * `loadFull`). Pose les jours fériés réglés (état de module de shared/dates.ts), comme la lecture d'avant, avant tout
@@ -575,7 +597,8 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     versementsOpco: versementsOpcoDe(brut.versementsOpco, brut.dossiersOpco),
     // lot 11 — notes de frais : filtrées par espace et par profil dans server/src/dataset.ts (filtre propre aux frais).
     notesFrais: brut.notesFrais,
-    lignesFrais: brut.lignesFrais,
+    // lot 12 — C2 : dépenses ordinaires et médicales réunies, dans l'ordre des identifiants (communs aux deux tables).
+    lignesFrais: fusionParId(brut.lignesFrais, brut.lignesFraisSante),
     vehiculesPerso: brut.vehiculesPerso,
     avancesFrais: brut.avancesFrais,
     // lot 12 — C1 (forfait annuel en heures)
@@ -673,7 +696,7 @@ const LECTURES_ASSEMBLEES = {
   versementsOpco: ['versementsOpco', 'dossiersOpco'],
   // lot 11 — notes de frais
   notesFrais: ['notesFrais'],
-  lignesFrais: ['lignesFrais'],
+  lignesFrais: ['lignesFrais', /* lot 12 — C2 : dépenses médicales (scission) */ 'lignesFraisSante'],
   vehiculesPerso: ['vehiculesPerso'],
   avancesFrais: ['avancesFrais'],
   // lot 12 — C1 (forfait annuel en heures)

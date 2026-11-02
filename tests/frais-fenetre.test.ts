@@ -282,6 +282,13 @@ test('historique de la comptabilité et du service RH : tout, frais médicaux co
   assert.match(traces[1].message!, /^Historique des notes de frais consulté — 1 note$/);
   assert.equal(JOURNAL_LABEL['frais.historique.consulter'], 'Historique des notes de frais consulté');
   assert.equal(familleAction('frais.historique.consulter')?.id, 'frais');
+  // lot 12 — C2, étape 2 : le détail d'une note encore dans la fenêtre (payée depuis plus de 2 mois, ouverte depuis la liste
+  // des notes) n'est pas une consultation de l'historique ; celui d'une note archivée l'est.
+  const n = (await journal('frais.historique.consulter')).length;
+  assert.equal((await lire(`/api/frais/historique/${A.bord}`, manon)).status, 200);
+  assert.equal((await journal('frais.historique.consulter')).length, n, 'note de la fenêtre : rien au journal');
+  assert.equal((await lire(`/api/frais/historique/${A.thomas}`, manon)).status, 200);
+  assert.equal((await journal('frais.historique.consulter')).length, n + 1, 'note archivée : tracée');
   // Service RH : justificatifs avec empreinte (comme son instantané).
   const admin = await session('rh', null);
   const d = (await lire(`/api/frais/historique/${A.archivee}`, admin)).json();

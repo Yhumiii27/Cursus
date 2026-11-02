@@ -15,7 +15,9 @@
 // - paie : notes contrôlées, en paiement ou payées, sans lignes ni justificatifs, sans motif ni indicateur médical ;
 // - référent HSE et lecture seule : 403, refus tracé (`acces.refuse`), sans rien révéler.
 // Consultation par le service RH ou la comptabilité de l'historique d'un autre salarié tracée `frais.historique.consulter`
-// (salariés et nombre de notes seulement, jamais un critère ni un montant ; journal d'un an). Un identifiant de note
+// (salariés et nombre de notes seulement, jamais un critère ni un montant ; journal d'un an) : toute recherche qui sert des
+// notes d'autrui, et le détail d'une note archivée (le détail d'une note de la fenêtre, ouverte depuis la liste des notes
+// sans ses dépenses, ne l'est pas : étape 2). Un identifiant de note
 // inconnu et celui d'une note hors du périmètre reçoivent la même réponse (403), sauf pour le service RH et la
 // comptabilité, qui voient tout (404). Les deux routes sont gardées contre une navigation provoquée depuis un autre site
 // (server/src/app.ts, exigerNavigationInterne('appel')) : l'écran les lit par fetch, avec l'en-tête d'espace.
@@ -23,7 +25,7 @@ import express, { type Request, type Response, type Router } from 'express';
 import { droitsRh } from '../../shared/constants.ts';
 import { Domain } from '../../shared/domain.ts';
 import { plural } from '../../shared/format.ts';
-import { HISTORIQUE_FRAIS_PAGE, periodeHistorique } from '../../shared/rules/frais-fenetre.ts';
+import { HISTORIQUE_FRAIS_PAGE, noteArchivee, periodeHistorique } from '../../shared/rules/frais-fenetre.ts';
 import { lignesDe, montantRetenu, r2, STATUTS_NOTE_FRAIS } from '../../shared/rules/frais.ts';
 import type { CurrentUser, LigneFrais, NoteFrais, Piece } from '../../shared/types.ts';
 import { jeuEnLecture } from './cache-instantane.ts';
@@ -193,7 +195,9 @@ export function routesFraisHistorique(db: Db): Router {
     }
     const lignes = lignesDuProfil(p, lu.lignes, [lu.vue]);
     const ids = new Set(lignes.map(x => x.id));
-    await tracerConsultation(db, id, p, [lu.vue]);
+    // Consultation de l'historique tracée pour une note archivée seulement (hors de la fenêtre de 13 mois) : le détail d'une
+    // note encore dans l'instantané (payée depuis plus de 2 mois, ouverte depuis la liste des notes) n'en est pas une.
+    if (noteArchivee(lu.vue, todayIso())) await tracerConsultation(db, id, p, [lu.vue]);
     res.set('Cache-Control', 'no-store').json({
       note: lu.vue, lignes,
       pieces: piecesDuProfil(p, id.user, lu.pieces.filter(x => ids.has(x.objetId))),

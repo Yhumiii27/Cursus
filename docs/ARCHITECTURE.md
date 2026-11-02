@@ -4938,6 +4938,102 @@ colonne, aucune vue `pub_`, aucune action nouvelle ; une migration d'index. Le m
   reçoivent le détail des notes payées depuis plus de 2 mois qu'à la demande, par la même route), et, pour le delta,
   scission `lignes_frais_sante` (choix par défaut, demande à Matrix) si le marqueur « toute la table » reste au-delà du
   budget.
+## Lot 12 : notes de frais, détail de 2 mois, scission des frais médicaux, écrans et remesure (C2, étape 2)
+
+La remesure de l'étape 1 dépassait encore le budget. Deux réponses, sans vue `pub_` ni action nouvelles :
+
+- l'option des 2 mois (réponse du propriétaire du 1er novembre 2026) ;
+- la scission des frais médicaux (choix par défaut du chantier, le delta d'une dépense dépassant son budget) : une table,
+  deux migrations, une demande à Matrix.
+
+- **Détail de 2 mois, vues du service RH et de la comptabilité seulement** (réponse du propriétaire : « les vues RH et
+  comptabilité ne reçoivent le détail des notes payées depuis plus de 2 mois qu'à la demande ») :
+  - `fraisVueGestion` (`server/src/frais-vues.ts`) est appelée par la vue du service RH (droit « rh », bloc C2 de
+    `server/src/dataset.ts`) et par `vueComptabilite`. Elle calcule sur l'instantané complet ;
+  - dépenses et justificatifs : ceux des seules notes détaillées, au sens de `detailEnLigne` (notes en circuit, annulées,
+    ou payées depuis moins de 2 mois ; `DETAIL_FRAIS_MOIS`, `shared/rules/frais-fenetre.ts`, seule définition de la
+    règle) ;
+  - résumé de chaque autre note de la fenêtre (`resumesDesLignes` : dépenses en vigueur et refusées, montants demandé et
+    retenu, retenu par catégorie), dans `Dataset.resumesFrais` ;
+  - part réintégrable de chaque note (`reintegrableDesNotes`, `Dataset.reintegrableFrais`), sur le cumul kilométrique
+    exact de l'année (l'instantané complet a toute l'année en cours) ;
+  - alertes des notes en circuit (`alertesDesNotes`, `Dataset.alertesFrais`), désormais jointes aussi pour le service
+    RH : sa vue n'a plus toutes les dépenses de l'année, la limite d'exonération kilométrique y serait fausse.
+- **Manager et collaborateur** : tout le détail de la fenêtre de 13 mois, comme à l'étape 1. Pas de résumé, aucune
+  ouverture à la demande d'une note de la fenêtre ; leurs alertes et leurs limites restent calculées sur l'année
+  complète. Une première version de l'étape filtrait la lecture brute, donc toutes les vues. Elle allait au-delà de la
+  réponse du propriétaire : abandonnée.
+- **Lecture brute** : fenêtre de 13 mois de l'étape 1, inchangée ; rien n'y est résumé ni calculé en base.
+- **Scission des frais médicaux** (`lignesFraisSante`, `lignes_frais_sante` ; migrations PostgreSQL `0029_frais_sante.sql`
+  et SQLite `lot12-frais-sante`) :
+  - les dépenses des notes médicales ont leur table, aux mêmes colonnes ;
+  - leurs identifiants sont communs avec `lignes_frais` : `insererLigneFrais` et `ligneFraisParId` de
+    `server/src/frais-sante.ts`. L'identifiant suivant est le plus grand des deux tables, ou de la séquence de
+    `lignes_frais` ; la séquence avance après une dépense médicale ;
+  - une dépense se désigne donc par son seul identifiant : justificatifs `ligneFraisSante` (`TABLE_OBJET`), alertes,
+    écran ;
+  - la migration déplace les dépenses médicales existantes avec leur identifiant ;
+  - la lecture brute lit les deux tables (`Brut.lignesFraisSante`, même fenêtre), et `assembler` les réunit dans
+    `Dataset.lignesFrais`, dans l'ordre des identifiants (`LECTURES.lignesFrais` = les deux tables) ;
+  - les actions écrivent dans la table de la note (`tableLignesFrais`), et les lectures en base lisent les deux
+    (`server/src/frais-base.ts`). Les indemnités kilométriques ne sont jamais médicales et restent dans `lignes_frais` ;
+  - sont aussi à jour : intégrité, conservation, export des données d'un salarié, purge de la démonstration ;
+  - journal des changements (`TABLES_CHANGEMENTS_SANS_CLE`) : `lignes_frais_sante` y est inscrite par le seul marqueur
+    « toute la table » (petite table, relue en entier). `lignes_frais` est désormais inscrite par clé : 0029 remplace les
+    fonctions de ses déclencheurs, et le delta d'une dépense ordinaire relit sa seule ligne ;
+  - Matrix : `lignes_frais_sante` à fermer en entier (`docs/demandes/matrix-lot12-frais-sante.sql`). La fermeture
+    entière de `lignes_frais`, demandée au lot 11 et pas encore reportée, est retirée de `matrix-lot11-frais.sql` ; ses
+    colonnes sensibles restent fermées une à une.
+- **Écrans** :
+  - totaux d'une note par ses dépenses ou son résumé (`totauxVue`, `syntheseNote`, liste « détail à la demande ») ;
+  - réintégrable repris du serveur quand la vue le porte ;
+  - une note sans détail s'ouvre en lecture par `GET /api/frais/historique/:noteId` (`DetailHistorique`). Ce détail
+    n'est tracé `frais.historique.consulter` que pour une note archivée (`noteArchivee`). Les recherches qui servent des
+    notes d'autrui restent tracées ;
+  - « Notes plus anciennes » dans Mes frais et dans l'onglet Notes du manager (`NotesAnciennes`,
+    `client/src/components/frais/Historique.tsx`) : les 24 mois de dépenses qui précèdent la fenêtre, puis « Mois
+    précédents », par pages de 100 ;
+  - onglet « Historique » du service RH et de la comptabilité (`?onglet=historique`, `RechercheFrais`) ;
+  - tableau de bord : mois et catégories des douze derniers mois, d'après les dépenses et les résumés ; réintégrable de
+    toutes les notes soumises de la fenêtre, d'après `reintegrableFrais`. Chaque indicateur porte sa période.
+- **Activation** : `notesFraisActives` reste faux par défaut, faute de verdicts tous passés (ci-dessous). En production,
+  l'administrateur RH décide, guidé par la liste des prérequis de Paramètres → Notes de frais (`prerequisFrais`,
+  `shared/rules/frais-activation.ts`) : comptes de charge saisis, rubriques FRAIS_* actives et confirmées, barème
+  kilométrique de l'année. La liste n'est jamais bloquante. Le nouveau défaut vrai ne vaudrait que pour une base neuve.
+- **CI** : étape « Essai de charge des notes de frais (non bloquant) » du job postgres, `npm run charge:frais --
+  --marge 3`. La marge multiplie les seuils absolus en millisecondes (vues, delta) ; les rapports (lecture brute contre
+  celle sans frais du même essai) et les tailles restent tels quels. L'étape devient bloquante avec l'activation par
+  défaut.
+- **Matrix** : `docs/demandes/matrix-lot12-index.sql` (index de 0023 et 0029, contrôle en lecture) et
+  `docs/demandes/matrix-lot12-frais-sante.sql` (fermeture de la table des frais médicaux).
+
+Remesure finale (`npm run charge:frais`, 2 novembre 2026, machine partagée, médiane de 5) :
+
+| Mesure (budget) | Étape 1, 3 ans | 3 ans | 5 ans |
+| --- | --- | --- | --- |
+| Lecture brute : notes, dépenses ordinaires (+ médicales), justificatifs | 1 684, 32 734, 27 291 | 1 680, 32 660 (+ 68), 27 291 | 1 680, 33 144 (+ 72), 27 771 |
+| Vue RH : dépenses, résumés | 32 734, — | 7 133, 1 320 | 7 102, 1 320 |
+| Vue RH à froid (< 800 ms) | 85 ms | 475 ms | 540 ms |
+| Vue manager (< 300 ms) | 154 ms | 195 ms | 177 ms |
+| Vue collaborateur (< 300 ms) | 124 ms | 111 ms | 96 ms |
+| JSON de la vue RH (≤ 1,5 × sans frais, 5,5 Mo) | **28,7 Mo** | **11,6 Mo** (2,1 ×) | **11,6 Mo** (2,1 ×) |
+| Lecture brute (≤ 2 × sans frais, 91 à 116 ms) | **785 ms** | **791 ms** | **796 ms** |
+| Delta d'une dépense (< 100 ms) | **542 ms** | 1 ms | 1 ms |
+
+Avec la scission, le delta d'une dépense ordinaire tient son budget : il relit une ligne au lieu de 32 000. La vue RH à
+froid paie les résumés, les parts réintégrables et les alertes, et reste dans son budget ; les vues manager et
+collaborateur gardent les valeurs de l'étape 1. Deux verdicts échouent encore sur l'hypothèse haute du jeu (120
+salariés, une note de 10 à 30 dépenses par salarié et par mois) :
+
+- le JSON de la vue RH : dépenses et justificatifs de 2 mois ;
+- la lecture brute, commune à toutes les vues : elle garde les 13 mois de détail, puisque la réponse du propriétaire ne
+  vise que les vues RH et comptabilité.
+
+Le module reste donc désactivé par défaut. Leviers, à décider par le propriétaire :
+
+- étendre le détail de 2 mois à la lecture brute, donc aux vues manager et collaborateur (environ 300 ms de lecture
+  brute, mesuré à la première version de l'étape) ;
+- revoir les budgets sur un jeu réaliste.
 ## Lot 12 : entretiens suivis (C3, t194), étape 1 — objectifs, souhaits versés au plan, points de mi-année, tables du 360°
 
 Réponses du propriétaire du 1er novembre 2026 et choix par défaut du chantier : objectifs fixés et évalués à l'entretien

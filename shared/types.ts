@@ -2162,6 +2162,17 @@ export interface Dataset {
    */
   cloturesForfaitHeures?: ClotureForfaitHeures[];
   // lot 12 — C2 (notes de frais : activation)
+  /**
+   * Résumés des notes dont les dépenses ne sont pas dans la vue (payées depuis plus de 2 mois) : vues du service RH et
+   * de la comptabilité seulement (server/src/frais-vues.ts, `fraisVueGestion`), calculés sur l'instantané complet,
+   * jamais stockés ; le détail se lit à la demande (GET /api/frais/historique/:noteId). Absent : aucun.
+   */
+  resumesFrais?: ResumeNoteFrais[];
+  /**
+   * Part réintégrable de chaque note de la vue (euros ; note absente : aucune), calculée par le serveur sur l'instantané
+   * complet (cumul kilométrique exact de l'année) : vues du service RH et de la comptabilité. Absent : calculée par l'écran.
+   */
+  reintegrableFrais?: Record<number, number>;
   // lot 12 — C3 (entretiens suivis et 360°)
   /**
    * Objectifs (server/src/vues-entretiens-suivis.ts) : tous pour le service RH ; ceux de l'équipe directe (et des délégations
@@ -2450,6 +2461,24 @@ export type CategorieFrais = 'repas' | 'repas_affaires' | 'hotel' | 'train' | 'a
 export type StatutNoteFrais = 'brouillon' | 'soumise' | 'a_corriger' | 'validee' | 'controlee' | 'en_paiement' | 'payee' | 'annulee';
 /** Circuit : validation du manager puis contrôle (défaut), ou validation du manager seule (contrôle fait d'office). */
 export type CircuitFrais = 'manager_controle' | 'manager';
+/**
+ * lot 12 — C2 : totaux d'une note dont les dépenses ne sont pas dans la vue du service RH ou de la comptabilité
+ * (`resumesDesLignes`, shared/rules/frais-fenetre.ts) : dépenses en vigueur et refusées, montants demandé et retenu
+ * (euros), montant retenu par catégorie (tableau de bord).
+ */
+export interface ResumeNoteFrais {
+  noteId: number; empId: number; depenses: number; refusees: number; demande: number; retenu: number;
+  parCategorie: Partial<Record<CategorieFrais, number>>;
+}
+/** lot 12 — C2 : page de l'historique des notes de frais (GET /api/frais/historique, server/src/frais-historique.ts). */
+export interface PageHistoriqueFrais {
+  du: string; au: string; page: number; parPage: number; total: number; pages: number;
+  notes: NoteFrais[];
+  /** Total remboursé de chaque note (aucun pour la paie). */
+  totaux: Record<number, number>;
+}
+/** lot 12 — C2 : une note de l'historique, ses dépenses et la description de leurs justificatifs (GET /api/frais/historique/:noteId). */
+export interface NoteHistoriqueFrais { note: NoteFrais; lignes: LigneFrais[]; pieces: Piece[] }
 /**
  * Note de frais d'un salarié : mois des dépenses, rattachement facultatif (déplacement, mission Keystone, code de projet ou
  * de chantier), circuit daté. Ses totaux et ses alertes sont calculés, jamais stockés (shared/rules/frais.ts).

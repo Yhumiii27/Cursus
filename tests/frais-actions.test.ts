@@ -433,9 +433,10 @@ test('conservation : notes payées gardées jusqu’au terme comptable (10 ans),
 
 test('registres : tables lues par l’instantané, champs par salarié, exports hors de l’instantané, sceaux sans révision, dépenses sans clé', () => {
   for (const c of ['notesFrais', 'lignesFrais', 'vehiculesPerso', 'avancesFrais'] as const) {
-    assert.deepEqual(LECTURES[c], [c]);
+    // lot 12 — C2 : dépenses ordinaires et médicales (scission) réunies dans `lignesFrais`.
+    assert.deepEqual(LECTURES[c], c === 'lignesFrais' ? ['lignesFrais', 'lignesFraisSante'] : [c]);
     assert.ok(CHAMPS_PAR_SALARIE.has(c));
   }
   assert.ok(LECTURES.referentiels.includes('baremesKm') && LECTURES.referentiels.includes('forfaitsFrais') && LECTURES.referentiels.includes('tauxDevises'));
-  assert.ok(HORS_INSTANTANE.has('exportsFrais') && TABLES_SANS_REVISION.has('sceauxPieces') && TABLES_CHANGEMENTS_SANS_CLE.has('lignesFrais'));
+  assert.ok(HORS_INSTANTANE.has('exportsFrais') && TABLES_SANS_REVISION.has('sceauxPieces') && TABLES_CHANGEMENTS_SANS_CLE.has('lignesFraisSante') && !TABLES_CHANGEMENTS_SANS_CLE.has('lignesFrais'));
 });

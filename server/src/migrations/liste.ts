@@ -27,6 +27,7 @@ import { INDEX_JOURNAL_COMPTE } from './lot8-index-journal.ts';
 import { FORFAIT_HEURES } from './lot12-forfait-heures.ts';
 // lot 12 — C2 (notes de frais : activation)
 import { INDEX_FRAIS_FENETRE } from './lot12-frais.ts';
+import { FRAIS_SANTE } from './lot12-frais-sante.ts';
 // lot 12 — C3 (entretiens suivis et 360°)
 import { ENTRETIENS_SUIVIS_INDEX } from './lot12-entretiens.ts';
 // lot 12 — C4 (organismes de formation et e-learning)
@@ -86,4 +87,6 @@ export const MIGRATIONS: readonly Migration[] = [
   PLANNING_EQUIPE,
   // lot 12 — C6 (badgeage virtuel)
   BADGEAGE,
+  // lot 12 — C2, étape 2 (notes de frais : scission des frais médicaux), ajoutée en fin de liste à la fusion.
+  FRAIS_SANTE,
 ];

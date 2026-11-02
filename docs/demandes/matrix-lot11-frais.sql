@@ -4,9 +4,11 @@
 -- médicaux en mission, invités nommés, commerçants, trajets), montants et motifs des autres tables. Même forme que
 -- docs/demandes/matrix-lot8-colonnes-sensibles.sql ; ce fichier n'est jamais exécuté sur le serveur commun par Cursus, il
 -- attend la validation du propriétaire puis son report dans infra/postgres/init/03-droits.sql de Matrix.
+-- Lot 12, chantier C2 (scission des frais médicaux, migration 0029_frais_sante.sql) : la fermeture de lignes_frais en
+-- entier, demandée ici avant le report, est remplacée par celle de lignes_frais_sante (demande
+-- docs/demandes/matrix-lot12-frais-sante.sql) ; les colonnes sensibles de lignes_frais restent fermées une à une.
 --   psql -d epc2i -v ON_ERROR_STOP=1 -1 -f docs/demandes/matrix-lot11-frais.sql   (superutilisateur)
 INSERT INTO droits.colonnes_sensibles (schema_nom, table_nom, colonne_nom, motif, origine) VALUES
-  ('cursus', 'lignes_frais', '*', 'Santé et vie personnelle : dépenses nominatives des notes de frais, frais médicaux compris (table entière)', 'convention'),
   ('cursus', 'lignes_frais', 'montant', 'Vie personnelle : montant d''une dépense nominative', 'convention'),
   ('cursus', 'lignes_frais', 'montant_eur', 'Vie personnelle : montant d''une dépense nominative, en euros', 'convention'),
   ('cursus', 'lignes_frais', 'montant_retenu', 'Vie personnelle : montant retenu d''une dépense nominative', 'convention'),

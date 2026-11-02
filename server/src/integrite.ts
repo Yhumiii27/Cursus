@@ -125,6 +125,9 @@ export const REFERENCES: readonly Reference[] = [
   ref('lignes_frais', 'note_id', 'notes_frais'),
   ref('lignes_frais', 'vehicule_id', 'vehicules_perso'),
   ref('sceaux_pieces', 'piece_id', 'pieces'),
+  // lot 12 — C2 : dépenses des notes médicales (scission, 0029_frais_sante.sql), mêmes références que lignes_frais.
+  ref('lignes_frais_sante', 'emp_id', 'employes'),
+  ref('lignes_frais_sante', 'note_id', 'notes_frais'),
   // lot 12 — C3 (entretiens suivis et 360° ; clés étrangères de 0024_entretiens_suivis.sql) : salarié, entretien qui fixe et
   // entretien qui évalue un objectif, objectif reconduit ; demande versée depuis un souhait ; feedback 360° (évalué,
   // répondant, entretien, sollicitation d'une réponse en attente).

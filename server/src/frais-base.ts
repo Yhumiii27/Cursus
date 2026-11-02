@@ -33,10 +33,23 @@ async function idsParPaquets(db: Db, sql: (marques: string) => string, liste: re
 }
 
 /** Lignes de `table` désignées par `cles`, décodées (`Db.lireLignes`) ; aucune pour une liste vide. */
-const lire = async <T>(db: Db, table: 'notesFrais' | 'lignesFrais' | 'pieces', cles: Iterable<number>): Promise<T[]> => {
+const lire = async <T>(db: Db, table: 'notesFrais' | 'lignesFrais' | 'lignesFraisSante' | 'pieces', cles: Iterable<number>): Promise<T[]> => {
   const l = [...new Set(cles)];
   return l.length ? await db.lireLignes<T>(table, l.map(String)) : [];
 };
+
+/**
+ * lot 12 — C2 : dépenses désignées par `cles`, ordinaires et médicales (deux tables aux identifiants communs,
+ * server/src/frais-sante.ts), dans l'ordre des identifiants.
+ */
+const lireDepenses = async (db: Db, cles: Iterable<number>): Promise<LigneFrais[]> => {
+  const l = [...new Set(cles)];
+  if (!l.length) return [];
+  return [...await lire<LigneFrais>(db, 'lignesFrais', l), ...await lire<LigneFrais>(db, 'lignesFraisSante', l)].sort((a, b) => a.id - b.id);
+};
+
+/** lot 12 — C2 : la même condition `ou` sur les deux tables de dépenses (paramètres répétés), identifiants réunis. */
+const dansLesDeux = (ou: string) => `SELECT id FROM lignes_frais WHERE ${ou} UNION ALL SELECT id FROM lignes_frais_sante WHERE ${ou}`;
 
 /** Bornes AAAA-MM-JJ d'une année civile. */
 const annee = (a: number): [string, string] => [`${a}-01-01`, `${a}-12-31`];
@@ -45,6 +58,7 @@ const annee = (a: number): [string, string] => [`${a}-01-01`, `${a}-12-31`];
  * Lignes kilométriques d'un salarié pour une année, toutes lues en base (archivées comprises), et leurs notes : de quoi
  * appliquer `lignesIkDeLAnnee`, `ikTransmises` et `indemnitesIkAnnee` sur le cumul exact de l'année.
  */
+// Indemnités kilométriques : jamais dans une note médicale (`erreurCategoriePourNote`), donc dans `lignes_frais` seule.
 export async function lignesIkEnBase(db: Db, empId: number, a: number): Promise<{ lignes: LigneFrais[]; notes: NoteFrais[] }> {
   const lignes = await lire<LigneFrais>(db, 'lignesFrais', await ids(db, `SELECT id FROM lignes_frais WHERE emp_id = ? AND categorie = 'ik' AND date >= ? AND date <= ?`, [empId, ...annee(a)]));
   const notes = await lire<NoteFrais>(db, 'notesFrais', lignes.map(l => l.noteId));
@@ -80,7 +94,7 @@ export async function avecHistorique(db: Db, ds: Dataset, lignes: readonly Depen
     const cle = `${l.empId}|${l.date}`;
     if (!vus.has(cle)) {
       vus.add(cle);
-      for (const id of await ids(db, 'SELECT id FROM lignes_frais WHERE emp_id = ? AND date = ?', [l.empId, l.date])) cherchees.add(id);
+      for (const id of await ids(db, dansLesDeux('emp_id = ? AND date = ?'), [l.empId, l.date, l.empId, l.date])) cherchees.add(id);
     }
     const ik = `${l.empId}|ik|${l.date.slice(0, 4)}`;
     if (l.categorie === 'ik' && !vus.has(ik)) {
@@ -95,7 +109,7 @@ export async function avecHistorique(db: Db, ds: Dataset, lignes: readonly Depen
   const pieces = await lire<PieceEnregistree>(db, 'pieces', (await idsParPaquets(db, m => `SELECT id FROM pieces WHERE objet IN ('ligneFrais', 'ligneFraisSante') AND retiree_le IS NULL AND empreinte IN (${m})`, empreintes))
     .filter(id => !piecesDeja.has(id)));
   for (const p of pieces) if (p.objetId) cherchees.add(p.objetId);
-  const extra = await lire<LigneFrais>(db, 'lignesFrais', [...cherchees].filter(id => !deja.has(id)));
+  const extra = await lireDepenses(db, [...cherchees].filter(id => !deja.has(id)));
   if (!extra.length && !pieces.length) return ds;
   const notesDeja = new Set((ds.notesFrais ?? []).map(n => n.id));
   const notes = await lire<NoteFrais>(db, 'notesFrais', extra.map(l => l.noteId).filter(id => !notesDeja.has(id)));
@@ -135,7 +149,11 @@ export async function notesExportablesEnBase(db: Db): Promise<NoteFrais[]> {
 
 /** Dépenses des notes `notes`, lues en base. */
 export async function lignesDesNotesEnBase(db: Db, notes: readonly number[]): Promise<LigneFrais[]> {
-  return await lire<LigneFrais>(db, 'lignesFrais', await idsParPaquets(db, m => `SELECT id FROM lignes_frais WHERE note_id IN (${m})`, notes));
+  // Une note n'a de dépenses que dans une table (sa nature ne change pas) : les deux sont lues.
+  return await lireDepenses(db, [
+    ...await idsParPaquets(db, m => `SELECT id FROM lignes_frais WHERE note_id IN (${m})`, notes),
+    ...await idsParPaquets(db, m => `SELECT id FROM lignes_frais_sante WHERE note_id IN (${m})`, notes),
+  ]);
 }
 
 /** Justificatifs (en vigueur ou retirés) des dépenses `lignes`, lus en base. */

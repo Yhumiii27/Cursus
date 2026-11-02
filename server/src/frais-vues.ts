@@ -16,6 +16,7 @@
 import { Domain } from '../../shared/domain.ts';
 import type { CurrentUser, Dataset, LigneFrais, NoteFrais, Piece } from '../../shared/types.ts';
 import { alertesDesNotes } from '../../shared/rules/frais-alertes.ts';
+import { detailEnLigne, reintegrableDesNotes, resumesDesLignes } from '../../shared/rules/frais-fenetre.ts';
 import { estObjetFrais } from '../../shared/rules/pieces.ts';
 
 // lot 12 — C2 (notes de frais : activation) : règles de projection par ligne, communes à l'instantané (ci-dessous) et à la
@@ -98,6 +99,8 @@ export function fraisVueProfil(full: Dataset, paie: boolean): Pick<Dataset, 'not
  */
 export function vueComptabilite(full: Dataset): Dataset {
   const r = full.referentiels;
+  // lot 12 — C2, étape 2 : détail de 2 mois, résumés, parts réintégrables et alertes calculés sur l'instantané complet.
+  const g = fraisVueGestion(full, new Domain(full));
   return {
     today: full.today, revision: full.revision, user: full.user, settings: full.settings,
     // Destinations (devise du pays), projets et chantiers (imputation) ; ni postes, ni équipes et leurs exigences.
@@ -112,11 +115,43 @@ export function vueComptabilite(full: Dataset): Dataset {
     demandesVisite: [], debutSaisieFeuilles: null, lotsPaie: [], formatFichierPaie: null, rubriquesPaie: [], messagerie: null, releves: [], reprises: [],
     calendrierFeries: full.calendrierFeries && Object.fromEntries(Object.entries(full.calendrierFeries).map(([annee, x]) => [annee, { ...x, motif: null }])),
     notesFrais: full.notesFrais ?? [],
-    lignesFrais: full.lignesFrais ?? [],
+    lignesFrais: g.lignesFrais,
     vehiculesPerso: full.vehiculesPerso ?? [],
     avancesFrais: full.avancesFrais ?? [],
-    alertesFrais: alertesDesNotes(new Domain(full), full.notesFrais ?? [], full.lignesFrais ?? []),
-    // Justificatifs des frais, frais médicaux compris, sans l'empreinte (service RH seulement, comme pour les autres).
-    pieces: piecesFraisComptabilite(full.pieces ?? []),
+    alertesFrais: g.alertesFrais,
+    // lot 12 — C2 : résumés des notes payées depuis plus de 2 mois et parts réintégrables (frais médicaux compris).
+    resumesFrais: g.resumesFrais,
+    reintegrableFrais: g.reintegrableFrais,
+    // Justificatifs des frais, frais médicaux compris, sans l'empreinte (service RH seulement, comme pour les autres), des
+    // seules dépenses reçues.
+    pieces: piecesFraisComptabilite(g.pieces),
+  };
+}
+
+/**
+ * lot 12 — C2, étape 2 (option des 2 mois, réponse du propriétaire du 1er novembre 2026 : « les vues RH et comptabilité ne
+ * reçoivent le détail des notes payées depuis plus de 2 mois qu'à la demande ») : vue des frais du service RH (droit « rh »,
+ * server/src/dataset.ts) et de la comptabilité (`vueComptabilite`), calculée sur l'instantané complet `full` (fenêtre de 13
+ * mois, toutes les dépenses) et son domaine `d` :
+ * - dépenses et justificatifs des seules notes détaillées (`detailEnLigne` : en circuit, annulées, payées depuis moins de 2
+ *   mois) ; toute pièce qui n'est pas celle d'une dépense retirée reste ;
+ * - résumé des autres notes (`resumesDesLignes`), leur détail se lit par GET /api/frais/historique/:noteId ;
+ * - part réintégrable de chaque note (`reintegrableDesNotes`, tableau de bord et détail d'une note), sur le cumul
+ *   kilométrique exact de l'année ;
+ * - alertes des notes en circuit (`alertesDesNotes`), elles aussi sur l'instantané complet : l'écran ne les recalcule pas
+ *   sur des dépenses tronquées.
+ */
+export function fraisVueGestion(full: Dataset, d: Domain): Pick<Dataset, 'lignesFrais' | 'alertesFrais' | 'resumesFrais' | 'reintegrableFrais'> & { pieces: Piece[] } {
+  const notes = full.notesFrais ?? [], toutes = full.lignesFrais ?? [];
+  const sans = notes.filter(n => !detailEnLigne(n, full.today));
+  const sansIds = new Set(sans.map(n => n.id));
+  const lignes = toutes.filter(l => !sansIds.has(l.noteId));
+  const retirees = new Set(toutes.filter(l => sansIds.has(l.noteId)).map(l => l.id));
+  return {
+    lignesFrais: lignes,
+    pieces: retirees.size ? (full.pieces ?? []).filter(p => !((p.objet === 'ligneFrais' || p.objet === 'ligneFraisSante') && p.objetId != null && retirees.has(p.objetId))) : full.pieces ?? [],
+    resumesFrais: resumesDesLignes(sans, toutes.filter(l => retirees.has(l.id))),
+    reintegrableFrais: reintegrableDesNotes(d, notes),
+    alertesFrais: alertesDesNotes(d, notes, lignes),
   };
 }

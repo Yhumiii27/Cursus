@@ -12,11 +12,14 @@ import { useEffect, type ReactNode } from 'react';
 import { CameraIcon, PlusIcon } from '@phosphor-icons/react';
 import { droitsRh } from '../../../shared/constants.ts';
 import { plural } from '../../../shared/format.ts';
-import { totauxEquipe } from '../../../shared/rules/frais.ts';
+import { totauxEquipeVue } from '../../../shared/rules/frais-fenetre.ts';
 import { Btn, Empty, Fine, Kpi, Kpis, Page, Panel, Seg } from '../components/ui.tsx';
 import { controleur, decideAvance, droitsNote, euros, parRecence } from '../components/frais/commun.ts';
 import { ExportsFrais } from '../components/frais/Exports.tsx';
 import { DetailNote, ListeAvances, ListeNotes, Vehicules } from '../components/frais/Notes.tsx';
+// lot 12 — C2 (notes de frais : activation)
+import { NotesAnciennes, RechercheFrais } from '../components/frais/Historique.tsx';
+import { FENETRE_FRAIS_MOIS } from '../../../shared/rules/frais-fenetre.ts';
 import { LIBELLES_ONGLETS_FRAIS, ongletFraisDe, ongletsFrais } from '../components/frais/onglets.ts';
 import { TableauFrais } from '../components/frais/Tableau.tsx';
 import { prendreNouvelleDepense } from '../pwa/enregistrement.ts';
@@ -50,6 +53,8 @@ function MesNotes({ empId }: { empId: number }) {
           <ListeNotes notes={closes} vide="" />
         </Panel>
       )}
+      {/* lot 12 — C2 : notes payées depuis plus de 13 mois, chargées à la demande. */}
+      <NotesAnciennes empId={empId} />
     </>
   );
 }
@@ -96,7 +101,8 @@ export function Frais() {
     </>;
   } else if (onglet === 'equipe') {
     const equipe = notes.filter(n => n.empId !== me).sort(parRecence);
-    const t = totauxEquipe(equipe.filter(n => n.periode >= d.ti.slice(0, 4)), d.ds.lignesFrais ?? []);
+    // lot 12 — C2 : notes payées depuis plus de 2 mois comptées par leur résumé.
+    const t = totauxEquipeVue(equipe.filter(n => n.periode >= d.ti.slice(0, 4)), d.ds.lignesFrais ?? [], d.ds.resumesFrais);
     contenu = <>
       <Kpis>
         <Kpi kicker={`Notes ${d.ti.slice(0, 4)}`} value={t.notes} sub="de l’équipe, hors annulées" />
@@ -123,11 +129,19 @@ export function Frais() {
       <Panel title="Toutes les notes" aside={plural(notes.length, 'note', 'notes')}>
         <ListeNotes notes={[...notes].sort(parRecence)} avecNom vide="Aucune note de frais." />
       </Panel>
+      {/* lot 12 — C2 : notes payées depuis plus de 13 mois, par la recherche de l'onglet Historique. */}
+      <div className="frais-actions">
+        <Btn small onClick={() => setUi({ fraisOnglet: 'historique', fraisNote: null })}>Notes plus anciennes</Btn>
+        <Fine>Notes payées depuis plus de {FENETRE_FRAIS_MOIS} mois : chargées à la demande, dans l’onglet Historique.</Fine>
+      </div>
     </>;
   } else if (onglet === 'avances') {
     contenu = <Panel title="Avances sur frais"><ListeAvances avances={d.ds.avancesFrais ?? []} avecNom /></Panel>;
   } else if (onglet === 'exports') {
     contenu = ctrl ? <ExportsFrais /> : null;
+  } else if (onglet === 'historique') {
+    // lot 12 — C2 : recherche dans toute la base (notes archivées comprises).
+    contenu = <RechercheFrais />;
   } else if (onglet === 'tableau') {
     contenu = <>
       <TableauFrais />

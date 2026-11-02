@@ -2,10 +2,10 @@
 // - lecture de la position au clic (pwa/position.ts) : une seule lecture, jamais `watchPosition`, ni position gardée
 //   (maximumAge 0) ; refus du salarié : « refusee » ; délai ou appareil sans position : « indisponible » ;
 // - verdict affiché (components/temps/pointage-etat.ts) et suppression confirmée d'une zone (state/confirmations-pointage.ts).
-import { afterEach, test } from 'node:test';
+import { afterEach, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { positionAuClic } = await import('../client/src/pwa/position.ts');
+const { GARDE_POSITION_MS, positionAuClic } = await import('../client/src/pwa/position.ts');
 const { verdictTexte } = await import('../client/src/components/temps/pointage-etat.ts');
 const { suppressionZonePointage } = await import('../client/src/state/confirmations-pointage.ts');
 
@@ -37,6 +37,27 @@ test('position au clic : une lecture, sans cache ni suivi, arrondie ; refus et �
   assert.equal(await positionAuClic(), 'indisponible');
   Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true });
   assert.equal(await positionAuClic(), 'indisponible', 'appareil sans géolocalisation');
+});
+
+test('position au clic : invite sans réponse (aucun rappel) : « indisponible » au minuteur de garde, rappel tardif ignoré', async () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    let tard: PositionCallback | null = null;
+    navigateur(ok => { tard = ok; });
+    let fin: unknown = 'en attente';
+    const p = positionAuClic().then(r => { fin = r; return r; });
+    mock.timers.tick(GARDE_POSITION_MS - 1);
+    await Promise.resolve();
+    assert.equal(fin, 'en attente', 'pas avant le délai de garde');
+    mock.timers.tick(1);
+    assert.equal(await p, 'indisponible');
+    assert.ok(GARDE_POSITION_MS > 10_000 && GARDE_POSITION_MS <= 15_000, 'garde au-delà du délai du navigateur, bornée');
+    // Le salarié accepte après coup : rien ne change, le pointage est déjà parti.
+    tard!({ coords: { latitude: 48.5, longitude: 7.7, accuracy: 10 } } as GeolocationPosition);
+    assert.equal(fin, 'indisponible');
+  } finally {
+    mock.timers.reset();
+  }
 });
 
 test('verdict affiché et suppression d’une zone confirmée', () => {

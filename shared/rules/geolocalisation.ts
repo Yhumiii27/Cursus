@@ -79,6 +79,7 @@ export function distanceM(a: { lat: number; lng: number }, b: { lat: number; lng
 /**
  * Verdict d'une position au regard des zones actives :
  * - aucune position (refus du salarié, ou rien reçu) : « refusee » ; position impossible à lire : « imprecise » ;
+ * - tout le cercle d'incertitude dans une zone active : « dans », quelle que soit la précision (aucun doute) ;
  * - précision plus large que `precisionMaxM` : « imprecise » ;
  * - centre de la position dans le cercle d'une zone active : « dans » ;
  * - hors de toute zone, mais le cercle d'incertitude en touche une : « imprecise » (le doute profite au salarié) ;
@@ -87,8 +88,10 @@ export function distanceM(a: { lat: number; lng: number }, b: { lat: number; lng
  */
 export function verdictZone(pos: PositionRecue | null, zones: readonly Pick<ZonePointage, 'lat' | 'lng' | 'rayonM' | 'actif'>[], precisionMaxM: number): VerdictZone {
   if (pos == null || pos === 'refusee') return 'refusee';
-  if (pos === 'indisponible' || pos.precision > precisionMaxM) return 'imprecise';
+  if (pos === 'indisponible') return 'imprecise';
   const actives = zones.filter(z => z.actif);
+  if (actives.some(z => distanceM(pos, z) + pos.precision <= z.rayonM)) return 'dans';
+  if (pos.precision > precisionMaxM) return 'imprecise';
   if (actives.some(z => distanceM(pos, z) <= z.rayonM)) return 'dans';
   if (actives.some(z => distanceM(pos, z) - pos.precision <= z.rayonM)) return 'imprecise';
   return 'hors';

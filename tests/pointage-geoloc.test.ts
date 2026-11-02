@@ -3,7 +3,8 @@
 //   salarié), lecture de la position, verdict lu par le manager, populations, activation (COHERENCE) ;
 // - anomalies : hors zone, position non vérifiée (même texte pour un refus et une imprécision) ;
 // - pointage.pointer : verdict seul gardé, jamais les coordonnées (table, journal, réponse) ; un refus n'empêche jamais de
-//   pointer ; position ignorée hors d'une population géolocalisée ou sans zone active ; jamais hors ligne ;
+//   pointer ; position ignorée hors d'une population géolocalisée ou sans zone active ; jamais de position hors ligne (rejeu
+//   d'un salarié géolocalisé : position non vérifiée) ;
 // - zones : administrateur RH, journal sans coordonnées (libellé dans le message seulement), route réservée au service RH ;
 // - GET /api/pointages/etat : position demandée au seul salarié concerné ; GET /api/pointages : verdict réduit pour le
 //   manager ;
@@ -56,6 +57,7 @@ async function fresh(geoloc = true) {
   const P = {
     admin: await personne(null, 'rh'), gest: await personne(14, 'rh'), mgr: await personne(12, 'manager'),
     coll: await personne(2, 'collaborateur'), autC: await personne(6, 'collaborateur'), log: await personne(4, 'collaborateur'),
+    maint: await personne(18, 'collaborateur'),
   };
   const run = async (user: User, name: string, payload: Record<string, unknown>, o: { horsLigne?: boolean } = {}) => await db.tx(async () => {
     const t = await preparerTrace(db, name, payload);
@@ -88,7 +90,12 @@ test('règles : distance, verdict (le doute profite au salarié), position reçu
   assert.equal(G.verdictZone(null, zones, 100), 'refusee', 'rien reçu : non partagée');
   assert.equal(G.verdictZone('refusee', zones, 100), 'refusee');
   assert.equal(G.verdictZone('indisponible', zones, 100), 'imprecise');
-  assert.equal(G.verdictZone({ ...DANS, precision: 150 }, zones, 100), 'imprecise', 'précision plus large que l’exigée');
+  assert.equal(G.verdictZone({ ...DANS, precision: 250 }, zones, 100), 'imprecise', 'précision plus large que l’exigée, cercle qui déborde');
+  // Cercle d'incertitude entier dans une zone : « dans », même avec une précision plus large que l'exigée (aucun doute).
+  const grande = [{ ...CHANTIER, rayonM: 2_000, actif: true }];
+  assert.equal(G.verdictZone({ lat: CHANTIER.lat, lng: CHANTIER.lng, precision: 150 }, grande, 100), 'dans');
+  assert.equal(G.verdictZone({ lat: CHANTIER.lat + 1_900 / 111_195, lng: CHANTIER.lng, precision: 150 }, grande, 100), 'imprecise', 'cercle qui déborde : la précision exigée s’applique');
+  assert.equal(G.verdictZone({ lat: CHANTIER.lat, lng: CHANTIER.lng, precision: 150 }, [{ ...grande[0], actif: false }], 100), 'imprecise', 'zone désactivée : ignorée');
   // À 350 m du centre (50 m hors du rayon) avec 80 m d'incertitude : le cercle touche la zone, ni « dans » ni « hors ».
   const limite = { lat: CHANTIER.lat + 350 / 111_195, lng: CHANTIER.lng, precision: 80 };
   assert.equal(G.verdictZone(limite, zones, 100), 'imprecise');
@@ -188,17 +195,30 @@ test('pointer : verdict seul gardé, refus sans blocage, ignorée hors populatio
   const appareil = new Date(instantServeur() - 10 * 60_000).toISOString();
   await refuse(P.coll, 'pointage.pointer', { empId: 2, horodatageAppareil: appareil, position: DANS }, /jamais de position/, 400, { horsLigne: true });
   assert.match(String(refusHorsLigne('pointage.pointer', { empId: 2, horodatageAppareil: appareil, position: DANS }, 2)), /jamais de position/);
+  // Rejeu hors ligne d'un salarié géolocalisé : aucune position lue, verdict « refusée » (position non vérifiée), pour que
+  // couper le réseau ne contourne pas la vérification sans trace.
   const d = await run(P.coll, 'pointage.pointer', { empId: 2, horodatageAppareil: appareil, sens: 'S' }, { horsLigne: true });
-  assert.equal(d.result!.zone, undefined, 'hors ligne : aucun verdict');
+  assert.equal(d.result!.zone, 'refusee', 'hors ligne : position non vérifiée');
+  assert.equal((await pointages(db, 2)).find(x => x.id === d.result!.id)?.zone, 'refusee');
   // Logistique : pointe sur place, n'est pas géolocalisée ; une position reçue est ignorée (jamais écrite).
   const e = await run(P.log, 'pointage.pointer', { empId: 4, position: DANS });
   assert.match(e.message, /^Arrivée pointée à \d{2}:\d{2}$/);
   assert.equal((await pointages(db, 4))[0].zone, null);
+  // Hors ligne hors population géolocalisée : aucun verdict.
+  const h = await run(P.log, 'pointage.pointer', { empId: 4, horodatageAppareil: new Date(instantServeur() - 5 * 60_000).toISOString(), sens: 'S' }, { horsLigne: true });
+  assert.equal(h.result!.zone, undefined, 'Logistique hors ligne : aucun verdict');
   // Aucune zone active : rien n'est demandé (routes, plus bas), rien n'est jugé.
   const [zone] = await db.query<{ id: number }>('SELECT id FROM zones_pointage');
   await run(P.admin, 'pointage.zone.enregistrer', { ...CHANTIER, id: zone.id, actif: false });
-  const g = await run(P.log, 'pointage.pointer', { empId: 4, sens: 'S', position: DANS });
+  // Salarié de Maintenance (population géolocalisée) : sa position est ignorée, aucun verdict (ni « hors »).
+  const g = await run(P.maint, 'pointage.pointer', { empId: 18, position: COLMAR });
+  assert.equal(g.result!.doublon, undefined);
   assert.equal(g.result!.zone, undefined);
+  assert.equal((await pointages(db, 18)).find(x => x.id === g.result!.id)?.zone, null);
+  // Rejeu hors ligne, sans zone active : aucun verdict non plus.
+  const k = await run(P.coll, 'pointage.pointer', { empId: 2, horodatageAppareil: new Date(instantServeur() - 3 * 60_000).toISOString(), sens: 'E' }, { horsLigne: true });
+  assert.equal(k.result!.doublon, undefined);
+  assert.equal(k.result!.zone, undefined);
   // Jamais de ligne par pointage ; le journal (zones, réglages) ne porte aucune coordonnée.
   assert.equal((await db.query(`SELECT id FROM journal WHERE action = 'pointage.pointer'`)).length, 0);
   sansCoordonnees(JSON.stringify(await db.query('SELECT * FROM journal')), 'journal');
@@ -270,6 +290,8 @@ test('routes : position demandée au seul salarié concerné, verdict réduit po
   assert.ok(!JSON.stringify(etatMgr).includes('refusee'));
   // Zones : service RH seulement.
   assert.equal((await get('/api/pointages/zones', mgr, 'manager')).status, 403);
+  const refus = await db.query<{ message: string }>(`SELECT message FROM journal WHERE action = 'acces.refuse' ORDER BY id DESC LIMIT 1`);
+  assert.match(refus[0]?.message ?? '', /^Zones de pointage — réservées au service RH/, 'refus tracé');
   assert.equal((await get('/api/pointages/zones', await cookieDe(db, await compteDe(11), 'rh'))).status, 403, 'lecture seule');
   const zones = await (await get('/api/pointages/zones', gest)).json() as { zones: { libelle: string; rayonM: number }[] };
   assert.deepEqual(zones.zones.map(z => [z.libelle, z.rayonM]), [['Chantier de Strasbourg', 300]]);

@@ -16,6 +16,7 @@ import { employeAu } from '../../shared/rules/historique-contrat.ts';
 import { geolocAu } from '../../shared/rules/geolocalisation.ts';
 import type { Dataset, Employe, ISODate, ZonePointage } from '../../shared/types.ts';
 import { identite } from './connexion.ts';
+import { tracerRefus } from './journal.ts';
 import { loadSettings } from './dataset.ts';
 import type { Db } from './db.ts';
 import { permissionsPolicy } from './securite.ts';
@@ -76,7 +77,10 @@ export function routesZones(db: Db): Router {
   r.get('/api/pointages/zones', async (req: Request, res: Response) => {
     const id = await identite(db, req);
     if (!id) return res.status(401).json({ error: 'Connexion requise' });
-    if (!droitsRh(id.user).includes('rh')) return res.status(403).json({ error: 'Zones de pointage réservées au service RH' });
+    if (!droitsRh(id.user).includes('rh')) {
+      await db.tx(async () => await tracerRefus(db, id, 'Zones de pointage', 'réservées au service RH'));
+      return res.status(403).json({ error: 'Zones de pointage réservées au service RH' });
+    }
     const zones = await db.lecture(async () => await lireZones(db));
     res.set('Cache-Control', 'no-store');
     res.json({ zones });

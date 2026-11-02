@@ -5,7 +5,8 @@
 //                               ligne, population géolocalisée ; { lat, lng, precision }, « refusee » ou « indisponible »,
 //                               transformée en verdict, seul gardé) : instant du serveur ;
 //                               hors ligne (rejeu de la file, réglage `pointageHorsLigne`) : heure de l'appareil, marqué
-//                               « différé » ; jamais de position hors ligne. Doublon sous 60 s : rien n'est ajouté.
+//                               « différé » ; jamais de position hors ligne (salarié géolocalisé : verdict « refusee »,
+//                               position non vérifiée). Doublon sous 60 s : rien n'est ajouté.
 //                               Jamais au journal (la table des pointages en est la trace).
 //   pointage.corriger           empId, nature (ajout | neutralisation), horodatage et sens (ajout) ou pointageId
 //                               (neutralisation), motif (liste fermée), commentaire : le salarié pour lui-même, dans le délai
@@ -119,8 +120,11 @@ const pointer: ActionHandler = async (ctx, p) => {
   requirePopulation(ctx, e, jour);
   // Verdict de la position (salarié d'une population géolocalisée, zone active) ; les coordonnées ne sont gardées nulle
   // part. Hors de ces populations, une position reçue est ignorée ; aucune position (refus) n'empêche jamais de pointer.
-  const zone = !horsLigne && await positionDemandee(ctx.db, ctx.ds, e, jour)
-    ? verdictZone(position as PositionRecue | null, await lireZones(ctx.db, true), ctx.ds.settings.geolocPrecisionM) : null;
+  // Rejeu hors ligne d'un salarié géolocalisé : aucune position n'est lue, le pointage est « position non vérifiée »
+  // (« refusee », même anomalie qu'un refus), pour que couper le réseau ne contourne pas la vérification sans trace.
+  const zone = !await positionDemandee(ctx.db, ctx.ds, e, jour) ? null
+    : horsLigne ? 'refusee' as const
+    : verdictZone(position as PositionRecue | null, await lireZones(ctx.db, true), ctx.ds.settings.geolocPrecisionM);
   if (p.sens != null && !estSens(p.sens)) throw new ActionError('Sens du pointage invalide');
   const voisins = await lirePointages(ctx.db, [e.id], addD(jour, -2), addD(jour, 1));
   const avant = voisins.filter(x => Date.parse(x.horodatage) <= Date.parse(horodatage));

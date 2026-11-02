@@ -17,7 +17,7 @@ import { useRole } from '../state/derived.ts';
 import { useData, useStore } from '../state/store.tsx';
 import { Fine, Panel, Tag } from './ui.tsx';
 import { fMinutes, fSolde, pointe, verdictTexte } from './temps/pointage-etat.ts';
-import { positionAuClic } from '../pwa/position.ts';
+import { GARDE_POSITION_MS, positionAuClic } from '../pwa/position.ts';
 
 /** Relecture de l'état du jour : toutes les minutes. */
 const RELECTURE_MS = 60_000;
@@ -100,7 +100,7 @@ export function BoutonPointer({ titre = 'Pointage du jour' }: { titre?: string }
           ? 'Sans réseau, le pointage est gardé sur l’appareil avec son heure et part « différé » au retour du réseau.'
           : 'Sans réseau, le pointage n’est pas possible : pointez une fois connecté.'}{' '}
         {etat?.geoloc
-          ? 'En ligne, votre position est lue une fois, au clic, pour vérifier que vous êtes sur une zone de pointage : seul le résultat (dans la zone, hors zone…) est gardé, jamais la position. Vous pouvez refuser : le pointage est enregistré quand même.'
+          ? `En ligne, votre position est lue une fois, au clic, pour vérifier que vous êtes sur une zone de pointage : seul le résultat (dans la zone, hors zone…) est gardé, jamais la position. Vous pouvez refuser : le pointage est enregistré quand même, et part au plus tard ${Math.round(GARDE_POSITION_MS / 1000)} secondes après le clic.`
           : 'Aucune position n’est enregistrée.'}
       </Fine>
     </Panel>

@@ -222,7 +222,9 @@ publiée, et vous recevez alors un e-mail (et une notification sur le téléphon
 - Vérification du lieu (équipes itinérantes seulement, si l'entreprise l'a activée) : le texte sous le bouton le dit. Au
   clic sur « Pointer », le téléphone demande une fois l'autorisation de lire votre position ; Cursus n'en garde que le
   résultat (« dans la zone », « hors zone », « position imprécise » ou « non partagée »), affiché à côté de l'heure.
-  Vous pouvez refuser : le pointage est enregistré quand même, sans sanction. Jamais en continu, jamais sans réseau. Si
+  Vous pouvez refuser : le pointage est enregistré quand même, sans sanction ; sans réponse à la demande, il part au plus
+  tard 12 secondes après le clic. Jamais en continu, jamais sans réseau (un pointage fait sans réseau est marqué
+  « position non partagée »). Si
   le navigateur refuse sans rien demander, rechargez l'application (l'option vient d'être activée).
 
 ## Manager

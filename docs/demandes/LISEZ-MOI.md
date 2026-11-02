@@ -5,7 +5,7 @@ Crucible, Arche). Chacune est **rédigée ici et attend la validation du propri�
 dépôt d'un autre outil depuis Cursus. Une fois validée, le propriétaire la porte dans le `REQUESTS.md` de l'outil
 concerné, qui la réalise chez lui.
 
-## Règles des échanges entre outils (décision M-17 de Matrix, 30 octobre 2026)
+## Règles des échanges entre outils (décisions M-17 et M-18 de Matrix, 30 octobre et 1er novembre 2026)
 
 Matrix décide de chaque accès d'un outil aux données d'un autre ; PostgreSQL l'applique. Toute demande de ce dossier les
 respecte (détail : `docs/ARCHITECTURE.md`, « Échanges avec les autres outils » ; inventaire : `docs/ECHANGES.md`).
@@ -14,17 +14,19 @@ respecte (détail : `docs/ARCHITECTURE.md`, « Échanges avec les autres outils 
    se demande à son propriétaire : colonne ajoutée en fin de vue, ou nouvelle vue.
 2. **R4 — Écrire** chez un autre outil seulement par son API, ou par une fonction `pub_` qu'il fournit ; jamais
    d'`INSERT`, d'`UPDATE` ni de `DELETE` dans son schéma.
-3. **R3 — Ne plus demander à Matrix de recopier une vue** : la migration de Cursus (`server/migrations-pg/`) est la seule
-   définition de ses vues `pub_`. Une vue `pub_` est un contrat : aucune colonne retirée ni renommée (sinon une vue
-   `_v2`), ajouts en fin de liste seulement, jamais une colonne sensible (santé, motifs, textes libres) ; aucune vue
-   nouvelle sans demande validée.
+3. **R3 (M-18) — Les vues `pub_` de Cursus sont définies par Matrix** (écran « Publications ») : Cursus n'en crée,
+   n'en modifie ni n'en supprime plus aucune dans ses migrations (garde-fou `tests/m18-publications.test.ts`). Une
+   donnée de Cursus à publier (colonne en fin d'une vue, nouvelle vue) se **demande à Matrix comme une publication** :
+   table source, colonnes et noms publiés, filtre, lecteurs, justification ; le contrat reste le même (aucune colonne
+   retirée ni renommée, ajouts en fin de liste, jamais une colonne sensible). Avant une migration de Cursus qui
+   toucherait une colonne lue par une vue `pub_`, demander d'abord à Matrix de faire évoluer la publication.
 4. **R5 — Déclarer un besoin d'accès** comme un lien du registre `matrix.liens` : lecteur (rôle de l'outil), objet
-   (`schéma.pub_…`), nature (`lecture` ou `execution`) et justification. En attendant l'API `POST /api/liens` de Matrix
-   (lot M17-4) : une entrée courte pour le `REQUESTS.md` de Matrix, rédigée dans ce dossier, jamais écrite dans Matrix.
+   (`schéma.pub_…`), nature (`lecture` ou `execution`) et justification, décidé dans l'écran « Liens entre outils » de
+   Matrix : une entrée courte pour le `REQUESTS.md` de Matrix, rédigée dans ce dossier, jamais écrite dans Matrix.
 5. **Écriture qu'un autre outil ferait chez Cursus** : une API de Cursus, ou une fonction `pub_<verbe>_<objet>` créée par
    une migration de Cursus — `SECURITY DEFINER`, `SET search_path = cursus, pg_temp`, appelant identifié par
    `session_user`, règles métier et journal de Cursus appliqués, `REVOKE EXECUTE … FROM PUBLIC` ; le droit d'exécution
-   est un lien de nature `execution`, accordé par Matrix.
+   est un lien de nature `execution`, accordé par Matrix (`droits.accorder_execution`, M-18).
 
 Les fermetures de colonnes sensibles à `matrix_lecture` (`droits.colonnes_sensibles`, fichiers `matrix-*.sql`) restent
 demandées comme avant : elles ne copient aucune vue et ne donnent aucun accès.

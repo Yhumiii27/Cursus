@@ -3,6 +3,12 @@
 Demande rédigée par Cursus, **à valider par le propriétaire avant tout envoi** : rien n'est écrit dans les dépôts de
 Keystone ni de Matrix, et aucune vue `pub_` n'est créée dans Cursus tant que la demande n'est pas validée.
 
+
+> **Mise à jour du 2 novembre 2026 (décision M-18 de Matrix)** : une vue `pub_` de Cursus n'est plus créée par une
+> migration de Cursus ; elle est définie et appliquée par Matrix dans son écran « Publications ». La vue proposée
+> ci-dessous se demande donc comme une publication à Matrix (même contrat : colonnes, noms publiés, filtre, lecteurs),
+> et non comme une migration de Cursus. Rien d'autre ne change dans cette demande.
+
 ## Besoin
 
 Une note de frais peut être rattachée à une mission Keystone (`notes_frais.mission_id`), à un déplacement, ou à un code

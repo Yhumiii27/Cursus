@@ -28,3 +28,24 @@ Format d'une entrée :
 - Détails techniques : relevé du 30/10/2026 sur `main` de Cursus (requêtes SQL vers d'autres schémas) : `matrix.pub_sites`, `matrix.pub_organigramme` ; appels de Keystone par API ; Cursus n'est pas encore basculé sur le serveur commun (SQLite) : à appliquer à la bascule. Toutes ces lectures passent déjà par des vues `pub_` et aucune écriture directe dans un autre schéma n'a été trouvée : aucune correction urgente. Les vues, droits et fichiers de partage actuels restent en place pendant la transition (lots M17-1 à M17-5 côté Matrix) ; une vue `pub_` existante ne change pas.
 - Validé par Guillaume le : 2026-10-30
 - Réalisé le 2026-11-01 (lot 12, socle, branche `lot12/socle-1`) : règles R2 à R5 et fonctions `pub_<verbe>_<objet>` dans `docs/ARCHITECTURE.md`, section « Échanges avec les autres outils » (Cursus n'a pas de `CLAUDE.md` à la racine) ; reprises en tête des demandes, `docs/demandes/LISEZ-MOI.md` ; inventaire des échanges et de leur conformité dans `docs/ECHANGES.md` : aucune lecture de table ni écriture dans un autre schéma, vues `pub_` définies par les migrations de Cursus, deux points à signaler à Matrix (accès de `matrix_lecture` aux tables de `cursus`, copie de partage `infra/postgres-partage/20-cursus.sql` à ne plus mettre à jour) et l'entrée prête à porter dans le `REQUESTS.md` de Matrix après validation. Aucun fichier d'un autre dépôt modifié.
+
+## [2026-11-01] Matrix → Cursus — M-18 : Matrix définit et applique les publications, les liens et les écritures
+- Statut : FAITE
+- Demande : appliquer dans Cursus la décision M-18 de Matrix (`docs/decisions.md` et `docs/architecture-postgres.md`
+  § 8 septies du dépôt Matrix, lot P5) : plus aucune vue `pub_` dans les migrations de Cursus (Matrix les définit dans
+  son écran « Publications » et reprend les vues existantes par `partage/14-reprise-publications.sql`) ; écritures
+  reçues d'un autre outil par une fonction `pub_` du propriétaire, dont Matrix décide l'exécution (lien `execution`) ;
+  règles reprises dans la documentation de Cursus.
+- Justification : décision du responsable produit du 1er novembre 2026 : Matrix est le seul outil qui administre le
+  serveur PostgreSQL commun ; elle remplace la règle R3 de M-17.
+- Validé par Guillaume le : 2026-11-02 (« Traite les demandes M-17 et M-18 »)
+- Réalisé le 2026-11-02 (branche `main-n9x7ps`) : garde-fou `tests/m18-publications.test.ts` (aucune migration après
+  `0029` ne crée, modifie, commente une vue `pub_` ni ne pose de droit dessus) ; règles dans `docs/ARCHITECTURE.md`
+  (« Échanges avec les autres outils »), `docs/demandes/LISEZ-MOI.md` et `CLAUDE.md` ; inventaire `docs/ECHANGES.md` ;
+  procédure de bascule (`docs/DEPLOIEMENT.md`, « Variante : serveur PostgreSQL commun EPC2I » ; `docs/BASCULE-PRODUCTION.md`)
+  : les vues de Cursus sont reprises par Matrix (`-v outils=cursus`) au lieu de rejouer `20-cursus.sql`. Répétition du
+  2 novembre 2026 sur PostgreSQL 16 avec le socle et le partage de Matrix à jour : reprise à blanc puis réelle, six vues
+  passées à `matrix_gestion`, lecteurs conservés, Cursus redémarré sans erreur, `droits.verifier()` sans erreur. Aucun
+  fichier de Matrix modifié. Cursus ne reçoit aucune écriture par la base (Keystone passe par l'API) : aucune fonction
+  `pub_` à créer.
+

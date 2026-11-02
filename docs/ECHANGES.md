@@ -1,11 +1,13 @@
 # Échanges de Cursus avec les autres outils
 
 Inventaire demandé par la décision M-17 de Matrix (demande M-17 de `REQUESTS.md`, 30 octobre 2026), relevé le
-1er novembre 2026 sur le code (lot 12, socle). Règles R2 à R5 : `docs/ARCHITECTURE.md`, « Échanges avec les autres
+1er novembre 2026 sur le code (lot 12, socle), mis à jour le 2 novembre 2026 pour la décision M-18 (Matrix définit et
+applique les vues `pub_` des outils, les liens et les droits d'écriture). Règles R2 à R5 : `docs/ARCHITECTURE.md`, « Échanges avec les autres
 outils », et `docs/demandes/LISEZ-MOI.md`. À tenir à jour à chaque nouvel échange.
 
 Bilan : **aucun accès non conforme côté Cursus**. Cursus ne lit aucune table d'un autre schéma, n'écrit dans aucun autre
-schéma, et ses vues `pub_` sont définies par ses migrations. Deux points sont à signaler à Matrix (fin du document).
+schéma ; ses vues `pub_`, créées par ses migrations publiées, sont reprises puis gérées par Matrix (M-18), et aucune
+migration nouvelle n'y touche (`tests/m18-publications.test.ts`). Deux points sont à signaler à Matrix (fin du document).
 
 ## 1. Lectures SQL vers d'autres schémas (R2)
 
@@ -37,10 +39,14 @@ navigateurs, connexion Microsoft Entra ID, fichier d'import de Sage Paie téléc
 | Keystone → Cursus : projets, chantiers, affectations, tâches, demandes de déplacement ; lecture de l'instantané et des verdicts | API de Cursus `/api/integrations/keystone/v1` (`X-Api-Key`, filtre d'adresses facultatif ; `server/src/integrations/keystone-routes.ts`, contrat `docs/keystone-openapi.json`) | Conforme (API de Cursus) |
 | Fonctions `pub_<verbe>_<objet>` de Cursus | Aucune | — |
 
-## 4. Vues `pub_` de Cursus et leurs lecteurs (R3)
+## 4. Vues `pub_` de Cursus et leurs lecteurs (R3, M-18)
 
-Toutes définies par les migrations de Cursus (`WITH (security_barrier)`, aucune colonne sensible) ; droits de lecture
-accordés par Matrix (`partage/90-droits.sql`), futurs liens du registre `matrix.liens`.
+Créées par les migrations publiées de Cursus (`WITH (security_barrier)`, aucune colonne sensible), jamais rejouées ;
+**reprises par Matrix** à la bascule (`partage/14-reprise-publications.sql -v outils=cursus` : propriétaire
+`matrix_gestion`, définition et contrat inscrits au registre `matrix.publications`), qui les fait évoluer ensuite.
+Droits de lecture : liens du registre `matrix.liens`, appliqués par Matrix. Répétition du 2 novembre 2026 (socle et
+partage de Matrix à jour, PostgreSQL 16) : les six vues passent à `matrix_gestion`, les lecteurs gardent leur droit,
+Cursus redémarre sans erreur, `droits.verifier()` ne signale aucune erreur.
 
 | Vue (contrat) | Migration | Lecteurs | Conformité |
 | --- | --- | --- | --- |
@@ -51,8 +57,9 @@ accordés par Matrix (`partage/90-droits.sql`), futurs liens du registre `matrix
 | `pub_journal` (D18) | `0002_partage.sql` | `matrix_app` (`matrix.journal_unifie`) | Conforme |
 | `pub_absences` (CU-1, demande de Crucible) | `0004_pub_absences.sql` | `crucible_app`, `matrix_app` | Conforme (droit à poser par Matrix, demande CU-1) |
 
-La copie qualifiée `infra/postgres-partage/20-cursus.sql` (reprise par le `partage/20-cursus.sql` de Matrix) reste en
-place pendant la transition (lots M17-1 à M17-5 de Matrix) ; aucune nouvelle copie n'est demandée (R3). Les vues de
+La copie qualifiée `infra/postgres-partage/20-cursus.sql` (et le `partage/20-cursus.sql` de Matrix) n'est plus jouée une
+fois les vues reprises par Matrix (M-18) ; elle ne sert plus qu'au rejeu d'essai du socle. Toute évolution d'une vue se
+demande à Matrix comme une publication. Les vues de
 contrôle `*_v1` de Matrix (D06, D07) ne sont pas créées par Cursus. Le lot 12 ne crée aucune vue `pub_`.
 
 ## 5. Points à signaler à Matrix
@@ -62,14 +69,22 @@ contrôle `*_v1` de Matrix (D06, D07) ne sont pas créées par Cursus. Le lot 12
   C'est un accès d'administration du serveur, décidé par Matrix, plutôt qu'un échange entre outils ; il reste à
   inscrire comme tel dans le registre `matrix.liens`. Les fermetures de colonnes demandées par Cursus (lots 8, 11 et 12,
   `docs/demandes/matrix-*.sql`) restent nécessaires tant qu'il existe.
-- **Copie de partage** : `infra/postgres-partage/20-cursus.sql` date de la migration 0011 ; elle ne doit plus être mise à
-  jour par Cursus (R3). Matrix pourra la retirer de son dossier `partage/` à la fin de sa transition.
+- **Copie de partage** : `infra/postgres-partage/20-cursus.sql` date de la migration 0011 et n'est plus mise à jour
+  (M-18 : Matrix reprend les vues). Matrix pourra retirer son `partage/20-cursus.sql` une fois les vues de Cursus
+  reprises (fichier 14).
+- **Publications demandées en attente** (à redéfinir comme publications de l'écran de Matrix, M-18) :
+  `cursus.pub_indicateurs_rh` (`docs/demandes/matrix-lot11-indicateurs.md`) et `cursus.pub_frais_projets`
+  (`docs/demandes/keystone-lot11-frais.md`) ; `matrix.pub_entites` (`docs/demandes/matrix-lot11-entites.md`) est une
+  vue de Matrix.
 
 Entrée à porter dans le `REQUESTS.md` de Matrix une fois ce document validé (rien n'est écrit dans Matrix) :
 
-> **[2026-11-01] Cursus → Matrix — M-17 appliquée par Cursus, deux points à inscrire au registre.** Cursus applique R2 à
-> R5 (`docs/ARCHITECTURE.md`, `docs/demandes/LISEZ-MOI.md`, inventaire `docs/ECHANGES.md`) : aucune lecture de table ni
-> écriture dans un autre schéma ; lectures de `matrix.pub_sites` et `pub_organigramme` encore saisies à la main. Liens à
+> **[2026-11-02] Cursus → Matrix — M-17 et M-18 appliquées par Cursus, vues à reprendre et liens à inscrire.** Cursus
+> applique R2 à R5 et M-18 (`docs/ARCHITECTURE.md`, `docs/demandes/LISEZ-MOI.md`, inventaire `docs/ECHANGES.md`) : aucune
+> lecture de table ni écriture dans un autre schéma ; plus aucune vue `pub_` dans ses migrations après `0029`
+> (garde-fou en test) ; lectures de `matrix.pub_sites` et `pub_organigramme` encore saisies à la main. À la bascule de
+> Cursus : `partage/14-reprise-publications.sql -v outils=cursus` (répété le 2 novembre 2026 sans erreur), puis
+> `20-cursus.sql` n'est plus joué. Liens à
 > inscrire dans `matrix.liens` (lecture) : `cursus.pub_salaries` → keystone, codex, vigie, matrix ; `cursus.pub_titres`
 > et `cursus.pub_titres_detenus` → vigie, keystone, matrix ; `cursus.pub_parametres` → vigie, matrix ;
 > `cursus.pub_journal` → matrix ; `cursus.pub_absences` → crucible, matrix. Accès de `matrix_lecture` aux tables de

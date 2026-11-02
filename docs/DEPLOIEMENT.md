@@ -624,7 +624,8 @@ mot de passe de `cursus_app` connu de l'exploitant, Cursus en version 8.b au moi
 
 **Lot 8 (migration `0011_pub_titres_valides`)** : avant de déployer une version qui la contient, Matrix doit avoir
 remplacé son `partage/20-cursus.sql` par `infra/postgres-partage/20-cursus.sql` de Cursus (nouvelle `pub_titres_detenus`,
-colonnes `mesure` et `mesure_le` en fin), sinon son rejeu échoue ensuite. La fermeture à `matrix_lecture` des colonnes
+colonnes `mesure` et `mesure_le` en fin), sinon son rejeu échoue ensuite. Sans objet depuis la décision M-18 : à la bascule,
+les vues de Cursus sont reprises par Matrix (étape 3 ci-dessous) et `20-cursus.sql` n'est plus joué. La fermeture à `matrix_lecture` des colonnes
 que Cursus déclare sensibles (empreintes de mots de passe, sessions, nature des absences, contenu des lots de paie,
 textes libres) est demandée à
 Matrix avant la reprise de Lucca. Textes des deux demandes, à valider avant envoi : `docs/DEMANDES-LOT8-DONNEES.md`.
@@ -705,19 +706,26 @@ l'identifiant) : chacun se reconnecte une fois.
    ne change rien. Les pièces justificatives ne sont pas dans la base : le compte rendu signale les fichiers absents du
    dossier des pièces de la cible (même volume `/data/pieces` dans le conteneur : rien à copier). La base SQLite reste
    en place, comme repli, jusqu'à la recette.
-3. **Partage** (une fois les migrations passées, puis à chaque version qui modifie une vue `pub_`), depuis le dépôt
-   Matrix, dans cet ordre :
+3. **Partage** (une fois les migrations passées, au premier démarrage seulement), depuis le dépôt Matrix à jour (socle
+   et partage de la décision M-18), dans cet ordre :
 
    ```sh
-   psql "postgres://cursus_app:…@<hôte>:5432/epc2i" -v ON_ERROR_STOP=1 -1 -f infra/postgres/partage/20-cursus.sql
+   # Matrix reprend les vues pub_ de Cursus (créées par ses migrations 0002, 0004 et 0011) : propriétaire matrix_gestion,
+   # définition et contrat inscrits au registre matrix.publications ; les lecteurs gardent leur droit.
+   psql -h <hôte> -U postgres -d epc2i -v ON_ERROR_STOP=1 -v outils=cursus -f infra/postgres/partage/14-reprise-publications.sql
    psql -h <hôte> -U postgres -d epc2i -v ON_ERROR_STOP=1 -f infra/postgres/partage/90-droits.sql
    psql "postgres://matrix_app:…@<hôte>:5432/epc2i" -v ON_ERROR_STOP=1 -1 -f infra/postgres/partage/95-matrix-journal-unifie.sql
    psql -h <hôte> -U postgres -d epc2i -c "SELECT gravite, objet, constat FROM droits.verifier() WHERE gravite = 'erreur'"
    ```
 
-   `20-cursus.sql` recopie les vues de la migration `0002_partage` : le rejouer ne change rien, il échoue clairement
-   si les migrations de Cursus ne sont pas passées. Le fichier à jour est `infra/postgres-partage/20-cursus.sql` de
-   ce dépôt, à reporter dans Matrix. La dernière commande ne doit rien afficher.
+   Décision M-18 de Matrix (1er novembre 2026) : Matrix définit et applique les vues `pub_` de tous les outils (écran
+   « Publications ») et les liens (écran « Liens entre outils »). Après la reprise, `20-cursus.sql` n'est plus joué
+   (Cursus n'est plus propriétaire de ses vues) et aucune version de Cursus ne touche plus à une vue `pub_` : une
+   colonne ou une vue à publier se demande à Matrix (`docs/demandes/LISEZ-MOI.md`). Avant une version de Cursus dont une
+   migration modifie une colonne lue par une vue `pub_`, Matrix fait d'abord évoluer la publication (sinon la migration
+   échoue et Cursus refuse de démarrer, sans rien écrire). La dernière commande ne doit rien afficher. Répété le
+   2 novembre 2026 sur PostgreSQL 16 (socle et partage de Matrix de ce jour) : reprise à blanc puis réelle, six vues
+   reprises, lecteurs conservés, Cursus redémarré sans erreur, aucune erreur de `droits.verifier()`.
 4. **Premier administrateur RH** : `npm run comptes -- admin <identifiant>` avec la même `DATABASE_URL` (dans le
    conteneur sous Coolify : onglet « Terminal »).
 5. **Sauvegardes** : `npm run backup`, `npm run restore` et `npm run reset-demo` refusent PostgreSQL ; la base est

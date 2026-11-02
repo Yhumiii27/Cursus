@@ -3748,7 +3748,8 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
 
 ## Échanges avec les autres outils
 
-Règles de la décision M-17 de Matrix (30 octobre 2026 ; demande M-17 de `REQUESTS.md`, validée par le propriétaire) :
+Règles des décisions M-17 (30 octobre 2026) et M-18 (1er novembre 2026) de Matrix (demandes de `REQUESTS.md`, validées par
+le propriétaire) :
 Matrix décide de chaque accès d'un outil aux données d'un autre, PostgreSQL l'applique. Elles valent pour tout échange de
 Cursus avec Keystone, Codex, Vigie, Crucible, Arche, Matrix ou un outil à venir. Inventaire des échanges actuels et de
 leur conformité : `docs/ECHANGES.md` ; règles reprises en tête des demandes : `docs/demandes/LISEZ-MOI.md`.
@@ -3756,24 +3757,35 @@ leur conformité : `docs/ECHANGES.md` ; règles reprises en tête des demandes :
 - **R2 — Lire chez un autre outil** : seulement par ses vues `pub_` (`<schéma>.pub_…`), jamais par ses tables, même si
   un droit le permettait. Une donnée qui manque dans une vue se demande à son propriétaire (colonne ajoutée en fin de
   vue, ou nouvelle vue).
-- **R3 — Les vues `pub_` de Cursus** : la migration de Cursus (`server/migrations-pg/`) est la seule définition de ses
-  vues `pub_` ; on ne demande plus à Matrix de les recopier dans son dossier `partage/` (la copie qualifiée
-  `infra/postgres-partage/20-cursus.sql` reste en place pendant la transition, lots M17-1 à M17-5 de Matrix). Une vue
-  `pub_` est un contrat : aucune colonne retirée ni renommée (sinon une nouvelle vue `_v2`), ajouts en fin de liste
-  seulement, `WITH (security_barrier)`, jamais une colonne sensible (santé, motifs, textes libres :
-  `droits.colonnes_sensibles` du socle de Matrix) ; aucune vue nouvelle sans demande validée.
+- **R3 — Les vues `pub_` de Cursus (remplacée par M-18, 1er novembre 2026)** : **Matrix définit et applique les vues
+  `pub_` de tous les outils** (écran « Publications », rôle `matrix_gestion`, registre `matrix.publications`). Les vues
+  existantes de Cursus (`pub_salaries`, `pub_titres`, `pub_titres_detenus`, `pub_parametres`, `pub_journal`,
+  `pub_absences`) sont créées par les migrations publiées `0002_partage`, `0004_pub_absences` et
+  `0011_pub_titres_valides` (jamais rejouées), puis **reprises par Matrix** (`partage/14-reprise-publications.sql` de
+  Matrix, `-v outils=cursus`) : elles appartiennent ensuite à `matrix_gestion`, qui les fait évoluer. Conséquences pour
+  Cursus :
+  - aucune migration après `0029` ne crée, remplace, supprime, commente une vue `pub_` ni ne pose de droit dessus
+    (garde-fou : `tests/m18-publications.test.ts`) ; une nouvelle donnée publiée (colonne en fin de vue, nouvelle
+    vue) se **demande à Matrix** comme une publication (`docs/demandes/`, puis écran « Publications ») ;
+  - une migration de Cursus qui modifierait ou supprimerait une colonne lue par une vue `pub_` échouerait (dépendance
+    de la vue) : demander d'abord à Matrix de faire évoluer la publication, puis migrer ;
+  - le contrat reste le même et PostgreSQL le tient (`CREATE OR REPLACE VIEW` refuse un retrait ou un renommage) :
+    ajouts en fin de liste, `WITH (security_barrier)`, jamais une colonne sensible (`droits.colonnes_sensibles`) ;
+  - `infra/postgres-partage/20-cursus.sql` (copie de la migration `0002`) n'est plus joué une fois les vues reprises :
+    il ne sert plus qu'au rejeu d'essai du socle (`docs/DEPLOIEMENT.md`).
 - **R4 — Écrire chez un autre outil** : seulement par son API, ou par une fonction `pub_` qu'il fournit ; jamais par
   `INSERT`, `UPDATE` ou `DELETE` dans son schéma. Les envois de Cursus passent par la file `envois`
   (`server/src/envois.ts`), dans la transaction de l'action.
 - **R5 — Déclarer un besoin d'accès** : comme un lien du registre `matrix.liens` (lecteur, objet `schéma.pub_…`, nature
-  `lecture` ou `execution`, justification). En attendant l'API `POST /api/liens` de Matrix (lot M17-4), par une entrée
-  courte dans le `REQUESTS.md` de Matrix, rédigée dans `docs/demandes/` et jamais écrite dans le dépôt de Matrix : le
-  propriétaire la valide et la porte.
+  `lecture` ou `execution`, justification), décidé dans l'écran « Liens entre outils » de Matrix, qui l'applique
+  aussitôt (M-18). Depuis Cursus, par une entrée courte pour le `REQUESTS.md` de Matrix, rédigée dans `docs/demandes/`
+  et jamais écrite dans le dépôt de Matrix : le propriétaire la valide et la porte.
 - **Écriture qu'un autre outil ferait chez Cursus** : une API de Cursus (comme `/api/integrations/keystone/v1`), ou une
   fonction `pub_<verbe>_<objet>` créée par une migration de Cursus : `SECURITY DEFINER`,
   `SET search_path = cursus, pg_temp`, appelant identifié par `session_user`, règles métier et journal de Cursus
   appliqués comme pour une action, `REVOKE EXECUTE … FROM PUBLIC` (le droit d'exécution est accordé par Matrix, lien de
-  nature `execution`). Aucune n'existe aujourd'hui.
+  nature `execution`, que Matrix applique par `droits.accorder_execution` : M-18, lot P4). Aucune n'existe aujourd'hui :
+  Keystone écrit chez Cursus par l'API.
 
 ## Intégrations
 

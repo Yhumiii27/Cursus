@@ -10,6 +10,9 @@ import { sauvegarderBase, type Sauvegarde } from '../sauvegarde.ts';
 import { seedDemo } from '../seed.ts';
 import { ActionError, requireRhAdmin, type ActionHandler } from './context.ts';
 import { amorcerEntites } from '../demarrage.ts';
+// lot 12 — C1 (forfait annuel en heures)
+import { refusChangementDebutForfait } from '../../../shared/rules/forfait-heures.ts';
+import type { ClotureForfaitHeures } from '../../../shared/types.ts';
 
 /** Réglages envoyés par l'écran Paramètres : chaque champ passe par son contrôle (table REGLAGES de shared/reglages.ts). */
 const maj: ActionHandler = async (ctx, p) => {
@@ -25,6 +28,10 @@ const maj: ActionHandler = async (ctx, p) => {
   // Pièces justificatives dans le dossier local : refusées en production sans clé de chiffrement (lot 8, config.ts).
   const refusPieces = next.piecesStockage === 'local' && avant.piecesStockage !== 'local' ? refusPiecesLocales() : null;
   if (refusPieces) throw new ActionError(refusPieces, 409);
+  // lot 12 — C1 : début du suivi ou de la période du forfait annuel en heures déplacé alors que des clôtures sont enregistrées
+  // (repérées par leur début de plage) : confirmation explicite de l'écran exigée.
+  const refusForfait = refusChangementDebutForfait(avant, next, await ctx.db.all<ClotureForfaitHeures>('cloturesForfaitHeures'), p.forfaitHeuresChangementConfirme === true);
+  if (refusForfait) throw new ActionError(refusForfait, 409);
   await ctx.db.setSetting('app', next);
   // Absences de nouveau dans le fichier de paie (t028) : celles saisies dans Sage entre-temps n'y repartent pas.
   const absences = await reactivationAbsences(ctx.db, avant, next, ctx.user, ctx.d.ti);

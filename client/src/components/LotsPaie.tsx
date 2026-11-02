@@ -76,7 +76,8 @@ export function LotsPaie() {
   // Astreintes terminées (t049) : AST_H et AST_PER actives, ou à saisir dans Sage.
   const astreintes = elementsAstreintes(d, '9999-12', rubriquesPaie(d.ds.rubriquesPaie), maintenant(d.ti));
   // lot 12 — C1 : heures des clôtures du forfait annuel en heures (HFA25, HFA50, HCA10, HCA25), actives ou à saisir dans Sage.
-  const forfaitHeures = elementsForfaitHeures(d, '9999-12', rubriquesPaie(d.ds.rubriquesPaie));
+  // Format du fichier : un écart négatif refusé part « à saisir dans Sage » (comme le calcule le serveur), hors des codes à confirmer.
+  const forfaitHeures = elementsForfaitHeures(d, '9999-12', rubriquesPaie(d.ds.rubriquesPaie), (d.ds.formatFichierPaie ?? FORMAT_FICHIER_DEFAUT).negatifs !== false);
   const aConfirmer = rubriquesAConfirmer([...rubriquesEmises(d, aTransmettre), ...absences.flatMap(g => g.rubriques), ...sorties.map(x => x.rubrique), ...deplacements.filter(x => !x.aSaisir).map(x => x.rubrique), ...rachats.filter(x => x.codeSage).map(x => x.rubrique), ...astreintes.filter(x => x.codeSage).map(x => x.rubrique), /* lot 12 — C1 */ ...forfaitHeures.filter(x => x.codeSage).map(x => x.rubrique)], rubriquesPaie(d.ds.rubriquesPaie));
   // Absences sous une rubrique désactivée : leur nature reste à saisir dans Sage (liste du résumé du lot).
   const absencesASaisir = [...new Set(absences.flatMap(g => g.rubriques))].filter(r => !rubriquesPaie(d.ds.rubriquesPaie).find(t => t.code === r)?.active);

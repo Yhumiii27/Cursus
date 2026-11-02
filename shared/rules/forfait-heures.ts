@@ -33,7 +33,8 @@
 //   (embauche récente : cible à vérifier, sans calcul automatique), salarié non cadre (art. L3121-56 ; à défaut,
 //   aménagement sur l'année, art. L3121-44), forfait inférieur à 1 607 h (mentions du contrat, art. L3123-6).
 // - Blocages : plage pas terminée, feuille de la plage non validée, semaine sans feuille ni absence, durée légale atteinte
-//   par un temps partiel.
+//   par un temps partiel ; plage qui chevauche une ligne déjà enregistrée d'un autre début (réglage du début du suivi ou de
+//   la période déplacé après une clôture : `ligneChevauchee`, sinon les heures seraient payées deux fois).
 // - Ligne enregistrée (table `cloturesForfaitHeures`) : « à revoir » quand une feuille de la plage a été rouverte après la
 //   confirmation, n'est plus validée, ou quand le réalisé recalculé diffère de celui photographié (la ligne n'est pas
 //   modifiée : l'administrateur RH la rouvre).
@@ -49,7 +50,7 @@
 //   (`relancesForfaitHeures` : une relance par échéance, sans nom ni heure, à la seule boîte du service RH).
 import { addD, addM, estJourneeSolidarite, isFerie, isoParis, isValidDate, joursSemaine, mondayOf, parse, weekday } from '../dates.ts';
 import type { Domain } from '../domain.ts';
-import { fH, fmtIso } from '../format.ts';
+import { fH, fmtIso, plural } from '../format.ts';
 import type { AbsenceType, Employe, FeuilleTemps, ISODate, Settings } from '../types.ts';
 import { absenceBloque } from './absences.ts';
 import { moities } from './demi-journees.ts';
@@ -510,58 +511,106 @@ export function concerneParForfaitHeures(d: Domain, e: Employe): boolean {
 export interface PlageAClore { e: Employe; reference: PeriodeForfait; calc: CalculClotureForfait; ligne: ClotureForfaitHeures | null }
 
 /**
- * Plages sous forfait des périodes suivies terminées avant le jour de Cursus et sans ligne confirmée (aucune ligne, ligne
- * annulée, ou ligne rouverte à confirmer), salariés sortis compris : bandeau, dialogue de clôture et échéance du service
- * RH. Triées par fin de plage puis par nom.
+ * Ligne non annulée du salarié, d'un autre début de plage, qui chevauche la plage `p` (null : aucune). Les lignes sont
+ * repérées par leur début de plage : déplacer le début du suivi ou de la période de référence après une clôture ouvre une
+ * plage qui recouvre la ligne déjà enregistrée, dont les heures seraient payées deux fois. Une telle plage est bloquée
+ * (`plagesAClore`) et refusée par `forfaitHeures.cloturer` ; l'ancienne ligne passe « à revoir » (`aRevoir`).
  */
-export function plagesAClore(d: Domain): PlageAClore[] {
+export const ligneChevauchee = (lignes: readonly ClotureForfaitHeures[] | undefined, empId: number, p: Pick<PeriodeForfait, 'debut' | 'fin'>) =>
+  (lignes ?? []).find(l => l.empId === empId && l.statut !== 'annulee' && l.debut !== p.debut && l.debut <= p.fin && l.fin >= p.debut) ?? null;
+
+/** Blocage d'une plage qui chevauche une ligne déjà enregistrée (`ligneChevauchee`). */
+export const blocageChevauchement = (l: Pick<ClotureForfaitHeures, 'debut' | 'fin'>) =>
+  `Plage qui chevauche la clôture déjà enregistrée du ${fmtIso(l.debut)} au ${fmtIso(l.fin)} (début du suivi ou de la période de référence modifié depuis) : `
+  + 'rétablissez le réglage (Paramètres → Décompte des heures), ou annulez cette ligne si elle n’est pas transmise';
+
+/**
+ * Plages à clôturer d'un salarié (`plagesAClore`) : la ligne en vigueur est lue avant tout calcul, seules les plages sans
+ * ligne confirmée sont calculées (le coût ne croît pas avec les périodes déjà closes).
+ */
+export function plagesACloreDe(d: Domain, e: Employe, periodes: readonly PeriodeForfait[] = periodesSuivies(d.ds.settings, d.ti)): PlageAClore[] {
+  if (e.anonymiseLe || !concerneParForfaitHeures(d, e)) return [];
   const lignes = d.ds.cloturesForfaitHeures ?? [];
-  const periodes = periodesSuivies(d.ds.settings, d.ti);
   const out: PlageAClore[] = [];
-  for (const e of d.ds.employes) {
-    if (e.anonymiseLe || !concerneParForfaitHeures(d, e)) continue;
-    for (const reference of periodes) {
-      for (const calc of cloturesDeLaPeriode(d, e, reference)) {
-        if (calc.fin >= d.ti) continue;
-        const ligne = ligneEnVigueur(lignes, e.id, calc.debut);
-        if (ligne?.statut !== 'confirmee') out.push({ e, reference, calc, ligne });
-      }
+  for (const reference of periodes) {
+    for (const p of plagesForfait(d, e, reference)) {
+      if (p.fin >= d.ti) continue;
+      const ligne = ligneEnVigueur(lignes, e.id, p.debut);
+      if (ligne?.statut === 'confirmee') continue;
+      const calc = calculerPlage(d, e, reference, p);
+      const chevauchee = ligneChevauchee(lignes, e.id, p);
+      if (chevauchee) calc.blocages.push(blocageChevauchement(chevauchee));
+      out.push({ e, reference, calc, ligne });
     }
   }
-  return out.sort((a, b) => a.calc.fin.localeCompare(b.calc.fin) || a.e.nom.localeCompare(b.e.nom));
+  return out;
 }
 
-/** Lignes confirmées en vigueur à revoir (feuille rouverte, réalisé ou absences recalculés…) et leur motif. */
-export function lignesARevoir(d: Domain): { ligne: ClotureForfaitHeures; motif: string }[] {
-  const lignes = d.ds.cloturesForfaitHeures ?? [];
-  return lignes.flatMap(l => {
-    if (l.statut !== 'confirmee' || ligneEnVigueur(lignes, l.empId, l.debut)?.id !== l.id) return [];
-    const motif = aRevoir(d, l);
-    return motif ? [{ ligne: l, motif }] : [];
-  });
+/** Calculs des écrans mémorisés par instantané (un domaine par instantané reçu : client/src/state/derived.ts). */
+const memoAClore = new WeakMap<Domain, readonly PlageAClore[]>();
+const memoARevoir = new WeakMap<Domain, readonly { ligne: ClotureForfaitHeures; motif: string }[]>();
+
+/**
+ * Plages sous forfait des périodes suivies terminées avant le jour de Cursus et sans ligne confirmée (aucune ligne, ligne
+ * annulée, ou ligne rouverte à confirmer), salariés sortis compris : bandeau, dialogue de clôture et échéance du service
+ * RH. Triées par fin de plage puis par nom. Mémorisées par instantané (résultat partagé : ne pas le modifier).
+ */
+export function plagesAClore(d: Domain): readonly PlageAClore[] {
+  let r = memoAClore.get(d);
+  if (!r) {
+    const periodes = periodesSuivies(d.ds.settings, d.ti);
+    r = d.ds.employes.flatMap(e => plagesACloreDe(d, e, periodes)).sort((a, b) => a.calc.fin.localeCompare(b.calc.fin) || a.e.nom.localeCompare(b.e.nom));
+    memoAClore.set(d, r);
+  }
+  return r;
+}
+
+/** Lignes confirmées en vigueur à revoir (feuille rouverte, réalisé ou absences recalculés…) et leur motif. Mémorisées par instantané. */
+export function lignesARevoir(d: Domain): readonly { ligne: ClotureForfaitHeures; motif: string }[] {
+  let r = memoARevoir.get(d);
+  if (!r) {
+    const lignes = d.ds.cloturesForfaitHeures ?? [];
+    r = lignes.flatMap(l => {
+      if (l.statut !== 'confirmee' || ligneEnVigueur(lignes, l.empId, l.debut)?.id !== l.id) return [];
+      const motif = aRevoir(d, l);
+      return motif ? [{ ligne: l, motif }] : [];
+    });
+    memoARevoir.set(d, r);
+  }
+  return r;
 }
 
 /**
  * Échéance de la clôture d'une plage : dernier jour du mois qui suit sa fin (heures payées au plus tard sur ce mois-là ;
- * une période civile close au 31 décembre se clôt en janvier).
+ * une période civile close au 31 décembre se clôt en janvier) ; pour une plage close par la sortie, dernier jour du mois de
+ * la sortie : ses heures partent avec le solde de sortie, dans la paie de ce mois (`periodeEmission`).
  */
-export const echeanceCloture = (fin: ISODate): ISODate => addD(addM(`${fin.slice(0, 7)}-01`, 2), -1);
+export const echeanceCloture = (fin: ISODate, motifFin: MotifFinForfait = 'periode'): ISODate =>
+  addD(addM(`${fin.slice(0, 7)}-01`, motifFin === 'sortie' ? 1 : 2), -1);
 
 /**
  * Relances du récapitulatif des échéances (server/src/relances.ts), pour la seule boîte du service RH : une par échéance de
- * clôture (`forfait-heures:<AAAA-MM-JJ>`), aux paliers réglés puis échue, avec le nombre de plages à clôturer. Ni nom de
+ * clôture (`forfait-heures:<AAAA-MM-JJ>`), aux paliers réglés puis échue, avec le nombre de plages à clôturer et de salariés
+ * concernés (une plage par salarié et par fin de période, sortie ou avenant : 40 salariés, 40 plages d'une même période). Ni nom de
  * salarié, ni heure : le détail est dans Cursus (Temps de travail, onglet « Forfait annuel en heures »).
  */
 export function relancesForfaitHeures(d: Domain, paliers: readonly number[], plages: readonly PlageAClore[] = plagesAClore(d)): Relance[] {
-  const parEcheance = new Map<ISODate, number>();
-  for (const p of plages) parEcheance.set(echeanceCloture(p.calc.fin), (parEcheance.get(echeanceCloture(p.calc.fin)) ?? 0) + 1);
-  return [...parEcheance].sort(([a], [b]) => a.localeCompare(b)).flatMap(([echeance, n]) => {
+  // Par échéance : plages et salariés (une plage par salarié et par fin de période, sortie ou avenant).
+  const parEcheance = new Map<ISODate, { n: number; salaries: Set<number> }>();
+  for (const p of plages) {
+    const echeance = echeanceCloture(p.calc.fin, p.calc.motifFin);
+    const g = parEcheance.get(echeance) ?? { n: 0, salaries: new Set<number>() };
+    g.n++;
+    g.salaries.add(p.e.id);
+    parEcheance.set(echeance, g);
+  }
+  return [...parEcheance].sort(([a], [b]) => a.localeCompare(b)).flatMap(([echeance, { n, salaries }]) => {
     const jours = Math.round((parse(echeance).getTime() - parse(d.ti).getTime()) / 864e5);
     const palier = palierDe(jours, paliers);
     if (!palier) return [];
     return [{
       cle: `forfait-heures:${echeance}`, empId: 0, categorie: 'forfaitHeures' as const, echeance, jours, palier, sante: false, rhSeul: true,
-      libelle: `Forfait annuel en heures — ${n > 1 ? `${n} périodes terminées à clôturer` : '1 période terminée à clôturer'} (Temps de travail)`,
+      libelle: `Forfait annuel en heures — ${plural(n, 'plage terminée', 'plages terminées')} à clôturer (${plural(salaries.size, 'salarié', 'salariés')}, Temps de travail)`,
     }];
   });
 }
@@ -592,4 +641,20 @@ export function suiviForfaitHeures(d: Domain, e: Employe, jour: ISODate = d.ti):
     const ligne = ligneEnVigueur(lignes, e.id, calc.debut);
     return { calc, enCours: calc.fin >= d.ti, couvertJusquau, projection, ligne, revoir: ligne ? aRevoir(d, ligne) : null };
   });
+}
+
+/**
+ * Début du suivi ou de la période de référence modifié (Paramètres → Décompte des heures). Une fois une ligne de clôture
+ * enregistrée, le changement exige une confirmation explicite (`forfaitHeuresChangementConfirme`, contrôlé par
+ * `parametres.maj`) : les plages recalculées peuvent recouvrir les lignes enregistrées, qui passent « à revoir », et les
+ * plages qui les chevauchent restent bloquées (`ligneChevauchee`).
+ */
+export const debutForfaitModifie = (avant: ReglagesForfaitHeures, apres: ReglagesForfaitHeures) =>
+  debutSuivi(avant) !== debutSuivi(apres) || periodeReference(avant, debutSuivi(avant)).debut.slice(5) !== periodeReference(apres, debutSuivi(avant)).debut.slice(5);
+
+/** Refus du changement du début du suivi ou de la période sans confirmation, dès qu'une ligne non annulée existe (sinon null). */
+export function refusChangementDebutForfait(avant: ReglagesForfaitHeures, apres: ReglagesForfaitHeures, lignes: readonly Pick<ClotureForfaitHeures, 'statut'>[], confirme: boolean): string | null {
+  if (confirme || !debutForfaitModifie(avant, apres) || !lignes.some(l => l.statut !== 'annulee')) return null;
+  return 'Forfait annuel en heures : des clôtures sont déjà enregistrées ; changer le début du suivi ou de la période de référence les fait passer « à revoir » '
+    + 'et bloque les plages qui les chevauchent : confirmez le changement';
 }

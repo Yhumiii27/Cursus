@@ -5,7 +5,10 @@
 // théoriques), mois d'émission des heures et imputation sur le contingent (désactivée tant que la paie ne l'a pas confirmée).
 // S'écarter du défaut pour la période, le seuil, les absences ou la durée journalière exige la référence de l'accord
 // (COHERENCE de shared/reglages.ts, art. L3121-63 et L3121-64). Champs enregistrés ensemble ; une ligne déjà confirmée n'est
-// jamais recalculée (la rouvrir). Réglages de l'administrateur RH ; les autres profils consultent.
+// jamais recalculée (la rouvrir). Les lignes étant repérées par leur début de plage, déplacer le début du suivi ou de la
+// période une fois une clôture enregistrée passe par une confirmation avec avertissement (state/confirmations-forfait-heures.ts),
+// que le serveur exige aussi (`refusChangementDebutForfait`, parametres.maj). Réglages de l'administrateur RH ; les autres
+// profils consultent.
 import { type FormEvent, useEffect, useState } from 'react';
 import { ABS_LABEL } from '../../../../shared/constants.ts';
 import { isValidDate } from '../../../../shared/dates.ts';
@@ -17,6 +20,8 @@ import type { AbsenceType, EmissionForfaitHeures, Settings } from '../../../../s
 import { Field } from '../Dialog.tsx';
 import { Btn, Fine, NoteAccent, Seg } from '../ui.tsx';
 import { useDomain, useRole } from '../../state/derived.ts';
+import { changementDebutForfait } from '../../state/confirmations-forfait-heures.ts';
+import { useStore } from '../../state/store.tsx';
 import { type SectionProps, useEnregistrerReglages } from '../../pages/parametres/commun.ts';
 import { JourMois } from '../../pages/parametres/Entretiens.tsx';
 import { periodeTexte } from './forfait-heures-vue.ts';
@@ -41,6 +46,9 @@ export function ReglagesForfaitHeures({ s }: Pick<SectionProps, 's'>) {
   const d = useDomain();
   const { admin } = useRole();
   const save = useEnregistrerReglages();
+  const { openDialog } = useStore();
+  // Clôtures enregistrées (non annulées) : repérées par leur début de plage, que déplace un autre début du suivi ou de la période.
+  const enregistrees = (d.ds.cloturesForfaitHeures ?? []).filter(l => l.statut !== 'annulee').length;
   const [periode, setPeriode] = useState(s.forfaitHeuresDebutPeriode);
   const [suivi, setSuivi] = useState(s.forfaitHeuresDebutSuivi);
   const [accord, setAccord] = useState(s.forfaitHeuresAccord);
@@ -64,6 +72,7 @@ export function ReglagesForfaitHeures({ s }: Pick<SectionProps, 's'>) {
   const modifie = periode !== s.forfaitHeuresDebutPeriode || suivi !== s.forfaitHeuresDebutSuivi || accord.trim() !== s.forfaitHeuresAccord || seuil.trim() !== String(s.forfaitHeuresSeuil25)
     || absences.length !== s.forfaitHeuresAbsencesDeduites.length || absences.some(x => !s.forfaitHeuresAbsencesDeduites.includes(x)) || j !== s.forfaitHeuresJour
     || emission !== s.forfaitHeuresEmission || contingent !== s.forfaitHeuresContingent;
+  const debutModifie = periode !== s.forfaitHeuresDebutPeriode || suivi !== s.forfaitHeuresDebutSuivi;
   const basculer = (t: AbsenceType, oui: boolean) => setAbsences(l => (oui ? [...new Set([...l, t])] : l.filter(x => x !== t)));
   const ref = periodeReference({ forfaitHeuresDebutPeriode: periode }, d.ti);
 
@@ -71,11 +80,14 @@ export function ReglagesForfaitHeures({ s }: Pick<SectionProps, 's'>) {
     ev.preventDefault();
     const champ = erreurs.suivi ? 'fh-suivi' : erreurs.seuil ? 'fh-seuil' : erreurs.jour ? 'fh-jour' : erreurs.accord ? 'fh-accord' : null;
     if (champ) { setTente(true); document.getElementById(champ)?.focus(); return; }
-    setBusy(true);
-    await save({
+    const patch = {
       forfaitHeuresDebutPeriode: periode, forfaitHeuresDebutSuivi: suivi, forfaitHeuresAccord: accord, forfaitHeuresSeuil25: n, forfaitHeuresAbsencesDeduites: absences,
       forfaitHeuresJour: j, forfaitHeuresEmission: emission, forfaitHeuresContingent: contingent,
-    } satisfies Partial<Settings>);
+    } satisfies Partial<Settings>;
+    // Début déplacé alors que des clôtures sont enregistrées : confirmation avec avertissement (exigée aussi par le serveur).
+    if (debutModifie && enregistrees) { openDialog({ type: 'confirmer', c: changementDebutForfait(patch, enregistrees) }); return; }
+    setBusy(true);
+    await save(patch);
     setBusy(false);
   };
 
@@ -88,6 +100,12 @@ export function ReglagesForfaitHeures({ s }: Pick<SectionProps, 's'>) {
           <input className="input" id="fh-suivi" type="date" value={suivi} disabled={!admin} onChange={e => setSuivi(e.target.value)} />
         </Field>
       </div>
+      {admin && enregistrees > 0 && (
+        <NoteAccent>
+          {enregistrees > 1 ? `${enregistrees} clôtures sont enregistrées` : 'Une clôture est enregistrée'}, repérées par le début de leur plage : changer le début du suivi
+          ou de la période de référence les fait passer « à revoir », et les plages qui les chevauchent restent bloquées (jamais payées deux fois). Confirmation demandée.
+        </NoteAccent>
+      )}
       <Fine>
         Période en cours : {periodeTexte(ref)}. Le réalisé d’avant le début du suivi n’est pas dans Cursus (par défaut, la mise en service du {fmtIso(DEBUT_SUIVI_DEFAUT)} ;
         le forfait 2026 se clôt à la main dans Sage) : une période commencée avant est clôturée « partielle », son début à compléter dans Sage.

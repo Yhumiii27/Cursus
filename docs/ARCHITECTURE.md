@@ -4811,13 +4811,26 @@ RH), la documentation RGPD et le guide viennent à l'étape 2.
   du début du suivi à celle du jour), `concerneParForfaitHeures` (régime de la fiche, de l'historique ou d'une feuille :
   évite de parcourir les semaines des autres salariés), `plagesAClore` (plages terminées avant le jour de Cursus, sans
   ligne confirmée en vigueur — aucune ligne, ligne annulée, ligne rouverte à confirmer —, salariés sortis compris, dossiers
-  anonymisés exclus), `lignesARevoir` (dernière version confirmée dont `aRevoir` rend un motif), `suiviForfaitHeures`
+  anonymisés exclus ; la ligne en vigueur est lue avant tout calcul, seules les plages sans ligne confirmée sont calculées ;
+  `plagesACloreDe` pour un seul salarié, à la fiche), `lignesARevoir` (dernière version confirmée dont `aRevoir` rend un
+  motif) — ces deux-là mémorisées par instantané (`WeakMap` sur le domaine, comme `acquisitionPeriode`) —, `suiviForfaitHeures`
   (plages de la période en cours : clôture calculée à ce jour, projection au rythme des feuilles validées jusqu'au
   dimanche de la dernière, à partir de 4 semaines couvertes, `JOURS_PROJECTION_MIN`), `echeanceCloture` (dernier jour du
-  mois qui suit la fin de la plage) et `relancesForfaitHeures`.
+  mois qui suit la fin de la plage, du mois de la sortie pour une sortie) et `relancesForfaitHeures`.
+- **Chevauchement** : les lignes sont repérées par leur début de plage (`versionsDe`, `ligneEnVigueur`). Un début du suivi
+  ou de la période de référence déplacé après une clôture ouvre une plage qui recouvre la ligne enregistrée : elle serait
+  payée deux fois. `ligneChevauchee` (ligne non annulée du salarié, d'un autre début, qui recouvre la plage) la bloque dans
+  `plagesAClore` et la fait refuser par `forfaitHeures.cloturer` ; l'ancienne ligne passe « à revoir » (plage recalculée
+  différente). Paramètres demande une confirmation avec avertissement pour déplacer l'un de ces débuts dès qu'une ligne non
+  annulée existe ; `parametres.maj` refuse le changement sans elle (`refusChangementDebutForfait`, champ
+  `forfaitHeuresChangementConfirme` de la requête, jamais enregistré). COHERENCE ne voit que les réglages : la règle, qui
+  dépend des lignes, est dans l'action.
 - **Échéance du service RH** : `relancesForfaitHeures` entre dans `recapitulatifEcheances` (server/src/relances.ts), une
   relance par échéance (`forfait-heures:<AAAA-MM-JJ>`, catégorie `forfaitHeures`, `rhSeul` comme les dossiers OPCO) : à la
-  seule boîte du service RH, le nombre de périodes à clôturer, ni nom ni heure, une fois par palier.
+  seule boîte du service RH, le nombre de plages à clôturer et de salariés concernés (une plage par salarié et par fin
+  de période, sortie ou avenant), ni nom ni heure, une fois par palier. Échéance : dernier jour du mois qui suit la fin de
+  la plage, du mois de la sortie pour une plage close par la sortie (`echeanceCloture` : ses heures partent avec le solde de
+  sortie).
 - **Écran Temps de travail, onglet « Forfait annuel en heures »** (`forfait-heures` de `pages/temps-onglets.ts`, bloc C1 de
   `pages/Temps.tsx` ; contenu : `components/temps/RecapForfaitHeures.tsx`) : montré seulement s'il a quelque chose à
   montrer (`ongletForfaitHeures`, `components/temps/forfait-heures-vue.ts` ; jamais au référent HSE), avec le nombre de
@@ -4827,7 +4840,12 @@ RH), la documentation RGPD et le guide viennent à l'étape 2.
   avec « Confirmer », « Rouvrir » et « Annuler » de l'administrateur RH, jamais pour soi-même (confirmations avec motif :
   `state/confirmations-forfait-heures.ts`). Droits de l'écran, qui redisent la projection de server/src/vues-forfait-heures.ts :
   quantités (absences déduites, cible nette, heures de paie) au service RH, à la paie et au salarié lui-même
-  (`voitQuantites`) ; le manager et la lecture seule ne voient que le réalisé, la cible au prorata et la projection.
+  (`voitQuantites`) ; le manager et la lecture seule ne voient que le réalisé, la cible au prorata et la projection. Ce que
+  le navigateur recalcule (absences déduites et cible nette de la période en cours, « à revoir ») n'est montré qu'au service
+  RH et au salarié lui-même (`voitRecalcul`) : l'instantané de la paie masque la nature des absences des autres
+  (« ABSENCE »), le calcul s'y écarterait de celui du serveur dès que la liste des absences déduites n'est pas celle par
+  défaut ; la paie lit les quantités photographiées des lignes confirmées. En-tête « Cible nette » seulement si chaque
+  ligne la montre (un manager au forfait voit la sienne, jamais celle de son équipe).
 - **Dialogue** `dialogs/ClotureForfaitHeuresDialog.tsx` (`clotureForfaitHeures`, période de référence) : une ligne par
   plage à clôturer, cochée d'office si rien ne la bloque ; ligne bloquée et sa propre ligne non cochables ; aucune cochée :
   refus à l'envoi (`useVerification`, bouton jamais grisé) ; envoie `forfaitHeures.cloturer`, que le serveur recalcule.
@@ -4835,7 +4853,8 @@ RH), la documentation RGPD et le guide viennent à l'étape 2.
   réalisé et cible de la période en cours, projection, dernière clôture, plage à clôturer (service RH) ; jamais pour le
   référent HSE.
 - **Lots de paie** (`components/LotsPaie.tsx`, ajouts C1) : périodes, salariés et codes à confirmer comptent les heures des
-  clôtures (`elementsForfaitHeures`) ; `ForfaitHeuresEnAttente` liste celles qui attendent un lot ou sont à saisir dans
+  clôtures (`elementsForfaitHeures`, avec le réglage des valeurs négatives du format du fichier, comme le serveur) ;
+  `ForfaitHeuresEnAttente` liste celles qui attendent un lot ou sont à saisir dans
   Sage ; l'historique compte les clôtures d'un lot.
 - **Paramètres → Décompte des heures**, bloc « Forfait annuel en heures » (`components/temps/ReglagesForfaitHeures.tsx`,
   formulaire enregistré d'un bouton) : début de la période (`JourMois`), début du suivi, seuil des 25 %, durée journalière

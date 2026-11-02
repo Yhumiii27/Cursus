@@ -2,8 +2,11 @@
 // - périodes suivies, plages terminées à clôturer (fin de période, sortie en cours de période, ligne rouverte ou annulée),
 //   lignes à revoir, groupes du bandeau ;
 // - suivi de la période en cours : projection au rythme des feuilles validées (4 semaines au moins), ligne en vigueur ;
-// - échéance de la clôture (dernier jour du mois qui suit la fin de la plage) et relances du récapitulatif : une par
-//   échéance, à la seule boîte du service RH, sans nom ni heure, une fois par palier (deux moteurs) ;
+// - chevauchement (début du suivi déplacé après une clôture transmise : plage bloquée, ancienne ligne à revoir), calculs
+//   mémorisés par instantané, confirmation exigée pour déplacer le début ;
+// - échéance de la clôture (dernier jour du mois qui suit la fin de la plage, du mois de la sortie pour une sortie) et
+//   relances du récapitulatif : une par échéance, à la seule boîte du service RH, sans nom ni heure (nombre de plages et de
+//   salariés), une fois par palier (deux moteurs) ;
 // - onglet de l'écran Temps et droits de lecture de l'écran (quantités : service RH, paie, le salarié lui-même).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -108,6 +111,30 @@ test('lignes à revoir : feuille rouverte après la clôture ; jamais une ligne 
   assert.deepEqual(F.lignesARevoir(domaine({ feuilles: ANNEE, today: '2028-01-20', lignes: [ligneDe(c)] })), []);
 });
 
+test('chevauchement : début du suivi déplacé après une clôture transmise — plage bloquée, ancienne ligne à revoir ; calculs mémorisés par instantané', () => {
+  const c = F.clotureForfaitHeures(domaine({ feuilles: ANNEE, today: '2028-01-20' }), domaine({ feuilles: ANNEE, today: '2028-01-20' }).emp(EMP)!, { debut: '2027-01-01', fin: '2027-12-31' })!;
+  // Scénario de la relecture : plage 2027 confirmée et transmise, puis début du suivi réglé au 1er mars 2027.
+  const d = domaine({ feuilles: ANNEE, today: '2028-01-20', lignes: [ligneDe(c, { sage: true, lotId: 3 })], settings: { forfaitHeuresDebutSuivi: '2027-03-01' } });
+  const [p, ...reste] = F.plagesAClore(d);
+  assert.deepEqual(reste, []);
+  assert.deepEqual([p.calc.debut, p.calc.fin, p.ligne], ['2027-03-01', '2027-12-31', null]);
+  assert.ok(p.calc.blocages.some(b => b.startsWith('Plage qui chevauche la clôture déjà enregistrée du 1 janv. 2027 au 31 déc. 2027')));
+  assert.equal(V.groupesAClore(d)[0].bloquees, 1, 'jamais cochée d’office');
+  assert.match(F.lignesARevoir(d)[0].motif, /plage sous forfait recalculée différente/);
+  assert.equal(F.ligneChevauchee(d.ds.cloturesForfaitHeures, EMP, { debut: '2028-01-01', fin: '2028-12-31' }), null, 'période suivante : aucun chevauchement');
+  assert.equal(F.ligneChevauchee(d.ds.cloturesForfaitHeures?.map(l => ({ ...l, statut: 'annulee' as const })), EMP, p.calc), null, 'ligne annulée : plus de blocage');
+  // Mémorisés par instantané : un seul calcul pour l'onglet, le bandeau et le dialogue.
+  assert.equal(F.plagesAClore(d), F.plagesAClore(d));
+  assert.equal(F.lignesARevoir(d), F.lignesARevoir(d));
+  // Réglage du changement : confirmation exigée dès qu'une ligne non annulée existe.
+  const s = { forfaitHeuresDebutSuivi: '2027-01-01', forfaitHeuresDebutPeriode: '01-01' };
+  assert.equal(F.refusChangementDebutForfait(s, { ...s, forfaitHeuresDebutSuivi: '2027-03-01' }, [], false), null, 'aucune ligne');
+  assert.match(F.refusChangementDebutForfait(s, { ...s, forfaitHeuresDebutPeriode: '06-01' }, [{ statut: 'confirmee' }], false)!, /confirmez le changement/);
+  assert.equal(F.refusChangementDebutForfait(s, { ...s, forfaitHeuresDebutSuivi: '2027-03-01' }, [{ statut: 'confirmee' }], true), null, 'confirmé');
+  assert.equal(F.refusChangementDebutForfait(s, { ...s, forfaitHeuresDebutSuivi: '2027-03-01' }, [{ statut: 'annulee' }], false), null, 'ligne annulée');
+  assert.equal(F.refusChangementDebutForfait(s, { ...s, forfaitHeuresSeuil25: 6 }, [{ statut: 'confirmee' }], false), null, 'autre réglage');
+});
+
 test('suivi de la période en cours : projection au rythme des feuilles validées, 4 semaines au moins', () => {
   // Feuilles validées du 1er janvier au dimanche 27 juin 2027 (7,5 h par jour ouvré), jour d'essai le 10 juillet.
   const d = domaine({ feuilles: feuilles('2027-01-01', '2027-06-27', 7.5), today: '2027-07-10' });
@@ -127,16 +154,21 @@ test('suivi de la période en cours : projection au rythme des feuilles validée
   assert.deepEqual([F.suiviForfaitHeures(rien, rien.emp(EMP)!)[0].couvertJusquau, F.suiviForfaitHeures(rien, rien.emp(EMP)!)[0].projection], [null, null]);
 });
 
-test('échéance et relances : dernier jour du mois qui suit la fin, une relance par échéance, ni nom ni heure', () => {
+test('échéance et relances : dernier jour du mois qui suit la fin (du mois de la sortie), une relance par échéance, ni nom ni heure', () => {
   assert.equal(F.echeanceCloture('2027-12-31'), '2028-01-31');
   assert.equal(F.echeanceCloture('2027-06-30'), '2027-07-31');
-  assert.equal(F.echeanceCloture('2027-01-15'), '2027-02-28');
+  assert.equal(F.echeanceCloture('2027-01-15', 'avenant'), '2027-02-28');
+  // Sortie : les heures partent avec le solde de sortie, dans la paie du mois de la sortie.
+  assert.equal(F.echeanceCloture('2027-04-15', 'sortie'), '2027-04-30');
+  const sortie = domaine({ employe: { fin: '2027-04-15' }, feuilles: feuilles('2027-01-01', '2027-04-15', 7.5), today: '2027-04-16' });
+  assert.deepEqual(F.relancesForfaitHeures(sortie, [90, 30, 7]).map(r => [r.cle, r.jours, r.palier]), [['forfait-heures:2027-04-30', 14, '30']]);
+  assert.equal(F.relancesForfaitHeures(domaine({ employe: { fin: '2027-04-15' }, feuilles: feuilles('2027-01-01', '2027-04-15', 7.5), today: '2027-05-02' }), [90, 30, 7])[0].palier, 'echu');
   const d = domaine({ feuilles: ANNEE, today: '2028-01-20' });
   const [r, ...reste] = F.relancesForfaitHeures(d, [90, 30, 7]);
   assert.deepEqual(reste, []);
   assert.deepEqual(r, {
     cle: 'forfait-heures:2028-01-31', empId: 0, categorie: 'forfaitHeures', echeance: '2028-01-31', jours: 11, palier: '30', sante: false, rhSeul: true,
-    libelle: 'Forfait annuel en heures — 1 période terminée à clôturer (Temps de travail)',
+    libelle: 'Forfait annuel en heures — 1 plage terminée à clôturer (1 salarié, Temps de travail)',
   });
   assert.doesNotMatch(JSON.stringify(r), /Bernard|\d h\b/, 'ni nom ni heure');
   // Échéance passée : échue ; au-delà du premier palier : rien encore.
@@ -180,7 +212,7 @@ test('récapitulatif des échéances : clôture à faire à la seule boîte du s
   const rh = premiers.find(e => e.a[0] === 'rh@entreprise.example')!;
   // Démonstration suivie depuis le 1er janvier 2026 : la plage 2026 d'Élodie Bernard, terminée le 31 décembre, est à clôturer
   // avant la fin de janvier 2027 (11 jours : palier de 30 jours).
-  assert.match(rh.texte, /• Forfait annuel en heures — 1 période terminée à clôturer \(Temps de travail\) : échéance le 31 janv\. 2027/);
+  assert.match(rh.texte, /• Forfait annuel en heures — 1 plage terminée à clôturer \(1 salarié, Temps de travail\) : échéance le 31 janv\. 2027/);
   for (const e of premiers.filter(x => x.a[0] !== 'rh@entreprise.example')) assert.doesNotMatch(e.texte, /Forfait annuel en heures/, `pas chez ${e.a[0]}`);
   const cles = (await db.query<{ cle: string; palier: string }>("SELECT cle, palier FROM relances WHERE cle LIKE 'forfait-heures:%'")).map(r => `${r.cle}|${r.palier}`);
   assert.deepEqual(cles, ['forfait-heures:2027-01-31|30']);

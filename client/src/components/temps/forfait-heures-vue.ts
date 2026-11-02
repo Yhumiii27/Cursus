@@ -22,6 +22,14 @@ export interface DroitsForfaitHeures { rh: boolean; paie: boolean; consultation:
 /** Quantités du salarié (absences déduites, cible nette, heures de paie) : service RH, paie, le salarié lui-même. */
 export const voitQuantites = (r: DroitsForfaitHeures, empId: number) => r.rh || r.paie || r.soi === empId;
 
+/**
+ * Quantités recalculées dans le navigateur (absences déduites et cible nette de la période en cours, « à revoir ») : service
+ * RH et le salarié lui-même seulement. L'instantané de la paie masque la nature des absences des autres (« ABSENCE »,
+ * server/src/dataset.ts) : recalculées là, elles s'écarteraient du calcul du serveur dès que la liste des absences déduites
+ * n'est pas celle par défaut. La paie lit les quantités photographiées des lignes confirmées.
+ */
+export const voitRecalcul = (r: DroitsForfaitHeures, empId: number) => r.rh || r.soi === empId;
+
 /** L'espace ouvre-t-il l'onglet du forfait : service RH, paie, lecture seule, manager, collaborateur (jamais le référent HSE). */
 export const ouvreForfaitHeures = (r: DroitsForfaitHeures) => r.rh || r.paie || r.consultation || r.manager || r.collab;
 

@@ -391,7 +391,7 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
   de l'onglet compte les plages à clôturer et les lignes à revoir) :
   1. À la fin de chaque période de référence (le 1er janvier pour l'année civile), à la sortie d'un salarié ou à l'avenant
      qui lui fait quitter le forfait, le bandeau « Clôtures du forfait annuel en heures à faire » propose la plage ; le
-     récapitulatif des échéances de la boîte du service RH la rappelle (échéance : fin du mois qui suit la fin de la plage).
+     récapitulatif des échéances de la boîte du service RH la rappelle (échéance : fin du mois qui suit la fin de la plage ; pour une sortie, fin du mois de la sortie, avec le solde de sortie).
   2. L'administrateur RH ouvre « Clôturer » : une ligne par salarié, avec la cible au prorata, les absences déduites (un
      total, jamais la nature), la cible nette, le réalisé et les heures à payer (HFA25 et HFA50, ou HCA10 et HCA25 pour un
      temps partiel annualisé), ou les heures non réalisées (jamais retenues). Les alertes (période commencée avant le
@@ -405,6 +405,9 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
      correctif). « Annuler » (motif) n'est possible qu'avant la transmission.
   Réglages (période, début du suivi, seuil des 25 %, absences déduites, durée journalière, mois d'émission, contingent) :
   Paramètres → Décompte des heures, « Forfait annuel en heures » ; hors défaut, la référence de l'accord est exigée.
+  Une fois une clôture enregistrée, changer le début du suivi ou de la période de référence demande une confirmation :
+  les clôtures gardent leurs dates et passent « à revoir », et une plage qui en chevauche une reste bloquée (ses heures
+  ne sont jamais payées deux fois).
 
 ### Déplacements et vigilance
 

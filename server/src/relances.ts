@@ -10,8 +10,8 @@
 // - lot 11 : les échéances des dossiers OPCO (`opco:<id>:<étape>:<échéance>`, shared/rules/opco.ts) vont à la seule boîte
 //   du service RH : l'action du plan et l'échéance, sans montant ni nom de salarié.
 // - lot 12 — C1 : les clôtures du forfait annuel en heures à faire (`forfait-heures:<échéance>`, dernier jour du mois qui
-//   suit la fin de la plage ; shared/rules/forfait-heures.ts) vont à la seule boîte du service RH : un nombre de périodes,
-//   ni nom ni heure.
+//   suit la fin de la plage, du mois de la sortie pour une plage close par la sortie ; shared/rules/forfait-heures.ts) vont
+//   à la seule boîte du service RH : un nombre de plages et de salariés, ni nom ni heure.
 // Seuls les paliers franchis depuis le dernier envoi partent (table `relances`, clé de l'objet et palier) : un objet n'est
 // relancé qu'une fois par palier. Tant que la boîte du service RH, destinataire de tout le périmètre, n'est pas renseignée,
 // le passage n'envoie ni ne note rien : les paliers franchis partiront au premier passage qui suit son réglage. Règles et contenu :
@@ -131,7 +131,7 @@ export async function recapitulatifEcheances(db: Db, lire: Lecture = lectureDire
     // lot 11 — dossiers OPCO en cours (`opco:<id>:<étape>:<échéance>`) : boîte du service RH seulement, sans montant ni nom.
     ...relancesOpco(full.dossiersOpco ?? [], full.versementsOpco, full.plan, full.settings, today, paliers, l => nomActionPlan({ d }, l)),
     // lot 12 — C1 : clôtures du forfait annuel en heures à faire (`forfait-heures:<échéance>`) : boîte du service RH
-    // seulement, le nombre de périodes, ni nom ni heure.
+    // seulement, le nombre de plages et de salariés, ni nom ni heure.
     ...relancesForfaitHeures(d, paliers),
   ];
   const deja = new Set((await db.query('SELECT cle, palier FROM relances') as { cle: string; palier: string }[]).map(r => `${r.cle}|${r.palier}`));

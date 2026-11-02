@@ -6,7 +6,9 @@
 //   dialogue de confirmation (motif) ;
 // - manager (Sarah Cohen, 23) : réalisé et cible, sans cible nette ni lignes de clôture ;
 // - Paramètres → Décompte des heures : seuil hors défaut refusé sans la référence de l'accord, puis enregistré ;
-// - Lots de paie : heures à saisir dans Sage.
+// - Lots de paie : heures à saisir dans Sage ;
+// - paie, liste d'absences déduites hors défaut : ni « à revoir » ni cible nette recalculés sur un instantané qui masque la
+//   nature des absences (quantités photographiées des lignes confirmées seulement).
 import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2027-01-20';
@@ -21,6 +23,8 @@ const { ForfaitHeuresEnAttente } = await import('../client/src/components/temps/
 const { ReglagesForfaitHeures, erreursForfaitHeures } = await import('../client/src/components/temps/ReglagesForfaitHeures.tsx');
 const { ClotureForfaitHeuresDialog } = await import('../client/src/dialogs/ClotureForfaitHeuresDialog.tsx');
 const { useDomain } = await import('../client/src/state/derived.ts');
+const { Domain } = await import('../shared/domain.ts');
+const F = await import('../shared/rules/forfait-heures.ts');
 type Db = Awaited<ReturnType<typeof baseDemo>>['db'];
 type Feuille = import('../shared/types.ts').FeuilleTemps;
 
@@ -137,4 +141,37 @@ test('Paramètres → Décompte des heures : seuil hors défaut refusé sans la 
   assert.equal(a.r.ok, true, a.r.error);
   assert.deepEqual([a.payload.forfaitHeuresSeuil25, a.payload.forfaitHeuresAccord], [6, 'Accord d’entreprise du 1er mars 2027']);
   assert.equal(b.donnees().settings.forfaitHeuresSeuil25, 6);
+});
+
+test('paie, absences déduites hors défaut : ni « à revoir » ni cible nette recalculés sur l’instantané qui masque la nature des absences', async () => {
+  const { db, personne } = await baseDemo();
+  await db.insert('absences', { empId: EMP, type: 'MALADIE', du: '2026-03-09', au: '2026-03-13', statut: 'validee' });
+  await annee2026(db);
+  await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), forfaitHeuresAbsencesDeduites: ['MALADIE', 'AT', 'RTT'], forfaitHeuresAccord: 'Accord d’entreprise du 1er mars 2026' });
+  const admin = await personne(null, 'rh');
+  const dlg = await monter(db, admin, () => createElement(ClotureForfaitHeuresDialog, { periode: '2026-01-01' }));
+  render(dlg.element);
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Clôturer 1 ligne' })); });
+  assert.equal(dlg.trace.actions.at(-1)!.r.ok, true);
+  cleanup();
+  const ligne = (await db.all<import('../shared/types.ts').ClotureForfaitHeures>('cloturesForfaitHeures'))[0];
+  assert.ok(ligne.absences > 20, 'arrêt déduit par le serveur');
+
+  const paie = await monter(db, await personne(7, 'rh'), () => createElement(RecapForfaitHeures));
+  // Le défaut est réel : recalculé sur l'instantané de la paie (« ABSENCE »), l'arrêt ne serait plus déduit.
+  assert.match(F.aRevoir(new Domain(paie.donnees()), ligne) ?? '', /absences déduites recalculées : 0 h/);
+  render(paie.element);
+  assert.equal(screen.queryByText('À revoir'), null, 'la paie ne voit jamais un faux « à revoir »');
+  assert.equal(screen.queryByText(/à revoir :/), null);
+  const suivi = screen.getByRole('heading', { name: /Suivi du forfait annuel en heures/ }).closest('.panel') as HTMLElement;
+  assert.equal(within(suivi).queryByText('Cible nette'), null, 'cible nette recalculée : service RH et salarié seulement');
+  assert.ok(within(suivi).getByText('Cible'));
+  // Lignes confirmées : quantités photographiées par le serveur (cible nette de la clôture).
+  const tr = screen.getByRole('heading', { name: 'Clôtures enregistrées' }).closest('.panel')!.querySelector('tbody tr') as HTMLElement;
+  assert.match(tr.textContent ?? '', /confirmée, en attente du prochain lot de paie/);
+  cleanup();
+
+  // Service RH : mêmes données, vraies natures : rien à revoir.
+  const rh = await monter(db, admin, () => createElement(RecapForfaitHeures));
+  assert.equal(F.aRevoir(new Domain(rh.donnees()), ligne), null);
 });

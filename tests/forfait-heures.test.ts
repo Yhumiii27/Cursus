@@ -505,3 +505,30 @@ test('actions : blocage, sortie dans le lot du solde de sortie, droits de lectur
   const periodes = new Set([...lot.contenu!.forfaitHeures!.map(x => x.periode), ...(lot.resume.aSaisir ?? []).filter(x => x.famille === 'sorties').map(x => x.periode)]);
   assert.deepEqual([...periodes], [periodeSortie('2026-10-02', '2026-10-10', 0)]);
 });
+
+// Étape 2, relecture : les lignes sont repérées par leur début de plage. Un début du suivi déplacé après une clôture ouvre
+// une plage qui recouvre la ligne enregistrée : jamais proposée ni acceptée, sinon ses heures seraient payées deux fois.
+test('actions : début du suivi déplacé après une clôture — confirmation exigée, plage qui chevauche bloquée et refusée, ancienne ligne « à revoir »', async () => {
+  const { run, refus, lignes, d, ADMIN } = await fresh();
+  await run(ADMIN, 'forfaitHeures.cloturer', { lignes: [PLAGE] });
+  const [l] = await lignes();
+  // Paramètres : le changement du début du suivi exige une confirmation explicite dès qu'une ligne est enregistrée.
+  await refus(ADMIN, 'parametres.maj', { forfaitHeuresDebutSuivi: '2026-09-07' }, 409, /confirmez le changement/);
+  await refus(ADMIN, 'parametres.maj', { forfaitHeuresDebutPeriode: '09-01' }, 409, /confirmez le changement/);
+  // Rien d'autre que ces deux débuts : enregistré sans confirmation.
+  await run(ADMIN, 'parametres.maj', { forfaitHeuresSeuil25: 7 });
+  await run(ADMIN, 'parametres.maj', { forfaitHeuresDebutSuivi: '2026-09-07', forfaitHeuresChangementConfirme: true });
+  // Nouvelle plage du 7 au 30 septembre : proposée bloquée, refusée par le serveur ; l'ancienne ligne est « à revoir ».
+  const dd = await d();
+  const [p, ...reste] = F.plagesAClore(dd);
+  assert.deepEqual(reste, []);
+  assert.deepEqual([p.calc.debut, p.calc.fin], ['2026-09-07', '2026-09-30']);
+  assert.ok(p.calc.blocages.some(b => /chevauche la clôture déjà enregistrée du 31 août 2026 au 30 sept\. 2026/.test(b)), p.calc.blocages.join(' ; '));
+  assert.deepEqual(F.lignesARevoir(dd).map(x => x.ligne.id), [l.id]);
+  await refus(ADMIN, 'forfaitHeures.cloturer', { lignes: [{ empId: EMP, debut: '2026-09-07' }] }, 409, /chevauche la clôture déjà enregistrée/);
+  assert.equal((await lignes()).length, 1);
+  // Annulée (avant transmission), l'ancienne ligne ne bloque plus : la nouvelle plage se clôture.
+  await run(ADMIN, 'forfaitHeures.annuler', { id: l.id, motif: 'Début du suivi corrigé' });
+  assert.deepEqual(F.plagesAClore(await d()).map(x => [x.calc.debut, x.calc.blocages.length]), [['2026-09-07', 0]]);
+  assert.match(await run(ADMIN, 'forfaitHeures.cloturer', { lignes: [{ empId: EMP, debut: '2026-09-07' }] }), /1 ligne clôturée/);
+});

@@ -49,3 +49,22 @@ export function annulationClotureForfait(l: Pick<ClotureForfaitHeures, 'id' | 'd
     motif: motif('l’annulation', 'Plage clôturée par erreur, sortie annulée…'),
   };
 }
+
+/**
+ * Début du suivi ou de la période de référence déplacé alors que des clôtures sont enregistrées (Paramètres → Décompte des
+ * heures) : les lignes sont repérées par leur début de plage, elles passent « à revoir » et les plages recalculées qui les
+ * chevauchent restent bloquées (le serveur refuse le changement sans cette confirmation : `forfaitHeuresChangementConfirme`).
+ */
+export function changementDebutForfait(patch: Record<string, unknown>, lignes: number): Confirmation {
+  return {
+    titre: 'Changer le début du forfait annuel en heures',
+    question: `Changer le début du suivi ou de la période de référence alors que ${lignes > 1 ? `${lignes} clôtures sont enregistrées` : 'une clôture est enregistrée'} ?`,
+    suites: [
+      'Les clôtures enregistrées gardent leurs dates : celles que le changement modifie passent « à revoir ».',
+      'Une plage recalculée qui chevauche une clôture enregistrée reste bloquée, pour que ses heures ne soient jamais payées deux fois : rétablissez le réglage, ou annulez la clôture si elle n’est pas transmise.',
+    ],
+    bouton: 'Changer le début',
+    action: 'parametres.maj',
+    payload: { ...patch, forfaitHeuresChangementConfirme: true },
+  };
+}

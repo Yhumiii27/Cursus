@@ -3,7 +3,8 @@
 // Règles : shared/rules/forfait-heures.ts ; paie : server/src/forfait-heures-paie.ts (famille « forfaitHeures »).
 // - `forfaitHeures.cloturer` (lignes cochées : salarié et début de plage) : la ligne est recalculée sur l'instantané,
 //   photographiée et confirmée ; une ligne déjà confirmée n'est jamais refaite ; une ligne bloquée (plage en cours, feuille
-//   non validée, semaine sans feuille ni absence, durée légale atteinte par un temps partiel) refuse toute la clôture.
+//   non validée, semaine sans feuille ni absence, durée légale atteinte par un temps partiel, plage qui chevauche une ligne
+//   non annulée d'un autre début : réglage du début déplacé après une clôture) refuse toute la clôture.
 // - `forfaitHeures.rouvrir` (motif obligatoire, 500 caractères au plus) : avant transmission, la ligne repasse « à
 //   confirmer » ; après, une nouvelle version « à confirmer » la remplace, dont seul l'écart partira (lot correctif). Refusée
 //   tant que la ligne est dans un lot dont l'import n'est pas confirmé (annuler d'abord le lot).
@@ -12,7 +13,7 @@
 // taux, ni montant, ni motif (server/src/journal.ts).
 import { isValidDate } from '../../../shared/dates.ts';
 import { fmtIso, plural } from '../../../shared/format.ts';
-import { clotureForfaitHeures, derniereTransmise, periodeReference, sansEcartTransmis, versionsDe } from '../../../shared/rules/forfait-heures.ts';
+import { blocageChevauchement, clotureForfaitHeures, derniereTransmise, ligneChevauchee, periodeReference, sansEcartTransmis, versionsDe } from '../../../shared/rules/forfait-heures.ts';
 import { erreurMotifReouverture } from '../../../shared/rules/regularisation.ts';
 import type { ClotureForfaitHeures } from '../../../shared/types.ts';
 import { ActionError, type ActionHandler, type Ctx, getEmp, refuserSoiMeme, requireRhAdmin, REVIENT_RH, str } from './context.ts';
@@ -59,6 +60,10 @@ const cloturer: ActionHandler = async (ctx, p) => {
     if (!calc) throw new ActionError(`${emp.nom} : aucune plage sous forfait annuel en heures ne commence le ${fmtIso(debut)}`, 404);
     const derniere = versionsDe(toutes, emp.id, debut).at(-1) ?? null;
     if (derniere?.statut === 'confirmee') { deja.push(emp.nom); continue; }
+    // Plage qui recouvre une ligne d'un autre début (début du suivi ou de la période déplacé après une clôture) : ses heures
+    // seraient payées deux fois.
+    const chevauchee = ligneChevauchee(toutes, emp.id, calc);
+    if (chevauchee) calc.blocages.push(blocageChevauchement(chevauchee));
     if (calc.blocages.length) { refus.push(`${emp.nom} : ${calc.blocages.join(' ; ')}`); continue; }
     aEcrire.push({ calc, derniere, nom: emp.nom });
   }

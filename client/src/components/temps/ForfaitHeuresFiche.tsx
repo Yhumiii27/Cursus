@@ -6,12 +6,13 @@
 //   rubrique active, ou à saisir dans Sage (HFA25, HFA50, HCA10, HCA25 désactivées par défaut) ; période d'émission comprise.
 import { useMemo } from 'react';
 import { fH, fmtIso } from '../../../../shared/format.ts';
-import { concerneParForfaitHeures, elementsForfaitHeures, ligneEnVigueur, plagesAClore, suiviForfaitHeures, versionsDe } from '../../../../shared/rules/forfait-heures.ts';
+import { concerneParForfaitHeures, elementsForfaitHeures, ligneEnVigueur, plagesACloreDe, suiviForfaitHeures, versionsDe } from '../../../../shared/rules/forfait-heures.ts';
+import { FORMAT_FICHIER_DEFAUT } from '../../../../shared/rules/lots-paie.ts';
 import { periodeLabel, rubriquesPaie } from '../../../../shared/rules/paie.ts';
 import type { Employe } from '../../../../shared/types.ts';
 import { useDomain, useRole } from '../../state/derived.ts';
 import { Fine, NoteAccent } from '../ui.tsx';
-import { etatTexte, voitQuantites } from './forfait-heures-vue.ts';
+import { etatTexte, voitQuantites, voitRecalcul } from './forfait-heures-vue.ts';
 import { useDroitsForfaitHeures } from './RecapForfaitHeures.tsx';
 
 /** Ligne de la fiche collaborateur : forfait annuel en heures de la période en cours et dernière clôture. */
@@ -23,21 +24,23 @@ export function ForfaitHeuresFiche({ e }: { e: Employe }) {
   const lignes = (d.ds.cloturesForfaitHeures ?? []).filter(l => l.empId === e.id);
   const derniere = [...lignes].sort((a, b) => b.debut.localeCompare(a.debut))[0];
   const enVigueur = derniere ? ligneEnVigueur(lignes, e.id, derniere.debut) : null;
-  const aClore = useMemo(() => (r.rh && concerneParForfaitHeures(d, e) ? plagesAClore(d).filter(p => p.e.id === e.id) : []), [d, e, r.rh]);
+  // Plages à clôturer du seul salarié affiché (jamais le calcul de tous les salariés à l'ouverture d'une fiche).
+  const aClore = useMemo(() => (r.rh ? plagesACloreDe(d, e) : []), [d, e, r.rh]);
   if (!(r.rh || r.paie || r.consultation || r.manager)) return null;
   if (!suivis.length && !enVigueur && !aClore.length) return null;
-  const q = voitQuantites(r, e.id);
+  // Cible nette recalculée : service RH et le salarié lui-même (la paie lit les lignes confirmées : `voitRecalcul`).
+  const q = voitQuantites(r, e.id), net = voitRecalcul(r, e.id);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
       <div className="text-muted sub">Forfait annuel en heures</div>
       {suivis.map(s => (
         <div key={s.calc.debut}>
           <div className="tnum" style={{ fontSize: 14 }}>
-            {fH(s.calc.realise)} réalisées / {q ? `${fH(s.calc.cibleNette)} de cible nette` : `${fH(s.calc.cible)} de cible`}
+            {fH(s.calc.realise)} réalisées / {net ? `${fH(s.calc.cibleNette)} de cible nette` : `${fH(s.calc.cible)} de cible`}
           </div>
           <div className="text-muted sub">
             Du {fmtIso(s.calc.debut)} au {fmtIso(s.calc.fin)} · forfait de {fH(s.calc.forfait)}
-            {q && s.calc.absences ? ` · ${fH(s.calc.absences)} d’absences déduites` : ''}
+            {net && s.calc.absences ? ` · ${fH(s.calc.absences)} d’absences déduites` : ''}
             {s.projection != null ? ` · projection ${fH(s.projection)}` : ''}
           </div>
         </div>
@@ -53,7 +56,8 @@ export function ForfaitHeuresEnAttente() {
   const d = useDomain();
   const { paie, rh } = useRole();
   if (!paie && !rh) return null;
-  const elements = elementsForfaitHeures(d, '9999-12', rubriquesPaie(d.ds.rubriquesPaie));
+  // Format du fichier : un écart négatif refusé part « à saisir dans Sage », comme le calcule le serveur.
+  const elements = elementsForfaitHeures(d, '9999-12', rubriquesPaie(d.ds.rubriquesPaie), (d.ds.formatFichierPaie ?? FORMAT_FICHIER_DEFAUT).negatifs !== false);
   if (!elements.length) return null;
   const texte = (l: typeof elements) => l.map(x => `${d.personName(x.empId)} (${x.rubrique} ${fH(x.quantite)}${x.correctif ? ', écart' : ''}, ${periodeLabel(x.periode)})`).join(', ');
   const dansLeFichier = elements.filter(x => x.codeSage), aSaisir = elements.filter(x => !x.codeSage);

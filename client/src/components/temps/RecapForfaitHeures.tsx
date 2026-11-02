@@ -23,7 +23,7 @@ import { annulationClotureForfait, rouvertureClotureForfait } from '../../state/
 import { useStore } from '../../state/store.tsx';
 import { Empty, Fine, Panel, Tag, Two } from '../ui.tsx';
 import {
-  etatTexte, groupesAClore, groupeTexte, heuresDuesTexte, periodeTexte, plageTexte, salariesForfaitHeures, voitQuantites, type DroitsForfaitHeures,
+  etatTexte, groupesAClore, groupeTexte, heuresDuesTexte, periodeTexte, plageTexte, salariesForfaitHeures, voitQuantites, voitRecalcul, type DroitsForfaitHeures,
 } from './forfait-heures-vue.ts';
 
 /** Lignes enregistrées affichées avant « Afficher tout l'historique ». */
@@ -104,6 +104,9 @@ function SuiviForfaitHeuresPanel({ d, r, titre }: { d: Domain; r: DroitsForfaitH
     return <Panel title={titre}><Empty pad="sm">Aucun salarié au forfait annuel en heures dans la période.</Empty></Panel>;
   }
   const quantites = lignes.some(({ e }) => voitQuantites(r, e.id));
+  // Cible nette (recalculée) en en-tête seulement si chaque ligne la montre : un manager au forfait voit la sienne, jamais
+  // celle de son équipe ; la paie lit les quantités des lignes confirmées (`voitRecalcul`).
+  const toutesNettes = lignes.every(({ e }) => voitRecalcul(r, e.id));
   return (
     <Panel title={titre} aside={plural(new Set(lignes.map(x => x.e.id)).size, 'salarié', 'salariés')}>
       <div className="scroll-x">
@@ -111,26 +114,26 @@ function SuiviForfaitHeuresPanel({ d, r, titre }: { d: Domain; r: DroitsForfaitH
           <thead>
             <tr>
               <th>Collaborateur</th><th>Plage</th><th className="right">Réalisé</th>
-              <th className="right">{quantites ? 'Cible nette' : 'Cible'}</th><th className="right">Projection</th>{quantites && <th>Clôture</th>}
+              <th className="right">{toutesNettes ? 'Cible nette' : 'Cible'}</th><th className="right">Projection</th>{quantites && <th>Clôture</th>}
             </tr>
           </thead>
           <tbody>
             {lignes.map(({ e, s }) => {
-              const q = voitQuantites(r, e.id), c = s.calc;
+              const q = voitQuantites(r, e.id), net = voitRecalcul(r, e.id), c = s.calc;
               return (
                 <tr key={`${e.id}|${c.debut}`}>
                   <td><Two main={e.nom} sub={equipeLabel(e)} nowrap /></td>
                   <td><Two main={`${fmtIso(c.debut)} → ${fmtIso(c.fin)}`} sub={`${fH(c.forfait)}${s.enCours ? ' · en cours' : ' · terminée'}`} nowrap /></td>
                   <td className="right tnum">{fH(c.realise)}</td>
                   <td className="right">
-                    {q ? <Two main={<span className="tnum">{fH(c.cibleNette)}</span>} sub={c.absences ? `${fH(c.cible)} − ${fH(c.absences)} d’absences` : undefined} />
-                      : <span className="tnum">{fH(c.cible)}</span>}
+                    {toutesNettes ? <Two main={<span className="tnum">{fH(c.cibleNette)}</span>} sub={c.absences ? `${fH(c.cible)} − ${fH(c.absences)} d’absences` : undefined} />
+                      : <Two main={<span className="tnum">{fH(c.cible)}</span>} sub={net && c.absences ? `nette : ${fH(c.cibleNette)}` : undefined} />}
                   </td>
                   <td className="right">
                     <Two main={<span className="tnum">{s.projection == null ? '—' : fH(s.projection)}</span>}
                       sub={s.projection != null && s.couvertJusquau ? `au ${fmtIso(s.couvertJusquau)}` : undefined} />
                   </td>
-                  {quantites && <td>{q ? <EtatSuivi s={s} /> : <span className="text-muted">—</span>}</td>}
+                  {quantites && <td>{q ? <EtatSuivi s={s} revoir={net} /> : <span className="text-muted">—</span>}</td>}
                 </tr>
               );
             })}
@@ -138,13 +141,14 @@ function SuiviForfaitHeuresPanel({ d, r, titre }: { d: Domain; r: DroitsForfaitH
         </table>
       </div>
       {!quantites && <Fine>Réalisé des feuilles validées et cible au prorata de la présence ; les absences déduites et les heures de paie restent au service RH.</Fine>}
+      {quantites && !toutesNettes && <Fine>Cible au prorata de la présence ; {r.paie && !r.rh ? 'les absences déduites et les heures dues sont celles des clôtures confirmées.' : 'les absences déduites restent au service RH.'}</Fine>}
     </Panel>
   );
 }
 
-/** État de la clôture d'une plage suivie. */
-function EtatSuivi({ s }: { s: SuiviForfaitHeures }) {
-  if (s.ligne) return <Two main={etatTexte(s.ligne, null)} sub={s.revoir ? `à revoir : ${s.revoir}` : undefined} />;
+/** État de la clôture d'une plage suivie ; « à revoir » (recalculé) pour le service RH et le salarié lui-même seulement. */
+function EtatSuivi({ s, revoir }: { s: SuiviForfaitHeures; revoir: boolean }) {
+  if (s.ligne) return <Two main={etatTexte(s.ligne, null)} sub={revoir && s.revoir ? `à revoir : ${s.revoir}` : undefined} />;
   return <span className="text-muted">{s.enCours ? 'période en cours' : 'à clôturer'}</span>;
 }
 
@@ -237,7 +241,8 @@ function LignesForfaitHeures() {
           </thead>
           <tbody>
             {(tout ? lignes : lignes.slice(0, LIGNES_VISIBLES)).map(l => {
-              const revoir = l.statut === 'confirmee' && derniere(l) && !collab ? aRevoir(d, l) : null;
+              // « À revoir » recalculé sur l'instantané : service RH seulement (celui de la paie masque la nature des absences).
+              const revoir = l.statut === 'confirmee' && derniere(l) && rh ? aRevoir(d, l) : null;
               return (
                 <tr key={l.id}>
                   {!collab && <td><Two main={d.personName(l.empId)} sub={l.version > 1 ? `version ${l.version}` : undefined} nowrap /></td>}

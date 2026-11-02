@@ -166,10 +166,11 @@ for (const graine of GRAINES) {
     // Jeux d'action de tous les lecteurs tous les 5 pas (celui de l'acteur avant chaque action, toujours) ; tout au dernier pas.
     // Saisie et absences en renfort : depuis le lot 11, les actions des nouveaux modules (frais, OPCO, organigramme…) diluent
     // le tirage, et la suite doit toujours exercer ces chemins.
-    // Lot 12 (forfait heures, objectifs, organismes, planning, badgeage…) : renfort multiplié par six, la graine 42 tombait à 58 actions
-    // validées en 300 pas (sans divergence).
+    // Lot 12 (forfait heures, objectifs, organismes, planning, badgeage…) : au passage long, renfort multiplié par six (la graine
+    // 42 tombait à 58 actions validées en 300 pas, sans divergence) ; le passage court de 60 pas garde le renfort simple, qui
+    // y suffit (multiplié, il fait tirer davantage de saisies refusées faute de feuille modifiable).
     const renfort = ['temps.setCell', 'temps.setCell', 'temps.addLine', 'temps.submit', 'temps.validate', 'absence.demander', 'absence.decider']
-      .flatMap(a => Array<string>(6).fill(a));
+      .flatMap(a => Array<string>(COMPLET ? 6 : 1).fill(a));
     const x = await rejouer(db, { graine, pas: PAS, verifierTous: 1, jeux: COMPLET ? 1 : 5, sql: 0.25, renfort });
     const stats = statistiquesCache(db);
     const resume = `${resumeRapport(x)}\ncache : ${JSON.stringify(stats)}`;

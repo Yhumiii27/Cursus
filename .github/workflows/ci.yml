@@ -135,7 +135,7 @@ jobs:
       CURSUS_TEST_DATABASE_URL: ${{ matrix.moteur == 'pg' && 'postgres://postgres:essai-ci-postgres@localhost:5432/postgres' || '' }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -176,7 +176,7 @@ jobs:
       EPC2I_SAUVEGARDE_PASSWORD: essai-ci-sauvegarde-01234
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm

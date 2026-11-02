@@ -3,7 +3,8 @@
 // - entretien annuel : objectifs de la période précédente et leur évaluation, objectifs fixés à cet entretien ;
 // - point de mi-année, point de suivi : objectifs en cours et leur avancement à la date de l'impression ;
 // - souhaits de formation, avec l'avis du manager et la suite donnée (demande au service RH, ou raison de ne pas la créer).
-// Synthèse du feedback 360° : annexe distincte et facultative, à l'étape 3 (module désactivé).
+// Synthèse du feedback 360° (étape 3) : annexe distincte, après les signatures, seulement quand une synthèse est jointe ;
+// agrégats et commentaires restitués, jamais une réponse prise seule.
 import type { Domain } from '../../../shared/domain.ts';
 import { fmtIso } from '../../../shared/format.ts';
 import { CATEGORIE_OBJECTIF_LABEL, objectifsDuCompteRendu, STATUT_OBJECTIF_LABEL, TYPES_FIXATION } from '../../../shared/rules/objectifs.ts';
@@ -11,6 +12,7 @@ import { AVIS_SOUHAIT_LABEL, NON_VERSE_LABEL, PRIORITE_SOUHAIT_LABEL, souhaitsDe
 import { REQ_LABEL } from '../../../shared/constants.ts';
 import type { Entretien, Objectif } from '../../../shared/types.ts';
 import type { PrintSection } from '../print.ts';
+import { libelleGroupe360, lireSynthese360, QUESTIONNAIRE_360 } from '../../../shared/rules/feedback360.ts';
 
 const detail = (o: Objectif) => [o.mesure ? `Mesure : ${o.mesure}` : '', o.reconduitDe ? 'reconduit' : '', o.ajusteLe ? `ajusté le ${fmtIso(o.ajusteLe)}` : ''].filter(Boolean).join(' · ');
 
@@ -61,4 +63,22 @@ export function sectionsSuivi(d: Domain, x: Entretien): PrintSection[] {
       : { title: 'Souhaits de formation', text: 'Aucun souhait de formation exprimé.' });
   }
   return out;
+}
+
+/** Annexe « Synthèse du feedback 360° » du compte rendu imprimé (vide : aucune synthèse jointe). */
+export function annexeFeedback360(x: Entretien): PrintSection[] {
+  const s = lireSynthese360(x.syntheseFeedback);
+  if (!s) return [];
+  const titre = 'Annexe — synthèse du feedback 360° (confidentielle)';
+  const entete = `Collecte close le ${fmtIso(s.closeLe)} : ${s.reponses} réponse${s.reponses > 1 ? 's' : ''} sur ${s.envoyees} sollicités (questionnaire ${s.version}, échelle de 1 à 4).`;
+  if (s.insuffisant) return [{ title: titre, saut: true, text: `${entete} Moins de ${s.seuil} réponses : rien n’est restitué.` }];
+  const colonnes = [...s.groupes, ...(s.ensemble ? [s.ensemble] : [])];
+  const moyenne = (v: number | null | undefined) => (v == null ? '—' : v.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
+  return [
+    { title: titre, saut: true, text: `${entete} « — » : moins de ${s.seuil} réponses, rien n’est restitué ; les catégories de moins de ${s.seuil} répondants sont regroupées.`, table: {
+      head: ['Question', ...colonnes.map((g, i) => `${i === colonnes.length - 1 && s.ensemble ? 'Ensemble' : libelleGroupe360(g)} (${g.reponses})`)],
+      rows: QUESTIONNAIRE_360.questions.map(q => [q.theme, ...colonnes.map(g => moyenne(g.moyennes[q.cle]))]),
+    } },
+    ...(s.verbatims.length ? [{ title: 'Commentaires restitués (relus par le service RH)', table: { head: ['Commentaire'], rows: s.verbatims.map(v => [v]) } }] : []),
+  ];
 }

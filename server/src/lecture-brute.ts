@@ -42,7 +42,7 @@ import type {
 // lot 11 — notes de frais
 import type { AvanceFrais, BaremeKm, ForfaitFrais, LigneFrais, NoteFrais, TauxDevise, VehiculePerso } from '../../shared/types.ts';
 // lot 12 — C1 (forfait annuel en heures)
-import type { ClotureForfaitHeures, CorrectionPointage, Objectif, Reponse360, Sollicitation360 } from '../../shared/types.ts';
+import type { ClotureForfaitHeures, CorrectionPointage, Objectif, Sollicitation360 } from '../../shared/types.ts';
 // lot 12 — C2 (notes de frais : activation)
 import { borneFrais } from '../../shared/rules/frais-fenetre.ts';
 // lot 12 — C3 (entretiens suivis et 360°)
@@ -165,7 +165,6 @@ export interface Brut {
   // lot 12 — C3 (entretiens suivis et 360°)
   objectifs: Objectif[];
   feedbackSollicitations: Sollicitation360[];
-  feedbackReponses: Reponse360[];
   // lot 12 — C4 (organismes de formation et e-learning)
   organismes: Organisme[];
   organismeContacts: OrganismeContact[];
@@ -361,7 +360,6 @@ export async function lireBrut(db: Db, today: string): Promise<Brut> {
     // lot 12 — C3 (entretiens suivis et 360°)
     objectifs: await lire('objectifs'),
     feedbackSollicitations: await lire('feedbackSollicitations'),
-    feedbackReponses: await lire('feedbackReponses'),
     // lot 12 — C4 (organismes de formation et e-learning)
     organismes: await lire('organismes'),
     organismeContacts: await lire('organismeContacts'),
@@ -606,11 +604,10 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     cloturesForfaitHeures: brut.cloturesForfaitHeures,
     // lot 12 — C2 (notes de frais : activation)
     // lot 12 — C3 (entretiens suivis et 360°)
-    // Objectifs (toutes les lignes) ; feedback 360° (étape 3) : sollicitations et réponses versées, filtrées par espace et
-    // par profil dans server/src/vues-entretiens-suivis.ts.
+    // Objectifs (toutes les lignes) ; feedback 360° (étape 3) : sollicitations, filtrées par espace et par profil dans
+    // server/src/vues-entretiens-suivis.ts (les réponses versées n'entrent jamais dans l'instantané).
     objectifs: brut.objectifs,
     feedbackSollicitations: brut.feedbackSollicitations,
-    feedbackReponses: brut.feedbackReponses,
     // lot 12 — C4 (organismes de formation et e-learning) : filtrés par espace et par profil dans server/src/vues-organismes.ts.
     organismes: brut.organismes,
     organismeContacts: brut.organismeContacts,
@@ -705,7 +702,6 @@ const LECTURES_ASSEMBLEES = {
   // lot 12 — C3 (entretiens suivis et 360°)
   objectifs: ['objectifs'],
   feedbackSollicitations: ['feedbackSollicitations'],
-  feedbackReponses: ['feedbackReponses'],
   // lot 12 — C4 (organismes de formation et e-learning)
   organismes: ['organismes'],
   organismeContacts: ['organismeContacts'],
@@ -765,7 +761,9 @@ export const HORS_INSTANTANE: ReadonlySet<TableName> = new Set<TableName>(['noti
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // Réponses du feedback 360° en attente du versement (chiffrées) : jamais lues par l'instantané, ni pour le service RH.
-  'feedbackTampon',
+  // Étape 3 : réponses versées non plus (relation, notes et commentaire d'une réponse prise seule) ; synthèse jointe à
+  // l'entretien, commentaires à relire servis au service RH par leur route (server/src/feedback360.ts).
+  'feedbackTampon', 'feedbackReponses',
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)

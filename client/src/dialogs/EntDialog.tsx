@@ -22,6 +22,7 @@ import { annulationEntretien } from '../state/confirmations-annulations.ts';
 // lot 12 — C3 (entretiens suivis)
 import { saisiesSuivies } from '../../../shared/rules/objectifs.ts';
 import { EntretienSuivi } from '../components/EntretienSuivi.tsx';
+import { Feedback360Bloc } from '../components/Feedback360Bloc.tsx';
 import type { DialogState } from '../state/store.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { EnregistrementAuFil } from '../state/enregistrement.ts';
@@ -204,6 +205,8 @@ export function EntDialog({ entId }: { entId: number }) {
       )}
       {/* lot 12 — C3 (entretiens suivis) : objectifs et souhaits de formation. */}
       <EntretienSuivi x={x} e={e} ouvrir={ouvrirSuivi} />
+      {/* lot 12 — C3 (feedback 360°, étape 3) : répondants, compteur global, collecte, synthèse jointe. */}
+      <Feedback360Bloc x={x} e={e} ouvrir={ouvrirSuivi} />
       {canMgr && aVenir && (
         <Field label="Date à laquelle l’entretien a eu lieu" htmlFor="ent-tenu">
           <input className="input" id="ent-tenu" type="date" min={debut.min} max={d.ti} value={tenu} onChange={ev => setTenu(ev.target.value)} aria-invalid={tenuErr ? true : undefined} />

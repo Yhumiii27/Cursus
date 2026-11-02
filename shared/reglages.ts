@@ -20,6 +20,8 @@ import { COMPTE_FRAIS_GENERIQUE, COMPTE_SALARIE, COMPTE_TVA_DEDUCTIBLE, estCompt
 // lot 12 — C1 (forfait annuel en heures)
 import { ABSENCES_DEDUCTIBLES, ABSENCES_DEDUITES_DEFAUT, DEBUT_SUIVI_DEFAUT, forfaitHeuresHorsDefaut, SEUIL_25_DEFAUT } from './rules/forfait-heures.ts';
 import type { EmissionForfaitHeures } from './rules/forfait-heures.ts';
+// lot 12 — C3 (entretiens suivis et 360°)
+import { CONSERVATION_360_MAX_MOIS, FENETRE_360_DEFAUT, refusActivation360, SEUIL_360_MAX, SEUIL_360_MIN } from './rules/feedback360.ts';
 // lot 12 — C6 (badgeage virtuel)
 import { CONSERVATION_POINTAGES_MAX, CONSERVATION_POINTAGES_MIN, lirePopulations, refusActivationPointage } from './rules/pointage.ts';
 
@@ -384,6 +386,14 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   pointMiAnneeActif: { defaut: false, controle: booleen },
   pointMiAnneeDebut: { defaut: '05-01', controle: jourDeLAnnee },
   pointMiAnneeFin: { defaut: '07-15', controle: jourDeLAnnee },
+  //   Feedback 360° (étape 3) : désactivé, activé seulement avec les références de l'avis du CSE et de l'AIPD (COHERENCE) ;
+  //   seuil de restitution 3 par catégorie (jamais moins) ; fenêtre de 21 jours ; réponses brutes gardées 6 mois au plus —
+  feedback360Actif: { defaut: false, controle: booleen },
+  feedback360Cse: { defaut: '', controle: texte(120, 'Feedback 360°, référence de l’avis du CSE') },
+  feedback360Aipd: { defaut: '', controle: texte(120, 'Feedback 360°, référence de l’analyse d’impact (AIPD)') },
+  feedback360Seuil: { defaut: SEUIL_360_MIN, controle: entier(SEUIL_360_MIN, SEUIL_360_MAX) },
+  feedback360FenetreJours: { defaut: FENETRE_360_DEFAUT, controle: entier(7, 42) },
+  feedback360ConservationMois: { defaut: CONSERVATION_360_MAX_MOIS, controle: entier(1, CONSERVATION_360_MAX_MOIS) },
   // lot 12 — C4 (organismes de formation et e-learning)
   //   Qualiopi : première relance du service RH 60 jours avant la fin de validité (puis 15 jours et l'échéance), avertissement
   //   seulement ; fin d'un module d'e-learning validée par le service RH, pas d'office à l'import (choix par défaut du chantier) —
@@ -480,6 +490,9 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°) : fenêtre du point de mi-année dans l'année civile, l'ouverture avant la fin —
   s => (s.pointMiAnneeDebut > s.pointMiAnneeFin ? 'Point de mi-année : le début de la fenêtre doit précéder sa fin, dans la même année' : null),
+  // Feedback 360° : moyen d'évaluation des salariés, activé seulement après l'avis du CSE (art. L2312-38) et l'analyse
+  // d'impact (RGPD art. 35), dont les références sont notées —
+  s => refusActivation360(s),
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe) : un délai de prévenance plus court que 7 jours (art. L3121-42 et L3121-44), un repos
   // quotidien réduit (art. L3131-2, D3131-1 et suivants) ou d'autres durées du travailleur de nuit (art. L3122-6 et

@@ -31,6 +31,9 @@ import { BarreOnglets } from './BarreOnglets.tsx';
 import { ongletsDe } from './onglets.ts';
 // lot 12 — C5 (planning d'équipe)
 import { planifieLuiMeme } from '../components/planning/planning-vue.ts';
+// lot 12 — C3 (entretiens suivis et 360°)
+import { ChatsCircleIcon } from '@phosphor-icons/react';
+import { avisADonner } from '../../../shared/rules/a-faire.ts';
 // lot 12 — C6 (badgeage virtuel)
 import { TimerIcon } from '@phosphor-icons/react';
 import { correctionsAValider, pointe } from '../components/temps/pointage-etat.ts';
@@ -52,6 +55,14 @@ const ENTREES_LOT12: readonly EntreesMenu[] = [
   // proches de leur échéance sans mise à jour (shared/rules/a-faire.ts).
   (data, d, role) => (role === 'collaborateur' && data.settings.objectifsActifs
     ? [['Mon espace', { view: 'objectifs', label: 'Mes objectifs', icon: TargetIcon, badge: aFaireCollaborateur(d, data.user.empId).objectifs.length }]] : []),
+  // Feedback 360° (étape 3) : « Avis demandés » le module activé, pour qui est ou a été sollicité comme répondant
+  // (collaborateur ; manager sollicité comme N+2 ou collègue) ; pastille : avis encore à donner.
+  (data, d, role) => {
+    const me = data.user.empId;
+    if (!data.settings.feedback360Actif || me == null || role === 'rh') return [];
+    if (role === 'manager' && !(data.feedbackSollicitations ?? []).some(s => s.repondantEmpId === me)) return [];
+    return [['Mon espace', { view: 'avis', label: 'Avis demandés', icon: ChatsCircleIcon, badge: avisADonner(data.feedbackSollicitations ?? [], me, d.ti).length }]];
+  },
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe) : « Mon planning » du collaborateur, le module activé ; pastille : échanges proposés à
   // lui, à accepter ou refuser. Le planning de l'équipe est un onglet de Temps de travail.

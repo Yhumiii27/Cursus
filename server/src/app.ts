@@ -37,6 +37,7 @@ import { routesFraisExports } from './frais-exports.ts';
 // lot 12 — C2 (notes de frais : activation)
 import { routesFraisHistorique } from './frais-historique.ts';
 // lot 12 — C3 (entretiens suivis et 360°)
+import { routesFeedback360 } from './feedback360.ts';
 // lot 12 — C4 (organismes de formation et e-learning)
 // lot 12 — C5 (planning d'équipe)
 import { routesPlanningHistorique } from './planning-historique.ts';
@@ -243,7 +244,9 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // Historique des notes de frais (notes payées depuis plus de 13 mois, hors de l'instantané), lu par fetch depuis l'écran.
   app.get('/api/frais/historique', exigerNavigationInterne('appel'));
   app.get('/api/frais/historique/:noteId', exigerNavigationInterne('appel'));
-  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C3 (entretiens suivis et 360°) : commentaires 360° à relire (service RH), réponse en attente (son auteur).
+  app.get('/api/feedback360/moderation', exigerNavigationInterne('appel'));
+  app.get('/api/feedback360/reponse/:id', exigerNavigationInterne('appel'));
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe) : historique des créneaux hors de la fenêtre de l'instantané, lu par fetch depuis l'écran.
   app.get('/api/planning/historique', exigerNavigationInterne('appel'));
@@ -280,7 +283,8 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)
   app.use(routesFraisHistorique(db));
-  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C3 (entretiens suivis et 360°) : feedback 360°, server/src/feedback360.ts.
+  app.use(routesFeedback360(db));
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe) : historique des créneaux hors de la fenêtre de l'instantané, filtré par droits.
   app.use(routesPlanningHistorique(db));

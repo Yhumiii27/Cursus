@@ -81,8 +81,8 @@ export function Portail() {
   // Ce qui attend le collaborateur : les mêmes nombres que les pastilles du menu (layout/Shell.tsx).
   const aFaire = aFaireCollaborateur(d, me.id);
   const nAFaire = aFaire.comptesRendus.length + aFaire.feuilles.length + aFaire.evaluations.length
-    // lot 12 — C3 (entretiens suivis) : objectifs à mettre à jour.
-    + aFaire.objectifs.length;
+    // lot 12 — C3 (entretiens suivis) : objectifs à mettre à jour ; avis 360° demandés (étape 3).
+    + aFaire.objectifs.length + aFaire.avis360.length;
 
   return (
     <div className="page">
@@ -147,6 +147,16 @@ export function Portail() {
                 <Btn small variant="secondary" style={{ flex: 'none' }} onClick={() => openDialog({ type: 'objectifAvancer', id: o.id })}>Mettre à jour</Btn>
               </div>
             ))}
+            {/* lot 12 — C3 (feedback 360°, étape 3) : avis demandés, à donner ou décliner dans « Avis demandés ». */}
+            {aFaire.avis360.length > 0 && (
+              <div className="list-row">
+                <div className="grow">
+                  <div style={{ fontSize: 14 }}>{plural(aFaire.avis360.length, 'avis confidentiel vous est demandé', 'avis confidentiels vous sont demandés')} (feedback 360°)</div>
+                  <div className="text-muted sub">À donner ou décliner avant le {fmt(parse(aFaire.avis360[0].echeance ?? d.ti))}</div>
+                </div>
+                <Btn small variant="secondary" style={{ flex: 'none' }} onClick={() => go('avis')}>Voir les avis demandés</Btn>
+              </div>
+            )}
           </div>
         </Panel>
       )}

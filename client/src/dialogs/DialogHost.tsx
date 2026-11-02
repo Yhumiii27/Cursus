@@ -97,6 +97,8 @@ import { ObjectifAvancerDialog } from './ObjectifAvancerDialog.tsx';
 import { ObjectifDialog } from './ObjectifDialog.tsx';
 import { ObjectifEvaluerDialog } from './ObjectifEvaluerDialog.tsx';
 import { SouhaitDialog } from './SouhaitDialog.tsx';
+import { Avis360Dialog } from './Avis360Dialog.tsx';
+import { Feedback360SolliciterDialog } from './Feedback360SolliciterDialog.tsx';
 // lot 12 — C4 (organismes de formation et e-learning)
 import { ElearningCorrigerDialog, ElearningInscrireDialog, ElearningTerminerDialog } from './ElearningDialogs.tsx';
 import { ElearningImportDialog } from './ElearningImportDialog.tsx';
@@ -222,6 +224,8 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'objectifAvancer': return <ObjectifAvancerDialog {...d} />;
     case 'objectifEvaluer': return <ObjectifEvaluerDialog {...d} />;
     case 'souhait': return <SouhaitDialog {...d} />;
+    case 'feedback360Solliciter': return <Feedback360SolliciterDialog {...d} />;
+    case 'avis360': return <Avis360Dialog {...d} />;
     // lot 12 — C4 (organismes de formation et e-learning)
     case 'organisme': return <OrganismeDialog {...d} />;
     case 'organismeConditions': return <OrganismeConditionsDialog {...d} />;

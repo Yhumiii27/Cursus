@@ -17,6 +17,7 @@ import { decideur } from '../state/delegues.ts';
 // lot 12 — C3 (entretiens suivis) : onglets Objectifs et Points de suivi (espaces RH et manager).
 import { Seg } from '../components/ui.tsx';
 import { OngletObjectifs, OngletPoints } from './EntretiensSuivi.tsx';
+import { OngletFeedback360 } from './EntretiensFeedback360.tsx';
 import type { OngletEntretiens } from './entretiens-onglets.ts';
 
 const RISK_TEXT = 'Conditions non remplies — abondement correctif de 3 000 € sur le CPF (entreprises de 50 salariés et plus)';
@@ -78,7 +79,9 @@ export function Entretiens() {
   }, [d, data, year, rh, manager, collab, me, soi]);
 
   // lot 12 — C3 (entretiens suivis) : onglet de l'écran ; le collaborateur n'a que les échéances et ses comptes rendus.
-  const onglet: OngletEntretiens = collab ? 'echeances' : ui.entOnglet;
+  // Feedback 360° (étape 3) : onglet du service RH, le module activé.
+  const feedback = rh && data.settings.feedback360Actif;
+  const onglet: OngletEntretiens = collab || (ui.entOnglet === 'feedback' && !feedback) ? 'echeances' : ui.entOnglet;
 
   // Le manager a aussi un espace collaborateur (tout compte manager est salarié) : ses propres entretiens s'y trouvent.
   const versMesEntretiens = async () => {
@@ -97,9 +100,9 @@ export function Entretiens() {
       {/* lot 12 — C3 (entretiens suivis) : onglets, hors de l'espace collaborateur (« Mes objectifs » y a sa page). */}
       {!collab && (
         <Seg name="entOnglet" label="Onglet d’Entretiens" value={onglet} onChange={o => setUi({ entOnglet: o })} style={{ alignSelf: 'flex-start', flexWrap: 'wrap' }}
-          options={[['echeances', 'Échéances et comptes rendus'], ['objectifs', 'Objectifs'], ['points', 'Points de suivi']]} />
+          options={[['echeances', 'Échéances et comptes rendus'], ['objectifs', 'Objectifs'], ['points', 'Points de suivi'], ...(feedback ? [['feedback', 'Feedback 360°'] as [OngletEntretiens, string]] : [])]} />
       )}
-      {onglet === 'objectifs' ? <OngletObjectifs ids={v.scopeIds} /> : onglet === 'points' ? <OngletPoints ids={v.scopeIds} /> : <>
+      {onglet === 'feedback' ? <OngletFeedback360 /> : onglet === 'objectifs' ? <OngletObjectifs ids={v.scopeIds} /> : onglet === 'points' ? <OngletPoints ids={v.scopeIds} /> : <>
       {!collab && (
         <Kpis>
           <Kpi kicker="Parcours pro en retard" value={v.k.late} sub="premier dans l’année, puis tous les 4 ans" />

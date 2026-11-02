@@ -1182,6 +1182,8 @@ export interface Sollicitation360 {
  * Réponse au feedback 360° versée à la clôture de la fenêtre (étape 3) : identifiant non séquentiel, sans répondant ni
  * date de réception ; verbatim restitué après modération du service RH.
  */
+/** Compteur global d'une collecte 360° (shared/rules/feedback360.ts, `suivi360`) : nombres seulement. */
+export interface Suivi360 { entretienId: number; envoyees: number; reponses: number; declinees: number; echeance: ISODate | null; close: boolean }
 export interface Reponse360 {
   id: string; empId: number; entretienId: number; relation: 'pair' | 'n2' | 'encadre'; versionQuestionnaire: string;
   notes: Record<string, number>; verbatim: string | null; verbatimStatut: 'a_moderer' | 'retenu' | 'retire' | null; modereLe: string | null; moderePar: string | null;
@@ -1512,6 +1514,17 @@ export interface Settings {
   pointMiAnneeActif: boolean;
   pointMiAnneeDebut: string;
   pointMiAnneeFin: string;
+  /**
+   * Feedback 360° (shared/rules/feedback360.ts, étape 3) : désactivé ; activable seulement avec la référence de l'avis du
+   * CSE et celle de l'analyse d'impact (AIPD) ; seuil de restitution par catégorie (3 à 5), fenêtre de réponse (jours),
+   * conservation des réponses brutes après la sollicitation (mois, 6 au plus).
+   */
+  feedback360Actif: boolean;
+  feedback360Cse: string;
+  feedback360Aipd: string;
+  feedback360Seuil: number;
+  feedback360FenetreJours: number;
+  feedback360ConservationMois: number;
   // lot 12 — C4 (organismes de formation et e-learning)
   /**
    * Relance du service RH avant la fin de validité Qualiopi d'un organisme : premier palier en jours (60 par défaut), puis
@@ -2191,9 +2204,15 @@ export interface Dataset {
    */
   objectifs?: Objectif[];
   compteursObjectifs?: CompteurObjectifs[];
-  /** Feedback 360° (étape 3, module désactivé) : sollicitations et réponses versées, service RH seulement. */
+  /**
+   * Feedback 360° (étape 3, server/src/vues-entretiens-suivis.ts) : sollicitations, toutes pour le service RH ; celles des
+   * entretiens de son périmètre pour l'évaluateur et l'évalué, sans dire lesquelles ont répondu (`sollicitationMasquee`),
+   * et les siennes comme répondant. Les réponses versées n'entrent jamais dans l'instantané (route de modération du
+   * service RH, synthèse jointe à l'entretien).
+   */
   feedbackSollicitations?: Sollicitation360[];
-  feedbackReponses?: Reponse360[];
+  /** Compteur global de chaque collecte, calculé par la vue de l'évaluateur et de l'évalué (jamais lu en base). */
+  suiviFeedback?: Suivi360[];
   // lot 12 — C4 (organismes de formation et e-learning)
   /**
    * Fiches complètes des organismes (Qualiopi, déclaration d'activité, conditions), fusionnées comprises : service RH,

@@ -413,8 +413,8 @@ export const CHAMPS_HORS_VUES: ReadonlySet<keyof Dataset> = new Set<keyof Datase
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
-  // Feedback 360° (étape 3, module désactivé) : service RH seulement tant que l'étape 3 n'ouvre pas sa synthèse.
-  'feedbackSollicitations', 'feedbackReponses',
+  // Feedback 360° (étape 3) : les sollicitations sont lues par la vue de l'évaluateur, de l'évalué et du répondant (deux
+  // salariés par ligne) : champ commun, leur écriture, rare, recalcule toutes les vues ; réponses hors de l'instantané.
   // lot 12 — C4 (organismes de formation et e-learning) : fiches complètes, contacts et tarifs, vides hors de l'espace RH.
   'organismes', 'organismeContacts', 'organismeTarifs',
   // lot 12 — C5 (planning d'équipe)

@@ -25,7 +25,9 @@ export interface Brouillon {
 const CLE = 'cursus.brouillon';
 const VALIDITE_MS = 30 * 60_000;
 /** Dialogues qui portent ou demandent un mot de passe : jamais conservés. */
-const SANS_BROUILLON = new Set<DialogState['type']>(['motDePasse', 'motDePasseProvisoire']);
+const SANS_BROUILLON = new Set<DialogState['type']>(['motDePasse', 'motDePasseProvisoire',
+  // lot 12 — C3 (feedback 360°) : un avis confidentiel ne se garde jamais sur l'appareil, même le temps d'une reconnexion.
+  'avis360']);
 /** Champs jamais lus : mots de passe, fichiers, boutons. */
 const IGNORES = new Set(['password', 'file', 'hidden', 'submit', 'button', 'reset', 'image']);
 

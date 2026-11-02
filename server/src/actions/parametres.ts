@@ -4,12 +4,14 @@ import { appliquerReglages, ReglageInvalide } from '../../../shared/reglages.ts'
 import type { Settings } from '../../../shared/types.ts';
 import { reactivationAbsences } from '../absences-paie.ts';
 import { DEMO } from '../auth.ts';
-import { refusPiecesLocales } from '../config.ts';
+import { demoCommunActive, refusPiecesLocales } from '../config.ts';
 import { loadSettings } from '../dataset.ts';
 import { sauvegarderBase, type Sauvegarde } from '../sauvegarde.ts';
 import { seedDemo } from '../seed.ts';
 import { ActionError, requireRhAdmin, type ActionHandler } from './context.ts';
 import { amorcerEntites } from '../demarrage.ts';
+// Démonstration commune des outils
+import { ajouterReferentielCommun } from '../seed-commun.ts';
 // lot 12 — C1 (forfait annuel en heures)
 import { refusChangementDebutForfait } from '../../../shared/rules/forfait-heures.ts';
 import type { ClotureForfaitHeures } from '../../../shared/types.ts';
@@ -52,6 +54,8 @@ const reinitialiser: ActionHandler = async (ctx) => {
   await seedDemo(ctx.db);
   // lot 11 — organigramme : entité unique reposée, comme au démarrage (server/src/demarrage.ts).
   await amorcerEntites(ctx.db);
+  // Démonstration commune (CURSUS_DEMO_COMMUN=1) : référentiel commun des outils reposé (server/src/seed-commun.ts).
+  if (demoCommunActive()) await ajouterReferentielCommun(ctx.db);
   return copie ? `Données de démonstration réinitialisées (sauvegarde ${basename(copie.fichier)})` : 'Données de démonstration réinitialisées';
 };
 

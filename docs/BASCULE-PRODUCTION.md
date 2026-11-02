@@ -119,7 +119,7 @@ variables de l'application `cursus-prod` (jamais dans le dépôt ni dans l'image
    `docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }} {{ index .Config.Labels "org.opencontainers.image.revision" }}' <image>`.
    Puis variables de production (docs/DEPLOIEMENT.md, tableau des variables) : `DATABASE_URL` en `cursus_app` sur
    `epc2i`, `CURSUS_PUBLIC_URL` en https, `CURSUS_TRUST_PROXY` à la seule adresse de Traefik (§ 3), secrets du § 2, aucune variable de
-   démonstration (`CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_TODAY`,
+   démonstration (`CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_DEMO_COMMUN`, `CURSUS_TODAY`,
    `CURSUS_INSECURE_COOKIE`). Ne pas la démarrer.
 2. Dans un conteneur ponctuel de cette application : `npm run verifier-production -- --config-seule` → aucun bloquant.
    Les avertissements restants sont relus un par un avec le propriétaire.

@@ -182,7 +182,7 @@ sudo nano /etc/cursus/cursus.env
 | `CURSUS_BASE` | à laisser vide hors de l'image Docker. Dans l'image (`CURSUS_CONTENEUR=1`), la production exige `DATABASE_URL` (serveur commun), ou `CURSUS_BASE=sqlite` pour garder volontairement le fichier du volume : sans l'une ni l'autre, Cursus refuse de démarrer plutôt que d'ouvrir un fichier SQLite vide |
 | `CURSUS_VAPID_PUBLIC`, `CURSUS_VAPID_PRIVATE`, `CURSUS_VAPID_SUJET` | lot 11 : notifications sur le téléphone (Web Push) ; paire de clés P-256 en base64url et sujet `mailto:` ou `https:` (« Application mobile » ci-dessous). Sans elles, les notifications restent désactivées ; posées incomplètes ou illisibles : signalé au démarrage |
 | `CURSUS_PWA` | lot 11 : à laisser vide (`1`) : application installable sur le téléphone (manifeste, service worker `/sw.js`) ; `0` la coupe (`/sw.js` répond 404), comme le fait l'application de bureau |
-| `CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE` | **jamais** sur ce serveur (une instance de démonstration en ligne, séparée et aux données fictives : README.md, « Mise en ligne »). La démonstration ouvre l'espace RH sans mot de passe : Cursus refuse de démarrer avec elle, et refuserait de toute façon (403) chaque requête relayée par le proxy |
+| `CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_DEMO_COMMUN`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE` | **jamais** sur ce serveur (une instance de démonstration en ligne, séparée et aux données fictives : README.md, « Mise en ligne »). La démonstration ouvre l'espace RH sans mot de passe : Cursus refuse de démarrer avec elle, et refuserait de toute façon (403) chaque requête relayée par le proxy |
 
 Au démarrage, Cursus contrôle cette configuration. S'il manque une valeur obligatoire ou si un
 réglage est dangereux, il refuse de démarrer, liste chaque problème dans le journal
@@ -218,7 +218,7 @@ avertissements seulement.
 
 | Domaine | Contrôles |
 | --- | --- |
-| Configuration | règles du démarrage en production ; aucune variable de démonstration ni de test (`CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE`, `CURSUS_OIDC_AUTORITE`) ; `DATABASE_URL` en `cursus_app` sur la base `epc2i`, chiffrée (`sslmode=require` ou `verify-*`, `ssl=true`, ou `PGSSLMODE` quand l'adresse n'en dit rien) si le serveur n'est pas sur le réseau interne ; `CURSUS_PUBLIC_URL` en https, exigée même quand Cursus écoute sur la boucle locale derrière Caddy (exemptée au démarrage pour l'application de bureau seulement) ; connexion Microsoft 365 et e-mails configurés (sinon avertissement) ; secret client Entra valable plus de 30 jours ; jeton de supervision ; `TZ=Europe/Paris` ; secrets tous différents (seuls leurs noms sont affichés) ; `CURSUS_TRUST_PROXY` restreint au proxy (avertissement pour `uniquelocal`, `linklocal`, un nombre de proxys ou un réseau plus large qu'une adresse) ; `MATRIX_TOKEN` avec `MATRIX_URL` |
+| Configuration | règles du démarrage en production ; aucune variable de démonstration ni de test (`CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_DEMO_COMMUN`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE`, `CURSUS_OIDC_AUTORITE`) ; `DATABASE_URL` en `cursus_app` sur la base `epc2i`, chiffrée (`sslmode=require` ou `verify-*`, `ssl=true`, ou `PGSSLMODE` quand l'adresse n'en dit rien) si le serveur n'est pas sur le réseau interne ; `CURSUS_PUBLIC_URL` en https, exigée même quand Cursus écoute sur la boucle locale derrière Caddy (exemptée au démarrage pour l'application de bureau seulement) ; connexion Microsoft 365 et e-mails configurés (sinon avertissement) ; secret client Entra valable plus de 30 jours ; jeton de supervision ; `TZ=Europe/Paris` ; secrets tous différents (seuls leurs noms sont affichés) ; `CURSUS_TRUST_PROXY` restreint au proxy (avertissement pour `uniquelocal`, `linklocal`, un nombre de proxys ou un réseau plus large qu'une adresse) ; `MATRIX_TOKEN` avec `MATRIX_URL` |
 | Base | serveur commun : rôle `cursus_app` sans superutilisateur, schéma courant `cursus`, ni `CREATE` sur la base ni `pg_read_all_data` / `pg_write_all_data`, migrations du code égales à `schema_migrations` (en attente : avertissement ; inconnues : bloquant), tables et colonnes conformes, vues `pub_` et leurs colonnes conformes à leur dernière définition dans `server/migrations-pg/`, horloge à moins de 60 s ; les deux moteurs : aucune donnée de démonstration (réglage `demo`, comptes du jeu, adresses `@entreprise.example`, lot « Démonstration »), au moins un administrateur RH actif, page Confidentialité renseignée (avertissement), aucune référence orpheline, dossier des pièces accessible en écriture au compte du service avec plus de 1 Go libre |
 
 | Sauvegarde | dernière sauvegarde du serveur commun de moins de 26 h d'après le témoin `CURSUS_SAUVEGARDE_TEMOIN` ; sans témoin, avertissement : vérification à la main (`docs/BASCULE-PRODUCTION.md`, section 7) |
@@ -760,7 +760,12 @@ PostgreSQL 16 avec le socle et le partage de Matrix à jour.
    fictifs publiés aux autres outils). Se connecter et parcourir les écrans.
 7. **Partage (Matrix)** : reprise des vues de Cursus (`partage/14-reprise-publications.sql -v outils=cursus`),
    `90-droits.sql`, `95-matrix-journal-unifie.sql`, puis `droits.verifier()` sans erreur (étape 3 ci-dessus).
-8. **Repli** : arrêter l'application, retirer `DATABASE_URL` et redémarrer : elle repart sur `/data/cursus.db`, que la
+8. **Démonstration commune** (demande du propriétaire du 2 novembre 2026, `docs/DEMO-COMMUNE.md`) : dans le même
+   conteneur ponctuel, `npm run demo-commun -- --a-blanc` (ce qui serait ajouté), puis `npm run demo-commun` : personnes
+   fictives de Keystone, Codex, Vigie et Crucible (EMP-0025 à EMP-0081), sites et unités de Matrix, projets de Keystone.
+   Relancée, elle répond « rien à ajouter ». Poser aussi `CURSUS_DEMO_COMMUN=1` dans les variables de l'application :
+   « Réinitialiser la démonstration » le reposera.
+9. **Repli** : arrêter l'application, retirer `DATABASE_URL` et redémarrer : elle repart sur `/data/cursus.db`, que la
    reprise n'a jamais modifiée. Garder ce fichier jusqu'à la mise en production.
 
 « Réinitialiser la démonstration » (Paramètres) fonctionne aussi sur PostgreSQL : le jeu fictif est rechargé dans le

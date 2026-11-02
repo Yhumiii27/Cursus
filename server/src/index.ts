@@ -7,7 +7,7 @@ import { createApp } from './app.ts';
 import { DEMO, purgeSessions } from './auth.ts';
 import { dossierInterface, VERSION } from './chemins.ts';
 import { adminsActifs } from './comptes.ts';
-import { compressionActive, demoPublique, enProduction, hoteEcoute, portEcoute, verifierConfig } from './config.ts';
+import { compressionActive, demoCommunActive, demoPublique, enProduction, hoteEcoute, portEcoute, verifierConfig } from './config.ts';
 import { todayIso } from './dataset.ts';
 import { dbFile, openDb, urlPostgres } from './db.ts';
 import { amorcerEntites, mettreAJourBase, prechaufferChaqueJour, prechaufferDemarrage } from './demarrage.ts';
@@ -33,6 +33,8 @@ import { Arret, hoteAffiche } from './service.ts';
 import { demarrerSurveillance } from './supervision.ts';
 import type { Db } from './db.ts';
 import { comptesDemo, seedDemo, suiviForfaitHeuresDemo } from './seed.ts';
+// Démonstration commune des outils
+import { ajouterReferentielCommun } from './seed-commun.ts';
 
 /** Hôte, port et base de DATABASE_URL, pour le journal du démarrage : jamais l'identifiant ni le mot de passe. */
 function cibleAffichee(url: string): string {
@@ -122,6 +124,8 @@ const vide = await db.tx(async () => {
     await seedDemo(db);
     // lot 11 — organigramme : entité unique et équipes racines rattachées, comme au démarrage (server/src/demarrage.ts).
     await amorcerEntites(db);
+    // Démonstration commune (CURSUS_DEMO_COMMUN=1) : personnes fictives des autres outils, sites et unités de Matrix.
+    if (demoCommunActive()) await ajouterReferentielCommun(db);
   }
   return DEMO;
 });

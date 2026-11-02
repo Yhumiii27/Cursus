@@ -40,6 +40,8 @@ import {
   type ApercuPurge, apercuPurge, motConfirmationPurge, type OptionsPurge, planPurge, plusGrandIdEmploye, PurgeRefusee, type RegleTable,
 } from './purge-demo.ts';
 import { dossierSauvegardes, listerSauvegardes, sauvegarderBase } from './sauvegarde.ts';
+// Démonstration commune des outils
+import { postesCommuns as postesDuReferentielCommun, retirerReferentielCommun } from './seed-commun.ts';
 
 /** Auteur de la ligne `purge.demo` du journal. */
 export const ACTEUR_PURGE = 'Ligne de commande (npm run purge-demo)';
@@ -316,6 +318,8 @@ async function appliquer(db: Db, options: OptionsPurge, attendus: number | null,
   }
   // 3. Tables vidées ; les fichiers des pièces sont notés pour être effacés après la validation.
   const fichiers = (await db.query<{ fichier: string | null }>('SELECT fichier FROM pieces')).map(p => p.fichier).filter((f): f is string => !!f);
+  //    Démonstration commune : postes du référentiel commun relevés tant que les fiches sont là.
+  const postesCommuns = a.referentielCommun ? await postesDuReferentielCommun(db) : [];
   //    Les comptes non gardés (--garder-compte) partent à leur rang dans l'ordre des clés : après les pièces qui les
   //    désignent (pieces.depose_compte_id), avant les salariés qu'ils désignent (comptes.emp_id).
   const partiel = plan.tables.comptes.sort === 'ajuster';
@@ -325,6 +329,13 @@ async function appliquer(db: Db, options: OptionsPurge, attendus: number | null,
       ? await db.run(`DELETE FROM comptes WHERE id NOT IN (${gardes.map(() => '?').join(', ')})`, gardes)
       : await db.run(`DELETE FROM ${snake(t)}`);
     compter(supprimees, snake(t), r.changes);
+  }
+  // 3 bis. Démonstration commune (npm run demo-commun) : équipes, sites et postes ajoutés, site et unité de Matrix posés
+  //    sur les équipes gardées et sur l'entité, retirés une fois les fiches parties (server/src/seed-commun.ts).
+  if (a.referentielCommun) {
+    const r = await retirerReferentielCommun(db, postesCommuns);
+    for (const [t, n] of Object.entries(r.supprimees)) compter(supprimees, t, n);
+    for (const [t, n] of Object.entries(r.ajustees)) compter(ajustees, t, n);
   }
   // 4. Amorçages d'une base neuve, séquence des salariés.
   const amorcages = await reposerAmorcages(db, plan.tables);

@@ -164,6 +164,7 @@ service worker ni notifications dans sa fenêtre. Journal du serveur :
 | `npm run backup` | Copie à chaud vérifiée de la base dans `data/backups`, avec rotation |
 | `npm run restore -- <fichier>` | Remplace la base par une sauvegarde (serveur arrêté) |
 | `DATABASE_URL=… npm run reprise-postgres -- [<base SQLite>] [--a-blanc]` | Reprise d'une base SQLite sur le serveur PostgreSQL commun, une fois, service arrêté ; `--a-blanc` : contrôles et compte rendu sans rien écrire (`docs/DEPLOIEMENT.md`) |
+| `npm run demo-commun -- [--a-blanc]` | Démonstration commune : ajoute à la démonstration les personnes fictives de Keystone, Codex, Vigie et Crucible (EMP-0025 à EMP-0081), les sites et unités de Matrix et les projets de Keystone ; idempotente, refusée hors démonstration ; `CURSUS_DEMO_COMMUN=1` les repose à chaque réinitialisation (`docs/DEMO-COMMUNE.md`) |
 | `npm run pieces:chiffrer -- [--apercu]` | Chiffre les pièces justificatives déposées avant la clé `CURSUS_PIECES_KEY` (lot 8), une fois Cursus redémarré avec elle ; service en marche admis, relançable (`docs/SAUVEGARDE.md`, section 10) |
 | `npm run pieces:verifier` | Contrôle complet des pièces, sans rien écrire : chaque fichier lu, déchiffré et comparé à l'empreinte de son envoi (après une restauration) ; code 1 si un fichier est absent, altéré ou illisible |
 | `npm run revision:epoque` | Change l'époque de la base (journal des changements du lot 9) : les instances dont le cache compare l'époque (cache incrémental du lot 9) relisent alors l'instantané en entier ; sans ce cache, seul le redémarrage des instances le fait. À lancer après un rechargement des données seules sur le serveur PostgreSQL (`pg_restore --data-only`) ; service en marche admis (`docs/SAUVEGARDE.md`, section 10) |
@@ -618,7 +619,8 @@ gardant le paramétrage saisi pendant la démonstration (`npm run purge-demo -- 
 --yes` : copie avant-purge, transaction, premier vrai salarié EMP-1001), retirer les variables de démonstration, puis
 créer le premier administrateur (`docs/DEPLOIEMENT.md`, « Passage de la démonstration à la production » : nouvelle
 application Coolify « cursus-prod » sur un espace neuf, alimentée par la base purgée). Une base purgée ou exploitée
-refuse ensuite le mode démonstration.
+refuse ensuite le mode démonstration. La démonstration commune des outils (`npm run demo-commun`, `CURSUS_DEMO_COMMUN=1` :
+81 salariés fictifs partagés avec Keystone, Codex, Vigie et Crucible, `docs/DEMO-COMMUNE.md`) part avec la même purge.
 
 **Passage en production.** La bascule de la démonstration vers la production (nouvelle application Coolify
 `cursus-prod`, gel et purge de la démonstration, pré-vol `npm run verifier-production`, premier administrateur, reprise

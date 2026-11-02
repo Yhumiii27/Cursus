@@ -19,6 +19,7 @@
     "comptes": "node --disable-warning=ExperimentalWarning server/src/comptes-cli.ts",
     "lint": "oxlint",
     "reprise-postgres": "node --disable-warning=ExperimentalWarning server/src/reprise-postgres-cli.ts",
+    "demo-commun": "node --disable-warning=ExperimentalWarning server/src/demo-commun-cli.ts",
     "purge-demo": "node --disable-warning=ExperimentalWarning server/src/purge-demo-cli.ts",
     "pieces:chiffrer": "node --disable-warning=ExperimentalWarning server/src/pieces-chiffrer-cli.ts",
     "pieces:verifier": "node --disable-warning=ExperimentalWarning server/src/pieces-chiffrer-cli.ts --verifier",

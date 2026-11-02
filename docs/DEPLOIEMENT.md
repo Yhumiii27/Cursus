@@ -749,22 +749,44 @@ PostgreSQL 16 avec le socle et le partage de Matrix à jour.
 3. **Variables** de l'application : ajouter `DATABASE_URL=postgres://cursus_app:<mot de passe>@epc2i-postgres:5432/epc2i`
    (secret), retirer `CURSUS_BASE=sqlite` s'il est posé ; **garder** `CURSUS_DB=/data/cursus.db` (lue par la reprise),
    `CURSUS_DEMO=1`, `CURSUS_DEMO_PUBLIQUE=1`, `CURSUS_TODAY` et l'authentification basique de Coolify.
-4. **Reprise à blanc**, dans un conteneur ponctuel de l'application (onglet « Terminal », application arrêtée) :
-   `npm run reprise-postgres -- --a-blanc`. Lire le compte rendu : comptes identiques table par table (environ 640
-   lignes dans 54 tables pour le jeu de démonstration), valeurs « aucun » écrites NULL, pièces absentes du dossier. Un
-   refus n'écrit rien : corriger, relancer.
-5. **Reprise réelle** : `npm run reprise-postgres` (une transaction, comptes contrôlés, tracée au journal ; relancée,
-   elle répond « déjà faite »).
+4. **Reprise à blanc**, dans un conteneur ponctuel de la même image, lancé depuis le terminal **du serveur** (menu
+   « Terminal » de Coolify, serveur choisi, ou SSH), application arrêtée : l'onglet « Terminal » de l'application n'a
+   plus de conteneur une fois celle-ci arrêtée. Relever d'abord, application encore en service, l'image, le volume et
+   le réseau (`docker inspect <conteneur>`), puis l'arrêter et vérifier que `docker ps` ne la montre plus. Le mot de
+   passe se saisit sans écho ni historique (`read -rs PGPASS`) et s'encode pour l'URL
+   (`PGPASS_URL=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=""))' "$PGPASS")`) :
+   ```sh
+   docker run --rm -it --network coolify -v <volume>:/data -e NODE_ENV=development \
+     -e DATABASE_URL="postgres://cursus_app:${PGPASS_URL}@epc2i-postgres:5432/epc2i" <image> \
+     npm run reprise-postgres -- --a-blanc
+   ```
+   `NODE_ENV=development` : ce conteneur ne reçoit pas les variables de l'application (`CURSUS_SECRET`,
+   `CURSUS_DEMO`…) ; sans lui, la commande refait les contrôles de démarrage d'un serveur de production et refuse. Elle
+   n'écoute sur aucun port et la reprise n'utilise ni ces clés ni l'adresse publique. Lire le compte rendu : comptes
+   identiques table par table (583 lignes dans 37 tables pour la démonstration reprise le 2 novembre 2026), valeurs
+   « aucun » écrites NULL, pièces absentes du dossier. Un refus n'écrit rien : corriger, relancer.
+5. **Reprise réelle** : la même commande sans `--a-blanc` (une transaction, comptes contrôlés, tracée au journal ;
+   relancée, elle répond « déjà faite »). Puis `unset PGPASS PGPASS_URL`.
 6. **Démarrage** de l'application : le journal affiche « base PostgreSQL …/epc2i, schéma cursus » et « mode
    démonstration » ; `/api/health` répond 200 avec l'état `degrade` et l'alerte `demo-base-commune` (attendu : salariés
    fictifs publiés aux autres outils). Se connecter et parcourir les écrans.
 7. **Partage (Matrix)** : reprise des vues de Cursus (`partage/14-reprise-publications.sql -v outils=cursus`),
-   `90-droits.sql`, `95-matrix-journal-unifie.sql`, puis `droits.verifier()` sans erreur (étape 3 ci-dessus).
-8. **Démonstration commune** (demande du propriétaire du 2 novembre 2026, `docs/DEMO-COMMUNE.md`) : dans le même
-   conteneur ponctuel, `npm run demo-commun -- --a-blanc` (ce qui serait ajouté), puis `npm run demo-commun` : personnes
+   `90-droits.sql`, `95-matrix-journal-unifie.sql`, puis `droits.verifier()` sans erreur (étape 3 ci-dessus). Sur
+   Coolify, les fichiers sont dans le conteneur PostgreSQL de Matrix (`/opt/epc2i/partage`) et `postgres` y entre par
+   le socket local, sans mot de passe (`P=<conteneur postgres>`) :
+   ```sh
+   docker exec $P psql -U postgres -d epc2i -v ON_ERROR_STOP=1 -v outils=cursus -1 -f /opt/epc2i/partage/14-reprise-publications.sql
+   docker exec $P psql -U postgres -d epc2i -v ON_ERROR_STOP=1 -f /opt/epc2i/partage/90-droits.sql
+   docker exec $P psql -U postgres -d epc2i -v ON_ERROR_STOP=1 -1 -c "SET ROLE matrix_app" -f /opt/epc2i/partage/95-matrix-journal-unifie.sql
+   docker exec $P psql -U postgres -d epc2i -c "SELECT gravite, objet, constat FROM droits.verifier() WHERE gravite = 'erreur'"
+   ```
+   Fait le 2 novembre 2026 : 6 vues de Cursus reprises par `matrix_gestion`, 46 vues conformes, aucune erreur.
+8. **Démonstration commune** (demande du propriétaire du 2 novembre 2026, `docs/DEMO-COMMUNE.md`) : application en
+   service, dans son onglet « Terminal » de Coolify (variables de l'application présentes ; le serveur peut rester en
+   service), `npm run demo-commun -- --a-blanc` (ce qui serait ajouté), puis `npm run demo-commun` : personnes
    fictives de Keystone, Codex, Vigie et Crucible (EMP-0025 à EMP-0081), sites et unités de Matrix, projets de Keystone.
-   Relancée, elle répond « rien à ajouter ». Poser aussi `CURSUS_DEMO_COMMUN=1` dans les variables de l'application :
-   « Réinitialiser la démonstration » le reposera.
+   Relancée, elle répond « rien à ajouter ». Poser aussi `CURSUS_DEMO_COMMUN=1` dans les variables de l'application et
+   redéployer : « Réinitialiser la démonstration » le reposera.
 9. **Repli** : arrêter l'application, retirer `DATABASE_URL` et redémarrer : elle repart sur `/data/cursus.db`, que la
    reprise n'a jamais modifiée. Garder ce fichier jusqu'à la mise en production.
 

@@ -9,17 +9,18 @@
 //   delta ne les impute à personne ; champ commun, lu par les vues manager à travers les équipes encadrées. Pour qu'une
 //   écriture d'un créneau nominatif ne recalcule pas toutes les vues, la liste garde la même identité tant que ses lignes
 //   (reprises telles quelles par le delta, server/src/delta.ts) ne changent pas.
-import { addD } from '../../shared/dates.ts';
+import { fenetrePlanning } from '../../shared/rules/planning.ts';
 import type { Creneau } from '../../shared/types-planning.ts';
 import type { Fenetre } from './db.ts';
 
-/** Semaines lues avant et après le jour par l'instantané. */
-export const SEMAINES_PASSEES = 8;
-export const SEMAINES_A_VENIR = 12;
-
-/** Fenêtre de lecture des créneaux au jour `today` : de 8 semaines avant à 12 semaines après, bornes comprises. */
-export const fenetreCreneaux = (today: string): Fenetre =>
-  ({ where: 'jour >= ? AND jour <= ?', params: [addD(today, -7 * SEMAINES_PASSEES), addD(today, 7 * SEMAINES_A_VENIR)] });
+/**
+ * Fenêtre de lecture des créneaux au jour `today` : de 8 semaines avant à 12 semaines après, bornes comprises
+ * (`fenetrePlanning`, shared/rules/planning.ts : les actions n'écrivent rien au-delà, `refusHorizon`).
+ */
+export const fenetreCreneaux = (today: string): Fenetre => {
+  const f = fenetrePlanning(today);
+  return { where: 'jour >= ? AND jour <= ?', params: [f.du, f.au] };
+};
 
 /** Créneaux nominatifs, dans l'ordre de la table, par liste lue (identité). */
 const NOMINATIFS = new WeakMap<readonly Creneau[], Creneau[]>();

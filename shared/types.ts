@@ -1534,6 +1534,8 @@ export interface Settings {
   planningNuitMoyenne: number;
   planningAccord: string;
   planningCollegues: boolean;
+  /** Date de l'avis du CSE sur l'organisation en cycles et l'outil de planning (art. L2312-8) : exigée pour activer le module. */
+  planningCseLe: ISODate | null;
   // lot 12 — C6 (badgeage virtuel)
   /**
    * Badgeage virtuel (lot 12, chantier C6, shared/rules/pointage.ts) : module désactivé ; activation refusée sans la
@@ -1581,7 +1583,9 @@ export interface ElementRachatPaie {
   avenant: number; empId: number; matricule: string; periode: string; rubrique: string; codeSage: string | null; quantite: number; taux: number; annee: number; signeLe: ISODate;
 }
 /** Ce que publie le flux d'agenda personnel (t036). */
-export type ContenuAgenda = 'sessions' | 'entretiens' | 'absences' | 'deplacements';
+export type ContenuAgenda = 'sessions' | 'entretiens' | 'absences' | 'deplacements'
+  // lot 12 — C5 (planning d'équipe) : postes publiés, le module activé.
+  | 'postes';
 /** Plafond des heures complémentaires du temps partiel : le dixième (art. L3123-28) ou le tiers avec un accord (art. L3123-20). */
 export type PlafondComplementaires = 'dixieme' | 'tiers';
 

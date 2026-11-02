@@ -51,7 +51,10 @@ export async function prevenirPlanning(cx: Contexte, emp: Pick<Employe, 'id' | '
   return true;
 }
 
-/** Étape d'un échange de poste, au salarié ou au valideur (notification ordinaire, selon son réglage). */
-export async function notifierEchange(cx: Contexte, dest: number, demande: boolean, objet: string, texte: string): Promise<void> {
-  await notifier(cx, dest, { type: demande ? 'planning.echange.demande' : 'planning.echange.decision', objet, texte });
+/**
+ * Étape d'un échange de poste (notification ordinaire, selon le réglage du destinataire) : `demande` au collègue sollicité
+ * (« Mon planning »), `valider` au valideur (onglet Planning d'équipe de Temps de travail), `decision` aux salariés.
+ */
+export async function notifierEchange(cx: Contexte, dest: number, etape: 'demande' | 'valider' | 'decision', objet: string, texte: string): Promise<void> {
+  await notifier(cx, dest, { type: `planning.echange.${etape}`, objet, texte });
 }

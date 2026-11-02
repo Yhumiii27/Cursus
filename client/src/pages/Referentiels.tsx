@@ -25,14 +25,18 @@ import { EntitesEtSites } from './ReferentielsEntites.tsx';
 // lot 12 — C4 (organismes de formation et e-learning) : onglets Organismes et Modules e-learning.
 import { Organismes } from './ReferentielsOrganismes.tsx';
 import { ModulesElearning } from './ReferentielsModules.tsx';
+// lot 12 — C5 (planning d'équipe) : cycles de roulement et besoins de poste.
+import { Besoins, Cycles } from './ReferentielsCycles.tsx';
 
-const ONGLETS: [ReferentielId | 'postes' | 'activites' | 'horaires' | 'entites' | 'organismes' | 'modules', string][] = [
+const ONGLETS: [ReferentielId | 'postes' | 'activites' | 'horaires' | 'entites' | 'organismes' | 'modules' | /* lot 12 — C5 */ 'cycles' | 'besoins', string][] = [
   ['formations', 'Formations'], ['habilitations', 'Habilitations'], ['postes', 'Postes'], ['destinations', 'Destinations'], ['activites', 'Activités internes'],
   ['horaires', 'Horaires'],
   // lot 11 — organigramme
   ['entites', 'Entités et sites'],
   // lot 12 — C4 : droit « formations » et lecture seule (fiches complètes).
   ['organismes', 'Organismes'], ['modules', 'Modules e-learning'],
+  // lot 12 — C5 (planning d'équipe)
+  ['cycles', 'Cycles'], ['besoins', 'Besoins de poste'],
 ];
 /** lot 12 — C4 : onglets réservés au droit « formations » et à la lecture seule (paie : ni fiches ni modules). */
 const ONGLETS_FORMATIONS = new Set(['organismes', 'modules']);
@@ -69,6 +73,9 @@ export function Referentiels() {
       {/* lot 12 — C4 */}
       {onglet === 'organismes' && <Organismes />}
       {onglet === 'modules' && <ModulesElearning />}
+      {/* lot 12 — C5 (planning d'équipe) */}
+      {onglet === 'cycles' && <Cycles />}
+      {onglet === 'besoins' && <Besoins />}
     </Page>
   );
 }

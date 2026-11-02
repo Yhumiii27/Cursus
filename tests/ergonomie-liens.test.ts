@@ -43,6 +43,7 @@ const UI: UiState = {
   // lot 12 — C4 (organismes de formation et e-learning)
   orgSel: null, orgFiltre: 'tous', formOnglet: 'sessions', elFiltre: 'ouvertes',
   // lot 12 — C5 (planning d'équipe)
+  planEquipe: null,
   // lot 12 — C6 (badgeage virtuel)
 };
 

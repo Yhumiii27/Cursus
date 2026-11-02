@@ -409,6 +409,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'planning.besoin.archiver': 'Besoin par poste archivé',
   'planning.roulement.affecter': 'Salarié affecté à un cycle de roulement',
   'planning.roulement.terminer': 'Affectation au roulement terminée',
+  'planning.reprise': 'Équipes par quart reprises en groupes de roulement',
   'planning.generer': 'Planning d’équipe généré (brouillon)',
   'planning.creneau.ajouter': 'Créneau ajouté au planning',
   'planning.creneau.modifier': 'Créneau du planning modifié',
@@ -633,7 +634,7 @@ export const CHAMP_LABEL: Record<string, string> = {
   planningActif: 'Planning d’équipe activé', planningDelaiPrevenance: 'Planning : délai de prévenance (jours)',
   planningReposQuotidienAccord: 'Planning : repos quotidien de l’accord (heures)', planningNuitJour: 'Planning : durée d’un poste de nuit (heures)',
   planningNuitMoyenne: 'Planning : moyenne du travailleur de nuit sur 12 semaines (heures)', planningAccord: 'Référence de l’accord sur le planning',
-  planningCollegues: 'Planning des collègues visible du salarié',
+  planningCollegues: 'Planning des collègues visible du salarié', planningCseLe: 'Planning : avis du CSE le',
   longueur: 'Longueur du cycle (jours)', sequence: 'Séquence des horaires', groupes: 'Groupes et décalages', origine: 'Jour d’origine du cycle',
   effectifMin: 'Effectif minimal', posteId: 'Poste', exigences: 'Exigences du créneau',
   // lot 12 — C6 (badgeage virtuel)

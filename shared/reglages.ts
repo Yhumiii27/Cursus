@@ -15,7 +15,7 @@ import { NATURES_ABSENTEISME_DEFAUT, NATURES_ABSENTEISME_POSSIBLES, SEUIL_INDICA
 import { CODES_OPCO } from './rules/opco.ts';
 // lot 11 — notes de frais, étape 2
 // lot 12 — C5 (planning d'équipe)
-import { DELAI_PREVENANCE_PLANNING, DELAI_PREVENANCE_PLANNING_MIN, NUIT_JOUR_ACCORD_MAX, NUIT_JOUR_LEGAL, NUIT_MOYENNE_ACCORD_MAX, NUIT_MOYENNE_LEGALE, planningHorsLoi, REPOS_QUOTIDIEN_ACCORD_MIN } from './rules/planning-controles.ts';
+import { DELAI_PREVENANCE_PLANNING, DELAI_PREVENANCE_PLANNING_MIN, NUIT_JOUR_ACCORD_MAX, NUIT_JOUR_LEGAL, NUIT_MOYENNE_ACCORD_MAX, NUIT_MOYENNE_LEGALE, planningHorsLoi, refusActivationPlanning, REPOS_QUOTIDIEN_ACCORD_MIN } from './rules/planning-controles.ts';
 import { COMPTE_FRAIS_GENERIQUE, COMPTE_SALARIE, COMPTE_TVA_DEDUCTIBLE, estCompte, estJournal, GABARIT_FRAIS_DEFAUT, JOURNAL_FRAIS, lireComptes, lireGabarit } from './rules/frais-export.ts';
 // lot 12 — C1 (forfait annuel en heures)
 import { ABSENCES_DEDUCTIBLES, ABSENCES_DEDUITES_DEFAUT, DEBUT_SUIVI_DEFAUT, forfaitHeuresHorsDefaut, SEUIL_25_DEFAUT } from './rules/forfait-heures.ts';
@@ -291,7 +291,8 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   // — Agenda personnel (parametres/Agenda.tsx, server/src/agenda.ts, t036) : flux par abonnement désactivé par défaut ;
   //   absences toujours publiées sous le libellé neutre « Absent » —
   agendaFluxActif: { defaut: false, controle: booleen },
-  agendaContenu: { defaut: ['sessions', 'entretiens', 'absences', 'deplacements'], controle: parmi<ContenuAgenda>(['sessions', 'entretiens', 'absences', 'deplacements']) },
+  // lot 12 — C5 : « postes » (postes publiés du planning d'équipe, le module activé), compris par défaut.
+  agendaContenu: { defaut: ['sessions', 'entretiens', 'absences', 'deplacements', 'postes'], controle: parmi<ContenuAgenda>(['sessions', 'entretiens', 'absences', 'deplacements', 'postes']) },
   // — Astreintes (t049, lot 7, shared/rules/astreintes.ts ; section de Paramètres à l'étape 2) : accord inconnu (réponse de
   //   l'entreprise du 23 octobre 2026) — délai de prévenance légal de 15 jours (art. R3121-3), compensation financière,
   //   aucune astreinte pour un salarié mineur, référence de l'accord vide —
@@ -398,6 +399,8 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   planningNuitMoyenne: { defaut: NUIT_MOYENNE_LEGALE, controle: entier(NUIT_MOYENNE_LEGALE, NUIT_MOYENNE_ACCORD_MAX) },
   planningAccord: { defaut: '', controle: texte(120, 'Référence de l’accord sur le planning') },
   planningCollegues: { defaut: false, controle: booleen },
+  // Date de l'avis du CSE, exigée pour activer le module (COHERENCE), comme pour le badgeage (C6).
+  planningCseLe: { defaut: null, controle: dateOuVide('Planning d’équipe, date de l’avis du CSE') },
   // lot 12 — C6 (badgeage virtuel) (shared/rules/pointage.ts ; section Paramètres → Badgeage à l'étape 2) : module désactivé ;
   //   aucune population ; référence de l'accord et date de l'avis du CSE exigées pour l'activer (COHERENCE) ; intérimaires
   //   exclus ; corrections demandées sous 7 jours ; hors ligne admis, signalé au-delà de 5 min d'écart ; écart déclaré /
@@ -483,6 +486,9 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   // L3122-7) supposent un accord collectif —
   s => (planningHorsLoi(s) && !s.planningAccord
     ? 'Planning d’équipe : un délai de prévenance de moins de 7 jours, un repos quotidien réduit ou d’autres durées du travail de nuit supposent un accord collectif : indiquez sa référence' : null),
+  // L'organisation en cycles et l'outil de planning relèvent de la consultation du CSE (art. L2312-8) : activation après son
+  // avis, dont la date est notée —
+  s => refusActivationPlanning(s),
   // lot 12 — C6 (badgeage virtuel) : moyen de contrôle de l'activité, activé seulement après l'information et la
   // consultation du CSE (art. L2312-38) et sur le fondement de l'accord d'entreprise ; sans elles, des pointages seraient
   // inopposables (art. L1222-4) —

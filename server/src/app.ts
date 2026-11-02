@@ -245,7 +245,8 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   app.get('/api/frais/historique/:noteId', exigerNavigationInterne('appel'));
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
-  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C5 (planning d'équipe) : historique des créneaux hors de la fenêtre de l'instantané, lu par fetch depuis l'écran.
+  app.get('/api/planning/historique', exigerNavigationInterne('appel'));
   // lot 12 — C6 (badgeage virtuel) : pointages et état du jour, lus par fetch depuis l'écran (en-tête d'espace exigé).
   app.get('/api/pointages', exigerNavigationInterne('appel'));
   app.get('/api/pointages/etat', exigerNavigationInterne('appel'));

@@ -6,6 +6,8 @@
 import type { CSSProperties } from 'react';
 import { horaireDe, horairesDeLaFeuille, horairesEnVigueur, horaireTexte, type HoraireDuJour } from '../../../shared/rules/horaires.ts';
 import { estWeekEnd } from '../../../shared/rules/semaine.ts';
+// lot 12 — C5 (planning d'équipe)
+import { horairesPlanifies } from '../../../shared/rules/planning-feuille.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
 import { useDomain } from '../state/derived.ts';
 import { Fine } from './ui.tsx';
@@ -27,7 +29,8 @@ export function useHorairesFeuille(emp: Employe, wk: ISODate, sh: FeuilleTemps |
   const ref = d.ds.referentiels;
   const enVigueur = horairesEnVigueur(ref);
   if (!enVigueur.length && !sh?.horaires?.some(Boolean) && !sh?.horairesFiges?.some(Boolean)) return null;
-  const jours = horairesDeLaFeuille(ref, emp.equipe, sh, perDay);
+  // lot 12 — C5 (planning d'équipe) : le poste publié du jour est proposé avant l'horaire de l'équipe.
+  const jours = horairesDeLaFeuille(ref, emp.equipe, sh, perDay, horairesPlanifies(d.ds, emp.id, wk));
   const archives = [...new Set(jours.map(j => j.code).filter((c): c is string => !!c && !enVigueur.some(h => h.code === c)))];
   const options = [
     ...enVigueur.map(h => ({ code: h.code, texte: horaireTexte(h) })),

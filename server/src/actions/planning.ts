@@ -7,21 +7,22 @@
 // (cycles, besoins), qui se préparent avant l'activation. Les contrôles légaux et d'habilitation sont recalculés à chaque
 // publication et à chaque validation d'un échange : un refus bloque, une alerte exige un motif (gardé sur le créneau, jamais
 // journalisé), une information n'arrête rien.
-import { addD, mondayOf } from '../../../shared/dates.ts';
+import { addD } from '../../../shared/dates.ts';
 import { fmtIso, plural } from '../../../shared/format.ts';
-import { absenceBloque, jourHorsContrat } from '../../../shared/rules/absences.ts';
+import { jourHorsContrat } from '../../../shared/rules/absences.ts';
 import { controlerCycle, cycleDe, normaliserCodeCycle, roulementsDuCycle } from '../../../shared/rules/cycles.ts';
 import { delegationActive, valideursDe } from '../../../shared/rules/delegations-manager.ts';
-import { exigencesDe } from '../../../shared/rules/exigences.ts';
 import { horaireDe, normaliserCodeHoraire } from '../../../shared/rules/horaires.ts';
 import {
-  besoinsDuJour, controlerBesoin, controlerRoulement, creneauxPlanificateur, debutCreneau, ECHANGE_OUVERT, echangeExpire, figerHoraire, genererCreneaux,
-  horaireDuCreneau, MOTIF_PLANNING_MAX, postesApresEchange, prevenanceCreneau, refusPeriode, refusPublication, sansBrouillonsPasses, sortGenere,
+  controlerBesoin, controlerRoulement, creneauxPlanificateur, debutCreneau, ECHANGE_OUVERT, echangeExpire, figerHoraire, genererCreneaux,
+  horaireDuCreneau, MOTIF_PLANNING_MAX, postesApresEchange, prevenanceCreneau, refusHorizon, refusPeriode, refusPublication, sortGenere,
 } from '../../../shared/rules/planning.ts';
 import {
-  type AlertePlanning, alertesHabilitations, codesAcceptes, controlesPlanning, JOURS_APRES, type JourPlanifie, reglagesPlanning, SEMAINES_AVANT, trierAlertes,
+  type AlertePlanning, codesAcceptes, type JourPlanifie, reglagesPlanning, trierAlertes,
 } from '../../../shared/rules/planning-controles.ts';
-import { refusNuitMineur, statutNuit } from '../../../shared/rules/repos-nuit.ts';
+import { controlesSalarie, fenetreControles, joursPlanifiesDe } from '../../../shared/rules/planning-apercu.ts';
+import { proposerReprise } from '../../../shared/rules/planning-reprise.ts';
+import { refusNuitMineur } from '../../../shared/rules/repos-nuit.ts';
 import { derogationDe } from '../../../shared/rules/semaine.ts';
 import type { Employe, Equipe, ISODate } from '../../../shared/types.ts';
 import type { BesoinPoste, Creneau, Cycle, EchangePoste, PublicationPlanning, Roulement } from '../../../shared/types-planning.ts';
@@ -116,52 +117,21 @@ const nouveau = (ctx: Ctx) => ({ creeLe: new Date().toISOString(), creePar: ctx.
 
 /** Postes connus d'un salarié autour de la période, tels que le planificateur les voit, avec `remplacer` appliqué. */
 async function joursPlanifies(ctx: Ctx, empId: number, du: ISODate, au: ISODate, remplacer: ReadonlyMap<ISODate, Creneau | null> = new Map()): Promise<JourPlanifie[]> {
-  // Brouillons des jours passés (jamais communiqués) ignorés : ces jours-là, la version publiée compte.
-  const lues = await lireCreneaux(ctx, 'emp_id = ? AND jour >= ? AND jour <= ?', [empId, addD(mondayOf(du), -7 * SEMAINES_AVANT), addD(au, JOURS_APRES)]);
-  const lignes = creneauxPlanificateur(sansBrouillonsPasses(lues, ctx.d.ti));
-  const parJour = new Map<ISODate, JourPlanifie>(lignes.map(c => [c.jour, { jour: c.jour, horaire: horaireDuCreneau(c) }]));
-  for (const [jour, c] of remplacer) parJour.set(jour, { jour, horaire: c ? horaireDuCreneau(c) : null });
-  return [...parJour.values()].sort((a, b) => a.jour.localeCompare(b.jour));
+  // Lus en base (hors de la fenêtre de l'instantané compris) ; brouillons des jours passés (jamais communiqués) ignorés.
+  const [debut, fin] = fenetreControles(du, au);
+  return joursPlanifiesDe(await lireCreneaux(ctx, 'emp_id = ? AND jour >= ? AND jour <= ?', [empId, debut, fin]), empId, du, au, ctx.d.ti, remplacer);
 }
 
 /**
  * Contrôles légaux et d'habilitation des salariés `empIds` du `du` au `au`, sur leurs postes connus (avec les postes
- * remplacés par `remplacer`, clé « empId|jour »). Jours d'absence en vigueur ignorés ; nature jamais lue.
+ * remplacés par `remplacer`, clé « empId|jour ») : ceux de l'aperçu des dialogues (shared/rules/planning-apercu.ts).
  */
 async function controler(ctx: Ctx, empIds: readonly number[], du: ISODate, au: ISODate, remplacer: ReadonlyMap<string, Creneau | null> = new Map()): Promise<AlertePlanning[]> {
   const out: AlertePlanning[] = [];
   const enrichis = new Map(enriched(ctx).map(e => [e.id, e]));
-  const noms = {
-    habilitation: (id: string) => ctx.ds.referentiels.habilitations.find(h => h.id === id)?.nom ?? id,
-    formation: (id: string) => ctx.ds.referentiels.formations.find(f => f.id === id)?.court ?? id,
-  };
   for (const empId of empIds) {
-    const emp = getEmp(ctx, empId), ex = enrichis.get(empId);
     const siens = new Map([...remplacer].filter(([k]) => k.startsWith(`${empId}|`)).map(([k, c]) => [k.slice(k.indexOf('|') + 1), c]));
-    const jours = await joursPlanifies(ctx, empId, du, au, siens);
-    const absents = new Set<ISODate>();
-    for (const a of ctx.ds.absences.filter(x => x.empId === empId && absenceBloque(x) && x.au >= jours[0]?.jour && x.du <= (jours.at(-1)?.jour ?? x.du))) {
-      for (let j = a.du; j <= a.au; j = addD(j, 1)) absents.add(j);
-    }
-    const c = ctx.d.contratOf(emp);
-    out.push(...controlesPlanning({
-      employe: emp, jours, du, au, reglages: ctx.ds.settings, derogationDominicale: !!derogationDe(ctx.ds, emp), absents,
-      travailleurNuit: statutNuit(ctx.ds, emp.id, ctx.d.ti).travailleur, dureesExclues: c.dirigeant || c.forfait,
-    }));
-    if (ex) {
-      const base = exigencesDe(ctx.ds, emp);
-      const travailles = jours.filter(j => j.horaire && j.jour >= du && j.jour <= au && !absents.has(j.jour)).map(j => {
-        const propres = besoinsDuJour(ctx.ds.besoinsPoste, emp.equipe, j.horaire!.code, j.jour);
-        return {
-          jour: j.jour,
-          exigences: {
-            formations: [...new Set([...base.filter(x => x.type === 'formation').map(x => x.id), ...propres.flatMap(b => b.exigences.formations)])],
-            habilitations: [...new Set([...base.filter(x => x.type === 'habilitation').map(x => x.id), ...propres.flatMap(b => b.exigences.habilitations)])],
-          },
-        };
-      });
-      out.push(...alertesHabilitations(ex, travailles, du, ctx.d.ti, noms));
-    }
+    out.push(...controlesSalarie(ctx.d, getEmp(ctx, empId), enrichis.get(empId), await joursPlanifies(ctx, empId, du, au, siens), du, au));
   }
   return out;
 }
@@ -286,10 +256,38 @@ const roulementTerminer: ActionHandler = async (ctx, p) => {
   return `Affectation de ${emp.nom} au cycle ${r.cycle} terminée le ${fmtIso(au)} : les créneaux déjà générés après cette date restent à corriger`;
 };
 
+/**
+ * `cycle`, `du`, `equipes` (noms des équipes par quart, dans n'importe quel ordre) : reprise des « équipes par quart » en
+ * groupes du cycle (shared/rules/planning-reprise.ts), proposée par Paramètres → Planning à l'activation. Service RH ; la
+ * personne connectée n'est jamais affectée par elle-même ; les salariés déjà affectés sont laissés de côté (rejouable).
+ */
+const reprise: ActionHandler = async (ctx, p) => {
+  actif(ctx);
+  requireRh(ctx);
+  const noms = Array.isArray(p.equipes) ? p.equipes.map(String) : [];
+  const du = str(p.du);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(du)) throw new ActionError('Date de début invalide');
+  const exclus = new Set(ctx.ds.employes.filter(e => estSoiMeme(ctx, e.id)).map(e => e.id));
+  const r = proposerReprise({
+    code: normaliserCodeCycle(p.cycle), du, noms, equipes: ctx.ds.referentiels.equipes, cycles: ctx.ds.cycles ?? [], roulements: ctx.ds.roulements ?? [],
+    employes: ctx.ds.employes, exclus,
+  });
+  if (r.erreur) throw new ActionError(r.erreur);
+  if (!r.lignes.length) return { message: `Aucun salarié à affecter${r.ignores.length ? ` : ${plural(r.ignores.length, 'déjà affecté ou hors contrat', 'déjà affectés ou hors contrat')}` : ''}`, result: { cycle: normaliserCodeCycle(p.cycle), du, affectes: 0, ignores: r.ignores.length, salaries: [] } };
+  for (const l of r.lignes) {
+    await ctx.db.insert<Roulement>('roulements', { empId: l.empId, cycle: normaliserCodeCycle(p.cycle), groupe: l.groupe, du, au: null, equipe: l.equipe, ...nouveau(ctx), finLe: null, finPar: null, finMotif: null });
+  }
+  return {
+    message: `Équipes par quart reprises dans le cycle ${normaliserCodeCycle(p.cycle)} à partir du ${fmtIso(du)} : ${plural(r.lignes.length, 'salarié affecté', 'salariés affectés')}`
+      + (r.ignores.length ? ` · ${plural(r.ignores.length, 'laissé de côté', 'laissés de côté')} (${r.ignores.slice(0, 3).map(x => `${ctx.d.personName(x.empId)} : ${x.raison}`).join(' ; ')}${r.ignores.length > 3 ? '…' : ''})` : ''),
+    result: { cycle: normaliserCodeCycle(p.cycle), du, equipes: [...new Set(r.lignes.map(l => l.equipe))], affectes: r.lignes.length, ignores: r.ignores.length, salaries: r.lignes.map(l => l.empId) },
+  };
+};
+
 // — Génération, corrections —
 
 /**
- * `equipe`, `du`, `au` (12 semaines au plus, à partir d'aujourd'hui) : créneaux en brouillon d'après les affectations. Seuls
+ * `equipe`, `du`, `au` (12 semaines au plus, à partir d'aujourd'hui, jamais au-delà des 12 semaines à venir) : créneaux en brouillon d'après les affectations. Seuls
  * les salariés qui font aujourd'hui partie de l'équipe et que la personne connectée planifie sont générés : une affectation
  * garde l'équipe de sa saisie, et un salarié muté depuis relève de son nouveau planificateur (comptés à part).
  */
@@ -300,6 +298,9 @@ const generer: ActionHandler = async (ctx, p) => {
   if (refus) throw new ActionError(refus);
   const du = String(p.du) < ctx.d.ti ? ctx.d.ti : String(p.du), au = String(p.au);
   if (au < du) throw new ActionError('Période passée : un jour passé se corrige sur la feuille de temps');
+  // Rien au-delà de la fenêtre de l'instantané : ni la grille, ni l'aperçu, ni « Mon planning » ne le verraient.
+  const horizon = refusHorizon(au, ctx.d.ti);
+  if (horizon) throw new ActionError(horizon);
   const g = genererCreneaux({
     equipe: q.nom, du, au, roulements: ctx.ds.roulements ?? [], cycles: ctx.ds.cycles ?? [], horaires: ctx.ds.referentiels.horaires ?? [],
     employes: ctx.ds.employes, derogation: !!derogationDe(ctx.ds, { equipe: q.nom }),
@@ -350,6 +351,8 @@ const creneauAjouter: ActionHandler = async (ctx, p) => {
   const jour = str(p.jour);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(jour)) throw new ActionError('Jour invalide');
   if (jour < ctx.d.ti) throw new ActionError('Jour passé : il se corrige sur la feuille de temps', 409);
+  const horizon = refusHorizon(jour, ctx.d.ti);
+  if (horizon) throw new ActionError(horizon);
   const h = horaireRecu(ctx, p.horaire, false);
   if (emp) {
     refusPoste(emp, jour, h);
@@ -445,7 +448,7 @@ const creneauAnnuler: ActionHandler = async (ctx, p) => {
 // — Publication —
 
 /**
- * `equipe`, `du`, `au` (12 semaines au plus), `motif` (circonstances exceptionnelles, exigé quand un créneau est communiqué
+ * `equipe`, `du`, `au` (12 semaines au plus, jamais au-delà des 12 semaines à venir), `motif` (circonstances exceptionnelles, exigé quand un créneau est communiqué
  * sous le délai de prévenance), `motifAlertes` (exigé quand les contrôles relèvent des alertes) : les brouillons de
  * l'équipe sur la période sont publiés en une version, les salariés prévenus. La période commence au plus tôt aujourd'hui :
  * les brouillons des jours passés (jamais communiqués) sont ignorés, et les contrôles d'habilitation partent de là. Refus :
@@ -459,6 +462,9 @@ const publier: ActionHandler = async (ctx, p) => {
   if (refus) throw new ActionError(refus);
   const du = String(p.du) < ctx.d.ti ? ctx.d.ti : String(p.du), au = String(p.au);
   if (au < du) throw new ActionError('Période passée : un jour passé se corrige sur la feuille de temps');
+  // Rien au-delà de la fenêtre de l'instantané : ni la grille, ni l'aperçu, ni « Mon planning » ne le verraient.
+  const horizon = refusHorizon(au, ctx.d.ti);
+  if (horizon) throw new ActionError(horizon);
   const brouillons = await lireCreneaux(ctx, 'equipe = ? AND jour >= ? AND jour <= ? AND statut = ?', [q.nom, du, au, 'brouillon']);
   if (!brouillons.length) return 'Rien à publier sur cette période : aucun brouillon';
   const soi = brouillons.find(c => c.empId != null && (c.empId === ctx.user.empId || estSoiMeme(ctx, c.empId)));
@@ -570,7 +576,7 @@ const echangeProposer: ActionHandler = async (ctx, p) => {
     demandeurId: moi.id, partenaireId: autre.id, creneauDemandeur: a.id, creneauPartenaire: b?.id ?? null, statut: 'propose', creeLe: new Date().toISOString(),
     accepteLe: null, decideLe: null, decidePar: null, parDelegationDe: null, motifRefus: null, alertesAcceptees: null,
   });
-  await notifierEchange(ctx, autre.id, true, `Échange de poste proposé par ${moi.nom}`,
+  await notifierEchange(ctx, autre.id, 'demande', `Échange de poste proposé par ${moi.nom}`,
     `${moi.nom} vous propose ${b ? `d’échanger son poste du ${fmtIso(a.jour)} contre le vôtre du ${fmtIso(b.jour)}` : `de reprendre son poste du ${fmtIso(a.jour)}`}. Répondez dans Cursus ; l’échange sera ensuite validé par votre manager.`);
   return { message: `Échange proposé à ${autre.nom} : il doit l’accepter, puis votre manager le valider`, result: { echange: x.id, statut: x.statut, salaries: [moi.id, autre.id] } };
 };
@@ -586,8 +592,8 @@ const echangeAccepter: ActionHandler = async (ctx, p) => {
   const a = getEmp(ctx, e.demandeurId), b = getEmp(ctx, e.partenaireId);
   // Valideurs : le manager de chacun et, pendant sa délégation « planning », son suppléant (service RH : récapitulatif).
   const valideurs = new Set([a, b].flatMap(x => valideursDe(ctx.ds, x, ctx.d.ti, 'planning').map(v => v.id)).filter(id => id && id !== a.id && id !== b.id));
-  for (const v of valideurs) await notifierEchange(ctx, v, true, `Échange de poste à valider — ${a.nom} et ${b.nom}`, `${a.nom} et ${b.nom} demandent à échanger un poste. L’échange attend votre validation dans Cursus.`);
-  await notifierEchange(ctx, a.id, false, 'Échange de poste accepté', `${b.nom} accepte votre échange de poste ; il attend la validation de votre manager.`);
+  for (const v of valideurs) await notifierEchange(ctx, v, 'valider', `Échange de poste à valider — ${a.nom} et ${b.nom}`, `${a.nom} et ${b.nom} demandent à échanger un poste. L’échange attend votre validation dans Cursus.`);
+  await notifierEchange(ctx, a.id, 'decision', 'Échange de poste accepté', `${b.nom} accepte votre échange de poste ; il attend la validation de votre manager.`);
   return { message: 'Échange accepté : il attend la validation du manager', result: { echange: e.id, statut: 'accepte', salaries: [e.demandeurId, e.partenaireId] } };
 };
 
@@ -632,7 +638,7 @@ const echangeValider: ActionHandler = async (ctx, p) => {
   await ctx.db.update<EchangePoste>('echangesPoste', e.id, {
     statut: 'valide', decideLe: le, decidePar: ctx.user.nom, parDelegationDe: [...ctx.parDelegation][0] ?? null, alertesAcceptees: codesTous.size ? [...codesTous] : null,
   });
-  for (const x of [ea, eb]) await notifierEchange(ctx, x.id, false, 'Échange de poste validé', `L’échange de poste entre ${ea.nom} et ${eb.nom} est validé : votre planning est mis à jour dans Cursus.`);
+  for (const x of [ea, eb]) await notifierEchange(ctx, x.id, 'decision', 'Échange de poste validé', `L’échange de poste entre ${ea.nom} et ${eb.nom} est validé : votre planning est mis à jour dans Cursus.`);
   return {
     message: `Échange entre ${ea.nom} et ${eb.nom} validé : planning mis à jour${codesTous.size ? ` · ${plural(codesTous.size, 'alerte acceptée', 'alertes acceptées')}` : ''}`,
     result: { echange: e.id, statut: 'valide', alertes: codesTous.size, salaries: [ea.id, eb.id] },
@@ -654,7 +660,7 @@ const echangeRefuser: ActionHandler = async (ctx, p) => {
     statut: 'refuse', decideLe: new Date().toISOString(), decidePar: ctx.user.nom, motifRefus: motif, parDelegationDe: [...ctx.parDelegation][0] ?? null,
   });
   for (const x of e.statut === 'propose' ? [ea] : [ea, eb]) {
-    await notifierEchange(ctx, x.id, false, 'Échange de poste refusé', `L’échange de poste entre ${ea.nom} et ${eb.nom} est refusé${motif ? ` : ${motif}` : ''}.`);
+    await notifierEchange(ctx, x.id, 'decision', 'Échange de poste refusé', `L’échange de poste entre ${ea.nom} et ${eb.nom} est refusé${motif ? ` : ${motif}` : ''}.`);
   }
   return { message: 'Échange refusé', result: { echange: e.id, statut: 'refuse', salaries: [ea.id, eb.id] } };
 };
@@ -666,7 +672,7 @@ const echangeAnnuler: ActionHandler = async (ctx, p) => {
   if (e.demandeurId !== ctx.user.empId) throw new ActionError('Seul le salarié qui a proposé l’échange le retire', 403);
   if (!ECHANGE_OUVERT.includes(e.statut)) throw new ActionError('Échange déjà traité', 409);
   await ctx.db.update<EchangePoste>('echangesPoste', e.id, { statut: 'annule', decideLe: new Date().toISOString(), decidePar: ctx.user.nom });
-  if (e.statut === 'accepte') await notifierEchange(ctx, e.partenaireId, false, 'Échange de poste retiré', `${ctx.d.personName(e.demandeurId)} retire l’échange de poste proposé.`);
+  if (e.statut === 'accepte') await notifierEchange(ctx, e.partenaireId, 'decision', 'Échange de poste retiré', `${ctx.d.personName(e.demandeurId)} retire l’échange de poste proposé.`);
   return { message: 'Échange retiré', result: { echange: e.id, statut: 'annule', salaries: [e.demandeurId, e.partenaireId] } };
 };
 
@@ -679,6 +685,8 @@ export const planningActions = {
   'planning.besoin.archiver': besoinArchiver,
   'planning.roulement.affecter': roulementAffecter,
   'planning.roulement.terminer': roulementTerminer,
+  // Étape 2 : reprise des équipes par quart (Paramètres → Planning).
+  'planning.reprise': reprise,
   'planning.generer': generer,
   'planning.creneau.ajouter': creneauAjouter,
   'planning.creneau.modifier': creneauModifier,

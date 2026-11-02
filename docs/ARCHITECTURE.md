@@ -1885,9 +1885,10 @@ aucun champ du paramètre n'est recopié.
 | `planning.cycle.creer` / `.modifier` / `.archiver` | code (1 à 8 lettres ou chiffres, jamais modifié), nom, longueur (1 à 70 jours), sequence (un code d'horaire en vigueur ou « » par jour), groupes [{code, decalage}], origine / archive: false pour rétablir ; archivage refusé tant qu'une affectation en cours ou à venir l'emploie (lot 12, C5 ; module désactivé compris) | RH |
 | `planning.besoin.creer` / `.modifier` / `.archiver` | equipe, horaire, jours (0 = lundi … 6), effectifMin (1 à 99), posteId?, activite?, exigences {formations, habilitations}, du, au? / id | RH |
 | `planning.roulement.affecter` / `.terminer` | empId, cycle, groupe, du, au? (sans chevauchement, dans le contrat) / id, au (au plus tôt la veille du début : affectation annulée), motif? (jamais journalisé) ; module désactivé : 409 | planificateur : manager direct, son suppléant par délégation « planning », RH (jamais pour soi-même) |
-| `planning.generer` | equipe, du, au (12 semaines au plus, à partir d'aujourd'hui) : brouillons d'après les affectations, pour les seuls salariés qui font aujourd'hui partie de l'équipe et que l'on planifie (un salarié muté relève de son nouveau planificateur) ; un créneau publié ou corrigé à la main n'est jamais remplacé | planificateur de l'équipe |
-| `planning.creneau.ajouter` / `.modifier` / `.annuler` | equipe (celle du salarié), jour, horaire, empId? (absent : à pourvoir) / id, horaire (« » : repos) : brouillon corrigé, ou nouvelle version d'un créneau publié / id, motif (exigé pour un créneau publié, communiqué au salarié, jamais journalisé) ; jour passé : 409, sauf le retrait d'un brouillon (jamais communiqué) | planificateur |
-| `planning.publier` | equipe, du, au, motif? (circonstances exceptionnelles, exigé sous `planningDelaiPrevenance`), motifAlertes? (exigé en cas d'alerte) : période ramenée à aujourd'hui (brouillons passés ignorés) ; brouillon d'un salarié que l'on ne planifie pas : 403, avant tout contrôle ; refus (habilitation absente, retirée, suspendue — prérequis échu compris — ou expirée avant la partie à venir de la période ; nuit d'un mineur ; hors contrat ; semaine dont la feuille est validée) en 409 ; version suivante de l'équipe, salariés prévenus par e-mail aussitôt (`communiqueLe`) | planificateur de l'équipe, jamais pour son propre créneau |
+| `planning.reprise` | cycle, du, equipes (noms des équipes par quart) : chaque membre présent affecté au groupe du cycle qui revient à son équipe (ordre du référentiel), déjà affectés et soi-même laissés de côté ; module désactivé : 409 | RH |
+| `planning.generer` | equipe, du, au (12 semaines au plus, à partir d'aujourd'hui, jamais au-delà des 12 semaines à venir de l'instantané : `refusHorizon`) : brouillons d'après les affectations, pour les seuls salariés qui font aujourd'hui partie de l'équipe et que l'on planifie (un salarié muté relève de son nouveau planificateur) ; un créneau publié ou corrigé à la main n'est jamais remplacé | planificateur de l'équipe |
+| `planning.creneau.ajouter` / `.modifier` / `.annuler` | equipe (celle du salarié), jour (au plus tard le dernier jour des 12 semaines à venir), horaire, empId? (absent : à pourvoir) / id, horaire (« » : repos) : brouillon corrigé, ou nouvelle version d'un créneau publié / id, motif (exigé pour un créneau publié, communiqué au salarié, jamais journalisé) ; jour passé : 409, sauf le retrait d'un brouillon (jamais communiqué) | planificateur |
+| `planning.publier` | equipe, du, au (jamais au-delà des 12 semaines à venir), motif? (circonstances exceptionnelles, exigé sous `planningDelaiPrevenance`), motifAlertes? (exigé en cas d'alerte) : période ramenée à aujourd'hui (brouillons passés ignorés) ; brouillon d'un salarié que l'on ne planifie pas : 403, avant tout contrôle ; refus (habilitation absente, retirée, suspendue — prérequis échu compris — ou expirée avant la partie à venir de la période ; nuit d'un mineur ; hors contrat ; semaine dont la feuille est validée) en 409 ; version suivante de l'équipe, salariés prévenus par e-mail aussitôt (`communiqueLe`) | planificateur de l'équipe, jamais pour son propre créneau |
 | `planning.echange.proposer` / `.accepter` / `.valider` / `.refuser` / `.annuler` | creneauId, partenaireId (même équipe), creneauPartenaire? (absent : cession) / id / id, motifAlertes? / id, motif? / id ; expiré dès qu'un des créneaux commence | proposer, annuler : le salarié du créneau ; accepter : le collègue ; valider : le manager des deux (ou son suppléant « planning ») ou RH ; refuser : le collègue (proposé), le valideur (accepté) |
 | `pointage.pointer` | empId (soi-même), sens? (`E`/`S`, déduit sinon de l'entrée en cours) ; instant du serveur ; rejeu hors ligne : horodatageAppareil (instant avec fuseau, moins de 7 jours, au plus 5 min d'avance), marqué « différé », refusé (409) dans une semaine dont la feuille est validée ; jamais de position ; doublon sous 60 s : rien d'ajouté ; module actif et population badgée exigés (409) ; jamais au journal (lot 12, C6) | chacun pour lui-même |
 | `pointage.corriger` | empId, nature (`ajout` : horodatage avec fuseau, sens ; `neutralisation` : pointageId), motif (`oubli`/`appareil`/`mission`/`formation`/`autre`), commentaire? (300 caractères, jamais au journal) ; jour passé, sous `pointageDelaiCorrectionJours` jours (le service RH sans délai) ; feuille validée de la semaine du jour ou de celle du jour de rattachement du poste (sortie du lundi d'un poste de nuit du dimanche) : 409 (réouverture), aussi à la validation ; saisie par le valideur : validée d'emblée | salarié, manager direct ou suppléant « feuilles », RH |
@@ -5270,7 +5271,7 @@ avant la publication, permettre les échanges de poste. **Module livré désacti
 défaut) jusqu'à l'avis du CSE : toutes les actions sont refusées (409), sauf les référentiels (cycles, besoins), qui se
 préparent avant ; rien du planning ne part hors du service RH ; la délégation « planning » n'est ni proposée ni retenue.
 Les écrans (grille, Mon planning, Référentiels → Cycles, Paramètres → Planning, affichage D3171-7), le pré-remplissage de
-la feuille et le script de reprise des « équipes par quart » sont l'étape 2 ; les conflits avec les missions, les
+la feuille et la reprise des « équipes par quart » sont l'étape 2 (faite, ci-dessous) ; les conflits avec les missions, les
 sessions et les astreintes et la couverture par créneau, l'étape 3.
 
 - **Modèle** (`shared/types-planning.ts`, tables du bloc C5 de `server/src/db.ts`, migration PostgreSQL
@@ -5371,6 +5372,69 @@ sessions et les astreintes et la couverture par créneau, l'étape 3.
   de la fenêtre des créneaux 216 ms, vues RH, manager et collaborateur inchangées (2, 10 et 2 ms après assemblage), JSON de
   la vue RH 13,9 Mo (5,3 sans planning ; 0,29 Mo en brotli), contrôles d'une publication de 4 semaines pour les 15 salariés
   de la Maintenance 137 ms, historique d'un an 518 ms. Budgets tenus.
+- **Étape 2 : écrans, pré-remplissage, agenda, reprise** (2 novembre 2026) :
+  - Aperçu des contrôles (`shared/rules/planning-apercu.ts`) : `joursPlanifiesDe` et `controlesSalarie` sont les contrôles
+    d'un salarié, appelés par le serveur (`controler` de `server/src/actions/planning.ts`, sur les créneaux lus en base) et
+    par les dialogues (sur l'instantané du planificateur) : `apercuPublication` (brouillons de la période ramenée à
+    aujourd'hui, semaines verrouillées, créneaux sous le délai de prévenance, refus, alertes, informations) et
+    `apercuEchange` (poste modifié ou annulé, collègue qui travaille déjà, modification en attente, contrôles des deux).
+    L'aperçu informe ; le serveur refait tout à l'envoi.
+  - Onglet **Planning d'équipe** de Temps de travail (`client/src/components/planning/PlanningEquipe.tsx`, calcul sans React
+    dans `planning-vue.ts`), module activé : service RH (toutes les équipes), manager (ses équipes ; N+2 et délégation d'un
+    autre périmètre en consultation), paie et lecture seule (consultation). Grille de deux semaines à partir de la semaine
+    de l'en-tête, équipe dans l'adresse (`?onglet=planning&equipe=`) : un vrai tableau, une lettre par case (code de
+    l'horaire, R repos, A absent — au planificateur seul, sans nature —, « * » brouillon), résumé par ligne, ligne de
+    couverture (postes des horaires qui ont un besoin, sur l'effectif minimal ; « ! » et texte complet quand il manque),
+    focus itinérant (flèches, Début, Fin), clic ou Entrée : dialogue du créneau (planificateur, jour à venir). Dessous :
+    échanges de poste (« Examiner » pour le manager des deux, son suppléant « planning » ou le service RH), affectations au
+    roulement (Affecter, Terminer), versions publiées et affichage réglementaire. Semaines hors de la fenêtre de
+    l'instantané (plus de 8 semaines passées, plus de 12 à venir : `horsFenetre`) : grille et affichage calculés sur les
+    créneaux lus à la demande par `GET /api/planning/historique` (`client/src/planning-api.ts`, `useHistoriquePlanning`,
+    gardée par `exigerNavigationInterne('appel')`), filtrés par droits ; « lecture de l'historique… » pendant l'appel.
+  - Dialogues (`client/src/dialogs/PlanningDialog.tsx`) : Générer (période, 12 semaines au plus, jamais au-delà de la fenêtre
+    de l'instantané : `refusHorizon`, shared/rules/planning.ts, comme le serveur — sinon l'aperçu, la grille et Mon planning
+    ne verraient pas les créneaux), Publier (aperçu, motif des circonstances exceptionnelles et motif des alertes exigés à
+    l'envoi seulement s'ils sont dus ; champ affiché aussi quand le serveur l'exige sans que l'aperçu l'ait vu ; refus :
+    envoi bloqué à l'écran), Créneau (ajout nominatif ou à pourvoir, horaire ou repos, retrait d'un brouillon, annulation d'un poste publié
+    par confirmation avec motif), Roulement (affectation avec aperçu de la première semaine, fin avec motif facultatif),
+    Échange (le salarié nomme un collègue de son équipe pris dans l'annuaire ; contre un poste du collègue seulement si le
+    réglage `planningCollegues` montre ses postes), Valider un échange (aperçu, motif des alertes ; refus par confirmation,
+    motif facultatif), Reprise. Bouton principal jamais grisé ; saisie incomplète signalée à l'envoi.
+  - **Mon planning** (vue `planning` du collaborateur, et du manager lui-même planifié — membre d'une équipe en cycle :
+    poste publié, affectation ou échange qui le concerne, `planifieLuiMeme` —, `client/src/pages/MonPlanning.tsx`, menu
+    « Temps & absences », dans l'application installée ; module désactivé : vue fermée) : postes publiés sur quatre semaines (semaine dans l'adresse),
+    version et date de communication, motif d'un délai court ; « Échanger… » sur un poste à venir ; échanges reçus
+    (Accepter, Refuser) et proposés (Retirer) ; postes des collègues si le réglage l'ouvre. Lecture hors ligne par le cache
+    de l'instantané ; aucune action de planning dans la file hors ligne ; semaines hors de la fenêtre lues dans l'historique.
+    « Échanger… » d'après l'heure réelle de Paris (un poste du jour commencé ne s'échange plus). Notifications push : celles
+    du salarié ouvrent cette vue (`vue: 'planning'`) ; l'échange à valider (`planning.echange.valider`, type propre au
+    valideur) ouvre l'onglet Planning d'équipe de Temps de travail (`vue: 'temps', onglet: 'planning'`).
+  - **Référentiels → Cycles et Besoins de poste** (`client/src/pages/ReferentielsCycles.tsx`, `client/src/dialogs/RefCycleDialog.tsx`) :
+    séquence saisie en codes séparés par des espaces (« - » : repos), groupes « A:0 B:7 », indicateurs en direct ; archivage
+    confirmé, rétablissement d'un clic ; besoins par équipe, horaire, jours, effectif minimal, exigences du créneau.
+  - **Paramètres → Planning d'équipe** (`client/src/pages/parametres/Planning.tsx`) : activation (après l'avis du CSE, dont
+    la date `planningCseLe` est exigée par COHERENCE, `refusActivationPlanning`, comme pour le badgeage),
+    délai de prévenance, repos quotidien de l'accord, durées du travailleur de nuit et référence de l'accord (exigée dès
+    qu'une valeur s'écarte de la loi, contrôlée à l'écran comme par COHERENCE), planning des collègues, reprise.
+  - **Affichage réglementaire** (art. D3171-7, `affichageEquipe`, `csvAffichage`) : horaire collectif (horaires tenus, plage,
+    pause, durée), groupes de roulement, composition nominative de chaque poste jour par jour, d'après les postes publiés des
+    deux semaines affichées (lus dans l'historique hors de la fenêtre de l'instantané : registre gardé au moins un an,
+    art. D3171-16) ; imprimé (`printDocument`) ou exporté en CSV (`downloadCsv`), signalé au journal comme tout export.
+    Aucun motif, aucune absence.
+  - **Pré-remplissage** (`shared/rules/planning-feuille.ts`, `horairesPlanifies`) : sur une feuille en saisie (ou un jour
+    complété après la soumission), l'horaire du créneau publié du jour (avec ses heures de la publication) est proposé à la
+    place de celui de l'équipe, les jours qui portent des heures ; jamais un brouillon ; module désactivé : rien. Lu par
+    `horairesDeLaFeuille` (paramètre `planifies`), donc par l'écran, `calcSheet` et `horairesAFiger` (figé à la soumission
+    et à la validation comme avant). Aucune heure n'est pré-remplie. Le repos de la veille (`veilleDe`, repos-nuit.ts, au
+    chantier C6) garde l'horaire de l'équipe.
+  - **Agenda** (`evenementsAgenda`, server/src/agenda.ts) : le flux personnel porte les postes publiés (ni brouillon, ni
+    repos), un événement par jour à l'heure de Paris (`plage`), UID `poste-<salarié>-<jour>` stable d'une version à l'autre ;
+    module désactivé, ou contenu « postes » retiré de `agendaContenu` (Paramètres → Agenda, compris par défaut) : aucun.
+  - **Reprise des équipes par quart** (`shared/rules/planning-reprise.ts`, action `planning.reprise`, service RH, module
+    activé) : `equipesParQuart` repère les équipes sœurs qui ont chacune un horaire par défaut ; les équipes choisies, dans
+    l'ordre du référentiel, prennent les groupes du cycle dans l'ordre ; chaque membre présent au premier jour est affecté
+    (équipe figée : la sienne) ; déjà affecté, hors contrat ou la personne connectée : laissé de côté avec la raison.
+    Rejouable sans doublon. Journal : cycle, jour, équipes et nombres. Proposée par Paramètres → Planning.
 ## Lot 12 : badgeage virtuel (C6, t191), étape 1
 
 Pointage sur téléphone ou ordinateur seulement (réponse du propriétaire du 1er novembre 2026 : pas de badgeuse murale ; ni

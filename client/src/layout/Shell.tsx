@@ -7,7 +7,7 @@
 // région insérée avec son texte) : les succès en « status », les erreurs en « alert ».
 import { useMemo, useRef, type ReactNode } from 'react';
 import {
-  AirplaneIcon, BellIcon, BookOpenIcon, BooksIcon, BriefcaseIcon, CalendarBlankIcon, ChartBarIcon, ChartLineIcon, ChatIcon, CheckIcon, ClockIcon, GearSixIcon, HardHatIcon,
+  AirplaneIcon, BellIcon, BookOpenIcon, /* lot 12 — C5 */ CalendarCheckIcon, BooksIcon, BriefcaseIcon, CalendarBlankIcon, ChartBarIcon, ChartLineIcon, ChatIcon, CheckIcon, ClockIcon, GearSixIcon, HardHatIcon,
   HouseIcon, KeyIcon, LifebuoyIcon, LockSimpleIcon, MapPinIcon, PlusIcon, ReceiptIcon, ShieldCheckIcon, SignOutIcon, TargetIcon, TreeStructureIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
 } from '@phosphor-icons/react';
 import { droitsRh, PROFILS_RH, vuesDe } from '../../../shared/constants.ts';
@@ -29,6 +29,8 @@ import { BandeauHorsLigne } from '../components/BandeauHorsLigne.tsx';
 import { InstallerApplication } from '../components/InstallerApplication.tsx';
 import { BarreOnglets } from './BarreOnglets.tsx';
 import { ongletsDe } from './onglets.ts';
+// lot 12 — C5 (planning d'équipe)
+import { planifieLuiMeme } from '../components/planning/planning-vue.ts';
 
 interface NavItem { view: View; label: string; icon: Icon; badge?: number }
 type NavGroup = [string, NavItem[]];
@@ -48,7 +50,12 @@ const ENTREES_LOT12: readonly EntreesMenu[] = [
   (data, d, role) => (role === 'collaborateur' && data.settings.objectifsActifs
     ? [['Mon espace', { view: 'objectifs', label: 'Mes objectifs', icon: TargetIcon, badge: aFaireCollaborateur(d, data.user.empId).objectifs.length }]] : []),
   // lot 12 — C4 (organismes de formation et e-learning)
-  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C5 (planning d'équipe) : « Mon planning » du collaborateur, le module activé ; pastille : échanges proposés à
+  // lui, à accepter ou refuser. Le planning de l'équipe est un onglet de Temps de travail.
+  // Le manager lui-même planifié (ses postes ou des échanges qui le concernent dans son instantané) l'a aussi.
+  (data, _d, role) => (data.settings.planningActif && (role === 'collaborateur' || (role === 'manager' && data.user.empId != null && planifieLuiMeme(data, data.user.empId)))
+    ? [['Temps & absences', { view: 'planning', label: 'Mon planning', icon: CalendarCheckIcon, badge: (data.echangesPoste ?? []).filter(e => e.statut === 'propose' && e.partenaireId === data.user.empId).length }]]
+    : []),
   // lot 12 — C6 (badgeage virtuel)
 ];
 

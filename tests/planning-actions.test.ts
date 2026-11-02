@@ -215,7 +215,8 @@ test('échanges : le salarié propose, le collègue accepte, le manager valide ;
   assert.equal((await mails('planning.echange.decision')).length, 6);
   assert.deepEqual((await mails('planning.echange.demande')).map(m => m.objet), ['Échange de poste proposé par Thomas Garnier', 'Échange de poste proposé par Mehdi Benali']);
   // Karim (récapitulatif quotidien dans la démonstration) : les échanges à valider attendent son récapitulatif.
-  assert.deepEqual((await db.all<{ empId: number; type: string; objet: string }>('notifications')).filter(n => n.type === 'planning.echange.demande').map(n => [n.empId, n.objet]),
+  // Type propre au valideur (lot 12 — C5, relecture de l'étape 2) : sa notification ouvre l'onglet Planning d'équipe.
+  assert.deepEqual((await db.all<{ empId: number; type: string; objet: string }>('notifications')).filter(n => n.type === 'planning.echange.valider').map(n => [n.empId, n.objet]),
     [[12, 'Échange de poste à valider — Thomas Garnier et Mehdi Benali'], [12, 'Échange de poste à valider — Mehdi Benali et Thomas Garnier']]);
   // Retrait par le demandeur seulement ; expiration au début du créneau.
   const lundi = await publie(db, 6, '2026-10-12');
@@ -423,8 +424,8 @@ test('échange accepté : le suppléant d’une délégation « planning » est 
   const p = await run(MEHDI, 'planning.echange.proposer', { creneauId: sien, partenaireId: 6 });
   await run(THOMAS, 'planning.echange.accepter', { id: (p.result as { echange: number }).echange });
   const adresse = async (id: number) => (await db.get<{ email: string | null }>('employes', id))!.email;
-  const courriels = (await mails('planning.echange.demande')).filter(m => /à valider/.test(m.objet)).flatMap(m => m.a);
-  const notifs = (await db.all<{ empId: number; type: string }>('notifications')).filter(n => n.type === 'planning.echange.demande').map(n => n.empId);
+  const courriels = (await mails('planning.echange.valider')).filter(m => /à valider/.test(m.objet)).flatMap(m => m.a);
+  const notifs = (await db.all<{ empId: number; type: string }>('notifications')).filter(n => n.type === 'planning.echange.valider').map(n => n.empId);
   assert.ok(courriels.includes((await adresse(16))!) || notifs.includes(16), `suppléant prévenu : ${JSON.stringify({ notifs, courriels })}`);
   assert.ok(courriels.includes((await adresse(12))!) || notifs.includes(12), 'manager prévenu');
 });

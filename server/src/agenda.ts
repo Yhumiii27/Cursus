@@ -3,7 +3,8 @@
 // - les congés validés arrivent dans Outlook par le fichier .ics joint à l'e-mail de décision (journées entières, UID
 //   stable `absence-<n°>` : l'annulation du congé envoie le même événement annulé) — `icsConge`, server/src/notifications.ts ;
 // - un flux personnel par abonnement (`GET /api/agenda/<jeton>.ics`, hors session : le client d'agenda n'a pas de
-//   cookie) : sessions de formation inscrites, entretiens planifiés, absences en vigueur et déplacements. Désactivé par
+//   cookie) : sessions de formation inscrites, entretiens planifiés, absences en vigueur et déplacements ; lot 12 — C5 : postes
+//   publiés du planning d'équipe, le module activé (contenu « postes »). Désactivé par
 //   défaut (réglage `agendaFluxActif`, Paramètres → Agenda) ; absences toujours sous le libellé neutre « Absent », quelle
 //   que soit leur nature, comme ce que voit le manager. Jeton long et aléatoire (256 bits), montré une seule fois au
 //   salarié, stocké haché (SHA-256), révocable par lui (Portail) et en bloc par l'administrateur RH ; un jeton inconnu,
@@ -16,6 +17,8 @@ import { sessionActive } from '../../shared/domain.ts';
 import { present } from '../../shared/rules/contrats.ts';
 import { completerSession, finSession, horaireDuJour, joursSession } from '../../shared/rules/plage-session.ts';
 import type { Absence, ContenuAgenda, Destination, Employe, Entretien, ISODate, Session, Settings, Voyage } from '../../shared/types.ts';
+// lot 12 — C5 (planning d'équipe)
+import type { Creneau } from '../../shared/types-planning.ts';
 import { loadSettings, todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
 import { LimiteurDebit, tropDeRequetes } from './debit.ts';
@@ -79,7 +82,7 @@ function evenementSession(s: Session, empId: number, nom: string): EvenementAgen
 }
 
 /** Événements du flux d'un salarié, selon le contenu réglé. */
-export async function evenementsAgenda(db: Db, empId: number, s: Pick<Settings, 'agendaContenu'>, ti: ISODate): Promise<EvenementAgenda[]> {
+export async function evenementsAgenda(db: Db, empId: number, s: Pick<Settings, 'agendaContenu'> & Partial<Pick<Settings, 'planningActif'>>, ti: ISODate): Promise<EvenementAgenda[]> {
   const du = addD(ti, -FENETRE_AGENDA.avant), au = addD(ti, FENETRE_AGENDA.apres);
   const contenu = new Set<ContenuAgenda>(s.agendaContenu);
   const dans = (debut: ISODate, fin: ISODate) => fin >= du && debut <= au;
@@ -114,6 +117,15 @@ export async function evenementsAgenda(db: Db, empId: number, s: Pick<Settings, 
     for (const v of await db.where<Voyage>('voyages', 'empId', empId)) {
       if (v.annuleLe || !dans(v.depart, v.retour)) continue;
       evs.push({ uid: `voyage-${v.id}@${domaineAgenda()}`, date: v.depart, fin: v.retour, titre: `Déplacement : ${pays.get(v.dest) ?? v.dest}` });
+    }
+  }
+  // lot 12 — C5 (planning d'équipe) : postes publiés (la version communiquée, jamais un brouillon ni un repos), un événement
+  // par jour à l'heure de Paris, au même UID d'une version à l'autre (une modification remplace l'événement, une annulation
+  // le retire du flux). Module désactivé, ou contenu « postes » retiré dans Paramètres → Agenda : aucun.
+  if (s.planningActif && contenu.has('postes')) {
+    for (const c of await db.allDans<Creneau>('creneaux', { where: 'emp_id = ? AND statut = ? AND jour >= ? AND jour <= ?', params: [empId, 'publie', du, au] })) {
+      if (!c.horaire || !c.debut || !c.fin) continue;
+      evs.push({ uid: `poste-${empId}-${c.jour}@${domaineAgenda()}`, date: c.jour, titre: `Poste ${c.horaire}`, plage: { debut: c.debut, finJour: c.fin <= c.debut ? addD(c.jour, 1) : c.jour, fin: c.fin } });
     }
   }
   return evs.sort((a, b) => a.date.localeCompare(b.date) || a.uid.localeCompare(b.uid));

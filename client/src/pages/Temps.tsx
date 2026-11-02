@@ -71,6 +71,7 @@ import type { OngletTemps } from './temps-onglets.ts';
 import { RecapForfaitHeures, useDroitsForfaitHeures } from '../components/temps/RecapForfaitHeures.tsx';
 import { ongletForfaitHeures } from '../components/temps/forfait-heures-vue.ts';
 // lot 12 — C5 (planning d'équipe)
+import { PlanningEquipe } from '../components/planning/PlanningEquipe.tsx';
 // lot 12 — C6 (badgeage virtuel)
 
 /** Année d'une feuille : celle de sa semaine ISO (son jeudi) ; le cumul annuel ventile une semaine à cheval jour par jour. */
@@ -231,7 +232,8 @@ export function Temps() {
   const droitsForfait = useDroitsForfaitHeures();
   const libelleForfait = useMemo(() => ongletForfaitHeures(d, droitsForfait), [d, droitsForfait]);
   if (libelleForfait) { onglets.push(['forfait-heures', libelleForfait]); contenus['forfait-heures'] = <RecapForfaitHeures />; }
-  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C5 (planning d'équipe) : module activé ; service RH, paie et lecture seule, manager (ses équipes).
+  if (data.settings.planningActif && !collab) { onglets.push(['planning', 'Planning d’équipe']); contenus.planning = <PlanningEquipe />; }
   // lot 12 — C6 (badgeage virtuel)
   const onglet: OngletTemps = onglets.some(([o]) => o === ui.tempsOnglet) ? ui.tempsOnglet : 'feuilles';
 

@@ -15,6 +15,8 @@ export interface ModeleNotificationPush {
   corps: string;
   /** Vue de Cursus ouverte au toucher (ALLOWED_VIEWS de shared/constants.ts) ; à défaut, l'accueil de l'espace. */
   vue?: string;
+  /** lot 12 — C5 : onglet de la vue ouvert au toucher (paramètre `onglet` de l'adresse, client/src/state/url.ts). */
+  onglet?: string;
 }
 
 /**
@@ -44,10 +46,13 @@ export const NOTIFICATIONS_PUSH: Readonly<Record<string, ModeleNotificationPush>
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe) : publication et modification du planning (jamais le point de départ du délai de
   // prévenance : la plage de silence peut retarder la notification), étapes d'un échange de poste.
-  'planning.publie': { titre: 'Planning publié', corps: 'Votre planning a été publié.' },
-  'planning.modifie': { titre: 'Planning modifié', corps: 'Votre planning a été modifié.' },
-  'planning.echange.demande': { titre: 'Échange de poste', corps: 'Un échange de poste attend votre réponse.' },
-  'planning.echange.decision': { titre: 'Échange de poste', corps: 'Une décision a été prise sur un échange de poste.' },
+  // Étape 2 : celles du salarié ouvrent « Mon planning » (le manager lui-même planifié l'a aussi) ; l'échange à valider
+  // ouvre, pour son valideur, l'onglet Planning d'équipe de Temps de travail.
+  'planning.publie': { titre: 'Planning publié', corps: 'Votre planning a été publié.', vue: 'planning' },
+  'planning.modifie': { titre: 'Planning modifié', corps: 'Votre planning a été modifié.', vue: 'planning' },
+  'planning.echange.demande': { titre: 'Échange de poste', corps: 'Un échange de poste attend votre réponse.', vue: 'planning' },
+  'planning.echange.valider': { titre: 'Échange de poste à valider', corps: 'Un échange de poste attend votre validation.', vue: 'temps', onglet: 'planning' },
+  'planning.echange.decision': { titre: 'Échange de poste', corps: 'Une décision a été prise sur un échange de poste.', vue: 'planning' },
   // lot 12 — C6 (badgeage virtuel)
 };
 

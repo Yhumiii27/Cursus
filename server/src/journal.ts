@@ -195,6 +195,8 @@ const REGLES_PLANNING: Record<string, Regle> = {
   'planning.besoin.archiver': { champs: ['id'], cible: parId('besoinsPoste', ['archive']) },
   'planning.roulement.affecter': { bilan: (_p, x) => garder((resultatPlanning(x).roulement ?? {}) as Record<string, unknown>, ['id', 'cycle', 'groupe', 'du', 'au']), salaries: salariesPlanning },
   'planning.roulement.terminer': { champs: ['id'], cible: parId('roulements', ['au']) },
+  // Étape 2 : reprise des équipes par quart (cycle, jour, équipes, nombres).
+  'planning.reprise': { bilan: (_p, x) => garder(resultatPlanning(x), ['cycle', 'du', 'equipes', 'affectes', 'ignores']), salaries: salariesPlanning },
   'planning.generer': { bilan: bilanPeriode(['crees', 'maj', 'gardes']), salaries: salariesPlanning },
   'planning.creneau.ajouter': { bilan: bilanCreneau, salaries: salariesPlanning },
   'planning.creneau.modifier': { champs: ['id'], bilan: bilanCreneau, salaries: salariesPlanning },

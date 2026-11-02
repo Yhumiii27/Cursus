@@ -105,6 +105,8 @@ import { OrganismeContactDialog, OrganismeTarifDialog } from './OrganismeContact
 import { OrganismeConditionsDialog, OrganismeDialog } from './OrganismeDialog.tsx';
 import { OrganismeFusionDialog } from './OrganismeFusionDialog.tsx';
 // lot 12 — C5 (planning d'équipe)
+import { PlanningCreneauDialog, PlanningEchangeDialog, PlanningEchangeValiderDialog, PlanningGenererDialog, PlanningPublierDialog, PlanningRepriseDialog, PlanningRoulementDialog } from './PlanningDialog.tsx';
+import { RefBesoinDialog, RefCycleDialog } from './RefCycleDialog.tsx';
 // lot 12 — C6 (badgeage virtuel)
 import { OpcoVersementDialog } from './OpcoVersementDialog.tsx';
 
@@ -230,6 +232,15 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'elearningCorriger': return <ElearningCorrigerDialog {...d} />;
     case 'elearningImport': return <ElearningImportDialog />;
     // lot 12 — C5 (planning d'équipe)
+    case 'planningGenerer': return <PlanningGenererDialog {...d} />;
+    case 'planningPublier': return <PlanningPublierDialog {...d} />;
+    case 'planningCreneau': return <PlanningCreneauDialog {...d} />;
+    case 'planningRoulement': return <PlanningRoulementDialog {...d} />;
+    case 'planningEchange': return <PlanningEchangeDialog {...d} />;
+    case 'planningEchangeValider': return <PlanningEchangeValiderDialog {...d} />;
+    case 'planningReprise': return <PlanningRepriseDialog />;
+    case 'refCycle': return <RefCycleDialog {...d} />;
+    case 'refBesoin': return <RefBesoinDialog {...d} />;
     // lot 12 — C6 (badgeage virtuel)
   }
 }

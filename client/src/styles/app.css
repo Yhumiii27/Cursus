@@ -631,3 +631,19 @@ th.right .th-tri, th.center .th-tri { justify-content: inherit; }
 @media (max-width: 600px) {
   .org-service { max-width: none; flex-basis: 100%; }
 }
+
+/* lot 12 — C5 (planning d'équipe) : grille de l'onglet Planning d'équipe (components/planning/PlanningEquipe.tsx), lisible sans
+   la couleur (lettre de chaque case, astérisque d'un brouillon) ; « Mon planning » (pages/MonPlanning.tsx). */
+.planning-equipe col.planning-nom { width: 150px; }
+.planning-equipe col.planning-resume { width: 180px; }
+.planning-case.poste-poste { background: var(--color-accent-500); color: var(--color-bg); }
+.planning-case.poste-repos { background: color-mix(in srgb, var(--color-text) 6%, transparent); color: var(--text-70); }
+.planning-case.poste-absent { background: var(--color-neutral-500); color: var(--color-bg); }
+.planning-case.poste-a_pourvoir { box-shadow: inset 0 0 0 1px var(--color-accent-500); color: var(--color-text); }
+.planning-case.poste-vide { color: var(--text-70); box-shadow: inset 0 0 0 1px var(--color-neutral-800); }
+.planning-case.poste-brouillon { background-image: repeating-linear-gradient(45deg, transparent, transparent 3px, color-mix(in srgb, var(--color-bg) 35%, transparent) 3px, color-mix(in srgb, var(--color-bg) 35%, transparent) 6px); outline: 1px dashed var(--color-accent-300); outline-offset: -1px; }
+.planning-couverture { font-size: 11px; text-align: center; color: var(--text-70); padding: 2px 0 !important; }
+.planning-couverture.manque { color: var(--color-accent-300); font-weight: 600; }
+.mon-planning-jour.lundi { box-shadow: inset 0 1px 0 var(--color-neutral-700); }
+.mon-planning-jour.aujourdhui .mon-planning-date { color: var(--color-accent); font-weight: 600; }
+.mon-planning-date { flex: 0 0 96px; color: var(--text-70); font-size: 13px; }

@@ -103,7 +103,7 @@ test('décision d’un congé validé : .ics joint ; annulation d’un congé va
 
 test('réglages : flux désactivé par défaut, contenu complet, liste fermée', () => {
   assert.equal(DEFAULT_SETTINGS.agendaFluxActif, false);
-  assert.deepEqual(DEFAULT_SETTINGS.agendaContenu, ['sessions', 'entretiens', 'absences', 'deplacements']);
+  assert.deepEqual(DEFAULT_SETTINGS.agendaContenu, ['sessions', 'entretiens', 'absences', 'deplacements', 'postes']);
   assert.deepEqual(appliquerReglages(DEFAULT_SETTINGS, { agendaContenu: ['absences', 'inconnu', 'sessions'] }).agendaContenu, ['sessions', 'absences']);
   assert.throws(() => appliquerReglages(DEFAULT_SETTINGS, { agendaContenu: 'absences' }), ReglageInvalide);
   for (const a of ['agenda.creerJeton', 'agenda.revoquerJeton', 'agenda.revoquerTout']) {

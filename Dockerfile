@@ -21,7 +21,7 @@
 #   docker build --build-arg CURSUS_VERSION=$(node -p "require('./package.json').version") --build-arg SOURCE_COMMIT=$(git rev-parse HEAD) .
 
 # — Construction de l'interface (dépendances de développement : Vite, TypeScript) —
-FROM node:22-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d AS construction
+FROM node:22-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS construction
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -29,7 +29,7 @@ COPY . .
 RUN npm run build
 
 # — Exécution : dépendances de production seulement, compte sans droits —
-FROM node:22-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d
+FROM node:22-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da
 ARG CURSUS_VERSION=inconnue
 ARG SOURCE_COMMIT=inconnu
 LABEL org.opencontainers.image.title="Cursus" \

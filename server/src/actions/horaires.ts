@@ -8,6 +8,7 @@
 // Un horaire qui empiète sur la nuit ne se choisit pas pour un salarié de moins de 18 ans (étape 2 : shared/rules/repos-nuit.ts).
 import { controlerHoraire, equipesDeLHoraire, horaireDe, horaireTexte, normaliserCodeHoraire } from '../../../shared/rules/horaires.ts';
 import { refusNuitMineur } from '../../../shared/rules/repos-nuit.ts';
+import { refusModificationVariable } from '../../../shared/rules/horaires-variables.ts';
 import { JOURS_FEUILLE } from '../../../shared/rules/semaine.ts';
 import { addD } from '../../../shared/dates.ts';
 import type { Equipe, FeuilleTemps, Horaire } from '../../../shared/types.ts';
@@ -31,6 +32,9 @@ const enregistrer: ActionHandler = async (ctx, p) => {
     await ctx.db.insert<Horaire>('horaires', h);
     return `Horaire ${horaireTexte(h)} créé : proposé dans les feuilles de temps`;
   }
+  // lot 12 — C6 (badgeage virtuel) : un horaire variable garde des plages dans son amplitude, et n'est jamais de nuit.
+  const variable = refusModificationVariable(avant, h);
+  if (variable) throw new ActionError(variable);
   await ctx.db.update<Horaire>('horaires', h.code, { nom: h.nom, debut: h.debut, fin: h.fin, pause: h.pause });
   // Les feuilles déjà soumises ou validées gardent les heures figées avec le code (`FeuilleTemps.horairesFiges`) : les
   // contrôles d'une semaine passée ne changent pas après coup.

@@ -10,6 +10,9 @@ import type { NomAction } from '../../server/src/actions/index.ts';
 import type { AppareilPush } from '../../server/src/push.ts';
 
 export type { AppareilPush, NomAction };
+// lot 12 — C6 (badgeage virtuel) : réponses des lectures de pointages (types seulement, server/src/pointages.ts).
+import type { EtatPointages, LecturePointages, PresencesPointages } from '../../server/src/pointages.ts';
+export type { EtatPointages, LecturePointages, PresencesPointages };
 
 /** Compte proposé à la connexion de démonstration (`id` : identifiant du compte). */
 export interface LoginOption { id: number; nom: string }
@@ -281,6 +284,13 @@ export const api = {
     if (cible) q.set('cible', cible);
     return request<EnvoisState>('GET', `/api/envois${q.size ? `?${q}` : ''}`);
   },
+  // lot 12 — C6 (badgeage virtuel) : pointages lus à la demande, jamais dans l'instantané (server/src/pointages.ts).
+  /** Pointages bruts, postes, anomalies et théorique de chaque jour d'un salarié (6 semaines au plus). */
+  pointages: (empId: number, du: string, au: string) => request<LecturePointages>('GET', `/api/pointages?empId=${empId}&du=${du}&au=${au}`, undefined, espaceOnglet),
+  /** État du jour et débit-crédit d'un salarié (sans `empId` : la personne connectée). */
+  etatPointages: (empId?: number) => request<EtatPointages>('GET', `/api/pointages/etat${empId != null ? `?empId=${empId}` : ''}`, undefined, espaceOnglet),
+  /** Présences du jour du périmètre (manager, service RH), sans la nature d'une absence. */
+  presencesPointages: () => request<PresencesPointages>('GET', '/api/pointages/etat?equipe=1', undefined, espaceOnglet),
   /**
    * `rejeu` (lot 11, file hors ligne : client/src/state/hors-ligne.ts) : clé d'idempotence de la saisie et marque du
    * rejeu hors ligne ; une réponse déjà donnée pour cette clé est rendue sans refaire l'action (`relire`).

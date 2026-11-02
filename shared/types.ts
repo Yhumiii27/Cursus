@@ -724,7 +724,12 @@ export interface Mission { id: number; empId: number; projet: string; lieu: stri
 export interface TacheKeystone { id: number; ref: string | null; empId: number; projet: string; tache: string; debut: ISODate; fin: ISODate; heures: Record<ISODate, number> }
 
 // — Temps & absences —
-export interface LigneTemps { projet: string; tache: string; ks: boolean; h: number[] }
+export interface LigneTemps {
+  projet: string; tache: string; ks: boolean; h: number[];
+  // lot 12 — C6 (badgeage virtuel) : ligne système PTG du mode « calcule » (shared/rules/pointage-feuille.ts), tirée des
+  // pointages, jamais saisie ni renvoyée à Keystone ; absente ailleurs.
+  pt?: boolean;
+}
 /** Régime de temps de travail figé sur une feuille soumise : un changement de contrat ultérieur ne la recalcule pas. */
 export type ContratFige = Pick<Employe, 'statut' | 'typeContrat' | 'temps' | 'heures' | 'forfaitHeures' | 'forfaitJours' | 'jourOff'>;
 /**

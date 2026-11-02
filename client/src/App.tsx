@@ -57,7 +57,8 @@ const PAGES: Record<View, ComponentType> = {
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe) : « Mon planning » du collaborateur (le planning de l'équipe est un onglet de Temps).
   planning: aLaDemande(() => import('./pages/MonPlanning.tsx'), 'MonPlanning'),
-  // lot 12 — C6 (badgeage virtuel)
+  // lot 12 — C6 (badgeage virtuel) : pointages (bouton Pointer, corrections à valider, présences du jour), module activé.
+  pointages: aLaDemande(() => import('./pages/Pointages.tsx'), 'Pointages'),
 };
 
 /** Tous les dialogues (dialogs/DialogHost.tsx et ce qu'il importe) : un seul fichier, préchargé avec les données. */

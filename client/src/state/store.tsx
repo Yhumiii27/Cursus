@@ -323,7 +323,10 @@ export type DialogState =
   | { type: 'planningReprise' }
   | { type: 'refCycle'; code?: string | null }
   | { type: 'refBesoin'; id?: number | null; equipe?: string | null }
-  // lot 12 — C6 (badgeage virtuel)
+  // lot 12 — C6 (badgeage virtuel) : demande ou saisie d'une correction de pointage (ajout d'un pointage oublié, retrait
+  // d'un pointage erroné : `pointageId`, `jour` du pointage visé) ; horaire variable d'un horaire du référentiel.
+  | { type: 'correctionPointage'; empId: number; nature: 'ajout' | 'neutralisation'; pointageId?: number; jour?: ISODate; heure?: string; sens?: 'E' | 'S' }
+  | { type: 'horaireVariable'; code: string }
   ;
 
 /** Dialogue « Planifier » : rouvert après la création d'une session (t107). */
@@ -643,9 +646,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // lot 12 — C4 (organismes de formation et e-learning)
     // lot 12 — C5 (planning d'équipe) : « Mon planning », module désactivé (réglage planningActif).
     || (rawView === 'planning' && !!data && !data.settings.planningActif)
-    // lot 12 — C6 (badgeage virtuel)
+    // lot 12 — C6 (badgeage virtuel) : module désactivé (réglage pointageActif) → page d'accueil.
+    || (rawView === 'pointages' && !!data && !data.settings.pointageActif)
     ;
   const view = allowedView(role, fermee ? '' : rawView, role === 'rh' ? data?.settings.vueInitiale : undefined, (data ?? session)?.user?.profilRh);
+  // lot 12 — C6 (badgeage virtuel) : le raccourci « Pointer » du manifeste (statique) se montre même module inactif ; son
+  // ouverture ne renvoie pas à l'accueil en silence.
+  const pointageFerme = rawView === 'pointages' && !!data && !data.settings.pointageActif;
+  useEffect(() => { if (pointageFerme) notify('Le pointage n’est pas activé pour vous : votre temps se déclare sur la feuille de temps'); }, [pointageFerme, notify]);
 
   // Synchronise l'URL avec la vue effectivement affichée, sa sélection et ses filtres (state/url.ts) : l'ouverture d'une
   // fiche dans la même vue ajoute une entrée à l'historique, tout autre changement remplace l'entrée courante (go a déjà

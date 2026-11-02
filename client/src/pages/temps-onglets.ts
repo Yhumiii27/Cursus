@@ -8,5 +8,6 @@ export const ONGLETS_TEMPS = ['feuilles',
   // lot 12 — C5 (planning d'équipe) : planning (PlanningEquipe)
   'planning',
   // lot 12 — C6 (badgeage virtuel) : pointages (Pointages)
+  'pointages',
 ] as const;
 export type OngletTemps = typeof ONGLETS_TEMPS[number];

@@ -37,6 +37,8 @@ import { useStore } from '../state/store.tsx';
 // lot 12 — C3 (entretiens suivis)
 import { BadgeEntretien } from '../components/OrigineEntretien.tsx';
 import { reqKind, reqLabel } from './Dashboard.tsx';
+// lot 12 — C6 (badgeage virtuel)
+import { BoutonPointer } from '../components/BoutonPointer.tsx';
 
 const docCls = (k: string) => k === 'exp' ? 'tag-accent' : k === 'due' ? 'tag-outline' : 'tag-neutral';
 /** Ligne de liste du portail : filet estompé, espacement du prototype. */
@@ -104,6 +106,9 @@ export function Portail() {
           <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'reqForm' })}>Demander une formation</Btn>
         </div>
       </header>
+
+      {/* lot 12 — C6 (badgeage virtuel) : bouton « Pointer », pour un salarié d'une population badgée, le module activé. */}
+      <BoutonPointer />
 
       {nAFaire > 0 && (
         <Panel highlight title="À faire" aside={plural(nAFaire, 'action attendue', 'actions attendues')} style={{ gap: 'var(--space-2)' }}>

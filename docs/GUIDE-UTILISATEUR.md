@@ -203,6 +203,22 @@ publiée, et vous recevez alors un e-mail (et une notification sur le téléphon
   heures ; changez-le si vous avez tenu un autre poste. Les heures restent à saisir : le planning n'est qu'une prévision.
 - **Agenda** : si vous êtes abonné au flux de Cursus (Accueil → Agenda), vos postes publiés y apparaissent.
 
+### Pointer (si l'entreprise l'a activé pour votre équipe)
+
+- Bouton « Pointer l'arrivée » puis « Pointer le départ » : sur l'accueil, en haut de la saisie du jour sur le téléphone,
+  dans le menu « Mes pointages » et par le raccourci « Pointer » de l'icône de l'application installée. L'heure est celle
+  du serveur ; un double appui ne compte qu'une fois. Sans réseau, le pointage est gardé sur le téléphone avec son heure
+  et part « différé » au retour du réseau, si l'entreprise l'admet (sinon, pointez une fois connecté). Aucune position,
+  aucune photo. Le raccourci « Pointer » figure sur l'icône de tous les téléphones : tant que le pointage n'est pas
+  activé, il ramène à l'accueil avec le message « Le pointage n'est pas activé pour vous ».
+- Sous le bouton : présent depuis quelle heure, les pointages du jour, le temps du jour et de la semaine et le solde
+  (débit-crédit). « Mes pointages » montre la semaine, les points à justifier (sortie manquante, pause courte…) et vos
+  demandes.
+- Oubli : « Signaler un oubli » (jour, heure, arrivée ou départ, motif) ; pointage erroné : « Retirer » sur sa ligne. La
+  demande, faite dans les 7 jours, est validée par votre manager ; rien n'est effacé, la correction s'ajoute.
+- Mode « calculé » : la ligne « PTG » de votre feuille de temps reprend vos heures pointées ; répartissez-les sur vos
+  projets (la ligne garde ce qui reste à répartir). Une répartition qui dépasse le pointé d'un jour bloque la soumission.
+
 ## Manager
 
 Le manager a deux espaces : **Manager** pour son équipe, **Collaborateur** pour ses propres heures, absences et entretiens
@@ -317,6 +333,14 @@ pour les deux, puis Valider (avec un motif s'il y a des alertes) ou Refuser. Un 
 composition nominative de chaque poste, jour par jour, d'après les postes publiés des deux semaines affichées (art.
 D3171-7), à afficher ou à tenir en registre. Pour une période plus ancienne (au-delà de 8 semaines passées), reculez la
 semaine en haut de l'écran : la grille et l'affichage sont alors lus dans l'historique, gardé au moins un an.
+### Pointages de l'équipe
+
+- Menu « Pointages » (le badgeage activé) : « Corrections de pointage à valider » (pastille du menu) — « Valider » ajoute le
+  pointage oublié ou retire le pointage erroné, « Refuser » demande un motif, lu par le salarié — et « Présences du jour »
+  (présent, parti, non pointé, absent, sans la nature d'une absence).
+- La semaine d'un salarié : Temps de travail, onglet « Pointages » (postes, pauses, solde, points à justifier) ;
+  « Ajouter un pointage » ou « Retirer » y enregistre une correction validée d'emblée, dont le salarié voit l'origine.
+  Une semaine déjà validée se corrige après sa réouverture par le service RH.
 
 ### Valider les notes de frais
 
@@ -505,6 +529,12 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
   (7 jours par défaut), repos quotidien réduit et durées du travail de nuit de votre accord, avec sa référence ; planning des
   collègues visible ou non. **Reprendre…** affecte au cycle choisi les membres des équipes créées par quart pour la
   couverture minimale (la première équipe prend le groupe A, la deuxième le B…) ; la reprise se rejoue sans doublon.
+- Badgeage (désactivé par défaut) : Paramètres → Badgeage, par l'administrateur RH, une fois l'avis du CSE rendu et
+  l'accord signé (leur référence et leur date sont exigées), l'analyse d'impact faite avec le DPO : populations qui
+  pointent (équipe, entité, site ou régime ; mode « contrôlé » ou « calculé » ; date d'effet), délai des corrections,
+  pointage hors ligne, conservation. « Afficher la mention d’information des salariés » propose le texte à afficher et à
+  remettre. Horaires variables : Référentiels → Horaires, « Rendre variable » (plages fixes et mobiles, plafonds du
+  report ; d'autres plafonds que 3 h et 10 h exigent la référence de l'accord).
 
 ### Déplacements et vigilance
 

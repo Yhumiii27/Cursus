@@ -429,6 +429,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'pointage.validerCorrection': 'Correction de pointage validée',
   'pointage.refuserCorrection': 'Correction de pointage refusée',
   'pointage.annulerCorrection': 'Demande de correction de pointage retirée',
+  'pointage.reprendreFeuille': 'Pointé repris sur la feuille (mode calculé)',
+  'referentiel.horaire.variable': 'Horaire variable (plages et plafonds)',
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */

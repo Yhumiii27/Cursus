@@ -108,6 +108,8 @@ import { OrganismeFusionDialog } from './OrganismeFusionDialog.tsx';
 import { PlanningCreneauDialog, PlanningEchangeDialog, PlanningEchangeValiderDialog, PlanningGenererDialog, PlanningPublierDialog, PlanningRepriseDialog, PlanningRoulementDialog } from './PlanningDialog.tsx';
 import { RefBesoinDialog, RefCycleDialog } from './RefCycleDialog.tsx';
 // lot 12 — C6 (badgeage virtuel)
+import { CorrectionPointageDialog } from './CorrectionPointageDialog.tsx';
+import { HoraireVariableDialog } from './HoraireVariableDialog.tsx';
 import { OpcoVersementDialog } from './OpcoVersementDialog.tsx';
 
 export function DialogHost() {
@@ -242,5 +244,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'refCycle': return <RefCycleDialog {...d} />;
     case 'refBesoin': return <RefBesoinDialog {...d} />;
     // lot 12 — C6 (badgeage virtuel)
+    case 'correctionPointage': return <CorrectionPointageDialog {...d} />;
+    case 'horaireVariable': return <HoraireVariableDialog {...d} />;
   }
 }

@@ -31,6 +31,9 @@ import { BarreOnglets } from './BarreOnglets.tsx';
 import { ongletsDe } from './onglets.ts';
 // lot 12 — C5 (planning d'équipe)
 import { planifieLuiMeme } from '../components/planning/planning-vue.ts';
+// lot 12 — C6 (badgeage virtuel)
+import { TimerIcon } from '@phosphor-icons/react';
+import { correctionsAValider, pointe } from '../components/temps/pointage-etat.ts';
 
 interface NavItem { view: View; label: string; icon: Icon; badge?: number }
 type NavGroup = [string, NavItem[]];
@@ -56,7 +59,15 @@ const ENTREES_LOT12: readonly EntreesMenu[] = [
   (data, _d, role) => (data.settings.planningActif && (role === 'collaborateur' || (role === 'manager' && data.user.empId != null && planifieLuiMeme(data, data.user.empId)))
     ? [['Temps & absences', { view: 'planning', label: 'Mon planning', icon: CalendarCheckIcon, badge: (data.echangesPoste ?? []).filter(e => e.statut === 'propose' && e.partenaireId === data.user.empId).length }]]
     : []),
-  // lot 12 — C6 (badgeage virtuel)
+  // lot 12 — C6 (badgeage virtuel) : entrée « Pointages » le module activé, pour qui pointe ou décide de corrections
+  // (manager, service RH ; profils restreints : jamais, `vuesDe`) ; pastille : corrections à valider.
+  (data, d, role) => {
+    if (!data.settings.pointageActif) return [];
+    const rh = droitsRh(data.user).includes('rh'), me = data.user.empId, soi = data.user.salarieId ?? null;
+    if (role === 'collaborateur' && !pointe(data, me)) return [];
+    const badge = correctionsAValider(d, { rh, manager: role === 'manager', me, soi }).length;
+    return [['Temps & absences', { view: 'pointages', label: role === 'collaborateur' ? 'Mes pointages' : 'Pointages', icon: TimerIcon, badge }]];
+  },
 ];
 
 /** Entrées du lot 12 pour cet espace (`ENTREES_LOT12`). */

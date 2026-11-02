@@ -53,3 +53,5 @@ demandées comme avant : elles ne copient aucune vue et ne donnent aucun accès.
 | `matrix-lot12-badgeage.sql` | Matrix | Tables du badgeage (pointages, demandes de correction, zones) à fermer en entier à `matrix_lecture` (lot 12, C6) | À valider |
 | `matrix-lot12-index.sql` | Matrix | Lot 12, C2 : index des notes de frais (migrations 0023 et 0029), information et contrôle en lecture | À valider |
 | `matrix-lot12-frais-sante.sql` | Matrix | Lot 12, C2 : scission des frais médicaux, `lignes_frais_sante` à fermer en entier à `matrix_lecture` (remplace la fermeture entière de `lignes_frais` demandée au lot 11) | À valider |
+| `matrix-lot12-badgeage.sql`, `matrix-lot12-badgeage.md` | Matrix | Tables du badgeage (pointages, demandes de correction, zones) à fermer en entier à `matrix_lecture`, aucune vue `pub_` ; colonnes de l'étape 2 sans donnée sensible (lot 12, C6) | À valider |
+| `codex-lot12-badgeage.md` | Codex | Rangement de l'accord, de l'avis du CSE, de l'AIPD et de la note d'information du badgeage (facultatif, lot 12, C6) | À valider |

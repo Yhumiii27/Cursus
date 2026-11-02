@@ -5515,6 +5515,45 @@ sessions et les astreintes et la couverture par créneau, l'étape 3.
     l'ordre du référentiel, prennent les groupes du cycle dans l'ordre ; chaque membre présent au premier jour est affecté
     (équipe figée : la sienne) ; déjà affecté, hors contrat ou la personne connectée : laissé de côté avec la raison.
     Rejouable sans doublon. Journal : cycle, jour, équipes et nombres. Proposée par Paramètres → Planning.
+## Lot 12 : planning d'équipe (C5, t192), étape 3
+
+Livrée comme les étapes 1 et 2, module désactivé par défaut (`planningActif`). Ni table, ni colonne, ni action, ni
+migration nouvelles : tout est calculé à l'affichage et dans l'aperçu des dialogues, jamais stocké ni journalisé.
+
+- **Conflits** (`shared/rules/planning-conflits.ts`, `conflitsPlanning`) : un jour planifié du salarié (poste ou repos,
+  jours d'absence en vigueur exclus) qui croise une mission Keystone (`missions`), des heures d'une tâche Keystone
+  (`taches`) un jour de repos, une session de formation où il est inscrit (`sessionsInscrit` de shared/rules/conflits.ts :
+  un jour de repos, ou un jour de poste dont l'horaire de la session chevauche la plage réelle du poste ; session sans
+  horaire : la journée entière ; et, le temps de formation étant du temps de travail, une session de la veille, du jour
+  ou du lendemain d'un poste qui laisse moins que le repos quotidien entre elle et ce poste — 11 h, art. L3131-1, la
+  valeur réduite `planningReposQuotidienAccord`, 12 h et 14 h pour un mineur —, signalée au jour du poste, une fois par
+  paire session-poste ; une session d'un jour de repos planifié de la période n'est signalée que ce jour-là), une astreinte non annulée qui chevauche la plage du poste. Plages à l'heure de Paris
+  (`instantParis`, `plageReelle`). Codes `conflit_mission`, `conflit_session`, `conflit_astreinte`, de gravité « info »
+  (`GRAVITE`, shared/rules/planning-controles.ts) : ajoutés par `controlesSalarie` (planning-apercu.ts) aux contrôles d'une
+  publication et d'un échange, donc montrés par les dialogues Publier et Valider un échange et recalculés par le serveur,
+  sans refus ni motif (`trancher` ne lit que refus et alertes) ; le journal n'en garde rien (le nombre d'alertes à
+  motiver seulement). Dans la grille, pour le planificateur seul : « ! » après la lettre de la case et le texte du conflit
+  dans son libellé (`CaseEquipe.conflit`, planning-vue.ts).
+- **Couverture minimale par créneau** (`shared/rules/couverture-creneaux.ts`, `couvertureCreneaux`) : pour une équipe et
+  des jours, un créneau par horaire tenu (un salarié de l'équipe y est planifié) ou demandé (besoin de poste en vigueur) ;
+  postes face à l'effectif minimal des besoins, titulaires d'une certification valide à la date du créneau
+  (`titulaireLe`, même règle que `etatsCouverture`) face au minimum de chaque ligne de couverture de l'équipe (formations
+  en vigueur). Absences en vigueur retirées pour le planificateur seul (`avecAbsences`) : un horaire dont tous les
+  salariés sont absents reste un créneau, découvert. Un besoin d'effectif ne crée un créneau qu'un jour où l'équipe a au
+  moins un créneau dans la source lue (poste, repos ou « à pourvoir ») : un jour sans planning (semaine pas encore générée,
+  ni publiée pour le tableau de bord) n'est pas suivi, et l'équipe garde ce jour-là la couverture par jour (`etatsCouverture`).
+  Utilisée par la ligne de couverture de la grille (« ! » et « couverture minimale non tenue : SST au poste N (0 sur 1) »),
+  par l'aperçu de la publication (`ApercuPublication.couverture`, postes de l'équipe sous le minimum une fois la période
+  publiée, en information) et par le panneau **Couverture minimale par poste planifié** du tableau de bord
+  (`client/src/components/planning/CouvertureCreneaux.tsx`, `couvertureAVenir` de planning-vue.ts) : postes publiés des
+  14 prochains jours (postes, repos et « à pourvoir » publiés), espace RH (service RH, référent HSE, lecture seule : ceux
+  qui reçoivent la couverture du jour ; jamais la paie, dont l'instantané n'a ni seuils de couverture ni certifications),
+  absences retirées pour le service RH seul.
+- **Référent HSE** : couverture sans absences, et plus aucun poste « à pourvoir » dans son instantané ni dans l'historique
+  (`creneauxPourProfil`, server/src/vues-planning.ts) : né le plus souvent d'une absence, il la désignerait.
+- Tests : `tests/planning-etape3.test.ts` (règles, publication sans motif ni trace au journal, vue HSE),
+  `tests/client-planning-etape3.test.ts` (grille, dialogue Publier, panneau du tableau de bord).
+
 ## Lot 12 : badgeage virtuel (C6, t191), étape 1
 
 Pointage sur téléphone ou ordinateur seulement (réponse du propriétaire du 1er novembre 2026 : pas de badgeuse murale ; ni

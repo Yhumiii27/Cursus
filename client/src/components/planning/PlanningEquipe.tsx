@@ -5,6 +5,9 @@
 // sur un brouillon, un résumé par ligne et une ligne de couverture (postes face au besoin minimal) ; aucune couleur seule. Un
 // seul arrêt de tabulation : flèches, Début et Fin d'une case à l'autre ; Entrée ou un clic ouvre la case (planificateur,
 // jour à venir). Deux semaines à partir de la semaine choisie dans l'en-tête de l'écran ; équipe dans l'adresse.
+// Étape 3 : « ! » après la lettre d'un poste en conflit avec une mission ou une tâche Keystone, une session de formation ou
+// une astreinte (planificateur seul, sans blocage) ; la couverture compte aussi, horaire par horaire, les secouristes et
+// équipiers d'intervention de l'équipe.
 // Sous la grille : échanges de poste (validation par le manager des deux, son suppléant « planning » ou le service RH),
 // affectations au roulement, versions publiées (registre gardé pour l'inspection du travail) et affichage réglementaire de
 // l'horaire collectif et de la composition des équipes successives (art. D3171-7), à imprimer ou à exporter.
@@ -88,7 +91,7 @@ function GrilleEquipe({ jours, lignes, couverture, ti, ouvrir }: {
                   <button type="button" className={`planning-case poste-${c.etat}${c.brouillon ? ' poste-brouillon' : ''}`} data-case={`${l}-${i}`}
                     tabIndex={l === li && i === co ? 0 : -1} aria-label={`${r.nom}, ${c.texte}`} title={c.texte}
                     onFocus={() => montrer(l, i)} onClick={() => toucher(l, i)} onKeyDown={e => deplacer(e, l, i)}>
-                    <span aria-hidden="true">{c.marque}{c.brouillon ? '*' : ''}</span>
+                    <span aria-hidden="true">{c.marque}{c.brouillon ? '*' : ''}{c.conflit ? '!' : ''}</span>
                   </button>
                 </td>
               ))}
@@ -190,8 +193,10 @@ export function PlanningEquipe() {
         <Fine>
           {hors && 'Période hors des semaines chargées avec l’écran (8 semaines passées, 12 à venir) : postes lus dans l’historique. '}
           Lettre de chaque case : code de l’horaire (R : repos{planif ? ', A : absent, sans la nature de l’absence' : ''}) ; * : brouillon ou modification à publier, que
-          le salarié ne voit pas encore. Couverture : postes planifiés du jour sur le besoin minimal de l’équipe (Référentiels → Besoins de poste), « ! » quand il
-          n’est pas couvert. Le planning reste une prévision : les heures réellement faites se déclarent sur la feuille de temps.
+          le salarié ne voit pas encore{planif ? ' ; ! : conflit avec une mission ou une tâche Keystone, une session de formation ou une astreinte (détail de la case), sans blocage' : ''}.
+          Couverture : postes planifiés du jour sur le besoin minimal de l’équipe (Référentiels → Besoins de poste), « ! » quand il n’est pas couvert ou qu’un
+          horaire n’a pas le minimum de secouristes ou d’équipiers d’intervention de l’équipe (Référentiels → Postes){planif ? ', absents retirés' : ''}. Le planning
+          reste une prévision : les heures réellement faites se déclarent sur la feuille de temps.
         </Fine>
       </Panel>
 

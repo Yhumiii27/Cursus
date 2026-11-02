@@ -9,7 +9,8 @@
 //   collègues d'équipe, réduits au salarié, au jour et à l'horaire : jamais un repos, une absence ni un motif (un jour sans
 //   poste s'affiche vide). Ces collègues sont ajoutés aux salariés lus par la vue (`collegueslus`, server/src/dataset.ts).
 // - Profils restreints : lecture seule, toutes les grilles sans motifs ni alertes ; paie, les créneaux publiés sans motifs
-//   (primes à venir) ; référent HSE, les postes publiés sans motifs ni affectations (couverture, sans absences). Jamais la
+//   (primes à venir) ; référent HSE, les postes publiés sans motifs ni affectations ni postes « à pourvoir » (couverture par
+//   créneau du tableau de bord, sans absences : étape 3). Jamais la
 //   réserve d'aptitude ni un motif hors du planificateur.
 // Les mêmes filtres servent l'historique à la demande (server/src/planning-historique.ts).
 import type { DroitRh } from '../../shared/constants.ts';
@@ -81,7 +82,9 @@ export function creneauxPourSalarie(creneaux: readonly Creneau[], x: LecteurCren
 export function creneauxPourProfil(creneaux: readonly Creneau[], droits: readonly DroitRh[]): Creneau[] {
   if (droits.includes('consultation')) return creneaux.map(creneauSansMotif);
   if (droits.includes('paie')) return creneaux.filter(c => c.statut === 'publie').map(creneauSansMotif);
-  if (droits.includes('formations')) return creneaux.filter(c => c.statut === 'publie' && c.horaire).map(creneauSansMotif);
+  // Référent HSE : postes nominatifs seulement (étape 3) ; un poste « à pourvoir », né le plus souvent d'une absence, la
+  // désignerait, croisé avec les postes publiés et la couverture par créneau.
+  if (droits.includes('formations')) return creneaux.filter(c => c.statut === 'publie' && c.horaire && c.empId != null).map(creneauSansMotif);
   return [];
 }
 

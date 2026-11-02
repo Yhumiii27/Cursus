@@ -7,7 +7,11 @@
 //   est marqué « à publier » (astérisque et texte). L'absence n'est montrée qu'au planificateur, sans sa nature
 //   (`etatPourPlanificateur`) : un jour d'absence en vigueur, quel que soit le poste prévu.
 // - Ligne de couverture : postes planifiés du jour (absents retirés pour le planificateur) face au besoin minimal de l'équipe
-//   par horaire (Référentiels → Besoins de poste) ; un manque est écrit, pas seulement coloré.
+//   par horaire (Référentiels → Besoins de poste) ; un manque est écrit, pas seulement coloré. Étape 3 : couverture
+//   minimale par créneau (secouristes, équipiers d'intervention de l'équipe, à chaque horaire tenu : shared/rules/
+//   couverture-creneaux.ts), absences retirées pour le planificateur seul.
+// - Étape 3 : conflits d'un poste avec une mission ou une tâche Keystone, une session de formation, une astreinte
+//   (shared/rules/planning-conflits.ts), marqués « ! » et écrits dans le texte de la case, pour le planificateur seul.
 // - Affichage réglementaire : horaire collectif (horaires de l'équipe, avec leur plage et leur pause) et composition
 //   nominative des équipes successives (qui tient chaque poste, jour par jour), d'après les seuls postes publiés.
 import { addD, isFerie, parse } from '../../../../shared/dates.ts';
@@ -16,6 +20,9 @@ import { fH, plural } from '../../../../shared/format.ts';
 import { cycleDe } from '../../../../shared/rules/cycles.ts';
 import { dureeHoraire, horaireDe, plageTexte } from '../../../../shared/rules/horaires.ts';
 import { besoinsDuJour, creneauxPlanificateur, etatPourPlanificateur, horaireDuCreneau, STATUT_ECHANGE } from '../../../../shared/rules/planning.ts';
+// lot 12 — C5 étape 3 (conflits, couverture par créneau)
+import { couvertureCreneaux, creneauCouvertureTexte, manquesCreneau } from '../../../../shared/rules/couverture-creneaux.ts';
+import { conflitsDuJour, conflitsPlanning } from '../../../../shared/rules/planning-conflits.ts';
 import type { ISODate } from '../../../../shared/types.ts';
 import type { Creneau, EchangePoste } from '../../../../shared/types-planning.ts';
 
@@ -38,6 +45,8 @@ export interface CaseEquipe {
   /** Créneau ouvert au clic (le brouillon, ou la version publiée) ; null : rien de planifié ce jour-là. */
   creneau: Creneau | null;
   texte: string;
+  /** Étape 3 : poste en conflit avec un autre engagement du salarié (planificateur seul), marqué « ! ». */
+  conflit?: boolean;
 }
 export interface LigneEquipe { empId: number | null; nom: string; cases: CaseEquipe[]; resume: string }
 export interface CouvertureJour { jour: ISODate; texte: string; court: string; manque: boolean }
@@ -77,6 +86,9 @@ export function grilleEquipe(d: Domain, equipe: string, jours: readonly ISODate[
   const absences = planificateur ? d.ds.absences : [];
   const lignes: LigneEquipe[] = salariesDeLEquipe(d, equipe, jours, nominatifs).map(empId => {
     const nom = d.personName(empId);
+    // Conflits des jours planifiés (planificateur seul) : missions, sessions, astreintes.
+    const planifies = jours.flatMap(jour => { const c = parCle.get(`${empId}|${jour}`); return c ? [{ jour, horaire: horaireDuCreneau(c) }] : []; });
+    const conflits = planificateur ? conflitsPlanning(d, empId, planifies, premier, dernier) : [];
     const cases = jours.map((jour): CaseEquipe => {
       const c = parCle.get(`${empId}|${jour}`) ?? null;
       const absent = planificateur && etatPourPlanificateur({ empId, jour, horaire: null }, absences) === 'absent';
@@ -86,7 +98,11 @@ export function grilleEquipe(d: Domain, equipe: string, jours: readonly ISODate[
       const brouillon = c.statut === 'brouillon';
       const etat: EtatCase = c.horaire ? 'poste' : 'repos';
       const suite = brouillon ? (c.remplaceId ? ', modification à publier' : ', brouillon à publier') : `, publié${c.version ? ` (version ${c.version})` : ''}`;
-      return { jour, etat, marque: c.horaire ?? 'R', brouillon, creneau: c, texte: `${jourLong(jour)} — ${c.horaire ? `poste ${posteTexte(c)}` : 'repos'}${suite}${ferie}` };
+      const conflit = conflitsDuJour(conflits, empId, jour).map(x => x.texte.slice(x.texte.indexOf(' : ') + 3));
+      return {
+        jour, etat, marque: c.horaire ?? 'R', brouillon, creneau: c, conflit: conflit.length > 0,
+        texte: `${jourLong(jour)} — ${c.horaire ? `poste ${posteTexte(c)}` : 'repos'}${suite}${ferie}${conflit.length ? ` ; conflit : ${conflit.join(' ; ')}` : ''}`,
+      };
     });
     const postes = cases.filter(x => x.etat === 'poste');
     const heures = postes.reduce((n, x) => { const h = horaireDuCreneau(x.creneau!); return n + (h ? dureeHoraire(h) : 0); }, 0);
@@ -108,6 +124,9 @@ export function grilleEquipe(d: Domain, equipe: string, jours: readonly ISODate[
     });
     lignes.push({ empId: null, nom: 'À pourvoir', cases, resume: plural(aPourvoir.length, 'poste à pourvoir', 'postes à pourvoir') });
   }
+  // Couverture minimale par créneau (formations de l'équipe à chaque horaire tenu), absences retirées pour le planificateur.
+  const parCreneau = couvertureCreneaux(d.ds, equipe, jours, [...nominatifs, ...aPourvoir], planificateur);
+  const court = (f: string) => d.fm(f)?.court ?? f;
   const couverture = jours.map((jour, i): CouvertureJour => {
     const parCode = new Map<string, number>();
     for (const l of lignes) {
@@ -125,9 +144,11 @@ export function grilleEquipe(d: Domain, equipe: string, jours: readonly ISODate[
     // Case courte : postes des horaires qui ont un besoin, sur ce besoin (« !1/2 » : un poste du matin sur deux).
     const tenus = [...besoins.keys()].reduce((n, c) => n + (parCode.get(c) ?? 0), 0);
     const detail = codes.map(c => `${c} ${parCode.get(c) ?? 0}${besoins.has(c) ? ` sur ${besoins.get(c)}` : ''}`).join(', ');
+    const formations = parCreneau.filter(x => x.jour === jour).flatMap(x => x.formations.filter(f => f.titulaires < f.min).map(f => `${court(f.formation)} au poste ${x.horaire} (${f.titulaires} sur ${f.min})`));
+    const manque = manques.length > 0 || formations.length > 0;
     return {
-      jour, manque: manques.length > 0, court: min ? `${manques.length ? '!' : ''}${tenus}/${min}` : String(total || ''),
-      texte: `${jourLong(jour)} — ${total ? plural(total, 'poste planifié', 'postes planifiés') : 'aucun poste planifié'}${detail ? ` (${detail})` : ''}${manques.length ? ` : besoin non couvert pour ${manques.join(', ')}` : ''}`,
+      jour, manque, court: min ? `${manque ? '!' : ''}${tenus}/${min}` : `${formations.length ? '!' : ''}${total || ''}`,
+      texte: `${jourLong(jour)} — ${total ? plural(total, 'poste planifié', 'postes planifiés') : 'aucun poste planifié'}${detail ? ` (${detail})` : ''}${manques.length ? ` : besoin non couvert pour ${manques.join(', ')}` : ''}${formations.length ? ` ; couverture minimale non tenue : ${formations.join(', ')}` : ''}`,
     };
   });
   return { lignes, couverture, brouillons: lignes.reduce((n, l) => n + l.cases.filter(c => c.brouillon).length, 0) };
@@ -217,4 +238,32 @@ export function csvAffichage(equipe: string, jours: readonly ISODate[], a: Affic
     head: ['Équipe', 'Jour', 'Horaire', 'Plage', 'Salariés'],
     rows: a.composition.map(x => [equipe, jma(x.jour), x.horaire, plage.get(x.horaire) ?? '', x.salaries.join(', ')]),
   };
+}
+
+// — Couverture minimale par poste planifié (étape 3 : tableau de bord du service RH, du référent HSE, de la lecture seule) —
+
+export interface ManqueCreneau { equipe: string; jour: ISODate; horaire: string; manques: string[]; texte: string }
+
+/**
+ * Créneaux publiés des `n` prochains jours (à partir d'aujourd'hui) sous leur couverture minimale, toutes les équipes reçues
+ * : effectif face au besoin de poste, titulaires des formations de couverture de l'équipe à chaque horaire tenu.
+ * `avecAbsences` : absences en vigueur retirées (service RH seul) ; sinon couverture sans absences (référent HSE, paie,
+ * lecture seule). `creneaux` : nombre de créneaux suivis (0 : aucun planning publié sur la période).
+ */
+export function couvertureAVenir(d: Domain, n: number, avecAbsences: boolean): { creneaux: number; manques: ManqueCreneau[] } {
+  const jours = joursDe(d.ti, n);
+  // Postes, repos et « à pourvoir » publiés : un jour sans rien de publié pour une équipe (semaine pas encore publiée,
+  // brouillon) n'est pas suivi, même si l'équipe a des besoins de poste ce jour-là.
+  const publies = [...(d.ds.creneaux ?? []), ...(d.ds.creneauxAPourvoir ?? [])].filter(c => c.statut === 'publie' && c.jour >= jours[0] && c.jour <= jours.at(-1)!);
+  const court = (f: string) => d.fm(f)?.court ?? f;
+  const equipes = d.ds.referentiels.equipes.filter(q => publies.some(c => c.equipe === q.nom)).sort((a, b) => a.ordre - b.ordre || a.nom.localeCompare(b.nom));
+  let creneaux = 0;
+  const manques: ManqueCreneau[] = [];
+  for (const q of equipes) {
+    for (const x of couvertureCreneaux(d.ds, q.nom, jours, publies, avecAbsences)) {
+      creneaux++;
+      if (x.manque) manques.push({ equipe: q.nom, jour: x.jour, horaire: x.horaire, manques: manquesCreneau(x, court), texte: creneauCouvertureTexte(x, court) });
+    }
+  }
+  return { creneaux, manques: manques.sort((a, b) => a.jour.localeCompare(b.jour) || a.equipe.localeCompare(b.equipe) || a.horaire.localeCompare(b.horaire)) };
 }

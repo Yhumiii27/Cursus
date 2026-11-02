@@ -22,6 +22,8 @@ import { sessionDemandeeComplete } from '../../../shared/rules/liste-attente.ts'
 // lot 12 — C3 (entretiens suivis)
 import { BadgeEntretien } from '../components/OrigineEntretien.tsx';
 import { AIDE_SOI_MEME, fichePropre } from '../../../shared/rules/soi-meme.ts';
+// lot 12 — C5 (planning d'équipe, étape 3) : couverture minimale par poste planifié
+import { CouvertureCreneauxPanel } from '../components/planning/CouvertureCreneaux.tsx';
 
 /** Ligne d'échéance (tableau de bord, page Échéances). */
 export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; onAct: () => unknown }) {
@@ -204,6 +206,8 @@ export function Dashboard() {
 
         {/* Couverture minimale des équipes en SST et équipiers incendie (shared/rules/couverture.ts). */}
         <CouverturePanel style={{ flex: '1 1 100%' }} />
+        {/* lot 12 — C5 (planning d'équipe, étape 3) : même couverture, poste par poste, sur les postes publiés. */}
+        <CouvertureCreneauxPanel />
 
         <Panel style={{ flex: '1 1 560px' }} title="Échéances prioritaires"
           aside={<a href="/echeances" className="link-more" onClick={e => { e.preventDefault(); go('echeances'); }}>Toutes les échéances →</a>}>

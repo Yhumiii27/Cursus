@@ -20,7 +20,8 @@
 //   valide à la date du créneau ; aptitude médicale à vérifier (réserve neutre, non datée, du jour : jamais projetée sur la
 //   date du créneau, jamais journalisée, vue du planificateur seul).
 // - Informations : repos réduit par l'accord (repos compensateur dû), moyenne de 44 h sur 12 semaines (art. L3121-22),
-//   moyenne du travailleur de nuit sur 12 semaines (40 h, art. L3122-7, `planningNuitMoyenne`).
+//   moyenne du travailleur de nuit sur 12 semaines (40 h, art. L3122-7, `planningNuitMoyenne`) ; étape 3, conflits avec une
+//   mission ou une tâche Keystone, une session de formation, une astreinte (shared/rules/planning-conflits.ts).
 import { addD, joursSemaine, mondayOf, parse } from '../dates.ts';
 import { certEnVigueur, type CertInfo, type HabInfo, type MedInfo, type PrereqCheck } from '../domain.ts';
 import { fH, fmtIso } from '../format.ts';
@@ -122,13 +123,17 @@ export const heuresReelles = (p: PlageReelle) => Math.round(Math.max(0, p.fin - 
 /** Contrôle en cause, codé : seul ce code est gardé sur le créneau publié (le journal n'en note que le nombre). */
 export type CodePlanning =
   | 'sortie' | 'nuit_mineur' | 'repos_quotidien' | 'repos_reduit' | 'repos_hebdo' | 'jours_semaine' | 'dimanche' | 'duree_jour' | 'duree_semaine'
-  | 'nuit_jour' | 'pause' | 'moyenne_12' | 'nuit_moyenne' | 'habilitation' | 'habilitation_expire' | 'formation' | 'aptitude';
+  | 'nuit_jour' | 'pause' | 'moyenne_12' | 'nuit_moyenne' | 'habilitation' | 'habilitation_expire' | 'formation' | 'aptitude'
+  // Étape 3 : conflits avec une mission ou une tâche Keystone, une session de formation, une astreinte
+  // (shared/rules/planning-conflits.ts), signalés sans blocage ni motif.
+  | 'conflit_mission' | 'conflit_session' | 'conflit_astreinte';
 export type GravitePlanning = 'refus' | 'alerte' | 'info';
 export const GRAVITE: Record<CodePlanning, GravitePlanning> = {
   sortie: 'refus', nuit_mineur: 'refus', habilitation: 'refus',
   repos_quotidien: 'alerte', repos_hebdo: 'alerte', jours_semaine: 'alerte', dimanche: 'alerte', duree_jour: 'alerte', duree_semaine: 'alerte',
   nuit_jour: 'alerte', pause: 'alerte', habilitation_expire: 'alerte', formation: 'alerte', aptitude: 'alerte',
   repos_reduit: 'info', moyenne_12: 'info', nuit_moyenne: 'info',
+  conflit_mission: 'info', conflit_session: 'info', conflit_astreinte: 'info',
 };
 export const estCodePlanning = (v: unknown): v is CodePlanning => typeof v === 'string' && Object.hasOwn(GRAVITE, v);
 /** Codes qui ne sortent jamais vers le journal ni hors du planificateur (aptitude : donnée de santé, même neutre). */

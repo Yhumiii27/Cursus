@@ -6,7 +6,8 @@
 // - Publier : brouillons de la période, refus (habilitation absente, retirée ou suspendue ; nuit d'un mineur ; semaine
 //   validée), alertes à motiver (repos, durées, habilitation qui expire, formation, réserve d'aptitude neutre), créneaux
 //   communiqués sous le délai de prévenance (motif des circonstances exceptionnelles, communiqué au salarié, jamais
-//   journalisé) ; informations sans motif.
+//   journalisé) ; informations sans motif (étape 3 : conflits avec une mission ou une tâche Keystone, une session, une
+//   astreinte ; postes sous la couverture minimale de l'équipe).
 // - Créneau : ajout (poste nominatif ou à pourvoir), modification de l'horaire (repos compris), retrait d'un brouillon,
 //   annulation d'un poste publié (motif communiqué au salarié).
 // - Roulement : affectation d'un salarié à un cycle (groupe, période), fin d'une affectation (motif jamais journalisé).
@@ -19,6 +20,7 @@ import { fmtIso, plural } from '../../../shared/format.ts';
 import { cycleDe, cyclesEnVigueur, horaireDuCycle } from '../../../shared/rules/cycles.ts';
 import { horairesEnVigueur, horaireTexte } from '../../../shared/rules/horaires.ts';
 import { apercuEchange, apercuPublication } from '../../../shared/rules/planning-apercu.ts';
+import { creneauCouvertureTexte } from '../../../shared/rules/couverture-creneaux.ts';
 import { controlerRoulement, debutCreneau, fenetrePlanning, MOTIF_PLANNING_MAX, refusHorizon, refusPeriode, SEMAINES_A_VENIR, SEMAINES_MAX } from '../../../shared/rules/planning.ts';
 import { type AlertePlanning, instantParis } from '../../../shared/rules/planning-controles.ts';
 import { equipesParQuart, proposerReprise } from '../../../shared/rules/planning-reprise.ts';
@@ -171,7 +173,15 @@ export function PlanningPublierDialog({ equipe, du, au }: { equipe: string; du: 
             aide="Gardé sur les créneaux en cause, vu du planificateur et du service RH seulement ; jamais recopié au journal (seul le nombre d’alertes l’est)."
             placeholder="Repos compensateur accordé, recyclage planifié la semaine prochaine…" />
         </>}
-        {a.alertes.infos.length > 0 && <Controles msgs={a.alertes.infos.slice(0, 6).map(x => ({ text: ligneAlerte(nom, x), bad: false }))} />}
+        {a.alertes.infos.length > 0 && <Controles msgs={a.alertes.infos.slice(0, 12).map(x => ({ text: ligneAlerte(nom, x), bad: false }))} />}
+        {a.alertes.infos.length > 12 && <Fine>Et {a.alertes.infos.length - 12} autre{a.alertes.infos.length - 12 > 1 ? 's' : ''} information{a.alertes.infos.length - 12 > 1 ? 's' : ''}.</Fine>}
+        {/* lot 12 — C5 étape 3 : couverture minimale par créneau après la publication, en information. */}
+        {a.couverture.length > 0 && (
+          <div role="group" aria-label="Couverture minimale par poste">
+            <Controles msgs={a.couverture.slice(0, 8).map(x => ({ text: `Couverture ${jourCourt(x.jour)} — ${creneauCouvertureTexte(x, f => d.fm(f)?.court ?? f)} : sous le minimum`, bad: false }))} />
+            {a.couverture.length > 8 && <Fine>Et {a.couverture.length - 8} autre{a.couverture.length - 8 > 1 ? 's' : ''} poste{a.couverture.length - 8 > 1 ? 's' : ''} sous le minimum.</Fine>}
+          </div>
+        )}
         {v.tente && (vide || bloque) && <Bloquant>{vide ?? bloque}</Bloquant>}
       </>}
       <Fine>
@@ -437,6 +447,10 @@ export function PlanningEchangeValiderDialog({ id }: { id: number }) {
           aide="Gardé sur les nouveaux créneaux, vu du planificateur et du service RH seulement ; jamais recopié au journal." placeholder="Repos compensateur accordé…" />
       </>}
       {a && !a.refus && !a.alertes.refus.length && !a.alertes.alertes.length && <Fine muted={false}>Aucune alerte : repos, durées et habilitations respectés pour les deux salariés.</Fine>}
+      {/* lot 12 — C5 étape 3 : informations (conflits avec une mission, une session, une astreinte ; moyennes), sans motif,
+          plafonnées comme dans Publier pour garder le motif et les boutons à portée sur téléphone. */}
+      {a && !a.refus && a.alertes.infos.length > 0 && <Controles msgs={a.alertes.infos.slice(0, 12).map(x => ({ text: ligneAlerte(nom, x), bad: false }))} />}
+      {a && !a.refus && a.alertes.infos.length > 12 && <Fine>Et {a.alertes.infos.length - 12} autre{a.alertes.infos.length - 12 > 1 ? 's' : ''} information{a.alertes.infos.length - 12 > 1 ? 's' : ''}.</Fine>}
       {v.tente && bloque && <Bloquant>{bloque}</Bloquant>}
       <Fine>Pas de nouveau délai de prévenance : l’échange vient des intéressés. Chacun est prévenu de la décision.</Fine>
     </Dialog>

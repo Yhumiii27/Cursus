@@ -42,7 +42,7 @@ function exigerEvaluateur(ctx: Ctx, e: Employe, refus: string) {
 }
 
 function exigerActifs(ctx: Ctx) {
-  if (!ctx.ds.settings.objectifsActifs) throw new ActionError('Objectifs non suivis dans Cursus (Paramètres → Entretiens)', 409);
+  if (!ctx.ds.settings.objectifsActifs) throw new ActionError('Objectifs non suivis dans Cursus (Paramètres → Objectifs et points de suivi)', 409);
 }
 
 /** Entretien encore planifié : les objectifs s'y fixent ; clos, ils sont figés (ajustement en cours d'année). */
@@ -58,7 +58,7 @@ function exigerType(x: Entretien) {
 /** Nombre d'objectifs fixés (ou proposés) à l'entretien : au plus le réglage `objectifsMax`. */
 function exigerPlace(ctx: Ctx, x: Entretien) {
   const max = ctx.ds.settings.objectifsMax;
-  if (objectifsFixesA(ctx.ds.objectifs ?? [], x.id).length >= max) throw new ActionError(`${plural(max, 'objectif', 'objectifs')} au plus par entretien (Paramètres → Entretiens)`);
+  if (objectifsFixesA(ctx.ds.objectifs ?? [], x.id).length >= max) throw new ActionError(`${plural(max, 'objectif', 'objectifs')} au plus par entretien (Paramètres → Objectifs et points de suivi)`);
 }
 
 function saisie(p: Record<string, unknown>, actuel?: Objectif) {

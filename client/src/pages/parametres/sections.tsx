@@ -48,6 +48,8 @@ import { Indicateurs } from './Indicateurs.tsx';
 import { Opco } from './Opco.tsx';
 // lot 11 — notes de frais
 import { NotesFrais } from './NotesFrais.tsx';
+// lot 12 — C3 (entretiens suivis)
+import { ObjectifsSuivis } from './ObjectifsSuivis.tsx';
 
 export interface SectionParametres {
   /** Identifiant stable (clé de rendu). */
@@ -68,6 +70,8 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'suivi', place: 'gauche', Section: Suivi },
   { id: 'entretiens', place: 'gauche', Section: Entretiens },
   { id: 'entretien-mi-carriere', place: 'gauche', Section: EntretienMiCarriere },
+  // lot 12 — C3 (entretiens suivis) : objectifs, point de mi-année, souhaits de formation, feedback 360° (désactivé).
+  { id: 'objectifs-suivis', place: 'gauche', Section: ObjectifsSuivis },
   { id: 'demonstration', place: 'gauche', Section: Demonstration },
   { id: 'keystone', place: 'droite', Section: Keystone },
   { id: 'sage', place: 'droite', Section: SagePaie },

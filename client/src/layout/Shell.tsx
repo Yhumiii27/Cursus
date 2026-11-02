@@ -8,7 +8,7 @@
 import { useMemo, useRef, type ReactNode } from 'react';
 import {
   AirplaneIcon, BellIcon, BookOpenIcon, BooksIcon, BriefcaseIcon, CalendarBlankIcon, ChartBarIcon, ChartLineIcon, ChatIcon, CheckIcon, ClockIcon, GearSixIcon, HardHatIcon,
-  HouseIcon, KeyIcon, LifebuoyIcon, LockSimpleIcon, MapPinIcon, PlusIcon, ReceiptIcon, ShieldCheckIcon, SignOutIcon, TreeStructureIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
+  HouseIcon, KeyIcon, LifebuoyIcon, LockSimpleIcon, MapPinIcon, PlusIcon, ReceiptIcon, ShieldCheckIcon, SignOutIcon, TargetIcon, TreeStructureIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
 } from '@phosphor-icons/react';
 import { droitsRh, PROFILS_RH, vuesDe } from '../../../shared/constants.ts';
 import { aFaireCollaborateur } from '../../../shared/rules/a-faire.ts';
@@ -43,7 +43,10 @@ type EntreesMenu = (data: Dataset, d: ReturnType<typeof domaineDe>, role: Role) 
 const ENTREES_LOT12: readonly EntreesMenu[] = [
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)
-  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C3 (entretiens suivis et 360°) : « Mes objectifs » du collaborateur (réglage objectifsActifs), pastille : objectifs
+  // proches de leur échéance sans mise à jour (shared/rules/a-faire.ts).
+  (data, d, role) => (role === 'collaborateur' && data.settings.objectifsActifs
+    ? [['Mon espace', { view: 'objectifs', label: 'Mes objectifs', icon: TargetIcon, badge: aFaireCollaborateur(d, data.user.empId).objectifs.length }]] : []),
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)

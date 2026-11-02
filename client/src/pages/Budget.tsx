@@ -186,6 +186,8 @@ export function Budget() {
                         <Tag cls={PLAN_CLS[l.statut]}>{PLAN_LABEL[l.statut]}</Tag>
                         {l.statut === 'reporte' && <div className="text-muted sub nowrap">sur {l.exercice + 1}</div>}
                         {l.origine === 'report' && <div className="text-muted sub nowrap">reporté de {l.exercice - 1}</div>}
+                        {/* lot 12 — C3 (entretiens suivis) : ligne née d'un souhait exprimé en entretien (bilan formation, dossier OPCO). */}
+                        {l.origine === 'entretien' && <div className="text-muted sub nowrap">issue d’un entretien</div>}
                       </td>
                       {voitOpco && <td><ColonneOpco l={l} /></td>}
                       <td className="right">

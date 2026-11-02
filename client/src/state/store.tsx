@@ -33,6 +33,8 @@ import type { OngletTemps } from '../pages/temps-onglets.ts';
 // lot 12 — C1 (forfait annuel en heures)
 // lot 12 — C2 (notes de frais : activation)
 // lot 12 — C3 (entretiens suivis et 360°)
+import type { OngletEntretiens } from '../pages/entretiens-onglets.ts';
+import type { ModeObjectif } from '../dialogs/ObjectifDialog.tsx';
 // lot 12 — C4 (organismes de formation et e-learning)
 // lot 12 — C5 (planning d'équipe)
 // lot 12 — C6 (badgeage virtuel)
@@ -110,6 +112,10 @@ export interface UiState {
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
+  /** Écran Entretiens : onglet (échéances, objectifs de l'équipe, points de suivi), filtres de l'onglet Objectifs. */
+  entOnglet: OngletEntretiens;
+  objStatut: 'tous' | 'ouverts' | 'proposes' | 'evalues';
+  objEcheance: 'toutes' | 'proches' | 'depassees';
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
@@ -139,6 +145,7 @@ const INITIAL_UI: UiState = {
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
+  entOnglet: 'echeances', objStatut: 'tous', objEcheance: 'toutes',
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
@@ -273,7 +280,12 @@ export type DialogState =
   /** Clôture du forfait annuel en heures (`periode` : début de la période de référence ; null : toutes les plages à clôturer). */
   | { type: 'clotureForfaitHeures'; periode: string | null }
   // lot 12 — C2 (notes de frais : activation)
-  // lot 12 — C3 (entretiens suivis et 360°)
+  // lot 12 — C3 (entretiens suivis et 360°) : objectif (fixer, proposer, modifier, ajuster), avancement, évaluation, souhait
+  // de formation ; `retour` : compte rendu d'où le dialogue est ouvert, rouvert ensuite.
+  | { type: 'objectif'; mode: ModeObjectif; entretienId?: number; id?: number; retour?: number }
+  | { type: 'objectifAvancer'; id: number; retour?: number }
+  | { type: 'objectifEvaluer'; id: number; entretienId: number; retour?: number }
+  | { type: 'souhait'; entretienId: number; cle?: string }
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
   // lot 12 — C6 (badgeage virtuel)
@@ -591,7 +603,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // lot 12 — blocs réservés (socle) : vue d'un module désactivé (réglage du chantier) → page d'accueil.
     // lot 12 — C1 (forfait annuel en heures)
     // lot 12 — C2 (notes de frais : activation)
-    // lot 12 — C3 (entretiens suivis et 360°)
+    // lot 12 — C3 (entretiens suivis et 360°) : « Mes objectifs », objectifs non suivis (réglage objectifsActifs).
+    || (rawView === 'objectifs' && !!data && !data.settings.objectifsActifs)
     // lot 12 — C4 (organismes de formation et e-learning)
     // lot 12 — C5 (planning d'équipe)
     // lot 12 — C6 (badgeage virtuel)

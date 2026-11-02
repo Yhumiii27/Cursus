@@ -32,6 +32,8 @@ import { DelegationsPortail, suppleanceTexte } from '../components/Delegations.t
 import { useEnriched, useRole, useTrips } from '../state/derived.ts';
 import { api } from '../api.ts';
 import { useStore } from '../state/store.tsx';
+// lot 12 — C3 (entretiens suivis)
+import { BadgeEntretien } from '../components/OrigineEntretien.tsx';
 import { reqKind, reqLabel } from './Dashboard.tsx';
 
 const docCls = (k: string) => k === 'exp' ? 'tag-accent' : k === 'due' ? 'tag-outline' : 'tag-neutral';
@@ -74,7 +76,9 @@ export function Portail() {
   const mgrId = d.mgrOf(me);
   // Ce qui attend le collaborateur : les mêmes nombres que les pastilles du menu (layout/Shell.tsx).
   const aFaire = aFaireCollaborateur(d, me.id);
-  const nAFaire = aFaire.comptesRendus.length + aFaire.feuilles.length + aFaire.evaluations.length;
+  const nAFaire = aFaire.comptesRendus.length + aFaire.feuilles.length + aFaire.evaluations.length
+    // lot 12 — C3 (entretiens suivis) : objectifs à mettre à jour.
+    + aFaire.objectifs.length;
 
   return (
     <div className="page">
@@ -126,6 +130,16 @@ export function Portail() {
             ))}
             {/* Évaluations de formation attendues (lot 7, t121) : avis à chaud, efficacité à froid. */}
             <LignesEvaluationsAFaire liste={aFaire.evaluations} />
+            {/* lot 12 — C3 (entretiens suivis) : objectifs proches de leur échéance sans mise à jour depuis un mois. */}
+            {aFaire.objectifs.map(o => (
+              <div key={`o${o.id}`} className="list-row">
+                <div className="grow">
+                  <div style={{ fontSize: 14 }}>{o.libelle}</div>
+                  <div className="text-muted sub">Objectif à échéance le {fmt(parse(o.echeance!))}, sans mise à jour depuis un mois : où en êtes-vous ?</div>
+                </div>
+                <Btn small variant="secondary" style={{ flex: 'none' }} onClick={() => openDialog({ type: 'objectifAvancer', id: o.id })}>Mettre à jour</Btn>
+              </div>
+            ))}
           </div>
         </Panel>
       )}
@@ -278,7 +292,8 @@ export function Portail() {
               <div key={r.id} className="list-row stack" style={{ ...rowStyle, gap: 'var(--space-1)' }}>
                 <div className="item-head">
                   <div>
-                    <div style={{ fontSize: 14 }}>{reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom)}</div>
+                    {/* lot 12 — C3 (entretiens suivis) : souhait exprimé en entretien, versé au service RH. */}
+                    <div style={{ fontSize: 14 }}>{reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom)}<BadgeEntretien d={d} r={r} /></div>
                     <div className="text-muted sub">{reqKind(r)} · {r.parId && r.parId !== me.id ? `demandée par ${d.personName(r.parId)} (manager) le` : 'envoyée le'} {fmtShort(parse(r.date))}</div>
                   </div>
                   <Tag cls={REQ_CLS[r.statut]} style={{ flex: 'none' }}>{REQ_LABEL[r.statut]}</Tag>

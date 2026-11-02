@@ -21,6 +21,8 @@ import { Fine } from '../components/ui.tsx';
 import { annulationEntretien } from '../state/confirmations-annulations.ts';
 // lot 12 — C3 (entretiens suivis)
 import { saisiesSuivies } from '../../../shared/rules/objectifs.ts';
+import { EntretienSuivi } from '../components/EntretienSuivi.tsx';
+import type { DialogState } from '../state/store.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { EnregistrementAuFil } from '../state/enregistrement.ts';
 import { useStore } from '../state/store.tsx';
@@ -95,6 +97,9 @@ export function EntDialog({ entId }: { entId: number }) {
     ? x.date < d.ti
       ? `Planifié le ${fmt(parse(x.date))}, date dépassée — à clore s’il a eu lieu, sinon à reprogrammer ou à annuler.`
       : `Planifié le ${fmt(parse(x.date))} — le salarié peut préparer sa partie à l’avance.`
+    // lot 12 — C3 (entretiens suivis) : point de suivi, signature du salarié facultative (il peut encore signer).
+    : !x.signSal && x.type === 'point'
+      ? `Clos et signé par l’évaluateur le ${fmt(parse(x.signMgr ?? x.date))} — point de suivi : la signature du salarié est facultative.`
     : !x.signSal
       ? `Clos et signé par l’évaluateur le ${fmt(parse(x.signMgr ?? x.date))} — ${remise
         ? `non signé par le salarié. ${remise}.`
@@ -135,6 +140,12 @@ export function EntDialog({ entId }: { entId: number }) {
     occupe: busy,
     confirmer: () => finish(aConfirmer),
     annuler: () => setAConfirmer(null),
+  };
+  // lot 12 — C3 (entretiens suivis) : objectif, avancement, évaluation, souhait, chacun dans son dialogue (qui rouvre
+  // celui-ci) ; les sections en cours sont enregistrées d'abord, comme pour « Reprogrammer ».
+  const ouvrirSuivi = async (dlg: DialogState) => {
+    await flush();
+    openDialog(dlg);
   };
   // Entretien à déplacer (absence accordée ce jour-là, empêchement) ou non tenu : la planification le reprogramme.
   const reprogrammer = async () => {
@@ -191,6 +202,8 @@ export function EntDialog({ entId }: { entId: number }) {
           {INFO_LABEL}
         </label>
       )}
+      {/* lot 12 — C3 (entretiens suivis) : objectifs et souhaits de formation. */}
+      <EntretienSuivi x={x} e={e} ouvrir={ouvrirSuivi} />
       {canMgr && aVenir && (
         <Field label="Date à laquelle l’entretien a eu lieu" htmlFor="ent-tenu">
           <input className="input" id="ent-tenu" type="date" min={debut.min} max={d.ti} value={tenu} onChange={ev => setTenu(ev.target.value)} aria-invalid={tenuErr ? true : undefined} />

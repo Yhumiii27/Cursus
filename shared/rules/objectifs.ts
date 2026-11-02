@@ -107,12 +107,32 @@ export function refusPoids(objectifs: readonly Objectif[], entretienId: number, 
  * Objectifs à revoir à l'entretien annuel `x` (reprise des objectifs ouverts) : ceux du salarié encore en cours, fixés à un
  * entretien déjà clos, et ceux déjà évalués à `x` (évaluation modifiable tant que `x` n'est pas clos). Les objectifs
  * reconduits à `x` (nouvelles lignes) n'y sont pas : ils sont fixés à `x`.
+ * Entretien `x` clos : seulement ceux évalués à `x`. Les objectifs encore ouverts appartiennent à l'annuel suivant ; ceux
+ * fixés à un annuel postérieur n'ont rien à faire au compte rendu (à l'écran ou réimprimé) d'une année passée.
  */
-export function objectifsARevoir(objectifs: readonly Objectif[], entretiens: readonly Pick<Entretien, 'id' | 'statut'>[], x: Pick<Entretien, 'id' | 'empId' | 'type'>): Objectif[] {
+export function objectifsARevoir(objectifs: readonly Objectif[], entretiens: readonly Pick<Entretien, 'id' | 'statut'>[],
+  x: Pick<Entretien, 'id' | 'empId' | 'type'> & Partial<Pick<Entretien, 'statut'>>): Objectif[] {
   if (!TYPES_FIXATION.includes(x.type)) return [];
+  if (x.statut === 'realise') return objectifs.filter(o => o.empId === x.empId && o.evalueEntretienId === x.id);
   const clos = new Set(entretiens.filter(e => e.statut === 'realise').map(e => e.id));
   return objectifs.filter(o => o.empId === x.empId && o.entretienId !== x.id
     && ((o.statut === 'ouvert' && clos.has(o.entretienId)) || o.evalueEntretienId === x.id));
+}
+
+/**
+ * Objectifs du compte rendu de l'entretien `x`, à l'écran (components/EntretienSuivi.tsx) comme imprimé
+ * (dialogs/compteRendu-suivi.ts) : `avec` dit si le bloc s'affiche, `aRevoir` et `fixes` ne valent que pour l'annuel.
+ * Le réglage `objectifsActifs` ne règle que la saisie : un entretien annuel clos montre toujours les objectifs qui y ont été
+ * fixés ou évalués (ils restent en base quand le réglage est coupé, et le compte rendu signé ne doit pas changer). Point de
+ * mi-année et point de suivi : objectifs en cours à la date du jour, seulement réglage actif.
+ */
+export function objectifsDuCompteRendu(objectifs: readonly Objectif[], entretiens: readonly Pick<Entretien, 'id' | 'statut'>[],
+  x: Pick<Entretien, 'id' | 'empId' | 'type' | 'statut'>, s: Pick<Settings, 'objectifsActifs'>): { avec: boolean; aRevoir: Objectif[]; fixes: Objectif[] } {
+  if (!TYPES_AVEC_OBJECTIFS.includes(x.type)) return { avec: false, aRevoir: [], fixes: [] };
+  if (!TYPES_FIXATION.includes(x.type)) return { avec: s.objectifsActifs, aRevoir: [], fixes: [] };
+  const aRevoir = objectifsARevoir(objectifs, entretiens, x);
+  const fixes = objectifsFixesA(objectifs, x.id);
+  return { avec: s.objectifsActifs || (x.statut === 'realise' && aRevoir.length + fixes.length > 0), aRevoir, fixes };
 }
 
 /**

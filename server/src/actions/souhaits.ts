@@ -7,6 +7,7 @@
 //   que `demande.formation` (server/src/actions/conformite.ts) ; jamais deux fois. Les autres restent dans le compte rendu.
 // Journal : entretien et clé du souhait, avis, nombres ; jamais l'intitulé libre (server/src/journal.ts).
 import { key, plural } from '../../../shared/format.ts';
+import { TYPES_AVEC_OBJECTIFS } from '../../../shared/rules/objectifs.ts';
 import {
   AVIS_SOUHAIT_LABEL, estAvisSouhait, lireSouhait, motifVersement, nouvelleCle, refusTypeSouhaits, SOUHAITS_MAX, souhaitsAVerser, souhaitsDe, souhaitTraite,
 } from '../../../shared/rules/souhaits.ts';
@@ -45,7 +46,10 @@ const souhait: ActionHandler = async (ctx, p) => {
   const auteur = salarie ? 'sal' : 'mgr';
   const liste = souhaitsDe(x);
   const formation = (f: string) => ctx.d.fm(f) ?? undefined;
+  // Objectif lié : seulement dans un entretien qui porte des objectifs (annuel, mi-année, point), jamais dans un entretien de
+  // parcours professionnel ou de reprise (art. L6315-1 : pas d'évaluation du travail), comme `objectif.*`.
   const objectifDuSalarie = (id: number | null) => {
+    if (id !== null && !TYPES_AVEC_OBJECTIFS.includes(x.type)) throw new ActionError('Pas d’objectif dans ce type d’entretien (art. L6315-1)');
     if (id !== null && !(ctx.ds.objectifs ?? []).some(o => o.id === id && o.empId === e.id)) throw new ActionError('Objectif lié introuvable');
   };
   const op = str(p.op) || 'ajouter';

@@ -716,7 +716,9 @@ test('fenêtre des notes de frais : delta par clé et relecture complète dans l
   // Banc d'oracle, actions de frais en renfort (dont celles qui visent une note archivée, refusées) : lecture partagée,
   // jeux d'action et réponses égaux à la relecture complète.
   const frais = Object.keys(ACTIONS).filter(n => n.startsWith('frais.') && n !== 'frais.export.generer');
-  const rapport = await rejouer(db, { graine: 20261102, pas: 40, verifierTous: 4, jeux: 0, sql: 0.2, renfort: [...frais, ...frais] });
+  // lot 12 — C5 (planning d'équipe) : graine 20261103 (au lieu de 20261102) : l'action planning.reprise décale les tirages, et
+  // la graine d'avant ne tirait plus aucune action de frais valide.
+  const rapport = await rejouer(db, { graine: 20261103, pas: 40, verifierTous: 4, jeux: 0, sql: 0.2, renfort: [...frais, ...frais] });
   assert.deepEqual(rapport.divergences, []);
   assert.deepEqual(rapport.erreurs, []);
   assert.ok(rapport.ecritures > 0 && rapport.comparaisons > 0, 'le banc a écrit et comparé');

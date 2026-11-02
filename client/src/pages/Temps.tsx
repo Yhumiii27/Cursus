@@ -69,6 +69,7 @@ import { ligneAstreinte } from '../components/astreintes-etat.ts';
 import type { OngletTemps } from './temps-onglets.ts';
 // lot 12 — C1 (forfait annuel en heures)
 // lot 12 — C5 (planning d'équipe)
+import { PlanningEquipe } from '../components/planning/PlanningEquipe.tsx';
 // lot 12 — C6 (badgeage virtuel)
 
 /** Année d'une feuille : celle de sa semaine ISO (son jeudi) ; le cumul annuel ventile une semaine à cheval jour par jour. */
@@ -225,7 +226,8 @@ export function Temps() {
   const onglets: [OngletTemps, string][] = [['feuilles', 'Feuilles de temps']];
   const contenus: Partial<Record<OngletTemps, ReactNode>> = {};
   // lot 12 — C1 (forfait annuel en heures)
-  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C5 (planning d'équipe) : module activé ; service RH, paie et lecture seule, manager (ses équipes).
+  if (data.settings.planningActif && !collab) { onglets.push(['planning', 'Planning d’équipe']); contenus.planning = <PlanningEquipe />; }
   // lot 12 — C6 (badgeage virtuel)
   const onglet: OngletTemps = onglets.some(([o]) => o === ui.tempsOnglet) ? ui.tempsOnglet : 'feuilles';
 

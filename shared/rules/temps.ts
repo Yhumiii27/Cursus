@@ -19,6 +19,8 @@ import { controlesReposNuit, veilleDe } from './repos-nuit.ts';
 import { plagesInterventions } from './astreintes.ts';
 // lot 12 — C1 (forfait annuel en heures)
 import { cibleSegments, debutSuivi, plagesForfait } from './forfait-heures.ts';
+// lot 12 — C5 (planning d'équipe)
+import { horairesPlanifies } from './planning-feuille.ts';
 
 /** Régime de temps de travail en vigueur d'une fiche, à figer sur une feuille soumise. */
 export function contratFige(e: Employe): ContratFige {
@@ -132,7 +134,9 @@ function decompter(d: Domain, e: Employe, sh: FeuilleCalcul | null): SheetCalc {
   const jeune = controlesMineur(naissanceDeLaFeuille(e, sh), sh?.week, perDay);
   depassements.push(...jeune.depassements);
   // Horaires de poste du jour (shared/rules/repos-nuit.ts) : repos quotidien et pause, à motiver ; nuit d'un mineur, refusée.
-  const rn = controlesReposNuit(horairesDeLaFeuille(d.ds.referentiels, e.equipe, sh ? { statut: sh.statut ?? (sh.horairesFiges ? 'validee' : 'brouillon'), horaires: sh.horaires, horairesFiges: sh.horairesFiges } : null, perDay).map(j => j.horaire),
+  // lot 12 — C5 (planning d'équipe) : horaire du poste publié proposé avant celui de l'équipe (shared/rules/planning-feuille.ts).
+  const rn = controlesReposNuit(horairesDeLaFeuille(d.ds.referentiels, e.equipe, sh ? { statut: sh.statut ?? (sh.horairesFiges ? 'validee' : 'brouillon'), horaires: sh.horaires, horairesFiges: sh.horairesFiges } : null, perDay,
+    horairesPlanifies(d.ds, e.id, sh?.week)).map(j => j.horaire),
     perDay, sh?.week, {
       s: d.ds.settings, naissance: naissanceDeLaFeuille(e, sh), veille: sh?.week ? veilleDe(d.ds, e, sh.week, feuillesCherchees(d, e.id)) : null, exclu: c.dirigeant,
       // Interventions d'astreinte (t049) : plages exactes, repos dû en entier après leur fin (shared/rules/astreintes.ts).

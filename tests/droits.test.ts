@@ -737,6 +737,8 @@ const MATRICE: Ligne[] = [
   { action: 'planning.roulement.affecter', droits: '   O    O    O    -    -    -    -    -    -', p: async () => { await planningActif(); return { empId: 2, cycle: 'JOUR', groupe: 'A', du: '2026-11-02' }; } },
   { action: 'planning.roulement.affecter', variante: 'roulement du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: async () => { await planningActif(); return { empId: 14, cycle: 'JOUR', groupe: 'A', du: '2026-11-02' }; } },
   { action: 'planning.roulement.terminer', droits: '   O    O    O    -    -    -    -    -    -', p: async () => { await planningActif(); return { id: await roulementPlanning(), au: '2026-12-31' }; } },
+  // Étape 2 : reprise des équipes par quart en groupes de roulement (Paramètres → Planning), service RH.
+  { action: 'planning.reprise', droits: '              O    O    -    -    -    -    -    -    -', p: async () => { await planningActif(); return { cycle: 'JOUR', du: '2026-11-02', equipes: ['Maintenance'] }; } },
   { action: 'planning.generer', droits: '              O    O    O    -    -    -    -    -    -', p: async () => { await planningActif(); await roulementPlanning(); return { equipe: 'Maintenance', du: '2026-11-02', au: '2026-11-29' }; } },
   { action: 'planning.creneau.ajouter', droits: '      O    O    O    -    -    -    -    -    -', p: async () => { await planningActif(); return { equipe: 'Maintenance', jour: '2026-11-03', horaire: 'J', empId: 2 }; } },
   { action: 'planning.creneau.modifier', droits: '     O    O    O    -    -    -    -    -    -', p: async () => { await planningActif(); return { id: await creneauPlanning('brouillon', '2026-11-03'), horaire: 'M' }; } },

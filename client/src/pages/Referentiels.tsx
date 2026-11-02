@@ -22,12 +22,16 @@ import { Postes } from './ReferentielsPostes.tsx';
 import { Activites } from './ReferentielsActivites.tsx';
 import { Horaires } from './ReferentielsHoraires.tsx';
 import { EntitesEtSites } from './ReferentielsEntites.tsx';
+// lot 12 — C5 (planning d'équipe) : cycles de roulement et besoins de poste.
+import { Besoins, Cycles } from './ReferentielsCycles.tsx';
 
-const ONGLETS: [ReferentielId | 'postes' | 'activites' | 'horaires' | 'entites', string][] = [
+const ONGLETS: [ReferentielId | 'postes' | 'activites' | 'horaires' | 'entites' | /* lot 12 — C5 */ 'cycles' | 'besoins', string][] = [
   ['formations', 'Formations'], ['habilitations', 'Habilitations'], ['postes', 'Postes'], ['destinations', 'Destinations'], ['activites', 'Activités internes'],
   ['horaires', 'Horaires'],
   // lot 11 — organigramme
   ['entites', 'Entités et sites'],
+  // lot 12 — C5 (planning d'équipe)
+  ['cycles', 'Cycles'], ['besoins', 'Besoins de poste'],
 ];
 
 /** État d'un élément : en vigueur, ou archivé (date). */
@@ -55,6 +59,9 @@ export function Referentiels() {
       {ui.refOnglet === 'activites' && <Activites />}
       {ui.refOnglet === 'horaires' && <Horaires />}
       {ui.refOnglet === 'entites' && <EntitesEtSites />}
+      {/* lot 12 — C5 (planning d'équipe) */}
+      {ui.refOnglet === 'cycles' && <Cycles />}
+      {ui.refOnglet === 'besoins' && <Besoins />}
     </Page>
   );
 }

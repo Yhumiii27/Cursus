@@ -74,7 +74,9 @@ export interface UiState {
   weekStart: ISODate | null;
   tsEmp: number | null;
   /** Onglet de l'écran Référentiels (`entites` : Entités et sites, lot 11). */
-  refOnglet: ReferentielId | 'postes' | 'activites' | 'horaires' | 'entites';
+  refOnglet: ReferentielId | 'postes' | 'activites' | 'horaires' | 'entites'
+    // lot 12 — C5 (planning d'équipe) : cycles de roulement et besoins par poste (pages/ReferentielsCycles.tsx).
+    | 'cycles' | 'besoins';
   /** Saisie des heures jour par jour (téléphone, tablette) : jour affiché, du lundi (0) au dimanche (6) ; null : le jour courant. */
   tsJour: number | null;
   /** Tri choisi par un clic sur un en-tête, par liste (components/tri.ts) ; absent : l'ordre par défaut de l'écran. */
@@ -112,6 +114,8 @@ export interface UiState {
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
+  /** Onglet Planning d'équipe de Temps de travail (components/planning/PlanningEquipe.tsx) : équipe affichée (null : la première). */
+  planEquipe: string | null;
   // lot 12 — C6 (badgeage virtuel)
 }
 
@@ -141,6 +145,7 @@ const INITIAL_UI: UiState = {
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe)
+  planEquipe: null,
   // lot 12 — C6 (badgeage virtuel)
 };
 
@@ -273,7 +278,18 @@ export type DialogState =
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
-  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C5 (planning d'équipe) (dialogs/Planning*Dialog.tsx, RefCycleDialog.tsx, RefBesoinDialog.tsx) : générer et publier
+  // le planning d'une équipe, ajouter ou modifier un créneau (`id`), affecter au roulement ou terminer une affectation (`id`),
+  // proposer un échange (collaborateur), valider un échange, reprendre les équipes par quart ; cycle et besoin de poste.
+  | { type: 'planningGenerer'; equipe: string; du?: ISODate | null }
+  | { type: 'planningPublier'; equipe: string; du: ISODate; au: ISODate }
+  | { type: 'planningCreneau'; equipe: string; jour: ISODate; empId: number | null; id?: number | null }
+  | { type: 'planningRoulement'; equipe: string; empId?: number | null; id?: number | null }
+  | { type: 'planningEchange'; creneauId: number }
+  | { type: 'planningEchangeValider'; id: number }
+  | { type: 'planningReprise' }
+  | { type: 'refCycle'; code?: string | null }
+  | { type: 'refBesoin'; id?: number | null; equipe?: string | null }
   // lot 12 — C6 (badgeage virtuel)
   ;
 
@@ -591,7 +607,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // lot 12 — C2 (notes de frais : activation)
     // lot 12 — C3 (entretiens suivis et 360°)
     // lot 12 — C4 (organismes de formation et e-learning)
-    // lot 12 — C5 (planning d'équipe)
+    // lot 12 — C5 (planning d'équipe) : « Mon planning », module désactivé (réglage planningActif).
+    || (rawView === 'planning' && !!data && !data.settings.planningActif)
     // lot 12 — C6 (badgeage virtuel)
     ;
   const view = allowedView(role, fermee ? '' : rawView, role === 'rh' ? data?.settings.vueInitiale : undefined, (data ?? session)?.user?.profilRh);

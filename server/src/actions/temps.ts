@@ -17,6 +17,8 @@ import { modeAFiger } from '../pointages.ts';
 import { completerSemaine, JOURS_FEUILLE } from '../../../shared/rules/semaine.ts';
 import { ferieRefus } from '../../../shared/rules/majorations.ts';
 import { horairesAFiger } from '../../../shared/rules/horaires.ts';
+// lot 12 — C5 (planning d'équipe) : poste publié proposé sur la feuille (shared/rules/planning-feuille.ts).
+import { horairesPlanifies } from '../../../shared/rules/planning-feuille.ts';
 import { alertesValidation, corAValider } from '../../../shared/rules/durees.ts';
 import { aRegulariser, projetsRevalidation } from '../../../shared/rules/regularisation.ts';
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
@@ -238,7 +240,7 @@ const submit: ActionHandler = async (ctx, p) => {
   // vient du valideur.
   const reouverture = sh.reouverture?.renvoyee ? { reouverture: { ...sh.reouverture, renvoyee: false } } : {};
   // Horaires de poste du jour (shared/rules/horaires.ts) : ceux affichés, figés à la soumission (les choix restent à part).
-  const horaires = horairesAFiger(ctx.ds.referentiels, emp.equipe, sh, calcSheet(ctx.d, emp, { ...sh, contrat }).perDay);
+  const horaires = horairesAFiger(ctx.ds.referentiels, emp.equipe, sh, calcSheet(ctx.d, emp, { ...sh, contrat }).perDay, /* lot 12 — C5 */ horairesPlanifies(ctx.ds, emp.id, sh.week));
   await ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'soumise', comment: null, contrat, motifDepassement: motif, ...reouverture, ...horaires });
   await notifierFeuilleSoumise(ctx, emp, sh.week, ctx.d.mgrOf(emp));
   return `Feuille de temps soumise ${ctx.d.mgrDest(ctx.d.mgrOf(emp))}${couverte ? ' — semaine d’absence, sans heure' : ''}`;
@@ -306,7 +308,7 @@ export async function validerFeuille(ctx: Ctx, p: Record<string, any>, relevesEn
   // Forfait jours (t043, server/src/forfait-jours.ts) : au-delà du plafond de l'année, motif du valideur exigé ; alerte au seuil.
   const forfait = controleForfaitJours(ctx, emp, validee, p);
   // Horaires de poste refigés après une éventuelle correction du valideur (heures d'un code déjà figé inchangées).
-  const horaires = horairesAFiger(ctx.ds.referentiels, emp.equipe, sh, calcSheet(ctx.d, emp, { ...sh, contrat }).perDay);
+  const horaires = horairesAFiger(ctx.ds.referentiels, emp.equipe, sh, calcSheet(ctx.d, emp, { ...sh, contrat }).perDay, /* lot 12 — C5 */ horairesPlanifies(ctx.ds, emp.id, sh.week));
   await ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif, heuresSup, majDimanche, majFerie, majNuit, cor, ...horaires, ...forfait.champs });
   // Seuils franchis par cette feuille (moyenne sur 12 semaines, temps partiel, contingent) : signalés, sans blocage.
   const autres = ctx.ds.feuilles.filter(f => f.empId === emp.id && f.statut === 'validee' && f.id !== sh.id);

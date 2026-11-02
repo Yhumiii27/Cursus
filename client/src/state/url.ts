@@ -113,7 +113,9 @@ export const PARAMS_URL: Partial<Record<View, Param[]>> = {
   ],
   temps: [identifiant('tsEmp', 'salarie', d => d.employes), semaine,
     // lot 12 — socle : onglet de l'écran (pages/temps-onglets.ts) ; « feuilles » par défaut, absent de l'adresse.
-    choix('tempsOnglet', 'onglet', 'feuilles', Object.fromEntries(ONGLETS_TEMPS.map(o => [o, o])))],
+    choix('tempsOnglet', 'onglet', 'feuilles', Object.fromEntries(ONGLETS_TEMPS.map(o => [o, o]))),
+    // lot 12 — C5 (planning d'équipe) : équipe de l'onglet Planning (nom d'une équipe du référentiel reçu).
+    param<'planEquipe'>({ cle: 'planEquipe', nom: 'equipe', defaut: null, lire: (brut, data) => data.referentiels.equipes.some(e => e.nom === brut) ? brut : undefined, ecrire: v => String(v) })],
   formations: [
     code('formationFilter', 'formation', d => d.referentiels.formations),
     choix('typeForm', 'type', 'toutes', { reg: 'reglementaires', rec: 'recommandees', int: 'internes' }),
@@ -133,6 +135,8 @@ export const PARAMS_URL: Partial<Record<View, Param[]>> = {
     formations: 'formations', habilitations: 'habilitations', postes: 'postes', destinations: 'destinations', activites: 'activites',
     // lot 11 — organigramme
     entites: 'entites',
+    // lot 12 — C5 (planning d'équipe)
+    cycles: 'cycles', besoins: 'besoins-de-poste',
   })],
   // lot 11 — organigramme : entité et site filtrés (codes du référentiel).
   organigramme: [codeEntite('orgEntite', 'entite', d => d.referentiels.entites ?? []), codeEntite('orgSite', 'site', d => d.referentiels.sites ?? []),
@@ -156,6 +160,8 @@ export const PARAMS_URL: Partial<Record<View, Param[]>> = {
     }),
     choix('indGroupe', 'groupe', 'aucun', Object.fromEntries(Object.keys(GROUPES_INDICATEURS).map(g => [g, g]))),
   ],
+  // lot 12 — C5 (planning d'équipe) : « Mon planning », semaine de départ (lundi).
+  planning: [semaine],
   // lot 11 — notes de frais : onglet et note ouverte (identifiant d'une note du jeu de données du rôle).
   frais: [
     choix('fraisOnglet', 'onglet', 'premier', { notes: 'notes', valider: 'a-valider', equipe: 'equipe', controle: 'a-controler', avances: 'avances', exports: 'exports', tableau: 'tableau-de-bord' }),

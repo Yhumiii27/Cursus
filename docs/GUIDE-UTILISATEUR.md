@@ -169,6 +169,22 @@ les traite dans Sage. Les frais engagés pendant un déplacement se déclarent d
 - « Soumettre la note » une fois complète : les reçus deviennent définitifs, votre manager valide, la comptabilité contrôle, puis la note est remboursée avec la paie du mois suivant. Renvoyée « À corriger », le motif s'affiche sur la note.
 - Frais médicaux en mission (vaccin, pharmacie) : « Nouvelle note », case « Frais médicaux en mission » ; la note ne passe pas par votre manager. Indemnités kilométriques : déclarez d'abord votre véhicule. Sans réseau, une dépense avec sa photo reste gardée sur le téléphone (jamais des frais médicaux).
 
+### Mon planning (planning d'équipe)
+
+Quand le planning d'équipe est activé (après l'avis du CSE), le menu **Temps & absences → Mon planning** montre vos postes
+publiés sur quatre semaines : jour, horaire et pause, version et date à laquelle ils vous ont été communiqués. Un jour sans
+poste s'affiche vide. Seuls les postes publiés y figurent : une modification en préparation ne vous est montrée qu'une fois
+publiée, et vous recevez alors un e-mail (et une notification sur le téléphone si vous l'avez choisie).
+
+- **Échanger un poste** : « Échanger… » sur un poste à venir, puis choisissez le collègue de votre équipe. Vous lui cédez
+  votre poste, ou vous l'échangez contre l'un des siens si les postes de l'équipe vous sont montrés. Votre collègue accepte
+  ou refuse dans son propre « Mon planning », puis votre manager valide : le repos et les habilitations de chacun sont
+  contrôlés à ce moment-là. L'échange expire si un des postes commence avant. Tant qu'il n'est pas décidé, « Retirer »
+  l'annule.
+- **Feuille de temps** : l'horaire de votre poste publié vous est proposé (en italique) les jours où vous saisissez des
+  heures ; changez-le si vous avez tenu un autre poste. Les heures restent à saisir : le planning n'est qu'une prévision.
+- **Agenda** : si vous êtes abonné au flux de Cursus (Accueil → Agenda), vos postes publiés y apparaissent.
+
 ## Manager
 
 Le manager a deux espaces : **Manager** pour son équipe, **Collaborateur** pour ses propres heures, absences et entretiens
@@ -246,6 +262,33 @@ Les feuilles validées partent à la paie avec le lot du mois : le manager n'a r
   (réglage du service RH) ; en dessous, les circonstances exceptionnelles sont à indiquer, et jamais moins d'un jour franc.
   Le salarié reçoit un e-mail avec l'événement pour son agenda. Avant son début, l'astreinte se modifie ou s'annule (motif
   communiqué au salarié) ; commencée, seule sa fin s'avance. Le service RH planifie aussi, et vous en êtes prévenu.
+
+### Planning d'équipe
+
+Module activé, l'écran **Temps de travail** a un onglet **Planning d'équipe**. Choisissez l'équipe ; la grille montre deux
+semaines à partir de la semaine choisie en haut de l'écran. Chaque case porte une lettre : le code de l'horaire (M, AM, N…),
+R pour un repos, A pour un salarié absent (sans la nature de l'absence) ; un astérisque marque ce qui n'est pas encore
+publié. La ligne **Couverture** compare les postes du jour au besoin minimal de l'équipe (« ! » quand il manque quelqu'un).
+Au clavier, les flèches passent d'une case à l'autre et Entrée ouvre le poste.
+
+1. **Affecter** chaque salarié à un cycle (2x8, 3x8…) et à son groupe, à partir d'une date (Affectations au roulement).
+2. **Générer** le planning d'une période (12 semaines au plus) : les postes sont créés en brouillon d'après le cycle ; un
+   jour férié devient un repos, sauf travail en continu.
+3. Corriger au besoin : cliquer une case pour changer l'horaire, mettre en repos, ajouter un poste à pourvoir, retirer un
+   brouillon ou annuler un poste publié (avec un motif communiqué au salarié).
+4. **Publier** : le dialogue montre ce qui sera communiqué et ce que Cursus a relevé. Une habilitation absente, retirée ou
+   suspendue, la nuit d'un mineur ou une semaine déjà validée empêchent la publication. Les alertes (repos, durées,
+   habilitation qui expire pendant la période, formation, aptitude à vérifier avec le service RH) demandent un motif. Un
+   poste communiqué moins de 7 jours avant (ou le délai de votre accord) demande le motif des circonstances
+   exceptionnelles, que le salarié reçoit dans son e-mail. Ces motifs ne sont jamais recopiés au journal.
+
+Les **échanges** acceptés par les deux salariés s'affichent sous la grille : « Examiner » montre les contrôles recalculés
+pour les deux, puis Valider (avec un motif s'il y a des alertes) ou Refuser. Un suppléant qui a reçu une délégation
+« planning » fait de même pendant l'absence du manager.
+
+**Affichage réglementaire** : « Imprimer l'affichage » ou « Exporter (CSV) » donne l'horaire collectif de l'équipe et la
+composition nominative de chaque poste, jour par jour, d'après les postes publiés des deux semaines affichées (art.
+D3171-7), à afficher ou à tenir en registre.
 
 ### Valider les notes de frais
 
@@ -381,6 +424,18 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
   annuel d'heures supplémentaires sont reprises dans des encarts de l'écran.
 - Seul l'administrateur RH rouvre une feuille validée : « Rouvrir la feuille », motif obligatoire (voir Correction après l'envoi,
   ci-dessous).
+
+### Planning d'équipe : préparation et activation
+
+- **Référentiels → Cycles** : les modèles Journée, 2x8, 3x8 et 5x8 sont prêts ; remplacez-les par vos tableaux de roulement
+  réels (séquence des horaires jour par jour, « - » pour un repos, groupes et décalages). Les indicateurs (heures moyennes
+  par semaine, nuits, dimanches) s'affichent à la saisie.
+- **Référentiels → Besoins de poste** : effectif minimal par équipe, horaire et jour, et exigences propres au poste
+  (exemple : un cariste CACES la nuit), contrôlées à la date de chaque créneau.
+- **Paramètres → Planning d'équipe** (administrateur RH) : activer le module après l'avis du CSE ; délai de prévenance
+  (7 jours par défaut), repos quotidien réduit et durées du travail de nuit de votre accord, avec sa référence ; planning des
+  collègues visible ou non. **Reprendre…** affecte au cycle choisi les membres des équipes créées par quart pour la
+  couverture minimale (la première équipe prend le groupe A, la deuxième le B…) ; la reprise se rejoue sans doublon.
 
 ### Déplacements et vigilance
 

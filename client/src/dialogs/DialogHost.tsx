@@ -94,6 +94,8 @@ import { FraisVehiculeDialog } from './FraisVehiculeDialog.tsx';
 // lot 12 — C3 (entretiens suivis et 360°)
 // lot 12 — C4 (organismes de formation et e-learning)
 // lot 12 — C5 (planning d'équipe)
+import { PlanningCreneauDialog, PlanningEchangeDialog, PlanningEchangeValiderDialog, PlanningGenererDialog, PlanningPublierDialog, PlanningRepriseDialog, PlanningRoulementDialog } from './PlanningDialog.tsx';
+import { RefBesoinDialog, RefCycleDialog } from './RefCycleDialog.tsx';
 // lot 12 — C6 (badgeage virtuel)
 import { OpcoVersementDialog } from './OpcoVersementDialog.tsx';
 
@@ -204,6 +206,15 @@ function Dialogue({ d }: { d: DialogState }) {
     // lot 12 — C3 (entretiens suivis et 360°)
     // lot 12 — C4 (organismes de formation et e-learning)
     // lot 12 — C5 (planning d'équipe)
+    case 'planningGenerer': return <PlanningGenererDialog {...d} />;
+    case 'planningPublier': return <PlanningPublierDialog {...d} />;
+    case 'planningCreneau': return <PlanningCreneauDialog {...d} />;
+    case 'planningRoulement': return <PlanningRoulementDialog {...d} />;
+    case 'planningEchange': return <PlanningEchangeDialog {...d} />;
+    case 'planningEchangeValider': return <PlanningEchangeValiderDialog {...d} />;
+    case 'planningReprise': return <PlanningRepriseDialog />;
+    case 'refCycle': return <RefCycleDialog {...d} />;
+    case 'refBesoin': return <RefBesoinDialog {...d} />;
     // lot 12 — C6 (badgeage virtuel)
   }
 }

@@ -622,7 +622,8 @@ export const ALLOWED_VIEWS = {
     // lot 12 — C2 (notes de frais : activation)
     // lot 12 — C3 (entretiens suivis et 360°)
     // lot 12 — C4 (organismes de formation et e-learning)
-    // lot 12 — C5 (planning d'équipe)
+    // lot 12 — C5 (planning d'équipe) : « Mon planning » (pages/MonPlanning.tsx), le module activé (réglage planningActif).
+    'planning',
     // lot 12 — C6 (badgeage virtuel)
   ],
 } as const;

@@ -5,6 +5,7 @@
 export const ONGLETS_TEMPS = ['feuilles',
   // lot 12 — C1 (forfait annuel en heures) : récapitulatif du forfait (RecapForfaitHeures)
   // lot 12 — C5 (planning d'équipe) : planning (PlanningEquipe)
+  'planning',
   // lot 12 — C6 (badgeage virtuel) : pointages (Pointages)
 ] as const;
 export type OngletTemps = typeof ONGLETS_TEMPS[number];

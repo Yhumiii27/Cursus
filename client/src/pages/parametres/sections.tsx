@@ -48,6 +48,8 @@ import { Indicateurs } from './Indicateurs.tsx';
 import { Opco } from './Opco.tsx';
 // lot 11 — notes de frais
 import { NotesFrais } from './NotesFrais.tsx';
+// lot 12 — C5 (planning d'équipe)
+import { Planning } from './Planning.tsx';
 
 export interface SectionParametres {
   /** Identifiant stable (clé de rendu). */
@@ -84,6 +86,8 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'deplacements-paie', place: 'droite', Section: DeplacementsPaie },
   { id: 'forfait-jours', place: 'droite', Section: ForfaitJours },
   { id: 'astreintes', place: 'droite', Section: Astreintes },
+  // lot 12 — C5 (planning d'équipe) : activation, délai de prévenance, valeurs de l'accord, collègues, reprise des équipes par quart.
+  { id: 'planning', place: 'droite', Section: Planning },
   { id: 'feuilles', place: 'gauche', Section: FeuillesTemps },
   { id: 'repos', place: 'droite', Section: ReposHebdomadaire },
   { id: 'sante', place: 'gauche', Section: Sante },

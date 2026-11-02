@@ -101,6 +101,15 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           'Frais médicaux en mission (vaccin, pharmacie) : « Nouvelle note », case « Frais médicaux en mission » ; la note ne passe pas par votre manager. Indemnités kilométriques : déclarez d’abord votre véhicule. Sans réseau, une dépense avec sa photo reste gardée sur le téléphone (jamais des frais médicaux).',
         ],
       },
+      // lot 12 — C5 (planning d'équipe)
+      {
+        titre: 'Mon planning',
+        points: [
+          'Module activé (après l’avis du CSE) : menu « Mon planning ». Vos postes publiés sur quatre semaines, avec la version et la date où ils vous ont été communiqués ; un jour sans poste reste vide. Un changement vous arrive par e-mail (et par notification si vous l’avez choisie).',
+          '« Échanger… » sur un poste à venir : choisissez un collègue de votre équipe. Il accepte ou refuse dans son « Mon planning », puis votre manager valide. « Retirer » annule votre proposition tant qu’elle n’est pas décidée.',
+          'Sur la feuille de temps, l’horaire du poste publié vous est proposé les jours où vous saisissez des heures ; les heures restent à saisir.',
+        ],
+      },
     ],
   },
   {
@@ -144,6 +153,15 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
         ],
       },
       // lot 11 — notes de frais
+      // lot 12 — C5 (planning d'équipe)
+      {
+        titre: 'Planning d’équipe',
+        points: [
+          'Temps de travail, onglet « Planning d’équipe » (module activé) : une lettre par case (horaire, R repos, A absent sans la nature), un astérisque pour ce qui n’est pas publié, une ligne « Couverture » face au besoin minimal.',
+          '« Affecter » chaque salarié à un cycle, « Générer » les brouillons, cliquer une case pour corriger, puis « Publier » : une habilitation manquante bloque ; les alertes et un délai de prévenance court demandent un motif, jamais recopié au journal.',
+          'Échanges acceptés par les deux salariés : « Examiner », puis Valider ou Refuser. « Imprimer l’affichage » ou « Exporter (CSV) » : horaire collectif et composition des équipes (art. D3171-7).',
+        ],
+      },
       {
         titre: 'Valider les notes de frais',
         points: [

@@ -7,7 +7,7 @@
 // région insérée avec son texte) : les succès en « status », les erreurs en « alert ».
 import { useMemo, useRef, type ReactNode } from 'react';
 import {
-  AirplaneIcon, BellIcon, BookOpenIcon, BooksIcon, BriefcaseIcon, CalendarBlankIcon, ChartBarIcon, ChartLineIcon, ChatIcon, CheckIcon, ClockIcon, GearSixIcon, HardHatIcon,
+  AirplaneIcon, BellIcon, BookOpenIcon, /* lot 12 — C5 */ CalendarCheckIcon, BooksIcon, BriefcaseIcon, CalendarBlankIcon, ChartBarIcon, ChartLineIcon, ChatIcon, CheckIcon, ClockIcon, GearSixIcon, HardHatIcon,
   HouseIcon, KeyIcon, LifebuoyIcon, LockSimpleIcon, MapPinIcon, PlusIcon, ReceiptIcon, ShieldCheckIcon, SignOutIcon, TreeStructureIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
 } from '@phosphor-icons/react';
 import { droitsRh, PROFILS_RH, vuesDe } from '../../../shared/constants.ts';
@@ -45,7 +45,11 @@ const ENTREES_LOT12: readonly EntreesMenu[] = [
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // lot 12 — C4 (organismes de formation et e-learning)
-  // lot 12 — C5 (planning d'équipe)
+  // lot 12 — C5 (planning d'équipe) : « Mon planning » du collaborateur, le module activé ; pastille : échanges proposés à
+  // lui, à accepter ou refuser. Le planning de l'équipe est un onglet de Temps de travail.
+  (data, _d, role) => (role === 'collaborateur' && data.settings.planningActif
+    ? [['Temps & absences', { view: 'planning', label: 'Mon planning', icon: CalendarCheckIcon, badge: (data.echangesPoste ?? []).filter(e => e.statut === 'propose' && e.partenaireId === data.user.empId).length }]]
+    : []),
   // lot 12 — C6 (badgeage virtuel)
 ];
 

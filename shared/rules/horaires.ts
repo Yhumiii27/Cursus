@@ -118,14 +118,18 @@ const figer = (h: HoraireFige): HoraireFige => ({ code: h.code, debut: h.debut, 
  * Une feuille renvoyée repart ainsi des choix et de l'équipe : un jour qui a perdu ses heures perd l'horaire proposé, un
  * jour qui en a reçu se le voit proposer. Une feuille soumise ou validée d'avant les horaires (`horairesFiges` absent)
  * ne reçoit aucune proposition (aucun contrôle rétroactif).
+ * lot 12 — C5 (planning d'équipe) : `planifies` (shared/rules/planning-feuille.ts, `horairesPlanifies`) — horaire du créneau
+ * publié de chaque jour : proposé à la place de l'horaire de l'équipe, avec ses heures figées à la publication ; un repos
+ * publié ne propose rien d'autre que l'horaire de l'équipe. Toujours une proposition, aux mêmes conditions.
  */
 export function horairesDeLaFeuille(r: Pick<Referentiels, 'horaires' | 'equipes'>, equipe: string | null | undefined,
-  sh: Pick<FeuilleTemps, 'statut' | 'horaires' | 'horairesFiges'> | null, perDay: readonly number[]): HoraireDuJour[] {
+  sh: Pick<FeuilleTemps, 'statut' | 'horaires' | 'horairesFiges'> | null, perDay: readonly number[], planifies?: readonly (HoraireFige | null | undefined)[]): HoraireDuJour[] {
   const figes = sh?.horairesFiges ?? null, saisie = enSaisie(sh);
   if (sh?.statut === 'validee' && figes) {
     return Array.from({ length: JOURS_FEUILLE }, (_, i) => ({ code: figes[i]?.code ?? null, propose: false, horaire: figes[i] ?? null }));
   }
-  const defaut = saisie || (sh?.statut === 'soumise' && figes) ? horaireEquipe(r, equipe)?.code ?? null : null;
+  const proposable = saisie || (sh?.statut === 'soumise' && !!figes);
+  const defaut = proposable ? horaireEquipe(r, equipe)?.code ?? null : null;
   return Array.from({ length: JOURS_FEUILLE }, (_, i) => {
     const f = figes?.[i] ?? null;
     // Heures d'un code déjà figé ce jour-là : celles d'alors ; sinon celles du référentiel.
@@ -137,6 +141,9 @@ export function horairesDeLaFeuille(r: Pick<Referentiels, 'horaires' | 'equipes'
     if (choisi != null) return jour(choisi || null, false);
     if (!(perDay[i] > 0)) return jour(null, false);
     if (!saisie && f) return jour(f.code, false);
+    // lot 12 — C5 : le poste publié du jour passe devant l'horaire de l'équipe (heures de la publication).
+    const p = proposable ? planifies?.[i] : undefined;
+    if (p) return { code: p.code, propose: true, horaire: figer(p) };
     return defaut ? jour(defaut, true) : jour(null, false);
   });
 }
@@ -149,8 +156,8 @@ export function horairesDeLaFeuille(r: Pick<Referentiels, 'horaires' | 'equipes'
  * pour une feuille soumise d'avant les horaires sans choix.
  */
 export function horairesAFiger(r: Pick<Referentiels, 'horaires' | 'equipes'>, equipe: string | null | undefined,
-  sh: Pick<FeuilleTemps, 'statut' | 'horaires' | 'horairesFiges'>, perDay: readonly number[]): { horairesFiges?: (HoraireFige | null)[] } {
-  const jours = horairesDeLaFeuille(r, equipe, sh, perDay);
+  sh: Pick<FeuilleTemps, 'statut' | 'horaires' | 'horairesFiges'>, perDay: readonly number[], planifies?: readonly (HoraireFige | null | undefined)[]): { horairesFiges?: (HoraireFige | null)[] } {
+  const jours = horairesDeLaFeuille(r, equipe, sh, perDay, planifies);
   const utile = jours.some(j => j.code) || !!sh.horairesFiges || (enSaisie(sh) && horairesEnVigueur(r).length > 0);
   return utile ? { horairesFiges: jours.map(j => j.horaire) } : {};
 }

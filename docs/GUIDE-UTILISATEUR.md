@@ -759,8 +759,8 @@ d'un mois clos enregistrée en retard part entière, en rappel.
   épargne-temps (rubrique CET) : désactivée tant que la paie n'a pas donné son code ; chaque congé est alors listé « À
   saisir dans Sage » dans le résumé du lot et l'export des variables.
 - Jours monétisés du compte épargne-temps (lot 13, rubrique CET_MON, mois de la validation) : désactivée tant que la paie
-  n'a pas donné son code ; chaque monétisation est alors listée « À saisir dans Sage » (« Monétisation du CET, demande
-  n° … ») ; Sage calcule le montant.
+  n'a pas donné son code ; chaque monétisation est alors listée « À saisir dans Sage », avec le numéro de la demande ;
+  Sage calcule le montant.
 - Soldes de sortie (CP, RTT, récupération, CET) quand leurs rubriques sont activées ; sinon ils se saisissent dans Sage à
   partir de l'état imprimé.
 - Déplacements (jours et nuits de grand déplacement en GD_JOUR et GD_NUIT, jours à l'étranger en ETR_JOUR avec le pays en

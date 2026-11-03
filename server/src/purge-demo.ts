@@ -305,6 +305,8 @@ const TOUJOURS: Partial<Record<TableName, string>> = {
   ...Object.fromEntries(['roulements', 'creneaux', 'publicationsPlanning', 'echangesPoste', 'besoinsPoste'].map(t => [t, 'planning d’équipe fictif'])),
   // lot 12 — C6 (badgeage virtuel) : pointages, demandes de correction et zones des essais de démonstration.
   ...Object.fromEntries(['pointages', 'correctionsPointage', 'zonesPointage'].map(t => [t, 'temps et astreintes'])),
+  // lot 13 — CET (monétisation) : demandes des essais de démonstration, avec le compte épargne-temps.
+  monetisationsCet: 'paie et compteurs',
   connexions: 'sessions de connexion',
   comptes: 'comptes de connexion',
   journal: 'journal des actions fictives (remplacé par la seule ligne purge.demo)',

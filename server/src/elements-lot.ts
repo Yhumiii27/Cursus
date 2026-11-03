@@ -17,7 +17,8 @@
 //   comme les jours rachetés, toujours réservées par le lot, sans code Sage faute de rubrique active (« à saisir dans Sage »).
 // - lot 12 — C1 : heures de la clôture d'un forfait annuel en heures (server/src/forfait-heures-paie.ts) : HFA25, HFA50,
 //   HCA10, HCA25, comme les jours rachetés ; une version qui corrige une ligne transmise fait du lot un lot correctif.
-// Ajouter une famille (heures de nuit, monétisation du CET…) : un objet `FamilleLot` dans le fichier de son chantier, une
+// - lot 13 : jours monétisés du compte épargne-temps (server/src/cet-paie.ts) : CET_MON, comme les jours rachetés.
+// Ajouter une famille (heures de nuit…) : un objet `FamilleLot` dans le fichier de son chantier, une
 // ligne dans `FAMILLES`, une clé dans `SagePush` et `LotPaie` (shared/types.ts) et une colonne json de `lotsPaie`
 // (server/src/db.ts). Liste « à saisir dans Sage » : shared/rules/elements-lot.ts.
 import type { Domain } from '../../shared/domain.ts';
@@ -32,6 +33,8 @@ import { FAMILLE_SORTIES } from './soldes-sortie.ts';
 import { FAMILLE_FRAIS } from './frais-paie.ts';
 // lot 12 — C1 (forfait annuel en heures)
 import { FAMILLE_FORFAIT_HEURES } from './forfait-heures-paie.ts';
+// lot 13 — CET (monétisation)
+import { FAMILLE_MONETISATIONS_CET } from './cet-paie.ts';
 
 /** Élément d'une famille, tel que le lit le fichier : salarié, matricule, période, rubrique interne, code Sage (null : hors fichier). */
 export interface ElementLot {
@@ -46,6 +49,8 @@ export type CleFamille = 'sorties' | 'deplacements' | 'rachats' | 'astreintes'
   | 'frais'
   // lot 12 — C1 (forfait annuel en heures)
   | 'forfaitHeures'
+  // lot 13 — CET (monétisation)
+  | 'monetisationsCet'
   ;
 
 export interface FamilleLot<E extends ElementLot = ElementLot> {
@@ -77,6 +82,8 @@ export const FAMILLES: readonly FamilleLot<any>[] = [FAMILLE_SORTIES, FAMILLE_DE
   FAMILLE_FRAIS,
   // lot 12 — C1 (forfait annuel en heures)
   FAMILLE_FORFAIT_HEURES,
+  // lot 13 — CET (monétisation)
+  FAMILLE_MONETISATIONS_CET,
 ];
 
 /** Éléments de chaque famille pour un lot de la période `jusqua`, et ceux à saisir dans Sage. */

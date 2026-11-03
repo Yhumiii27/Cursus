@@ -179,6 +179,8 @@ const TEXTES_GARDES: Record<string, readonly string[]> = {
   evaluations_formation: ['type', 'repondant', 'efficacite', 'le', 'auteur'],
   // lot 12 — C1 (forfait annuel en heures) : plage, motif de fin et statut codés, dates ; auteurs (noms) balayés.
   clotures_forfait_heures: ['debut', 'fin', 'motif_fin', 'statut', 'confirmee_le', 'confirmee_par', 'rouverte_le', 'rouverte_par', 'annulee_le', 'annulee_par'],
+  // lot 13 — CET (monétisation) : statut, dates et période ; auteurs (noms) balayés.
+  monetisations_cet: ['statut', 'demande_le', 'demande_par', 'decide_le', 'decide_par', 'periode'],
   // lot 12 — C4 : inscription à un module d'e-learning — dates, statut, source de l'avancement et réussite codés ; auteurs
   // (noms) balayés.
   inscriptions_elearning: ['inscrit_le', 'inscrit_par', 'echeance', 'statut', 'avancement_source', 'avancement_le', 'declare_le', 'termine_le', 'reussi',

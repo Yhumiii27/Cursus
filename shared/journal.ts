@@ -61,6 +61,8 @@ export const ACTIONS_PAIE: readonly string[] = [
   'frais.taux.enregistrer', 'frais.export.generer', 'frais.export.annuler', 'frais.export.fichier',
   // lot 12 — C1 (forfait annuel en heures) : clôture, réouverture et annulation de la régularisation de fin de période.
   'forfaitHeures.cloturer', 'forfaitHeures.rouvrir', 'forfaitHeures.annuler',
+  // lot 13 — CET (monétisation) : décision du service RH et annulation (jours monétisés, rubrique CET_MON).
+  'cet.monetisation.valider', 'cet.monetisation.refuser', 'cet.monetisation.annuler',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -241,6 +243,11 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'absence.prolonger': 'Absence prolongée',
   'absence.annuler': 'Absence annulée',
   'cet.placer': 'Placement sur le compte épargne-temps',
+  // lot 13 — CET (monétisation)
+  'cet.monetiser': 'Demande de monétisation du compte épargne-temps',
+  'cet.monetisation.valider': 'Monétisation du compte épargne-temps validée',
+  'cet.monetisation.refuser': 'Monétisation du compte épargne-temps refusée',
+  'cet.monetisation.annuler': 'Monétisation du compte épargne-temps annulée',
   'report.accorder': 'Report de congés payés',
   'conges.cloturer': 'Clôture d’une période de congés',
   'conges.fractionnement': 'Jours de fractionnement des congés payés',
@@ -602,6 +609,9 @@ export const CHAMP_LABEL: Record<string, string> = {
   fractionnementRegle: 'Règle des jours de fractionnement', fractionnementAccord: 'Accord sur le fractionnement des congés',
   fractionnementDebut: 'Début de la période du congé principal', fractionnementFin: 'Fin de la période du congé principal',
   cetPlafondRtt: 'Plafond de RTT placés sur le CET par an', cetPlafondCp: 'Plafond de CP placés sur le CET par période',
+  // lot 13 — CET (monétisation)
+  cetMonetisation: 'Monétisation du CET ouverte', cetMonetisationAccord: 'Accord collectif sur la monétisation du CET',
+  cetMonetisationPlafond: 'Plafond de jours monétisés par an (CET)', cetReprisMonetisable: 'Solde repris du CET monétisable',
   // Conservation des dossiers (Paramètres → Conservation des dossiers) et agenda personnel (Paramètres → Agenda).
   conservationActive: 'Propositions d’effacement des dossiers échus', conservationDecisionDpo: 'Décision du DPO sur les durées de conservation',
   conservationDossierAns: 'Conservation du dossier (ans après la sortie)', conservationTempsAns: 'Conservation du temps de travail (ans)',

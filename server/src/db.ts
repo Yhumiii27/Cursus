@@ -242,6 +242,8 @@ export const TABLES = {
       frais: 'json',
       // lot 12 — C1 (forfait annuel en heures) : lignes de clôture dont le lot emporte les heures (identifiant, salarié).
       forfaitHeures: 'json',
+      // lot 13 — CET (monétisation) : demandes dont le lot emporte les jours monétisés (identifiant, salarié).
+      monetisationsCet: 'json',
     },
     unique: [['cle']],
   },
@@ -782,6 +784,17 @@ export const TABLES = {
     },
   },
   zonesPointage: { pk: 'id', auto: true, cols: { id: 'int', libelle: 'text', siteCode: 'text', chantierId: 'text', lat: 'real', lng: 'real', rayonM: 'int', actif: 'bool' } },
+  // lot 13 — CET (monétisation, shared/rules/cet-monetisation.ts, server/src/actions/cet-monetisation.ts) : demandes de
+  // monétisation de jours du compte épargne-temps ; décision du service RH, motif d'un refus ou d'une annulation (texte
+  // libre), période de paie posée à la validation, lot qui emporte les jours (CET_MON), import confirmé ou réglé hors
+  // fichier. Jamais supprimées. Migration PostgreSQL 0030_cet_monetisation, SQLite d'après TABLES et `lot13-cet-monetisation`.
+  monetisationsCet: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', jours: 'real', statut: 'text', annee: 'int', demandeLe: 'text', demandePar: 'text', demandeParInteresse: 'bool',
+      decideLe: 'text', decidePar: 'text', motif: 'text', periode: 'text', lotId: 'int', sage: 'bool', horsFichier: 'bool',
+    },
+  },
 } satisfies Record<string, TableDef>;
 
 export type TableName = keyof typeof TABLES;

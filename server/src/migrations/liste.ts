@@ -36,6 +36,8 @@ import { ELEARNING_INDEX, ORGANISMES } from './lot12-organismes.ts';
 import { PLANNING_EQUIPE } from './lot12-planning.ts';
 // lot 12 — C6 (badgeage virtuel)
 import { BADGEAGE } from './lot12-badgeage.ts';
+// lot 13 — CET (monétisation)
+import { CET_MONETISATION } from './lot13-cet-monetisation.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   INDEX_JOURNAL,
@@ -89,4 +91,6 @@ export const MIGRATIONS: readonly Migration[] = [
   BADGEAGE,
   // lot 12 — C2, étape 2 (notes de frais : scission des frais médicaux), ajoutée en fin de liste à la fusion.
   FRAIS_SANTE,
+  // lot 13 — CET (monétisation)
+  CET_MONETISATION,
 ];

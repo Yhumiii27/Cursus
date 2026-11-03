@@ -80,6 +80,11 @@ déduites, environ 7 h par jour ouvré d'absence hors congés payés), projectio
    être refusé. Le décompte et les contrôles s'affichent avant « Envoyer la
    demande ».
 3. Le manager valide ou refuse ; un refus arrive avec son motif.
+4. **Monétiser des jours du compte épargne-temps** (lot 13), quand le service RH a ouvert la monétisation (accord sur le CET
+   référencé) : bouton « Monétiser » sur la carte « Compte épargne-temps ». Seuls les jours venus des RTT se monétisent
+   (jamais les CP placés), dans la limite du plafond de l'année et du solde. Le service RH valide ou refuse ; validés, les
+   jours sont payés avec le salaire du mois. « Mes monétisations du CET » suit chaque demande ; « Retirer » annule une
+   demande pas encore décidée.
 4. Une absence imprévue (maladie, enfant malade, accident) se déclare par « Signaler une absence ». Le service RH en
    précise la nature ; celle d'un arrêt de travail ou de la santé d'un enfant n'est jamais communiquée au manager.
 
@@ -503,6 +508,13 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
   adoption) sont automatiques. Première clôture des CP après la reprise : le 1er juin 2027.
 - Retour d'arrêt : la tâche d'information du salarié sur ses congés apparaît dans « Congés & absences ».
 - « Reporter » et « Épargner » (compte épargne-temps) depuis le tableau des soldes.
+- **Monétisation du CET** (lot 13) : fermée par défaut ; Paramètres → Compte épargne-temps, « Permettre la monétisation des
+  jours épargnés », avec la référence de l'accord (exigée), le plafond de jours par salarié et par an (10 par défaut) et,
+  s'il ne contient aucun CP, le solde repris de l'ancien outil rendu monétisable. « Monétiser » (tableau des soldes) demande
+  pour un salarié ; « Monétisations du CET à décider » : « Valider » (les jours partent dans le lot de paie du mois, rubrique
+  CET_MON) ou « Refuser » (motif obligatoire, montré au salarié). Une monétisation validée s'annule (motif obligatoire) tant
+  qu'elle n'est dans aucun lot de paie ; dans un lot à confirmer, annuler d'abord le lot ; transmise, la correction se fait
+  dans Sage. Jamais pour soi-même : un autre membre du service RH décide.
 - **Congé principal et fractionnement** : de septembre au 31 octobre, « Congé principal à prévoir » liste les salariés qui
   n'ont pas posé 12 jours ouvrables continus (10 ouvrés) dans la période. À partir du 1er novembre, « Jours de fractionnement
   à décider » propose 1 ou 2 jours par salarié qui a pris (ou prendra) hors période une partie de son congé principal :
@@ -746,6 +758,9 @@ d'un mois clos enregistrée en retard part entière, en rappel.
   par rémunération et catégorie (Paramètres → Absences et paie, activé par défaut). Congés pris sur le compte
   épargne-temps (rubrique CET) : désactivée tant que la paie n'a pas donné son code ; chaque congé est alors listé « À
   saisir dans Sage » dans le résumé du lot et l'export des variables.
+- Jours monétisés du compte épargne-temps (lot 13, rubrique CET_MON, mois de la validation) : désactivée tant que la paie
+  n'a pas donné son code ; chaque monétisation est alors listée « À saisir dans Sage » (« Monétisation du CET, demande
+  n° … ») ; Sage calcule le montant.
 - Soldes de sortie (CP, RTT, récupération, CET) quand leurs rubriques sont activées ; sinon ils se saisissent dans Sage à
   partir de l'état imprimé.
 - Déplacements (jours et nuits de grand déplacement en GD_JOUR et GD_NUIT, jours à l'étranger en ETR_JOUR avec le pays en

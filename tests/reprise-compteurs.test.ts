@@ -303,7 +303,9 @@ test('t072 migration nommée : compteurs et reports d’une base existante daté
     // lot 12 — C6 (badgeage virtuel) : index des pointages et des demandes de correction, pointages en ajouts seulement.
     'lot12-badgeage-pointages',
     // lot 12 — C2, étape 2 : scission des frais médicaux (dépenses médicales reprises, index).
-    'lot12-frais-sante']);
+    'lot12-frais-sante',
+    // lot 13 — CET (monétisation) : index des demandes de monétisation (par salarié, par lot de paie).
+    'lot13-cet-monetisation']);
   const ds = await loadFull(db, ADMIN);
   assert.ok(ds.soldesReprise.every(s => s.arreteLe === '2026-10-10'), 'date de mise en service de cette version');
   const recu = ds.reports.find(r => r.empId === 6)!, accorde = ds.reports.find(r => r.empId === 2)!;

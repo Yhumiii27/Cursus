@@ -496,6 +496,9 @@ export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubriqu
   // Congé pris sur le compte épargne-temps (lot 6, chantier 3) : désactivée par défaut, code Sage à confirmer par la paie ;
   // d'ici là, chaque congé figure nominativement dans le lot « à saisir dans Sage » (shared/rules/elements-lot.ts).
   CET: { label: 'Congé pris sur le compte épargne-temps (jours ouvrés)', unite: 'j', inactiveParDefaut: true },
+  // lot 13 — CET (monétisation) : jours monétisés d'une demande validée par le service RH, dans le lot de sa période ;
+  // désactivée par défaut, code Sage à confirmer par la paie (« à saisir dans Sage » d'ici là). Sage calcule le montant.
+  CET_MON: { label: 'Jours du compte épargne-temps monétisés (complément de rémunération)', unite: 'j', inactiveParDefaut: true },
   ABS_NP: { label: 'Absence non payée (jours de la nature : calendaires ou ouvrés)', unite: 'j' },
   ABS_IND_SANTE: { label: 'Absence indemnisée, santé : arrêts de travail (jours calendaires)', unite: 'j' },
   ABS_MAINT_SANTE: { label: 'Absence à salaire maintenu, santé (jours de la nature)', unite: 'j' },

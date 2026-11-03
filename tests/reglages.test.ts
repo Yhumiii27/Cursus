@@ -71,6 +71,8 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // placement sur le CET, 5 RTT par an et 5 CP de la 5e semaine.
     fractionnementRegle: 'legal', fractionnementAccord: '', fractionnementDebut: '05-01', fractionnementFin: '10-31',
     cetPlafondRtt: 5, cetPlafondCp: 5,
+    // lot 13 — CET (monétisation) : fermée, 10 jours par an, solde repris non monétisable.
+    cetMonetisation: false, cetMonetisationAccord: '', cetMonetisationPlafond: 10, cetReprisMonetisable: false,
     // Lot 6 (t016, t036) : durées de conservation préremplies mais inactives sans la décision du DPO (réponse du 18 octobre
     // 2026) ; flux d'agenda personnel désactivé, contenu complet.
     conservationActive: false, conservationDecisionDpo: '', conservationDossierAns: 5, conservationTempsAns: 3, conservationPaieAns: 5,

@@ -176,6 +176,9 @@ export const REFERENCES: readonly Reference[] = [
   ref('corrections_pointage', 'emp_id', 'employes'),
   ref('corrections_pointage', 'pointage_id', 'pointages'),
   ref('corrections_pointage', 'pointage_cree_id', 'pointages'),
+  // lot 13 — CET (monétisation ; clés étrangères de 0030_cet_monetisation.sql) : salarié, lot de paie.
+  ref('monetisations_cet', 'emp_id', 'employes'),
+  ref('monetisations_cet', 'lot_id', 'lots_paie'),
 ];
 
 export interface Integrite {

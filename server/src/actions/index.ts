@@ -75,6 +75,8 @@ import { elearningActions } from './elearning.ts';
 import { planningActions } from './planning.ts';
 // lot 12 — C6 (badgeage virtuel)
 import { pointageActions } from './pointage.ts';
+// lot 13 — CET (monétisation)
+import { cetMonetisationActions } from './cet-monetisation.ts';
 import { horairesVariablesActions } from './horaires-variables.ts';
 
 /**
@@ -161,6 +163,8 @@ const REGISTRE = {
   // lot 12 — C6 (badgeage virtuel)
   ...pointageActions,
   ...horairesVariablesActions,
+  // lot 13 — CET (monétisation)
+  ...cetMonetisationActions,
 } satisfies Record<string, ActionHandler>;
 
 /** Nom d'une action exposée par POST /api/actions/:nom. */

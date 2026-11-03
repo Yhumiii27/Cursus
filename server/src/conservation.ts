@@ -133,6 +133,8 @@ export const TRAITEMENTS: Record<string, Traitement> = {
   // `conservationPointagesAns` ans (server/src/pointages.ts, `purgerPointages`).
   'pointages.emp_id': { mode: 'lignes', categorie: 'temps' },
   'corrections_pointage.emp_id': { mode: 'lignes', categorie: 'temps' },
+  // lot 13 — CET (monétisation) : demandes gardées avec les avenants du forfait jours (élément de paie), motif vidé.
+  'monetisations_cet.emp_id': { mode: 'textes', categorie: 'paie' },
 };
 
 /**
@@ -240,7 +242,9 @@ export function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number
     // Avenants de renonciation d'un forfait jours : référence et motif d'annulation (textes libres du service RH).
     case 'paie': return [{ table: 'avenants_forfait', ou: 'emp_id = ?', vider: ['reference', 'annule_motif'] },
       // lot 12 — C1 (forfait annuel en heures) : motifs de réouverture et d'annulation des clôtures (textes de l'administrateur RH).
-      { table: 'clotures_forfait_heures', ou: 'emp_id = ?', vider: ['rouverte_motif', 'annulee_motif'] }];
+      { table: 'clotures_forfait_heures', ou: 'emp_id = ?', vider: ['rouverte_motif', 'annulee_motif'] },
+      // lot 13 — CET (monétisation) : motif d'un refus ou d'une annulation (texte libre du service RH ou du salarié).
+      { table: 'monetisations_cet', ou: 'emp_id = ?', vider: ['motif'] }];
     // lot 11 — notes de frais : seules les notes hors de leur terme comptable (payées depuis plus de la durée réglée, ou
     // jamais payées) partent, avec leurs lignes, leurs justificatifs et les avances soldées ; les véhicules et leurs pièces
     // quand plus aucune ligne gardée ne les désigne. Le dossier anonymisé garde les autres, sans nom.

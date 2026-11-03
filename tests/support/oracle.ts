@@ -189,6 +189,12 @@ const TIRAGES: Record<string, Tirage> = {
   'forfaitHeures.cloturer': ({ r, empId, ds }) => ({ lignes: [{ empId: empId(), debut: `${Number(ds.today.slice(0, 4)) - r.entre(0, 1)}-01-01` }] }),
   'forfaitHeures.rouvrir': ({ r, ds }) => ({ id: id(r, ds.cloturesForfaitHeures, l => l.statut === 'confirmee'), motif: 'Feuille corrigée (banc d’oracle)' }),
   'forfaitHeures.annuler': ({ r, ds }) => ({ id: id(r, ds.cloturesForfaitHeures, l => l.statut !== 'annulee'), motif: 'Clôture faite trop tôt (banc d’oracle)' }),
+  // lot 13 — CET (monétisation) : demande d'un ou deux jours (refusée tant que la monétisation est fermée, comme dans la
+  // démonstration), décision et annulation d'une demande existante.
+  'cet.monetiser': ({ r, empId }) => ({ empId: empId(), jours: r.entre(1, 2) }),
+  'cet.monetisation.valider': ({ r, ds }) => ({ id: id(r, ds.monetisationsCet, m => m.statut === 'demandee') }),
+  'cet.monetisation.refuser': ({ r, ds }) => ({ id: id(r, ds.monetisationsCet, m => m.statut === 'demandee'), motif: 'Plafond atteint (banc d’oracle)' }),
+  'cet.monetisation.annuler': ({ r, ds }) => ({ id: id(r, ds.monetisationsCet, m => m.statut !== 'annulee'), motif: 'Demande retirée (banc d’oracle)' }),
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // Objectifs et souhaits : entretien annuel planifié (fixation, évaluation), objectif de l'état voulu, codes fixes.

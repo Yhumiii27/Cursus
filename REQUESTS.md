@@ -50,3 +50,13 @@ Format d'une entrée :
   fichier de Matrix modifié. Cursus ne reçoit aucune écriture par la base (Keystone passe par l'API) : aucune fonction
   `pub_` à créer.
 
+
+## [2026-11-04] Vigie → Cursus — Intérimaires et extérieurs : matricule I / E permanent et pré-déclaration publique avant l'arrivée sur site
+- Statut : OUVERTE
+- Demande :
+  1. Tenir dans Cursus les intérimaires et les salariés des entreprises extérieures avec un matricule propre, préfixé `I` (intérimaire) ou `E` (extérieur), **permanent** : une personne qui revient sur site retrouve son matricule et son historique (accueils, titres, interventions passées).
+  2. Ouvrir un formulaire accessible hors de l'entreprise (sans compte Entra, lien public protégé) où un intérimaire ou un salarié d'entreprise extérieure se déclare avant de venir : nom, prénom, entreprise (ou agence d'intérim), site, dates d'arrivée et de départ prévues, objet (intervention, mission). Les RH valident la déclaration ; Cursus retrouve la personne si elle est déjà venue (sinon crée le matricule `I` ou `E`).
+  3. Rendre publiables (voir la demande à Matrix) : pour chaque personne, sa catégorie (salarié, intérimaire, extérieur), son entreprise et son adresse e-mail professionnelle quand elle existe ; pour chaque déclaration validée, la présence prévue sur un site (matricule, site, du, au, entreprise).
+- Justification : décision du responsable produit du 03/11/2026 (convergence M-02, D01, question CV-10) : Vigie n'a plus aucune fiche de personne à lui, toutes viennent de Cursus, y compris les intérimaires et les extérieurs. Vigie a besoin de ces personnes pour les plans de prévention, les permis, les accueils sécurité et les événements, et produira à partir des présences prévues la liste des arrivées et départs à venir pour le poste de garde. L'e-mail sert à rattacher un compte Microsoft Entra à sa fiche lors de la connexion à Vigie. Sans ces données, Vigie garde ses fiches locales (doublon contraire à M-02).
+- Détails techniques : données tenues par Cursus seulement ; pas de donnée de santé ; formulaire public avec les protections d'un formulaire sans compte (jeton, limite de débit, champ piège, comme le signalement terrain de Vigie) ; conservation des déclarations refusées ou sans suite à fixer avec le DPO. Contrat proposé des publications : voir la demande à Matrix.
+- Validé par Guillaume le : 2026-11-04

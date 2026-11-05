@@ -66,7 +66,10 @@ export function chiffrerMessage(clair: Buffer, abo: Pick<AbonnementNavigateur, '
 export function nouvellesClesVapid(sujet: string): ClesVapid {
   const ecdh = createECDH('prime256v1');
   ecdh.generateKeys();
-  return { publique: b64u(ecdh.getPublicKey()), privee: b64u(ecdh.getPrivateKey()), sujet };
+  // Scalaire privé sur 32 octets : Node le rend sans ses octets nuls de tête (une clé sur 256 environ), que la clé JWK et
+  // `clesVapidValides` exigent.
+  const privee = ecdh.getPrivateKey();
+  return { publique: b64u(ecdh.getPublicKey()), privee: b64u(Buffer.concat([Buffer.alloc(32 - privee.length), privee])), sujet };
 }
 
 /** Clé privée VAPID en objet de clé (JWK à partir des coordonnées de la clé publique et du scalaire privé). */

@@ -322,6 +322,8 @@ const lotDuResultat = (x: Contexte) => x.result as {
   frais?: { id: number; empId: number; avance?: true }[];
   // lot 12 — C1 (forfait annuel en heures) : lignes de clôture (identifiants seuls).
   forfaitHeures?: { id: number; empId: number }[];
+  // lot 13 — CET (monétisation) : demandes dont le lot emporte les jours (identifiants seuls).
+  monetisationsCet?: { id: number; empId: number }[];
 } | null | undefined;
 const lotRetenu = (x: Contexte) => {
   const r = lotDuResultat(x);
@@ -339,6 +341,8 @@ const lotRetenu = (x: Contexte) => {
     ...(r?.frais?.length ? { frais: r.frais.map(s => (s.avance ? `avance:${s.id}` : `note:${s.id}`)) } : {}),
     // lot 12 — C1 (forfait annuel en heures) : identifiants des lignes de clôture, jamais les heures.
     ...(r?.forfaitHeures?.length ? { forfaitHeures: r.forfaitHeures.map(s => s.id) } : {}),
+    // lot 13 — CET (monétisation) : identifiants des demandes, jamais les jours.
+    ...(r?.monetisationsCet?.length ? { monetisationsCet: r.monetisationsCet.map(s => s.id) } : {}),
   };
 };
 const salariesDuLot = (x: Contexte) => [...new Set([
@@ -348,6 +352,8 @@ const salariesDuLot = (x: Contexte) => [...new Set([
   ...(lotDuResultat(x)?.frais ?? []).map(a => a.empId),
   // lot 12 — C1 (forfait annuel en heures)
   ...(lotDuResultat(x)?.forfaitHeures ?? []).map(a => a.empId),
+  // lot 13 — CET (monétisation)
+  ...(lotDuResultat(x)?.monetisationsCet ?? []).map(a => a.empId),
 ])];
 /** Feuilles transmises à la paie : validées et non transmises avant l'action, marquées transmises après. */
 const transmises = async (x: Contexte) => (await Promise.all((x.etat as number[]).map(id => x.db.get<FeuilleTemps>('feuilles', id)))).filter((f): f is FeuilleTemps => !!f?.sage);
@@ -942,6 +948,19 @@ export const REGLES: Record<string, Regle> = {
   'absence.prolonger': { champs: ['id', 'au'], cible: parId('absences', ['au', 'statut']) },
   'absence.annuler': { champs: ['id'], cible: parId('absences', ['statut']), ...reportsRendus },
   'cet.placer': { champs: ['empId', 'kind', 'jours', 'annee'] },
+  // lot 13 — CET (monétisation, server/src/actions/cet-monetisation.ts) : salarié et jours de la demande ; décision et
+  // annulation : identifiant, statut et période de paie avant et après, et seulement le fait qu'un motif soit donné
+  // (texte libre, jamais recopié).
+  'cet.monetiser': { champs: ['empId', 'jours'] },
+  'cet.monetisation.valider': { champs: ['id'], cible: parId('monetisationsCet', ['statut', 'periode']), salaries: (_p, x) => [x.avant?.empId] },
+  'cet.monetisation.refuser': {
+    champs: ['id'], extra: p => ({ motif: typeof p.motif === 'string' && p.motif.trim() ? MENTION_TEXTE : null }),
+    cible: parId('monetisationsCet', ['statut']), salaries: (_p, x) => [x.avant?.empId],
+  },
+  'cet.monetisation.annuler': {
+    champs: ['id'], extra: p => ({ motif: typeof p.motif === 'string' && p.motif.trim() ? MENTION_TEXTE : null }),
+    cible: parId('monetisationsCet', ['statut', 'periode']), salaries: (_p, x) => [x.avant?.empId],
+  },
   'report.accorder': { champs: ['empId', 'jours', 'expire'] },
   // Information au retour d'un arrêt (art. L3141-19-3) : arrêt visé, jour, jours communiqués et échéances ; jamais le texte
   // envoyé. Masquée à la lecture seule (elle désigne un arrêt de santé : ACTIONS_SANTE).
@@ -990,7 +1009,8 @@ export const REGLES: Record<string, Regle> = {
     cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche', 'nuitAccord', 'forfaitJoursAccord', 'fractionnementAccord', 'conservationDecisionDpo', 'astreinteAccord',
       /* lot 12 — C1 */ 'forfaitHeuresAccord', /* lot 12 — C5 */ 'planningAccord',
       /* lot 12 — C6 (badgeage virtuel) */ 'pointageAccord', 'geolocFinalite',
-      /* lot 12 — C3 (feedback 360°) */ 'feedback360Cse', 'feedback360Aipd'] },
+      /* lot 12 — C3 (feedback 360°) */ 'feedback360Cse', 'feedback360Aipd',
+      /* lot 13 — CET (monétisation) */ 'cetMonetisationAccord'] },
   },
   // Jours fériés d'une année (lot 6) : année, réglage avant et après ; le motif d'une année engagée (texte libre) n'est
   // jamais recopié, seulement le fait qu'il soit renseigné. Salariés dont une absence est recalculée (résultat).

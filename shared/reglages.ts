@@ -278,6 +278,13 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   //   an et 5 CP de la 5e semaine par période, tant que l'accord sur le CET n'est pas connu —
   cetPlafondRtt: { defaut: 5, controle: entier(0, 25) },
   cetPlafondCp: { defaut: 5, controle: entier(0, 5) },
+  // lot 13 — CET (monétisation) : fermée par défaut (accord inconnu), ouverte avec la référence de l'accord (COHERENCE,
+  //   art. L3151-3) ; 10 jours par salarié et par année civile au plus par défaut ; solde repris de l'ancien outil non
+  //   monétisable par défaut (son origine, CP ou RTT, n'est pas connue) —
+  cetMonetisation: { defaut: false, controle: booleen },
+  cetMonetisationAccord: { defaut: '', controle: texte(120, 'Référence de l’accord') },
+  cetMonetisationPlafond: { defaut: 10, controle: entier(1, 60) },
+  cetReprisMonetisable: { defaut: false, controle: booleen },
   // — Conservation des dossiers (parametres/Conservation.tsx, shared/rules/conservation.ts, t016) : durées préremplies mais
   //   inactives (réponse de l'entreprise du 18 octobre 2026) tant que la décision du DPO n'est pas référencée (COHERENCE) ;
   //   années après la sortie, 0 : dès le lendemain du dernier jour —
@@ -490,6 +497,10 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   // — Astreintes : un délai de prévenance plus court que 15 jours suppose un accord collectif (art. L3121-11) —
   s => (s.astreinteDelaiPrevenance < DELAI_PREVENANCE_LEGAL && !s.astreinteAccord
     ? `Astreintes : un délai de prévenance de moins de ${DELAI_PREVENANCE_LEGAL} jours suppose un accord collectif (art. L3121-11) : indiquez sa référence` : null),
+  // lot 13 — CET (monétisation) : l'utilisation des droits du CET en complément de rémunération suppose l'accord qui
+  // institue le compte (art. L3151-3) —
+  s => (s.cetMonetisation && !s.cetMonetisationAccord
+    ? 'Compte épargne-temps : la monétisation des jours épargnés suppose l’accord collectif qui la prévoit (art. L3151-3) : indiquez sa référence' : null),
   // lot 12 — C1 (forfait annuel en heures)
   // Forfait annuel en heures : une autre période de référence, un autre seuil de la tranche à 25 %, d'autres absences
   // déduites ou une autre durée journalière supposent l'accord collectif (art. L3121-64 et L3121-63, 3°) —

@@ -379,8 +379,9 @@ export const plafondsCet = (d: Domain) => ({ rtt: d.ds.settings?.cetPlafondRtt ?
 /**
  * Compte épargne-temps : placements dans la limite des plafonds réglés (RTT par an, CP de la 5e semaine par période ; 5 et
  * 5 par défaut), solde repris de l'ancien outil (`repris`) et congés pris dessus (absences `CET`, jours ouvrés, validées par
- * le manager comme un CP : `pris`, et demandées : `poses`). `total` : placements + repris − congés pris ; `solde` : ce qui
- * reste à poser, demandes en attente déduites, affiché, exporté et liquidé à la sortie (shared/rules/solde-sortie.ts).
+ * le manager comme un CP : `pris`, et demandées : `poses`). `total` : placements + repris − congés pris − jours monétisés ;
+ * `solde` : ce qui reste à poser, demandes en attente (congés et monétisations) déduites, affiché, exporté et liquidé à la
+ * sortie (shared/rules/solde-sortie.ts).
  */
 export function cetInfo(d: Domain, e: Employe) {
   const cp = cpInfo(d, e), rt = rttInfo(d, e), list = d.ds.cet.filter(x => x.empId === e.id), plafond = plafondsCet(d);
@@ -395,8 +396,14 @@ export function cetInfo(d: Domain, e: Employe) {
   const conges = (st: string) => d.ds.absences.filter(a => a.empId === e.id && a.type === 'CET' && a.statut === st)
     .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'CET', a), 0);
   const epargne = sum('CP') + sum('RTT') + repris, pris = conges('validee'), poses = conges('demandee');
+  // lot 13 — CET (monétisation, shared/rules/cet-monetisation.ts) : jours monétisés (demandes validées) déduits comme un
+  // congé pris, demandes en attente comme un congé demandé.
+  const monetisations = (d.ds.monetisationsCet ?? []).filter(m => m.empId === e.id);
+  const joursMon = (st: string) => monetisations.filter(m => m.statut === st).reduce((n, m) => n + m.jours, 0);
+  const monetises = joursMon('validee'), monetisationsEnAttente = joursMon('demandee');
   return {
-    total: epargne - pris, epargne, pris, poses, solde: epargne - pris - poses,
+    total: epargne - pris - monetises, epargne, pris, poses, solde: epargne - pris - poses - monetises - monetisationsEnAttente,
+    monetises, monetisationsEnAttente,
     cp: sum('CP'), rtt: sum('RTT'), repris, placeCp, placeRtt, placeRttPrec, anneePrec: d.year - 1, plafondCp: plafond.cp, plafondRtt: plafond.rtt,
     cp5: cp ? Math.max(0, cp.acq - 20) : 0, cpDone: cp ? cp.cetCp : 0, rttDone: rt ? rt.cetRtt : 0,
     rttLabel: rt ? rt.label : 'RTT', eligible: !!cp,

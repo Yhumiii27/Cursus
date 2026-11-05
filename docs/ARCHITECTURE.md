@@ -5786,3 +5786,44 @@ l'écran du lot 11 (réglage `organigrammeOuvert`, étiquettes de contrat, anoma
 - **Tests** : `tests/organigramme-service.test.ts` (règles, adresse, échelle), `tests/client-organigramme-graphique.test.ts`
   (boîtes, traits, ARIA, clavier, « N personnes », zoom, service, export, collaborateur, téléphone, HTML imprimé),
   `e2e/organigramme.spec.ts` (service, vue graphique, dépliage ; liste sur le téléphone).
+
+## Lot 13 : monétisation du compte épargne-temps
+
+Demande du propriétaire du 3 novembre 2026 (« CET : prise et liquidation »). Le congé pris sur le CET (lot 6) et la
+liquidation à la sortie (t128, rubrique CET_LIQ) existaient déjà : le lot ajoute la **monétisation** des jours épargnés
+(art. L3151-3), dernière partie du point « Utiliser et liquider les jours épargnés sur le CET » de `docs/RESTE_A_FAIRE.md`.
+
+- **Réglages** (`shared/reglages.ts`, Paramètres → Compte épargne-temps) : `cetMonetisation` (fermée par défaut),
+  `cetMonetisationAccord` (exigée pour l'ouvrir, COHERENCE), `cetMonetisationPlafond` (10 jours par salarié et par année
+  civile, de 1 à 60), `cetReprisMonetisable` (faux : le solde repris de l'ancien outil, d'origine inconnue, ne se monétise pas).
+- **Règles pures** (`shared/rules/cet-monetisation.ts`) : jours monétisables = RTT placés (et solde repris si le réglage le
+  dit) moins les monétisations engagées (en attente ou validées) et la part des congés pris ou demandés sur le CET qui
+  dépasse les jours non monétisables (CP placés, repris non monétisable : imputation la plus favorable au salarié), dans la
+  limite du plafond de l'année (année de la demande, colonne `annee`) et du solde ; par demi-journée ; refusée pour un
+  salarié sorti ou dont la sortie est enregistrée (liquidation). `cetInfo` (`shared/rules/conges.ts`) déduit les jours
+  monétisés du total et les demandes en attente du solde (comme un congé pris et un congé demandé), donc aussi du solde
+  liquidé à la sortie et de l'export des soldes.
+- **Table** `monetisations_cet` (migration PostgreSQL `0030_cet_monetisation.sql`, SQLite d'après `TABLES` et la migration
+  nommée `lot13-cet-monetisation` pour les index) : une ligne par demande, jamais supprimée (refusée ou annulée, elle reste) ;
+  colonne `lots_paie.monetisations_cet`. Clés inscrites au journal des changements (delta du cache), champ par salarié de
+  la vue (`CHAMPS_PAR_SALARIE`), banc d'oracle (`tests/support/oracle.ts`).
+- **Actions** (`server/src/actions/cet-monetisation.ts`) : `cet.monetiser` (l'intéressé, ou le service RH pour lui),
+  `cet.monetisation.valider` (service RH, jamais pour soi-même ; contrôles refaits ; période de paie = mois de la
+  validation, au plus tôt la période ouverte), `cet.monetisation.refuser` (motif obligatoire), `cet.monetisation.annuler`
+  (l'intéressé pour sa demande en attente ; le service RH, motif obligatoire, pour une demande en attente ou validée hors de
+  tout lot ; dans un lot à confirmer : annuler d'abord le lot ; transmise : correction dans Sage). Décision, refus et
+  annulation sont des actions de paie (`ACTIONS_PAIE`) ; le journal ne garde jamais le texte d'un motif.
+- **Paie** (`server/src/cet-paie.ts`, famille `monetisationsCet` du registre des éléments de lot) : rubrique CET_MON
+  (désactivée par défaut, code Sage à confirmer), comme les jours rachetés d'un forfait jours : toujours réservée par le lot
+  de sa période ; sans code Sage, listée « à saisir dans Sage » (« Monétisation du CET, demande n° … ») et réglée hors
+  fichier à la confirmation ; libérée à l'annulation du lot. Sage calcule le montant.
+- **Vues** (`server/src/vues-cet.ts`) : service RH tout ; salarié ses demandes sans les auteurs du service RH ; manager les
+  jours et l'état de son équipe (solde du CET juste), ni motif ni auteur ; paie et consultation sans motif ; référent HSE rien.
+- **Écrans** : Paramètres → Compte épargne-temps (bloc « monétisation », enregistré au bouton) ; Congés & absences : bouton
+  « Monétiser » (carte du salarié, tableau des soldes pour le service RH), panneaux « Monétisations du CET à décider » et
+  « (Mes) monétisations du CET » (`client/src/components/MonetisationsCet.tsx`, `client/src/dialogs/MonetisationCetDialog.tsx`,
+  confirmations `client/src/state/confirmations-cet.ts`).
+- **Matrix** : colonnes `jours` et `motif` à fermer à `matrix_lecture` (`docs/demandes/matrix-lot13-cet-monetisation.sql`,
+  à valider) ; aucune vue `pub_` ni lien (M-18).
+- **Tests** : `tests/cet-monetisation.test.ts` (réglages, jours monétisables, origine, décision, journal, lot de paie, vues,
+  solde de sortie), matrice des droits, conservation, colonnes sensibles, migrations publiées.

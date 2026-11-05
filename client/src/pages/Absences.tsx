@@ -17,6 +17,9 @@ import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { CloturesConges } from '../components/CloturesConges.tsx';
 import { Fractionnement } from '../components/Fractionnement.tsx';
 import { InformationsRetour } from '../components/InformationsRetour.tsx';
+// lot 13 — CET (monétisation)
+import { MonetisationsCet } from '../components/MonetisationsCet.tsx';
+import { monetisationInfo } from '../../../shared/rules/cet-monetisation.ts';
 import { LectureSeule, useLectureSeule } from '../components/Hierarchie.tsx';
 import { Btn, Empty, Fine, Kpi, Kpis, Page, Panel, Tag, Two } from '../components/ui.tsx';
 import { comparerTexte, parDate, parNombre, parRang, parTexte, trier, usePagination, useTri, type Colonne } from '../components/tri.ts';
@@ -50,6 +53,8 @@ function soldeRow(d: Domain, e: Employe) {
     // Valeurs triées des colonnes (t145) ; null : non concerné (rangé en dernier).
     n: { cp: cp ? cp.solde : null, cpN: cp ? cp.enCours : null, rtt: rt ? rt.solde : null, rec: rc ? rc.solde : null, cet: cet ? ct.total : null },
     e, cpSolde: cp ? cp.solde : 0, cetPlaceable: cet && (ct.placeCp > 0 || ct.placeRtt > 0 || ct.placeRttPrec > 0),
+    // lot 13 — CET (monétisation) : réglage ouvert et au moins une demi-journée monétisable aujourd'hui.
+    cetMonetisable: cet && (() => { const m = monetisationInfo(d, e); return m.ouverte && m.possible >= 0.5; })(),
     poser: absenceKinds(d, e).length > 0, cpGere: !!cp,
     contrat: `${STATUTS[c.statut].court} · ${c.label}`,
     cp: cp ? fJ(cp.solde) : 'Agence',
@@ -70,7 +75,7 @@ function soldeRow(d: Domain, e: Employe) {
     recSub: rc ? `≈ ${fJ(rc.solde / rc.dh)}` : 'non concerné',
     cet: cet ? fJ(ct.solde) : '—',
     // Congés pris sur le CET (validés) et demandés : déduits du solde affiché.
-    cetSub: cet ? (ct.epargne ? `${ct.cp} j CP · ${ct.rtt} j RTT${ct.repris ? ` · ${ct.repris} j repris` : ''}${ct.pris ? ` · ${fJ(ct.pris)} pris` : ''}${ct.poses ? ` · ${fJ(ct.poses)} posés` : ''}` : 'aucun jour épargné') : 'non concerné',
+    cetSub: cet ? (ct.epargne ? `${ct.cp} j CP · ${ct.rtt} j RTT${ct.repris ? ` · ${ct.repris} j repris` : ''}${ct.pris ? ` · ${fJ(ct.pris)} pris` : ''}${ct.poses ? ` · ${fJ(ct.poses)} posés` : ''}${ct.monetises ? ` · ${fJ(ct.monetises)} monétisés` : ''}${ct.monetisationsEnAttente ? ` · ${fJ(ct.monetisationsEnAttente)} à monétiser` : ''}` : 'aucun jour épargné') : 'non concerné',
   };
 }
 
@@ -147,6 +152,8 @@ export function Absences() {
   // lot 11 — pwa : raccourci « Demander une absence » de l'application installée (manifeste, /absences?nouveau=1).
   useEffect(() => { if (canPoseMe && me != null && prendreNouvelleAbsence()) openDialog({ type: 'abs', empId: me }); }, [canPoseMe, me, openDialog]);
   const canCet = (r: ReturnType<typeof soldeRow>) => (rh || r.e.id === me) && r.cetPlaceable;
+  // lot 13 — CET (monétisation) : le salarié pour lui-même, le service RH pour un autre (demande à valider).
+  const canMonetiser = (r: ReturnType<typeof soldeRow>) => (rh || (!espaceRh && r.e.id === me)) && r.cetMonetisable;
 
   // Droits de l'utilisateur sur les absences d'un collaborateur : RH, intéressé, manager direct. Un membre du RH agit
   // sur ses propres absences comme intéressé.
@@ -210,13 +217,18 @@ export function Absences() {
           <Kpi kicker={`${mine.rttLabel} ${Y}`} value={mine.rtt} sub={mine.rttCard} />
           <Kpi kicker="Récupération" value={mine.rec} sub={mine.recSub} />
           <Kpi kicker="Compte épargne-temps" value={mine.cet} sub={mine.cetSub}
-            action={canCet(mine) ? <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cet', empId: mine.e.id })}>Épargner</button> : undefined} />
+            action={canCet(mine) || canMonetiser(mine) ? <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flex: 'none' }}>
+              {canCet(mine) && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cet', empId: mine.e.id })}>Épargner</button>}
+              {canMonetiser(mine) && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'monetisationCet', empId: mine.e.id })}>Monétiser</button>}
+            </span> : undefined} />
         </Kpis>
       )}
 
       {espaceRh && <CloturesConges />}
       <Fractionnement />
       <InformationsRetour />
+      {/* lot 13 — CET (monétisation) */}
+      <MonetisationsCet />
 
       {aQualifier.length > 0 && (
         <Panel highlight title="Absences à qualifier" aside={`${plural(aQualifier.length, 'absence signalée', 'absences signalées')} · nature et justificatif à préciser`}>
@@ -287,6 +299,7 @@ export function Absences() {
                       <td className="right">
                         <div style={{ display: 'flex', gap: 'var(--space-1)', justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
                           {canCet(r) && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cet', empId: r.e.id })}>Épargner</button>}
+                          {canMonetiser(r) && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'monetisationCet', empId: r.e.id })}>Monétiser</button>}
                           {rh && r.e.id !== soi && r.cpSolde > 0 && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'report', empId: r.e.id })}>Reporter</button>}
                           {canPose && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'abs', empId: r.e.id })}>Poser</button>}
                           {manager && decideur(d, r.e, me, 'absences') && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'absSignal', empId: r.e.id })}>Signaler</button>}
@@ -409,7 +422,7 @@ export function Absences() {
             <li>Retour d’un arrêt de maladie ou d’accident : dans le mois, le service RH informe le salarié de ses jours de congés et de la date limite pour les prendre (« Informations au retour à faire ») ; le report de 15 mois court à partir de cette information.</li>
             <li>RTT et jours de repos : non reportables, clôturés au 31 décembre (soldes non pris perdus, après le rappel du CET). Ceux de l’année suivante se posent dès maintenant sur son propre droit ; une demande à cheval sur deux années est refusée.</li>
             <li>Compteurs repris de l’ancien outil : décomptés sur la période de CP et l’année de RTT de leur date d’arrêté, jamais au-delà.</li>
-            <li>Compte épargne-temps : jusqu’à {data.settings.cetPlafondRtt ?? 5} RTT par an (avant le 31 décembre) et {data.settings.cetPlafondCp ?? 5} CP par période, uniquement ceux de la 5e semaine (au-delà de 20 jours ouvrés) ; plafonds réglés dans Paramètres → Compte épargne-temps. Les jours épargnés se prennent en congé sur le CET (jours ouvrés), validé par le manager comme un congé payé ; liquidés en entier à la sortie.</li>
+            <li>Compte épargne-temps : jusqu’à {data.settings.cetPlafondRtt ?? 5} RTT par an (avant le 31 décembre) et {data.settings.cetPlafondCp ?? 5} CP par période, uniquement ceux de la 5e semaine (au-delà de 20 jours ouvrés) ; plafonds réglés dans Paramètres → Compte épargne-temps. Les jours épargnés se prennent en congé sur le CET (jours ouvrés), validé par le manager comme un congé payé ; liquidés en entier à la sortie.{data.settings.cetMonetisation ? ` Monétisation ouverte (accord : ${data.settings.cetMonetisationAccord}) : jours venus des RTT seulement, ${data.settings.cetMonetisationPlafond} j par an au plus, sur demande validée par le service RH.` : ' Monétisation : non ouverte (accord à référencer).'}</li>
             <li>Congé principal : au moins 12 jours ouvrables continus (10 ouvrés) entre le {jourMois(fenetrePrincipale(data.settings, Y).du)} et le {jourMois(fenetrePrincipale(data.settings, Y).au)}, 24 jours ouvrables (20 ouvrés) d’affilée au plus — signalés sans blocage. {data.settings.fractionnementRegle === 'aucun' ? 'Jours de fractionnement écartés par accord collectif.' : `Jours de fractionnement : 2 jours pour 6 jours ouvrables ou plus du congé principal (5e semaine exclue) pris hors de cette période, 1 jour pour 3 à 5${data.settings.fractionnementRegle === 'accord' ? ', ou la règle de l’accord d’entreprise' : ''} ; proposés après la période, crédités par le service RH ou écartés par la renonciation du salarié.`}</li>
             <li>Intérim : congés gérés par l’agence ; CDD : indemnité compensatrice des CP non pris à l’échéance.</li>
             <li>Absences et feuilles de temps restent dans les bornes du contrat : entrée, fin du CDD, de la mission ou de l’alternance.</li>

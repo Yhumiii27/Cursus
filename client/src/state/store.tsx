@@ -203,6 +203,8 @@ export type DialogState =
   | { type: 'absProlonger'; id: number }
   | { type: 'absAnnuler'; id: number }
   | { type: 'cet'; empId: number }
+  // lot 13 — CET (monétisation)
+  | { type: 'monetisationCet'; empId: number }
   | { type: 'report'; empId: number }
   /** Clôture d'une période de congés : CP (`periode` : année de prise) ou RTT (`periode` : année). */
   | { type: 'clotureConges'; conges: 'CP' | 'RTT'; periode: number }

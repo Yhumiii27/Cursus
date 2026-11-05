@@ -2,7 +2,7 @@
 
 Audit du 10 octobre 2026 (branche `main-n9x7ps`). Chaque point a été relevé dans le code puis contre-vérifié par une seconde lecture qui a écarté ce qui était déjà fait ou inexact. Les preuves renvoient aux fichiers et lignes à cette date.
 
-**190 tâches** (172 faites au 23 octobre 2026 ; suivi à jour : https://claude.ai/artifact/8Dn4CRz3fcHgew8RzbNGEc) : 26 bloquantes pour une mise en production, 104 importantes, 60 souhaitables.
+**190 tâches** (173 cochées au 3 novembre 2026 ; suivi à jour : https://claude.ai/artifact/8Dn4CRz3fcHgew8RzbNGEc) : 26 bloquantes pour une mise en production, 104 importantes, 60 souhaitables.
 
 Légende — priorité : 🔴 **Bloquant** (empêche un usage réel : sécurité, données faussées, obligation légale) · 🟠 **Important** (attendu par les utilisateurs) · 🟢 **Souhaitable** (confort). Effort : **S** moins d’une journée · **M** 1 à 3 jours · **L** plus de 3 jours.
 
@@ -476,8 +476,9 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Modifier ou annuler un déplacement et reprogrammer un entretien** — 🟠 Important · M
   Un déplacement annulé reste et pèse sur le Go / No Go ; un entretien reporté reste « planifié » à une date passée et masque le retard. Ajouter modifier/annuler pour les voyages (avec notification Keystone) et reprogrammer/annuler pour les entretiens, en refusant les doublons.
   <br><sub>Preuves : server/src/actions/voyages.ts:90-96 · server/src/actions/entretiens.ts:15-23, :60-65 · shared/rules/entretiens.ts:25-26</sub>
-- [ ] **Utiliser et liquider les jours épargnés sur le CET** — 🟠 Important · M
+- [x] **Utiliser et liquider les jours épargnés sur le CET** — 🟠 Important · M
   Le CET ne fait que se remplir. Ajouter un congé pris sur le CET, la monétisation et la liquidation à la sortie.
+  <br>*Lot 13 (3 novembre 2026) : congé pris sur le CET (lot 6) et liquidation à la sortie (t128, CET_LIQ) déjà livrés ; monétisation ajoutée (demande du salarié, décision du service RH, RTT seulement, plafond annuel, rubrique CET_MON), fermée tant que l'accord sur le CET n'est pas référencé ; codes Sage CET, CET_MON et CET_LIQ à confirmer par la paie (docs/ARCHITECTURE.md, « Lot 13 »).*
   <br>*Analyse comparative du 25/10/2026 : standard des modules GTA du marché (Kelio, Horoquartz, Lucca) : monétisation des jours épargnés (rubrique de paie sous code CET, plafonds de l'accord) et liquidation automatique à la sortie, reprise dans le solde de tout compte. Priorité suggérée : 🟠 Important (P2), à livrer avec les codes Sage confirmés ; l'absence de liquidation à la sortie fausse le solde de tout compte dès le premier départ d'un salarié ayant épargné.*
   <br><sub>Preuves : shared/types.ts:15, :106 · server/src/actions/absences.ts:38-48</sub>
 - [x] **Calculer l'état des compteurs à la date de sortie** — 🟠 Important · M

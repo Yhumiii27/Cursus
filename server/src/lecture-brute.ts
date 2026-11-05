@@ -51,6 +51,8 @@ import type { InscriptionElearning, ModuleElearning, Organisme, OrganismeContact
 import { organismePublie, resumeOrganisme } from '../../shared/rules/organismes.ts';
 // lot 12 — C6 (badgeage virtuel)
 import type { Db, Fenetre, TableName } from './db.ts';
+// lot 13 — CET (monétisation)
+import type { MonetisationCet } from '../../shared/types.ts';
 // lot 12 — C5 (planning d'équipe)
 import type { BesoinPoste, Creneau, Cycle, EchangePoste, PublicationPlanning, Roulement } from '../../shared/types-planning.ts';
 import { creneauxAPourvoir, creneauxNominatifs, fenetreCreneaux } from './planning-lecture.ts';
@@ -180,6 +182,8 @@ export interface Brut {
   echangesPoste: EchangePoste[];
   // lot 12 — C6 (badgeage virtuel)
   correctionsPointage: CorrectionPointage[];
+  // lot 13 — CET (monétisation)
+  monetisationsCet: MonetisationCet[];
   reglages: ReglagesBruts;
   /** Statut de l'e-mail de chaque relevé (envois désignés par `releves.envoiId` seulement). */
   statutsEnvoi: ReadonlyMap<number, Envoi['statut']>;
@@ -375,6 +379,8 @@ export async function lireBrut(db: Db, today: string): Promise<Brut> {
     echangesPoste: await lire('echangesPoste'),
     // lot 12 — C6 (badgeage virtuel)
     correctionsPointage: await lire('correctionsPointage'),
+    // lot 13 — CET (monétisation)
+    monetisationsCet: await lire('monetisationsCet'),
     reglages: await lireReglages(db),
     statutsEnvoi: await statutsDesEnvois(db, releves),
   };
@@ -627,6 +633,8 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     // Demandes de correction de pointage (toutes) ; filtrées par espace et par profil dans server/src/vues-pointage.ts. Les
     // pointages eux-mêmes ne sont jamais lus ici (HORS_INSTANTANE).
     correctionsPointage: brut.correctionsPointage,
+    // lot 13 — CET (monétisation) : demandes (toutes) ; filtrées par espace et par profil dans server/src/vues-cet.ts.
+    monetisationsCet: brut.monetisationsCet,
   };
 }
 
@@ -718,6 +726,8 @@ const LECTURES_ASSEMBLEES = {
   echangesPoste: ['echangesPoste'],
   // lot 12 — C6 (badgeage virtuel)
   correctionsPointage: ['correctionsPointage'],
+  // lot 13 — CET (monétisation)
+  monetisationsCet: ['monetisationsCet'],
 } as const satisfies Partial<Record<keyof Dataset, readonly TableName[]>>;
 
 /**

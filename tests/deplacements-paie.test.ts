@@ -295,7 +295,7 @@ test('registre des éléments de lot : soldes de sortie inchangés, compteurs sa
   const { db, run, lots, ADMIN, PAIE } = await fresh();
   // lot 11 — notes de frais : famille « frais » en dernier.
   // lot 12 — C1 : famille « forfaitHeures » en dernier.
-  assert.deepEqual(FAMILLES.map(f => f.cle), ['sorties', 'deplacements', 'rachats', 'astreintes', 'frais', 'forfaitHeures']);
+  assert.deepEqual(FAMILLES.map(f => f.cle), ['sorties', 'deplacements', 'rachats', 'astreintes', 'frais', 'forfaitHeures', /* lot 13 */ 'monetisationsCet']);
   await run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
   await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
   const lot = (await lots()).at(-1)!;

@@ -69,6 +69,20 @@ const rachatOuvert = async () => {
   await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), forfaitJoursRachat: true, forfaitJoursAccord: 'Accord d’entreprise du 1er mars 2026' });
   return {};
 };
+// lot 13 — CET (monétisation) : monétisation ouverte (accord référencé) et 3 RTT 2026 de Mehdi (fiche 2) sur son CET.
+const monetisationOuverte = async () => {
+  await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), cetMonetisation: true, cetMonetisationAccord: 'Accord d’entreprise sur le CET du 1er mars 2026' });
+  await db.insert('cet', { empId: 2, type: 'RTT', jours: 3, date: '2026-10-01', periode: '2026' });
+  return {};
+};
+/** Demande de monétisation de 1 jour de Mehdi (fiche 2), en attente, monétisation ouverte. */
+const demandeMonetisation = async () => {
+  await monetisationOuverte();
+  return (await db.insert<{ id: number }>('monetisationsCet', {
+    empId: 2, jours: 1, statut: 'demandee', annee: 2026, demandeLe: '2026-10-05T08:00:00.000Z', demandePar: 'Mehdi Benali', demandeParInteresse: true,
+    decideLe: null, decidePar: null, motif: null, periode: null, lotId: null, sage: false, horsFichier: false,
+  })).id;
+};
 /** Avenant de renonciation 2026 de la fiche 9 (forfait jours), en vigueur. */
 const avenantForfait = async () => (await db.insert<{ id: number }>('avenantsForfait', {
   empId: 9, annee: 2026, jours: 5, taux: 25, signeLe: '2026-10-01', reference: null, creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Sandrine Vidal',
@@ -573,6 +587,11 @@ const MATRICE: Ligne[] = [
   { action: 'absence.decider', droits: '                     O    O    O    -    -    -    -    -    -', p: async () => ({ id: ((await db.one(`SELECT id FROM absences WHERE emp_id = 2 AND statut = 'demandee'`)) as { id: number }).id, ok: true }) },
   { action: 'absence.decider', variante: 'demande du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: async () => ({ id: await demandeAntoine(), ok: true }) },
   { action: 'cet.placer', droits: '                          O    O    -    -    O    -    -    -    -', p: async () => ({ empId: 2, kind: 'RTT', jours: 1 }) },
+  // lot 13 — CET (monétisation) : le salarié pour lui-même ou le service RH pour lui ; décision par le service RH seul.
+  { action: 'cet.monetiser', droits: '                       O    O    -    -    O    -    -    -    -', p: async () => ({ ...await monetisationOuverte(), empId: 2, jours: 1 }) },
+  { action: 'cet.monetisation.valider', droits: '            O    O    -    -    -    -    -    -    -', p: async () => ({ id: await demandeMonetisation() }) },
+  { action: 'cet.monetisation.refuser', droits: '            O    O    -    -    -    -    -    -    -', p: async () => ({ id: await demandeMonetisation(), motif: 'Plafond de l’accord atteint' }) },
+  { action: 'cet.monetisation.annuler', droits: '            O    O    -    -    O    -    -    -    -', p: async () => ({ id: await demandeMonetisation(), motif: 'Demande saisie par erreur' }) },
   { action: 'report.accorder', droits: '                     O    O    -    -    -    -    -    -    -', p: async () => ({ empId: 2, jours: 1, motif: 'Arrêt maladie' }) },
   // Clôture d'une période de congés : service RH (RTT 2025 de Mehdi, compteurs repris arrêtés en 2025 pour l'essai).
   { action: 'conges.cloturer', droits: '                     O    O    -    -    -    -    -    -    -', p: async () => {

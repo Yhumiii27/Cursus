@@ -11,6 +11,8 @@ import { AbsSignalDialog } from './AbsSignalDialog.tsx';
 import { BudgetDialog } from './BudgetDialog.tsx';
 import { CertDialog } from './CertDialog.tsx';
 import { CetDialog } from './CetDialog.tsx';
+// lot 13 — CET (monétisation)
+import { MonetisationCetDialog } from './MonetisationCetDialog.tsx';
 import { FractionnementDialog } from './FractionnementDialog.tsx';
 import { ClotureCongesDialog } from './ClotureCongesDialog.tsx';
 import { ClotureDialog } from './ClotureDialog.tsx';
@@ -155,6 +157,8 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'absProlonger': return <AbsProlongerDialog {...d} />;
     case 'absAnnuler': return <AbsAnnulerDialog {...d} />;
     case 'cet': return <CetDialog {...d} />;
+    // lot 13 — CET (monétisation)
+    case 'monetisationCet': return <MonetisationCetDialog {...d} />;
     case 'report': return <ReportDialog {...d} />;
     case 'clotureConges': return <ClotureCongesDialog {...d} />;
     case 'fractionnement': return <FractionnementDialog {...d} />;

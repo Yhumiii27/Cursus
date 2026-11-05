@@ -27,7 +27,9 @@ const { PROFILS_RH } = await import('../shared/constants.ts');
 const { juger, statistiques } = await import('../scripts/charge/seuils.ts');
 
 const COMPLET = process.env.CURSUS_ORACLE_COMPLET === '1';
-const GRAINES = (process.env.CURSUS_ORACLE_GRAINES?.trim() || (COMPLET ? '20261010,42,7' : '20261010')).split(',').map(Number);
+// Lot 13 (monétisation du CET) : graine du passage court 20261104 ; avec les quatre actions de la monétisation au registre,
+// la graine 20261010 ne validait plus aucune saisie de cellule en 60 pas (tirage dilué, aucune divergence).
+const GRAINES = (process.env.CURSUS_ORACLE_GRAINES?.trim() || (COMPLET ? '20261010,42,7' : '20261104')).split(',').map(Number);
 const PAS = Number(process.env.CURSUS_ORACLE_PAS) || (COMPLET ? 300 : 60);
 const demo = async () => await baseDemo(nouvelleBase);
 

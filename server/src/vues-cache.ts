@@ -396,6 +396,8 @@ export const CHAMPS_PAR_SALARIE: ReadonlySet<keyof Dataset> = new Set<keyof Data
   // lot 12 — C6 (badgeage virtuel)
   // Demandes de correction de pointage : lignes par salarié, lues par la vue à travers `mine(…)` (server/src/vues-pointage.ts).
   'correctionsPointage',
+  // lot 13 — CET (monétisation) : demandes par salarié, lues par la vue à travers `mine(…)` (server/src/vues-cet.ts).
+  'monetisationsCet',
 ]);
 
 /**

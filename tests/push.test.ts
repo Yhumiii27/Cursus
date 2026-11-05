@@ -357,7 +357,9 @@ test('file d’envoi : pas de blocage en tête, 404/410 → abonnement supprimé
   assert.equal(await file.traiterFilePush(db, transport, () => new Date(t0.getTime() + 61_000)), 1);
   assert.equal((await etat(0))[0].statut, 'envoye');
   // Purge : notifications closes de plus de 30 jours, abonnements sans succès depuis 90 jours ou d'un compte désactivé.
-  const p = await db.tx(async () => await file.purgerPush(db, new Date('2027-02-01T08:00:00Z')));
+  // Abonnements créés à l'heure réelle (push.abonner) : la purge a lieu plus de 90 jours après eux, quel que soit le jour où
+  // la suite tourne (le 1er février 2027 fixe tombait pile à 90 jours le 3 novembre 2026, et le test échouait).
+  const p = await db.tx(async () => await file.purgerPush(db, new Date(Math.max(Date.parse('2027-02-01T08:00:00Z'), Date.now() + 91 * 86_400_000))));
   assert.ok(p.envois >= 3);
   assert.equal(p.abonnements, 3, 'abonnements en échec sans succès depuis 90 jours (le premier : dernier succès le 12 octobre)');
   await db.tx(async () => { await db.update('comptes', karim.compteId, { actif: false }); });

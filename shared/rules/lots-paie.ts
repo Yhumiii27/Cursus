@@ -149,7 +149,9 @@ export interface LigneFichier {
 /** Contenu lu par le fichier : lignes des feuilles et, depuis le lot 5, éléments d'absence et soldes de sortie. */
 type ContenuFichier = Pick<SagePush, 'lignes'> & Partial<Pick<SagePush, 'absences' | 'sorties' | 'deplacements' | 'rachats' | 'astreintes' | 'aSaisir' | 'frais'
   // lot 12 — C1 (forfait annuel en heures)
-  | 'forfaitHeures'>>;
+  | 'forfaitHeures'
+  // lot 13 — CET (monétisation)
+  | 'monetisationsCet'>>;
 
 /**
  * Quantités du contenu par matricule, période et code Sage : heures des feuilles, puis absences et soldes de sortie.
@@ -168,6 +170,8 @@ function quantites(contenu: ContenuFichier): { matricule: string; periode: strin
     ...(contenu.astreintes ?? []).flatMap(x => (x.codeSage ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
     // lot 12 — C1 (forfait annuel en heures) : sans code Sage (rubriques désactivées), à saisir dans Sage, hors du fichier.
     ...(contenu.forfaitHeures ?? []).flatMap(x => (x.codeSage ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
+    // lot 13 — CET (monétisation) : sans code Sage (CET_MON désactivée), à saisir dans Sage, hors du fichier.
+    ...(contenu.monetisationsCet ?? []).flatMap(x => (x.codeSage ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
   ];
 }
 
@@ -266,6 +270,8 @@ export function resumeContenu(contenu: ContenuFichier, paysLabel?: (code: string
     ...(contenu.frais?.length ? { frais: { elements: contenu.frais.length, salaries: new Set(contenu.frais.map(x => x.empId)).size, montant: r2(contenu.frais.reduce((n, x) => n + x.montant, 0)) } } : {}),
     // lot 12 — C1 (forfait annuel en heures)
     ...(contenu.forfaitHeures?.length ? { forfaitHeures: { elements: contenu.forfaitHeures.length, salaries: new Set(contenu.forfaitHeures.map(x => x.empId)).size } } : {}),
+    // lot 13 — CET (monétisation)
+    ...(contenu.monetisationsCet?.length ? { monetisationsCet: { elements: contenu.monetisationsCet.length, salaries: new Set(contenu.monetisationsCet.map(x => x.empId)).size } } : {}),
     ...(aSaisir.length ? { aSaisir } : {}),
   };
 }

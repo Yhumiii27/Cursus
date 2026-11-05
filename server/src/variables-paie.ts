@@ -37,6 +37,8 @@ import type { LotEnregistre } from './lots-paie.ts';
 import { contenuDesFamilles, elementsDesFamilles } from './elements-lot.ts';
 // lot 12 — C1 (forfait annuel en heures)
 import { detailForfaitHeures } from '../../shared/rules/forfait-heures.ts';
+// lot 13 — CET (monétisation)
+import { detailMonetisation } from '../../shared/rules/cet-monetisation.ts';
 
 /** Ligne de l'export : `empId` sert au journal (salariés concernés), il n'est pas écrit dans le fichier. */
 export interface VariablePaie {
@@ -62,7 +64,9 @@ export async function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: s
   const paysLabel = (code: string) => d.destOf(code)?.pays ?? code;
   const ajouter = (contenu: Pick<SagePush, 'lignes' | 'absences' | 'sorties' | 'deplacements' | 'rachats' | 'astreintes' | 'aSaisir' | 'libelles'
     // lot 12 — C1 (forfait annuel en heures)
-    | 'forfaitHeures'>, lot: string, etat: string) => {
+    | 'forfaitHeures'
+    // lot 13 — CET (monétisation)
+    | 'monetisationsCet'>, lot: string, etat: string) => {
     const libelles = contenu.libelles ?? libellesSage(contenu, table);
     for (const l of contenu.lignes) {
       if ((l.periode ?? '') !== periode) continue;
@@ -128,6 +132,14 @@ export async function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: s
       out.push({
         matricule: x.matricule, salarie: d.emp(x.empId)?.nom ?? '', rubrique: x.codeSage ?? A_SAISIR, quantite: x.quantite, lot, etat, empId: x.empId,
         libelle: x.codeSage ? libelles[x.codeSage] ?? x.codeSage : RUBRIQUES_PAIE[x.rubrique]?.label ?? x.rubrique, detail: detailForfaitHeures(x),
+      });
+    }
+    // lot 13 — CET (monétisation) : jours monétisés ; sans code Sage (CET_MON désactivée), à saisir dans Sage.
+    for (const x of contenu.monetisationsCet ?? []) {
+      if (x.periode !== periode) continue;
+      out.push({
+        matricule: x.matricule, salarie: d.emp(x.empId)?.nom ?? '', rubrique: x.codeSage ?? A_SAISIR, quantite: x.quantite, lot, etat, empId: x.empId,
+        libelle: x.codeSage ? libelles[x.codeSage] ?? x.codeSage : RUBRIQUES_PAIE[x.rubrique]?.label ?? x.rubrique, detail: detailMonetisation(x),
       });
     }
     // Autres éléments laissés à Sage (soldes de sortie sous une rubrique désactivée) : listés pour la saisie à la main.

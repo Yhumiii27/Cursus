@@ -1384,6 +1384,16 @@ export interface Settings {
   /** Compte épargne-temps (shared/rules/conges.ts) : plafonds de placement, RTT par an et CP de 5e semaine par période (5 et 5). */
   cetPlafondRtt: number;
   cetPlafondCp: number;
+  // lot 13 — CET (monétisation)
+  /**
+   * Monétisation du compte épargne-temps (shared/rules/cet-monetisation.ts, art. L3151-3) : fermée par défaut, ouverte
+   * seulement avec la référence de l'accord qui la prévoit (COHERENCE) ; plafond de jours monétisés par salarié et par
+   * année civile ; solde repris de l'ancien outil monétisable ou non (son origine, CP ou RTT, n'est pas connue).
+   */
+  cetMonetisation: boolean;
+  cetMonetisationAccord: string;
+  cetMonetisationPlafond: number;
+  cetReprisMonetisable: boolean;
   /**
    * Conservation des dossiers des salariés sortis (t016, shared/rules/conservation.ts) : propositions d'effacement actives
    * (désactivé par défaut, exige la référence de la décision du DPO), et durée de chaque catégorie en années après la
@@ -1611,6 +1621,33 @@ export interface AvenantForfait {
 export interface ElementRachatPaie {
   avenant: number; empId: number; matricule: string; periode: string; rubrique: string; codeSage: string | null; quantite: number; taux: number; annee: number; signeLe: ISODate;
 }
+// lot 13 — CET (monétisation)
+/** État d'une demande de monétisation du CET : demandée, validée par le service RH, refusée, annulée. */
+export type StatutMonetisationCet = 'demandee' | 'validee' | 'refusee' | 'annulee';
+/**
+ * Demande de monétisation de jours du compte épargne-temps (shared/rules/cet-monetisation.ts) : jours demandés par le
+ * salarié (ou par le service RH pour lui), validés ou refusés par le service RH (jamais pour soi-même). Validée, elle porte
+ * sa période de paie (`periode`, mois de la validation au plus tôt dans la période ouverte) et part à la paie sous la
+ * rubrique CET_MON (famille « monetisationsCet » du registre des éléments de lot) : lot qui l'emporte (`lotId`), import
+ * confirmé (`sage`), ou réglée hors fichier faute de rubrique active (`horsFichier`). `motif` : motif d'un refus ou d'une
+ * annulation (texte libre, jamais au journal). Jamais supprimée : refusée ou annulée, elle reste pour l'historique.
+ */
+export interface MonetisationCet {
+  id: number; empId: number; jours: number; statut: StatutMonetisationCet;
+  /** Année civile de la demande (jour de l'application), comptée contre le plafond annuel. */
+  annee: number;
+  demandeLe: string; demandePar: string; demandeParInteresse: boolean;
+  decideLe: string | null; decidePar: string | null; motif: string | null;
+  periode: string | null; lotId: number | null; sage: boolean; horsFichier: boolean;
+}
+/**
+ * Jours monétisés d'une demande validée dans un lot de paie (rubrique CET_MON, quantité en jours ; le montant reste
+ * calculé par Sage). `codeSage` null : rubrique désactivée, la demande est réservée par le lot mais absente du fichier, à
+ * saisir dans Sage (réglée hors fichier à la confirmation).
+ */
+export interface ElementMonetisationCetPaie {
+  monetisation: number; empId: number; matricule: string; periode: string; rubrique: string; codeSage: string | null; quantite: number; valideLe: ISODate;
+}
 /** Ce que publie le flux d'agenda personnel (t036). */
 export type ContenuAgenda = 'sessions' | 'entretiens' | 'absences' | 'deplacements'
   // lot 12 — C5 (planning d'équipe) : postes publiés, le module activé.
@@ -1801,6 +1838,9 @@ export interface SagePush {
   // lot 12 — C1 (forfait annuel en heures)
   /** Heures de la clôture d'un forfait annuel en heures (HFA25, HFA50, HCA10, HCA25), `codeSage` null : à saisir dans Sage. */
   forfaitHeures?: ElementForfaitHeuresPaie[];
+  // lot 13 — CET (monétisation)
+  /** Jours monétisés du compte épargne-temps (CET_MON), `codeSage` null : à saisir dans Sage. */
+  monetisationsCet?: ElementMonetisationCetPaie[];
   /**
    * Éléments calculés que le lot n'emporte pas, faute de rubrique active (soldes de sortie) : listés « à saisir dans Sage »
    * dans le résumé du lot et l'export des variables (server/src/elements-lot.ts). Les absences et déplacements sans code
@@ -1919,6 +1959,9 @@ export interface LotPaie {
   // lot 12 — C1 (forfait annuel en heures)
   /** Lignes de clôture d'un forfait annuel en heures dont le lot emporte les heures (identifiant, salarié). */
   forfaitHeures?: { id: number; empId: number }[];
+  // lot 13 — CET (monétisation)
+  /** Demandes de monétisation du CET dont le lot emporte les jours (identifiant, salarié). */
+  monetisationsCet?: { id: number; empId: number }[];
   /**
    * Totaux du contenu figé : lignes du fichier, salariés, quantité par code Sage des heures ; `absences` : éléments
    * d'absence, salariés et quantité par code Sage (codes retirés hors droit « paie » : server/src/dataset.ts).
@@ -1937,6 +1980,9 @@ export interface LotPaie {
     // lot 12 — C1 (forfait annuel en heures)
     /** Heures de la clôture d'un forfait annuel en heures : éléments et salariés. */
     forfaitHeures?: { elements: number; salaries: number };
+    // lot 13 — CET (monétisation)
+    /** Jours monétisés du compte épargne-temps : éléments et salariés. */
+    monetisationsCet?: { elements: number; salaries: number };
     /** Éléments à saisir à la main dans Sage, nominatifs (shared/rules/elements-lot.ts) ; absent : aucun. */
     aSaisir?: ElementASaisir[];
   };
@@ -2028,6 +2074,13 @@ export interface Dataset {
    * annulation) ; manager (son équipe : année et jours seulement) et intéressé ; absent ailleurs (server/src/dataset.ts).
    */
   avenantsForfait?: AvenantForfait[];
+  // lot 13 — CET (monétisation)
+  /**
+   * Demandes de monétisation du CET : toutes pour le service RH ; paie et lecture seule sans motif ; les siennes pour le
+   * salarié (sans auteurs) ; pour le manager, celles de son équipe réduites aux jours et à l'état (le solde du CET de ses
+   * membres en dépend) ; rien pour le référent HSE (server/src/vues-cet.ts). Absent : aucune.
+   */
+  monetisationsCet?: MonetisationCet[];
   entretiens: Entretien[];
   demandesCollab: DemandeCollab[];
   demandesVisite: DemandeVisite[];

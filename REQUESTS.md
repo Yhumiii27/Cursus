@@ -60,3 +60,29 @@ Format d'une entrée :
 - Justification : décision du responsable produit du 03/11/2026 (convergence M-02, D01, question CV-10) : Vigie n'a plus aucune fiche de personne à lui, toutes viennent de Cursus, y compris les intérimaires et les extérieurs. Vigie a besoin de ces personnes pour les plans de prévention, les permis, les accueils sécurité et les événements, et produira à partir des présences prévues la liste des arrivées et départs à venir pour le poste de garde. L'e-mail sert à rattacher un compte Microsoft Entra à sa fiche lors de la connexion à Vigie. Sans ces données, Vigie garde ses fiches locales (doublon contraire à M-02).
 - Détails techniques : données tenues par Cursus seulement ; pas de donnée de santé ; formulaire public avec les protections d'un formulaire sans compte (jeton, limite de débit, champ piège, comme le signalement terrain de Vigie) ; conservation des déclarations refusées ou sans suite à fixer avec le DPO. Contrat proposé des publications : voir la demande à Matrix.
 - Validé par Guillaume le : 2026-11-04
+
+## [2026-11-05] Matrix → Cursus — M-19 · Fonction d'édition `cursus.pub_editer` : corriger les données de Cursus depuis Matrix, par vos règles
+- Statut : OUVERTE
+- Demande : fournir, par une migration de Cursus, la fonction
+  `cursus.pub_editer(p_table text, p_action text, p_cle jsonb, p_valeurs jsonb, p_par text, p_motif text) RETURNS jsonb`
+  (`SECURITY DEFINER`, `SET search_path = cursus, pg_temp`, `REVOKE EXECUTE … FROM PUBLIC`), qui ajoute, corrige ou retire une ligne
+  d'une table de Cursus en appliquant vos règles et votre journal :
+  - `p_action` = `ajouter` | `corriger` | `retirer` (un retrait peut être un archivage) ; `p_cle` = clé primaire de la ligne
+    (null pour `ajouter`) ; `p_valeurs` = colonnes à écrire (null pour `retirer`) ;
+  - `p_par` = nom de la personne connectée à Matrix (Microsoft Entra ID, rôle Administrateur) ; `p_motif` = motif saisi
+    (obligatoire) ;
+  - refus par `RAISE EXCEPTION` (message montré tel quel dans Matrix) ; la fonction renvoie la ligne après modification,
+    sans colonne sensible ;
+  - elle refuse les tables que Cursus ne veut pas ouvrir et toute colonne de `droits.colonnes_sensibles` (Matrix ne les
+    transmet jamais, mais la fonction ne doit pas en dépendre) ;
+  - règle propre à Cursus à respecter : données personnelles des salariés : seules les colonnes hors `droits.colonnes_sensibles` peuvent être touchées, et vos règles RH s'appliquent.
+  Une fonction par table (`cursus.pub_editer_<table>`, mêmes paramètres sans `p_table`) reste possible et passe avant la
+  générique. Une fois la migration passée, passer cette entrée à FAITE : la DSI autorise alors le lien d'écriture dans Matrix.
+- Justification : décision M-19 du 05/11/2026 (responsable produit) : « pour le moment, l'admin IT peut modifier toutes les
+  données à l'exception des données sensibles RGPD », **par les outils** : Matrix n'écrit jamais lui-même dans vos tables
+  (M-18) ; la DSI corrige depuis la visionneuse de Matrix, Cursus garde ses règles et son journal.
+- Détails techniques : convention complète et exemple dans `docs/edition-par-les-outils.md` du dépôt Matrix. Le droit
+  d'exécution est un lien « écriture » `matrix_app` → `cursus.pub_editer`, décidé dans Matrix (« Liens entre outils ») et posé
+  par `droits.accorder_execution` ; `droits.verifier()` signale une fonction `pub_` exécutable par tous ou sans
+  `search_path` fixé. Rien ne change pour Cursus tant que la fonction n'existe pas : la visionneuse reste en lecture seule.
+- Validé par Guillaume le : 2026-11-05

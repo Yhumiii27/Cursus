@@ -23,6 +23,8 @@ import { rattacherEquipeNeuve } from '../demarrage.ts';
 import { recalerRattachements } from '../rattachements.ts';
 // lot 12 — C6 (badgeage virtuel)
 import { modeAFiger } from '../pointages.ts';
+// lot 14 — personnes sur site
+import { matriculeSiteSuivant } from '../personnes-site.ts';
 import {
   ActionError, estSoiMeme, getEmp, isManagerOf, isRh, isRhAdmin, refuserSoiMeme, requireRh, requireRhAdmin, REVIENT_RH, str, type ActionHandler, type Ctx,
 } from './context.ts';
@@ -87,7 +89,8 @@ const creer: ActionHandler = async (ctx, p) => {
   // CDD : le terme initial est la fin saisie, tant qu'aucun renouvellement ne l'a repoussée.
   const P = v.profil;
   if (P.typeContrat === 'cdd' && !P.cddFinInitiale && P.fin && !P.motifSortie) P.cddFinInitiale = P.fin;
-  const row = await ctx.db.insert<Employe>('employes', toRow(P));
+  // lot 14 — personnes sur site : un intérimaire reçoit son matricule de site I, permanent (shared/rules/personnes-site.ts).
+  const row = await ctx.db.insert<Employe>('employes', { ...toRow(P), ...(P.typeContrat === 'interim' ? { matriculeSite: await matriculeSiteSuivant(ctx.db, 'I') } : {}) });
   // Compteurs repris à zéro, datés de la création : la fiche commence dans Cursus.
   await ctx.db.insert('soldesReprise', { empId: row.id, cpPris: 0, rttPris: 0, recupAcquis: 0, recupPris: 0, arreteLe: ctx.d.ti });
   // Historique des contrats (t074) : embauche à l'entrée, avec le terme prévu d'un contrat à durée déterminée.
@@ -205,6 +208,8 @@ const modifier: ActionHandler = async (ctx, p) => {
   if ((v.profil.equipe ?? null) !== (emp.equipe ?? null)) {
     refuserCroisee(ctx, { employes: ctx.ds.employes.map(e => (e.id === emp.id ? { ...e, equipe: v.profil.equipe ?? null } : e)) });
   }
+  // lot 14 — personnes sur site : passage à l'intérim sans matricule de site, il reçoit le sien (jamais retiré ensuite).
+  if (v.profil.typeContrat === 'interim' && !emp.matriculeSite) (row as Partial<Employe>).matriculeSite = await matriculeSiteSuivant(ctx.db, 'I');
   await ctx.db.update('employes', emp.id, row);
   // Date d'entrée corrigée : l'embauche de l'historique la suit.
   if (patch.includes('entree') && v.profil.entree !== emp.entree) {

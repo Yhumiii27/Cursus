@@ -78,6 +78,10 @@ export const TABLES = {
       derogationTravauxLe: 'text',
       // Personne à prévenir en cas d'urgence (t068) : saisie par le salarié ou le service RH, réservée au service RH et à lui.
       urgenceNom: 'text', urgenceTel: 'text',
+      // lot 14 — personnes sur site (shared/rules/personnes-site.ts) : fiche d'un salarié d'entreprise extérieure, sa raison
+      // sociale, et matricule de site permanent (I00001 d'un intérimaire, E00001 d'un extérieur), unique, jamais réattribué
+      // (migration PostgreSQL 0031_personnes_site, SQLite d'après TABLES et `lot14-personnes-site`).
+      exterieur: 'bool', entreprise: 'text', matriculeSite: 'text',
       // CDD et intérim (t053, shared/rules/cdd.ts) : motif de recours et terme initial du CDD ; ses renouvellements sont
       // des lignes de l'historique des contrats.
       motifRecours: 'text', cddFinInitiale: 'text',

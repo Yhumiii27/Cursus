@@ -77,6 +77,8 @@ import { planningActions } from './planning.ts';
 import { pointageActions } from './pointage.ts';
 // lot 13 — CET (monétisation)
 import { cetMonetisationActions } from './cet-monetisation.ts';
+// lot 14 — personnes sur site
+import { personnesSiteActions } from './personnes-site.ts';
 import { horairesVariablesActions } from './horaires-variables.ts';
 
 /**
@@ -165,6 +167,8 @@ const REGISTRE = {
   ...horairesVariablesActions,
   // lot 13 — CET (monétisation)
   ...cetMonetisationActions,
+  // lot 14 — personnes sur site
+  ...personnesSiteActions,
 } satisfies Record<string, ActionHandler>;
 
 /** Nom d'une action exposée par POST /api/actions/:nom. */

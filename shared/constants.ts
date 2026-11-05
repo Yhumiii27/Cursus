@@ -615,6 +615,8 @@ export const ALLOWED_VIEWS = {
     // lot 12 — C5 (planning d'équipe)
     // lot 12 — C6 (badgeage virtuel) : pointages (pages/Pointages.tsx), le module activé (réglage pointageActif).
     'pointages',
+    // lot 14 — personnes sur site (pages/PersonnesSite.tsx) : extérieurs et intérimaires, matricule de site.
+    'site',
   ],
   manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions', 'organigramme', 'frais',
     // lot 12 — C1 (forfait annuel en heures)
@@ -678,7 +680,7 @@ export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits:
   referent_hse: {
     label: 'Référent HSE / formation', espace: 'HSE', droits: ['formations'],
     aide: 'Catalogue, sessions et présences, certifications et habilitations, verdicts Go / No Go ; aptitude médicale réduite au verdict et aux restrictions en vigueur, comme pour un manager ; synthèse du C2P (nuits comptées et facteurs d’exposition par salarié) ; ni feuilles de temps, ni paie, ni entretiens',
-    vues: ['dashboard', 'collaborateurs', 'formations', 'habilitations', 'echeances', 'chantiers', 'referentiels', 'prevention', /* lot 11 — organigramme */ 'organigramme'],
+    vues: ['dashboard', 'collaborateurs', 'formations', 'habilitations', 'echeances', 'chantiers', 'referentiels', 'prevention', /* lot 11 — organigramme */ 'organigramme', /* lot 14 */ 'site'],
   },
   paie: {
     label: 'Gestionnaire de paie', espace: 'Paie', droits: ['paie'],
@@ -688,7 +690,7 @@ export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits:
   lecture_seule: {
     label: 'Lecture seule', espace: 'Lecture', droits: ['consultation'],
     aide: 'Direction, DPO, auditeur : tableaux de bord, alertes et journal des actions, sans rien modifier ; ni données de santé détaillées, ni dossiers de voyage',
-    vues: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'echeances', 'budget', 'chantiers', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'prevention', /* lot 11 — organigramme */ 'organigramme', /* lot 11 — indicateurs */ 'indicateurs'],
+    vues: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'echeances', 'budget', 'chantiers', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'prevention', /* lot 11 — organigramme */ 'organigramme', /* lot 11 — indicateurs */ 'indicateurs', /* lot 14 */ 'site'],
   },
   // lot 11 — notes de frais : réponse du propriétaire du 31 octobre 2026 (contrôle après le manager par un nouveau profil
   // « Comptabilité », accès limité aux frais, frais médicaux compris). L'écran des frais vient à l'étape 2 du chantier.

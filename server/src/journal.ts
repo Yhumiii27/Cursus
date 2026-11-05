@@ -455,6 +455,15 @@ const bilanDetache = (result: unknown): Ligne => {
 
 export const REGLES: Record<string, Regle> = {
   // Fiches et équipes
+  // lot 14 — personnes sur site : fiche d'un extérieur (entreprise, matricule de site) ; ni nom ni adresse recopiés.
+  'exterieur.creer': {
+    champs: ['entreprise'], salaries: (_p, x) => [(x.result as { id?: number } | null)?.id],
+    bilan: (_p, x) => ({ matriculeSite: (x.result as { matriculeSite?: string } | null)?.matriculeSite ?? null }),
+  },
+  'exterieur.modifier': {
+    champs: ['id'], extra: p => ({ champsModifies: ['nom', 'entreprise', 'email'].filter(k => p[k] !== undefined) }),
+    cible: parId('employes', ['entreprise']), salaries: p => [p.id],
+  },
   // Réembauche : réutilisation d'un matricule de paie confirmée par l'administrateur RH (`reutiliserMatricule`).
   'employe.creer': {
     champs: ['equipe', 'poste', 'statut', 'typeContrat', 'temps', 'entree', 'fin', 'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'matriculePaie', 'reutiliserMatricule', 'motifRecours', 'cddFinInitiale'], salaries: (_p, x) => [(x.result as { id?: number } | null)?.id],

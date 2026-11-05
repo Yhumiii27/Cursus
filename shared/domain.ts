@@ -279,7 +279,9 @@ export class Domain {
   destOf(code: string): Destination | undefined { return this.ds.referentiels.destinations.find(d => d.code === code); }
   projet(code: string): string { return this.ds.referentiels.projets.find(p => p.code === code)?.nom ?? code; }
   chantier(id: string): Chantier | undefined { return this.ds.referentiels.chantiers.find(c => c.id === id); }
-  emp(id: number): Employe | undefined { return this.ds.employes.find(e => e.id === id); }
+  // lot 14 — personnes sur site : un extérieur (rangé à part, `Dataset.exterieurs`) se retrouve aussi par son identifiant,
+  // pour ses titres et habilitations ; il n'entre dans aucune liste qui parcourt `employes`.
+  emp(id: number): Employe | undefined { return this.ds.employes.find(e => e.id === id) ?? this.ds.exterieurs?.find(e => e.id === id); }
   personName(id: number): string { return this.ds.annuaire.find(p => p.id === id)?.nom ?? this.emp(id)?.nom ?? `#${id}`; }
   session(id: number | null): Session | null { return id == null ? null : this.ds.sessions.find(s => s.id === id) ?? null; }
   get equipes(): string[] { return [...this.ds.referentiels.equipes].sort((a, b) => a.ordre - b.ordre).map(e => e.nom); }
@@ -437,6 +439,15 @@ export class Domain {
    * périodicité du type de suivi (shared/rules/suivi-medical.ts) —, sans avis d'inaptitude. Un avis avec restrictions laisse
    * l'aptitude valide : le service RH suspend les habilitations incompatibles (`medical.avis`).
    */
+  // lot 14 — personnes sur site
+  /**
+   * Titres d'une personne sur site (extérieur, hors de `enrich`) : certifications en vigueur et habilitations, avec les
+   * mêmes échéances et contrôles de prérequis que pour un salarié.
+   */
+  titresDe(e: Employe, horizon: number): { certs: CertInfo[]; habs: HabInfo[] } {
+    const { vigueur } = this.certsOf(e, horizon);
+    return { certs: vigueur, habs: e.habs.map(h => this.habInfo(h, vigueur, this.medInfo(e), horizon)) };
+  }
   medInfo(e: Employe): MedInfo {
     if (!e.visite && e.aptitude) {
       // Vue manager et profils restreints de l'espace RH : verdict et restrictions en vigueur, jamais la date de la

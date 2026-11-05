@@ -465,6 +465,16 @@ export interface Employe {
    */
   travailleurNuit?: boolean;
   agence: string | null;
+  // lot 14 — personnes sur site (shared/rules/personnes-site.ts)
+  /**
+   * Salarié d'une entreprise extérieure (sans contrat avec l'entreprise) : rangé dans `Dataset.exterieurs`, jamais dans
+   * `employes` ; titres et habilitations tenus comme ceux d'un salarié. Absent ou faux : salarié ou intérimaire.
+   */
+  exterieur?: boolean;
+  /** Raison sociale de l'entreprise d'un extérieur (l'agence d'un intérimaire reste dans `agence`). */
+  entreprise?: string | null;
+  /** Matricule de site permanent d'un intérimaire (I00001) ou d'un extérieur (E00001) ; null pour un salarié. */
+  matriculeSite?: string | null;
   /**
    * Matricule du dossier de paie (Sage), saisi ou repris par le service RH : 1 à 20 lettres et chiffres, unique (sauf
    * réembauche confirmée par l'administrateur RH). Null : à saisir ; le salarié est alors refusé d'une transmission réelle
@@ -2038,6 +2048,12 @@ export interface Dataset {
   referentiels: Referentiels;
   annuaire: Personne[];
   employes: Employe[];
+  // lot 14 — personnes sur site
+  /**
+   * Salariés d'entreprises extérieures (fiches `exterieur`), à part des salariés : service RH, référent HSE et formations,
+   * lecture seule ; absent ailleurs (server/src/dataset.ts). Retrouvés par `Domain.emp` pour leurs titres.
+   */
+  exterieurs?: Employe[];
   sessions: Session[];
   inscriptions: Inscription[];
   participations: Participation[];

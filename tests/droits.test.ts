@@ -327,6 +327,9 @@ const MATRICE: Ligne[] = [
   { action: 'elearning.corriger', droits: '                 O    O    -    -    -    -    O    -    -', p: async () => ({ id: await inscriptionEl(), echeance: '2026-12-15', motif: 'Report demandé' }) },
   { action: 'elearning.annuler', droits: '                  O    -    -    -    -    -    -    -    -', p: async () => ({ id: await inscriptionEl(), motif: 'Inscription en double' }) },
   // Fiches et équipes
+  // lot 14 — personnes sur site : fiche d'un salarié d'entreprise extérieure, service RH seulement.
+  { action: 'exterieur.creer', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Paul Externe', entreprise: 'Maintenance Industrielle SA', email: null }) },
+  { action: 'exterieur.modifier', droits: '                  O    O    -    -    -    -    -    -    -', p: async () => ({ id: (await db.insert<{ id: number }>('employes', { nom: 'Lea Externe', entreprise: 'Levage Services', exterieur: true, matriculeSite: 'E00900', statut: 'ouvrier', typeContrat: 'cdi', temps: '35h', poste: '', equipe: null, jourOff: [], entree: '2026-10-01', fin: null, agence: null, notifications: 'immediat' })).id, entreprise: 'Levage Services Nord' }) },
   { action: 'employe.creer', droits: '                       O    O    -    -    -    -    -    -    -', p: async () => ({ ...PROFIL_VIDE('Maintenance', '2026-10-07'), nom: 'Nouvel Embauché', poste: 'Technicien' }) },
   { action: 'employe.modifier', droits: '                    O    O    O    -    -    -    -    -    -', p: async () => ({ id: 2, poste: 'Technicien de maintenance confirmé' }) },
   // Sortie d'un salarié (date et motif) et son annulation : service RH.

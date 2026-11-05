@@ -49,7 +49,9 @@ try {
     for (let i = modeles.length; i < EFFECTIF; i++) {
       const m = modeles[i % modeles.length];
       const { id: _id, certs, habs, visas: _v, vaccins: _va, passeport: _p, ...fiche } = m;
-      const e = await db.insert<Employe>('employes', { ...fiche, nom: `${m.nom} ${i}`, email: null, matriculePaie: null, entree: m.entree < debut ? m.entree : debut });
+      const e = await db.insert<Employe>('employes', { ...fiche, nom: `${m.nom} ${i}`, email: null, matriculePaie: null,
+        // lot 14 : matricule de site propre à chaque intérimaire recopié (unique).
+        matriculeSite: fiche.typeContrat === 'interim' ? `I${String(i + 2).padStart(5, '0')}` : null, entree: m.entree < debut ? m.entree : debut });
       for (const { id: _c, ...c } of certs) await db.insert('certifications', { ...c, empId: e.id });
       for (const { id: _h, ...h } of habs) await db.insert('habTitres', { ...h, empId: e.id });
     }

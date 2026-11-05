@@ -195,6 +195,9 @@ const TIRAGES: Record<string, Tirage> = {
   'cet.monetisation.valider': ({ r, ds }) => ({ id: id(r, ds.monetisationsCet, m => m.statut === 'demandee') }),
   'cet.monetisation.refuser': ({ r, ds }) => ({ id: id(r, ds.monetisationsCet, m => m.statut === 'demandee'), motif: 'Plafond atteint (banc d’oracle)' }),
   'cet.monetisation.annuler': ({ r, ds }) => ({ id: id(r, ds.monetisationsCet, m => m.statut !== 'annulee'), motif: 'Demande retirée (banc d’oracle)' }),
+  // lot 14 — personnes sur site : fiche d'extérieur créée (matricule E suivant), puis entreprise modifiée.
+  'exterieur.creer': ({ r }) => ({ nom: `Extérieur ${r.entre(1, 999)}`, entreprise: 'Levage Est', email: null }),
+  'exterieur.modifier': ({ r, ds }) => ({ id: id(r, ds.exterieurs ?? [], () => true), entreprise: `Levage Est ${r.entre(1, 9)}` }),
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // Objectifs et souhaits : entretien annuel planifié (fixation, évaluation), objectif de l'état voulu, codes fixes.

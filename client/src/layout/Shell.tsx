@@ -8,7 +8,7 @@
 import { useMemo, useRef, type ReactNode } from 'react';
 import {
   AirplaneIcon, BellIcon, BookOpenIcon, /* lot 12 — C5 */ CalendarCheckIcon, BooksIcon, BriefcaseIcon, CalendarBlankIcon, ChartBarIcon, ChartLineIcon, ChatIcon, CheckIcon, ClockIcon, GearSixIcon, HardHatIcon,
-  HouseIcon, KeyIcon, LifebuoyIcon, LockSimpleIcon, MapPinIcon, PlusIcon, ReceiptIcon, ShieldCheckIcon, SignOutIcon, TargetIcon, TreeStructureIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
+  HouseIcon, IdentificationCardIcon, KeyIcon, LifebuoyIcon, LockSimpleIcon, MapPinIcon, PlusIcon, ReceiptIcon, ShieldCheckIcon, SignOutIcon, TargetIcon, TreeStructureIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
 } from '@phosphor-icons/react';
 import { droitsRh, PROFILS_RH, vuesDe } from '../../../shared/constants.ts';
 import { aFaireCollaborateur } from '../../../shared/rules/a-faire.ts';
@@ -125,7 +125,8 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
       ['Pilotage', [{ view: 'dashboard', label: 'Tableau de bord', icon: HouseIcon, badge: nReq }, { view: 'echeances', label: 'Échéances', icon: BellIcon }, { view: 'budget', label: 'Plan & budget', icon: ChartBarIcon },
         // lot 11 — indicateurs : BDESE et index d'égalité (service RH et lecture seule).
         { view: 'indicateurs', label: 'Indicateurs sociaux', icon: ChartLineIcon }]],
-      ['Collaborateurs', [{ view: 'collaborateurs', label: 'Annuaire', icon: UserIcon, badge: data.employes.filter(e => !e.equipe).length }, { view: 'equipes', label: 'Équipes & managers', icon: UsersThreeIcon }, /* lot 11 — organigramme */ { view: 'organigramme', label: 'Organigramme', icon: TreeStructureIcon }, { view: 'entretiens', label: 'Entretiens', icon: ChatIcon, badge: late }]],
+      ['Collaborateurs', [{ view: 'collaborateurs', label: 'Annuaire', icon: UserIcon, badge: data.employes.filter(e => !e.equipe).length }, { view: 'equipes', label: 'Équipes & managers', icon: UsersThreeIcon }, /* lot 11 — organigramme */ { view: 'organigramme', label: 'Organigramme', icon: TreeStructureIcon }, { view: 'entretiens', label: 'Entretiens', icon: ChatIcon, badge: late },
+        /* lot 14 — personnes sur site */ { view: 'site', label: 'Personnes sur site', icon: IdentificationCardIcon }]],
       ['Compétences', [{ view: 'formations', label: 'Formations', icon: BookOpenIcon }, { view: 'habilitations', label: 'Habilitations', icon: ShieldCheckIcon }]],
       // Compte professionnel de prévention (lot 7) : service RH, référent HSE et lecture seule.
       ['Prévention', [{ view: 'prevention', label: 'Expositions (C2P)', icon: HardHatIcon }]],

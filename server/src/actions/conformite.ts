@@ -15,7 +15,7 @@ import { auteurDe, inscrireDelivrance } from '../delivrances.ts';
 import { suivreVerdicts } from '../integrations/keystone-verdicts.ts';
 import { annulerSiConvoque, convoquerFormation, notifierDecisionDemande } from '../notifications.ts';
 import {
-  ActionError, type ActionHandler, aDroit, type Ctx, enriched, getEmp, isManagerOf, refuserSoiMeme, requireFormations, requireRh, REVIENT_FORMATIONS, REVIENT_RH, str,
+  ActionError, type ActionHandler, aDroit, type Ctx, enriched, getEmp, getPersonne, isManagerOf, refuserSoiMeme, requireFormations, requireRh, REVIENT_FORMATIONS, REVIENT_RH, str,
 } from './context.ts';
 import { clore } from './inscriptions-closes.ts';
 import { joindrePieces, retirerPiecesDe } from './pieces.ts';
@@ -93,7 +93,7 @@ const inscrire: ActionHandler = async (ctx, p) => {
 
 const ajouterCert: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
-  const emp = getEmp(ctx, p.empId);
+  const emp = getPersonne(ctx, p.empId);
   // Séparation des tâches (lot 8, chantier C) : une certification ouvre des habilitations et le Go chantier.
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas ajouter une certification à votre propre dossier', REVIENT_FORMATIONS);
   const fm = ctx.d.fm(str(p.f));
@@ -129,7 +129,7 @@ const ajouterCert: ActionHandler = async (ctx, p) => {
 
 const delivrerHab: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
-  const emp = getEmp(ctx, p.empId);
+  const emp = getPersonne(ctx, p.empId);
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas vous délivrer une habilitation', REVIENT_FORMATIONS);
   const hm = ctx.d.hm(str(p.h));
   const par = str(p.par);
@@ -415,7 +415,7 @@ async function mesurer(ctx: Ctx, emp: Employe, t: HabTitre, patch: Pick<HabTitre
 
 /** Suspension après un incident ou une restriction : RH, référent HSE, ou manager pour un membre de son équipe (jamais lui-même). */
 const suspendreHab: ActionHandler = async (ctx, p) => {
-  const emp = getEmp(ctx, p.empId);
+  const emp = getPersonne(ctx, p.empId);
   const gere = aDroit(ctx, 'formations');
   if (!gere && !isManagerOf(ctx, emp)) throw new ActionError('Suspension réservée au service RH, au référent HSE / formation ou au manager du collaborateur', 403);
   const { hm, t } = titreDelivre(ctx, emp, p.h);
@@ -429,7 +429,7 @@ const suspendreHab: ActionHandler = async (ctx, p) => {
 /** Levée de la suspension : service RH et référent HSE. Le titre redevient valide si ses prérequis et son échéance le permettent. */
 const leverHab: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
-  const emp = getEmp(ctx, p.empId);
+  const emp = getPersonne(ctx, p.empId);
   // Se suspendre soi-même reste permis (cela restreint) ; lever sa propre suspension rétablirait le Go chantier.
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas lever la suspension de votre propre habilitation', REVIENT_FORMATIONS);
   const { hm, t } = titreDelivre(ctx, emp, p.h);
@@ -443,7 +443,7 @@ const leverHab: ActionHandler = async (ctx, p) => {
 /** Retrait définitif : service RH et référent HSE. Une nouvelle délivrance reste possible ensuite. */
 const retirerHab: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
-  const emp = getEmp(ctx, p.empId);
+  const emp = getPersonne(ctx, p.empId);
   // Le retrait de son propre titre pourrait masquer une mesure (une suspension, son motif) : un autre la décide.
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas retirer votre propre habilitation', REVIENT_FORMATIONS);
   const { hm, t } = titreDelivre(ctx, emp, p.h);

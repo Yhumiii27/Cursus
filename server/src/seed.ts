@@ -492,6 +492,8 @@ export async function seedDemo(db: Db) {
         id: e.id, nom: e.nom, equipe: e.equipe, poste: e.poste, statut: p.statut, typeContrat: p.typeContrat, temps: p.temps,
         heures: p.heures ?? null, forfaitHeures: p.forfaitHeures ?? null, forfaitJours: p.forfaitJours ?? null, jourOff: p.jourOff ?? [],
         entree: p.entree, fin: p.fin ?? null, naissance: p.naissance, naissanceLe: `${p.naissance}-${NE_LE[e.id]}`, agence: p.agence ?? null, matriculePaie: matriculePaieDemo(e.id, p.typeContrat),
+        // lot 14 — matricule de site permanent de l'intérimaire (demande de Vigie, shared/rules/personnes-site.ts).
+        matriculeSite: p.typeContrat === 'interim' ? 'I00001' : null,
         // Chacun a une adresse professionnelle (décision de l'entreprise) ; Karim Haddad reçoit un récapitulatif quotidien.
         email: identifiantSuggere(e.nom, 'microsoft', DOMAINE_DEMO), notifications: e.id === 12 ? 'quotidien' : 'immediat',
         repriseMotif: p.reprise?.motif ?? null, repriseDate: p.reprise?.date ?? null, visite: x.visite ?? null,

@@ -49,6 +49,8 @@ const PAGES: Record<View, ComponentType> = {
   // lot 11 — notes de frais : Mes frais (collaborateur, téléphone d'abord), validation (manager), contrôle (service RH,
   // comptabilité).
   frais: aLaDemande(() => import('./pages/Frais.tsx'), 'Frais'),
+  // lot 14 — personnes sur site : extérieurs et intérimaires (service RH, référent HSE, lecture seule).
+  site: aLaDemande(() => import('./pages/PersonnesSite.tsx'), 'PersonnesSite'),
   // lot 12 — blocs réservés (socle) : page de chaque vue nouvelle (shared/constants.ts, ALLOWED_VIEWS), chargée à la demande.
   // lot 12 — C1 (forfait annuel en heures)
   // lot 12 — C2 (notes de frais : activation)

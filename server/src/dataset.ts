@@ -54,6 +54,8 @@ import { colleguesVisibles, planningVueProfil, planningVueSalarie } from './vues
 import { pointageVueProfil, pointageVueSalarie } from './vues-pointage.ts';
 // lot 13 — CET (monétisation)
 import { cetVueProfil, cetVueSalarie } from './vues-cet.ts';
+// lot 14 — personnes sur site
+import { personnesSiteVueProfil, personnesSiteVueSalarie } from './vues-personnes-site.ts';
 
 /** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
 export const DEFAULT_SETTINGS: Settings = REGLAGES_DEFAUT;
@@ -611,6 +613,8 @@ export function vueDe(full: Dataset, user: CurrentUser, filtre: FiltrePerimetre 
     ...pointageVueSalarie(lot12),
     // lot 13 — CET (monétisation)
     ...cetVueSalarie(lot12),
+    // lot 14 — personnes sur site
+    ...personnesSiteVueSalarie(lot12),
   }, lues);
 }
 
@@ -838,6 +842,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     ...pointageVueProfil({ full, d, droits }),
     // lot 13 — CET (monétisation)
     ...cetVueProfil({ full, d, droits }),
+    // lot 14 — personnes sur site
+    ...personnesSiteVueProfil({ full, d, droits }),
   };
 }
 

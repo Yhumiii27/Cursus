@@ -13,6 +13,8 @@ import { CertDialog } from './CertDialog.tsx';
 import { CetDialog } from './CetDialog.tsx';
 // lot 13 — CET (monétisation)
 import { MonetisationCetDialog } from './MonetisationCetDialog.tsx';
+// lot 14 — personnes sur site
+import { ExterieurDialog } from './ExterieurDialog.tsx';
 import { FractionnementDialog } from './FractionnementDialog.tsx';
 import { ClotureCongesDialog } from './ClotureCongesDialog.tsx';
 import { ClotureDialog } from './ClotureDialog.tsx';
@@ -159,6 +161,8 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'cet': return <CetDialog {...d} />;
     // lot 13 — CET (monétisation)
     case 'monetisationCet': return <MonetisationCetDialog {...d} />;
+    // lot 14 — personnes sur site
+    case 'exterieur': return <ExterieurDialog {...d} />;
     case 'report': return <ReportDialog {...d} />;
     case 'clotureConges': return <ClotureCongesDialog {...d} />;
     case 'fractionnement': return <FractionnementDialog {...d} />;

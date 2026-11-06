@@ -20,20 +20,29 @@ function exterieurDe(ctx: Ctx, id: unknown): Employe {
   return e;
 }
 
-const creer: ActionHandler = async (ctx, p) => {
-  requireRh(ctx);
-  const s = normaliserExterieur(p);
+/**
+ * Fiche d'extérieur créée (action `exterieur.creer`, ou validation d'une pré-déclaration : server/src/actions/declarations.ts),
+ * après contrôle de la saisie ; matricule de site E suivant.
+ */
+export async function creerFicheExterieur(ctx: Ctx, saisie: Record<string, unknown>): Promise<{ id: number; nom: string; entreprise: string; matriculeSite: string }> {
+  const s = normaliserExterieur(saisie);
   const erreurs = erreursExterieur(s, adressesPrises(ctx));
   if (erreurs.length) throw new ActionError(erreurs.join(' '));
   const matriculeSite = await matriculeSiteSuivant(ctx.db, 'E');
   // Fiche sans contrat avec l'entreprise : statut et contrat par défaut de la table (jamais lus pour un extérieur), ni
-  // équipe, ni poste, ni entrée ; présente tant que le service RH ne la retire pas.
+  // équipe, ni poste ; présente tant que le service RH ne la retire pas.
   const row = await ctx.db.insert<Employe>('employes', {
     nom: s.nom, entreprise: s.entreprise, email: s.email, exterieur: true, matriculeSite,
     equipe: null, poste: '', posteId: null, statut: 'ouvrier', typeContrat: 'cdi', temps: '35h', heures: null, forfaitHeures: null, forfaitJours: null,
     jourOff: [], tempsDepuis: null, entree: ctx.d.ti, fin: null, agence: null, notifications: 'immediat',
   } as Partial<Employe> as Employe);
-  return { message: `Fiche d’extérieur créée — ${s.nom} (${s.entreprise}) · matricule ${matriculeSite}`, result: { id: row.id, matriculeSite } };
+  return { id: row.id, nom: s.nom, entreprise: s.entreprise, matriculeSite };
+}
+
+const creer: ActionHandler = async (ctx, p) => {
+  requireRh(ctx);
+  const f = await creerFicheExterieur(ctx, p);
+  return { message: `Fiche d’extérieur créée — ${f.nom} (${f.entreprise}) · matricule ${f.matriculeSite}`, result: { id: f.id, matriculeSite: f.matriculeSite } };
 };
 
 const modifier: ActionHandler = async (ctx, p) => {

@@ -1,6 +1,7 @@
 // Jeu de données de démonstration (repris du prototype Claude Design) :
 // 24 collaborateurs d'un site industriel lyonnais, CCN Industries chimiques.
 // lot 11 — notes de frais
+import { createHash } from 'node:crypto';
 import { fraisDemo } from './frais-demo.ts';
 import { Domain } from '../../shared/domain.ts';
 import { addD, addM, isFerie, joursSemaine, weekday } from '../../shared/dates.ts';
@@ -591,6 +592,23 @@ export async function seedDemo(db: Db) {
       const r = repriseDesAbsences(ds.absences, e.id);
       if (r && !e.repriseDate) await db.update('employes', e.id, { repriseMotif: r.motif, repriseDate: r.date });
     }
+    // lot 14, étape 2 — pré-déclarations de présence : un lien par entreprise extérieure et par agence (empreintes sans
+    // jeton connu : les liens de la démonstration ne s'ouvrent pas), deux déclarations à valider (dont Léa Girard, à
+    // rattacher à sa fiche d'intérim) et une refusée.
+    const lien = async (categorie: 'exterieur' | 'interimaire', entreprise: string) => (await db.insert<{ id: number }>('liensDeclaration', {
+      categorie, entreprise, empreinte: createHash('sha256').update(`demo:${entreprise}`).digest('hex'), creeLe: '2026-10-01T07:30:00.000Z', creePar: 'Sandrine Vidal',
+      revoqueLe: null, revoquePar: null, dernierUsage: '2026-10-08T14:12:00.000Z',
+    })).id;
+    const levage = await lien('exterieur', 'Levage Rhône-Alpes'), proman = await lien('interimaire', 'Proman Lyon');
+    const declaration = async (lienId: number, categorie: 'exterieur' | 'interimaire', entreprise: string, prenom: string, nom: string, o: Record<string, unknown>) => { await db.insert('declarationsPresence', {
+      lienId, categorie, entreprise, prenom, nom, email: null, siteCode: 'lyon', du: '2026-10-19', au: '2026-10-23', objet: 'Levage et manutention — arrêt technique de la presse 3',
+      statut: 'a_valider', creeLe: '2026-10-08T14:12:00.000Z', empId: null, decideLe: null, decidePar: null, valideeLe: null, motif: null, majLe: '2026-10-08T14:12:00.000Z', ...o,
+    }); };
+    await declaration(levage, 'exterieur', 'Levage Rhône-Alpes', 'Marc', 'Delorme', { email: 'm.delorme@levage-ra.example' });
+    await declaration(proman, 'interimaire', 'Proman Lyon', 'Léa', 'Girard', { objet: 'Renfort production — mission en cours', du: '2026-10-12', au: '2026-10-16', siteCode: 'lyon' });
+    await declaration(levage, 'exterieur', 'Levage Rhône-Alpes', 'Hugo', 'Perrin', {
+      statut: 'refusee', decideLe: '2026-10-09T08:00:00.000Z', decidePar: 'Sandrine Vidal', motif: 'Personne remplacée par l’entreprise', majLe: '2026-10-09T08:00:00.000Z',
+    });
     // Verdicts Go / No Go de départ, mémorisés sans envoi : en mode API, réputés connus de Keystone, seuls leurs
     // changements lui seront envoyés ; en simulation, ils repartiront tous au passage en mode API.
     await suivreVerdicts(db, { initial: true });

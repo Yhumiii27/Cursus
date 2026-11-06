@@ -78,6 +78,12 @@ export const JOURNAL_LABEL: Record<string, string> = {
   // lot 14 — personnes sur site
   'exterieur.creer': 'Création d’une fiche d’extérieur',
   'exterieur.modifier': 'Fiche d’extérieur modifiée',
+  'presence.lien.creer': 'Lien de déclaration de présence créé',
+  'presence.lien.revoquer': 'Lien de déclaration de présence révoqué',
+  'presence.valider': 'Déclaration de présence validée',
+  'presence.refuser': 'Déclaration de présence refusée',
+  'presence.annuler': 'Déclaration de présence annulée',
+  'presence.purge': 'Déclarations de présence refusées ou sans suite effacées',
   'employe.modifier': 'Modification d’une fiche',
   'employe.rtt': 'Changement de régime : solde de RTT gardé pour la paie',
   'employe.sortie': 'Sortie d’un salarié',
@@ -482,7 +488,7 @@ export const dossierComplet = (u: Pick<CurrentUser, 'role' | 'profilRh'>) => dro
 /** Familles du filtre « Action » : codes commençant par l'un des préfixes (ou égaux à l'un d'eux). */
 export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly string[] }[] = [
   // Une entrée par famille (la fusion du lot 11 avait doublé « fiches » et « formations » : clés React en double à l'écran).
-  { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.', /* lot 14 */ 'exterieur.', 'migration.contratsHistorique', /* lot 11 — organigramme */ 'entite.', 'site.', 'organigramme.'] },
+  { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.', /* lot 14 */ 'exterieur.', 'presence.', 'migration.contratsHistorique', /* lot 11 — organigramme */ 'entite.', 'site.', 'organigramme.'] },
   { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel', 'attente.', 'passeport.', 'evaluation.', 'migration.passeportPrevention', 'opco.',
     /* lot 12 — C4 */ 'elearning.'] },
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.', 'migration.habDelivrances'] },
@@ -534,6 +540,8 @@ export const CHAMP_LABEL: Record<string, string> = {
   motifRecours: 'Motif de recours', cddFinInitiale: 'Terme initial du CDD', jusquau: 'Renouvelé jusqu’au', signeLe: 'Avenant signé le', effet: 'Date d’effet', agence: 'Agence', managerId: 'Manager', profilRh: 'Profil RH',
   // lot 14 — personnes sur site
   entreprise: 'Entreprise', matriculeSite: 'Matricule de site', champsModifies: 'Champs modifiés',
+  // lot 14, étape 2 — pré-déclarations de présence
+  lien: 'Lien de déclaration', declarations: 'Déclarations', mois: 'Mois de conservation',
   actif: 'Actif', date: 'Date', lieu: 'Lieu', places: 'Places', du: 'Du', au: 'Au', type: 'Type', justificatif: 'Justificatif reçu',
   signMgr: 'Signature de l’évaluateur', signSal: 'Signature du salarié', horizonAlerte: 'Seuil d’alerte', seuilBudget: 'Seuil budgétaire',
   rtt39: 'Jours de RTT (39 h)', uniquementReglementaire: 'Formations réglementaires seules', partageKeystone: 'Partage des motifs avec Keystone',

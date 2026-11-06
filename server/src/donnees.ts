@@ -58,6 +58,8 @@ const TITRES: Partial<Record<TableName, string>> = {
   pointages: 'Pointages (badgeage)', correctionsPointage: 'Demandes de correction de pointage',
   // lot 13 — CET (monétisation)
   monetisationsCet: 'Demandes de monétisation du compte épargne-temps',
+  // lot 14 — pré-déclarations de présence sur site rattachées à sa fiche
+  declarationsPresence: 'Déclarations de présence sur site',
 };
 /**
  * Colonnes jamais exportées : empreinte du mot de passe (secret) et du jeton d'agenda ; nom stocké et jeton d'envoi d'une pièce justificative
@@ -78,6 +80,8 @@ const RETIREES_SALARIE: Partial<Record<TableName, string[]>> = {
   contratsHistorique: ['par', 'parId'], avenantsForfait: ['creePar', 'annulePar'], habDelivrances: ['auteur', 'auteurId'],
   // lot 13 — CET (monétisation) : membre du service RH qui a demandé, décidé ou annulé.
   monetisationsCet: ['demandePar', 'decidePar'],
+  // lot 14 — membre du service RH qui a décidé d'une déclaration de présence.
+  declarationsPresence: ['decidePar'],
   formationsSuivies: ['auteur', 'auteurId'],
   // Administrateur RH qui a révoqué les abonnements à l'agenda, ou confirmé un effacement, et son motif (texte libre).
   jetonsAgenda: ['revoquePar'],

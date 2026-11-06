@@ -464,6 +464,16 @@ export const REGLES: Record<string, Regle> = {
     champs: ['id'], extra: p => ({ champsModifies: ['nom', 'entreprise', 'email'].filter(k => p[k] !== undefined) }),
     cible: parId('employes', ['entreprise']), salaries: p => [p.id],
   },
+  // lot 14, étape 2 — pré-déclarations de présence : jamais le jeton du lien (renvoyé une seule fois au service RH), ni
+  // l'identité de la personne déclarée, ni le motif d'un refus ou d'une annulation (textes libres).
+  'presence.lien.creer': { champs: ['categorie', 'entreprise'], bilan: (_p, x) => ({ lien: (x.result as { id?: number } | null)?.id ?? null }) },
+  'presence.lien.revoquer': { champs: ['id'], cible: parId('liensDeclaration', ['revoqueLe']) },
+  'presence.valider': {
+    champs: ['id'], cible: parId('declarationsPresence', ['statut', 'empId']), salaries: (_p, x) => [(x.result as { empId?: number } | null)?.empId],
+    bilan: (_p, x) => ({ matriculeSite: (x.result as { matriculeSite?: string | null } | null)?.matriculeSite ?? null }),
+  },
+  'presence.refuser': { champs: ['id'], cible: parId('declarationsPresence', ['statut']) },
+  'presence.annuler': { champs: ['id'], cible: parId('declarationsPresence', ['statut']), salaries: (_p, x) => [(x.result as { empId?: number | null } | null)?.empId] },
   // Réembauche : réutilisation d'un matricule de paie confirmée par l'administrateur RH (`reutiliserMatricule`).
   'employe.creer': {
     champs: ['equipe', 'poste', 'statut', 'typeContrat', 'temps', 'entree', 'fin', 'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'matriculePaie', 'reutiliserMatricule', 'motifRecours', 'cddFinInitiale'], salaries: (_p, x) => [(x.result as { id?: number } | null)?.id],

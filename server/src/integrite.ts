@@ -179,6 +179,9 @@ export const REFERENCES: readonly Reference[] = [
   // lot 13 — CET (monétisation ; clés étrangères de 0030_cet_monetisation.sql) : salarié, lot de paie.
   ref('monetisations_cet', 'emp_id', 'employes'),
   ref('monetisations_cet', 'lot_id', 'lots_paie'),
+  // lot 14 — pré-déclarations de présence sur site (clés étrangères de 0032_declarations_presence.sql) : lien, fiche rattachée.
+  ref('declarations_presence', 'lien_id', 'liens_declaration'),
+  ref('declarations_presence', 'emp_id', 'employes'),
 ];
 
 export interface Integrite {

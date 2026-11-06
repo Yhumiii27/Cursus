@@ -29,7 +29,9 @@ const { juger, statistiques } = await import('../scripts/charge/seuils.ts');
 const COMPLET = process.env.CURSUS_ORACLE_COMPLET === '1';
 // Lot 13 (monétisation du CET) : graine du passage court 20261104 ; avec les quatre actions de la monétisation au registre,
 // la graine 20261010 ne validait plus aucune saisie de cellule en 60 pas (tirage dilué, aucune divergence).
-const GRAINES = (process.env.CURSUS_ORACLE_GRAINES?.trim() || (COMPLET ? '20261010,42,7' : '20261104')).split(',').map(Number);
+// Lot 14 (pré-déclarations de présence) : graine du passage court 20261107 ; avec les cinq actions des déclarations au
+// registre, la graine 20261104 ne validait plus que 9 actions en 60 pas (tirage dilué, aucune divergence).
+const GRAINES = (process.env.CURSUS_ORACLE_GRAINES?.trim() || (COMPLET ? '20261010,42,7' : '20261107')).split(',').map(Number);
 const PAS = Number(process.env.CURSUS_ORACLE_PAS) || (COMPLET ? 300 : 60);
 const demo = async () => await baseDemo(nouvelleBase);
 

@@ -799,6 +799,23 @@ export const TABLES = {
       decideLe: 'text', decidePar: 'text', motif: 'text', periode: 'text', lotId: 'int', sage: 'bool', horsFichier: 'bool',
     },
   },
+  // lot 14 — pré-déclarations de présence sur site (shared/rules/declarations-presence.ts, server/src/declarations.ts,
+  // server/src/actions/declarations.ts) : liens par entreprise ou agence (empreinte du jeton seulement) et déclarations,
+  // validées par le service RH (fiche rattachée), refusées ou annulées (motif : texte libre). Les refusées et les sans suite
+  // sont effacées après `declarationsConservationMois` mois. Migration PostgreSQL 0032_declarations_presence, SQLite d'après
+  // TABLES et `lot14-declarations-index`.
+  liensDeclaration: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', categorie: 'text', entreprise: 'text', empreinte: 'text', creeLe: 'text', creePar: 'text', revoqueLe: 'text', revoquePar: 'text', dernierUsage: 'text' },
+    unique: [['empreinte']],
+  },
+  declarationsPresence: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', lienId: 'int', categorie: 'text', entreprise: 'text', nom: 'text', prenom: 'text', email: 'text', siteCode: 'text', du: 'text', au: 'text',
+      objet: 'text', statut: 'text', creeLe: 'text', empId: 'int', decideLe: 'text', decidePar: 'text', valideeLe: 'text', motif: 'text', majLe: 'text',
+    },
+  },
 } satisfies Record<string, TableDef>;
 
 export type TableName = keyof typeof TABLES;

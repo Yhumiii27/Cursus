@@ -647,3 +647,15 @@ th.right .th-tri, th.center .th-tri { justify-content: inherit; }
 .mon-planning-jour.lundi { box-shadow: inset 0 1px 0 var(--color-neutral-700); }
 .mon-planning-jour.aujourdhui .mon-planning-date { color: var(--color-accent); font-weight: 600; }
 .mon-planning-date { flex: 0 0 96px; color: var(--text-70); font-size: 13px; }
+
+/* lot 14 — page publique de pré-déclaration (client/src/pages/Declarer.tsx), hors de la coque de l'application. */
+.declarer { max-width: 720px; margin: 0 auto; padding: var(--space-6) var(--space-4); display: flex; flex-direction: column; gap: var(--space-4); }
+.declarer h1 { font-size: 1.5rem; margin: 0; }
+.declarer h2 { font-size: 1.1rem; margin: 0 0 var(--space-2); }
+.declarer form { display: flex; flex-direction: column; gap: var(--space-3); align-items: flex-start; }
+.declarer-grille { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); width: 100%; }
+.declarer-grille label { display: flex; flex-direction: column; gap: var(--space-1); font-weight: 500; }
+.declarer-large { grid-column: 1 / -1; }
+.declarer-piege { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+.declarer-info { font-size: 0.9rem; color: var(--color-text-muted, inherit); }
+@media (max-width: 560px) { .declarer-grille { grid-template-columns: 1fr; } }

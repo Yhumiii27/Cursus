@@ -83,6 +83,16 @@ const demandeMonetisation = async () => {
     decideLe: null, decidePar: null, motif: null, periode: null, lotId: null, sage: false, horsFichier: false,
   })).id;
 };
+// lot 14, étape 2 — pré-déclarations de présence : lien d'une entreprise extérieure, déclaration d'une venue à venir.
+const lienEssai = async () => (await db.insert<{ id: number }>('liensDeclaration', {
+  categorie: 'exterieur', entreprise: 'Levage Services', empreinte: `essai-${Math.random()}`, creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Sandrine Vidal',
+  revoqueLe: null, revoquePar: null, dernierUsage: null,
+})).id;
+const declarationEssai = async (statut = 'a_valider') => (await db.insert<{ id: number }>('declarationsPresence', {
+  lienId: await lienEssai(), categorie: 'exterieur', entreprise: 'Levage Services', nom: 'Externe', prenom: 'Paul', email: null, siteCode: 'lyon',
+  du: '2026-10-20', au: '2026-10-22', objet: 'Levage de la presse', statut, creeLe: '2026-10-05T08:00:00.000Z', empId: null,
+  decideLe: null, decidePar: null, valideeLe: null, motif: null, majLe: '2026-10-05T08:00:00.000Z',
+})).id;
 /** Avenant de renonciation 2026 de la fiche 9 (forfait jours), en vigueur. */
 const avenantForfait = async () => (await db.insert<{ id: number }>('avenantsForfait', {
   empId: 9, annee: 2026, jours: 5, taux: 25, signeLe: '2026-10-01', reference: null, creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Sandrine Vidal',
@@ -330,6 +340,11 @@ const MATRICE: Ligne[] = [
   // lot 14 — personnes sur site : fiche d'un salarié d'entreprise extérieure, service RH seulement.
   { action: 'exterieur.creer', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Paul Externe', entreprise: 'Maintenance Industrielle SA', email: null }) },
   { action: 'exterieur.modifier', droits: '                  O    O    -    -    -    -    -    -    -', p: async () => ({ id: (await db.insert<{ id: number }>('employes', { nom: 'Lea Externe', entreprise: 'Levage Services', exterieur: true, matriculeSite: 'E00900', statut: 'ouvrier', typeContrat: 'cdi', temps: '35h', poste: '', equipe: null, jourOff: [], entree: '2026-10-01', fin: null, agence: null, notifications: 'immediat' })).id, entreprise: 'Levage Services Nord' }) },
+  { action: 'presence.lien.creer', droits: '                  O    O    -    -    -    -    -    -    -', p: () => ({ categorie: 'interimaire', entreprise: 'Intérim Express' }) },
+  { action: 'presence.lien.revoquer', droits: '              O    O    -    -    -    -    -    -    -', p: async () => ({ id: await lienEssai() }) },
+  { action: 'presence.valider', droits: '                    O    O    -    -    -    -    -    -    -', p: async () => ({ id: await declarationEssai() }) },
+  { action: 'presence.refuser', droits: '                    O    O    -    -    -    -    -    -    -', p: async () => ({ id: await declarationEssai(), motif: 'Venue non prévue' }) },
+  { action: 'presence.annuler', droits: '                    O    O    -    -    -    -    -    -    -', p: async () => ({ id: await declarationEssai(), motif: 'Chantier reporté' }) },
   { action: 'employe.creer', droits: '                       O    O    -    -    -    -    -    -    -', p: async () => ({ ...PROFIL_VIDE('Maintenance', '2026-10-07'), nom: 'Nouvel Embauché', poste: 'Technicien' }) },
   { action: 'employe.modifier', droits: '                    O    O    O    -    -    -    -    -    -', p: async () => ({ id: 2, poste: 'Technicien de maintenance confirmé' }) },
   // Sortie d'un salarié (date et motif) et son annulation : service RH.

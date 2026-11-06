@@ -307,7 +307,9 @@ test('t072 migration nommée : compteurs et reports d’une base existante daté
     // lot 13 — CET (monétisation) : index des demandes de monétisation (par salarié, par lot de paie).
     'lot13-cet-monetisation',
     // lot 14 — personnes sur site : index unique des matricules de site, matricule I des intérimaires existants.
-    'lot14-personnes-site']);
+    'lot14-personnes-site',
+    // lot 14, étape 2 — pré-déclarations de présence sur site : index des déclarations.
+    'lot14-declarations-index']);
   const ds = await loadFull(db, ADMIN);
   assert.ok(ds.soldesReprise.every(s => s.arreteLe === '2026-10-10'), 'date de mise en service de cette version');
   const recu = ds.reports.find(r => r.empId === 6)!, accorde = ds.reports.find(r => r.empId === 2)!;

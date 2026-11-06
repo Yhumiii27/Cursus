@@ -1405,6 +1405,11 @@ export interface Settings {
   cetMonetisationPlafond: number;
   cetReprisMonetisable: boolean;
   /**
+   * lot 14 — pré-déclarations de présence sur site (shared/rules/declarations-presence.ts) : mois de conservation d'une
+   * déclaration refusée ou restée sans suite (3 par défaut, durée à confirmer par le DPO).
+   */
+  declarationsConservationMois: number;
+  /**
    * Conservation des dossiers des salariés sortis (t016, shared/rules/conservation.ts) : propositions d'effacement actives
    * (désactivé par défaut, exige la référence de la décision du DPO), et durée de chaque catégorie en années après la
    * sortie (0 : dès le lendemain du dernier jour). Rien n'est effacé sans la confirmation de l'administrateur RH.
@@ -1642,6 +1647,23 @@ export type StatutMonetisationCet = 'demandee' | 'validee' | 'refusee' | 'annule
  * confirmé (`sage`), ou réglée hors fichier faute de rubrique active (`horsFichier`). `motif` : motif d'un refus ou d'une
  * annulation (texte libre, jamais au journal). Jamais supprimée : refusée ou annulée, elle reste pour l'historique.
  */
+/**
+ * lot 14 — lien de pré-déclaration d'une entreprise extérieure ou d'une agence d'intérim (server/src/declarations.ts) :
+ * empreinte du jeton seulement (jamais envoyée au navigateur), création, révocation, dernier dépôt.
+ */
+export interface LienDeclaration {
+  id: number; categorie: 'exterieur' | 'interimaire'; entreprise: string; empreinte?: string; creeLe: string; creePar: string;
+  revoqueLe: string | null; revoquePar: string | null; dernierUsage: string | null;
+}
+/**
+ * lot 14 — déclaration de présence sur site déposée par une entreprise ou une agence (shared/rules/declarations-presence.ts) :
+ * personne, venue, statut, fiche rattachée à la validation, décision du service RH (motif : texte libre).
+ */
+export interface DeclarationPresence {
+  id: number; lienId: number; categorie: 'exterieur' | 'interimaire'; entreprise: string; nom: string; prenom: string; email: string | null;
+  siteCode: string; du: ISODate; au: ISODate; objet: string; statut: 'a_valider' | 'validee' | 'refusee' | 'annulee'; creeLe: string;
+  empId: number | null; decideLe: string | null; decidePar: string | null; valideeLe: string | null; motif: string | null; majLe: string;
+}
 export interface MonetisationCet {
   id: number; empId: number; jours: number; statut: StatutMonetisationCet;
   /** Année civile de la demande (jour de l'application), comptée contre le plafond annuel. */
@@ -2097,6 +2119,14 @@ export interface Dataset {
    * membres en dépend) ; rien pour le référent HSE (server/src/vues-cet.ts). Absent : aucune.
    */
   monetisationsCet?: MonetisationCet[];
+  // lot 14 — pré-déclarations de présence sur site
+  /**
+   * Liens de déclaration (sans empreinte du jeton) et déclarations : tout pour le service RH ; référent HSE et lecture
+   * seule : les déclarations validées (ou annulées après validation), sans adresse ni motif, et aucun lien ; rien ailleurs
+   * (server/src/vues-personnes-site.ts). Absent : aucun.
+   */
+  liensDeclaration?: LienDeclaration[];
+  declarationsPresence?: DeclarationPresence[];
   entretiens: Entretien[];
   demandesCollab: DemandeCollab[];
   demandesVisite: DemandeVisite[];

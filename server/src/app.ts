@@ -49,6 +49,7 @@ import { CLE_INVALIDE, CleReutilisee, empreinteCorps, garderReponse, lireCle, re
 import { EN_TETE_HORS_LIGNE, refusHorsLigne } from '../../shared/hors-ligne.ts';
 import { routesPush } from './push-routes.ts';
 import { routesAgenda } from './agenda.ts';
+import { routesDeclaration } from './declarations.ts';
 import { journaliserAction, lireFiltre, preparerTrace, routesJournal, tracerRefus } from './journal.ts';
 import { emailMode } from './integrations/email.ts';
 import { KEYSTONE_MODE } from './integrations/keystone.ts';
@@ -280,6 +281,10 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // Agenda personnel par abonnement (t036) : GET /api/agenda/<jeton>.ics, sans session (client d'agenda), débit limité
   // par adresse et par jeton, 404 pour tout jeton inutilisable : server/src/agenda.ts.
   app.use(routesAgenda(db));
+  // lot 14 — pré-déclarations de présence sur site : GET et POST /api/declaration/<jeton>, sans session (entreprise
+  // extérieure ou agence d'intérim), débit limité par adresse et par lien, 404 pour tout jeton inutilisable :
+  // server/src/declarations.ts.
+  app.use(routesDeclaration(db));
   // Notifications sur le téléphone (lot 11, C2) : clé publique VAPID et appareils abonnés du compte (server/src/push-routes.ts).
   app.use(routesPush(db));
   // lot 12 — routes à la demande des chantiers (socle), après la session : chacune dans le fichier de son chantier,

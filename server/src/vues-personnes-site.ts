@@ -5,7 +5,8 @@
 //   habilitations (accès aux chantiers, sessions) ;
 // - paie, manager et collaborateur : rien (aucun contrat ni équipe) ; la comptabilité garde sa liste blanche
 //   (server/src/frais-vues.ts), sans elles.
-import type { Employe } from '../../shared/types.ts';
+import { publiable } from '../../shared/rules/declarations-presence.ts';
+import type { DeclarationPresence, Employe } from '../../shared/types.ts';
 import type { ContexteVueProfil, ContexteVueSalarie, Projection } from './vues-lot12.ts';
 
 /**
@@ -24,10 +25,23 @@ export function exterieurVueProfil(e: Employe): Employe {
 
 /** Vue d'un manager ou d'un collaborateur : aucun extérieur. */
 export function personnesSiteVueSalarie(_c: ContexteVueSalarie): Projection {
-  return { exterieurs: [] };
+  return { exterieurs: [], liensDeclaration: [], declarationsPresence: [] };
 }
+
+/**
+ * lot 14 — déclaration de présence vue d'un profil restreint (référent HSE, lecture seule) : validée ou annulée après
+ * validation seulement (jamais une déclaration en attente ou refusée, données d'une personne qui n'est pas venue), sans
+ * adresse e-mail, motif ni auteur de la décision.
+ */
+export const declarationVueProfil = (d: DeclarationPresence): DeclarationPresence => ({ ...d, email: null, motif: null, decidePar: null });
 
 /** Vue d'un profil restreint de l'espace RH : formations et lecture seule les reçoivent, la paie non. */
 export function personnesSiteVueProfil({ full, droits }: ContexteVueProfil): Projection {
-  return { exterieurs: droits.includes('formations') || droits.includes('consultation') ? (full.exterieurs ?? []).map(exterieurVueProfil) : [] };
+  const ouvert = droits.includes('formations') || droits.includes('consultation');
+  return {
+    exterieurs: ouvert ? (full.exterieurs ?? []).map(exterieurVueProfil) : [],
+    // lot 14 — pré-déclarations : aucun lien (réservés au service RH), déclarations publiables seulement.
+    liensDeclaration: [],
+    declarationsPresence: ouvert ? (full.declarationsPresence ?? []).filter(publiable).map(declarationVueProfil) : [],
+  };
 }

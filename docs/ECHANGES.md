@@ -62,6 +62,13 @@ fois les vues reprises par Matrix (M-18) ; elle ne sert plus qu'au rejeu d'essai
 demande à Matrix comme une publication. Les vues de
 contrôle `*_v1` de Matrix (D06, D07) ne sont pas créées par Cursus. Le lot 12 ne crée aucune vue `pub_`.
 
+Lot 14 (personnes sur site, demande de Vigie du 4 novembre 2026) : aucune vue `pub_` créée par Cursus. Deux publications
+à définir par Matrix, à valider par le propriétaire : contrat D01 v2 de `pub_salaries` (catégorie, entreprise, e-mail,
+et la proposition d'un matricule de site en fin) et `pub_presences_prevues` (lecteur `vigie_app`, déjà inscrit par Matrix)
+— `docs/demandes/matrix-lot14-personnes-site.md`. Le formulaire public de pré-déclaration (`/api/declaration/<jeton>`)
+n'est pas un échange entre outils : il reçoit les déclarations des entreprises extérieures et des agences d'intérim,
+validées ensuite par le service RH.
+
 ## 5. Points à signaler à Matrix
 
 - **Lecture des tables de Cursus par `matrix_lecture`** : ce rôle lit toutes les tables du schéma `cursus`, hors des

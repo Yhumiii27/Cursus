@@ -214,6 +214,14 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
         ],
       },
       {
+        titre: 'Personnes sur site',
+        points: [
+          '« Personnes sur site » : intérimaires (matricule de site I, fiche de l’annuaire) et salariés d’entreprises extérieures (« Nouvel extérieur », matricule E), permanents ; leurs titres et habilitations s’y enregistrent ; un extérieur n’entre ni dans la paie, ni dans les congés, ni dans les effectifs.',
+          '« Nouveau lien de déclaration » : un lien par entreprise ou par agence, montré une seule fois, à transmettre ; l’entreprise y déclare chaque personne avant sa venue.',
+          '« Déclarations à valider » : « Valider » (rattacher à la fiche proposée, ou créer la fiche d’un extérieur), « Refuser » ou « Sans suite » (motif, jamais transmis ; effacée 3 mois après). Les venues validées vont dans « Présences prévues » et sont publiées à Vigie.',
+        ],
+      },
+      {
         titre: 'Formations et habilitations',
         points: [
           '« Nouvelle session » (service RH et référent HSE) : formation, dates, lieu, places ; inscriptions, convocations, puis « Clôturer » (présences, résultats, certifications datées du dernier jour).',

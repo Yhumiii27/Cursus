@@ -1,6 +1,6 @@
 # Note à Matrix — lot 14 : personnes sur site (intérimaires, extérieurs, présences prévues)
 
-**Statut : proposition à valider par le propriétaire** (5 novembre 2026). Rien n'est écrit dans le dépôt de Matrix depuis
+**Statut : proposition à valider par le propriétaire** (5 novembre 2026, complétée le 7 novembre 2026 après l'étape 2). Rien n'est écrit dans le dépôt de Matrix depuis
 Cursus ; une fois validée, la note se porte dans le `REQUESTS.md` de Matrix, en réponse à la demande de Vigie du
 4 novembre 2026 (« Publications et liens de lecture pour les personnes (D01) et les présences prévues sur site »), que
 Matrix a acceptée le 5 novembre 2026 (contrats `data/contrats/cursus.pub_salaries-d01-v2.json` et
@@ -48,10 +48,39 @@ Variante, si Vigie préfère ne joindre que sur le matricule de site : `pub_pres
 
 ## Présences prévues (`cursus.pub_presences_prevues`)
 
-Les tables des pré-déclarations arrivent à l'étape 2 du lot 14 ; leurs colonnes seront ajoutées à cette note avant sa
-validation : déclaration (référence, statut `validee` ou `annulee`, dates, objet, site, entreprise, date de mise à jour),
-personne rattachée par le service RH (`emp_id`, d'où le matricule). Seules les déclarations validées puis éventuellement
-annulées sont publiables ; jamais une déclaration en attente ou refusée (données d'une personne qui n'est pas venue).
+Tables fournies par la migration `0032_declarations_presence.sql` (lot 14, étape 2) :
+
+| Table | Colonnes utiles à la publication |
+|---|---|
+| `declarations_presence` | `id`, `categorie` (`exterieur` ou `interimaire`), `entreprise` (raison sociale ou agence), `site_code` (code du site de Matrix), `du`, `au` (dates), `objet`, `statut` (`a_valider`, `validee`, `refusee`, `annulee`), `emp_id` (fiche rattachée à la validation), `validee_le`, `maj_le` |
+| `liens_declaration` | rien à publier (`empreinte` : sensible, demandée fermée à `matrix_lecture` : `matrix-lot14-declarations-presence.sql`) |
+
+Ne sont publiables que les déclarations **validées**, puis éventuellement **annulées** après validation (`validee_le` non
+nul) : jamais une déclaration en attente, refusée ou classée sans suite (données d'une personne qui n'est pas venue,
+effacées 3 mois après). Colonnes jamais publiées : `nom`, `prenom`, `email` (la personne se lit par sa fiche,
+`pub_salaries`), `motif` (texte libre, sensible), `decide_par`, `lien_id`.
+
+Expression proposée, colonnes dans l'ordre du contrat `data/contrats/cursus.pub_presences_prevues.json` de Matrix
+(proposition principale ci-dessus : matricule Cursus, plus le matricule de site en fin) :
+
+```sql
+SELECT 'DP-' || lpad(d.id::text, 6, '0') AS declaration_ref,
+       e.matricule                      AS matricule,        -- EMP-… : clé de jointure D01 avec pub_salaries
+       d.site_code                      AS site_code,        -- code de matrix.sites (D14)
+       d.entreprise                     AS entreprise,
+       d.du                             AS du,
+       d.au                             AS au,
+       d.objet                          AS objet,
+       CASE d.statut WHEN 'validee' THEN 'validee' ELSE 'annulee' END AS statut,
+       d.maj_le                         AS maj_le,
+       e.matricule_site                 AS matricule_site    -- I… ou E…, ajouté en fin de contrat
+FROM declarations_presence d JOIN employes e ON e.id = d.emp_id
+WHERE d.validee_le IS NOT NULL AND d.statut IN ('validee', 'annulee')
+```
+
+Variante (Vigie joint sur le matricule de site) : `e.matricule_site AS matricule` à la place, sans la dernière colonne.
+Une déclaration n'est jamais supprimée avant la fiche de la personne une fois validée ; annulée, elle reste publiée avec
+le statut `annulee` pour que le poste de garde ne l'attende plus.
 
 ## Conformité aux règles M-17 et M-18
 

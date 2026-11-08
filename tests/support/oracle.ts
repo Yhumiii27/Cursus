@@ -195,6 +195,20 @@ const TIRAGES: Record<string, Tirage> = {
   'cet.monetisation.valider': ({ r, ds }) => ({ id: id(r, ds.monetisationsCet, m => m.statut === 'demandee') }),
   'cet.monetisation.refuser': ({ r, ds }) => ({ id: id(r, ds.monetisationsCet, m => m.statut === 'demandee'), motif: 'Plafond atteint (banc d’oracle)' }),
   'cet.monetisation.annuler': ({ r, ds }) => ({ id: id(r, ds.monetisationsCet, m => m.statut !== 'annulee'), motif: 'Demande retirée (banc d’oracle)' }),
+  // lot 14 — personnes sur site : fiche d'extérieur créée (matricule E suivant), puis entreprise modifiée.
+  'exterieur.creer': ({ r }) => ({ nom: `Extérieur ${r.entre(1, 999)}`, entreprise: 'Levage Est', email: null }),
+  'exterieur.modifier': ({ r, ds }) => ({ id: id(r, ds.exterieurs ?? [], () => true), entreprise: `Levage Est ${r.entre(1, 9)}` }),
+  // lot 14, étape 2 — pré-déclarations de présence : lien (agence ou entreprise), révocation ; décision sur une déclaration
+  // (intérimaire rattaché à une fiche d'intérim, extérieur à une nouvelle fiche E), refus et annulation avec motif.
+  'presence.lien.creer': ({ r }) => ({ categorie: r.choix(['exterieur', 'interimaire']), entreprise: `Entreprise ${r.entre(1, 999)}` }),
+  'presence.lien.revoquer': ({ r, ds }) => ({ id: id(r, ds.liensDeclaration, l => !l.revoqueLe) }),
+  'presence.valider': ({ r, ds }) => {
+    const decl = id(r, ds.declarationsPresence, x => x.statut === 'a_valider');
+    const cat = (ds.declarationsPresence ?? []).find(x => x.id === decl)?.categorie;
+    return cat === 'interimaire' ? { id: decl, empId: id(r, ds.employes, e => e.typeContrat === 'interim') } : { id: decl };
+  },
+  'presence.refuser': ({ r, ds }) => ({ id: id(r, ds.declarationsPresence, x => x.statut === 'a_valider'), motif: 'Venue non prévue (banc d’oracle)' }),
+  'presence.annuler': ({ r, ds }) => ({ id: id(r, ds.declarationsPresence, x => x.statut === 'a_valider' || x.statut === 'validee'), motif: 'Chantier reporté (banc d’oracle)' }),
   // lot 12 — C2 (notes de frais : activation)
   // lot 12 — C3 (entretiens suivis et 360°)
   // Objectifs et souhaits : entretien annuel planifié (fixation, évaluation), objectif de l'état voulu, codes fixes.

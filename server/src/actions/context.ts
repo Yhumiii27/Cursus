@@ -104,8 +104,20 @@ export function refuserSoiMeme(ctx: Ctx, e: Employe, refus: string, revient?: st
 }
 
 export function getEmp(ctx: Ctx, id: unknown): Employe {
+  // lot 14 — personnes sur site : un extérieur n'est visé par aucune action d'un salarié (congés, temps, fiche…) ;
+  // les actions sur ses titres et habilitations passent par `getPersonne`.
   const e = ctx.d.emp(Number(id));
-  if (!e) throw new ActionError('Collaborateur introuvable', 404);
+  if (!e || e.exterieur) throw new ActionError('Collaborateur introuvable', 404);
+  return e;
+}
+
+/**
+ * lot 14 — personnes sur site : salarié, intérimaire ou extérieur visé par une action sur ses titres (certifications,
+ * habilitations). Un extérieur n'est jamais « sorti » : sa fiche reste tant que le service RH ne l'a pas retirée.
+ */
+export function getPersonne(ctx: Ctx, id: unknown): Employe {
+  const e = ctx.d.emp(Number(id));
+  if (!e) throw new ActionError('Personne introuvable', 404);
   return e;
 }
 

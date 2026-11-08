@@ -2,7 +2,7 @@
 
 Audit du 10 octobre 2026 (branche `main-n9x7ps`). Chaque point a été relevé dans le code puis contre-vérifié par une seconde lecture qui a écarté ce qui était déjà fait ou inexact. Les preuves renvoient aux fichiers et lignes à cette date.
 
-**190 tâches** (173 cochées au 3 novembre 2026 ; suivi à jour : https://claude.ai/artifact/8Dn4CRz3fcHgew8RzbNGEc) : 26 bloquantes pour une mise en production, 104 importantes, 60 souhaitables.
+**191 tâches** (174 cochées au 7 novembre 2026 ; suivi à jour : https://claude.ai/artifact/8Dn4CRz3fcHgew8RzbNGEc) : 26 bloquantes pour une mise en production, 105 importantes, 60 souhaitables.
 
 Légende — priorité : 🔴 **Bloquant** (empêche un usage réel : sécurité, données faussées, obligation légale) · 🟠 **Important** (attendu par les utilisateurs) · 🟢 **Souhaitable** (confort). Effort : **S** moins d’une journée · **M** 1 à 3 jours · **L** plus de 3 jours.
 
@@ -12,7 +12,7 @@ Légende — priorité : 🔴 **Bloquant** (empêche un usage réel : sécurité
 | --- | ---: | ---: | ---: | ---: |
 | Mise en production & sécurité | 6 | 3 | 3 | 12 |
 | Données personnelles & traçabilité | 0 | 4 | 2 | 6 |
-| Intégrations (Keystone, Sage, e-mails) | 6 | 11 | 2 | 19 |
+| Intégrations (Keystone, Sage, e-mails) | 6 | 12 | 2 | 20 |
 | Conformité droit du travail : temps et congés | 2 | 11 | 4 | 17 |
 | Conformité : santé, sécurité et obligations employeur | 2 | 12 | 2 | 16 |
 | Bugs à corriger (calculs et données) | 5 | 14 | 6 | 25 |
@@ -22,7 +22,7 @@ Légende — priorité : 🔴 **Bloquant** (empêche un usage réel : sécurité
 | Ergonomie & accessibilité | 0 | 10 | 12 | 22 |
 | Tests & qualité | 0 | 5 | 5 | 10 |
 | Exploitation | 1 | 5 | 8 | 14 |
-| **Total** | **26** | **104** | **60** | **190** |
+| **Total** | **26** | **105** | **60** | **191** |
 
 ## Avant toute mise en production
 
@@ -177,6 +177,11 @@ Les tâches 🔴, toutes thématiques confondues :
   Les pièces (attestations, cartes CACES, titres signés, passeports) ne sont conservées que dans le dossier local de Cursus ; le réglage « GED » est refusé et l'adaptateur DepotGed lève une erreur à chaque appel. Dès que l'interface de la GED développée avec Codex est connue : coder l'adaptateur (compte de service, classement par salarié et par objet, durée de conservation transmise), reprendre les pièces du dossier local et déposer aussi les titres d'habilitation et comptes rendus d'entretien signés. Attente du marché : standard (Lucca, Factorial, Eurécia archivent les documents du salarié dans un coffre ou une GED).
   <br>*Ajoutée le 26/10/2026 (analyse comparative) ; à valider avant de développer : dépend de l'interface et de la date de mise en service de la GED.*
   <br><sub>Preuves : server/src/integrations/ged.ts:17-22 (DepotGed : chaque appel lève GED_NON_RACCORDEE) · server/src/pieces.ts:126, :130 · shared/reglages.ts (réglage « GED » refusé)</sub>
+
+- [x] **Tenir les intérimaires et les extérieurs et recevoir les pré-déclarations de présence (demande de Vigie)** — 🟠 Important · L
+  Vigie n'a plus de fiche de personne à elle (décision CV-10 du 3 novembre 2026, convergence M-02) : elle attend de Cursus les intérimaires et les salariés d'entreprises extérieures, avec un matricule de site permanent (I, E), et les présences prévues sur site, déclarées avant la venue par un formulaire public et validées par le service RH.
+  <br>*Lot 14 (5 au 7 novembre 2026) : matricule de site I ou E, fiches d'extérieurs, liens de déclaration par entreprise ou agence, page publique, validation, refus et purge à 3 mois (durée à confirmer par le DPO) ; publications à définir par Matrix (docs/demandes/matrix-lot14-personnes-site.md, à valider) ; docs/ARCHITECTURE.md, « Lot 14 ».*
+  <br><sub>Demande : REQUESTS.md, entrée Vigie → Cursus du 4 novembre 2026</sub>
 
 ## Conformité droit du travail : temps et congés
 

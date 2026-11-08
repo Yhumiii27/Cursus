@@ -307,6 +307,8 @@ const TOUJOURS: Partial<Record<TableName, string>> = {
   ...Object.fromEntries(['pointages', 'correctionsPointage', 'zonesPointage'].map(t => [t, 'temps et astreintes'])),
   // lot 13 — CET (monétisation) : demandes des essais de démonstration, avec le compte épargne-temps.
   monetisationsCet: 'paie et compteurs',
+  // lot 14 — pré-déclarations de présence : liens et déclarations des essais de démonstration.
+  liensDeclaration: 'déclarations de présence fictives', declarationsPresence: 'déclarations de présence fictives',
   connexions: 'sessions de connexion',
   comptes: 'comptes de connexion',
   journal: 'journal des actions fictives (remplacé par la seule ligne purge.demo)',

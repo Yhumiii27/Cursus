@@ -21,7 +21,7 @@ import { refuserExerciceClos } from './budget.ts';
 import { refusLigneAvecDossier } from './opco.ts';
 import { attendCloture, signaler } from './conformite.ts';
 import { clore, rendre } from './inscriptions-closes.ts';
-import { ActionError, type ActionHandler, type Ctx, getEmp, refuserSoiMeme, requireFormations, requireRh, requireRhAdmin, str } from './context.ts';
+import { ActionError, type ActionHandler, type Ctx, getEmp, getPersonne, refuserSoiMeme, requireFormations, requireRh, requireRhAdmin, str } from './context.ts';
 // lot 12 — C4 (organismes de formation et e-learning) : organisme prévu d'une ligne du plan.
 import { organismeChoisi } from './organismes.ts';
 
@@ -40,9 +40,10 @@ const marque = (ctx: Ctx, prefixe: 'corrige' | 'annule' | 'rouverte', motif: str
 
 /** Certification du dossier (non annulée) et son titulaire. */
 function certOf(ctx: Ctx, id: unknown): { emp: Employe; c: Certification } {
-  const c = ctx.ds.employes.flatMap(e => e.certs).find(x => x.id === Number(id));
+  // lot 14 — personnes sur site : certifications des extérieurs comprises.
+  const c = [...ctx.ds.employes, ...(ctx.ds.exterieurs ?? [])].flatMap(e => e.certs).find(x => x.id === Number(id));
   if (!c) throw new ActionError('Certification introuvable ou déjà supprimée', 404);
-  return { emp: getEmp(ctx, c.empId), c };
+  return { emp: getPersonne(ctx, c.empId), c };
 }
 
 const nomCert = (ctx: Ctx, c: Pick<Certification, 'f' | 'obtenue'>) => `${ctx.d.fm(c.f)?.court ?? c.f} du ${fmt(parse(c.obtenue))}`;

@@ -65,7 +65,8 @@ test('le schéma lu reprend toutes les tables du schéma déclaratif, sans les t
     assert.ok(!noms.includes('schema_migrations'));
     assert.deepEqual(inscriptions.fks.map(f => [f.columns, f.table, f.onDelete]), [[['emp_id'], 'employes', 'restrict'], [['session_id'], 'sessions', 'cascade']]);
     assert.ok(employes.columns.some(c => c.name === 'matricule'));
-    assert.deepEqual(employes.uniques, [['matricule']]);
+    // lot 14 : matricule de site (0031_personnes_site.sql), unique, colonne propre au serveur commun comme le matricule.
+    assert.deepEqual([...employes.uniques].sort(), [['matricule'], ['matricule_site']]);
   }
   await db.fermer();
 });

@@ -706,7 +706,7 @@ test('t030 : heures au quart d’heure, validation tardive, relevé incomplet co
   {
     const { db, run, mails, domain } = await fresh();
     const lea = (await db.get<Corps>('employes', 15))!;
-    const id = (await db.insert<Corps>('employes', { ...lea, id: undefined, nom: 'Paul Martel', email: 'paul.martel@entreprise.example' })).id;
+    const id = (await db.insert<Corps>('employes', { ...lea, id: undefined, nom: 'Paul Martel', email: 'paul.martel@entreprise.example', matriculeSite: 'I00002' })).id;
     const f39 = (await db.all<Corps>('feuilles')).find(x => x.empId === 15 && x.week === '2026-09-21')!;
     await db.insert('feuilles', { ...f39, id: undefined, empId: id, week: '2026-09-28' });
     assert.match(String(await run(RH, 'releve.envoyer', { agence: 'Proman Lyon', semaine: '2026-09-28' })), /· feuille non validée : Léa Girard$/);

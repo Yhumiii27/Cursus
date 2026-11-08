@@ -205,6 +205,11 @@ export type DialogState =
   | { type: 'cet'; empId: number }
   // lot 13 — CET (monétisation)
   | { type: 'monetisationCet'; empId: number }
+  // lot 14 — personnes sur site
+  | { type: 'exterieur'; id?: number }
+  // lot 14, étape 2 — pré-déclarations de présence
+  | { type: 'lienDeclaration' }
+  | { type: 'validerDeclaration'; id: number }
   | { type: 'report'; empId: number }
   /** Clôture d'une période de congés : CP (`periode` : année de prise) ou RTT (`periode` : année). */
   | { type: 'clotureConges'; conges: 'CP' | 'RTT'; periode: number }

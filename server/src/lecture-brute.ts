@@ -52,7 +52,7 @@ import { organismePublie, resumeOrganisme } from '../../shared/rules/organismes.
 // lot 12 — C6 (badgeage virtuel)
 import type { Db, Fenetre, TableName } from './db.ts';
 // lot 13 — CET (monétisation)
-import type { MonetisationCet } from '../../shared/types.ts';
+import type { DeclarationPresence, LienDeclaration, MonetisationCet } from '../../shared/types.ts';
 // lot 12 — C5 (planning d'équipe)
 import type { BesoinPoste, Creneau, Cycle, EchangePoste, PublicationPlanning, Roulement } from '../../shared/types-planning.ts';
 import { creneauxAPourvoir, creneauxNominatifs, fenetreCreneaux } from './planning-lecture.ts';
@@ -184,6 +184,9 @@ export interface Brut {
   correctionsPointage: CorrectionPointage[];
   // lot 13 — CET (monétisation)
   monetisationsCet: MonetisationCet[];
+  // lot 14 — pré-déclarations de présence sur site
+  liensDeclaration: LienDeclaration[];
+  declarationsPresence: DeclarationPresence[];
   reglages: ReglagesBruts;
   /** Statut de l'e-mail de chaque relevé (envois désignés par `releves.envoiId` seulement). */
   statutsEnvoi: ReadonlyMap<number, Envoi['statut']>;
@@ -381,6 +384,9 @@ export async function lireBrut(db: Db, today: string): Promise<Brut> {
     correctionsPointage: await lire('correctionsPointage'),
     // lot 13 — CET (monétisation)
     monetisationsCet: await lire('monetisationsCet'),
+    // lot 14 — pré-déclarations de présence sur site
+    liensDeclaration: await lire('liensDeclaration'),
+    declarationsPresence: await lire('declarationsPresence'),
     reglages: await lireReglages(db),
     statutsEnvoi: await statutsDesEnvois(db, releves),
   };
@@ -448,6 +454,11 @@ const employesDe = memo((lignes: EmpRow[], certs: Certification[], annulees: Cer
     vaccins: va.get(e.id) ?? [],
   }));
 });
+
+// lot 14 — personnes sur site : salariés et intérimaires d'un côté, extérieurs de l'autre (même ordre que la table).
+/** lot 14 : liens de déclaration sans l'empreinte de leur jeton. */
+const sansEmpreinte = memo((liens: LienDeclaration[]) => liens.map(({ empreinte: _e, ...l }) => l));
+const repartirDe = memo((toutes: Employe[]) => ({ employes: toutes.filter(e => !e.exterieur), exterieurs: toutes.filter(e => !!e.exterieur) }));
 
 const annuaireDe = memo((employes: Employe[]) => employes.map(e => ({ id: e.id, nom: e.nom, equipe: e.equipe, poste: e.poste })));
 
@@ -528,7 +539,9 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
   const { calendrierFeries, derogationsDominicales } = brut.reglages;
   configurerFeries(calendrierFeries);
   const { certs, annulees } = certsDe(brut.certifications);
-  const employes = employesDe(brut.employes, certs, annulees, brut.habTitres, brut.visas, brut.vaccinations);
+  // lot 14 — personnes sur site : les fiches d'extérieurs sont rangées à part (`exterieurs`), hors de tout ce qui parcourt
+  // `employes` (paie, congés, temps, entretiens, effectifs, organigramme, Keystone…) ; `Domain.emp` les retrouve.
+  const { employes, exterieurs } = repartirDe(employesDe(brut.employes, certs, annulees, brut.habTitres, brut.visas, brut.vaccinations));
   const attentesSession = attentesDe(brut.attentesSession);
   return {
     today,
@@ -543,6 +556,8 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
       brut.entites, brut.sites, brut.baremesKm, brut.forfaitsFrais, brut.tauxDevises), /* lot 12 — C4 */ brut.organismes),
     annuaire: annuaireDe(employes),
     employes,
+    // lot 14 — personnes sur site
+    exterieurs,
     sessions: sessionsDe(brut.sessions, certs, brut.inscriptions, brut.participations, attentesSession, calendrierFeries),
     inscriptions: brut.inscriptions,
     participations: brut.participations,
@@ -635,6 +650,10 @@ export function assembler(brut: Brut, today: string, revision: number, user: Cur
     correctionsPointage: brut.correctionsPointage,
     // lot 13 — CET (monétisation) : demandes (toutes) ; filtrées par espace et par profil dans server/src/vues-cet.ts.
     monetisationsCet: brut.monetisationsCet,
+    // lot 14 — pré-déclarations de présence sur site : liens sans l'empreinte du jeton (jamais envoyée au navigateur),
+    // déclarations ; filtrés par profil dans server/src/vues-personnes-site.ts.
+    liensDeclaration: sansEmpreinte(brut.liensDeclaration),
+    declarationsPresence: brut.declarationsPresence,
   };
 }
 
@@ -648,6 +667,8 @@ const LECTURES_ASSEMBLEES = {
     /* lot 11 — notes de frais */ 'baremesKm', 'forfaitsFrais', 'tauxDevises', /* lot 12 — C4 */ 'organismes'],
   annuaire: ['employes'],
   employes: ['employes', 'certifications', 'habTitres', 'visas', 'vaccinations'],
+  // lot 14 — personnes sur site
+  exterieurs: ['employes', 'certifications', 'habTitres', 'visas', 'vaccinations'],
   sessions: ['sessions', 'certifications', 'inscriptions', 'participations', 'attentesSession', 'settings'],
   inscriptions: ['inscriptions'],
   participations: ['participations'],
@@ -728,6 +749,9 @@ const LECTURES_ASSEMBLEES = {
   correctionsPointage: ['correctionsPointage'],
   // lot 13 — CET (monétisation)
   monetisationsCet: ['monetisationsCet'],
+  // lot 14 — pré-déclarations de présence sur site
+  liensDeclaration: ['liensDeclaration'],
+  declarationsPresence: ['declarationsPresence'],
 } as const satisfies Partial<Record<keyof Dataset, readonly TableName[]>>;
 
 /**

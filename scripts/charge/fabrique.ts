@@ -165,6 +165,8 @@ export async function peuplerJeu(db: Db, r: Aleatoire, { ans: ANS, effectif: EFF
       const e = await db.insert<Employe>('employes', {
         ...fiche, nom: `${m.nom.split(' ')[0]} Essai-${i}`, equipe, email: null, matriculePaie: interim ? null : String(5000 + i).padStart(6, '0'), entree, fin: null,
         agence: interim ? AGENCES[i % AGENCES.length].nom : null,
+        // lot 14 : matricule de site propre à chaque intérimaire (unique, jamais celui du modèle recopié).
+        matriculeSite: interim ? `I${String(i + 2).padStart(5, '0')}` : null,
       });
       nouveaux.push(e.id);
       for (const { id: _c, ...c } of certs) await db.insert('certifications', { ...c, empId: e.id });

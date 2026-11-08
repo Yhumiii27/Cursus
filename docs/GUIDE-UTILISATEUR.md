@@ -420,6 +420,30 @@ poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous
   nouveau contrat sur le même poste sont signalés, sans rien bloquer ; un accord de branche se règle dans Paramètres →
   Contrats.
 
+### Personnes sur site : intérimaires, extérieurs, présences prévues
+
+L'écran « Personnes sur site » (Collaborateurs) tient les personnes qui viennent travailler sur le site sans être
+salariées de l'entreprise, avec leur **matricule de site**, permanent : `I00001`… pour un intérimaire, `E00001`… pour un
+salarié d'entreprise extérieure. Une personne qui revient le retrouve, avec ses titres et habilitations ; Vigie (poste de
+garde, accueils sécurité, plans de prévention) s'appuie dessus.
+
+- Intérimaire : fiche ordinaire de l'annuaire (contrat « intérim », agence) ; son matricule I est attribué à la création
+  de la fiche, ou au passage d'un contrat à l'intérim. Le matricule Cursus `EMP-…` ne change pas.
+- Extérieur : « Nouvel extérieur » (nom, entreprise, adresse e-mail facultative) ; matricule E attribué à la création. La
+  fiche n'entre ni dans la paie, ni dans les congés, ni dans les temps, ni dans les effectifs ; « Certification » et
+  « Habilitation » s'y enregistrent comme pour un salarié.
+- Pré-déclarations : « Nouveau lien de déclaration » crée **un lien par entreprise ou par agence**. L'adresse n'est montrée
+  qu'une fois : copiez-la et transmettez-la à l'entreprise. Elle y déclare chaque personne avant sa venue (nom, prénom,
+  site, dates, objet). Les déclarations arrivent dans « Déclarations à valider » :
+  - « Valider » rattache la déclaration à la fiche de la personne (Cursus propose celles qui ont la même adresse ou le même
+    nom) ; pour un extérieur venu pour la première fois, « Créer sa fiche d’extérieur » lui donne son matricule E. Un
+    intérimaire se rattache à sa fiche d'intérim : créez-la d'abord dans l'annuaire s'il n'en a pas.
+  - « Refuser » ou « Sans suite » (motif obligatoire, jamais transmis) : rien n'est publié ; la déclaration est effacée
+    3 mois après.
+  - Validées, les venues apparaissent dans « Présences prévues » (aussi pour le référent HSE et la lecture seule) et sont
+    publiées à Vigie ; « Annuler » une venue validée la publie comme annulée.
+- Un lien transmis par erreur ou perdu se « Révoque » : il ne reçoit plus rien ; créez-en un autre.
+
 ### Formations et habilitations
 
 - « Nouvelle session » (service RH et référent HSE) : formation, premier et dernier jour, lieu, places ; inscriptions,

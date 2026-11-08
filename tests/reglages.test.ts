@@ -73,6 +73,8 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     cetPlafondRtt: 5, cetPlafondCp: 5,
     // lot 13 — CET (monétisation) : fermée, 10 jours par an, solde repris non monétisable.
     cetMonetisation: false, cetMonetisationAccord: '', cetMonetisationPlafond: 10, cetReprisMonetisable: false,
+    // lot 14 — pré-déclarations de présence refusées ou sans suite gardées 3 mois (à confirmer par le DPO).
+    declarationsConservationMois: 3,
     // Lot 6 (t016, t036) : durées de conservation préremplies mais inactives sans la décision du DPO (réponse du 18 octobre
     // 2026) ; flux d'agenda personnel désactivé, contenu complet.
     conservationActive: false, conservationDecisionDpo: '', conservationDossierAns: 5, conservationTempsAns: 3, conservationPaieAns: 5,

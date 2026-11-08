@@ -5827,3 +5827,74 @@ liquidation à la sortie (t128, rubrique CET_LIQ) existaient déjà : le lot ajo
   à valider) ; aucune vue `pub_` ni lien (M-18).
 - **Tests** : `tests/cet-monetisation.test.ts` (réglages, jours monétisables, origine, décision, journal, lot de paie, vues,
   solde de sortie), matrice des droits, conservation, colonnes sensibles, migrations publiées.
+
+## Lot 14 : personnes sur site (intérimaires, extérieurs, pré-déclarations)
+
+Demande de Vigie du 4 novembre 2026 (`REQUESTS.md` ; décision CV-10, convergence M-02 : Vigie n'a plus de fiche de personne
+à elle) et choix du propriétaire du 5 novembre 2026 : extérieur = fiche de personne de catégorie « extérieur » ; matricule
+I **en plus** du matricule Cursus `EMP-…` (qui reste l'identifiant échangé avec Keystone) ; un lien de déclaration par
+entreprise ou par agence ; déclarations refusées ou sans suite gardées 3 mois (à confirmer par le DPO).
+
+### Étape 1 : matricule de site et fiches d'extérieurs
+
+- **Règles** (`shared/rules/personnes-site.ts`) : catégorie publiée (`categorieDe` : salarié, intérimaire, extérieur),
+  entreprise (`entrepriseDe` : raison sociale d'un extérieur, agence d'un intérimaire), matricule de site suivant
+  (`prochainMatriculeSite` : `I00001`, `E00001`…, un de plus que le plus grand jamais attribué, fiches retirées comprises :
+  jamais réattribué), saisie d'un extérieur.
+- **Colonnes** de `employes` (migration PostgreSQL `0031_personnes_site.sql`, SQLite d'après `TABLES` et la migration nommée
+  `lot14-personnes-site`) : `exterieur`, `entreprise`, `matricule_site` (unique ; CHECK : forme, E pour un extérieur, I
+  sinon ; un extérieur n'est jamais en intérim). Reprise : chaque intérimaire existant reçoit son matricule I.
+- **Intérimaire** : fiche ordinaire ; matricule I attribué par `employe.creer`, ou par `employe.modifier` au passage à l'intérim.
+- **Extérieur** : `exterieur.creer` / `exterieur.modifier` (service RH, `server/src/actions/personnes-site.ts`,
+  `creerFicheExterieur`). Rangé à part dans l'instantané (`Dataset.exterieurs`, `server/src/lecture-brute.ts`) : hors de tout
+  ce qui parcourt `employes` (paie, congés, temps, entretiens, effectifs, organigramme, Keystone…), sans retoucher chaque
+  règle. `Domain.emp` le retrouve, et les actions de titres (`cert.ajouter`, `hab.delivrer`… : `getPersonne`) l'acceptent ;
+  `getEmp` le refuse (404) : les actions des salariés ne le trouvent pas.
+- **Vues** (`server/src/vues-personnes-site.ts`) : service RH tout ; référent HSE et lecture seule en liste blanche
+  (`exterieurVueProfil` : identité, entreprise, matricule, titres en vigueur sans motif de correction ; ni santé ni voyage) ;
+  paie, manager et collaborateur aucun extérieur.
+
+### Étape 2 : pré-déclarations de présence
+
+- **Règles** (`shared/rules/declarations-presence.ts`) : saisie (venue de 92 jours au plus, commençant au plus tôt
+  aujourd'hui et au plus tard dans un an ; site parmi les sites ouverts du référentiel commun), référence `DP-000001`,
+  `publiable` (validée, ou annulée après validation), `effaceeLe` (refusée ou annulée sans validation : `mois` après la
+  décision ; à valider : `mois` après la fin de la venue ; publiable : suit la fiche), rapprochement (`suggestions` : même
+  adresse, ou mêmes nom et prénom sans accents ni ordre).
+- **Tables** (migration PostgreSQL `0032_declarations_presence.sql`, SQLite d'après `TABLES` et `lot14-declarations-index`) :
+  `liens_declaration` (catégorie, entreprise, **empreinte** SHA-256 du jeton, création, révocation, dernier dépôt) et
+  `declarations_presence` (lien, personne, site, dates, objet, statut `a_valider` | `validee` | `refusee` | `annulee`, fiche
+  rattachée, décision, motif). Clés au journal des changements (delta du cache), banc d'oracle.
+- **Liens** (`server/src/declarations.ts`) : jeton de 32 octets en base64url, renvoyé une seule fois par
+  `presence.lien.creer` (résultat d'action ; jamais au journal, l'idempotence ne garde que les identifiants) ; empreinte retirée
+  de l'instantané (`sansEmpreinte`) ; chemin masqué dans le journal HTTP (`cheminJournal` : `/api/declaration/…`,
+  `/declarer/…`). Un lien en vigueur par entreprise et catégorie ; `presence.lien.revoquer`.
+- **Routes publiques** (hors session, comme le flux d'agenda) : `GET /api/declaration/<jeton>` (entreprise, catégorie, sites
+  ouverts, jour, durée de conservation : rien d'autre) et `POST /api/declaration/<jeton>` (champ piège `siteWeb` : même
+  réponse, rien de gardé ; débit par adresse et par lien ; plafond de 200 déclarations en attente par lien). Jeton mal
+  formé, inconnu ou révoqué : 404. La page `/declarer/<jeton>` (`client/src/pages/Declarer.tsx`) est rendue par
+  `client/src/main.tsx` sans le magasin ni le service worker ; elle informe la personne déclarée (via son employeur) et lit
+  le responsable et le DPO sur `GET /api/confidentialite`.
+- **Décisions** (`server/src/actions/declarations.ts`, service RH) : `presence.valider` (fiche existante de la bonne
+  catégorie, ou nouvelle fiche E pour un extérieur ; un intérimaire est toujours rattaché à sa fiche d'intérim, créée par le
+  formulaire habituel ; venue passée refusée), `presence.refuser` et `presence.annuler` (motif obligatoire, jamais au
+  journal ; annulée après validation, la venue reste publiée comme annulée). Journal sans identité de la personne déclarée.
+- **Vues** : service RH tout (liens sans empreinte) ; référent HSE et lecture seule les déclarations publiables sans adresse,
+  motif ni auteur (`declarationVueProfil`), aucun lien ; ailleurs rien.
+- **Conservation** : purge quotidienne (`purgerDeclarations`, tâche de `server/src/conservation.ts`) après
+  `declarationsConservationMois` (3, réglage) ; journalisée par un nombre. Les déclarations validées rattachées à une fiche
+  partent avec le dossier (`TRAITEMENTS` : `lignes`, catégorie `dossier`) et figurent dans la copie de ses données.
+- **Écran** « Personnes sur site » (`client/src/pages/PersonnesSite.tsx`) : déclarations à valider, présences prévues,
+  extérieurs, intérimaires présents, liens ; dialogues `LienDeclarationDialog`, `ValiderDeclarationDialog`, confirmations
+  `client/src/state/confirmations-declarations.ts`.
+- **Démonstration** : deux liens (empreintes sans jeton connu), deux déclarations à valider et une refusée.
+
+### Publications (Matrix, M-18)
+
+Aucune vue `pub_` créée par Cursus. Les colonnes proposées pour `pub_salaries` (contrat D01 v2 : catégorie, entreprise,
+e-mail, matricule de site) et `pub_presences_prevues`, et le point à trancher sur le matricule publié, sont dans
+`docs/demandes/matrix-lot14-personnes-site.md` ; colonnes sensibles (empreinte, motif) :
+`docs/demandes/matrix-lot14-declarations-presence.sql`. Tout est à valider par le propriétaire.
+
+**Tests** : `tests/personnes-site.test.ts`, `tests/declarations-presence.test.ts` (règles, liens, routes publiques, plafond,
+décisions, vues, purge), matrice des droits, oracle (graine courte 20261107), migrations publiées, colonnes sensibles.

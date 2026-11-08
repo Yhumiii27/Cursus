@@ -285,6 +285,9 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   cetMonetisationAccord: { defaut: '', controle: texte(120, 'Référence de l’accord') },
   cetMonetisationPlafond: { defaut: 10, controle: entier(1, 60) },
   cetReprisMonetisable: { defaut: false, controle: booleen },
+  // lot 14 — pré-déclarations de présence sur site : déclaration refusée ou sans suite effacée 3 mois après (choix du
+  //   propriétaire du 5 novembre 2026, à confirmer par le DPO) —
+  declarationsConservationMois: { defaut: 3, controle: entier(1, 24) },
   // — Conservation des dossiers (parametres/Conservation.tsx, shared/rules/conservation.ts, t016) : durées préremplies mais
   //   inactives (réponse de l'entreprise du 18 octobre 2026) tant que la décision du DPO n'est pas référencée (COHERENCE) ;
   //   années après la sortie, 0 : dès le lendemain du dernier jour —

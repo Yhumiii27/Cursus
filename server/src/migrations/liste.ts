@@ -38,6 +38,9 @@ import { PLANNING_EQUIPE } from './lot12-planning.ts';
 import { BADGEAGE } from './lot12-badgeage.ts';
 // lot 13 — CET (monétisation)
 import { CET_MONETISATION } from './lot13-cet-monetisation.ts';
+// lot 14 — personnes sur site
+import { PERSONNES_SITE } from './lot14-personnes-site.ts';
+import { DECLARATIONS } from './lot14-declarations.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   INDEX_JOURNAL,
@@ -93,4 +96,8 @@ export const MIGRATIONS: readonly Migration[] = [
   FRAIS_SANTE,
   // lot 13 — CET (monétisation)
   CET_MONETISATION,
+  // lot 14 — personnes sur site
+  PERSONNES_SITE,
+  // lot 14, étape 2 — pré-déclarations de présence sur site : index des déclarations.
+  DECLARATIONS,
 ];

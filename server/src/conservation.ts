@@ -23,6 +23,7 @@ import { nettoyerBientot } from './pieces.ts';
 import { tacheFeedback360 } from './feedback360.ts';
 // lot 12 — C6 (badgeage virtuel)
 import { purgerPointages } from './pointages.ts';
+import { purgerDeclarations } from './declarations.ts';
 
 /**
  * Traitement de chaque référence à un salarié (clé « table.colonne » de REFERENCES) :
@@ -135,6 +136,9 @@ export const TRAITEMENTS: Record<string, Traitement> = {
   'corrections_pointage.emp_id': { mode: 'lignes', categorie: 'temps' },
   // lot 13 — CET (monétisation) : demandes gardées avec les avenants du forfait jours (élément de paie), motif vidé.
   'monetisations_cet.emp_id': { mode: 'textes', categorie: 'paie' },
+  // lot 14 — pré-déclarations de présence validées, rattachées à la fiche : supprimées avec le dossier (les refusées et les
+  // sans suite, jamais rattachées, partent d'elles-mêmes après `declarationsConservationMois` mois : server/src/declarations.ts).
+  'declarations_presence.emp_id': { mode: 'lignes', categorie: 'dossier' },
 };
 
 /**
@@ -536,6 +540,8 @@ export async function demarrerConservation(db: Db): Promise<() => void> {
     // lot 12 — C6 (badgeage virtuel) : pointages bruts au-delà de leur durée de conservation.
     try { await purgerPointages(db); } catch (err) { log.erreur(`Conservation des pointages : ${err instanceof Error ? err.message : err}`); }
     // lot 12 — C3 (feedback 360°) : fenêtres échues closes, relances avant l'échéance, réponses brutes au-delà de 6 mois.
+    // lot 14 — pré-déclarations de présence refusées ou sans suite, au-delà de leur durée de conservation.
+    try { await purgerDeclarations(db); } catch (err) { log.erreur(`Déclarations de présence : ${err instanceof Error ? err.message : err}`); }
     try { await tacheFeedback360(db); } catch (err) { log.erreur(`Feedback 360° : ${err instanceof Error ? err.message : err}`); }
   };
   await passer();

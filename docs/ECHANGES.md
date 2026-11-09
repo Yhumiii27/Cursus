@@ -37,7 +37,7 @@ navigateurs, connexion Microsoft Entra ID, fichier d'import de Sage Paie téléc
 | Échange | Moyen | Conformité |
 | --- | --- | --- |
 | Keystone → Cursus : projets, chantiers, affectations, tâches, demandes de déplacement ; lecture de l'instantané et des verdicts | API de Cursus `/api/integrations/keystone/v1` (`X-Api-Key`, filtre d'adresses facultatif ; `server/src/integrations/keystone-routes.ts`, contrat `docs/keystone-openapi.json`) | Conforme (API de Cursus) |
-| Fonctions `pub_<verbe>_<objet>` de Cursus | Aucune | — |
+| Matrix → Cursus : correction des libellés des référentiels par la DSI (demande M-19, lot 15) | Fonction `cursus.pub_editer(p_table, p_action, p_cle, p_valeurs, p_par, p_motif)` (`server/migrations-pg/0033_pub_editer.sql` : `SECURITY DEFINER`, `search_path` figé au schéma de Cursus puis `pg_temp`, `EXECUTE` retiré à `PUBLIC`) ; « corriger » seulement, formations, habilitations, destinations, organismes et modules d'e-learning, colonnes descriptives ; contrôles des formulaires et journal de Cursus (`matrix.editer`) | Conforme (fonction `pub_` de Cursus) ; droit d'exécution : lien « écriture » `matrix_app` → `cursus.pub_editer`, décidé dans Matrix |
 
 ## 4. Vues `pub_` de Cursus et leurs lecteurs (R3, M-18)
 

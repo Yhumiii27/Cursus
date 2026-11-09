@@ -5898,3 +5898,32 @@ e-mail, matricule de site) et `pub_presences_prevues`, et le point à trancher s
 
 **Tests** : `tests/personnes-site.test.ts`, `tests/declarations-presence.test.ts` (règles, liens, routes publiques, plafond,
 décisions, vues, purge), matrice des droits, oracle (graine courte 20261107), migrations publiées, colonnes sensibles.
+
+## Lot 15 : correction des référentiels depuis Matrix (demande M-19)
+
+Demande M-19 de Matrix du 5 novembre 2026 (`REQUESTS.md`) ; convention de Matrix : `docs/edition-par-les-outils.md` de son
+dépôt (Matrix n'écrit jamais dans les tables d'un outil, M-18 ; il appelle une fonction que l'outil fournit). Périmètre choisi
+par le propriétaire le 9 novembre 2026 : « Libellés des référentiels ».
+
+- **Fonction** `pub_editer(p_table, p_action, p_cle, p_valeurs, p_par, p_motif) RETURNS jsonb`
+  (`server/migrations-pg/0033_pub_editer.sql`, PostgreSQL seulement) : `SECURITY DEFINER`, `search_path` figé à la création
+  (schéma de Cursus puis `pg_temp`, posé pour la transaction de la migration, comme les fonctions de 0013 et 0014),
+  `EXECUTE` retiré à `PUBLIC` ; le droit d'exécution est un lien « écriture » `matrix_app` → `cursus.pub_editer` décidé
+  dans Matrix. Verrou d'écriture de Cursus (`pg_advisory_xact_lock` sur `<schéma>.ecritures`), comme les écritures de
+  l'application.
+- **Ouvert** : `corriger` seulement, colonnes descriptives sans effet hors de la ligne — `formations` (nom, court, duree,
+  cout, duree_heures), `habilitations` (nom, detail, signataire), `destinations` (pays, visa_sub), `organismes`
+  (raison_sociale, adresse, site_web, conditions ; pas le nom usuel, recopié sur les formations ; pas un organisme fusionné)
+  et `modules_elearning` (intitule, url, duree_heures). Contrôles repris des formulaires (`shared/rules/referentiels.ts`,
+  `organismes.ts`, `elearning.ts`) : libellés obligatoires, longueurs, coût de 0 à 100 000 €, durée de 0,25 à 2 000 h,
+  adresses http(s) ou https sans identifiants, libellé unique parmi les éléments en vigueur ; espaces réduits.
+- **Refusé** (`RAISE EXCEPTION`, message montré tel quel par Matrix, qui renvoie vers Cursus) : `ajouter` et `retirer`
+  (création avec code et règles, archivage contrôlé : écran Référentiels), validités et prérequis (titres et verdicts
+  envoyés à Keystone recalculés par l'application seulement), toute autre table (salariés et toute donnée personnelle,
+  postes, équipes, horaires, paie, journal, sites, entités, projets et chantiers copiés d'autres outils).
+- **Journal** : une ligne `matrix.editer` (famille Référentiels) par correction, auteur « <nom> (Matrix) », rôle
+  `integration`, colonnes, valeurs avant et après, motif ; une valeur inchangée n'est ni écrite ni tracée. La révision monte
+  par les déclencheurs de 0013 et 0014 : l'instantané se relit.
+- **Évolution** : ouvrir une colonne, une table ou les salariés se fait par une nouvelle migration qui remplace la fonction
+  (`CREATE OR REPLACE`, signature inchangée), avec ses contrôles.
+- **Tests** : `tests/pub-editer.test.ts` (convention, corrections, journal, instantané relu, refus ; PostgreSQL).

@@ -67,7 +67,7 @@ Format d'une entrée :
   Documentation : `docs/ARCHITECTURE.md` (« Lot 14 »), `docs/GUIDE-UTILISATEUR.md`, `docs/RGPD.md`. Tests : `tests/personnes-site.test.ts`, `tests/declarations-presence.test.ts`. Aucun fichier d'un autre dépôt modifié.
 
 ## [2026-11-05] Matrix → Cursus — M-19 · Fonction d'édition `cursus.pub_editer` : corriger les données de Cursus depuis Matrix, par vos règles
-- Statut : OUVERTE
+- Statut : FAITE
 - Demande : fournir, par une migration de Cursus, la fonction
   `cursus.pub_editer(p_table text, p_action text, p_cle jsonb, p_valeurs jsonb, p_par text, p_motif text) RETURNS jsonb`
   (`SECURITY DEFINER`, `SET search_path = cursus, pg_temp`, `REVOKE EXECUTE … FROM PUBLIC`), qui ajoute, corrige ou retire une ligne
@@ -91,3 +91,9 @@ Format d'une entrée :
   par `droits.accorder_execution` ; `droits.verifier()` signale une fonction `pub_` exécutable par tous ou sans
   `search_path` fixé. Rien ne change pour Cursus tant que la fonction n'existe pas : la visionneuse reste en lecture seule.
 - Validé par Guillaume le : 2026-11-05
+- Réalisé le 2026-11-09 (lot 15, branche `main-n9x7ps`), périmètre choisi par Guillaume le 09/11/2026 (« Libellés des référentiels ») : fonction générique `cursus.pub_editer(p_table text, p_action text, p_cle jsonb, p_valeurs jsonb, p_par text, p_motif text) RETURNS jsonb`, migration `server/migrations-pg/0033_pub_editer.sql` (`SECURITY DEFINER`, `search_path` figé au schéma de Cursus puis `pg_temp`, `REVOKE EXECUTE … FROM PUBLIC`).
+  - Ouvert : action `corriger` sur les colonnes descriptives de `formations` (nom, court, duree, cout, duree_heures), `habilitations` (nom, detail, signataire), `destinations` (pays, visa_sub), `organismes` (raison_sociale, adresse, site_web, conditions) et `modules_elearning` (intitule, url, duree_heures), avec les contrôles des formulaires de Cursus (obligatoire, longueur, nombres bornés, adresses, libellé unique parmi les éléments en vigueur).
+  - Refusé, avec un message qui renvoie vers Cursus : `ajouter` et `retirer` (création avec code et règles, archivage contrôlé dans l'écran Référentiels), validités et prérequis (recalcul des titres et verdicts envoyés à Keystone), toute autre table (salariés et toute donnée personnelle, postes, équipes, paie, journal, copies d'autres outils).
+  - Journal de Cursus : action `matrix.editer`, auteur « <nom> (Matrix) », rôle `integration`, colonnes, valeurs avant et après, motif ; une valeur inchangée n'est ni écrite ni tracée. Test : `tests/pub-editer.test.ts` (PostgreSQL).
+  - Reste à Matrix : décider le lien « écriture » `matrix_app` → `cursus.pub_editer`. Ouvrir d'autres colonnes ou les salariés se fera par une nouvelle migration qui remplace la fonction (signature inchangée).
+

@@ -84,6 +84,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'presence.refuser': 'Déclaration de présence refusée',
   'presence.annuler': 'Déclaration de présence annulée',
   'presence.purge': 'Déclarations de présence refusées ou sans suite effacées',
+  // lot 15 — M-19 : correction d'un libellé de référentiel depuis Matrix (fonction PostgreSQL pub_editer, 0033_pub_editer.sql).
+  'matrix.editer': 'Libellé de référentiel corrigé depuis Matrix',
   'employe.modifier': 'Modification d’une fiche',
   'employe.rtt': 'Changement de régime : solde de RTT gardé pour la paie',
   'employe.sortie': 'Sortie d’un salarié',
@@ -492,7 +494,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel', 'attente.', 'passeport.', 'evaluation.', 'migration.passeportPrevention', 'opco.',
     /* lot 12 — C4 */ 'elearning.'] },
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.', 'migration.habDelivrances'] },
-  { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes', /* lot 12 — C4 */ 'organisme.', 'migration.organismes'] },
+  { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: [/* lot 15 — M-19 */ 'matrix.editer', 'referentiel.', 'migration.postes', /* lot 12 — C4 */ 'organisme.', 'migration.organismes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
   { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement', 'migration.referencesDeplacements', 'chantier.', 'migration.deplacementsPaie'] },
   { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'forfait.', 'astreinte.', /* lot 12 — C5 (planning d'équipe) */ 'planning.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie', 'migration.rubriquesFeuilles'] },
@@ -542,6 +544,9 @@ export const CHAMP_LABEL: Record<string, string> = {
   entreprise: 'Entreprise', matriculeSite: 'Matricule de site', champsModifies: 'Champs modifiés',
   // lot 14, étape 2 — pré-déclarations de présence
   lien: 'Lien de déclaration', declarations: 'Déclarations', mois: 'Mois de conservation',
+  // lot 15 — M-19 (correction depuis Matrix) : table, clé et colonnes de la base, telles que Matrix les nomme.
+  table: 'Table', cle: 'Élément', champs: 'Colonnes corrigées', duree_heures: 'Durée en heures', visa_sub: 'Précision sur le visa',
+  raison_sociale: 'Raison sociale', adresse: 'Adresse', site_web: 'Site web',
   actif: 'Actif', date: 'Date', lieu: 'Lieu', places: 'Places', du: 'Du', au: 'Au', type: 'Type', justificatif: 'Justificatif reçu',
   signMgr: 'Signature de l’évaluateur', signSal: 'Signature du salarié', horizonAlerte: 'Seuil d’alerte', seuilBudget: 'Seuil budgétaire',
   rtt39: 'Jours de RTT (39 h)', uniquementReglementaire: 'Formations réglementaires seules', partageKeystone: 'Partage des motifs avec Keystone',

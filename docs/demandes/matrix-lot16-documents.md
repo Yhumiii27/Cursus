@@ -1,7 +1,7 @@
 # Demande à Matrix — documents de Cursus stockés dans Codex (lot 16)
 
-**Statut : proposition à valider par le propriétaire** (10 novembre 2026). Rien n'est écrit dans le dépôt de Matrix depuis
-Cursus ; une fois validée, l'entrée se porte dans le `REQUESTS.md` de Matrix.
+**Statut : validée par le propriétaire et portée le 10 novembre 2026** dans le `REQUESTS.md` de Matrix (PR Matrix#87),
+ouverte.
 
 ## Contexte
 

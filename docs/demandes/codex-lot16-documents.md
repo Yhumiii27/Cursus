@@ -1,8 +1,7 @@
 # Demande à Codex (GED) — tous les documents de Cursus stockés dans Codex (lot 16)
 
-**Statut : proposition à valider par le propriétaire** (10 novembre 2026). Rien n'est écrit dans le dépôt de Codex depuis
-Cursus ; une fois validée, la demande se porte dans le `REQUESTS.md` de Codex. Elle reprend et complète
-`codex-lot11-pieces.md` (types des pièces des dossiers OPCO et des notes de frais), restée à valider.
+**Statut : validée par le propriétaire et portée le 10 novembre 2026** dans le `REQUESTS.md` de Codex (PR Codex#29), ouverte. Elle reprend et
+complète `codex-lot11-pieces.md` (types des pièces des dossiers OPCO et des notes de frais), restée à valider.
 
 ## Décision du propriétaire (10 novembre 2026)
 

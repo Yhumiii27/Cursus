@@ -1,7 +1,8 @@
 // Pièces justificatives (t133) : règles partagées (types reconnus sur le contenu, nom gardé, droits), envoi et
 // consultation par HTTP (désactivées par défaut, contrôle du contenu, jeton propre au compte, droits par profil, empreinte),
 // rattachement par les actions, retrait et nettoyage, journal sans nom de fichier, export des données personnelles,
-// contrôle d'intégrité, sauvegarde et restauration des fichiers, migration des index, adaptateur GED refusé.
+// contrôle d'intégrité, sauvegarde et restauration des fichiers, migration des index, adaptateur de Codex sans raccordement
+// (lot 16 : versement dans Codex, tests/pieces-codex.test.ts).
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
@@ -31,7 +32,7 @@ const { DepotGed, estFichierGed, GED_NON_RACCORDEE } = await import('../server/s
 const { INDEX_PIECES } = await import('../server/src/migrations/lot6-pieces.ts');
 const { indexExiste } = await import('../server/src/migrations/outils.ts');
 const regles = await import('../shared/rules/pieces.ts');
-const { appliquerReglages, ReglageInvalide } = await import('../shared/reglages.ts');
+const { appliquerReglages } = await import('../shared/reglages.ts');
 const { DEFAULT_SETTINGS } = await import('../server/src/dataset.ts');
 const { refusCsrf } = await import('../server/src/securite.ts');
 const { reglerJournaux } = await import('../server/src/logs.ts');
@@ -118,7 +119,7 @@ test('règles : types reconnus sur le contenu, taille, nom gardé, droits de con
   assert.equal(regles.nomPiece(undefined, 'image/jpeg'), 'piece.jpg');
   assert.equal(regles.nomPiece('x'.repeat(300), 'application/pdf').length, regles.NOM_PIECE_MAX);
   assert.ok(regles.estObjetPiece('absence') && !regles.estObjetPiece('fiche'));
-  assert.ok(regles.depotOuvert('local') && !regles.depotOuvert('desactive') && !regles.depotOuvert('ged') && !regles.depotOuvert(undefined));
+  assert.ok(regles.depotOuvert('local') && !regles.depotOuvert('desactive') && regles.depotOuvert('ged') && !regles.depotOuvert(undefined));
 
   const u = (role: 'rh' | 'manager' | 'collaborateur', empId: number | null, profilRh?: string) => ({ role, empId, nom: 'x', intitule: 'x', profilRh }) as User;
   const equipe = (id: number) => id === 2;
@@ -134,26 +135,26 @@ test('règles : types reconnus sur le contenu, taille, nom gardé, droits de con
   assert.deepEqual(regles.piecesDe(liste, 'absence', null), []);
 });
 
-test('réglage : désactivé par défaut, dossier local accepté, GED refusée tant qu’elle n’est pas raccordée', () => {
+test('réglage : désactivé par défaut, dossier local ou Codex (le serveur contrôle le raccordement, lot 16)', () => {
   assert.equal(DEFAULT_SETTINGS.piecesStockage, 'desactive');
   assert.equal(appliquerReglages(DEFAULT_SETTINGS, { piecesStockage: 'local' }).piecesStockage, 'local');
   assert.equal(appliquerReglages(DEFAULT_SETTINGS, { piecesStockage: 'nimporte' }).piecesStockage, 'desactive');
-  assert.throws(() => appliquerReglages(DEFAULT_SETTINGS, { piecesStockage: 'ged' }), (e: unknown) => e instanceof ReglageInvalide && /GED\) pas encore raccordé/.test((e as Error).message));
+  assert.equal(appliquerReglages(DEFAULT_SETTINGS, { piecesStockage: 'ged' }).piecesStockage, 'ged');
 });
 
-test('adaptateur GED : chaque appel refusé ; noms stockés reconnus', async () => {
+test('adaptateur de Codex sans raccordement : relecture et destruction refusées ; noms stockés reconnus', async () => {
   const ged = new DepotGed();
   assert.equal(ged.mode, 'ged');
-  await assert.rejects(ged.ecrire(PDF), { message: GED_NON_RACCORDEE });
+  await assert.rejects(ged.ecrire(PDF), /jamais à son envoi/);
   await assert.rejects(ged.lire('ged:42'), { message: GED_NON_RACCORDEE });
   await assert.rejects(ged.supprimer('ged:42'), { message: GED_NON_RACCORDEE });
   assert.ok(estFichierGed('ged:42') && !estFichierGed('a'.repeat(32)));
   assert.equal(pieces.depotDe(db, 'ged:42').mode, 'ged');
   assert.equal(pieces.contenuLocal(db, 'ged:42'), null);
   assert.equal(pieces.contenuLocal(db, '../cursus.db'), null, 'jamais un chemin');
-  // Réglage forcé à « ged » en base (hors de l'écran) : aucun dépôt local, l'adaptateur refuse.
+  // Stockage « Codex » : une nouvelle pièce attend dans le dossier local d'être jointe puis versée.
   await regler('ged');
-  assert.equal((await pieces.depotEcriture(db))?.mode, 'ged');
+  assert.equal((await pieces.depotEcriture(db))?.mode, 'local');
   await regler('desactive');
   assert.equal(await pieces.depotEcriture(db), null);
 });

@@ -16,9 +16,10 @@ migration nouvelle n'y touche (`tests/m18-publications.test.ts`). Deux points so
 | `matrix.pub_sites` (D14, sites de rattachement) | Table locale `sites`, cache tenu à la main par le service RH (Référentiels → Entités et sites, lot 11) ; aucun accès SQL | Aucune requête vers le schéma `matrix` | Conforme ; une synchronisation automatique lira `matrix.pub_sites` (vue `pub_`) |
 | `matrix.pub_organigramme` (D15, unités) | Code d'unité saisi à la main (`equipes.unite_code`, `employes.unite_code`) ; aucun accès SQL | Aucune requête vers le schéma `matrix` | Conforme ; même remarque |
 | `matrix.pub_entites` (proposée, `docs/demandes/matrix-lot11-entites.md`) | Table locale `entites` en attendant | Demande à valider | Conforme : la proposition lit une vue `pub_` de Matrix |
+| `codex.pub_types_document` (lot 16, catégories des pièces) | `lireTypesCodex` (`server/src/pieces-codex.ts`) : contrôle avant d'accepter le stockage « Codex », après `to_regclass` et `has_table_privilege` (vue absente ou non accordée : choix refusé, jamais une erreur) | Lien de lecture `cursus_app` demandé à Matrix (Matrix#87) ; `codex.pub_documents` demandé aussi, pas encore lu | Conforme (vue `pub_`) |
 
-Relevé : aucune requête du code (`server/src`) ne nomme un schéma `matrix`, `keystone`, `codex`, `vigie`, `crucible` ou
-`arche` ; sur le serveur commun, le pool de Cursus travaille dans le schéma `cursus` (`search_path`).
+Relevé : aucune requête du code (`server/src`) ne nomme un schéma `matrix`, `keystone`, `vigie`, `crucible` ou `arche` ; le
+schéma `codex` n'est lu que par sa vue `codex.pub_types_document` (lot 16, ligne ci-dessous) ; sur le serveur commun, le pool de Cursus travaille dans le schéma `cursus` (`search_path`).
 
 ## 2. Écritures chez un autre outil (R4)
 
@@ -26,7 +27,7 @@ Relevé : aucune requête du code (`server/src`) ne nomme un schéma `matrix`, `
 | --- | --- | --- |
 | Cursus → Keystone : décisions sur les demandes de déplacement, heures validées sur les projets, absences validées ou annulées (période seule), verdicts Go / No Go modifiés | API de Keystone `POST ${KEYSTONE_URL}/api/cursus/v1/evenements` (jeton, `Idempotency-Key`), par la file `envois` (`server/src/integrations/keystone.ts`, `server/src/envois.ts`) | Conforme (API) |
 | Cursus → Matrix : déclaration du schéma de la base (catalogue `matrix.schema/1`) | API de Matrix `POST ${MATRIX_URL}/api/declarations` (`server/src/integrations/matrix.ts`), au démarrage, jamais bloquant | Conforme (API) |
-| Cursus → Codex : pièces justificatives dans la GED | Adaptateur `server/src/integrations/ged.ts`, non raccordé (interface de Codex inconnue) ; aucune pièce envoyée | Conforme : le raccordement passera par l'API de Codex (`docs/demandes/codex-lot11-pieces.md`) |
+| Cursus → Codex : pièces justificatives (lot 16, décision du 10/11/2026 : tous les documents dans Codex) | API de Codex : `POST ${CODEX_URL}/api/documents` (jeton et/ou signature HMAC, `sourceRef` `cursus:piece/<id>` rejouable), relecture `GET …/{id}/file` et destruction `POST …/{id}/destroy` (demandées, Codex#29) ; client `server/src/integrations/codex-documents.ts`, versement `server/src/pieces-codex.ts`. Stockage « Codex » refusé tant que Codex n'est pas raccordé et que ses catégories manquent ; aucune pièce envoyée aujourd'hui | Conforme (API) |
 | Cursus → Vigie, Crucible, Arche | Aucun envoi | — |
 
 Hors du groupe (ni schéma ni outil EPC2I) : e-mails par Microsoft Graph, notifications push par les services des

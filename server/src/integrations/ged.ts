@@ -1,22 +1,41 @@
-// Espace documentaire de l'entreprise (GED développée avec Codex) : adaptateur du stockage des pièces justificatives
-// (server/src/pieces.ts, `DepotPieces`). Réponse de l'entreprise : les pièces seront conservées dans cet espace, dont les
-// rôles devront être adaptés ; son interface, ses rôles et sa date de mise en service ne sont pas encore connus. Ce
-// squelette fixe le contrat : un nom stocké `ged:<référence du document>`, les mêmes appels que le dossier local. Tant
-// qu'il n'est pas écrit, le réglage « GED » est refusé (shared/reglages.ts) et aucun document n'y est envoyé.
-// À écrire quand l'API sera connue : authentification (compte de service, jamais celui de la personne connectée),
-// classement par salarié et par objet, durée de conservation transmise, reprise des pièces du dossier local.
+// Espace documentaire de l'entreprise : Codex (lot 16, décision du propriétaire du 10 novembre 2026 : tous les
+// documents de la suite sont stockés dans Codex). Adaptateur du stockage des pièces justificatives (server/src/pieces.ts,
+// `DepotPieces`) pour les pièces déjà versées dans Codex : nom stocké `ged:<identifiant Codex>`, relecture et destruction
+// par le client de server/src/integrations/codex-documents.ts. Une nouvelle pièce n'est jamais écrite directement dans
+// Codex : elle est d'abord gardée dans le dossier local, puis versée une fois jointe à son objet (catégorie, salarié et
+// conservation connus), par server/src/pieces-codex.ts.
+import type { MotifDestruction } from '../../../shared/rules/pieces-codex.ts';
 import type { DepotPieces } from '../pieces.ts';
+import { type ClientCodex, clientCodex } from './codex-documents.ts';
 
 /** Préfixe des noms stockés dans la GED (le dossier local n'a que des noms hexadécimaux). */
 export const PREFIXE_GED = 'ged:';
 export const estFichierGed = (fichier: string) => fichier.startsWith(PREFIXE_GED);
+export const nomGed = (id: string) => `${PREFIXE_GED}${id}`;
+const idGed = (fichier: string) => {
+  if (!estFichierGed(fichier) || fichier.length === PREFIXE_GED.length) throw new Error(`Nom de pièce de la GED invalide : ${fichier}`);
+  return fichier.slice(PREFIXE_GED.length);
+};
 
-export const GED_NON_RACCORDEE = 'Espace documentaire (GED) pas encore raccordé à Cursus : son interface n’est pas connue';
+export const GED_NON_RACCORDEE = 'Codex (espace documentaire) n’est pas raccordé à Cursus : CODEX_URL, CODEX_DOCUMENTS_TOKEN ou CODEX_DOCUMENTS_SECRET, et CODEX_DOCUMENTS_OWNER sont à définir';
 
-/** Adaptateur de la GED : chaque appel est refusé tant que son interface n'est pas connue. */
+/** Pièces versées dans Codex : relues et détruites par son API ; chaque appel est refusé sans raccordement configuré. */
 export class DepotGed implements DepotPieces {
   readonly mode = 'ged' as const;
-  async ecrire(_octets: Buffer): Promise<string> { throw new Error(GED_NON_RACCORDEE); }
-  async lire(_fichier: string): Promise<Buffer | null> { throw new Error(GED_NON_RACCORDEE); }
-  async supprimer(_fichier: string): Promise<void> { throw new Error(GED_NON_RACCORDEE); }
+  private readonly client: ClientCodex | null;
+  constructor(client: ClientCodex | null = clientCodex()) { this.client = client; }
+  private c(): ClientCodex {
+    if (!this.client) throw new Error(GED_NON_RACCORDEE);
+    return this.client;
+  }
+  /** Jamais appelé : une pièce passe par le dossier local avant son versement (server/src/pieces-codex.ts). */
+  async ecrire(_octets: Buffer): Promise<string> {
+    throw new Error('Une pièce est versée dans Codex une fois jointe à son objet, jamais à son envoi');
+  }
+  async lire(fichier: string): Promise<Buffer | null> {
+    return await this.c().lire(idGed(fichier));
+  }
+  async supprimer(fichier: string, motif: MotifDestruction = 'retrait'): Promise<void> {
+    await this.c().detruire(idGed(fichier), motif);
+  }
 }

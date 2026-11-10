@@ -4,6 +4,7 @@
 
 import { lireAdressesKeystone } from './filtre-keystone.ts';
 import { type ClesVapid, clesVapidValides } from './integrations/push.ts';
+import { problemesCodex } from './integrations/codex-documents.ts';
 
 export type Env = Record<string, string | undefined>;
 
@@ -518,6 +519,8 @@ export function problemesConfig(env: Env = process.env, opts: OptionsConfig = {}
   out.push(...problemesExploitation(env));
   out.push(...problemesBase(env));
   out.push(...problemesPieces(env));
+  // lot 16 — raccordement à Codex (server/src/integrations/codex-documents.ts).
+  out.push(...problemesCodex(env));
   out.push(...problemesProduction(env));
   if (reglesDemo) out.push(...problemesDemoPublique(env));
   out.push(...problemesSurveillance(env));

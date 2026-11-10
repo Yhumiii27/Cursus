@@ -82,8 +82,9 @@ export function routesPieces(db: Db): Router {
     if (espaceChange(req, res, id)) return;
     const stockage = await stockagePieces(db);
     if (!depotOuvert(stockage)) return res.status(409).json({ error: PIECES_DESACTIVEES });
-    // Lot 8 : jamais de pièce écrite en clair dans le dossier local en production (CURSUS_PIECES_KEY).
-    const refus = stockage === 'local' ? refusPiecesLocales() : null;
+    // Lot 8 : jamais de pièce écrite en clair dans le dossier local en production (CURSUS_PIECES_KEY) ; avec Codex
+    // (lot 16) aussi, la pièce y attend son versement.
+    const refus = refusPiecesLocales();
     if (refus) return res.status(409).json({ error: refus });
     const octets = Buffer.isBuffer(req.body) ? req.body : null;
     if (!octets) return res.status(415).json({ error: 'Format refusé : PDF, JPEG ou PNG seulement.' });

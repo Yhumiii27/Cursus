@@ -19,6 +19,7 @@ import { snake, type SqlValeur, TABLES, type Db, type TableName } from './db.ts'
 import { log } from './logs.ts';
 import { lireMessagerie } from './messagerie.ts';
 import { nettoyerBientot } from './pieces.ts';
+import { MOTIF_CONSERVATION, MOTIF_EFFACEMENT } from '../../shared/rules/pieces-codex.ts';
 // lot 12 — C3 (entretiens suivis et 360°)
 import { tacheFeedback360 } from './feedback360.ts';
 // lot 12 — C6 (badgeage virtuel)
@@ -163,7 +164,9 @@ export const reouvertureSansMotif = (r: ReouvertureFeuille): ReouvertureFeuille 
 });
 
 /** Pièces retirées (fichier effacé après la validation, description gardée). */
-const retrait = (cx: Cx, ou: string): Etape => ({ table: 'pieces', ou: `${ou} AND retiree_le IS NULL`, poser: { retiree_le: cx.le, retiree_par: cx.par, retiree_motif: 'Durée de conservation échue' } });
+// lot 16 — motif lu par le nettoyage pour le motif codé de la destruction dans Codex : terme échu, ou effacement demandé
+// avant le terme (droit à l'effacement).
+const retrait = (cx: Cx, ou: string): Etape => ({ table: 'pieces', ou: `${ou} AND retiree_le IS NULL`, poser: { retiree_le: cx.le, retiree_par: cx.par, retiree_motif: cx.avantEcheance ? MOTIF_EFFACEMENT : MOTIF_CONSERVATION } });
 /** Déclarations d'un document (passeport, visa, vaccin) faites par le salarié. */
 const declarations = (db: Db, kinds: string) => `emp_id = ? AND type = 'document' AND ${db.jsonCle('declaration', 'kind')} IN (${kinds})`;
 
@@ -172,6 +175,8 @@ export interface Cx {
   ti: ISODate; le: string; par: string;
   // lot 11 — notes de frais : durée de conservation des notes payées (réglage `conservationFraisAns`) ; 10 ans à défaut.
   fraisAns?: number;
+  // lot 16 — effacement demandé avant le terme de conservation (motif codé transmis à Codex).
+  avantEcheance?: boolean;
 }
 
 /**
@@ -489,7 +494,7 @@ export async function effacer(db: Db, empId: number, categories: readonly Catego
   const liste = dossier ? [...CATEGORIES.filter(c => c !== 'dossier'), 'dossier' as const] : categories.filter(c => c !== 'dossier');
   const termes = dossier ? await identite(db, empId) : [];
   // lot 11 — notes de frais : terme comptable d'après le réglage en vigueur.
-  cx = { ...cx, fraisAns: cx.fraisAns ?? (await loadSettings(db)).conservationFraisAns };
+  cx = { ...cx, fraisAns: cx.fraisAns ?? (await loadSettings(db)).conservationFraisAns, avantEcheance: o.avantEcheance };
   let elements = 0;
   for (const c of liste) for (const e of etapes(db, c, cx, empId)) elements += await appliquer(db, e, empId);
   await db.insert('effacements', { empId, categories: liste, le: cx.le, par: cx.par, motif: o.motif, avantEcheance: o.avantEcheance, elements });

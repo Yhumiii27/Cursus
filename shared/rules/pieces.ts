@@ -63,7 +63,7 @@ export const estObjetPiece = (o: unknown): o is ObjetPiece => typeof o === 'stri
 export const STOCKAGE_LABEL: Record<StockagePieces, string> = {
   desactive: 'Désactivé',
   local: 'Dossier des données de Cursus',
-  ged: 'Espace documentaire de l’entreprise (GED)',
+  ged: 'Codex, espace documentaire de l’entreprise',
 };
 
 /** Type reconnu sur les premiers octets du fichier, ou null (ni PDF, ni JPEG, ni PNG). */
@@ -115,8 +115,11 @@ export const piecesDe = (pieces: readonly Piece[] | undefined, objet: ObjetPiece
 export const justificatifAVerifier = (a: Pick<Absence, 'id' | 'statut' | 'justificatif'>, pieces: readonly Piece[] | undefined) =>
   !a.justificatif && a.statut !== 'annulee' && a.statut !== 'refusee' && piecesDe(pieces, 'absence', a.id).length > 0;
 
-/** Le stockage reçoit-il de nouvelles pièces ? (Désactivé : non ; GED : pas avant que son adaptateur existe.) */
-export const depotOuvert = (s: StockagePieces | undefined) => s === 'local';
+/**
+ * Le stockage reçoit-il de nouvelles pièces ? Désactivé : non ; Codex (lot 16) : oui, la pièce attend dans le dossier local
+ * d'être jointe puis versée (le réglage n'est accepté qu'une fois Codex raccordé, server/src/pieces-codex.ts).
+ */
+export const depotOuvert = (s: StockagePieces | undefined) => s === 'local' || s === 'ged';
 
 /**
  * Peut-on consulter cette pièce ? `equipe` : le salarié fait partie de l'équipe du manager connecté. Les règles sont les

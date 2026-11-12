@@ -21,6 +21,7 @@ import { join } from 'node:path';
 import { droitsRh } from '../../shared/constants.ts';
 import { plural } from '../../shared/format.ts';
 import { DELAI_PIECE_EN_ATTENTE_MS, OBJETS_SANS_SALARIE, voitPiece } from '../../shared/rules/pieces.ts';
+import { type MotifDestruction, motifDestruction } from '../../shared/rules/pieces-codex.ts';
 import type { CurrentUser, ObjetPiece, Piece, StockagePieces } from '../../shared/types.ts';
 import { dossierPieces, fichierBase } from './chemins.ts';
 import { clePieces, refusPiecesLocales } from './config.ts';
@@ -51,7 +52,8 @@ export interface DepotPieces {
   ecrire(octets: Buffer): Promise<string>;
   /** Contenu en clair, ou null s'il a disparu (PieceIndechiffrable : fichier chiffré illisible). */
   lire(fichier: string): Promise<Buffer | null>;
-  supprimer(fichier: string): Promise<void>;
+  /** Efface le contenu ; `motif` : motif codé transmis à Codex (lot 16), sans objet pour le dossier local. */
+  supprimer(fichier: string, motif?: MotifDestruction): Promise<void>;
 }
 
 /** Nom d'un fichier du dépôt local : aléatoire, sans extension (le type est en base), jamais un chemin. */
@@ -120,10 +122,13 @@ export const depotLocal = (db: Db) => new DepotLocal(dossierPiecesDe(db), clePie
 /** Réglage en vigueur (clé `app` de la table settings, comme loadSettings de dataset.ts). */
 export const stockagePieces = async (db: Db): Promise<StockagePieces> => (await db.getSetting<{ piecesStockage?: StockagePieces }>('app', {})).piecesStockage ?? 'desactive';
 
-/** Dépôt où écrire une nouvelle pièce, selon le réglage ; null si la fonction est désactivée. */
+/**
+ * Dépôt où écrire une nouvelle pièce, selon le réglage ; null si la fonction est désactivée. Avec Codex (lot 16), la pièce
+ * est d'abord écrite dans le dossier local, puis versée une fois jointe à son objet (server/src/pieces-codex.ts).
+ */
 export async function depotEcriture(db: Db): Promise<DepotPieces | null> {
   const s = await stockagePieces(db);
-  return s === 'local' ? depotLocal(db) : s === 'ged' ? new DepotGed() : null;
+  return s === 'local' || s === 'ged' ? depotLocal(db) : null;
 }
 
 /** Dépôt qui garde un fichier déjà stocké : celui que désigne son nom, quel que soit le réglage du jour. */
@@ -204,12 +209,13 @@ export async function nettoyerPieces(db: Db, maintenant = Date.now()): Promise<B
   const limite = new Date(maintenant - DELAI_PIECE_EN_ATTENTE_MS).toISOString();
   const attente = (await db.query('SELECT id, fichier FROM pieces WHERE objet IS NULL AND depose_le < ?', [limite])) as { id: number; fichier: string | null }[];
   if (attente.length) await db.tx(async () => { for (const p of attente) await db.remove('pieces', p.id); });
-  const retirees = (await db.query('SELECT id, fichier FROM pieces WHERE retiree_le IS NOT NULL AND fichier IS NOT NULL')) as { id: number; fichier: string }[];
+  const retirees = (await db.query('SELECT id, fichier, retiree_motif AS motif FROM pieces WHERE retiree_le IS NOT NULL AND fichier IS NOT NULL')) as { id: number; fichier: string; motif: string | null }[];
   for (const p of attente) {
     if (p.fichier) await depotDe(db, p.fichier).supprimer(p.fichier).catch(() => { /* fichier sans pièce, repris plus bas */ });
   }
   for (const p of retirees) {
-    try { await depotDe(db, p.fichier).supprimer(p.fichier); } catch { continue; /* GED injoignable : nouvel essai à l'heure suivante */ }
+    // Pièce versée dans Codex (lot 16) : destruction avec le motif codé (retrait, terme de conservation, effacement).
+    try { await depotDe(db, p.fichier).supprimer(p.fichier, motifDestruction(p.motif)); } catch { continue; /* Codex injoignable : nouvel essai à l'heure suivante */ }
     // Pièce de nouveau en vigueur entre-temps (restauration) : son nom stocké reste.
     await db.tx(async () => { if ((await db.get<PieceEnregistree>('pieces', p.id))?.retireeLe) await db.update('pieces', p.id, { fichier: null }); });
   }
@@ -230,6 +236,10 @@ export async function nettoyerPieces(db: Db, maintenant = Date.now()): Promise<B
 /** Nettoyage en tâche de fond : bilan dans les journaux du serveur s'il a effacé quelque chose. */
 async function passer(db: Db) {
   try {
+    // lot 16 — versement dans Codex (server/src/pieces-codex.ts, chargé ici : il dépend de ce module) avant le nettoyage.
+    const { bilanVersement, verserSiCodex } = await import('./pieces-codex.ts');
+    const v = await verserSiCodex(db);
+    if (v && bilanVersement(v)) log.info(`Pièces justificatives : ${bilanVersement(v)}`);
     const b = await nettoyerPieces(db);
     if (bilanTexte(b)) log.info(`Pièces justificatives : ${bilanTexte(b)}`);
   } catch (err) {
@@ -245,7 +255,8 @@ export function nettoyerBientot(db: Db) {
 /** Au démarrage puis toutes les heures (server/src/index.ts) ; renvoie la fonction d'arrêt. */
 export async function demarrerPieces(db: Db): Promise<() => void> {
   // Pièces activées avant la règle du lot 8, sans clé en production : signalé au démarrage (les envois sont refusés).
-  const refus = (await stockagePieces(db)) === 'local' ? refusPiecesLocales() : null;
+  const stockage = await stockagePieces(db);
+  const refus = stockage === 'local' || stockage === 'ged' ? refusPiecesLocales() : null;
   if (refus) log.avertissement(refus);
   await passer(db);
   const t = setInterval(async () => await passer(db), 3600_000);

@@ -10,6 +10,7 @@ import { sauvegarderBase, type Sauvegarde } from '../sauvegarde.ts';
 import { seedDemo } from '../seed.ts';
 import { ActionError, requireRhAdmin, type ActionHandler } from './context.ts';
 import { amorcerEntites } from '../demarrage.ts';
+import { refusCodex } from '../pieces-codex.ts';
 // Démonstration commune des outils
 import { ajouterReferentielCommun } from '../seed-commun.ts';
 // lot 12 — C1 (forfait annuel en heures)
@@ -30,6 +31,9 @@ const maj: ActionHandler = async (ctx, p) => {
   // Pièces justificatives dans le dossier local : refusées en production sans clé de chiffrement (lot 8, config.ts).
   const refusPieces = next.piecesStockage === 'local' && avant.piecesStockage !== 'local' ? refusPiecesLocales() : null;
   if (refusPieces) throw new ActionError(refusPieces, 409);
+  // lot 16 — Codex : raccordement configuré et catégories présentes dans son registre (server/src/pieces-codex.ts).
+  const refusGed = next.piecesStockage === 'ged' && avant.piecesStockage !== 'ged' ? await refusCodex(ctx.db) : null;
+  if (refusGed) throw new ActionError(refusGed, 409);
   // lot 12 — C1 : début du suivi ou de la période du forfait annuel en heures déplacé alors que des clôtures sont enregistrées
   // (repérées par leur début de plage) : confirmation explicite de l'écran exigée.
   const refusForfait = refusChangementDebutForfait(avant, next, await ctx.db.all<ClotureForfaitHeures>('cloturesForfaitHeures'), p.forfaitHeuresChangementConfirme === true);

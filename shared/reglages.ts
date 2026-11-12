@@ -114,11 +114,11 @@ export const compteComptable = (libelle: string) => (v: unknown): string => {
   return c;
 };
 
-/** Stockage des pièces justificatives : désactivé ou dossier local ; la GED n'est pas encore raccordée. */
-const stockagePieces = (v: unknown, actuelle: StockagePieces): StockagePieces => {
-  if (v === 'ged') throw new ReglageInvalide('Espace documentaire (GED) pas encore raccordé à Cursus : son interface n’est pas connue. Choisissez le dossier des données de Cursus.');
-  return choix<StockagePieces>(['desactive', 'local'])(v, actuelle);
-};
+/**
+ * Stockage des pièces justificatives : désactivé, dossier local ou Codex (lot 16). Le choix de Codex est contrôlé par le
+ * serveur (raccordement et catégories, server/src/pieces-codex.ts, `refusCodex`).
+ */
+const stockagePieces = choix<StockagePieces>(['desactive', 'local', 'ged']);
 
 /**
  * Code d'une formation du catalogue (minuscules, chiffres, « - », « _ »), ou vide. Le réglage ne lit pas le catalogue :

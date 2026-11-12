@@ -1,7 +1,8 @@
 // Paramètres → Pièces justificatives (t133, shared/rules/pieces.ts) : stockage des attestations, cartes CACES, titres
 // d'habilitation signés, justificatifs d'absence et copies de documents. Décision de l'entreprise du 18 octobre 2026 :
 // livré désactivé, l'administrateur RH l'active (dossier des données de Cursus, sauvegardé avec la base) après avis du
-// DPO ; l'espace documentaire de l'entreprise (GED) viendra par un adaptateur, sans changer les écrans.
+// DPO. Lot 16 (décision du 10 novembre 2026) : tous les documents de la suite dans Codex ; le choix « Codex » est contrôlé
+// par le serveur (raccordement et catégories, server/src/pieces-codex.ts), les écrans ne changent pas.
 import { STOCKAGE_LABEL, TAILLE_MAX_PIECE, tailleTexte } from '../../../../shared/rules/pieces.ts';
 import type { StockagePieces } from '../../../../shared/types.ts';
 import { Field } from '../../components/Dialog.tsx';
@@ -12,7 +13,7 @@ import { type SectionProps, useEnregistrerReglages } from './commun.ts';
 export function Pieces({ s }: SectionProps) {
   const { admin } = useRole();
   const enregistrer = useEnregistrerReglages();
-  const actif = s.piecesStockage === 'local';
+  const actif = s.piecesStockage === 'local' || s.piecesStockage === 'ged';
   return (
     <Panel title="Pièces justificatives" aside={<Tag cls={actif ? 'tag-neutral' : 'tag-outline'}>{actif ? 'Activées' : 'Désactivées'}</Tag>} style={{ gap: 'var(--space-4)' }}>
       <Field label="Stockage des pièces" htmlFor="param-pieces">
@@ -20,7 +21,7 @@ export function Pieces({ s }: SectionProps) {
           onChange={e => enregistrer({ piecesStockage: e.target.value as StockagePieces })}>
           <option value="desactive">{STOCKAGE_LABEL.desactive}</option>
           <option value="local">{STOCKAGE_LABEL.local}</option>
-          <option value="ged" disabled>{STOCKAGE_LABEL.ged} — pas encore raccordée</option>
+          <option value="ged">{STOCKAGE_LABEL.ged}</option>
         </select>
       </Field>
       {!actif && <NoteAccent>À activer après l’avis du DPO : les justificatifs d’absence et les copies de documents peuvent contenir des données de santé.</NoteAccent>}
@@ -44,6 +45,13 @@ export function Pieces({ s }: SectionProps) {
         désigne chaque copie, et la restauration les remet en place. Une pièce retirée garde sa description, son fichier est
         effacé ; la durée de conservation suit celle du dossier qu’elle justifie. Désactiver la fonction n’efface rien : les
         pièces déjà jointes restent consultables.
+      </Fine>
+      <Fine>
+        Codex : chaque pièce attend dans le dossier local d’être jointe, puis elle est versée dans Codex au passage horaire
+        (catégorie du dossier du personnel, matricule, fin de conservation, empreinte), et sa copie locale est effacée. Les
+        pièces déjà dans le dossier local sont reprises de la même façon. Cursus la relit pour ses utilisateurs, avec les
+        mêmes droits, et la fait détruire dans Codex à son retrait. Choix refusé tant que Codex n’est pas raccordé par le
+        service informatique ou que ses catégories manquent dans son registre.
       </Fine>
     </Panel>
   );

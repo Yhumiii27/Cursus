@@ -194,7 +194,9 @@ Avec `CURSUS_ACCES_CLAVIS=on` :
   rattaché à la fiche du salarié de même adresse e-mail (sinon compte externe, qui n'ouvre que l'espace RH) ;
 - **le profil RH** du compte est celui réglé dans Clavis (administrateur RH, gestionnaire RH, référent HSE, comptabilité,
   lecture seule, aucun), reporté sur le compte et journalisé ; les espaces manager et collaborateur viennent toujours de
-  la fiche du salarié (équipes, délégations) ;
+  la fiche du salarié (équipes, délégations) ; aucun niveau de Clavis ne donne le profil « Gestionnaire de paie »
+  (décision du propriétaire, 24 novembre 2026 : Cursus ne gère ni ne voit les salaires, il transmet seulement les heures
+  badgées à Sage, ce que fait l'administrateur RH) ;
 - **pendant la session**, l'accès est relu au plus toutes les minutes : accès retiré, session fermée ; profil changé,
   reporté à la requête suivante.
 

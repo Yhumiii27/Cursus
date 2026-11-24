@@ -225,7 +225,7 @@ test('statut d’un point de suivi clos sans signature du salarié : « Clos »,
 test('récapitulatif des échéances lu par la lecture seule : relances d’objectif sans le nom du salarié', async () => {
   const db = await nouvelleBase();
   await seedDemo(db);
-  const { envoyerEmail } = await import('../server/src/integrations/email.ts');
+  const { envoyerEmail } = await import('../server/src/integrations/microsoft/email.ts');
   const { envoisPourLecteur, LIGNE_OBJECTIF_RESERVEE } = await import('../server/src/envois-lecteur.ts');
   const { listerEnvois } = await import('../server/src/envois.ts');
   const texte = ['Bonjour,', '', 'Sous 30 jours :', '• Mehdi Benali (Maintenance) — Objectif à échéance, avancement à mettre à jour : échéance le 31 oct. 2026',

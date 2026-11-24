@@ -112,7 +112,7 @@ export function suppressionLigne(payload: Record<string, unknown>, ligne: string
 
 /** Transmission à Sage Paie des feuilles validées en attente. */
 /**
- * Transmission à Sage Paie, possible seulement en simulation (server/src/integrations/sage.ts) : rien n'est envoyé, les
+ * Transmission à Sage Paie, possible seulement en simulation (server/src/integrations/sage/sage.ts) : rien n'est envoyé, les
  * feuilles sont marquées transmises. `periodes` : feuilles par période de paie, dont les rappels d'une période close
  * (`feuillesParPeriode` de shared/rules/paie.ts), annoncés avant de confirmer.
  */

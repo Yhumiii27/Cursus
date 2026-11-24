@@ -2,9 +2,9 @@
 // En production (NODE_ENV=production), une configuration dangereuse empêche le
 // démarrage ; ailleurs, elle est seulement signalée. Variables : .env.example.
 
-import { lireAdressesKeystone } from './filtre-keystone.ts';
-import { type ClesVapid, clesVapidValides } from './integrations/push.ts';
-import { problemesCodex } from './integrations/codex-documents.ts';
+import { lireAdressesKeystone } from './integrations/keystone/filtre-keystone.ts';
+import { type ClesVapid, clesVapidValides } from './integrations/push/push.ts';
+import { problemesCodex } from './integrations/codex/codex-documents.ts';
 
 export type Env = Record<string, string | undefined>;
 
@@ -296,7 +296,7 @@ function problemesExpirationSecretEnvoi(env: Env): string[] {
   return [];
 }
 
-// — Envoi des e-mails par Microsoft Graph (server/src/integrations/email.ts, docs/EMAILS.md) —
+// — Envoi des e-mails par Microsoft Graph (server/src/integrations/microsoft/email.ts, docs/EMAILS.md) —
 
 /** API Microsoft Graph ; les tests la remplacent par un faux service local (option de `transportEmail`). */
 export const GRAPH_MICROSOFT = 'https://graph.microsoft.com';
@@ -350,7 +350,7 @@ function problemesMail(env: Env): string[] {
   return out;
 }
 
-// — Sage Paie (server/src/integrations/sage.ts) : fichier d'import en production, pas d'envoi par API —
+// — Sage Paie (server/src/integrations/sage/sage.ts) : fichier d'import en production, pas d'envoi par API —
 
 /**
  * SAGE_MODE inconnu (dont `api` : la paie importe le fichier dans Sage, aucun envoi par API n'est prévu) ; SAGE_URL, qui
@@ -487,7 +487,7 @@ function problemesDemoPublique(env: Env): string[] {
 /**
  * Lot 8, étape 2 : fichier témoin des sauvegardes du serveur commun (CURSUS_SAUVEGARDE_TEMOIN, chemin absolu, lu par
  * server/src/sauvegarde-temoin.ts) et filtre d'adresses de l'API Keystone (CURSUS_KEYSTONE_ADRESSES,
- * server/src/filtre-keystone.ts) : une valeur illisible ne surveillerait ou ne filtrerait rien sans le dire.
+ * server/src/integrations/keystone/filtre-keystone.ts) : une valeur illisible ne surveillerait ou ne filtrerait rien sans le dire.
  */
 function problemesSurveillance(env: Env): string[] {
   const out: string[] = [];
@@ -547,7 +547,7 @@ export function problemesConfig(env: Env = process.env, opts: OptionsConfig = {}
   out.push(...problemesExploitation(env));
   out.push(...problemesBase(env));
   out.push(...problemesPieces(env));
-  // lot 16 — raccordement à Codex (server/src/integrations/codex-documents.ts).
+  // lot 16 — raccordement à Codex (server/src/integrations/codex/codex-documents.ts).
   out.push(...problemesCodex(env));
   out.push(...problemesProduction(env));
   if (reglesDemo) out.push(...problemesDemoPublique(env));
@@ -606,7 +606,7 @@ export function verifierConfig(env: Env = process.env, opts: OptionsConfig = {})
   console.warn(`Configuration à compléter avant une mise en production :\n${liste}`);
 }
 
-// — lot 11 — pwa : clés VAPID des notifications sur le téléphone (server/src/push.ts, server/src/integrations/push.ts) —
+// — lot 11 — pwa : clés VAPID des notifications sur le téléphone (server/src/push.ts, server/src/integrations/push/push.ts) —
 
 /**
  * Clés VAPID de production (CURSUS_VAPID_PUBLIC, CURSUS_VAPID_PRIVATE en base64url, CURSUS_VAPID_SUJET en mailto: ou

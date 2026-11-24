@@ -8,8 +8,8 @@ import { declarationLabel, estAuDossier, formaliteCle, lignesAuDossier, lireForm
 import { parseTrips, referenceDeplacement } from '../../../shared/rules/imports.ts';
 import { refusArchive } from '../../../shared/rules/referentiels.ts';
 import type { Declaration, DemandeCollab, DemandeKeystone, Employe, Vaccination, Visa, Voyage } from '../../../shared/types.ts';
-import { sendToKeystone } from '../integrations/keystone.ts';
-import { motifsRefusAcceptation } from '../integrations/keystone-entrant.ts';
+import { sendToKeystone } from '../integrations/keystone/keystone.ts';
+import { motifsRefusAcceptation } from '../integrations/keystone/keystone-entrant.ts';
 import { ActionError, getEmp, isRh, isSelf, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
 import { deplacerPieces, joindrePieces } from './pieces.ts';
 

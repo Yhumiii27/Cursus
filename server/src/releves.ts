@@ -12,7 +12,7 @@ import { adresseAgence, agencesInterim } from '../../shared/rules/messagerie.ts'
 import { heuresTexte, releveAgence, releveCsv, semainesAutomatiques, type Releve } from '../../shared/rules/releves.ts';
 import type { CurrentUser, Messagerie, ReleveInterim } from '../../shared/types.ts';
 import type { Db } from './db.ts';
-import { envoyerEmail, pieceJointe } from './integrations/email.ts';
+import { envoyerEmail, pieceJointe } from './integrations/microsoft/email.ts';
 import { courriel, lireMessagerie, periodeLongue } from './messagerie.ts';
 import { type Lecture, lectureDirecte } from './lecture-partagee.ts';
 

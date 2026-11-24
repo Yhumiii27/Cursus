@@ -62,7 +62,7 @@ Les tâches 🔴, toutes thématiques confondues :
   <br><sub>Preuves : server/src/auth.ts:18 (DEMO actif sauf CURSUS_DEMO=0) · server/src/index.ts:56 (session RH d'office) et :168 (écoute 0.0.0.0) · curl /api/session en NODE_ENV=production → cookie RH, /api/data → 200 · ls .env.example → absent</sub>
 - [x] **Supprimer la clé Keystone par défaut « demo-keystone »** — 🔴 Bloquant · S
   Sans configuration, les routes Keystone acceptent une clé publiée dans le README : n'importe qui peut lire les Go / No Go et injecter des demandes. Désactiver ces routes si la clé n'est pas définie et comparer la clé en temps constant (timingSafeEqual).
-  <br><sub>Preuves : server/src/integrations/keystone.ts:24 · README.md:73 · server/src/index.ts:131-133 (comparaison !==) · curl -H 'x-api-key: demo-keystone' → authentification acceptée</sub>
+  <br><sub>Preuves : server/src/integrations/keystone/keystone.ts:24 · README.md:73 · server/src/index.ts:131-133 (comparaison !==) · curl -H 'x-api-key: demo-keystone' → authentification acceptée</sub>
 - [x] **Placer Cursus derrière HTTPS et ajouter les en-têtes de sécurité** — 🔴 Bloquant · S
   En production le cookie est marqué Secure, donc refusé en HTTP sur le réseau local, et aucune protection (CSP, HSTS, anti-iframe) n'est envoyée. Fournir et documenter un reverse proxy TLS avec Cursus sur 127.0.0.1, puis ajouter les en-têtes de sécurité (adapter le script inline de l'impression).
   <br><sub>Preuves : server/src/index.ts:169 (HTTP seul) et :26 (seul x-powered-by désactivé) · server/src/auth.ts:60 (Secure en production) · client/src/print.ts:33 (script inline) · grep helmet\|Strict-Transport → aucun résultat</sub>
@@ -120,10 +120,10 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Coder l'envoi réel à Sage Paie et ne marquer « transmis » qu'après accusé** — 🔴 Bloquant · M
   Dès que SAGE_URL est défini, l'écran annonce l'envoi, mais rien ne part et les feuilles sont marquées transmises à la paie. En attendant, lever une erreur en mode API ; ensuite faire l'appel HTTP hors transaction, contrôler et conserver l'accusé.
   <br>*Analyse comparative du 25/10/2026 : prérequis bloquant pour la mise en service. Les SIRH du marché (Lucca, Kelio, Silae, Nibelis) livrent un export de variables de paie dont chaque rubrique est confirmée avec le service paie avant la première période. Dans Cursus, les codes JREN (jours de repos rachetés), HNUIT et MAJ_NUIT (heures de nuit), CET et AST_* (astreintes) restent à confirmer : les éléments concernés partent aujourd'hui sans code, sur la liste « à saisir dans Sage » du résumé du lot (server/src/actions/paie.ts:100, server/src/regularisation-paie.ts:50, server/src/astreintes-paie.ts:2-5, server/src/actions/forfait-jours.ts:5). Obtenir la confirmation des codes avec le service paie et les activer dans la correspondance des rubriques avant le premier lot réel.*
-  <br><sub>Preuves : server/src/integrations/sage.ts:7 et :10-15 (branche api vide) · server/src/actions/temps.ts:105-108 (sage: true) · client/src/pages/Parametres.tsx:167 · server/src/actions/context.ts:23 (handler synchrone ; asynchrone depuis la sous-étape 8.a, mais toujours dans la transaction exclusive de l'action : l'appel HTTP se fait hors d'elle)</sub>
+  <br><sub>Preuves : server/src/integrations/sage/sage.ts:7 et :10-15 (branche api vide) · server/src/actions/temps.ts:105-108 (sage: true) · client/src/pages/Parametres.tsx:167 · server/src/actions/context.ts:23 (handler synchrone ; asynchrone depuis la sous-étape 8.a, mais toujours dans la transaction exclusive de l'action : l'appel HTTP se fait hors d'elle)</sub>
 - [x] **Coder l'envoi HTTP sortant vers Keystone** — 🔴 Bloquant · M
   En mode API, sendToKeystone n'envoie rien et journalise « (simulation) » alors que Paramètres affiche « API connectée ». Faire le POST avec gestion des erreurs et trancher le contrat (heures sur projets internes INT-* et ECOLE).
-  <br><sub>Preuves : server/src/integrations/keystone.ts:15-21 · client/src/pages/Parametres.tsx:159 · server/src/actions/temps.ts:88-90</sub>
+  <br><sub>Preuves : server/src/integrations/keystone/keystone.ts:15-21 · client/src/pages/Parametres.tsx:159 · server/src/actions/temps.ts:88-90</sub>
 - [x] **Stocker le vrai matricule de paie** — 🔴 Bloquant · M
   Le matricule envoyé à Sage et Keystone est fabriqué à partir de l'identifiant interne (EMP-0001) et ne correspondra pas au dossier de paie. Ajouter un matricule unique saisi ou importé et l'utiliser partout.
   <br><sub>Preuves : shared/format.ts:21 · server/src/db.ts:17-23 · shared/rules/temps.ts:136 · server/src/index.ts:150</sub>
@@ -142,7 +142,7 @@ Les tâches 🔴, toutes thématiques confondues :
   <br><sub>Preuves : shared/rules/temps.ts:128-135 · shared/rules/temps.ts:119-126 (sagePending sans période)</sub>
 - [x] **Pousser à Keystone les changements de verdict Go / No Go** — 🟠 Important · M
   L'écran Chantiers promet qu'un changement de verdict est poussé à Keystone, mais l'événement n'est jamais émis. Mémoriser le dernier verdict par chantier et ressource, le recalculer après les actions concernées et chaque jour (expirations), et l'envoyer quand il change.
-  <br><sub>Preuves : client/src/pages/Chantiers.tsx:79 · server/src/integrations/keystone.ts:11 (type déclaré seulement) · grep verdict.modifie → aucune émission · design/prototype-suivi-formations.dc.html:699</sub>
+  <br><sub>Preuves : client/src/pages/Chantiers.tsx:79 · server/src/integrations/keystone/keystone.ts:11 (type déclaré seulement) · grep verdict.modifie → aucune émission · design/prototype-suivi-formations.dc.html:699</sub>
 - [x] **Contrôler et tracer les demandes Keystone entrantes** — 🟠 Important · M
   La route accepte des dates impossibles, un retour avant le départ, des doublons et un salarié non affecté au chantier, sans rien journaliser ; les demandes traitées sont supprimées. Ajouter ces contrôles (400/409), une référence externe unique, le journal des appels et la conservation des décisions.
   <br><sub>Preuves : server/src/index.ts:147-157 · server/src/db.ts:34 (pas de référence externe) · server/src/actions/voyages.ts:66-78 (acceptation sans revalidation), :75 et :85 (suppression)</sub>
@@ -177,7 +177,7 @@ Les tâches 🔴, toutes thématiques confondues :
   Les pièces (attestations, cartes CACES, titres signés, passeports) ne sont conservées que dans le dossier local de Cursus ; le réglage « GED » est refusé et l'adaptateur DepotGed lève une erreur à chaque appel. Dès que l'interface de la GED développée avec Codex est connue : coder l'adaptateur (compte de service, classement par salarié et par objet, durée de conservation transmise), reprendre les pièces du dossier local et déposer aussi les titres d'habilitation et comptes rendus d'entretien signés. Attente du marché : standard (Lucca, Factorial, Eurécia archivent les documents du salarié dans un coffre ou une GED).
   <br>*Ajoutée le 26/10/2026 (analyse comparative) ; à valider avant de développer : dépend de l'interface et de la date de mise en service de la GED.*
   <br>*10/11/2026 (lot 16) : décision du propriétaire, tous les documents de la suite dans Codex. Côté Cursus, fait : client de Codex (dépôt signé, relecture, destruction avec motif codé), versement des pièces jointes et reprise du dossier local, contrôle des catégories dans `codex.pub_types_document`, stockage « Codex » dans Paramètres, refusé tant que Codex n'est pas raccordé. Reste, hors de Cursus : catégories, dépôt sans circuit, lecture et destruction par l'application (Codex#29) ; liens de lecture de `cursus_app` (Matrix#87) ; puis variables `CODEX_*` posées et stockage choisi. Comptes rendus d'entretien signés : à verser quand ils seront joints au dossier.*
-  <br><sub>Preuves : server/src/integrations/ged.ts:17-22 (DepotGed : chaque appel lève GED_NON_RACCORDEE) · server/src/pieces.ts:126, :130 · shared/reglages.ts (réglage « GED » refusé)</sub>
+  <br><sub>Preuves : server/src/integrations/codex/ged.ts:17-22 (DepotGed : chaque appel lève GED_NON_RACCORDEE) · server/src/pieces.ts:126, :130 · shared/reglages.ts (réglage « GED » refusé)</sub>
 
 - [x] **Tenir les intérimaires et les extérieurs et recevoir les pré-déclarations de présence (demande de Vigie)** — 🟠 Important · L
   Vigie n'a plus de fiche de personne à elle (décision CV-10 du 3 novembre 2026, convergence M-02) : elle attend de Cursus les intérimaires et les salariés d'entreprises extérieures, avec un matricule de site permanent (I, E), et les présences prévues sur site, déclarées avant la venue par un formulaire public et validées par le service RH.
@@ -478,7 +478,7 @@ Les tâches 🔴, toutes thématiques confondues :
   <br><sub>Preuves : shared/rules/profil.ts:62, :74 · client/src/dialogs/EmployeDialog.tsx:231 · shared/domain.ts:251 · server/src/actions/temps.ts:18-29</sub>
 - [x] **Permettre d'annuler une absence demandée ou validée** — 🟠 Important · M
   Le salarié ne peut pas retirer sa demande et une absence validée ne peut pas être annulée, alors qu'elle bloque les dates et débite le solde. Ajouter l'annulation selon statut et rôle, avec message d'annulation à Keystone.
-  <br><sub>Preuves : server/src/actions/absences.ts:60-65 · server/src/integrations/keystone.ts:7-11 · shared/rules/conges.ts:128</sub>
+  <br><sub>Preuves : server/src/actions/absences.ts:60-65 · server/src/integrations/keystone/keystone.ts:7-11 · shared/rules/conges.ts:128</sub>
 - [x] **Modifier ou annuler un déplacement et reprogrammer un entretien** — 🟠 Important · M
   Un déplacement annulé reste et pèse sur le Go / No Go ; un entretien reporté reste « planifié » à une date passée et masque le retard. Ajouter modifier/annuler pour les voyages (avec notification Keystone) et reprogrammer/annuler pour les entretiens, en refusant les doublons.
   <br><sub>Preuves : server/src/actions/voyages.ts:90-96 · server/src/actions/entretiens.ts:15-23, :60-65 · shared/rules/entretiens.ts:25-26</sub>
@@ -605,7 +605,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Interface multilingue pour les filiales pays** — 🟢 Souhaitable · L
   Tous les libellés de l'interface, des e-mails et des documents imprimés sont en français en dur dans le code ; une filiale anglophone ou hispanophone ne peut pas utiliser Cursus. Extraire les libellés dans des fichiers de langue (interface, e-mails, impressions, messages d'erreur du serveur), ajouter la langue au compte et aux paramètres d'entité, et garder le français comme langue de référence. Attente du marché : standard.
   <br>*Ajoutée le 26/10/2026 (analyse comparative) ; à valider avant de développer : ne se justifie que si Cursus est déployé hors des sites francophones (les règles de droit du travail restent françaises).*
-  <br><sub>Preuves : grep -rl i18n\|lang= client/src → client/src/print.ts seulement · client/index.html (lang fr) · server/src/integrations/email.ts (textes français en dur)</sub>
+  <br><sub>Preuves : grep -rl i18n\|lang= client/src → client/src/print.ts seulement · client/index.html (lang fr) · server/src/integrations/microsoft/email.ts (textes français en dur)</sub>
 
 ## Tests & qualité
 

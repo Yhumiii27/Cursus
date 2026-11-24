@@ -1,7 +1,7 @@
 // File d'envoi des messages sortants : relance ou classement d'un envoi en échec (vue « Envois » des paramètres).
 import { classerEnvoi, relancerEnvoi, type Cible, type Envoi } from '../envois.ts';
 import { configMail } from '../config.ts';
-import { keystoneSortant } from '../integrations/keystone.ts';
+import { keystoneSortant } from '../integrations/keystone/keystone.ts';
 import { ActionError, requireRh, type ActionHandler } from './context.ts';
 
 const NOM_CIBLE: Record<Cible, string> = { keystone: 'Keystone', email: 'la messagerie Microsoft 365' };

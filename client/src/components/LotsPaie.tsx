@@ -1,5 +1,5 @@
 // Écran Temps, espace RH : transmission des variables de paie à Sage. Mode réel de l'intégration (simulation ou fichier
-// d'import : server/src/integrations/sage.ts), feuilles validées en attente par période de paie, rappels d'une
+// d'import : server/src/integrations/sage/sage.ts), feuilles validées en attente par période de paie, rappels d'une
 // période close compris (shared/rules/paie.ts), lots de paie (shared/rules/lots-paie.ts) : génération du lot d'une
 // période, téléchargement de son fichier d'import, confirmation de l'import dans Sage (seule à marquer les feuilles
 // transmises) ou annulation avant elle, historique. En simulation, la transmission en un clic reste possible. Format du

@@ -15,7 +15,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:
 import { MAX_ABONNEMENTS_PUSH, NOTIFICATIONS_PUSH, prochainEnvoiAdmis, TTL_PUSH_S } from '../../shared/notifications-push.ts';
 import { clePieces, configVapid, demoActive, type Env } from './config.ts';
 import { type Db, jsonLu } from './db.ts';
-import { type AbonnementNavigateur, type ClesVapid, nouvellesClesVapid } from './integrations/push.ts';
+import { type AbonnementNavigateur, type ClesVapid, nouvellesClesVapid } from './integrations/push/push.ts';
 
 export const PUSH_DESACTIVE = 'Notifications sur le téléphone désactivées sur ce serveur : le service informatique pose les clés CURSUS_VAPID_* (docs/DEPLOIEMENT.md)';
 

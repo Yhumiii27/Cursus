@@ -16,8 +16,8 @@ migration nouvelle n'y touche (`tests/m18-publications.test.ts`). Deux points so
 | `matrix.pub_sites` (D14, sites de rattachement) | Table locale `sites`, cache tenu à la main par le service RH (Référentiels → Entités et sites, lot 11) ; aucun accès SQL | Aucune requête vers le schéma `matrix` | Conforme ; une synchronisation automatique lira `matrix.pub_sites` (vue `pub_`) |
 | `matrix.pub_organigramme` (D15, unités) | Code d'unité saisi à la main (`equipes.unite_code`, `employes.unite_code`) ; aucun accès SQL | Aucune requête vers le schéma `matrix` | Conforme ; même remarque |
 | `matrix.pub_entites` (proposée, `docs/demandes/matrix-lot11-entites.md`) | Table locale `entites` en attendant | Demande à valider | Conforme : la proposition lit une vue `pub_` de Matrix |
-| `clavis.pub_acces` (connexion par Clavis, 24/11/2026) | `lireAccesClavis` (`server/src/acces-clavis.ts`) : à la connexion et au plus toutes les minutes pendant la session, avec `CURSUS_ACCES_CLAVIS=on` ; vue illisible : accès refusé | Lien de lecture `cursus_app` (dépôt des publications de Matrix, Matrix#92) | Conforme (vue `pub_`) |
-| `codex.pub_types_document` (lot 16, catégories des pièces) | `lireTypesCodex` (`server/src/pieces-codex.ts`) : contrôle avant d'accepter le stockage « Codex », après `to_regclass` et `has_table_privilege` (vue absente ou non accordée : choix refusé, jamais une erreur) | Lien de lecture `cursus_app` demandé à Matrix (Matrix#87) ; `codex.pub_documents` demandé aussi, pas encore lu | Conforme (vue `pub_`) |
+| `clavis.pub_acces` (connexion par Clavis, 24/11/2026) | `lireAccesClavis` (`server/src/integrations/clavis/acces-clavis.ts`) : à la connexion et au plus toutes les minutes pendant la session, avec `CURSUS_ACCES_CLAVIS=on` ; vue illisible : accès refusé | Lien de lecture `cursus_app` (dépôt des publications de Matrix, Matrix#92) | Conforme (vue `pub_`) |
+| `codex.pub_types_document` (lot 16, catégories des pièces) | `lireTypesCodex` (`server/src/integrations/codex/pieces-codex.ts`) : contrôle avant d'accepter le stockage « Codex », après `to_regclass` et `has_table_privilege` (vue absente ou non accordée : choix refusé, jamais une erreur) | Lien de lecture `cursus_app` demandé à Matrix (Matrix#87) ; `codex.pub_documents` demandé aussi, pas encore lu | Conforme (vue `pub_`) |
 
 Relevé : aucune requête du code (`server/src`) ne nomme un schéma `matrix`, `keystone`, `vigie`, `crucible` ou `arche` ; le
 schéma `codex` n'est lu que par sa vue `codex.pub_types_document` (lot 16, ligne ci-dessous) ; sur le serveur commun, le pool de Cursus travaille dans le schéma `cursus` (`search_path`).
@@ -26,19 +26,36 @@ schéma `codex` n'est lu que par sa vue `codex.pub_types_document` (lot 16, lign
 
 | Échange | Moyen | Conformité |
 | --- | --- | --- |
-| Cursus → Keystone : décisions sur les demandes de déplacement, heures validées sur les projets, absences validées ou annulées (période seule), verdicts Go / No Go modifiés | API de Keystone `POST ${KEYSTONE_URL}/api/cursus/v1/evenements` (jeton, `Idempotency-Key`), par la file `envois` (`server/src/integrations/keystone.ts`, `server/src/envois.ts`) | Conforme (API) |
-| Cursus → Matrix : déclaration du schéma de la base (catalogue `matrix.schema/1`) | API de Matrix `POST ${MATRIX_URL}/api/declarations` (`server/src/integrations/matrix.ts`), au démarrage, jamais bloquant | Conforme (API) |
-| Cursus → Codex : pièces justificatives (lot 16, décision du 10/11/2026 : tous les documents dans Codex) | API de Codex : `POST ${CODEX_URL}/api/documents` (jeton et/ou signature HMAC, `sourceRef` `cursus:piece/<id>` rejouable), relecture `GET …/{id}/file` et destruction `POST …/{id}/destroy` (demandées, Codex#29) ; client `server/src/integrations/codex-documents.ts`, versement `server/src/pieces-codex.ts`. Stockage « Codex » refusé tant que Codex n'est pas raccordé et que ses catégories manquent ; aucune pièce envoyée aujourd'hui | Conforme (API) |
+| Cursus → Keystone : décisions sur les demandes de déplacement, heures validées sur les projets, absences validées ou annulées (période seule), verdicts Go / No Go modifiés | API de Keystone `POST ${KEYSTONE_URL}/api/cursus/v1/evenements` (jeton, `Idempotency-Key`), par la file `envois` (`server/src/integrations/keystone/keystone.ts`, `server/src/envois.ts`) | Conforme (API) |
+| Cursus → Matrix : déclaration du schéma de la base (catalogue `matrix.schema/1`) | API de Matrix `POST ${MATRIX_URL}/api/declarations` (`server/src/integrations/matrix/matrix.ts`), au démarrage, jamais bloquant | Conforme (API) |
+| Cursus → Codex : pièces justificatives (lot 16, décision du 10/11/2026 : tous les documents dans Codex) | API de Codex : `POST ${CODEX_URL}/api/documents` (jeton et/ou signature HMAC, `sourceRef` `cursus:piece/<id>` rejouable), relecture `GET …/{id}/file` et destruction `POST …/{id}/destroy` (demandées, Codex#29) ; client `server/src/integrations/codex/codex-documents.ts`, versement `server/src/integrations/codex/pieces-codex.ts`. Stockage « Codex » refusé tant que Codex n'est pas raccordé et que ses catégories manquent ; aucune pièce envoyée aujourd'hui | Conforme (API) |
 | Cursus → Vigie, Crucible, Arche | Aucun envoi | — |
 
 Hors du groupe (ni schéma ni outil EPC2I) : e-mails par Microsoft Graph, notifications push par les services des
 navigateurs, connexion Microsoft Entra ID, fichier d'import de Sage Paie téléchargé par la paie.
 
+### Où vivent les connecteurs (Norma § 5, 24/11/2026)
+
+Un dossier par outil sous `server/src/integrations/` : `clavis/` (`acces-clavis.ts` : droits lus dans `clavis.pub_acces`),
+`codex/` (`codex-documents.ts` client de l'API, `ged.ts` dépôt des pièces versées, `pieces-codex.ts` versement et lecture
+de `codex.pub_types_document`), `keystone/` (`keystone.ts` messages sortants par la file `envois`, `keystone-entrant.ts`,
+`keystone-routes.ts` et `filtre-keystone.ts` pour l'API entrante, `keystone-verdicts.ts`), `matrix/` (`matrix.ts` :
+déclaration du schéma) ; hors du groupe : `microsoft/` (`email.ts`, e-mails par Graph), `push/` (`push.ts`, Web Push),
+`sage/` (`sage.ts`, mode de transmission de la paie). La connexion (`server/src/microsoft.ts`, OpenID Connect par Clavis
+ou Entra ID) et les files d'envoi communes (`server/src/envois.ts`, `server/src/envois-push.ts`) restent à part.
+
+**Source illisible = état affiché, jamais une erreur de page** : `clavis.pub_acces` illisible refuse l'accès (Norma § 6) ;
+registre de Codex illisible : choix du stockage « Codex » refusé avec son motif ; Codex injoignable au versement : arrêt,
+nouvel essai au passage suivant ; pièce versée que Codex ne sert pas (injoignable, refus, raccordement absent) : réponse
+503 « Codex (espace documentaire) est indisponible… » (`CODEX_ILLISIBLE`, `server/src/pieces-routes.ts`, jusqu'au
+24/11/2026 une erreur interne 500) ; Keystone et e-mails : file d'envoi, état visible dans Paramètres → Envois ; Matrix :
+déclaration jamais bloquante.
+
 ## 3. Écritures d'un autre outil chez Cursus
 
 | Échange | Moyen | Conformité |
 | --- | --- | --- |
-| Keystone → Cursus : projets, chantiers, affectations, tâches, demandes de déplacement ; lecture de l'instantané et des verdicts | API de Cursus `/api/integrations/keystone/v1` (`X-Api-Key`, filtre d'adresses facultatif ; `server/src/integrations/keystone-routes.ts`, contrat `docs/keystone-openapi.json`) | Conforme (API de Cursus) |
+| Keystone → Cursus : projets, chantiers, affectations, tâches, demandes de déplacement ; lecture de l'instantané et des verdicts | API de Cursus `/api/integrations/keystone/v1` (`X-Api-Key`, filtre d'adresses facultatif ; `server/src/integrations/keystone/keystone-routes.ts`, contrat `docs/keystone-openapi.json`) | Conforme (API de Cursus) |
 | Matrix → Cursus : correction des libellés des référentiels par la DSI (demande M-19, lot 15) | Fonction `cursus.pub_editer(p_table, p_action, p_cle, p_valeurs, p_par, p_motif)` (`server/migrations-pg/0033_pub_editer.sql` : `SECURITY DEFINER`, `search_path` figé au schéma de Cursus puis `pg_temp`, `EXECUTE` retiré à `PUBLIC`) ; « corriger » seulement, formations, habilitations, destinations, organismes et modules d'e-learning, colonnes descriptives ; contrôles des formulaires et journal de Cursus (`matrix.editer`) | Conforme (fonction `pub_` de Cursus) ; droit d'exécution : lien « écriture » `matrix_app` → `cursus.pub_editer`, décidé dans Matrix |
 
 ## 4. Vues `pub_` de Cursus et leurs lecteurs (R3, M-18)

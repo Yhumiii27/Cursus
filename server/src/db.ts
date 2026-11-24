@@ -174,7 +174,7 @@ export const TABLES = {
       // Coordonnées sur place (t068) : hébergement, contact local (textes du service RH), inscription sur Ariane.
       hebergement: 'text', contactSurPlace: 'text', arianeLe: 'text' },
   },
-  // Références Keystone (`ref`) uniques : index créés au démarrage (server/src/integrations/keystone-entrant.ts).
+  // Références Keystone (`ref`) uniques : index créés au démarrage (server/src/integrations/keystone/keystone-entrant.ts).
   demandesKeystone: {
     pk: 'id', auto: true,
     cols: { id: 'int', empId: 'int', chantier: 'text', dest: 'text', depart: 'text', retour: 'text', recue: 'text', ref: 'text', statut: 'text', decidee: 'text', decideur: 'text', voyageId: 'int',
@@ -422,7 +422,7 @@ export const TABLES = {
       enAttente: 'int',
     },
   },
-  // Dernier verdict Go / No Go transmis à Keystone, par chantier et ressource (server/src/integrations/keystone-verdicts.ts).
+  // Dernier verdict Go / No Go transmis à Keystone, par chantier et ressource (server/src/integrations/keystone/keystone-verdicts.ts).
   verdictsKeystone: { pk: 'id', auto: true, cols: { id: 'int', chantier: 'text', empId: 'int', statut: 'text', motifs: 'json', date: 'text' }, unique: [['chantier', 'empId']] },
   // Relances des échéances (server/src/relances.ts) : palier franchi par objet (titre, visite, entretien, fin de contrat…),
   // noté une fois envoyé pour qu'il ne reparte pas ; `cle` porte la date d'échéance (un renouvellement repart de zéro).

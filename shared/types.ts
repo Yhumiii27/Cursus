@@ -245,7 +245,7 @@ export type StatutKeystone = 'actif' | 'archive';
 export interface Projet { code: string; nom: string; statut: StatutKeystone }
 /**
  * Chantier transmis par Keystone (identifiant Keystone). `ressources` : salariés dont une affectation
- * chevauche les dates du chantier, recalculés par le serveur (server/src/integrations/keystone-entrant.ts).
+ * chevauche les dates du chantier, recalculés par le serveur (server/src/integrations/keystone/keystone-entrant.ts).
  */
 export interface Chantier {
   id: string; nom: string; client: string; lieu: string; pays: string; debut: ISODate; fin: ISODate; chef: string; habs: string[]; certs: string[]; ressources: number[]; statut: StatutKeystone;
@@ -1791,7 +1791,7 @@ export interface EtatEnvois {
   enReprise: { id: number; type: string; tentatives: number; prochaine: string | null; erreur: string | null } | null;
 }
 
-// — E-mails (server/src/integrations/email.ts, server/src/notifications.ts) —
+// — E-mails (server/src/integrations/microsoft/email.ts, server/src/notifications.ts) —
 /** Notifications d'étapes : envoyées aussitôt, ou regroupées dans un récapitulatif quotidien. */
 export type ModeNotification = 'immediat' | 'quotidien';
 export interface PieceJointe { nom: string; type: string; /** Contenu encodé en base64. */ base64: string }

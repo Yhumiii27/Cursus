@@ -10,7 +10,7 @@
 //   push.tester              — : notification d'essai à tous ses appareils, aussitôt (plage de silence ignorée)
 import { libelleAppareil, typesValides } from '../../../shared/notifications-push.ts';
 import { plural } from '../../../shared/format.ts';
-import { deB64u, endpointAdmis } from '../integrations/push.ts';
+import { deB64u, endpointAdmis } from '../integrations/push/push.ts';
 import { type AbonnementPush, cleEndpoint, clesPush, enregistrerAbonnement, mettreEnFilePush, PUSH_DESACTIVE, supprimerAbonnements } from '../push.ts';
 import { ActionError, type ActionHandler, type Ctx, requireRhAdmin } from './context.ts';
 

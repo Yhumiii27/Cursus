@@ -138,10 +138,14 @@ server/src/
   releves.ts       Relevés d'heures hebdomadaires des intérimaires envoyés à leur agence
   relances.ts      Récapitulatif des échéances par paliers (RH, managers, référent HSE), relances notées (table relances)
   evaluations-formation.ts Demandes et relances des évaluations de formation par e-mail (lot 7, t121), une fois par jour
-  integrations/    Adaptateurs Keystone, Sage Paie et e-mails (email.ts : Microsoft Graph, .ics ; simulation par défaut) ;
-                   ged.ts : espace documentaire de l'entreprise (squelette, refusé tant que son interface est inconnue) ; API Keystone entrante :
-                   keystone-entrant.ts (contrôles, écritures, instantané) et keystone-routes.ts (routes /v1) ;
-                   keystone-verdicts.ts (verdicts Go / No Go transmis, changements signalés)
+  integrations/    Connecteurs, un dossier par outil (Norma § 5 ; inventaire docs/ECHANGES.md) : clavis/acces-clavis.ts
+                   (droits lus dans clavis.pub_acces) ; codex/ (codex-documents.ts : client de l'API, ged.ts : dépôt des
+                   pièces versées, pieces-codex.ts : versement, registre des types) ; keystone/ (keystone.ts : messages
+                   sortants, API entrante keystone-entrant.ts (contrôles, écritures, instantané), keystone-routes.ts
+                   (routes /v1) et filtre-keystone.ts (filtre d'adresses), keystone-verdicts.ts (verdicts Go / No Go
+                   transmis, changements signalés)) ; matrix/matrix.ts (déclaration du schéma) ; hors du groupe :
+                   microsoft/email.ts (Microsoft Graph, .ics ; simulation par défaut), push/push.ts (Web Push),
+                   sage/sage.ts (mode de transmission de la paie)
   index.ts         Démarrage (dans l'ordre : configuration, droits, verrou, migrations, tâches) et routes HTTP
 client/src/
   state/store.tsx  Session, données, navigation, filtres d'écran (ui), dialogue ouvert, notifications, reconnexion
@@ -574,7 +578,7 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
        refus `acces.refuse`, `keystone.appel`, dernier accès d'un jeton d'agenda) s'écrit ensuite dans sa propre courte
        transaction (`db.tx`), **avant la réponse** : un fichier ne part jamais sans sa trace, et un échec de la trace
        (Cursus occupé) fait échouer la route. Pour l'API Keystone, la trace est écrite au moment de la réponse
-       (enrobage de `res.json`, `server/src/integrations/keystone-routes.ts`) : une lecture (GET) dont la trace échoue
+       (enrobage de `res.json`, `server/src/integrations/keystone/keystone-routes.ts`) : une lecture (GET) dont la trace échoue
        reçoit 503 `OCCUPE` (ou 500) à la place de sa réponse ; une écriture déjà validée retente sa trace une fois, puis
        répond quand même (un 503 la ferait refaire), l'absence de trace écrite en erreur dans les journaux du serveur.
        La trace n'est plus atomique avec la lecture : une écriture d'une autre
@@ -727,7 +731,7 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   chargement ou marquage `exploitation`, en production hors démonstration, refus d'une base qui porte des indices de
   démonstration (`indicesDemo`) ou d'une connexion PostgreSQL en `postgres` ou en superutilisateur ; démonstration sur
   la base `epc2i` refusée dès que la base porte le réglage `exploitation` ou la ligne `purge.demo` du journal.
-- **API Keystone par adresse** (`server/src/filtre-keystone.ts`, lot 8) : `CURSUS_KEYSTONE_ADRESSES` (adresses et
+- **API Keystone par adresse** (`server/src/integrations/keystone/filtre-keystone.ts`, lot 8) : `CURSUS_KEYSTONE_ADRESSES` (adresses et
   réseaux, `net.BlockList`) lue à la construction de l'application, monté devant `keystoneRoutes` ; 403
   `ADRESSE_REFUSEE` hors liste, d'après `req.ip` (proxy de confiance). Vide : aucun filtre.
 - **Intégrité** (`server/src/integrite.ts`, t179 étape 1) : `REFERENCES` liste les colonnes qui désignent une autre
@@ -2990,7 +2994,7 @@ conservation : aucune purge n'est encore appliquée, et les déclarations accept
 Décision de l'entreprise du 18 octobre 2026 : fonction livrée **désactivée** (réglage `piecesStockage`, Paramètres →
 Pièces justificatives, `pages/parametres/Pieces.tsx`) ; l'administrateur RH l'active (« Dossier des données de Cursus »)
 après avis du DPO. Le choix « GED » (espace documentaire développé avec Codex) est refusé tant que son adaptateur
-(`server/src/integrations/ged.ts`, même contrat `DepotPieces` que le dossier local) n'est pas écrit ; désactiver la
+(`server/src/integrations/codex/ged.ts`, même contrat `DepotPieces` que le dossier local) n'est pas écrit ; désactiver la
 fonction n'efface rien et laisse les pièces jointes consultables.
 
 - **Fichiers** (`shared/rules/pieces.ts`) : PDF, JPEG ou PNG reconnus sur leurs premiers octets ; seul le type reconnu
@@ -3106,7 +3110,7 @@ Décision de l'entreprise : tout le monde a une adresse Microsoft 365 (Outlook).
 - **Flux personnel** (`GET /api/agenda/<jeton>.ics`, hors session et hors CSRF, après le limiteur de l'API ; débit propre
   par adresse et par jeton, `DEBIT_AGENDA`) : sessions inscrites, entretiens planifiés, absences en vigueur sous le libellé
   neutre « Absent » quelle que soit leur nature, déplacements (pays), de 3 mois en arrière à un an en avant ; un
-  VCALENDAR sans METHOD, événements produits par `calendrier` de `integrations/email.ts`. Réglages (section « Agenda ») :
+  VCALENDAR sans METHOD, événements produits par `calendrier` de `integrations/microsoft/email.ts`. Réglages (section « Agenda ») :
   `agendaFluxActif` (désactivé par défaut) et `agendaContenu`. Jeton de 256 bits en base64url, montré une seule fois,
   stocké haché (table `jetonsAgenda`, empreinte SHA-256) ; un jeton inconnu, révoqué, d'un salarié sorti ou anonymisé,
   d'un compte désactivé, ou un flux désactivé : même 404. Dernier accès noté au plus une fois par heure. Portail : panneau
@@ -3115,7 +3119,7 @@ Décision de l'entreprise : tout le monde a une adresse Microsoft 365 (Outlook).
 ## Données Keystone
 
 Chantiers, projets, missions et tâches viennent de Keystone par l'API entrante
-(`server/src/integrations/keystone-entrant.ts`), y compris en démonstration : `seed.ts` passe par
+(`server/src/integrations/keystone/keystone-entrant.ts`), y compris en démonstration : `seed.ts` passe par
 les mêmes fonctions et les mêmes tables. Chaque objet porte son identifiant Keystone (`ref` pour les
 affectations, tâches et demandes, index uniques créés au démarrage) : un nouvel envoi le met à jour.
 
@@ -3798,11 +3802,15 @@ leur conformité : `docs/ECHANGES.md` ; règles reprises en tête des demandes :
 
 ## Intégrations
 
+Chaque connecteur vit dans `server/src/integrations/<outil>/` (Norma § 5 ; liste dans l'arborescence plus haut et dans
+`docs/ECHANGES.md`, « Où vivent les connecteurs »). Une source illisible est un état affiché, jamais une erreur de page :
+une pièce versée dans Codex que Codex ne sert pas répond 503 avec `CODEX_ILLISIBLE` (`server/src/pieces-routes.ts`).
+
 - **Keystone → Cursus** : API `/api/integrations/keystone/v1` (en-tête `X-Api-Key`, variable
   `KEYSTONE_API_KEY`) — projets, chantiers, affectations, tâches, instantané, verdict Go / No Go,
   demandes ; les routes sans `/v1` restent servies comme alias obsolètes. Seuls des matricules et
   codes de motif sortent de Cursus.
-- **Cursus → Keystone** : `server/src/integrations/keystone.ts` (`sendToKeystone`) met en file
+- **Cursus → Keystone** : `server/src/integrations/keystone/keystone.ts` (`sendToKeystone`) met en file
   (`server/src/envois.ts`, table `envois`) les décisions sur les demandes de déplacement, les heures
   validées sur les projets Keystone (`heuresKeystone` : ni `INT-*`, ni `ECOLE`), les absences validées
   ou annulées (`absenceKeystone` : période, jamais la nature) et les verdicts modifiés. La mise en file
@@ -3813,7 +3821,7 @@ leur conformité : `docs/ECHANGES.md` ; règles reprises en tête des demandes :
   échec, sinon nouvelle tentative de 1 min à 1 h, 10 au plus. Sans `KEYSTONE_URL`, statut « simulé » et
   message écrit dans le journal. Suivi, relance et classement des échecs : Paramètres → Envois
   (`GET /api/envois`, RH ; lecture seule sans le contenu des e-mails de santé, `envoisPourLecteur`) ; l'état de l'intégration ne compte que les échecs non classés.
-- **Verdicts Go / No Go** : `server/src/integrations/keystone-verdicts.ts` (`suivreVerdicts`) mémorise le
+- **Verdicts Go / No Go** : `server/src/integrations/keystone/keystone-verdicts.ts` (`suivreVerdicts`) mémorise le
   dernier verdict transmis par chantier et ressource (table `verdictsKeystone`) et met en file
   `verdict.modifie` (codes de motif seulement) quand il change. Recalcul après chaque action, sauf les
   familles sans effet (`changeVerdicts` de `actions/index.ts` : temps, compteurs de congés, entretiens… ;
@@ -3822,7 +3830,7 @@ leur conformité : `docs/ECHANGES.md` ; règles reprises en tête des demandes :
   sans envoi. Ceux mémorisés en simulation ne sont pas réputés transmis : le réglage `verdictsKeystoneMode`
   retient le mode du suivi, et le premier calcul en mode API vide la table, d'où un premier verdict
   (`precedent: null`) pour chaque ressource suivie.
-- **Cursus → Matrix** (catalogue des bases) : `server/src/integrations/matrix.ts`, portage du module de référence de
+- **Cursus → Matrix** (catalogue des bases) : `server/src/integrations/matrix/matrix.ts`, portage du module de référence de
   Matrix (`integration/declarer-schema.mjs`, partie SQLite). Au démarrage, après `migrate(db)` et les migrations nommées,
   `declarerBase` lit le schéma réel (`sqlite_master`, `PRAGMA table_info`, `foreign_key_list`, `index_list` ; table
   technique `migrations` et tables internes `sqlite_*` écartées) et l'envoie, non attendu, à
@@ -3831,7 +3839,7 @@ leur conformité : `docs/ECHANGES.md` ; règles reprises en tête des demandes :
   `MATRIX_URL`, rien ne part ; `MATRIX_DECLARATIONS_DIR` écrit aussi `cursus.json`. Un échec n'écrit qu'un avertissement
   `[matrix]`. Les liens logiques entre tables (Cursus ne déclare pas de clés étrangères) sont ajoutés par le collecteur
   de Matrix.
-- **Sage Paie** : `server/src/integrations/sage.ts`, mode `SAGE_MODE` (`sageMode`) : `simulation` (démonstration et
+- **Sage Paie** : `server/src/integrations/sage/sage.ts`, mode `SAGE_MODE` (`sageMode`) : `simulation` (démonstration et
   développement : rien ne part, les feuilles sont marquées transmises et l'écran, la confirmation et le message le disent),
   `fichier` (mode de production par défaut : lot de paie, fichier d'import téléchargé par la paie, import confirmé, qui seul
   marque les feuilles transmises ; `temps.pushSage` y refuse sans rien marquer). Pas d'envoi par API (décision du
@@ -3954,7 +3962,7 @@ leur conformité : `docs/ECHANGES.md` ; règles reprises en tête des demandes :
   de temps (`pages/parametres/FeuillesTemps.tsx`).
 - **Microsoft 365** : `server/src/microsoft.ts` (voir Sécurité) ; un compte Microsoft se retrouve par
   son `oid`, ou par son identifiant (adresse de connexion) à la première connexion.
-- **E-mails** (`server/src/integrations/email.ts`, guide `docs/EMAILS.md`) : cible `email` de la file d'envoi,
+- **E-mails** (`server/src/integrations/microsoft/email.ts`, guide `docs/EMAILS.md`) : cible `email` de la file d'envoi,
   `POST https://graph.microsoft.com/v1.0/users/{CURSUS_MAIL_FROM}/sendMail` avec un jeton applicatif (client
   credentials, `fetch`, gardé jusqu'à 5 min de son expiration ; refusé par le service de jetons : échec
   définitif ; 401 de Graph : jeton renouvelé et nouvelle tentative). Configuration `configMail` de
@@ -4183,7 +4191,7 @@ CURSUS_PWA et les écrans sont venus avec l'étape 2 (section suivante).
   → arrêt. Purges : `purger` (déconnexion, appareil partagé), `purgerAutreCompte`, `purgerAnciennes` (7 jours). Envoi par
   l'API : `envoyeurApi` (`api.action(…, { cle })`, `api.envoyerPiece(…, cle)`). La relecture périodique de
   `client/src/state/store.tsx` se tait hors ligne (`navigator.onLine`).
-- **Web Push maison** (`server/src/integrations/push.ts`) : RFC 8291 (ECDH P-256, HKDF), RFC 8188 (aes128gcm, un
+- **Web Push maison** (`server/src/integrations/push/push.ts`) : RFC 8291 (ECDH P-256, HKDF), RFC 8188 (aes128gcm, un
   enregistrement de 4096), RFC 8292 (JWT ES256, audience = origine du service, 12 h) ; vecteurs de l'annexe A de la
   RFC 8291 et vérification du jeton dans `tests/push.test.ts`. Services admis seulement (`HOTES_PUSH` : FCM, Apple,
   Mozilla, Microsoft), https sans port ni identifiant : le serveur n'envoie jamais à une adresse interne.
@@ -5943,7 +5951,7 @@ dossier du personnel, dépôt d'un enregistrement sans circuit, lecture et destr
   (« Attestation de formation — EMP-0002 — 2026-09 » : ni nom ni donnée de santé ; un justificatif de frais médicaux porte
   le titre de tout justificatif de frais), `sourceRef` `cursus:piece/<id>`, motif codé d'une destruction (`retrait`,
   `conservation` au terme échu, `effacement` demandé avant le terme ; posés par `server/src/conservation.ts`).
-- **Client** (`server/src/integrations/codex-documents.ts`) : `POST /api/documents` en `multipart/form-data`, jeton
+- **Client** (`server/src/integrations/codex/codex-documents.ts`) : `POST /api/documents` en `multipart/form-data`, jeton
   `Bearer` et/ou signature HMAC-SHA256 du corps brut (`X-Codex-Timestamp`, `X-Codex-Signature: v1=…`), signée à chaque
   essai (anti-rejeu de Codex) ; relecture et destruction aux adresses demandées ; erreurs passagères (réseau, 5xx, 429 :
   `CodexIndisponible`) ou définitives (4xx : `CodexRefus`). Configuration dans l'environnement seulement : `CODEX_URL`,
@@ -5951,7 +5959,7 @@ dossier du personnel, dépôt d'un enregistrement sans circuit, lecture et destr
   personne connectée), contrôlés au démarrage (`problemesCodex`).
 - **Stockage « Codex »** (réglage `piecesStockage = 'ged'`) : une pièce envoyée attend dans le dossier local, chiffrée
   (`CURSUS_PIECES_KEY` toujours exigée), d'être jointe ; le passage horaire des pièces (`verserSiCodex`,
-  `server/src/pieces-codex.ts`) verse les pièces jointes, 50 par passage : contrôle de l'empreinte, dépôt, nom stocké
+  `server/src/integrations/codex/pieces-codex.ts`) verse les pièces jointes, 50 par passage : contrôle de l'empreinte, dépôt, nom stocké
   `ged:<identifiant Codex>` posé seulement s'il n'a pas changé entre-temps, copie locale effacée. Même chemin pour la
   reprise des pièces d'avant. Refus définitif : pièce gardée en local, signalée aux journaux ; Codex injoignable : arrêt,
   nouvel essai au passage suivant. Une pièce versée se relit (`DepotGed.lire`) pour les utilisateurs de Cursus, avec ses

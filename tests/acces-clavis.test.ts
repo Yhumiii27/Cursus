@@ -13,7 +13,7 @@ process.env.CURSUS_ACCES_CLAVIS_SECONDES = '0';
 const { PG, nouvelleBase, schemaNeuf, surServeur } = await import('./base.ts');
 const { configOidc, problemesConfig } = await import('../server/src/config.ts');
 const { FournisseurOidc } = await import('../server/src/microsoft.ts');
-const { appliquerProfilClavis, droitClavis, oublierDroitsClavis, profilDepuisAcces } = await import('../server/src/acces-clavis.ts');
+const { appliquerProfilClavis, droitClavis, oublierDroitsClavis, profilDepuisAcces } = await import('../server/src/integrations/clavis/acces-clavis.ts');
 const { creerCompte } = await import('../server/src/comptes.ts');
 const { ouvrirPostgres } = await import('../server/src/db-pg.ts');
 

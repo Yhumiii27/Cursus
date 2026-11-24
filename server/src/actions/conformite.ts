@@ -12,7 +12,7 @@ import type { Certification, DemandeCollab, Employe, HabTitre, HabType, Inscript
 import { jeuApres } from '../cache-instantane.ts';
 import { loadFull } from '../dataset.ts';
 import { auteurDe, inscrireDelivrance } from '../delivrances.ts';
-import { suivreVerdicts } from '../integrations/keystone-verdicts.ts';
+import { suivreVerdicts } from '../integrations/keystone/keystone-verdicts.ts';
 import { annulerSiConvoque, convoquerFormation, notifierDecisionDemande } from '../notifications.ts';
 import {
   ActionError, type ActionHandler, aDroit, type Ctx, enriched, getEmp, getPersonne, isManagerOf, refuserSoiMeme, requireFormations, requireRh, REVIENT_FORMATIONS, REVIENT_RH, str,

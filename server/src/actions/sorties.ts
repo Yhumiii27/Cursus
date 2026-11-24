@@ -14,7 +14,7 @@ import { controleSortie, effetsSortie, estMotifSortie, finContrat, MOTIFS_SORTIE
 import type { Certification, DemandeVisite, Absence, Employe } from '../../../shared/types.ts';
 import { revokeSessionsOf } from '../auth.ts';
 import { adminsDurables, type Compte, refusDuCompte } from '../comptes.ts';
-import { absenceKeystone, sendToKeystone } from '../integrations/keystone.ts';
+import { absenceKeystone, sendToKeystone } from '../integrations/keystone/keystone.ts';
 import { annulerSiConvoque } from '../notifications.ts';
 import { controlerSoldeSortie, photographierSortie, retirerSoldeSortie } from '../soldes-sortie.ts';
 import { amorcer, cloreHistorique, rouvrirHistorique } from '../avenants.ts';

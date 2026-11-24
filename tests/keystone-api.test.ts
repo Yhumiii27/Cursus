@@ -21,7 +21,7 @@ const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
-const { keystoneRoutes, ROUTES_V1 } = await import('../server/src/integrations/keystone-routes.ts');
+const { keystoneRoutes, ROUTES_V1 } = await import('../server/src/integrations/keystone/keystone-routes.ts');
 const { Domain } = await import('../shared/domain.ts');
 const { ACTIVITES_INTERNES, CODES_MOTIF } = await import('../shared/constants.ts');
 const { suggestLines, tachesDeLaSemaine } = await import('../shared/rules/temps.ts');
@@ -427,7 +427,7 @@ test('contrat OpenAPI : servi, conforme aux routes, aux codes de motif et aux co
   const anciennes = Object.entries(spec.paths as Record<string, Corps>).filter(([p]) => !p.startsWith('/v1/'));
   assert.ok(anciennes.length === 2 && anciennes.every(([, ops]) => Object.values(ops).every((o: Corps) => o.deprecated === true)));
   assert.deepEqual(spec.components.schemas.CodeMotif.enum, [...CODES_MOTIF]);
-  const sources = ['keystone-entrant.ts', 'keystone-routes.ts'].map(f => readFileSync(join(ROOT, 'server/src/integrations', f), 'utf8')).join('\n');
+  const sources = ['keystone-entrant.ts', 'keystone-routes.ts'].map(f => readFileSync(join(ROOT, 'server/src/integrations/keystone', f), 'utf8')).join('\n');
   const codes = [...new Set([...sources.matchAll(/new ErreurKeystone\([^,]+, '([A-Z_]+)'/g)].map(m => m[1]))];
   assert.deepEqual(codes.filter(c => !spec.components.schemas.CodeErreur.enum.includes(c)), []);
   assert.deepEqual(spec.components.schemas.CodeErreur.enum.filter((c: string) => !codes.includes(c)), []);
@@ -438,7 +438,7 @@ test('contrat OpenAPI : servi, conforme aux routes, aux codes de motif et aux co
 });
 
 test('base existante : statuts repris, tâches sans dates retirées, index d’unicité', { skip: PG && SQLITE_SEUL }, async () => {
-  const { migrerKeystone } = await import('../server/src/integrations/keystone-entrant.ts');
+  const { migrerKeystone } = await import('../server/src/integrations/keystone/keystone-entrant.ts');
   const db = await nouvelleBase();
   await db.insert('chantiers', { id: 'K-1', nom: 'x', client: '', lieu: 'Lyon', pays: 'FR', debut: '2026-10-01', fin: '2026-10-02', chef: '', habs: [], certs: [], ressources: [] });
   await db.insert('projets', { code: 'K-1', nom: 'x' });

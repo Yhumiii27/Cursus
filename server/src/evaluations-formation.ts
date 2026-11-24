@@ -16,7 +16,7 @@ import { type DemandeEvaluation, demandesEvaluation } from '../../shared/rules/e
 import type { CurrentUser } from '../../shared/types.ts';
 import { loadSettings, todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
-import { envoyerEmail } from './integrations/email.ts';
+import { envoyerEmail } from './integrations/microsoft/email.ts';
 import { adresseSalarie, courriel, lireMessagerie } from './messagerie.ts';
 import { type Lecture, lectureDirecte } from './lecture-partagee.ts';
 

@@ -5,15 +5,15 @@
 // Les appels sans clé valide, que n'importe qui peut émettre, sont seulement comptés et résumés.
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { readFileSync } from 'node:fs';
-import { Domain } from '../../../shared/domain.ts';
-import { plural } from '../../../shared/format.ts';
-import type { Chantier, CurrentUser, DemandeKeystone, Destination, Formation, HabType } from '../../../shared/types.ts';
-import { LimiteParIp } from '../auth.ts';
-import { loadFull, todayIso } from '../dataset.ts';
-import { jeuEnLecture } from '../cache-instantane.ts';
-import type { Db } from '../db.ts';
-import { ATTENTE_OCCUPE, CURSUS_OCCUPE, estOccupe } from '../erreurs.ts';
-import { cheminJournal, log } from '../logs.ts';
+import { Domain } from '../../../../shared/domain.ts';
+import { plural } from '../../../../shared/format.ts';
+import type { Chantier, CurrentUser, DemandeKeystone, Destination, Formation, HabType } from '../../../../shared/types.ts';
+import { LimiteParIp } from '../../auth.ts';
+import { loadFull, todayIso } from '../../dataset.ts';
+import { jeuEnLecture } from '../../cache-instantane.ts';
+import type { Db } from '../../db.ts';
+import { ATTENTE_OCCUPE, CURSUS_OCCUPE, estOccupe } from '../../erreurs.ts';
+import { cheminJournal, log } from '../../logs.ts';
 import { KEYSTONE_API_KEY, keystoneKeyOk } from './keystone.ts';
 import { suivreVerdicts } from './keystone-verdicts.ts';
 import {
@@ -24,7 +24,7 @@ import {
 /** Utilisateur technique des lectures (périmètre complet, comme le service RH). */
 const KEYSTONE: CurrentUser = { role: 'rh', empId: null, nom: 'Keystone', intitule: 'Intégration' };
 const BASE = '/api/integrations/keystone';
-const SPEC = new URL('../../../docs/keystone-openapi.json', import.meta.url);
+const SPEC = new URL('../../../../docs/keystone-openapi.json', import.meta.url);
 
 type Reponse = { status?: number; body: unknown };
 type Traitement = (db: Db, req: Request, res: Response) => Reponse | Promise<Reponse>;

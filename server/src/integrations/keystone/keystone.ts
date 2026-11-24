@@ -5,12 +5,12 @@
 // avec le jeton KEYSTONE_TOKEN. Sans KEYSTONE_URL, ils sont seulement tracés dans le journal
 // (simulation). Contrat : docs/API-KEYSTONE.md, « Événements envoyés par Cursus ».
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { ACTIVITES_INTERNES, GNG_CODE, type CodeMotif } from '../../../shared/constants.ts';
-import { matricule, num } from '../../../shared/format.ts';
-import type { Absence, ISODate, LigneTemps } from '../../../shared/types.ts';
-import { demoActive, KEYSTONE_CLE_DEMO, liaisonsCoupees, type Env } from '../config.ts';
-import type { Db } from '../db.ts';
-import { mettreEnFile, type Envoi, type Transport } from '../envois.ts';
+import { ACTIVITES_INTERNES, GNG_CODE, type CodeMotif } from '../../../../shared/constants.ts';
+import { matricule, num } from '../../../../shared/format.ts';
+import type { Absence, ISODate, LigneTemps } from '../../../../shared/types.ts';
+import { demoActive, KEYSTONE_CLE_DEMO, liaisonsCoupees, type Env } from '../../config.ts';
+import type { Db } from '../../db.ts';
+import { mettreEnFile, type Envoi, type Transport } from '../../envois.ts';
 
 export type CodeGng = typeof GNG_CODE[keyof typeof GNG_CODE];
 /** Motif d'un verdict, comme dans l'API v1 : code et effet, jamais de libellé. */

@@ -26,7 +26,7 @@ import { buildSagePayload, rubriquesEmises, sagePending } from '../../../shared/
 import { absencesDansLeFichier, type ElementCalcule } from '../../../shared/rules/absences-paie.ts';
 import type { Absence, FeuilleTemps, LotPaie, RubriquePaie, SageMode } from '../../../shared/types.ts';
 import { absencesAEmettre, absencesDuContenu, departAuPremierLot, libererAbsences, traduireElements } from '../absences-paie.ts';
-import { pushToSage, SAGE_DOSSIER, SageIndisponible, sageMode } from '../integrations/sage.ts';
+import { pushToSage, SAGE_DOSSIER, SageIndisponible, sageMode } from '../integrations/sage/sage.ts';
 import { aRegulariser, modeRegularisation } from '../../../shared/rules/regularisation.ts';
 import { optionsRegularisation, selectionRemplace } from '../regularisation-paie.ts';
 import { lireFormatFichier, type LotEnregistre } from '../lots-paie.ts';

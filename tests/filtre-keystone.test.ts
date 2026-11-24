@@ -1,4 +1,4 @@
-// Filtre facultatif de l'API Keystone par adresse (lot 8, chantier B, étape 2 ; server/src/filtre-keystone.ts) :
+// Filtre facultatif de l'API Keystone par adresse (lot 8, chantier B, étape 2 ; server/src/integrations/keystone/filtre-keystone.ts) :
 // CURSUS_KEYSTONE_ADRESSES lue (adresses, réseaux IPv4 et IPv6, adresses IPv4 notées en IPv6), contrôlée au démarrage,
 // et appliquée par l'application (server/src/app.ts) : appel d'une autre adresse refusé (403 ADRESSE_REFUSEE) avant la
 // clé, adresse du client lue derrière le proxy de confiance ; vide, aucun filtre.
@@ -12,7 +12,7 @@ import { join } from 'node:path';
 process.env.CURSUS_TODAY = '2026-10-10';
 process.env.KEYSTONE_API_KEY = 'cle-keystone-de-test';
 
-const { adresseAdmise, filtreKeystone, lireAdressesKeystone, REFUS_ADRESSE } = await import('../server/src/filtre-keystone.ts');
+const { adresseAdmise, filtreKeystone, lireAdressesKeystone, REFUS_ADRESSE } = await import('../server/src/integrations/keystone/filtre-keystone.ts');
 const { problemesConfig } = await import('../server/src/config.ts');
 const { createApp } = await import('../server/src/app.ts');
 const { reglerJournaux } = await import('../server/src/logs.ts');

@@ -3,7 +3,7 @@
 // sauvegardes : server/src/pieces-sauvegarde.ts ; actions `piece.joindre` et `piece.retirer` : actions/pieces.ts.
 // - Stockage (`DepotPieces`) : « local », fichiers sous un nom aléatoire dans le dossier des données (dossierPieces de
 //   chemins.ts : /data/pieces dans l'image Docker), en 600 dans un dossier en 700 ; « ged », l'espace documentaire de
-//   l'entreprise, par l'adaptateur de server/src/integrations/ged.ts, à écrire quand son interface sera connue. Le nom
+//   l'entreprise, par l'adaptateur de server/src/integrations/codex/ged.ts, à écrire quand son interface sera connue. Le nom
 //   stocké (`fichier`) désigne son dépôt : 32 caractères hexadécimaux en local, `ged:<référence>` dans la GED.
 // - Une pièce est d'abord envoyée seule (en attente, objet vide), puis jointe par l'action qui crée ou décide l'objet
 //   (absence, certification, délivrance, déclaration) ou par `piece.joindre`, sur présentation de son jeton : seul le
@@ -26,7 +26,7 @@ import type { CurrentUser, ObjetPiece, Piece, StockagePieces } from '../../share
 import { dossierPieces, fichierBase } from './chemins.ts';
 import { clePieces, refusPiecesLocales } from './config.ts';
 import type { Db, TableName } from './db.ts';
-import { DepotGed, estFichierGed } from './integrations/ged.ts';
+import { DepotGed, estFichierGed } from './integrations/codex/ged.ts';
 import { log } from './logs.ts';
 import { chiffrerPiece, contenuEnClair, fichierChiffre, SURCOUT_CHIFFREMENT } from './pieces-chiffrement.ts';
 
@@ -124,7 +124,7 @@ export const stockagePieces = async (db: Db): Promise<StockagePieces> => (await 
 
 /**
  * Dépôt où écrire une nouvelle pièce, selon le réglage ; null si la fonction est désactivée. Avec Codex (lot 16), la pièce
- * est d'abord écrite dans le dossier local, puis versée une fois jointe à son objet (server/src/pieces-codex.ts).
+ * est d'abord écrite dans le dossier local, puis versée une fois jointe à son objet (server/src/integrations/codex/pieces-codex.ts).
  */
 export async function depotEcriture(db: Db): Promise<DepotPieces | null> {
   const s = await stockagePieces(db);
@@ -236,8 +236,8 @@ export async function nettoyerPieces(db: Db, maintenant = Date.now()): Promise<B
 /** Nettoyage en tâche de fond : bilan dans les journaux du serveur s'il a effacé quelque chose. */
 async function passer(db: Db) {
   try {
-    // lot 16 — versement dans Codex (server/src/pieces-codex.ts, chargé ici : il dépend de ce module) avant le nettoyage.
-    const { bilanVersement, verserSiCodex } = await import('./pieces-codex.ts');
+    // lot 16 — versement dans Codex (server/src/integrations/codex/pieces-codex.ts, chargé ici : il dépend de ce module) avant le nettoyage.
+    const { bilanVersement, verserSiCodex } = await import('./integrations/codex/pieces-codex.ts');
     const v = await verserSiCodex(db);
     if (v && bilanVersement(v)) log.info(`Pièces justificatives : ${bilanVersement(v)}`);
     const b = await nettoyerPieces(db);

@@ -4,13 +4,13 @@
 // Les salariés sont désignés par leur matricule : le matricule Cursus (EMP-0001, défaut), ou leur matricule de paie si
 // le réglage « identifiant envoyé à Keystone » l'a retenu (`identifiantKeystone` de shared/rules/matricules.ts). Point
 // unique de correspondance dans les deux sens : `contexte()`. Le jeu de démonstration passe par ces mêmes fonctions (seed.ts).
-import { ACTIVITES_INTERNES } from '../../../shared/constants.ts';
-import { isValidDate, iso, parse } from '../../../shared/dates.ts';
-import { plural } from '../../../shared/format.ts';
-import { identifiantKeystone, sortiLe } from '../../../shared/rules/matricules.ts';
-import type { Chantier, DemandeKeystone, DemandeStatut, Destination, ISODate, Mission, Projet, StatutKeystone, TacheKeystone, Voyage } from '../../../shared/types.ts';
-import { loadSettings, todayIso } from '../dataset.ts';
-import type { Db } from '../db.ts';
+import { ACTIVITES_INTERNES } from '../../../../shared/constants.ts';
+import { isValidDate, iso, parse } from '../../../../shared/dates.ts';
+import { plural } from '../../../../shared/format.ts';
+import { identifiantKeystone, sortiLe } from '../../../../shared/rules/matricules.ts';
+import type { Chantier, DemandeKeystone, DemandeStatut, Destination, ISODate, Mission, Projet, StatutKeystone, TacheKeystone, Voyage } from '../../../../shared/types.ts';
+import { loadSettings, todayIso } from '../../dataset.ts';
+import type { Db } from '../../db.ts';
 
 /** Champ refusé : chemin (`debut`, `chantiers[2].fin`, `heures.2026-10-12`) et explication. */
 export interface ErreurChamp { champ: string; message: string }

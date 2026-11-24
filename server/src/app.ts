@@ -26,7 +26,7 @@ import { type Cible, CIBLES, etatEnvois, listerEnvois } from './envois.ts';
 import { envoisPourLecteur } from './envois-lecteur.ts';
 import { apiInconnue, ERREUR_INTERNE, estOccupe, gestionnaireErreurs, LIMITE_CORPS, repondreOccupe, signalerErreur } from './erreurs.ts';
 import { routesFichierPaie } from './fichier-paie.ts';
-import { filtreKeystone } from './filtre-keystone.ts';
+import { filtreKeystone } from './integrations/keystone/filtre-keystone.ts';
 import { routesVariablesPaie } from './variables-paie.ts';
 import { routesPasseportPrevention } from './passeport-prevention.ts';
 // lot 11 — indicateurs
@@ -51,10 +51,10 @@ import { routesPush } from './push-routes.ts';
 import { routesAgenda } from './agenda.ts';
 import { routesDeclaration } from './declarations.ts';
 import { journaliserAction, lireFiltre, preparerTrace, routesJournal, tracerRefus } from './journal.ts';
-import { emailMode } from './integrations/email.ts';
-import { KEYSTONE_MODE } from './integrations/keystone.ts';
-import { suivreVerdicts } from './integrations/keystone-verdicts.ts';
-import { keystoneRoutes } from './integrations/keystone-routes.ts';
+import { emailMode } from './integrations/microsoft/email.ts';
+import { KEYSTONE_MODE } from './integrations/keystone/keystone.ts';
+import { suivreVerdicts } from './integrations/keystone/keystone-verdicts.ts';
+import { keystoneRoutes } from './integrations/keystone/keystone-routes.ts';
 import { cheminJournal, journalRequetes, log } from './logs.ts';
 import { recapitulatifEnAttente } from './notifications.ts';
 import { demoPosteLocal, exigerNavigationInterne, protectionCsrf, securityHeaders } from './securite.ts';
@@ -99,7 +99,7 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // limiteur de débit et les autres routes /api (server/src/supervision.ts).
   app.use(routeSante(db));
   // API Keystone (clé X-Api-Key, journal de chaque appel) : avant l'analyse JSON, faite après la vérification de la clé.
-  // Filtre facultatif par adresse devant elle (CURSUS_KEYSTONE_ADRESSES, lot 8 : server/src/filtre-keystone.ts).
+  // Filtre facultatif par adresse devant elle (CURSUS_KEYSTONE_ADRESSES, lot 8 : server/src/integrations/keystone/filtre-keystone.ts).
   app.use('/api/integrations/keystone', filtreKeystone(), keystoneRoutes(db));
   // lot 12 — route d'intégration réservée (socle) : montée avant le limiteur, le CSRF et l'analyse JSON, comme celle de
   // Keystone ; elle a donc son propre limiteur et son propre `express.json` (taille limitée), appelé après la vérification

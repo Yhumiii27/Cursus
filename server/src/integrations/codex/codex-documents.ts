@@ -6,9 +6,9 @@
 // signé sur un corps vide, en attendant que Codex fixe la forme de la lecture.
 // Configuration dans l'environnement seulement, jamais dans la base : CODEX_URL, CODEX_DOCUMENTS_TOKEN et/ou
 // CODEX_DOCUMENTS_SECRET, CODEX_DOCUMENTS_OWNER (compte de service propriétaire des pièces : identifiant Codex, ou
-// matricule EMP-…). Sans elle, le stockage « GED » reste fermé (server/src/pieces-codex.ts).
+// matricule EMP-…). Sans elle, le stockage « GED » reste fermé (server/src/integrations/codex/pieces-codex.ts).
 import { createHmac, randomBytes } from 'node:crypto';
-import type { MotifDestruction } from '../../../shared/rules/pieces-codex.ts';
+import type { MotifDestruction } from '../../../../shared/rules/pieces-codex.ts';
 
 type Env = Record<string, string | undefined>;
 

@@ -116,7 +116,7 @@ export const compteComptable = (libelle: string) => (v: unknown): string => {
 
 /**
  * Stockage des pièces justificatives : désactivé, dossier local ou Codex (lot 16). Le choix de Codex est contrôlé par le
- * serveur (raccordement et catégories, server/src/pieces-codex.ts, `refusCodex`).
+ * serveur (raccordement et catégories, server/src/integrations/codex/pieces-codex.ts, `refusCodex`).
  */
 const stockagePieces = choix<StockagePieces>(['desactive', 'local', 'ged']);
 
@@ -227,7 +227,7 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   absencesPaieAPartirDu: { defaut: null, controle: dateOuVide('Absences transmises à partir du') },
   // — Pièces justificatives (parametres/Pieces.tsx, shared/rules/pieces.ts) : désactivées par défaut (réponse de l'entreprise
   //   du 18 octobre 2026), activées par l'administrateur RH après avis du DPO ; la GED attend son adaptateur
-  //   (server/src/integrations/ged.ts), son choix est refusé d'ici là —
+  //   (server/src/integrations/codex/ged.ts), son choix est refusé d'ici là —
   piecesStockage: { defaut: 'desactive', controle: stockagePieces },
   // — Postes à risques particuliers (parametres/PostesRisques.tsx, shared/rules/formation-renforcee.ts) : formation
   //   renforcée à la sécurité non désignée par défaut (aucune exigence, avertissement à l'écran) —

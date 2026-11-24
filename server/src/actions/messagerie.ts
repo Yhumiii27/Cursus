@@ -8,7 +8,7 @@ import { controleAdresse, normaliserAdresse } from '../../../shared/rules/messag
 import { heuresTexte } from '../../../shared/rules/releves.ts';
 import type { Messagerie, ModeNotification } from '../../../shared/types.ts';
 import { configMail } from '../config.ts';
-import { envoyerEmail } from '../integrations/email.ts';
+import { envoyerEmail } from '../integrations/microsoft/email.ts';
 import { courriel, lireMessagerie } from '../messagerie.ts';
 import { envoyerRecapitulatifs, recapitulatifEnAttente } from '../notifications.ts';
 import { envoyerReleve } from '../releves.ts';

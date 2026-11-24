@@ -183,7 +183,7 @@ export const ACTIONS: Record<string, ActionHandler> = REGISTRE;
 /**
  * Familles d'actions sans effet sur un verdict Go / No Go (temps, compteurs de congés, entretiens, budget, équipes, envois,
  * messagerie, page Confidentialité et formations suivies, qui ne sont pas des certifications) :
- * après toute autre action, les verdicts transmis à Keystone sont recalculés (integrations/keystone-verdicts.ts).
+ * après toute autre action, les verdicts transmis à Keystone sont recalculés (integrations/keystone/keystone-verdicts.ts).
  * Les actions d'absence en font partie : une absence pendant la présence sur un chantier bloque la ressource.
  */
 const SANS_EFFET_VERDICT = ['temps.', 'cet.', 'report.', 'conges.', 'entretien.', 'budget.', 'equipe.', 'envoi.', 'convocation.', 'messagerie.', 'notification.', 'releve.', 'paie.', 'confidentialite.', 'mandat.', 'piece.', 'forfait.', 'formationSuivie.', 'agenda.', 'entite.', 'site.', 'organigramme.', 'push.', 'indicateurs.', 'frais.', /* lot 12 — C3 */ 'objectif.', 'feedback360.'];

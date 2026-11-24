@@ -12,7 +12,7 @@ import { isoWeek } from '../../../shared/dates.ts';
 import { erreurMotifReouverture } from '../../../shared/rules/regularisation.ts';
 import { employeDeLaFeuille } from '../../../shared/rules/temps.ts';
 import type { FeuilleTemps, LotPaie, ReouvertureFeuille } from '../../../shared/types.ts';
-import { heuresKeystone } from '../integrations/keystone.ts';
+import { heuresKeystone } from '../integrations/keystone/keystone.ts';
 import { notifierFeuilleRenvoyee } from '../notifications.ts';
 import { releveParti, transmisDeLaFeuille } from '../regularisation-paie.ts';
 import { ActionError, type ActionHandler, estSoiMeme, getEmp, requireRhAdmin } from './context.ts';

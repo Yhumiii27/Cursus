@@ -4,10 +4,10 @@
 // puis transmis par le processus de fond — jamais d'appel réseau dans une action. Sans configuration
 // (configMail de config.ts), mode simulation : rien ne part, chaque e-mail est tracé dans le journal et visible
 // dans Paramètres → Envois. Mise en service par le service informatique : docs/EMAILS.md.
-import type { Courriel, ISODate, PieceJointe } from '../../../shared/types.ts';
-import { configMail, type ConfigMail, type Env } from '../config.ts';
-import type { Db } from '../db.ts';
-import { ErreurEnvoi, mettreEnFile, type Envoi, type Transport } from '../envois.ts';
+import type { Courriel, ISODate, PieceJointe } from '../../../../shared/types.ts';
+import { configMail, type ConfigMail, type Env } from '../../config.ts';
+import type { Db } from '../../db.ts';
+import { ErreurEnvoi, mettreEnFile, type Envoi, type Transport } from '../../envois.ts';
 
 // Toujours « simulation » en démonstration (CURSUS_DEMO=1) : configMail ne rend alors aucune configuration (lot 8, S3).
 export const emailMode = (env: Env = process.env) => (configMail(env) ? 'api' : 'simulation');

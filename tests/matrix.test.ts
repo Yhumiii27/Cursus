@@ -1,4 +1,4 @@
-// Tests de la déclaration du schéma à Matrix (server/src/integrations/matrix.ts) : lecture du schéma réel (toutes les
+// Tests de la déclaration du schéma à Matrix (server/src/integrations/matrix/matrix.ts) : lecture du schéma réel (toutes les
 // tables du schéma déclaratif, tables techniques écartées, clés, unicités, liens), document matrix.schema/1 et son
 // empreinte, envoi avec le jeton et l'authentification HTTP portée par l'adresse, écriture dans un dossier, rien
 // d'envoyé sans MATRIX_URL, échecs réduits à un avertissement. Matrix est simulé par un serveur node:http local.
@@ -14,7 +14,7 @@ import { DatabaseSync } from 'node:sqlite';
 const { SqliteDb: Db, TABLES, snake } = await import('../server/src/db.ts');
 const { nouvelleBase, PG } = await import('./base.ts');
 const { mettreAJourBase } = await import('../server/src/demarrage.ts');
-const { declarerBase, declarerSchema, documentSchema, introspecterPostgres, introspecterSqlite } = await import('../server/src/integrations/matrix.ts');
+const { declarerBase, declarerSchema, documentSchema, introspecterPostgres, introspecterSqlite } = await import('../server/src/integrations/matrix/matrix.ts');
 
 const dossier = mkdtempSync(join(tmpdir(), 'cursus-matrix-'));
 after(() => rmSync(dossier, { recursive: true, force: true }));

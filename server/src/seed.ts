@@ -20,8 +20,8 @@ import { VERSION } from './chemins.ts';
 import type { Db } from './db.ts';
 import { DEFAULT_SETTINGS, loadFull } from './dataset.ts';
 import { marqueurDemo, REGLAGE_DEMO, REGLAGE_EXPLOITATION } from './marqueurs.ts';
-import { contexte, enregistrerAffectation, enregistrerChantier, enregistrerProjet, enregistrerTache } from './integrations/keystone-entrant.ts';
-import { suivreVerdicts } from './integrations/keystone-verdicts.ts';
+import { contexte, enregistrerAffectation, enregistrerChantier, enregistrerProjet, enregistrerTache } from './integrations/keystone/keystone-entrant.ts';
+import { suivreVerdicts } from './integrations/keystone/keystone-verdicts.ts';
 import { figerFeuilles } from './migrate.ts';
 import { postesDepuisFiches } from './migrations/referentiels.ts';
 import { historiqueDepuisFiches } from './migrations/lot6-contrats.ts';
@@ -529,7 +529,7 @@ export async function seedDemo(db: Db) {
       await db.update('certifications', c.id, { sessionId, convoc: 'now', convocLe: CONVOQUES_LE });
     }
     for (const [empId, sessionId] of INSCRIPTIONS) await db.insert('inscriptions', { empId, sessionId, convoc: 'now', date: CONVOQUES_LE, convocLe: CONVOQUES_LE });
-    // Keystone : mêmes contrôles et mêmes tables que l'API entrante (server/src/integrations/keystone-entrant.ts).
+    // Keystone : mêmes contrôles et mêmes tables que l'API entrante (server/src/integrations/keystone/keystone-entrant.ts).
     const cx = await contexte(db), taches = planning();
     for (const [code, nom] of Object.entries(PROJETS)) await enregistrerProjet(cx, code, { nom });
     // Activités internes de base (dont la délégation du CSE) : comme la migration d'une base neuve, rejouée à la réinitialisation.

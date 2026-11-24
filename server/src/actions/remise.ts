@@ -8,7 +8,7 @@ import { controleRemise } from '../../../shared/rules/remise.ts';
 import type { Employe, Entretien, ModeRemise } from '../../../shared/types.ts';
 import { refusDuCompte, type Compte } from '../comptes.ts';
 import type { Db } from '../db.ts';
-import { envoyerEmail } from '../integrations/email.ts';
+import { envoyerEmail } from '../integrations/microsoft/email.ts';
 import { adresseSalarie, courriel, lireMessagerie, periodeLongue } from '../messagerie.ts';
 import { ActionError, type ActionHandler, type Ctx, getEmp, isValidatorOf, refuserSoiMeme, str } from './context.ts';
 

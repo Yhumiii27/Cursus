@@ -5,10 +5,10 @@
 // au plus toutes les CURSUS_ACCES_CLAVIS_SECONDES (60 par défaut) pendant la session : un accès retiré ferme la session,
 // un profil changé est reporté sur le compte. Une lecture impossible refuse (jamais d'accès par défaut).
 // Les espaces manager et collaborateur viennent toujours de la fiche du salarié (équipes, délégations).
-import { PROFILS_RH } from '../../shared/constants.ts';
-import type { ProfilRh } from '../../shared/types.ts';
-import { journaliser, type Compte } from './comptes.ts';
-import type { Db } from './db.ts';
+import { PROFILS_RH } from '../../../../shared/constants.ts';
+import type { ProfilRh } from '../../../../shared/types.ts';
+import { journaliser, type Compte } from '../../comptes.ts';
+import type { Db } from '../../db.ts';
 
 /** Profil RH de la ligne de clavis.pub_acces quand l'accès s'ouvre maintenant ; null : accès fermé (ou profil inconnu). */
 export function profilDepuisAcces(ligne: Record<string, unknown> | null | undefined): ProfilRh | null {

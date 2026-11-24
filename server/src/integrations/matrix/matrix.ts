@@ -15,8 +15,8 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { type Env, liaisonsCoupees } from '../config.ts';
-import { type Db, SqliteDb } from '../db.ts';
+import { type Env, liaisonsCoupees } from '../../config.ts';
+import { type Db, SqliteDb } from '../../db.ts';
 
 /**
  * Tables techniques, hors catalogue : `migrations` (migrations nommées faites, server/src/migrations/cadre.ts),

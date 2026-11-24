@@ -10,7 +10,7 @@
 //   `horairesFiges`) ; un pointage arrivé ensuite n'est jamais réécrit dans la feuille : il est signalé en anomalie
 //   (`apres_validation`, shared/rules/pointage.ts) et passe par la réouverture.
 // - `calcSheet` et `sageRubriques` (shared/rules/temps.ts) ne changent pas : la ligne PTG est une ligne d'heures comme les
-//   autres pour le décompte et la paie ; elle n'est jamais renvoyée à Keystone (server/src/integrations/keystone.ts).
+//   autres pour le décompte et la paie ; elle n'est jamais renvoyée à Keystone (server/src/integrations/keystone/keystone.ts).
 // Règles pures communes au serveur (server/src/actions/temps.ts, server/src/actions/pointage.ts) et à l'interface.
 import { addD } from '../dates.ts';
 import { fH, num } from '../format.ts';

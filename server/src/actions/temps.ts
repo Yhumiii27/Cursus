@@ -23,7 +23,7 @@ import { horairesPlanifies } from '../../../shared/rules/planning-feuille.ts';
 import { alertesValidation, corAValider } from '../../../shared/rules/durees.ts';
 import { aRegulariser, projetsRevalidation } from '../../../shared/rules/regularisation.ts';
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
-import { heuresKeystone, sendToKeystone } from '../integrations/keystone.ts';
+import { heuresKeystone, sendToKeystone } from '../integrations/keystone/keystone.ts';
 import { notifierFeuilleRenvoyee, notifierFeuilleSoumise } from '../notifications.ts';
 import { relevesAutomatiques } from '../releves.ts';
 import { ActionError, type ActionHandler, type Ctx, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, refuserSoiMeme, str } from './context.ts';
@@ -192,7 +192,7 @@ const addLine: ActionHandler = async (ctx, p) => {
   const { sh } = await editable(ctx, p);
   const projet = str(p.projet);
   if (p.siAbsente === true && sh.lignes.some(l => l.projet === projet && /* lot 12 — C6 */ !estLignePointee(l))) return null;
-  // Projets transmis par Keystone (server/src/integrations/keystone-entrant.ts) ; un projet archivé n'est plus proposé.
+  // Projets transmis par Keystone (server/src/integrations/keystone/keystone-entrant.ts) ; un projet archivé n'est plus proposé.
   const pr = ctx.ds.referentiels.projets.find(x => x.code === projet);
   if (!pr) throw new ActionError('Projet inconnu');
   if (pr.code === ACTIVITE_ASTREINTE.code) throw new ActionError(INTERVENTION_A_DECLARER);

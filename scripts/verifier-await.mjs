@@ -33,7 +33,7 @@ try {
 const RACINE = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DOSSIERS = ['server/src', 'scripts', 'tests'];
 /** Fichiers qui manipulent la connexion SQLite elle-même : schéma, migrations nommées SQLite, déclaration à Matrix. */
-const FICHIERS_SQLITE = new Set(['server/src/db.ts', 'server/src/migrations/cadre.ts', 'server/src/migrations/outils.ts', 'server/src/integrations/matrix.ts']);
+const FICHIERS_SQLITE = new Set(['server/src/db.ts', 'server/src/migrations/cadre.ts', 'server/src/migrations/outils.ts', 'server/src/integrations/matrix/matrix.ts']);
 /** Fichiers des adaptateurs : leurs méthodes asynchrones sont celles de la base (METHODES_DB), traitées à part. */
 const FICHIERS_DB = new Set(['server/src/db.ts', 'server/src/db-pg.ts']);
 const METHODES_DB = new Set(['all', 'where', 'get', 'insert', 'update', 'remove', 'count', 'tx', 'lecture', 'exclusif', 'getSetting', 'setSetting', 'clearAll',

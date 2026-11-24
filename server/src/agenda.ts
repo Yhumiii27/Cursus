@@ -22,7 +22,7 @@ import type { Creneau } from '../../shared/types-planning.ts';
 import { loadSettings, todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
 import { LimiteurDebit, tropDeRequetes } from './debit.ts';
-import { calendrier, domaineAgenda, type EvenementAgenda } from './integrations/email.ts';
+import { calendrier, domaineAgenda, type EvenementAgenda } from './integrations/microsoft/email.ts';
 
 /** Libellé d'un congé dans l'agenda (e-mail de décision) ; toute autre nature : « Absent ». */
 const TITRE_CONGE: Record<string, string> = { CP: 'Congés payés', RTT: 'RTT / repos', RECUP: 'Récupération' };

@@ -7,8 +7,8 @@
 // inconnue, refusée au démarrage en production (server/src/config.ts), et rien n'est jamais marqué transmis sans
 // confirmation de l'import. La correspondance des rubriques avec le plan de paie se règle dans l'écran Temps
 // (shared/rules/paie.ts), le format du fichier aussi (shared/rules/lots-paie.ts).
-import type { SageMode, SagePush } from '../../../shared/types.ts';
-import { demoActive, enProduction, type Env } from '../config.ts';
+import type { SageMode, SagePush } from '../../../../shared/types.ts';
+import { demoActive, enProduction, type Env } from '../../config.ts';
 
 export const SAGE_MODES: readonly SageMode[] = ['simulation', 'fichier'];
 

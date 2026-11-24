@@ -1,4 +1,10 @@
-# Cursus — reste à faire
+# Cursus — reste à faire (liste close)
+
+> **Liste remplacée (Norma 1.2.0, 24 novembre 2026, `norma/REGLES.md` § 3).** Le reste à faire de Cursus se tient désormais
+> dans le dépôt Norma : `reste-a-faire/cursus.json` (points numérotés `CU-nnn` dans l'ordre de ce document, écarts de
+> l'audit Norma `CU-N01`…), page globale de la solution https://claude.ai/artifact/Rs7kooJdowShdYUqNS8jQf. Ce document
+> n'est plus mis à jour : il reste comme trace des décisions, des preuves et de l'historique jusqu'au 24 novembre 2026
+> (reprise faite sur le commit `e6203e5`). L'ancienne page de suivi (artefact `8Dn4CRz3fcHgew8RzbNGEc`) est close aussi.
 
 Audit du 10 octobre 2026 (branche `main-n9x7ps`). Chaque point a été relevé dans le code puis contre-vérifié par une seconde lecture qui a écarté ce qui était déjà fait ou inexact. Les preuves renvoient aux fichiers et lignes à cette date.
 

@@ -12,7 +12,7 @@ export function ThemeToggle({ theme: initial }: { theme: Theme }) {
   const [theme, setTheme] = useState<Theme>(initial);
   return (
     <Segmented
-      label={t('Display')}
+      label={t('Dark / light display')}
       value={theme}
       onChange={(v) => {
         setTheme(v);

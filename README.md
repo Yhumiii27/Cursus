@@ -586,7 +586,7 @@ DD-<n°>, demandeur gardé.
 Jours fériés et périodes de référence (CP, RTT, campagnes) calculés à partir de la date du jour, celle de Paris
 quel que soit le fuseau du serveur ; dates impossibles (« 31/02 ») refusées à la saisie et à l'import.
 
-Architecture et conventions : `docs/ARCHITECTURE.md`. Travail restant, priorisé : `docs/RESTE_A_FAIRE.md`. Guide des
+Architecture et conventions : `docs/ARCHITECTURE.md`. Travail restant, priorisé : `reste-a-faire/cursus.json` du dépôt Norma (page globale https://claude.ai/artifact/Rs7kooJdowShdYUqNS8jQf ; `docs/RESTE_A_FAIRE.md` est la liste close au 24 novembre 2026). Guide des
 utilisateurs, par rôle, avec la procédure mensuelle de paie et le groupe pilote : `docs/GUIDE-UTILISATEUR.md`.
 
 ## Mise en ligne (Docker, Coolify)

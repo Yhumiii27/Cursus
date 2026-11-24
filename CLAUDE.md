@@ -7,7 +7,9 @@ Règles communes de la suite EPC2I (Norma) : copie versionnée dans `norma/` (ve
 règles propres à Cursus.
 
 Cursus est l'outil RH du groupe EPC2I (formations, habilitations, temps, absences, entretiens, déplacements, frais).
-Lire d'abord `README.md` et `docs/ARCHITECTURE.md` ; la suite des lots est dans `docs/RESTE_A_FAIRE.md`.
+Lire d'abord `README.md` et `docs/ARCHITECTURE.md` ; le reste à faire se tient dans Norma (`reste-a-faire/cursus.json` du dépôt `Yhumiii27/Norma`, page globale
+https://claude.ai/artifact/Rs7kooJdowShdYUqNS8jQf, `norma/REGLES.md` § 3) ; `docs/RESTE_A_FAIRE.md` est la liste close au
+24 novembre 2026, gardée pour ses décisions et ses preuves.
 
 ## Échanges avec les autres outils (décisions M-17 et M-18 de Matrix)
 

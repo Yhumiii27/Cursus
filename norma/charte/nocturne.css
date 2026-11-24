@@ -351,3 +351,8 @@ textarea.input { min-height: 90px; resize: vertical; }
   --shadow-lg: 0 0 0 1px #a2a6b8, 0 16px 40px rgba(28, 30, 41, 0.16);
 }
 :root[data-theme="light"] .lighten { mix-blend-mode: normal; }
+/* Norma 1.0.2 : textes secondaires plus soutenus en clair (55 % et 50 % du texte ne donnaient que 3,7:1 sur blanc,
+   sous le seuil AA de 4,5:1 ; 68 % donne au moins 5,2:1 — relevé par l'a11y de Codex). */
+:root[data-theme="light"] figcaption,
+:root[data-theme="light"] .text-muted,
+:root[data-theme="light"] .card-meta { color: color-mix(in srgb, var(--color-text) 68%, transparent); }

@@ -1,5 +1,49 @@
 # Norma — journal des versions
 
+## 2.1.0 — 24 novembre 2026
+
+À la demande du propriétaire (« oui » à la demande DN-1 de Vector) : un dixième outil dans la suite.
+
+- **Registre** : `vector` (Vector, expéditions nationales et internationales : demandes, colisage, transport, douane,
+  documents, suivi, coûts), dépôt `Yhumiii27/vector`, schéma `vector`, rôle `vector_app`, ports 3900 (dev) et 3910
+  (tests), connexion `ENTRA_ISSUER` et `VECTOR_ACCESS_FROM_CLAVIS=on`, commits en anglais.
+- `REGLES.md` § 1 et § 2 : ligne Vector au tableau de la suite, Vector parmi les outils aux commits en anglais ;
+  `README.md` : Vector dans la liste des outils.
+- **Reste à faire** : `reste-a-faire/vector.json` (repris de `docs/reste-a-faire-vector.json` de Vector : livraisons VE-L0
+  à VE-L6, plus VE-N01 « Coque commune Norma 2.0 ») ; identifiants `VE-L<n>` dans `SCHEMA.md`.
+- Mise à jour du reste à faire de la solution (Arche, Crucible, Clavis, Matrix, Codex, Cursus, Vigie, Modulus, Norma).
+- Version mineure : un outil reprend la copie (`copier`) sans changer son code ; Vector peut passer `npm run norma:check`.
+
+## 2.0.0 — 24 novembre 2026
+
+À la demande du propriétaire : « un audit du design de toutes les pages de tous les softs afin d'aligner proprement tous
+les designs. Ce qui est commun à tous les outils doit se retrouver à la même place dans toutes les pages », puis « les
+boutons de changement de langue et thème clair/sombre alignés l'un au-dessus de l'autre et de même taille ».
+
+- **Audit** : `charte/AUDIT-2026-11-24.md` — matrice des écarts (9 outils × 20 éléments de la coque) et, par outil, la liste
+  des fichiers à changer. Deux défauts relevés : Arche et Clavis n'ont plus de menu sous 1024 px.
+- **Coque commune** : `charte/COQUE.md` (contrat, reprise de Keystone `f412d0e`) et `charte/coque.css` (classes `.coque-…`,
+  variables seulement, utilisables sans React). Barre latérale 232 px (marque, ⌘K, sections, compte en pied) ; en-tête de
+  chaque page dans un ordre fixe — fil et titre `<h1>` 26 px · recherche globale · actions (principale à droite, menu
+  « Actions » au-delà de trois) · date · aide · cloche · **langue / affichage** ; barre d'outils (onglets `Segmented`,
+  filtres, période, note) ; panneau latéral 640 px ; barre supérieure et tiroir ≤ 1024 px.
+- **Langue et affichage empilés, de même taille** : `PrefsStack` = `LangSwitch` (FR | EN) au-dessus de `ThemeSwitch`
+  (☾ | ☀), deux options de 36 × 26 px chacun, bords alignés ; dernier élément à droite de l'en-tête de page, et de la barre
+  supérieure ≤ 1024 px ; jamais dans la barre latérale. Un outil sans anglais garde le bloc, EN désactivé.
+- **Jetons** dans `nocturne.css` : échelle des textes (`--text-micro` 10 px … `--text-title` 26 px, `--weight-strong`,
+  `--tracking-caps`) et mesures de la coque (`--shell-*`, `--control-h`, `--touch-target`, `--pref-*`, `--panel-w*`).
+- **Composants** `charte/ds` : `AppShell`, `MobileTopBar`, `Sidebar`, `PageSearch`, `NavList`, `NavSections`, `NavSection`,
+  `NavGroup`, `NavEntry`, `PageHeader`, `HeaderActions` (+ `HeaderMenuContext`), `HeaderTools`, `PrefsStack`, `LangSwitch`,
+  `ThemeSwitch`, `StatusDate`, `FilterBar`, `FilterGroup`, `FilterLabel`, `FilterNote`, `FilterChips`, `KpiGrid`, `KpiTile`,
+  `EmptyState`, `SidePanel` (= `Drawer`) ; règles pures `coque-rules.ts` (`splitActions`, `matchPages`). `ThemeToggle` est
+  gardé, déprécié (retrait en 3.0).
+- `REGLES.md` § 7 : « ce qui est commun est au même endroit dans tous les outils », renvoi à `COQUE.md` ; paire empilée.
+- Tests `test/coque.test.mjs` (jetons, aucune couleur en dur, classes posées = classes définies, exports, paire empilée et
+  dernière, ordre de l'en-tête, règles pures) ; Node 22.18 au moins (`engines`) pour les `.ts` des tests.
+- Reste à faire : NO-007, et un point « Coque commune Norma 2.0 » par outil.
+- **Version majeure** : chaque outil change son code (coque, en-tête, place de la langue et de l'affichage) — voir
+  l'audit § 2.
+
 ## 1.2.0 — 24 novembre 2026
 
 À la demande du propriétaire : un standard commun plutôt que des copies d'un outil à l'autre.

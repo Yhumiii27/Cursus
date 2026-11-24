@@ -1,0 +1,328 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   Norma 2.0 — coque commune des outils de la suite EPC2I (charte/COQUE.md).
+   Reprise de la coque de Keystone (src/components/app/shell/*.module.css, commit f412d0e) ; mêmes mesures, valeurs
+   prises dans les variables de nocturne.css (jamais de couleur en dur). Classes globales : les composants React de
+   charte/ds (AppShell, Sidebar, PageHeader, HeaderTools…) les posent, et un outil sans React (Matrix, page statique)
+   écrit le même HTML avec les mêmes classes. À charger après nocturne.css.
+   Points de rupture : tablette et téléphone ≤ 1024 px (barre latérale en tiroir, barre supérieure) ; tactile = ≤ 1024 px
+   ou pointeur grossier (cibles de 40 px).
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Grille de l'application ─────────────────────────────────────────── */
+.coque {
+  display: grid;
+  grid-template-columns: var(--shell-sidebar-w) minmax(0, 1fr);
+  min-height: 100vh;
+  background: radial-gradient(1200px 600px at 70% -10%, var(--color-accent-900), transparent 60%), var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+.coque-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--shell-gap);
+  padding: var(--shell-main-pad);
+  min-width: 0;
+}
+.coque-main:focus { outline: none; }
+/* Lien d'évitement « Aller au contenu » (WCAG 2.4.1) : hors de l'écran tant qu'il n'a pas le focus clavier. */
+.coque-skip {
+  position: fixed; left: 12px; top: 10px; z-index: 80; padding: 8px 14px; font-size: var(--text-ui);
+  background: var(--color-surface); color: var(--color-text); border-radius: var(--radius-md); box-shadow: var(--shadow-md);
+}
+.coque-skip:not(:focus) { clip-path: inset(50%); width: 1px; height: 1px; padding: 0; overflow: hidden; white-space: nowrap; }
+
+/* ── 2. Barre latérale ──────────────────────────────────────────────────── */
+.coque-side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 14px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: auto;
+  border-right: 1px solid var(--color-neutral-900);
+  background: color-mix(in srgb, var(--color-bg) 70%, transparent);
+}
+.coque-brand { display: flex; align-items: center; gap: 10px; padding: 0 6px; }
+.coque-logo {
+  width: 26px; height: 26px; flex: none; border-radius: 7px; border: 1px solid var(--color-accent);
+  display: grid; place-items: center; color: var(--color-accent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
+.coque-wordmark { font-size: var(--text-brand); font-weight: var(--weight-strong); letter-spacing: -0.01em; }
+.coque-side-close { display: none; }
+
+/* Recherche de pages ⌘K, sous la marque. */
+.coque-pagesearch { position: relative; }
+.coque-pagesearch-icon { position: absolute; left: 9px; top: 9px; color: var(--color-neutral-500); pointer-events: none; }
+.coque-pagesearch .input {
+  width: 100%; min-height: var(--control-h); padding-left: 28px; padding-right: 38px; font-size: var(--text-control);
+}
+.coque-kbd {
+  position: absolute; right: 8px; top: 8px; font-size: var(--text-micro); padding: 1px 5px; border-radius: var(--radius-sm);
+  border: 1px solid var(--color-neutral-800); color: var(--color-neutral-500); pointer-events: none;
+}
+
+.coque-nav { display: flex; flex-direction: column; gap: 2px; }
+.coque-nav-sections { display: flex; flex-direction: column; gap: 6px; }
+.coque-entry {
+  display: flex; align-items: center; gap: 10px; padding: 7px 8px; border: 0; border-radius: var(--radius-md);
+  font: inherit; font-size: var(--text-ui); text-align: left; cursor: pointer; background: transparent;
+  color: var(--color-neutral-300); text-decoration: none;
+}
+.coque-entry.is-item { padding: 6px 8px 6px 10px; }
+.coque-entry:hover { background: var(--color-neutral-900); color: var(--color-neutral-300); }
+.coque-entry[aria-current='page'] { background: var(--color-accent-900); color: var(--color-accent-300); }
+.coque-entry-icon { flex: none; }
+.coque-entry-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.coque-entry-hit { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; flex: 1; }
+.coque-entry-section { font-size: var(--text-eyebrow); color: var(--color-neutral-500); }
+.coque-badge {
+  flex: none; font-size: 11px; padding: 1px 7px; border-radius: 9px;
+  background: var(--color-accent-800); color: var(--color-accent-100);
+}
+.coque-nav-empty { font-size: var(--text-small); color: var(--color-neutral-500); padding: 6px 8px; }
+
+/* Sections (thèmes) repliables, en capitales. */
+.coque-sec { display: flex; flex-direction: column; gap: 2px; }
+.coque-sec-head {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 0; border-radius: var(--radius-md);
+  background: transparent; font: inherit; font-size: var(--text-eyebrow); letter-spacing: var(--tracking-caps);
+  text-transform: uppercase; text-align: left; cursor: pointer; color: var(--color-neutral-500);
+}
+.coque-sec-head:hover { background: var(--color-neutral-900); }
+.coque-sec-head.is-bright { color: var(--color-neutral-300); }
+.coque-sec-count { font-size: var(--text-eyebrow); color: var(--color-neutral-600); letter-spacing: 0; flex: none; }
+.coque-sec-badge {
+  font-size: var(--text-eyebrow); padding: 0 6px; border-radius: 9px; background: var(--color-accent-800);
+  color: var(--color-accent-100); letter-spacing: 0; text-transform: none; flex: none;
+}
+.coque-sec-sub {
+  font-size: var(--text-caption); color: var(--color-neutral-300); padding: 0 8px 4px 27px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Groupe dans une section (filet dégradé). */
+.coque-group {
+  display: flex; align-items: center; gap: 6px; width: 100%; padding: 7px 8px 4px 10px; border: 0; border-radius: var(--radius-md);
+  background: transparent; font: inherit; font-size: var(--text-micro); letter-spacing: var(--tracking-caps);
+  text-transform: uppercase; text-align: left; cursor: pointer; color: var(--color-neutral-500);
+}
+.coque-group:hover { color: var(--color-neutral-200); }
+.coque-group-rule { flex: 1; height: 1px; background: linear-gradient(90deg, var(--color-neutral-800), transparent); }
+.coque-group-count { font-size: var(--text-micro); color: var(--color-neutral-600); letter-spacing: 0; flex: none; }
+
+/* Pied de la barre latérale : personne connectée (compte) ou « Voir en tant que » (démonstration). */
+.coque-side-foot { margin-top: auto; position: relative; display: flex; flex-direction: column; gap: 8px; }
+.coque-user {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px; border: 0; border-radius: var(--radius-md);
+  background: var(--color-surface); color: var(--color-text); font: inherit; text-align: left; cursor: pointer;
+}
+.coque-user:hover { background: var(--color-neutral-900); }
+.coque-avatar {
+  width: 28px; height: 28px; flex: none; border-radius: 50%; background: var(--color-accent-800); color: var(--color-accent-200);
+  display: grid; place-items: center; font-size: 11px;
+}
+.coque-who { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.coque-who-name { font-size: var(--text-ui); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.coque-who-role { font-size: 11px; color: var(--color-neutral-400); }
+.coque-user-caret { margin-left: auto; color: var(--color-neutral-500); flex: none; }
+
+/* ── 3. En-tête de page ─────────────────────────────────────────────────── */
+/* Ordre fixe, de gauche à droite : [fil + titre] [recherche globale] [actions de la page] [outils] [langue / affichage]. */
+.coque-header { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.coque-header-left { display: flex; flex-direction: column; gap: 4px; margin-right: auto; min-width: 0; }
+.coque-crumb {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: var(--text-small); color: var(--color-neutral-400);
+}
+.coque-crumb-sep { color: var(--color-neutral-600); }
+.coque-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.coque-title {
+  margin: 0; font-size: var(--text-title); font-weight: var(--weight-strong); line-height: 1.2; letter-spacing: -0.01em;
+}
+.coque-subtitle { font-size: var(--text-control); color: var(--color-neutral-400); text-wrap: pretty; }
+.coque-header-search { position: relative; min-width: 220px; flex: 1 1 220px; max-width: 360px; }
+.coque-header-search-icon { position: absolute; left: 10px; top: 9px; color: var(--color-neutral-500); pointer-events: none; }
+.coque-header-search .input { width: 100%; min-height: var(--control-h); padding-left: 30px; font-size: var(--text-control); }
+.coque-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.coque-header-tools { display: flex; align-items: center; gap: 10px; }
+.coque-status-date { display: flex; align-items: center; gap: 8px; font-size: var(--text-small); color: var(--color-neutral-400); white-space: nowrap; }
+.coque-bell { position: relative; }
+.coque-bell-badge {
+  position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
+  font-size: var(--text-micro); display: grid; place-items: center; background: var(--color-accent); color: var(--color-bg);
+}
+.coque-actions-anchor { position: relative; display: inline-block; }
+.coque-actions-menu {
+  position: absolute; z-index: 30; top: calc(100% + 4px); right: 0; min-width: 280px; display: flex; flex-direction: column;
+  padding: 6px; border-radius: var(--radius-md); background: var(--color-surface);
+}
+.coque-actions-menu[hidden] { display: none; }
+/* Bandeau « Hors de mon espace · Lecture seule ». */
+.coque-outside {
+  display: flex; align-items: center; gap: 10px; font-size: var(--text-control); color: var(--color-neutral-300);
+  padding: 9px 12px; border-radius: var(--radius-md); background: var(--color-neutral-900);
+  box-shadow: inset 0 0 0 1px var(--color-neutral-800);
+}
+
+/* ── 4. Langue et affichage : deux sélecteurs empilés, de même taille ────── */
+/* Langue (FR | EN) au-dessus, affichage (sombre | clair) dessous ; mêmes largeur et hauteur, bords gauches alignés ;
+   dernier élément à droite de l'en-tête de page (> 1024 px) et de la barre supérieure (≤ 1024 px). */
+.coque-prefs {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--pref-gap);
+  flex: none;
+}
+.coque-pref {
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  height: var(--pref-h);
+}
+.coque-pref-opt {
+  flex: none;
+  width: var(--pref-opt-w);
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-small);
+  line-height: 1;
+  color: var(--color-neutral-300);
+  cursor: pointer;
+}
+.coque-pref-opt + .coque-pref-opt { border-left: 1px solid var(--color-divider); }
+.coque-pref-opt svg { width: 14px; height: 14px; display: block; }
+.coque-pref-opt:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.coque-pref-opt[aria-pressed='true'] { color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); }
+.coque-pref-opt:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.coque-pref-opt:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── 5. Barre d'outils de la page : onglets, segments, filtres ──────────── */
+.coque-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.coque-filter-group { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.coque-filter-label {
+  display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-small); color: var(--color-neutral-400); white-space: nowrap;
+}
+.coque-filter-label-icon { font-size: 15px; color: var(--color-accent); flex: none; }
+.coque-filter-note { margin-left: auto; font-size: var(--text-small); color: var(--color-neutral-400); text-wrap: pretty; }
+/* Onglets et vues : segments (Segmented de charte/ds ; même rendu en HTML simple). */
+.coque-seg { display: flex; overflow: hidden; border: 1px solid var(--color-divider); border-radius: var(--radius-md); }
+.coque-seg.is-wrap { flex-wrap: wrap; }
+.coque-seg-opt {
+  white-space: nowrap; border: 0; background: transparent; font: inherit; font-size: var(--text-small); cursor: pointer;
+  padding: 4px 10px; display: inline-flex; align-items: center; gap: 6px; color: var(--color-neutral-300);
+  text-decoration: none; line-height: 1.55; min-height: calc(1.55em + 8px);
+}
+.coque-seg-opt + .coque-seg-opt { border-left: 1px solid var(--color-divider); }
+.coque-seg-opt:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); color: var(--color-neutral-300); }
+.coque-seg-opt[aria-pressed='true'],
+.coque-seg-opt[aria-current='true'],
+.coque-seg-opt[aria-current='page'] { color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); }
+.coque-seg-opt:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.coque-seg-count { font-variant-numeric: tabular-nums; font-size: 11px; color: var(--color-neutral-400); }
+/* Filtres à choix unique (puces). */
+.coque-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.coque-chip {
+  display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: var(--radius-md); font: inherit;
+  font-size: var(--text-small); cursor: pointer; background: transparent; border: 1px solid var(--color-neutral-800);
+  color: var(--color-neutral-300); text-decoration: none;
+}
+.coque-chip:hover { background: var(--color-neutral-900); color: var(--color-neutral-300); }
+.coque-chip[aria-pressed='true'],
+.coque-chip[aria-current='true'] { background: var(--color-accent-900); border-color: var(--color-accent-700); color: var(--color-accent-200); }
+.coque-chip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.coque-chip-count { font-variant-numeric: tabular-nums; font-size: 11px; color: var(--color-neutral-400); }
+
+/* ── 6. Tuiles KPI, état vide ───────────────────────────────────────────── */
+.coque-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--kpi-min, 150px), 1fr)); gap: 10px; }
+.coque-kpi { gap: 3px; padding: 12px 14px; }
+.coque-kpi-label { font-size: var(--text-eyebrow); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--color-neutral-400); }
+.coque-kpi-value {
+  display: flex; align-items: center; gap: 6px; font-size: var(--text-kpi); font-weight: var(--weight-strong);
+  letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--color-text);
+}
+.coque-kpi.is-alert .coque-kpi-value { color: var(--color-accent-300); }
+.coque-kpi-sub { display: flex; gap: 5px; align-items: center; font-size: var(--text-caption); color: var(--color-neutral-400); text-wrap: pretty; }
+.coque-kpi.is-lg .coque-kpi-value { font-size: var(--text-kpi-lg); }
+.coque-kpi.is-lg .coque-kpi-sub { font-size: var(--text-small); }
+.coque-empty { display: block; font-size: var(--text-control); color: var(--color-neutral-500); padding: 8px 0; }
+.coque-empty.is-boxed {
+  font-size: var(--text-control); color: var(--color-neutral-400); padding: 14px; text-align: center; border-radius: var(--radius-md);
+  background: var(--color-neutral-900); text-wrap: pretty;
+}
+
+/* ── 7. Panneau latéral (formulaires) — rendu de charte/ds/Drawer en HTML simple ── */
+.coque-panel-scrim { position: fixed; inset: 0; z-index: 60; background: color-mix(in srgb, var(--color-bg) 60%, transparent); }
+.coque-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 61; width: min(var(--panel-w), 100vw); overflow: auto;
+  display: flex; flex-direction: column; gap: 12px; padding: 18px 22px; border-radius: 0;
+  background: var(--color-surface); box-shadow: var(--shadow-lg);
+}
+.coque-panel.is-wide { width: min(var(--panel-w-wide), 100vw); }
+.coque-panel:focus { outline: none; }
+.coque-panel-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.coque-panel-id { font-size: var(--text-small); color: var(--color-neutral-400); font-variant-numeric: tabular-nums; margin-right: auto; }
+.coque-panel-title { margin: 0; font-size: 18px; font-weight: var(--weight-strong); text-wrap: pretty; }
+.coque-panel-foot {
+  position: sticky; bottom: -18px; margin-top: auto; padding: 12px 0 18px; display: flex; justify-content: flex-end; gap: 8px;
+  background: var(--color-surface);
+}
+
+/* ── 8. Barre supérieure (≤ 1024 px) ────────────────────────────────────── */
+.coque-topbar { display: none; }
+.coque-menu-btn.btn { gap: 8px; min-height: var(--touch-target); font-size: var(--text-ui); }
+.coque-topbar-brand { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; font-weight: var(--weight-strong); }
+.coque-topbar-logo { color: var(--color-accent); }
+.coque-topbar-tools { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.coque-backdrop { display: none; }
+
+@media (max-width: 1024px) {
+  .coque { grid-template-columns: minmax(0, 1fr); }
+  .coque-main { gap: var(--shell-gap-compact); padding: var(--shell-main-pad-compact); }
+  .coque-topbar {
+    display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 30; margin: 0 -18px; padding: 8px 18px;
+    background: color-mix(in srgb, var(--color-bg) 88%, transparent); backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--color-neutral-900);
+  }
+  /* La paire langue / affichage quitte l'en-tête de page pour la droite de la barre supérieure. */
+  .coque-header .coque-prefs { display: none; }
+  .coque-title { font-size: var(--text-title-compact); }
+  .coque-side {
+    position: fixed; top: 0; left: 0; bottom: 0; z-index: 66; width: var(--shell-drawer-w); height: 100dvh;
+    overscroll-behavior: contain; background: var(--color-bg); box-shadow: var(--shadow-lg);
+    transform: translateX(-100%); visibility: hidden; transition: transform 0.2s ease, visibility 0s linear 0.2s;
+  }
+  .coque-side.is-open { transform: none; visibility: visible; transition: transform 0.2s ease; }
+  .coque-side-close.btn { display: inline-flex; margin-left: auto; }
+  .coque-backdrop {
+    display: block; position: fixed; inset: 0; z-index: 65; background: color-mix(in srgb, var(--color-bg) 60%, transparent);
+    opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
+  }
+  .coque-backdrop.is-on { opacity: 1; pointer-events: auto; }
+  .coque-kbd { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .coque-side, .coque-side.is-open, .coque-backdrop { transition: none; }
+}
+/* Cibles tactiles de 40 px (les deux sélecteurs langue / affichage gardent leur taille commune : 36 × 26, au-dessus du
+   minimum de 24 px de WCAG 2.5.8). */
+@media (max-width: 1024px), (pointer: coarse) {
+  .coque-entry, .coque-sec-head, .coque-group, .coque-user, .coque-chip, .coque-seg-opt { min-height: var(--touch-target); }
+  .coque-pagesearch .input, .coque-header-search .input { min-height: var(--touch-target); }
+  .coque-pagesearch-icon, .coque-header-search-icon { top: 13px; }
+}
+
+/* ── 9. Impression : la coque disparaît ─────────────────────────────────── */
+@media print {
+  .coque { display: block; background: none; }
+  .coque-side, .coque-topbar, .coque-backdrop, .coque-header-tools, .coque-header-actions, .coque-prefs, [data-print-hide] { display: none !important; }
+}

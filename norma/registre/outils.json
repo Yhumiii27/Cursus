@@ -146,6 +146,23 @@
         "droits": "MODULUS_ACCESS_FROM_CLAVIS=on"
       },
       "langue_commits": "en"
+    },
+    {
+      "code": "vector",
+      "nom": "Vector",
+      "role_metier": "Expéditions nationales et internationales : demandes, colisage, transport, douane, documents, suivi, coûts",
+      "depot": "Yhumiii27/vector",
+      "schema": "vector",
+      "role_pg": "vector_app",
+      "ports": {
+        "dev": 3900,
+        "tests": 3910
+      },
+      "clavis": {
+        "emetteur": "ENTRA_ISSUER",
+        "droits": "VECTOR_ACCESS_FROM_CLAVIS=on"
+      },
+      "langue_commits": "en"
     }
   ],
   "ports_reserves_hors_outils": [

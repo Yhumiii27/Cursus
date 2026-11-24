@@ -34,3 +34,21 @@ export type { OverlayOptions } from './overlay';
 export { ThemeToggle } from './ThemeToggle';
 export { THEMES, THEME_COOKIE, DEFAULT_THEME, themeOf, themeCookie } from './theme';
 export type { Theme } from './theme';
+// Norma 2.0 — coque commune (charte/COQUE.md, classes de charte/coque.css).
+export { AppShell, MobileTopBar, useCoque, COMPACT_MEDIA, SIDEBAR_ID, NAV_TOGGLE_ID, MAIN_ID } from './AppShell';
+export type { AppShellProps, MobileTopBarProps } from './AppShell';
+export { Sidebar, PageSearch, NavList, NavSections, NavSection, NavGroup, NavEntry, matchPages } from './Sidebar';
+export type { SidebarProps, PageSearchProps, PageHit, NavEntryProps, NavSectionProps } from './Sidebar';
+export { PageHeader } from './PageHeader';
+export type { PageHeaderProps } from './PageHeader';
+export { HeaderActions, HeaderMenuContext, useHeaderMenu, splitActions, MAX_HEADER_BUTTONS } from './HeaderActions';
+export type { HeaderActionsProps } from './HeaderActions';
+export { HeaderTools, PrefsStack, LangSwitch, ThemeSwitch, StatusDate, THEME_EVENT } from './HeaderTools';
+export type { HeaderToolsProps, PrefsStackProps, LangSwitchProps, Lang } from './HeaderTools';
+export { FilterBar, FilterGroup, FilterLabel, FilterNote, FilterChips } from './FilterBar';
+export type { FilterChipOption } from './FilterBar';
+export { KpiGrid, KpiTile } from './Kpi';
+export type { KpiTileProps } from './Kpi';
+export { EmptyState } from './EmptyState';
+/** Side panel of the forms (COQUE.md § 7): the Drawer, 640 px (680 wide), closed on success. */
+export { Drawer as SidePanel } from './Drawer';

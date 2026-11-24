@@ -50,6 +50,10 @@ jobs:
           node-version: ${{ matrix.version }}
           cache: npm
       - run: node --version
+      # Socle commun de la suite (Norma) : copie norma/ intacte et dépendances conformes à norma/dependances.json, sans
+      # dépendance installée (npm run norma:check).
+      - name: Copie de Norma
+        run: node norma/outils/norma.mjs verifier
       - run: npm ci
       - run: npm run check
       # Failles connues des dépendances (base de npm) : celles de production, installées sur le serveur, bloquent à

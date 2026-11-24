@@ -1,0 +1,41 @@
+/* DS .table conventions used by the prototype (docs/spec/02 DS-CLASSES › Table, C-11). */
+:global(.table).t13 { font-size: 13px; }
+:global(.table).t125 { font-size: 12.5px; }
+
+.right { text-align: right; }
+.center { text-align: center; }
+.num { font-variant-numeric: tabular-nums; }
+.nowrap { white-space: nowrap; }
+/* secondary text cells: font-size:12px;color:neutral-300 */
+.secondary { font-size: 12px; color: var(--color-neutral-300); }
+/* muted text cells: font-size:12px;color:neutral-400 */
+.muted { font-size: 12px; color: var(--color-neutral-400); }
+.top { vertical-align: top; }
+
+/* th text-align is left in the DS; right-aligned numeric headers need the stronger selector */
+:global(.table) th.right { text-align: right; }
+:global(.table) th.center { text-align: center; }
+
+.clickable { cursor: pointer; }
+/* selected row: background accent-900 (prototype inline r.bg wins over the row rule and hover) */
+:global(.table) tbody tr.selected,
+:global(.table) tbody tr.selected:hover { background: var(--color-accent-900); }
+
+/* primary cell: title/sub stack */
+.stack { display: flex; flex-direction: column; line-height: 1.3; }
+.stackTitle { font-weight: 500; }
+.stackSub { font-size: 11.5px; color: var(--color-neutral-400); text-wrap: pretty; }
+
+/* ID cell: 12px · 500 · tabular · neutral-300 (accent-300 when selected) */
+.id { font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--color-neutral-300); white-space: nowrap; }
+.idOn { color: var(--color-accent-300); }
+
+/* truncation idiom */
+.ellipsis { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Horizontal scroll box (TableScroll, R-146): no box above 1024 px; a horizontally scrolling block on tablets
+   (media query = TABLET_MEDIA in src/components/app/shell/tablet.ts). */
+.scrollX { display: contents; }
+@media (max-width: 1024px) {
+  .scrollX { display: block; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; }
+}

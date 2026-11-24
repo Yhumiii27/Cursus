@@ -1,0 +1,69 @@
+{
+  "description": "Registre des outils de la suite EPC2I : dépôt, schéma et rôle PostgreSQL, ports réservés sur le Mac du propriétaire, connexion par Clavis. Lu par les outils et par Matrix ; une ligne ne se renomme jamais.",
+  "outils": [
+    {
+      "code": "keystone", "nom": "Keystone", "role_metier": "Gestion des projets EPC2i (exécution)",
+      "depot": "Yhumiii27/Keystone", "schema": "keystone", "role_pg": "keystone_app",
+      "ports": { "dev": 3000, "tests": 3310 },
+      "clavis": { "emetteur": "ENTRA_ISSUER", "droits": "KEYSTONE_ACCESS_FROM_CLAVIS=on" },
+      "langue_commits": "en"
+    },
+    {
+      "code": "codex", "nom": "Codex", "role_metier": "Gestion électronique des documents",
+      "depot": "Yhumiii27/Codex", "schema": "codex", "role_pg": "codex_app",
+      "ports": { "dev": 3100, "tests": 3110 },
+      "clavis": { "emetteur": "CODEX_CLAVIS_URL", "droits": "CODEX_AUTH=clavis" },
+      "langue_commits": "fr"
+    },
+    {
+      "code": "vigie", "nom": "Vigie", "role_metier": "QHSE",
+      "depot": "Yhumiii27/Vigie", "schema": "vigie", "role_pg": "vigie_app",
+      "ports": { "dev": 3200 },
+      "clavis": null,
+      "langue_commits": "fr"
+    },
+    {
+      "code": "cursus", "nom": "Cursus", "role_metier": "Ressources humaines",
+      "depot": "Yhumiii27/Cursus", "schema": "cursus", "role_pg": "cursus_app",
+      "ports": { "dev": 3210, "api": 3217, "vite": 5173 },
+      "clavis": { "emetteur": "CURSUS_OIDC_EMETTEUR", "droits": "CURSUS_ACCES_CLAVIS=on" },
+      "langue_commits": "fr"
+    },
+    {
+      "code": "arche", "nom": "Arche", "role_metier": "CAPEX des filiales (DIG-PRODI)",
+      "depot": "Yhumiii27/Arche", "schema": "arche", "role_pg": "arche_app",
+      "ports": { "dev": 3400, "tests": 3410 },
+      "clavis": { "emetteur": "ENTRA_ISSUER", "droits": "ARCHE_ACCESS_FROM_CLAVIS=on" },
+      "langue_commits": "en"
+    },
+    {
+      "code": "crucible", "nom": "Crucible", "role_metier": "Moyens d'essais R&D",
+      "depot": "Yhumiii27/Crucible", "schema": "crucible", "role_pg": "crucible_app",
+      "ports": { "dev": 3500, "tests": 3510 },
+      "clavis": { "emetteur": "ENTRA_ISSUER", "droits": "CRUCIBLE_ACCESS_FROM_CLAVIS=on" },
+      "langue_commits": "en"
+    },
+    {
+      "code": "clavis", "nom": "Clavis", "role_metier": "Annuaire, accès et connexion centrale (OpenID Connect)",
+      "depot": "Yhumiii27/Clavis", "schema": "clavis", "role_pg": "clavis_app",
+      "ports": { "dev": 3600, "tests": 3610 },
+      "clavis": null,
+      "langue_commits": "en"
+    },
+    {
+      "code": "matrix", "nom": "Matrix", "role_metier": "Serveur PostgreSQL commun, publications et liens entre outils",
+      "depot": "Yhumiii27/Matrix", "schema": "matrix", "role_pg": "matrix_app",
+      "ports": { "dev": 3700 },
+      "clavis": { "emetteur": "MATRIX_ENTRA_ISSUER", "droits": "MATRIX_ACCES_CLAVIS=on" },
+      "langue_commits": "fr"
+    },
+    {
+      "code": "modulus", "nom": "Modulus", "role_metier": "Commercial et chiffrage : catalogue machines, BOM standard, prix, affaires, configurations vendues, savoir-faire",
+      "depot": "Yhumiii27/modulus", "schema": "modulus", "role_pg": "modulus_app",
+      "ports": { "dev": 3800, "tests": 3810 },
+      "clavis": { "emetteur": "ENTRA_ISSUER", "droits": "MODULUS_ACCESS_FROM_CLAVIS=on" },
+      "langue_commits": "en"
+    }
+  ],
+  "ports_reserves_hors_outils": [5432]
+}

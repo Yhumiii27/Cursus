@@ -191,7 +191,7 @@ test('texte de la page : durées décidées reprises, mentions « à compléter 
 
 test('styles : tailles tactiles et contrastes surchargés dans app.css, le design system reste intact', () => {
   const app = readFileSync(new URL('../client/src/styles/app.css', import.meta.url), 'utf8');
-  const nocturne = readFileSync(new URL('../client/src/styles/nocturne.css', import.meta.url), 'utf8');
+  const nocturne = readFileSync(new URL('../norma/charte/nocturne.css', import.meta.url), 'utf8');
   // nocturne.css : copie du design system (champs en 14 px, bordure --color-divider à 16 %), jamais modifiée.
   assert.match(nocturne, /font-size: 14px; color: var\(--color-text\); caret-color/);
   assert.match(nocturne, /--color-divider: color-mix\(in srgb, #e9e9ed 16%, transparent\);/);

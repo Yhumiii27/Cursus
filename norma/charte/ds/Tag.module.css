@@ -1,0 +1,10 @@
+/* Prototype overrides of the Nocturne .tag (docs/spec/02 C-07 StatusTag sizes). */
+:global(.tag).nowrap { white-space: nowrap; }
+/* sm: map lists, Gantt status, small tags */
+:global(.tag).sm { font-size: 10.5px; }
+/* xs: "New" chips, project-code chips — font-size:10px;padding:1px 7px */
+:global(.tag).xs { font-size: 10px; padding: 1px 7px; }
+/* micro: stage-history mode tags — font-size:10px (DS padding) */
+:global(.tag).micro { font-size: 10px; }
+/* With a leading icon ("Read-only" + eye): display:inline-flex;align-items:center;gap:5px */
+:global(.tag).withIcon { gap: 5px; }

@@ -1,0 +1,23 @@
+/* Right side panel (docs/spec/02 C-19, template 1106–1108). */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: color-mix(in srgb, var(--color-bg) 60%, transparent);
+}
+:global(.card).panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 61;
+  width: min(var(--drawer-w, 640px), 100vw);
+  overflow: auto;
+  border-radius: 0;
+  padding: 18px 22px;
+  gap: 12px;
+  border-left: 1px solid var(--color-neutral-800);
+}
+.header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.id { font-size: 12px; color: var(--color-neutral-400); font-variant-numeric: tabular-nums; }
+.push { margin-right: auto; }

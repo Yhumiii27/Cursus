@@ -187,7 +187,7 @@ test('plugin du build : la version suit aussi le contenu de la coque (page « Ho
   mkdirSync(join(pub, 'icons'), { recursive: true });
   writeFileSync(join(pub, 'sw.js'), SW);
   writeFileSync(join(dir, 'index.html'), '<!doctype html>');
-  const coque = ['/hors-ligne.html', '/hors-ligne.css', '/manifest.webmanifest', '/favicon.svg', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-512-maskable.png', '/icons/apple-touch-icon.png'];
+  const coque = ['/hors-ligne.html', '/hors-ligne.css', '/manifest.webmanifest', '/favicon.svg', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-512-maskable.png', '/icons/apple-touch-icon.png', '/theme.js'];
   for (const c of coque) writeFileSync(join(pub, c), c);
   const version = () => {
     (swCursus(new URL(`file://${join(pub, 'sw.js')}`)).generateBundle as unknown as (this: typeof contexte, o: unknown, b: unknown) => void).call(contexte, {}, { 'assets/index-AAAA.js': {} });
@@ -253,7 +253,7 @@ test('manifeste : lancement /?source=pwa, plein écran, couleurs Nocturne, icôn
   assert.equal(m.scope, '/');
   assert.equal(m.display, 'standalone');
   assert.equal(m.lang, 'fr');
-  const fond = /--color-bg: (#[0-9a-f]{6});/.exec(lire('client/src/styles/nocturne.css'))![1];
+  const fond = /--color-bg: (#[0-9a-f]{6});/.exec(lire('norma/charte/nocturne.css'))![1];
   assert.equal(m.background_color, fond);
   assert.equal(m.theme_color, fond);
   assert.deepEqual(m.icons.map((i: { sizes: string; purpose: string }) => `${i.sizes} ${i.purpose}`), ['192x192 any', '512x512 any', '512x512 maskable']);

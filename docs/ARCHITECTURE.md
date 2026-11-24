@@ -174,7 +174,10 @@ client/src/
                    sur le titre après un changement de page
   pages/           Un fichier par écran ; pages/parametres/ : une section de l'écran Paramètres par fichier (sections.tsx)
   dialogs/         Un fichier par dialogue, rendus par DialogHost
-  styles/          nocturne.css (design system, ne pas modifier) et app.css (mise en page)
+  styles/          app.css (mise en page) et print.css ; la charte Nocturne (thèmes sombre et clair) est la copie de
+                   Norma, norma/charte/nocturne.css, importée par main.tsx (jamais modifiée dans Cursus)
+  theme/           Affichage sombre / clair (Norma 1.0) : cookie epc2i-theme, attribut data-theme de <html> posé avant
+                   le rendu par public/theme.js, bouton BoutonTheme de l'en-tête
 design/            Prototype Claude Design de référence, guide du design system Nocturne et archive complète de la
                    maquette (maquette-handoff.zip, seule archive suivie : *.zip est ignoré ailleurs)
 deploy/            Fichiers d'installation prêts à copier (unités systemd, Caddyfile, copie externe), identiques à la doc

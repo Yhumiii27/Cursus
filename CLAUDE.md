@@ -1,5 +1,11 @@
 # Cursus — consignes pour les sessions Claude
 
+@norma/REGLES.md
+
+Règles communes de la suite EPC2I (Norma) : copie versionnée dans `norma/` (version `norma/VERSION`), contrôlée par
+`npm run norma:check` (CI) ; elles se changent dans le dépôt `Yhumiii27/Norma`, jamais ici. Ce fichier n'ajoute que les
+règles propres à Cursus.
+
 Cursus est l'outil RH du groupe EPC2I (formations, habilitations, temps, absences, entretiens, déplacements, frais).
 Lire d'abord `README.md` et `docs/ARCHITECTURE.md` ; la suite des lots est dans `docs/RESTE_A_FAIRE.md`.
 

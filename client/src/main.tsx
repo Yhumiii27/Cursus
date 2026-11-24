@@ -6,7 +6,8 @@ import { createRoot } from 'react-dom/client';
 import '@fontsource/inter/latin-400.css';
 import '@fontsource/inter/latin-500.css';
 import '@fontsource/inter/latin-600.css';
-import './styles/nocturne.css';
+// Charte Nocturne de la suite (thèmes sombre et clair), copie versionnée de Norma : norma/charte/nocturne.css.
+import '../../norma/charte/nocturne.css';
 import './styles/app.css';
 import { App } from './App.tsx';
 import { Declarer } from './pages/Declarer.tsx';

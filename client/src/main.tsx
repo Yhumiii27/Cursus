@@ -6,8 +6,11 @@ import { createRoot } from 'react-dom/client';
 import '@fontsource/inter/latin-400.css';
 import '@fontsource/inter/latin-500.css';
 import '@fontsource/inter/latin-600.css';
-// Charte Nocturne de la suite (thèmes sombre et clair), copie versionnée de Norma : norma/charte/nocturne.css.
+// Charte Nocturne de la suite (thèmes sombre et clair), copie versionnée de Norma : norma/charte/nocturne.css, puis les
+// cibles tactiles (touch.css) et la coque commune (coque.css : barre latérale, en-tête de page, barre supérieure ; Norma 2.0).
 import '../../norma/charte/nocturne.css';
+import '../../norma/charte/touch.css';
+import '../../norma/charte/coque.css';
 import './styles/app.css';
 import { App } from './App.tsx';
 import { Declarer } from './pages/Declarer.tsx';

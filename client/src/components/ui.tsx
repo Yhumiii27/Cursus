@@ -2,32 +2,32 @@
 import type { CSSProperties, ReactNode, Ref } from 'react';
 import { CheckIcon, XIcon } from '@phosphor-icons/react';
 import { ini, monthShort } from '../../../shared/format.ts';
+import { EnTetePage } from '../layout/Coque.tsx';
 
-export function Page({ kicker, title, actions, note, tight, children }: { kicker?: ReactNode; title: ReactNode; actions?: ReactNode; note?: ReactNode; tight?: boolean; children?: ReactNode }) {
+/**
+ * Page : en-tête commun de la coque (layout/Coque.tsx, Norma 2.0) — fil d'Ariane, titre, `kicker` en sous-titre, boutons
+ * de `actions` à droite (onglets, listes et période passés dans `actions` vont dans la barre d'outils sous l'en-tête),
+ * paire langue / affichage en dernier —, puis la note et le contenu.
+ */
+export function Page({ kicker, title, titleAside, actions, note, tight, children }: { kicker?: ReactNode; title: ReactNode; titleAside?: ReactNode; actions?: ReactNode; note?: ReactNode; tight?: boolean; children?: ReactNode }) {
   return (
     <div className={`page${tight ? ' tight' : ''}`}>
-      <header className="page-head">
-        <div>
-          {kicker != null && <div className="kicker">{kicker}</div>}
-          {/* Ciblable : reçoit le focus après un changement de page (layout/navigation.ts). */}
-          <h1 tabIndex={-1}>{title}</h1>
-        </div>
-        {actions && <div className="head-actions">{actions}</div>}
-        {note && <p className="text-muted head-note">{note}</p>}
-      </header>
+      <EnTetePage titre={title} titreAside={titleAside} sousTitre={kicker} actions={actions} />
+      {note && <p className="text-muted head-note">{note}</p>}
       {children}
     </div>
   );
 }
 
-export function Kpis({ children }: { children: ReactNode }) { return <div className="kpis">{children}</div>; }
+/** Tuiles KPI (Norma 2.0, COQUE.md § 6 : classes coque-kpis / coque-kpi, valeur 22 px). */
+export function Kpis({ children }: { children: ReactNode }) { return <div className="coque-kpis kpis">{children}</div>; }
 
 export function Kpi({ kicker, value, sub, action }: { kicker: ReactNode; value: ReactNode; sub?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="card elev-sm kpi">
-      <div className="card-kicker">{kicker}</div>
-      <div className="kpi-value">{value}</div>
-      <div className="card-meta"><span>{sub}</span>{action}</div>
+    <div className="card elev-sm coque-kpi kpi">
+      <div className="coque-kpi-label">{kicker}</div>
+      <div className="coque-kpi-value">{value}</div>
+      <div className="coque-kpi-sub kpi-sub"><span>{sub}</span>{action}</div>
     </div>
   );
 }
@@ -112,7 +112,7 @@ export function StackBar({ parts, variant }: { parts: { pct: number; color: stri
 }
 
 export function Empty({ children, pad }: { children: ReactNode; pad?: 'sm' | 'md' }) {
-  return <p className="text-muted empty" style={pad ? { padding: `var(--space-${pad === 'sm' ? 3 : 4}) 0` } : undefined}>{children}</p>;
+  return <p className="coque-empty empty" style={pad ? { padding: `var(--space-${pad === 'sm' ? 3 : 4}) 0` } : undefined}>{children}</p>;
 }
 
 export function Fine({ children, muted = true }: { children: ReactNode; muted?: boolean }) {
@@ -144,6 +144,9 @@ export function Btn({ variant = 'ghost', small, icon, children, onClick, disable
     </button>
   );
 }
+
+/** Repère des actions de l'en-tête de page (layout/Coque.tsx) : un Btn reste dans l'en-tête, pas dans la barre d'outils. */
+Btn.bouton = true;
 
 /** Empêche le clic d'un bouton de déclencher le clic de la ligne. */
 export const stop = (fn: () => void) => (ev: React.MouseEvent) => { ev.stopPropagation(); fn(); };

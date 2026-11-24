@@ -4,6 +4,7 @@ import { useState, type FormEvent } from 'react';
 import { MOT_DE_PASSE_MIN } from '../../../shared/constants.ts';
 import { controleMotDePasse } from '../../../shared/rules/comptes.ts';
 import { Field, focusPremiereErreur } from '../components/Dialog.tsx';
+import { EnTetePage } from '../layout/Coque.tsx';
 import { useStore } from '../state/store.tsx';
 
 /** État et envoi du formulaire ; `onDone` après un changement réussi. */
@@ -60,12 +61,12 @@ export function MotDePasse() {
   const { session, logout } = useStore();
   const f = useMotDePasse();
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 'calc(var(--space-8) * 2)' }}>
+    <>
+    {/* En-tête commun (Norma 2.0) : titre de la page et paire langue / affichage. */}
+    <EnTetePage titre="Changer mon mot de passe" />
+    <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 'var(--space-8)' }}>
       <form className="card elev-md" noValidate onSubmit={f.submit} style={{ width: '100%', maxWidth: 420, padding: 'calc(var(--space-6) * 1.5)', gap: 'var(--space-4)' }}>
-        <div>
-          <div className="kicker">{session?.compte?.nom ?? 'Compte Cursus'}</div>
-          <h1 style={{ fontSize: 25, margin: 0 }}>Changer mon mot de passe</h1>
-        </div>
+        <h2 className="card-title">{session?.compte?.nom ?? 'Compte Cursus'}</h2>
         <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>
           Votre mot de passe provisoire doit être remplacé par un mot de passe personnel avant d’accéder à Cursus.
         </p>
@@ -74,5 +75,6 @@ export function MotDePasse() {
         <button type="button" className="btn btn-ghost btn-sm" onClick={logout}>Se déconnecter</button>
       </form>
     </div>
+    </>
   );
 }

@@ -1,5 +1,6 @@
-/* Mise en page de Cursus — classes reprenant à l'identique les styles du prototype
-   (Suivi formations.dc.html). Toutes les valeurs viennent des jetons Nocturne. */
+/* Mise en page de Cursus — classes reprenant les styles du prototype (Suivi formations.dc.html), alignées sur la coque
+   commune de la suite (Norma 2.0, norma/charte/COQUE.md ; classes coque-* de norma/charte/coque.css, chargée avant ce
+   fichier). Toutes les valeurs viennent des jetons Nocturne (couleurs, échelle des textes --text-*, mesures --shell-*). */
 
 html, body { margin: 0; min-height: 100%; background: var(--color-bg); color: var(--color-text); }
 a { color: var(--color-accent); }
@@ -26,91 +27,63 @@ input[type='date'].input { color-scheme: dark; }
 .input, .seg, .radio .dot { border-color: var(--bordure-champ); }
 .input:hover { border-color: var(--bordure-champ-survol); }
 .input:focus-visible { border-color: var(--color-accent); }
+/* Onglets, vues et choix segmentés : mesures des segments de la coque (.coque-seg-opt : 12 px, 4 / 10 px). */
+.seg-opt { padding: 4px 10px; font-size: var(--text-small); line-height: 1.55; }
 /* Désactivé : bordure estompée, pour ne pas paraître modifiable (le design system ne le distinguait pas). */
 .input:disabled { border-color: var(--color-divider); cursor: not-allowed; }
 .seg[aria-disabled='true'] { border-color: var(--color-divider); }
 .card-meta { color: color-mix(in srgb, var(--color-text) 60%, transparent); }
 
-.app { min-height: 100vh; display: flex; font-family: var(--font-body); font-size: 15px; line-height: 1.55; color: var(--color-text); background: var(--color-bg); text-wrap: pretty; }
+/* Corps 15 px / 1,55 ; l'interface (menu, tableaux, panneaux) prend les jetons de la coque (--text-ui 13 px…). */
+.app { font-size: 15px; line-height: 1.55; text-wrap: pretty; }
+.coque .table { font-size: var(--text-ui); }
 
-/* — Barre latérale — */
-.sidebar {
-  width: 244px; flex: none; position: sticky; top: 0; height: 100vh; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-6);
-  padding: var(--space-6) var(--space-4); background: color-mix(in srgb, var(--color-neutral-900) 55%, var(--color-bg));
-  background-image: linear-gradient(to bottom, transparent, var(--color-divider) 48px, var(--color-divider) calc(100% - 48px), transparent);
-  background-repeat: no-repeat; background-position: right; background-size: 1px 100%;
-}
-.brand { display: inline-flex; align-items: center; gap: 10px; padding: 0 var(--space-2); font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 17px; }
-.brand-mark { width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--color-accent); display: grid; place-items: center; color: var(--color-accent); }
-.side-label { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-neutral-500); }
-.side-block { display: flex; flex-direction: column; gap: 6px; padding: 0 var(--space-2); }
-.side-nav { display: flex; flex-direction: column; gap: var(--space-6); flex: 1; }
-.nav-group { display: flex; flex-direction: column; gap: 2px; }
-.nav-group > .side-label { padding: 0 10px 4px; }
-.nav-item {
-  display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: var(--radius-md); font-size: 14px; text-decoration: none;
-  color: var(--color-neutral-300); background: transparent;
-}
-.nav-item:hover { background: color-mix(in srgb, var(--color-accent) 10%, transparent); color: var(--color-neutral-100); }
-.nav-item[aria-current='page'] { color: var(--color-accent-200); background: color-mix(in srgb, var(--color-accent) 16%, transparent); }
-.nav-item > span:not(.tag) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nav-item > svg { flex: none; }
-.nav-badge { flex: none; font-size: 11px; padding: 0 6px; min-width: 18px; justify-content: center; }
-/* Marque et, sur écran étroit, fermeture du tiroir. */
-.side-tete { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
-.sidebar:focus { outline: none; }
-/* Bouton « Menu » de l'en-tête et fermeture du tiroir : écran étroit seulement (layout/Tiroir.tsx). */
-.menu-btn, .fermer-tiroir { display: none; }
-.menu-btn { flex: none; color: var(--color-text); padding-inline: var(--space-2); margin-left: calc(-1 * var(--space-2)); }
-.fermer-tiroir { color: inherit; flex: none; }
-.side-user { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-2) 0; background: var(--rule) no-repeat top / 100% 1px; }
-.side-user .who { min-width: 0; flex: 1; }
-.side-user .who > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* — Barre latérale (coque.css) : ce qui est propre à Cursus — */
+/* Espace (RH, manager, collaborateur ; « Vue » en démonstration), au pied, au-dessus de la personne connectée. */
+.side-label { font-size: var(--text-eyebrow); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--color-neutral-500); }
+.side-block { display: flex; flex-direction: column; gap: 6px; padding: 0 6px; }
+.seg-espace { display: flex; align-self: stretch; }
+.seg-espace .seg-opt { flex: 1; justify-content: center; }
+.coque-side:focus { outline: none; }
+/* Personne connectée : un bloc (pas un bouton), ses actions à droite (mot de passe, déconnexion). */
+.coque-user { cursor: default; padding-right: 4px; }
+.coque-user:hover { background: var(--color-surface); }
+.coque-user .avatar { width: 28px; height: 28px; font-size: 11px; flex: none; }
+.coque-user-actions { margin-left: auto; display: flex; flex: none; }
+.coque-user-actions .btn-icon { width: 30px; height: 30px; color: inherit; }
+.coque-badge { line-height: 1.45; }
+.installer-menu { width: 100%; }
+/* Bouton « Menu » de la barre supérieure, pastille des entrées à traiter. */
+.coque-menu-btn .coque-badge { margin-left: 2px; }
 
-/* — Colonne principale — */
-.main-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.topbar {
-  position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: var(--space-4); padding: var(--space-3) calc(var(--space-8) * 1.25); min-height: 56px;
-  background-color: color-mix(in srgb, var(--color-bg) 94%, transparent); backdrop-filter: blur(10px);
-  background-image: var(--rule); background-repeat: no-repeat; background-position: bottom; background-size: 100% 1px;
-}
-.crumb { font-size: 13px; color: var(--color-neutral-400); display: flex; align-items: center; gap: 8px; min-width: 0; }
-.crumb .sep { opacity: 0.5; }
-.crumb .here { color: var(--color-text); }
-.topbar-actions { display: flex; align-items: center; gap: var(--space-3); margin-left: auto; }
-/* Norma 1.0 : affichage sombre / clair (theme/BoutonTheme.tsx), icônes seules, dernier élément de l'en-tête. */
-.bouton-theme, .bouton-langue { flex: none; }
-.bouton-theme .seg-opt { padding: 7px 10px; }
-.bouton-langue .seg-opt { padding: 7px 8px; font-size: 12px; }
+/* — En-tête de page (coque.css) — */
+/* Boutons de l'en-tête en taille sm (12,5 px) ; dans le menu « Actions », une ligne de menu par action. */
+.coque-header-actions .btn { font-size: var(--text-control); padding: 6px 12px; white-space: nowrap; }
+.coque-actions-menu > .btn { justify-content: flex-start; width: 100%; border-color: transparent; color: var(--color-text); }
+.coque-actions-menu > .btn:hover { background: var(--color-neutral-900); }
+/* Champ de recherche avec loupe (recherche des collaborateurs de l'en-tête, recherches de liste). */
 .search { position: relative; display: block; width: 240px; }
 .search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); opacity: 0.55; pointer-events: none; }
 .search .input { padding-left: 32px; }
-/* Lien « Aller au contenu » : premier arrêt de Tab, hors de l'écran tant qu'il n'a pas le focus. */
-.lien-evitement {
-  position: fixed; top: var(--space-3); left: var(--space-3); z-index: 40; padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-lg); font-size: 14px;
-}
-.lien-evitement:not(:focus) { width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; box-shadow: none; }
-.content:focus { outline: none; }
-.content {
-  flex: 1; width: 100%; max-width: 1480px; padding: calc(var(--space-8) * 1.25) calc(var(--space-8) * 1.25) calc(var(--space-8) * 2);
-  display: flex; flex-direction: column; gap: var(--space-6);
-}
+/* Dans l'en-tête de page, le champ prend les mesures de .coque-header-search (32 px, 12,5 px). */
+.coque-header-search .search { width: 100%; }
+.coque-header-search .search .input { min-height: var(--control-h); padding-left: 30px; font-size: var(--text-control); }
+/* Bloc du titre : base de 200 px, s'élargit et passe à la ligne avant que la paire langue / affichage ne quitte la droite. */
+.coque-header-left { flex: 1 1 200px; }
+.coque-header > .coque-prefs { margin-left: auto; }
 
 /* — Pages — */
-.page { display: flex; flex-direction: column; gap: var(--space-6); }
+.page { display: flex; flex-direction: column; gap: var(--shell-gap); }
 .page.tight { gap: var(--space-4); }
-.page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
-.page-head h1 { font-size: 25px; margin: 0; }
+.portail-situation { display: flex; flex-direction: column; gap: 2px; margin-top: -8px; }
 .kicker { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent); margin-bottom: 4px; }
 .head-actions { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
-.head-note { font-size: 13px; margin: 0; max-width: 60ch; }
+.head-note { font-size: var(--text-ui); margin: 0; max-width: 60ch; }
 .hint-label { font-size: 12px; color: var(--text-70); }
 
-.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-4); }
-.kpi { padding: var(--space-6); gap: var(--space-2); }
-.kpi-value { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 32px; line-height: 1.1; letter-spacing: -0.015em; font-feature-settings: 'tnum' 1; }
-.kpi .card-meta { justify-content: space-between; }
+/* Tuiles KPI : coque-kpis / coque-kpi (valeur 22 px, libellé 10,5 px en capitales) ; lien d'action à droite de la sous-ligne. */
+.kpi-sub { justify-content: space-between; flex-wrap: wrap; }
+.kpi-sub .btn-sm { font-size: var(--text-caption); }
 
 .row-wrap { display: flex; flex-wrap: wrap; gap: var(--space-6); align-items: flex-start; }
 .col-stack { min-width: 0; display: flex; flex-direction: column; gap: var(--space-6); }
@@ -137,11 +110,11 @@ input[type='date'].input { color-scheme: dark; }
 .muted-70 { color: var(--text-70); }
 .text-n400 { color: var(--color-neutral-400); }
 .text-n300 { color: var(--color-neutral-300); }
-.empty { font-size: 14px; margin: 0; }
+.empty { margin: 0; }
 .fine { font-size: 12px; margin: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .actions-end { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
-.btn-sm { font-size: 13px; white-space: nowrap; }
+.btn-sm { font-size: var(--text-control); white-space: nowrap; }
 .btn-icon.plain { color: inherit; width: 32px; height: 32px; }
 tr.clickable, .clickable { cursor: pointer; }
 /* Bouton d'ouverture d'une ligne cliquable (components/Cliquable.tsx) : le nom, sans habillage, focalisable au clavier. */
@@ -186,11 +159,12 @@ tr.selected { background: color-mix(in srgb, var(--color-accent) 10%, transparen
 .stat-trio { display: flex; gap: var(--space-8); margin-top: var(--space-2); }
 .stat-trio .v { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 20px; line-height: 1.1; font-feature-settings: 'tnum' 1; }
 
-.side-panel { flex: 0 1 360px; min-width: 300px; padding: var(--space-6); gap: var(--space-4); position: sticky; top: 76px; max-height: calc(100vh - 92px); overflow: auto; }
+/* Colonne de détail d'une liste (fiche, dossier) : à ne pas confondre avec le panneau latéral des formulaires. */
+.panneau-colonne { flex: 0 1 360px; min-width: 300px; padding: var(--space-6); gap: var(--space-4); position: sticky; top: 20px; max-height: calc(100vh - 40px); overflow: auto; }
 /* Panneau de détail amené dans le champ de vision sur écran étroit (components/panneau.ts) : sous la barre du haut. */
-.side-panel, .panneau-detail { scroll-margin-top: 72px; }
-.side-panel:focus, .panneau-detail:focus { outline: none; }
-.side-panel h3 { font-size: 20px; margin: 0; }
+.panneau-colonne, .panneau-detail { scroll-margin-top: 72px; }
+.panneau-colonne:focus, .panneau-detail:focus { outline: none; }
+.panneau-colonne h3 { font-size: 20px; margin: 0; }
 .section-label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-accent); margin: 0; }
 
 .boxed { padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); border: 1px solid var(--color-divider); }
@@ -256,12 +230,12 @@ textarea.input.mid { height: auto; min-height: 72px; }
 /* Notifications : deux régions live permanentes (succès, erreurs), la carte centrée en bas de l'écran,
    au-dessus des dialogues et de la reconnexion. */
 .toasts {
-  position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 30; pointer-events: none;
-  display: flex; flex-direction: column; align-items: center; width: max-content; max-width: min(90vw, 600px);
+  position: fixed; right: 22px; bottom: 22px; z-index: 70; pointer-events: none;
+  display: flex; flex-direction: column; align-items: flex-end; width: max-content; max-width: min(calc(100vw - 44px), 420px);
 }
 .toast {
   display: flex; align-items: center; gap: 10px; pointer-events: auto;
-  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4); border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-lg); font-size: 14px;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4); border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-lg); font-size: var(--text-ui);
 }
 .toast.error { box-shadow: var(--shadow-lg), inset 0 0 0 1px var(--color-accent-300); }
 .toast svg { color: var(--color-accent); flex: none; }
@@ -299,42 +273,27 @@ textarea.input.mid { height: auto; min-height: 72px; }
   .seg { flex-wrap: wrap; overflow: visible; border: 0; gap: var(--space-1); }
   .seg-opt, .seg-opt + .seg-opt { flex: 1 1 auto; justify-content: center; border: 1px solid var(--bordure-champ); border-radius: var(--radius-md); }
   .seg[aria-disabled='true'] .seg-opt { border-color: var(--color-divider); }
-  /* Fil d'Ariane réduit à la page, sur la ligne du bouton « Menu ». */
-  .crumb > :not(.here) { display: none; }
-  /* En-tête : la recherche sur sa propre ligne, les boutons (nouvelle session, affichage sombre / clair) dessous, à droite. */
-  .topbar-actions { flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
-  .topbar-actions:has(> .search) { width: 100%; }
-  .topbar-actions > .search { flex: 1 1 100%; }
+  /* En-tête de page : la recherche sur sa propre ligne, les actions dessous. */
+  .coque-header-search { flex: 1 1 100%; max-width: none; }
 }
 
-/* — Écrans étroits — */
-@media (max-width: 900px) {
-  .app { flex-direction: column; }
-  /* Barre latérale rangée hors de l'écran, ouverte en tiroir par le bouton « Menu » (layout/Tiroir.tsx). */
-  .sidebar {
-    position: fixed; top: 0; bottom: 0; left: 0; z-index: 15; width: min(320px, 86vw); height: auto; overscroll-behavior: contain;
-    transform: translateX(-100%); visibility: hidden; transition: transform 0.2s ease, visibility 0s linear 0.2s;
-  }
-  .sidebar.ouvert { transform: none; visibility: visible; transition: transform 0.2s ease; box-shadow: var(--shadow-lg); }
-  .tiroir-fond { position: fixed; inset: 0; z-index: 14; background: color-mix(in srgb, var(--color-neutral-900) 60%, transparent); }
-  .menu-btn, .fermer-tiroir { display: inline-flex; }
-  .topbar { flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
-  .topbar, .content { padding-left: 16px; padding-right: 16px; }
+/* — Écrans étroits (1024 px et moins, point de rupture de la coque) : barre latérale en tiroir et barre supérieure
+   (coque.css) ; colonne de détail sous la liste. — */
+@media (max-width: 1024px) {
   .search { width: 100%; }
-  .side-panel { position: static; max-height: none; flex-basis: 100%; }
+  .panneau-colonne { position: static; max-height: none; flex-basis: 100%; }
+  /* Barre supérieure : marges du contenu de la coque (18 px). */
+  .coque-topbar { padding-top: max(8px, env(safe-area-inset-top)); }
 }
 
 /* — Écrans tactiles (téléphone, tablette) : champs en 16 px, sans quoi iOS agrandit la page à chaque saisie, et cibles de
    44 px au moins (boutons, icônes, options, entrées du menu, fermeture des notifications). — */
 @media (pointer: coarse) {
   .input { font-size: 16px; min-height: 44px; }
-  .btn, .seg-opt, .nav-item, .jour-btn { min-height: 44px; }
+  .btn, .seg-opt, .jour-btn { min-height: 44px; }
   /* min-* l'emportent sur la taille donnée au bouton (style en ligne d'une icône, croix d'une ligne d'heures). */
   .btn-icon { min-width: 44px; min-height: 44px; }
   .toast .toast-fermer { width: 44px; height: 44px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .sidebar, .sidebar.ouvert { transition: none; }
 }
 html.tiroir-ouvert { overflow: hidden; }
 
@@ -409,7 +368,8 @@ html.tiroir-ouvert { overflow: hidden; }
 th.right .th-tri, th.center .th-tri { justify-content: inherit; }
 .suite-liste { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; padding-top: var(--space-2); }
 /* Filtres d'une liste (recherche, équipe, statut) au-dessus de son tableau. */
-.filtres-liste { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+/* Barre de filtres d'une liste : mêmes mesures que la barre d'outils de la coque (.coque-toolbar, gap 12 px). */
+.filtres-liste { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .filtres-liste .input { width: auto; min-width: 160px; }
 .filtres-liste input.input { min-width: 220px; }
 
@@ -428,7 +388,7 @@ th.right .th-tri, th.center .th-tri { justify-content: inherit; }
 .combo-note { padding: var(--space-2); font-size: 12px; }
 /* Recherche de l'en-tête : la liste s'élargit au-delà du champ, alignée à droite. */
 .search.combo .combo-liste { left: auto; width: max(100%, 340px); }
-@media (max-width: 900px) { .search.combo .combo-liste { left: 0; width: auto; } }
+@media (max-width: 1024px) { .search.combo .combo-liste { left: 0; width: auto; } }
 @media (pointer: coarse) { .combo-option { min-height: 44px; justify-content: center; } }
 
 /* — Impression (passeport formation, comptes rendus) — */
@@ -455,9 +415,9 @@ th.right .th-tri, th.center .th-tri { justify-content: inherit; }
   }
   @page { size: A4; margin: 15mm; }
   /* Menus, notifications et éléments interactifs (boutons, filtres, liens « Tous → ») : non imprimés. */
-  .sidebar, .topbar, .no-print, .toasts, .lien-evitement, .tiroir-fond, .btn, .seg, .link-more { display: none !important; }
+  .coque-side, .coque-topbar, .coque-backdrop, .coque-skip, .no-print, .toasts, .btn, .seg, .link-more { display: none !important; }
   .app, html, body { background: #fff; color: var(--color-text); }
-  .content { padding: 0; max-width: none; }
+  .coque-main { padding: 0; }
   h1, h2, h3 { break-after: avoid; page-break-after: avoid; }
   tr, .list-row, .kpi { break-inside: avoid; page-break-inside: avoid; }
 }
@@ -514,7 +474,7 @@ th.right .th-tri, th.center .th-tri { justify-content: inherit; }
 }
 /* — lot 11 — pwa : application mobile (bandeaux, file d'attente, installation, Mes appareils, barre d'onglets) — */
 /* Bandeaux sous l'en-tête : hors ligne, saisies en attente, nouvelle version (components/BandeauHorsLigne.tsx). */
-.bandeaux-pwa { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) calc(var(--space-8) * 1.25) 0; }
+.bandeaux-pwa { display: flex; flex-direction: column; gap: var(--space-2); }
 .bandeau-pwa { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--color-surface); font-size: 13px; }
 .bandeau-pwa.hors-ligne { box-shadow: inset 3px 0 0 var(--color-accent-400); }
 .bandeau-pwa > svg { flex: none; color: var(--color-accent-300); }
@@ -531,17 +491,15 @@ th.right .th-tri, th.center .th-tri { justify-content: inherit; }
 .hors-ligne-page { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-4); }
 /* Barre d'onglets : application installée sur écran étroit seulement (layout/BarreOnglets.tsx). */
 .barre-onglets { display: none; }
-@media (max-width: 900px) {
-  .bandeaux-pwa { padding-left: 16px; padding-right: 16px; }
+@media (max-width: 1024px) {
   html.standalone .barre-onglets {
     display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 12; padding: 4px max(4px, env(safe-area-inset-right)) max(4px, env(safe-area-inset-bottom)) max(4px, env(safe-area-inset-left));
     background-color: color-mix(in srgb, var(--color-bg) 96%, transparent); backdrop-filter: blur(10px);
     background-image: var(--rule); background-repeat: no-repeat; background-position: top; background-size: 100% 1px;
   }
   /* Contenu dégagé de la barre ; notifications au-dessus d'elle. */
-  html.standalone .content { padding-bottom: calc(var(--space-8) * 2 + 64px + env(safe-area-inset-bottom)); }
+  html.standalone .coque-main { padding-bottom: calc(var(--space-8) * 2 + 64px + env(safe-area-inset-bottom)); }
   html.standalone .toasts { bottom: calc(72px + env(safe-area-inset-bottom)); }
-  html.standalone .topbar { padding-top: max(var(--space-3), env(safe-area-inset-top)); }
 }
 .onglet {
   flex: 1 1 0; min-width: 0; min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
@@ -554,10 +512,8 @@ th.right .th-tri, th.center .th-tri { justify-content: inherit; }
 .onglet-icone { position: relative; display: inline-flex; }
 .onglet-pastille {
   position: absolute; top: -4px; right: -10px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
-  background: var(--color-accent-600); color: #fff; font-size: 10px; line-height: 16px; text-align: center;
+  background: var(--color-accent); color: var(--color-bg); font-size: var(--text-micro); line-height: 16px; text-align: center;
 }
-/* Affichage clair : la rampe est inversée (accent-600 y est pâle) ; pastille sur l'accent plus soutenu, texte blanc lisible. */
-:root[data-theme='light'] .onglet-pastille { background: var(--color-accent-400); }
 /* — lot 11 — indicateurs : graphiques SVG faits maison (components/graphiques/), couleurs des jetons Nocturne — */
 .graph { display: block; width: 100%; max-width: 440px; height: auto; font-family: inherit; }
 .graph-barre { fill: var(--color-accent-600); }

@@ -136,7 +136,8 @@ export function Dialog({ title, width, tall, children, actions, enregistrer, aba
         className={`dialog${centre ? (tall ? ' tall' : '') : ' panneau-lateral'}`} role="dialog" aria-modal="true" aria-labelledby={titreId} aria-describedby={decrit}
         onInputCapture={marquer} onChangeCapture={marquer}
         style={centre ? (width ? { width: `min(${width}px, 100%)`, maxWidth: tall ? width : undefined } : undefined)
-          : { width: `min(${Math.max(width ?? 560, 480)}px, 100%)` }}
+          // Panneau latéral de la charte (Norma 2.0, COQUE.md § 7) : 640 px, 680 px pour un formulaire large.
+          : { width: `min(var(${(width ?? 0) > 640 ? '--panel-w-wide' : '--panel-w'}), 100vw)` }}
       >
         <div className="dialog-title" id={titreId}>{title}</div>
         <div className="dialog-body">

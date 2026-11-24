@@ -143,7 +143,7 @@ function FicheOrganisme({ panneau, o, onClose }: { panneau: RefObject<HTMLElemen
   ];
 
   return (
-    <aside ref={panneau} tabIndex={-1} aria-labelledby="organisme-nom" className="card elev-md side-panel" style={{ flex: '0 1 460px', minWidth: 0 }}>
+    <aside ref={panneau} tabIndex={-1} aria-labelledby="organisme-nom" className="card elev-md panneau-colonne" style={{ flex: '0 1 460px', minWidth: 0 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h3 id="organisme-nom" style={{ overflowWrap: 'anywhere' }}>{o.nomUsuel}</h3>

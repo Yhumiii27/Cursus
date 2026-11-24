@@ -8,6 +8,7 @@ Inter reprise de Codex (`69e7aec`), servie depuis le dépôt.
 | `nocturne.css` | variables (couleurs, rampes tonales, polices, espacements, rayons, ombres) et classes de base. **Source de la charte.** |
 | `touch.css` | cibles agrandies sur écran tactile |
 | `nocturne-readme.md` | principes de la charte (couleur, typographie, états, composants) |
+| `COQUE.md`, `coque.css` | **coque commune** (Norma 2.0) : places et mesures communes à tous les outils, classes `.coque-…` ; audit d'origine `AUDIT-2026-11-24.md` |
 | `ds/` | composants React de base : `Button`, `Tag`, `Card`, `Field` / `Input` / `Select`, `Segmented`, `Table`, `Dialog`, `Drawer`, `CenteredModal`, `Popover`, `Menu`, `Toast`, `cx`, `overlay` |
 | `fonts/inter.ts`, `fonts/inter/` | Inter 4.001 en `next/font/local` (licence OFL) |
 
@@ -22,13 +23,14 @@ Inter reprise de Codex (`69e7aec`), servie depuis le dépôt.
    libellés (« Close », « Dismiss ») par lui ; ces clés vont dans le dictionnaire français de l'outil.
 5. Icônes : `@phosphor-icons/react/dist/ssr`.
 
-## Conventions d'écran (communes à Keystone, Arche, Crucible, Clavis)
+## Conventions d'écran (tous les outils, Norma 2.0)
 
-- **Coque** : barre latérale à sections regroupées par thème, avec compteurs ; recherche de pages ⌘K ; en-tête de page
-  avec titre, actions, cloche, date, sélecteur FR / EN.
+- **Coque** : le contrat est `COQUE.md` (barre latérale, en-tête de page, ordre des outils, paire langue / affichage
+  empilée, barre d'outils, panneau latéral, barre supérieure) ; composants `AppShell`, `Sidebar`, `PageHeader`,
+  `HeaderTools`, `PrefsStack`… de `ds/`, classes de `coque.css` (à importer après `nocturne.css` et `touch.css`).
 - **Actions** : l'action principale en `primary` de l'en-tête, les autres en `actions` ; au-delà de trois, menu
   « Actions ». Filtres et navigation par période dans la barre d'outils (`toolbar`).
-- **Affichage** : bouton sombre / clair juste à côté du sélecteur FR / EN (section « Thème sombre / clair »).
+- **Langue et affichage** : `PrefsStack` — FR | EN au-dessus de sombre | clair, même taille, dernier élément à droite de l'en-tête (COQUE.md § 4).
 - **Formulaires** : jamais ouverts dans la page ; un bouton ouvre un panneau latéral (`Drawer`), fermé au succès.
 - **État d'écran dans l'URL** : onglet, filtres, sélection (`?onglet=`, `?sel=`).
 - **Texte saisi** affiché tel quel (jamais `t()`).
@@ -41,8 +43,9 @@ la version, puis chaque outil reprend la copie (`node norma/outils/norma.mjs cop
 
 ## Thème sombre / clair
 
-Le thème sombre reste celui par défaut ; le thème clair se choisit par le bouton placé **juste à côté du sélecteur de
-langue FR / EN**, dans l'en-tête de chaque outil (propriétaire, 24 novembre 2026).
+Le thème sombre reste celui par défaut ; le thème clair se choisit par le sélecteur d'affichage placé **sous le sélecteur
+de langue FR / EN, de même taille**, à droite de l'en-tête de chaque page (propriétaire, 24 novembre 2026 ; Norma 2.0 :
+`ds/HeaderTools.tsx` `PrefsStack` / `ThemeSwitch`, COQUE.md § 4).
 
 - `nocturne.css` porte les deux thèmes : `<html data-theme="light">` redéfinit les variables (rampes inversées, accent
   plus sombre, ombres douces). Un CSS d'outil qui ne prend que des variables passe d'un thème à l'autre sans changement ;
@@ -51,7 +54,7 @@ langue FR / EN**, dans l'en-tête de chaque outil (propriétaire, 24 novembre 20
   `ds/theme.ts` (`THEME_COOKIE`, `themeOf`, `themeCookie`).
 - Le serveur lit le cookie et pose `data-theme` sur `<html>` au rendu (pas de flash) :
   `<html data-theme={themeOf(cookies().get(THEME_COOKIE)?.value)}>`.
-- Le bouton : `ds/ThemeToggle.tsx` (icônes lune / soleil, libellés « Dark display » / « Light display » à traduire
+- Le bouton : `ds/HeaderTools.tsx` `ThemeSwitch` (dans `PrefsStack`) ; l'ancien `ds/ThemeToggle.tsx`, gardé jusqu'en 3.0, (icônes lune / soleil, libellés « Dark display » / « Light display » à traduire
   « Affichage sombre » / « Affichage clair », groupe « Dark / light display » → « Affichage » (pas « Display », déjà pris par d’autres écrans dans Keystone), posé à droite du sélecteur de langue.
   Il change l'attribut et le cookie dans le navigateur, sans aller-retour au serveur.
 - **Contraste en clair** : la rampe neutre est inversée ; un texte en `--color-neutral-500` ou plus clair ne fait que

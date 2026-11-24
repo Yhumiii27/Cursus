@@ -351,7 +351,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
   };
 
   return (
-    <aside ref={panneau} tabIndex={-1} aria-labelledby="fiche-nom" className="card elev-md side-panel">
+    <aside ref={panneau} tabIndex={-1} aria-labelledby="fiche-nom" className="card elev-md panneau-colonne">
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)' }}>
         <Avatar nom={e.nom} size={40} />
         <div style={{ flex: 1, minWidth: 0 }}>

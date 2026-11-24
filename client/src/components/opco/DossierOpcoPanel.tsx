@@ -80,7 +80,7 @@ export function DossierOpcoPanel({ panneau, dossier: x, onClose }: { panneau: Re
   const retirable = (p: Piece) => rh && (admin || !p.conserverJusquau || p.conserverJusquau < d.ti);
 
   return (
-    <aside ref={panneau} tabIndex={-1} aria-labelledby="dossier-opco-nom" className="card elev-md side-panel" style={{ flex: '0 1 420px' }}>
+    <aside ref={panneau} tabIndex={-1} aria-labelledby="dossier-opco-nom" className="card elev-md panneau-colonne" style={{ flex: '0 1 420px' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h3 id="dossier-opco-nom">{nom}</h3>

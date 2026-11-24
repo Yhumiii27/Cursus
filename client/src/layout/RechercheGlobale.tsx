@@ -5,7 +5,8 @@
 // aussi la liste, comme avant.
 // Ouverte au service RH et aux profils de l'espace RH qui ont l'annuaire (vuesDe), et au manager sur son équipe : le jeu de
 // données est déjà limité par le serveur (server/src/dataset.ts), la recherche n'y ajoute rien.
-// Raccourci : « / » hors d'un champ, Ctrl+K ou Cmd+K (components/recherche.ts), sauf pendant un dialogue.
+// Raccourci : « / » hors d'un champ (components/recherche.ts), sauf pendant un dialogue ; ⌘K / Ctrl+K est la recherche de
+// pages de la barre latérale (Norma 2.0, COQUE.md § 2).
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { MagnifyingGlassIcon } from '@phosphor-icons/react';
 import type { Dataset, Role } from '../../../shared/types.ts';
@@ -66,10 +67,10 @@ export function RechercheGlobale({ data, role }: { data: Dataset; role: Role }) 
   };
 
   return (
-    <div className="search combo">
+    <div className="search combo coque-header-search-field">
       <MagnifyingGlassIcon size={14} />
       <input ref={champ} id={ID} className="input" type="text" role="combobox" autoComplete="off" spellCheck={false}
-        placeholder="Rechercher un collaborateur…" aria-label="Rechercher un collaborateur" aria-keyshortcuts="/ Control+K Meta+K"
+        placeholder="Rechercher un collaborateur…" aria-label="Rechercher un collaborateur" aria-keyshortcuts="/"
         aria-expanded={ouvert && n > 0} aria-controls={`${ID}-liste`} aria-autocomplete="list"
         aria-activedescendant={ouvert && actif >= 0 ? `${ID}-liste-${actif}` : undefined}
         value={q} onKeyDown={onKey} onBlur={fermer}

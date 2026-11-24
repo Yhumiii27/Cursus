@@ -139,7 +139,7 @@ test('vue commune « aide » : dans tous les espaces et sans connexion, partie d
   const shell = readFileSync(join(ROOT, 'client/src/layout/Shell.tsx'), 'utf8');
   const login = readFileSync(join(ROOT, 'client/src/pages/Login.tsx'), 'utf8');
   const app = readFileSync(join(ROOT, 'client/src/App.tsx'), 'utf8');
-  assert.match(shell, /go\('aide'\)/);
+  assert.match(shell, /<Entree view="aide"/);
   assert.match(login, /go\('aide'\)/);
   assert.match(app, /view === 'aide'/);
 });

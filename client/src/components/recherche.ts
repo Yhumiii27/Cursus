@@ -51,11 +51,11 @@ export function deplacer(actif: number, n: number, pas: 1 | -1): number {
 
 /**
  * Raccourci qui place le curseur dans la recherche de l'en-tête : « / » hors d'un champ de saisie (comme sur la plupart
- * des sites), Ctrl+K ou Cmd+K partout. Jamais pendant un dialogue (l'appelant le vérifie).
+ * des sites). Ctrl+K / Cmd+K est la recherche de pages de la barre latérale (Norma 2.0). Jamais pendant un dialogue
+ * (l'appelant le vérifie).
  */
 export function estRaccourciRecherche(ev: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean }, dansUnChamp: boolean): boolean {
   if (ev.altKey) return false;
-  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'k') return true;
   return ev.key === '/' && !ev.ctrlKey && !ev.metaKey && !dansUnChamp;
 }
 

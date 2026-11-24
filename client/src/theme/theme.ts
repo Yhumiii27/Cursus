@@ -8,6 +8,9 @@ import { DEFAULT_THEME, THEME_COOKIE, themeCookie, themeOf, type Theme } from '.
 
 export { DEFAULT_THEME, THEME_COOKIE, themeCookie, themeOf, type Theme };
 
+/** Événement diffusé sur `document` à chaque changement (détail : le thème) : les copies du sélecteur le suivent. */
+export const THEME_EVENT = 'epc2i-theme';
+
 /** Couleur de fond de chaque thème (`--color-bg` de nocturne.css) : barre d'état du téléphone (`theme-color`). */
 export const FOND_THEME: Record<Theme, string> = { dark: '#161826', light: '#f4f5f9' };
 
@@ -39,4 +42,5 @@ export function appliquerTheme(theme: Theme, doc: Document = document): void {
   doc.querySelector('meta[name="color-scheme"]')?.setAttribute('content', theme);
   doc.querySelector('meta[name="theme-color"]')?.setAttribute('content', FOND_THEME[theme]);
   doc.cookie = themeCookie(theme);
+  doc.dispatchEvent(new CustomEvent<Theme>(THEME_EVENT, { detail: theme }));
 }

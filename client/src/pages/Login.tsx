@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { BLOCAGE_MINUTES, ECHECS_MAX, ERREURS_MICROSOFT, type ErreurMicrosoft } from '../../../shared/constants.ts';
 import { lienMicrosoft, type LoginOption } from '../api.ts';
 import { pageDeRetourClient } from '../state/url.ts';
+import { EnTetePage } from '../layout/Coque.tsx';
 import { useStore } from '../state/store.tsx';
 import { t } from '../i18n/langue.ts';
 
@@ -41,11 +42,15 @@ export function Login() {
   // Le code d'erreur quitte l'adresse une fois lu : un rechargement ne le réaffiche pas.
   useEffect(() => { if (location.search) history.replaceState(null, '', location.pathname); }, []);
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-4)', paddingTop: 'calc(var(--space-8) * 2)' }}>
+    <>
+    {/* En-tête commun (Norma 2.0) : le titre de la page et la paire langue / affichage, comme sur toutes les pages. */}
+    <EnTetePage titre={t('Sign-in')} />
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-4)', paddingTop: 'var(--space-8)' }}>
       {demo && !cursus ? <DemoLogin onCursus={() => setCursus(true)} /> : <CursusLogin erreur={erreur} onDemo={demo ? () => setCursus(false) : undefined} />}
       <a className="fine" href="/confidentialite" onClick={e => { e.preventDefault(); go('confidentialite'); }}>{t('Privacy: your data in Cursus')}</a>
       <a className="fine" href="/aide" onClick={e => { e.preventDefault(); go('aide'); }}>{t('Help: signing in and using Cursus')}</a>
     </div>
+    </>
   );
 }
 
@@ -96,10 +101,7 @@ function CursusLogin({ onDemo, erreur }: { onDemo?: () => void; erreur: ErreurMi
 
   return (
     <form className="card elev-md" onSubmit={submit} style={CARD}>
-      <div>
-        <div className="kicker">Cursus</div>
-        <h1 style={{ fontSize: 25, margin: 0 }}>{t('Sign-in')}</h1>
-      </div>
+      <h2 className="card-title">Cursus</h2>
       <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>{t('Training, authorisations, time, leave, reviews and travel.')}</p>
       {echec && <p className="boxed connexion-erreur" role="alert"><strong>{echec.titre}</strong> : {echec.texte}</p>}
       {microsoft && <MicrosoftLogin erreur={erreur} />}
@@ -148,10 +150,7 @@ function DemoLogin({ onCursus }: { onCursus: () => void }) {
 
   return (
     <form className="card elev-md" onSubmit={submit} style={CARD}>
-      <div>
-        <div className="kicker">{t(texte.title)}</div>
-        <h1 style={{ fontSize: 25, margin: 0 }}>{t('Sign-in')}</h1>
-      </div>
+      <h2 className="card-title">{t(texte.title)}</h2>
       <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>{t(texte.text)}</p>
       <div className="field">
         <label htmlFor="lg-id">{t('Account')}</label>

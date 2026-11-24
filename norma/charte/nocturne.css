@@ -78,6 +78,38 @@
   --shadow-sm: 0 0 0 1px #3f424d;
   --shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0,0,0,0.55);
   --shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0,0,0,0.65);
+
+  /* Norma 2.0 — échelle des textes de l'interface (valeurs que Keystone écrivait en dur ; charte/COQUE.md § 3).
+     Le corps des titres h1…h6 ci-dessous reste celui des pages éditoriales ; une application prend ces jetons. */
+  --text-micro: 10px;          /* en-tête de menu, compteur de groupe */
+  --text-eyebrow: 10.5px;      /* titre de section de la barre latérale, libellé de tuile KPI (capitales) */
+  --text-caption: 11.5px;      /* sous-ligne d'une tuile, d'une cellule, d'une notification */
+  --text-small: 12px;          /* fil d'Ariane, filtres, onglets segmentés, boutons xs */
+  --text-control: 12.5px;      /* champs de recherche, boutons sm, lignes de menu, état vide */
+  --text-ui: 13px;             /* corps de l'application : entrées du menu, tableaux, panneaux */
+  --text-dialog: 14px;         /* bouton md, corps d'un dialogue */
+  --text-brand: 16px;          /* nom de l'outil dans la barre latérale */
+  --text-kpi: 22px;            /* valeur d'une tuile KPI */
+  --text-kpi-lg: 24px;         /* valeur d'une tuile KPI d'accueil */
+  --text-title: 26px;          /* titre de page */
+  --text-title-compact: 22px;  /* titre de page ≤ 1024 px */
+  --weight-strong: 500;        /* titres, valeurs, marque (jamais 600 / 700 dans la coque) */
+  --tracking-caps: 0.08em;     /* textes en capitales */
+
+  /* Norma 2.0 — mesures de la coque (charte/COQUE.md § 1). */
+  --shell-sidebar-w: 232px;
+  --shell-drawer-w: min(300px, 86vw);  /* barre latérale en tiroir, ≤ 1024 px */
+  --shell-main-pad: 20px 28px 40px;
+  --shell-main-pad-compact: 0 18px 32px;
+  --shell-gap: 18px;                   /* entre en-tête de page et blocs de la page */
+  --shell-gap-compact: 14px;
+  --control-h: 32px;                   /* champ de recherche, sélecteur de page */
+  --touch-target: 40px;                /* cible tactile ≤ 1024 px ou pointeur grossier */
+  --pref-opt-w: 36px;                  /* option des sélecteurs langue / affichage (largeur identique) */
+  --pref-h: 26px;                      /* hauteur d'un sélecteur langue / affichage */
+  --pref-gap: 4px;                     /* entre les deux sélecteurs empilés */
+  --panel-w: 640px;                    /* panneau latéral (formulaires) */
+  --panel-w-wide: 680px;
 }
 
 body {

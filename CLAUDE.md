@@ -23,3 +23,11 @@ chez qui, et l'applique lui-même. Détail : `docs/ARCHITECTURE.md`, « Échange
   `session_user`, règles et journal de Cursus, `REVOKE EXECUTE … FROM PUBLIC`) ; Matrix accorde son exécution.
 - **Jamais d'écriture dans un autre dépôt** (Matrix, Keystone, Codex, Vigie, Arche, Crucible) : une demande se rédige
   dans `docs/demandes/` et attend la validation du propriétaire, qui la porte dans le `REQUESTS.md` de l'outil.
+
+## Connexion par Clavis (24 novembre 2026)
+
+Décision du propriétaire : une seule base pour tous les outils. Avec `CURSUS_OIDC_EMETTEUR` (adresse de Clavis) la
+connexion « Microsoft 365 » passe par Clavis ; avec `CURSUS_ACCES_CLAVIS=on`, l'accès et le profil RH sont lus dans
+`clavis.pub_acces` (`server/src/acces-clavis.ts`) à la connexion (`server/src/microsoft.ts`) et au plus toutes les
+minutes pendant la session (`examinerSession`, `server/src/auth.ts`) ; compte créé à la première connexion, rattaché à
+la fiche de même e-mail ; lecture impossible = refus. Guide : `docs/CONNEXION-MICROSOFT.md` § 6 bis.

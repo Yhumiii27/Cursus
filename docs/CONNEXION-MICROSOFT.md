@@ -174,6 +174,32 @@ La connexion Microsoft prouve l'identité ; le compte Cursus décide de l'accès
   connexion, mais une session Cursus déjà ouverte dure jusqu'à 12 heures. Désactiver aussi son compte
   dans Cursus (ou saisir sa date de sortie) ferme ses sessions aussitôt.
 
+## 6 bis. Connexion par Clavis (connexion centrale du groupe)
+
+Décision du propriétaire (23-24 novembre 2026) : une seule base pour tous les outils ; Clavis connecte les personnes et
+la DSI y règle l'accès de chacun. Cursus s'y branche par la même route de retour, sans locataire Microsoft :
+
+| Variable | Valeur |
+| --- | --- |
+| `CURSUS_OIDC_EMETTEUR` | adresse de Clavis (`https://clavis.example.fr`), à la place de `CURSUS_OIDC_TENANT` |
+| `CURSUS_OIDC_CLIENT_ID`, `CURSUS_OIDC_CLIENT_SECRET` | client inscrit dans Clavis : `npm run oidc:client -- cursus https://cursus.example.fr/api/auth/microsoft/retour https://cursus.example.fr/api/auth/microsoft/retour` (secret affiché une fois) |
+| `CURSUS_ACCES_CLAVIS` | `on` : l'accès et le profil RH sont lus dans la vue `clavis.pub_acces` du serveur commun (lien de lecture de `cursus_app`, accordé par Matrix) |
+| `CURSUS_ACCES_CLAVIS_SECONDES` | facultative, 60 par défaut : délai au plus avant qu'un changement fait dans Clavis s'applique à une session ouverte |
+
+Avec `CURSUS_ACCES_CLAVIS=on` :
+
+- **à la connexion**, Cursus lit l'accès de la personne à Cursus ; fermé (accès refusé, personne non activée, application
+  fermée) ou illisible : connexion refusée ;
+- **le compte** est retrouvé par l'identité Clavis (`oid`), sinon par l'adresse e-mail ; à défaut, il est **créé** et
+  rattaché à la fiche du salarié de même adresse e-mail (sinon compte externe, qui n'ouvre que l'espace RH) ;
+- **le profil RH** du compte est celui réglé dans Clavis (administrateur RH, gestionnaire RH, référent HSE, comptabilité,
+  lecture seule, aucun), reporté sur le compte et journalisé ; les espaces manager et collaborateur viennent toujours de
+  la fiche du salarié (équipes, délégations) ;
+- **pendant la session**, l'accès est relu au plus toutes les minutes : accès retiré, session fermée ; profil changé,
+  reporté à la requête suivante.
+
+Les comptes locaux (identifiant et mot de passe de Cursus) ne sont pas concernés.
+
 ## 7. Vérifications
 
 ```bash

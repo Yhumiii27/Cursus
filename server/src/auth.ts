@@ -11,8 +11,9 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
 import type { Role } from '../../shared/types.ts';
-import { compteValide, espacesDuCompte } from './comptes.ts';
-import { demoActive } from './config.ts';
+import { appliquerProfilClavis, droitClavis } from './acces-clavis.ts';
+import { compteValide, espacesDuCompte, type Compte } from './comptes.ts';
+import { accesClavisActif, demoActive } from './config.ts';
 import type { Db } from './db.ts';
 import { noterCompte } from './logs.ts';
 
@@ -117,6 +118,14 @@ export async function examinerSession(db: Db, req: Request): Promise<{ session: 
     // Sans compte : démonstration seulement (espace choisi, compte pas encore désigné).
     if (!DEMO) return { session: null, maj: null };
   } else {
+    // Une seule base (CURSUS_ACCES_CLAVIS=on) : une session ouverte par Clavis suit l'accès et le profil RH réglés dans
+    // Clavis (relus au plus toutes les CURSUS_ACCES_CLAVIS_SECONDES) ; accès fermé ou illisible : session révoquée.
+    if (accesClavisActif() && row.methode === 'microsoft') {
+      const c0 = await db.get<Compte>('comptes', row.compteId);
+      const profil = c0?.oid ? await droitClavis(db, c0.oid) : null;
+      if (!c0 || !profil) return { session: null, maj: { id: cle, revocation: now } };
+      await appliquerProfilClavis(db, c0, profil);
+    }
     const c = await compteValide(db, row.compteId);
     if (!c) return { session: null, maj: { id: cle, revocation: now } };
     const espaces = await espacesDuCompte(db, c);

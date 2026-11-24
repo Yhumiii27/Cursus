@@ -10,8 +10,9 @@ import express, { type Request, type Response, type Router } from 'express';
 import { type ErreurMicrosoft } from '../../shared/constants.ts';
 import { normaliserIdentifiant } from '../../shared/rules/comptes.ts';
 import { cookieSecure, LimiteParIp, openSession, parseCookies, readSession, revokeSession, revokeSessionsDuCompte, sign } from './auth.ts';
-import { compteParIdentifiant, enregistrerConnexion, espacesDuCompte, journaliser, nomDuCompte, refusDuCompte, type Compte } from './comptes.ts';
-import { configOidc, type ConfigOidc } from './config.ts';
+import { appliquerProfilClavis, droitClavis } from './acces-clavis.ts';
+import { compteParIdentifiant, creerCompte, enregistrerConnexion, espacesDuCompte, journaliser, nomDuCompte, refusDuCompte, type Compte } from './comptes.ts';
+import { accesClavisActif, configOidc, type ConfigOidc } from './config.ts';
 import type { Db } from './db.ts';
 
 /** Document de découverte OpenID (champs utilisés). */
@@ -54,7 +55,8 @@ export class FournisseurOidc {
 
   constructor(cfg: ConfigOidc, maintenant = () => Date.now()) {
     this.cfg = cfg;
-    this.emetteur = `${cfg.autorite}/${cfg.tenant}/v2.0`;
+    // Clavis (CURSUS_OIDC_EMETTEUR) : son adresse est l'émetteur ; sinon le locataire Microsoft.
+    this.emetteur = cfg.emetteur ?? `${cfg.autorite}/${cfg.tenant}/v2.0`;
     this.maintenant = maintenant;
   }
 
@@ -162,7 +164,7 @@ export class FournisseurOidc {
     if (typeof c.exp !== 'number' || c.exp + TOLERANCE_S < now) throw new ErreurOidc('jeton', 'Jeton d’identité expiré');
     if ((typeof c.nbf === 'number' && c.nbf - TOLERANCE_S > now) || (typeof c.iat === 'number' && c.iat - TOLERANCE_S > now)) throw new ErreurOidc('jeton', 'Jeton d’identité pas encore valable');
     if (typeof c.nonce !== 'string' || !egal(c.nonce, nonce)) throw new ErreurOidc('jeton', 'Nonce du jeton incorrect (réponse rejouée ?)');
-    if (c.tid !== this.cfg.tenant) throw new ErreurOidc('jeton', `Jeton d’un autre annuaire Microsoft : ${c.tid}`);
+    if ((!this.cfg.emetteur || this.cfg.tenant) && c.tid !== this.cfg.tenant) throw new ErreurOidc('jeton', `Jeton d’un autre annuaire Microsoft : ${c.tid}`);
     if (typeof c.oid !== 'string' || !c.oid) throw new ErreurOidc('jeton', 'Jeton sans identifiant de personne (oid)');
     return c;
   }
@@ -312,6 +314,14 @@ export function routesMicrosoft(db: Db, oidc: FournisseurOidc | null = OIDC, ref
       return versConnexion(res, code);
     }
 
+    // Une seule base (CURSUS_ACCES_CLAVIS=on) : l'accès et le profil RH réglés dans Clavis, lus dans clavis.pub_acces.
+    const parClavis = accesClavisActif();
+    const profilClavis = parClavis ? await droitClavis(db, c.oid, { frais: true }) : null;
+    if (parClavis && !profilClavis) {
+      await refuser(`Clavis : aucun accès ouvert à Cursus pour ${normaliserIdentifiant(c.preferred_username ?? '') || `l’identité ${c.oid}`}`, c.name?.trim() || 'Clavis', null, { oid: c.oid });
+      return versConnexion(res, 'acces');
+    }
+
     // Suite d'un seul tenant (`db.exclusif`), une fois les échanges avec Microsoft terminés : rattachement, session.
     await db.exclusif(async () => {
       // Rattachement : le compte dont l'oid correspond ; sinon, à la première connexion, le compte Microsoft
@@ -329,10 +339,24 @@ export function routesMicrosoft(db: Db, oidc: FournisseurOidc | null = OIDC, ref
           return versConnexion(res, 'acces');
         }
       }
+      if (!compte && profilClavis && upn) {
+        // Connexion par Clavis : le compte est créé à la première connexion, rattaché à la fiche du salarié de même
+        // adresse e-mail (sinon compte externe, qui n'ouvre que l'espace RH), avec le profil RH réglé dans Clavis.
+        const fiche = (await db.where<{ id: number; email: string | null }>('employes', 'email', upn))[0];
+        try {
+          compte = (await creerCompte(db, { type: 'microsoft', identifiant: upn, empId: fiche?.id ?? null, nom: fiche ? null : qui, adresse: fiche ? null : upn, profilRh: profilClavis }, 'Clavis')).compte;
+          rattacher = true;
+          await trace('compte.creer', `Compte créé à la première connexion par Clavis — ${qui} · ${upn}`, 'Clavis', compte, { ...extra, empId: fiche?.id ?? null, type: 'microsoft', profilRh: profilClavis });
+        } catch (err) {
+          await refuser(`Clavis : compte Cursus non créé pour ${upn} (${err instanceof Error ? err.message : err})`, qui, null, extra);
+          return versConnexion(res, 'acces');
+        }
+      }
       if (!compte) {
         await refuser(`Microsoft 365 : aucun compte Cursus pour ${upn || `l’identité ${c.oid}`}`, qui, null, extra);
         return versConnexion(res, 'acces');
       }
+      if (profilClavis) compte = await appliquerProfilClavis(db, compte, profilClavis);
       const refusCompte = await refusDuCompte(db, compte);
       if (refusCompte) {
         await revokeSessionsDuCompte(db, compte.id);

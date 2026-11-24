@@ -14,7 +14,8 @@ const aCompleter = async (db: Db) => Number((await db.one(`SELECT COUNT(*) AS n 
 /**
  * Chaque ligne de feuille de temps reçoit un samedi et un dimanche vides (7 valeurs, du lundi au dimanche). Aucun calcul
  * ne change : le décompte d'une ligne de 5 valeurs lisait déjà ces jours à zéro, et les feuilles transmises ou figées dans
- * un lot de paie ne sont pas recalculées (le contenu d'un lot est figé). Faite en SQL, ligne par ligne du JSON.
+ * un lot de paie ne sont pas recalculées (le contenu d'un lot est figé). Faite en SQL, ligne par ligne du JSON ; le tableau
+ * de la sous-requête passe par json() : les versions récentes de SQLite le rendraient sinon comme un texte.
  */
 export const SEMAINE_7_JOURS: Migration = {
   nom: 'lot5-temps-semaine-7-jours',
@@ -23,10 +24,10 @@ export const SEMAINE_7_JOURS: Migration = {
     const n = await aCompleter(db);
     if (!n) return;
     await db.exec(`UPDATE feuilles SET lignes = (
-      SELECT json_group_array(json_set(l.value, '$.h', (
+      SELECT json_group_array(json_set(l.value, '$.h', json((
         SELECT json_group_array(COALESCE(json_extract(l.value, '$.h[' || j.value || ']'), 0))
         FROM json_each('[0,1,2,3,4,5,6]') AS j
-      )))
+      ))))
       FROM json_each(feuilles.lignes) AS l
     ) WHERE id IN (SELECT id ${A_COMPLETER})`);
     return `${plural(n, 'feuille de temps complétée', 'feuilles de temps complétées')} à 7 jours`;

@@ -182,6 +182,11 @@ export interface ConfigOidc {
   /** URI de redirection inscrite dans Entra : ${publicUrl}/api/auth/microsoft/retour. */
   redirection: string;
   autorite: string;
+  /**
+   * Émetteur des jetons quand ce n'est pas Microsoft (CURSUS_OIDC_EMETTEUR) : Clavis, la connexion centrale du groupe
+   * (décision du propriétaire, 23-24 novembre 2026). Le locataire (`tenant`) n'est alors contrôlé que s'il est défini.
+   */
+  emetteur?: string;
 }
 
 /** Adresse publique réduite à son origine (schéma, nom, port), ou null si elle n'en est pas une. */
@@ -199,12 +204,29 @@ export function originePublique(v: string): string | null {
 export function configOidc(env: Env = process.env): ConfigOidc | null {
   const [tenant, clientId, clientSecret, url] = VARIABLES_OIDC.map(k => (env[k] ?? '').trim());
   const publicUrl = originePublique(url);
-  if (!GUID.test(tenant.toLowerCase()) || !clientId || !clientSecret || !publicUrl) return null;
+  const emetteur = emetteurOidc(env);
+  if ((emetteur ? tenant && !GUID.test(tenant.toLowerCase()) : !GUID.test(tenant.toLowerCase())) || !clientId || !clientSecret || !publicUrl) return null;
   return {
     tenant: tenant.toLowerCase(), clientId, clientSecret, publicUrl, redirection: `${publicUrl}/api/auth/microsoft/retour`,
     autorite: (env.CURSUS_OIDC_AUTORITE || AUTORITE_MICROSOFT).replace(/\/+$/, ''),
+    ...(emetteur ? { emetteur } : {}),
   };
 }
+
+/**
+ * Émetteur de la connexion centrale Clavis (CURSUS_OIDC_EMETTEUR : adresse de Clavis, en https ; http pour la boucle
+ * locale seulement), ou null : Microsoft (locataire CURSUS_OIDC_TENANT).
+ */
+export function emetteurOidc(env: Env = process.env): string | null {
+  const v = (env.CURSUS_OIDC_EMETTEUR ?? '').trim();
+  const o = v ? originePublique(v.replace(/\/+$/, '') + '/') : null;
+  if (!o) return null;
+  const u = new URL(o);
+  return u.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(u.hostname) ? o : null;
+}
+
+/** Droits lus dans clavis.pub_acces (CURSUS_ACCES_CLAVIS=on) : connexion par Clavis, serveur PostgreSQL commun. */
+export const accesClavisActif = (env: Env = process.env) => (env.CURSUS_ACCES_CLAVIS ?? '').trim().toLowerCase() === 'on';
 
 /**
  * Problèmes de la configuration Microsoft 365 : tout ou rien, locataire désigné par son GUID, adresse publique en https.
@@ -213,8 +235,14 @@ export function configOidc(env: Env = process.env): ConfigOidc | null {
  */
 function problemesOidc(env: Env): string[] {
   const out: string[] = [];
-  const definies = VARIABLES_OIDC.filter(k => (env[k] ?? '').trim());
-  const manquantes = VARIABLES_OIDC.filter(k => !definies.includes(k));
+  const emetteur = (env.CURSUS_OIDC_EMETTEUR ?? '').trim();
+  // Connexion par Clavis : le locataire Microsoft n'est pas exigé.
+  const attendues = VARIABLES_OIDC.filter(k => !(emetteur && k === 'CURSUS_OIDC_TENANT'));
+  const definies = attendues.filter(k => (env[k] ?? '').trim());
+  const manquantes = attendues.filter(k => !definies.includes(k));
+  if (emetteur && !emetteurOidc(env)) out.push(`CURSUS_OIDC_EMETTEUR doit être l’adresse de Clavis, en https et sans chemin (« ${emetteur} » reçu).`);
+  if (accesClavisActif(env) && !emetteur) out.push('CURSUS_ACCES_CLAVIS=on suppose la connexion par Clavis : définissez CURSUS_OIDC_EMETTEUR (adresse de Clavis).');
+  if (accesClavisActif(env) && !(env.DATABASE_URL ?? '').trim()) out.push('CURSUS_ACCES_CLAVIS=on lit clavis.pub_acces sur le serveur PostgreSQL commun : définissez la base PostgreSQL de Cursus.');
   if (definies.some(k => k !== 'CURSUS_PUBLIC_URL') && manquantes.length) out.push(`Connexion Microsoft 365 incomplète : définissez aussi ${manquantes.join(', ')} (les quatre variables, ou aucune).`);
   const tenant = (env.CURSUS_OIDC_TENANT ?? '').trim();
   if (tenant && !GUID.test(tenant.toLowerCase())) out.push(`CURSUS_OIDC_TENANT doit être l’ID de l’annuaire (locataire) Entra, au format GUID (« ${tenant} » reçu ; common, organizations et un nom de domaine ne conviennent pas).`);

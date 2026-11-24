@@ -10,6 +10,7 @@ import { ListIcon } from '@phosphor-icons/react';
 import { useModale } from '../components/focus.ts';
 import { useMedia } from '../components/media.ts';
 import { ECRAN_ETROIT } from '../components/panneau.ts';
+import { t } from '../i18n/langue.ts';
 
 /** Identifiant de la barre latérale, que le bouton « Menu » contrôle. */
 export const ID_MENU = 'menu-principal';
@@ -30,8 +31,8 @@ export function useTiroir(): Tiroir {
 export function BoutonMenu({ tiroir, aTraiter }: { tiroir: Tiroir; aTraiter: number }) {
   return (
     <button type="button" className="btn btn-ghost menu-btn" aria-expanded={tiroir.ouvert} aria-controls={ID_MENU} onClick={tiroir.ouvrir}>
-      <ListIcon size={18} aria-hidden="true" /><span>Menu</span>
-      {aTraiter > 0 && <span className="tag tag-accent nav-badge"><span aria-hidden="true">{aTraiter}</span><span className="sr-only">, {aTraiter} à traiter</span></span>}
+      <ListIcon size={18} aria-hidden="true" /><span>{t('Menu')}</span>
+      {aTraiter > 0 && <span className="tag tag-accent nav-badge"><span aria-hidden="true">{aTraiter}</span><span className="sr-only">, {t(`${aTraiter} to handle`)}</span></span>}
     </button>
   );
 }

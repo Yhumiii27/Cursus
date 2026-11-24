@@ -11,9 +11,12 @@ export { DEFAULT_THEME, THEME_COOKIE, themeCookie, themeOf, type Theme };
 /** Couleur de fond de chaque thème (`--color-bg` de nocturne.css) : barre d'état du téléphone (`theme-color`). */
 export const FOND_THEME: Record<Theme, string> = { dark: '#161826', light: '#f4f5f9' };
 
-/** Libellés du bouton (sources de Norma « Dark display » / « Light display » / « Display », en français). */
-export const LIBELLE_THEME: Record<Theme, string> = { dark: 'Affichage sombre', light: 'Affichage clair' };
-export const LIBELLE_GROUPE_THEME = 'Affichage';
+/**
+ * Libellés du bouton : chaînes sources de Norma (charte/ds/ThemeToggle.tsx, 1.1.0), traduites à l'affichage (i18n/fr.ts :
+ * « Affichage sombre », « Affichage clair », groupe « Affichage »).
+ */
+export const LIBELLE_THEME: Record<Theme, string> = { dark: 'Dark display', light: 'Light display' };
+export const LIBELLE_GROUPE_THEME = 'Dark / light display';
 
 /** Thème lu dans un en-tête Cookie ou `document.cookie` (« a=1; epc2i-theme=light ») ; absent ou inconnu : sombre. */
 export function themeDuCookie(cookies: string | null | undefined): Theme {

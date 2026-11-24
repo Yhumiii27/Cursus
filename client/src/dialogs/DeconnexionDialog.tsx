@@ -10,7 +10,7 @@ export function DeconnexionDialog({ n }: { n: number }) {
   const { logout, closeDialog, horsLigne: hl } = useStore();
   const quitter = async () => { closeDialog(); await logout(); };
   return (
-    <Dialog title="Se déconnecter" width={480} onSubmit={quitter} actions={<>
+    <Dialog centre title="Se déconnecter" width={480} onSubmit={quitter} actions={<>
       <CancelButton />
       <SubmitButton>Se déconnecter quand même</SubmitButton>
     </>}>

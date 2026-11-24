@@ -16,7 +16,7 @@ export function MotDePasseProvisoireDialog({ nom, identifiant, motDePasse }: { n
     }
   };
   return (
-    <Dialog title="Mot de passe provisoire" width={480} fermerParBouton actions={
+    <Dialog centre title="Mot de passe provisoire" width={480} fermerParBouton actions={
       <button type="button" className="btn btn-primary" onClick={closeDialog}>J’ai transmis le mot de passe</button>
     }>
       <p style={{ fontSize: 14, margin: 0 }}>{nom} · identifiant <span className="mono-input">{identifiant}</span></p>

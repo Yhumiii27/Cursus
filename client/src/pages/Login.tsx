@@ -10,11 +10,13 @@ import { BLOCAGE_MINUTES, ECHECS_MAX, ERREURS_MICROSOFT, type ErreurMicrosoft } 
 import { lienMicrosoft, type LoginOption } from '../api.ts';
 import { pageDeRetourClient } from '../state/url.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
+// Chaînes sources anglaises (i18n/fr.ts), traduites à l'affichage.
 const TEXTS = {
-  rh: { title: 'Espace RH', text: 'Pilotez la conformité des formations et habilitations, les temps, les congés, les entretiens et les déplacements.' },
-  manager: { title: 'Espace manager', text: 'Validez les heures et les absences de votre équipe, suivez ses formations, ses habilitations et ses missions, et menez ses entretiens.' },
-  collaborateur: { title: 'Espace collaborateur', text: 'Consultez vos formations, habilitations, congés et entretiens, déclarez vos heures et envoyez vos demandes au service RH.' },
+  rh: { title: 'HR space', text: 'Steer the compliance of training and authorisations, time, leave, reviews and travel.' },
+  manager: { title: 'Manager space', text: 'Approve your team’s hours and absences, follow its training, authorisations and assignments, and hold its reviews.' },
+  collaborateur: { title: 'Employee space', text: 'See your training, authorisations, leave and reviews, declare your hours and send your requests to HR.' },
 };
 
 /** Comptes proposés, une seule fois chacun. */
@@ -41,8 +43,8 @@ export function Login() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-4)', paddingTop: 'calc(var(--space-8) * 2)' }}>
       {demo && !cursus ? <DemoLogin onCursus={() => setCursus(true)} /> : <CursusLogin erreur={erreur} onDemo={demo ? () => setCursus(false) : undefined} />}
-      <a className="fine" href="/confidentialite" onClick={e => { e.preventDefault(); go('confidentialite'); }}>Confidentialité : vos données dans Cursus</a>
-      <a className="fine" href="/aide" onClick={e => { e.preventDefault(); go('aide'); }}>Aide : se connecter et utiliser Cursus</a>
+      <a className="fine" href="/confidentialite" onClick={e => { e.preventDefault(); go('confidentialite'); }}>{t('Privacy: your data in Cursus')}</a>
+      <a className="fine" href="/aide" onClick={e => { e.preventDefault(); go('aide'); }}>{t('Help: signing in and using Cursus')}</a>
     </div>
   );
 }
@@ -64,9 +66,9 @@ function MicrosoftLogin({ erreur }: { erreur: ErreurMicrosoft | null }) {
   return (
     <>
       <a className="btn btn-primary btn-block btn-microsoft" href={lienMicrosoft({ retour: pageDeRetourClient(location.pathname, location.search), choix })}>
-        <LogoMicrosoft />{choix ? 'Se connecter avec un autre compte Microsoft' : 'Se connecter avec Microsoft'}
+        <LogoMicrosoft />{t(choix ? 'Sign in with another Microsoft account' : 'Sign in with Microsoft')}
       </a>
-      <p className="text-muted fine">Salariés dotés d’un compte Microsoft 365 de l’entreprise (adresse professionnelle).</p>
+      <p className="text-muted fine">{t('Employees with a company Microsoft 365 account (work address).')}</p>
     </>
   );
 }
@@ -96,28 +98,28 @@ function CursusLogin({ onDemo, erreur }: { onDemo?: () => void; erreur: ErreurMi
     <form className="card elev-md" onSubmit={submit} style={CARD}>
       <div>
         <div className="kicker">Cursus</div>
-        <h1 style={{ fontSize: 25, margin: 0 }}>Connexion</h1>
+        <h1 style={{ fontSize: 25, margin: 0 }}>{t('Sign-in')}</h1>
       </div>
-      <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Formations, habilitations, temps, congés, entretiens et déplacements.</p>
+      <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>{t('Training, authorisations, time, leave, reviews and travel.')}</p>
       {echec && <p className="boxed connexion-erreur" role="alert"><strong>{echec.titre}</strong> : {echec.texte}</p>}
       {microsoft && <MicrosoftLogin erreur={erreur} />}
-      <h4 className="section-label">Compte Cursus</h4>
+      <h4 className="section-label">{t('Cursus account')}</h4>
       <div className="field">
-        <label htmlFor="lg-ident">Identifiant</label>
+        <label htmlFor="lg-ident">{t('Username')}</label>
         <input className="input" id="lg-ident" type="text" value={identifiant} onChange={e => setIdentifiant(e.target.value)}
           autoComplete="username" autoCapitalize="none" spellCheck={false} autoFocus={!microsoft} />
       </div>
       <div className="field">
-        <label htmlFor="lg-pwd">Mot de passe</label>
+        <label htmlFor="lg-pwd">{t('Password')}</label>
         <input className="input" id="lg-pwd" type="password" value={pwd} onChange={e => setPwd(e.target.value)} autoComplete="current-password" />
       </div>
       {error && <p className="form-error" role="alert">{error}</p>}
-      <button type="submit" className="btn btn-primary btn-block" disabled={busy || !ok}>Se connecter</button>
+      <button type="submit" className="btn btn-primary btn-block" disabled={busy || !ok}>{t('Sign in')}</button>
       <p className="text-muted fine">
-        Pour le personnel sans compte Microsoft 365 de l’entreprise : identifiant et mot de passe provisoire remis par le service RH.
-        {!error && ` Après ${ECHECS_MAX} essais infructueux, le compte est bloqué ${BLOCAGE_MINUTES} minutes.`}
+        {t('For staff without a company Microsoft 365 account: username and temporary password given by HR.')}
+        {!error && ` ${t(`After ${ECHECS_MAX} failed attempts, the account is locked for ${BLOCAGE_MINUTES} minutes.`)}`}
       </p>
-      {onDemo && <button type="button" className="btn btn-ghost btn-sm" onClick={onDemo}>Revenir au choix d’un compte de démonstration</button>}
+      {onDemo && <button type="button" className="btn btn-ghost btn-sm" onClick={onDemo}>{t('Back to choosing a demo account')}</button>}
     </form>
   );
 }
@@ -131,7 +133,7 @@ function DemoLogin({ onCursus }: { onCursus: () => void }) {
   const [pwd, setPwd] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const t = TEXTS[role];
+  const texte = TEXTS[role];
   const needPwd = role !== 'rh';
   const sel = options.some(o => o.id === id) ? id : options[0]?.id ?? 0;
 
@@ -147,28 +149,28 @@ function DemoLogin({ onCursus }: { onCursus: () => void }) {
   return (
     <form className="card elev-md" onSubmit={submit} style={CARD}>
       <div>
-        <div className="kicker">{t.title}</div>
-        <h1 style={{ fontSize: 25, margin: 0 }}>Connexion</h1>
+        <div className="kicker">{t(texte.title)}</div>
+        <h1 style={{ fontSize: 25, margin: 0 }}>{t('Sign-in')}</h1>
       </div>
-      <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>{t.text}</p>
+      <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>{t(texte.text)}</p>
       <div className="field">
-        <label htmlFor="lg-id">Compte</label>
+        <label htmlFor="lg-id">{t('Account')}</label>
         <select className="input" id="lg-id" value={sel} onChange={e => setId(Number(e.target.value))}>
           {options.map(o => <option key={o.id} value={o.id}>{o.nom}</option>)}
         </select>
       </div>
       {needPwd && (
         <div className="field">
-          <label htmlFor="lg-pwd">Mot de passe</label>
+          <label htmlFor="lg-pwd">{t('Password')}</label>
           <input className="input" id="lg-pwd" type="password" value={pwd} onChange={e => setPwd(e.target.value)} autoComplete="current-password" />
         </div>
       )}
       {error && <p className="form-error" role="alert">{error}</p>}
-      <button type="submit" className="btn btn-primary btn-block" disabled={busy || (needPwd && !pwd.trim()) || !options.length}>Se connecter</button>
+      <button type="submit" className="btn btn-primary btn-block" disabled={busy || (needPwd && !pwd.trim()) || !options.length}>{t('Sign in')}</button>
       <p className="text-muted" style={{ fontSize: 12, margin: 0 }}>
-        Démo : choisissez un compte{needPwd ? ' et saisissez n’importe quel mot de passe' : ''}. En production : compte Microsoft 365 de l’entreprise, ou compte Cursus.
+        {t(needPwd ? 'Demo: choose an account and type any password.' : 'Demo: choose an account.')} {t('In production: company Microsoft 365 account, or Cursus account.')}
       </p>
-      <button type="button" className="btn btn-ghost btn-sm" onClick={onCursus}>Se connecter avec un compte Cursus</button>
+      <button type="button" className="btn btn-ghost btn-sm" onClick={onCursus}>{t('Sign in with a Cursus account')}</button>
     </form>
   );
 }

@@ -79,8 +79,9 @@ input[type='date'].input { color-scheme: dark; }
 .crumb .here { color: var(--color-text); }
 .topbar-actions { display: flex; align-items: center; gap: var(--space-3); margin-left: auto; }
 /* Norma 1.0 : affichage sombre / clair (theme/BoutonTheme.tsx), icônes seules, dernier élément de l'en-tête. */
-.bouton-theme { flex: none; }
+.bouton-theme, .bouton-langue { flex: none; }
 .bouton-theme .seg-opt { padding: 7px 10px; }
+.bouton-langue .seg-opt { padding: 7px 8px; font-size: 12px; }
 .search { position: relative; display: block; width: 240px; }
 .search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); opacity: 0.55; pointer-events: none; }
 .search .input { padding-left: 32px; }
@@ -221,6 +222,15 @@ tr.selected { background: color-mix(in srgb, var(--color-accent) 10%, transparen
 .dialog.tall .dialog-body { overflow: auto; min-height: 0; }
 /* Dans un dialogue défilant, les blocs gardent leur hauteur (un .seg en overflow: hidden serait sinon écrasé). */
 .dialog-body > * { flex-shrink: 0; }
+/* Formulaires : panneau latéral (Norma § 7, CU-N04), à droite sur toute la hauteur ; le titre et les boutons restent
+   visibles, les champs défilent entre eux. Les confirmations (`centre`) gardent la fenêtre centrée ci-dessus. */
+.dialog-backdrop.panneau { overflow: hidden; place-items: stretch end; padding: 0; }
+.dialog-backdrop.panneau > .dialog.panneau-lateral {
+  margin: 0; height: 100vh; height: 100dvh; max-height: none; max-width: 100vw; border-radius: 0;
+  border-left: 1px solid var(--color-neutral-800); padding: var(--space-4); gap: var(--space-3);
+}
+.dialog.panneau-lateral .dialog-body { flex: 1 1 auto; overflow: auto; min-height: 0; overscroll-behavior: contain; }
+.dialog.panneau-lateral .dialog-actions { margin-top: 0; padding-top: var(--space-3); border-top: 1px solid var(--color-divider); }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
 .field .static { font-size: 14px; }
 .field .static.pad { padding-top: 7px; }
@@ -281,7 +291,8 @@ textarea.input.mid { height: auto; min-height: 72px; }
 
 /* — Petits écrans (téléphone) : formulaires des dialogues en une colonne, boutons étirés sur la largeur — */
 @media (max-width: 600px) {
-  .dialog-backdrop { padding: var(--space-4) var(--space-3); }
+  .dialog-backdrop:not(.panneau) { padding: var(--space-4) var(--space-3); }
+  .dialog-backdrop.panneau > .dialog.panneau-lateral { padding: var(--space-3); border-left: 0; }
   .grid-2 { grid-template-columns: minmax(0, 1fr); }
   .dialog-actions > .btn { flex: 1 1 auto; }
   /* Contrôles segmentés : les options passent à la ligne (4 options débordaient à 360 px), chacune avec sa bordure. */

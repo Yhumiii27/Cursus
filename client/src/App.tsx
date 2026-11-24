@@ -13,6 +13,8 @@ import { MotDePasse } from './pages/MotDePasse.tsx';
 import { HorsLigne } from './pages/HorsLigne.tsx';
 import { MSG_RESEAU } from './api.ts';
 import { useStore, type View } from './state/store.tsx';
+// Norma § 2 (CU-N01) : langue de l'interface ; l'application est rendue de nouveau quand elle change.
+import { t, useLangue } from './i18n/langue.ts';
 
 /** Composant exporté par son nom (`export function Temps`), chargé à la première utilisation. */
 function aLaDemande<M>(charger: () => Promise<M>, nom: keyof M): ComponentType {
@@ -69,14 +71,15 @@ const PAGES: Record<View, ComponentType> = {
 const chargerDialogues = () => import('./dialogs/DialogHost.tsx');
 const DialogHost = aLaDemande(chargerDialogues, 'DialogHost');
 
-const CHARGEMENT = <div className="loading">Chargement…</div>;
+const Chargement = () => <div className="loading">{t('Loading…')}</div>;
 
 export function App() {
   const { session, data, loading, view, erreurChargement, recharger, dialog } = useStore();
+  useLangue();
   const role = session?.role;
   const avecDonnees = !!data;
   useEffect(() => { if (avecDonnees) void chargerDialogues().catch(() => { /* réessayé à l'ouverture d'un dialogue */ }); }, [avecDonnees]);
-  if (loading) return <Shell>{CHARGEMENT}</Shell>;
+  if (loading) return <Shell>{<Chargement />}</Shell>;
   if (erreurChargement) {
     if (!navigator.onLine || erreurChargement === MSG_RESEAU) return <Shell><HorsLigne erreur={erreurChargement} recharger={recharger} /></Shell>;
     return (
@@ -84,7 +87,7 @@ export function App() {
         <div className="loading">
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-3)', textAlign: 'center' }}>
             <p role="alert" style={{ margin: 0 }}>{erreurChargement}</p>
-            <button type="button" className="btn btn-secondary" onClick={recharger}>Réessayer</button>
+            <button type="button" className="btn btn-secondary" onClick={recharger}>{t('Retry')}</button>
           </div>
         </div>
       </Shell>
@@ -95,15 +98,15 @@ export function App() {
   if (!session?.user) {
     // Vues communes (Confidentialité, Aide) : lisibles avant la connexion.
     const Commune = view === 'confidentialite' || view === 'aide' ? PAGES[view] : null;
-    return <Shell>{Commune ? <Suspense fallback={CHARGEMENT}><Commune /></Suspense> : <Login />}</Shell>;
+    return <Shell>{Commune ? <Suspense fallback={<Chargement />}><Commune /></Suspense> : <Login />}</Shell>;
   }
-  if (!data) return <Shell><div className="loading">Chargement des données…</div></Shell>;
+  if (!data) return <Shell><div className="loading">{t('Loading data…')}</div></Shell>;
   const PageComponent = PAGES[view];
   // Session expirée : la reconnexion se pose par-dessus (Shell), la page et le dialogue restent montés.
   return (
     <Shell>
       <ErreurRendu cle={`${role}/${view}`} repli={(erreur, reessayer) => <ErreurPage erreur={erreur} reessayer={reessayer} />}>
-        <Suspense fallback={CHARGEMENT}>
+        <Suspense fallback={<Chargement />}>
           <PageComponent key={view} />
         </Suspense>
       </ErreurRendu>

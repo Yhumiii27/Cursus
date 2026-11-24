@@ -334,7 +334,7 @@ test('Plan & budget : second dossier sur une ligne, accord d’un dossier abando
   const o = await monter(db, await personne(14, 'rh'), () => createElement(Budget), { budgetOnglet: 'opco' });
   render(o.element);
   assert.match(document.body.textContent!, /Dossiers par état : Accordé : 1 · Refusé : 1/);
-  const kpiAccorde = () => [...document.querySelectorAll('.kpi')].find(k => k.querySelector('.card-kicker')?.textContent === 'Accordé')!.textContent!;
+  const kpiAccorde = () => [...document.querySelectorAll('.kpi')].find(k => k.querySelector('.coque-kpi-label')?.textContent === 'Accordé')!.textContent!;
   assert.match(kpiAccorde(), /^Accordé1\s200\s€/);
   assert.match(document.body.textContent!, /0\s€ facturés à l’OPCO/);
   cleanup();

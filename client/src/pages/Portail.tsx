@@ -14,6 +14,7 @@ import { etatInscription } from '../../../shared/rules/sessions.ts';
 import { auteurDemande, demandeRetirable } from '../../../shared/rules/corrections.ts';
 import type { ModeNotification } from '../../../shared/types.ts';
 import { retraitDemande } from '../state/confirmations-corrections.ts';
+import { EnTetePage } from '../layout/Coque.tsx';
 import { Bar, Btn, Chips, Empty, Fine, Kpi, Kpis, NoteAccent, Page, Panel, Seg, Tag } from '../components/ui.tsx';
 import { ContactUrgencePanel } from '../components/ContactUrgence.tsx';
 import { AgendaPortail } from '../components/AgendaPortail.tsx';
@@ -86,26 +87,22 @@ export function Portail() {
 
   return (
     <div className="page">
-      <header className="page-head">
-        <div>
-          <div className="kicker">{me.poste} · {equipeLabel(me)} · {matriculeAffiche(me)}</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-            <h1 tabIndex={-1}>Bonjour {me.nom.split(' ')[0]}</h1>
-            <Tag cls={CLS[me.worst]}>{EMP_LABEL[me.worst]}</Tag>
-          </div>
-          <div className="text-muted sub" style={{ marginTop: 'var(--space-1)' }}>{me.med.text}</div>
-          <div className="text-muted sub">{contrat.libelle} · {mgrId ? `Manager : ${d.mgrName(mgrId)}` : `Validations : ${d.mgrName(0)}`}{suppleanceTexte(d, me)}</div>
-          {/* « Non conforme » dû aux exigences du poste ou de l'équipe : ce qui manque, et sa demande. */}
-          <ExigencesPortail e={me} />
-        </div>
-        <div className="head-actions">
+      {/* En-tête commun (Norma 2.0, layout/Coque.tsx) : poste, équipe et matricule en sous-titre ; actions à droite (la
+          principale, « Demander une formation », la plus à droite ; au-delà de trois, menu « Actions »). */}
+      <EnTetePage titre={`Bonjour ${me.nom.split(' ')[0]}`} titreAside={<Tag cls={CLS[me.worst]}>{EMP_LABEL[me.worst]}</Tag>}
+        sousTitre={`${me.poste} · ${equipeLabel(me)} · ${matriculeAffiche(me)}`} actions={<>
           {/* Passeport formation (t115) : mêmes sections que celui imprimé depuis la fiche, impression tracée au journal. */}
           <Btn icon={<PrinterIcon size={14} />} onClick={() => imprimerPasseport(d, me) || notify('Autorisez les fenêtres surgissantes pour imprimer le passeport formation', true)}>Imprimer mon passeport formation</Btn>
           <Btn onClick={openMyDocs}>Mes documents de voyage</Btn>
           <Btn variant="secondary" onClick={() => openDialog({ type: 'reqHab' })}>Demander une habilitation</Btn>
           <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'reqForm' })}>Demander une formation</Btn>
-        </div>
-      </header>
+        </>} />
+      <div className="portail-situation">
+        <div className="text-muted sub">{me.med.text}</div>
+        <div className="text-muted sub">{contrat.libelle} · {mgrId ? `Manager : ${d.mgrName(mgrId)}` : `Validations : ${d.mgrName(0)}`}{suppleanceTexte(d, me)}</div>
+        {/* « Non conforme » dû aux exigences du poste ou de l'équipe : ce qui manque, et sa demande. */}
+        <ExigencesPortail e={me} />
+      </div>
 
       {/* lot 12 — C6 (badgeage virtuel) : bouton « Pointer », pour un salarié d'une population badgée, le module activé. */}
       <BoutonPointer />

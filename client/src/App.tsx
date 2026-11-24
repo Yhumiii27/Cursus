@@ -7,6 +7,7 @@
 import { type ComponentType, lazy, Suspense, useEffect } from 'react';
 import { ErreurDialogue, ErreurPage, ErreurRendu } from './components/ErreurRendu.tsx';
 import { Shell } from './layout/Shell.tsx';
+import { EnTetePage } from './layout/Coque.tsx';
 import { Login } from './pages/Login.tsx';
 import { MotDePasse } from './pages/MotDePasse.tsx';
 // lot 11 — pwa : ouverture sans réseau (application installée), file d'attente seule.
@@ -79,11 +80,13 @@ export function App() {
   const role = session?.role;
   const avecDonnees = !!data;
   useEffect(() => { if (avecDonnees) void chargerDialogues().catch(() => { /* réessayé à l'ouverture d'un dialogue */ }); }, [avecDonnees]);
-  if (loading) return <Shell>{<Chargement />}</Shell>;
+  // Écrans d'attente et d'erreur : l'en-tête commun aussi (Norma 2.0), pour la paire langue / affichage.
+  if (loading) return <Shell><EnTetePage titre="Cursus" /><Chargement /></Shell>;
   if (erreurChargement) {
     if (!navigator.onLine || erreurChargement === MSG_RESEAU) return <Shell><HorsLigne erreur={erreurChargement} recharger={recharger} /></Shell>;
     return (
       <Shell>
+        <EnTetePage titre="Cursus" />
         <div className="loading">
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-3)', textAlign: 'center' }}>
             <p role="alert" style={{ margin: 0 }}>{erreurChargement}</p>
@@ -100,7 +103,7 @@ export function App() {
     const Commune = view === 'confidentialite' || view === 'aide' ? PAGES[view] : null;
     return <Shell>{Commune ? <Suspense fallback={<Chargement />}><Commune /></Suspense> : <Login />}</Shell>;
   }
-  if (!data) return <Shell><div className="loading">{t('Loading data…')}</div></Shell>;
+  if (!data) return <Shell><EnTetePage titre="Cursus" /><div className="loading">{t('Loading data…')}</div></Shell>;
   const PageComponent = PAGES[view];
   // Session expirée : la reconnexion se pose par-dessus (Shell), la page et le dialogue restent montés.
   return (

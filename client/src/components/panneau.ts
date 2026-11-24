@@ -1,12 +1,12 @@
 // Panneau de détail d'une liste (fiche collaborateur, dossier voyage, équipe, chantier). Sur écran étroit
-// (900 px et moins, téléphone, tablette en portrait), la page passe en une colonne et le panneau s'affiche sous
+// (1024 px et moins, téléphone, tablette ; même point de rupture que la coque, Norma 2.0), la page passe en une colonne et le panneau s'affiche sous
 // toute la liste : toucher une ligne semblait sans effet. La sélection amène donc le panneau dans le champ de
 // vision et lui donne le focus (un lecteur d'écran l'annonce) ; sa fermeture ramène là où la personne était
 // dans la liste. Sur grand écran, le panneau est déjà visible à côté de la liste : rien ne bouge.
 import { useEffect, useRef } from 'react';
 
 /** Mise en page en une colonne (app.css, « Écrans étroits »). */
-export const ECRAN_ETROIT = '(max-width: 900px)';
+export const ECRAN_ETROIT = '(max-width: 1024px)';
 
 const media = (q: string) => typeof matchMedia === 'function' && matchMedia(q).matches;
 

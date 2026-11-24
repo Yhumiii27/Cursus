@@ -22,8 +22,8 @@ export function InstallerApplication({ menu, fermer }: {
     const installerMaintenant = () => { fermer?.(); void installer(); };
     if (menu) {
       return (
-        <button type="button" className="nav-item installer-menu" onClick={installerMaintenant}>
-          <DeviceMobileIcon size={16} /><span>Installer l’application</span>
+        <button type="button" className="coque-entry installer-menu" onClick={installerMaintenant}>
+          <DeviceMobileIcon size={16} className="coque-entry-icon" aria-hidden="true" /><span className="coque-entry-label">Installer l’application</span>
         </button>
       );
     }

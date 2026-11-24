@@ -51,7 +51,7 @@ export const FR: Record<string, string> = {
   'Manager space': 'Espace manager',
   'Employee space': 'Espace collaborateur',
   'HR space': 'Espace RH',
-  'Close the menu': 'Fermer le menu',
+  'Close menu': 'Fermer le menu',
   'View': 'Vue',
   'Workspace': 'Espace',
   'Main navigation': 'Navigation principale',
@@ -62,15 +62,16 @@ export const FR: Record<string, string> = {
   'Error: ': 'Erreur : ',
   'Close the notification': 'Fermer la notification',
   'Close': 'Fermer',
-  'Skip to content': 'Aller au contenu',
+  'Skip to main content': 'Aller au contenu principal',
+  'Main menu': 'Menu principal',
+  'Go to a page…': 'Aller à une page…',
+  'No page matches': 'Aucune page ne correspond',
   'Quick access': 'Accès rapide',
   'Loading…': 'Chargement…',
   'Loading data…': 'Chargement des données…',
   'Retry': 'Réessayer',
   // Sélecteur de langue et bouton d'affichage (clés de Norma, charte/ds/ThemeToggle.tsx 1.1.0).
   'Language': 'Langue',
-  'French': 'Français',
-  'English': 'Anglais',
   'Dark display': 'Affichage sombre',
   'Light display': 'Affichage clair',
   'Dark / light display': 'Affichage',
@@ -117,4 +118,4 @@ export const FR_REGLES: readonly [RegExp, string][] = [
 ];
 
 /** Chaînes identiques en français et en anglais, relues (complétude : tests/client-i18n.test.ts). */
-export const MEMES_EN_FRANCAIS: readonly string[] = ['Administration', 'Organisation', 'Manager', 'Menu', 'Go / No Go', 'Go', 'No Go'];
+export const MEMES_EN_FRANCAIS: readonly string[] = ['Administration', 'Organisation', 'Manager', 'Menu', 'Actions', 'Français', 'English', 'Go / No Go', 'Go', 'No Go'];

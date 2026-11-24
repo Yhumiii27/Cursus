@@ -1,6 +1,6 @@
-// Menu en tiroir sur écran étroit (900 px et moins : téléphone, tablette en portrait). Sans lui, la barre latérale
+// Menu en tiroir sur écran étroit (1024 px et moins : téléphone, tablette ; Norma 2.0, COQUE.md § 8). Sans lui, la barre latérale
 // (espaces, 14 entrées du menu RH, utilisateur) s'empilait au-dessus de chaque page. Elle se range hors de l'écran et
-// s'ouvre par le bouton « Menu » de l'en-tête (aria-expanded, aria-controls). Ouverte, elle est modale : focus piégé
+// s'ouvre par le bouton « Menu » de la barre supérieure (aria-expanded, aria-controls). Ouverte, elle est modale : focus piégé
 // (useModale de components/focus.ts), page derrière inerte (layout/Shell.tsx), fermeture par Échap, par le fond, par
 // « Fermer le menu » ou au choix d'une page ; le focus revient alors au bouton « Menu », ou au titre de la page choisie
 // (layout/navigation.ts). Le menu lui-même (navGroups de Shell.tsx) ne change pas, seul son affichage. Sur grand écran,
@@ -27,12 +27,12 @@ export function useTiroir(): Tiroir {
   return { ouvert: ouvert && etroit, ouvrir, fermer };
 }
 
-/** Bouton « Menu » de l'en-tête (écran étroit seulement) ; sa pastille totalise celles du menu. */
+/** Bouton « Menu » de la barre supérieure (écran étroit seulement) ; sa pastille totalise celles du menu. */
 export function BoutonMenu({ tiroir, aTraiter }: { tiroir: Tiroir; aTraiter: number }) {
   return (
-    <button type="button" className="btn btn-ghost menu-btn" aria-expanded={tiroir.ouvert} aria-controls={ID_MENU} onClick={tiroir.ouvrir}>
+    <button type="button" className="btn btn-secondary coque-menu-btn" aria-expanded={tiroir.ouvert} aria-controls={ID_MENU} onClick={tiroir.ouvrir}>
       <ListIcon size={18} aria-hidden="true" /><span>{t('Menu')}</span>
-      {aTraiter > 0 && <span className="tag tag-accent nav-badge"><span aria-hidden="true">{aTraiter}</span><span className="sr-only">, {t(`${aTraiter} to handle`)}</span></span>}
+      {aTraiter > 0 && <span className="coque-badge"><span aria-hidden="true">{aTraiter}</span><span className="sr-only">, {t(`${aTraiter} to handle`)}</span></span>}
     </button>
   );
 }
@@ -47,7 +47,7 @@ export function PiegeTiroir({ barre, actif, fermer }: { barre: RefObject<HTMLEle
   const ouverture = useRef(actif);
   useEffect(() => {
     const b = barre.current;
-    if (ouverture.current && b) (b.querySelector<HTMLElement>('.nav-item[aria-current="page"]') ?? b.querySelector<HTMLElement>('.nav-item'))?.focus();
+    if (ouverture.current && b) (b.querySelector<HTMLElement>('.coque-entry[aria-current="page"]') ?? b.querySelector<HTMLElement>('.coque-entry'))?.focus();
   }, [barre]);
   useModale(barre, actif);
   useEffect(() => {

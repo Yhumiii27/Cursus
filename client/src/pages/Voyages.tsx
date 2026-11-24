@@ -224,7 +224,7 @@ function TripPanel({ panneau, t, onClose, onOpenEmp }: { panneau: RefObject<HTML
   const { rh } = useRole();
   const r = t.r;
   return (
-    <aside ref={panneau} tabIndex={-1} aria-labelledby="dossier-voyage-nom" className="card elev-md side-panel" style={{ flex: '0 1 400px' }}>
+    <aside ref={panneau} tabIndex={-1} aria-labelledby="dossier-voyage-nom" className="card elev-md panneau-colonne" style={{ flex: '0 1 400px' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h3 id="dossier-voyage-nom">{t.emp.nom}</h3>

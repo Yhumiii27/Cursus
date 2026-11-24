@@ -1,7 +1,7 @@
 // Barre d'onglets de l'application installée (lot 11, chantier C2, t196) : en mode standalone sur écran étroit, les
 // premières entrées du menu de l'espace (collaborateur : Accueil, Mes entretiens, Mes heures, Mes absences) restent sous
 // le pouce, avec leurs pastilles, et « Menu » ouvre le tiroir pour le reste. Montrée par app.css seulement sous
-// html.standalone (pwa/enregistrement.ts) et sous 900 px ; marges de sécurité de l'écran (env(safe-area-inset-bottom)).
+// html.standalone (pwa/enregistrement.ts) et à 1024 px et moins ; marges de sécurité de l'écran (env(safe-area-inset-bottom)).
 import { ListIcon } from '@phosphor-icons/react';
 import { t } from '../i18n/langue.ts';
 import { useStore } from '../state/store.tsx';

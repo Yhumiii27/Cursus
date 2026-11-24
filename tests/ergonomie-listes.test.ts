@@ -317,8 +317,9 @@ test('recherche : flèches en boucle, raccourci « / » hors d’un champ et Ctr
   const t = (key: string, o: Partial<{ ctrlKey: boolean; metaKey: boolean; altKey: boolean }> = {}) => ({ key, ctrlKey: false, metaKey: false, altKey: false, ...o });
   assert.equal(recherche.estRaccourciRecherche(t('/'), false), true);
   assert.equal(recherche.estRaccourciRecherche(t('/'), true), false, 'dans un champ, « / » reste un caractère');
-  assert.equal(recherche.estRaccourciRecherche(t('k', { ctrlKey: true }), true), true);
-  assert.equal(recherche.estRaccourciRecherche(t('K', { metaKey: true }), false), true);
+  // Norma 2.0 : Ctrl+K / Cmd+K va à la recherche de pages de la barre latérale, plus à celle des collaborateurs.
+  assert.equal(recherche.estRaccourciRecherche(t('k', { ctrlKey: true }), true), false);
+  assert.equal(recherche.estRaccourciRecherche(t('K', { metaKey: true }), false), false);
   assert.equal(recherche.estRaccourciRecherche(t('k'), false), false);
   assert.equal(recherche.estRaccourciRecherche(t('k', { ctrlKey: true, altKey: true }), false), false);
   assert.equal(recherche.estRaccourciRecherche(t('/', { ctrlKey: true }), false), false);

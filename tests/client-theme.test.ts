@@ -76,17 +76,19 @@ test('appliquerTheme : attribut de <html>, color-scheme et theme-color, cookie ;
   assert.match(document.cookie, /epc2i-theme=dark/);
 });
 
-test('bouton de l’en-tête : groupe « Affichage », lune « Affichage sombre » et soleil « Affichage clair », thème changé au clic', () => {
+test('sélecteur d’affichage : groupe « Affichage », lune « Affichage sombre » et soleil « Affichage clair », aria-pressed, thème changé au clic', () => {
   pageNeuve();
   render(createElement(BoutonTheme));
-  const groupe = screen.getByRole('radiogroup', { name: 'Affichage' });
-  const sombre = screen.getByRole('radio', { name: 'Affichage sombre' }) as HTMLInputElement;
-  const clair = screen.getByRole('radio', { name: 'Affichage clair' }) as HTMLInputElement;
+  const groupe = screen.getByRole('group', { name: 'Affichage' });
+  const sombre = screen.getByRole('button', { name: 'Affichage sombre' });
+  const clair = screen.getByRole('button', { name: 'Affichage clair' });
   assert.ok(groupe.contains(sombre) && groupe.contains(clair));
-  assert.ok(sombre.checked && !clair.checked, 'sombre par défaut');
-  assert.equal(sombre.closest('label')!.getAttribute('title'), 'Affichage sombre', 'infobulle');
+  assert.ok(groupe.classList.contains('coque-pref') && sombre.classList.contains('coque-pref-opt'), 'classes de la coque (Norma 2.0)');
+  assert.equal(sombre.getAttribute('aria-pressed'), 'true', 'sombre par défaut');
+  assert.equal(clair.getAttribute('aria-pressed'), 'false');
+  assert.equal(sombre.getAttribute('title'), 'Affichage sombre', 'infobulle');
   fireEvent.click(clair);
-  assert.ok(clair.checked);
+  assert.equal(clair.getAttribute('aria-pressed'), 'true');
   assert.equal(document.documentElement.dataset.theme, 'light');
   assert.match(document.cookie, /epc2i-theme=light/);
   fireEvent.click(sombre);
@@ -94,18 +96,32 @@ test('bouton de l’en-tête : groupe « Affichage », lune « Affichage sombre 
   assert.match(document.cookie, /epc2i-theme=dark/);
 });
 
-test('bouton monté sur l’attribut posé par theme.js : l’affichage clair d’une visite précédente reste coché', () => {
+test('sélecteur monté sur l’attribut posé par theme.js : l’affichage clair d’une visite précédente reste choisi', () => {
   pageNeuve();
   document.documentElement.dataset.theme = 'light';
   render(createElement(BoutonTheme));
-  assert.ok((screen.getByRole('radio', { name: 'Affichage clair' }) as HTMLInputElement).checked);
+  assert.equal(screen.getByRole('button', { name: 'Affichage clair' }).getAttribute('aria-pressed'), 'true');
 });
 
-test('en-tête : le bouton est le dernier élément de la barre supérieure, juste après le sélecteur FR / EN, toujours rendu', () => {
+test('deux copies du sélecteur (en-tête de page, barre supérieure) : un choix dans l’une est suivi par l’autre (THEME_EVENT)', () => {
+  pageNeuve();
+  render(createElement('div', null, createElement(BoutonTheme), createElement(BoutonTheme)));
+  const [premier, second] = screen.getAllByRole('button', { name: 'Affichage clair' });
+  fireEvent.click(premier);
+  assert.equal(second.getAttribute('aria-pressed'), 'true');
+});
+
+test('coque (Norma 2.0) : paire langue au-dessus de l’affichage, dernier élément de l’en-tête de page et de la barre supérieure, nulle part ailleurs', () => {
+  const coque = lire('client/src/layout/Coque.tsx');
+  assert.match(coque, /<div className="coque-prefs"[^>]*>\s*<BoutonLangue \/>\s*<BoutonTheme \/>\s*<\/div>/, 'FR | EN au-dessus de ☾ | ☀');
+  const entete = coque.slice(coque.indexOf('<header className="coque-header">'), coque.indexOf('</header>'));
+  assert.match(entete, /<Preferences \/>\s*$/, 'dernier élément de l’en-tête de page');
   const shell = lire('client/src/layout/Shell.tsx');
-  const entete = shell.slice(shell.indexOf('<header className="topbar">'), shell.indexOf('</header>'));
-  assert.match(entete, /<BoutonLangue \/>\s*<BoutonTheme \/>\s*<\/div>\s*$/, 'dernier élément de .topbar-actions, après le sélecteur de langue');
-  assert.doesNotMatch(entete.slice(0, entete.indexOf('<div className="topbar-actions">')), /&&\s*\(\s*$/, 'actions de l’en-tête sans condition');
+  assert.match(shell, /<div className="coque-topbar-tools"><Preferences \/><\/div>\s*<\/div>/, 'dernier élément de la barre supérieure');
+  assert.equal(shell.match(/<Preferences \/>/g)?.length, 1, 'une seule fois dans la coque (barre latérale exclue)');
+  assert.doesNotMatch(shell, /<BoutonLangue|<BoutonTheme/, 'jamais dans la barre latérale');
+  const main = lire('client/src/main.tsx');
+  assert.ok(main.indexOf("norma/charte/nocturne.css") < main.indexOf("norma/charte/touch.css") && main.indexOf("norma/charte/touch.css") < main.indexOf("norma/charte/coque.css"), 'nocturne, touch puis coque');
 });
 
 test('charte : nocturne.css de Norma importé (thème clair compris), plus de copie locale ; surcharges claires de Cursus', () => {

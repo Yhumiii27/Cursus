@@ -1,20 +1,21 @@
-// Sélecteur de langue FR / EN de l'en-tête (Norma § 7, CU-N01) : contrôle segmenté de la charte (`.seg`, comme le bouton
-// d'affichage qui le suit), français par défaut. Le choix vaut aussitôt (i18n/langue.ts : cookie `cursus-lang`, attribut
-// `lang` de <html>, coque et pages rendues de nouveau), sans aller-retour au serveur.
+// Sélecteur de langue FR | EN (Norma 2.0, COQUE.md § 4 ; CU-N01) : le haut de la paire langue / affichage
+// (layout/Coque.tsx, `Preferences`), dernier élément de l'en-tête de chaque page et de la barre supérieure. Deux options
+// de même taille (classes coque-pref de norma/charte/coque.css), `aria-pressed` ; noms « Français » et « English » (chacun
+// dans sa langue, attribut `lang`). Le choix vaut aussitôt (i18n/langue.ts : cookie `cursus-lang`, attribut `lang` de
+// <html>, coque et pages rendues de nouveau), sans aller-retour au serveur ; français par défaut.
 import { choisirLangue, t, useLangue, type Lang } from './langue.ts';
 
-const OPTIONS: readonly [Lang, string, string][] = [['fr', 'FR', 'French'], ['en', 'EN', 'English']];
+const OPTIONS: readonly [Lang, string, string][] = [['fr', 'FR', 'Français'], ['en', 'EN', 'English']];
 
 export function BoutonLangue() {
   const { lang } = useLangue();
   return (
-    <div className="seg bouton-langue" role="radiogroup" aria-label={t('Language')}>
+    <div className="coque-pref" role="group" aria-label={t('Language')}>
       {OPTIONS.map(([l, court, nom]) => (
-        <label key={l} className="seg-opt" title={t(nom)}>
-          <input type="radio" name="langue" value={l} checked={lang === l} onChange={() => choisirLangue(l)} />
-          <span aria-hidden="true">{court}</span>
-          <span className="sr-only">{t(nom)}</span>
-        </label>
+        <button key={l} type="button" className="coque-pref-opt" aria-pressed={lang === l} lang={l} title={nom}
+          onClick={() => { if (lang !== l) choisirLangue(l); }}>
+          {court}
+        </button>
       ))}
     </div>
   );

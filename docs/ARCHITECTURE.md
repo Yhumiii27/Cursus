@@ -173,7 +173,9 @@ client/src/
   formations-csv.ts Exports CSV des indicateurs de formation et des formations suivies (lot 6)
   passeport.ts     Passeport formation imprimé (fiche et portail) ; titre-habilitation.ts : titre d'habilitation à signer
   layout/Shell.tsx Barre latérale, en-tête, notification ; layout/Reconnexion.tsx : session expirée, par-dessus l'écran ;
-  layout/Shell.tsx Barre latérale, en-tête, notification ; layout/RechercheGlobale.tsx : recherche de l'en-tête (suggestions) ; layout/Reconnexion.tsx : session expirée, par-dessus l'écran ;
+  layout/Shell.tsx Coque commune (Norma 2.0) : barre latérale, barre supérieure ≤ 1024 px, notification ; layout/Coque.tsx :
+                   en-tête de page (EnTetePage), actions et menu « Actions », barre d'outils, paire langue / affichage
+                   (Preferences) ; layout/RechercheGlobale.tsx : recherche de l'en-tête (suggestions) ; layout/Reconnexion.tsx : session expirée, par-dessus l'écran ;
                    layout/Tiroir.tsx : menu en tiroir sur écran étroit ; layout/navigation.ts : titre de l'onglet, focus
                    sur le titre après un changement de page
   pages/           Un fichier par écran ; pages/parametres/ : une section de l'écran Paramètres par fichier (sections.tsx)
@@ -181,10 +183,10 @@ client/src/
   styles/          app.css (mise en page) et print.css ; la charte Nocturne (thèmes sombre et clair) est la copie de
                    Norma, norma/charte/nocturne.css, importée par main.tsx (jamais modifiée dans Cursus)
   theme/           Affichage sombre / clair (Norma 1.0) : cookie epc2i-theme, attribut data-theme de <html> posé avant
-                   le rendu par public/theme.js, bouton BoutonTheme de l'en-tête
+                   le rendu par public/theme.js, sélecteur BoutonTheme (bas de la paire langue / affichage)
   i18n/            Langue de l'interface (Norma § 2, CU-N01) : chaînes sources anglaises, dictionnaire français (fr.ts),
                    moteur traduire.ts (repris d'Arche), cookie cursus-lang (français par défaut), sélecteur BoutonLangue
-                   juste avant BoutonTheme
+                   (haut de la paire, au-dessus de BoutonTheme)
 design/            Prototype Claude Design de référence, guide du design system Nocturne et archive complète de la
                    maquette (maquette-handoff.zip, seule archive suivie : *.zip est ignoré ailleurs)
 deploy/            Fichiers d'installation prêts à copier (unités systemd, Caddyfile, copie externe), identiques à la doc
@@ -306,12 +308,12 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
      remplace ses boutons (`Dialog confirmation`) : clôture et signature d'un entretien, import qui remplace les
      lignes prévues du plan. Le second clic d'un double clic n'active ni le bouton de confirmation ni le fond.
    - *Petits écrans* (`styles/app.css`) : le fond d'un dialogue défile (un dialogue plus haut que l'écran se lit
-     jusqu'à ses boutons) ; sous 600 px, formulaires en une colonne et boutons pleine largeur. Sous 900 px, choisir
+     jusqu'à ses boutons) ; sous 600 px, formulaires en une colonne et boutons pleine largeur. À 1024 px et moins, choisir
      une ligne amène son panneau de détail (fiche, dossier voyage, équipe, chantier), affiché sous la liste, dans le
      champ de vision et lui donne le focus ; le fermer ramène à la position de la liste (`components/panneau.ts`).
    - *Téléphone et tablette* (décision de l'entreprise : accès depuis Internet, smartphone compris) :
-     - menu en tiroir sous 900 px, pour tous les espaces (`layout/Tiroir.tsx`) : la barre latérale (espaces, menu,
-       pastilles, utilisateur) sort de l'écran et s'ouvre par le bouton « Menu » de l'en-tête (`aria-expanded`,
+     - menu en tiroir à 1024 px et moins (Norma 2.0), pour tous les espaces (`layout/Tiroir.tsx`) : la barre latérale (espaces, menu,
+       pastilles, utilisateur) sort de l'écran et s'ouvre par le bouton « Menu » de la barre supérieure (`aria-expanded`,
        `aria-controls`, total des pastilles). Ouverte, elle est modale (`useModale`, page derrière inerte) ; Échap, le
        fond, « Fermer le menu » ou le choix d'une page la referment. Le menu (`navGroups`) ne change pas ;
      - feuilles de temps jour par jour sous 600 px ou sur écran tactile (`pages/SaisieJour.tsx`, `VUE_JOUR`) : sept
@@ -4302,7 +4304,7 @@ worker de même origine : `manifest-src` et `worker-src` retombent sur `default-
   appareil — permission demandée sur le geste —, préférences par type, essai, retrait d'un appareil, « Appareil
   partagé » ; lu par `GET /api/push/appareils`, jamais par l'instantané ; « activées sur cet appareil » seulement si
   l'abonnement du navigateur figure parmi les appareils du compte), barre d'onglets `layout/BarreOnglets.tsx`
-  (quatre premières entrées du menu et « Menu », `html.standalone` sous 900 px, `env(safe-area-inset-*)`), dialogue
+  (quatre premières entrées du menu et « Menu », `html.standalone` à 1024 px et moins, `env(safe-area-inset-*)`), dialogue
   « Se déconnecter » quand des saisies attendent, tous espaces confondus (`horsLigne.taille`, la déconnexion purge
   toute la file ; `dialogs/DeconnexionDialog.tsx`).
 - **Photo** (`client/src/pwa/photo.ts`, pour les notes de frais de C5) : champ `capture="environment"` (appareil photo
@@ -6008,3 +6010,40 @@ https://claude.ai/artifact/Rs7kooJdowShdYUqNS8jQf).
   clés étrangères et les domaines des états étaient déjà déclarés par 0001 et les suivantes. La base SQLite
   (démonstration, application de bureau) n'en déclare pas : elle garde le contrôle d'intégrité de `server/integrite.ts`,
   en attendant la décision CU-N02 (PostgreSQL seul). Tests : `tests/formats-pg.test.ts`.
+
+## Norma 2.1.0 : coque commune de la suite (24 novembre 2026)
+
+Contrat `norma/charte/COQUE.md` (Norma 2.0, demande du propriétaire : « ce qui est commun à tous les outils doit se
+retrouver à la même place dans toutes les pages »), liste des changements de Cursus dans `norma/charte/AUDIT-2026-11-24.md`
+§ 2. Le client est en Vite + React : les composants de `norma/charte/ds` qui dépendent de Next.js n'y servent pas ; Cursus
+écrit le même HTML avec les classes de `norma/charte/coque.css` (importée par `main.tsx` après `nocturne.css` et
+`touch.css`) et reprend les règles pures de `norma/charte/ds/coque-rules.ts` (`splitActions`, `matchPages`).
+
+- **Grille** (`layout/Shell.tsx`) : `.coque` (barre latérale de 232 px | contenu `.coque-main`, gap 18 px, sans largeur
+  maximale) ; plus de barre d'en-tête globale sur grand écran.
+- **Barre latérale** : marque (carré de 26 px, nom 16 px), **recherche de pages ⌘K** juste dessous (`RecherchePages` :
+  ⌘K / Ctrl+K y met le focus hors dialogue, Entrée ouvre la première page, Échap vide ; pages du menu de l'espace,
+  Confidentialité et Aide) — la recherche des collaborateurs garde « / » seul (`estRaccourciRecherche`) ; sections du menu
+  en capitales 10,5 px, repliables (cookie `cursus-menu` ; la section de la page affichée reste ouverte), entrées 13 px
+  (`.coque-entry`) ; pied : l'**espace** (RH / Manager / Utilisateur, « Vue » en démonstration) puis la personne connectée
+  (mot de passe, déconnexion).
+- **En-tête de page** (`layout/Coque.tsx`, `EnTetePage`, rendu par `Page` de `components/ui.tsx` et par Portail, Connexion,
+  Mot de passe et les écrans d'attente) : fil d'Ariane (section › page du menu), titre `<h1>` 26 px (22 px ≤ 1024 px) et
+  ses étiquettes, sous-titre (l'ancien `kicker`), recherche des collaborateurs, actions de la page — l'action principale
+  (contour d'accent) la plus à droite, « Nouvelle session » principale si la page n'en a pas, sinon secondaire ; au-delà de
+  trois boutons, les autres dans le menu « Actions » — puis la **paire langue / affichage** en dernier. Les onglets,
+  listes et navigation par période passés dans `actions` vont dans la barre d'outils sous l'en-tête (`.coque-toolbar`).
+- **Langue et affichage** (`Preferences`) : `BoutonLangue` (FR | EN, `aria-pressed`, « Français » / « English ») au-dessus
+  de `BoutonTheme` (☾ | ☀), deux sélecteurs de 74 × 26 px (options de 36 px ; la paire : 74 × 56 px), bords gauches alignés ; dernier élément de
+  l'en-tête de chaque page et, à 1024 px et moins, de la barre supérieure (celui de l'en-tête est alors masqué), nulle
+  part ailleurs. Un changement d'affichage est diffusé (`THEME_EVENT`, `theme/theme.ts`) : les deux copies restent d'accord.
+- **≤ 1024 px** (un seul point de rupture, `ECRAN_ETROIT` de `components/panneau.ts`, au lieu de 900 px) : barre
+  supérieure collante (`.coque-topbar` : « Menu » avec le total des pastilles, marque, paire), tiroir de 300 px au plus ; la
+  barre d'onglets de l'application installée reste en bas.
+- **Mesures** : tuiles KPI `coque-kpis` / `coque-kpi` (valeur 22 px au lieu de 32, libellé 10,5 px en capitales), état vide
+  `coque-empty` (12,5 px), boutons `sm` 12,5 px, segments 12 px (4 / 10 px), tableaux 13 px, notifications en bas à droite
+  (22 px des bords, 420 px au plus) ; formulaires en panneau latéral de 640 px (`--panel-w`, 680 px au-delà de 640 demandés) ;
+  la colonne de détail d'une liste s'appelle `.panneau-colonne` (plus `.side-panel`).
+- Tests : `tests/client-theme.test.ts` (paire empilée, dernière de l'en-tête et de la barre supérieure, copies synchronisées),
+  `tests/client-i18n.test.ts` (sélecteur FR / EN, complétude de `layout/Coque.tsx`).
+

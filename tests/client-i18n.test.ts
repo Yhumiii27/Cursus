@@ -55,29 +55,31 @@ test('choisirLangue : t() suit la langue, attribut lang de <html> et cookie pos�
   assert.equal(t('Sign out'), 'Se déconnecter', 'sans document : la langue change quand même');
 });
 
-test('sélecteur FR / EN : groupe « Langue », français coché par défaut, l’anglais traduit aussitôt le bouton d’affichage', () => {
+test('sélecteur FR / EN : groupe « Langue », français choisi par défaut, l’anglais traduit aussitôt le sélecteur d’affichage', () => {
   render(createElement('div', null, createElement(BoutonLangue), createElement(BoutonTheme)));
-  screen.getByRole('radiogroup', { name: 'Langue' });
-  const fr = screen.getByRole('radio', { name: 'Français' }) as HTMLInputElement;
-  const en = screen.getByRole('radio', { name: 'Anglais' }) as HTMLInputElement;
-  assert.ok(fr.checked);
-  assert.equal(fr.closest('label')!.getAttribute('title'), 'Français', 'infobulle');
+  screen.getByRole('group', { name: 'Langue' });
+  const fr = screen.getByRole('button', { name: 'FR' });
+  const en = screen.getByRole('button', { name: 'EN' });
+  assert.equal(fr.getAttribute('aria-pressed'), 'true');
+  assert.equal(fr.getAttribute('title'), 'Français', 'infobulle');
+  assert.equal(en.getAttribute('title'), 'English');
+  assert.equal(en.getAttribute('lang'), 'en');
   act(() => { fireEvent.click(en); });
   assert.equal(langueCourante(), 'en');
-  assert.ok((screen.getByRole('radio', { name: 'English' }) as HTMLInputElement).checked);
-  screen.getByRole('radiogroup', { name: 'Language' });
-  // Le bouton d'affichage est rendu de nouveau par la coque (useLangue) : ici, rendu neuf en anglais.
+  assert.equal(screen.getByRole('button', { name: 'EN' }).getAttribute('aria-pressed'), 'true');
+  screen.getByRole('group', { name: 'Language' });
+  // Le sélecteur d'affichage est rendu de nouveau par la coque (useLangue) : ici, rendu neuf en anglais.
   cleanup();
   render(createElement(BoutonTheme));
-  screen.getByRole('radiogroup', { name: 'Dark / light display' });
-  screen.getByRole('radio', { name: 'Light display' });
+  screen.getByRole('group', { name: 'Dark / light display' });
+  screen.getByRole('button', { name: 'Light display' });
 });
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */
 const FICHIERS_MIGRES = [
   'client/src/App.tsx', 'client/src/layout/Shell.tsx', 'client/src/layout/Tiroir.tsx', 'client/src/layout/BarreOnglets.tsx',
   'client/src/theme/BoutonTheme.tsx', 'client/src/theme/theme.ts', 'client/src/i18n/BoutonLangue.tsx', 'client/src/components/Dialog.tsx',
-  'client/src/pages/Login.tsx',
+  'client/src/pages/Login.tsx', 'client/src/layout/Coque.tsx',
 ];
 
 /** Chaînes sources d'un fichier : arguments littéraux de t(), libellés du menu et des options, textes de la connexion. */

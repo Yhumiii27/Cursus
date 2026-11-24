@@ -45,7 +45,7 @@ test('0034 : contraintes posées et validées sur la base de démonstration', SE
 test('0034 : un nom vide, un code mal formé, une fin avant le début sont refusés par la base', SEUL, async () => {
   const db = await nouvelleBase();
   await seedDemo(db);
-  const refus = async (sql: string, params: unknown[], contrainte: string) =>
+  const refus = async (sql: string, params: string[], contrainte: string) =>
     await assert.rejects(async () => { await db.run(sql, params); }, (e: { constraint?: string; message: string }) => (e.constraint ?? e.message).includes(contrainte));
   await refus('UPDATE postes SET nom = ? WHERE id = (SELECT min(id) FROM postes)', ['  '], 'postes_nom_non_vide');
   await refus('UPDATE horaires SET code = ? WHERE code = (SELECT min(code) FROM horaires)', ['matin'], 'horaires_code_format');

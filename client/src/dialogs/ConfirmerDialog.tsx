@@ -33,7 +33,7 @@ export function ConfirmerDialog({ c }: { c: Confirmation }) {
   };
 
   return (
-    <Dialog title={c.titre} width={520} decrit={questionId} onSubmit={confirmer} actions={<>
+    <Dialog centre title={c.titre} width={520} decrit={questionId} onSubmit={confirmer} actions={<>
       {c.ensuite?.retour
         ? <button type="button" className="btn btn-secondary" onClick={() => openDialog(c.ensuite!.retour!)}>Retour</button>
         : <CancelButton />}

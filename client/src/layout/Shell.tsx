@@ -30,6 +30,9 @@ import { InstallerApplication } from '../components/InstallerApplication.tsx';
 import { BarreOnglets } from './BarreOnglets.tsx';
 // Norma 1.0 : bouton d'affichage sombre / clair de l'en-tête.
 import { BoutonTheme } from '../theme/BoutonTheme.tsx';
+// Norma § 2 et § 7 (CU-N01) : chaînes sources anglaises traduites, sélecteur FR / EN juste avant le bouton d'affichage.
+import { BoutonLangue } from '../i18n/BoutonLangue.tsx';
+import { t, useLangue } from '../i18n/langue.ts';
 import { ongletsDe } from './onglets.ts';
 // lot 12 — C5 (planning d'équipe)
 import { planifieLuiMeme } from '../components/planning/planning-vue.ts';
@@ -40,6 +43,7 @@ import { avisADonner } from '../../../shared/rules/a-faire.ts';
 import { TimerIcon } from '@phosphor-icons/react';
 import { correctionsAValider, pointe } from '../components/temps/pointage-etat.ts';
 
+/** Entrée du menu : `label` et le nom du groupe sont des chaînes sources anglaises, traduites là où elles s'affichent (t). */
 interface NavItem { view: View; label: string; icon: Icon; badge?: number }
 type NavGroup = [string, NavItem[]];
 
@@ -56,21 +60,21 @@ const ENTREES_LOT12: readonly EntreesMenu[] = [
   // lot 12 — C3 (entretiens suivis et 360°) : « Mes objectifs » du collaborateur (réglage objectifsActifs), pastille : objectifs
   // proches de leur échéance sans mise à jour (shared/rules/a-faire.ts).
   (data, d, role) => (role === 'collaborateur' && data.settings.objectifsActifs
-    ? [['Mon espace', { view: 'objectifs', label: 'Mes objectifs', icon: TargetIcon, badge: aFaireCollaborateur(d, data.user.empId).objectifs.length }]] : []),
+    ? [['My space', { view: 'objectifs', label: 'My objectives', icon: TargetIcon, badge: aFaireCollaborateur(d, data.user.empId).objectifs.length }]] : []),
   // Feedback 360° (étape 3) : « Avis demandés » le module activé, pour qui est ou a été sollicité comme répondant
   // (collaborateur ; manager sollicité comme N+2 ou collègue) ; pastille : avis encore à donner.
   (data, d, role) => {
     const me = data.user.empId;
     if (!data.settings.feedback360Actif || me == null || role === 'rh') return [];
     if (role === 'manager' && !(data.feedbackSollicitations ?? []).some(s => s.repondantEmpId === me)) return [];
-    return [['Mon espace', { view: 'avis', label: 'Avis demandés', icon: ChatsCircleIcon, badge: avisADonner(data.feedbackSollicitations ?? [], me, d.ti).length }]];
+    return [['My space', { view: 'avis', label: 'Feedback requested', icon: ChatsCircleIcon, badge: avisADonner(data.feedbackSollicitations ?? [], me, d.ti).length }]];
   },
   // lot 12 — C4 (organismes de formation et e-learning)
   // lot 12 — C5 (planning d'équipe) : « Mon planning » du collaborateur, le module activé ; pastille : échanges proposés à
   // lui, à accepter ou refuser. Le planning de l'équipe est un onglet de Temps de travail.
   // Le manager lui-même planifié (ses postes ou des échanges qui le concernent dans son instantané) l'a aussi.
   (data, _d, role) => (data.settings.planningActif && (role === 'collaborateur' || (role === 'manager' && data.user.empId != null && planifieLuiMeme(data, data.user.empId)))
-    ? [['Temps & absences', { view: 'planning', label: 'Mon planning', icon: CalendarCheckIcon, badge: (data.echangesPoste ?? []).filter(e => e.statut === 'propose' && e.partenaireId === data.user.empId).length }]]
+    ? [['Time & absences', { view: 'planning', label: 'My schedule', icon: CalendarCheckIcon, badge: (data.echangesPoste ?? []).filter(e => e.statut === 'propose' && e.partenaireId === data.user.empId).length }]]
     : []),
   // lot 12 — C6 (badgeage virtuel) : entrée « Pointages » le module activé, pour qui pointe ou décide de corrections
   // (manager, service RH ; profils restreints : jamais, `vuesDe`) ; pastille : corrections à valider.
@@ -79,7 +83,7 @@ const ENTREES_LOT12: readonly EntreesMenu[] = [
     const rh = droitsRh(data.user).includes('rh'), me = data.user.empId, soi = data.user.salarieId ?? null;
     if (role === 'collaborateur' && !pointe(data, me)) return [];
     const badge = correctionsAValider(d, { rh, manager: role === 'manager', me, soi }).length;
-    return [['Temps & absences', { view: 'pointages', label: role === 'collaborateur' ? 'Mes pointages' : 'Pointages', icon: TimerIcon, badge }]];
+    return [['Time & absences', { view: 'pointages', label: role === 'collaborateur' ? 'My clock-ins' : 'Clock-ins', icon: TimerIcon, badge }]];
   },
 ];
 
@@ -124,33 +128,33 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
     // Écrans du profil (référent HSE, paie, lecture seule : une partie de l'espace RH).
     const vues = vuesDe('rh', data.user.profilRh);
     const groupes: NavGroup[] = [
-      ['Pilotage', [{ view: 'dashboard', label: 'Tableau de bord', icon: HouseIcon, badge: nReq }, { view: 'echeances', label: 'Échéances', icon: BellIcon }, { view: 'budget', label: 'Plan & budget', icon: ChartBarIcon },
+      ['Steering', [{ view: 'dashboard', label: 'Dashboard', icon: HouseIcon, badge: nReq }, { view: 'echeances', label: 'Due dates', icon: BellIcon }, { view: 'budget', label: 'Training plan & budget', icon: ChartBarIcon },
         // lot 11 — indicateurs : BDESE et index d'égalité (service RH et lecture seule).
-        { view: 'indicateurs', label: 'Indicateurs sociaux', icon: ChartLineIcon }]],
-      ['Collaborateurs', [{ view: 'collaborateurs', label: 'Annuaire', icon: UserIcon, badge: data.employes.filter(e => !e.equipe).length }, { view: 'equipes', label: 'Équipes & managers', icon: UsersThreeIcon }, /* lot 11 — organigramme */ { view: 'organigramme', label: 'Organigramme', icon: TreeStructureIcon }, { view: 'entretiens', label: 'Entretiens', icon: ChatIcon, badge: late },
-        /* lot 14 — personnes sur site */ { view: 'site', label: 'Personnes sur site', icon: IdentificationCardIcon }]],
-      ['Compétences', [{ view: 'formations', label: 'Formations', icon: BookOpenIcon }, { view: 'habilitations', label: 'Habilitations', icon: ShieldCheckIcon }]],
+        { view: 'indicateurs', label: 'Social indicators', icon: ChartLineIcon }]],
+      ['Employees', [{ view: 'collaborateurs', label: 'Directory', icon: UserIcon, badge: data.employes.filter(e => !e.equipe).length }, { view: 'equipes', label: 'Teams & managers', icon: UsersThreeIcon }, /* lot 11 — organigramme */ { view: 'organigramme', label: 'Organisation chart', icon: TreeStructureIcon }, { view: 'entretiens', label: 'Reviews', icon: ChatIcon, badge: late },
+        /* lot 14 — personnes sur site */ { view: 'site', label: 'People on site', icon: IdentificationCardIcon }]],
+      ['Skills', [{ view: 'formations', label: 'Training', icon: BookOpenIcon }, { view: 'habilitations', label: 'Authorisations', icon: ShieldCheckIcon }]],
       // Compte professionnel de prévention (lot 7) : service RH, référent HSE et lecture seule.
-      ['Prévention', [{ view: 'prevention', label: 'Expositions (C2P)', icon: HardHatIcon }]],
-      ['Temps & absences', [{ view: 'temps', label: 'Feuilles de temps', icon: ClockIcon, badge: nQ }, { view: 'absences', label: 'Congés & absences', icon: CalendarBlankIcon, badge: nAbs }]],
-      ['Projets & déplacements', [{ view: 'missions', label: 'Missions', icon: MapPinIcon }, { view: 'voyages', label: 'Voyages', icon: AirplaneIcon, badge: data.demandesKeystone.filter(x => x.statut === 'attente').length }, { view: 'chantiers', label: 'Chantiers · Go / No Go', icon: BriefcaseIcon },
+      ['Prevention', [{ view: 'prevention', label: 'Exposures (C2P)', icon: HardHatIcon }]],
+      ['Time & absences', [{ view: 'temps', label: 'Timesheets', icon: ClockIcon, badge: nQ }, { view: 'absences', label: 'Leave & absences', icon: CalendarBlankIcon, badge: nAbs }]],
+      ['Projects & travel', [{ view: 'missions', label: 'Assignments', icon: MapPinIcon }, { view: 'voyages', label: 'Trips', icon: AirplaneIcon, badge: data.demandesKeystone.filter(x => x.statut === 'attente').length }, { view: 'chantiers', label: 'Worksites · Go / No Go', icon: BriefcaseIcon },
         // lot 11 — notes de frais : contrôle (service RH, comptabilité), jamais sa propre note.
-        ...frais('Notes de frais', notesFrais.filter(n => n.statut === 'validee' && n.empId !== soi).length)]],
-      ['Administration', [{ view: 'referentiels', label: 'Référentiels', icon: BooksIcon }, { view: 'parametres', label: 'Paramètres', icon: GearSixIcon }]],
+        ...frais('Expense reports', notesFrais.filter(n => n.statut === 'validee' && n.empId !== soi).length)]],
+      ['Administration', [{ view: 'referentiels', label: 'Reference data', icon: BooksIcon }, { view: 'parametres', label: 'Settings', icon: GearSixIcon }]],
     ];
     // Profil Paie : le groupe « Collaborateurs » ne garde que l'organigramme (lot 11).
     return avecLot12(groupes, entreesLot12(data, d, role)).map(([g, items]): NavGroup => [g, items.filter(i => vues.includes(i.view))]).filter(([, items]) => items.length > 0);
   }
   // lot 11 — organigramme : entrée du menu selon le réglage `organigrammeOuvert` (shared/rules/organigramme.ts).
-  const organigramme: NavItem[] = organigrammeOuvertA(data.settings.organigrammeOuvert, role) ? [{ view: 'organigramme', label: 'Organigramme', icon: TreeStructureIcon }] : [];
+  const organigramme: NavItem[] = organigrammeOuvertA(data.settings.organigrammeOuvert, role) ? [{ view: 'organigramme', label: 'Organisation chart', icon: TreeStructureIcon }] : [];
   if (role === 'manager') {
     return avecLot12([
       // Formations : évaluations à froid à faire sur l'équipe directe (lot 7, t121, shared/rules/evaluation-formation.ts).
-      ['Mon équipe', [{ view: 'collaborateurs', label: 'Équipe', icon: UserIcon }, { view: 'formations', label: 'Formations', icon: BookOpenIcon, badge: evaluationsAFaireManager(d, me).length }, { view: 'entretiens', label: 'Entretiens', icon: ChatIcon, badge: late }]],
-      ['Temps & absences', [{ view: 'temps', label: 'Feuilles de temps', icon: ClockIcon, badge: nQ }, { view: 'absences', label: 'Congés & absences', icon: CalendarBlankIcon, badge: nAbs }]],
-      ['Projets & déplacements', [{ view: 'missions', label: 'Missions', icon: MapPinIcon },
+      ['My team', [{ view: 'collaborateurs', label: 'Team', icon: UserIcon }, { view: 'formations', label: 'Training', icon: BookOpenIcon, badge: evaluationsAFaireManager(d, me).length }, { view: 'entretiens', label: 'Reviews', icon: ChatIcon, badge: late }]],
+      ['Time & absences', [{ view: 'temps', label: 'Timesheets', icon: ClockIcon, badge: nQ }, { view: 'absences', label: 'Leave & absences', icon: CalendarBlankIcon, badge: nAbs }]],
+      ['Projects & travel', [{ view: 'missions', label: 'Assignments', icon: MapPinIcon },
         // lot 11 — notes de frais
-        ...frais('Notes de frais', notesFrais.filter(n => n.statut === 'soumise' && !n.medicale && canValidate(n.empId, 'frais')).length)]],
+        ...frais('Expense reports', notesFrais.filter(n => n.statut === 'soumise' && !n.medicale && canValidate(n.empId, 'frais')).length)]],
       ...(organigramme.length ? [['Organisation', organigramme] as NavGroup] : []),
     ], entreesLot12(data, d, role));
   }
@@ -158,31 +162,31 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
   // attendues (accueil, lot 7 t121) : shared/rules/a-faire.ts.
   const aFaire = aFaireCollaborateur(d, me);
   return avecLot12([
-    ['Mon espace', [{ view: 'portail', label: 'Accueil', icon: HouseIcon, badge: aFaire.evaluations.length },
+    ['My space', [{ view: 'portail', label: 'Home', icon: HouseIcon, badge: aFaire.evaluations.length },
       // lot 11 — notes de frais : en deuxième, pour la barre d'onglets de l'application installée (saisie au téléphone).
-      ...frais('Mes frais', notesFrais.filter(n => n.empId === me && n.statut === 'a_corriger').length),
-      { view: 'entretiens', label: 'Mes entretiens', icon: ChatIcon, badge: aFaire.comptesRendus.length }]],
-    ['Temps & absences', [{ view: 'temps', label: 'Mes heures', icon: ClockIcon, badge: aFaire.feuilles.length }, { view: 'absences', label: 'Mes absences', icon: CalendarBlankIcon }]],
+      ...frais('My expenses', notesFrais.filter(n => n.empId === me && n.statut === 'a_corriger').length),
+      { view: 'entretiens', label: 'My reviews', icon: ChatIcon, badge: aFaire.comptesRendus.length }]],
+    ['Time & absences', [{ view: 'temps', label: 'My hours', icon: ClockIcon, badge: aFaire.feuilles.length }, { view: 'absences', label: 'My absences', icon: CalendarBlankIcon }]],
     ...(organigramme.length ? [['Organisation', organigramme] as NavGroup] : []),
   ], entreesLot12(data, d, role));
 }
 
-const VUES: [Role, string][] = [['rh', 'RH'], ['manager', 'Manager'], ['collaborateur', 'Utilisateur']];
+const VUES: [Role, string][] = [['rh', 'HR'], ['manager', 'Manager'], ['collaborateur', 'User']];
 
-/** Groupe et libellé de la page affichée : fil d'Ariane de l'en-tête et titre de l'onglet. */
+/** Groupe et libellé de la page affichée, traduits : fil d'Ariane de l'en-tête et titre de l'onglet. */
 function pageAffichee(groups: NavGroup[], view: View, connecte: boolean): [string, string] {
-  if (view === 'confidentialite') return ['Cursus', 'Confidentialité'];
-  if (view === 'aide') return ['Cursus', 'Aide'];
+  if (view === 'confidentialite') return ['Cursus', t('Privacy')];
+  if (view === 'aide') return ['Cursus', t('Help')];
   // Hors du menu : ouverte depuis Paramètres.
-  if (view === 'miseEnService') return ['Administration', 'Mise en service'];
+  if (view === 'miseEnService') return [t('Administration'), t('Commissioning')];
   const g = groups.find(([, items]) => items.some(i => i.view === view));
   const page = g?.[1].find(i => i.view === view);
-  return g && page ? [g[0], page.label] : ['Cursus', connecte ? 'Cursus' : 'Connexion'];
+  return g && page ? [t(g[0]), t(page.label)] : ['Cursus', connecte ? 'Cursus' : t('Sign-in')];
 }
 
 /** Pastille d'une entrée du menu : le nombre, lu « N à traiter » par un lecteur d'écran. */
 const Pastille = ({ n }: { n: number }) => (
-  <span className="tag tag-accent nav-badge"><span aria-hidden="true">{n}</span><span className="sr-only">, {n} à traiter</span></span>
+  <span className="tag tag-accent nav-badge"><span aria-hidden="true">{n}</span><span className="sr-only">, {t(`${n} to handle`)}</span></span>
 );
 
 function Sidebar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
@@ -196,32 +200,33 @@ function Sidebar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
   const role = session?.role ?? 'rh';
   const user = session?.user ?? null;
   const compte = session?.compte ?? null;
-  const roleLabel = user ? user.intitule : role === 'manager' ? 'Espace manager' : role === 'collaborateur' ? 'Espace collaborateur' : 'Espace RH';
+  const roleLabel = user ? user.intitule : t(role === 'manager' ? 'Manager space' : role === 'collaborateur' ? 'Employee space' : 'HR space');
   // Démonstration : les trois vues, connexion libre. Sinon : les espaces du compte, s'il en a plusieurs ; l'espace RH d'un
   // profil restreint porte le nom court du profil (HSE, Paie, Lecture).
   const vues = session?.demo ? VUES : user && compte && compte.espaces.length > 1
-    ? VUES.filter(([r]) => compte.espaces.includes(r)).map(([r, l]): [Role, string] => [r, r === 'rh' ? PROFILS_RH[compte.profilRh]?.espace ?? l : l])
+    ? VUES.filter(([r]) => compte.espaces.includes(r)).map(([r, l]): [Role, string] => [r, r === 'rh' ? PROFILS_RH[compte.profilRh]?.espace ?? t(l) : t(l)])
     : [];
+  const vuesAffichees = session?.demo ? vues.map(([r, l]): [Role, string] => [r, t(l)]) : vues;
   const ouvert = tiroir.ouvert;
   return (
     <aside ref={barre} id={ID_MENU} className={`sidebar${ouvert ? ' ouvert' : ''}`} tabIndex={ouvert ? -1 : undefined}
-      role={ouvert ? 'dialog' : undefined} aria-modal={ouvert || undefined} aria-label={ouvert ? 'Menu' : undefined}>
+      role={ouvert ? 'dialog' : undefined} aria-modal={ouvert || undefined} aria-label={ouvert ? t('Menu') : undefined}>
       {ouvert && <PiegeTiroir barre={barre} actif={!reconnexion} fermer={tiroir.fermer} />}
       <div className="side-tete">
         <span className="brand">
           <span className="brand-mark"><CheckIcon size={13} weight="bold" /></span>
           <span>Cursus</span>
         </span>
-        <button type="button" className="btn btn-ghost btn-icon fermer-tiroir" aria-label="Fermer le menu" title="Fermer le menu" onClick={tiroir.fermer}>
+        <button type="button" className="btn btn-ghost btn-icon fermer-tiroir" aria-label={t('Close the menu')} title={t('Close the menu')} onClick={tiroir.fermer}>
           <XIcon size={16} />
         </button>
       </div>
-      {vues.length > 0 && (
+      {vuesAffichees.length > 0 && (
         <div className="side-block">
-          <span className="side-label">{session?.demo ? 'Vue' : 'Espace'}</span>
+          <span className="side-label">{t(session?.demo ? 'View' : 'Workspace')}</span>
           {/* Pendant le changement, l'espace actuel reste affiché jusqu'à l'arrivée des données du nouveau. */}
-          <div className="seg" role="radiogroup" aria-label="Espace" aria-busy={bascule} style={{ fontSize: 12, alignSelf: 'stretch', display: 'flex' }}>
-            {vues.map(([r, l]) => (
+          <div className="seg" role="radiogroup" aria-label={t('Workspace')} aria-busy={bascule} style={{ fontSize: 12, alignSelf: 'stretch', display: 'flex' }}>
+            {vuesAffichees.map(([r, l]) => (
               <label key={r} className="seg-opt" style={{ flex: 1, justifyContent: 'center' }}>
                 <input type="radio" name="mode" checked={role === r} disabled={bascule} onChange={puis(() => switchMode(r))} />{l}
               </label>
@@ -229,15 +234,15 @@ function Sidebar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
           </div>
         </div>
       )}
-      <nav aria-label="Navigation principale" className="side-nav">
+      <nav aria-label={t('Main navigation')} className="side-nav">
         {data && groups.map(([label, items]) => (
           <div key={label} className="nav-group">
-            <span className="side-label">{label}</span>
+            <span className="side-label">{t(label)}</span>
             {items.map(it => (
               <a key={it.view} href={`/${it.view}`} className="nav-item" aria-current={view === it.view ? 'page' : undefined}
                 onClick={e => { e.preventDefault(); tiroir.fermer(); go(it.view); }}>
                 <it.icon size={16} />
-                <span>{it.label}</span>
+                <span>{t(it.label)}</span>
                 {!!it.badge && <Pastille n={it.badge} />}
               </a>
             ))}
@@ -249,13 +254,13 @@ function Sidebar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
             <a href="/confidentialite" className="nav-item" aria-current={view === 'confidentialite' ? 'page' : undefined}
               onClick={e => { e.preventDefault(); tiroir.fermer(); go('confidentialite'); }}>
               <LockSimpleIcon size={16} />
-              <span>Confidentialité</span>
+              <span>{t('Privacy')}</span>
             </a>
             {/* Guide par rôle (shared/aide.ts), ouvert aussi depuis l'écran de connexion. */}
             <a href="/aide" className="nav-item" aria-current={view === 'aide' ? 'page' : undefined}
               onClick={e => { e.preventDefault(); tiroir.fermer(); go('aide'); }}>
               <LifebuoyIcon size={16} />
-              <span>Aide</span>
+              <span>{t('Help')}</span>
             </a>
             {/* lot 11 — pwa : proposé par le navigateur (Android, Chrome, Edge), jamais une fois installée. */}
             <InstallerApplication menu fermer={tiroir.fermer} />
@@ -265,16 +270,16 @@ function Sidebar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
       <div className="side-user">
         {user ? <Avatar nom={user.nom} size={32} /> : <span className="avatar" style={{ width: 32, height: 32, fontSize: 12 }}>—</span>}
         <div className="who">
-          <div style={{ fontSize: 13 }}>{user ? user.nom : 'Non connecté'}</div>
+          <div style={{ fontSize: 13 }}>{user ? user.nom : t('Not signed in')}</div>
           <div className="text-muted" style={{ fontSize: 11 }}>{roleLabel}</div>
         </div>
         {user && session?.methode === 'local' && (
-          <button type="button" className="btn btn-ghost btn-icon" aria-label="Changer mon mot de passe" title="Changer mon mot de passe" onClick={puis(() => openDialog({ type: 'motDePasse' }))} style={{ color: 'inherit', width: 30, height: 30, flex: 'none' }}>
+          <button type="button" className="btn btn-ghost btn-icon" aria-label={t('Change my password')} title={t('Change my password')} onClick={puis(() => openDialog({ type: 'motDePasse' }))} style={{ color: 'inherit', width: 30, height: 30, flex: 'none' }}>
             <KeyIcon size={14} />
           </button>
         )}
         {user && (
-          <button type="button" className="btn btn-ghost btn-icon" aria-label="Se déconnecter" title="Se déconnecter" onClick={puis(deconnecter)} style={{ color: 'inherit', width: 30, height: 30, flex: 'none' }}>
+          <button type="button" className="btn btn-ghost btn-icon" aria-label={t('Sign out')} title={t('Sign out')} onClick={puis(deconnecter)} style={{ color: 'inherit', width: 30, height: 30, flex: 'none' }}>
             <SignOutIcon size={14} />
           </button>
         )}
@@ -302,10 +307,11 @@ function Topbar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
         {session?.user && data && recherche && <RechercheGlobale data={data} role={user.role} />}
         {session?.user && data && sessions && (
           <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'session', f: ui.formationFilter ?? undefined })}>
-            <PlusIcon size={14} /><span>Nouvelle session</span>
+            <PlusIcon size={14} /><span>{t('New session')}</span>
           </button>
         )}
-        {/* Norma 1.0 : affichage sombre / clair, à droite de l'en-tête (Cursus n'a pas de sélecteur FR / EN). */}
+        {/* Norma § 7 : sélecteur FR / EN, et juste à côté l'affichage sombre / clair, à droite de l'en-tête. */}
+        <BoutonLangue />
         <BoutonTheme />
       </div>
     </header>
@@ -317,8 +323,8 @@ function Carte({ toast, fermer }: { toast: StoreToast; fermer: () => void }) {
   return (
     <div className={`toast${toast.error ? ' error' : ''}`}>
       {toast.error ? <WarningIcon size={16} weight="bold" aria-hidden="true" /> : <CheckIcon size={14} weight="bold" aria-hidden="true" />}
-      <span>{toast.error && <span className="sr-only">Erreur : </span>}{toast.text}</span>
-      <button type="button" className="btn btn-ghost btn-icon toast-fermer" aria-label="Fermer la notification" title="Fermer" onClick={fermer}>
+      <span>{toast.error && <span className="sr-only">{t('Error: ')}</span>}{toast.text}</span>
+      <button type="button" className="btn btn-ghost btn-icon toast-fermer" aria-label={t('Close the notification')} title={t('Close')} onClick={fermer}>
         <XIcon size={12} />
       </button>
     </div>
@@ -341,6 +347,8 @@ export function Toast() {
 
 export function Shell({ children }: { children: ReactNode }) {
   const { session, data, reconnexion, loading, view } = useStore();
+  // Langue affichée : la coque et les pages sont rendues de nouveau quand elle change (sélecteur FR / EN).
+  useLangue();
   const role = session?.role ?? 'rh';
   const groups = useMemo(() => navGroups(data, role), [data, role]);
   const tiroir = useTiroir();
@@ -353,7 +361,7 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <>
       <div className="app" inert={!!reconnexion}>
-        <a className="lien-evitement" href={`#${ID_CONTENU}`} onClick={allerAuContenu}>Aller au contenu</a>
+        <a className="lien-evitement" href={`#${ID_CONTENU}`} onClick={allerAuContenu}>{t('Skip to content')}</a>
         <Sidebar groups={groups} tiroir={tiroir} />
         {/* Tiroir ouvert : fond qui le referme ; la page derrière devient inerte. */}
         {tiroir.ouvert && <div className="tiroir-fond" aria-hidden="true" onClick={tiroir.fermer} />}

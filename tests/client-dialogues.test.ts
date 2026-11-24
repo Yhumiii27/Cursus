@@ -43,6 +43,8 @@ test('refus d’un congé (dialogue « confirmer ») : motif obligatoire, puis r
   render(b.element);
   const motif = screen.getByLabelText(/Motif du refus/);
   assert.equal(motif.getAttribute('aria-required'), 'true');
+  // Confirmation : fenêtre centrée (`centre`), pas un panneau latéral.
+  assert.ok(!screen.getByRole('dialog').classList.contains('panneau-lateral'));
   // Envoi sans motif : l'erreur s'affiche sous le champ, rien ne part.
   await cliquer('Refuser la demande');
   assert.equal(erreurDe(motif), 'Indiquez le motif du refus.');
@@ -80,6 +82,10 @@ test('demande de congé par le collaborateur : dates obligatoires, puis demande 
   const mehdi = await personne(2, 'collaborateur');
   const b = await monter(db, mehdi, () => createElement(AbsDialog, { empId: 2 }));
   render(b.element);
+  // Norma § 7 (CU-N04) : le formulaire s'ouvre dans un panneau latéral, fermé au succès (fermetures ci-dessous).
+  const panneau = screen.getByRole('dialog');
+  assert.ok(panneau.classList.contains('panneau-lateral'), 'formulaire en panneau latéral');
+  assert.ok(panneau.parentElement!.classList.contains('panneau'));
   // Bouton actif dès l'ouverture ; l'envoi incomplet signale les deux dates.
   await cliquer('Envoyer la demande');
   assert.equal(erreurDe(screen.getByLabelText(/^Du/)), 'Indiquez le premier jour d’absence.');

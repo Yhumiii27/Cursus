@@ -41,7 +41,14 @@ Dépôts, rôles PostgreSQL, ports et variables de connexion : `norma/registre/o
   reste hors de Git.
 - Rien hors du cahier des charges sans l'accord du propriétaire : un ajout se propose (question de `DECISIONS.md` de
   l'outil) avant d'être construit.
-- Après chaque développement, la page « reste à développer » de l'outil est mise à jour quand il en a une.
+- **Reste à faire de la solution** : une seule liste, tenue dans Norma (`reste-a-faire/<outil>.json`, schéma
+  `reste-a-faire/SCHEMA.md`). Après chaque développement : mettre à jour le fichier de l'outil dans Norma (état des points,
+  ligne d'historique, `updated`), lancer `npm run reste-a-faire` dans Norma, ouvrir la PR de Norma, puis republier la page
+  globale `.artifacts/reste-a-faire.html` à la même adresse d’artefact, https://claude.ai/artifact/Rs7kooJdowShdYUqNS8jQf. Un outil ne tient
+  plus de liste propre : sa documentation renvoie à celle de Norma.
+- **Questionnaire du responsable produit** : par le modèle de Norma (`node norma/outils/questionnaire/build.mjs`, réglé par
+  `scripts/questionnaire/config.json` et `questions.json` de l'outil) ; les réponses (base de l'artefact, collection
+  `answers`) sont relues avant chaque livraison et reportées dans le `DECISIONS.md` de l'outil.
 
 ## 4. Données : un serveur PostgreSQL commun
 

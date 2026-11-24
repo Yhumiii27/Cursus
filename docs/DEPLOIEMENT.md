@@ -735,6 +735,12 @@ l'identifiant) : chacun se reconnecte une fois.
    sa sauvegarde restent nécessaires. Lot 8 : avant d'activer les pièces, poser `CURSUS_PIECES_KEY` (chiffrement au
    repos, obligatoire en production) ; copie restic chiffrée du volume juste après le `pg_dump` du schéma, restauration
    contrôlée par `npm run pieces:verifier` : `docs/SAUVEGARDE.md`, section 10.
+6. **Formats dans la base (migration 0034_formats, Norma § 4)** : noms non vides, forme des codes, fin de période après
+   son début. Une base dont des lignes existantes ne les respectent pas démarre quand même : la contrainte reste non
+   validée et le serveur PostgreSQL l'écrit dans son journal (« Cursus 0034 : contrainte … non validée »). Lister celles
+   qui restent : `SELECT conrelid::regclass, conname FROM pg_constraint WHERE connamespace = 'cursus'::regnamespace AND
+   NOT convalidated;` ; corriger les lignes dans Cursus, puis `ALTER TABLE cursus.<table> VALIDATE CONSTRAINT <nom>;` en
+   tant que `cursus_app`.
 
 ### Passage de la démonstration sous PostgreSQL (même application Coolify)
 

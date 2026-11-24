@@ -79,7 +79,9 @@
     "@happy-dom/global-registrator": "tests d'interface",
     "@testing-library/dom": "tests d'interface",
     "@testing-library/react": "tests d'interface",
-    "oxlint": "analyse statique"
+    "oxlint": "analyse statique",
+    "cytoscape": "graphe des liens entre outils (Matrix)",
+    "rolldown": "outillage de Vite, importé par les tests de rendu (Cursus) — à déclarer dans le package.json de l'outil"
   },
   "interdites": {
     "@electric-sql/pglite": {

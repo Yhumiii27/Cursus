@@ -3,7 +3,8 @@
 //
 // Depuis la racine d'un outil :
 //   node <clone de Norma>/outils/norma.mjs copier          copie le socle dans ./norma (règles, charte, registre,
-//                                                           dépendances, ce script), écrit norma/MANIFEST.json
+//                                                           dépendances, ce script, le modèle de questionnaire),
+//                                                           écrit norma/MANIFEST.json
 //   node norma/outils/norma.mjs verifier                    (CI) la copie n'a pas été modifiée, et package.json respecte
 //                                                           norma/dependances.json pour cet outil
 // L'outil se nomme dans norma.config.json à sa racine : { "outil": "<code du registre>" }.
@@ -13,7 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** What a tool receives (relative to Norma's root). */
-export const DISTRIBUE = ['REGLES.md', 'VERSION', 'CHANGELOG.md', 'dependances.json', 'registre', 'charte', 'outils/norma.mjs'];
+export const DISTRIBUE = ['REGLES.md', 'VERSION', 'CHANGELOG.md', 'dependances.json', 'registre', 'charte', 'outils/norma.mjs', 'outils/pages', 'outils/questionnaire'];
 const DOSSIER = 'norma';
 
 const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');

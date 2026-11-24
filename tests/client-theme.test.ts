@@ -101,10 +101,10 @@ test('bouton monté sur l’attribut posé par theme.js : l’affichage clair d�
   assert.ok((screen.getByRole('radio', { name: 'Affichage clair' }) as HTMLInputElement).checked);
 });
 
-test('en-tête : le bouton est le dernier élément de la barre supérieure, toujours rendu (Cursus n’a pas de sélecteur FR / EN)', () => {
+test('en-tête : le bouton est le dernier élément de la barre supérieure, juste après le sélecteur FR / EN, toujours rendu', () => {
   const shell = lire('client/src/layout/Shell.tsx');
   const entete = shell.slice(shell.indexOf('<header className="topbar">'), shell.indexOf('</header>'));
-  assert.match(entete, /<BoutonTheme \/>\s*<\/div>\s*$/, 'dernier élément de .topbar-actions');
+  assert.match(entete, /<BoutonLangue \/>\s*<BoutonTheme \/>\s*<\/div>\s*$/, 'dernier élément de .topbar-actions, après le sélecteur de langue');
   assert.doesNotMatch(entete.slice(0, entete.indexOf('<div className="topbar-actions">')), /&&\s*\(\s*$/, 'actions de l’en-tête sans condition');
 });
 

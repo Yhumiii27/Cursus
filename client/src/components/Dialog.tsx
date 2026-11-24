@@ -1,4 +1,7 @@
 // Dialogue modal Nocturne (fond, carte, actions) et champs de formulaire.
+// Norma § 7 (CU-N04) : un formulaire s'ouvre dans un panneau latéral, à droite de l'écran sur toute sa hauteur (titre en
+// haut, champs qui défilent, boutons en bas), ouvert par un bouton et fermé au succès ; une simple confirmation (`centre` :
+// question et bouton qui exécute l'action) reste une fenêtre centrée, comme le `CenteredModal` de la charte.
 // Ses champs se conservent pendant une reconnexion Microsoft (attribut data-brouillon, state/brouillon.ts).
 // Fermeture sans enregistrer (fond, Échap, « Annuler ») : seulement sur un clic commencé et terminé sur le
 // fond (une sélection de texte relâchée hors de la carte ne ferme rien), et après confirmation si la saisie
@@ -18,6 +21,7 @@ import {
 import { lireChamps, restaurerChamps, saisieModifiee, type Champs } from '../state/brouillon.ts';
 import { useStore } from '../state/store.tsx';
 import { useModale } from './focus.ts';
+import { t } from '../i18n/langue.ts';
 
 /** Demande de fermeture du dialogue ouvert, avec confirmation si la saisie serait perdue. */
 const Fermeture = createContext<(() => void) | null>(null);
@@ -33,8 +37,10 @@ export interface ConfirmationEnLigne {
   annuler: () => void;
 }
 
-export function Dialog({ title, width, tall, children, actions, enregistrer, abandonner, fermerParBouton, onSubmit, confirmation, decrit, fermer }: {
+export function Dialog({ title, width, tall, children, actions, enregistrer, abandonner, fermerParBouton, onSubmit, confirmation, decrit, fermer, centre }: {
   title: ReactNode; width?: number; tall?: boolean; children: ReactNode; actions: ReactNode;
+  /** Confirmation (question et bouton d'action) : fenêtre centrée au lieu du panneau latéral des formulaires. */
+  centre?: boolean;
   /** Enregistrement au fil de la saisie : appelé avant la fermeture ; faux (échec) : confirmation demandée. */
   enregistrer?: () => Promise<boolean>;
   /** « Fermer sans enregistrer » choisi : appelé avant la fermeture (le dialogue n'enregistre plus rien en se démontant). */
@@ -122,32 +128,33 @@ export function Dialog({ title, width, tall, children, actions, enregistrer, aba
 
   const marquer = () => { saisi.current = true; };
   return (
-    <div className="dialog-backdrop"
+    <div className={`dialog-backdrop${centre ? '' : ' panneau'}`}
       onPointerDown={e => { pressionFond.current = e.target === e.currentTarget; }}
       onClick={e => { if (pressionFond.current && e.target === e.currentTarget && e.detail <= 1 && !fermerParBouton) demanderFermeture(); pressionFond.current = false; }}>
       <form
         ref={ref} data-brouillon="" noValidate onSubmit={envoyer} tabIndex={-1}
-        className={`dialog${tall ? ' tall' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titreId} aria-describedby={decrit}
+        className={`dialog${centre ? (tall ? ' tall' : '') : ' panneau-lateral'}`} role="dialog" aria-modal="true" aria-labelledby={titreId} aria-describedby={decrit}
         onInputCapture={marquer} onChangeCapture={marquer}
-        style={width ? { width: `min(${width}px, 100%)`, maxWidth: tall ? width : undefined } : undefined}
+        style={centre ? (width ? { width: `min(${width}px, 100%)`, maxWidth: tall ? width : undefined } : undefined)
+          : { width: `min(${Math.max(width ?? 560, 480)}px, 100%)` }}
       >
         <div className="dialog-title" id={titreId}>{title}</div>
         <div className="dialog-body">
           {children}
-          {avecRequis && <p className="legende-requis"><span aria-hidden="true">*</span> champ obligatoire</p>}
+          {avecRequis && <p className="legende-requis"><span aria-hidden="true">*</span> {t('required field')}</p>}
         </div>
         {confirmer ? (
           <div className="dialog-actions confirmer-fermeture">
             <p role="alert">
-              {confirmer === 'echec' ? 'Des modifications n’ont pas pu être enregistrées.' : 'La saisie n’est pas enregistrée.'} Fermer quand même ?
+              {t(confirmer === 'echec' ? 'Some changes could not be saved.' : 'The entry is not saved.')} {t('Close anyway?')}
             </p>
-            <button type="button" className="btn btn-secondary" autoFocus onClick={() => setConfirmer(null)}>Reprendre la saisie</button>
-            <button type="button" className="btn btn-primary" onClick={() => { abandonner?.(); closeDialog(); }}>Fermer sans enregistrer</button>
+            <button type="button" className="btn btn-secondary" autoFocus onClick={() => setConfirmer(null)}>{t('Resume the entry')}</button>
+            <button type="button" className="btn btn-primary" onClick={() => { abandonner?.(); closeDialog(); }}>{t('Close without saving')}</button>
           </div>
         ) : confirmation ? (
           <div className="dialog-actions confirmer-fermeture">
             <p role="alert">{confirmation.texte}</p>
-            <button type="button" className="btn btn-secondary" autoFocus disabled={confirmation.occupe} onClick={confirmation.annuler}>Revenir</button>
+            <button type="button" className="btn btn-secondary" autoFocus disabled={confirmation.occupe} onClick={confirmation.annuler}>{t('Go back')}</button>
             <button type="button" className="btn btn-primary" disabled={confirmation.occupe} onClick={e => { if (e.detail <= 1) confirmation.confirmer(); }}>{confirmation.bouton}</button>
           </div>
         ) : (
@@ -199,10 +206,10 @@ export function Static({ children, pad }: { children: ReactNode; pad?: boolean }
 }
 
 /** Bouton « Annuler » standard des dialogues : confirmation si la saisie serait perdue. */
-export function CancelButton({ label = 'Annuler' }: { label?: string }) {
+export function CancelButton({ label }: { label?: string }) {
   const { closeDialog } = useStore();
   const fermer = useContext(Fermeture);
-  return <button type="button" className="btn btn-secondary" onClick={() => (fermer ?? closeDialog)()}>{label}</button>;
+  return <button type="button" className="btn btn-secondary" onClick={() => (fermer ?? closeDialog)()}>{label ?? t('Cancel')}</button>;
 }
 
 /**

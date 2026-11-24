@@ -1,0 +1,158 @@
+<title>__TITRE__</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Questionnaire du responsable produit (modèle commun de Norma, outils/questionnaire). Une colonne de lecture :
+   avancement et filtres en tête, puis une carte par question avec la proposition par défaut (★), les choix et une note.
+   Couleurs : Nocturne (outils/pages/nocturne-page.css), sombre et clair. */
+__NOCTURNE__
+.progress { display: grid; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.progress .row { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; }
+.big { font: 600 22px var(--font-data); font-variant-numeric: tabular-nums; }
+.bar { height: 6px; border-radius: 3px; background: var(--raise); overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .3s; }
+.status { font-size: 12.5px; color: var(--muted); }
+.status.warn { color: var(--warn); }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.chk { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--muted); margin-left: auto; }
+.group-h { margin: 6px 0 -8px; font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: .02em; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 10px; min-width: 0; }
+.card.prio { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.qid { font: 500 12px var(--font-data); color: var(--accent); }
+.qt { font-weight: 600; font-size: 15px; flex: 1 1 280px; min-width: 0; }
+.ctx { margin: 0; color: var(--muted); }
+.prop { background: var(--accent-soft); border-radius: 8px; padding: 10px 12px; }
+.prop b { color: var(--accent); font-weight: 600; }
+.opts { display: grid; gap: 6px; }
+.opt { display: flex; gap: 10px; align-items: flex-start; padding: 7px 10px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; }
+.opt:hover { background: var(--raise); }
+.opt input { margin-top: 3px; accent-color: var(--accent); }
+.opt.sel { border-color: var(--accent); background: var(--accent-soft); }
+textarea { width: 100%; min-height: 64px; resize: vertical; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; }
+textarea.big-area { min-height: 120px; font-family: var(--font-data); font-size: 12.5px; }
+.saved { font-size: 12px; color: var(--muted); min-height: 1em; }
+.decided { background: var(--surface); border: 1px dashed var(--line); border-radius: 12px; padding: 12px 16px; }
+.decided summary { cursor: pointer; font-weight: 600; }
+.decided ul { margin: 8px 0 0; padding-left: 18px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .bar > i { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">__SOUS_TITRE__ · __UPDATED__</div>
+    <h1>__TITRE__</h1>
+    <p class="lede">__INTRODUCTION__</p>
+  </header>
+
+  <section class="progress" aria-label="Avancement">
+    <div class="row"><span class="big" id="count">0 / 0</span><span class="status" id="status">Connexion à l’enregistrement…</span></div>
+    <div class="bar" aria-hidden="true"><i id="bar"></i></div>
+  </section>
+
+  __DECIDE__
+
+  <div class="filters" role="toolbar" aria-label="Filtrer les questions" id="filters"></div>
+  <div id="list" style="display:grid;gap:14px"></div>
+</div>
+
+<script>
+const QUESTIONS = __QUESTIONS__;
+const GROUPS = __GROUPES__;
+const answers = {};
+let canWrite = true, dbRef = null, filter = 'all', onlyOpen = false;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function optionsOf(q) {
+  if (q.kind === 'data') return [];
+  return [{ key: 'default', label: '★ Retenir la proposition' }, ...q.alts.map((a, i) => ({ key: 'alt' + (i + 1), label: a })), { key: 'other', label: 'Autre réponse (préciser en note)' }, { key: 'discuss', label: 'À discuter' }];
+}
+const answered = (q) => { const a = answers[q.id]; return !!a && (q.kind === 'data' ? !!(a.note || '').trim() : !!a.choice); };
+
+function renderProgress() {
+  const n = QUESTIONS.filter(answered).length;
+  $('count').textContent = `${n} / ${QUESTIONS.length} répondues`;
+  $('bar').style.width = (100 * n / QUESTIONS.length) + '%';
+}
+
+function renderFilters() {
+  const chips = [['all', 'Toutes'], ...GROUPS];
+  $('filters').innerHTML = chips.map(([k, l]) => `<button type="button" class="chip" data-f="${k}" aria-pressed="${filter === k}">${esc(l)}</button>`).join('')
+    + `<label class="chk"><input type="checkbox" id="onlyOpen" ${onlyOpen ? 'checked' : ''}> Sans réponse seulement</label>`;
+  $('filters').querySelectorAll('.chip').forEach((b) => b.addEventListener('click', () => { filter = b.dataset.f; renderFilters(); renderList(); }));
+  $('onlyOpen').addEventListener('change', (e) => { onlyOpen = e.target.checked; renderList(); });
+}
+
+function cardHtml(q) {
+  const a = answers[q.id] || {};
+  const tag = answered(q) ? (a.choice === 'discuss' ? '<span class="tag disc">À discuter</span>' : '<span class="tag done">Répondu</span>') : '';
+  const dis = canWrite ? '' : 'disabled';
+  const opts = optionsOf(q).map((o) => `<label class="opt ${a.choice === o.key ? 'sel' : ''}"><input type="radio" name="q-${q.id}" id="q-${q.id}-${o.key}" value="${o.key}" ${a.choice === o.key ? 'checked' : ''} ${dis}><span>${esc(o.label)}</span></label>`).join('');
+  return `<article class="card ${q.group === 'prio' ? 'prio' : ''}" data-id="${q.id}">
+    <div class="head"><span class="qid">${q.id}</span><span class="qt">${esc(q.title)}</span>${q.blocks && q.blocks !== '—' ? `<span class="tag">Bloque ${esc(q.blocks)}</span>` : ''}${tag}</div>
+    <p class="ctx">${esc(q.context)}</p>
+    ${q.kind === 'data' ? '' : `<div class="prop"><b>★ Proposition</b> — ${esc(q.proposal)}</div><div class="opts" role="radiogroup" aria-label="Réponse ${q.id}">${opts}</div>`}
+    <textarea id="note-${q.id}" class="${q.kind === 'data' ? 'big-area' : ''}" placeholder="${esc(q.kind === 'data' ? (q.placeholder || 'Collez ou saisissez les données ici') : 'Note (facultative)')}" aria-label="Note ${q.id}" ${dis}>${esc(a.note || '')}</textarea>
+    <div class="saved" id="saved-${q.id}"></div>
+  </article>`;
+}
+
+function renderList() {
+  const shown = QUESTIONS.filter((q) => (filter === 'all' || q.group === filter) && (!onlyOpen || !answered(q)));
+  if (!shown.length) { $('list').innerHTML = '<p class="empty">Aucune question dans ce filtre.</p>'; return; }
+  let html = '';
+  for (const [g, label] of GROUPS) {
+    const xs = shown.filter((q) => q.group === g);
+    if (xs.length) html += `<h2 class="group-h">${esc(label)}</h2>` + xs.map(cardHtml).join('');
+  }
+  $('list').innerHTML = html;
+  $('list').querySelectorAll('input[type=radio]').forEach((r) => r.addEventListener('change', () => save(r.name.slice(2), { choice: r.value })));
+  $('list').querySelectorAll('textarea').forEach((t) => {
+    const id = t.id.slice(5);
+    let timer = null;
+    const flush = () => { clearTimeout(timer); timer = null; if ((answers[id]?.note || '') !== t.value) save(id, { note: t.value }); };
+    t.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(flush, 900); });
+    t.addEventListener('blur', flush);
+  });
+}
+
+const queues = {};
+function save(id, patch) {
+  const next = { choice: answers[id]?.choice || null, note: answers[id]?.note || '', ...patch, updatedAt: new Date().toISOString() };
+  answers[id] = next;
+  renderProgress();
+  const el = $('saved-' + id);
+  if (!dbRef) { if (el) el.textContent = 'Non enregistré : l’enregistrement n’est pas disponible dans cette vue.'; return; }
+  if (el) el.textContent = 'Enregistrement…';
+  queues[id] = (queues[id] || Promise.resolve()).then(() => dbRef.doc(id).set(next)).then(
+    () => { const e = $('saved-' + id); if (e) e.textContent = 'Enregistré'; },
+    (err) => { const e = $('saved-' + id); if (e) e.textContent = err && err.code === 'invalid_argument' ? 'Vous ne pouvez pas modifier les réponses.' : 'Échec de l’enregistrement, réessayez.'; },
+  );
+  if (patch.choice) { const card = document.querySelector(`.card[data-id="${id}"]`); card?.querySelectorAll('.opt').forEach((o) => o.classList.toggle('sel', o.querySelector('input').checked)); }
+}
+
+renderFilters();
+renderList();
+renderProgress();
+
+(async () => {
+  const db = window.claude ? await window.claude.use('db') : null;
+  const user = window.claude ? await window.claude.use('user') : null;
+  if (!db) { $('status').textContent = 'Enregistrement indisponible dans cette vue : ouvrez la page connecté pour répondre.'; $('status').classList.add('warn'); return; }
+  const w = user ? await user.can('data.write') : null;
+  if (w === false) { canWrite = false; $('status').textContent = 'Lecture seule : seul le responsable produit répond.'; }
+  dbRef = db.collection('answers');
+  let first = true;
+  dbRef.onSnapshot((snap) => {
+    for (const d of snap.docs) answers[d.id] = d.data();
+    if (canWrite) $('status').textContent = 'Les réponses sont enregistrées à mesure.';
+    renderProgress();
+    // Re-render only on the first delivery or for other viewers' changes, never under a field being typed in.
+    if (first || !document.activeElement || document.activeElement.tagName !== 'TEXTAREA') renderList();
+    first = false;
+  }, () => { $('status').textContent = 'Connexion à l’enregistrement perdue : rechargez la page.'; $('status').classList.add('warn'); });
+})();
+</script>

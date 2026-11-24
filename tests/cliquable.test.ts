@@ -67,7 +67,8 @@ test('lignes cliquables : un bouton « Ouvrir » sur le nom, la ligne restant cl
     // Fond du menu en tiroir : masqué aux lecteurs d'écran, Échap et « Fermer le menu » font de même.
     if (/aria-hidden="true"/.test(x.attributs)) return false;
     // Fond d'un dialogue : Échap et « Annuler » le ferment aussi.
-    if (/className="dialog-backdrop"/.test(x.attributs)) return false;
+    // Panneau latéral d'un formulaire (CU-N04) : même fond, classe composée (`dialog-backdrop panneau`).
+    if (/className=(?:"dialog-backdrop"|\{`dialog-backdrop\$\{)/.test(x.attributs)) return false;
     // Carte sélectionnable du composant commun (rôle de bouton, focalisable, Entrée et Espace).
     if (/role="button"/.test(x.attributs) && /tabIndex=\{0\}/.test(x.attributs) && /onKeyDown=/.test(x.attributs)) return false;
     // Option d'une liste de suggestions (combobox, t152) : choisie au clavier depuis le champ (flèches, Entrée, aria-activedescendant).

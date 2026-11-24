@@ -182,6 +182,9 @@ client/src/
                    Norma, norma/charte/nocturne.css, importée par main.tsx (jamais modifiée dans Cursus)
   theme/           Affichage sombre / clair (Norma 1.0) : cookie epc2i-theme, attribut data-theme de <html> posé avant
                    le rendu par public/theme.js, bouton BoutonTheme de l'en-tête
+  i18n/            Langue de l'interface (Norma § 2, CU-N01) : chaînes sources anglaises, dictionnaire français (fr.ts),
+                   moteur traduire.ts (repris d'Arche), cookie cursus-lang (français par défaut), sélecteur BoutonLangue
+                   juste avant BoutonTheme
 design/            Prototype Claude Design de référence, guide du design system Nocturne et archive complète de la
                    maquette (maquette-handoff.zip, seule archive suivie : *.zip est ignoré ailleurs)
 deploy/            Fichiers d'installation prêts à copier (unités systemd, Caddyfile, copie externe), identiques à la doc
@@ -5972,3 +5975,36 @@ dossier du personnel, dépôt d'un enregistrement sans circuit, lecture et destr
 - **Tests** : `tests/pieces-codex.test.ts` (règles, configuration, client face à un Codex simulé qui vérifie jeton et
   signature, versement et reprise, échecs, destruction avec motif, réglage refusé) ; `tests/pieces.test.ts` (adaptateur sans
   raccordement).
+
+## Norma 1.2.0 : formulaires en panneau latéral, langue de l'interface, formats dans la base (24 novembre 2026)
+
+Points CU-N04, CU-N01 et CU-191 du reste à faire de Cursus, tenu dans Norma (`reste-a-faire/cursus.json`, page globale
+https://claude.ai/artifact/Rs7kooJdowShdYUqNS8jQf).
+
+- **Formulaires en panneau latéral** (Norma § 7, CU-N04) : `components/Dialog.tsx` rend chaque formulaire dans un
+  panneau à droite, sur toute la hauteur de l'écran (`.dialog-backdrop.panneau`, `.dialog.panneau-lateral` d'`app.css` :
+  titre en haut, champs qui défilent, boutons en bas), ouvert par un bouton, fermé au succès (`closeDialog`), avec les
+  mêmes règles qu'avant (focus piégé, Échap, confirmation d'une saisie non enregistrée). Une simple confirmation (prop
+  `centre` : `ConfirmerDialog`, `DeconnexionDialog`, `MotDePasseProvisoireDialog`) reste une fenêtre centrée, comme le
+  `CenteredModal` de la charte. Restent dans leur page : les formulaires de réglages de Paramètres (`ReglagesNuit`,
+  `ReglagesForfaitHeures`), « Mes appareils », la dépense saisie hors ligne et le filtre de l'historique des frais ; les
+  pages publiques (connexion, mot de passe, déclaration de présence) sont elles-mêmes des formulaires.
+- **Langue de l'interface** (Norma § 2 et § 7, CU-N01) : `client/src/i18n/` — `t()` traduit une chaîne source anglaise
+  (dictionnaire exact, règles à paramètres `FR_REGLES`, puis segments autour de « · », « — », « → », « / ») ; la langue
+  vient du cookie `cursus-lang` (`fr` par défaut, `en`), change sans rechargement (`choisirLangue` : cookie, attribut
+  `lang` de `<html>`, application rendue de nouveau par `useLangue` dans `App` et `Shell`). Le texte saisi par les
+  personnes et les messages du serveur ne passent jamais par `t()`. Fichiers migrés : `App.tsx`, la coque (`Shell.tsx`,
+  `Tiroir.tsx`, `BarreOnglets.tsx`), `components/Dialog.tsx`, `pages/Login.tsx`, le bouton d'affichage (clés de Norma
+  1.1.0 : « Dark display », « Light display », « Dark / light display »). Complétude : `tests/client-i18n.test.ts`
+  (`FICHIERS_MIGRES` : chaque littéral de `t()` et chaque libellé du menu a sa traduction, ou figure parmi
+  `MEMES_EN_FRANCAIS`). Restent en français en dur : les pages (hors connexion) et les dialogues, les messages du
+  serveur et de `shared/` (erreurs, libellés des profils, aide), les exports et impressions ; chaque fichier migré
+  s'ajoute à `FICHIERS_MIGRES`.
+- **Formats dans la base** (Norma § 4, CU-191) : `server/migrations-pg/0034_formats.sql` ajoute sur PostgreSQL 32
+  contraintes : noms et libellés non vides, forme des codes (mêmes expressions que `CODE_HORAIRE`, `CODE_PAYS`,
+  `CODE_MODULE`, `CODE_ORGANISME`), fin de période après son début (pas les identifiants des titres, que garde une reprise, ni la fin d’une affectation au roulement, admise la veille de son début). Posées `NOT VALID` puis validées dans la
+  même transaction quand les lignes existantes les respectent ; sinon elles restent non validées (avertissement du serveur
+  PostgreSQL) sans bloquer la mise à jour, et se valident après correction (`ALTER TABLE … VALIDATE CONSTRAINT …`). Les
+  clés étrangères et les domaines des états étaient déjà déclarés par 0001 et les suivantes. La base SQLite
+  (démonstration, application de bureau) n'en déclare pas : elle garde le contrôle d'intégrité de `server/integrite.ts`,
+  en attendant la décision CU-N02 (PostgreSQL seul). Tests : `tests/formats-pg.test.ts`.

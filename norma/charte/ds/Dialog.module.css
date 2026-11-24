@@ -1,0 +1,21 @@
+/* App dialogs (docs/spec/02 C-21, docs/spec/01 §8.1): DS .dialog-backdrop/.dialog with the prototype's
+   inline overrides. */
+:global(.dialog-backdrop).backdrop { z-index: var(--dialog-z, 50); }
+:global(.dialog-backdrop).top { align-items: start; padding-top: var(--dialog-top, 8vh); }
+
+:global(.dialog).dialog {
+  width: min(var(--dialog-w, 640px), 100%);
+  gap: 14px;
+}
+:global(.dialog).scroll { max-height: var(--dialog-max-h, 84vh); overflow: auto; }
+
+.header { display: flex; align-items: flex-start; gap: 12px; }
+.titleBlock { display: flex; flex-direction: column; gap: 2px; margin-right: auto; min-width: 0; }
+.sub { font-size: 12.5px; color: var(--color-neutral-400); text-wrap: pretty; }
+.sub12 { font-size: 12px; }
+
+/* .dialog-actions variants: add-form (display:flex;gap:8px;justify-content:flex-end, DS margin-top)
+   and wizard/force/request (DS gap, margin-top:0). */
+:global(.dialog-actions).gap8 { gap: 8px; }
+:global(.dialog-actions).flush { margin-top: 0; }
+:global(.dialog-actions).wrap { flex-wrap: wrap; }

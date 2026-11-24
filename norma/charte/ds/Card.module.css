@@ -1,0 +1,4 @@
+/* .card-title overrides: compact 15px title (Task screen), margin-right:auto in header rows. */
+:global(.card-title).compact { font-size: 15px; }
+:global(.card-title).push { margin-right: auto; }
+:global(.card-title).pretty { text-wrap: pretty; }

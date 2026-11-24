@@ -7,6 +7,7 @@ a:hover { color: var(--color-accent-400); }
 button { font: inherit; }
 select.input { appearance: auto; }
 input[type='date'].input { color-scheme: dark; }
+:root[data-theme='light'] input[type='date'].input { color-scheme: light; }
 
 :root {
   --rule-soft: linear-gradient(to right, transparent, color-mix(in srgb, var(--color-text) 8%, transparent) 48px, color-mix(in srgb, var(--color-text) 8%, transparent) calc(100% - 48px), transparent);
@@ -77,6 +78,9 @@ input[type='date'].input { color-scheme: dark; }
 .crumb .sep { opacity: 0.5; }
 .crumb .here { color: var(--color-text); }
 .topbar-actions { display: flex; align-items: center; gap: var(--space-3); margin-left: auto; }
+/* Norma 1.0 : affichage sombre / clair (theme/BoutonTheme.tsx), icônes seules, dernier élément de l'en-tête. */
+.bouton-theme { flex: none; }
+.bouton-theme .seg-opt { padding: 7px 10px; }
 .search { position: relative; display: block; width: 240px; }
 .search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); opacity: 0.55; pointer-events: none; }
 .search .input { padding-left: 32px; }
@@ -286,6 +290,10 @@ textarea.input.mid { height: auto; min-height: 72px; }
   .seg[aria-disabled='true'] .seg-opt { border-color: var(--color-divider); }
   /* Fil d'Ariane réduit à la page, sur la ligne du bouton « Menu ». */
   .crumb > :not(.here) { display: none; }
+  /* En-tête : la recherche sur sa propre ligne, les boutons (nouvelle session, affichage sombre / clair) dessous, à droite. */
+  .topbar-actions { flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
+  .topbar-actions:has(> .search) { width: 100%; }
+  .topbar-actions > .search { flex: 1 1 100%; }
 }
 
 /* — Écrans étroits — */
@@ -418,7 +426,7 @@ th.right .th-tri, th.center .th-tri { justify-content: inherit; }
 @media print {
   /* Ctrl+P sur un écran de Cursus : jetons du thème redéfinis en clair (texte sombre sur fond blanc), les rampes neutre
      et accent inversées, pour que tout ce qui lit var(--color-*) reste lisible ; nocturne.css n'est pas modifié. */
-  :root {
+  :root, :root[data-theme='light'] {
     --color-bg: #fff; --color-surface: #fff; --color-text: #1d1f2b;
     --color-accent: #5d5294; --color-accent-2: #5c5783;
     --color-divider: color-mix(in srgb, #1d1f2b 18%, transparent);
@@ -537,6 +545,8 @@ th.right .th-tri, th.center .th-tri { justify-content: inherit; }
   position: absolute; top: -4px; right: -10px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
   background: var(--color-accent-600); color: #fff; font-size: 10px; line-height: 16px; text-align: center;
 }
+/* Affichage clair : la rampe est inversée (accent-600 y est pâle) ; pastille sur l'accent plus soutenu, texte blanc lisible. */
+:root[data-theme='light'] .onglet-pastille { background: var(--color-accent-400); }
 /* — lot 11 — indicateurs : graphiques SVG faits maison (components/graphiques/), couleurs des jetons Nocturne — */
 .graph { display: block; width: 100%; max-width: 440px; height: auto; font-family: inherit; }
 .graph-barre { fill: var(--color-accent-600); }

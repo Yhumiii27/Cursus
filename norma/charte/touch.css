@@ -1,0 +1,27 @@
+/* Touch targets on tablets (R-146, decision X-4). Media query = TOUCH_MEDIA in src/components/app/shell/tablet.ts:
+   the tablet layout (≤ 1024 px) and any coarse pointer (an iPad in landscape is wider than 1024 px).
+   Every Nocturne button, input, select and segmented option is at least 40 px high (and an icon button 40 px wide).
+   The screens' compact variants (row actions, 24–32 px icon buttons, 26–34 px inline inputs) set their height in their
+   own CSS modules with stronger selectors: `!important` is what keeps the 40 px minimum above all of them, on touch
+   only. Text areas keep their own (larger) minimum. Desktop with a mouse is unchanged (the prototype's sizes). */
+@media (max-width: 1024px), (pointer: coarse) {
+  .btn,
+  .seg-opt,
+  .input:not(textarea) {
+    min-height: 40px !important;
+  }
+
+  .btn {
+    min-width: 40px !important;
+  }
+
+  .btn-icon {
+    width: 40px;
+    height: 40px;
+  }
+
+  /* Clickable table rows (ClickableRow) and the rows' inline actions. */
+  .table tbody td {
+    height: 40px;
+  }
+}

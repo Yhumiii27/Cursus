@@ -25,9 +25,9 @@ const CACHE = PREFIXE + VERSION;
 /** Page de l'application (repli des navigations) et page « Hors ligne » (si la première manque au cache). */
 const PAGE = '/index.html';
 const HORS_LIGNE = '/hors-ligne.html';
-/** Coque gardée quelle que soit la version : page, page « Hors ligne », manifeste et icônes. */
+/** Coque gardée quelle que soit la version : page, page « Hors ligne », manifeste, icônes et amorçage du thème (Norma 1.0). */
 const COQUE = [PAGE, HORS_LIGNE, '/hors-ligne.css', '/manifest.webmanifest', '/favicon.svg',
-  '/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-512-maskable.png', '/icons/apple-touch-icon.png'];
+  '/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-512-maskable.png', '/icons/apple-touch-icon.png', '/theme.js'];
 /** Délai de la navigation par le réseau avant le repli sur la page gardée. */
 const DELAI_NAVIGATION_MS = 4000;
 /** Statuts du reverse proxy quand Cursus ne répond pas (redémarrage, mise à jour) : repli comme sans réseau. */

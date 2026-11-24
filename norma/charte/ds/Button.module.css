@@ -1,0 +1,34 @@
+/* Prototype inline overrides of the Nocturne .btn classes (docs/spec/02 DS-CLASSES › Buttons).
+   Selectors are prefixed with :global(.btn) so they out-rank the single-class DS rules,
+   exactly like the prototype's inline styles do. */
+
+/* — text sizes — */
+:global(.btn).sm { font-size: 12.5px; }
+:global(.btn).xs { font-size: 12px; }
+/* Row actions ("Approve", "Reject"): font-size:12px;padding:3px 10px;white-space:nowrap */
+:global(.btn).row { font-size: 12px; padding: 3px 10px; white-space: nowrap; }
+/* Compact ghost: font-size:12px;padding:3px 8px */
+:global(.btn).compact { font-size: 12px; padding: 3px 8px; }
+/* Mini ghost: font-size:11.5px;padding:2px 8px */
+:global(.btn).mini { font-size: 11.5px; padding: 2px 8px; }
+/* Inline "action →" link under a text block: align-self:flex-start;font-size:12px;padding:2px 4px;margin-left:-4px */
+:global(.btn).inline { align-self: flex-start; font-size: 12px; padding: 2px 4px; margin-left: -4px; }
+
+/* — layout helpers — */
+:global(.btn).push { margin-left: auto; }
+:global(.btn).nowrap { white-space: nowrap; }
+
+/* — icon buttons — */
+:global(.btn).muted { color: var(--color-neutral-400); }
+:global(.btn).s32 { width: 32px; height: 32px; }
+:global(.btn).s28 { width: 28px; height: 28px; }
+:global(.btn).s26 { width: 26px; height: 26px; }
+/* WBS row actions: width:24px;height:24px;min-height:0;padding:0;font-size:13px */
+:global(.btn).s24 { width: 24px; height: 24px; min-height: 0; padding: 0; font-size: 13px; }
+/* Anchor for absolutely positioned content (bell unread badge). */
+:global(.btn).rel { position: relative; }
+
+/* ButtonLink: keep the variant colour on hover (the global `a:hover` would turn it accent-400). */
+.link:global(.btn-secondary):hover { color: var(--color-text); }
+.link:global(.btn-primary):hover,
+.link:global(.btn-ghost):hover { color: var(--color-accent); }

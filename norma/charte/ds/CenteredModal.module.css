@@ -1,0 +1,22 @@
+/* Centered modal above drawers (docs/spec/02 C-22, template 2364–2365, 2453–2454). */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: color-mix(in srgb, var(--color-bg) 65%, transparent);
+}
+:global(.card).panel {
+  position: fixed;
+  z-index: 71;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(var(--modal-w, 640px), 96vw);
+  max-height: 92vh;
+  overflow: auto;
+  padding: 18px 22px;
+  gap: 14px;
+}
+.header { display: flex; align-items: center; gap: 10px; }
+.titleBlock { display: flex; flex-direction: column; margin-right: auto; min-width: 0; }
+.sub { font-size: 12px; color: var(--color-neutral-400); text-wrap: pretty; }

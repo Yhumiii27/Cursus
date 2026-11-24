@@ -28,6 +28,8 @@ import { decideur } from '../state/delegues.ts';
 import { BandeauHorsLigne } from '../components/BandeauHorsLigne.tsx';
 import { InstallerApplication } from '../components/InstallerApplication.tsx';
 import { BarreOnglets } from './BarreOnglets.tsx';
+// Norma 1.0 : bouton d'affichage sombre / clair de l'en-tête.
+import { BoutonTheme } from '../theme/BoutonTheme.tsx';
 import { ongletsDe } from './onglets.ts';
 // lot 12 — C5 (planning d'équipe)
 import { planifieLuiMeme } from '../components/planning/planning-vue.ts';
@@ -295,17 +297,17 @@ function Topbar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
     <header className="topbar">
       <BoutonMenu tiroir={tiroir} aTraiter={aTraiter} />
       <div className="crumb"><span>{groupe}</span><span className="sep">/</span><span className="here">{page}</span></div>
-      {session?.user && data && (recherche || sessions) && (
-        <div className="topbar-actions">
-          {/* Suggestions au fil de la frappe ; la fiche s'ouvre sur Entrée ou au clic (t152, layout/RechercheGlobale.tsx). */}
-          {recherche && <RechercheGlobale data={data} role={user.role} />}
-          {sessions && (
-            <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'session', f: ui.formationFilter ?? undefined })}>
-              <PlusIcon size={14} /><span>Nouvelle session</span>
-            </button>
-          )}
-        </div>
-      )}
+      <div className="topbar-actions">
+        {/* Suggestions au fil de la frappe ; la fiche s'ouvre sur Entrée ou au clic (t152, layout/RechercheGlobale.tsx). */}
+        {session?.user && data && recherche && <RechercheGlobale data={data} role={user.role} />}
+        {session?.user && data && sessions && (
+          <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'session', f: ui.formationFilter ?? undefined })}>
+            <PlusIcon size={14} /><span>Nouvelle session</span>
+          </button>
+        )}
+        {/* Norma 1.0 : affichage sombre / clair, à droite de l'en-tête (Cursus n'a pas de sélecteur FR / EN). */}
+        <BoutonTheme />
+      </div>
     </header>
   );
 }

@@ -1,0 +1,148 @@
+{
+  "description": "Dépendances npm de la suite : minimum de version, autorisées, interdites. Contrôlé par `node norma/outils/norma.mjs verifier` dans chaque outil. Une dépendance absente de ces listes est « à déclarer » : on l'ajoute ici (avec sa raison) avant de l'utiliser.",
+  "minimum": {
+    "next": {
+      "version": "16.4.6",
+      "raison": "16.4.2 à 16.4.5 : faille signalée, `next build` échoue (SecurityFatalError) — répétition du 24 novembre 2026"
+    },
+    "eslint-config-next": {
+      "version": "16.4.6",
+      "raison": "même version que next"
+    },
+    "react": {
+      "version": "19.3.0",
+      "raison": "version de la suite"
+    },
+    "react-dom": {
+      "version": "19.3.0",
+      "raison": "version de la suite"
+    },
+    "drizzle-orm": {
+      "version": "0.45.3",
+      "raison": "version de la suite"
+    },
+    "pg": {
+      "version": "8.23.0",
+      "raison": "version de la suite"
+    },
+    "zod": {
+      "version": "4.6.7",
+      "raison": "version de la suite"
+    }
+  },
+  "autorisees": {
+    "next": "cadre de l'application",
+    "react": "",
+    "react-dom": "",
+    "server-only": "",
+    "drizzle-orm": "accès à PostgreSQL",
+    "pg": "pilote PostgreSQL",
+    "zod": "validation des entrées",
+    "@phosphor-icons/react": "icônes de la charte (import depuis @phosphor-icons/react/dist/ssr)",
+    "@phosphor-icons/web": "icônes de la charte (Vigie, police d'icônes)",
+    "@anthropic-ai/sdk": "assistant IA, seulement derrière une variable (clé absente = moteur à règles) et après validation de la DSI",
+    "nodemailer": "envoi des e-mails (SMTP), transport choisi avec la DSI",
+    "jose": "jetons signés (OpenID Connect)",
+    "openid-client": "connexion OpenID Connect",
+    "exceljs": "export XLSX",
+    "pdfkit": "PDF générés côté serveur",
+    "pdf-lib": "PDF générés côté serveur",
+    "unpdf": "lecture de PDF",
+    "pdfjs-dist": "lecture de PDF dans le navigateur",
+    "fast-xml-parser": "lecture de fichiers XML (imports)",
+    "fflate": "archives zip",
+    "qrcode": "QR codes",
+    "d3-geo": "cartes",
+    "d3-selection": "cartes",
+    "d3-zoom": "cartes",
+    "topojson-client": "cartes",
+    "world-atlas": "fond de carte hors ligne",
+    "typescript": "",
+    "eslint": "",
+    "eslint-config-next": "",
+    "tsx": "scripts TypeScript",
+    "drizzle-kit": "génération des migrations",
+    "vitest": "tests",
+    "vite": "tests (Vitest)",
+    "@playwright/test": "parcours de bout en bout",
+    "playwright-core": "parcours de bout en bout",
+    "@axe-core/playwright": "accessibilité",
+    "axe-core": "accessibilité",
+    "knip": "code mort",
+    "esbuild": "scripts",
+    "@next/env": "scripts",
+    "@types/*": "types",
+    "express": "serveur d'API (Cursus)",
+    "@fontsource/inter": "police Inter servie localement (Cursus, Vite)",
+    "@vitejs/plugin-react": "interface Vite (Cursus)",
+    "happy-dom": "tests d'interface",
+    "@happy-dom/global-registrator": "tests d'interface",
+    "@testing-library/dom": "tests d'interface",
+    "@testing-library/react": "tests d'interface",
+    "oxlint": "analyse statique"
+  },
+  "interdites": {
+    "@electric-sql/pglite": {
+      "raison": "PostgreSQL seul (propriétaire, 22 octobre 2026) : une seule base, la vraie, aussi en test",
+      "derogations": [
+        "keystone",
+        "codex",
+        "vigie"
+      ]
+    },
+    "next-auth": {
+      "raison": "la connexion passe par Clavis (OpenID Connect) et les droits se lisent dans clavis.pub_acces"
+    },
+    "@auth/core": {
+      "raison": "idem next-auth"
+    },
+    "mongoose": {
+      "raison": "PostgreSQL seul"
+    },
+    "mysql2": {
+      "raison": "PostgreSQL seul"
+    },
+    "sqlite3": {
+      "raison": "PostgreSQL seul"
+    },
+    "prisma": {
+      "raison": "Drizzle est l'outil de la suite (migrations générées dans le schéma de l'outil)"
+    },
+    "@prisma/client": {
+      "raison": "idem prisma"
+    },
+    "typeorm": {
+      "raison": "idem prisma"
+    },
+    "sequelize": {
+      "raison": "idem prisma"
+    },
+    "openai": {
+      "raison": "un seul fournisseur d'IA, validé par la DSI (C-13)"
+    },
+    "@sentry/nextjs": {
+      "raison": "aucun envoi de données hors du serveur interne sans accord de la DSI"
+    },
+    "@vercel/analytics": {
+      "raison": "idem : pas de mesure d'audience externe"
+    },
+    "posthog-js": {
+      "raison": "idem"
+    },
+    "tailwindcss": {
+      "raison": "la charte est Nocturne (variables CSS et CSS Modules), pas de second système de style"
+    },
+    "styled-components": {
+      "raison": "idem"
+    },
+    "@emotion/react": {
+      "raison": "idem"
+    },
+    "@mui/material": {
+      "raison": "les composants viennent de la charte (norma/charte/ds)"
+    },
+    "antd": {
+      "raison": "idem"
+    }
+  }
+}

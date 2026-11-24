@@ -1,0 +1,21 @@
+/* Global toast (docs/spec/02 C-23, template 160). The prototype inherits .card's flex-direction:column;
+   the rebuild lays the toast out as the row the spec describes (icon · text · close). */
+:global(.card).toast {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 80;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  max-width: min(420px, 90vw);
+  border: 1px solid var(--color-accent-800);
+}
+.icon { color: var(--color-accent); font-size: 18px; flex: none; }
+.text { text-wrap: pretty; }
+.action { margin-left: 4px; flex: none; color: var(--color-accent-300); }
+.close { margin-left: 4px; flex: none; }
+.link { flex: none; color: var(--color-accent-300); text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }

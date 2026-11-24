@@ -13,8 +13,8 @@ import { fileURLToPath } from 'node:url';
 
 const config = await import('../server/src/config.ts');
 const { avertissementsConfig, boucleLocaleExplicite, cibleBase, configMail, demoSurBaseCommune, liaisonsCoupees, problemesConfig, verifierConfig } = config;
-const { keystoneSortant } = await import('../server/src/integrations/keystone.ts');
-const { declarerBase } = await import('../server/src/integrations/matrix.ts');
+const { keystoneSortant } = await import('../server/src/integrations/keystone/keystone.ts');
+const { declarerBase } = await import('../server/src/integrations/matrix/matrix.ts');
 const { nouvelleBase } = await import('./base.ts');
 
 const GUID = '0f8fad5b-d9cb-469f-a165-70867728950e';

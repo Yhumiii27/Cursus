@@ -1,11 +1,11 @@
 // Espace documentaire de l'entreprise : Codex (lot 16, décision du propriétaire du 10 novembre 2026 : tous les
 // documents de la suite sont stockés dans Codex). Adaptateur du stockage des pièces justificatives (server/src/pieces.ts,
 // `DepotPieces`) pour les pièces déjà versées dans Codex : nom stocké `ged:<identifiant Codex>`, relecture et destruction
-// par le client de server/src/integrations/codex-documents.ts. Une nouvelle pièce n'est jamais écrite directement dans
+// par le client de server/src/integrations/codex/codex-documents.ts. Une nouvelle pièce n'est jamais écrite directement dans
 // Codex : elle est d'abord gardée dans le dossier local, puis versée une fois jointe à son objet (catégorie, salarié et
-// conservation connus), par server/src/pieces-codex.ts.
-import type { MotifDestruction } from '../../../shared/rules/pieces-codex.ts';
-import type { DepotPieces } from '../pieces.ts';
+// conservation connus), par server/src/integrations/codex/pieces-codex.ts.
+import type { MotifDestruction } from '../../../../shared/rules/pieces-codex.ts';
+import type { DepotPieces } from '../../pieces.ts';
 import { type ClientCodex, clientCodex } from './codex-documents.ts';
 
 /** Préfixe des noms stockés dans la GED (le dossier local n'a que des noms hexadécimaux). */
@@ -28,7 +28,7 @@ export class DepotGed implements DepotPieces {
     if (!this.client) throw new Error(GED_NON_RACCORDEE);
     return this.client;
   }
-  /** Jamais appelé : une pièce passe par le dossier local avant son versement (server/src/pieces-codex.ts). */
+  /** Jamais appelé : une pièce passe par le dossier local avant son versement (server/src/integrations/codex/pieces-codex.ts). */
   async ecrire(_octets: Buffer): Promise<string> {
     throw new Error('Une pièce est versée dans Codex une fois jointe à son objet, jamais à son envoi');
   }

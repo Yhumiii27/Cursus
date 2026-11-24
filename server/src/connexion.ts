@@ -18,9 +18,9 @@ import {
 } from './comptes.ts';
 import { currentUser } from './dataset.ts';
 import { type Db, enSerie } from './db.ts';
-import { emailMode } from './integrations/email.ts';
-import { KEYSTONE_MODE } from './integrations/keystone.ts';
-import { sageMode } from './integrations/sage.ts';
+import { emailMode } from './integrations/microsoft/email.ts';
+import { KEYSTONE_MODE } from './integrations/keystone/keystone.ts';
+import { sageMode } from './integrations/sage/sage.ts';
 import { OIDC, routesMicrosoft } from './microsoft.ts';
 
 export interface Identite { session: SessionInfo; compte: Compte; user: CurrentUser }

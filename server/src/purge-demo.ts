@@ -21,7 +21,7 @@ import { jsonLu, snake, TABLES, type Db, type TableName } from './db.ts';
 import { CLE_DEPUIS, CLE_JUSQUA } from './absences-paie.ts';
 import { CLE_DEPUIS_DEPLACEMENTS } from './deplacements-paie.ts';
 import { REFERENCES } from './integrite.ts';
-import { MODE_VERDICTS } from './integrations/keystone-verdicts.ts';
+import { MODE_VERDICTS } from './integrations/keystone/keystone-verdicts.ts';
 import { ACTION_PURGE_DEMO, type MarqueurDemo, type MarqueurExploitation, REGLAGE_DEMO, REGLAGE_EXPLOITATION } from './marqueurs.ts';
 import { dossierPiecesDe, NOM_LOCAL } from './pieces.ts';
 import { dossierMiroir } from './pieces-sauvegarde.ts';

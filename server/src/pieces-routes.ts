@@ -24,7 +24,12 @@ import { tracerRefus } from './journal.ts';
 import { log } from './logs.ts';
 import { depotDe, depotEcriture, empreinte, type PieceEnregistree, stockagePieces } from './pieces.ts';
 import { PieceIndechiffrable } from './pieces-chiffrement.ts';
+import { CodexIndisponible, CodexRefus } from './integrations/codex/codex-documents.ts';
+import { GED_NON_RACCORDEE } from './integrations/codex/ged.ts';
 import { CLE_INVALIDE, CleReutilisee, empreinteCorps, type Envoi, garderReponse, lireCle, reponseGardee } from './idempotence.ts';
+
+/** Pièce versée dans Codex que Codex ne sert pas (injoignable, refus, raccordement absent) : source indisponible. */
+export const CODEX_ILLISIBLE = 'Codex (espace documentaire) est indisponible : la pièce ne peut pas être relue pour l’instant. Réessayez plus tard ; si cela dure, prévenez l’administrateur.';
 
 /** Pièce déjà déposée par cet envoi (même clé, même fichier) : elle-même, avec son jeton tant qu'elle attend d'être jointe. */
 async function pieceDejaDeposee(db: Db, e: Envoi, compteId: number) {
@@ -162,6 +167,12 @@ export function routesPieces(db: Db): Router {
     try {
       octets = await depotDe(db, p.fichier).lire(p.fichier);
     } catch (err) {
+      // Pièce versée dans Codex, Codex injoignable, en refus ou non raccordé : source indisponible, état affiché (Norma § 5),
+      // jamais une erreur interne.
+      if (err instanceof CodexIndisponible || err instanceof CodexRefus || (err as Error | undefined)?.message === GED_NON_RACCORDEE) {
+        log.avertissement(`Pièce justificative n° ${p.id} : ${(err as Error).message}`);
+        return res.status(503).json({ error: CODEX_ILLISIBLE });
+      }
       if (!(err instanceof PieceIndechiffrable)) throw err;
       log.avertissement(`Pièce justificative n° ${p.id} : ${err.message}`);
       return res.status(409).json({ error: 'Fichier chiffré illisible avec la clé du serveur : prévenez l’administrateur (clé CURSUS_PIECES_KEY)' });

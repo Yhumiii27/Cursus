@@ -12,7 +12,7 @@ import type {
 import { journaliser } from './comptes.ts';
 import { loadFull, todayIso } from './dataset.ts';
 import { type Db, jsonLu } from './db.ts';
-import { migrerKeystone } from './integrations/keystone-entrant.ts';
+import { migrerKeystone } from './integrations/keystone/keystone-entrant.ts';
 import { reprendreAdressesDesComptes } from './messagerie.ts';
 import { rattacherFiches } from './migrations/referentiels.ts';
 import { sauvegarderAvantMigration } from './sauvegarde.ts';

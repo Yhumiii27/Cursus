@@ -29,7 +29,7 @@ import type { CurrentUser, Employe } from '../../shared/types.ts';
 import type { Compte } from './comptes.ts';
 import { couvertureVueHse, loadSettings, todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
-import { envoyerEmail } from './integrations/email.ts';
+import { envoyerEmail } from './integrations/microsoft/email.ts';
 import { adresseSalarie, courriel, lireMessagerie } from './messagerie.ts';
 import { relanceSecret, relanceSecretEnvoi } from './secret-microsoft.ts';
 // lot 11 — dossiers OPCO

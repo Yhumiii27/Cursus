@@ -21,10 +21,10 @@ import { marquerExploitation, refusDemo } from './marqueurs.ts';
 import { demarrerConservation } from './conservation.ts';
 import { demarrerPieces } from './pieces.ts';
 import { controlerMigrations } from './migrations/cadre.ts';
-import { transportEmail } from './integrations/email.ts';
-import { transportKeystone } from './integrations/keystone.ts';
-import { suivreVerdictsChaqueJour } from './integrations/keystone-verdicts.ts';
-import { declarerBase } from './integrations/matrix.ts';
+import { transportEmail } from './integrations/microsoft/email.ts';
+import { transportKeystone } from './integrations/keystone/keystone.ts';
+import { suivreVerdictsChaqueJour } from './integrations/keystone/keystone-verdicts.ts';
+import { declarerBase } from './integrations/matrix/matrix.ts';
 import { planifierEmails } from './notifications.ts';
 import { controlerDemarrage } from './pre-vol.ts';
 import { protegerBase, retirerSecretStocke } from './protection.ts';
@@ -111,7 +111,7 @@ if (DEMO) {
 const refusBase = await controlerDemarrage(db);
 if (refusBase.length) arret.echec(refusBase.join(' ; '));
 // Schéma de la base déclaré à Matrix (catalogue des bases), une fois les migrations faites : sans MATRIX_URL rien ne
-// part ; appel non attendu, un échec n'écrit qu'un avertissement (server/src/integrations/matrix.ts).
+// part ; appel non attendu, un échec n'écrit qu'un avertissement (server/src/integrations/matrix/matrix.ts).
 void declarerBase(db, VERSION);
 // Ancienne clé de session écrite en base (installation lancée sans CURSUS_SECRET) : retirée dès que la variable la remplace.
 if (await retirerSecretStocke(db)) log.info('Ancienne clé de session retirée de la base : CURSUS_SECRET la remplace (les sauvegardes antérieures la contiennent encore).');

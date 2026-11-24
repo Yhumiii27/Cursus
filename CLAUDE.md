@@ -30,10 +30,17 @@ chez qui, et l'applique lui-même. Détail : `docs/ARCHITECTURE.md`, « Échange
 - **Jamais d'écriture dans un autre dépôt** (Matrix, Keystone, Codex, Vigie, Arche, Crucible) : une demande se rédige
   dans `docs/demandes/` et attend la validation du propriétaire, qui la porte dans le `REQUESTS.md` de l'outil.
 
+## Connecteurs
+
+Un dossier par outil sous `server/src/integrations/` (`clavis/`, `codex/`, `keystone/`, `matrix/` ; hors du groupe
+`microsoft/`, `push/`, `sage/`) : tout nouvel échange avec un autre outil s'y range (Norma § 5). Une source illisible est
+un état affiché (« source indisponible », refus motivé, 503 avec message), jamais une erreur interne ; détail
+`docs/ECHANGES.md`, « Où vivent les connecteurs ».
+
 ## Connexion par Clavis (24 novembre 2026)
 
 Décision du propriétaire : une seule base pour tous les outils. Avec `CURSUS_OIDC_EMETTEUR` (adresse de Clavis) la
 connexion « Microsoft 365 » passe par Clavis ; avec `CURSUS_ACCES_CLAVIS=on`, l'accès et le profil RH sont lus dans
-`clavis.pub_acces` (`server/src/acces-clavis.ts`) à la connexion (`server/src/microsoft.ts`) et au plus toutes les
+`clavis.pub_acces` (`server/src/integrations/clavis/acces-clavis.ts`) à la connexion (`server/src/microsoft.ts`) et au plus toutes les
 minutes pendant la session (`examinerSession`, `server/src/auth.ts`) ; compte créé à la première connexion, rattaché à
 la fiche de même e-mail ; lecture impossible = refus. Guide : `docs/CONNEXION-MICROSOFT.md` § 6 bis.

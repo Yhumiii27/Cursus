@@ -28,13 +28,14 @@ const { donneesSalarie } = await import('../server/src/donnees.ts');
 const { restaurer, sauvegarder } = await import('../server/src/sauvegarde.ts');
 const { fichiersDesignes } = await import('../server/src/pieces-sauvegarde.ts');
 const pieces = await import('../server/src/pieces.ts');
-const { DepotGed, estFichierGed, GED_NON_RACCORDEE } = await import('../server/src/integrations/ged.ts');
+const { DepotGed, estFichierGed, GED_NON_RACCORDEE } = await import('../server/src/integrations/codex/ged.ts');
 const { INDEX_PIECES } = await import('../server/src/migrations/lot6-pieces.ts');
 const { indexExiste } = await import('../server/src/migrations/outils.ts');
 const regles = await import('../shared/rules/pieces.ts');
 const { appliquerReglages } = await import('../shared/reglages.ts');
 const { DEFAULT_SETTINGS } = await import('../server/src/dataset.ts');
 const { refusCsrf } = await import('../server/src/securite.ts');
+const { CODEX_ILLISIBLE } = await import('../server/src/pieces-routes.ts');
 const { reglerJournaux } = await import('../server/src/logs.ts');
 // Journaux du serveur muets : le nettoyage des pièces (setImmediate) écrirait sur la sortie standard, que le lanceur de
 // tests lit.
@@ -275,6 +276,23 @@ test('justificatif d’absence : joint au signalement par l’intéressé, vu de
   assert.equal(rh.headers['content-disposition'], `inline; filename="arret de travail Benali.pdf"; filename*=UTF-8''${encodeURIComponent('arrêt de travail Benali.pdf')}`);
   const dl = await appel(`/api/pieces/${id}?telecharger=1`, { headers: gest });
   assert.match(String(dl.headers['content-disposition']), /^attachment; /);
+  // Pièce versée dans Codex que Codex ne sert pas : source indisponible (503, message affiché), jamais une erreur interne.
+  const codexAvant = Object.fromEntries(['CODEX_URL', 'CODEX_DOCUMENTS_TOKEN', 'CODEX_DOCUMENTS_SECRET', 'CODEX_DOCUMENTS_OWNER'].map(k => [k, process.env[k]]));
+  const fichierLocal = p.fichier;
+  await db.update('pieces', id, { fichier: 'ged:RHF-RHU-0001' });
+  try {
+    for (const k of Object.keys(codexAvant)) delete process.env[k];
+    const nonRaccorde = await appel(`/api/pieces/${id}`, { headers: gest });
+    assert.equal(nonRaccorde.status, 503);
+    assert.equal(nonRaccorde.json().error, CODEX_ILLISIBLE);
+    Object.assign(process.env, { CODEX_URL: 'http://127.0.0.1:1', CODEX_DOCUMENTS_TOKEN: 'jeton-de-cursus-chez-codex-0123456789abcdef', CODEX_DOCUMENTS_OWNER: 'svc-cursus' });
+    const injoignable = await appel(`/api/pieces/${id}`, { headers: gest });
+    assert.equal(injoignable.status, 503);
+    assert.equal(injoignable.json().error, CODEX_ILLISIBLE);
+  } finally {
+    for (const [k, v] of Object.entries(codexAvant)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    await db.update('pieces', id, { fichier: fichierLocal });
+  }
   // Une seule ligne de consultation par compte et par pièce pendant 15 minutes, sans le nom du fichier.
   const consultations = (await journalDe('piece.consulter')).filter(l => JSON.parse(l.payload).piece === id);
   assert.equal(consultations.length, 1);

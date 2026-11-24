@@ -31,7 +31,7 @@ import { journaliser } from './comptes.ts';
 import { identite } from './connexion.ts';
 import { loadFull } from './dataset.ts';
 import type { Db } from './db.ts';
-import { SAGE_DOSSIER, sageMode } from './integrations/sage.ts';
+import { SAGE_DOSSIER, sageMode } from './integrations/sage/sage.ts';
 import { fichierJoint, tracerRefus } from './journal.ts';
 import type { LotEnregistre } from './lots-paie.ts';
 import { contenuDesFamilles, elementsDesFamilles } from './elements-lot.ts';

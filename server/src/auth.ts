@@ -11,7 +11,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
 import type { Role } from '../../shared/types.ts';
-import { appliquerProfilClavis, droitClavis } from './acces-clavis.ts';
+import { appliquerProfilClavis, droitClavis } from './integrations/clavis/acces-clavis.ts';
 import { compteValide, espacesDuCompte, type Compte } from './comptes.ts';
 import { accesClavisActif, demoActive } from './config.ts';
 import type { Db } from './db.ts';

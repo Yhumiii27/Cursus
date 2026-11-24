@@ -5,13 +5,13 @@
 // chaque écriture de Keystone (keystone-routes.ts) et chaque jour, pour les expirations.
 // En simulation, rien ne part : les verdicts mémorisés alors ne sont pas réputés transmis, et le
 // passage en mode API (KEYSTONE_URL) les renvoie tous comme des premiers verdicts.
-import { GNG_CODE } from '../../../shared/constants.ts';
-import { Domain } from '../../../shared/domain.ts';
-import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
-import type { CurrentUser, Dataset } from '../../../shared/types.ts';
-import { jeuApres } from '../cache-instantane.ts';
-import { loadFull, todayIso } from '../dataset.ts';
-import type { Db } from '../db.ts';
+import { GNG_CODE } from '../../../../shared/constants.ts';
+import { Domain } from '../../../../shared/domain.ts';
+import { identifiantKeystone } from '../../../../shared/rules/matricules.ts';
+import type { CurrentUser, Dataset } from '../../../../shared/types.ts';
+import { jeuApres } from '../../cache-instantane.ts';
+import { loadFull, todayIso } from '../../dataset.ts';
+import type { Db } from '../../db.ts';
 import { keystoneSortant, sendToKeystone, type CodeGng, type MotifKeystone } from './keystone.ts';
 
 interface VerdictTransmis { id: number; chantier: string; empId: number; statut: CodeGng; motifs: MotifKeystone[]; date: string }

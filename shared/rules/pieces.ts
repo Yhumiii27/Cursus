@@ -117,7 +117,7 @@ export const justificatifAVerifier = (a: Pick<Absence, 'id' | 'statut' | 'justif
 
 /**
  * Le stockage reçoit-il de nouvelles pièces ? Désactivé : non ; Codex (lot 16) : oui, la pièce attend dans le dossier local
- * d'être jointe puis versée (le réglage n'est accepté qu'une fois Codex raccordé, server/src/pieces-codex.ts).
+ * d'être jointe puis versée (le réglage n'est accepté qu'une fois Codex raccordé, server/src/integrations/codex/pieces-codex.ts).
  */
 export const depotOuvert = (s: StockagePieces | undefined) => s === 'local' || s === 'ged';
 

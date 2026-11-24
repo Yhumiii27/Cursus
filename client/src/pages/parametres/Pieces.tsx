@@ -2,7 +2,7 @@
 // d'habilitation signés, justificatifs d'absence et copies de documents. Décision de l'entreprise du 18 octobre 2026 :
 // livré désactivé, l'administrateur RH l'active (dossier des données de Cursus, sauvegardé avec la base) après avis du
 // DPO. Lot 16 (décision du 10 novembre 2026) : tous les documents de la suite dans Codex ; le choix « Codex » est contrôlé
-// par le serveur (raccordement et catégories, server/src/pieces-codex.ts), les écrans ne changent pas.
+// par le serveur (raccordement et catégories, server/src/integrations/codex/pieces-codex.ts), les écrans ne changent pas.
 import { STOCKAGE_LABEL, TAILLE_MAX_PIECE, tailleTexte } from '../../../../shared/rules/pieces.ts';
 import type { StockagePieces } from '../../../../shared/types.ts';
 import { Field } from '../../components/Dialog.tsx';

@@ -16,7 +16,7 @@ import { fmtIso } from '../../shared/format.ts';
 import type { CurrentUser, Dataset, Employe, NoteFrais } from '../../shared/types.ts';
 import { type Compte, refusDuCompte } from './comptes.ts';
 import type { Db } from './db.ts';
-import { envoyerEmail } from './integrations/email.ts';
+import { envoyerEmail } from './integrations/microsoft/email.ts';
 import { courriel, lireMessagerie } from './messagerie.ts';
 import { notifier, type Notification } from './notifications.ts';
 import { mettreEnFilePush } from './push.ts';

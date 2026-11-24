@@ -15,7 +15,7 @@ import { semaineCouverte } from '../../../shared/rules/temps.ts';
 import type { Absence, AbsenceType, CetMouvement, CongeType, Employe, FeuilleTemps, NatureAbsence, ReportCp } from '../../../shared/types.ts';
 import { joursAvantDepart, suitePaie } from '../absences-paie.ts';
 import { alerteAstreintes, refusAstreintes } from '../astreintes.ts';
-import { absenceKeystone, sendToKeystone } from '../integrations/keystone.ts';
+import { absenceKeystone, sendToKeystone } from '../integrations/keystone/keystone.ts';
 import { recrediterPeriodesCloses } from './clotures.ts';
 import { joindrePieces } from './pieces.ts';
 import { annulerAgendaConge, notifierDecisionConge, notifierDemandeConge, notifierFeuilleRenvoyee } from '../notifications.ts';

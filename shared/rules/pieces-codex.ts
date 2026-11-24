@@ -1,7 +1,7 @@
 // lot 16 — pièces justificatives stockées dans Codex (décision du propriétaire du 10 novembre 2026 : « quel que soit le
 // logiciel de notre suite, tout doit être stocké dans Codex » ; demande docs/demandes/codex-lot16-documents.md, portée
 // le 10/11/2026, Codex#29). Règles pures : catégorie de Codex de chaque objet de pièce, titre neutre, motif codé d'une
-// destruction. Le client HTTP est server/src/integrations/codex-documents.ts, le versement server/src/pieces-codex.ts.
+// destruction. Le client HTTP est server/src/integrations/codex/codex-documents.ts, le versement server/src/integrations/codex/pieces-codex.ts.
 // Les codes ci-dessous sont ceux que Cursus a proposés (sous-types du type RHF « RH & Formation ») : ils seront alignés
 // sur la réponse de Codex, et le contrôle de démarrage les cherche dans codex.pub_types_document avant tout versement.
 import type { ObjetPiece } from '../types.ts';

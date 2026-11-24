@@ -26,8 +26,8 @@ import { VERSION } from './chemins.ts';
 import { journaliser } from './comptes.ts';
 import type { Db } from './db.ts';
 import { amorcerEntites, CODE_ENTITE_AMORCEE, rattacherEquipeNeuve } from './demarrage.ts';
-import { contexte, enregistrerAffectation, enregistrerChantier, enregistrerProjet, enregistrerTache } from './integrations/keystone-entrant.ts';
-import { suivreVerdicts } from './integrations/keystone-verdicts.ts';
+import { contexte, enregistrerAffectation, enregistrerChantier, enregistrerProjet, enregistrerTache } from './integrations/keystone/keystone-entrant.ts';
+import { suivreVerdicts } from './integrations/keystone/keystone-verdicts.ts';
 import { refusDemo, REGLAGE_DEMO } from './marqueurs.ts';
 import { historiqueDepuisFiches } from './migrations/lot6-contrats.ts';
 import { postesDepuisFiches } from './migrations/referentiels.ts';
@@ -427,7 +427,7 @@ export async function ajouterReferentielCommun(db: Db, maintenant = new Date()):
     for (const [empId, f, obtenue] of CERTIFICATIONS_COMMUNES) {
       if (!certs.has(`${empId}|${f}`)) await db.insert('certifications', { empId, f, obtenue, sessionId: null, convoc: null, convocLe: null });
     }
-    // 7. Keystone : mêmes contrôles et mêmes tables que l'API entrante (server/src/integrations/keystone-entrant.ts).
+    // 7. Keystone : mêmes contrôles et mêmes tables que l'API entrante (server/src/integrations/keystone/keystone-entrant.ts).
     const cx = await contexte(db);
     for (const [code, nom, statut] of PROJETS_KEYSTONE) if (plan.projets.includes(code)) await enregistrerProjet(cx, code, { nom, statut });
     if (plan.affectations) {

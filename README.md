@@ -336,7 +336,7 @@ avec les autres outils » ; inventaire et conformité dans `docs/ECHANGES.md` ; 
   heures validées sur les projets Keystone, absences validées et annulées (période seulement, jamais la nature), changements de verdict Go / No Go) passent
   par une file d'envoi persistante : envoyés à Keystone avec `KEYSTONE_URL` (nouvelles tentatives, suivi
   et relance dans Paramètres → Envois), seulement tracés dans le journal sans elle (`server/src/envois.ts`).
-- **Sage Paie** (`SAGE_MODE`, `server/src/integrations/sage.ts`) : en mode fichier (production), la paie génère le lot de
+- **Sage Paie** (`SAGE_MODE`, `server/src/integrations/sage/sage.ts`) : en mode fichier (production), la paie génère le lot de
   chaque période de paie (feuilles validées réservées, contenu figé, rappels compris), télécharge son fichier d'import CSV
   (format réglable, téléchargement tracé), l'importe dans Sage puis confirme l'import, confirmation datée et signée qui
   seule marque les feuilles transmises ; avant elle, le lot peut être annulé. Historique des lots dans l'écran Temps de
@@ -629,7 +629,7 @@ arrière sont décrits pas à pas dans `docs/BASCULE-PRODUCTION.md`.
 
 **Déclaration du schéma à Matrix.** Au démarrage, une fois les migrations faites, Cursus lit le schéma réel de sa base
 (tables, colonnes, clés, unicités) et l'envoie à Matrix, le catalogue des bases de Keystone, Codex, Cursus et Vigie
-(`POST {MATRIX_URL}/api/declarations`, contrat `matrix.schema/1` ; `server/src/integrations/matrix.ts`). Une table
+(`POST {MATRIX_URL}/api/declarations`, contrat `matrix.schema/1` ; `server/src/integrations/matrix/matrix.ts`). Une table
 ajoutée entre ainsi d'elle-même au catalogue. La table technique `migrations` n'est pas déclarée. L'envoi ne bloque
 jamais le démarrage : si Matrix est arrêté ou refuse la déclaration, Cursus démarre normalement et écrit un
 avertissement `[matrix]` dans sa console.

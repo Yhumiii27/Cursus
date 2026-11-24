@@ -9,7 +9,7 @@ import { astreintesChevauchant, astreintesTexte, heuresAstreinte, instant, perio
 import { ACTIVITE_ASTREINTE } from '../../shared/constants.ts';
 import type { Astreinte, CurrentUser, Dataset, Employe, ISODate } from '../../shared/types.ts';
 import type { Db } from './db.ts';
-import { calendrier, domaineAgenda, envoyerEmail, pieceJointe, type EvenementAgenda } from './integrations/email.ts';
+import { calendrier, domaineAgenda, envoyerEmail, pieceJointe, type EvenementAgenda } from './integrations/microsoft/email.ts';
 import { adresseSalarie, courriel, lireMessagerie } from './messagerie.ts';
 import { notifier, organisateur } from './notifications.ts';
 

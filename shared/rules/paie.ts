@@ -10,7 +10,7 @@ import type { FeuilleTemps, ISODate, ModeHeuresSupFige, RattachementPeriode, Rub
 
 // — Modes —
 
-/** Transmission à Sage Paie (variable SAGE_MODE, server/src/integrations/sage.ts) : pas d'envoi par API. */
+/** Transmission à Sage Paie (variable SAGE_MODE, server/src/integrations/sage/sage.ts) : pas d'envoi par API. */
 export const MODES_SAGE: Record<SageMode, { label: string; aide: string }> = {
   simulation: {
     label: 'Simulation',

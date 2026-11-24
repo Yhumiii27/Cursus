@@ -1,7 +1,7 @@
 # Demande à Codex (GED) — pièces du lot 11
 
 Demande rédigée par Cursus, **à valider par le propriétaire avant tout envoi** : rien n'est écrit dans le dépôt de Codex.
-Cursus garde ses pièces chiffrées (`pieces`, stockage « local ») ; l'adaptateur `ged` (`server/src/integrations/ged.ts`)
+Cursus garde ses pièces chiffrées (`pieces`, stockage « local ») ; l'adaptateur `ged` (`server/src/integrations/codex/ged.ts`)
 les enverrait à Codex sans changer l'interface, le jour où ces types existent côté Codex.
 
 ## Dossiers OPCO (chantier C4)

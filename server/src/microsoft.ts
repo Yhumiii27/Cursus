@@ -10,7 +10,7 @@ import express, { type Request, type Response, type Router } from 'express';
 import { type ErreurMicrosoft } from '../../shared/constants.ts';
 import { normaliserIdentifiant } from '../../shared/rules/comptes.ts';
 import { cookieSecure, LimiteParIp, openSession, parseCookies, readSession, revokeSession, revokeSessionsDuCompte, sign } from './auth.ts';
-import { appliquerProfilClavis, droitClavis } from './acces-clavis.ts';
+import { appliquerProfilClavis, droitClavis } from './integrations/clavis/acces-clavis.ts';
 import { compteParIdentifiant, creerCompte, enregistrerConnexion, espacesDuCompte, journaliser, nomDuCompte, refusDuCompte, type Compte } from './comptes.ts';
 import { accesClavisActif, configOidc, type ConfigOidc } from './config.ts';
 import type { Db } from './db.ts';

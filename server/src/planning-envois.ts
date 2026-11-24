@@ -10,7 +10,7 @@ import { plageTexte } from '../../shared/rules/horaires.ts';
 import type { CurrentUser, Dataset, Employe } from '../../shared/types.ts';
 import type { Creneau } from '../../shared/types-planning.ts';
 import type { Db } from './db.ts';
-import { envoyerEmail } from './integrations/email.ts';
+import { envoyerEmail } from './integrations/microsoft/email.ts';
 import { adresseSalarie, courriel, lireMessagerie } from './messagerie.ts';
 import { notifier } from './notifications.ts';
 import { mettreEnFilePush } from './push.ts';

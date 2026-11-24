@@ -18,7 +18,7 @@
 import { NOTIFICATIONS_PUSH, prochainEnvoiAdmis, TTL_PUSH_S } from '../../shared/notifications-push.ts';
 import type { Db } from './db.ts';
 import { attente, TENTATIVES_MAX } from './envois.ts';
-import { requetePush, type RequetePush } from './integrations/push.ts';
+import { requetePush, type RequetePush } from './integrations/push/push.ts';
 import { type AbonnementPush, clesPush, navigateurDe, supprimerAbonnements } from './push.ts';
 
 /** Ligne de la table `envoisPush`. */

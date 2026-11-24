@@ -9,7 +9,7 @@ complète `codex-lot11-pieces.md` (types des pièces des dossiers OPCO et des no
 Matrix et Codex. Quel que soit le logiciel de notre suite, tout doit être stocké dans Codex. »
 
 Cursus ne doit donc plus garder ses pièces dans son propre dossier : chaque fichier va dans Codex, et Cursus n'en garde que
-la référence (`ged:<identifiant Codex>`, colonne `pieces.fichier`, adaptateur `server/src/integrations/ged.ts`).
+la référence (`ged:<identifiant Codex>`, colonne `pieces.fichier`, adaptateur `server/src/integrations/codex/ged.ts`).
 
 ## Ce qui empêche Cursus de le faire aujourd'hui
 
@@ -88,7 +88,7 @@ Cursus le fait déjà. Refus si le document est sous gel juridique.
 
 ## Ce que fera Cursus
 
-- L'adaptateur `ged` (`server/src/integrations/ged.ts`) dépose, relit et détruit par ces points d'entrée ; le réglage
+- L'adaptateur `ged` (`server/src/integrations/codex/ged.ts`) dépose, relit et détruit par ces points d'entrée ; le réglage
   « Stockage des pièces » passe à « GED » ; jeton et adresse dans l'environnement (`CODEX_URL`,
   `CODEX_DOCUMENTS_TOKEN`, `CODEX_DOCUMENTS_SECRET`), jamais dans la base.
 - Reprise des pièces du dossier local : chacune déposée, vérifiée par son empreinte, puis effacée localement.

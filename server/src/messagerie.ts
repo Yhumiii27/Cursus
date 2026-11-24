@@ -8,7 +8,7 @@ import { adresseValide } from '../../shared/rules/comptes.ts';
 import type { Courriel, Messagerie, ModeNotification } from '../../shared/types.ts';
 import type { Compte } from './comptes.ts';
 import type { Db } from './db.ts';
-import { lienCursus } from './integrations/email.ts';
+import { lienCursus } from './integrations/microsoft/email.ts';
 
 /** Réglage `messagerie` (Paramètres → Messagerie), complété des valeurs par défaut. */
 export async function lireMessagerie(db: Db): Promise<Messagerie> {

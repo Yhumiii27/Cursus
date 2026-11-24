@@ -5,19 +5,19 @@
 //   versée dans Codex par le passage horaire des pièces (et au démarrage) : dépôt avec sa catégorie, le
 //   matricule de la personne, sa fin de conservation et son empreinte, puis nom stocké `ged:<identifiant Codex>` et
 //   fichier local effacé. Les pièces déjà dans le dossier local sont reprises de la même façon (reprise du lot 16) ;
-// - une pièce versée se relit et se détruit par l'API de Codex (server/src/integrations/ged.ts) ;
+// - une pièce versée se relit et se détruit par l'API de Codex (server/src/integrations/codex/ged.ts) ;
 // - le réglage n'est accepté que si Codex est raccordé (CODEX_URL, jeton et/ou secret, compte de service) et si chaque
 //   catégorie de Cursus figure dans son registre (`codex.pub_types_document`, lien de lecture demandé à Matrix) ;
 //   tant que Codex n'a pas livré la lecture et la destruction par l'application, il reste refusé.
 // Une pièce n'est jamais versée deux fois : la `sourceRef` `cursus:piece/<id>` rend le dépôt rejouable chez Codex.
-import { matricule, plural } from '../../shared/format.ts';
-import { CATEGORIES_CODEX, categoriesManquantes, DEPARTEMENT_CODEX, sourceRefPiece, titrePiece, type TypeCodexLu } from '../../shared/rules/pieces-codex.ts';
-import { refusPiecesLocales } from './config.ts';
-import type { Db } from './db.ts';
-import { type ClientCodex, clientCodex, CodexIndisponible, CodexRefus } from './integrations/codex-documents.ts';
-import { estFichierGed, GED_NON_RACCORDEE, nomGed } from './integrations/ged.ts';
-import { log } from './logs.ts';
-import { depotLocal, empreinte, type PieceEnregistree, stockagePieces } from './pieces.ts';
+import { matricule, plural } from '../../../../shared/format.ts';
+import { CATEGORIES_CODEX, categoriesManquantes, DEPARTEMENT_CODEX, sourceRefPiece, titrePiece, type TypeCodexLu } from '../../../../shared/rules/pieces-codex.ts';
+import { refusPiecesLocales } from '../../config.ts';
+import type { Db } from '../../db.ts';
+import { type ClientCodex, clientCodex, CodexIndisponible, CodexRefus } from './codex-documents.ts';
+import { estFichierGed, GED_NON_RACCORDEE, nomGed } from './ged.ts';
+import { log } from '../../logs.ts';
+import { depotLocal, empreinte, type PieceEnregistree, stockagePieces } from '../../pieces.ts';
 
 const VUE_TYPES = 'codex.pub_types_document';
 

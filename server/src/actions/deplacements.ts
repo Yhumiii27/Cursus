@@ -11,7 +11,7 @@ import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
 import { refusArchive } from '../../../shared/rules/referentiels.ts';
 import { texteCoordonnees } from '../../../shared/rules/vigilance.ts';
 import type { Voyage } from '../../../shared/types.ts';
-import { sendToKeystone } from '../integrations/keystone.ts';
+import { sendToKeystone } from '../integrations/keystone/keystone.ts';
 import { ActionError, getEmp, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
 
 /** Déplacement visé, encore modifiable (ni annulé, ni terminé). */

@@ -4,7 +4,7 @@
 //   selon son réglage (fiche du salarié ; Paramètres → Messagerie pour le service RH). Rien n'est envoyé à la
 //   personne qui fait l'action, ni à un salarié sans adresse ou sorti de l'entreprise.
 // - Convocations (formation, entretien) : toujours aussitôt, avec le fichier .ics de l'événement.
-// Tout passe par la file d'envoi, dans la transaction de l'action (server/src/integrations/email.ts).
+// Tout passe par la file d'envoi, dans la transaction de l'action (server/src/integrations/microsoft/email.ts).
 import { ENT_TYPES, HEURE_RECAPITULATIF, MOTIFS_VISITE } from '../../shared/constants.ts';
 import { addD, isoWeek, parse } from '../../shared/dates.ts';
 import { type Domain, sessionActive } from '../../shared/domain.ts';
@@ -18,7 +18,7 @@ import type { Absence, Certification, Courriel, CurrentUser, Dataset, DemandeCol
 import { configMail } from './config.ts';
 import { todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
-import { calendrier, domaineAgenda, envoyerEmail, pieceJointe, type EvenementAgenda } from './integrations/email.ts';
+import { calendrier, domaineAgenda, envoyerEmail, pieceJointe, type EvenementAgenda } from './integrations/microsoft/email.ts';
 import { icsConge } from './agenda.ts';
 import { adresseSalarie, courriel, jourLong, lireMessagerie, periodeLongue } from './messagerie.ts';
 import { relevesAutomatiques } from './releves.ts';

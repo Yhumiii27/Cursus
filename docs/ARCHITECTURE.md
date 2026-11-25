@@ -4294,7 +4294,8 @@ worker de même origine : `manifest-src` et `worker-src` retombent sur `default-
   `apple-touch-icon`, `apple-mobile-web-app-*`, `viewport-fit=cover`.
 - **Icônes** (`client/public/icons/`) : PNG 192 et 512 (« any », coins transparents), 512 « maskable » (fond plein,
   dessin dans la zone de sécurité) et `apple-touch-icon.png` 180 opaque, produits par `scripts/icones.mjs` (encodeur PNG
-  avec `node:zlib`, dessin de `favicon.svg` suréchantillonné, sortie identique d'une exécution à l'autre : comparée au
+  avec `node:zlib`, logo de Cursus de Norma 2.3 `norma/charte/logos/cursus.svg` — aussi `favicon.svg` — lu et
+  suréchantillonné ; maskable : fond de la couleur sombre du dégradé, tuile à 80 % ; sortie identique d'une exécution à l'autre : comparée au
   contenu commité par `tests/pwa.test.ts`) puis commités.
 - **Service worker** (`client/public/sw.js`, écrit à la main) : version et liste des fichiers `/assets` à précharger
   injectées au build par le plugin `swCursus` de `vite.config.ts` (`generateBundle` ; version = empreinte des noms

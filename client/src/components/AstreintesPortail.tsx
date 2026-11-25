@@ -10,8 +10,8 @@ import { PrinterIcon } from '@phosphor-icons/react';
 import { parse } from '../../../shared/dates.ts';
 import { cap, fH, fmtIso } from '../../../shared/format.ts';
 import {
-  astreinteActive, bilanMensuel, bilanTexte, COMPENSATION_LABEL, debutAstreinte, finAstreinte, heuresAstreinte, heureTexte, instant, periodeAstreinteTexte,
-  reglagesAstreinte,
+  astreinteActive, baremeTexte, bilanMensuel, bilanTexte, COMPENSATION_LABEL, compensationAstreinte, compensationQuantiteTexte, debutAstreinte, finAstreinte,
+  heuresAstreinte, heureTexte, instant, periodeAstreinteTexte, reglagesAstreinte,
 } from '../../../shared/rules/astreintes.ts';
 import { periodeLabel } from '../../../shared/rules/paie.ts';
 import type { Astreinte, Dataset, Employe, InterventionAstreinte } from '../../../shared/types.ts';
@@ -51,7 +51,21 @@ export const titreRecapitulatif = (mois: string, jusqua: number) =>
 /** Forme de la compensation, telle que le récapitulatif l'indique (« Financière : montant sur le bulletin de paie »). */
 export function compensationTexte(s: Partial<Dataset['settings']> | undefined): string {
   const r = reglagesAstreinte(s);
+  // lot 17 — barème réglé (CU-051) : dit avec la référence de l'accord.
+  const bareme = baremeTexte(s);
+  if (bareme) return `${COMPENSATION_LABEL[r.astreinteCompensation]} · ${bareme}${r.astreinteAccord ? ` (${r.astreinteAccord})` : ''}`;
   return r.astreinteCompensation === 'repos' ? `${COMPENSATION_LABEL.repos} : durée fixée par l’accord sur les astreintes${r.astreinteAccord ? ` (${r.astreinteAccord})` : ''}` : COMPENSATION_LABEL.financiere;
+}
+
+/**
+ * lot 17 — compensation du mois (CU-051) : celle des astreintes commencées dans le mois et terminées avant `jusqua` (comme la
+ * paie, qui l'émet au mois du début, une fois l'astreinte terminée) ; null sans barème ou sans astreinte terminée.
+ */
+export function compensationDuMois(ds: Pick<Dataset, 'astreintes' | 'settings'>, empId: number, mois: string, jusqua: number): string | null {
+  const parts = (ds.astreintes ?? []).filter(a => a.empId === empId && astreinteActive(a) && a.du.slice(0, 7) === mois && finAstreinte(a) <= jusqua)
+    .map(a => compensationAstreinte(a, ds.settings)).filter(c => c != null);
+  if (!parts.length) return null;
+  return compensationQuantiteTexte({ rubrique: parts[0].rubrique, quantite: Math.round(parts.reduce((n, c) => n + c.quantite, 0) * 100) / 100 });
 }
 
 /**
@@ -66,6 +80,7 @@ export function sectionsRecapitulatif(ds: Pick<Dataset, 'astreintes' | 'interven
     .sort((x, y) => x.a.du.localeCompare(y.a.du) || x.a.debut.localeCompare(y.a.debut));
   const ints = interventionsDuMois(ds.interventionsAstreinte, e.id, mois, jusqua);
   const provisoire = moisProvisoire(mois, jusqua);
+  const compensation = compensationDuMois(ds, e.id, mois, jusqua);
   return [
     {
       title: 'Totaux du mois', rows: [
@@ -73,6 +88,8 @@ export function sectionsRecapitulatif(ds: Pick<Dataset, 'astreintes' | 'interven
         ['Périodes commencées dans le mois', String(b.periodes)],
         ['Interventions (travail effectif)', b.interventions ? `${b.interventions} · ${fH(b.heuresInterventions)}` : 'aucune'],
         ['Forme de la compensation', compensationTexte(ds.settings)],
+        // lot 17 — montant ou durée, quand le barème est réglé.
+        ...(compensation ? [['Compensation des astreintes commencées dans le mois', compensation] as [string, string]] : []),
       ],
     },
     {
@@ -142,6 +159,7 @@ export function AstreintesPortail({ e }: { e: Employe }) {
         ))}
       </>)}
       <div className="sub">Compensation : {compensationTexte(d.ds.settings)}</div>
+      {mois && compensationDuMois(d.ds, e.id, mois, m) && <div className="sub">Compensation du mois : {compensationDuMois(d.ds, e.id, mois, m)}</div>}
       <Fine>
         Récapitulatif des heures d’astreinte et de leur compensation remis chaque mois (art. R3121-2). Vos interventions sont du travail effectif, sur votre feuille
         de temps ; après chacune, 11 heures de repos consécutives sont dues.

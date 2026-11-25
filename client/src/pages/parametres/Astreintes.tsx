@@ -4,8 +4,11 @@
 // 23 octobre 2026), astreinte d'un salarié mineur (refusée par défaut). Réglages de l'administrateur RH ; les autres
 // profils de l'espace RH consultent. La compensation et la case des mineurs s'enregistrent aussitôt ; le délai et la
 // référence de l'accord, ensemble, au bouton « Enregistrer ».
+// lot 17 (CU-051) : barème de la compensation de la forme réglée (euros par période et par heure, ou heures de repos par
+// période et minutes par heure d'astreinte), 0 par défaut (rien n'est chiffré) ; enregistré avec la référence de l'accord,
+// exigée dès qu'une valeur n'est pas nulle (COHERENCE de shared/reglages.ts).
 import { useEffect, useState } from 'react';
-import { COMPENSATION_LABEL, DELAI_JOUR_FRANC, DELAI_PREVENANCE_LEGAL } from '../../../../shared/rules/astreintes.ts';
+import { baremeTexte, COMPENSATION_LABEL, DELAI_JOUR_FRANC, DELAI_PREVENANCE_LEGAL, MONTANT_HEURE_MAX, MONTANT_PERIODE_MAX, REPOS_PERIODE_MAX } from '../../../../shared/rules/astreintes.ts';
 import type { CompensationAstreinte } from '../../../../shared/types.ts';
 import { Field } from '../../components/Dialog.tsx';
 import { Btn, Fine, NoteAccent, Panel, Seg } from '../../components/ui.tsx';
@@ -25,7 +28,34 @@ export function Astreintes({ s }: SectionProps) {
   const [tente, setTente] = useState(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => { setDelai(String(s.astreinteDelaiPrevenance)); setAccord(s.astreinteAccord); setTente(false); }, [s.astreinteDelaiPrevenance, s.astreinteAccord]);
+  // lot 17 — barème de la forme réglée : par période, par heure.
+  const repos = s.astreinteCompensation === 'repos';
+  const parPeriode = (repos ? s.astreinteReposPeriode : s.astreinteMontantPeriode) ?? 0;
+  const parHeure = (repos ? s.astreinteReposHeure : s.astreinteMontantHeure) ?? 0;
+  const [periode, setPeriode] = useState(String(parPeriode));
+  const [heure, setHeure] = useState(String(parHeure));
+  const [tenteBareme, setTenteBareme] = useState(false);
+  useEffect(() => { setPeriode(String(parPeriode)); setHeure(String(parHeure)); setTenteBareme(false); }, [parPeriode, parHeure]);
   if (!espaceRh) return null;
+
+  const nombre = (v: string) => Number(v.trim().replace(',', '.'));
+  const maxPeriode = repos ? REPOS_PERIODE_MAX : MONTANT_PERIODE_MAX, maxHeure = repos ? 60 : MONTANT_HEURE_MAX;
+  const erreurPeriode = !/^\d+([.,]\d{1,2})?$/.test(periode.trim()) || nombre(periode) > maxPeriode ? `Indiquez un nombre de 0 à ${maxPeriode}, deux décimales au plus.` : null;
+  const erreurHeure = (repos ? !/^\d{1,2}$/.test(heure.trim()) : !/^\d+([.,]\d{1,2})?$/.test(heure.trim())) || nombre(heure) > maxHeure
+    ? (repos ? `Indiquez un nombre de minutes entier, de 0 à ${maxHeure}.` : `Indiquez un montant de 0 à ${maxHeure}, deux décimales au plus.`) : null;
+  const erreurBaremeAccord = !erreurPeriode && !erreurHeure && (nombre(periode) > 0 || nombre(heure) > 0) && !accord.trim()
+    ? 'Un barème suppose l’accord collectif ou la décision de l’employeur qui le fixe (art. L3121-11 et L3121-12) : indiquez sa référence.' : null;
+  const baremeModifie = nombre(periode) !== parPeriode || nombre(heure) !== parHeure;
+  const enregistrerBareme = async () => {
+    const erreur = [['ast-bareme-periode', erreurPeriode], ['ast-bareme-heure', erreurHeure], ['ast-accord', erreurBaremeAccord]].find(([, e]) => e);
+    if (erreur) { setTenteBareme(true); document.getElementById(erreur[0]!)?.focus(); return; }
+    setBusy(true);
+    await save(repos
+      ? { astreinteReposPeriode: nombre(periode), astreinteReposHeure: nombre(heure), astreinteAccord: accord }
+      : { astreinteMontantPeriode: nombre(periode), astreinteMontantHeure: nombre(heure), astreinteAccord: accord });
+    setBusy(false);
+  };
+  const bareme = baremeTexte(s);
 
   const n = Number(delai);
   const erreurDelai = !/^\d{1,2}$/.test(delai.trim()) || n < DELAI_JOUR_FRANC || n > DELAI_MAX ? `Indiquez un nombre de jours entier, de ${DELAI_JOUR_FRANC} à ${DELAI_MAX}.` : null;
@@ -61,10 +91,24 @@ export function Astreintes({ s }: SectionProps) {
         <Seg name="ast-compensation" label="Forme de la compensation" value={s.astreinteCompensation} options={COMPENSATIONS} disabled={!admin}
           onChange={v => save({ astreinteCompensation: v })} style={{ flexWrap: 'wrap' }} />
       </Field>
+      <div className="row-wrap" style={{ gap: 'var(--space-3)' }}>
+        <Field label={repos ? 'Repos par période (heures)' : 'Compensation par période (euros)'} htmlFor="ast-bareme-periode" erreur={tenteBareme && erreurPeriode}>
+          <input className="input tnum" id="ast-bareme-periode" inputMode="decimal" value={periode} disabled={!admin} onChange={e => setPeriode(e.target.value)} style={{ maxWidth: 140 }} />
+        </Field>
+        <Field label={repos ? 'Repos par heure d’astreinte (minutes)' : 'Compensation par heure d’astreinte (euros)'} htmlFor="ast-bareme-heure" erreur={tenteBareme && erreurHeure}>
+          <input className="input tnum" id="ast-bareme-heure" inputMode="decimal" value={heure} disabled={!admin} onChange={e => setHeure(e.target.value)} style={{ maxWidth: 140 }} />
+        </Field>
+      </div>
+      {tenteBareme && erreurBaremeAccord && <NoteAccent>{erreurBaremeAccord}</NoteAccent>}
+      {admin && baremeModifie && <div className="actions-end"><Btn variant="primary" disabled={busy} onClick={enregistrerBareme}>Enregistrer le barème</Btn></div>}
+      <Fine>
+        {bareme ? `Barème en vigueur : ${bareme}. ` : 'Aucun barème réglé : la compensation n’est ni chiffrée ni transmise. '}
+        Chaque astreinte terminée reçoit sa compensation au mois de son début ({repos ? 'AST_REPOS, en heures' : 'AST_COMP, en euros'}), figée dans le lot de paie qui l’emporte.
+      </Fine>
       {!s.astreinteAccord && <NoteAccent>Accord sur les astreintes non référencé : forme et montant de la compensation à confirmer. Le récapitulatif mensuel remis au salarié (art. R3121-2) indique la forme réglée ici.</NoteAccent>}
       <Fine>
         Chaque astreinte donne lieu à une compensation, financière ou en repos (art. L3121-9). Cursus transmet à la paie les heures (AST_H) et les périodes
-        (AST_PER) d’astreinte terminées ; le montant ou la durée du repos (AST_COMP) suivra l’accord. Ces rubriques sont désactivées tant que la paie n’a pas
+        (AST_PER) d’astreinte terminées, et la compensation chiffrée d’après le barème ci-dessus (AST_COMP ou AST_REPOS). Ces rubriques sont désactivées tant que la paie n’a pas
         donné leurs codes : les éléments sont listés « à saisir dans Sage » dans le résumé du lot. Les interventions sont du travail effectif, décomptées sur la
         feuille de temps (heures normales, supplémentaires, de nuit et du dimanche).
       </Fine>

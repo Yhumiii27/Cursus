@@ -7,7 +7,7 @@ import { CONTRATS_EXCLUABLES, PREAVIS_TOUTE_ANNEE } from './rules/campagne.ts';
 import { JOURS_RELANCE, paliersRelance } from './rules/relances.ts';
 import { nuitHorsLoi, refusPlageNuit, REPOS_QUOTIDIEN } from './rules/repos-nuit.ts';
 import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesTexte, DOSSIER_MIN_ANS, DUREE_MAX_ANS, FRAIS_MIN_ANS } from './rules/conservation.ts';
-import { DELAI_JOUR_FRANC, DELAI_PREVENANCE_LEGAL } from './rules/astreintes.ts';
+import { DELAI_JOUR_FRANC, DELAI_PREVENANCE_LEGAL, MONTANT_HEURE_MAX, MONTANT_PERIODE_MAX, REPOS_PERIODE_MAX, baremeAstreinte } from './rules/astreintes.ts';
 import { COLONNES_PASSEPORT_DEFAUT, COLONNES_PASSEPORT_IDS } from './rules/passeport-prevention.ts';
 import type { CategorieEvaluee, CategorieFrais, CircuitFrais, CodeOpco, ColonnePasseport, CompensationAstreinte, ContenuAgenda, ModeAttente, OrganigrammeOuvert, RepondantsFroid, Settings, StockagePieces } from './types.ts';
 // lot 11 — indicateurs
@@ -49,6 +49,12 @@ export interface Reglage<T> {
 export const entier = (min: number, max: number, pas = 1) => (v: unknown, actuelle: number): number => {
   const n = Number(v);
   return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.round(n / pas) * pas)) : actuelle;
+};
+
+/** Nombre décimal borné, arrondi au centième (montant en euros, durée en heures) ; non numérique : valeur en vigueur. */
+export const decimal = (min: number, max: number) => (v: unknown, actuelle: number): number => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.round(n * 100) / 100)) : actuelle;
 };
 
 /** Case à cocher. */
@@ -313,6 +319,14 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   astreinteCompensation: { defaut: 'financiere', controle: choix<CompensationAstreinte>(['financiere', 'repos']) },
   astreinteMineurs: { defaut: false, controle: booleen },
   astreinteAccord: { defaut: '', controle: texte(120, 'Référence de l’accord') },
+  // lot 17 — compensation des astreintes (CU-051) : barème de l'accord ou de la décision de l'employeur (art. L3121-11 et
+  //   L3121-12), inconnu (question CU-051-Q1, docs/ARCHITECTURE.md « Lot 17 ») : tout à 0 par défaut, rien n'est chiffré ni
+  //   transmis ; une valeur non nulle exige la référence de l'accord (COHERENCE). Financière : montant par période et par
+  //   heure d'astreinte ; repos : heures par période et minutes par heure d'astreinte.
+  astreinteMontantPeriode: { defaut: 0, controle: decimal(0, MONTANT_PERIODE_MAX) },
+  astreinteMontantHeure: { defaut: 0, controle: decimal(0, MONTANT_HEURE_MAX) },
+  astreinteReposPeriode: { defaut: 0, controle: decimal(0, REPOS_PERIODE_MAX) },
+  astreinteReposHeure: { defaut: 0, controle: entier(0, 60) },
   // — Liste d'attente des sessions (parametres/ListeAttente.tsx, shared/rules/liste-attente.ts, lot 7 t120) : activée ; une
   //   place libérée est proposée au service RH, qui confirme l'inscription (réponse de l'entreprise du 23 octobre 2026) —
   formationsListeAttente: { defaut: true, controle: booleen },
@@ -500,6 +514,10 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   // — Astreintes : un délai de prévenance plus court que 15 jours suppose un accord collectif (art. L3121-11) —
   s => (s.astreinteDelaiPrevenance < DELAI_PREVENANCE_LEGAL && !s.astreinteAccord
     ? `Astreintes : un délai de prévenance de moins de ${DELAI_PREVENANCE_LEGAL} jours suppose un accord collectif (art. L3121-11) : indiquez sa référence` : null),
+  // lot 17 — compensation des astreintes (CU-051) : un barème suppose l'accord ou la décision de l'employeur qui le fixe
+  //   (art. L3121-11 et L3121-12), dont la référence est exigée —
+  s => (baremeAstreinte(s) && !s.astreinteAccord
+    ? 'Astreintes : un barème de compensation suppose l’accord collectif ou la décision de l’employeur qui le fixe (art. L3121-11 et L3121-12) : indiquez sa référence' : null),
   // lot 13 — CET (monétisation) : l'utilisation des droits du CET en complément de rémunération suppose l'accord qui
   // institue le compte (art. L3151-3) —
   s => (s.cetMonetisation && !s.cetMonetisationAccord

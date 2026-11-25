@@ -3658,7 +3658,8 @@ récapitulatif de la feuille, file de validation, jours rachetés en attente sur
   réservée, libérée à l'annulation, figée à la confirmation (`astreintes.lot_id`, `astreintes.sage`). `AST_COMP`
   (compensation) est déclarée. Les trois rubriques sont inactives par défaut : éléments « à saisir dans Sage » tant que la
   paie n'a pas donné ses codes. Compensation `astreinteCompensation` : financière par défaut (réponse du 23 octobre 2026),
-  ou repos ; son montant ou sa durée attend l'accord sur les astreintes (`astreinteAccord`).
+  ou repos ; son montant ou sa durée se chiffre d'après le barème réglé (lot 17, CU-051, ci-dessous « Lot 17 »), nul tant
+  que l'accord sur les astreintes n'est pas connu.
 - **Base** : migrations nommées `lot7-astreintes*` (SQLite) et `0005_astreintes.sql`, `0008_astreintes_paie.sql`
   (PostgreSQL). Aucune vue `pub_` pour Keystone tant qu'elle n'est pas demandée et validée.
 
@@ -6094,3 +6095,35 @@ retrouver à la même place dans toutes les pages »), liste des changements de 
 - Tests : `tests/client-theme.test.ts` (paire empilée, dernière de l'en-tête et de la barre supérieure, copies synchronisées),
   `tests/client-i18n.test.ts` (sélecteur FR / EN, complétude de `layout/Coque.tsx`).
 
+## Lot 17 : compensation des astreintes chiffrée (CU-051, 25 novembre 2026)
+
+Suite du lot 7 (chantier A, « Astreintes » ci-dessus) : la compensation de chaque astreinte (art. L3121-9) est chiffrée et
+transmise à la paie, d'après un barème réglé dans Paramètres → Astreintes. Aucune table, colonne ni migration : quatre
+réglages, une rubrique de plus, des éléments de plus dans la famille « astreintes » du registre des éléments de lot.
+
+- **Barème** (`shared/reglages.ts`, `shared/rules/astreintes.ts`) : financière, `astreinteMontantPeriode` (euros par période,
+  0 à 1 000) et `astreinteMontantHeure` (euros par heure d'astreinte, 0 à 100) ; en repos, `astreinteReposPeriode` (heures
+  par période, 0 à 48) et `astreinteReposHeure` (minutes par heure d'astreinte, 0 à 60) ; contrôle `decimal` (centièmes).
+  Seul le barème de la forme réglée (`astreinteCompensation`) compte (`baremeAstreinte`). Heures d'astreinte : la période
+  entière, interventions comprises, comme AST_H (`heuresAstreinte`). COHERENCE : une valeur non nulle exige la référence de
+  l'accord ou de la décision de l'employeur (`astreinteAccord`, art. L3121-11 et L3121-12).
+- **Choix prudent par défaut** : tout à 0 — rien n'est chiffré ni transmis, aucun montant n'est inventé ; le récapitulatif
+  dit la seule forme, comme avant. Le service RH règle le barème une fois l'accord connu.
+- **Paie** (`shared/rules/astreintes-paie.ts`, `elementsAstreintes`) : un élément par astreinte terminée, au mois de son
+  début (comme AST_PER, rappel d'un mois clos sur la période ouverte) : `AST_COMP` (euros, unité `eur` ; au fichier, ligne
+  au montant de quantité 1 comme les frais : `montant` de `ElementAstreintePaie`, `lignesFichier` de
+  `shared/rules/lots-paie.ts`) ou `AST_REPOS` (heures, nouvelle rubrique). Les deux sont désactivées par défaut : « à saisir
+  dans Sage » (résumé du lot, export des variables, détail « compensation en euros » ou « repos compensateur en heures »)
+  tant que la paie n'a pas donné leurs codes. Le barème en vigueur à la génération est figé dans le contenu du lot ;
+  une astreinte transmise ne repart jamais.
+- **Écrans** : Paramètres → Astreintes (barème de la forme réglée, « Enregistrer le barème » avec la référence de l'accord,
+  barème en vigueur rappelé) ; récapitulatif mensuel du portail et son document imprimé (art. R3121-2 : barème dans la
+  forme, ligne « Compensation des astreintes commencées dans le mois » pour les astreintes terminées, `compensationDuMois`) ;
+  astreintes en attente de la paie (`totauxAstreintes` : montant ou repos).
+- **Tests** : `tests/astreintes-compensation.test.ts` (règles, réglages, lot de paie financier et en repos, fichier,
+  contenu figé), `tests/client-astreintes.test.ts` (Paramètres, récapitulatif, portail), `tests/reglages.test.ts`.
+- **Question en attente — CU-051-Q1** (service RH et paie) : barème de la compensation fixé par l'accord sur les astreintes
+  (ou, à défaut, par l'employeur après avis du CSE, art. L3121-12) — forme, montant par période ou par heure, durée du
+  repos, astreintes de week-end ou de jour férié majorées ou non — et codes Sage de AST_COMP et AST_REPOS. Défaut appliqué
+  d'ici là : barème nul, aucune compensation chiffrée. Un barème différencié (week-end, férié, nuit) demanderait de
+  compléter la règle.

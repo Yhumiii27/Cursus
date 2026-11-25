@@ -122,7 +122,7 @@ déduites, environ 7 h par jour ouvré d'absence hors congés payés), projectio
 - « Télécharger mes données » : copie de tout ce que Cursus conserve sur soi. La page « Confidentialité » explique leur
   traitement et à qui s'adresser.
 - « Mes astreintes » (salariés d'astreinte) : astreintes en cours et à venir, et le récapitulatif de chaque mois (heures
-  d'astreinte, périodes, interventions, forme de la compensation), à l'écran ou par « Imprimer le récapitulatif ». Il ne
+  d'astreinte, périodes, interventions, forme de la compensation et, une fois le barème réglé, son montant ou sa durée), à l'écran ou par « Imprimer le récapitulatif ». Il ne
   compte que les heures déjà accomplies : celui du mois en cours est provisoire, arrêté au moment de l'affichage. Une
   intervention se déclare sur la feuille de temps de la semaine (« Déclarer une intervention » dans l'encart
   « Astreinte » : jour, heures de début et de fin) ; ses heures vont sur la ligne « Intervention d'astreinte », qui ne se
@@ -805,8 +805,9 @@ d'un mois clos enregistrée en retard part entière, en rappel.
   Les heures non réalisées ne partent jamais.
 - Astreintes terminées : heures d'astreinte du mois (AST_H, réparties entre les mois de la période) et périodes (AST_PER,
   au mois de leur début). Rubriques désactivées tant que la paie n'a pas donné leurs codes : listées « À saisir dans Sage »
-  dans le résumé du lot et l'export des variables. La compensation (AST_COMP : montant, ou repos) suivra l'accord sur les
-  astreintes (forme réglée dans Paramètres → Astreintes). Les interventions sont déjà dans les heures de la feuille.
+  dans le résumé du lot et l'export des variables. La compensation (AST_COMP en euros, ou AST_REPOS en heures de repos)
+  part au mois du début de chaque astreinte, calculée d'après le barème de Paramètres → Astreintes ; tant qu'aucun barème
+  n'est réglé (accord sur les astreintes inconnu), elle n'est pas chiffrée. Les interventions sont déjà dans les heures de la feuille.
 - **Hors fichier, à saisir dans Sage** : heures de nuit ; intérimaires (relevé envoyé à leur agence)
   et cadres dirigeants exclus. La journée de solidarité et les fériés chômés se règlent année par année
   (Paramètres, « Jours fériés et journée de solidarité ») : un jour ainsi travaillé n'est plus férié (art. L3133-8).

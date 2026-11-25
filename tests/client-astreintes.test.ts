@@ -246,3 +246,52 @@ test('paie : astreintes terminées en attente, à saisir dans Sage tant que les 
   render(b.element);
   assert.ok(screen.getByText(/Astreintes terminées à saisir dans Sage \(rubriques AST_H et AST_PER désactivées\) : Mehdi Benali \(158 h d’astreinte \(AST_H\), 1 période \(AST_PER\), octobre 2026\)/));
 });
+
+test('lot 17 — barème de la compensation : refusé sans accord, enregistré avec lui ; repos ; récapitulatif et portail chiffrés', async () => {
+  const { db, personne } = await baseDemo();
+  const id = await inserer(db, '2026-09-28', '2026-10-05');
+  const b = await monter(db, await personne(null, 'rh'), () => createElement(Section));
+  render(b.element);
+  assert.ok(screen.getByText(/Aucun barème réglé : la compensation n’est ni chiffrée ni transmise/));
+  assert.equal(screen.queryByRole('button', { name: 'Enregistrer le barème' }), null, 'rien de modifié');
+  // Valeur invalide, puis barème sans accord : refus à l'écran, rien n'est envoyé.
+  const n = b.trace.actions.length;
+  fireEvent.change(champ(/Compensation par période/), { target: { value: '20,555' } });
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Enregistrer le barème' })); });
+  assert.ok(screen.getByText(/deux décimales au plus/));
+  fireEvent.change(champ(/Compensation par période/), { target: { value: '20' } });
+  fireEvent.change(champ(/Compensation par heure/), { target: { value: '0,35' } });
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Enregistrer le barème' })); });
+  assert.equal(b.trace.actions.length, n);
+  assert.ok(screen.getByText(/Un barème suppose l’accord collectif/));
+  fireEvent.change(champ(/Référence de l’accord/), { target: { value: 'Accord d’entreprise du 1er mars 2026' } });
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Enregistrer le barème' })); });
+  assert.equal(b.trace.actions.at(-1)!.r.ok, true, b.trace.actions.at(-1)!.r.error);
+  assert.deepEqual(b.trace.actions.at(-1)!.payload, { astreinteMontantPeriode: 20, astreinteMontantHeure: 0.35, astreinteAccord: 'Accord d’entreprise du 1er mars 2026' });
+  assert.ok(screen.getByText(/Barème en vigueur : 20,00 € par période \+ 0,35 € par heure d’astreinte/));
+  // Récapitulatif de septembre : compensation de l'astreinte commencée dans le mois (158 h).
+  const neuf = instant('2026-10-10', '09:00');
+  const sept = sectionsRecapitulatif(b.donnees(), { id: 2 }, '2026-09', neuf);
+  assert.deepEqual(sept[0].rows!.slice(3), [
+    ['Forme de la compensation', 'Financière : montant sur le bulletin de paie · 20,00 € par période + 0,35 € par heure d’astreinte (Accord d’entreprise du 1er mars 2026)'],
+    ['Compensation des astreintes commencées dans le mois', '75,30 €'],
+  ]);
+  assert.equal(sectionsRecapitulatif(b.donnees(), { id: 2 }, '2026-10', neuf)[0].rows!.length, 4, 'octobre : aucune astreinte commencée');
+  // Repos : le barème affiché devient celui du repos (0 tant qu'il n'est pas réglé), en minutes par heure.
+  await act(async () => { fireEvent.click(screen.getByLabelText('En repos')); });
+  assert.equal(champ(/Repos par période/).value, '0');
+  fireEvent.change(champ(/Repos par heure/), { target: { value: '7,5' } });
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Enregistrer le barème' })); });
+  assert.ok(screen.getByText(/nombre de minutes entier/));
+  fireEvent.change(champ(/Repos par heure/), { target: { value: '6' } });
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Enregistrer le barème' })); });
+  assert.equal(b.donnees().settings.astreinteReposHeure, 6);
+  assert.ok(compensationTexte(b.donnees().settings).startsWith('En repos · 6 min de repos par heure d’astreinte'));
+  cleanup();
+  // Portail du salarié : la compensation du mois s'affiche.
+  const p = await monter(db, await personne(2, 'collaborateur'), () => { const d = useDomain(); return createElement(AstreintesPortail, { e: d.emp(2)! }); });
+  render(p.element);
+  await act(async () => { fireEvent.change(screen.getByLabelText('Récapitulatif du mois'), { target: { value: '2026-09' } }); });
+  assert.ok(screen.getByText('Compensation du mois : 15,8 h de repos'));
+  assert.ok(id);
+});

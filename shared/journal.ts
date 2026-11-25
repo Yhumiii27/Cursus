@@ -643,6 +643,9 @@ export const CHAMP_LABEL: Record<string, string> = {
   // Astreintes (t049, lot 7) : réglages et colonnes d'une astreinte.
   astreinteDelaiPrevenance: 'Astreintes : délai de prévenance (jours)', astreinteCompensation: 'Astreintes : forme de la compensation',
   astreinteMineurs: 'Astreintes : salariés mineurs admis', astreinteAccord: 'Référence de l’accord sur les astreintes',
+  // lot 17 — compensation des astreintes (CU-051)
+  astreinteMontantPeriode: 'Astreintes : compensation par période (euros)', astreinteMontantHeure: 'Astreintes : compensation par heure (euros)',
+  astreinteReposPeriode: 'Astreintes : repos par période (heures)', astreinteReposHeure: 'Astreintes : repos par heure d’astreinte (minutes)',
   communiqueLe: 'Communiquée le',
   // lot 11 — organigramme : réglage, colonnes d'une entité, d'un site et d'une équipe.
   organigrammeOuvert: 'Organigramme ouvert à', entite: 'Entité', siteCode: 'Site', uniteCode: 'Unité Matrix', siren: 'SIREN', siret: 'SIRET',

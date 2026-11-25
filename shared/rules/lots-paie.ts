@@ -167,7 +167,8 @@ function quantites(contenu: ContenuFichier): { matricule: string; periode: strin
     // Jours rachetés d'un forfait jours (t043) : sans code Sage (JREN désactivée), à saisir dans Sage, hors du fichier.
     ...(contenu.rachats ?? []).flatMap(x => (x.codeSage ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
     // Heures et périodes d'astreinte (t049) : sans code Sage (AST_H, AST_PER désactivées), à saisir dans Sage, hors du fichier.
-    ...(contenu.astreintes ?? []).flatMap(x => (x.codeSage ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
+    // lot 17 — compensation financière (AST_COMP, `montant`) : ligne au montant, plus bas.
+    ...(contenu.astreintes ?? []).flatMap(x => (x.codeSage && x.montant === undefined ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
     // lot 12 — C1 (forfait annuel en heures) : sans code Sage (rubriques désactivées), à saisir dans Sage, hors du fichier.
     ...(contenu.forfaitHeures ?? []).flatMap(x => (x.codeSage ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
     // lot 13 — CET (monétisation) : sans code Sage (CET_MON désactivée), à saisir dans Sage, hors du fichier.
@@ -193,7 +194,9 @@ export function lignesFichier(contenu: ContenuFichier): LigneFichier[] {
   // lot 11 — notes de frais : une ligne au montant par salarié, période et code Sage (quantité 1, montants additionnés) ;
   // un montant nul (avance déduite égale au remboursement) est omis.
   const montants = new Map<string, LigneFichier>();
-  for (const x of contenu.frais ?? []) {
+  // lot 17 — compensation financière des astreintes (AST_COMP) : au montant, comme les frais.
+  const auMontant = [...(contenu.frais ?? []), ...(contenu.astreintes ?? []).flatMap(x => (x.montant === undefined ? [] : [{ ...x, montant: x.montant }]))];
+  for (const x of auMontant) {
     if (!x.codeSage) continue;
     const cle = `${x.matricule}|${x.periode}|${x.codeSage}`;
     const l = montants.get(cle) ?? { matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, quantite: 1, montant: 0 };

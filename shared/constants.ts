@@ -529,7 +529,11 @@ export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubriqu
   // par défaut tant que la paie n'a pas confirmé ses codes (réponse du 23 octobre 2026) : listées « à saisir dans Sage ».
   AST_H: { label: 'Heures d’astreinte (période entière, interventions comprises)', unite: 'h', inactiveParDefaut: true },
   AST_PER: { label: 'Périodes d’astreinte (nombre, au mois de leur début)', unite: 'nombre', inactiveParDefaut: true },
-  AST_COMP: { label: 'Compensation des astreintes (selon l’accord, à confirmer)', unite: 'nombre', inactiveParDefaut: true },
+  // lot 17 — compensation (CU-051) : chiffrée d'après le barème de Paramètres → Astreintes (0 par défaut : rien n'est émis),
+  // financière en euros (colonne « montant » du fichier) ou en repos (heures) ; désactivées tant que la paie n'a pas
+  // confirmé leurs codes.
+  AST_COMP: { label: 'Compensation financière des astreintes (euros, barème de l’accord)', unite: 'eur', inactiveParDefaut: true },
+  AST_REPOS: { label: 'Repos compensateur d’astreinte (heures, barème de l’accord)', unite: 'h', inactiveParDefaut: true },
   // lot 11 — notes de frais (server/src/frais-paie.ts) : remboursements avec la paie du mois suivant, en euros (colonne
   // « montant » du fichier, quantité 1). Désactivées tant que la paie n'a pas confirmé ses codes (réponse du propriétaire
   // du 31 octobre 2026) : listées « à saisir dans Sage ». Frais réels et frais médicaux sous la même rubrique, sans

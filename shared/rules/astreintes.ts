@@ -61,6 +61,57 @@ export function reglagesAstreinte(s: Partial<ReglagesAstreinte> | undefined): Re
   };
 }
 
+// — lot 17 : compensation chiffrée (CU-051) —
+// Chaque astreinte donne lieu à une compensation, financière ou en repos (art. L3121-9), fixée par l'accord collectif ou, à
+// défaut, par l'employeur après avis du CSE (art. L3121-11, L3121-12). Barème inconnu (question CU-051-Q1) : tout à 0 par
+// défaut, rien n'est chiffré (choix prudent : aucun montant inventé). Réglé, seul le barème de la forme choisie compte :
+// financière = euros par période + euros par heure d'astreinte (AST_COMP) ; repos = heures par période + minutes par heure
+// d'astreinte (AST_REPOS). Heures d'astreinte = durée entière de la période, interventions comprises (comme AST_H) ;
+// calculée, jamais stockée : figée dans le contenu du lot de paie qui l'emporte.
+
+/** Bornes des barèmes (garde-fous de saisie) : euros par période, euros par heure, heures de repos par période. */
+export const MONTANT_PERIODE_MAX = 1000;
+export const MONTANT_HEURE_MAX = 100;
+export const REPOS_PERIODE_MAX = 48;
+
+export type BaremeAstreinte = Pick<Settings, 'astreinteCompensation' | 'astreinteMontantPeriode' | 'astreinteMontantHeure' | 'astreinteReposPeriode' | 'astreinteReposHeure'>;
+
+/** Nombre positif fini, sinon 0 (instantané sans ces réglages). */
+const positif = (v: unknown) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : 0; };
+
+/** Barème réglé de la forme choisie (`{ forme, parPeriode, parHeure }`, parHeure en euros ou en heures), ou null s'il est nul. */
+export function baremeAstreinte(s: Partial<BaremeAstreinte> | undefined): { forme: CompensationAstreinte; parPeriode: number; parHeure: number } | null {
+  const forme: CompensationAstreinte = s?.astreinteCompensation === 'repos' ? 'repos' : 'financiere';
+  const parPeriode = positif(forme === 'repos' ? s?.astreinteReposPeriode : s?.astreinteMontantPeriode);
+  const parHeure = forme === 'repos' ? positif(s?.astreinteReposHeure) / 60 : positif(s?.astreinteMontantHeure);
+  return parPeriode || parHeure ? { forme, parPeriode, parHeure } : null;
+}
+
+/** Compensation d'une astreinte : rubrique AST_COMP (euros) ou AST_REPOS (heures), quantité au centième ; null sans barème. */
+export function compensationAstreinte(a: Pick<Astreinte, 'du' | 'debut' | 'au' | 'fin'>, s: Partial<BaremeAstreinte> | undefined): { rubrique: 'AST_COMP' | 'AST_REPOS'; quantite: number } | null {
+  const b = baremeAstreinte(s);
+  if (!b) return null;
+  return { rubrique: b.forme === 'repos' ? 'AST_REPOS' : 'AST_COMP', quantite: arrondi(b.parPeriode + b.parHeure * heuresAstreinte(a)) };
+}
+
+/** « 45,50 € » : montant en euros, deux décimales. */
+export const euros = (n: number) => `${n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+/** « 3,25 h » : heures au centième (repos compensateur). */
+export const heuresCentiemes = (n: number) => `${n.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} h`;
+
+/** Quantité d'une compensation, avec son unité : « 45,50 € » ou « 3,25 h de repos ». */
+export const compensationQuantiteTexte = (c: { rubrique: string; quantite: number }) => c.rubrique === 'AST_REPOS' ? `${heuresCentiemes(c.quantite)} de repos` : euros(c.quantite);
+
+/** Barème lisible : « 20,00 € par période + 0,50 € par heure d'astreinte » ; null sans barème. */
+export function baremeTexte(s: Partial<BaremeAstreinte> | undefined): string | null {
+  const b = baremeAstreinte(s);
+  if (!b) return null;
+  const parties = b.forme === 'repos'
+    ? [b.parPeriode && `${heuresCentiemes(b.parPeriode)} de repos par période`, b.parHeure && `${positif(s?.astreinteReposHeure)} min de repos par heure d’astreinte`]
+    : [b.parPeriode && `${euros(b.parPeriode)} par période`, b.parHeure && `${euros(b.parHeure)} par heure d’astreinte`];
+  return parties.filter(Boolean).join(' + ');
+}
+
 /** Libellé de la forme de la compensation (récapitulatif mensuel, art. R3121-2). */
 export const COMPENSATION_LABEL: Record<CompensationAstreinte, string> = {
   financiere: 'Financière : montant sur le bulletin de paie',

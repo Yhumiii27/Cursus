@@ -12,17 +12,21 @@
 //   annulation ; rubrique désactivée (par défaut, tant que la paie n'a pas confirmé ses codes) : l'élément part sans code
 //   Sage, absent du fichier, listé « à saisir dans Sage » dans le résumé du lot et l'export des variables (comme JREN).
 // - Intérimaires exclus (payés par leur agence) ; astreinte annulée : rien.
+// - lot 17 (CU-051) : compensation chiffrée d'après le barème de Paramètres → Astreintes (`compensationAstreinte` de
+//   shared/rules/astreintes.ts), un élément par astreinte au mois de son début, comme AST_PER : AST_COMP en euros (colonne
+//   « montant » du fichier, quantité 1) ou AST_REPOS en heures. Barème nul (défaut, accord inconnu) : aucun élément. Le
+//   barème en vigueur à la génération du lot est figé dans son contenu.
 import type { Domain } from '../domain.ts';
 import { fH } from '../format.ts';
 import type { Astreinte, ElementAstreintePaie } from '../types.ts';
-import { astreinteActive, astreinteTerminee, debutAstreinte, finAstreinte, instant } from './astreintes.ts';
+import { astreinteActive, astreinteTerminee, compensationAstreinte, compensationQuantiteTexte, debutAstreinte, finAstreinte, instant } from './astreintes.ts';
 import { matriculeAffiche } from './matricules.ts';
 import { periodeOuverte, type RubriqueVue } from './paie.ts';
 
 /** Rubriques internes des astreintes émises par Cursus (RUBRIQUES_PAIE), dans l'ordre d'affichage. */
-export const RUBRIQUES_ASTREINTE = ['AST_H', 'AST_PER'] as const;
+export const RUBRIQUES_ASTREINTE = ['AST_H', 'AST_PER', /* lot 17 */ 'AST_COMP', 'AST_REPOS'] as const;
 export type RubriqueAstreinte = typeof RUBRIQUES_ASTREINTE[number];
-/** Compensation des astreintes (montant ou repos) : rubrique déclarée pour la paie, chiffrée après l'accord. */
+/** Compensation financière des astreintes (euros, lot 17) ; en repos : AST_REPOS (heures). */
 export const RUBRIQUE_COMPENSATION_ASTREINTE = 'AST_COMP';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -70,6 +74,15 @@ export function elementsAstreintes(d: Domain, jusqua: string, table: readonly Pi
         quantite: p.quantite, du: a.du, debut: a.debut, au: a.au, fin: a.fin,
       });
     }
+    // lot 17 — compensation, au mois de la période (celui de son début, comme AST_PER).
+    const c = compensationAstreinte(a, d.ds.settings);
+    const per = parts.find(p => p.rubrique === 'AST_PER')!;
+    if (c && c.quantite > 0) {
+      out.push({
+        astreinte: a.id, empId: a.empId, matricule: matriculeAffiche(e), mois: per.mois, periode: per.periode, rubrique: c.rubrique, codeSage: code(c.rubrique),
+        quantite: c.quantite, du: a.du, debut: a.debut, au: a.au, fin: a.fin, ...(c.rubrique === 'AST_COMP' ? { montant: c.quantite } : {}),
+      });
+    }
   }
   return out.sort((x, y) => x.periode.localeCompare(y.periode) || x.empId - y.empId || x.astreinte - y.astreinte || x.mois.localeCompare(y.mois)
     || RUBRIQUES_ASTREINTE.indexOf(x.rubrique as RubriqueAstreinte) - RUBRIQUES_ASTREINTE.indexOf(y.rubrique as RubriqueAstreinte));
@@ -83,16 +96,23 @@ export const astreintesDuContenu = (elements: readonly Pick<ElementAstreintePaie
  * Détail d'un élément (export des variables, liste « à saisir dans Sage ») : « Astreinte n° 3 du 16/10/2026 18:00 au
  * 23/10/2026 08:00 », rappel d'un mois clos.
  */
-export function detailAstreinte(x: Pick<ElementAstreintePaie, 'astreinte' | 'du' | 'debut' | 'au' | 'fin' | 'mois' | 'periode'>, moisLabel: (p: string) => string): string {
+export function detailAstreinte(x: Pick<ElementAstreintePaie, 'astreinte' | 'du' | 'debut' | 'au' | 'fin' | 'mois' | 'periode'> & { rubrique?: string }, moisLabel: (p: string) => string): string {
   const jour = (s: string) => s.split('-').reverse().join('/');
-  return `Astreinte n° ${x.astreinte} du ${jour(x.du)} ${x.debut} au ${jour(x.au)} ${x.fin}` + (x.mois !== x.periode ? ` · rappel de ${moisLabel(x.mois)}` : '');
+  // lot 17 — compensation : unité dite dans le détail (euros, ou heures de repos).
+  const unite = x.rubrique === 'AST_COMP' ? ' · compensation en euros' : x.rubrique === 'AST_REPOS' ? ' · repos compensateur en heures' : '';
+  return `Astreinte n° ${x.astreinte} du ${jour(x.du)} ${x.debut} au ${jour(x.au)} ${x.fin}` + unite + (x.mois !== x.periode ? ` · rappel de ${moisLabel(x.mois)}` : '');
 }
 
 /** « 128 h, 2 périodes » : quantités d'une liste d'éléments (écran Temps). */
 export function totauxAstreintes(elements: readonly Pick<ElementAstreintePaie, 'rubrique' | 'quantite'>[]): string {
   const h = r2(elements.filter(x => x.rubrique === 'AST_H').reduce((n, x) => n + x.quantite, 0));
   const p = elements.filter(x => x.rubrique === 'AST_PER').reduce((n, x) => n + x.quantite, 0);
-  return `${fH(h)} d’astreinte (AST_H), ${p} période${p > 1 ? 's' : ''} (AST_PER)`;
+  // lot 17 — compensation chiffrée, quand le barème est réglé.
+  const comp = r2(elements.filter(x => x.rubrique === 'AST_COMP').reduce((n, x) => n + x.quantite, 0));
+  const repos = r2(elements.filter(x => x.rubrique === 'AST_REPOS').reduce((n, x) => n + x.quantite, 0));
+  return `${fH(h)} d’astreinte (AST_H), ${p} période${p > 1 ? 's' : ''} (AST_PER)`
+    + (comp ? `, ${compensationQuantiteTexte({ rubrique: 'AST_COMP', quantite: comp })} de compensation (AST_COMP)` : '')
+    + (repos ? `, ${compensationQuantiteTexte({ rubrique: 'AST_REPOS', quantite: repos })} (AST_REPOS)` : '');
 }
 
 /** État d'une astreinte pour la paie : « transmise à la paie (lot n° 4) », « dans le lot n° 4 », « en attente ». */

@@ -929,6 +929,8 @@ export interface Astreinte {
 export interface ElementAstreintePaie {
   astreinte: number; empId: number; matricule: string; mois: string; periode: string; rubrique: string; codeSage: string | null; quantite: number;
   du: ISODate; debut: string; au: ISODate; fin: string;
+  /** lot 17 — compensation financière (AST_COMP) : montant en euros, porté au fichier dans la colonne « montant » (quantité 1). */
+  montant?: number;
 }
 /**
  * Intervention pendant une astreinte : du travail effectif (art. L3121-9), déclaré sur la feuille de temps avec ses heures
@@ -1440,6 +1442,15 @@ export interface Settings {
   astreinteCompensation: CompensationAstreinte;
   astreinteMineurs: boolean;
   astreinteAccord: string;
+  /**
+   * lot 17 — compensation des astreintes (CU-051, shared/rules/astreintes.ts `compensationAstreinte`) : barème de l'accord,
+   * 0 par défaut (rien n'est chiffré) ; financière : euros par période et par heure d'astreinte ; repos : heures par période
+   * et minutes par heure d'astreinte. Seul le barème de la forme réglée (`astreinteCompensation`) compte.
+   */
+  astreinteMontantPeriode: number;
+  astreinteMontantHeure: number;
+  astreinteReposPeriode: number;
+  astreinteReposHeure: number;
   /**
    * Liste d'attente des sessions complètes (lot 7, chantier C, t120 : shared/rules/liste-attente.ts) : activée par défaut ;
    * désactivée, une demande acceptée sur une session complète va au plan de formation. Place libérée : premier admissible

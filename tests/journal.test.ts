@@ -1,8 +1,8 @@
 // Journal des actions : liste blanche par action (jamais de numéro de passeport, de CSV, de texte libre, de nature
 // d'absence ni de donnée de santé), anciennes et nouvelles valeurs, salariés concernés (transmission à la paie,
 // import, session annulée), corrections d'heures du manager ou du RH quel que soit le statut de la feuille,
-// regroupement des comptes rendus, reprise des anciennes lignes, durées de conservation (archive paie, bilan
-// quotidien, envois anciens), réinitialisation de la démonstration sans effacer le journal, droits de lecture par
+// regroupement des comptes rendus (lignes ajoutées, réunies à la lecture), durées de conservation (archive paie
+// calculée, purge des lignes échues : tests/journal-ajout-seul.test.ts, envois anciens), réinitialisation de la démonstration sans effacer le journal, droits de lecture par
 // profil, refus bornés, données d'un salarié. Scénario HTTP (vrai serveur) : consultation filtrée et paginée,
 // export CSV (formules neutralisées), archive sur demande (chaque page tracée), refus d'accès, connexions,
 // changements d'espace et exports tracés, export RH et téléchargement par l'intéressé.
@@ -23,9 +23,11 @@ const { currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { makeCtx } = await import('../server/src/actions/context.ts');
 const {
-  appliquerConservation, celluleCsv, DETAIL_RESERVE, expurgerMessage, journaliserAction, lireJournal, marquerPaie, MENTION_NATURE, MENTION_SANTE, pourLecteur,
-  preparerTrace, REGLES, reprendreJournal, tracerRefus,
+  appliquerConservation, celluleCsv, DETAIL_RESERVE, expurgerMessage, journaliserAction, lireJournal, MENTION_NATURE, MENTION_SANTE, pourLecteur,
+  preparerTrace, REGLES, tracerRefus,
 } = await import('../server/src/journal.ts');
+const { inscrireActionsPaie } = await import('../server/src/journal-purge.ts');
+const { envPurge } = await import('./base.ts');
 const { journaliser } = await import('../server/src/comptes.ts');
 const { ActionError } = await import('../server/src/actions/context.ts');
 const { donneesSalarie, TABLES_SALARIE } = await import('../server/src/donnees.ts');
@@ -38,8 +40,12 @@ type Db = import('../server/src/db.ts').Db;
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 interface Ligne {
   id: number; at: string; actor: string; role: string | null; action: string; message: string | null; payload: Record<string, any>;
-  salaries: number[] | null; paie: boolean; archivee: string | null; compteId: number | null;
+  salaries: number[] | null; paie: boolean; archivee: string | null; compteId: number | null; regroupe: number | null;
 }
+/** Filtre complet de la lecture du journal (vue, aucun autre critère sauf `salarie`). */
+const filtre = (vue: 'tout' | 'archive', salarie: number | null = null) => ({ vue, du: null, au: null, auteur: null, action: null, salarie });
+/** Lignes de plus de `jours` jours, en ISO (le journal en ajout seul ne se « vieillit » pas : la ligne est écrite à cette date). */
+const ilYa = (jours: number) => new Date(Date.now() - jours * 86_400_000).toISOString();
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), 'cursus-journal-'));
@@ -144,12 +150,19 @@ test('archive paie : une absence saisie, prolongée puis annulée y figure en en
   await run(RH, 'absence.annuler', { id: a });
   const absences = async () => (await lignes()).filter(l => l.action.startsWith('absence.'));
   assert.deepEqual((await absences()).map(l => [l.action, l.paie]), [['absence.saisir', true], ['absence.prolonger', true], ['absence.annuler', true]]);
-  // Une ligne écrite avant que l'action ne soit « liée à la paie » est marquée au démarrage.
-  (await db.run(`UPDATE journal SET paie = FALSE WHERE action = 'absence.annuler'`));
-  assert.equal(await marquerPaie(db), 1);
-  await appliquerConservation(db, new Date(Date.now() + 400 * 86_400_000));
-  const archive = (await lireJournal(db, { vue: 'archive', du: null, au: null, auteur: null, action: null, salarie: 2 })).lignes;
-  assert.deepEqual(archive.map(l => l.action).reverse(), ['absence.saisir', 'absence.prolonger', 'absence.annuler']);
+  // Une ligne écrite avant que l'action ne soit « liée à la paie » (paie faux) y passe aussi dès que son code est inscrit
+  // au démarrage (journal_actions_paie) : la ligne n'est jamais modifiée.
+  const ancienne = (await db.insert<Ligne>('journal', { at: new Date().toISOString(), actor: 'Cursus', role: null, action: 'conges.cloturer', message: null, payload: { empId: 2 }, salaries: [2], paie: false })).id;
+  const dansUnAn = new Date(Date.now() + 400 * 86_400_000);
+  const archive = async () => (await lireJournal(db, filtre('archive', 2), 1, 50, dansUnAn)).lignes;
+  assert.deepEqual((await archive()).map(l => l.action).reverse(), ['absence.saisir', 'absence.prolonger', 'absence.annuler']);
+  assert.ok(await inscrireActionsPaie(db) > 0);
+  assert.equal(await inscrireActionsPaie(db), 0, 'rien à inscrire une seconde fois');
+  assert.deepEqual((await archive()).map(l => l.action).reverse(), ['absence.saisir', 'absence.prolonger', 'absence.annuler', 'conges.cloturer']);
+  assert.ok((await archive()).every(l => l.archivee), 'date d’entrée dans l’archive calculée');
+  assert.equal((await db.get<Ligne>('journal', ancienne))!.paie, false, 'ligne inchangée');
+  // Avant l'année écoulée, rien n'est dans l'archive : tout est à l'écran.
+  assert.deepEqual((await lireJournal(db, filtre('archive', 2))).lignes, []);
 });
 
 test('anciennes et nouvelles valeurs : fiche, équipe, profil, paramètres', async () => {
@@ -238,15 +251,20 @@ test('transmission à la paie : feuilles transmises et salariés concernés (arc
 });
 
 test('compte rendu d’entretien : section nommée sans son contenu, une ligne par compte et par demi-heure', async () => {
-  const { run, lignes, id, KARIM, MEHDI } = await fresh();
+  const { db, run, lignes, id, KARIM, MEHDI } = await fresh();
   const e = await id(`SELECT id FROM entretiens WHERE emp_id = 2 AND statut = 'planifie'`);
   await run(KARIM, 'entretien.modifier', { id: e, section: 'bilan', value: 'Texte confidentiel du bilan' });
   await run(KARIM, 'entretien.modifier', { id: e, section: 'objectifs', value: 'Objectifs personnels' });
   await run(KARIM, 'entretien.modifier', { id: e, section: 'bilan', value: 'Texte confidentiel corrigé' });
   await run(MEHDI, 'entretien.modifier', { id: e, section: 'avis', value: 'Mon avis' });
-  const ls = (await lignes()).filter(j => j.action === 'entretien.modifier');
-  assert.deepEqual(ls.map(j => [j.actor, j.payload.sections]), [['Karim Haddad', ['bilan', 'objectifs']], ['Mehdi Benali', ['avis']]]);
+  // À l'écran (et dans l'export) : une ligne par compte et par demi-heure, comme avant le journal en ajout seul…
+  const ls = (await lireJournal(db, { ...filtre('tout'), action: 'entretien.modifier' })).lignes.reverse();
+  assert.deepEqual(ls.map(j => [j.actor, j.details.sections]), [['Karim Haddad', ['bilan', 'objectifs']], ['Mehdi Benali', ['avis']]]);
   assert.ok(ls.every(j => JSON.stringify(j.salaries) === '[2]'));
+  // … mais chaque rédaction est ajoutée (jamais de mise à jour), rattachée à la première ligne de son groupe.
+  const brutes = (await lignes()).filter(j => j.action === 'entretien.modifier');
+  assert.deepEqual(brutes.map(j => j.regroupe ? brutes.findIndex(x => x.id === j.regroupe) : null), [null, 0, 0, null]);
+  assert.deepEqual(brutes.map(j => j.payload.sections), [['bilan'], ['bilan', 'objectifs'], ['bilan', 'objectifs'], ['avis']]);
   assert.ok(!/confidentiel|Objectifs personnels|Mon avis/.test(JSON.stringify(await lignes())));
 });
 
@@ -275,43 +293,15 @@ test('annulation d’une session : les recyclages rattachés, détachés par l�
   assert.deepEqual([...(await derniere('session.annuler'))!.salaries!].sort((a, b) => a - b), [...new Set([...recyclages, ...inscriptions])].sort((a, b) => a - b));
 });
 
-test('anciennes lignes (contenu complet de la requête) : expurgées une fois au démarrage', async () => {
+test('conservation : 1 an, archive paie de 3 ans (calculée), purge des lignes échues, envois anciens retirés de la file', async () => {
   const { db, lignes } = await fresh();
-  const at = new Date().toISOString();
-  const ins = async (action: string, payload: unknown, message: string | null = null) => await db.insert('journal', { at, actor: 'Sandrine Vidal', role: 'rh', action, message, payload });
-  await ins('formalite.enregistrer', { empId: 2, kind: 'passeport', numero: '21XY12345', expire: '2032-01-01' }, 'Passeport de Mehdi Benali enregistré');
-  await ins('voyages.importer', { texte: 'ligne;secrète' });
-  await ins('absence.saisir', { empId: 2, nature: 'MALADIE', du: '2026-12-01', au: '2026-12-02' }, 'Absence de Mehdi Benali enregistrée : arrêt maladie');
-  await ins('temps.validate', { empId: 2, week: '2026-09-28', comment: 'x' });
-  await ins('connexion', { ip: '10.0.0.8' }, 'Connexion');
-  await ins('action.disparue', { secret: 'valeur' });
-  await reprendreJournal(db);
-  const ls = await lignes();
-  assert.deepEqual(ls.map(l => l.payload), [
-    { empId: 2, kind: 'passeport', expire: '2032-01-01' }, {}, { empId: 2, du: '2026-12-01', au: '2026-12-02' }, { empId: 2, week: '2026-09-28' }, { ip: '10.0.0.8' }, {},
-  ]);
-  assert.deepEqual(ls.map(l => l.salaries), [[2], [], [2], [2], [], []]);
-  assert.deepEqual(ls.map(l => l.paie), [false, false, true, true, false, false]);
-  assert.match(ls[2].message!, NATURE);
-  // Une seule fois : une ligne écrite ensuite n'est plus reprise.
-  await ins('voyages.importer', { texte: 'gardé tel quel' });
-  await reprendreJournal(db);
-  assert.deepEqual((await lignes()).at(-1)!.payload, { texte: 'gardé tel quel' });
-  // Réglage effacé (réinitialisation de la démonstration) : les lignes au nouveau format ne sont pas reprises.
-  await db.insert('journal', { at, actor: 'Sandrine Vidal', role: 'rh', action: 'employe.modifier', message: null, payload: { id: 2, avant: { poste: 'A' }, apres: { poste: 'B' } }, salaries: [2] });
-  await db.setSetting('journalExpurge', false);
-  await reprendreJournal(db);
-  assert.deepEqual((await lignes()).at(-1)!.payload, { id: 2, avant: { poste: 'A' }, apres: { poste: 'B' } });
-});
-
-test('conservation : 1 an, archive paie de 3 ans, envois anciens retirés de la file', async () => {
-  const { db, lignes } = await fresh();
+  // Journal : lignes écrites à leur date (la purge suit l'horloge de la base, jamais `maintenant`).
   const ins = async (action: string, at: string, paie = false) => (await db.insert<Ligne>('journal', { at, actor: 'Cursus', role: null, action, message: null, payload: {}, salaries: [2], paie })).id;
-  const A = await ins('employe.modifier', '2026-10-15T08:00:00.000Z');
-  const B = await ins('temps.validate', '2026-10-15T08:00:00.000Z', true);
-  const C = await ins('temps.pushSage', '2024-10-01T08:00:00.000Z', true);
-  const D = await ins('connexion', '2027-06-01T08:00:00.000Z');
-  const E = await ins('connexion', '2026-10-20T08:00:00.000Z');
+  const A = await ins('employe.modifier', ilYa(400));
+  const B = await ins('temps.validate', ilYa(400), true);
+  const C = await ins('temps.pushSage', ilYa(1200), true);
+  const D = await ins('connexion', ilYa(10));
+  const E = await ins('connexion', ilYa(370));
   const envoi = async (statut: string, creation: string, classe: string | null = null) => (await db.insert<{ id: number }>('envois', {
     cible: 'keystone', type: 'heures.validees', cle: `cle-${statut}-${creation}-${classe}`, contenu: {}, statut, tentatives: 1, prochaine: null,
     erreur: null, accuse: null, creation, tentative: creation, envoi: statut === 'envoye' ? creation : null, classe,
@@ -336,46 +326,35 @@ test('conservation : 1 an, archive paie de 3 ans, envois anciens retirés de la 
   const visite = async (creation: string, envoiId: number) => (await db.insert<{ id: number }>('notifications', { empId: 2, adresse: 'rh@entreprise.example', type: 'visite.demande', objet: 'Demande de visite médicale', texte: 'Visite de reprise', creation, envoiId })).id;
   const notifsGardees = [await notif('2026-09-01T08:00:00.000Z', null), await notif('2027-10-01T08:00:00.000Z', gardes[2]),
     await visite('2026-09-01T08:00:00.000Z', recaps[0]), await visite('2026-10-31T20:00:00.000Z', recaps[1])];
+  // Écran avant la purge : les lignes échues ne sont déjà plus montrées, l'archive est calculée.
+  assert.deepEqual((await lireJournal(db, filtre('tout', 2))).lignes.map(l => l.id), [D]);
+  assert.deepEqual((await lireJournal(db, filtre('archive', 2))).lignes.map(l => l.id), [B]);
+  // `maintenant` ne vaut que pour la file d'envoi et les notifications (dates du jeu d'essai).
   const maintenant = new Date('2027-11-01T00:00:00.000Z');
-  const b = await appliquerConservation(db, maintenant);
-  assert.deepEqual(b, { supprimees: 2, archivees: 1, supprimeesArchive: 1, envois: 3, notifications: 2 });
+  const b = await appliquerConservation(db, maintenant, { env: await envPurge(db) });
+  assert.deepEqual(b, { supprimees: 2, supprimeesArchive: 1, envois: 3, notifications: 2, purge: 'faite' });
   assert.deepEqual((await db.all<{ id: number }>('notifications')).map(n => n.id), notifsGardees);
   // Le profil en lecture seule lit toujours ces récapitulatifs masqués.
   const lus = await envoisPourLecteur(db, { role: 'rh', profilRh: 'lecture_seule' }, await listerEnvois(db, { cible: 'email' }));
   assert.deepEqual(lus.filter(e => recaps.includes(e.id)).map(e => [e.id, (e.contenu as { texte: string }).texte]), recaps.toReversed().map(id => [id, DETAIL_RESERVE]));
   const ids = (await lignes()).map(l => l.id);
   assert.ok(!ids.includes(A) && !ids.includes(C) && !ids.includes(E) && ids.includes(B) && ids.includes(D));
-  assert.equal((await db.get<Ligne>('journal', B))!.archivee, maintenant.toISOString());
+  assert.equal((await db.get<Ligne>('journal', B))!.archivee, null, 'jamais écrite : l’archive est calculée');
   assert.deepEqual((await db.all<{ id: number }>('envois')).map(e => e.id), gardes);
   for (const x of anciens) assert.ok(!await db.get('envois', x));
   const resume = (await lignes()).find(l => l.action === 'journal.conservation')!;
-  assert.match(resume.message!, /2 lignes supprimées \(plus d’un an\) · 1 action liée à la paie archivée · 1 ligne supprimée de l’archive \(plus de 3 ans\) · 3 envois anciens retirés de la file d’envoi · 2 notifications anciennes supprimées$/);
+  assert.match(resume.message!, /^Durée de conservation : 2 lignes supprimées \(plus d’un an\) · 1 ligne supprimée de l’archive \(plus de 3 ans\) · 3 envois anciens retirés de la file d’envoi · 2 notifications anciennes supprimées$/);
+  assert.equal(typeof resume.payload.registre, 'number', 'passage inscrit au registre des purges');
   // L'archive n'apparaît pas dans le journal affiché ; elle se consulte à part.
-  const vue = await lireJournal(db, { vue: 'tout', du: null, au: null, auteur: null, action: null, salarie: null });
+  const vue = await lireJournal(db, filtre('tout'));
   assert.ok(!vue.lignes.some(l => l.id === B));
-  assert.deepEqual((await lireJournal(db, { vue: 'archive', du: null, au: null, auteur: null, action: null, salarie: 2 })).lignes.map(l => l.id), [B]);
-  // Plus de 3 ans : l'archive elle-même est vidée.
-  await appliquerConservation(db, new Date('2029-11-01T00:00:00.000Z'));
-  assert.equal(await db.get('journal', B), undefined);
-});
-
-test('conservation : un seul bilan par jour, complété à chaque passage horaire', async () => {
-  const { db, lignes } = await fresh();
-  const ins = async (at: string) => await db.insert('journal', { at, actor: 'Cursus', role: 'integration', action: 'keystone.appel', message: null, payload: {}, salaries: [], paie: false });
-  await ins('2026-10-01T08:00:00.000Z');
-  await ins('2026-10-01T08:30:00.000Z');
-  await appliquerConservation(db, new Date('2027-10-01T12:00:00.000Z'));
-  await ins('2026-10-01T09:00:00.000Z');
-  await appliquerConservation(db, new Date('2027-10-01T12:30:00.000Z'));
-  await appliquerConservation(db, new Date('2027-10-01T12:45:00.000Z'));
-  const bilans = (await lignes()).filter(l => l.action === 'journal.conservation');
-  assert.equal(bilans.length, 1, 'passages du même jour regroupés ; un passage sans effet n’écrit rien');
-  assert.deepEqual([bilans[0].payload.supprimees, bilans[0].payload.passages, bilans[0].at], [3, 2, '2027-10-01T12:30:00.000Z']);
-  assert.match(bilans[0].message!, /^Durée de conservation : 3 lignes supprimées \(plus d’un an\)$/);
-  // Le lendemain : nouveau bilan.
-  await ins('2026-10-02T08:00:00.000Z');
-  await appliquerConservation(db, new Date('2027-10-02T12:00:00.000Z'));
-  assert.equal((await lignes()).filter(l => l.action === 'journal.conservation').length, 2);
+  assert.deepEqual((await lireJournal(db, filtre('archive', 2))).lignes.map(l => l.id), [B]);
+  // Plus de 3 ans (lu dans deux ans) : l'archive ne la montre plus, la purge la supprimera à son échéance.
+  assert.deepEqual((await lireJournal(db, filtre('archive', 2), 1, 50, new Date(Date.now() + 2 * 366 * 86_400_000))).lignes, []);
+  // Un second passage le même jour ne trouve plus rien dans le journal et n'écrit pas de bilan.
+  const n = (await lignes()).length;
+  assert.deepEqual(await appliquerConservation(db, maintenant, { env: await envPurge(db) }), { supprimees: 0, supprimeesArchive: 0, envois: 0, notifications: 0, purge: 'faite' });
+  assert.equal((await lignes()).length, n);
 });
 
 test('filtre « Action » : les appels de Keystone, absents de la vue Tout, s’y retrouvent quand on les demande', async () => {
@@ -621,17 +600,20 @@ test('serveur : journal consultable, filtré, paginé, exporté ; accès et expo
     assert.ok(!(await journal('?taille=200')).lignes.some(l => l.id === id));
     const a = await journal('?vue=archive');
     assert.deepEqual(a.lignes.map(l => l.id), [id]);
+    // Lignes brutes (la dernière porte l'état du groupe) et têtes de groupe (une par compte et par filtre, 15 minutes).
     const consultations = async () => (await db.all<Ligne>('journal')).filter(l => l.action === 'journal.archive');
+    const tetes = async () => (await consultations()).filter(l => !l.regroupe);
     assert.match((await consultations()).at(-1)!.message!, /^Consultation de l’archive paie — 1 ligne \(archive paie\)$/);
     // Toute page est tracée, pas seulement la première ; les pages lues d'affilée complètent la même ligne.
     await journal('?vue=archive&page=2&taille=1');
     await journal('?vue=archive&page=3&taille=1');
-    assert.equal((await consultations()).length, 1);
+    assert.equal((await tetes()).length, 1);
+    assert.equal((await consultations()).length, 3, 'chaque page lue est ajoutée au groupe, jamais écrite par-dessus');
     assert.match((await consultations()).at(-1)!.message!, /^Consultation de l’archive paie — 1 ligne \(archive paie\) · pages 1, 2, 3$/);
     assert.deepEqual((await consultations()).at(-1)!.payload.pages, [1, 2, 3]);
     // Autre filtre : autre ligne, rattachée au salarié.
     await journal('?vue=archive&salarie=2&page=2');
-    assert.equal((await consultations()).length, 2);
+    assert.equal((await tetes()).length, 2);
     assert.deepEqual([(await consultations()).at(-1)!.salaries, (await consultations()).at(-1)!.message], [[2], 'Consultation de l’archive paie — 1 ligne (archive paie, salarié Mehdi Benali) · page 2']);
   });
 

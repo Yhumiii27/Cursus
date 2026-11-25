@@ -323,8 +323,11 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'migration.coutReel': 'Reprise du coût réel des actions réalisées du plan',
   'migration.referencesDeplacements': 'Reprise : référence donnée aux déplacements importés sans référence',
   'migration.postgres': 'Reprise : base SQLite copiée sur le serveur PostgreSQL commun',
-  // Passage de la démonstration à la production (npm run purge-demo, lot 8) : seule ligne laissée au journal vidé.
+  // Passage de la démonstration à la production (npm run purge-demo, lot 8) : frontière du journal (en ajout seul, les
+  // lignes fictives d'avant restent jusqu'à leur échéance, jamais montrées).
   'purge.demo': 'Purge des données de démonstration avant la mise en production',
+  // Fichiers de pièces que la purge n'a pas pu effacer après sa validation (nombre seulement), à effacer à la main.
+  'purge.demoPieces': 'Purge de la démonstration : fichiers de pièces non effacés',
   // Démonstration commune (npm run demo-commun, server/src/seed-commun.ts) : décomptes et codes de sites, jamais un nom.
   'demo.commun': 'Démonstration : référentiel commun des outils ajouté (personnes, équipes, sites, projets)',
   // Contrôle d'intégrité du démarrage (server/src/integrite.ts) : références orphelines, nombres seulement.
@@ -505,7 +508,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   // lot 11 — notes de frais
   { id: 'frais', label: 'Notes de frais', prefixes: ['frais.'] },
   { id: 'conservation', label: 'Conservation et agendas', prefixes: ['conservation.', 'agenda.'] },
-  { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.', 'integrite.', 'migration.postgres', 'purge.demo',
+  { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.', 'integrite.', 'migration.postgres', 'purge.demo', 'purge.demoPieces',
     /* lot 11 — indicateurs */ 'indicateurs.'] },
   { id: 'connexions', label: 'Connexions et accès', prefixes: ACTIONS_CONNEXION },
   {

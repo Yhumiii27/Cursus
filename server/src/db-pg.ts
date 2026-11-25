@@ -577,12 +577,23 @@ export class PgDb extends Db {
       const absents = DECLENCHEURS_CHANGEMENTS.filter(g => !lignesChangees.has(`${snake(name)}.${g}`));
       if (absents.length) manquantes.push(`déclencheur${absents.length > 1 ? 's' : ''} ${absents.join(', ')} de ${snake(name)}`);
     }
+    // Journal en ajout seul (migration 0035_journal_ajout_seul, décision du propriétaire du 25/11/2026) : déclencheurs
+    // présents et actifs, registre des purges et codes de la paie. Un déclencheur désactivé (ALTER TABLE … DISABLE
+    // TRIGGER, possible au propriétaire des tables) laisserait le journal modifiable : démarrage refusé.
+    for (const t of ['journal_purges', 'journal_actions_paie']) if (!lignes.some(l => l.t === t)) manquantes.push(`table ${t}`);
+    const ajoutSeul = new Set((await this.query<{ g: string }>(`SELECT g.tgname AS g FROM pg_trigger g JOIN pg_class c ON c.oid = g.tgrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = ? AND g.tgname LIKE '%ajout\\_seul%' AND g.tgenabled IN ('O', 'A')`, [this.schema])).map(l => l.g));
+    for (const g of DECLENCHEURS_AJOUT_SEUL) if (!ajoutSeul.has(g)) manquantes.push(`déclencheur ${g} (journal en ajout seul)`);
     if (manquantes.length) {
       throw new SchemaPgError(`schéma ${this.schema} incomplet par rapport au code (${manquantes.length} manquante${manquantes.length > 1 ? 's' : ''} : `
         + `${manquantes.slice(0, 12).join(', ')}${manquantes.length > 12 ? '…' : ''}) : une migration de server/migrations-pg/ manque.`);
     }
   }
 }
+
+/** Déclencheurs du journal en ajout seul (migration 0035), exigés actifs au démarrage par `PgDb.controlerSchema`. */
+export const DECLENCHEURS_AJOUT_SEUL = ['journal_ajout_seul', 'journal_ajout_seul_vidage', 'journal_purges_ajout_seul', 'journal_purges_ajout_seul_vidage',
+  'journal_actions_paie_ajout_seul', 'journal_actions_paie_ajout_seul_vidage'] as const;
 
 /** Migrations PostgreSQL du dossier, dans l'ordre de leur nom (NNNN_<objet>.sql) : nom sans extension et texte. */
 export function migrationsPg(dossier = DOSSIER_MIGRATIONS_PG): { nom: string; sql: string }[] {

@@ -12,9 +12,10 @@
 // 5. une seule transaction (`appliquer`) : colonnes remises à NULL sur les lignes gardées, signataires fictifs du
 //    référentiel vidés, réglages retirés, tables vidées (ordre des clés étrangères sur PostgreSQL), comptes non gardés
 //    supprimés à leur rang dans cet ordre, amorçages reposés (activités internes, horaires d'exemple), séquence des salariés placée
-//    au-delà de tout identifiant déjà attribué (jamais RESTART IDENTITY, les autres séquences gardées), journal vidé
-//    puis une seule ligne `purge.demo`, contrôle d'intégrité qui doit être vide : sinon tout est annulé ;
-// 6. après la validation : fichiers des pièces effacés (un échec est noté sur la ligne purge.demo, sans annuler la
+//    au-delà de tout identifiant déjà attribué (jamais RESTART IDENTITY, les autres séquences gardées), ligne `purge.demo`
+//    ajoutée au journal, qui n'est jamais vidé (en ajout seul : ses lignes fictives restent derrière cette frontière,
+//    masquées, jusqu'à leur échéance), contrôle d'intégrité qui doit être vide : sinon tout est annulé ;
+// 6. après la validation : fichiers des pièces effacés (un échec est noté par une ligne purge.demoPieces, sans annuler la
 //    purge), base SQLite compactée (VACUUM : les pages libérées ne gardent rien des données fictives), copies locales
 //    antérieures supprimées avec --supprimer-copies-demo, sauf la copie avant-purge ; un échec de l'une de ces
 //    opérations est noté dans le bilan (`apres`), jamais propagé : la purge est faite, le bilan et les étapes suivantes
@@ -28,6 +29,9 @@ import { journaliser } from './comptes.ts';
 import { type Db, snake, TABLES, type TableName } from './db.ts';
 import { controlerOrphelins } from './integrite.ts';
 import { ACTION_PURGE_DEMO } from './marqueurs.ts';
+
+/** Ligne du journal qui note les fichiers de pièces non effacés après la purge (nombre seulement). */
+export const ACTION_PURGE_DEMO_PIECES = 'purge.demoPieces';
 import { amorcerActiviteFormation } from './migrations/formations.ts';
 import { amorcerHoraires } from './migrations/lot6-horaires.ts';
 import { amorcerActiviteAstreinte } from './migrations/lot7-astreintes.ts';
@@ -342,8 +346,8 @@ async function appliquer(db: Db, options: OptionsPurge, attendus: number | null,
   const amorcages = await reposerAmorcages(db, plan.tables);
   const prochain = a.sequence.prochain;
   await placerSequence(db, prochain);
-  // 5. Journal vidé (les identifiants ne repartent pas de zéro : aucune ligne journal:<id> de pub_journal ne se répète),
-  //    puis la seule ligne de la purge : décomptes, identifiants et chemins, jamais de donnée de personne.
+  // 5. Ligne de la purge (journal en ajout seul, jamais vidé : elle sert de frontière aux lignes fictives d'avant) :
+  //    décomptes, identifiants et chemins, jamais de donnée de personne.
   const ajoutsPurges = a.ajouts.fiches.nombre;
   const nTables = Object.keys(supprimees).length;
   await journaliser(db, {
@@ -476,11 +480,14 @@ export async function executerPurge(db: Db, options: OptionsPurge, deps: Dependa
   };
   await ensuite('effacement des fichiers des pièces', async () => { bilan.pieces = await effacerPieces(db, fichiers); });
   if (bilan.pieces.echecs.length) {
-    // Échec noté sur la ligne purge.demo (nombre seulement), sans annuler la purge : à effacer à la main.
+    // Échec noté par une ligne ajoutée après purge.demo (nombre seulement ; journal en ajout seul, la ligne de la purge
+    // n'est jamais modifiée), sans annuler la purge : à effacer à la main.
     await ensuite('note des pièces non effacées au journal', async () => await db.tx(async () => {
-      const l = await db.one<{ id: number }>('SELECT id FROM journal WHERE action = ? ORDER BY id DESC LIMIT 1', [ACTION_PURGE_DEMO]);
-      const ligne = l ? await db.get<{ payload: Record<string, unknown> }>('journal', l.id) : undefined;
-      if (l && ligne) await db.update('journal', l.id, { payload: { ...ligne.payload, piecesNonEffacees: bilan.pieces.echecs.length } });
+      const n = bilan.pieces.echecs.length;
+      await journaliser(db, {
+        actor: ACTEUR_PURGE, role: null, action: ACTION_PURGE_DEMO_PIECES, payload: { piecesNonEffacees: n },
+        message: `Purge des données de démonstration : ${plural(n, 'fichier de pièce n’a pas pu être effacé', 'fichiers de pièces n’ont pas pu être effacés')}, à effacer à la main`,
+      });
     }));
   }
   // Fichier SQLite compacté : les pages libérées par les suppressions ne gardent rien des données fictives (VACUUM demande
@@ -537,7 +544,7 @@ export function texteBilan(b: BilanPurge, moteur: Db['moteur']): string[] {
       ? `comptes gardés (${b.comptesGardes.map(c => c.identifiant).join(', ')}) : vérifier leur profil, ou créer le premier administrateur RH avec npm run comptes -- admin <identifiant> ;`
       : 'créer le premier administrateur RH : npm run comptes -- admin <identifiant> ;',
     `prévenir Keystone, Vigie, Crucible, Codex et Matrix (journal unifié) : vider leurs copies des matricules EMP-0001 à ${matricule(Math.max(1, b.plusGrandId))} `
-      + 'et des lignes de journal de Cursus antérieures à la purge ;',
+      + 'et des lignes de journal de Cursus antérieures à la purge (gardées dans Cursus, en ajout seul, jusqu’à leur échéance : pub_journal les publie encore, Matrix les écarte d’après la ligne purge.demo) ;',
     moteur === 'sqlite'
       ? 'supprimer les copies antérieures à la purge (--supprimer-copies-demo, puis copies distantes : docs/SAUVEGARDE.md) ; reprise Lucca (docs/DEPLOIEMENT.md, « Mise en service : reprise depuis Lucca »).'
       : 'faire marquer par Matrix les pg_dump antérieurs à la purge comme non restaurables en production ; reprise Lucca (docs/DEPLOIEMENT.md, « Mise en service : reprise depuis Lucca »).',

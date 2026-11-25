@@ -4,8 +4,9 @@
 // - efface, sur la confirmation de l'administrateur RH (`employe.anonymiser`), les données échues d'une catégorie, puis, à
 //   l'échéance du dossier, anonymise la fiche en cascade (`effacerDossier`) : chaque colonne qui désigne un salarié
 //   (REFERENCES de server/src/integrite.ts, et non le seul nom `empId`) a son traitement (TRAITEMENTS), vérifié par
-//   tests/conservation.test.ts ; le nom et les adresses sont ensuite retirés des colonnes de texte de la base (journal,
-//   file d'envoi, comptes rendus de reprise…), occurrence délimitée par occurrence délimitée, sans jamais toucher à la
+//   tests/conservation.test.ts ; le nom et les adresses sont ensuite retirés des colonnes de texte de la base (file
+//   d'envoi, comptes rendus de reprise… ; pas du journal des actions, en ajout seul, masqué à la lecture), occurrence
+//   délimitée par occurrence délimitée, sans jamais toucher à la
 //   fiche ni au compte d'un autre salarié (réembauche, homonyme) ;
 // - signale chaque jour au service RH les dossiers échus (`verifierConservation`), sans rien effacer de lui-même.
 // Les sauvegardes gardent les données effacées jusqu'à leur rotation (docs/SAUVEGARDE.md).
@@ -293,8 +294,9 @@ export function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number
       { table: 'equipes', ou: 'manager_id = ?', vider: ['manager_id'] },
       // Compte de connexion fermé : sessions supprimées, identité retirée (l'identifiant unique devient « anonyme-<n°> »).
       { table: 'connexions', ou: 'compte_id IN (SELECT id FROM comptes WHERE emp_id = ?)', supprimer: true },
-      // Identifiant de connexion noté au journal : celui du compte fermé (un identifiant local n'est pas balayé, ci-dessous).
-      { table: 'journal', ou: `compte_id IN (SELECT id FROM comptes WHERE emp_id = ?) AND identifiant IS NOT NULL AND identifiant NOT LIKE 'anonyme-%'`, sql: { identifiant: `'anonyme-' || compte_id` } },
+      // Journal des actions : en ajout seul (Norma § 4, décision du 25/11/2026), jamais modifié ; l'auteur et l'identifiant
+      // d'une ligne écrite par ce compte sont remplacés à la lecture par le nom neutre et « anonyme-<compte> »
+      // (server/src/journal.ts, ACTEUR_SQL et IDENTIFIANT_SQL), et la ligne part à son échéance (12 mois, 36 pour la paie).
       {
         table: 'comptes', ou: `emp_id = ? AND identifiant NOT LIKE 'anonyme-%'`, vider: ['nom', 'adresse', 'oid', 'mot_de_passe', 'blocage_fin'],
         poser: { actif: 0, changer_mot_de_passe: 0 }, sql: { identifiant: `'anonyme-' || id` },
@@ -437,7 +439,9 @@ async function identite(db: Db, empId: number): Promise<string[]> {
 const LIGNES_DU_SALARIE: Partial<Record<string, string>> = { employes: 'id', comptes: 'emp_id' };
 // lot 12 — C6 (badgeage virtuel) : pointages bruts, sans aucun texte nommé (instants, jours, codes), écartés du balayage :
 // des centaines de milliers de lignes relues pour rien à chaque anonymisation.
-const TABLES_EXCLUES = new Set(['settings', 'pointages']);
+// Journal des actions : en ajout seul (Norma § 4, décision du 25/11/2026), jamais balayé ; un nom cité dans un message y
+// reste jusqu'à l'échéance de la ligne (12 mois, 36 pour la paie : docs/RGPD.md, § 5).
+const TABLES_EXCLUES = new Set(['settings', 'pointages', 'journal']);
 const COLONNES_EXCLUES = new Set(['journal.action']);
 
 const echapper = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -450,7 +454,7 @@ export const motifTerme = (t: string) => new RegExp(`(?<![\\p{L}\\p{N}_@.-])${ec
 
 /**
  * Balayage : chaque occurrence délimitée d'un terme est remplacée par le nom neutre dans les colonnes de texte et JSON du
- * schéma (journal des actions et son auteur, file d'envoi, notifications, comptes rendus de reprise, auteurs nommés dans
+ * schéma (file d'envoi, notifications, comptes rendus de reprise, auteurs nommés dans
  * d'autres dossiers, motif de la trace de l'effacement…). Les lignes candidates sont repérées en SQL, le remplacement
  * borné est fait ici. Renvoie le nombre de valeurs modifiées.
  */

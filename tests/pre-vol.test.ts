@@ -34,6 +34,8 @@ const DEMO_COOLIFY = { ...IMAGE, CURSUS_DEMO: '1', CURSUS_DEMO_PUBLIQUE: '1', CU
 const PRODUCTION = {
   ...IMAGE, CURSUS_TRUST_PROXY: '10.0.1.3',
   DATABASE_URL: 'postgres://cursus_app:mdp-cursus-app@epc2i-postgres:5432/epc2i',
+  // Purge du journal par le rôle dédié (décision du 25/11/2026, server/src/journal-purge.ts).
+  CURSUS_PURGE_DATABASE_URL: 'postgres://cursus_purge:mdp-cursus-purge@epc2i-postgres:5432/epc2i',
   CURSUS_SECRET: 'a'.repeat(64), KEYSTONE_API_KEY: 'b'.repeat(64), KEYSTONE_URL: 'http://keystone:3000', KEYSTONE_TOKEN: 'c'.repeat(64),
   CURSUS_SUPERVISION_TOKEN: 'e'.repeat(64), MATRIX_URL: 'http://matrix:3000', MATRIX_TOKEN: 'f'.repeat(64),
   CURSUS_PUBLIC_URL: 'https://cursus.entreprise.fr',
@@ -306,7 +308,7 @@ const dossier = mkdtempSync(join(tmpdir(), 'cursus-verifier-production-'));
 process.on('exit', () => { rmSync(dossier, { recursive: true, force: true }); rmSync(dossierPieces, { recursive: true, force: true }); });
 const commande = (env: Record<string, string>, ...args: string[]) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/verifier-production.ts', ...args],
   { cwd: ROOT, encoding: 'utf8', env: { PATH: process.env.PATH ?? '', ...env } });
-const { DATABASE_URL: _url, ...PROD_SQLITE } = { ...PRODUCTION, CURSUS_BASE: 'sqlite', CURSUS_CONTENEUR: '0' };
+const { DATABASE_URL: _url, CURSUS_PURGE_DATABASE_URL: _purge, ...PROD_SQLITE } = { ...PRODUCTION, CURSUS_BASE: 'sqlite', CURSUS_CONTENEUR: '0' };
 void _url;
 
 test('commande : options, configuration seule, base de démonstration refusée sans être modifiée, JSON', async () => {
@@ -330,7 +332,7 @@ test('commande : options, configuration seule, base de démonstration refusée s
   // Production cible : conforme, sauvegarde du serveur commun vérifiée par son témoin (sans lui : avertissement).
   const temoin = join(dossier, 'cursus.temoin');
   writeFileSync(temoin, `${new Date().toISOString()}\n`);
-  const cibleProd = { ...PROD_SQLITE, DATABASE_URL: PRODUCTION.DATABASE_URL, CURSUS_BASE: 'postgres', CURSUS_DB: fichier };
+  const cibleProd = { ...PROD_SQLITE, DATABASE_URL: PRODUCTION.DATABASE_URL, CURSUS_PURGE_DATABASE_URL: PRODUCTION.CURSUS_PURGE_DATABASE_URL, CURSUS_BASE: 'postgres', CURSUS_DB: fichier };
   assert.equal(commande({ ...cibleProd, CURSUS_SAUVEGARDE_TEMOIN: temoin }, '--config-seule').status, 0, 'production cible : conforme');
   const sansTemoin = commande(cibleProd, '--config-seule');
   assert.equal(sansTemoin.status, 2);

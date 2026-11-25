@@ -8,6 +8,10 @@
 // - Conservation (décision de l'entreprise, shared/journal.ts) : 1 an pour tout ; les actions liées à la
 //   paie passent alors dans une archive, hors de l'écran, que le service RH consulte sur demande, et sont
 //   supprimées au bout de 3 ans. Les envois anciens de la file d'envoi sont purgés en même temps.
+// - Ajout seul (Norma § 4, décision du propriétaire du 25/11/2026) : aucune ligne n'est jamais modifiée ; l'archive
+//   est calculée à la lecture, une action répétée est ajoutée à son groupe (`regroupe`), et seule la purge par le
+//   rôle dédié supprime les lignes échues (server/src/journal-purge.ts). Une ligne échue que la purge n'a pas encore
+//   supprimée (purge désactivée, passage du jour à venir) n'est plus montrée.
 // - Consultation (droit « rh », ou « consultation » d'un profil en lecture seule, qui ne voit pas le détail des
 //   actions touchant à la santé) : filtres, pagination, export CSV (formules neutralisées), archive ; l'export
 //   et chaque consultation de l'archive sont tracés.
@@ -27,8 +31,8 @@ import { categorieJournal, estCategorieFrais } from '../../shared/rules/frais.ts
 // lot 12 — C4 (organismes de formation et e-learning)
 import { REGLES_ORGANISMES } from './journal-organismes.ts';
 import {
-  ACTION_APPEL_KEYSTONE, ACTIONS_CONNEXION, ACTIONS_PAIE, changementsTexte, CONSERVATION_ARCHIVE_PAIE_MOIS, CONSERVATION_ENVOIS_MOIS,
-  CONSERVATION_JOURNAL_MOIS, dossierComplet, estActionPaie, familleAction, FAMILLES_JOURNAL, JOURNAL_LABEL, lecteurJournal, libelleAction,
+  ACTION_APPEL_KEYSTONE, ACTIONS_CONNEXION, changementsTexte, CONSERVATION_ENVOIS_MOIS,
+  CONSERVATION_JOURNAL_MOIS, dossierComplet, familleAction, FAMILLES_JOURNAL, lecteurJournal, libelleAction,
 } from '../../shared/journal.ts';
 import { CODE_PAYS, CODE_TITRE, codeDestination, codeTitre, type ReferentielId } from '../../shared/rules/referentiels.ts';
 import { estTypeReprise } from '../../shared/rules/reprise.ts';
@@ -50,7 +54,8 @@ import { identite, type Identite } from './connexion.ts';
 import { loadFull, loadSettings, scopeIds } from './dataset.ts';
 import { type Db, enSerie, jsonLu, type TableName } from './db.ts';
 import { purgerEnvois, purgerNotifications } from './envois.ts';
-import { copieAvantMigration } from './sauvegarde.ts';
+import { inscrireActionsPaie, limitesConservation, paieSql, purgerJournal, type ResultatPurge } from './journal-purge.ts';
+import { ACTION_PURGE_DEMO } from './marqueurs.ts';
 
 type P = Record<string, any>;
 type Ligne = Record<string, any>;
@@ -1383,24 +1388,30 @@ export async function journaliserAction(db: Db, t: Trace, x: { user: CurrentUser
   if (diff) Object.assign(payload, { avant: diff.avant, apres: diff.apres });
   const salaries = entiers([p.empId, avant?.empId, ctx.apres?.empId, ...(await regle?.salaries?.(p, ctx) ?? [])]);
   const message = expurgerMessage(propres?.message ?? x.message);
-  if (regle?.regrouper && await regrouper(db, { minutes: regle.regrouper, action: code, compteId: x.compte.id, payload })) return;
+  const groupe = regle?.regrouper ? await regroupement(db, { minutes: regle.regrouper, action: code, compteId: x.compte.id, payload }) : null;
+  if (groupe) {
+    await journaliser(db, { actor: x.user.nom, role: x.user.role, action: code, message: groupe.message, payload: groupe.payload, compte: x.compte, salaries, regroupe: groupe.regroupe });
+    return;
+  }
   await journaliser(db, { actor: x.user.nom, role: x.user.role, action: code, message, payload, compte: x.compte, salaries });
 }
 
 /**
- * Ajoute la modification à la dernière ligne du même compte sur le même objet (même valeur de `cle`), si elle date
- * de moins de `minutes` : listes réunies, autres valeurs remplacées, message recalculé au besoin.
+ * Action répétée du même compte sur le même objet (même valeur de `cle`) dans les `minutes` qui suivent la dernière
+ * ligne du groupe : la nouvelle ligne est ajoutée (journal en ajout seul, jamais de mise à jour), rattachée à la
+ * première ligne du groupe (`regroupe`), avec le contenu réuni jusque-là (listes réunies, autres valeurs remplacées) et
+ * le message recalculé au besoin (sinon celui du groupe). La lecture montre le groupe en une ligne : celle de tête,
+ * avec la date, le contenu et le message de la dernière (`plierGroupes`). Null : pas de groupe en cours.
  */
-async function regrouper(db: Db, o: { minutes: number; action: string; compteId: number; payload: Ligne; cle?: string; message?: (fusion: Ligne) => string }): Promise<boolean> {
+async function regroupement(db: Db, o: { minutes: number; action: string; compteId: number; payload: Ligne; cle?: string; message?: (fusion: Ligne) => string }): Promise<{ regroupe: number; payload: Ligne; message: string | null } | null> {
   const cle = o.cle ?? 'id';
   const depuis = new Date(Date.now() - o.minutes * 60_000).toISOString();
-  const der = await db.one('SELECT id, payload FROM journal WHERE compte_id = ? AND action = ? AND at >= ? ORDER BY id DESC LIMIT 1', [o.compteId, o.action, depuis]) as { id: number; payload: string } | undefined;
+  const der = await db.one('SELECT id, regroupe, payload, message FROM journal WHERE compte_id = ? AND action = ? AND at >= ? ORDER BY id DESC LIMIT 1', [o.compteId, o.action, depuis]) as { id: number; regroupe: number | null; payload: string; message: string | null } | undefined;
   const prec = der ? lireJson(der.payload) as Ligne : null;
-  if (!der || !prec || prec[cle] !== o.payload[cle]) return false;
+  if (!der || !prec || prec[cle] !== o.payload[cle]) return null;
   const fusion: Ligne = { ...prec };
   for (const [k, v] of Object.entries(o.payload)) fusion[k] = Array.isArray(v) && Array.isArray(prec[k]) ? [...new Set([...prec[k], ...v])] : v;
-  await db.update('journal', der.id, { at: new Date().toISOString(), payload: fusion, ...(o.message ? { message: o.message(fusion) } : {}) });
-  return true;
+  return { regroupe: Number(der.regroupe ?? der.id), payload: fusion, message: o.message ? o.message(fusion) : der.message };
 }
 
 /** Longueur au plus d'un motif de refus recopié (il peut reprendre des clés envoyées par le client). */
@@ -1421,13 +1432,22 @@ export async function tracerRefus(db: Db, id: Pick<Identite, 'user' | 'compte'>,
 
 const ilYa = (maintenant: Date, mois: number) => { const d = new Date(maintenant); d.setMonth(d.getMonth() - mois); return d.toISOString(); };
 
-export interface BilanConservation { supprimees: number; archivees: number; supprimeesArchive: number; envois: number; notifications: number }
+export interface BilanConservation {
+  /** Lignes du journal hors paie de plus d'1 an, supprimées par la purge. */
+  supprimees: number;
+  /** Lignes du journal de plus de 3 ans (archive de la paie comprise), supprimées par la purge. */
+  supprimeesArchive: number;
+  envois: number; notifications: number;
+  /** Purge du journal : faite (inscrite au registre), désactivée (PostgreSQL sans rôle dédié), en échec, ou pas passée. */
+  purge: ResultatPurge['statut'] | 'non';
+  /** Motif d'un échec ou d'une purge désactivée. */
+  message?: string;
+}
 
-/** Bilan d'un ou plusieurs passages, en clair. */
+/** Bilan d'un passage, en clair. */
 function bilanTexte(b: BilanConservation): string {
   return [
     b.supprimees && `${plural(b.supprimees, 'ligne supprimée', 'lignes supprimées')} (plus d’un an)`,
-    b.archivees && `${plural(b.archivees, 'action liée à la paie archivée', 'actions liées à la paie archivées')}`,
     b.supprimeesArchive && `${plural(b.supprimeesArchive, 'ligne supprimée', 'lignes supprimées')} de l’archive (plus de 3 ans)`,
     b.envois && `${plural(b.envois, 'envoi ancien retiré', 'envois anciens retirés')} de la file d’envoi`,
     b.notifications && `${plural(b.notifications, 'notification ancienne supprimée', 'notifications anciennes supprimées')}`,
@@ -1435,101 +1455,56 @@ function bilanTexte(b: BilanConservation): string {
 }
 
 /**
- * Applique les durées de conservation : au-delà de 3 ans, toute ligne est supprimée (archive comprise) ; au-delà
- * d'1 an, une action liée à la paie passe dans l'archive, les autres lignes (connexions comprises) sont supprimées.
- * Les envois réussis ou simulés de plus d'1 an quittent la file d'envoi, les notifications déjà traitées de plus d'1 an
- * sont supprimées. Une ligne par jour résume ce qui a été
- * fait : la tâche tourne toutes les heures, chaque passage s'ajoute au bilan du jour au lieu d'écrire une ligne.
+ * Applique les durées de conservation. Journal (si `journal` n'est pas faux) : la purge, seule à pouvoir supprimer
+ * (server/src/journal-purge.ts : rôle dédié sur PostgreSQL), retire les lignes de plus de 3 ans et celles de plus d'1 an
+ * qui ne sont pas liées à la paie ; l'archive de la paie (lignes de 1 à 3 ans) est calculée à la lecture, rien n'est
+ * modifié. File d'envoi et notifications (tables ordinaires) : envois réussis ou simulés et notifications traitées de plus
+ * d'1 an supprimés. Limites prises au début du jour (UTC) : un passage par heure ne trouve du nouveau qu'une fois par
+ * jour. Chaque passage qui a supprimé quelque chose ajoute une ligne `journal.conservation` (jamais une ligne complétée).
  */
-export async function appliquerConservation(db: Db, maintenant = new Date()): Promise<BilanConservation> {
-  const un = ilYa(maintenant, CONSERVATION_JOURNAL_MOIS), trois = ilYa(maintenant, CONSERVATION_ARCHIVE_PAIE_MOIS);
+export async function appliquerConservation(db: Db, maintenant = new Date(), o: { journal?: boolean; env?: Record<string, string | undefined> } = {}): Promise<BilanConservation> {
+  const purge = o.journal === false ? null : await purgerJournal(db, o.env ?? process.env);
+  // Début du jour (UTC) : les envois et notifications partent une fois par jour, comme les lignes du journal.
+  const jour = new Date(Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth(), maintenant.getUTCDate()));
   return await db.tx(async () => {
-    const n = async (sql: string, ...a: string[]) => Number((await db.run(sql, [...a])).changes);
-    const supprimeesArchive = await n('DELETE FROM journal WHERE at < ?', trois);
-    const archivees = await n('UPDATE journal SET archivee = ? WHERE paie = TRUE AND archivee IS NULL AND at < ?', maintenant.toISOString(), un);
-    const supprimees = await n('DELETE FROM journal WHERE (paie IS NULL OR paie = FALSE) AND at < ?', un);
-    const envois = await purgerEnvois(db, ilYa(maintenant, CONSERVATION_ENVOIS_MOIS));
+    const envois = await purgerEnvois(db, ilYa(jour, CONSERVATION_ENVOIS_MOIS));
     // Notifications déjà traitées par le récapitulatif : même durée que la file d'envoi (lot 8, D7), après les envois
     // (une notification dont l'e-mail reste en file est gardée).
-    const notifications = await purgerNotifications(db, ilYa(maintenant, CONSERVATION_ENVOIS_MOIS));
-    const b = { supprimees, archivees, supprimeesArchive, envois, notifications };
-    if (supprimees || archivees || supprimeesArchive || envois || notifications) {
-      // Bilan du jour (heure locale du serveur) : la ligne déjà écrite aujourd'hui est complétée.
-      const minuit = new Date(maintenant);
-      minuit.setHours(0, 0, 0, 0);
-      const du = await db.one('SELECT id, payload FROM journal WHERE action = ? AND at >= ? AND at <= ? ORDER BY id DESC LIMIT 1', ['journal.conservation', minuit.toISOString(), maintenant.toISOString()]) as { id: number; payload: string } | undefined;
-      const prec = (du ? lireJson(du.payload) : null) as (BilanConservation & { passages?: number }) | null;
-      const total = prec
-        ? { supprimees: num(prec.supprimees) + supprimees, archivees: num(prec.archivees) + archivees, supprimeesArchive: num(prec.supprimeesArchive) + supprimeesArchive, envois: num(prec.envois) + envois, notifications: num(prec.notifications) + notifications }
-        : b;
-      const payload = { ...total, passages: prec ? (prec.passages ?? 1) + 1 : 1 };
-      const message = `Durée de conservation : ${bilanTexte(total)}`;
-      if (du && prec) await db.update('journal', du.id, { at: maintenant.toISOString(), message, payload });
-      else await journaliser(db, { at: maintenant.toISOString(), actor: 'Cursus', role: null, action: 'journal.conservation', message, payload });
+    const notifications = await purgerNotifications(db, ilYa(jour, CONSERVATION_ENVOIS_MOIS));
+    const b: BilanConservation = {
+      supprimees: purge?.supprimees ?? 0, supprimeesArchive: purge?.supprimeesArchive ?? 0, envois, notifications, purge: purge?.statut ?? 'non',
+      ...(purge?.message ? { message: purge.message } : {}),
+    };
+    if (b.supprimees || b.supprimeesArchive || envois || notifications) {
+      await journaliser(db, {
+        at: maintenant.toISOString(), actor: 'Cursus', role: null, action: 'journal.conservation', message: `Durée de conservation : ${bilanTexte(b)}`,
+        payload: { supprimees: b.supprimees, supprimeesArchive: b.supprimeesArchive, envois, notifications, ...(purge?.registre ? { registre: purge.registre } : {}) },
+      });
     }
     return b;
   });
 }
 
 /**
- * Lignes déjà écrites d'une action devenue « liée à la paie » (ACTIONS_PAIE élargie depuis) : marquées comme telles,
- * pour qu'elles passent dans l'archive au lieu d'être supprimées.
- */
-export async function marquerPaie(db: Db): Promise<number> {
-  const dans = ACTIONS_PAIE.map(() => '?').join(', ');
-  return Number((await db.run(`UPDATE journal SET paie = TRUE WHERE (paie IS NULL OR paie = FALSE) AND (action IN (${dans}) OR action LIKE 'sage.%')`, [...ACTIONS_PAIE])).changes);
-}
-
-/**
- * Lignes écrites avant la liste blanche (contenu complet de la requête : numéro de passeport, CSV, vaccins…) :
- * contenu réduit aux champs retenus, salariés concernés retrouvés, message expurgé, action de paie marquée.
- * Une seule fois par base (réglage `journalExpurge`), et seulement les lignes sans `salaries` : une ligne écrite
- * depuis (anciennes et nouvelles valeurs comprises) n'est jamais reprise, même après une réinitialisation de la
- * démonstration qui efface le réglage. Les lignes du système (connexions, appels et messages de Keystone)
- * n'ont jamais contenu de requête : leur contenu est gardé. Renvoie le nombre de lignes dont le contenu ou le
- * message a été réduit.
- */
-export async function reprendreJournal(db: Db): Promise<number> {
-  if (await db.getSetting<boolean>('journalExpurge', false)) return 0;
-  return await db.tx(async () => {
-    const lignes = await db.query('SELECT id, action, message, payload FROM journal WHERE salaries IS NULL') as { id: number; action: string; message: string | null; payload: string | null }[];
-    let reduites = 0;
-    for (const l of lignes) {
-      const p = (lireJson(l.payload) ?? {}) as P;
-      const regle = regleDe(l.action);
-      let payload: Ligne = p, salaries: number[] = [];
-      if (regle) {
-        const ligne = await lireCible(db, regle.cible, p);
-        payload = champsRetenus(l.action, p, null);
-        salaries = entiers([p.empId, ligne?.empId, ...participants(p).map(x => x?.empId),
-          ...(l.action === 'employe.modifier' ? [p.id] : [])]);
-      } else if (!JOURNAL_LABEL[l.action] && !l.action.startsWith('keystone.')) payload = {};
-      const message = expurgerMessage(l.message);
-      if (JSON.stringify(payload) !== JSON.stringify(p) || message !== l.message) reduites++;
-      await db.run('UPDATE journal SET payload = ?, message = ?, salaries = ?, paie = ? WHERE id = ?',
-        [JSON.stringify(payload), message, JSON.stringify(salaries), estActionPaie(l.action), l.id]);
-    }
-    await db.setSetting('journalExpurge', true);
-    return reduites;
-  });
-}
-
-/**
- * Au démarrage : reprise des anciennes lignes, conservation appliquée puis relancée toutes les heures. Index du journal
- * (`journal_at`, `journal_action`) : migration nommée (server/src/migrations/exploitation.ts).
+ * Au démarrage : codes des actions liées à la paie inscrits (`inscrireActionsPaie`, jamais une ligne modifiée), puis
+ * conservation appliquée et relancée toutes les heures ; la purge du journal passe au démarrage puis une fois par jour
+ * (registre `journal_purges` : une ligne par passage). Purge désactivée ou en échec : dit une fois par jour dans le journal
+ * du serveur, rien n'est supprimé. Index du journal (`journal_at`, `journal_action`) : migration nommée
+ * (server/src/migrations/exploitation.ts).
  */
 export async function demarrerJournal(db: Db) {
-  const reduites = await reprendreJournal(db);
-  if (reduites) {
-    // La copie faite avant la migration (et toute sauvegarde antérieure) garde l'ancien journal, non expurgé.
-    const copie = copieAvantMigration(db);
-    console.log(`Journal : ${plural(reduites, 'ligne antérieure expurgée', 'lignes antérieures expurgées')} (numéros de passeport, CSV, natures d’absence…). `
-      + (copie
-        ? `La copie ${copie} contient encore l’ancien journal : supprimez-la une fois la mise à jour vérifiée (docs/DEPLOIEMENT.md).`
-        : 'Les sauvegardes antérieures contiennent encore l’ancien journal (docs/DEPLOIEMENT.md).'));
-  }
-  await marquerPaie(db);
-  const appliquer = async () => { try { await appliquerConservation(db); } catch (err) { console.error('Conservation du journal :', err); } };
+  await inscrireActionsPaie(db);
+  let jourPurge: string | null = null;
+  const appliquer = async () => {
+    try {
+      const jour = new Date().toISOString().slice(0, 10);
+      const b = await appliquerConservation(db, new Date(), { journal: jourPurge !== jour });
+      if (b.purge !== 'non') {
+        jourPurge = jour;
+        if (b.purge !== 'faite') console.warn(`Purge du journal des actions ${b.purge === 'desactivee' ? 'désactivée' : 'en échec'} : ${b.message ?? ''}`);
+      }
+    } catch (err) { console.error('Conservation du journal :', err); }
+  };
   await appliquer();
   setInterval(appliquer, 3600_000).unref();
 }
@@ -1569,12 +1544,94 @@ const like = (s: string) => `%${s.replace(/[\\%_]/g, '\\$&')}%`;
 /** Le filtre « Action » désigne-t-il les appels de Keystone (code exact, ou leur famille) ? */
 const appelsDemandes = (action: string | null) => action === ACTION_APPEL_KEYSTONE || (!!action?.startsWith('famille:') && familleAction(ACTION_APPEL_KEYSTONE)?.id === action.slice(8));
 
-function clauses(db: Db, f: FiltreJournal): { where: string; params: (string | number)[] } {
+/**
+ * Contexte d'une lecture du journal : limites de conservation du jour (les mêmes que la purge) et frontière de la purge
+ * des données de démonstration (première ligne `purge.demo`) : le journal en ajout seul garde les lignes fictives
+ * d'avant la purge jusqu'à leur échéance, jamais montrées.
+ */
+export interface LectureJournal { limites: { journal: string; paie: string }; frontiere: number | null }
+
+export async function contexteLecture(db: Db, maintenant = new Date()): Promise<LectureJournal> {
+  const r = await db.one<{ id: number | null }>('SELECT MIN(id) AS id FROM journal WHERE action = ?', [ACTION_PURGE_DEMO]);
+  return { limites: limitesConservation(maintenant), frontiere: r?.id != null ? Number(r.id) : null };
+}
+
+/**
+ * Lignes conservées (écran, archive comprise, et export des données d'un salarié) : de moins d'1 an, ou de moins de 3 ans
+ * liées à la paie ; ni une ligne d'un groupe autre que sa tête (`plierGroupes`), ni une ligne d'avant la purge de la
+ * démonstration. Une ligne échue que la purge n'a pas encore supprimée n'est jamais montrée.
+ */
+export function conditionConservee(cx: LectureJournal, params: (string | number)[]): string {
+  params.push(cx.limites.journal, cx.limites.paie, ...(cx.frontiere ? [cx.frontiere] : []));
+  return `journal.regroupe IS NULL AND (journal.at >= ? OR (journal.at >= ? AND (journal.archivee IS NOT NULL OR ${paieSql()})))${cx.frontiere ? ' AND journal.id >= ?' : ''}`;
+}
+
+/** Message d'une ligne qui concerne un salarié anonymisé, ou écrite par son compte : il peut citer son nom. */
+export const MESSAGE_ANONYMISE = '[message masqué : salarié anonymisé]';
+
+/**
+ * Anonymisation d'un dossier (conservation des dossiers, server/src/conservation.ts) appliquée à la lecture, le journal
+ * en ajout seul n'étant plus balayé : auteur d'une ligne écrite par le compte d'un salarié anonymisé = nom neutre de la
+ * fiche ; identifiant = « anonyme-<compte> » ; message d'une ligne écrite par ce compte ou qui concerne ce salarié
+ * (`salaries`) masqué (il peut citer son nom). Les lignes brutes partent à leur échéance (12 mois, 36 pour la paie).
+ */
+export function masquesSql(db: Db): { acteur: string; identifiant: string; message: string } {
+  const parCompte = 'SELECT 1 FROM comptes c JOIN employes e ON e.id = c.emp_id WHERE c.id = journal.compte_id AND e.anonymise_le IS NOT NULL';
+  const concerne = db.moteur === 'pg'
+    ? `SELECT 1 FROM employes e WHERE e.anonymise_le IS NOT NULL AND (journal.salaries)::jsonb @> jsonb_build_array(e.id)`
+    : `SELECT 1 FROM json_each(journal.salaries) s JOIN employes e ON e.id = s.value WHERE e.anonymise_le IS NOT NULL`;
+  return {
+    acteur: `COALESCE((SELECT e.nom FROM comptes c JOIN employes e ON e.id = c.emp_id WHERE c.id = journal.compte_id AND e.anonymise_le IS NOT NULL), journal.actor)`,
+    identifiant: `CASE WHEN journal.identifiant IS NOT NULL AND EXISTS (SELECT 1 FROM comptes c WHERE c.id = journal.compte_id AND c.identifiant LIKE 'anonyme-%')
+      THEN 'anonyme-' || journal.compte_id ELSE journal.identifiant END`,
+    message: `CASE WHEN journal.message IS NOT NULL AND (EXISTS (${parCompte}) OR EXISTS (${concerne})) THEN '${MESSAGE_ANONYMISE}' ELSE journal.message END`,
+  };
+}
+
+/** Date d'entrée dans l'archive de la paie : celle posée avant le journal en ajout seul, sinon un an après l'action. */
+export function archiveeDe(at: unknown, archivee: unknown, cx: LectureJournal): string | null {
+  if (archivee) return archivee instanceof Date ? archivee.toISOString() : String(archivee);
+  const d = new Date(at instanceof Date ? at : String(at));
+  if (!(d.getTime() < new Date(cx.limites.journal).getTime())) return null;
+  d.setUTCMonth(d.getUTCMonth() + CONSERVATION_JOURNAL_MOIS);
+  return d.toISOString();
+}
+
+/**
+ * Groupes d'actions répétées réunis à la lecture : la ligne de tête prend la date, le contenu et le message de la
+ * dernière ligne de son groupe (l'auteur, l'action et les salariés concernés restent ceux de la tête). `lignes` porte
+ * l'`id`, et `at`, `message` et `details` (ou `payload`) à remplacer.
+ */
+export async function plierGroupes<T extends { id: number; at: string; message: string | null }>(db: Db, lignes: T[], cle: 'details' | 'payload' = 'details'): Promise<T[]> {
+  const parTete = new Map(lignes.map(l => [Number(l.id), l]));
+  const ids = [...parTete.keys()];
+  for (let i = 0; i < ids.length; i += 500) {
+    const lot = ids.slice(i, i + 500);
+    const membres = await db.query<{ regroupe: number; at: unknown; message: string | null; payload: unknown }>(
+      `SELECT regroupe, at, message, payload FROM journal WHERE regroupe IN (${lot.map(() => '?').join(', ')}) ORDER BY id`, lot);
+    for (const m of membres) {
+      const l = parTete.get(Number(m.regroupe));
+      if (!l) continue;
+      l.at = m.at instanceof Date ? m.at.toISOString() : String(m.at);
+      l.message = m.message;
+      (l as Record<string, unknown>)[cle] = cle === 'details' ? (lireJson(m.payload) as Ligne | null) ?? {} : m.payload;
+    }
+  }
+  return lignes;
+}
+
+function clauses(db: Db, f: FiltreJournal, cx: LectureJournal): { where: string; params: (string | number)[] } {
   const w: string[] = [], params: (string | number)[] = [];
   const liste = (xs: readonly string[]) => { params.push(...xs); return xs.map(() => '?').join(', '); };
-  if (f.vue === 'archive') w.push('archivee IS NOT NULL');
-  else {
-    w.push('archivee IS NULL');
+  if (f.vue === 'archive') {
+    // Archive de la paie : lignes de 1 à 3 ans liées à la paie (calculée, jamais écrite), groupes réunis.
+    w.push(`journal.regroupe IS NULL AND journal.at < ? AND journal.at >= ? AND (journal.archivee IS NOT NULL OR ${paieSql()})`);
+    params.push(cx.limites.journal, cx.limites.paie);
+    if (cx.frontiere) { w.push('journal.id >= ?'); params.push(cx.frontiere); }
+  } else {
+    w.push('journal.regroupe IS NULL AND journal.at >= ?');
+    params.push(cx.limites.journal);
+    if (cx.frontiere) { w.push('journal.id >= ?'); params.push(cx.frontiere); }
     if (f.vue === 'keystone') { w.push('action = ?'); params.push(ACTION_APPEL_KEYSTONE); }
     else {
       // Les appels de Keystone, nombreux, sont tenus à l'écart des autres vues, sauf si le filtre « Action » les désigne.
@@ -1588,7 +1645,7 @@ function clauses(db: Db, f: FiltreJournal): { where: string; params: (string | n
   }
   if (f.du) { w.push('at >= ?'); params.push(debutJour(f.du)); }
   if (f.au) { w.push('at < ?'); params.push(debutJour(addD(f.au, 1))); }
-  if (f.auteur) { w.push(`(actor ${db.like} ? ESCAPE '\\' OR identifiant ${db.like} ? ESCAPE '\\')`); params.push(like(f.auteur), like(f.auteur)); }
+  if (f.auteur) { const m = masquesSql(db); w.push(`(${m.acteur} ${db.like} ? ESCAPE '\\' OR ${m.identifiant} ${db.like} ? ESCAPE '\\')`); params.push(like(f.auteur), like(f.auteur)); }
   if (f.action?.startsWith('famille:')) {
     const fam = FAMILLES_JOURNAL.find(x => x.id === f.action!.slice(8));
     if (fam) {
@@ -1605,10 +1662,10 @@ export interface LigneJournal {
   salaries: number[]; details: Ligne; archivee: string | null;
 }
 
-const COLONNES = 'id, at, actor, role, action, message, identifiant, payload, salaries, archivee';
-const decoder = (r: Ligne): LigneJournal => ({
+const colonnes = (db: Db) => { const m = masquesSql(db); return `id, at, ${m.acteur} AS actor, role, action, ${m.message} AS message, ${m.identifiant} AS identifiant, payload, salaries, archivee`; };
+const decoder = (cx: LectureJournal) => (r: Ligne): LigneJournal => ({
   id: r.id, at: r.at, actor: r.actor, role: r.role ?? null, action: r.action, message: r.message ?? null, identifiant: r.identifiant ?? null,
-  salaries: (lireJson(r.salaries) as number[] | null) ?? [], details: (lireJson(r.payload) as Ligne | null) ?? {}, archivee: r.archivee ?? null,
+  salaries: (lireJson(r.salaries) as number[] | null) ?? [], details: (lireJson(r.payload) as Ligne | null) ?? {}, archivee: archiveeDe(r.at, r.archivee, cx),
 });
 
 export const TAILLE_PAGE = 50;
@@ -1617,10 +1674,11 @@ export const TAILLE_MAX = 200;
 export const EXPORT_MAX = 100_000;
 
 /** Page de lignes filtrées, les plus récentes d'abord, et nombre total de lignes du filtre. */
-export async function lireJournal(db: Db, f: FiltreJournal, page = 1, taille = TAILLE_PAGE) {
-  const { where, params } = clauses(db, f);
+export async function lireJournal(db: Db, f: FiltreJournal, page = 1, taille = TAILLE_PAGE, maintenant = new Date()) {
+  const cx = await contexteLecture(db, maintenant);
+  const { where, params } = clauses(db, f, cx);
   const total = Number((await db.one(`SELECT COUNT(*) AS n FROM journal ${where}`, [...params]) as { n: number }).n);
-  const lignes = (await db.query(`SELECT ${COLONNES} FROM journal ${where} ORDER BY id DESC LIMIT ? OFFSET ?`, [...params, taille, (page - 1) * taille]) as Ligne[]).map(decoder);
+  const lignes = await plierGroupes(db, (await db.query(`SELECT ${colonnes(db)} FROM journal ${where} ORDER BY id DESC LIMIT ? OFFSET ?`, [...params, taille, (page - 1) * taille]) as Ligne[]).map(decoder(cx)));
   return { lignes, total, page, taille };
 }
 
@@ -1707,8 +1765,11 @@ async function tracerArchive(db: Db, id: Identite, f: FiltreJournal, page: numbe
     return `Consultation de l’archive paie — ${plural(total, 'ligne', 'lignes')} (${filtres})${vues}`;
   };
   const payload = { filtres, pages: [page] };
-  if (await regrouper(db, { minutes: 15, action: 'journal.archive', compteId: id.compte.id, payload, cle: 'filtres', message })) return;
-  await journaliser(db, { actor: id.user.nom, role: id.user.role, action: 'journal.archive', message: message(payload), payload, compte: id.compte, salaries: f.salarie ? [f.salarie] : [] });
+  const groupe = await regroupement(db, { minutes: 15, action: 'journal.archive', compteId: id.compte.id, payload, cle: 'filtres', message });
+  await journaliser(db, {
+    actor: id.user.nom, role: id.user.role, action: 'journal.archive', message: groupe ? groupe.message : message(payload), payload: groupe ? groupe.payload : payload,
+    compte: id.compte, salaries: f.salarie ? [f.salarie] : [], ...(groupe ? { regroupe: groupe.regroupe } : {}),
+  });
 }
 
 /** Fichier joint à télécharger (jamais mis en cache : données personnelles). */

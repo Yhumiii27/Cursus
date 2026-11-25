@@ -38,6 +38,8 @@ export async function mettreAJourBase(db: Db): Promise<void> {
     await appliquerMigrations(db);
     // Déclencheurs de révision reposés : une migration nommée a pu reconstruire une table (lot 8, chantier E).
     db.poserRevision();
+    // Journal en ajout seul : ses déclencheurs reposés de même (server/src/db.ts, `poserJournalAjoutSeul`).
+    db.poserJournalAjoutSeul();
   } else {
     if (db.neuve) {
       await db.tx(async () => {

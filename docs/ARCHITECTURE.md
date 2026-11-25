@@ -116,6 +116,8 @@ server/src/
   actions/         Actions métier (POST /api/actions/:nom), contrôles d'accès et validations
   envois.ts        File d'envoi persistante des messages sortants (table envois), traitée en tâche de fond
   journal.ts       Journal des actions : liste blanche par action, conservation et archive paie, consultation, export CSV
+  journal-purge.ts Purge du journal en ajout seul (seule voie de suppression) : rôle dédié cursus_purge et purger_journal()
+                   sur PostgreSQL, garde de la transaction en SQLite, codes des actions de paie, contrôles de configuration
   lots-paie.ts     Lots de paie (lecture sans contenu, format du fichier d'import) ; fichier-paie.ts : téléchargement du fichier
                    d'import d'un lot (GET /api/paie/lots/:id/fichier, tracé) ; passeport-prevention.ts : export CSV des
                    lignes du Passeport de prévention (GET /api/formations/passeport-prevention, tracé, lot 7) ; absences-paie.ts : absences d'un lot (éléments
@@ -668,6 +670,10 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     `0015_lot11_socle.sql` (lot 11, socle commun : `pieces_objet_check` élargi d'avance aux objets `dossierOpco`,
     `ligneFrais`, `ligneFraisSante` et `vehiculePerso` des chantiers C4 et C5 ; aucune table, aucune colonne, aucune vue
     `pub_` ; voir « Lot 11 : socle commun »).
+    `0035_journal_ajout_seul.sql` (25 novembre 2026, CU-N03 : journal des actions en ajout seul, colonne `journal.regroupe`,
+    tables techniques `journal_actions_paie` et `journal_purges` hors de `TABLES`, déclencheurs et fonction
+    `purger_journal()` du rôle dédié `cursus_purge`, créé par le socle de Matrix ; aucune vue `pub_` ; voir « Journal des
+    actions », « Ajout seul »).
     Appliquées au démarrage sous `pg_advisory_lock(hashtext('cursus.migrations'))`, pris avant de lire le journal
     `cursus.schema_migrations`, une transaction par fichier ; une migration du journal inconnue de ce code (base mise à
     jour par une version plus récente) ou un schéma `cursus` absent : refus de démarrer. Puis `TABLES` est comparé au
@@ -1958,14 +1964,54 @@ Table `journal`, écrite par `server/src/journal.ts` (actions) et `journaliser` 
   (`ACTIONS_PAIE` : validations des feuilles (une à une ou en groupe) et des absences, prolongations et annulations
   d'absences, clôtures des congés, jours de fractionnement, corrections d'heures, transmissions à la paie, lots de paie et téléchargements de leur
   fichier (`sage.fichier`) et export des variables de la période (`sage.variables`), date de départ des absences dans le
-  fichier (`migration.absencesPaie`), sorties et leur annulation, solde de RTT gardé lors d'un changement de régime, renouvellements de CDD et avenants appliqués à leur date) passent dans l'archive (`archivee`), absente de l'écran et
-  consultée sur demande par le service RH, et toute ligne est supprimée au bout de 3 ans. Une action ajoutée
-  à `ACTIONS_PAIE` vaut aussi pour les lignes déjà écrites (`marquerPaie`, au démarrage). Appliquée au
-  démarrage puis toutes les heures (`demarrerJournal`), avec la purge de la file d'envoi (envois réussis ou
-  simulés de plus d'un an, échecs classés depuis plus d'un an ; un échec non traité reste). Une ligne
-  `journal.conservation` par jour fait le bilan, complétée à chaque passage. Les lignes écrites avant la
-  liste blanche sont expurgées une fois (`reprendreJournal`). La réinitialisation de la démonstration
-  conserve le journal (`clearAll` de `db.ts`).
+  fichier (`migration.absencesPaie`), sorties et leur annulation, solde de RTT gardé lors d'un changement de régime, renouvellements de CDD et avenants appliqués à leur date) passent dans l'archive, absente de l'écran et
+  consultée sur demande par le service RH, et toute ligne est supprimée au bout de 3 ans. Durées comptées depuis le
+  début du jour (UTC). Avec la purge de la file d'envoi et des notifications (envois réussis ou simulés de plus d'un an,
+  échecs classés depuis plus d'un an ; un échec non traité reste), appliquée au démarrage puis toutes les heures
+  (`demarrerJournal`) ; un passage qui supprime quelque chose ajoute une ligne `journal.conservation` (jamais une ligne
+  complétée). La réinitialisation de la démonstration conserve le journal (`clearAll` de `db.ts`).
+- **Ajout seul** (Norma § 4 ; décision du propriétaire du 25 novembre 2026 : « ok pour la purge par rôle dédié sur
+  Cursus » ; point CU-N03) : aucune ligne du journal n'est jamais modifiée ni supprimée par l'application.
+  - *Base* : PostgreSQL, migration `0035_journal_ajout_seul` — déclencheur `journal_ajout_seul` qui refuse UPDATE et
+    DELETE (et `journal_ajout_seul_vidage`, TRUNCATE) quel que soit le rôle, propriétaire `cursus_app` compris, sauf
+    DELETE d'une ligne échue par le rôle `cursus_purge` pendant `purger_journal()` (réglage de transaction
+    `cursus.purge_journal`) ; `controlerSchema` refuse de démarrer si l'un de ces déclencheurs manque ou est désactivé.
+    SQLite (`SqliteDb.poserJournalAjoutSeul`, posé à l'ouverture et après les migrations nommées) : UPDATE refusé,
+    DELETE refusé hors de la garde `journal_purge_en_cours` (posée par la seule purge) et pour toute ligne non échue
+    (règle d'échéance écrite dans le déclencheur : même du SQL direct ne supprime pas une ligne à conserver ; SQLite n'a
+    pas de rôles, la garde n'arrête qu'une écriture de Cursus). Le registre `journal_purges` et les codes
+    `journal_actions_paie` sont en ajout seul eux aussi. Limite : le propriétaire des tables peut encore désactiver un
+    déclencheur (DDL) ; Cursus le détecte au démarrage, droits.verifier() de Matrix aussi.
+  - *Purge* (`server/src/journal-purge.ts`, seule voie de suppression) : au démarrage puis une fois par jour. PostgreSQL :
+    connexion propre `CURSUS_PURGE_DATABASE_URL` (rôle `cursus_purge`, créé et doté par le socle de Matrix : CONNECT,
+    USAGE, SELECT (id, at, action, paie) et DELETE sur `journal`, SELECT sur `journal_actions_paie`, INSERT et SELECT (id)
+    sur `journal_purges`, EXECUTE sur `purger_journal()` — `droitsPurgeSql`, demande
+    `docs/demandes/matrix-lot16-purge-journal.md`), qui appelle `purger_journal()` : SECURITY INVOKER, `search_path`
+    figé, EXECUTE retiré à PUBLIC, sans paramètre, refusée à toute autre connexion que `cursus_purge` ; elle supprime
+    les lignes de plus de 36 mois et celles de plus de 12 mois hors paie, et ajoute une ligne au registre (date, règle,
+    limites, nombres, dates extrêmes, jamais le contenu). Sans la variable : purge désactivée (avertissement au démarrage,
+    `avertissementsPurge`), rien supprimé ; rôle, droits ou fonction absents : échec motivé (`messageEchecPg`), rien
+    supprimé, Cursus continue. SQLite : même règle dans une transaction de Cursus, sous la garde.
+  - *Paie* : `paie` est posé à l'écriture (`estActionPaie`) ; une action ajoutée plus tard à `ACTIONS_PAIE` vaut aussi
+    pour les lignes déjà écrites par son code, inscrit au démarrage dans `journal_actions_paie` (`inscrireActionsPaie`,
+    jamais retiré), lu par la purge et par la lecture (`paieSql`) : remplace l'ancien `marquerPaie` (UPDATE).
+  - *Archive* : calculée à la lecture (ligne de 1 à 3 ans liée à la paie) ; `archivee` n'est plus écrite (date posée
+    avant le 25/11/2026 lue telle quelle, sinon un an après l'action : `archiveeDe`).
+  - *Lignes conservées seulement* (`conditionConservee`, `clauses`) : une ligne échue que la purge n'a pas encore
+    supprimée (purge désactivée, passage du jour à venir) n'est plus montrée (écran, CSV, données d'un salarié).
+  - *Regroupement* (règles `regrouper`, consultation de l'archive) : une action répétée du même compte sur le même
+    objet n'est plus fusionnée dans la ligne précédente ; elle est ajoutée avec `regroupe` = première ligne du groupe et
+    le contenu réuni jusque-là (`regroupement`), et la lecture montre la tête du groupe avec la date, le contenu et le
+    message de la dernière ligne (`plierGroupes`) : mêmes lignes à l'écran qu'avant. Filtres de date sur la tête.
+  - *Anonymisation d'un dossier* (server/src/conservation.ts) : le journal n'est plus balayé ; à la lecture, l'auteur
+    d'une ligne écrite par le compte d'un salarié anonymisé prend le nom neutre, l'identifiant devient
+    « anonyme-<compte> » et le message d'une ligne écrite par lui ou qui le concerne est masqué (`masquesSql`) ; la
+    ligne brute part à son échéance (point ouvert du DPO, `docs/RGPD.md` § 8).
+  - *Purge de la démonstration* (`npm run purge-demo`) : le journal n'est plus vidé ; la ligne `purge.demo` en devient
+    la frontière (`contexteLecture`) : les lignes fictives d'avant ne sont plus montrées et partent à leur échéance ;
+    les fichiers de pièces non effacés sont notés par une ligne `purge.demoPieces` ajoutée.
+  - *Reprise des lignes d'avant la liste blanche* (`reprendreJournal`, UPDATE une fois par base) : retirée ; faite sur
+    toute base depuis le 12 octobre 2026, aucune base de production n'en a eu besoin.
 - **Consultation** (`routesJournal`) : `GET /api/journal` (droit « rh », ou « consultation » d'un profil en
   lecture seule, `lecteurJournal` de `shared/journal.ts` : le profil compte, pas l'espace, ni le référent HSE ni
   la paie n'y ont accès ; 403 tracé sinon ; sans le droit « rh », message et détail des actions touchant à la

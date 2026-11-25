@@ -9,8 +9,9 @@ règles propres à Cursus.
 Coque commune et logo (Norma 2.3.0, 25 novembre 2026, `norma/charte/COQUE.md` § 2 et § 8 bis) : la marque de la barre
 latérale (26 px, `.coque-logo-mark`) et de la barre supérieure (20 px, `.coque-topbar-mark`) affiche `ToolLogo code="cursus"`
 (`norma/charte/ds/ToolLogo.tsx`, importé par `client/src/layout/Shell.tsx`) ; le favicon `client/public/favicon.svg` est
-`norma/charte/logos/cursus.svg` recopié. Les icônes PNG de l'application installée (`scripts/icones.mjs`) gardent l'ancien
-dessin.
+`norma/charte/logos/cursus.svg` recopié. Les icônes PNG de l'application installée (`client/public/icons/` : 192, 512,
+512 masquable, iOS 180) sont ce logo rendu sans dépendance par `scripts/icones.mjs`, à relancer quand le logo change
+(`tests/pwa.test.ts` compare au contenu commité).
 
 Cursus est l'outil RH du groupe EPC2I (formations, habilitations, temps, absences, entretiens, déplacements, frais).
 Lire d'abord `README.md` et `docs/ARCHITECTURE.md` ; le reste à faire se tient dans Norma (`reste-a-faire/cursus.json` du dépôt `Yhumiii27/Norma`, page globale

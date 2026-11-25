@@ -1,5 +1,35 @@
 # Norma — journal des versions
 
+## 2.3.0 — 25 novembre 2026
+
+Logos des outils, validés par le propriétaire (page de proposition du 25 novembre 2026).
+
+- **`charte/logos/<code>.svg`** : un logo par outil du registre (Keystone, Codex, Vigie, Cursus, Arche, Crucible, Clavis,
+  Matrix, Modulus, Vector) — tuile de 64 × 64, dégradé propre à l'outil, glyphe blanc.
+- **`charte/ds/ToolLogo.tsx`** : le logo en composant (`<ToolLogo code="arche" />`, identifiants de dégradé uniques).
+- **Marque** : `Sidebar` et `MobileTopBar` prennent `logo` (prioritaire) ; `icon` devient facultatif (compatibilité).
+  `coque.css` : `.coque-logo-mark` (26 px) et `.coque-topbar-mark` (20 px).
+- **Favicon** : le SVG de l'outil (`COQUE.md` § 8 bis).
+
+## 2.2.0 — 24 novembre 2026
+
+Retours des outils pendant leur alignement sur la coque commune (Crucible, Keystone, Vigie, Codex).
+
+- **En-tête de page passé à la ligne** (`coque.css`, `.coque-header`) : `justify-content: flex-end` — la seconde ligne
+  (recherche, actions, date, cloche, paire langue / affichage) reste alignée à droite ; le bloc du titre garde la gauche par
+  sa marge automatique, sur une ligne comme sur deux (vérifié sur une page d'essai à 1400 et 1100 px).
+- **Indication ⌘K lisible en affichage clair** (`.coque-kbd`) : `--color-neutral-400` au lieu de `--color-neutral-500`
+  (3,9:1 en clair, relevé par axe dans Codex) ; contraste AA vérifié dans les deux affichages, sur la surface et le fond.
+- **Une seule cloche visible ≤ 1024 px** : quand la barre supérieure porte la cloche (`.coque-bell`), celle de l'en-tête de
+  page est masquée (`.coque:has(.coque-topbar .coque-bell) .coque-header .coque-bell`).
+- `COQUE.md` § 2, § 3 et § 8 : règle du passage à la ligne, couleur de ⌘K, une seule cloche.
+- Tests `test/coque.test.mjs` : en-tête passé à la ligne, contraste de ⌘K (sombre et clair), cloche unique.
+- **Reste à faire** : coque reprise par Clavis, Matrix, Arche, Crucible, Vector, Codex, Cursus et Keystone (points
+  « Coque commune » faits), Vigie en revue (Vigie#44) ; R-N02, CU-191, VG-N03, VG-N05 à VG-N07, NO-006 faits, VG-N01 en
+  cours ; nouveaux points R-N04 (écran Plan à 390 px), CU-N06 (tableau du tableau de bord RH à 390 px), CX-N08 (CLAUDE.md
+  de Codex cite `ThemeToggle.tsx`).
+- Version mineure : un outil reprend la copie (`copier`) sans changer son code.
+
 ## 2.1.0 — 24 novembre 2026
 
 À la demande du propriétaire (« oui » à la demande DN-1 de Vector) : un dixième outil dans la suite.

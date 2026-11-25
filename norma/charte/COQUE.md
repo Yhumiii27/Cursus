@@ -53,9 +53,11 @@ import '@norma/charte/touch.css'; import '@norma/charte/coque.css';` dans la mis
 
 De haut en bas, padding 18 / 14 px, gap 14 px, bordure droite `--color-neutral-900` :
 
-1. **Marque** (`.coque-brand`) : carré de 26 px à bord d'accent avec halo et glyphe Phosphor de 15 px, puis le nom de
-   l'outil, 16 px (`--text-brand`), poids 500. ≤ 1024 px : bouton × « Fermer le menu » à droite.
-2. **Recherche de pages ⌘K** (`PageSearch`, `.coque-pagesearch`) : champ 32 px, 12,5 px, loupe à gauche, `⌘K` à droite ;
+1. **Marque** (`.coque-brand`) : le **logo de l'outil** en 26 px (`<Sidebar logo={<ToolLogo code="…" />}>`, tuile
+   `.coque-logo-mark`, Norma 2.3), puis le nom de l'outil, 16 px (`--text-brand`), poids 500. ≤ 1024 px : bouton × « Fermer
+   le menu » à droite. (Sans `logo`, l'ancien carré de 26 px à bord d'accent et glyphe Phosphor de 15 px reste possible.)
+2. **Recherche de pages ⌘K** (`PageSearch`, `.coque-pagesearch`) : champ 32 px, 12,5 px, loupe à gauche, `⌘K` à droite
+   (`--color-neutral-400`, contraste AA dans les deux affichages, Norma 2.2) ;
    ⌘K / Ctrl+K y met le focus, Entrée ouvre la première page trouvée, Échap vide ; pendant la saisie les résultats
    (page + section) remplacent le menu. **Toujours juste sous la marque.**
 3. **Entrées fixes** (`NavList` + `NavEntry`) : Accueil, Mon travail… — 13 px, padding 7 / 8 px, rayon 8, icône 16 px,
@@ -74,7 +76,8 @@ le fil d'Ariane de l'en-tête, jamais à la place des éléments ci-dessus.
 
 ## 3. En-tête de page (`PageHeader`)
 
-Une ligne `.coque-header` (flex, `align-items: flex-end`, gap 16 px, passe à la ligne si besoin), **ordre fixe** :
+Une ligne `.coque-header` (flex, `align-items: flex-end`, `justify-content: flex-end`, gap 16 px, passe à la ligne si
+besoin), **ordre fixe** :
 
 | # | Élément | Mesures |
 | --- | --- | --- |
@@ -85,6 +88,12 @@ Une ligne `.coque-header` (flex, `align-items: flex-end`, gap 16 px, passe à la
 | 3 | **Actions de la page** (`actions`, `primary`, § 3.3) | boutons `sm` |
 | 4 | **Outils communs** (`HeaderTools`, ordre fixe) : date de situation · aide / assistant · cloche | date 12 px ; boutons-icônes nommés |
 | 5 | **Langue / affichage empilés** (`PrefsStack`, § 4) — **toujours le dernier élément, à l'extrémité droite** | 74 × 56 px |
+
+**Passage à la ligne** (Norma 2.2, relevé sur les en-têtes chargés de Crucible, Keystone et Vigie) : quand les éléments ne
+tiennent pas sur une ligne, la seconde ligne (recherche, actions, outils, date, cloche, paire langue / affichage) **reste
+alignée à droite** (`justify-content: flex-end`) ; le bloc du titre garde la gauche par sa marge automatique
+(`.coque-header-left { margin-right: auto }`), sur une ligne comme sur deux. Un outil ne remet pas
+`justify-content: flex-start` ni ne retire cette marge.
 
 Sous l'en-tête : le bandeau « Hors de mon espace · Lecture seule » (`outside`, `.coque-outside`, les actions disparaissent),
 puis la **barre d'outils de la page** (`toolbar`, § 5).
@@ -184,8 +193,23 @@ Sous l'en-tête, une seule ligne `.coque-toolbar` (gap 12 px, passe à la ligne)
 
 - `MobileTopBar`, premier élément de `<main>`, collante, fond 88 % flouté, bordure basse : **bouton « Menu »** (secondaire,
   icône liste) · glyphe + nom de l'outil · … · outils (cloche) · **paire langue / affichage** (dernier élément).
+- **Une seule cloche visible** (Norma 2.2) : ≤ 1024 px, quand la barre supérieure porte la cloche, celle de l'en-tête de page
+  est masquée (`coque.css` : `.coque:has(.coque-topbar .coque-bell) .coque-header .coque-bell { display: none }`) ; un outil
+  qui pose sa propre cloche lui donne la classe `.coque-bell` dans les deux places. Sans cloche dans la barre supérieure,
+  celle de l'en-tête reste.
 - Le bouton ouvre la barre latérale en tiroir (300 px, ombre `lg`, voile) ; la page derrière est inerte ; Échap, le voile, ×
   et tout lien suivi le ferment ; le focus revient au bouton. Élargir la fenêtre le ferme.
+
+## 8 bis. Logos des outils (Norma 2.3)
+
+- Un logo par outil du registre, validé par le propriétaire le 25 novembre 2026 : `charte/logos/<code>.svg` (tuile de 64 × 64,
+  coins de 14, dégradé propre à l'outil, glyphe blanc). Seule exception à « jamais de couleur en dur » : les couleurs d'un
+  logo sont celles de la marque, identiques dans les deux affichages.
+- Dans la coque : `ToolLogo` (`charte/ds/ToolLogo.tsx`, généré depuis les SVG) — 26 px dans la marque de la barre
+  latérale, 20 px dans la barre supérieure (`<MobileTopBar logo={<ToolLogo code="…" size={20} />}>`, `.coque-topbar-mark`).
+- **Favicon** : le SVG de l'outil, recopié de `norma/charte/logos/<code>.svg` (Next.js : `src/app/icon.svg`, ou
+  `app/icon.svg` ; une page HTML : `<link rel="icon" type="image/svg+xml" href="…">`). Un ancien `favicon.ico` est retiré.
+- Un logo se change ici, jamais dans un outil.
 
 ## 9. Ce qui reste propre à chaque outil
 

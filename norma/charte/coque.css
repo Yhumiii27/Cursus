@@ -51,10 +51,14 @@
   display: grid; place-items: center; color: var(--color-accent);
   box-shadow: 0 0 14px color-mix(in srgb, var(--color-accent) 40%, transparent);
 }
+/* Logo de l'outil (Norma 2.3.0, charte/logos) : la tuile remplace le carré à bord d'accent. */
+.coque-logo-mark { border: 0; box-shadow: none; overflow: hidden; }
+.coque-logo-mark svg { width: 26px; height: 26px; display: block; }
 .coque-wordmark { font-size: var(--text-brand); font-weight: var(--weight-strong); letter-spacing: -0.01em; }
 .coque-side-close { display: none; }
 
-/* Recherche de pages ⌘K, sous la marque. */
+/* Recherche de pages ⌘K, sous la marque. Indication ⌘K en --color-neutral-400 (Norma 2.2) : --color-neutral-500 ne
+   donnait que 3,9:1 en affichage clair. */
 .coque-pagesearch { position: relative; }
 .coque-pagesearch-icon { position: absolute; left: 9px; top: 9px; color: var(--color-neutral-500); pointer-events: none; }
 .coque-pagesearch .input {
@@ -62,7 +66,7 @@
 }
 .coque-kbd {
   position: absolute; right: 8px; top: 8px; font-size: var(--text-micro); padding: 1px 5px; border-radius: var(--radius-sm);
-  border: 1px solid var(--color-neutral-800); color: var(--color-neutral-500); pointer-events: none;
+  border: 1px solid var(--color-neutral-800); color: var(--color-neutral-400); pointer-events: none;
 }
 
 .coque-nav { display: flex; flex-direction: column; gap: 2px; }
@@ -130,8 +134,10 @@
 .coque-user-caret { margin-left: auto; color: var(--color-neutral-500); flex: none; }
 
 /* ── 3. En-tête de page ─────────────────────────────────────────────────── */
-/* Ordre fixe, de gauche à droite : [fil + titre] [recherche globale] [actions de la page] [outils] [langue / affichage]. */
-.coque-header { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+/* Ordre fixe, de gauche à droite : [fil + titre] [recherche globale] [actions de la page] [outils] [langue / affichage].
+   Norma 2.2 : `justify-content: flex-end` — quand l'en-tête passe à la ligne, la seconde ligne (outils, date, cloche, paire)
+   reste alignée à droite ; le bloc du titre garde la gauche par sa marge automatique. */
+.coque-header { display: flex; align-items: flex-end; justify-content: flex-end; gap: 16px; flex-wrap: wrap; }
 .coque-header-left { display: flex; flex-direction: column; gap: 4px; margin-right: auto; min-width: 0; }
 .coque-crumb {
   display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: var(--text-small); color: var(--color-neutral-400);
@@ -282,6 +288,8 @@
 .coque-menu-btn.btn { gap: 8px; min-height: var(--touch-target); font-size: var(--text-ui); }
 .coque-topbar-brand { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; font-weight: var(--weight-strong); }
 .coque-topbar-logo { color: var(--color-accent); }
+.coque-topbar-mark { display: inline-flex; flex: none; border-radius: 5px; overflow: hidden; }
+.coque-topbar-mark svg { width: 20px; height: 20px; display: block; }
 .coque-topbar-tools { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .coque-backdrop { display: none; }
 
@@ -295,6 +303,8 @@
   }
   /* La paire langue / affichage quitte l'en-tête de page pour la droite de la barre supérieure. */
   .coque-header .coque-prefs { display: none; }
+  /* Une seule cloche visible (Norma 2.2) : quand la barre supérieure porte la cloche, celle de l'en-tête de page est masquée. */
+  .coque:has(.coque-topbar .coque-bell) .coque-header .coque-bell { display: none; }
   .coque-title { font-size: var(--text-title-compact); }
   .coque-side {
     position: fixed; top: 0; left: 0; bottom: 0; z-index: 66; width: var(--shell-drawer-w); height: 100dvh;

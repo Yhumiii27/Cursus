@@ -6,6 +6,12 @@ Règles communes de la suite EPC2I (Norma) : copie versionnée dans `norma/` (ve
 `npm run norma:check` (CI) ; elles se changent dans le dépôt `Yhumiii27/Norma`, jamais ici. Ce fichier n'ajoute que les
 règles propres à Cursus.
 
+Coque commune et logo (Norma 2.3.0, 25 novembre 2026, `norma/charte/COQUE.md` § 2 et § 8 bis) : la marque de la barre
+latérale (26 px, `.coque-logo-mark`) et de la barre supérieure (20 px, `.coque-topbar-mark`) affiche `ToolLogo code="cursus"`
+(`norma/charte/ds/ToolLogo.tsx`, importé par `client/src/layout/Shell.tsx`) ; le favicon `client/public/favicon.svg` est
+`norma/charte/logos/cursus.svg` recopié. Les icônes PNG de l'application installée (`scripts/icones.mjs`) gardent l'ancien
+dessin.
+
 Cursus est l'outil RH du groupe EPC2I (formations, habilitations, temps, absences, entretiens, déplacements, frais).
 Lire d'abord `README.md` et `docs/ARCHITECTURE.md` ; le reste à faire se tient dans Norma (`reste-a-faire/cursus.json` du dépôt `Yhumiii27/Norma`, page globale
 https://claude.ai/artifact/Rs7kooJdowShdYUqNS8jQf, `norma/REGLES.md` § 3) ; `docs/RESTE_A_FAIRE.md` est la liste close au

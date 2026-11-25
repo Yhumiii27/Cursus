@@ -1,4 +1,4 @@
-// Coque de l'application (Norma 2.0, norma/charte/COQUE.md ; classes de norma/charte/coque.css) : barre latérale de
+// Coque de l'application (Norma 2.3, logo de l'outil ; norma/charte/COQUE.md ; classes de norma/charte/coque.css) : barre latérale de
 // 232 px (marque, recherche de pages ⌘K, sections du menu repliables en capitales, pied : espace et personne connectée),
 // contenu où chaque page porte son en-tête (layout/Coque.tsx : fil d'Ariane, titre, recherche, actions, paire langue /
 // affichage en dernier), notification, et reconnexion par-dessus l'écran quand la session expire (le reste devient inerte).
@@ -34,6 +34,7 @@ import { BarreOnglets } from './BarreOnglets.tsx';
 // Norma 2.0 (COQUE.md) : en-tête de page commun, paire langue / affichage, recherche de pages ⌘K (règle de la charte).
 import { CoqueContexte, Preferences, type Coque } from './Coque.tsx';
 import { matchPages } from '../../../norma/charte/ds/coque-rules.ts';
+import { ToolLogo } from '../../../norma/charte/ds/ToolLogo.tsx';
 // Norma § 2 et § 7 (CU-N01) : chaînes sources anglaises traduites.
 import { t, useLangue } from '../i18n/langue.ts';
 import { ongletsDe } from './onglets.ts';
@@ -310,7 +311,7 @@ function Sidebar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
         role={ouvert ? 'dialog' : undefined} aria-modal={ouvert || undefined} aria-label={t('Main menu')}>
         {ouvert && <PiegeTiroir barre={barre} actif={!reconnexion} fermer={tiroir.fermer} />}
         <div className="coque-brand">
-          <span className="coque-logo"><CheckIcon size={15} weight="bold" aria-hidden="true" /></span>
+          <span className="coque-logo coque-logo-mark"><ToolLogo code="cursus" /></span>
           <span className="coque-wordmark">Cursus</span>
           <button type="button" className="btn btn-ghost btn-icon coque-side-close" aria-label={t('Close menu')} title={t('Close menu')} onClick={tiroir.fermer}>
             <XIcon size={18} aria-hidden="true" />
@@ -395,7 +396,7 @@ function BarreSuperieure({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroi
   return (
     <div className="coque-topbar" data-print-hide="">
       <BoutonMenu tiroir={tiroir} aTraiter={aTraiter} />
-      <span className="coque-topbar-brand"><CheckIcon size={15} weight="bold" className="coque-topbar-logo" aria-hidden="true" />Cursus</span>
+      <span className="coque-topbar-brand"><span className="coque-topbar-mark"><ToolLogo code="cursus" size={20} /></span>Cursus</span>
       <div className="coque-topbar-tools"><Preferences /></div>
     </div>
   );

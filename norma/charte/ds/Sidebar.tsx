@@ -18,15 +18,17 @@ export { matchPages };
 export interface SidebarProps {
   /** Tool name (a proper noun, shown as is). */
   name: string;
-  /** Logo glyph in the 26 px accent square. */
-  icon: Icon;
+  /** The tool's logo (Norma 2.3.0): `<ToolLogo code="…" />` of `./ToolLogo`. Preferred over `icon`. */
+  logo?: ReactNode;
+  /** Former brand: a Phosphor glyph in the 26 px accent square, used when there is no `logo`. */
+  icon?: Icon;
   /** `<PageSearch>` (wraps the navigation: hits replace it while a query is typed). */
   children: ReactNode;
   /** Bottom block: the signed-in account menu or the demo "View as" switcher (`.coque-user`). */
   footer?: ReactNode;
 }
 
-export function Sidebar({ name, icon: I, children, footer }: SidebarProps) {
+export function Sidebar({ name, logo, icon: I, children, footer }: SidebarProps) {
   const { t } = useI18n();
   const { navOpen, closeNav } = useCoque();
   return (
@@ -34,9 +36,11 @@ export function Sidebar({ name, icon: I, children, footer }: SidebarProps) {
       <div className={cx('coque-backdrop', navOpen && 'is-on')} onClick={() => closeNav(true)} aria-hidden="true" />
       <aside id={SIDEBAR_ID} className={cx('coque-side', navOpen && 'is-open')} aria-label={t('Main menu')}>
         <div className="coque-brand">
-          <div className="coque-logo">
-            <I size={15} aria-hidden />
-          </div>
+          {logo ? (
+            <div className="coque-logo coque-logo-mark">{logo}</div>
+          ) : (
+            <div className="coque-logo">{I && <I size={15} aria-hidden />}</div>
+          )}
           <div className="coque-wordmark">{name}</div>
           <button type="button" className="btn btn-ghost btn-icon coque-side-close" onClick={() => closeNav(true)} aria-label={t('Close menu')}>
             <X size={18} aria-hidden />

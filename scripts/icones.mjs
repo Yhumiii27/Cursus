@@ -1,6 +1,7 @@
 // Icônes de l'application installée (lot 11, chantier C2, t196) : PNG produits sans dépendance (encodeur PNG avec
-// node:zlib), puis commités dans client/public/icons/. Même dessin que client/public/favicon.svg : carré arrondi de fond
-// Nocturne cerclé de l'accent, coche de l'accent. Rejouer après un changement de dessin :
+// node:zlib), puis commités dans client/public/icons/. Dessin de l'ancien favicon (avant Norma 2.3) : carré arrondi de fond
+// Nocturne cerclé de l'accent, coche de l'accent. Depuis le 25 novembre 2026, client/public/favicon.svg est le logo de
+// Cursus de Norma 2.3 (norma/charte/logos/cursus.svg) ; ces PNG restent à redessiner d'après lui. Rejouer après un changement de dessin :
 //   node scripts/icones.mjs              (écrit client/public/icons/)
 //   node scripts/icones.mjs <dossier>    (écrit ailleurs : tests/pwa.test.ts compare au contenu commité)
 // - icon-192.png, icon-512.png : « any », coins transparents ;
@@ -12,11 +13,11 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { crc32, deflateSync } from 'node:zlib';
 
-/** Fond (--color-bg de Nocturne) et accent (trait de favicon.svg). */
+/** Fond (--color-bg de Nocturne) et accent (trait de l'ancien favicon). */
 const FOND = [0x16, 0x18, 0x26];
 const ACCENT = [0x91, 0x84, 0xd9];
 
-/** Coche de favicon.svg (repère 32 × 32) : trois points du trait, épaisseur 2,4. */
+/** Coche de l'ancien favicon (repère 32 × 32) : trois points du trait, épaisseur 2,4. */
 const COCHE = [[8, 16.6], [12.9, 21.1], [23.2, 11.2]];
 
 /** Distance du point (x, y) au segment [a, b]. */

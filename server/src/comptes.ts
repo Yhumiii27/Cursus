@@ -291,6 +291,8 @@ export interface EntreeJournal {
   salaries?: number[];
   /** Horodatage, maintenant par défaut (bilan de la durée de conservation : date du passage). */
   at?: string;
+  /** Première ligne du groupe d'une action répétée (server/src/journal.ts, `regroupement`) : réunie à la lecture. */
+  regroupe?: number;
 }
 
 /** Longueur au plus d'un message du journal, par sécurité (un message peut reprendre une donnée reçue). */
@@ -312,5 +314,6 @@ export async function journaliser(db: Db, e: EntreeJournal) {
   await db.insert('journal', {
     at: e.at ?? new Date().toISOString(), actor: e.actor, role: e.role, action: e.action, message, payload: sansObjetSante(e.payload ?? {}),
     compteId: e.compte?.id ?? null, identifiant: e.compte?.identifiant ?? null, salaries: [...new Set(e.salaries ?? [])], paie: estActionPaie(e.action),
+    ...(e.regroupe ? { regroupe: e.regroupe } : {}),
   });
 }

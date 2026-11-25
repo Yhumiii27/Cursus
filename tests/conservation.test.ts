@@ -17,7 +17,7 @@ const { ActionError, makeCtx } = await import('../server/src/actions/context.ts'
 const { REFERENCES, controlerOrphelins } = await import('../server/src/integrite.ts');
 const { TRAITEMENTS, dossiersEchus, verifierConservation, aEffacer, effacer, etapes, reouvertureSansMotif } = await import('../server/src/conservation.ts');
 const { journaliser } = await import('../server/src/comptes.ts');
-const { journaliserAction, preparerTrace } = await import('../server/src/journal.ts');
+const { journaliserAction, lireJournal, MESSAGE_ANONYMISE, preparerTrace } = await import('../server/src/journal.ts');
 const regles = await import('../shared/rules/conservation.ts');
 const { appliquerReglages, ReglageInvalide } = await import('../shared/reglages.ts');
 const { familleAction, JOURNAL_LABEL } = await import('../shared/journal.ts');
@@ -268,10 +268,14 @@ async function garnir(db: Db, fin: string) {
   await journaliser(db, { actor: 'Mehdi Benali', role: 'collaborateur', action: 'absence.demander', message: 'Demande de congés payés de Mehdi Benali', compte: { id: await compteDe(db, 2), identifiant: 'mehdi.benali@entreprise.example' } as never, salaries: [2] });
 }
 
-/** Valeurs de texte de toute la base qui contiennent l'un des termes : « table.colonne ». */
+/**
+ * Valeurs de texte de toute la base qui contiennent l'un des termes : « table.colonne ». Hors du journal des actions, en
+ * ajout seul (Norma § 4, décision du 25/11/2026) : jamais balayé, il est anonymisé à la lecture (`journalLu`).
+ */
 async function occurrences(db: Db, termes: string[]): Promise<string[]> {
   const out: string[] = [];
   for (const [nom, def] of Object.entries(TABLES)) {
+    if (nom === 'journal') continue;
     for (const [col, type] of Object.entries(def.cols)) {
       if (type !== 'text' && type !== 'json') continue;
       for (const t of termes) if (await compter(db, `SELECT COUNT(*) AS n FROM ${snake(nom)} WHERE CAST(${snake(col)} AS text) LIKE '%' || CAST(? AS text) || '%'`, t)) out.push(`${snake(nom)}.${snake(col)}`);
@@ -279,6 +283,9 @@ async function occurrences(db: Db, termes: string[]): Promise<string[]> {
   }
   return out;
 }
+
+/** Journal tel qu'il se lit (écran, export, données d'un salarié) : toutes les lignes conservées. */
+const journalLu = async (db: Db) => (await lireJournal(db, { vue: 'tout', du: null, au: null, auteur: null, action: null, salarie: null }, 1, 10_000)).lignes;
 
 test('anonymisation d’un dossier échu : cascade complète, nom retiré de toute la base, agrégats gardés, journal sans nom', async () => {
   const db = await base();
@@ -317,8 +324,16 @@ test('anonymisation d’un dossier échu : cascade complète, nom retiré de tou
   assert.equal(await compter(db, `SELECT COUNT(*) AS n FROM pieces WHERE emp_id = 2 AND nom LIKE 'piece-%'`), 1, 'nom d’origine retiré');
   assert.equal(await compter(db, 'SELECT COUNT(*) AS n FROM feuilles WHERE emp_id = 2'), feuilles, 'heures par projet gardées');
   assert.equal(await compter(db, 'SELECT COUNT(*) AS n FROM certifications WHERE emp_id = 2'), certs, 'certifications et coûts gardés');
-  // Plus aucune trace du nom, de l'adresse ni de l'identifiant, dans aucune table (journal, file d'envoi, autres dossiers).
+  // Plus aucune trace du nom, de l'adresse ni de l'identifiant, dans aucune table (file d'envoi, autres dossiers).
   assert.deepEqual(await occurrences(db, ['Mehdi Benali', 'mehdi.benali@entreprise.example']), []);
+  // Journal en ajout seul : la ligne brute est gardée jusqu'à son échéance, mais tout ce qui se lit (écran, export CSV,
+  // données d'un salarié) porte le nom neutre, l'identifiant « anonyme-<compte> » et un message masqué.
+  assert.ok(await compter(db, `SELECT COUNT(*) AS n FROM journal WHERE actor = 'Mehdi Benali'`) > 0, 'ligne brute jamais modifiée');
+  const lus = await journalLu(db);
+  assert.ok(!JSON.stringify(lus).includes('Mehdi Benali') && !JSON.stringify(lus).includes('mehdi.benali@'));
+  const demande = lus.find(l => l.action === 'absence.demander' && l.salaries.includes(2))!;
+  assert.deepEqual([demande.actor, demande.message], ['Salarié anonymisé n° 2', MESSAGE_ANONYMISE]);
+  assert.match(demande.identifiant!, /^anonyme-\d+$/);
   assert.equal((await db.where<Record<string, any>>('absences', 'empId', 6)).find(a => a.du === '2025-02-03')?.signalePar, 'Salarié anonymisé n° 2', 'auteur nommé ailleurs');
   // Journal : ligne de l'action sans nom, motif masqué, salarié et catégories ; trace de l'effacement gardée.
   const j = await db.one(`SELECT message, payload, salaries FROM journal WHERE action = 'employe.anonymiser'`) as { message: string; payload: unknown; salaries: unknown };
@@ -421,9 +436,9 @@ test('balayage de l’identité : occurrences délimitées seulement ; fiche et 
   assert.equal((await db.getSetting<Record<string, any>>('app', {})).heuresSupMode, 'paiement');
   assert.deepEqual([...new Set((await db.where<Record<string, any>>('feuilles', 'empId', 6)).map(f => f.comment).filter(Boolean))],
     ['Remarque : voir avec Salarié anonymisé n° 2. Mehdi Benaliani confirme la paie de mars']);
-  // Motif de la trace balayé (écrit avant le balayage) ; identifiant du compte fermé retiré du journal.
+  // Motif de la trace balayé (écrit avant le balayage) ; identifiant du compte fermé retiré du journal tel qu'il se lit.
   assert.equal((await db.where<Record<string, any>>('effacements', 'empId', 2))[0].motif, 'Durées échues — dossier de Salarié anonymisé n° 2');
-  assert.equal(await compter(db, `SELECT COUNT(*) AS n FROM journal WHERE identifiant = 'paie' OR identifiant LIKE 'mehdi.benali@%'`), 0);
+  assert.ok(!(await journalLu(db)).some(l => l.identifiant === 'paie' || l.identifiant?.startsWith('mehdi.benali@')));
 });
 
 test('catégorie effacée puis de nouveau renseignée : reproposée, et l’anonymisation l’efface quand même', async () => {

@@ -155,20 +155,21 @@ test('refus sans appel : base exploitée, reprise sur le serveur commun, compte 
   await journaliser(db, { actor: 'Cursus', role: null, action: 'migration.postgres', message: 'Reprise', at: '2026-10-21T08:00:00.000Z' });
   d = deciderPurge(await releverBase(db), OPTIONS);
   assert.match(d.statut === 'refusee' ? d.motifs.join(' ') : '', /reprise sur le serveur PostgreSQL commun le 2026-10-21T08:00:00\.000Z/);
-  await db.run('DELETE FROM journal');
+  // Journal en ajout seul : la ligne migration.postgres reste ; la suite se joue sur une base neuve.
+  const db2 = await demo();
 
   // Compte Microsoft connecté avec une adresse réelle : refus ; avec une adresse du domaine de démonstration : admis.
-  const rh = (await db.one<{ id: number }>('SELECT id FROM comptes WHERE emp_id IS NULL'))!;
-  await db.update('comptes', rh.id, { oid: '00000000-0000-0000-0000-000000000001' });
-  assert.equal(deciderPurge(await releverBase(db), OPTIONS).statut, 'possible');
-  await db.update('comptes', rh.id, { identifiant: 'rh@epc2i.fr' });
-  d = deciderPurge(await releverBase(db), OPTIONS);
+  const rh = (await db2.one<{ id: number }>('SELECT id FROM comptes WHERE emp_id IS NULL'))!;
+  await db2.update('comptes', rh.id, { oid: '00000000-0000-0000-0000-000000000001' });
+  assert.equal(deciderPurge(await releverBase(db2), OPTIONS).statut, 'possible');
+  await db2.update('comptes', rh.id, { identifiant: 'rh@epc2i.fr' });
+  d = deciderPurge(await releverBase(db2), OPTIONS);
   assert.match(d.statut === 'refusee' ? d.motifs.join(' ') : '', /1 compte Microsoft s’est connecté avec une adresse hors de entreprise\.example/);
-  await db.update('comptes', rh.id, { oid: null });
+  await db2.update('comptes', rh.id, { oid: null });
 
-  await journaliser(db, { actor: 'Ligne de commande (npm run purge-demo)', role: null, action: ACTION_PURGE_DEMO, message: 'Purge faite', at: '2026-12-15T08:00:00.000Z' });
-  await marquerExploitation(db, '0.1.0', { NODE_ENV: 'production' });
-  assert.deepEqual(deciderPurge(await releverBase(db), OPTIONS), { statut: 'deja-faite', le: '2026-12-15T08:00:00.000Z', message: 'Purge faite' });
+  await journaliser(db2, { actor: 'Ligne de commande (npm run purge-demo)', role: null, action: ACTION_PURGE_DEMO, message: 'Purge faite', at: '2026-12-15T08:00:00.000Z' });
+  await marquerExploitation(db2, '0.1.0', { NODE_ENV: 'production' });
+  assert.deepEqual(deciderPurge(await releverBase(db2), OPTIONS), { statut: 'deja-faite', le: '2026-12-15T08:00:00.000Z', message: 'Purge faite' });
 });
 
 test('ajouts des visiteurs : listés avec nombre et dates ; fiches ajoutées purgées seulement avec --inclure-ajouts ; reprise en démonstration admise', async () => {
@@ -223,7 +224,8 @@ test('plan par profil : chaque table a un sort ; données de personnes toujours 
         if (cible?.sort !== 'supprimer' || !source) continue;
         assert.ok(source.sort === 'supprimer' || (source.sort === 'ajuster' && source.nulles?.includes(camel(r.colonne))), `${profil} ${r.table}.${r.colonne} → ${r.cible}`);
       }
-      assert.equal(p.tables.journal.sort, 'supprimer');
+      // Journal en ajout seul : jamais vidé, ses lignes fictives restent derrière la ligne purge.demo jusqu'à leur échéance.
+      assert.equal(p.tables.journal.sort, 'garder');
       assert.equal(p.tables.connexions.sort, 'supprimer');
       assert.equal(p.tables.employes.sort, 'supprimer');
       assert.equal(p.tables.verdictsKeystone.sort, 'supprimer');
@@ -252,7 +254,7 @@ test('plan par profil : chaque table a un sort ; données de personnes toujours 
   assert.equal(cat.tables.formations.sort, 'garder');
   assert.equal(cat.reglagesSupprimes, '*');
   const rien = sorts('rien');
-  assert.deepEqual(Object.entries(rien).filter(([, s]) => s !== 'supprimer'), []);
+  assert.deepEqual(Object.entries(rien).filter(([, s]) => s !== 'supprimer'), [['journal', 'garder']], 'tout vidé, sauf le journal en ajout seul');
   assert.equal(planPurge('rien').reglagesSupprimes, '*');
 });
 
@@ -299,7 +301,7 @@ test('aperçu à blanc : sans effet, décompte par table, aucune référence orp
     }
     const ligne = (t: TableName) => a.tables.find(x => x.table === t)!;
     assert.deepEqual([ligne('employes').partent, ligne('employes').restent], [24, 0]);
-    assert.deepEqual([ligne('journal').partent, ligne('journal').restent], [1, 1], 'journal vidé puis la seule ligne purge.demo');
+    assert.deepEqual([ligne('journal').partent, ligne('journal').restent], [0, ligne('journal').lignes + 1], 'journal gardé (ajout seul), la ligne purge.demo s’ajoute');
     assert.equal(ligne('comptes').restent, 2);
     assert.deepEqual(a.comptesGardes.map(c => c.identifiant).sort(), ['sandrine.vidal@entreprise.example', (await db.one<{ identifiant: string }>('SELECT identifiant FROM comptes WHERE id = 3'))!.identifiant].sort());
     assert.equal(ligne('formations').restent, garder === 'rien' ? 0 : 11);
@@ -712,7 +714,12 @@ test('purge : fiches ajoutées par des visiteurs purgées seulement avec --inclu
   assert.equal(b.statut === 'faite' && b.supprimees.reprises, 1);
   assert.equal(await db.count('employes'), 0);
   assert.equal(b.statut === 'faite' && b.sequence.matricule, 'EMP-1501', 'après la fiche du visiteur');
-  assert.equal(jsonDe((await lignesJournal(db))[0].payload).ajoutsPurges, 1);
+  assert.equal(jsonDe((await lignesJournal(db)).find(l => l.action === ACTION_PURGE_DEMO)!.payload).ajoutsPurges, 1);
+  // Journal en ajout seul : la création de la fiche du visiteur reste en base, derrière la ligne purge.demo, jamais lue.
+  assert.ok((await lignesJournal(db)).some(l => l.action === 'employe.creer'));
+  const { lireJournal } = await import('../server/src/journal.ts');
+  const lus = (await lireJournal(db, { vue: 'tout', du: null, au: null, auteur: null, action: null, salarie: null })).lignes;
+  assert.deepEqual(lus.map(l => l.action), [ACTION_PURGE_DEMO], 'lignes fictives masquées');
 });
 
 test('purge refusée : base exploitée, sans marqueur, compte gardé inconnu, confirmation absente ou fausse ; rien n’est écrit', async () => {
@@ -776,7 +783,10 @@ test('pièces : fichiers désignés et orphelins effacés après la validation ;
   assert.ok(b.pieces.effaces >= 2);
   assert.deepEqual(b.pieces.echecs, ['ged:document-42'], 'GED pas encore raccordée');
   assert.equal(await db.count('pieces'), 0);
-  assert.equal(jsonDe((await lignesJournal(db))[0].payload).piecesNonEffacees, 1);
+  // Noté par une ligne ajoutée (la ligne purge.demo n'est jamais modifiée).
+  const note = (await lignesJournal(db)).find(l => l.action === 'purge.demoPieces')!;
+  assert.equal(jsonDe(note.payload).piecesNonEffacees, 1);
+  assert.equal(jsonDe((await lignesJournal(db)).find(l => l.action === ACTION_PURGE_DEMO)!.payload).piecesNonEffacees, undefined);
   assert.match(texteBilan(b, db.moteur).join('\n'), /1 fichier n’a pas pu être effacé \(ged:document-42\), à effacer à la main \(noté au journal\)/);
   rmSync(join(dossier, 'LISEZMOI'));
 });

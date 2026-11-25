@@ -2,6 +2,7 @@
 // En production (NODE_ENV=production), une configuration dangereuse empêche le
 // démarrage ; ailleurs, elle est seulement signalée. Variables : .env.example.
 
+import { avertissementsPurge, problemesPurge } from './journal-purge.ts';
 import { lireAdressesKeystone } from './integrations/keystone/filtre-keystone.ts';
 import { type ClesVapid, clesVapidValides } from './integrations/push/push.ts';
 import { problemesCodex } from './integrations/codex/codex-documents.ts';
@@ -546,6 +547,8 @@ export function problemesConfig(env: Env = process.env, opts: OptionsConfig = {}
   out.push(...problemesSage(env));
   out.push(...problemesExploitation(env));
   out.push(...problemesBase(env));
+  // Purge du journal des actions par le rôle dédié (server/src/journal-purge.ts, décision du 25/11/2026).
+  out.push(...problemesPurge(env));
   out.push(...problemesPieces(env));
   // lot 16 — raccordement à Codex (server/src/integrations/codex/codex-documents.ts).
   out.push(...problemesCodex(env));
@@ -569,6 +572,8 @@ export function avertissementsConfig(env: Env = process.env, opts: OptionsConfig
   if (matrix && URL.canParse(matrix) && (new URL(matrix).username || new URL(matrix).password)) {
     out.push('MATRIX_URL contient un identifiant ou un mot de passe (utilisateur:motdepasse@) : ils peuvent apparaître dans les messages d’erreur. Préférez l’appel par le réseau interne, avec MATRIX_TOKEN seul.');
   }
+  // Serveur PostgreSQL sans CURSUS_PURGE_DATABASE_URL : purge du journal désactivée, dit à chaque démarrage.
+  out.push(...avertissementsPurge(env));
   if (opts.reglesDemo === false) return out;
   if (demoActive(env) && cibleBase(env)?.role === 'postgres') {
     out.push('Démonstration (CURSUS_DEMO=1) connectée au serveur PostgreSQL avec le rôle postgres (superutilisateur) : elle a tous les droits sur ce serveur. '

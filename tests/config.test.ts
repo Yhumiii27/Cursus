@@ -194,7 +194,7 @@ test('npm run comptes et npm run reprise-postgres : refus en production avant dâ
   const ROOT = fileURLToPath(new URL('..', import.meta.url));
   const dir = mkdtempSync(join(tmpdir(), 'cursus-commandes-'));
   try {
-    const env = { PATH: process.env.PATH ?? '', ...PROD, CURSUS_DB: join(dir, 'cursus.db'), DATABASE_URL: 'postgres://postgres:secret@127.0.0.1:1/epc2i' };
+    const env = { PATH: process.env.PATH ?? '', ...PROD, CURSUS_DB: join(dir, 'cursus.db'), DATABASE_URL: 'postgres://postgres:secret@127.0.0.1:1/epc2i', CURSUS_PURGE_DATABASE_URL: 'postgres://cursus_purge:secret@127.0.0.1:1/epc2i' };
     const lancer = (fichier: string, ...args: string[]) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', fichier, ...args], { cwd: ROOT, encoding: 'utf8', env });
     const comptes = lancer('server/src/comptes-cli.ts', 'admin', 'rachel.martin@entreprise.fr');
     assert.equal(comptes.status, 1);

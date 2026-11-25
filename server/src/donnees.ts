@@ -14,7 +14,7 @@ import { dossierComplet, libelleAction } from '../../shared/journal.ts';
 import { journaliser, type Compte } from './comptes.ts';
 import { identite } from './connexion.ts';
 import { jsonLu, TABLES, type Db, type TableName } from './db.ts';
-import { exigerRh, fichierJoint, tracerRefus } from './journal.ts';
+import { archiveeDe, conditionConservee, contexteLecture, exigerRh, fichierJoint, masquesSql, plierGroupes, tracerRefus } from './journal.ts';
 import { contenuLocal } from './pieces.ts';
 
 type Ligne = Record<string, unknown>;
@@ -151,12 +151,21 @@ export async function donneesSalarie(db: Db, empId: number, o: { journal: boolea
     .map(r => ({ ...r, contenu: JSON.parse(String(r.contenu)) }));
   if (o.journal) {
     // Actions qui le concernent (sa fiche, ses absences…) et actions faites avec son compte (connexions comprises), archive paie comprise.
-    const lignes = await db.query(`SELECT at, actor, role, action, message, identifiant, payload, archivee FROM journal
-      WHERE ${db.contientEntier('journal.salaries')}${comptes.length ? ` OR compte_id IN (${dans})` : ''} ORDER BY id`, [empId, ...comptes]) as Ligne[];
-    sections['Journal des actions le concernant'] = lignes.map(l => ({
-      date: l.at, auteur: l.actor, identifiant: l.identifiant, espace: l.role, action: libelleAction(String(l.action)), code: l.action,
-      message: l.message, detail: jsonLu(l.payload) ?? {}, ...(l.archivee ? { archiveeLe: l.archivee } : {}),
-    }));
+    // Journal en ajout seul : lignes conservées seulement (échues non montrées, groupes d'actions répétées réunis,
+    // lignes fictives d'avant la purge de la démonstration écartées), archive de la paie comprise (server/src/journal.ts).
+    const cx = await contexteLecture(db);
+    const params: (string | number)[] = [];
+    const conservee = conditionConservee(cx, params);
+    const m = masquesSql(db);
+    const lignes = await plierGroupes(db, await db.query(`SELECT id, at, ${m.acteur} AS actor, role, action, ${m.message} AS message, ${m.identifiant} AS identifiant, payload, archivee FROM journal
+      WHERE (${db.contientEntier('journal.salaries')}${comptes.length ? ` OR compte_id IN (${dans})` : ''}) AND ${conservee} ORDER BY id`, [empId, ...comptes, ...params]) as (Ligne & { id: number; at: string; message: string | null })[], 'payload');
+    sections['Journal des actions le concernant'] = lignes.map(l => {
+      const archivee = archiveeDe(l.at, l.archivee, cx);
+      return {
+        date: l.at, auteur: l.actor, identifiant: l.identifiant, espace: l.role, action: libelleAction(String(l.action)), code: l.action,
+        message: l.message, detail: jsonLu(l.payload) ?? {}, ...(archivee ? { archiveeLe: archivee } : {}),
+      };
+    });
   }
   return {
     document: `Données personnelles de ${String(e.nom)} (${m}) conservées par Cursus`,

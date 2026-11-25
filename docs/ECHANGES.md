@@ -90,6 +90,13 @@ validées ensuite par le service RH.
 
 ## 5. Points à signaler à Matrix
 
+- **Rôle `cursus_purge` (décision du propriétaire du 25/11/2026, M-24 de Matrix)** : le journal des actions de Cursus est en
+  ajout seul (migration `0035_journal_ajout_seul`) ; seul ce rôle du socle de Matrix supprime ses lignes échues, par
+  `cursus.purger_journal()`. Ce n'est pas un échange entre outils (même schéma, connexion de Cursus,
+  `CURSUS_PURGE_DATABASE_URL`) : rôle et droits sont au socle (`docs/demandes/matrix-lot16-purge-journal.md`). La vue
+  `pub_journal` publie encore les lignes fictives d'avant la purge de la démonstration et l'auteur d'une ligne d'un salarié
+  anonymisé jusqu'à leur échéance : Matrix peut les écarter dans sa publication (lignes d'`id` antérieur à la ligne
+  `purge.demo`, auteur d'un compte de salarié anonymisé), à lui proposer.
 - **Lecture des tables de Cursus par `matrix_lecture`** : ce rôle lit toutes les tables du schéma `cursus`, hors des
   colonnes de `droits.colonnes_sensibles` (catalogue et contrôles d'administration de Matrix), et non par des vues `pub_`.
   C'est un accès d'administration du serveur, décidé par Matrix, plutôt qu'un échange entre outils ; il reste à

@@ -267,8 +267,8 @@ export interface PlanPurge {
 }
 
 /**
- * Données de personnes et de fonctionnement : vidées quel que soit le profil. Les comptes gardés (--garder-compte) et la
- * ligne `purge.demo` du journal sont traités à part (`planPurge`).
+ * Données de personnes et de fonctionnement : vidées quel que soit le profil. Les comptes gardés (--garder-compte) et le
+ * journal (gardé) sont traités à part (`planPurge`).
  */
 const TOUJOURS: Partial<Record<TableName, string>> = {
   ...Object.fromEntries(['employes', 'contratsHistorique', 'demandesVisite', 'certifications', 'habTitres', 'habDelivrances', 'formationsSuivies', 'visas', 'vaccinations']
@@ -311,8 +311,14 @@ const TOUJOURS: Partial<Record<TableName, string>> = {
   liensDeclaration: 'déclarations de présence fictives', declarationsPresence: 'déclarations de présence fictives',
   connexions: 'sessions de connexion',
   comptes: 'comptes de connexion',
-  journal: 'journal des actions fictives (remplacé par la seule ligne purge.demo)',
 };
+
+/**
+ * Journal des actions : en ajout seul (Norma § 4, décision du propriétaire du 25/11/2026), jamais vidé. La ligne
+ * `purge.demo` en devient la frontière : les lignes fictives d'avant ne sont plus montrées (écran, export, données d'un
+ * salarié : server/src/journal.ts) et partent à leur échéance, par la purge du rôle dédié (server/src/journal-purge.ts).
+ */
+const JOURNAL_GARDE = 'journal des actions en ajout seul : gardé, lignes fictives masquées derrière la ligne purge.demo, supprimées à leur échéance (12 mois, 36 pour la paie)';
 
 /**
  * Réglages supprimés par le profil parametrage : clé de session, état de la paie, expurgation du journal, messagerie
@@ -356,6 +362,7 @@ export function planPurge(profil: ProfilPurge, comptesGardes = false): PlanPurge
     if (profil === 'rien') { tables[t] = supprimer('profil rien : base neuve', t === 'projets' || t === 'horaires' || /* lot 12 — C5 */ t === 'cycles'); continue; }
     tables[t] = garder('paramétrage');
   }
+  tables.journal = garder(JOURNAL_GARDE);
   if (comptesGardes) tables.comptes = { sort: 'ajuster', nulles: ['empId', 'oid', 'motDePasse', 'blocageFin', 'derniereConnexion'], pourquoi: 'comptes gardés (--garder-compte), rendus externes' };
   if (profil !== 'rien') {
     // Projets et chantiers viennent du Keystone simulé ; budgets, plan de formation et exercices clos sont fictifs.
@@ -522,7 +529,8 @@ export async function apercuPurge(db: Db, options: Pick<OptionsPurge, 'garder' |
   for (const t of Object.keys(TABLES) as TableName[]) {
     const r = plan.tables[t], lignes = await db.count(t);
     const restent = r.sort === 'supprimer' ? 0 : t === 'comptes' ? trouves.length : t === 'settings' ? lignes - supprimes.length : lignes;
-    tables.push({ table: t, sort: r.sort, pourquoi: r.pourquoi, lignes, partent: lignes - restent, restent: t === 'journal' ? 1 : restent, amorcee: !!r.amorcee });
+    // Journal : rien ne part, la ligne purge.demo s'ajoute.
+    tables.push({ table: t, sort: r.sort, pourquoi: r.pourquoi, lignes, partent: t === 'journal' ? 0 : lignes - restent, restent: t === 'journal' ? lignes + 1 : restent, amorcee: !!r.amorcee });
   }
   const plusGrand = await plusGrandIdEmploye(db), prochain = prochainIdEmploye(plusGrand);
   const avertissements: string[] = [];

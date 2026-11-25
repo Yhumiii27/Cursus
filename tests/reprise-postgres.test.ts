@@ -217,7 +217,12 @@ test('commande : à blanc, reprise, puis « déjà faite » ; refus sans rien é
     await surServeur(url, 'CREATE SCHEMA cursus');
     const src = await sourceDemo();
     const env = { DATABASE_URL: url, CURSUS_DB: src, CURSUS_PIECES_DIR: join(dir, 'pieces-cli') };
-    let r = lancer(['--a-blanc'], env);
+    // Source introuvable, base pas encore reprise : refus, rien d'écrit (journal en ajout seul : la ligne de la reprise,
+    // une fois écrite, ne s'efface plus, d'où ce contrôle avant la reprise).
+    let r = lancer([join(dir, 'absente.db')], env);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /^Reprise refusée : Base SQLite introuvable : .*absente\.db\nLa base PostgreSQL n’a pas été modifiée/);
+    r = lancer(['--a-blanc'], env);
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stdout, /Reprise à blanc \(rien n’a été écrit\) depuis .*source-\d+\.db\n {2}\d+ lignes dans \d+ tables, comptes identiques table par table :\n/);
     assert.match(r.stdout, /employes +24\n/);
@@ -233,10 +238,6 @@ test('commande : à blanc, reprise, puis « déjà faite » ; refus sans rien é
     assert.match(r.stdout, /^Reprise déjà faite le .* : Reprise de la base SQLite source-\d+\.db : .* Rien n’a été modifié\.\n$/);
     r = lancer([join(dir, 'absente.db')], { ...env, DATABASE_URL: url });
     assert.equal(r.status, 0, 'déjà faite : la source n’est plus lue');
-    await surServeur(url, `DELETE FROM cursus.journal WHERE action = '${R.ACTION_REPRISE}'`);
-    r = lancer([join(dir, 'absente.db')], env);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /^Reprise refusée : Base SQLite introuvable : .*absente\.db\nLa base PostgreSQL n’a pas été modifiée/);
   } finally {
     await surServeur(admin, `DROP DATABASE IF EXISTS "${nom}" WITH (FORCE)`);
   }

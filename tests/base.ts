@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import pg from 'pg';
 import { type Db, SqliteDb } from '../server/src/db.ts';
 import { ouvrirPostgres, type PgDb } from '../server/src/db-pg.ts';
+import { droitsPurgeSql, ROLE_PURGE } from '../server/src/journal-purge.ts';
 
 export const MOTEUR: 'sqlite' | 'pg' = process.env.CURSUS_TEST_ENGINE === 'pg' ? 'pg' : 'sqlite';
 /** Vrai quand les tests tournent sur PostgreSQL : `{ skip: PG && 'raison' }` pour un test propre au fichier SQLite. */
@@ -67,7 +68,8 @@ if (PG) {
   // Après tous les tests du fichier : bases fermées, base du fichier supprimée.
   after(async () => {
     for (const db of ouvertes) await db.fermer();
-    if (nomBase) await surServeur(admin!, `DROP DATABASE IF EXISTS "${nomBase}" WITH (FORCE)`);
+    // CURSUS_TEST_GARDER_BASES=1 : bases d'essai laissées sur le serveur de test (jamais supprimées), pour les examiner.
+    if (nomBase && process.env.CURSUS_TEST_GARDER_BASES !== '1') await surServeur(admin!, `DROP DATABASE IF EXISTS "${nomBase}" WITH (FORCE)`);
   });
 }
 
@@ -122,4 +124,25 @@ export async function horsContraintes(db: Db, fn: () => Promise<void>): Promise<
     await db.exec('SET LOCAL session_replication_role = replica');
     await fn();
   });
+}
+
+/** Mot de passe d'essai du rôle de purge, sur le serveur de test seulement (jamais le serveur commun). */
+const MDP_PURGE_ESSAI = 'essai-purge-journal-0123';
+
+/**
+ * Environnement de la purge du journal (server/src/journal-purge.ts) pour la base `db` : SQLite, aucun (purge dans
+ * Cursus) ; PostgreSQL, rôle `cursus_purge` créé au besoin sur le serveur de test et droits du schéma de `db` accordés
+ * comme le socle de Matrix les accorde (`droitsPurgeSql`, docs/demandes/matrix-lot16-purge-journal.sql), puis
+ * CURSUS_PURGE_DATABASE_URL vers la base du fichier.
+ */
+export async function envPurge(db: Db): Promise<Record<string, string>> {
+  if (!PG) return {};
+  const url = await urlBase();
+  await surServeur(admin!, `DO $$ BEGIN CREATE ROLE ${ROLE_PURGE} LOGIN PASSWORD '${MDP_PURGE_ESSAI}';
+    EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$`);
+  await surServeur(url, droitsPurgeSql((db as PgDb).schema, nomBase!));
+  const u = new URL(url);
+  u.username = ROLE_PURGE;
+  u.password = MDP_PURGE_ESSAI;
+  return { DATABASE_URL: url, CURSUS_PURGE_DATABASE_URL: u.toString() };
 }

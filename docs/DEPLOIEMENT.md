@@ -181,6 +181,7 @@ sudo nano /etc/cursus/cursus.env
 | `CODEX_URL`, `CODEX_DOCUMENTS_TOKEN`, `CODEX_DOCUMENTS_SECRET`, `CODEX_DOCUMENTS_OWNER` | lot 16 : versement des pièces justificatives dans Codex (stockage « Codex » de Paramètres → Pièces justificatives) : adresse de base de Codex sur le réseau interne, jeton et/ou secret de signature de `POST /api/documents` convenus avec Codex (32 caractères dont 10 différents), compte de service propriétaire des pièces (identifiant Codex ou matricule `EMP-…`). Cursus refuse de démarrer avec une adresse incomplète ; sans adresse, le stockage « Codex » est refusé. `CURSUS_PIECES_KEY` reste nécessaire : une pièce attend dans le dossier local d'être jointe puis versée |
 | `SAGE_MODE`, `SAGE_DOSSIER` | transmission à Sage Paie : à laisser vide (fichier d'import, mode de production) ; dossier de paie (`CURSUS-CHIMIE` par défaut). **Jamais** `SAGE_MODE=api` ni `SAGE_MODE=simulation`, **jamais** `SAGE_URL` : Cursus refuse de démarrer avec eux (voir « Sage Paie ») |
 | `CURSUS_BASE` | à laisser vide hors de l'image Docker. Dans l'image (`CURSUS_CONTENEUR=1`), la production exige `DATABASE_URL` (serveur commun), ou `CURSUS_BASE=sqlite` pour garder volontairement le fichier du volume : sans l'une ni l'autre, Cursus refuse de démarrer plutôt que d'ouvrir un fichier SQLite vide |
+| `CURSUS_PURGE_DATABASE_URL` | serveur PostgreSQL commun seulement : adresse du rôle dédié `cursus_purge` (`postgres://cursus_purge:<mot de passe>@<hôte>:5432/epc2i`), seul à pouvoir supprimer les lignes échues du journal des actions (12 mois, 36 pour la paie ; décision du 25/11/2026). Absente : purge désactivée, avertissement au démarrage. Refusée avec un autre rôle ou sans `DATABASE_URL` (« Variante : serveur PostgreSQL commun EPC2I », point 7) |
 | `CURSUS_VAPID_PUBLIC`, `CURSUS_VAPID_PRIVATE`, `CURSUS_VAPID_SUJET` | lot 11 : notifications sur le téléphone (Web Push) ; paire de clés P-256 en base64url et sujet `mailto:` ou `https:` (« Application mobile » ci-dessous). Sans elles, les notifications restent désactivées ; posées incomplètes ou illisibles : signalé au démarrage |
 | `CURSUS_PWA` | lot 11 : à laisser vide (`1`) : application installable sur le téléphone (manifeste, service worker `/sw.js`) ; `0` la coupe (`/sw.js` répond 404), comme le fait l'application de bureau |
 | `CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_DEMO_COMMUN`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE` | **jamais** sur ce serveur (une instance de démonstration en ligne, séparée et aux données fictives : README.md, « Mise en ligne »). La démonstration ouvre l'espace RH sans mot de passe : Cursus refuse de démarrer avec elle, et refuserait de toute façon (403) chaque requête relayée par le proxy |
@@ -741,6 +742,26 @@ l'identifiant) : chacun se reconnecte une fois.
    qui restent : `SELECT conrelid::regclass, conname FROM pg_constraint WHERE connamespace = 'cursus'::regnamespace AND
    NOT convalidated;` ; corriger les lignes dans Cursus, puis `ALTER TABLE cursus.<table> VALIDATE CONSTRAINT <nom>;` en
    tant que `cursus_app`.
+7. **Purge du journal des actions par le rôle dédié (migration 0035_journal_ajout_seul ; décision du propriétaire du
+   25 novembre 2026, « ok pour la purge par rôle dédié sur Cursus »)**. Le journal est en ajout seul (Norma § 4) : un
+   déclencheur y refuse toute modification, suppression ou troncature, au rôle `cursus_app` (son propriétaire) compris ;
+   seul le rôle `cursus_purge`, pendant la fonction `cursus.purger_journal()`, supprime les lignes échues (plus de
+   12 mois ; plus de 36 mois pour les actions liées à la paie), et chaque passage ajoute une ligne au registre
+   `cursus.journal_purges` (date, règle, limites, nombres, dates extrêmes ; jamais le contenu). Cursus se connecte pour
+   cela avec une seconde adresse, `CURSUS_PURGE_DATABASE_URL=postgres://cursus_purge:<mot de passe>@epc2i-postgres:5432/epc2i`
+   (secret, contrôlée au démarrage : rôle `cursus_purge` exigé), au démarrage puis une fois par jour.
+   - **Prérequis (Matrix, sur le serveur commun, avec le « validé » du propriétaire)** : rôle `cursus_purge` créé par le
+     socle (`init/01-base-et-roles.sql`, mot de passe `CURSUS_PURGE_PASSWORD` ; sans lui, le rôle existe sans connexion),
+     puis ses droits accordés **après** la migration 0035 de Cursus (`init/03-droits.sql` rejoué) : CONNECT sur `epc2i`,
+     USAGE sur `cursus`, SELECT (id, at, action, paie) et DELETE sur `journal`, SELECT sur `journal_actions_paie`, INSERT
+     et SELECT (id) sur `journal_purges`, EXECUTE sur `purger_journal()`, rien d'autre (demande :
+     `docs/demandes/matrix-lot16-purge-journal.md`).
+   - **Sans `CURSUS_PURGE_DATABASE_URL`** : purge désactivée, dit au démarrage (« Configuration à revoir ») et chaque jour
+     dans le journal du serveur ; rien n'est supprimé, les lignes échues restent en base mais ne sont plus montrées
+     (écran, export, données d'un salarié). Rôle absent, mot de passe faux, droits manquants ou migration non passée : la
+     purge échoue avec ce motif, sans rien supprimer, et Cursus continue de servir.
+   - **Contrôle** : `SELECT le, supprimees_un_an, supprimees_trois_ans FROM cursus.journal_purges ORDER BY id DESC LIMIT 5;`
+     (une ligne par jour) ; au démarrage, Cursus refuse un schéma dont un déclencheur du journal manque ou est désactivé.
 
 ### Passage de la démonstration sous PostgreSQL (même application Coolify)
 

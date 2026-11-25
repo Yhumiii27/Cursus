@@ -372,12 +372,14 @@ export const TABLES = {
   settings: { pk: 'key', cols: { key: 'text', value: 'json' } },
   // `actor` : nom de la personne connectée ; `compteId` et `identifiant` : son compte (server/src/comptes.ts).
   // `payload` : champs retenus par la liste blanche de l'action ; `salaries` : salariés concernés ; `paie` : action
-  // liée à la paie, archivée (`archivee`) au bout d'un an au lieu d'être supprimée (server/src/journal.ts).
+  // liée à la paie, gardée 3 ans au lieu d'1 (archive calculée à la lecture ; `archivee` : date posée avant le journal en
+  // ajout seul, jamais plus écrite) ; `regroupe` : première ligne du groupe d'une action répétée (server/src/journal.ts).
+  // En ajout seul (Norma § 4, décision du 25/11/2026) : `SqliteDb.poserJournalAjoutSeul`, migration PostgreSQL 0035.
   journal: {
     pk: 'id', auto: true,
     cols: {
       id: 'int', at: 'text', actor: 'text', role: 'text', action: 'text', message: 'text', payload: 'json', compteId: 'int', identifiant: 'text',
-      salaries: 'json', paie: 'bool', archivee: 'text',
+      salaries: 'json', paie: 'bool', archivee: 'text', regroupe: 'int',
     },
   },
   // Comptes de connexion (server/src/comptes.ts) : un par personne, salarié (`empId`) ou externe (`nom`, `adresse`).
@@ -1319,6 +1321,47 @@ export class SqliteDb extends Db {
     // Schéma créé à l'ouverture, avant toute requête : rien d'autre ne peut encore utiliser la connexion.
     this.createSchema();
     this.poserRevision();
+    this.poserJournalAjoutSeul();
+  }
+
+  /**
+   * Journal des actions en ajout seul (Norma § 4, décision du propriétaire du 25/11/2026 ; même règle que la migration
+   * PostgreSQL 0035_journal_ajout_seul) : UPDATE refusé sur `journal`, DELETE refusé sauf pendant la purge
+   * (server/src/journal-purge.ts, seule à poser la ligne de `journal_purge_en_cours`) et pour une ligne échue (plus de
+   * 36 mois, ou plus de 12 mois hors paie, comptés depuis le début du jour UTC). SQLite n'a pas de rôles : la garde
+   * empêche qu'une autre écriture de Cursus supprime, et la règle d'échéance, écrite dans le déclencheur, empêche toute
+   * suppression d'une ligne encore à conserver, même par du SQL direct. Registre des purges (`journal_purges`) et codes
+   * des actions de paie (`journal_actions_paie`) en ajout seul. Tables hors de TABLES (comme `revision`) : ni remises à
+   * zéro par `clearAll`, ni reprises par `npm run reprise-postgres`. Posés à l'ouverture, puis après les migrations
+   * nommées (server/src/demarrage.ts) : une reconstruction de la table retirerait ses déclencheurs.
+   */
+  poserJournalAjoutSeul(): void {
+    const existants = new Map((this.sql.prepare(`SELECT name, sql FROM sqlite_master WHERE type = 'trigger'`).all() as { name: string; sql: string }[]).map(d => [d.name, d.sql]));
+    const sql = ['SAVEPOINT poser_journal',
+      `CREATE TABLE IF NOT EXISTS journal_actions_paie (action TEXT PRIMARY KEY CHECK (action GLOB '[a-z]*.*' AND trim(action) = action), depuis TEXT NOT NULL)`,
+      `CREATE TABLE IF NOT EXISTS journal_purges (id INTEGER PRIMARY KEY, le TEXT NOT NULL, par TEXT NOT NULL CHECK (trim(par) <> ''),
+        regle TEXT NOT NULL CHECK (trim(regle) <> ''), limite_journal TEXT NOT NULL, limite_paie TEXT NOT NULL CHECK (limite_paie < limite_journal),
+        supprimees_un_an INTEGER NOT NULL CHECK (supprimees_un_an >= 0), supprimees_trois_ans INTEGER NOT NULL CHECK (supprimees_trois_ans >= 0),
+        plus_ancienne TEXT, plus_recente TEXT,
+        CHECK ((supprimees_un_an + supprimees_trois_ans = 0) = (plus_ancienne IS NULL) AND (plus_ancienne IS NULL) = (plus_recente IS NULL)))`,
+      'CREATE TABLE IF NOT EXISTS journal_purge_en_cours (cle INTEGER PRIMARY KEY CHECK (cle = 1))'];
+    const limite = (mois: number) => `strftime('%Y-%m-%dT%H:%M:%fZ', 'now', 'start of day', '-${mois} months')`;
+    const refus = (quoi: string) => `SELECT RAISE(ABORT, 'Journal des actions de Cursus en ajout seul (Norma § 4) : ${quoi} refusé ; seule la purge des lignes échues peut supprimer.')`;
+    const voulus: Record<string, string> = {
+      journal_ajout_seul_u: `CREATE TRIGGER journal_ajout_seul_u BEFORE UPDATE ON journal BEGIN ${refus('UPDATE')}; END`,
+      journal_ajout_seul_d: `CREATE TRIGGER journal_ajout_seul_d BEFORE DELETE ON journal WHEN NOT (EXISTS (SELECT 1 FROM journal_purge_en_cours)
+        AND (OLD.at < ${limite(36)} OR (OLD.at < ${limite(12)} AND NOT (coalesce(OLD.paie, 0) = 1 OR OLD.action LIKE 'sage.%'
+          OR OLD.action IN (SELECT action FROM journal_actions_paie))))) BEGIN ${refus('DELETE')}; END`,
+    };
+    for (const t of ['journal_purges', 'journal_actions_paie']) {
+      for (const [suffixe, evenement] of [['u', 'UPDATE'], ['d', 'DELETE']] as const) {
+        voulus[`${t}_ajout_seul_${suffixe}`] = `CREATE TRIGGER ${t}_ajout_seul_${suffixe} BEFORE ${evenement} ON ${t} BEGIN SELECT RAISE(ABORT, 'Table ${t} de Cursus en ajout seul (Norma § 4) : ${evenement} refusé.'); END`;
+      }
+    }
+    // Recréé quand son texte diffère du code, jamais sinon (une ouverture sur une base à jour n'écrit rien).
+    for (const [nom, voulu] of Object.entries(voulus)) if (existants.get(nom) !== voulu) sql.push(`DROP TRIGGER IF EXISTS ${nom}`, voulu);
+    sql.push('RELEASE poser_journal');
+    this.sql.exec(sql.join(';\n'));
   }
 
   /**

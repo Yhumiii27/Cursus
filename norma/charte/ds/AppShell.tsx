@@ -100,7 +100,10 @@ export function AppShell({ sidebar, topbar, after, className, children }: AppShe
 export interface MobileTopBarProps {
   /** Tool name (a proper noun, not translated). */
   name: string;
-  icon: Icon;
+  /** The tool's logo (Norma 2.3.0): `<ToolLogo code="…" size={20} />`. Preferred over `icon`. */
+  logo?: ReactNode;
+  /** Former brand glyph, used when there is no `logo`. */
+  icon?: Icon;
   /** Optional tools before the language / display pair (e.g. the bell). */
   tools?: ReactNode;
   /** `<PrefsStack>` — always the last element, at the right end of the top bar. */
@@ -108,7 +111,7 @@ export interface MobileTopBarProps {
 }
 
 /** Top bar of the compact layout (≤ 1024 px): menu button · tool name · … · tools · language / display pair. */
-export function MobileTopBar({ name, icon: I, tools, prefs }: MobileTopBarProps) {
+export function MobileTopBar({ name, logo, icon: I, tools, prefs }: MobileTopBarProps) {
   const { t } = useI18n();
   const { navOpen, setNavOpen } = useCoque();
   return (
@@ -125,7 +128,7 @@ export function MobileTopBar({ name, icon: I, tools, prefs }: MobileTopBarProps)
         <span>{t('Menu')}</span>
       </button>
       <span className="coque-topbar-brand">
-        <I size={15} className="coque-topbar-logo" aria-hidden />
+        {logo ? <span className="coque-topbar-mark">{logo}</span> : I && <I size={15} className="coque-topbar-logo" aria-hidden />}
         {name}
       </span>
       <div className="coque-topbar-tools">

@@ -28,7 +28,7 @@ schéma `codex` n'est lu que par sa vue `codex.pub_types_document` (lot 16, lign
 | --- | --- | --- |
 | Cursus → Keystone : décisions sur les demandes de déplacement, heures validées sur les projets, absences validées ou annulées (période seule), verdicts Go / No Go modifiés | API de Keystone `POST ${KEYSTONE_URL}/api/cursus/v1/evenements` (jeton, `Idempotency-Key`), par la file `envois` (`server/src/integrations/keystone/keystone.ts`, `server/src/envois.ts`) | Conforme (API) |
 | Cursus → Matrix : déclaration du schéma de la base (catalogue `matrix.schema/1`) | API de Matrix `POST ${MATRIX_URL}/api/declarations` (`server/src/integrations/matrix/matrix.ts`), au démarrage, jamais bloquant | Conforme (API) |
-| Cursus → Codex : pièces justificatives (lot 16, décision du 10/11/2026 : tous les documents dans Codex) | API de Codex : `POST ${CODEX_URL}/api/documents` (jeton et/ou signature HMAC, `sourceRef` `cursus:piece/<id>` rejouable), relecture `GET …/{id}/file` et destruction `POST …/{id}/destroy` (demandées, Codex#29) ; client `server/src/integrations/codex/codex-documents.ts`, versement `server/src/integrations/codex/pieces-codex.ts`. Stockage « Codex » refusé tant que Codex n'est pas raccordé et que ses catégories manquent ; aucune pièce envoyée aujourd'hui | Conforme (API) |
+| Cursus → Codex : pièces justificatives (lot 16, décision du 10/11/2026 : tous les documents dans Codex ; contrat livré par Codex#38 le 26/11/2026, CU-037) | API de Codex : `POST ${CODEX_URL}/api/documents` (jeton `CODEX_CURSUS_TOKEN`, signature HMAC `CODEX_CURSUS_SECRET` facultative, type `DPE`, `category`, `subjectMatricule`, `sha256`, `sourceRef` `cursus:piece/<id>` rejouable), lecture `GET …/{id}/file` (empreinte `X-Codex-SHA256` contrôlée) et destruction `POST …/{id}/destroy` (motif `retrait` / `conservation` / `effacement`) ; client `server/src/integrations/codex/codex-documents.ts`, versement `server/src/integrations/codex/pieces-codex.ts`, Codex simulé `codex-simule.ts` (`CODEX_SIMULATION=1`, hors production). Stockage « Codex » refusé tant que Codex n'est pas raccordé et que ses catégories manquent ; aucune pièce réelle versée aujourd'hui | Conforme (API) |
 | Cursus → Vigie, Crucible, Arche | Aucun envoi | — |
 
 Hors du groupe (ni schéma ni outil EPC2I) : e-mails par Microsoft Graph, notifications push par les services des
@@ -37,7 +37,7 @@ navigateurs, connexion Microsoft Entra ID, fichier d'import de Sage Paie téléc
 ### Où vivent les connecteurs (Norma § 5, 24/11/2026)
 
 Un dossier par outil sous `server/src/integrations/` : `clavis/` (`acces-clavis.ts` : droits lus dans `clavis.pub_acces`),
-`codex/` (`codex-documents.ts` client de l'API, `ged.ts` dépôt des pièces versées, `pieces-codex.ts` versement et lecture
+`codex/` (`codex-documents.ts` client de l'API, `codex-simule.ts` Codex simulé, `ged.ts` dépôt des pièces versées, `pieces-codex.ts` versement et lecture
 de `codex.pub_types_document`), `keystone/` (`keystone.ts` messages sortants par la file `envois`, `keystone-entrant.ts`,
 `keystone-routes.ts` et `filtre-keystone.ts` pour l'API entrante, `keystone-verdicts.ts`), `matrix/` (`matrix.ts` :
 déclaration du schéma) ; hors du groupe : `microsoft/` (`email.ts`, e-mails par Graph), `push/` (`push.ts`, Web Push),

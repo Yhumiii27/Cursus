@@ -26,6 +26,7 @@ import type { CurrentUser, ObjetPiece, Piece, StockagePieces } from '../../share
 import { dossierPieces, fichierBase } from './chemins.ts';
 import { clePieces, refusPiecesLocales } from './config.ts';
 import type { Db, TableName } from './db.ts';
+import { CodexRefus } from './integrations/codex/codex-documents.ts';
 import { DepotGed, estFichierGed } from './integrations/codex/ged.ts';
 import { log } from './logs.ts';
 import { chiffrerPiece, contenuEnClair, fichierChiffre, SURCOUT_CHIFFREMENT } from './pieces-chiffrement.ts';
@@ -215,7 +216,14 @@ export async function nettoyerPieces(db: Db, maintenant = Date.now()): Promise<B
   }
   for (const p of retirees) {
     // Pièce versée dans Codex (lot 16) : destruction avec le motif codé (retrait, terme de conservation, effacement).
-    try { await depotDe(db, p.fichier).supprimer(p.fichier, motifDestruction(p.motif)); } catch { continue; /* Codex injoignable : nouvel essai à l'heure suivante */ }
+    try {
+      await depotDe(db, p.fichier).supprimer(p.fichier, motifDestruction(p.motif));
+    } catch (err) {
+      // Codex injoignable : nouvel essai à l'heure suivante ; refus (gel juridique, circuit en cours) : signalé, à régler
+      // dans Codex, repris à chaque passage.
+      if (err instanceof CodexRefus) log.avertissement(`Pièce justificative n° ${p.id} : ${err.message}, destruction à reprendre une fois réglée dans Codex`);
+      continue;
+    }
     // Pièce de nouveau en vigueur entre-temps (restauration) : son nom stocké reste.
     await db.tx(async () => { if ((await db.get<PieceEnregistree>('pieces', p.id))?.retireeLe) await db.update('pieces', p.id, { fichier: null }); });
   }

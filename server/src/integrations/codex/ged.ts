@@ -1,7 +1,7 @@
 // Espace documentaire de l'entreprise : Codex (lot 16, décision du propriétaire du 10 novembre 2026 : tous les
 // documents de la suite sont stockés dans Codex). Adaptateur du stockage des pièces justificatives (server/src/pieces.ts,
 // `DepotPieces`) pour les pièces déjà versées dans Codex : nom stocké `ged:<identifiant Codex>`, relecture et destruction
-// par le client de server/src/integrations/codex/codex-documents.ts. Une nouvelle pièce n'est jamais écrite directement dans
+// par le client de server/src/integrations/codex/codex-documents.ts (empreinte `X-Codex-SHA256` contrôlée à chaque lecture). Une nouvelle pièce n'est jamais écrite directement dans
 // Codex : elle est d'abord gardée dans le dossier local, puis versée une fois jointe à son objet (catégorie, salarié et
 // conservation connus), par server/src/integrations/codex/pieces-codex.ts.
 import type { MotifDestruction } from '../../../../shared/rules/pieces-codex.ts';
@@ -17,7 +17,7 @@ const idGed = (fichier: string) => {
   return fichier.slice(PREFIXE_GED.length);
 };
 
-export const GED_NON_RACCORDEE = 'Codex (espace documentaire) n’est pas raccordé à Cursus : CODEX_URL, CODEX_DOCUMENTS_TOKEN ou CODEX_DOCUMENTS_SECRET, et CODEX_DOCUMENTS_OWNER sont à définir';
+export const GED_NON_RACCORDEE = 'Codex (espace documentaire) n’est pas raccordé à Cursus : CODEX_URL et CODEX_CURSUS_TOKEN (et, convenu avec Codex, CODEX_CURSUS_SECRET) sont à définir, ou CODEX_SIMULATION=1 hors production';
 
 /** Pièces versées dans Codex : relues et détruites par son API ; chaque appel est refusé sans raccordement configuré. */
 export class DepotGed implements DepotPieces {

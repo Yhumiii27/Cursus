@@ -8,6 +8,7 @@ import { useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { parse } from '../../../shared/dates.ts';
 import type { ISODate } from '../../../shared/types.ts';
 import { MARQUE, jourComplet, type LignePlanning, type NatureCase } from './planning-missions.ts';
+import { t } from '../i18n/langue.ts';
 
 export const ferieBg = (c: string) => `repeating-linear-gradient(45deg, var(${c}), var(${c}) 3px, transparent 3px, transparent 6px)`;
 
@@ -42,28 +43,28 @@ export function PlanningGrille({ days, lignes, ti }: { days: ISODate[]; lignes: 
       ArrowLeft: [l, c - 1], ArrowRight: [l, c + 1], ArrowUp: [l - 1, c], ArrowDown: [l + 1, c],
       Home: [l, 0], End: [l, days.length - 1],
     };
-    const t = cible[e.key];
-    if (!t) return;
+    const vers = cible[e.key];
+    if (!vers) return;
     e.preventDefault();
-    const [nl, nc] = [Math.max(0, Math.min(lignes.length - 1, t[0])), Math.max(0, Math.min(days.length - 1, t[1]))];
+    const [nl, nc] = [Math.max(0, Math.min(lignes.length - 1, vers[0])), Math.max(0, Math.min(days.length - 1, vers[1]))];
     grille.current?.querySelector<HTMLButtonElement>(`[data-case="${nl}-${nc}"]`)?.focus();
   };
 
   return (
     <>
       <table ref={grille} className="planning" aria-describedby="planning-aide">
-        <caption className="sr-only">Planning des 4 prochaines semaines : missions, absences et fériés par collaborateur</caption>
+        <caption className="sr-only">{t('Schedule of the next 4 weeks: assignments, absences and public holidays per employee')}</caption>
         <colgroup><col className="planning-nom" />{days.map(s => <col key={s} />)}<col className="planning-resume" /></colgroup>
         <thead>
           <tr>
-            <th scope="col"><span className="sr-only">Collaborateur</span></th>
+            <th scope="col"><span className="sr-only">{t('Employee')}</span></th>
             {days.map(s => (
               <th key={s} scope="col" className={`planning-jour tnum${s === ti ? ' aujourdhui' : ''}`}>
                 <span aria-hidden="true"><span>{parse(s).toLocaleDateString('fr-FR', { weekday: 'narrow' })}</span><span>{parse(s).getDate()}</span></span>
-                <span className="sr-only">{jourComplet(s)}{s === ti ? ' (aujourd’hui)' : ''}</span>
+                <span className="sr-only">{jourComplet(s)}{s === ti ? t(' (today)') : ''}</span>
               </th>
             ))}
-            <th scope="col" className="planning-jour"><span className="sr-only">Résumé des 4 semaines</span></th>
+            <th scope="col" className="planning-jour"><span className="sr-only">{t('Summary of the 4 weeks')}</span></th>
           </tr>
         </thead>
         <tbody>
@@ -84,8 +85,8 @@ export function PlanningGrille({ days, lignes, ti }: { days: ISODate[]; lignes: 
           ))}
         </tbody>
       </table>
-      <p id="planning-aide" className="sr-only">Flèches pour passer d’un jour ou d’un collaborateur à l’autre, Début et Fin pour aller au premier ou au dernier jour.</p>
-      <p className="planning-detail sub" aria-hidden="true">{detail ?? 'Touchez ou sélectionnez une case pour afficher le détail du jour.'}</p>
+      <p id="planning-aide" className="sr-only">{t('Arrows to go from one day or one employee to another, Home and End to go to the first or the last day.')}</p>
+      <p className="planning-detail sub" aria-hidden="true">{detail ?? t('Touch or select a cell to show the detail of the day.')}</p>
       <p className="sr-only" aria-live="polite">{annonce}</p>
     </>
   );

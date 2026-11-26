@@ -4,10 +4,11 @@
 import { useMemo, type CSSProperties } from 'react';
 import { TRIP_LABEL } from '../../../shared/constants.ts';
 import { parse } from '../../../shared/dates.ts';
-import { equipeLabel, fmt, fmtShort, plural } from '../../../shared/format.ts';
+import { equipeLabel, fmt, fmtShort } from '../../../shared/format.ts';
 import { Empty, Page, Panel, Tag, Two } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
-import { planningMissions } from './planning-missions.ts';
+import { MARQUE, planningMissions } from './planning-missions.ts';
+import { t, tn } from '../i18n/langue.ts';
 import { FOND, PlanningGrille, ferieBg } from './PlanningMissions.tsx';
 import { GrandDeplacementChantiers } from '../components/GrandDeplacement.tsx';
 // lot 11 — notes de frais
@@ -22,14 +23,14 @@ export function Missions() {
   const ti = data.today;
 
   const v = useMemo(() => {
-    const voyages = data.voyages.filter(t => t.retour >= ti && !t.annuleLe && d.emp(t.empId));
+    const voyages = data.voyages.filter(x => x.retour >= ti && !x.annuleLe && d.emp(x.empId));
     const rows = data.missions.filter(m => m.au >= ti).sort((a, b) => a.du.localeCompare(b.du)).map(m => {
-      const t = voyages.find(x => x.empId === m.empId && x.chantier === m.projet), now = m.du <= ti;
+      const v = voyages.find(x => x.empId === m.empId && x.chantier === m.projet), now = m.du <= ti;
       const e = d.emp(m.empId);
       return {
         m, now, nom: d.personName(m.empId), equipe: e ? equipeLabel(e) : '', projet: `${m.projet} · ${d.projet(m.projet)}`,
         dates: `${fmtShort(parse(m.du))} → ${fmt(parse(m.au))}`,
-        dossier: t ? `Dossier voyage : ${TRIP_LABEL[d.tripStatus(t)]}` : m.type.includes('international') ? 'Dossier voyage à créer' : 'Mission en France',
+        dossier: v ? `${t('Travel file: ')}${TRIP_LABEL[d.tripStatus(v)]}` : m.type.includes('international') ? t('Travel file to create') : t('Assignment in France'),
       };
     });
     const { days, lignes } = planningMissions(d, manager);
@@ -38,10 +39,10 @@ export function Missions() {
 
   return (
     <Page
-      kicker={`Source Keystone · ${plural(v.now.length, 'personne en mission aujourd’hui', 'personnes en mission aujourd’hui')} · ${plural(v.rows.length, 'mission en cours ou à venir', 'missions en cours ou à venir')}`}
-      title="Missions & déplacements"
+      kicker={`${t('Source Keystone · ')}${tn(v.now.length, 'person on assignment today', 'people on assignment today')} · ${tn(v.rows.length, 'assignment in progress or upcoming', 'assignments in progress or upcoming')}`}
+      title={t('Assignments & travel')}
     >
-      <Panel title="En mission aujourd’hui">
+      <Panel title={t('On assignment today')}>
         {v.now.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 'var(--space-3)' }}>
             {v.now.map(r => (
@@ -53,18 +54,18 @@ export function Missions() {
             ))}
           </div>
         )}
-        {v.now.length === 0 && <Empty>Personne en mission aujourd’hui.</Empty>}
+        {v.now.length === 0 && <Empty>{t('Nobody on assignment today.')}</Empty>}
       </Panel>
 
-      <Panel title="Planning des 4 prochaines semaines" aside={
+      <Panel title={t('Schedule of the next 4 weeks')} aside={
         <div className="legend" style={{ color: 'var(--color-neutral-400)' }}>
-          <span><span className="planning-marque mission" style={{ ...swatch, ...FOND.mission }} aria-hidden="true">M</span>Mission Keystone</span>
-          <span><span className="planning-marque absence" style={{ ...swatch, ...FOND.absence }} aria-hidden="true">A</span>Absence validée ou signalée</span>
-          <span><span className="planning-marque demande" style={{ ...swatch, ...FOND.demande }} aria-hidden="true">D</span>Absence demandée</span>
-          <span><span className="planning-marque ferie" style={{ ...swatch, background: ferieBg('--color-neutral-700') }} aria-hidden="true">F</span>Férié</span>
+          <span><span className="planning-marque mission" style={{ ...swatch, ...FOND.mission }} aria-hidden="true">{MARQUE.mission}</span>{t('Keystone assignment')}</span>
+          <span><span className="planning-marque absence" style={{ ...swatch, ...FOND.absence }} aria-hidden="true">{MARQUE.absence}</span>{t('Absence approved or reported')}</span>
+          <span><span className="planning-marque demande" style={{ ...swatch, ...FOND.demande }} aria-hidden="true">{MARQUE.demande}</span>{t('Absence requested')}</span>
+          <span><span className="planning-marque ferie" style={{ ...swatch, background: ferieBg('--color-neutral-700') }} aria-hidden="true">{MARQUE.ferie}</span>{t('Public holiday')}</span>
         </div>
       }>
-        {v.grid.length === 0 ? <Empty>Personne en mission ni absent sur les 4 semaines.</Empty> : <div className="scroll-x">
+        {v.grid.length === 0 ? <Empty>{t('Nobody on assignment or absent over the 4 weeks.')}</Empty> : <div className="scroll-x">
           <PlanningGrille days={v.days} lignes={v.grid} ti={ti} />
         </div>}
       </Panel>
@@ -73,15 +74,15 @@ export function Missions() {
 
       {/* lot 11 — notes de frais : notes rattachées à une mission Keystone (service RH ; manager : son équipe). */}
       {(rh || manager) && d.ds.settings.notesFraisActives && (
-        <Panel title="Notes de frais des missions">
-          <FraisRattaches titre="Rattachées à une mission" avecRattachement filtre={n => n.missionId != null} />
+        <Panel title={t('Expense reports of the assignments')}>
+          <FraisRattaches titre={t('Linked to an assignment')} avecRattachement filtre={n => n.missionId != null} />
         </Panel>
       )}
 
-      <Panel title="Missions en cours et à venir">
-        {v.rows.length === 0 ? <Empty>Aucune mission en cours ou à venir.</Empty> : <div className="scroll-x">
+      <Panel title={t('Assignments in progress and upcoming')}>
+        {v.rows.length === 0 ? <Empty>{t('No assignment in progress or upcoming.')}</Empty> : <div className="scroll-x">
           <table className="table">
-            <thead><tr><th>Collaborateur</th><th>Projet Keystone</th><th>Lieu</th><th>Dates</th><th>Statut</th></tr></thead>
+            <thead><tr><th>{t('Employee')}</th><th>{t('Keystone project')}</th><th>{t('Place')}</th><th>{t('Dates')}</th><th>{t('Status')}</th></tr></thead>
             <tbody>
               {v.rows.map(r => (
                 <tr key={r.m.id}>
@@ -89,7 +90,7 @@ export function Missions() {
                   <td><Two main={r.projet} sub={r.m.type} /></td>
                   <td><Two main={r.m.lieu} sub={r.dossier} /></td>
                   <td className="nowrap">{r.dates}</td>
-                  <td><Tag cls={r.now ? 'tag-accent' : 'tag-outline'}>{r.now ? 'En cours' : 'À venir'}</Tag></td>
+                  <td><Tag cls={r.now ? 'tag-accent' : 'tag-outline'}>{r.now ? t('In progress') : t('Upcoming')}</Tag></td>
                 </tr>
               ))}
             </tbody>

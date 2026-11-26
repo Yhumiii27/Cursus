@@ -6,15 +6,15 @@
 import { ABS_LABEL } from '../../../shared/constants.ts';
 import { addD, isFerie, mondayOf, parse, weekday } from '../../../shared/dates.ts';
 import type { Domain } from '../../../shared/domain.ts';
-import { plural } from '../../../shared/format.ts';
 import { absenceActive, absenceBloque, statutAbsence } from '../../../shared/rules/absences.ts';
 import type { ISODate } from '../../../shared/types.ts';
+import { t, tn, traduites } from '../i18n/langue.ts';
 
 /** Nature d'une case : la couleur, la lettre et la légende en découlent. */
 export type NatureCase = 'mission' | 'absence' | 'demande' | 'ferie' | 'present';
 
-/** Lettre de chaque nature (vide : présent). */
-export const MARQUE: Record<NatureCase, string> = { mission: 'M', absence: 'A', demande: 'D', ferie: 'F', present: '' };
+/** Lettre de chaque nature (vide : présent), dans la langue affichée (« D » demandée, « F » férié ; R, H en anglais). */
+export const MARQUE = traduites<NatureCase>({ mission: 'M', absence: 'A', demande: 'R#letter', ferie: 'H#letter', present: '' });
 
 export interface CasePlanning {
   s: ISODate;
@@ -31,11 +31,11 @@ export const jourComplet = (s: ISODate) => parse(s).toLocaleDateString('fr-FR', 
 export function resumeLigne(cases: Pick<CasePlanning, 'nature'>[]): string {
   const n = (x: NatureCase) => cases.filter(c => c.nature === x).length;
   const parts = [
-    n('mission') && `${n('mission')} j de mission`,
-    n('absence') && `${n('absence')} j d’absence`,
-    n('demande') && `${plural(n('demande'), 'j demandé', 'j demandés')}`,
+    n('mission') && `${n('mission')}${t(' d of assignment')}`,
+    n('absence') && `${n('absence')}${t(' d of absence')}`,
+    n('demande') && `${tn(n('demande'), 'd requested', 'd requested#plural')}`,
   ].filter(Boolean);
-  return parts.length ? parts.join(' · ') : 'Présent';
+  return parts.length ? parts.join(' · ') : t('Present');
 }
 
 /** Les 20 jours ouvrés à partir du lundi de la semaine en cours, et une ligne par salarié concerné. */
@@ -51,7 +51,7 @@ export function planningMissions(d: Domain, manager: boolean): { days: ISODate[]
     const cases = days.map((s): CasePlanning => {
       const m = data.missions.find(x => x.empId === id && x.du <= s && x.au >= s), a = d.absOn(id, s, true), fer = isFerie(s);
       const nature: NatureCase = fer ? 'ferie' : m ? 'mission' : a ? (absenceBloque(a) ? 'absence' : 'demande') : 'present';
-      const quoi = fer ? 'Férié' : m ? `Mission ${m.projet} · ${m.lieu}` : a ? `${ABS_LABEL[a.type]} (${statutAbsence(a).toLowerCase()})` : 'Présent';
+      const quoi = fer ? t('Public holiday') : m ? `${t('Assignment ')}${m.projet} · ${m.lieu}` : a ? `${ABS_LABEL[a.type]} (${statutAbsence(a).toLowerCase()})` : t('Present');
       return { s, nature, texte: `${jourComplet(s)} — ${quoi}` };
     });
     return { id, nom: d.personName(id), cases, resume: resumeLigne(cases) };

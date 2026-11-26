@@ -3,7 +3,7 @@
 // Proposée pour tout chantier en France (Keystone ne transmet que des chantiers chez les clients, hors du site), elle
 // n'est retenue qu'une fois choisie par le service RH (`chantier.grandDeplacement`). Les chantiers à l'étranger n'en ont
 // pas besoin : leurs jours partent avec le déplacement (pays de la destination).
-import { plural } from '../../../shared/format.ts';
+import { t, tn } from '../i18n/langue.ts';
 import { grandDeplacementPropose } from '../../../shared/rules/deplacements-paie.ts';
 import { useAgir } from '../state/actions.ts';
 import { useDomain, useRole } from '../state/derived.ts';
@@ -21,10 +21,10 @@ export function GrandDeplacementChantiers() {
   const aQualifier = chantiers.filter(c => c.grandDeplacement == null).length;
   const qualifier = (id: string, grandDeplacement: boolean) => run('chantier.grandDeplacement', { id, grandDeplacement });
   return (
-    <Panel title="Grand déplacement des chantiers en France" aside={aQualifier ? plural(aQualifier, 'chantier à qualifier', 'chantiers à qualifier') : 'chantiers qualifiés'}>
+    <Panel title={t('Long-distance travel of the worksites in France')} aside={aQualifier ? tn(aQualifier, 'worksite to qualify', 'worksites to qualify') : t('worksites qualified')}>
       <div className="scroll-x">
         <table className="table">
-          <thead><tr><th>Chantier</th><th>Lieu</th><th className="right">Missions</th><th>Qualification</th><th></th></tr></thead>
+          <thead><tr><th>{t('Worksite')}</th><th>{t('Place')}</th><th className="right">{t('Assignments')}</th><th>{t('Qualification')}</th><th></th></tr></thead>
           <tbody>
             {chantiers.map(c => {
               const missions = d.ds.missions.filter(m => m.projet === c.id).length;
@@ -35,13 +35,13 @@ export function GrandDeplacementChantiers() {
                   <td className="right tnum">{missions}</td>
                   <td>
                     {c.grandDeplacement == null
-                      ? <Two main={<Tag cls="tag-accent">À qualifier</Tag>} sub="proposé : grand déplacement" />
-                      : <Tag cls={c.grandDeplacement ? 'tag-neutral' : 'tag-outline'}>{c.grandDeplacement ? 'Grand déplacement' : 'Pas de grand déplacement'}</Tag>}
+                      ? <Two main={<Tag cls="tag-accent">{t('To qualify')}</Tag>} sub={t('proposed: long-distance travel')} />
+                      : <Tag cls={c.grandDeplacement ? 'tag-neutral' : 'tag-outline'}>{c.grandDeplacement ? t('Long-distance travel') : t('No long-distance travel')}</Tag>}
                   </td>
                   <td className="right">
                     <div className="actions-end">
-                      {c.grandDeplacement !== true && <Btn small variant={c.grandDeplacement == null ? 'secondary' : undefined} disabled={occupe} onClick={agir(() => qualifier(c.id, true))}>Grand déplacement</Btn>}
-                      {c.grandDeplacement !== false && <Btn small disabled={occupe} onClick={agir(() => qualifier(c.id, false))}>Pas de grand déplacement</Btn>}
+                      {c.grandDeplacement !== true && <Btn small variant={c.grandDeplacement == null ? 'secondary' : undefined} disabled={occupe} onClick={agir(() => qualifier(c.id, true))}>{t('Long-distance travel')}</Btn>}
+                      {c.grandDeplacement !== false && <Btn small disabled={occupe} onClick={agir(() => qualifier(c.id, false))}>{t('No long-distance travel')}</Btn>}
                     </div>
                   </td>
                 </tr>
@@ -51,9 +51,7 @@ export function GrandDeplacementChantiers() {
         </table>
       </div>
       <Fine>
-        Un chantier en grand déplacement donne à la paie, pour chaque mission, les jours calendaires sur place, les nuits (jours − 1) et deux
-        trajets (aller et retour), jours d’absence exclus. Le critère de l’URSSAF (distance et temps de trajet) se vérifie hors de Cursus :
-        la proposition ne vaut qu’une fois retenue. Un changement après la transmission se régularise au prochain lot de paie.
+        {t('A worksite in long-distance travel gives payroll, for each assignment, the calendar days on site, the nights (days − 1) and two journeys (outward and return), days of absence excluded. The URSSAF criterion (distance and travel time) is checked outside Cursus: the proposal only counts once retained. A change after the transfer is adjusted in the next payroll batch.')}
       </Fine>
     </Panel>
   );

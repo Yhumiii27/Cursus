@@ -135,6 +135,11 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
   {
     ecran: 'Échéances', fichiers: ['client/src/pages/Echeances.tsx', 'client/src/components/IndicateursACompleter.tsx', 'client/src/components/opco/EcheancesOpco.tsx'],
   },
+  {
+    // Présents en mission, planning des 4 semaines (grille et légende), grand déplacement des chantiers, notes rattachées.
+    ecran: 'Missions & déplacements', fichiers: ['client/src/pages/Missions.tsx', 'client/src/pages/PlanningMissions.tsx', 'client/src/pages/planning-missions.ts',
+      'client/src/components/GrandDeplacement.tsx'],
+  },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */
@@ -271,6 +276,9 @@ test('Notes de frais : tables de libellés traduites à la lecture, phrase fran�
   assert.equal(enFrancais('24 months at most per search.'), '24 mois au plus par recherche.');
   assert.equal(nomNote({ id: 12, periode: '2026-10', medicale: true }), 'Note n° 12 — Octobre 2026 · frais médicaux');
   assert.equal(t('?#question'), ' ?');
+  const { MARQUE } = await import('../client/src/pages/planning-missions.ts');
+  assert.deepEqual({ ...MARQUE }, { mission: 'M', absence: 'A', demande: 'D', ferie: 'F', present: '' });
   choisirLangue('en');
+  assert.deepEqual([MARQUE.demande, MARQUE.ferie], ['R', 'H']);
   assert.deepEqual([LIBELLES_ONGLETS_FRAIS.historique, LIBELLES_ONGLETS_FRAIS.controle, t('?#question')], ['History', 'To check', '?']);
 });

@@ -13,7 +13,8 @@ export const FILTRES_ORGANISMES: [FiltreOrganismes, string][] = [
 export type OngletFormations = 'sessions' | 'elearning';
 /** Inscriptions de l'onglet E-learning : ouvertes, fins à valider, terminées, toutes. */
 export type FiltreElearning = 'ouvertes' | 'a_valider' | 'terminees' | 'toutes';
-export const FILTRES_ELEARNING: [FiltreElearning, string][] = [['ouvertes', 'En cours'], ['a_valider', 'Fins à valider'], ['terminees', 'Terminées'], ['toutes', 'Toutes']];
+// Chaînes sources anglaises, traduites au rendu (CU-N01).
+export const FILTRES_ELEARNING: [FiltreElearning, string][] = [['ouvertes', 'In progress'], ['a_valider', 'Completions to approve'], ['terminees', 'Completed#fem-plural'], ['toutes', 'All#fem-plural']];
 
 /** États Qualiopi qui demandent une action (filtre « Qualiopi à surveiller »). */
 export const QUALIOPI_A_SURVEILLER: readonly EtatQualiopi[] = ['echu', 'a_echeance', 'a_verifier'];

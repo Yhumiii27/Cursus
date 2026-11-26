@@ -5,6 +5,7 @@ import { plural } from '../../../shared/format.ts';
 import type { InscriptionElearning, ModuleElearning, Organisme, OrganismeContact, OrganismeTarif } from '../../../shared/types-organismes.ts';
 import { AIDE_MOTIF_CORRECTION } from './confirmations-corrections.ts';
 import type { Confirmation } from './confirmations.ts';
+import { t } from '../i18n/langue.ts';
 
 /** Archivage d'une fiche : plus proposée dans les dialogues ; ce qui la désigne déjà la garde. */
 export function archivageOrganisme(o: Pick<Organisme, 'id' | 'nomUsuel'>, sessions: number): Confirmation {
@@ -64,10 +65,11 @@ export function archivageModule(m: Pick<ModuleElearning, 'id' | 'code' | 'intitu
 /** Abandon d'une inscription ouverte (droit « formations ») : le statut affiché accompagne la demande. */
 export function abandonInscription(i: Pick<InscriptionElearning, 'id' | 'statut'>, nom: string, module: string): Confirmation {
   return {
-    titre: 'Abandon du module',
-    question: `Noter l’abandon du module ${module} par ${nom} ?`,
-    suites: ['L’inscription est close sans formation suivie ; une nouvelle inscription reste possible.', `${nom} voit l’abandon dans son espace.`],
-    bouton: 'Noter l’abandon',
+    // Chaînes sources anglaises (CU-N01), comme l'onglet E-learning qui l'ouvre.
+    titre: t('Dropping out of the module'),
+    question: `${t('Record the dropping out of the module ')}${module}${t(' by ')}${nom} ?`,
+    suites: [t('The enrolment is closed without training followed; a new enrolment remains possible.'), `${nom}${t(' sees the dropping out in their space.')}`],
+    bouton: t('Record the dropping out'),
     action: 'elearning.abandonner',
     payload: { id: i.id, de: i.statut },
   };
@@ -76,12 +78,12 @@ export function abandonInscription(i: Pick<InscriptionElearning, 'id' | 'statut'
 /** Suppression d'une inscription saisie par erreur (administrateur RH), motif obligatoire. */
 export function annulationInscription(i: Pick<InscriptionElearning, 'id'>, nom: string, module: string): Confirmation {
   return {
-    titre: 'Supprimer l’inscription',
-    question: `Supprimer l’inscription de ${nom} au module ${module} ?`,
-    suites: ['Elle reste en base, datée et signée, mais n’apparaît plus nulle part, ni dans l’espace du salarié.'],
-    bouton: 'Supprimer l’inscription',
+    titre: t('Delete the enrolment'),
+    question: `${t('Delete the enrolment of ')}${nom}${t(' in the module ')}${module} ?`,
+    suites: [t('It stays in the database, dated and signed, but no longer appears anywhere, not even in the employee’s space.')],
+    bouton: t('Delete the enrolment'),
     action: 'elearning.annuler',
     payload: { id: i.id },
-    motif: { label: 'Motif de la suppression', requis: true, placeholder: 'Inscription sur la mauvaise fiche, module en double…', aide: AIDE_MOTIF_CORRECTION },
+    motif: { label: t('Reason for the deletion'), requis: true, placeholder: t('Enrolment on the wrong sheet, duplicate module…'), aide: AIDE_MOTIF_CORRECTION },
   };
 }

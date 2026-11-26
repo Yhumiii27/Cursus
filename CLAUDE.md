@@ -42,7 +42,17 @@ rechargement.
   dialogue de correction, confirmations), Habilitations (registre, délivrance, suspension, levée et retrait), avec les
   composants communs qu'il emploie (`components/TriListe.tsx`, `tri.ts`, `ReferentielVide.tsx`, `PieceJointe.tsx`,
   `controles.ts` : repris pour tous les écrans qui s'en servent), Confidentialité (cadre de la page ; le texte de
-  `shared/confidentialite.ts` reste en français), Expositions (C2P). Tous les autres écrans restent en français en dur.
+  `shared/confidentialite.ts` reste en français), Expositions (C2P), Formations (sessions, renouvellements, listes d'attente,
+  e-learning, passeport de prévention, évaluations ; dialogues de session, de clôture, de planification et de demande ;
+  sélecteur d'organisme), Congés & absences (soldes, demandes, règles, natures, clôtures, fractionnement, informations au
+  retour, monétisations du CET et tous leurs dialogues ; mention « Lecture seule » de `components/Hierarchie.tsx`), avec les
+  confirmations qu'ils ouvrent (`confirmations-attente.ts`, `confirmations-cet.ts`, abandon et suppression d'une
+  inscription d'e-learning, désinscription et refus d'une absence de `confirmations.ts`). Restent en français : le motif
+  prérempli d'une demande de formation (texte saisi), les en-têtes des exports CSV, les jours abrégés de `SessionDialog`
+  (comme les dates), les dialogues d'e-learning (inscrire, terminer, corriger, importer). Tous les autres écrans restent en
+  français en dur.
+- Contexte suivi d'un blanc : le blanc avant le contexte (`' on #le'`, `'Save #verb'`), jamais après (`sansContexte` ne
+  retire qu'un contexte final).
 
 ## Échanges avec les autres outils (décisions M-17 et M-18 de Matrix)
 

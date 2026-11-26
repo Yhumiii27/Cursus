@@ -11,6 +11,7 @@ import { rattachementEquipe } from '../state/confirmations.ts';
 import { useData, useStore } from '../state/store.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { Tag } from './ui.tsx';
+import { t } from '../i18n/langue.ts';
 
 /** Salariés consultés en lecture seule par le manager connecté (consultation N+2) ; vide ailleurs. */
 export function useLectureSeule(): Set<number> {
@@ -21,7 +22,7 @@ export function useLectureSeule(): Set<number> {
 /** Mention d'un salarié consulté en lecture seule : ses décisions reviennent à son manager direct. */
 export function LectureSeule({ d, empId }: { d: Domain; empId: number }) {
   const e = d.emp(empId);
-  return <Tag cls="tag-outline"><span title={e ? `Consultation : les décisions reviennent à ${d.mgrName(d.mgrOf(e))}` : undefined}>Lecture seule</span></Tag>;
+  return <Tag cls="tag-outline"><span title={e ? `${t('Consultation: the decisions belong to ')}${d.mgrName(d.mgrOf(e))}` : undefined}>{t('Read only')}</span></Tag>;
 }
 
 /** Élément redirigé, en une ligne : « Karim Haddad, congés du 07/12/2026 au 08/12/2026 ». */

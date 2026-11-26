@@ -11,6 +11,7 @@ import { Fine } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { decideur } from '../state/delegues.ts';
+import { t } from '../i18n/langue.ts';
 
 export function AbsSignalDialog({ empId }: { empId?: number | null }) {
   const d = useDomain();
@@ -28,8 +29,8 @@ export function AbsSignalDialog({ empId }: { empId?: number | null }) {
   const piece = usePieceJointe();
   const joindre = piece.actif && (rh || sel === me);
   const chk = emp ? checkNature(d, emp, 'ABSENCE', du, au, { quand: 'avant de signaler l’absence' }) : null;
-  const empErr = !emp ? 'Choisissez le collaborateur absent.' : null;
-  const periode = erreursPeriode(du, au, { du: 'Indiquez le premier jour d’absence.', au: 'Indiquez le dernier jour prévu.' });
+  const empErr = !emp ? t('Choose the absent employee.') : null;
+  const periode = erreursPeriode(du, au, { du: t('Enter the first day of absence.'), au: t('Enter the last day planned.') });
 
   const pickDu = (x: string) => { setDu(x); if (!au || au < x) setAu(x); };
   const confirm = async () => {
@@ -43,30 +44,28 @@ export function AbsSignalDialog({ empId }: { empId?: number | null }) {
   };
 
   return (
-    <Dialog title="Signaler une absence" width={540} onSubmit={confirm} actions={<>
+    <Dialog title={t('Report an absence')} width={540} onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Signaler l’absence</SubmitButton>
+      <SubmitButton busy={busy}>{t('Report the absence')}</SubmitButton>
     </>}>
-      <Field label="Collaborateur" htmlFor={empId != null || choix.length <= 1 ? undefined : 'as-emp'} requis={empId == null && choix.length > 1} erreur={v.erreur(empErr)}>
+      <Field label={t('Employee')} htmlFor={empId != null || choix.length <= 1 ? undefined : 'as-emp'} requis={empId == null && choix.length > 1} erreur={v.erreur(empErr)}>
         {empId != null || choix.length <= 1
           ? <Static>{emp?.nom ?? '—'}</Static>
           : (
             <ChoixCollaborateur id="as-emp" emps={choix} valeur={sel} onChange={setSel} requis erreur={v.erreur(empErr)}
-              suffixe={e => e.id === me ? ' (moi)' : ''} />
+              suffixe={e => e.id === me ? t(' (me)') : ''} />
           )}
       </Field>
       <div className="grid-2">
-        <Field label="Absent depuis le" htmlFor="as-du" requis erreur={v.erreur(periode.du)}><input className="input" id="as-du" type="date" value={du} onChange={ev => pickDu(ev.target.value)} /></Field>
-        <Field label="Jusqu’au (inclus, prévu)" htmlFor="as-au" requis erreur={v.erreur(periode.au)}><input className="input" id="as-au" type="date" value={au} min={du || undefined} onChange={ev => setAu(ev.target.value)} /></Field>
+        <Field label={t('Absent since')} htmlFor="as-du" requis erreur={v.erreur(periode.du)}><input className="input" id="as-du" type="date" value={du} onChange={ev => pickDu(ev.target.value)} /></Field>
+        <Field label={t('Until (inclusive, planned)')} htmlFor="as-au" requis erreur={v.erreur(periode.au)}><input className="input" id="as-au" type="date" value={au} min={du || undefined} onChange={ev => setAu(ev.target.value)} /></Field>
       </div>
       {chk && <Controles msgs={chk.msgs} />}
-      {joindre && <ChoixPiece piece={piece} id="as-piece" label="Justificatif (facultatif)" aide="Visible du service RH et de l’intéressé seulement, jamais du manager." />}
+      {joindre && <ChoixPiece piece={piece} id="as-piece" label={t('Supporting document (optional)')} aide={t('Visible to HR and the person concerned only, never to the manager.')} />}
       <Fine>
-        L’absence compte dès son signalement : aucune heure ne peut être saisie ces jours-là et Keystone reçoit l’indisponibilité.
-        Le service RH précise ensuite sa nature (arrêt de travail, accident, événement familial…) ; un arrêt de travail ou la santé d’un enfant n’est communiqué ni au manager ni à Keystone.
-        Si l’absence dure plus longtemps, prolongez-la depuis la liste.
+        {t('The absence counts as soon as it is reported: no hours can be entered those days and Keystone receives the unavailability. HR then specifies its nature (sick leave, accident, family event…); a sick leave or the health of a child is communicated neither to the manager nor to Keystone. If the absence lasts longer, extend it from the list.')}
       </Fine>
-      {sel === me && !rh && !piece.fichier && <Fine muted={false}>Transmettez votre justificatif (avis d’arrêt de travail…) au service RH sous 48 heures{piece.actif ? ', ici ou plus tard depuis la liste de vos absences' : ''}.</Fine>}
+      {sel === me && !rh && !piece.fichier && <Fine muted={false}>{t('Send your supporting document (sick note…) to HR within 48 hours')}{piece.actif ? t(', here or later from the list of your absences') : ''}.</Fine>}
     </Dialog>
   );
 }

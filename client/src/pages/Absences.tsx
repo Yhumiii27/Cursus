@@ -6,7 +6,7 @@ import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { ABS_CLS, ABS_LABEL, CATEGORIES_ABSENCE, NATURES_ABSENCE, STATUTS, type CategorieAbsence, type PaieAbsence } from '../../../shared/constants.ts';
 import type { Domain } from '../../../shared/domain.ts';
 import { cpPeriods, parse } from '../../../shared/dates.ts';
-import { cap, equipeLabel, fH, fJ, fmt, fmtIso, fmtShort, plural } from '../../../shared/format.ts';
+import { cap, equipeLabel, fH, fJ, fmt, fmtIso, fmtShort } from '../../../shared/format.ts';
 import { absenceActive, droitAnnulation, estConge, joursDecomptes, natureDef, prolongeable, statutAbsence, uniteDecompte } from '../../../shared/rules/absences.ts';
 import { depotOuvert, justificatifAVerifier, piecesDe } from '../../../shared/rules/pieces.ts';
 import { DEMI_LABEL, periodeDemiTexte } from '../../../shared/rules/demi-journees.ts';
@@ -37,6 +37,7 @@ import {
   FILTRES_PERIODE, FILTRES_STATUT, FILTRES_TYPE, filtrerAbsence, filtrerSolde, rangAbsence, SANS_FILTRE, TOUTES,
   type FiltrePeriode, type FiltreStatut, type FiltreType,
 } from './absences-filtres.ts';
+import { t, tn } from '../i18n/langue.ts';
 
 /**
  * Soldes d'un collaborateur, mis en forme pour le tableau et les cartes.
@@ -48,7 +49,7 @@ function soldeRow(d: Domain, e: Employe) {
   const P = cpPeriods(d.ti);
   // RTT de l'année suivante déjà posés ou validés (posables dès maintenant sur le droit de cette année-là).
   const suiv = rt ? rttInfo(d, e, d.year + 1) : null, rttSuivants = suiv ? suiv.pris + suiv.poses : 0;
-  const rttSuivTxt = rttSuivants ? ` · ${fJ(rttSuivants)} posé${rttSuivants > 1 ? 's' : ''} sur ${d.year + 1}` : '';
+  const rttSuivTxt = rttSuivants ? ` · ${fJ(rttSuivants)}${t(rttSuivants > 1 ? ' set#plural' : ' set')}${t(' on #year')}${d.year + 1}` : '';
   return {
     // Valeurs triées des colonnes (t145) ; null : non concerné (rangé en dernier).
     n: { cp: cp ? cp.solde : null, cpN: cp ? cp.enCours : null, rtt: rt ? rt.solde : null, rec: rc ? rc.solde : null, cet: cet ? ct.total : null },
@@ -57,25 +58,25 @@ function soldeRow(d: Domain, e: Employe) {
     cetMonetisable: cet && (() => { const m = monetisationInfo(d, e); return m.ouverte && m.possible >= 0.5; })(),
     poser: absenceKinds(d, e).length > 0, cpGere: !!cp,
     contrat: `${STATUTS[c.statut].court} · ${c.label}`,
-    cp: cp ? fJ(cp.solde) : 'Agence',
+    cp: cp ? fJ(cp.solde) : t('Agency'),
     cpSub: cp
-      ? `sur ${cp.droit} j${cp.ageSupp ? ' · dont 5 j CCN (59 ans et +)' : ''}${cp.recu ? ` · dont ${fJ(cp.recu)} de report reçu` : ''}${cp.accorde ? ` · ${fJ(cp.accorde)} reportés sur ${P.labelN} à la clôture` : ''}`
-      : 'géré par l’agence d’intérim',
+      ? `${t('out of ')}${cp.droit}${t(' d#days')}${cp.ageSupp ? t(' · of which 5 d CCN (59 and over)') : ''}${cp.recu ? `${t(' · of which ')}${fJ(cp.recu)}${t(' of carry-over received')}` : ''}${cp.accorde ? ` · ${fJ(cp.accorde)}${t(' carried over to ')}${P.labelN}${t(' at closing')}` : ''}`
+      : t('managed by the temp agency'),
     cpN: cp ? fJ(cp.enCours) : '—',
     // Jours déjà imputés sur la période en cours d'acquisition : pris par anticipation, ou posés à partir du 1er juin.
-    cpNSub: cp && cp.suivante ? `dont ${fJ(cp.suivante)} déjà posé${cp.suivante > 1 ? 's' : ''}${cp.anticipes ? ` (${fJ(cp.anticipes)} par anticipation)` : ''}` : undefined,
+    cpNSub: cp && cp.suivante ? `${t('of which ')}${fJ(cp.suivante)}${t(cp.suivante > 1 ? ' already set#plural' : ' already set')}${cp.anticipes ? ` (${fJ(cp.anticipes)}${t(' in advance')})` : ''}` : undefined,
     rtt: rt ? fJ(rt.solde) : '—',
-    rttSub: rt ? `${rt.label} · sur ${rt.droit} j · perdus au 31 déc.${rttSuivTxt}` : 'non concerné',
+    rttSub: rt ? `${rt.label}${t(' · out of ')}${rt.droit}${t(' d · lost on 31 Dec.')}${rttSuivTxt}` : t('not applicable'),
     rttLabel: rt ? rt.label : 'RTT',
-    rttCard: rt ? `sur ${rt.droit} j · perdus au 31 déc.${rttSuivTxt}`
-      : c.dirigeant ? 'cadre dirigeant : congés payés uniquement'
-      : c.annuel ? 'forfait annuel en heures : pas de RTT'
-      : 'non concerné',
+    rttCard: rt ? `${t('out of ')}${rt.droit}${t(' d · lost on 31 Dec.')}${rttSuivTxt}`
+      : c.dirigeant ? t('senior executive: paid leave only')
+      : c.annuel ? t('annual fixed hours: no RTT')
+      : t('not applicable'),
     rec: rc ? fH(rc.solde) : '—',
-    recSub: rc ? `≈ ${fJ(rc.solde / rc.dh)}` : 'non concerné',
+    recSub: rc ? `≈ ${fJ(rc.solde / rc.dh)}` : t('not applicable'),
     cet: cet ? fJ(ct.solde) : '—',
     // Congés pris sur le CET (validés) et demandés : déduits du solde affiché.
-    cetSub: cet ? (ct.epargne ? `${ct.cp} j CP · ${ct.rtt} j RTT${ct.repris ? ` · ${ct.repris} j repris` : ''}${ct.pris ? ` · ${fJ(ct.pris)} pris` : ''}${ct.poses ? ` · ${fJ(ct.poses)} posés` : ''}${ct.monetises ? ` · ${fJ(ct.monetises)} monétisés` : ''}${ct.monetisationsEnAttente ? ` · ${fJ(ct.monetisationsEnAttente)} à monétiser` : ''}` : 'aucun jour épargné') : 'non concerné',
+    cetSub: cet ? (ct.epargne ? `${ct.cp}${t(' d CP · ')}${ct.rtt}${t(' d RTT')}${ct.repris ? ` · ${ct.repris}${t(' d taken back')}` : ''}${ct.pris ? ` · ${fJ(ct.pris)}${t(' taken#plural')}` : ''}${ct.poses ? ` · ${fJ(ct.poses)}${t(' set#plural')}` : ''}${ct.monetises ? ` · ${fJ(ct.monetises)}${t(' cashed in')}` : ''}${ct.monetisationsEnAttente ? ` · ${fJ(ct.monetisationsEnAttente)}${t(' to cash in')}` : ''}` : t('no day saved')) : t('not applicable'),
   };
 }
 
@@ -99,7 +100,8 @@ const COLONNES_SOLDES: Record<string, Colonne<Solde>> = {
 const RANG_STATUT: readonly AbsenceStatut[] = ['demandee', 'signalee', 'validee', 'refusee', 'annulee'];
 
 const NATURES = Object.entries(NATURES_ABSENCE) as [NatureAbsence, (typeof NATURES_ABSENCE)[NatureAbsence]][];
-const PAIE_COURT: Record<PaieAbsence, string> = { maintenue: 'payée', indemnisee: 'indemnisée (IJSS)', non_payee: 'non payée' };
+// Chaînes sources anglaises, traduites au rendu (CU-N01).
+export const PAIE_COURT: Record<PaieAbsence, string> = { maintenue: 'paid#fem', indemnisee: 'compensated (IJSS)#fem', non_payee: 'unpaid#fem' };
 // Demi-journées du premier et du dernier jour (CP, RTT, récupération) : « 12 oct. après-midi → 16 oct. 2026 matin ».
 const demi = (x: DemiJournee | null | undefined) => x ? ` ${DEMI_LABEL[x]}` : '';
 const dates = (a: Absence) => a.du === a.au ? `${fmt(parse(a.du))}${demi(a.debutDemi)}` : `${fmtShort(parse(a.du))}${demi(a.debutDemi)} → ${fmt(parse(a.au))}${demi(a.finDemi)}`;
@@ -112,16 +114,16 @@ function details(a: Absence, pieces: Piece[] | undefined): string[] {
   const n = natureDef(a.type);
   const joint = justificatifAVerifier(a, pieces);
   return [
-    n ? `${cap(PAIE_COURT[n.paie])} · ${a.justificatif && a.justificatifLe ? `justificatif reçu le ${fmtIso(a.justificatifLe)}` : joint ? 'justificatif joint, à vérifier par le service RH' : n.justificatif ? 'justificatif attendu' : 'sans justificatif'}` : '',
+    n ? `${cap(t(PAIE_COURT[n.paie]))} · ${a.justificatif && a.justificatifLe ? `${t('supporting document received on ')}${fmtIso(a.justificatifLe)}` : joint ? t('supporting document attached, to be checked by HR') : n.justificatif ? t('supporting document expected') : t('without supporting document')}` : '',
     // Absence encore à qualifier : le panneau « Absences à qualifier » le dit déjà au service RH ; ici, au salarié.
-    !n && joint ? 'Justificatif joint, à vérifier par le service RH' : '',
+    !n && joint ? t('Supporting document attached, to be checked by HR') : '',
     a.statut === 'signalee'
-      ? `Signalée${a.signaleLe ? ` le ${fmtIso(a.signaleLe)}` : ''}${a.signalePar ? ` par ${a.signalePar}` : ''} · ${a.type === 'ABSENCE' ? 'nature à préciser par le service RH' : 'prolongation à qualifier'}`
+      ? `${t('Reported#fem')}${a.signaleLe ? `${t(' on #le')}${fmtIso(a.signaleLe)}` : ''}${a.signalePar ? `${t(' by ')}${a.signalePar}` : ''} · ${a.type === 'ABSENCE' ? t('nature to be specified by HR') : t('extension to qualify')}`
       : '',
-    a.type === 'ABSENCE' && a.statut === 'validee' ? 'Nature précisée par le service RH, confidentielle' : '',
-    a.finInitiale && a.statut !== 'annulee' ? `Prolongée · fin initiale le ${fmtIso(a.finInitiale)}` : '',
-    a.statut === 'annulee' && a.annuleeLe ? `Annulée le ${fmtIso(a.annuleeLe)}${a.annuleePar ? ` par ${a.annuleePar}` : ''}` : '',
-    a.statut === 'refusee' && a.motifRefus ? `Motif du refus : ${a.motifRefus}` : '',
+    a.type === 'ABSENCE' && a.statut === 'validee' ? t('Nature specified by HR, confidential') : '',
+    a.finInitiale && a.statut !== 'annulee' ? `${t('Extended · initial end on ')}${fmtIso(a.finInitiale)}` : '',
+    a.statut === 'annulee' && a.annuleeLe ? `${t('Cancelled on #fem')}${fmtIso(a.annuleeLe)}${a.annuleePar ? `${t(' by ')}${a.annuleePar}` : ''}` : '',
+    a.statut === 'refusee' && a.motifRefus ? `${t('Reason for the refusal: ')}${a.motifRefus}` : '',
   ].filter(Boolean);
 }
 
@@ -190,36 +192,36 @@ export function Absences() {
   const exporterSoldes = () => {
     const x = csvSoldes(d, soldes.map(r => r.e));
     downloadCsv(x.fichier, x.head, x.rows);
-    notify(`Export CSV généré — ${plural(soldes.length, 'solde', 'soldes')}`);
+    notify(`${t('CSV export generated')} — ${tn(soldes.length, 'balance', 'balances')}`);
   };
   const exporterAbsences = () => {
     const x = csvAbsences(d, absAffichees);
     downloadCsv(x.fichier, x.head, x.rows);
-    notify(`Export CSV généré — ${plural(absAffichees.length, 'absence', 'absences')}`);
+    notify(`${t('CSV export generated')} — ${tn(absAffichees.length, 'absence', 'absences')}`);
   };
-  const boutonExport = (onClick: () => void) => <Btn small variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={onClick}>Exporter (CSV)</Btn>;
+  const boutonExport = (onClick: () => void) => <Btn small variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={onClick}>{t('Export (CSV)')}</Btn>;
   const aQualifier = rh ? absList.filter(x => x.a.statut === 'signalee' && x.e.id !== soi) : [];
 
   return (
     <Page
-      kicker={espaceRh ? 'Période de référence CP : 1er juin – 31 mai · décompte en jours ouvrés · CCN Industries chimiques' : 'Congés payés en jours ouvrés · RTT perdus au 31 décembre'}
-      title="Congés & absences"
+      kicker={t(espaceRh ? 'CP reference period: 1 June – 31 May · count in working days · CCN Chemical industries' : 'Paid leave in working days · RTT lost on 31 December')}
+      title={t('Leave & absences')}
       actions={<>
-        {rh && <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'absNature' })}>Saisir une absence</button>}
-        {!espaceRh && <button type="button" className={canPoseMe ? 'btn btn-secondary' : 'btn btn-primary'} onClick={() => openDialog({ type: 'absSignal' })}>Signaler une absence</button>}
-        {canPoseMe && me != null && <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'abs', empId: me })}>Poser une absence</button>}
+        {rh && <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'absNature' })}>{t('Enter an absence')}</button>}
+        {!espaceRh && <button type="button" className={canPoseMe ? 'btn btn-secondary' : 'btn btn-primary'} onClick={() => openDialog({ type: 'absSignal' })}>{t('Report an absence')}</button>}
+        {canPoseMe && me != null && <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'abs', empId: me })}>{t('Request an absence')}</button>}
       </>}
     >
       {mine && (
         <Kpis>
-          <Kpi kicker={`Congés payés ${P.label}`} value={mine.cp} sub={mine.cpGere ? `${mine.cpSub} · avant le ${fmt(parse(P.deadline))}` : mine.cpSub} />
-          <Kpi kicker="En cours d’acquisition" value={mine.cpN} sub={mine.cpGere ? `période ${P.labelN} · 2,08 j par mois${mine.cpNSub ? ` · ${mine.cpNSub}` : ''}` : 'géré par l’agence d’intérim'} />
+          <Kpi kicker={`${t('Paid leave ')}${P.label}`} value={mine.cp} sub={mine.cpGere ? `${mine.cpSub}${t(' · before ')}${fmt(parse(P.deadline))}` : mine.cpSub} />
+          <Kpi kicker={t('Being accrued')} value={mine.cpN} sub={mine.cpGere ? `${t('period ')}${P.labelN}${t(' · 2.08 d per month')}${mine.cpNSub ? ` · ${mine.cpNSub}` : ''}` : t('managed by the temp agency')} />
           <Kpi kicker={`${mine.rttLabel} ${Y}`} value={mine.rtt} sub={mine.rttCard} />
-          <Kpi kicker="Récupération" value={mine.rec} sub={mine.recSub} />
-          <Kpi kicker="Compte épargne-temps" value={mine.cet} sub={mine.cetSub}
+          <Kpi kicker={t('Time off in lieu')} value={mine.rec} sub={mine.recSub} />
+          <Kpi kicker={t('Time savings account')} value={mine.cet} sub={mine.cetSub}
             action={canCet(mine) || canMonetiser(mine) ? <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flex: 'none' }}>
-              {canCet(mine) && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cet', empId: mine.e.id })}>Épargner</button>}
-              {canMonetiser(mine) && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'monetisationCet', empId: mine.e.id })}>Monétiser</button>}
+              {canCet(mine) && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cet', empId: mine.e.id })}>{t('Save#cet')}</button>}
+              {canMonetiser(mine) && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'monetisationCet', empId: mine.e.id })}>{t('Cash in')}</button>}
             </span> : undefined} />
         </Kpis>
       )}
@@ -231,26 +233,26 @@ export function Absences() {
       <MonetisationsCet />
 
       {aQualifier.length > 0 && (
-        <Panel highlight title="Absences à qualifier" aside={`${plural(aQualifier.length, 'absence signalée', 'absences signalées')} · nature et justificatif à préciser`}>
+        <Panel highlight title={t('Absences to qualify')} aside={`${tn(aQualifier.length, 'absence reported', 'absences reported')}${t(' · nature and supporting document to specify')}`}>
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Collaborateur</th><th>Absence</th><th>Jours</th><th>Signalement</th><th></th></tr></thead>
+              <thead><tr><th>{t('Employee')}</th><th>{t('Absence')}</th><th>{t('Days')}</th><th>{t('Report#signalement')}</th><th></th></tr></thead>
               <tbody>
                 {aQualifier.map(({ a, e }) => (
                   <tr key={a.id}>
                     <td><Two main={e.nom} sub={equipeLabel(e)} nowrap /></td>
                     <td>
                       <div>{ABS_LABEL[a.type]} · {dates(a)}</div>
-                      {a.finInitiale && <div className="text-muted sub">Prolongée · fin initiale le {fmtIso(a.finInitiale)}</div>}
+                      {a.finInitiale && <div className="text-muted sub">{t('Extended · initial end on ')}{fmtIso(a.finInitiale)}</div>}
                     </td>
                     <td><Num main={fJ(joursDecomptes(d, e, a))} sub={uniteDecompte(a.type)} /></td>
                     <td>
                       <Two main={a.signaleLe ? fmtIso(a.signaleLe) : '—'} sub={a.signalePar ?? ''} />
                       {/* Justificatif envoyé par l'intéressé (pièce justificative) : à ouvrir dans « Qualifier ». */}
-                      {piecesDe(data.pieces, 'absence', a.id).length > 0 && <div className="text-muted sub">Justificatif joint</div>}
+                      {piecesDe(data.pieces, 'absence', a.id).length > 0 && <div className="text-muted sub">{t('Supporting document attached')}</div>}
                     </td>
                     <td className="right">
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => openDialog({ type: 'absNature', id: a.id })}>Qualifier</button>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => openDialog({ type: 'absNature', id: a.id })}>{t('Qualify')}</button>
                     </td>
                   </tr>
                 ))}
@@ -261,14 +263,14 @@ export function Absences() {
       )}
 
       {!collab && (
-        <Panel title="Soldes" aside={soldes.length > 0 ? boutonExport(exporterSoldes) : undefined}>
+        <Panel title={t('Balances')} aside={soldes.length > 0 ? boutonExport(exporterSoldes) : undefined}>
           {rows.length > 1 && (
             <div className="filtres-liste">
-              <input className="input" type="search" placeholder="Nom, poste ou matricule…" aria-label="Rechercher un solde" value={recherche}
+              <input className="input" type="search" placeholder={t('Name, job or employee number…')} aria-label={t('Search a balance')} value={recherche}
                 onChange={e => setRecherche(e.target.value)} />
               {equipes.length > 1 && (
-                <select className="input" aria-label="Équipe des soldes" value={equipe} onChange={e => setEquipe(e.target.value)}>
-                  <option value={TOUTES}>Toutes les équipes</option>
+                <select className="input" aria-label={t('Team of the balances')} value={equipe} onChange={e => setEquipe(e.target.value)}>
+                  <option value={TOUTES}>{t('All teams')}</option>
                   {equipes.map(q => <option key={q} value={q}>{q}</option>)}
                 </select>
               )}
@@ -277,11 +279,11 @@ export function Absences() {
           <div className="scroll-x">
             <table className="table">
               <thead><tr>
-                <ThTri t={tSoldes} col="nom">Collaborateur</ThTri>
+                <ThTri t={tSoldes} col="nom">{t('Employee')}</ThTri>
                 <ThTri t={tSoldes} col="cp" premier="desc">CP {P.label}</ThTri>
-                <ThTri t={tSoldes} col="cpN" premier="desc">En acquisition</ThTri>
-                <ThTri t={tSoldes} col="rtt" premier="desc">RTT / repos {Y}</ThTri>
-                <ThTri t={tSoldes} col="rec" premier="desc">Récupération</ThTri>
+                <ThTri t={tSoldes} col="cpN" premier="desc">{t('Accruing')}</ThTri>
+                <ThTri t={tSoldes} col="rtt" premier="desc">{t('RTT / rest ')}{Y}</ThTri>
+                <ThTri t={tSoldes} col="rec" premier="desc">{t('Time off in lieu')}</ThTri>
                 <ThTri t={tSoldes} col="cet" premier="desc">CET</ThTri>
                 <th></th>
               </tr></thead>
@@ -298,11 +300,11 @@ export function Absences() {
                       <td><Num main={r.cet} sub={r.cetSub} /></td>
                       <td className="right">
                         <div style={{ display: 'flex', gap: 'var(--space-1)', justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
-                          {canCet(r) && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cet', empId: r.e.id })}>Épargner</button>}
-                          {canMonetiser(r) && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'monetisationCet', empId: r.e.id })}>Monétiser</button>}
-                          {rh && r.e.id !== soi && r.cpSolde > 0 && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'report', empId: r.e.id })}>Reporter</button>}
-                          {canPose && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'abs', empId: r.e.id })}>Poser</button>}
-                          {manager && decideur(d, r.e, me, 'absences') && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'absSignal', empId: r.e.id })}>Signaler</button>}
+                          {canCet(r) && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cet', empId: r.e.id })}>{t('Save#cet')}</button>}
+                          {canMonetiser(r) && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'monetisationCet', empId: r.e.id })}>{t('Cash in')}</button>}
+                          {rh && r.e.id !== soi && r.cpSolde > 0 && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'report', empId: r.e.id })}>{t('Carry over')}</button>}
+                          {canPose && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'abs', empId: r.e.id })}>{t('Request#absence')}</button>}
+                          {manager && decideur(d, r.e, me, 'absences') && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'absSignal', empId: r.e.id })}>{t('Report#verb')}</button>}
                         </div>
                       </td>
                     </tr>
@@ -311,27 +313,27 @@ export function Absences() {
               </tbody>
             </table>
           </div>
-          {soldes.length === 0 && rows.length > 0 && <Empty pad="sm">Aucun solde ne correspond à ces filtres.</Empty>}
-          <SuiteListe p={pageSoldes} unite={['solde', 'soldes']} />
+          {soldes.length === 0 && rows.length > 0 && <Empty pad="sm">{t('No balance matches these filters.')}</Empty>}
+          <SuiteListe p={pageSoldes} unite={['balance', 'balances']} />
         </Panel>
       )}
 
-      <Panel title="Demandes et absences prévues" aside={
+      <Panel title={t('Requests and planned absences')} aside={
         <div className="actions-end" style={{ alignItems: 'center' }}>
-          <span className="text-muted sub">{`${plural(nDecide, 'demande à valider', 'demandes à valider')} · indisponibilités transmises à Keystone pour la planification, sans la nature des arrêts`}</span>
+          <span className="text-muted sub">{`${tn(nDecide, 'request to approve', 'requests to approve')}${t(' · unavailabilities sent to Keystone for planning, without the nature of the sick leaves')}`}</span>
           {!collab && absAffichees.length > 0 && boutonExport(exporterAbsences)}
         </div>
       }>
         {absList.length > 1 && (
           <div className="filtres-liste">
-            <select className="input" aria-label="État des absences" value={filtres.statut} onChange={e => setFiltres({ ...filtres, statut: e.target.value as FiltreStatut })}>
-              {FILTRES_STATUT.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            <select className="input" aria-label={t('State of the absences')} value={filtres.statut} onChange={e => setFiltres({ ...filtres, statut: e.target.value as FiltreStatut })}>
+              {FILTRES_STATUT.map(([v, l]) => <option key={v} value={v}>{t(l)}</option>)}
             </select>
-            <select className="input" aria-label="Type d’absence" value={filtres.type} onChange={e => setFiltres({ ...filtres, type: e.target.value as FiltreType })}>
-              {FILTRES_TYPE.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            <select className="input" aria-label={t('Type of absence')} value={filtres.type} onChange={e => setFiltres({ ...filtres, type: e.target.value as FiltreType })}>
+              {FILTRES_TYPE.map(([v, l]) => <option key={v} value={v}>{t(l)}</option>)}
             </select>
-            <select className="input" aria-label="Période des absences" value={filtres.periode} onChange={e => setFiltres({ ...filtres, periode: e.target.value as FiltrePeriode })}>
-              {FILTRES_PERIODE.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            <select className="input" aria-label={t('Period of the absences')} value={filtres.periode} onChange={e => setFiltres({ ...filtres, periode: e.target.value as FiltrePeriode })}>
+              {FILTRES_PERIODE.map(([v, l]) => <option key={v} value={v}>{t(l)}</option>)}
             </select>
           </div>
         )}
@@ -339,10 +341,10 @@ export function Absences() {
           <div className="scroll-x">
             <table className="table">
               <thead><tr>
-                <ThTri t={tAbs} col="nom">Collaborateur</ThTri>
-                <ThTri t={tAbs} col="du">Absence</ThTri>
-                <ThTri t={tAbs} col="jours" premier="desc">Jours</ThTri>
-                <ThTri t={tAbs} col="statut">Statut</ThTri>
+                <ThTri t={tAbs} col="nom">{t('Employee')}</ThTri>
+                <ThTri t={tAbs} col="du">{t('Absence')}</ThTri>
+                <ThTri t={tAbs} col="jours" premier="desc">{t('Days')}</ThTri>
+                <ThTri t={tAbs} col="statut">{t('Status')}</ThTri>
                 <th></th>
               </tr></thead>
               <tbody>
@@ -351,17 +353,17 @@ export function Absences() {
                   const mgr = d.mgrOf(e);
                   // Sa propre demande : un membre du RH ne la décide pas, son manager ou un autre membre du service RH le fait.
                   const ks = a.statut === 'demandee' ? (rh && e.id === soi
-                    ? `Votre demande : décision par ${mgr ? `${d.personName(mgr)} ou ` : ''}un autre membre du service RH`
-                    : `Validation : ${d.mgrName(mgr)}`)
-                    : a.statut === 'signalee' ? 'À qualifier par le service RH'
-                    : a.statut === 'validee' ? (estConge(a.type) ? 'Transmise à Keystone' : 'Indisponibilité transmise à Keystone') : '';
+                    ? `${t('Your request: decision by ')}${mgr ? `${d.personName(mgr)}${t(' or ')}` : ''}${t('another member of HR')}`
+                    : `${t('Validation: ')}${d.mgrName(mgr)}`)
+                    : a.statut === 'signalee' ? t('To qualify by HR')
+                    : a.statut === 'validee' ? t(estConge(a.type) ? 'Sent to Keystone#fem' : 'Unavailability sent to Keystone') : '';
                   return (
                     <tr key={a.id}>
                       <td><Two main={e.nom} sub={equipeLabel(e)} nowrap /></td>
                       <td>
                         <div>{ABS_LABEL[a.type]} · {dates(a)}</div>
-                        {details(a, data.pieces).map(t => <div key={t} className="text-muted sub">{t}</div>)}
-                        {m && absenceActive(a) && <div className="note-accent">Chevauche la mission {m.projet} · {m.lieu}</div>}
+                        {details(a, data.pieces).map(x => <div key={x} className="text-muted sub">{x}</div>)}
+                        {m && absenceActive(a) && <div className="note-accent">{t('Overlaps the assignment ')}{m.projet} · {m.lieu}</div>}
                       </td>
                       <td className="nowrap"><Num main={fJ(joursDecomptes(d, e, a))} sub={uniteDecompte(a.type)} /></td>
                       <td>
@@ -374,23 +376,23 @@ export function Absences() {
                             {/* Refus : confirmation et motif, montré au salarié et à son manager dans leurs absences. */}
                             <button type="button" className="btn btn-ghost btn-sm" disabled={occupe}
                               onClick={() => openDialog({ type: 'confirmer', c: refusAbsence(a, e.nom, `${ABS_LABEL[a.type]}, ${periodeDemiTexte(a)}`,
-                                mgr && mgr !== me ? d.personName(mgr) : null) })}>Refuser</button>
-                            <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={agir(() => run('absence.decider', { id: a.id, ok: true }))}>Valider</button>
+                                mgr && mgr !== me ? d.personName(mgr) : null) })}>{t('Refuse')}</button>
+                            <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={agir(() => run('absence.decider', { id: a.id, ok: true }))}>{t('Approve')}</button>
                           </>}
                           {/* Justificatif joint dont la réception n'est pas inscrite : « Vérifier » (ouvrir la pièce, la dire reçue). */}
                           {rh && e.id !== soi && prolongeable(a) && (
                             <button type="button" className={`btn btn-sm ${a.statut === 'signalee' || justificatifAVerifier(a, data.pieces) ? 'btn-secondary' : 'btn-ghost'}`} onClick={() => openDialog({ type: 'absNature', id: a.id })}>
-                              {a.statut === 'signalee' ? 'Qualifier' : justificatifAVerifier(a, data.pieces) ? 'Vérifier' : 'Modifier'}
+                              {a.statut === 'signalee' ? t('Qualify') : justificatifAVerifier(a, data.pieces) ? t('Check') : t('Edit')}
                             </button>
                           )}
-                          {canProlong && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'absProlonger', id: a.id })}>Prolonger</button>}
+                          {canProlong && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'absProlonger', id: a.id })}>{t('Extend')}</button>}
                           {/* Son justificatif (avis d'arrêt…), envoyé après le signalement : pièce justificative. */}
                           {e.id === soi && depotOuvert(data.settings.piecesStockage) && prolongeable(a) && (
-                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'piece', objet: 'absence', objetId: a.id, empId: e.id, libelle: `${ABS_LABEL[a.type]} · ${dates(a)}` })}>Justificatif</button>
+                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'piece', objet: 'absence', objetId: a.id, empId: e.id, libelle: `${ABS_LABEL[a.type]} · ${dates(a)}` })}>{t('Supporting document')}</button>
                           )}
                           {annulation.ok && (
                             <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'absAnnuler', id: a.id })}>
-                              {a.statut === 'demandee' && annulation.libelle.startsWith('Retirer') ? 'Retirer' : 'Annuler'}
+                              {a.statut === 'demandee' && annulation.libelle.startsWith('Retirer') ? t('Withdraw') : t('Cancel')}
                             </button>
                           )}
                         </div>
@@ -401,49 +403,49 @@ export function Absences() {
               </tbody>
             </table>
           </div>
-        ) : <Empty>{absList.length > 0 ? 'Aucune absence ne correspond à ces filtres.' : 'Aucune absence prévue.'}</Empty>}
+        ) : <Empty>{t(absList.length > 0 ? 'No absence matches these filters.' : 'No absence planned.')}</Empty>}
         <SuiteListe p={pageAbs} unite={['absence', 'absences']} />
       </Panel>
 
       {espaceRh && (
-        <Panel title="Règles appliquées">
+        <Panel title={t('Rules applied')}>
           <Rtt39Field />
           <ul className="rules">
-            <li>Congés payés : 25 jours ouvrés par an, acquis à raison de 2,08 j par mois du 1er juin au 31 mai, arrondis à l’entier supérieur.</li>
-            <li>Acquisition pendant les absences (loi du 22 avril 2024) : accident du travail ou de trajet, maladie professionnelle (sans limite de durée), maternité, paternité, adoption et événements familiaux comptent comme du travail effectif ; {data.settings.cpMaladie === 'assimile' ? 'arrêt maladie assimilé lui aussi à du travail effectif (accord ou CCN plus favorable, Paramètres → Congés et clôtures)' : 'arrêt maladie : 2 jours ouvrables par mois (1,67 j ouvré), 24 jours ouvrables (20 ouvrés) par période au plus'} ; une absence encore à qualifier compte comme une maladie. Congé parental, sans solde, absence injustifiée et enfant malade réduisent le mois au prorata, sauf s’il reste 4 semaines ou 24 jours ouvrables de travail.</li>
-            <li>Chaque jour de congé est décompté sur la période dont les droits se prennent à sa date (un congé de mai à juin est réparti sur deux périodes). Période épuisée : prise par anticipation sur les jours en cours d’acquisition, dans la limite de ceux acquis à la date du congé, déduits de la période suivante au 1er juin.</li>
-            <li>CCN Industries chimiques : pas de congés d’ancienneté ; +5 jours ouvrés à partir de 59 ans.</li>
-            <li>Forfait annuel en jours : jours de repos calculés individuellement selon le nombre de jours du forfait (jours calendaires − week-ends − 25 CP − fériés ouvrés − jours du forfait) ; {reposForfait(Y, 218)} jours en {Y} pour un forfait de 218 jours.</li>
-            <li>Forfait annuel en heures : pas de RTT ni de repos compensateur hebdomadaire ; les heures au-delà du forfait sont régularisées en fin d’année.</li>
-            <li>Forfait hebdomadaire en heures : heures supplémentaires incluses au forfait (au-delà de 35 h) majorées dans la rémunération ; heures effectuées au-delà du forfait payées avec majoration, ou remplacées par un repos compensateur quand un accord collectif le prévoit (Paramètres → Paie).</li>
-            <li>Cadre dirigeant (art. L3111-2) : congés payés uniquement — ni RTT, ni repos compensateur.</li>
-            <li>Temps partiel : même droit à congés ; le décompte des CP inclut les jours non travaillés de la période.</li>
-            <li>Clôture des congés payés, proposée à partir du 1er juin : aucun jour n’est perdu d’office, le service RH décide pour chaque salarié du report du solde (plafonné au solde, jusqu’au 31 mai suivant) ou de sa perte. Les jours acquis pendant une absence de santé, une maternité, une paternité ou une adoption, et ceux qu’elle a empêché de prendre, sont reportés de 15 mois (à compter de l’information du salarié à son retour si elle est plus tardive), dans la limite du solde. Un report accordé en cours de période est appliqué à la clôture.</li>
-            <li>Retour d’un arrêt de maladie ou d’accident : dans le mois, le service RH informe le salarié de ses jours de congés et de la date limite pour les prendre (« Informations au retour à faire ») ; le report de 15 mois court à partir de cette information.</li>
-            <li>RTT et jours de repos : non reportables, clôturés au 31 décembre (soldes non pris perdus, après le rappel du CET). Ceux de l’année suivante se posent dès maintenant sur son propre droit ; une demande à cheval sur deux années est refusée.</li>
-            <li>Compteurs repris de l’ancien outil : décomptés sur la période de CP et l’année de RTT de leur date d’arrêté, jamais au-delà.</li>
-            <li>Compte épargne-temps : jusqu’à {data.settings.cetPlafondRtt ?? 5} RTT par an (avant le 31 décembre) et {data.settings.cetPlafondCp ?? 5} CP par période, uniquement ceux de la 5e semaine (au-delà de 20 jours ouvrés) ; plafonds réglés dans Paramètres → Compte épargne-temps. Les jours épargnés se prennent en congé sur le CET (jours ouvrés), validé par le manager comme un congé payé ; liquidés en entier à la sortie.{data.settings.cetMonetisation ? ` Monétisation ouverte (accord : ${data.settings.cetMonetisationAccord}) : jours venus des RTT seulement, ${data.settings.cetMonetisationPlafond} j par an au plus, sur demande validée par le service RH.` : ' Monétisation : non ouverte (accord à référencer).'}</li>
-            <li>Congé principal : au moins 12 jours ouvrables continus (10 ouvrés) entre le {jourMois(fenetrePrincipale(data.settings, Y).du)} et le {jourMois(fenetrePrincipale(data.settings, Y).au)}, 24 jours ouvrables (20 ouvrés) d’affilée au plus — signalés sans blocage. {data.settings.fractionnementRegle === 'aucun' ? 'Jours de fractionnement écartés par accord collectif.' : `Jours de fractionnement : 2 jours pour 6 jours ouvrables ou plus du congé principal (5e semaine exclue) pris hors de cette période, 1 jour pour 3 à 5${data.settings.fractionnementRegle === 'accord' ? ', ou la règle de l’accord d’entreprise' : ''} ; proposés après la période, crédités par le service RH ou écartés par la renonciation du salarié.`}</li>
-            <li>Intérim : congés gérés par l’agence ; CDD : indemnité compensatrice des CP non pris à l’échéance.</li>
-            <li>Absences et feuilles de temps restent dans les bornes du contrat : entrée, fin du CDD, de la mission ou de l’alternance.</li>
-            <li>Annulation : le salarié retire sa demande en attente, ou son propre signalement tant qu’il n’est ni qualifié ni prolongé ; le manager ou le service RH annulent une absence qui n’a pas commencé, le service RH seul une absence commencée ou passée. Le solde est recrédité et Keystone prévenu ; une feuille soumise sans heure que l’absence couvrait est renvoyée pour saisie.</li>
+            <li>{t('Paid leave: 25 working days a year, accrued at 2.08 d a month from 1 June to 31 May, rounded up to the next whole number.')}</li>
+            <li>{t('Accrual during absences (law of 22 April 2024): work or commuting accident, occupational disease (with no limit of duration), maternity, paternity, adoption and family events count as actual work; ')}{t(data.settings.cpMaladie === 'assimile' ? 'sick leave also treated as actual work (more favourable agreement or CCN, Settings → Leave and closings)' : 'sick leave: 2 working days (Mon–Sat) a month (1.67 working day), 24 working days (Mon–Sat) (20 Mon–Fri) per period at most')}{t('; an absence still to qualify counts as sickness. Parental leave, unpaid leave, unjustified absence and sick child reduce the month pro rata, unless 4 weeks or 24 working days (Mon–Sat) of work remain.')}</li>
+            <li>{t('Each day of leave is counted on the period whose entitlement is taken at its date (leave from May to June is split over two periods). Period used up: taken in advance on the days being accrued, within the limit of those accrued at the date of the leave, deducted from the next period on 1 June.')}</li>
+            <li>{t('CCN Chemical industries: no seniority leave; +5 working days from age 59.')}</li>
+            <li>{t('Annual fixed days: rest days calculated individually according to the number of days of the fixed term (calendar days − weekends − 25 CP − working public holidays − days of the fixed term); ')}{reposForfait(Y, 218)}{t(' days in ')}{Y}{t(' for a fixed term of 218 days.')}</li>
+            <li>{t('Annual fixed hours: no RTT nor weekly compensatory rest; the hours beyond the fixed term are adjusted at year end.')}</li>
+            <li>{t('Weekly fixed hours: overtime included in the fixed term (beyond 35 h) paid at a premium in the pay; hours worked beyond the fixed term paid at a premium, or replaced by a compensatory rest when a collective agreement provides for it (Settings → Payroll).')}</li>
+            <li>{t('Senior executive (art. L3111-2): paid leave only — neither RTT nor compensatory rest.')}</li>
+            <li>{t('Part time: same right to leave; the CP count includes the days not worked in the period.')}</li>
+            <li>{t('Closing of paid leave, offered from 1 June: no day is lost automatically, HR decides for each employee to carry over the balance (capped at the balance, until the next 31 May) or to lose it. The days accrued during a health absence, a maternity, a paternity or an adoption, and those it prevented from taking, are carried over for 15 months (from the information of the employee on their return if it is later), within the limit of the balance. A carry-over granted during the period is applied at closing.')}</li>
+            <li>{t('Return from sick leave or an accident: within the month, HR informs the employee of their days of leave and of the deadline to take them (“Information on return to give”); the 15-month carry-over runs from this information.')}</li>
+            <li>{t('RTT and rest days: not carried over, closed on 31 December (balances not taken lost, after the CET reminder). Those of the next year are requested from now on its own entitlement; a request spanning two years is refused.')}</li>
+            <li>{t('Counters taken over from the former tool: counted on the CP period and the RTT year of their cut-off date, never beyond.')}</li>
+            <li>{t('Time savings account: up to ')}{data.settings.cetPlafondRtt ?? 5}{t(' RTT a year (before 31 December) and ')}{data.settings.cetPlafondCp ?? 5}{t(' CP per period, only those of the 5th week (beyond 20 working days); caps set in Settings → Time savings account. The days saved are taken as leave on the CET (working days), approved by the manager like paid leave; paid out in full on leaving.')}{data.settings.cetMonetisation ? `${t(' Cashing in open (agreement: ')}${data.settings.cetMonetisationAccord}${t('): days coming from RTT only, ')}${data.settings.cetMonetisationPlafond}${t(' d a year at most, on request approved by HR.')}` : t(' Cashing in: not open (agreement to reference).')}</li>
+            <li>{t('Main leave: at least 12 consecutive working days (Mon–Sat) (10 Mon–Fri) between ')}{jourMois(fenetrePrincipale(data.settings, Y).du)}{t(' and #le')}{jourMois(fenetrePrincipale(data.settings, Y).au)}{t(', 24 working days (Mon–Sat) (20 Mon–Fri) in a row at most — flagged without blocking. ')}{data.settings.fractionnementRegle === 'aucun' ? t('Split days set aside by collective agreement.') : `${t('Split days: 2 days for 6 working days (Mon–Sat) or more of the main leave (5th week excluded) taken outside this period, 1 day for 3 to 5')}${data.settings.fractionnementRegle === 'accord' ? t(', or the rule of the company agreement') : ''}${t('; offered after the period, credited by HR or set aside by the employee’s waiver.')}`}</li>
+            <li>{t('Temp work: leave managed by the agency; fixed-term contract: compensatory allowance for the CP not taken at the end.')}</li>
+            <li>{t('Absences and timesheets stay within the bounds of the contract: start, end of the fixed-term contract, of the assignment or of the work-study.')}</li>
+            <li>{t('Cancellation: the employee withdraws their pending request, or their own report as long as it is neither qualified nor extended; the manager or HR cancel an absence that has not started, HR alone an absence started or past. The balance is credited back and Keystone told; a timesheet submitted without hours that the absence covered is sent back for entry.')}</li>
           </ul>
         </Panel>
       )}
 
       {espaceRh && (
-        <Panel title="Absences hors congés" aside="Durées minimales du Code du travail · la CCN peut être plus favorable">
+        <Panel title={t('Absences other than leave')} aside={t('Minimum durations of the Labour Code · the CCN may be more favourable')}>
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Nature</th><th>Rémunération</th><th>Décompte · durée</th><th>Justificatif</th><th>Congés payés (pour mémoire)</th></tr></thead>
+              <thead><tr><th>{t('Nature')}</th><th>{t('Pay')}</th><th>{t('Count · duration')}</th><th>{t('Supporting document')}</th><th>{t('Paid leave (for the record)')}</th></tr></thead>
               {(Object.keys(CATEGORIES_ABSENCE) as CategorieAbsence[]).map(c => (
                 <tbody key={c}>
                   <tr><td colSpan={5} className="section-label">{CATEGORIES_ABSENCE[c]}</td></tr>
                   {NATURES.filter(([, n]) => n.categorie === c).map(([k, n]) => (
                     <tr key={k}>
-                      <td><Two main={n.label} sub={n.reprise ? 'entretien de parcours de reprise à la fin' : n.medicale ? 'nature jamais transmise au manager ni à Keystone' : undefined} /></td>
-                      <td className="sub">{cap(PAIE_COURT[n.paie])}</td>
-                      <td><Two main={`Jours ${n.decompte === 'ouvres' ? 'ouvrés' : 'calendaires'}${n.duree ? ` · ${fJ(n.duree)}${n.parAn ? ' par an' : ''}` : ''}`} sub={[n.dureeNote, n.article].filter(Boolean).join(' · ')} /></td>
+                      <td><Two main={n.label} sub={n.reprise ? t('return career review at the end') : n.medicale ? t('nature never sent to the manager nor to Keystone') : undefined} /></td>
+                      <td className="sub">{cap(t(PAIE_COURT[n.paie]))}</td>
+                      <td><Two main={`${t(n.decompte === 'ouvres' ? 'Working days' : 'Calendar days')}${n.duree ? ` · ${fJ(n.duree)}${n.parAn ? t(' a year') : ''}` : ''}`} sub={[n.dureeNote, n.article].filter(Boolean).join(' · ')} /></td>
                       <td className="sub">{n.justificatif ?? '—'}</td>
                       <td className="sub">{n.cp}</td>
                     </tr>
@@ -453,11 +455,7 @@ export function Absences() {
             </table>
           </div>
           <Fine>
-            Le manager ou le salarié signale une absence imprévue ; elle compte aussitôt (aucune heure ces jours-là, indisponibilité transmise à Keystone).
-            Le service RH la qualifie à réception du justificatif, ou saisit directement une absence prévisible. Aucun solde de congés n’est débité ;
-            une semaine entièrement couverte se soumet sans heure. À la fin d’une maternité, d’une adoption, d’un congé parental ou d’un arrêt longue maladie,
-            la date de reprise est inscrite sur la fiche (entretien de parcours professionnel, art. L6315-1), sauf si une reprise antérieure attend encore son entretien ;
-            celle d’un arrêt longue maladie n’est pas montrée au manager. L’effet sur l’acquisition des CP est indiqué pour mémoire : il n’est pas encore appliqué au calcul des droits.
+            {t('The manager or the employee reports an unplanned absence; it counts at once (no hours those days, unavailability sent to Keystone). HR qualifies it on receipt of the supporting document, or directly enters a foreseeable absence. No leave balance is debited; a week fully covered is submitted without hours. At the end of a maternity, an adoption, a parental leave or a long sick leave, the return date is entered on the sheet (career review, art. L6315-1), unless an earlier return is still waiting for its review; that of a long sick leave is not shown to the manager. The effect on CP accrual is given for the record: it is not yet applied to the calculation of the entitlement.')}
           </Fine>
         </Panel>
       )}
@@ -486,8 +484,8 @@ function Rtt39Field() {
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap', fontSize: 14 }}>
-      <label htmlFor="rtt39">Contrats 39 h : nombre de RTT par an</label>
-      <input className="input" id="rtt39" type="number" min={0} max={40} value={text} disabled={!admin} title={admin ? undefined : 'Paramètre réservé à l’administrateur RH'}
+      <label htmlFor="rtt39">{t('39 h contracts: number of RTT a year')}</label>
+      <input className="input" id="rtt39" type="number" min={0} max={40} value={text} disabled={!admin} title={admin ? undefined : t('Setting reserved for the HR administrator')}
         onChange={ev => setText(ev.target.value)} onBlur={commit} onKeyDown={onKey} style={{ width: 80, textAlign: 'right' }} />
     </div>
   );

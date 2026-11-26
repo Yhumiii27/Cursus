@@ -7,7 +7,7 @@
 // Règles : shared/rules/clotures.ts ; relancer une clôture est sans effet.
 import { useMemo, useState } from 'react';
 import { parse } from '../../../shared/dates.ts';
-import { equipeLabel, fJ, fmt, fmtIso, plural } from '../../../shared/format.ts';
+import { equipeLabel, fJ, fmt, fmtIso } from '../../../shared/format.ts';
 import { periodeDemiTexte } from '../../../shared/rules/demi-journees.ts';
 import { echeanceReport, lignesClotureCp, lignesClotureRtt, MOTIF_CLOTURE_LABEL, type LigneClotureCp } from '../../../shared/rules/clotures.ts';
 import { finPeriodeCp, periodeCp, plafondsCet } from '../../../shared/rules/conges.ts';
@@ -15,6 +15,7 @@ import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerific
 import { Empty, Fine, NoteAccent, Seg, Tag } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 export function ClotureCongesDialog({ conges, periode }: { conges: 'CP' | 'RTT'; periode: number }) {
   return conges === 'CP' ? <ClotureCp A={periode} /> : <ClotureRtt Y={periode} />;
@@ -33,11 +34,11 @@ const initial = (l: LigneClotureCp): Choix => ({ decision: l.proposition.decisio
 function erreur(l: LigneClotureCp, c: Choix): string | null {
   if (c.decision !== 'reporter') return null;
   const j = Number(c.jours.replace(',', '.'));
-  return !c.jours.trim() || Number.isNaN(j) ? 'Indiquez le nombre de jours.'
+  return !c.jours.trim() || Number.isNaN(j) ? t('Enter the number of days.')
     : egal(j, l.solde) || egal(j, l.legal) ? null
-    : !(j > 0) || (j * 2) % 1 !== 0 ? 'Nombre de jours par demi-journée : 0,5, 1, 1,5…'
-    : j > l.solde ? `${fJ(l.solde)} au plus.`
-    : j < l.legal ? `${fJ(l.legal)} au moins (report légal).` : null;
+    : !(j > 0) || (j * 2) % 1 !== 0 ? t('Number of days per half day: 0.5, 1, 1.5…')
+    : j > l.solde ? `${fJ(l.solde)}${t(' at most.')}`
+    : j < l.legal ? `${fJ(l.legal)}${t(' at least (legal carry-over).')}` : null;
 }
 
 function ClotureCp({ A }: { A: number }) {
@@ -66,7 +67,7 @@ function ClotureCp({ A }: { A: number }) {
     ...c, ...Object.fromEntries(decidables.filter(l => !(c[l.e.id] ?? initial(l)).decision).map(l => [l.e.id, { decision: 'reporter' as const, jours: saisie(l.solde) }])),
   }));
 
-  const rien = !decidees.length && !sansSolde.length ? 'Choisissez le report ou la perte du solde pour au moins un salarié.' : null;
+  const rien = !decidees.length && !sansSolde.length ? t('Choose the carry-over or the loss of the balance for at least one employee.') : null;
   const bloquants = decidees.map(l => erreur(l, choix(l)));
   const reportes = decidees.filter(l => choix(l).decision === 'reporter').length;
   const pertes = decidees.length - reportes;
@@ -87,26 +88,25 @@ function ClotureCp({ A }: { A: number }) {
 
   if (!ouvertes.length && !sansSolde.length && !enAttente.length) {
     return (
-      <Dialog title={`Clôture des congés payés ${periodeCp(A)}`} actions={<CancelButton label="Fermer" />}>
+      <Dialog title={`${t('Closing of paid leave ')}${periodeCp(A)}`} actions={<CancelButton label={t('Close')} />}>
         <p className="text-muted" style={{ margin: 0 }}>
-          {faites.length ? `Période déjà clôturée pour ${plural(faites.length, 'salarié', 'salariés')} : rien à refaire.` : 'Aucun salarié concerné par cette période.'}
+          {faites.length ? `${t('Period already closed for ')}${tn(faites.length, 'employee#salarie', 'employees#salarie')}${t(': nothing to redo.')}` : t('No employee concerned by this period.')}
         </p>
       </Dialog>
     );
   }
 
   return (
-    <Dialog title={`Clôture des congés payés ${periodeCp(A)}`} width={720} tall onSubmit={confirm} actions={<>
+    <Dialog title={`${t('Closing of paid leave ')}${periodeCp(A)}`} width={720} tall onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Clôturer {decidees.length ? plural(decidees.length + sansSolde.length, 'ligne', 'lignes') : 'les soldes nuls'}</SubmitButton>
+      <SubmitButton busy={busy}>{t('Close #verb')}{decidees.length ? tn(decidees.length + sansSolde.length, 'line', 'lines') : t('the zero balances')}</SubmitButton>
     </>}>
       <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>
-        Période terminée le {fmt(parse(finPeriodeCp(A)))}. Aucun jour n’est perdu d’office : pour chaque salarié, choisissez le report du solde sur la
-        période {periodeCp(A + 1)} (plafonné au solde, utilisable jusqu’au {fmt(parse(echeanceReport(A)))}) ou sa perte. Une ligne sans décision reste à clôturer.
+        {t('Period ended on ')}{fmt(parse(finPeriodeCp(A)))}{t('. No day is lost automatically: for each employee, choose to carry over the balance to the period ')}{periodeCp(A + 1)}{t(' (capped at the balance, usable until ')}{fmt(parse(echeanceReport(A)))}{t(') or to lose it. A line without a decision remains to be closed.')}
       </p>
       {decidables.length > 0 && sansDecision > 0 && (
         <div className="actions-end">
-          <button type="button" className="btn btn-ghost btn-sm" onClick={reporterTout}>Reporter les {plural(sansDecision, 'solde sans décision', 'soldes sans décision')}</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={reporterTout}>{t('Carry over the ')}{tn(sansDecision, 'balance without a decision', 'balances without a decision')}</button>
         </div>
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
@@ -119,33 +119,33 @@ function ClotureCp({ A }: { A: number }) {
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 14 }}>{l.e.nom}</div>
                   <div className="text-muted sub">
-                    {equipeLabel(l.e)} · solde {fJ(l.solde)}{l.accorde ? ` · report accordé en cours de période : ${fJ(l.accorde)}` : ''}
+                    {equipeLabel(l.e)}{t(' · balance ')}{fJ(l.solde)}{l.accorde ? `${t(' · carry-over granted during the period: ')}${fJ(l.accorde)}` : ''}
                   </div>
                 </div>
-                <Seg name={`cl-${l.e.id}`} label={`Décision pour ${l.e.nom}`} value={c.decision}
-                  options={l.legal > 0 ? [['reporter', 'Reporter']] : [['reporter', 'Reporter'], ['perdre', 'Perdre']]}
+                <Seg name={`cl-${l.e.id}`} label={`${t('Decision for ')}${l.e.nom}`} value={c.decision}
+                  options={l.legal > 0 ? [['reporter', t('Carry over')]] : [['reporter', t('Carry over')], ['perdre', t('Lose')]]}
                   onChange={x => set(l, { decision: x })} />
               </div>
               {l.impose && (
                 <NoteAccent>
-                  {MOTIF_CLOTURE_LABEL[l.impose]} : perte impossible pour {egal(l.legal, l.solde) ? 'tout le solde' : fJ(l.legal)}, reporté{l.legal > 1 ? 's' : ''} jusqu’au {fmtIso(l.expireLegal!)}
-                  {l.impose === 'report_legal' && ` (${[l.acquisArret > 0 ? `${fJ(l.acquisArret)} acquis pendant l’absence` : '', l.empeches > 0 ? `${fJ(l.empeches)} ouvrés d’absence pendant la période de prise` : ''].filter(Boolean).join(', ')})`}.
+                  {MOTIF_CLOTURE_LABEL[l.impose]}{t(': loss impossible for ')}{egal(l.legal, l.solde) ? t('the whole balance') : fJ(l.legal)}{t(l.legal > 1 ? ', carried over until #plural' : ', carried over until ')}{fmtIso(l.expireLegal!)}
+                  {l.impose === 'report_legal' && ` (${[l.acquisArret > 0 ? `${fJ(l.acquisArret)}${t(' accrued during the absence')}` : '', l.empeches > 0 ? `${fJ(l.empeches)}${t(' working days of absence during the taking period')}` : ''].filter(Boolean).join(', ')})`}.
                 </NoteAccent>
               )}
               {c.decision === 'reporter' && (
                 <div className="grid-2">
-                  <Field label={l.legal > 0 && !egal(l.legal, l.solde) ? 'Jours reportés, report légal compris' : 'Jours reportés'} htmlFor={`cl-j-${l.e.id}`} erreur={v.erreur(err)}>
+                  <Field label={t(l.legal > 0 && !egal(l.legal, l.solde) ? 'Days carried over, legal carry-over included' : 'Days carried over')} htmlFor={`cl-j-${l.e.id}`} erreur={v.erreur(err)}>
                     <input className="input" id={`cl-j-${l.e.id}`} type="text" inputMode="decimal" value={c.jours} onChange={ev => set(l, { jours: ev.target.value })} />
                   </Field>
-                  <Field label="Utilisables jusqu’au">
+                  <Field label={t('Usable until')}>
                     <Static>
-                      {l.legal > 0 ? `${fmtIso(l.expireLegal!)} (report légal)${egal(l.legal, l.solde) ? '' : `, ${fmtIso(echeanceReport(A))} au-delà`}` : fmtIso(echeanceReport(A))}
+                      {l.legal > 0 ? `${fmtIso(l.expireLegal!)}${t(' (legal carry-over)')}${egal(l.legal, l.solde) ? '' : `, ${fmtIso(echeanceReport(A))}${t(' beyond')}`}` : fmtIso(echeanceReport(A))}
                     </Static>
                   </Field>
                 </div>
               )}
-              {perdus > 0 && <Fine>{fJ(perdus)} perdu{perdus > 1 ? 's' : ''} à la clôture.</Fine>}
-              {!c.decision && <Tag cls="tag-outline" style={{ alignSelf: 'flex-start' }}>Sans décision : reste à clôturer</Tag>}
+              {perdus > 0 && <Fine>{fJ(perdus)}{t(perdus > 1 ? ' lost at closing.#plural' : ' lost at closing.')}</Fine>}
+              {!c.decision && <Tag cls="tag-outline" style={{ alignSelf: 'flex-start' }}>{t('No decision: remains to be closed')}</Tag>}
             </div>
           );
         })}
@@ -153,24 +153,24 @@ function ClotureCp({ A }: { A: number }) {
           <div key={l.e.id} className="boxed">
             <div style={{ fontSize: 14 }}>{l.e.nom}</div>
             <div className="text-muted sub">
-              Demande de congés payés en attente ({l.attente.map(periodeDemiTexte).join(', ')}) : à valider ou refuser avant de clôturer son solde.
+              {t('Paid leave request pending (')}{l.attente.map(periodeDemiTexte).join(', ')}{t('): to approve or refuse before closing their balance.')}
             </div>
           </div>
         ))}
         {miennes.map(l => (
           <div key={l.e.id} className="boxed">
             <div style={{ fontSize: 14 }}>{l.e.nom}</div>
-            <div className="text-muted sub">Votre solde ({fJ(l.solde)}) : décision par un autre membre du service RH.</div>
+            <div className="text-muted sub">{t('Your balance (')}{fJ(l.solde)}{t('): decision by another member of HR.')}</div>
           </div>
         ))}
-        {!ouvertes.length && !enAttente.length && <Empty pad="sm">Aucun solde restant à décider.</Empty>}
+        {!ouvertes.length && !enAttente.length && <Empty pad="sm">{t('No balance left to decide.')}</Empty>}
       </div>
       {rien && v.tente && <Bloquant>{rien}</Bloquant>}
       <Fine>
-        À la validation : {plural(reportes, 'report', 'reports')} (report reçu sur la période {periodeCp(A + 1)}, jusqu’à son échéance),
-        {' '}{plural(pertes, 'perte', 'pertes')}{sansSolde.length ? `, ${plural(sansSolde.length, 'salarié sans solde clôturé', 'salariés sans solde clôturés')} d’emblée` : ''}
-        {sansDecision + miennes.length + enAttente.length ? ` ; ${plural(sansDecision + miennes.length + enAttente.length, 'ligne reste', 'lignes restent')} à décider` : ''}.
-        {faites.length ? ` Déjà clôturés : ${plural(faites.length, 'salarié', 'salariés')}.` : ''} Chaque ligne clôturée est tracée et définitive.
+        {t('On validation: ')}{tn(reportes, 'carry-over', 'carry-overs')}{t(' (carry-over received on the period ')}{periodeCp(A + 1)}{t(', until its due date),')}
+        {' '}{tn(pertes, 'loss', 'losses')}{sansSolde.length ? `, ${tn(sansSolde.length, 'employee without balance closed', 'employees without balance closed')}${t(' at once')}` : ''}
+        {sansDecision + miennes.length + enAttente.length ? `${t('; ')}${tn(sansDecision + miennes.length + enAttente.length, 'line remains', 'lines remain')}${t(' to decide')}` : ''}.
+        {faites.length ? `${t(' Already closed: ')}${tn(faites.length, 'employee#salarie', 'employees#salarie')}.` : ''}{t(' Each closed line is recorded and final.')}
       </Fine>
     </Dialog>
   );
@@ -196,30 +196,28 @@ function ClotureRtt({ Y }: { Y: number }) {
 
   if (!lignes.length) {
     return (
-      <Dialog title={`Clôture des RTT ${Y}`} actions={<CancelButton label="Fermer" />}>
-        <p className="text-muted" style={{ margin: 0 }}>Année déjà clôturée : rien à refaire.</p>
+      <Dialog title={`${t('Closing of RTT ')}${Y}`} actions={<CancelButton label={t('Close')} />}>
+        <p className="text-muted" style={{ margin: 0 }}>{t('Year already closed: nothing to redo.')}</p>
       </Dialog>
     );
   }
 
   return (
-    <Dialog title={`Clôture des RTT et jours de repos ${Y}`} width={640} tall onSubmit={confirm} actions={<>
+    <Dialog title={`${t('Closing of RTT and rest days ')}${Y}`} width={640} tall onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Clôturer les RTT {Y}</SubmitButton>
+      <SubmitButton busy={busy}>{t('Close the RTT ')}{Y}</SubmitButton>
     </>}>
       <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>
-        Les RTT et jours de repos ne sont pas reportables : le solde non pris au 31 décembre {Y} est perdu. La clôture le photographie pour chaque
-        salarié ; ceux de {Y + 1} restent posables sur leur propre droit.
+        {t('RTT and rest days cannot be carried over: the balance not taken on 31 December ')}{Y}{t(' is lost. The closing records it for each employee; those of ')}{Y + 1}{t(' can still be requested on their own entitlement.')}
       </p>
       {cet.length > 0 && (
         <NoteAccent>
-          Rappel : jusqu’à {plafondsCet(d).rtt} RTT par an se placent sur le compte épargne-temps. {plural(cet.length, 'salarié peut', 'salariés peuvent')} encore y placer des
-          RTT {Y} jusqu’à cette confirmation (bouton « Épargner » de l’écran Congés &amp; absences).
+          {t('Reminder: up to ')}{plafondsCet(d).rtt}{t(' RTT a year can be placed on the time savings account. ')}{tn(cet.length, 'employee can', 'employees can')}{t(' still place RTT of ')}{Y}{t(' there until this confirmation (button “Save” of the Leave & absences screen).')}
         </NoteAccent>
       )}
       <div className="scroll-x">
         <table className="table">
-          <thead><tr><th>Collaborateur</th><th>Droit</th><th>Pris</th><th>Non pris</th><th>Plaçables sur le CET</th></tr></thead>
+          <thead><tr><th>{t('Employee')}</th><th>{t('Entitlement')}</th><th>{t('Taken')}</th><th>{t('Not taken')}</th><th>{t('Can be placed on the CET')}</th></tr></thead>
           <tbody>
             {lignes.map(l => (
               <tr key={l.e.id}>
@@ -228,7 +226,7 @@ function ClotureRtt({ Y }: { Y: number }) {
                 <td className="tnum">{fJ(l.info.pris + l.info.poses)}</td>
                 <td className="tnum">
                   {l.solde > 0 ? fJ(l.solde) : '—'}
-                  {l.attente.length > 0 && <div className="text-muted sub">Demande en attente ({l.attente.map(periodeDemiTexte).join(', ')}) : non clôturé</div>}
+                  {l.attente.length > 0 && <div className="text-muted sub">{t('Request pending (')}{l.attente.map(periodeDemiTexte).join(', ')}{t('): not closed')}</div>}
                 </td>
                 <td className="tnum">{l.cet > 0 ? fJ(l.cet) : '—'}</td>
               </tr>
@@ -238,11 +236,10 @@ function ClotureRtt({ Y }: { Y: number }) {
       </div>
       {attente.length > 0 && (
         <NoteAccent>
-          {plural(attente.length, 'salarié a', 'salariés ont')} une demande de RTT {Y} en attente : à valider ou refuser d’abord, puis relancer la clôture
-          ({attente.map(l => l.e.nom).join(', ')}).
+          {tn(attente.length, 'employee has', 'employees have')}{t(' an RTT request of ')}{Y}{t(' pending: to approve or refuse first, then run the closing again (')}{attente.map(l => l.e.nom).join(', ')}).
         </NoteAccent>
       )}
-      <Fine>À la validation : {plural(closes.length, 'salarié clôturé', 'salariés clôturés')}, {perdus ? `${fJ(perdus)} non pris perdus` : 'aucun RTT perdu'}. Tracé et définitif.</Fine>
+      <Fine>{t('On validation: ')}{tn(closes.length, 'employee closed', 'employees closed')}, {perdus ? `${fJ(perdus)}${t(' not taken lost')}` : t('no RTT lost')}{t('. Recorded and final.')}</Fine>
     </Dialog>
   );
 }

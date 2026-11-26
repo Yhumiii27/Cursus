@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
-import { fmt, plural } from '../../../shared/format.ts';
+import { fmt } from '../../../shared/format.ts';
 import { blocage, conflitsSession } from '../../../shared/rules/conflits.ts';
 import { finSession, joursSession, plageCourte, sessionDu, surPlusieursJours } from '../../../shared/rules/plage-session.ts';
 import { horsContratLe } from '../../../shared/rules/contrats.ts';
@@ -18,6 +18,7 @@ import { Seg } from '../components/ui.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { sessionPreselectionnee } from './retour-session.ts';
+import { t, tn } from '../i18n/langue.ts';
 
 export function PlanDialog({ empId, certId, inscriptionId, sessionId: demandee }: { empId: number; certId?: number; inscriptionId?: number; sessionId?: number }) {
   const { d, upcoming } = useEnriched();
@@ -39,12 +40,12 @@ export function PlanDialog({ empId, certId, inscriptionId, sessionId: demandee }
   const actuelle = d.session((cert ?? insc)?.sessionId ?? null);
   if (actuelle && sessionActive(actuelle) && actuelle.date < d.ti) {
     return (
-      <Dialog title={insc ? 'Planifier la formation' : 'Planifier un renouvellement'} width={540} actions={<>
-        <CancelButton label="Fermer" />
-        {formations && finSession(actuelle) <= d.ti && <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'cloture', sessionId: actuelle.id })}>Clôturer la session</button>}
+      <Dialog title={t(insc ? 'Plan the training course' : 'Plan a renewal')} width={540} actions={<>
+        <CancelButton label={t('Close')} />
+        {formations && finSession(actuelle) <= d.ti && <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'cloture', sessionId: actuelle.id })}>{t('Close the session')}</button>}
       </>}>
         <p className="text-muted" style={{ margin: 0 }}>
-          {emp.nom} est inscrit à la session {fm.court} {sessionDu(actuelle)}, {finSession(actuelle) < d.ti ? 'passée' : `en cours jusqu’au ${fmt(parse(finSession(actuelle)))}`} : {formations ? 'clôturez-la d’abord' : 'le service RH la clôture d’abord'} (présence, résultat).
+          {`${emp.nom}${t(' is enrolled in the session ')}${fm.court} ${sessionDu(actuelle)}, ${finSession(actuelle) < d.ti ? t('past#session') : `${t('in progress until ')}${fmt(parse(finSession(actuelle)))}`}${t(formations ? ': close it first' : ': HR closes it first')}${t(' (attendance, result).')}`}
         </p>
       </Dialog>
     );
@@ -60,7 +61,7 @@ export function PlanDialog({ empId, certId, inscriptionId, sessionId: demandee }
   const conflits = choisie ? conflitsSession(d, empId, choisie, { sessionId: actuelle?.id }) : [];
 
   // Session postérieure au départ (sortie enregistrée, fin de CDD…) : refusée, comme par le serveur.
-  const sessionErr = !sessionId ? 'Choisissez une session.' : choisie ? horsContratLe(emp, finSession(choisie)) : null;
+  const sessionErr = !sessionId ? t('Choose a session.') : choisie ? horsContratLe(emp, finSession(choisie)) : null;
   const confirm = async () => {
     if (busy || !v.verifier(sessionErr, blocage(conflits))) return;
     setBusy(true);
@@ -70,19 +71,19 @@ export function PlanDialog({ empId, certId, inscriptionId, sessionId: demandee }
   };
 
   return (
-    <Dialog title={insc ? 'Planifier la formation' : 'Planifier un renouvellement'} width={540} onSubmit={demander || sessions.length === 0 ? undefined : confirm} actions={<>
+    <Dialog title={t(insc ? 'Plan the training course' : 'Plan a renewal')} width={540} onSubmit={demander || sessions.length === 0 ? undefined : confirm} actions={<>
       <CancelButton />
       {demander
-        ? <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'reqForm', empId, f })}>Demander au RH</button>
+        ? <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'reqForm', empId, f })}>{t('Ask HR')}</button>
         : sessions.length === 0
-          ? <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'session', f, retour: { type: 'plan', empId, certId, inscriptionId } })}>Créer une session</button>
-          : <SubmitButton busy={busy}>Confirmer l’inscription</SubmitButton>}
+          ? <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'session', f, retour: { type: 'plan', empId, certId, inscriptionId } })}>{t('Create a session')}</button>
+          : <SubmitButton busy={busy}>{t('Confirm the enrolment')}</SubmitButton>}
     </>}>
       <div className="grid-2">
-        <Field label="Collaborateur"><Static>{emp.nom}</Static></Field>
-        <Field label={insc ? 'Formation initiale' : 'Certification'}><Static>{fm.nom}</Static></Field>
+        <Field label={t('Employee')}><Static>{emp.nom}</Static></Field>
+        <Field label={t(insc ? 'Initial training' : 'Certification')}><Static>{fm.nom}</Static></Field>
       </div>
-      <Field label="Session">
+      <Field label={t('Session')}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           {sessions.map(s => {
             const full = libres(s) <= 0, checked = sessionId === s.id;
@@ -92,25 +93,25 @@ export function PlanDialog({ empId, certId, inscriptionId, sessionId: demandee }
                 <input type="radio" name="session" checked={checked} disabled={full} onChange={() => setSessionId(s.id)} />
                 <span className="dot" />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-3)', flex: 1, minWidth: 0 }}>
-                  <div><div style={{ fontSize: 14 }}>{plageCourte(s)}</div><div className="text-muted sub">{s.lieu} · {fm.organisme}{surPlusieursJours(s) ? ` · ${plural(joursSession(s).length, 'jour', 'jours')}` : ''}</div></div>
+                  <div><div style={{ fontSize: 14 }}>{plageCourte(s)}</div><div className="text-muted sub">{s.lieu} · {fm.organisme}{surPlusieursJours(s) ? ` · ${tn(joursSession(s).length, 'day', 'days')}` : ''}</div></div>
                   <span className="text-muted sub nowrap">{full
-                    ? (s.inscrits < s.places ? 'Places proposées à la liste d’attente' : 'Complète')
-                    : `${plural(libres(s), 'place restante', 'places restantes')}${formations && proposees ? ` dont ${plural(proposees, 'proposée', 'proposées')} à la liste d’attente` : ''}`}</span>
+                    ? t(s.inscrits < s.places ? 'Places offered to the waiting list' : 'Full#fem')
+                    : `${tn(libres(s), 'place left', 'places left')}${formations && proposees ? `${t(', of which ')}${tn(proposees, 'offered', 'offered#fem-plural')}${t(' to the waiting list')}` : ''}`}</span>
                 </div>
               </label>
             );
           })}
-          {sessions.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>{formations
-            ? 'Aucune session à venir pour cette formation — créez-en une pour inscrire ce collaborateur.'
-            : 'Aucune session à venir — la demande sera transmise au service RH.'}</p>}
-          {sessions.length > 0 && demander && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Toutes les sessions sont complètes — la demande sera transmise au service RH{d.ds.settings.formationsListeAttente ? ', qui pourra la placer en liste d’attente' : ''}.</p>}
+          {sessions.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>{t(formations
+            ? 'No upcoming session for this training course — create one to enrol this employee.'
+            : 'No upcoming session — the request will be sent to HR.')}</p>}
+          {sessions.length > 0 && demander && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>{t('All sessions are full — the request will be sent to HR')}{d.ds.settings.formationsListeAttente ? t(', who may put it on the waiting list') : ''}.</p>}
           {v.erreur(sessionErr) && <Bloquant>{sessionErr}</Bloquant>}
         </div>
       </Field>
       <Controles msgs={conflits} />
       {ouvertes && (
-        <Field label="Convocation">
-          <Seg name="convoc" label="Convocation" value={conv} onChange={setConv} options={[['now', 'Envoyer maintenant'], ['later', 'Envoyer plus tard']]} />
+        <Field label={t('Notice')}>
+          <Seg name="convoc" label={t('Notice')} value={conv} onChange={setConv} options={[['now', t('Send now')], ['later', t('Send later')]]} />
         </Field>
       )}
     </Dialog>

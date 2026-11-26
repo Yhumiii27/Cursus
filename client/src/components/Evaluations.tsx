@@ -8,7 +8,7 @@
 //   pour le référent HSE, qui n'a pas Plan & budget), agrégats seuls pour le référent HSE et la lecture seule.
 import { useMemo, useState } from 'react';
 import { DownloadSimpleIcon } from '@phosphor-icons/react';
-import { fmtIso, plural } from '../../../shared/format.ts';
+import { fmtIso } from '../../../shared/format.ts';
 import {
   type CibleEvaluation, ciblesEvaluation, concerneFroid, EFFICACITE_LABEL, echeanceFroid, evaluationDe, type EvaluationAFaire, evaluationsAFaireManager,
   exercicesEvaluation, indicateursAffiches, refusEvaluation, TYPE_EVALUATION_LABEL,
@@ -19,6 +19,7 @@ import { downloadCsv } from '../print.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { Btn, Empty, Fine, Panel, Seg, Two } from './ui.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 /** Nombre à la française, une décimale au plus. */
 const dec = (n: number) => String(n).replace('.', ',');
@@ -34,15 +35,15 @@ export function LignesEvaluationsAFaire({ liste }: { liste: EvaluationAFaire[] }
     {liste.map(x => (
       <div key={`ev-${x.cible.cle}-${x.type}`} className="list-row">
         <div className="grow">
-          <div style={{ fontSize: 14 }}>{x.type === 'chaud' ? 'Votre avis' : 'Efficacité'} — {x.cible.intitule}</div>
+          <div style={{ fontSize: 14 }}>{t(x.type === 'chaud' ? 'Your feedback' : 'Effectiveness')} — {x.cible.intitule}</div>
           <div className="text-muted sub">
             {x.type === 'chaud'
-              ? `Formation terminée le ${fmtIso(x.cible.fin)} : notez-la de 1 à 5`
-              : `Formation terminée le ${fmtIso(x.cible.fin)} : vous a-t-elle été utile dans votre travail ?`}
+              ? `${t('Training finished on ')}${fmtIso(x.cible.fin)}${t(': rate it from 1 to 5')}`
+              : `${t('Training finished on ')}${fmtIso(x.cible.fin)}${t(': was it useful to you in your work?')}`}
           </div>
         </div>
         <Btn small variant="secondary" style={{ flex: 'none' }} onClick={() => openDialog({ type: 'evaluation', cle: x.cible.cle, quand: x.type })}>
-          {x.type === 'chaud' ? 'Donner mon avis' : 'Répondre'}
+          {t(x.type === 'chaud' ? 'Give my feedback' : 'Answer')}
         </Btn>
       </div>
     ))}
@@ -65,19 +66,19 @@ export function MesAvisFormations({ empId }: { empId: number }) {
   }, [d, empId]);
   if (!lignes.length) return null;
   return (
-    <Panel title="Mes avis sur les formations" style={{ gap: 'var(--space-2)' }}>
+    <Panel title={t('My feedback on training')} style={{ gap: 'var(--space-2)' }}>
       {lignes.map(({ e, c }) => (
         <div key={e.id} className="list-row">
           <div className="grow">
             <div style={{ fontSize: 14 }}>{c.intitule}</div>
-            <div className="text-muted sub">{TYPE_EVALUATION_LABEL[e.type]} · {reponseTexte(e)} · le {fmtIso(e.le)}</div>
+            <div className="text-muted sub">{TYPE_EVALUATION_LABEL[e.type]} · {reponseTexte(e)} · {t('on#le')} {fmtIso(e.le)}</div>
           </div>
           {!refusEvaluation(d.ds.settings, d.ti, c, e.type, 'salarie') && (
-            <Btn small style={{ flex: 'none' }} onClick={() => openDialog({ type: 'evaluation', cle: c.cle, quand: e.type })}>Modifier</Btn>
+            <Btn small style={{ flex: 'none' }} onClick={() => openDialog({ type: 'evaluation', cle: c.cle, quand: e.type })}>{t('Edit')}</Btn>
           )}
         </div>
       ))}
-      <Fine>Seul le service RH lit vos commentaires ; votre manager ne voit pas vos avis.</Fine>
+      <Fine>{t('Only HR reads your comments; your manager does not see your feedback.')}</Fine>
     </Panel>
   );
 }
@@ -90,21 +91,20 @@ export function EvaluationsManagerPanel() {
   const aFaire = useMemo(() => evaluationsAFaireManager(d, me), [d, me]);
   if (!d.ds.settings.evaluationsActives || !aFaire.length) return null;
   return (
-    <Panel highlight title="Évaluations à froid à faire" aside={plural(aFaire.length, 'formation de votre équipe', 'formations de votre équipe')} style={{ gap: 'var(--space-2)' }}>
+    <Panel highlight title={t('After-the-fact evaluations to do')} aside={tn(aFaire.length, 'training course of your team', 'training courses of your team')} style={{ gap: 'var(--space-2)' }}>
       <div className="list">
         {aFaire.map(x => (
           <div key={x.cible.cle} className="list-row">
             <div className="grow">
               <div style={{ fontSize: 14 }}>{d.personName(x.cible.empId)} — {x.cible.intitule}</div>
-              <div className="text-muted sub">Formation terminée le {fmtIso(x.cible.fin)} · évaluation demandée depuis le {fmtIso(x.depuis)}</div>
+              <div className="text-muted sub">{t('Training finished on ')}{fmtIso(x.cible.fin)}{t(' · evaluation requested since ')}{fmtIso(x.depuis)}</div>
             </div>
-            <Btn small variant="secondary" style={{ flex: 'none' }} onClick={() => openDialog({ type: 'evaluation', cle: x.cible.cle, quand: 'froid' })}>Évaluer</Btn>
+            <Btn small variant="secondary" style={{ flex: 'none' }} onClick={() => openDialog({ type: 'evaluation', cle: x.cible.cle, quand: 'froid' })}>{t('Evaluate')}</Btn>
           </div>
         ))}
       </div>
       <Fine>
-        {d.ds.settings.evaluationFroidDelai} jours après la formation : a-t-elle été efficace pour le salarié ? Le salarié donne aussi son avis ; seul
-        le service RH lit les commentaires, et chacun ne voit que le sien.
+        {d.ds.settings.evaluationFroidDelai}{t(' days after the training: was it effective for the employee? The employee also gives their feedback; only HR reads the comments, and each one only sees their own.')}
       </Fine>
     </Panel>
   );
@@ -118,9 +118,9 @@ function CelluleAvis({ c, quand, repondant, ouverte }: { c: CibleEvaluation; qua
   const ouvrir = () => openDialog({ type: 'evaluation', cle: c.cle, quand, repondant });
   return (
     <td>
-      {e ? <Two main={reponseTexte(e)} sub={`le ${fmtIso(e.le)}${e.auteur && e.auteurId !== c.empId && repondant === 'salarie' ? ` · recueilli par ${e.auteur}` : ''}`} /> : <span className="text-muted">—</span>}
+      {e ? <Two main={reponseTexte(e)} sub={`${t('on#le')} ${fmtIso(e.le)}${e.auteur && e.auteurId !== c.empId && repondant === 'salarie' ? `${t(' · collected by ')}${e.auteur}` : ''}`} /> : <span className="text-muted">—</span>}
       {e?.commentaire && <div className="sub" style={{ whiteSpace: 'pre-wrap' }}>{e.commentaire}</div>}
-      {ouverte && <div><Btn small onClick={ouvrir}>{e ? 'Modifier' : 'Recueillir'}</Btn></div>}
+      {ouverte && <div><Btn small onClick={ouvrir}>{t(e ? 'Edit' : 'Collect')}</Btn></div>}
     </td>
   );
 }
@@ -139,10 +139,10 @@ export function AvisSession({ s }: { s: Session }) {
   const froid = cibles.some(c => concerneFroid(st, c));
   const ouverte = (c: CibleEvaluation, quand: TypeEvaluation, r: RepondantEvaluation) => !refusEvaluation(st, d.ti, c, quand, r, true);
   return <>
-    <h3 className="section-label">Avis des participants</h3>
+    <h3 className="section-label">{t('Feedback of the participants')}</h3>
     <div className="scroll-x">
       <table className="table">
-        <thead><tr><th>Collaborateur</th><th>À chaud</th>{froid && <><th>À froid (salarié)</th><th>À froid (manager)</th></>}</tr></thead>
+        <thead><tr><th>{t('Employee')}</th><th>{t('Immediate')}</th>{froid && <><th>{t('After the fact (employee)')}</th><th>{t('After the fact (manager)')}</th></>}</tr></thead>
         <tbody>
           {cibles.map(c => (
             <tr key={c.cle}>
@@ -159,26 +159,26 @@ export function AvisSession({ s }: { s: Session }) {
     </div>
     <Fine>
       {st.evaluationsActives
-        ? `Avis à chaud donné par le salarié dans son espace, ou recueilli ici. Efficacité à froid demandée ${froid ? `à partir du ${fmtIso(echeanceFroid(st, cibles[0]))}` : 'pour les formations réglées dans Paramètres'} au salarié et à son manager, avec des relances par e-mail. Commentaires réservés au service RH.`
-        : 'Évaluation des formations désactivée (Paramètres → Évaluation des formations) : les avis déjà donnés restent.'}
+        ? `${t('Immediate feedback given by the employee in their space, or collected here. After-the-fact effectiveness asked ')}${froid ? `${t('from #du')}${fmtIso(echeanceFroid(st, cibles[0]))}` : t('for the training courses set in Settings')}${t(' of the employee and their manager, with reminders by e-mail. Comments reserved for HR.')}`
+        : t('Training evaluation deactivated (Settings → Training evaluation): the feedback already given remains.')}
     </Fine>
   </>;
 }
 
 /** Cellules d'une ligne d'indicateurs : participants, avis à chaud, efficacité à froid, appréciation de session (service RH). */
 function LigneIndicateurs({ l }: { l: LigneEvaluation }) {
-  const masque = l.masque ? ' (moins de 3 réponses)' : '';
+  const masque = l.masque ? t(' (fewer than 3 answers)') : '';
   return (
     <tr>
       <th scope="row" style={{ fontWeight: 'normal' }}>{l.cle}</th>
       <td className="right tnum">{l.participants}</td>
       <td className="right tnum">
-        <Two main={l.moyenneChaud == null ? '—' : `${dec(l.moyenneChaud)} / 5`} sub={`${plural(l.chaud, 'avis', 'avis')}${l.tauxChaud == null ? '' : ` · ${l.tauxChaud} %`}${l.chaud && l.moyenneChaud == null ? masque : ''}`} />
+        <Two main={l.moyenneChaud == null ? '—' : `${dec(l.moyenneChaud)} / 5`} sub={`${tn(l.chaud, 'feedback', 'feedbacks')}${l.tauxChaud == null ? '' : ` · ${l.tauxChaud} %`}${l.chaud && l.moyenneChaud == null ? masque : ''}`} />
       </td>
       <td className="right tnum">
-        <Two main={l.tauxEfficacite == null ? '—' : `${l.tauxEfficacite} % efficace`} sub={`${l.froid} / ${l.froidAttendus} réponses${l.froid && l.tauxEfficacite == null ? masque : l.partielles || l.non ? ` · ${l.partielles} partielle${l.partielles > 1 ? 's' : ''}, ${l.non} non` : ''}`} />
+        <Two main={l.tauxEfficacite == null ? '—' : `${l.tauxEfficacite}${t(' % effective')}`} sub={`${l.froid} / ${l.froidAttendus}${t(' answers')}${l.froid && l.tauxEfficacite == null ? masque : l.partielles || l.non ? ` · ${tn(l.partielles, 'partial', 'partial#plural')}, ${l.non}${t(' no#answer')}` : ''}`} />
       </td>
-      <td className="right tnum">{l.moyenneSessions == null ? '—' : <Two main={`${dec(l.moyenneSessions)} / 5`} sub={plural(l.sessionsNotees, 'session', 'sessions')} />}</td>
+      <td className="right tnum">{l.moyenneSessions == null ? '—' : <Two main={`${dec(l.moyenneSessions)} / 5`} sub={tn(l.sessionsNotees, 'session', 'sessions')} />}</td>
     </tr>
   );
 }
@@ -187,8 +187,8 @@ function TableIndicateurs({ titre, lignes, total }: { titre: string; lignes: Lig
   return (
     <table className="table">
       <thead><tr>
-        <th scope="col">{titre}</th><th scope="col" className="right">Participants</th><th scope="col" className="right">À chaud</th>
-        <th scope="col" className="right">À froid</th><th scope="col" className="right">Session (RH)</th>
+        <th scope="col">{titre}</th><th scope="col" className="right">{t('Participants')}</th><th scope="col" className="right">{t('Immediate')}</th>
+        <th scope="col" className="right">{t('After the fact')}</th><th scope="col" className="right">{t('Session (HR)')}</th>
       </tr></thead>
       <tbody>
         {lignes.map(l => <LigneIndicateurs key={l.cle} l={l} />)}
@@ -212,29 +212,26 @@ export function IndicateursEvaluationPanel({ exercice: impose }: { exercice?: nu
   const exporter = () => {
     const c = csvEvaluations(d, x);
     downloadCsv(c.fichier, c.head, c.rows);
-    notify('Export CSV des évaluations généré');
+    notify(t('CSV export of the evaluations generated'));
   };
   const vide = x.total.participants === 0 && x.total.sessionsNotees === 0;
   return (
-    <Panel title={`Évaluation des formations ${exercice}`} aside={<div className="actions-end">
+    <Panel title={`${t('Training evaluation ')}${exercice}`} aside={<div className="actions-end">
       {impose == null && exercices.length > 1 && (
-        <Seg name="eval-exercice" label="Exercice" value={exercice} options={exercices.map(a => [a, String(a)] as [number, string])} onChange={setChoisi} />
+        <Seg name="eval-exercice" label={t('Financial year')} value={exercice} options={exercices.map(a => [a, String(a)] as [number, string])} onChange={setChoisi} />
       )}
-      <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={exporter} disabled={vide}>Exporter les évaluations</Btn>
+      <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={exporter} disabled={vide}>{t('Export the evaluations')}</Btn>
     </div>} style={{ gap: 'var(--space-3)' }}>
-      {vide ? <Empty pad="sm">Aucune formation évaluable sur l’exercice {exercice}.</Empty> : <>
+      {vide ? <Empty pad="sm">{t('No training course to evaluate in the financial year ')}{exercice}.</Empty> : <>
         <div className="text-muted sub">
-          {plural(x.total.participants, 'participant', 'participants')} · à chaud {x.total.moyenneChaud == null ? '—' : `${dec(x.total.moyenneChaud)} / 5`} ({plural(x.total.chaud, 'avis', 'avis')})
-          {' '}· à froid {x.total.tauxEfficacite == null ? '—' : `${x.total.tauxEfficacite} % efficace`} ({x.total.froid} / {x.total.froidAttendus} réponses)
+          {tn(x.total.participants, 'participant', 'participants')}{t(' · immediate ')}{x.total.moyenneChaud == null ? '—' : `${dec(x.total.moyenneChaud)} / 5`} ({tn(x.total.chaud, 'feedback', 'feedbacks')})
+          {' '}{t('· after the fact ')}{x.total.tauxEfficacite == null ? '—' : `${x.total.tauxEfficacite}${t(' % effective')}`} ({x.total.froid} / {x.total.froidAttendus}{t(' answers')})
         </div>
-        <div className="scroll-x"><TableIndicateurs titre="Organisme" lignes={x.parOrganisme} /></div>
-        <div className="scroll-x"><TableIndicateurs titre="Formation" lignes={x.parFormation} /></div>
+        <div className="scroll-x"><TableIndicateurs titre={t('Provider')} lignes={x.parOrganisme} /></div>
+        <div className="scroll-x"><TableIndicateurs titre={t('Training course')} lignes={x.parFormation} /></div>
       </>}
       <Fine>
-        À chaud : note de 1 à 5 du salarié après la formation (taux : avis reçus sur les participants). À froid : efficacité selon le salarié et son
-        manager {d.ds.settings.evaluationFroidDelai} jours après, pour les formations concernées (taux d’efficacité : réponses « efficace » sur les
-        réponses reçues). Session (RH) : appréciation globale saisie à la clôture avant le lot 7, reprise telle quelle. Exercice : année du premier
-        jour de la formation.{d.ds.indicateursEvaluation ? ' Agrégats seulement : sous 3 réponses, ni moyenne ni taux.' : ''}
+        {t('Immediate: rating from 1 to 5 by the employee after the training (rate: feedback received out of the participants). After the fact: effectiveness according to the employee and their manager ')}{d.ds.settings.evaluationFroidDelai}{t(' days afterwards, for the training courses concerned (effectiveness rate: “effective” answers out of the answers received). Session (HR): overall rating entered at closing before lot 7, taken over as is. Financial year: year of the first day of the training.')}{d.ds.indicateursEvaluation ? t(' Aggregates only: below 3 answers, neither average nor rate.') : ''}
       </Fine>
     </Panel>
   );

@@ -8,7 +8,7 @@ import { useMemo, useState } from 'react';
 import { VALIDATION_LABEL } from '../../../shared/constants.ts';
 import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
-import { equipeLabel, fmt, fmtEur, plural } from '../../../shared/format.ts';
+import { equipeLabel, fmt, fmtEur } from '../../../shared/format.ts';
 import { finSession, plageCourte } from '../../../shared/rules/plage-session.ts';
 import { exigeEvaluation, inscritsDe } from '../../../shared/rules/sessions.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
@@ -16,6 +16,7 @@ import { Empty, Fine, Seg, Tag } from '../components/ui.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { erreurCoutReel } from './PlanRealiserDialog.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 export function ClotureDialog({ sessionId }: { sessionId: number }) {
   const { d } = useEnriched();
@@ -43,9 +44,9 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
   const dernier = finSession(s);
   if (!sessionActive(s) || dernier > d.ti) {
     return (
-      <Dialog title="Clôturer la session" actions={<CancelButton label="Fermer" />}>
+      <Dialog title={t('Close the session')} actions={<CancelButton label={t('Close')} />}>
         <p className="text-muted" style={{ margin: 0 }}>
-          {!sessionActive(s) ? `Session ${s.statut.toLowerCase()}.` : s.date > d.ti ? 'La session n’a pas encore eu lieu.' : `La session dure jusqu’au ${fmt(parse(dernier))} : clôturez-la à partir de son dernier jour.`}
+          {!sessionActive(s) ? `${t('Session ')}${s.statut.toLowerCase()}.` : s.date > d.ti ? t('The session has not taken place yet.') : `${t('The session lasts until ')}${fmt(parse(dernier))}${t(': close it from its last day.')}`}
         </p>
       </Dialog>
     );
@@ -82,74 +83,74 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
   };
 
   return (
-    <Dialog title="Clôturer la session" width={640} tall onSubmit={confirm} actions={<>
+    <Dialog title={t('Close the session')} width={640} tall onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Clôturer la session</SubmitButton>
+      <SubmitButton busy={busy}>{t('Close the session')}</SubmitButton>
     </>}>
       <div className="grid-2">
-        <Field label="Session"><Static>{fm?.nom ?? s.formation}<div className="text-muted sub">{plageCourte(s)} · {s.lieu}</div></Static></Field>
-        <Field label="Validation"><Static>{VALIDATION_LABEL[evaluation ? 'evaluation' : 'presence']}<div className="text-muted sub">{fm?.organisme}</div></Static></Field>
+        <Field label={t('Session')}><Static>{fm?.nom ?? s.formation}<div className="text-muted sub">{plageCourte(s)} · {s.lieu}</div></Static></Field>
+        <Field label={t('Validation')}><Static>{VALIDATION_LABEL[evaluation ? 'evaluation' : 'presence']}<div className="text-muted sub">{fm?.organisme}</div></Static></Field>
       </div>
 
-      <Field label={`Inscrits (${inscrits.length})`}>
+      <Field label={`${t('Enrolled')} (${inscrits.length})`}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           {inscrits.map(i => (
             <div key={i.empId} className="boxed" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 14 }}>{i.nom}</div>
-                <div className="text-muted sub">{equipeLabel(i)} · {i.parcours === 'recyclage' ? `recyclage (obtenue le ${fmt(parse(i.obtenue!))})` : 'formation initiale'}</div>
+                <div className="text-muted sub">{equipeLabel(i)} · {i.parcours === 'recyclage' ? `${t('refresher (obtained on ')}${fmt(parse(i.obtenue!))})` : t('initial training#lower')}</div>
               </div>
               {i.dejaObtenue
-                ? <Tag cls="tag-neutral">Déjà renouvelée le {fmt(parse(i.dejaObtenue.obtenue))}</Tag>
+                ? <Tag cls="tag-neutral">{t('Already renewed on ')}{fmt(parse(i.dejaObtenue.obtenue))}</Tag>
                 : (
                   <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                    <Seg name={`pres-${i.empId}`} label={`Présence de ${i.nom}`} value={presence[i.empId] ?? ('' as 'p')}
-                      onChange={v => setPresence(x => ({ ...x, [i.empId]: v }))} options={[['p', 'Présent'], ['a', 'Absent']]} />
+                    <Seg name={`pres-${i.empId}`} label={`${t('Attendance of ')}${i.nom}`} value={presence[i.empId] ?? ('' as 'p')}
+                      onChange={v => setPresence(x => ({ ...x, [i.empId]: v }))} options={[['p', t('Present')], ['a', t('Absent')]]} />
                     {evaluation && present(i.empId) && (
-                      <Seg name={`res-${i.empId}`} label={`Évaluation de ${i.nom}`} value={resultat[i.empId] ?? ('' as 'ok')}
-                        onChange={v => setResultat(x => ({ ...x, [i.empId]: v }))} options={[['ok', 'Réussie'], ['ko', 'Échouée']]} />
+                      <Seg name={`res-${i.empId}`} label={`${t('Assessment of ')}${i.nom}`} value={resultat[i.empId] ?? ('' as 'ok')}
+                        onChange={v => setResultat(x => ({ ...x, [i.empId]: v }))} options={[['ok', t('Passed#fem')], ['ko', t('Failed#fem')]]} />
                     )}
                     {recueillir && present(i.empId) && (
-                      <select className="input" aria-label={`Avis à chaud de ${i.nom}`} value={avis[i.empId] ?? ''} style={{ width: 'auto' }}
+                      <select className="input" aria-label={`${t('Immediate feedback of ')}${i.nom}`} value={avis[i.empId] ?? ''} style={{ width: 'auto' }}
                         onChange={e => setAvis(x => ({ ...x, [i.empId]: e.target.value }))}>
-                        <option value="">Avis : non recueilli</option>
-                        {[5, 4, 3, 2, 1].map(n => <option key={n} value={n}>Avis : {n} / 5</option>)}
+                        <option value="">{t('Feedback: not collected')}</option>
+                        {[5, 4, 3, 2, 1].map(n => <option key={n} value={n}>{t('Feedback: ')}{n} / 5</option>)}
                       </select>
                     )}
                   </div>
                 )}
             </div>
           ))}
-          {inscrits.length === 0 && <Empty pad="sm">Aucun inscrit : la session sera clôturée sans certification.</Empty>}
+          {inscrits.length === 0 && <Empty pad="sm">{t('No one enrolled: the session will be closed without certification.')}</Empty>}
         </div>
       </Field>
       {/* Choix explicites (aucune valeur par défaut) : ce qui manque est listé, et ciblé à l'envoi. */}
-      {sansPresence.length > 0 && <Bloquant>Présence à renseigner : {sansPresence.map(i => i.nom).join(', ')}.</Bloquant>}
-      {manquants.length > 0 && <Bloquant>Résultat de l’évaluation à renseigner : {manquants.map(i => i.nom).join(', ')}.</Bloquant>}
+      {sansPresence.length > 0 && <Bloquant>{t('Attendance to enter: ')}{sansPresence.map(i => i.nom).join(', ')}.</Bloquant>}
+      {manquants.length > 0 && <Bloquant>{t('Result of the assessment to enter: ')}{manquants.map(i => i.nom).join(', ')}.</Bloquant>}
 
       <div className="grid-2">
-        <Field label="Appréciation de la session (facultative)" htmlFor="cl-note">
+        <Field label={t('Rating of the session (optional)')} htmlFor="cl-note">
           <select className="input" id="cl-note" value={note} onChange={e => setNote(e.target.value)}>
-            <option value="">Non renseignée</option>
+            <option value="">{t('Not entered#fem')}</option>
             {[5, 4, 3, 2, 1].map(n => <option key={n} value={n}>{n} / 5</option>)}
           </select>
         </Field>
       </div>
       {realise && plan && (
-        <Field label={`Coût réel de l’action du plan ${plan.exercice} (€)`} htmlFor="cl-cout" requis erreur={v.erreur(coutErr) || (coutReel.trim() ? coutErr : null)}>
+        <Field label={`${t('Actual cost of the action of the plan ')}${plan.exercice} (€)`} htmlFor="cl-cout" requis erreur={v.erreur(coutErr) || (coutReel.trim() ? coutErr : null)}>
           <input className="input tnum" id="cl-cout" inputMode="decimal" value={coutReel} onChange={e => setCoutReel(e.target.value)} style={{ maxWidth: 200 }} />
-          <span className="text-muted sub">{plan.equipe} · prévu {fmtEur(plan.cout)} : indiquez le montant facturé, il compte dans le réalisé de l’enveloppe.</span>
+          <span className="text-muted sub">{plan.equipe}{t(' · planned ')}{fmtEur(plan.cout)}{t(': enter the amount invoiced, it counts in the actual of the budget.')}</span>
         </Field>
       )}
-      <Field label="Commentaire (facultatif)" htmlFor="cl-comm">
-        <textarea className="input short" id="cl-comm" rows={2} maxLength={1000} placeholder="Retours des participants, qualité de l’animation, organisation…"
+      <Field label={t('Comment (optional)')} htmlFor="cl-comm">
+        <textarea className="input short" id="cl-comm" rows={2} maxLength={1000} placeholder={t('Feedback from the participants, quality of the facilitation, organisation…')}
           value={commentaire} onChange={e => setCommentaire(e.target.value)} />
       </Field>
       <Fine>
-        À la validation : {plural(obtenues, 'certification enregistrée', 'certifications enregistrées')}, datée{obtenues > 1 ? 's' : ''} du {quand}
-        {aReplanifier ? ` · ${plural(aReplanifier, 'inscrit', 'inscrits')} à replanifier (recyclage de nouveau à planifier, formation initiale à réinscrire)` : ''}
-        {realise ? ' · action du plan réalisée' : ''}. La clôture est définitive.
-        {recueillir ? ' Avis à chaud : note donnée par chaque présent (formulaire, tour de table), enregistrée en son nom ; sans avis recueilli, il le donne dans son espace pendant un mois.' : ''}
+        {t('On validation: ')}{tn(obtenues, 'certification recorded', 'certifications recorded')}{t(obtenues > 1 ? ', dated#plural' : ', dated')}{t(' on #du')}{quand}
+        {aReplanifier ? ` · ${tn(aReplanifier, 'enrolled', 'enrolled#plural')}${t(' to plan again (refresher to plan again, initial training to re-enrol)')}` : ''}
+        {realise ? t(' · action of the plan carried out') : ''}{t('. The closing is final.')}
+        {recueillir ? t(' Immediate feedback: rating given by each person present (form, round table), recorded in their name; without feedback collected, they give it in their space for a month.') : ''}
       </Fine>
     </Dialog>
   );

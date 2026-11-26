@@ -12,6 +12,7 @@ import { feuillesDeLaPeriode, type GroupePaie, periodeLabel } from '../../../sha
 import type { LotPaie, ModeRegularisation, SageMode } from '../../../shared/types.ts';
 import type { NomAction } from '../api.ts';
 import type { DialogState, UiState } from './store.tsx';
+import { t } from '../i18n/langue.ts';
 
 /** Longueur maximale d'un motif (contrôlée aussi par le serveur). */
 export const MOTIF_MAX = 500;
@@ -43,7 +44,7 @@ export interface Confirmation {
 
 /** Motif obligatoire d'un refus, lu par `lecteurs`. */
 const motifRefus = (lecteurs: string, placeholder: string) => ({
-  label: 'Motif du refus', requis: true, aide: `Le motif est visible de ${lecteurs} : n’y indiquez aucune information médicale.`, placeholder,
+  label: t('Reason for the refusal'), requis: true, aide: `${t('The reason is visible to ')}${lecteurs}${t(': do not put any medical information in it.')}`, placeholder,
 });
 
 /**
@@ -75,13 +76,14 @@ export function refusDemande(r: { id: number; type: string }, nom: string, objet
  */
 export function refusAbsence(a: { id: number }, nom: string, quoi: string, manager?: string | null): Confirmation {
   return {
-    titre: 'Refuser la demande d’absence',
-    question: `Refuser la demande de ${nom} : ${quoi} ?`,
-    suites: ['Le solde n’est pas débité et Keystone n’est pas prévenu.', `${nom} voit le refus et son motif dans ses absences${manager ? `, comme son manager, ${manager}` : ''}.`],
-    bouton: 'Refuser la demande',
+    // Chaînes sources anglaises (CU-N01), comme l'écran Congés & absences qui l'ouvre.
+    titre: t('Refuse the absence request'),
+    question: `${t('Refuse the request of ')}${nom} : ${quoi} ?`,
+    suites: [t('The balance is not debited and Keystone is not told.'), `${nom}${t(' sees the refusal and its reason in their absences')}${manager ? `${t(', like their manager, ')}${manager}` : ''}.`],
+    bouton: t('Refuse the request'),
     action: 'absence.decider',
     payload: { id: a.id, ok: false },
-    motif: motifRefus(manager ? `${nom} et de son manager, ${manager}` : nom, 'Période de forte activité, effectif minimum non atteint…'),
+    motif: motifRefus(manager ? `${nom}${t(' and to their manager, ')}${manager}` : nom, t('Period of heavy activity, minimum staffing not reached…')),
   };
 }
 
@@ -300,13 +302,14 @@ export function rattachementEquipe(equipe: string, parente: string | null, valid
 export function desinscription(p: { empId: number; sessionId: number }, nom: string, quoi: string,
   opts: { recyclage: boolean; convoque: boolean; retour?: DialogState }): Confirmation {
   return {
-    titre: 'Désinscrire de la session',
-    question: `Désinscrire ${nom} de la session ${quoi} ?`,
+    // Chaînes sources anglaises (CU-N01), comme l'écran Formations qui l'ouvre.
+    titre: t('Unenrol from the session'),
+    question: `${t('Unenrol')} ${nom}${t(' from the session ')}${quoi} ?`,
     suites: [
-      `La place est libérée${opts.recyclage ? ' et le recyclage redevient à planifier' : ' et l’inscription en formation initiale est retirée'}.`,
-      opts.convoque ? `${nom} reçoit l’annulation de sa convocation par e-mail, avec le fichier d’agenda qui retire la session.` : '',
+      `${t('The place is freed')}${t(opts.recyclage ? ' and the refresher is to plan again' : ' and the enrolment in initial training is removed')}.`,
+      opts.convoque ? `${nom}${t(' receives the cancellation of their notice by e-mail, with the calendar file that removes the session.')}` : '',
     ].filter(Boolean),
-    bouton: 'Désinscrire',
+    bouton: t('Unenrol'),
     action: 'plan.desinscrire',
     payload: p,
     ...(opts.retour ? { ensuite: { retour: opts.retour } } : {}),

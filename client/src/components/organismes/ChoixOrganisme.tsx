@@ -7,6 +7,7 @@ import { avertissementsOrganisme, organismeActif } from '../../../../shared/rule
 import { Field } from '../Dialog.tsx';
 import { NoteAccent } from '../ui.tsx';
 import { useDomain } from '../../state/derived.ts';
+import { t } from '../../i18n/langue.ts';
 
 interface Proprietes {
   id: string;
@@ -24,7 +25,7 @@ interface Proprietes {
   aide?: string;
 }
 
-export function ChoixOrganisme({ id, valeur, onChange, actuel = null, vide, label = 'Organisme de formation', erreur, le, aide }: Proprietes) {
+export function ChoixOrganisme({ id, valeur, onChange, actuel = null, vide, label = t('Training provider'), erreur, le, aide }: Proprietes) {
   const d = useDomain();
   const fiches = d.ds.organismes;
   const enVigueur = fiches ? fiches.filter(organismeActif) : (d.ds.referentiels.organismes ?? []).filter(o => !o.archive);
@@ -38,7 +39,7 @@ export function ChoixOrganisme({ id, valeur, onChange, actuel = null, vide, labe
       <Field label={label} htmlFor={id} erreur={erreur}>
         <select className="input" id={id} value={valeur} onChange={e => onChange(e.target.value)}>
           <option value="">{vide}</option>
-          {liste.map(o => <option key={o.id} value={o.id}>{o.nomUsuel}{o.archive ? ' (archivé)' : ''}</option>)}
+          {liste.map(o => <option key={o.id} value={o.id}>{o.nomUsuel}{o.archive ? t(' (archived)') : ''}</option>)}
         </select>
       </Field>
       {aide && <span className="text-muted sub" style={{ marginTop: 'calc(-1 * var(--space-2))' }}>{aide}</span>}

@@ -17,6 +17,7 @@ import { ChoixPiece, PiecesJointes, usePieceJointe } from '../components/PieceJo
 import { Fine } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 const NATURES = Object.entries(NATURES_ABSENCE) as [NatureAbsence, (typeof NATURES_ABSENCE)[NatureAbsence]][];
 
@@ -46,16 +47,16 @@ export function AbsNatureDialog({ empId, id }: { empId?: number | null; id?: num
   const emp = sel != null ? d.emp(sel) : undefined;
   const def = nature ? NATURES_ABSENCE[nature] : null;
   const chk = emp && nature ? checkNature(d, emp, nature, du, au, { exclure: a?.id, quand: a ? 'avant de qualifier l’absence' : 'avant d’enregistrer l’absence' }) : null;
-  const justErr = !just ? null : !justLe ? 'Indiquez la date de réception du justificatif.'
-    : !isValidDate(justLe) || justLe > d.ti ? 'Date de réception invalide : aujourd’hui au plus tard.' : null;
-  const periode = erreursPeriode(du, au, { du: 'Indiquez le premier jour d’absence.', au: 'Indiquez le dernier jour d’absence.' });
-  const empErr = !emp ? 'Choisissez le collaborateur.' : null;
-  const natureErr = !nature ? 'Choisissez la nature de l’absence.' : null;
+  const justErr = !just ? null : !justLe ? t('Enter the date of receipt of the supporting document.')
+    : !isValidDate(justLe) || justLe > d.ti ? t('Invalid date of receipt: today at the latest.') : null;
+  const periode = erreursPeriode(du, au, { du: t('Enter the first day of absence.'), au: t('Enter the last day of absence.') });
+  const empErr = !emp ? t('Choose the employee.') : null;
+  const natureErr = !nature ? t('Choose the nature of the absence.') : null;
   // Reprise inscrite sur la fiche, ou conservée si une reprise antérieure attend encore son entretien.
   const maj = emp && nature && chk?.valid
     ? repriseAInscrire(emp, [...d.ds.absences.filter(x => x.id !== a?.id), { empId: emp.id, type: nature, du, au, statut: 'validee' }], d.ds.entretiens, a ?? null, nature)
     : {};
-  const title = !a ? 'Saisir une absence' : a.statut === 'signalee' ? 'Qualifier une absence' : 'Modifier une absence';
+  const title = t(!a ? 'Enter an absence' : a.statut === 'signalee' ? 'Qualify an absence' : 'Edit an absence');
 
   const pickDu = (x: string) => { setDu(x); if (!au || au < x) setAu(x); };
   const confirm = async () => {
@@ -72,25 +73,25 @@ export function AbsNatureDialog({ empId, id }: { empId?: number | null; id?: num
   return (
     <Dialog title={title} width={600} tall onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>{a ? 'Qualifier l’absence' : 'Enregistrer l’absence'}</SubmitButton>
+      <SubmitButton busy={busy}>{t(a ? 'Qualify the absence' : 'Record the absence')}</SubmitButton>
     </>}>
-      <Field label="Collaborateur" htmlFor={a || empId != null ? undefined : 'an-emp'} requis={!a && empId == null} erreur={v.erreur(empErr)}>
+      <Field label={t('Employee')} htmlFor={a || empId != null ? undefined : 'an-emp'} requis={!a && empId == null} erreur={v.erreur(empErr)}>
         {a || empId != null
           ? <Static>{emp?.nom ?? '—'}</Static>
           : (
-            <ChoixCollaborateur id="an-emp" emps={choix} valeur={sel} onChange={setSel} requis erreur={v.erreur(empErr)} placeholder="Choisir un collaborateur…" />
+            <ChoixCollaborateur id="an-emp" emps={choix} valeur={sel} onChange={setSel} requis erreur={v.erreur(empErr)} placeholder={t('Choose an employee…')} />
           )}
       </Field>
       {a && (
         <div className="boxed text-muted sub">
-          {a.signaleLe ? `Signalée le ${fmtIso(a.signaleLe)}${a.signalePar ? ` par ${a.signalePar}` : ''} · ` : ''}
+          {a.signaleLe ? `${t('Reported on #fem')}${fmtIso(a.signaleLe)}${a.signalePar ? `${t(' by ')}${a.signalePar}` : ''} · ` : ''}
           {periodeTexte(a.du, a.au)}
-          {a.finInitiale ? ` · prolongée, fin initiale le ${fmtIso(a.finInitiale)}` : ''}
+          {a.finInitiale ? `${t(' · extended, initial end on ')}${fmtIso(a.finInitiale)}` : ''}
         </div>
       )}
-      <Field label="Nature" htmlFor="an-nat" requis erreur={v.erreur(natureErr)}>
+      <Field label={t('Nature')} htmlFor="an-nat" requis erreur={v.erreur(natureErr)}>
         <select className="input" id="an-nat" value={nature} onChange={ev => setNature(ev.target.value as NatureAbsence)}>
-          <option value="" disabled>Choisir la nature…</option>
+          <option value="" disabled>{t('Choose the nature…')}</option>
           {(Object.keys(CATEGORIES_ABSENCE) as CategorieAbsence[]).map(c => (
             <optgroup key={c} label={CATEGORIES_ABSENCE[c]}>
               {NATURES.filter(([, n]) => n.categorie === c).map(([k, n]) => <option key={k} value={k}>{n.label}</option>)}
@@ -102,42 +103,42 @@ export function AbsNatureDialog({ empId, id }: { empId?: number | null; id?: num
         <div className="boxed" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', fontSize: 13 }}>
           <div>{PAIE_ABSENCE[def.paie]}</div>
           <div className="text-muted">
-            Décompte en jours {uniteDecompte(nature as NatureAbsence)}
-            {def.duree ? ` · durée légale ${fJ(def.duree)}${def.parAn ? ' par an' : ''}` : ''}
+            {t('Count in days ')}{uniteDecompte(nature as NatureAbsence)}
+            {def.duree ? `${t(' · legal duration ')}${fJ(def.duree)}${def.parAn ? t(' a year') : ''}` : ''}
             {def.dureeNote ? ` · ${def.dureeNote}` : ''}
             {def.article ? ` (${def.article})` : ''}
           </div>
-          <div className="text-muted">Justificatif : {def.justificatif ?? 'aucun'}</div>
-          <div className="text-muted">Acquisition des congés payés : {def.cp}</div>
-          {def.medicale && <div className="note-accent">Donnée de santé : le manager et Keystone ne voient qu’une absence, sans sa nature.</div>}
+          <div className="text-muted">{t('Supporting document: ')}{def.justificatif ?? t('none')}</div>
+          <div className="text-muted">{t('Accrual of paid leave: ')}{def.cp}</div>
+          {def.medicale && <div className="note-accent">{t('Health data: the manager and Keystone only see an absence, without its nature.')}</div>}
         </div>
       )}
       <div className="grid-2">
-        <Field label="Du" htmlFor="an-du" requis erreur={v.erreur(periode.du)}><input className="input" id="an-du" type="date" value={du} onChange={ev => pickDu(ev.target.value)} /></Field>
-        <Field label="Au (inclus)" htmlFor="an-au" requis erreur={v.erreur(periode.au)}><input className="input" id="an-au" type="date" value={au} min={du || undefined} onChange={ev => setAu(ev.target.value)} /></Field>
+        <Field label={t('From#date')} htmlFor="an-du" requis erreur={v.erreur(periode.du)}><input className="input" id="an-du" type="date" value={du} onChange={ev => pickDu(ev.target.value)} /></Field>
+        <Field label={t('To (inclusive)')} htmlFor="an-au" requis erreur={v.erreur(periode.au)}><input className="input" id="an-au" type="date" value={au} min={du || undefined} onChange={ev => setAu(ev.target.value)} /></Field>
       </div>
-      <PiecesJointes objet="absence" objetId={a?.id} label="Justificatifs reçus" />
-      <ChoixPiece piece={piece} id="an-piece" label="Joindre le justificatif" aide="Visible du service RH et du salarié seulement."
+      <PiecesJointes objet="absence" objetId={a?.id} label={t('Supporting documents received')} />
+      <ChoixPiece piece={piece} id="an-piece" label={t('Attach the supporting document')} aide={t('Visible to HR and the employee only.')}
         onChoix={f => { if (f) { setJust(true); if (!justLe) setJustLe(d.ti); } }} />
       <div className="grid-2">
         <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14, alignSelf: 'end', paddingBottom: 'var(--space-2)' }}>
           <input type="checkbox" checked={just} onChange={ev => setJust(ev.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-          Justificatif reçu
+          {t('Supporting document received')}
         </label>
-        <Field label="Reçu le" htmlFor="an-jle" requis={just} erreur={just && justLe && justErr ? justErr : v.erreur(justErr)}>
+        <Field label={t('Received on')} htmlFor="an-jle" requis={just} erreur={just && justLe && justErr ? justErr : v.erreur(justErr)}>
           <input className="input" id="an-jle" type="date" max={d.ti} value={justLe} disabled={!just} onChange={ev => setJustLe(ev.target.value)} />
         </Field>
       </div>
       {chk && <Controles msgs={chk.msgs} />}
-      {maj.reprise && <Fine muted={false}>Reprise le {fmtIso(maj.reprise.date)} inscrite sur la fiche : entretien de parcours professionnel de reprise à proposer (art. L6315-1).</Fine>}
+      {maj.reprise && <Fine muted={false}>{t('Return on ')}{fmtIso(maj.reprise.date)}{t(' entered on the sheet: return career review to offer (art. L6315-1).')}</Fine>}
       {maj.differee && emp?.repriseDate && (
         <Fine muted={false}>
-          Reprise du {fmtIso(emp.repriseDate)} conservée sur la fiche : son entretien n’est pas réalisé. Celle du {fmtIso(maj.differee.date)} sera à inscrire ensuite (art. L6315-1).
+          {t('Return of ')}{fmtIso(emp.repriseDate)}{t(' kept on the sheet: its review has not been held. That of ')}{fmtIso(maj.differee.date)}{t(' will be entered afterwards (art. L6315-1).')}
         </Fine>
       )}
       <Fine>
-        {a ? 'La qualification valide l’absence. ' : 'L’absence est enregistrée validée. '}
-        Aucun solde de congés n’est débité ; Keystone ne reçoit qu’une indisponibilité (dates et code générique).
+        {t(a ? 'Qualifying approves the absence. ' : 'The absence is recorded as approved. ')}
+        {t('No leave balance is debited; Keystone only receives an unavailability (dates and generic code).')}
       </Fine>
     </Dialog>
   );

@@ -84,6 +84,15 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
     ecran: 'Pointages', fichiers: ['client/src/pages/Pointages.tsx', 'client/src/components/BoutonPointer.tsx', 'client/src/components/temps/Pointages.tsx',
       'client/src/components/temps/pointage-etat.ts', 'client/src/dialogs/CorrectionPointageDialog.tsx', 'client/src/state/confirmations-pointage.ts'],
   },
+  {
+    // Avec les composants communs qu'il emploie : listes triées et paginées, référentiel vide, pièces justificatives,
+    // contrôles des champs (repris pour tous les écrans qui s'en servent).
+    ecran: 'Habilitations', fichiers: ['client/src/pages/Habilitations.tsx', 'client/src/dialogs/HabDialog.tsx', 'client/src/dialogs/HabMesureDialog.tsx',
+      'client/src/components/TriListe.tsx', 'client/src/components/tri.ts', 'client/src/components/ReferentielVide.tsx',
+      'client/src/components/PieceJointe.tsx', 'client/src/components/controles.ts'],
+  },
+  { ecran: 'Confidentialité', fichiers: ['client/src/pages/Confidentialite.tsx'] },
+  { ecran: 'Expositions (C2P)', fichiers: ['client/src/pages/Prevention.tsx'] },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */
@@ -166,4 +175,32 @@ test('libellés des tables d’états des pointages : chacun a sa traduction', a
   for (const l of [...Object.values(PRESENCES), ...Object.values(STATUTS_CORRECTION)].map(x => x.label)) {
     assert.ok(MEMES_EN_FRANCAIS.includes(l) || enFrancais(l) !== sansContexte(l), l);
   }
+});
+
+test('Habilitations et composants communs : règles à paramètres, tables de libellés, phrase française d’avant', async () => {
+  assert.equal(enFrancais('Show 50 more'), 'Afficher 50 de plus');
+  assert.equal(enFrancais('Whole number, at least 1.'), 'Nombre entier, au moins 1.');
+  assert.equal(enFrancais('Remove “arrêt de travail (1).pdf” from the file?'), 'Retirer « arrêt de travail (1).pdf » du dossier ?');
+  const { MODELE_TITRE_COURT } = await import('../client/src/titre-habilitation.ts');
+  for (const l of Object.values(MODELE_TITRE_COURT)) assert.ok(enFrancais(l) !== l, l);
+  // Tables du dialogue de mesure (titres, boutons) : chaque valeur a sa traduction.
+  const mesure = lire('client/src/dialogs/HabMesureDialog.tsx');
+  const valeurs = [...mesure.matchAll(/(?:suspendre|lever|retirer): '([^']+)'/g)].map(m => m[1]);
+  assert.equal(valeurs.length, 6);
+  for (const l of valeurs) assert.ok(enFrancais(l) !== l, l);
+  const { titreTri } = await import('../client/src/components/tri.ts');
+  choisirLangue('en');
+  assert.equal(titreTri(null, 'nom'), 'Sort by this column');
+  assert.equal(tn(2, 'current title', 'current titles'), '2 current titles');
+});
+
+test('Expositions (C2P) : règles à paramètres, la phrase française d’avant', () => {
+  assert.equal(enFrancais('120 nights a year, pro rata'), '120 nuits par an, au prorata');
+  assert.equal(enFrancais('Their nights count as night work (threshold of 120) in the meantime.'), 'Leurs nuits comptent au travail de nuit (seuil de 120) en attendant.');
+  assert.equal(enFrancais('No employee exposed in 2026, nor any night under a schedule to qualify.'), 'Aucun salarié exposé en 2026, ni de nuit sous un horaire à qualifier.');
+  assert.equal(enFrancais('thresholds pro rata (42 % of the year)'), 'seuils au prorata (42 % de l’année)');
+  const note = enFrancais('A night counts when the shift includes at least 1 h of work between 0:00 and 5:00 (art. D4163-2), from the shift schedule frozen on the approved timesheet: Cursus only counts the nights from shift schedules, a timesheet without a schedule counts no night. Nights worked under a schedule qualified “alternating successive shifts” (Reference data → Schedules) count towards the threshold of 50 nights, the others towards that of 120; regulatory thresholds, not adjustable, pro rata for a contract of less than a year; a contract of less than a month is not declared. Repetitive work, hyperbaric environment, extreme temperatures and noise are ticked on the job (Reference data → Jobs) when its holders are exposed to them beyond the threshold after protection. The export lists the lines to enter in Sage’s DSN with Cursus’s internal codes and the presumed DSN code, to be confirmed by payroll.');
+  assert.match(note, /^Une nuit compte quand le poste comprend au moins 1 h de travail entre 0 h et 5 h \(art\. D4163-2\),/);
+  assert.match(note, /comptent au seuil de 50 nuits, les autres à celui de 120 ; seuils/);
+  assert.equal(enFrancais('Settings → Privacy'), 'Paramètres → Confidentialité', 'segments');
 });

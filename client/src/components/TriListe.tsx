@@ -3,7 +3,7 @@
 // lignes sont affichées et en ajoute 50, ou toutes.
 import type { ReactNode } from 'react';
 import { CaretDownIcon, CaretUpDownIcon, CaretUpIcon } from '@phosphor-icons/react';
-import { plural } from '../../../shared/format.ts';
+import { t as tr, tn } from '../i18n/langue.ts';
 import { ariaSort, TAILLE_PAGE, titreTri, type EtatTri, type Pagination, type Sens } from './tri.ts';
 
 /** En-tête triable : `col` est la clé de la colonne dans la table des colonnes de la liste ; `premier` : sens du premier clic. */
@@ -26,11 +26,11 @@ export function SuiteListe({ p, unite }: { p: Pagination<unknown>; unite: [strin
   if (!p.active) return null;
   return (
     <div className="suite-liste">
-      <span className="text-muted sub" role="status">{`Affichage : ${p.affichees} sur ${plural(p.total, unite[0], unite[1])}`}</span>
+      <span className="text-muted sub" role="status">{`${tr('Showing: ')}${p.affichees}${tr(' of ')}${tn(p.total, unite[0], unite[1])}`}</span>
       {p.reste > 0 && (
         <div className="actions-end">
-          <button type="button" className="btn btn-secondary btn-sm" onClick={p.plus}>{`Afficher ${Math.min(TAILLE_PAGE, p.reste)} de plus`}</button>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={p.tout}>Tout afficher</button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={p.plus}>{tr(`Show ${Math.min(TAILLE_PAGE, p.reste)} more`)}</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={p.tout}>{tr('Show all')}</button>
         </div>
       )}
     </div>

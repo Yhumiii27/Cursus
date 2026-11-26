@@ -8,10 +8,12 @@ import { erreurTexte } from '../components/controles.ts';
 import { CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine, NoteAccent, Tag } from '../components/ui.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
+import { t } from '../i18n/langue.ts';
 import { useStore } from '../state/store.tsx';
 
-const TITRE: Record<HabMesureAction, string> = { suspendre: 'Suspendre une habilitation', lever: 'Lever la suspension', retirer: 'Retirer une habilitation' };
-const BOUTON: Record<HabMesureAction, string> = { suspendre: 'Suspendre le titre', lever: 'Lever la suspension', retirer: 'Retirer le titre' };
+// Chaînes sources anglaises, traduites au rendu (CU-N01).
+const TITRE: Record<HabMesureAction, string> = { suspendre: 'Suspend an authorisation', lever: 'Lift the suspension', retirer: 'Withdraw an authorisation' };
+const BOUTON: Record<HabMesureAction, string> = { suspendre: 'Suspend the title', lever: 'Lift the suspension', retirer: 'Withdraw the title' };
 
 export function HabMesureDialog({ empId, h, action }: { empId: number; h: string; action: HabMesureAction }) {
   const { d, emps } = useEnriched();
@@ -28,14 +30,14 @@ export function HabMesureDialog({ empId, h, action }: { empId: number; h: string
 
   const lever = action === 'lever';
   // Date contrôlée dès la saisie (elle est préremplie) ; motif manquant, à l'envoi.
-  const dateErr = lever ? null : !date ? 'Indiquez la date d’effet.' : !isValidDate(date) ? 'Date invalide.'
-    : date > d.ti ? 'La date ne peut pas être postérieure à aujourd’hui.'
-    : date < hi.delivree ? `Date antérieure à la délivrance du titre (${fmt(parse(hi.delivree))}).` : null;
-  const motifErr = lever ? null : erreurTexte(motif, 'Indiquez le motif de la mesure.');
+  const dateErr = lever ? null : !date ? t('Enter the effective date.') : !isValidDate(date) ? t('Invalid date.')
+    : date > d.ti ? t('The date cannot be after today.')
+    : date < hi.delivree ? `${t('Date before the issue of the title (')}${fmt(parse(hi.delivree))}).` : null;
+  const motifErr = lever ? null : erreurTexte(motif, t('Enter the reason for the measure.'));
   // Après la levée, le titre reste non valide si ses prérequis manquent ou s'il est expiré.
-  const apres = hi.d! < 0 ? 'Le titre est expiré : il restera à renouveler.'
-    : !hi.prereqOk ? `Le titre restera suspendu tant que le prérequis manque : ${hi.failing.map(c => c.label).join(', ')}.`
-    : 'Le titre redevient valide jusqu’au ' + fmt(hi.exp!) + '.';
+  const apres = hi.d! < 0 ? t('The title has expired: it will remain to be renewed.')
+    : !hi.prereqOk ? `${t('The title will remain suspended while the prerequisite is missing: ')}${hi.failing.map(c => c.label).join(', ')}.`
+    : t('The title becomes valid again until ') + fmt(hi.exp!) + '.';
 
   const confirm = async () => {
     if (busy || !v.verifier(dateErr, motifErr)) return;
@@ -46,36 +48,36 @@ export function HabMesureDialog({ empId, h, action }: { empId: number; h: string
   };
 
   return (
-    <Dialog title={TITRE[action]} width={540} onSubmit={confirm} actions={<>
+    <Dialog title={t(TITRE[action])} width={540} onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>{BOUTON[action]}</SubmitButton>
+      <SubmitButton busy={busy}>{t(BOUTON[action])}</SubmitButton>
     </>}>
       <div className="grid-2">
-        <Field label="Collaborateur"><Static>{emp.nom} · {emp.poste}</Static></Field>
-        <Field label="Habilitation"><Static>{hi.hm.nom}</Static></Field>
+        <Field label={t('Employee')}><Static>{emp.nom} · {emp.poste}</Static></Field>
+        <Field label={t('Authorisation')}><Static>{hi.hm.nom}</Static></Field>
       </div>
       <div className="boxed" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-3)' }}>
-        <div className="text-muted sub" style={{ minWidth: 0 }}>Délivrée le {fmt(parse(hi.delivree))}{hi.par ? ` par ${hi.par}` : ''} · expire le {fmt(hi.exp!)}</div>
+        <div className="text-muted sub" style={{ minWidth: 0 }}>{t('Issued on ')}{fmt(parse(hi.delivree))}{hi.par ? `${t(' by ')}${hi.par}` : ''} · {t('expires on ')}{fmt(hi.exp!)}</div>
         <Tag cls={HAB_CLS[hi.key]} style={{ flex: 'none' }}>{HAB_LABEL[hi.key]}</Tag>
       </div>
       {hi.mesure && <NoteAccent>{hi.note}</NoteAccent>}
 
       {lever ? (
-        <Fine>{apres} Le nouveau verdict des chantiers concernés est transmis à Keystone.</Fine>
+        <Fine>{apres} {t('The new verdict of the worksites concerned is sent to Keystone.')}</Fine>
       ) : <>
-        <Field label="Date d’effet" htmlFor="hm-date" requis erreur={date ? dateErr : v.erreur(dateErr)}>
+        <Field label={t('Effective date')} htmlFor="hm-date" requis erreur={date ? dateErr : v.erreur(dateErr)}>
           <input className="input" id="hm-date" type="date" min={hi.delivree} max={d.ti} value={date} onChange={e => setDate(e.target.value)} style={{ maxWidth: 200 }} />
         </Field>
-        <Field label="Motif" htmlFor="hm-motif" requis erreur={v.erreur(motifErr)}>
-          <textarea className="input mid" id="hm-motif" rows={3} maxLength={500} placeholder="Incident, non-respect d’une consigne, restriction d’aptitude…"
+        <Field label={t('Reason')} htmlFor="hm-motif" requis erreur={v.erreur(motifErr)}>
+          <textarea className="input mid" id="hm-motif" rows={3} maxLength={500} placeholder={t('Incident, instruction not followed, fitness restriction…')}
             value={motif} onChange={e => setMotif(e.target.value)} />
         </Field>
-        <Fine>Texte libre, visible du collaborateur et de son manager : n’y indiquez aucune information médicale (pathologie, traitement, détail d’une restriction). Une restriction ou une inaptitude s’enregistre avec l’avis du médecin du travail (service RH), qui suspend les titres incompatibles.</Fine>
+        <Fine>{t('Free text, visible to the employee and their manager: do not put any medical information in it (condition, treatment, detail of a restriction). A restriction or an unfitness is recorded with the occupational physician’s opinion (HR), which suspends the incompatible titles.')}</Fine>
         <Fine>
           {action === 'retirer'
-            ? 'Le retrait est définitif : le titre ne pourra être rétabli que par une nouvelle délivrance, après contrôle des prérequis.'
-            : `Le titre n’est plus valide dès cette date. ${formations ? 'Vous pourrez lever la suspension.' : 'Seuls le service RH et le référent HSE pourront lever la suspension.'}`}
-          {' '}Les chantiers qui l’exigent passent en No Go : Keystone ne reçoit que le matricule et un code de motif.
+            ? t('The withdrawal is final: the title can only be restored by a new issue, after the prerequisites are checked.')
+            : `${t('The title is no longer valid from this date.')} ${formations ? t('You will be able to lift the suspension.') : t('Only HR and the HSE officer will be able to lift the suspension.')}`}
+          {' '}{t('The worksites that require it go to No Go: Keystone only receives the employee number and a reason code.')}
         </Fine>
       </>}
     </Dialog>

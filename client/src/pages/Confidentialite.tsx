@@ -7,6 +7,7 @@ import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { droitsRh } from '../../../shared/constants.ts';
 import { A_COMPLETER, INFO_CONFIDENTIALITE, type ContactsConfidentialite, type RubriqueConfidentialite } from '../../../shared/confidentialite.ts';
 import { api } from '../api.ts';
+import { t } from '../i18n/langue.ts';
 import { Fine, Page, Panel } from '../components/ui.tsx';
 import { allowedView, useStore } from '../state/store.tsx';
 
@@ -52,27 +53,27 @@ export function Confidentialite() {
   const retour = () => go(allowedView(session?.role ?? 'rh', ''));
 
   return (
-    <Page kicker="Vos données personnelles" title="Confidentialité"
-      note="Ce que Cursus enregistre sur vous, pourquoi, qui peut le voir, combien de temps, et comment exercer vos droits."
-      actions={!user && <a className="btn btn-secondary" href="/" onClick={e => { e.preventDefault(); retour(); }}>Retour à la connexion</a>}>
+    <Page kicker={t('Your personal data')} title={t('Privacy')}
+      note={t('What Cursus records about you, why, who can see it, for how long, and how to exercise your rights.')}
+      actions={!user && <a className="btn btn-secondary" href="/" onClick={e => { e.preventDefault(); retour(); }}>{t('Back to sign-in')}</a>}>
       <div className="row-wrap">
         <div className="col-stack" style={{ flex: '1 1 480px' }}>
-          <Panel title="Responsable et contact">
-            {erreur && <p className="form-error" role="alert">Coordonnées indisponibles — {erreur}</p>}
+          <Panel title={t('Controller and contact')}>
+            {erreur && <p className="form-error" role="alert">{t('Contact details unavailable')} — {erreur}</p>}
             <dl className="info-points">
               <div>
-                <dt>Responsable du traitement</dt>
-                <dd>{contacts?.responsable ? <Lignes texte={contacts.responsable} /> : 'Votre employeur. Pour toute question sur vos données, adressez-vous au service RH.'}</dd>
+                <dt>{t('Data controller')}</dt>
+                <dd>{contacts?.responsable ? <Lignes texte={contacts.responsable} /> : t('Your employer. For any question about your data, ask HR.')}</dd>
               </div>
               <div>
-                <dt>Délégué à la protection des données</dt>
-                <dd>{contacts?.dpo ? <Lignes texte={contacts.dpo} /> : 'Adressez-vous au service RH, qui transmet votre demande à la personne chargée de la protection des données.'}</dd>
+                <dt>{t('Data protection officer')}</dt>
+                <dd>{contacts?.dpo ? <Lignes texte={contacts.dpo} /> : t('Ask HR, who passes your request on to the person in charge of data protection.')}</dd>
               </div>
             </dl>
             {admin && (
               <Fine>
-                Coordonnées réglées dans <a href="/parametres" onClick={e => { e.preventDefault(); go('parametres'); }}>Paramètres → Confidentialité</a>.
-                Le descriptif complet du traitement, pour le registre et l’analyse d’impact, est dans docs/RGPD.md.
+                {t('Contact details set in ')}<a href="/parametres" onClick={e => { e.preventDefault(); go('parametres'); }}>{t('Settings → Privacy')}</a>.
+                {' '}{t('The full description of the processing, for the register and the impact assessment, is in docs/RGPD.md.')}
               </Fine>
             )}
           </Panel>

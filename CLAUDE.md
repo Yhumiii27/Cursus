@@ -39,7 +39,10 @@ rechargement.
   entier (page, composants et dialogues qu'il ouvre), puis s'ajoute à `ECRANS_MIGRES`.
 - Repris : la coque (`App.tsx`, `layout/`, `components/Dialog.tsx`, thème), la connexion (`pages/Login.tsx`), Hors ligne,
   Changer mon mot de passe, Avis demandés, Pointages (page, pointage du jour, semaine, corrections, présences du jour,
-  dialogue de correction, confirmations). Tous les autres écrans restent en français en dur.
+  dialogue de correction, confirmations), Habilitations (registre, délivrance, suspension, levée et retrait), avec les
+  composants communs qu'il emploie (`components/TriListe.tsx`, `tri.ts`, `ReferentielVide.tsx`, `PieceJointe.tsx`,
+  `controles.ts` : repris pour tous les écrans qui s'en servent), Confidentialité (cadre de la page ; le texte de
+  `shared/confidentialite.ts` reste en français), Expositions (C2P). Tous les autres écrans restent en français en dur.
 
 ## Échanges avec les autres outils (décisions M-17 et M-18 de Matrix)
 

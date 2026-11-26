@@ -7,6 +7,7 @@
 // quand un filtre change. Les exports CSV prennent toutes les lignes filtrées et triées, pas seulement celles affichées.
 // En-têtes cliquables et pied de liste : components/TriListe.tsx.
 import { useState } from 'react';
+import { t } from '../i18n/langue.ts';
 import { useStore } from '../state/store.tsx';
 
 export type Sens = 'asc' | 'desc';
@@ -70,9 +71,10 @@ export const ariaSort = (tri: Tri | null | undefined, col: string): 'ascending' 
  */
 export function titreTri(tri: Tri | null | undefined, col: string, premier: Sens = 'asc'): string {
   const s = ariaSort(tri, col);
-  if (!s) return 'Trier par cette colonne';
-  const actuel = s === 'ascending' ? 'Trié par ordre croissant' : 'Trié par ordre décroissant';
-  return `${actuel} : ${triSuivant(tri, col, premier) ? 'cliquer pour inverser' : 'cliquer pour revenir à l’ordre par défaut'}`;
+  if (!s) return t('Sort by this column');
+  const inverser = !!triSuivant(tri, col, premier);
+  if (s === 'ascending') return inverser ? t('Sorted in ascending order: click to reverse') : t('Sorted in ascending order: click to go back to the default order');
+  return inverser ? t('Sorted in descending order: click to reverse') : t('Sorted in descending order: click to go back to the default order');
 }
 
 /** Tri d'une liste et son changement par un clic : ce que reçoivent les en-têtes (`<ThTri t={…}>`). */

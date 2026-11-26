@@ -12,6 +12,7 @@ import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
 import { useDomain } from '../state/derived.ts';
 import { Fine } from './ui.tsx';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export interface HorairesFeuille {
   /** Horaire de chaque jour (0 = lundi … 6 = dimanche). */
@@ -34,7 +35,7 @@ export function useHorairesFeuille(emp: Employe, wk: ISODate, sh: FeuilleTemps |
   const archives = [...new Set(jours.map(j => j.code).filter((c): c is string => !!c && !enVigueur.some(h => h.code === c)))];
   const options = [
     ...enVigueur.map(h => ({ code: h.code, texte: horaireTexte(h) })),
-    ...archives.map(c => { const h = horaireDe(ref, c); return { code: c, texte: h ? `${horaireTexte(h)} (archivé)` : c }; }),
+    ...archives.map(c => { const h = horaireDe(ref, c); return { code: c, texte: h ? `${horaireTexte(h)}${t(' (archived)')}` : c }; }),
   ];
   const choisir = async (di: number, code: string) => (await run('temps.horaire', { empId: emp.id, week: wk, di, code }, { silent: true })).ok;
   return { jours, options, editable, choisir };
@@ -45,7 +46,7 @@ export function ChoixHoraire({ h, di, label, style }: { h: HorairesFeuille; di: 
   const j = h.jours[di];
   return (
     <select className="input" aria-label={label} value={j.code ?? ''} disabled={!h.editable}
-      title={j.propose ? 'Horaire par défaut de l’équipe, proposé : à confirmer ou à changer' : undefined}
+      title={j.propose ? t('Default schedule of the team, proposed: to confirm or to change') : undefined}
       onChange={e => { void h.choisir(di, e.target.value); }}
       style={{ ...style, ...(j.propose ? { fontStyle: 'italic', color: 'var(--color-neutral-500)' } : {}) }}>
       <option value="">—</option>
@@ -63,12 +64,12 @@ export function LigneHoraires({ h, colonnes, weekEndReplie, long }: { h: Horaire
   return (
     <tr>
       <td style={{ minWidth: 180 }}>
-        <div>Horaire du jour</div>
-        <div className="text-muted sub">{h.jours.some(j => j.propose) ? 'en italique : proposé par l’équipe' : 'facultatif'}</div>
+        <div>{t('Schedule of the day')}</div>
+        <div className="text-muted sub">{h.jours.some(j => j.propose) ? t('in italics: proposed by the team') : t('optional')}</div>
       </td>
       {colonnes.map(di => (
         <td key={di} className={`center${estWeekEnd(di) ? ' col-weekend' : ''}`}>
-          <ChoixHoraire h={h} di={di} label={`Horaire — ${long[di]}`} style={{ width: 64, padding: '0 var(--space-2)' }} />
+          <ChoixHoraire h={h} di={di} label={`${t('Schedule — ')}${long[di]}`} style={{ width: 64, padding: '0 var(--space-2)' }} />
         </td>
       ))}
       {weekEndReplie && <td className="center col-weekend nowrap">{replie || '—'}</td>}
@@ -84,5 +85,5 @@ export function LigneHoraires({ h, colonnes, weekEndReplie, long }: { h: Horaire
 export function LegendeHoraires({ h }: { h: HorairesFeuille }) {
   const textes = [...new Set(h.jours.map(j => (j.horaire ? horaireTexte(j.horaire) : '')).filter(Boolean))];
   if (!textes.length) return null;
-  return <Fine>Horaires : {textes.join(' ; ')}.</Fine>;
+  return <Fine>{t('Schedules: ')}{textes.join(t('; '))}.</Fine>;
 }

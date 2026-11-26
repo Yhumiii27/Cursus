@@ -13,41 +13,42 @@ import { erreursPeriode, erreurTexte } from '../components/controles.ts';
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function TripModifierDialog({ id }: { id: number }) {
   const d = useDomain();
   const { run, closeDialog } = useStore();
-  const t = d.ds.voyages.find(v => v.id === id);
-  const [dest, setDest] = useState(t?.dest ?? '');
-  const [depart, setDepart] = useState(t?.depart ?? '');
-  const [retour, setRetour] = useState(t?.retour ?? '');
-  const [motif, setMotif] = useState(t?.motif ?? '');
-  const [hebergement, setHebergement] = useState(t?.hebergement ?? '');
-  const [contact, setContact] = useState(t?.contactSurPlace ?? '');
-  const [ariane, setAriane] = useState(t?.arianeLe ?? '');
+  const vo = d.ds.voyages.find(x => x.id === id);
+  const [dest, setDest] = useState(vo?.dest ?? '');
+  const [depart, setDepart] = useState(vo?.depart ?? '');
+  const [retour, setRetour] = useState(vo?.retour ?? '');
+  const [motif, setMotif] = useState(vo?.motif ?? '');
+  const [hebergement, setHebergement] = useState(vo?.hebergement ?? '');
+  const [contact, setContact] = useState(vo?.contactSurPlace ?? '');
+  const [ariane, setAriane] = useState(vo?.arianeLe ?? '');
   const [busy, setBusy] = useState(false);
   const v = useVerification();
-  const emp = t ? d.emp(t.empId) : undefined;
-  if (!t || !emp) return null;
+  const emp = vo ? d.emp(vo.empId) : undefined;
+  if (!vo || !emp) return null;
 
-  const keystone = t.origine === 'keystone';
+  const keystone = vo.origine === 'keystone';
   // Destinations en vigueur, plus celle du déplacement si elle a été archivée depuis.
-  const dests = [...actifs(d.ds.referentiels.destinations), ...d.ds.referentiels.destinations.filter(x => x.code === t.dest && x.archive)];
+  const dests = [...actifs(d.ds.referentiels.destinations), ...d.ds.referentiels.destinations.filter(x => x.code === vo.dest && x.archive)];
   const destDef = d.destOf(dest);
-  const dates = erreursPeriode(depart, retour, { du: 'Indiquez la date de départ.', au: 'Indiquez la date de retour.' });
-  const motifErr = keystone ? null : erreurTexte(motif, 'Indiquez le motif du déplacement.');
-  const destErr = destDef ? null : 'Choisissez la destination.';
-  const conflits = !dates.du && !dates.au ? conflitsDates(d, emp.id, depart, retour, 'voyage', { voyageId: t.id }) : [];
+  const dates = erreursPeriode(depart, retour, { du: t('Enter the departure date.'), au: t('Enter the return date.') });
+  const motifErr = keystone ? null : erreurTexte(motif, t('Enter the reason for the trip.'));
+  const destErr = destDef ? null : t('Choose the destination.');
+  const conflits = !dates.du && !dates.au ? conflitsDates(d, emp.id, depart, retour, 'voyage', { voyageId: vo.id }) : [];
   const coordErr = (x: string, label: string) => { const r = texteCoordonnees(x, label); return 'erreur' in r ? r.erreur : null; };
-  const hebErr = coordErr(hebergement, 'Hébergement'), contactErr = coordErr(contact, 'Contact sur place');
-  const arianeErr = ariane && ariane > d.ti ? 'Aujourd’hui au plus tard.' : null;
-  const coordChange = hebergement.trim() !== (t.hebergement ?? '') || contact.trim() !== (t.contactSurPlace ?? '') || ariane !== (t.arianeLe ?? '');
-  const inchange = dest === t.dest && depart === t.depart && retour === t.retour && motif.trim() === t.motif && !coordChange;
+  const hebErr = coordErr(hebergement, t('Accommodation')), contactErr = coordErr(contact, t('Contact on site'));
+  const arianeErr = ariane && ariane > d.ti ? t('Today at the latest.') : null;
+  const coordChange = hebergement.trim() !== (vo.hebergement ?? '') || contact.trim() !== (vo.contactSurPlace ?? '') || ariane !== (vo.arianeLe ?? '');
+  const inchange = dest === vo.dest && depart === vo.depart && retour === vo.retour && motif.trim() === vo.motif && !coordChange;
   // Formalités de détachement que la modification rend caduques (autre pays, période élargie, autre durée).
-  const caduques = !dates.du && !dates.au ? formalitesCaduques(t, { dest, depart, retour }) : {};
+  const caduques = !dates.du && !dates.au ? formalitesCaduques(vo, { dest, depart, retour }) : {};
   const aRefaire = [
-    'detachementLe' in caduques ? 'le certificat de sécurité sociale' : '',
-    'informationLe' in caduques ? 'l’information écrite de la mission' : '',
+    'detachementLe' in caduques ? t('the social security certificate') : '',
+    'informationLe' in caduques ? t('the written information of the assignment') : '',
   ].filter(Boolean);
 
   const confirm = async () => {
@@ -62,45 +63,45 @@ export function TripModifierDialog({ id }: { id: number }) {
   };
 
   return (
-    <Dialog title="Modifier le déplacement" width={560} onSubmit={confirm} actions={<>
+    <Dialog title={t('Edit the trip')} width={560} onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Enregistrer</SubmitButton>
+      <SubmitButton busy={busy}>{t('Save')}</SubmitButton>
     </>}>
       <div className="grid-2">
-        <Field label="Collaborateur"><Static>{emp.nom} · {emp.poste}</Static></Field>
+        <Field label={t('Employee')}><Static>{emp.nom} · {emp.poste}</Static></Field>
         {keystone
-          ? <Field label="Destination"><Static>{destDef?.pays ?? t.dest}</Static></Field>
+          ? <Field label={t('Destination')}><Static>{destDef?.pays ?? vo.dest}</Static></Field>
           : (
-            <Field label="Destination" htmlFor="tm-dest" erreur={v.erreur(destErr)}>
+            <Field label={t('Destination')} htmlFor="tm-dest" erreur={v.erreur(destErr)}>
               <select className="input" id="tm-dest" value={dest} onChange={e => setDest(e.target.value)}>
-                {dests.map(o => <option key={o.code} value={o.code}>{o.pays}{o.archive ? ' (archivée)' : ''}</option>)}
+                {dests.map(o => <option key={o.code} value={o.code}>{o.pays}{o.archive ? t(' (archived)#fem') : ''}</option>)}
               </select>
             </Field>
           )}
       </div>
       <div className="grid-2">
-        <Field label="Départ" htmlFor="tm-dep" requis erreur={v.erreur(dates.du)}><input className="input" id="tm-dep" type="date" value={depart} onChange={e => setDepart(e.target.value)} /></Field>
-        <Field label="Retour" htmlFor="tm-ret" requis erreur={retour && dates.au && !dates.du ? dates.au : v.erreur(dates.au)}>
+        <Field label={t('Departure')} htmlFor="tm-dep" requis erreur={v.erreur(dates.du)}><input className="input" id="tm-dep" type="date" value={depart} onChange={e => setDepart(e.target.value)} /></Field>
+        <Field label={t('Return#trip')} htmlFor="tm-ret" requis erreur={retour && dates.au && !dates.du ? dates.au : v.erreur(dates.au)}>
           <input className="input" id="tm-ret" type="date" min={depart || undefined} value={retour} onChange={e => setRetour(e.target.value)} />
         </Field>
       </div>
       <Controles msgs={conflits} />
-      {aRefaire.length > 0 && <Fine>Formalités de détachement à refaire après cette modification : {aRefaire.join(' et ')}. Le dossier redevient incomplet.</Fine>}
+      {aRefaire.length > 0 && <Fine>{t('Posting formalities to redo after this change: ')}{aRefaire.join(t(' and #et'))}{t('. The file becomes incomplete again.')}</Fine>}
       {keystone
-        ? <Field label="Motif"><Static>{t.motif}</Static></Field>
-        : <Field label="Motif" htmlFor="tm-motif" requis erreur={v.erreur(motifErr)}><input className="input" id="tm-motif" type="text" value={motif} onChange={e => setMotif(e.target.value)} /></Field>}
-      <Field label="Hébergement" htmlFor="tm-heb" erreur={hebErr}>
-        <input className="input" id="tm-heb" type="text" maxLength={COORDONNEES_MAX} value={hebergement} placeholder="Hôtel, adresse, téléphone" onChange={e => setHebergement(e.target.value)} />
+        ? <Field label={t('Reason')}><Static>{vo.motif}</Static></Field>
+        : <Field label={t('Reason')} htmlFor="tm-motif" requis erreur={v.erreur(motifErr)}><input className="input" id="tm-motif" type="text" value={motif} onChange={e => setMotif(e.target.value)} /></Field>}
+      <Field label={t('Accommodation')} htmlFor="tm-heb" erreur={hebErr}>
+        <input className="input" id="tm-heb" type="text" maxLength={COORDONNEES_MAX} value={hebergement} placeholder={t('Hotel, address, phone')} onChange={e => setHebergement(e.target.value)} />
       </Field>
       <div className="grid-2">
-        <Field label="Contact sur place" htmlFor="tm-contact" erreur={contactErr}>
-          <input className="input" id="tm-contact" type="text" maxLength={COORDONNEES_MAX} value={contact} placeholder="Nom, téléphone" onChange={e => setContact(e.target.value)} />
+        <Field label={t('Contact on site')} htmlFor="tm-contact" erreur={contactErr}>
+          <input className="input" id="tm-contact" type="text" maxLength={COORDONNEES_MAX} value={contact} placeholder={t('Name, phone')} onChange={e => setContact(e.target.value)} />
         </Field>
-        <Field label="Inscrit sur Ariane le" htmlFor="tm-ariane" erreur={arianeErr}>
+        <Field label={t('Registered on Ariane on')} htmlFor="tm-ariane" erreur={arianeErr}>
           <input className="input" id="tm-ariane" type="date" max={d.ti} value={ariane} onChange={e => setAriane(e.target.value)} />
         </Field>
       </div>
-      {keystone && <Fine>Déplacement venu de Keystone (chantier {t.chantier}) : destination et motif sont ceux du chantier. Keystone est prévenu des nouvelles dates.</Fine>}
+      {keystone && <Fine>{t('Trip from Keystone (worksite ')}{vo.chantier}{t('): destination and reason are those of the worksite. Keystone is told of the new dates.')}</Fine>}
       <p className="text-muted fine">{destDef ? d.destSummary(destDef) : ''}</p>
     </Dialog>
   );

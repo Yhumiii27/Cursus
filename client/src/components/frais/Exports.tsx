@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { isoParis } from '../../../../shared/dates.ts';
-import { fmtIso, plural } from '../../../../shared/format.ts';
+import { fmtIso } from '../../../../shared/format.ts';
 import { notesAExporter } from '../../../../shared/rules/frais-export.ts';
 import { totauxVue } from '../../../../shared/rules/frais-fenetre.ts';
 import type { ExportFraisVue } from '../../../../shared/types.ts';
@@ -17,6 +17,7 @@ import { useDomain } from '../../state/derived.ts';
 import { useStore } from '../../state/store.tsx';
 import { Btn, Empty, Fine, Panel, Tag, Two } from '../ui.tsx';
 import { euros } from './commun.ts';
+import { t, tn } from '../../i18n/langue.ts';
 
 export function ExportsFrais() {
   const d = useDomain();
@@ -37,7 +38,7 @@ export function ExportsFrais() {
   const avecMontant = aExporter.filter(n => retenu(n) > 0);
   const total = avecMontant.reduce((s, n) => s + retenu(n), 0);
   const telecharger = async (id: number) => {
-    try { await api.fichierExportFrais(id); relire(); } catch (e) { notify(`Fichier non téléchargé — ${(e as Error).message}`, true); }
+    try { await api.fichierExportFrais(id); relire(); } catch (e) { notify(`${t('File not downloaded — ')}${(e as Error).message}`, true); }
   };
   const generer = async () => {
     const r = await run('frais.export.generer', { attendues: aExporter.length });
@@ -47,24 +48,24 @@ export function ExportsFrais() {
 
   return (
     <>
-      <Panel title="Notes à exporter" aside={exports ? plural(avecMontant.length, 'note', 'notes') : undefined}>
+      <Panel title={t('Notes to export')} aside={exports ? tn(avecMontant.length, 'note', 'notes') : undefined}>
         {erreur && <div className="note-accent" role="alert">{erreur}</div>}
-        {!exports ? <Empty>Chargement…</Empty> : avecMontant.length === 0 ? <Empty>Aucune note contrôlée à exporter.</Empty> : <>
-          <div>{plural(avecMontant.length, 'note contrôlée', 'notes contrôlées')} pas encore exportée{avecMontant.length > 1 ? 's' : ''}, {euros(total)} au total.</div>
-          <div><Btn variant="primary" small disabled={occupe} onClick={agir(generer)}>Générer l’export comptable</Btn></div>
+        {!exports ? <Empty>{t('Loading…')}</Empty> : avecMontant.length === 0 ? <Empty>{t('No checked note to export.')}</Empty> : <>
+          <div>{tn(avecMontant.length, 'checked note', 'checked notes')}{avecMontant.length > 1 ? t(' not yet exported#plural') : t(' not yet exported')}, {euros(total)}{t(' in total.')}</div>
+          <div><Btn variant="primary" small disabled={occupe} onClick={agir(generer)}>{t('Generate the accounting export')}</Btn></div>
         </>}
-        <Fine>Une écriture par note : charges par compte, TVA récupérable, crédit du compte du salarié. Les frais médicaux portent le compte et le libellé génériques. Comptes, journal et format du fichier : Paramètres → Notes de frais.</Fine>
+        <Fine>{t('One entry per note: expenses by account, recoverable VAT, credit of the employee’s account. Medical expenses carry the generic account and label. Accounts, journal and file format: Settings → Expense reports.')}</Fine>
       </Panel>
-      <Panel title="Exports comptables">
-        {!exports ? <Empty>Chargement…</Empty> : exports.length === 0 ? <Empty>Aucun export.</Empty> : exports.map(x => (
+      <Panel title={t('Accounting exports')}>
+        {!exports ? <Empty>{t('Loading…')}</Empty> : exports.length === 0 ? <Empty>{t('No export.')}</Empty> : exports.map(x => (
           <div key={x.id} className="list-row" style={{ gap: 'var(--space-2)', flexWrap: 'wrap' }}>
             <div style={{ flex: '1 1 240px', minWidth: 0 }}>
-              <Two main={`Export n° ${x.id} — ${fmtIso(isoParis(new Date(x.creation)))}`}
-                sub={`${plural(x.notes?.length ?? 0, 'note', 'notes')} · ${plural(x.ecritures, 'ligne', 'lignes')} · ${euros(x.montant)} · par ${x.auteur}${x.telechargements ? ` · téléchargé ${x.telechargements} fois, dernière fois par ${x.telechargePar}` : ''}`} />
+              <Two main={`${t('Export no. ')}${x.id} — ${fmtIso(isoParis(new Date(x.creation)))}`}
+                sub={`${tn(x.notes?.length ?? 0, 'note', 'notes')} · ${tn(x.ecritures, 'line', 'lines')} · ${euros(x.montant)}${t(' · by ')}${x.auteur}${x.telechargements ? `${t(' · downloaded ')}${x.telechargements}${t(' times, last time by ')}${x.telechargePar}` : ''}`} />
             </div>
-            {x.annuleLe ? <Tag cls="tag-outline">Annulé</Tag> : <>
-              <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={() => void telecharger(x.id)}>Télécharger</Btn>
-              <Btn small onClick={() => openDialog({ type: 'confirmer', c: annulationExport(x.id, x.notes?.length ?? 0, x.telechargements > 0) })}>Annuler</Btn>
+            {x.annuleLe ? <Tag cls="tag-outline">{t('Cancelled#masc')}</Tag> : <>
+              <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={() => void telecharger(x.id)}>{t('Download')}</Btn>
+              <Btn small onClick={() => openDialog({ type: 'confirmer', c: annulationExport(x.id, x.notes?.length ?? 0, x.telechargements > 0) })}>{t('Cancel')}</Btn>
             </>}
           </div>
         ))}

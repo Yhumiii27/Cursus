@@ -114,6 +114,44 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
       'client/src/dialogs/CetDialog.tsx', 'client/src/dialogs/ReportDialog.tsx', 'client/src/dialogs/MonetisationCetDialog.tsx',
       'client/src/dialogs/ClotureCongesDialog.tsx', 'client/src/dialogs/FractionnementDialog.tsx', 'client/src/state/confirmations-cet.ts'],
   },
+  {
+    // Mes frais, validation, contrôle, toutes les notes, avances, exports comptables, tableau de bord, historique ; notes
+    // rattachées (Missions, Voyages) ; dialogues de dépense, de note, d'avance, de montant retenu, de véhicule, de taux, de
+    // limite d'exonération et de barème ; confirmations des renvois, refus et annulations.
+    ecran: 'Notes de frais', fichiers: ['client/src/pages/Frais.tsx', 'client/src/components/frais/Notes.tsx', 'client/src/components/frais/Tableau.tsx',
+      'client/src/components/frais/Exports.tsx', 'client/src/components/frais/FraisRattaches.tsx', 'client/src/components/frais/Historique.tsx',
+      'client/src/components/frais/commun.ts', 'client/src/components/frais/historique.ts', 'client/src/components/frais/saisie.ts',
+      'client/src/components/frais/onglets.ts', 'client/src/dialogs/FraisDepenseDialog.tsx', 'client/src/dialogs/FraisNoteDialog.tsx',
+      'client/src/dialogs/FraisAvanceDialog.tsx', 'client/src/dialogs/FraisPlafondDialog.tsx', 'client/src/dialogs/FraisVehiculeDialog.tsx',
+      'client/src/dialogs/FraisReferentielDialog.tsx', 'client/src/state/confirmations-frais.ts'],
+  },
+  {
+    // Indicateurs, demandes des collaborateurs (acceptation sur liste d'attente, refus), contrats, couvertures (équipes,
+    // postes planifiés), habilitations des postes planifiés, dossiers à effacer, sessions, déplacements.
+    ecran: 'Tableau de bord', fichiers: ['client/src/pages/Dashboard.tsx', 'client/src/components/Couverture.tsx', 'client/src/components/DossiersEchus.tsx',
+      'client/src/components/planning/CouvertureCreneaux.tsx', 'client/src/components/planning/HabilitationsPlanifiees.tsx',
+      'client/src/dialogs/AccepterAttenteDialog.tsx'],
+  },
+  {
+    ecran: 'Échéances', fichiers: ['client/src/pages/Echeances.tsx', 'client/src/components/IndicateursACompleter.tsx', 'client/src/components/opco/EcheancesOpco.tsx'],
+  },
+  {
+    // Présents en mission, planning des 4 semaines (grille et légende), grand déplacement des chantiers, notes rattachées.
+    ecran: 'Missions & déplacements', fichiers: ['client/src/pages/Missions.tsx', 'client/src/pages/PlanningMissions.tsx', 'client/src/pages/planning-missions.ts',
+      'client/src/components/GrandDeplacement.tsx'],
+  },
+  {
+    // Vue « un jour » des feuilles de temps (téléphone, tablette) et horaire du jour (aussi sur la grille de la semaine).
+    ecran: 'Saisie du jour', fichiers: ['client/src/pages/SaisieJour.tsx', 'client/src/components/HorairesFeuille.tsx'],
+  },
+  {
+    // Demandes Keystone, déplacements à venir et annulés, dossier voyage (vigilance, formalités, notes rattachées), dossiers
+    // voyageurs, destinations ; dialogues de déplacement (création, modification, import), de détachement et de formalité ;
+    // confirmations de refus d'une demande Keystone et d'annulation (fonctions reprises dans confirmations*.ts).
+    ecran: 'Voyages', fichiers: ['client/src/pages/Voyages.tsx', 'client/src/components/VoyageVigilance.tsx', 'client/src/dialogs/TripDialog.tsx',
+      'client/src/dialogs/TripModifierDialog.tsx', 'client/src/dialogs/TripImportDialog.tsx', 'client/src/dialogs/DetachementDialog.tsx',
+      'client/src/dialogs/FormaliteDialog.tsx'],
+  },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */
@@ -238,4 +276,21 @@ test('Formations, Congés & absences : tables de libellés traduites au rendu, p
   choisirLangue('en');
   assert.deepEqual([t(' and #et'), t(' on #le'), t('Cancelled on #fem'), t('Save #verb')], [' and ', ' on ', 'Cancelled on ', 'Save ']);
   assert.equal(tn(2, 'place left', 'places left'), '2 places left');
+});
+
+test('Notes de frais : tables de libellés traduites à la lecture, phrase française d’avant', async () => {
+  const { STATUTS_AVANCE, nomNote } = await import('../client/src/components/frais/commun.ts');
+  const { LIBELLES_ONGLETS_FRAIS, SOURCES_ONGLETS_FRAIS } = await import('../client/src/components/frais/onglets.ts');
+  for (const l of [...Object.values(STATUTS_AVANCE).map(x => x.label), ...Object.values(SOURCES_ONGLETS_FRAIS).filter(Boolean)]) {
+    assert.ok(MEMES_EN_FRANCAIS.includes(l) || enFrancais(l) !== sansContexte(l), l);
+  }
+  assert.deepEqual([LIBELLES_ONGLETS_FRAIS.historique, LIBELLES_ONGLETS_FRAIS.controle], ['Historique', 'À contrôler']);
+  assert.equal(enFrancais('24 months at most per search.'), '24 mois au plus par recherche.');
+  assert.equal(nomNote({ id: 12, periode: '2026-10', medicale: true }), 'Note n° 12 — Octobre 2026 · frais médicaux');
+  assert.equal(t('?#question'), ' ?');
+  const { MARQUE } = await import('../client/src/pages/planning-missions.ts');
+  assert.deepEqual({ ...MARQUE }, { mission: 'M', absence: 'A', demande: 'D', ferie: 'F', present: '' });
+  choisirLangue('en');
+  assert.deepEqual([MARQUE.demande, MARQUE.ferie], ['R', 'H']);
+  assert.deepEqual([LIBELLES_ONGLETS_FRAIS.historique, LIBELLES_ONGLETS_FRAIS.controle, t('?#question')], ['History', 'To check', '?']);
 });

@@ -7,7 +7,7 @@
 // Le service RH voit la couverture absences retirées ; le référent HSE et la lecture seule, sans absences (le référent HSE ne doit pas
 // pouvoir désigner un absent), avec un renvoi au service RH. Rien quand aucun planning n'est publié sur la période.
 import { useMemo } from 'react';
-import { plural } from '../../../../shared/format.ts';
+import { t, tn } from '../../i18n/langue.ts';
 import { useDomain, useRole } from '../../state/derived.ts';
 import { Empty, Fine, Panel, Tag, Two } from '../ui.tsx';
 import { couvertureAVenir, jourCourt } from './planning-vue.ts';
@@ -22,18 +22,18 @@ export function CouvertureCreneauxPanel() {
   const c = useMemo(() => (actif ? couvertureAVenir(d, JOURS_COUVERTURE, rh) : null), [d, actif, rh]);
   if (!c || !c.creneaux) return null;
   return (
-    <Panel highlight={c.manques.length > 0} style={{ flex: '1 1 100%' }} title="Couverture minimale par poste planifié"
-      aside={c.manques.length ? plural(c.manques.length, 'poste sous le minimum', 'postes sous le minimum') : `${plural(c.creneaux, 'poste suivi', 'postes suivis')} · minimum tenu`}>
-      {c.manques.length === 0 ? <Empty pad="sm">Effectif et secouristes au minimum sur tous les postes publiés des {JOURS_COUVERTURE} prochains jours.</Empty> : (
+    <Panel highlight={c.manques.length > 0} style={{ flex: '1 1 100%' }} title={t('Minimum coverage per planned shift')}
+      aside={c.manques.length ? tn(c.manques.length, 'shift below the minimum', 'shifts below the minimum') : `${tn(c.creneaux, 'shift followed', 'shifts followed')}${t(' · minimum met')}`}>
+      {c.manques.length === 0 ? <Empty pad="sm">{t('Staff and first aiders at the minimum on all the published shifts of the next ')}{JOURS_COUVERTURE}{t(' days.#prochains')}</Empty> : (
         <div className="scroll-x">
           <table className="table">
-            <thead><tr><th>Poste</th><th>Couverture</th><th>Manque</th></tr></thead>
+            <thead><tr><th>{t('Shift')}</th><th>{t('Coverage')}</th><th>{t('Shortfall')}</th></tr></thead>
             <tbody>
               {c.manques.map(x => (
                 <tr key={`${x.equipe}|${x.jour}|${x.horaire}`}>
-                  <td><Two main={`${jourCourt(x.jour)} · ${x.horaire}`} sub={`Équipe ${x.equipe}`} nowrap /></td>
+                  <td><Two main={`${jourCourt(x.jour)} · ${x.horaire}`} sub={`${t('Team ')}${x.equipe}`} nowrap /></td>
                   <td className="sub">{x.texte}</td>
-                  <td>{x.manques.map(m => <Tag key={m} cls="tag-accent" style={{ marginRight: 4 }}>{m === 'effectif' ? 'Effectif' : m}</Tag>)}</td>
+                  <td>{x.manques.map(m => <Tag key={m} cls="tag-accent" style={{ marginRight: 4 }}>{m === 'effectif' ? t('Staff') : m}</Tag>)}</td>
                 </tr>
               ))}
             </tbody>
@@ -41,10 +41,9 @@ export function CouvertureCreneauxPanel() {
         </div>
       )}
       <Fine>
-        Postes publiés des {JOURS_COUVERTURE} prochains jours, horaire par horaire : effectif face au besoin de poste (Référentiels → Besoins de poste) et titulaires
-        d’une certification valide à la date du poste pour chaque seuil de couverture de l’équipe (Référentiels → Postes). {rh
-          ? 'Les salariés absents ce jour-là ne comptent pas.'
-          : 'Couverture calculée sans les absences : un poste peut être découvert par une absence, à vérifier avec le service RH.'}
+        {t('Published shifts of the next ')}{JOURS_COUVERTURE}{t(' days, schedule by schedule: staff against the shift need (Reference data → Shift needs) and holders of a valid certification on the date of the shift for each coverage threshold of the team (Reference data → Jobs). ')}{rh
+          ? t('Employees absent that day do not count.')
+          : t('Coverage calculated without the absences: a shift may be uncovered by an absence, to check with HR.')}
       </Fine>
     </Panel>
   );

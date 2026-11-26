@@ -3,7 +3,7 @@
 // noierait les autres échéances. Le bouton ouvre l'annuaire filtré « Indicateurs à compléter » (Collaborateurs).
 // Service RH seulement : lui seul reçoit le sexe et la catégorie (server/src/dataset.ts) ; ailleurs, rien n'est affiché.
 import { aCompleterIndicateurs } from '../../../shared/rules/indicateurs-legaux.ts';
-import { plural } from '../../../shared/format.ts';
+import { t, tn } from '../i18n/langue.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { Btn, NoteAccent } from './ui.tsx';
@@ -21,9 +21,8 @@ export function IndicateursACompleter() {
   if (!rh || n === 0) return null;
   return (
     <NoteAccent>
-      {plural(n, 'fiche', 'fiches')} sans sexe ou catégorie d’emploi : {n > 1 ? 'elles sont comptées' : 'elle est comptée'} « Non renseigné » dans les
-      indicateurs sociaux (BDESE, index d’égalité).{' '}
-      <Btn small onClick={() => go('collaborateurs', { statut: 'acompleter', equipe: 'Toutes', search: '' })}>Compléter les fiches</Btn>
+      {tn(n, 'sheet', 'sheets')}{t(' without sex or job category: ')}{n > 1 ? t('they are counted') : t('it is counted')}{t(' “Not entered” in the social indicators (BDESE, equality index).')}{' '}
+      <Btn small onClick={() => go('collaborateurs', { statut: 'acompleter', equipe: 'Toutes', search: '' })}>{t('Complete the sheets')}</Btn>
     </NoteAccent>
   );
 }

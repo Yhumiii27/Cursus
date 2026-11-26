@@ -4,13 +4,14 @@
 // manager qui a fait la demande, sont prévenus de la suite donnée ; la réponse le dit.
 import { useState } from 'react';
 import { parse } from '../../../shared/dates.ts';
-import { fmt, plural } from '../../../shared/format.ts';
+import { fmt } from '../../../shared/format.ts';
 import { fileDe, placeTexte } from '../../../shared/rules/liste-attente.ts';
 import { plageCourte } from '../../../shared/rules/plage-session.ts';
 import { CancelButton, Dialog, Field, Static, SubmitButton } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 type Choix = 'attente' | 'plan';
 
@@ -26,12 +27,12 @@ export function AccepterAttenteDialog({ id }: { id: number }) {
   const file = fileDe(d.ds.attentesSession ?? [], s.id);
   const CHOIX: Record<Choix, { label: string; aide: string }> = {
     attente: {
-      label: `Liste d’attente de la session (${placeTexte(file.length + 1)})`,
-      aide: `${file.length ? `${plural(file.length, 'personne attend', 'personnes attendent')} déjà. ` : ''}Quand une place se libère, Cursus propose le premier de la file au service RH, qui confirme l’inscription : la convocation part à ce moment-là.`,
+      label: `${t('Waiting list of the session (')}${placeTexte(file.length + 1)})`,
+      aide: `${file.length ? `${tn(file.length, 'person waiting', 'people waiting')}${t(' already. ')}` : ''}${t('When a place becomes free, Cursus offers the first in the queue to HR, who confirm the enrolment: the notice is sent at that moment.')}`,
     },
     plan: {
-      label: 'Plan de formation',
-      aide: 'Une ligne prévue est ajoutée au plan de formation de son équipe : le service RH l’inscrira à une prochaine session.',
+      label: t('Training plan'),
+      aide: t('A planned line is added to the training plan of their team: HR will enrol them in a next session.'),
     },
   };
 
@@ -44,15 +45,15 @@ export function AccepterAttenteDialog({ id }: { id: number }) {
   };
 
   return (
-    <Dialog title="Accepter la demande — session complète" width={560} onSubmit={confirm} actions={<>
+    <Dialog title={t('Accept the request — full session')} width={560} onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Accepter la demande</SubmitButton>
+      <SubmitButton busy={busy}>{t('Accept the request')}</SubmitButton>
     </>}>
       <div className="grid-2">
-        <Field label="Collaborateur"><Static>{d.personName(r.empId)}</Static></Field>
-        <Field label="Session souhaitée"><Static>{fm?.court ?? s.formation} · {plageCourte(s)}<div className="text-muted sub">{s.inscrits} / {s.places} · complète</div></Static></Field>
+        <Field label={t('Employee')}><Static>{d.personName(r.empId)}</Static></Field>
+        <Field label={t('Session wished')}><Static>{fm?.court ?? s.formation} · {plageCourte(s)}<div className="text-muted sub">{s.inscrits} / {s.places}{t(' · full#fem')}</div></Static></Field>
       </div>
-      <Field label="Suite donnée">
+      <Field label={t('Follow-up given')}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           {(Object.keys(CHOIX) as Choix[]).map(k => (
             <label key={k} className="boxed" style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', cursor: 'pointer' }}>
@@ -66,7 +67,7 @@ export function AccepterAttenteDialog({ id }: { id: number }) {
           ))}
         </div>
       </Field>
-      <Fine>La réponse dit au salarié que la session du {fmt(parse(s.date))} est complète, et la suite donnée ; il en est prévenu par e-mail, comme le manager qui a fait la demande.</Fine>
+      <Fine>{t('The answer tells the employee that the session of #du')}{fmt(parse(s.date))}{t(' is full, and the follow-up given; they are told by e-mail, like the manager who made the request.')}</Fine>
     </Dialog>
   );
 }

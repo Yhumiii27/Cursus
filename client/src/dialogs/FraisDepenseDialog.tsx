@@ -25,6 +25,7 @@ import { CHAMP_PHOTO, preparerPhoto } from '../pwa/photo.ts';
 import { MESSAGE_GARDEE } from '../pwa/pilote.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 const ACCEPTE_FICHIER = 'application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png';
 
@@ -49,7 +50,7 @@ export function FraisDepenseDialog({ noteId, id }: { noteId?: number | null; id?
   const piecesActives = depotOuvert(d.ds.settings.piecesStockage);
   const maj = (patch: Partial<ChampsDepense>) => setC(x => ({ ...x, ...patch }));
   // Taux de TVA proposé par la catégorie, sauf s'il a été changé à la main.
-  const tauxTexte = (cat: CategorieFrais) => { const t = tauxPropose(cat); return t == null ? '' : String(t).replace('.', ','); };
+  const tauxTexte = (cat: CategorieFrais) => { const x = tauxPropose(cat); return x == null ? '' : String(x).replace('.', ','); };
   const choisirCategorie = (cat: CategorieFrais) => maj({ categorie: cat, tvaTaux: c.tvaTaux === tauxTexte(c.categorie) ? tauxTexte(cat) : c.tvaTaux });
 
   const e = erreursDepense(c, d.ti);
@@ -62,7 +63,8 @@ export function FraisDepenseDialog({ noteId, id }: { noteId?: number | null; id?
   const lire = () => {
     const r = propositionsRecu(lireRecu(texte), c);
     setC(r.champs);
-    setLu(r.reconnus.length ? `Proposé d’après le texte : ${r.reconnus.join(', ')}. Vérifiez chaque champ.` : 'Rien de reconnu dans ce texte : saisissez les champs.');
+    const reconnus = r.reconnus.join(', ');
+    setLu(reconnus ? `${t('Proposed from the text read: ')}${reconnus}${t('. Check each field.')}` : t('Nothing recognised in this text: enter the fields.'));
   };
 
   const envoyer = async () => {
@@ -91,7 +93,7 @@ export function FraisDepenseDialog({ noteId, id }: { noteId?: number | null; id?
           return;
         }
         setBusy(false);
-        notify(`Photo du reçu non envoyée — ${(err as Error).message}`, true);
+        notify(`${t('Photo of the receipt not sent — ')}${(err as Error).message}`, true);
         return;
       }
     }
@@ -100,43 +102,43 @@ export function FraisDepenseDialog({ noteId, id }: { noteId?: number | null; id?
     if (r.ok) closeDialog();
   };
 
-  const titre = ligne ? 'Modifier la dépense' : rapide ? 'Nouvelle dépense' : 'Ajouter une dépense';
+  const titre = ligne ? t('Edit the expense') : rapide ? t('New expense') : t('Add an expense');
   return (
     <Dialog title={titre} width={560} onSubmit={envoyer} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>{ligne ? 'Enregistrer' : 'Ajouter la dépense'}</SubmitButton>
+      <SubmitButton busy={busy}>{ligne ? t('Save') : t('Add the expense')}</SubmitButton>
     </>}>
-      <Field label="Note"><Static>{note ? `${nomNote(note)}${lignesDe(d.ds.lignesFrais, note.id).length ? '' : ' · aucune dépense encore'}` : 'Note du mois de la dépense (créée au besoin)'}</Static></Field>
+      <Field label={t('Note')}><Static>{note ? `${nomNote(note)}${lignesDe(d.ds.lignesFrais, note.id).length ? '' : t(' · no expense yet')}` : t('Note of the month of the expense (created if needed)')}</Static></Field>
       {piecesActives && reel && (
         <div className="boxed" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center' }}>
-            <label className="btn btn-primary btn-sm" htmlFor="frais-photo"><CameraIcon size={16} aria-hidden="true" /> Photographier le reçu</label>
+            <label className="btn btn-primary btn-sm" htmlFor="frais-photo"><CameraIcon size={16} aria-hidden="true" /> {t('Photograph the receipt')}</label>
             <input key={`p${cle}`} id="frais-photo" className="sr-only" {...CHAMP_PHOTO} onChange={ev => setFichier(ev.target.files?.[0] ?? null)} />
-            <label className="btn btn-ghost btn-sm" htmlFor="frais-fichier">Choisir un fichier</label>
+            <label className="btn btn-ghost btn-sm" htmlFor="frais-fichier">{t('Choose a file')}</label>
             <input key={`f${cle}`} id="frais-fichier" className="sr-only" type="file" accept={ACCEPTE_FICHIER} onChange={ev => setFichier(ev.target.files?.[0] ?? null)} />
-            {fichier && <Btn small onClick={() => { setFichier(null); setCle(k => k + 1); }}>Retirer</Btn>}
+            {fichier && <Btn small onClick={() => { setFichier(null); setCle(k => k + 1); }}>{t('Remove')}</Btn>}
           </div>
           <div className={erreurFichier ? 'field-erreur' : 'text-muted sub'} role={erreurFichier ? 'alert' : undefined}>
-            {fichier ? `${fichier.name} · ${tailleTexte(fichier.size)}${erreurFichier ? ` — ${erreurFichier}` : ''}` : deja ? `${deja} justificatif${deja > 1 ? 's' : ''} déjà joint${deja > 1 ? 's' : ''}.` : 'Reçu en photo, ou PDF, JPEG, PNG de 10 Mo au plus. La position GPS de la photo n’est jamais envoyée.'}
+            {fichier ? `${fichier.name} · ${tailleTexte(fichier.size)}${erreurFichier ? ` — ${erreurFichier}` : ''}` : deja ? `${tn(deja, 'supporting document', 'supporting documents')}${deja > 1 ? t(' already attached#plural') : t(' already attached')}.` : t('Receipt as a photo, or PDF, JPEG, PNG of 10 MB at most. The GPS position of the photo is never sent.')}
           </div>
         </div>
       )}
       {reel && (
         <details>
-          <summary className="sub">Coller le texte du reçu</summary>
+          <summary className="sub">{t('Paste the text of the receipt')}</summary>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
-            <Fine>Sur le téléphone, copiez le texte de la photo (Live Text sur iPhone, Google Lens sur Android) et collez-le ici : Cursus propose le montant, la date, la TVA et le commerçant. Le texte n’est ni gardé ni envoyé.</Fine>
-            <textarea className="input" id="frais-texte" aria-label="Texte du reçu" rows={4} maxLength={TEXTE_RECU_MAX} value={texte} onChange={ev => setTexte(ev.target.value)} />
-            <div><Btn small onClick={lire} disabled={!texte.trim()}>Lire le texte</Btn></div>
+            <Fine>{t('On the phone, copy the text of the photo (Live Text on iPhone, Google Lens on Android) and paste it here: Cursus proposes the amount, the date, the VAT and the merchant. The text is neither kept nor sent.')}</Fine>
+            <textarea className="input" id="frais-texte" aria-label={t('Text of the receipt')} rows={4} maxLength={TEXTE_RECU_MAX} value={texte} onChange={ev => setTexte(ev.target.value)} />
+            <div><Btn small onClick={lire} disabled={!texte.trim()}>{t('Read the text')}</Btn></div>
             {lu && <div className="text-muted sub" role="status">{lu}</div>}
           </div>
         </details>
       )}
       <div className="grid-2">
-        <Field label="Date" htmlFor="frais-date" requis erreur={v.erreur(e.date ?? null) || (c.date ? e.date : null)}>
+        <Field label={t('Date')} htmlFor="frais-date" requis erreur={v.erreur(e.date ?? null) || (c.date ? e.date : null)}>
           <input className="input" id="frais-date" type="date" max={d.ti} value={c.date} onChange={ev => maj({ date: ev.target.value })} />
         </Field>
-        <Field label="Catégorie" htmlFor="frais-categorie">
+        <Field label={t('Category')} htmlFor="frais-categorie">
           <select className="input" id="frais-categorie" value={c.categorie} onChange={ev => choisirCategorie(ev.target.value as CategorieFrais)} disabled={categories.length < 2}>
             {categories.map(x => <option key={x} value={x}>{CATEGORIES_FRAIS[x].label}</option>)}
           </select>
@@ -144,83 +146,83 @@ export function FraisDepenseDialog({ noteId, id }: { noteId?: number | null; id?
       </div>
       {c.categorie === 'ik' ? <>
         <div className="grid-2">
-          <Field label="Distance (km)" htmlFor="frais-km" requis erreur={v.erreur(e.km ?? null) || (c.km ? e.km : null)}>
+          <Field label={t('Distance (km)')} htmlFor="frais-km" requis erreur={v.erreur(e.km ?? null) || (c.km ? e.km : null)}>
             <input className="input tnum" id="frais-km" inputMode="decimal" value={c.km} onChange={ev => maj({ km: ev.target.value })} />
           </Field>
-          <Field label="Véhicule personnel" htmlFor="frais-vehicule" requis erreur={v.erreur(e.vehiculeId ?? null)}>
+          <Field label={t('Personal vehicle')} htmlFor="frais-vehicule" requis erreur={v.erreur(e.vehiculeId ?? null)}>
             <select className="input" id="frais-vehicule" value={c.vehiculeId} onChange={ev => maj({ vehiculeId: ev.target.value })}>
-              <option value="">Choisir…</option>
-              {vehicules.map(x => <option key={x.id} value={x.id}>{TYPES_VEHICULE[x.type]} · {x.cv} CV{x.electrique ? ' · électrique' : ''}</option>)}
+              <option value="">{t('Choose…')}</option>
+              {vehicules.map(x => <option key={x.id} value={x.id}>{TYPES_VEHICULE[x.type]} · {x.cv} CV{x.electrique ? t(' · electric') : ''}</option>)}
             </select>
           </Field>
         </div>
         <div className="grid-2">
-          <Field label="Départ" htmlFor="frais-depart"><input className="input" id="frais-depart" value={c.depart} maxLength={300} onChange={ev => maj({ depart: ev.target.value })} /></Field>
-          <Field label="Arrivée" htmlFor="frais-arrivee"><input className="input" id="frais-arrivee" value={c.arrivee} maxLength={300} onChange={ev => maj({ arrivee: ev.target.value })} /></Field>
+          <Field label={t('Departure')} htmlFor="frais-depart"><input className="input" id="frais-depart" value={c.depart} maxLength={300} onChange={ev => maj({ depart: ev.target.value })} /></Field>
+          <Field label={t('Arrival')} htmlFor="frais-arrivee"><input className="input" id="frais-arrivee" value={c.arrivee} maxLength={300} onChange={ev => maj({ arrivee: ev.target.value })} /></Field>
         </div>
-        <Fine>Montant calculé au barème kilométrique de l’année, d’après le cumul de vos trajets. Le trajet domicile-travail n’ouvre pas droit aux indemnités.</Fine>
+        <Fine>{t('Amount calculated with the mileage scale of the year, from the total of your journeys. The home-work journey does not give the right to allowances.')}</Fine>
       </> : c.categorie === 'forfait' ? <>
         <div className="grid-2">
-          <Field label="Forfait" htmlFor="frais-forfait" requis erreur={v.erreur(e.forfait ?? null)}>
+          <Field label={t('Flat rate')} htmlFor="frais-forfait" requis erreur={v.erreur(e.forfait ?? null)}>
             <select className="input" id="frais-forfait" value={c.forfait} onChange={ev => maj({ forfait: ev.target.value })}>
-              <option value="">Choisir…</option>
+              <option value="">{t('Choose…')}</option>
               {(Object.keys(FORFAITS_FRAIS) as CodeForfaitFrais[]).map(k => <option key={k} value={k}>{FORFAITS_FRAIS[k]}</option>)}
             </select>
           </Field>
           {c.forfait === 'etranger' && (
-            <Field label="Pays" htmlFor="frais-pays" requis>
+            <Field label={t('Country')} htmlFor="frais-pays" requis>
               <select className="input" id="frais-pays" value={c.pays} onChange={ev => maj({ pays: ev.target.value })}>
-                <option value="">Choisir…</option>
+                <option value="">{t('Choose…')}</option>
                 {d.ds.referentiels.destinations.map(x => <option key={x.code} value={x.code}>{x.pays}</option>)}
               </select>
             </Field>
           )}
         </div>
-        <Field label="Montant (€), vide : la limite de l’année" htmlFor="frais-montant" erreur={e.montant ?? null}>
+        <Field label={t('Amount (€), empty: the limit of the year')} htmlFor="frais-montant" erreur={e.montant ?? null}>
           <input className="input tnum" id="frais-montant" inputMode="decimal" value={c.montant} onChange={ev => maj({ montant: ev.target.value })} />
         </Field>
       </> : <>
         <div className="grid-2">
-          <Field label="Montant payé" htmlFor="frais-montant" requis erreur={v.erreur(e.montant ?? null) || (c.montant ? e.montant : null)}>
+          <Field label={t('Amount paid')} htmlFor="frais-montant" requis erreur={v.erreur(e.montant ?? null) || (c.montant ? e.montant : null)}>
             <input className="input tnum" id="frais-montant" inputMode="decimal" value={c.montant} onChange={ev => maj({ montant: ev.target.value })} autoFocus={!ligne} />
           </Field>
-          <Field label="Devise" htmlFor="frais-devise" erreur={e.devise ?? null}>
+          <Field label={t('Currency')} htmlFor="frais-devise" erreur={e.devise ?? null}>
             <input className="input" id="frais-devise" value={c.devise} maxLength={3} autoCapitalize="characters" onChange={ev => maj({ devise: ev.target.value.toUpperCase() })} />
           </Field>
         </div>
         {c.devise.trim().toUpperCase() !== 'EUR' && !e.devise && (
           <div className="grid-2">
-            <Field label="Taux (€ pour 1 unité), vide : taux du mois" htmlFor="frais-taux" erreur={e.taux ?? null}>
+            <Field label={t('Rate (€ for 1 unit), empty: rate of the month')} htmlFor="frais-taux" erreur={e.taux ?? null}>
               <input className="input tnum" id="frais-taux" inputMode="decimal" value={c.taux} onChange={ev => maj({ taux: ev.target.value })} />
             </Field>
-            <Field label="Ou montant débité en euros" htmlFor="frais-debite">
+            <Field label={t('Or amount debited in euros')} htmlFor="frais-debite">
               <input className="input tnum" id="frais-debite" inputMode="decimal" value={c.montantEur} onChange={ev => maj({ montantEur: ev.target.value })} />
             </Field>
           </div>
         )}
         {!medicale && (
           <div className="grid-2">
-            <Field label="Taux de TVA" htmlFor="frais-tva">
+            <Field label={t('VAT rate')} htmlFor="frais-tva">
               <select className="input" id="frais-tva" value={c.tvaTaux} onChange={ev => maj({ tvaTaux: ev.target.value })}>
-                <option value="">Sans TVA</option>
-                {TAUX_TVA.map(t => <option key={t} value={String(t).replace('.', ',')}>{String(t).replace('.', ',')} %</option>)}
+                <option value="">{t('Without VAT')}</option>
+                {TAUX_TVA.map(x => <option key={x} value={String(x).replace('.', ',')}>{String(x).replace('.', ',')} %</option>)}
               </select>
             </Field>
-            <Field label="Montant de TVA, vide : calculé" htmlFor="frais-tva-montant">
+            <Field label={t('VAT amount, empty: calculated')} htmlFor="frais-tva-montant">
               <input className="input tnum" id="frais-tva-montant" inputMode="decimal" value={c.tvaMontant} onChange={ev => maj({ tvaMontant: ev.target.value })} />
             </Field>
           </div>
         )}
-        <Field label="Commerçant" htmlFor="frais-commercant">
+        <Field label={t('Merchant')} htmlFor="frais-commercant">
           <input className="input" id="frais-commercant" value={c.commercant} maxLength={300} onChange={ev => maj({ commercant: ev.target.value })} />
         </Field>
         {c.categorie === 'repas_affaires' && (
-          <Field label="Invités" htmlFor="frais-invites" requis erreur={v.erreur(e.invites ?? null)}>
-            <input className="input" id="frais-invites" value={c.invites} maxLength={300} onChange={ev => maj({ invites: ev.target.value })} placeholder="Nom et société de chaque invité" />
+          <Field label={t('Guests')} htmlFor="frais-invites" requis erreur={v.erreur(e.invites ?? null)}>
+            <input className="input" id="frais-invites" value={c.invites} maxLength={300} onChange={ev => maj({ invites: ev.target.value })} placeholder={t('Name and company of each guest')} />
           </Field>
         )}
         {plafond !== null && (
-          <Field label={`Motif si le montant dépasse le plafond de la politique (${euros(plafond)})`} htmlFor="frais-motif">
+          <Field label={`${t('Reason if the amount exceeds the cap of the policy (')}${euros(plafond)})`} htmlFor="frais-motif">
             <input className="input" id="frais-motif" value={c.motifDepassement} maxLength={300} onChange={ev => maj({ motifDepassement: ev.target.value })} />
           </Field>
         )}
@@ -228,14 +230,14 @@ export function FraisDepenseDialog({ noteId, id }: { noteId?: number | null; id?
       {reel && (
         <label className="check-row" htmlFor="frais-attestation">
           <input id="frais-attestation" type="checkbox" checked={c.sansJustificatif} onChange={ev => maj({ sansJustificatif: ev.target.checked })} />
-          <span>Je n’ai pas de justificatif : j’atteste sur l’honneur avoir engagé cette dépense pour mon travail</span>
+          <span>{t('I have no supporting document: I solemnly declare that I incurred this expense for my work')}</span>
         </label>
       )}
       <Fine>
         {medicale
-          ? 'Frais médicaux : la note ne passe pas par votre manager ; elle est contrôlée directement par la comptabilité ou le service RH.'
-          : 'Le reçu est joint à la dépense ; il devient définitif (scellé) à la soumission de la note.'}
-        {!piecesActives ? ' Pièces justificatives désactivées : gardez le reçu papier.' : ''}
+          ? t('Medical expenses: the note does not go through your manager; it is checked directly by accounting or HR.')
+          : t('The receipt is attached to the expense; it becomes final (sealed) when the note is submitted.')}
+        {!piecesActives ? t(' Supporting documents deactivated: keep the paper receipt.') : ''}
       </Fine>
     </Dialog>
   );

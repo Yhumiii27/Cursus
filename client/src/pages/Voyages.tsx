@@ -5,7 +5,7 @@ import { PlusIcon, UploadSimpleIcon } from '@phosphor-icons/react';
 import { SECU_RULES, TRIP_CLS, TRIP_LABEL, VISA_RULES, secuDe, type StatusKey } from '../../../shared/constants.ts';
 import type { TripItem, TripX } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
-import { fmt, fmtShort, monthShort, plural, rel } from '../../../shared/format.ts';
+import { fmt, fmtShort, monthShort, rel } from '../../../shared/format.ts';
 import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
 import { voyagesAnnules } from '../../../shared/rules/deplacements.ts';
 import { actifs } from '../../../shared/rules/referentiels.ts';
@@ -21,11 +21,12 @@ import { useEnriched, useRole, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 // lot 11 — notes de frais
 import { FraisRattaches } from '../components/frais/FraisRattaches.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 const docCls = (k: StatusKey) => k === 'exp' ? 'tag-accent' : k === 'due' ? 'tag-outline' : 'tag-neutral';
-const itemAction = (i: TripItem) => i.k === 'passeport' ? 'Mettre à jour le passeport' : i.k === 'visa' ? 'Enregistrer le visa' : 'Enregistrer la vaccination';
+const itemAction = (i: TripItem) => i.k === 'passeport' ? t('Update the passport') : i.k === 'visa' ? t('Record the visa') : t('Record the vaccination');
 /** Formalités de détachement, accomplies par le service RH (dialogue « Formalités de détachement ») : saisie, ou correction. */
-const detachementAction = (i: TripItem) => i.ok ? 'Modifier' : i.k === 'information' ? 'Enregistrer la remise' : 'Enregistrer l’obtention';
+const detachementAction = (i: TripItem) => i.ok ? t('Edit') : i.k === 'information' ? t('Record the handover') : t('Record the obtaining');
 
 export function Voyages() {
   const { d, emps, horizon } = useEnriched();
@@ -35,7 +36,7 @@ export function Voyages() {
   const data = d.ds;
 
   const travelers = useMemo(() => emps
-    .filter(e => e.passeport || e.visas.length || e.vaccins.length || trips.some(t => t.empId === e.id))
+    .filter(e => e.passeport || e.visas.length || e.vaccins.length || trips.some(x => x.empId === e.id))
     .map(e => ({ e, tv: d.travelOf(e, horizon), nt: trips.find(x => x.empId === e.id) }))
     .sort((a, b) => (a.nt ? a.nt.depart : '9').localeCompare(b.nt ? b.nt.depart : '9') || a.e.nom.localeCompare(b.e.nom)),
   [d, emps, trips, horizon]);
@@ -54,8 +55,8 @@ export function Voyages() {
 
   // Déplacements annulés : conservés, hors de tous les calculs (shared/rules/deplacements.ts) ; les six derniers.
   const annules = voyagesAnnules(data.voyages).slice(0, 6);
-  const count = (st: TripX['r']['status']) => trips.filter(t => t.r.status === st).length;
-  const sel = trips.find(t => t.id === ui.tripSel) || null;
+  const count = (st: TripX['r']['status']) => trips.filter(x => x.r.status === st).length;
+  const sel = trips.find(x => x.id === ui.tripSel) || null;
   // Écran étroit : le dossier voyage s'affiche sous la liste ; la sélection l'amène dans le champ de vision.
   const panneau = usePanneauVisible<HTMLElement>(sel?.id);
   const openEmp = (id: number) => go('collaborateurs', { selectedId: id });
@@ -67,19 +68,19 @@ export function Voyages() {
 
   return (
     <Page
-      kicker={`${plural(trips.length, 'déplacement à venir', 'déplacements à venir')} · ${count('pret')} prêts · ${count('todo')} à compléter · ${count('bloc')} bloquants`}
-      title="Voyages professionnels"
+      kicker={`${tn(trips.length, 'upcoming trip', 'upcoming trips')} · ${count('pret')}${t(' ready#plural')} · ${count('todo')}${t(' to complete')} · ${count('bloc')}${t(' blocking#plural')}`}
+      title={t('Business trips')}
       actions={<>
-        <Btn onClick={() => openDialog({ type: 'fo' })}>Enregistrer une formalité</Btn>
-        <Btn variant="secondary" icon={<UploadSimpleIcon size={14} />} onClick={() => openDialog({ type: 'tripImport' })}>Importer des demandes</Btn>
-        <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'trip' })}>Nouveau déplacement</Btn>
+        <Btn onClick={() => openDialog({ type: 'fo' })}>{t('Record a formality')}</Btn>
+        <Btn variant="secondary" icon={<UploadSimpleIcon size={14} />} onClick={() => openDialog({ type: 'tripImport' })}>{t('Import requests')}</Btn>
+        <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'trip' })}>{t('New trip')}</Btn>
       </>}
     >
       {demandes.length > 0 && (
-        <Panel highlight title="Demandes Keystone" aside={`${plural(demandes.length, 'demande à valider', 'demandes à valider')} · ressources affectées à un chantier à l’étranger`}>
+        <Panel highlight title={t('Keystone requests')} aside={`${tn(demandes.length, 'request to approve', 'requests to approve')}${t(' · resources assigned to a worksite abroad')}`}>
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Collaborateur</th><th>Chantier</th><th>Formalités</th><th></th></tr></thead>
+              <thead><tr><th>{t('Employee')}</th><th>{t('Worksite')}</th><th>{t('Formalities')}</th><th></th></tr></thead>
               <tbody>
                 {demandes.map(({ dm, emp, c, dest, r, chefCourt, conflit }) => (
                   <tr key={dm.id}>
@@ -87,14 +88,14 @@ export function Voyages() {
                       <Two nowrap main={emp?.nom ?? d.personName(dm.empId)} sub={`${dest?.pays ?? dm.dest} · ${fmtShort(parse(dm.depart))} → ${fmtShort(parse(dm.retour))}`} />
                       {conflit && <div className="note-accent">{conflit}</div>}
                     </td>
-                    <td><Two main={c ? `${c.id} · ${c.nom}` : dm.chantier} sub={`Reçue le ${fmtShort(parse(dm.recue))}${dm.ref ? ` · réf. ${dm.ref}` : ''}${chefCourt ? ' · ' + chefCourt : ''}`} /></td>
-                    <td>{r && <Tag cls={TRIP_CLS[r.status]}>{r.todo ? plural(r.todo, 'formalité à prévoir', 'formalités à prévoir') : 'Dossier complet'}</Tag>}</td>
+                    <td><Two main={c ? `${c.id} · ${c.nom}` : dm.chantier} sub={`${t('Received on #fem')}${fmtShort(parse(dm.recue))}${dm.ref ? `${t(' · ref. ')}${dm.ref}` : ''}${chefCourt ? ' · ' + chefCourt : ''}`} /></td>
+                    <td>{r && <Tag cls={TRIP_CLS[r.status]}>{r.todo ? tn(r.todo, 'formality to plan', 'formalities to plan') : t('File complete')}</Tag>}</td>
                     <td className="right">
                       <div className="actions-end">
                         {/* Refus : confirmation et motif, conservé dans Cursus (jamais transmis à Keystone). */}
                         <Btn small disabled={occupe} onClick={() => openDialog({ type: 'confirmer',
-                          c: refusKeystone(dm, emp?.nom ?? d.personName(dm.empId), c ? `${c.id} · ${c.nom}` : dm.chantier) })}>Refuser</Btn>
-                        <Btn small variant="secondary" disabled={occupe || !!conflit} title={conflit ?? undefined} onClick={agir(() => accept(dm.id))}>Accepter</Btn>
+                          c: refusKeystone(dm, emp?.nom ?? d.personName(dm.empId), c ? `${c.id} · ${c.nom}` : dm.chantier) })}>{t('Refuse')}</Btn>
+                        <Btn small variant="secondary" disabled={occupe || !!conflit} title={conflit ?? undefined} onClick={agir(() => accept(dm.id))}>{t('Accept')}</Btn>
                       </div>
                     </td>
                   </tr>
@@ -106,49 +107,49 @@ export function Voyages() {
       )}
 
       <div className="row-wrap">
-        <Panel style={{ flex: '1 1 480px', gap: 'var(--space-2)' }} head={<h2 style={{ margin: '0 0 var(--space-2)' }}>Déplacements à venir</h2>}>
-          {trips.map(t => {
-            const selected = ui.tripSel === t.id;
-            const chips = t.r.items.filter(i => !i.ok).map(i => ({ key: i.k + i.label, label: i.short, cls: i.cls }));
+        <Panel style={{ flex: '1 1 480px', gap: 'var(--space-2)' }} head={<h2 style={{ margin: '0 0 var(--space-2)' }}>{t('Upcoming trips')}</h2>}>
+          {trips.map(x => {
+            const selected = ui.tripSel === x.id;
+            const chips = x.r.items.filter(i => !i.ok).map(i => ({ key: i.k + i.label, label: i.short, cls: i.cls }));
             return (
-              <div key={t.id} className="list-row top clickable" onClick={() => setUi({ tripSel: selected ? null : t.id })}
+              <div key={x.id} className="list-row top clickable" onClick={() => setUi({ tripSel: selected ? null : x.id })}
                 style={{ padding: 'var(--space-3) var(--space-2)', borderRadius: 'var(--radius-md)', backgroundColor: selected ? 'color-mix(in srgb, var(--color-accent) 10%, transparent)' : undefined }}>
                 <div className="date-block" style={{ paddingTop: 2 }}>
-                  <div className="d">{t.r.dep.getDate()}</div>
-                  <div className="m">{monthShort(t.r.dep)}</div>
+                  <div className="d">{x.r.dep.getDate()}</div>
+                  <div className="m">{monthShort(x.r.dep)}</div>
                 </div>
                 <div className="grow" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <div className="item-head">
                     <div>
-                      <div style={{ fontSize: 14 }}><Ouvrir pressed={selected} onOpen={() => setUi({ tripSel: selected ? null : t.id })}>{t.emp.nom} — {t.r.dest.pays}</Ouvrir></div>
-                      <div className="text-muted sub">{t.motif} · {fmtShort(t.r.dep)} → {fmt(t.r.ret)} · départ {rel(t.r.toGo)}</div>
-                      <div className="sub-11" style={{ color: 'var(--color-accent-300)' }}>{d.originLabel(t)}</div>
+                      <div style={{ fontSize: 14 }}><Ouvrir pressed={selected} onOpen={() => setUi({ tripSel: selected ? null : x.id })}>{x.emp.nom} — {x.r.dest.pays}</Ouvrir></div>
+                      <div className="text-muted sub">{x.motif} · {fmtShort(x.r.dep)} → {fmt(x.r.ret)}{t(' · departure ')}{rel(x.r.toGo)}</div>
+                      <div className="sub-11" style={{ color: 'var(--color-accent-300)' }}>{d.originLabel(x)}</div>
                     </div>
-                    <Tag cls={TRIP_CLS[t.r.status]} style={{ flex: 'none' }}>{TRIP_LABEL[t.r.status]}</Tag>
+                    <Tag cls={TRIP_CLS[x.r.status]} style={{ flex: 'none' }}>{TRIP_LABEL[x.r.status]}</Tag>
                   </div>
-                  <Chips items={chips.length ? chips : [{ key: 'ok', label: 'Dossier complet', cls: 'tag-neutral' }]} />
+                  <Chips items={chips.length ? chips : [{ key: 'ok', label: t('File complete'), cls: 'tag-neutral' }]} />
                 </div>
               </div>
             );
           })}
-          {trips.length === 0 && <Empty>Aucun déplacement prévu.</Empty>}
+          {trips.length === 0 && <Empty>{t('No trip planned.')}</Empty>}
         </Panel>
 
         {sel && <TripPanel panneau={panneau} t={sel} onClose={() => setUi({ tripSel: null })} onOpenEmp={() => openEmp(sel.emp.id)} />}
       </div>
 
       {annules.length > 0 && (
-        <Panel title="Déplacements annulés" aside="historique · hors du dossier à préparer et du Go / No Go">
+        <Panel title={t('Cancelled trips')} aside={t('history · outside the file to prepare and the Go / No Go')}>
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Collaborateur</th><th>Déplacement</th><th>Annulation</th><th>Motif</th></tr></thead>
+              <thead><tr><th>{t('Employee')}</th><th>{t('Trip')}</th><th>{t('Cancellation')}</th><th>{t('Reason')}</th></tr></thead>
               <tbody>
-                {annules.map(t => (
-                  <tr key={t.id}>
-                    <td><Two nowrap main={d.personName(t.empId)} sub={d.originLabel(t)} /></td>
-                    <td><Two main={`${d.destOf(t.dest)?.pays ?? t.dest} · ${fmtShort(parse(t.depart))} → ${fmt(parse(t.retour))}`} sub={t.motif} /></td>
-                    <td><Two nowrap main={fmt(parse(t.annuleLe!))} sub={t.annulePar ?? ''} /></td>
-                    <td className="text-muted">{t.annuleMotif || '—'}</td>
+                {annules.map(x => (
+                  <tr key={x.id}>
+                    <td><Two nowrap main={d.personName(x.empId)} sub={d.originLabel(x)} /></td>
+                    <td><Two main={`${d.destOf(x.dest)?.pays ?? x.dest} · ${fmtShort(parse(x.depart))} → ${fmt(parse(x.retour))}`} sub={x.motif} /></td>
+                    <td><Two nowrap main={fmt(parse(x.annuleLe!))} sub={x.annulePar ?? ''} /></td>
+                    <td className="text-muted">{x.annuleMotif || '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -157,30 +158,30 @@ export function Voyages() {
         </Panel>
       )}
 
-      <Panel title="Dossiers voyageurs" aside={plural(travelers.length, 'dossier voyageur', 'dossiers voyageurs')}>
+      <Panel title={t('Traveller files')} aside={tn(travelers.length, 'traveller file', 'traveller files')}>
         <div className="scroll-x">
           <table className="table">
-            <thead><tr><th>Collaborateur</th><th>Passeport</th><th>Visas · autorisations</th><th>Vaccinations</th><th>Prochain départ</th><th></th></tr></thead>
+            <thead><tr><th>{t('Employee')}</th><th>{t('Passport')}</th><th>{t('Visas · authorisations')}</th><th>{t('Vaccinations')}</th><th>{t('Next departure')}</th><th></th></tr></thead>
             <tbody>
               {travelers.map(({ e, tv, nt }) => (
                 <tr key={e.id} className="clickable" onClick={() => openEmp(e.id)}>
                   <td><Two nowrap main={<Ouvrir onOpen={() => openEmp(e.id)}>{e.nom}</Ouvrir>} sub={e.poste} /></td>
                   <td>
-                    <Two nowrap main={tv.pass ? `Valide jusqu’au ${fmt(tv.pass.exp)}` : 'Non renseigné'}
-                      sub={tv.pass ? (tv.pass.key === 'ok' ? `n° ${e.passeport!.numero}` : tv.pass.key === 'exp' ? 'expiré' : `expire ${rel(tv.pass.d)}`) : 'à fournir'} />
+                    <Two nowrap main={tv.pass ? `${t('Valid until ')}${fmt(tv.pass.exp)}` : t('Not entered')}
+                      sub={tv.pass ? (tv.pass.key === 'ok' ? `${t('no. ')}${e.passeport!.numero}` : tv.pass.key === 'exp' ? t('expired') : `${t('expires ')}${rel(tv.pass.d)}`) : t('to provide')} />
                   </td>
                   <td>
                     {tv.visas.length > 0
-                      ? <Chips items={tv.visas.map(v => ({ key: v.dest, label: `${v.type} ${d.destOf(v.dest)?.pays ?? v.dest} · ${v.key === 'exp' ? 'expiré' : 'jusqu’au ' + fmtShort(v.exp)}`, cls: docCls(v.key) }))} />
+                      ? <Chips items={tv.visas.map(v => ({ key: v.dest, label: `${v.type} ${d.destOf(v.dest)?.pays ?? v.dest} · ${v.key === 'exp' ? t('expired') : t('until #le') + fmtShort(v.exp)}`, cls: docCls(v.key) }))} />
                       : <span className="text-muted">—</span>}
                   </td>
                   <td>
                     {tv.vaccins.length > 0
-                      ? <Chips items={tv.vaccins.map(x => ({ key: x.v, label: `${x.vm.court}${x.exp ? ' · ' + (x.key === 'exp' ? 'rappel dépassé' : x.exp.getFullYear()) : ''}`, cls: docCls(x.key) }))} />
-                      : <span className="text-muted">Aucune enregistrée</span>}
+                      ? <Chips items={tv.vaccins.map(x => ({ key: x.v, label: `${x.vm.court}${x.exp ? ' · ' + (x.key === 'exp' ? t('booster overdue') : x.exp.getFullYear()) : ''}`, cls: docCls(x.key) }))} />
+                      : <span className="text-muted">{t('None recorded#fem')}</span>}
                   </td>
-                  <td><Two nowrap main={nt ? `${nt.r.dest.pays} · ${fmt(parse(nt.depart))}` : '—'} sub={nt ? TRIP_LABEL[nt.r.status] : 'aucun déplacement prévu'} /></td>
-                  <td className="right"><Btn small onClick={stop(() => openDialog({ type: 'fo', empId: e.id }))}>Formalité</Btn></td>
+                  <td><Two nowrap main={nt ? `${nt.r.dest.pays} · ${fmt(parse(nt.depart))}` : '—'} sub={nt ? TRIP_LABEL[nt.r.status] : t('no trip planned')} /></td>
+                  <td className="right"><Btn small onClick={stop(() => openDialog({ type: 'fo', empId: e.id }))}>{t('Formality')}</Btn></td>
                 </tr>
               ))}
             </tbody>
@@ -188,10 +189,10 @@ export function Voyages() {
         </div>
       </Panel>
 
-      <Panel title="Référentiel destinations" aside={<Btn small onClick={() => go('referentiels', { refOnglet: 'destinations' })}>Modifier les destinations</Btn>}>
+      <Panel title={t('Destinations reference data')} aside={<Btn small onClick={() => go('referentiels', { refOnglet: 'destinations' })}>{t('Edit the destinations')}</Btn>}>
         <div className="scroll-x">
           <table className="table">
-            <thead><tr><th>Pays</th><th>Entrée</th><th>Sécurité sociale</th><th>Vaccin obligatoire</th><th>Vaccins recommandés</th><th>Passeport</th><th>Vigilance</th></tr></thead>
+            <thead><tr><th>{t('Country')}</th><th>{t('Entry')}</th><th>{t('Social security')}</th><th>{t('Compulsory vaccine')}</th><th>{t('Recommended vaccines')}</th><th>{t('Passport')}</th><th>{t('Vigilance')}</th></tr></thead>
             <tbody>
               {actifs(data.referentiels.destinations).map(x => {
                 const rule = VISA_RULES[x.visa], secu = SECU_RULES[secuDe(x)];
@@ -202,41 +203,41 @@ export function Voyages() {
                     <td><Two main={secu.label} sub={secu.portee} /></td>
                     <td>{x.oblig.length ? d.vaccinNames(x.oblig) : '—'}</td>
                     <td className="text-muted">{d.vaccinNames([...x.rec, 'dtp'])}</td>
-                    <td className="text-muted">{x.passMois ? `${x.passMois} mois après l’entrée` : 'Valide pendant le séjour'}</td>
+                    <td className="text-muted">{x.passMois ? `${x.passMois}${t(' months after entry')}` : t('Valid during the stay')}</td>
                     {/* Vigilance France Diplomatie (t068) : couleur et jour de la dernière vérification. */}
-                    <td><Two nowrap main={x.vigilance ? <Tag cls={VIGILANCES[x.vigilance].cls}>{x.vigilance}</Tag> : 'Non renseignée'} sub={x.vigilanceLe ? `vérifiée le ${fmtShort(parse(x.vigilanceLe))}` : undefined} /></td>
+                    <td><Two nowrap main={x.vigilance ? <Tag cls={VIGILANCES[x.vigilance].cls}>{x.vigilance}</Tag> : t('Not entered#fem')} sub={x.vigilanceLe ? `${t('checked on #fem')}${fmtShort(parse(x.vigilanceLe))}` : undefined} /></td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
-        <Fine>Données indicatives tenues par le service RH (écran Référentiels) — à vérifier sur France Diplomatie, auprès d’un centre de vaccinations internationales et, pour la sécurité sociale, sur cleiss.fr avant chaque départ.</Fine>
+        <Fine>{t('Indicative data kept by HR (Reference data screen) — to check on France Diplomatie, with an international vaccination centre and, for social security, on cleiss.fr before each departure.')}</Fine>
       </Panel>
     </Page>
   );
 }
 
 /** Dossier voyage du déplacement sélectionné : pièces exigées et actions. */
-function TripPanel({ panneau, t, onClose, onOpenEmp }: { panneau: RefObject<HTMLElement | null>; t: TripX; onClose: () => void; onOpenEmp: () => void }) {
+function TripPanel({ panneau, t: v, onClose, onOpenEmp }: { panneau: RefObject<HTMLElement | null>; t: TripX; onClose: () => void; onOpenEmp: () => void }) {
   const { d } = useEnriched();
   const { openDialog } = useStore();
   const { rh } = useRole();
-  const r = t.r;
+  const r = v.r;
   return (
     <aside ref={panneau} tabIndex={-1} aria-labelledby="dossier-voyage-nom" className="card elev-md panneau-colonne" style={{ flex: '0 1 400px' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <h3 id="dossier-voyage-nom">{t.emp.nom}</h3>
-          <div className="text-muted" style={{ fontSize: 13 }}>{r.dest.pays} — {t.motif}</div>
+          <h3 id="dossier-voyage-nom">{v.emp.nom}</h3>
+          <div className="text-muted" style={{ fontSize: 13 }}>{r.dest.pays} — {v.motif}</div>
         </div>
         <CloseButton onClick={onClose} />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
         <Tag cls={TRIP_CLS[r.status]}>{TRIP_LABEL[r.status]}</Tag>
-        <span className="text-muted sub">{fmt(r.dep)} → {fmt(r.ret)} · départ {rel(r.toGo)}</span>
-        <span className="note-accent">{d.originLabel(t)}</span>
-        {t.demandeur && <span className="text-muted sub">Demandé par {t.demandeur}</span>}
+        <span className="text-muted sub">{fmt(r.dep)} → {fmt(r.ret)}{t(' · departure ')}{rel(r.toGo)}</span>
+        <span className="note-accent">{d.originLabel(v)}</span>
+        {v.demandeur && <span className="text-muted sub">{t('Requested by ')}{v.demandeur}</span>}
       </div>
       <div className="list">
         {r.items.map(i => (
@@ -247,26 +248,26 @@ function TripPanel({ panneau, t, onClose, onOpenEmp }: { panneau: RefObject<HTML
             </div>
             {!i.ok && i.fix && (
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <Btn small onClick={() => openDialog({ type: 'fo', empId: t.emp.id, kind: i.fix!.kind, dest: i.fix!.dest, v: i.fix!.v })}>{itemAction(i)}</Btn>
+                <Btn small onClick={() => openDialog({ type: 'fo', empId: v.emp.id, kind: i.fix!.kind, dest: i.fix!.dest, v: i.fix!.v })}>{itemAction(i)}</Btn>
               </div>
             )}
             {(i.k === 'detachement' || i.k === 'information') && (
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <Btn small onClick={() => openDialog({ type: 'detachement', id: t.id })}>{detachementAction(i)}</Btn>
+                <Btn small onClick={() => openDialog({ type: 'detachement', id: v.id })}>{detachementAction(i)}</Btn>
               </div>
             )}
           </div>
         ))}
       </div>
-      <VoyageVigilance t={t} />
+      <VoyageVigilance t={v} />
       {/* lot 11 — notes de frais : notes rattachées au déplacement (service RH ; manager de l'équipe). */}
-      <FraisRattaches titre="Notes de frais" filtre={n => n.voyageId === t.id} nouvelle={rh ? { empId: t.emp.id, voyageId: t.id } : undefined} />
-      <Fine>{d.destSummary(r.dest)} Exigences tenues à jour par le service RH — à vérifier sur France Diplomatie avant le départ.</Fine>
+      <FraisRattaches titre={t('Expense reports')} filtre={n => n.voyageId === v.id} nouvelle={rh ? { empId: v.emp.id, voyageId: v.id } : undefined} />
+      <Fine>{d.destSummary(r.dest)}{t(' Requirements kept up to date by HR — to check on France Diplomatie before the departure.')}</Fine>
       <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center' }}>
-        <Btn onClick={onOpenEmp}>Fiche collaborateur →</Btn>
+        <Btn onClick={onOpenEmp}>{t('Employee sheet →')}</Btn>
         {/* Modification (dates ; destination et motif hors Keystone) et annulation : service RH, Keystone prévenu. */}
-        {rh && <Btn onClick={() => openDialog({ type: 'tripModifier', id: t.id })}>Modifier le déplacement</Btn>}
-        {rh && <Btn onClick={() => openDialog({ type: 'confirmer', c: annulationVoyage(t, t.emp.nom, `${r.dest.pays} du ${fmtShort(r.dep)} au ${fmt(r.ret)}`) })}>Annuler le déplacement</Btn>}
+        {rh && <Btn onClick={() => openDialog({ type: 'tripModifier', id: v.id })}>{t('Edit the trip')}</Btn>}
+        {rh && <Btn onClick={() => openDialog({ type: 'confirmer', c: annulationVoyage(v, v.emp.nom, `${r.dest.pays}${t(' from #du')}${fmtShort(r.dep)}${t(' to #au')}${fmt(r.ret)}`) })}>{t('Cancel the trip')}</Btn>}
       </div>
     </aside>
   );

@@ -10,6 +10,7 @@ import { euros } from '../components/frais/commun.ts';
 import { nombreSaisi } from '../components/frais/saisie.ts';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function FraisPlafondDialog({ id }: { id: number }) {
   const d = useDomain();
@@ -21,7 +22,7 @@ export function FraisPlafondDialog({ id }: { id: number }) {
   const v = useVerification();
   if (!l) return null;
   const n = nombreSaisi(montant);
-  const err = montant.trim() && (n === null || n < 0 || n > l.montantEur) ? `Montant de 0 à ${euros(l.montantEur)}.` : null;
+  const err = montant.trim() && (n === null || n < 0 || n > l.montantEur) ? `${t('Amount from 0 to ')}${euros(l.montantEur)}.` : null;
 
   const envoyer = async () => {
     if (busy || !v.verifier(err)) return;
@@ -32,15 +33,15 @@ export function FraisPlafondDialog({ id }: { id: number }) {
   };
 
   return (
-    <Dialog title="Montant retenu" width={480} onSubmit={envoyer} actions={<>
+    <Dialog title={t('Amount retained')} width={480} onSubmit={envoyer} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Enregistrer</SubmitButton>
+      <SubmitButton busy={busy}>{t('Save')}</SubmitButton>
     </>}>
-      <Field label="Dépense"><Static>{`${l.date} · ${CATEGORIES_FRAIS[l.categorie].label} · ${euros(l.montantEur)} demandés`}</Static></Field>
-      <Field label="Montant retenu (€), vide : le montant demandé" htmlFor="frais-plafond" erreur={v.erreur(err) || err}>
+      <Field label={t('Expense')}><Static>{`${l.date} · ${CATEGORIES_FRAIS[l.categorie].label} · ${euros(l.montantEur)}${t(' requested#plural')}`}</Static></Field>
+      <Field label={t('Amount retained (€), empty: the amount requested')} htmlFor="frais-plafond" erreur={v.erreur(err) || err}>
         <input className="input tnum" id="frais-plafond" inputMode="decimal" value={montant} onChange={ev => setMontant(ev.target.value)} autoFocus />
       </Field>
-      <Fine>{plafond !== null ? `Plafond de la politique pour cette catégorie : ${euros(plafond)}.` : 'Aucun plafond réglé pour cette catégorie.'} Seul le montant retenu est remboursé.</Fine>
+      <Fine>{plafond !== null ? `${t('Cap of the policy for this category: ')}${euros(plafond)}.` : t('No cap set for this category.')}{t(' Only the amount retained is reimbursed.')}</Fine>
     </Dialog>
   );
 }

@@ -4,29 +4,31 @@ import { ENT_TYPES } from '../../../shared/constants.ts';
 import { fmtIso } from '../../../shared/format.ts';
 import type { Entretien, Voyage } from '../../../shared/types.ts';
 import type { Confirmation } from './confirmations.ts';
+import { t } from '../i18n/langue.ts';
 
 /**
  * Annulation d'un déplacement par le service RH. `quoi` : « Maroc du 2 nov. au 6 nov. 2026 ». Venu de Keystone : motif
  * obligatoire, Keystone prévenu sans le motif ; sinon motif facultatif. Le motif reste dans Cursus (service RH ; le
  * salarié le retrouve dans la copie de ses données, au titre du droit d'accès).
  */
-export function annulationVoyage(t: Pick<Voyage, 'id' | 'origine' | 'chantier'>, nom: string, quoi: string): Confirmation {
-  const keystone = t.origine === 'keystone';
+export function annulationVoyage(v: Pick<Voyage, 'id' | 'origine' | 'chantier'>, nom: string, quoi: string): Confirmation {
+  const keystone = v.origine === 'keystone';
+  // Chaînes sources anglaises (CU-N01), comme l'écran Voyages qui l'ouvre.
   return {
-    titre: 'Annuler le déplacement',
-    question: `Annuler le déplacement de ${nom} : ${quoi} ?`,
+    titre: t('Cancel the trip'),
+    question: `${t('Cancel the trip of ')}${nom} : ${quoi} ?`,
     suites: [
-      'Le déplacement reste dans l’historique (écran Voyages), mais ne compte plus : dossier à préparer, Go / No Go, conflits de dates et échéances.',
-      keystone ? `Keystone est prévenu de l’annulation (chantier ${t.chantier}), sans le motif.` : '',
-      'L’annulation est définitive : un nouveau déplacement se crée s’il y a lieu.',
+      t('The trip stays in the history (Trips screen), but no longer counts: file to prepare, Go / No Go, date conflicts and due dates.'),
+      keystone ? `${t('Keystone is told of the cancellation (worksite ')}${v.chantier}${t('), without the reason.')}` : '',
+      t('The cancellation is final: a new trip is created if needed.'),
     ].filter(Boolean),
-    bouton: 'Annuler le déplacement',
+    bouton: t('Cancel the trip'),
     action: 'voyage.annuler',
-    payload: { id: t.id },
+    payload: { id: v.id },
     motif: {
-      label: 'Motif de l’annulation', requis: keystone,
-      aide: 'Le motif reste dans Cursus : jamais transmis à Keystone ni montré au manager ; le salarié peut le lire dans la copie de ses données (droit d’accès). N’y indiquez aucune information médicale.',
-      placeholder: 'Chantier reporté, mission confiée à un autre technicien…',
+      label: t('Reason for the cancellation'), requis: keystone,
+      aide: t('The reason stays in Cursus: never sent to Keystone nor shown to the manager; the employee can read it in the copy of their data (right of access). Do not put any medical information in it.'),
+      placeholder: t('Worksite postponed, assignment given to another technician…'),
     },
     ensuite: { ui: { tripSel: null } },
   };

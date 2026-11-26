@@ -7,6 +7,7 @@ import { CancelButton, Controles, Dialog, Field, SubmitButton, useVerification }
 import { erreursPeriode, erreurTexte } from '../components/controles.ts';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function TripDialog() {
   const d = useDomain();
@@ -22,9 +23,9 @@ export function TripDialog() {
   const [busy, setBusy] = useState(false);
   const v = useVerification();
   const destDef = d.destOf(dest);
-  const dates = erreursPeriode(depart, retour, { du: 'Indiquez la date de départ.', au: 'Indiquez la date de retour.' });
-  const motifErr = erreurTexte(motif, 'Indiquez le motif du déplacement.');
-  const destErr = destDef ? null : dests.length ? 'Choisissez la destination.' : 'Aucune destination au référentiel : ajoutez-la dans l’écran Référentiels.';
+  const dates = erreursPeriode(depart, retour, { du: t('Enter the departure date.'), au: t('Enter the return date.') });
+  const motifErr = erreurTexte(motif, t('Enter the reason for the trip.'));
+  const destErr = destDef ? null : dests.length ? t('Choose the destination.') : t('No destination in the reference data: add it in the Reference data screen.');
   // Conflits d'une période valide, affichés en direct : un autre déplacement ou une absence en vigueur bloquent l'envoi.
   const conflits = !dates.du && !dates.au ? conflitsDates(d, empId, depart, retour, 'voyage') : [];
 
@@ -39,30 +40,30 @@ export function TripDialog() {
   };
 
   return (
-    <Dialog title="Nouveau déplacement" width={560} onSubmit={confirm} actions={<>
+    <Dialog title={t('New trip')} width={560} onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Créer le déplacement</SubmitButton>
+      <SubmitButton busy={busy}>{t('Create the trip')}</SubmitButton>
     </>}>
       <div className="grid-2">
-        <Field label="Collaborateur" htmlFor="tr-emp">
+        <Field label={t('Employee')} htmlFor="tr-emp">
           <select className="input" id="tr-emp" value={empId} onChange={e => setEmpId(Number(e.target.value))}>
             {empOptions.map(o => <option key={o.id} value={o.id}>{o.nom}</option>)}
           </select>
         </Field>
-        <Field label="Destination" htmlFor="tr-dest" erreur={v.erreur(destErr)}>
+        <Field label={t('Destination')} htmlFor="tr-dest" erreur={v.erreur(destErr)}>
           <select className="input" id="tr-dest" value={dest} onChange={e => setDest(e.target.value)}>
             {dests.map(o => <option key={o.code} value={o.code}>{o.pays}</option>)}
           </select>
         </Field>
       </div>
       <div className="grid-2">
-        <Field label="Départ" htmlFor="tr-dep" requis erreur={v.erreur(dates.du)}><input className="input" id="tr-dep" type="date" value={depart} onChange={e => setDepart(e.target.value)} /></Field>
-        <Field label="Retour" htmlFor="tr-ret" requis erreur={retour && dates.au && !dates.du ? dates.au : v.erreur(dates.au)}>
+        <Field label={t('Departure')} htmlFor="tr-dep" requis erreur={v.erreur(dates.du)}><input className="input" id="tr-dep" type="date" value={depart} onChange={e => setDepart(e.target.value)} /></Field>
+        <Field label={t('Return#trip')} htmlFor="tr-ret" requis erreur={retour && dates.au && !dates.du ? dates.au : v.erreur(dates.au)}>
           <input className="input" id="tr-ret" type="date" min={depart || undefined} value={retour} onChange={e => setRetour(e.target.value)} />
         </Field>
       </div>
       <Controles msgs={conflits} />
-      <Field label="Motif" htmlFor="tr-motif" requis erreur={v.erreur(motifErr)}><input className="input" id="tr-motif" type="text" placeholder="Visite client — Casablanca" value={motif} onChange={e => setMotif(e.target.value)} /></Field>
+      <Field label={t('Reason')} htmlFor="tr-motif" requis erreur={v.erreur(motifErr)}><input className="input" id="tr-motif" type="text" placeholder={t('Customer visit — Casablanca')} value={motif} onChange={e => setMotif(e.target.value)} /></Field>
       <p className="text-muted fine">{destDef ? d.destSummary(destDef) : ''}</p>
     </Dialog>
   );

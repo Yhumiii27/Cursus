@@ -47,10 +47,22 @@ rechargement.
   sélecteur d'organisme), Congés & absences (soldes, demandes, règles, natures, clôtures, fractionnement, informations au
   retour, monétisations du CET et tous leurs dialogues ; mention « Lecture seule » de `components/Hierarchie.tsx`), avec les
   confirmations qu'ils ouvrent (`confirmations-attente.ts`, `confirmations-cet.ts`, abandon et suppression d'une
-  inscription d'e-learning, désinscription et refus d'une absence de `confirmations.ts`). Restent en français : le motif
-  prérempli d'une demande de formation (texte saisi), les en-têtes des exports CSV, les jours abrégés de `SessionDialog`
-  (comme les dates), les dialogues d'e-learning (inscrire, terminer, corriger, importer). Tous les autres écrans restent en
-  français en dur.
+  inscription d'e-learning, désinscription et refus d'une absence de `confirmations.ts`), Notes de frais (Mes frais,
+  validation, contrôle, avances, exports comptables, tableau de bord, historique et recherche, notes rattachées ; dialogues
+  de dépense, de note, d'avance, de montant retenu, de véhicule, de taux, de limite d'exonération et de barème ;
+  `confirmations-frais.ts`), Tableau de bord (indicateurs, demandes des collaborateurs et leur refus, acceptation sur liste
+  d'attente, contrats, couvertures des équipes et des postes planifiés, habilitations des postes planifiés, dossiers à
+  effacer), Échéances (avec fiches à compléter et dossiers OPCO), Missions & déplacements (planning des 4 semaines, grand
+  déplacement), la saisie du jour des feuilles de temps (`SaisieJour.tsx`, `HorairesFeuille.tsx`), Voyages (dossier voyage,
+  vigilance, dialogues de déplacement, d'import, de détachement et de formalité ; refus Keystone et annulation d'un
+  déplacement). Restent en français : le motif prérempli d'une demande de formation (texte saisi), les en-têtes des exports
+  CSV, les jours abrégés de `SessionDialog` et les mois des notes de frais (comme les dates), les dialogues d'e-learning
+  (inscrire, terminer, corriger, importer), les libellés de `shared/` (statuts et catégories des notes de frais, types de
+  véhicule, alertes, échéances, destinations). Tous les autres écrans restent en français en dur (prochains : Collaborateurs
+  et sa fiche avec ses dialogues, la grille de la semaine de `Temps.tsx`, Équipes et le reste de `Hierarchie.tsx`).
+- Table exportée déjà lue par sa valeur (module sans React, test) : `traduites({ clé: 'English source' })` de
+  `i18n/langue.ts` rend chaque libellé dans la langue affichée à la lecture (`LIBELLES_ONGLETS_FRAIS`, `MARQUE` du planning
+  des missions).
 - Contexte suivi d'un blanc : le blanc avant le contexte (`' on #le'`, `'Save #verb'`), jamais après (`sansContexte` ne
   retire qu'un contexte final).
 

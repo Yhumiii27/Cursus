@@ -44,7 +44,7 @@ export interface Confirmation {
 
 /** Motif obligatoire d'un refus, lu par `lecteurs`. */
 const motifRefus = (lecteurs: string, placeholder: string) => ({
-  label: 'Motif du refus', requis: true, aide: `Le motif est visible de ${lecteurs} : n’y indiquez aucune information médicale.`, placeholder,
+  label: t('Reason for the refusal'), requis: true, aide: `${t('The reason is visible to ')}${lecteurs}${t(': do not put any medical information in it.')}`, placeholder,
 });
 
 /**
@@ -76,13 +76,14 @@ export function refusDemande(r: { id: number; type: string }, nom: string, objet
  */
 export function refusAbsence(a: { id: number }, nom: string, quoi: string, manager?: string | null): Confirmation {
   return {
-    titre: 'Refuser la demande d’absence',
-    question: `Refuser la demande de ${nom} : ${quoi} ?`,
-    suites: ['Le solde n’est pas débité et Keystone n’est pas prévenu.', `${nom} voit le refus et son motif dans ses absences${manager ? `, comme son manager, ${manager}` : ''}.`],
-    bouton: 'Refuser la demande',
+    // Chaînes sources anglaises (CU-N01), comme l'écran Congés & absences qui l'ouvre.
+    titre: t('Refuse the absence request'),
+    question: `${t('Refuse the request of ')}${nom} : ${quoi} ?`,
+    suites: [t('The balance is not debited and Keystone is not told.'), `${nom}${t(' sees the refusal and its reason in their absences')}${manager ? `${t(', like their manager, ')}${manager}` : ''}.`],
+    bouton: t('Refuse the request'),
     action: 'absence.decider',
     payload: { id: a.id, ok: false },
-    motif: motifRefus(manager ? `${nom} et de son manager, ${manager}` : nom, 'Période de forte activité, effectif minimum non atteint…'),
+    motif: motifRefus(manager ? `${nom}${t(' and to their manager, ')}${manager}` : nom, t('Period of heavy activity, minimum staffing not reached…')),
   };
 }
 

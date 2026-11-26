@@ -14,13 +14,14 @@ export type FiltrePeriode = 'toutes' | 'a-venir' | 'passees';
 export interface FiltresAbsences { statut: FiltreStatut; type: FiltreType; periode: FiltrePeriode }
 export const SANS_FILTRE: FiltresAbsences = { statut: 'tous', type: 'tous', periode: 'toutes' };
 
+// Libellés des filtres : chaînes sources anglaises, traduites au rendu (CU-N01).
 export const FILTRES_STATUT: [FiltreStatut, string][] = [
-  ['tous', 'Tous les états'], ['a-traiter', 'À traiter'], ['validee', 'Validées ou qualifiées'], ['refusee', 'Refusées'], ['annulee', 'Annulées'],
+  ['tous', 'All states'], ['a-traiter', 'To handle'], ['validee', 'Approved or qualified#fem-plural'], ['refusee', 'Refused#fem-plural'], ['annulee', 'Cancelled#fem-plural'],
 ];
 export const FILTRES_TYPE: [FiltreType, string][] = [
-  ['tous', 'Tous les types'], ['CP', 'Congés payés'], ['RTT', 'RTT / repos'], ['RECUP', 'Récupération'], ['hors', 'Absences hors congés'],
+  ['tous', 'All types'], ['CP', 'Paid leave'], ['RTT', 'RTT / rest'], ['RECUP', 'Time off in lieu'], ['hors', 'Absences other than leave'],
 ];
-export const FILTRES_PERIODE: [FiltrePeriode, string][] = [['toutes', 'Toutes les dates'], ['a-venir', 'En cours ou à venir'], ['passees', 'Passées']];
+export const FILTRES_PERIODE: [FiltrePeriode, string][] = [['toutes', 'All dates'], ['a-venir', 'In progress or upcoming'], ['passees', 'Past#fem-plural']];
 
 /**
  * L'absence passe-t-elle les filtres ? « À traiter » : demandes et signalements ; « hors congés » : toute absence qui

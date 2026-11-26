@@ -14,6 +14,7 @@ import { Fine, NoteAccent } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { decideur } from '../state/delegues.ts';
+import { t } from '../i18n/langue.ts';
 
 export function AbsAnnulerDialog({ id }: { id: number }) {
   const d = useDomain();
@@ -33,12 +34,12 @@ export function AbsAnnulerDialog({ id }: { id: number }) {
   const renvoi = !!sans && d.ds.feuilles.some(sh => sh.empId === emp.id && sh.statut === 'soumise' && sh.week <= a.au && addD(sh.week, 4) >= a.du
     && !sh.lignes.some(l => l.h.some(h => num(h) > 0)) && !semaineCouverte(sans, emp, sh.week, sh));
   const suites = [
-    n ? `${a.type === 'RECUP' ? fH(n * d.dayH(emp)) + ' de récupération' : `${fJ(n)} de ${a.type}`} de nouveau disponible${n > 1 ? 's' : ''} sur le solde.` : '',
-    a.keystone ? 'Keystone est prévenu : la période redevient disponible pour la planification.' : '',
+    n ? `${a.type === 'RECUP' ? fH(n * d.dayH(emp)) + t(' of time off in lieu') : `${fJ(n)}${t(' of #de')}${a.type}`}${t(n > 1 ? ' available again#plural' : ' available again')}${t(' on the balance.')}` : '',
+    a.keystone ? t('Keystone is told: the period becomes available again for planning.') : '',
     d.ds.feuilles.some(sh => sh.empId === emp.id && sh.statut === 'validee' && sh.week <= a.au && addD(sh.week, 6) >= a.du)
-      ? 'Les feuilles de temps déjà validées ne sont pas modifiées : des heures travaillées ces jours-là restent à régulariser.' : '',
-    renvoi ? 'La feuille de temps soumise sans heure pour ces jours est renvoyée au salarié pour saisie des heures.' : '',
-    rh && natureDef(a.type)?.reprise && emp.repriseDate ? 'La date de reprise inscrite sur la fiche est recalculée.' : '',
+      ? t('The timesheets already approved are not changed: hours worked those days remain to be adjusted.') : '',
+    renvoi ? t('The timesheet submitted without hours for these days is sent back to the employee to enter the hours.') : '',
+    rh && natureDef(a.type)?.reprise && emp.repriseDate ? t('The return date entered on the sheet is recalculated.') : '',
   ].filter(Boolean);
 
   const confirm = async () => {
@@ -50,19 +51,19 @@ export function AbsAnnulerDialog({ id }: { id: number }) {
   };
 
   return (
-    <Dialog title={a.statut === 'demandee' ? 'Retirer une demande' : 'Annuler une absence'} width={520} onSubmit={confirm} actions={<>
-      <CancelButton label="Fermer" />
+    <Dialog title={t(a.statut === 'demandee' ? 'Withdraw a request' : 'Cancel an absence')} width={520} onSubmit={confirm} actions={<>
+      <CancelButton label={t('Close')} />
       {/* Annulation hors droits : la raison s'affiche, sans bouton qui ne mènerait à rien. */}
       {droit.ok && <SubmitButton busy={busy}>{droit.libelle}</SubmitButton>}
     </>}>
       <div className="grid-2">
-        <Field label="Collaborateur"><Static>{emp.nom}</Static></Field>
-        <Field label="Absence"><Static>{ABS_LABEL[a.type]} · {statutAbsence(a).toLowerCase()}</Static></Field>
+        <Field label={t('Employee')}><Static>{emp.nom}</Static></Field>
+        <Field label={t('Absence')}><Static>{ABS_LABEL[a.type]} · {statutAbsence(a).toLowerCase()}</Static></Field>
       </div>
-      <div className="boxed text-muted sub">{periodeDemiTexte(a)}{a.signalePar ? ` · signalée le ${fmtIso(a.signaleLe!)} par ${a.signalePar}` : ''}</div>
+      <div className="boxed text-muted sub">{periodeDemiTexte(a)}{a.signalePar ? `${t(' · reported on #fem')}${fmtIso(a.signaleLe!)}${t(' by ')}${a.signalePar}` : ''}</div>
       {!droit.ok && <NoteAccent>{droit.raison}</NoteAccent>}
       {droit.ok && suites.map(s => <Fine key={s} muted={false}>{s}</Fine>)}
-      <Fine>L’absence reste visible comme annulée, avec la date et l’auteur de l’annulation.</Fine>
+      <Fine>{t('The absence stays visible as cancelled, with the date and the author of the cancellation.')}</Fine>
     </Dialog>
   );
 }

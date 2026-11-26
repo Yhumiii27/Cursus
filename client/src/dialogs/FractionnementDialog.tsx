@@ -4,13 +4,14 @@
 // crédit d'office ; un membre du RH ne décide pas pour lui-même. Une ligne décidée entre-temps (autre onglet, autre
 // membre du RH) est ignorée par le serveur, qui le dit dans son message.
 import { useMemo, useState } from 'react';
-import { equipeLabel, fJ, fmtIso, plural } from '../../../shared/format.ts';
+import { equipeLabel, fJ, fmtIso } from '../../../shared/format.ts';
 import { finPeriodeCp, periodeCp } from '../../../shared/rules/conges.ts';
 import { CREDIT_MAX, etatTexte, fenetrePrincipale, fenetreTexte, fractionnementsAProposer, regleFractionnement, type LigneFractionnement } from '../../../shared/rules/fractionnement.ts';
 import { Bloquant, CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Empty, Fine, Seg } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 /** Choix du service RH pour une ligne : vide (plus tard), crédit (jours saisis) ou renonciation du salarié. */
 interface Choix { decision: 'crediter' | 'renoncer' | ''; jours: string }
@@ -37,11 +38,11 @@ export function FractionnementDialog({ periode }: { periode: number }) {
     const c = choix(l);
     if (c.decision !== 'crediter') return null;
     const j = Number(c.jours.replace(',', '.'));
-    return !c.jours.trim() || Number.isNaN(j) ? 'Indiquez le nombre de jours.'
-      : regle === 'legal' && j !== 1 && j !== 2 ? '1 ou 2 jours (art. L3141-23).'
-      : !(j > 0) || j > max || (j * 2) % 1 !== 0 ? `${fJ(max)} au plus, par demi-journée.` : null;
+    return !c.jours.trim() || Number.isNaN(j) ? t('Enter the number of days.')
+      : regle === 'legal' && j !== 1 && j !== 2 ? t('1 or 2 days (art. L3141-23).')
+      : !(j > 0) || j > max || (j * 2) % 1 !== 0 ? `${fJ(max)}${t(' at most, per half day.')}` : null;
   };
-  const rien = !decidees.length ? 'Choisissez le crédit ou la renonciation pour au moins un salarié.' : null;
+  const rien = !decidees.length ? t('Choose the credit or the waiver for at least one employee.') : null;
 
   const confirm = async () => {
     if (busy || !v.verifier(rien, ...decidees.map(erreur))) return;
@@ -57,11 +58,11 @@ export function FractionnementDialog({ periode }: { periode: number }) {
     if (r.ok) closeDialog();
   };
 
-  const titre = `Jours de fractionnement — congés payés ${periodeCp(periode)}`;
+  const titre = `${t('Split days — paid leave ')}${periodeCp(periode)}`;
   if (!lignes.length) {
     return (
-      <Dialog title={titre} actions={<CancelButton label="Fermer" />}>
-        <p className="text-muted" style={{ margin: 0 }}>Aucun jour de fractionnement à décider sur cette période.</p>
+      <Dialog title={titre} actions={<CancelButton label={t('Close')} />}>
+        <p className="text-muted" style={{ margin: 0 }}>{t('No split day to decide over this period.')}</p>
       </Dialog>
     );
   }
@@ -70,12 +71,10 @@ export function FractionnementDialog({ periode }: { periode: number }) {
   return (
     <Dialog title={titre} width={720} tall onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Enregistrer {decidees.length ? plural(decidees.length, 'décision', 'décisions') : 'les décisions'}</SubmitButton>
+      <SubmitButton busy={busy}>{t('Save #verb')}{decidees.length ? tn(decidees.length, 'decision', 'decisions') : t('the decisions')}</SubmitButton>
     </>}>
       <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>
-        Période du congé principal {fenetreTexte(fenetrePrincipale(d.ds.settings, periode))} terminée. Jours du congé principal (4 semaines, 5e exclue) pris
-        hors de cette période : 2 jours pour 6 jours ouvrables ou plus, 1 jour pour 3 à 5 (art. L3141-23{regle === 'accord' ? ' ; règle de l’accord d’entreprise à appliquer' : ''}).
-        Les jours crédités s’ajoutent aux droits de la période, jusqu’au {fmtIso(finPeriodeCp(periode))}. Le salarié peut y renoncer par écrit (art. L3141-19).
+        {t('Period of the main leave ')}{fenetreTexte(fenetrePrincipale(d.ds.settings, periode))}{t(' ended. Days of the main leave (4 weeks, 5th excluded) taken outside this period: 2 days for 6 working days (Mon–Sat) or more, 1 day for 3 to 5 (art. L3141-23')}{regle === 'accord' ? t('; rule of the company agreement to apply') : ''}{t('). The days credited are added to the entitlement of the period, until ')}{fmtIso(finPeriodeCp(periode))}{t('. The employee may waive them in writing (art. L3141-19).')}
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
         {decidables.map(l => {
@@ -85,32 +84,31 @@ export function FractionnementDialog({ periode }: { periode: number }) {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 14 }}>{l.e.nom}</div>
-                  <div className="text-muted sub">{equipeLabel(l.e)} · {etatTexte(l.etat)} · proposé : {fJ(l.propose)}</div>
+                  <div className="text-muted sub">{equipeLabel(l.e)} · {etatTexte(l.etat)}{t(' · offered: ')}{fJ(l.propose)}</div>
                 </div>
-                <Seg name={`fr-${l.e.id}`} label={`Décision pour ${l.e.nom}`} value={c.decision}
-                  options={[['', 'Plus tard'], ['crediter', 'Créditer'], ['renoncer', 'Renonciation']]} onChange={x => set(l, { decision: x })} />
+                <Seg name={`fr-${l.e.id}`} label={`${t('Decision for ')}${l.e.nom}`} value={c.decision}
+                  options={[['', t('Later')], ['crediter', t('Credit')], ['renoncer', t('Waiver')]]} onChange={x => set(l, { decision: x })} />
               </div>
               {c.decision === 'crediter' && (
-                <Field label="Jours crédités" htmlFor={`fr-j-${l.e.id}`} erreur={v.erreur(erreur(l))}>
+                <Field label={t('Days credited')} htmlFor={`fr-j-${l.e.id}`} erreur={v.erreur(erreur(l))}>
                   <input className="input" id={`fr-j-${l.e.id}`} type="text" inputMode="decimal" value={c.jours} onChange={ev => set(l, { jours: ev.target.value })} style={{ maxWidth: 120 }} />
                 </Field>
               )}
-              {c.decision === 'renoncer' && <Fine>Renonciation écrite du salarié, à conserver dans son dossier : aucun jour crédité.</Fine>}
+              {c.decision === 'renoncer' && <Fine>{t('Written waiver of the employee, to keep in their file: no day credited.')}</Fine>}
             </div>
           );
         })}
         {miennes.map(l => (
           <div key={l.e.id} className="boxed">
             <div style={{ fontSize: 14 }}>{l.e.nom}</div>
-            <div className="text-muted sub">Vos jours de fractionnement ({fJ(l.propose)} proposés) : décision par un autre membre du service RH.</div>
+            <div className="text-muted sub">{t('Your split days (')}{fJ(l.propose)}{t(' offered): decision by another member of HR.')}</div>
           </div>
         ))}
-        {!decidables.length && <Empty pad="sm">Aucune ligne à décider par vous.</Empty>}
+        {!decidables.length && <Empty pad="sm">{t('No line for you to decide.')}</Empty>}
       </div>
       {rien && v.tente && <Bloquant>{rien}</Bloquant>}
       <Fine>
-        À la validation : {plural(credites, 'crédit', 'crédits')}, {plural(decidees.length - credites, 'renonciation', 'renonciations')} ; une ligne laissée
-        « Plus tard » reste proposée. Chaque décision est tracée et définitive.
+        {t('On validation: ')}{tn(credites, 'credit', 'credits')}, {tn(decidees.length - credites, 'waiver', 'waivers')}{t('; a line left “Later” stays offered. Each decision is recorded and final.')}
       </Fine>
     </Dialog>
   );

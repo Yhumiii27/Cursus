@@ -303,7 +303,8 @@ test('combobox : une saisie partielle quittée sans choisir ne laisse jamais par
   // Les champs des formulaires sont obligatoires ; la valeur « aucun » déclenche l'erreur « Choisissez le collaborateur… ».
   for (const f of ['client/src/dialogs/AbsSignalDialog.tsx', 'client/src/dialogs/AbsNatureDialog.tsx', 'client/src/dialogs/ReqFormDialog.tsx'])
     assert.match(lire(f), /<ChoixCollaborateur [^>]*onChange=\{[^}]+\} requis erreur=/, `${f} : requis`);
-  assert.match(lire('client/src/dialogs/AbsSignalDialog.tsx'), /const empErr = !emp \? 'Choisissez le collaborateur absent\.' : null;/);
+  // Chaîne source anglaise (CU-N01) : « Choisissez le collaborateur absent. » en français.
+  assert.match(lire('client/src/dialogs/AbsSignalDialog.tsx'), /const empErr = !emp \? t\('Choose the absent employee\.'\) : null;/);
   assert.match(lire('client/src/components/ChoixCollaborateur.tsx'), /else if \(s\.type === 'invalider'\) emettre\(null\);/);
 });
 

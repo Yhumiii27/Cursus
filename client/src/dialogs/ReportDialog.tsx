@@ -10,6 +10,7 @@ import { erreurJours, erreurTexte } from '../components/controles.ts';
 import { CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function ReportDialog({ empId }: { empId: number }) {
   const d = useDomain();
@@ -28,7 +29,7 @@ export function ReportDialog({ empId }: { empId: number }) {
   const plafond = Math.max(0, cp.solde - cp.accorde);
   const j = Number(jours);
   const joursErr = erreurJours(jours, plafond);
-  const motifErr = erreurTexte(motif, 'Indiquez le motif du report.');
+  const motifErr = erreurTexte(motif, t('Enter the reason for the carry-over.'));
   const hist = d.ds.reports.filter(r => r.empId === empId);
 
   const confirm = async () => {
@@ -40,25 +41,23 @@ export function ReportDialog({ empId }: { empId: number }) {
   };
 
   return (
-    <Dialog title={`Reporter des congés payés — ${emp.nom}`} width={520} onSubmit={confirm} actions={<>
+    <Dialog title={`${t('Carry over paid leave')} — ${emp.nom}`} width={520} onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Accorder le report</SubmitButton>
+      <SubmitButton busy={busy}>{t('Grant the carry-over')}</SubmitButton>
     </>}>
       <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>
-        Solde CP {P.label} : {fJ(cp.solde)}{cp.accorde ? `, dont ${fJ(cp.accorde)} déjà reportés` : ''} — à prendre normalement avant le {fmt(parse(P.deadline))}.
-        Les jours reportés s’ajoutent aux droits de la période {periodeCp(A + 1)} à la clôture du {fmt(parse(finPeriodeCp(A)))}, dans la limite du solde restant alors.
-        Les RTT ne sont pas reportables (perdus au 31 décembre).
+        {t('CP balance ')}{P.label}{t(': ')}{fJ(cp.solde)}{cp.accorde ? `${t(', of which #comma')}${fJ(cp.accorde)}${t(' already carried over')}` : ''}{t(' — to take normally before ')}{fmt(parse(P.deadline))}{t('. The days carried over are added to the entitlement of the period ')}{periodeCp(A + 1)}{t(' at the closing of ')}{fmt(parse(finPeriodeCp(A)))}{t(', within the limit of the balance then remaining. RTT cannot be carried over (lost on 31 December).')}
       </p>
       <div className="grid-2" style={{ alignItems: 'start' }}>
-        <Field label="Jours" htmlFor="rp-j" requis erreur={v.erreur(joursErr)}>
+        <Field label={t('Days')} htmlFor="rp-j" requis erreur={v.erreur(joursErr)}>
           <input className="input" id="rp-j" type="number" min={0.5} step={0.5} max={plafond} value={jours} onChange={ev => setJours(ev.target.value)} style={{ textAlign: 'right' }} />
         </Field>
-        <Field label="Utilisables jusqu’au">
+        <Field label={t('Usable until')}>
           <Static>{fmt(parse(expire))}</Static>
         </Field>
       </div>
-      <Field label="Motif" htmlFor="rp-m" requis erreur={v.erreur(motifErr)}>
-        <input className="input" id="rp-m" type="text" placeholder="Arrêt de travail, charge de projet…" value={motif} onChange={ev => setMotif(ev.target.value)} />
+      <Field label={t('Reason')} htmlFor="rp-m" requis erreur={v.erreur(motifErr)}>
+        <input className="input" id="rp-m" type="text" placeholder={t('Sick leave, project workload…')} value={motif} onChange={ev => setMotif(ev.target.value)} />
       </Field>
       {hist.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
@@ -66,14 +65,14 @@ export function ReportDialog({ empId }: { empId: number }) {
             const x = periodeReport(r);
             return (
               <div key={r.id} className="text-muted sub">
-                {r.sens === 'recu' ? `Report reçu sur ${periodeCp(x.periode)}` : `Report accordé vers ${periodeCp(x.periode)}`} : {fJ(r.jours)} le {fmt(parse(r.date))} par {r.par}
-                {' '}— jusqu’au {fmt(parse(x.expire))}{r.motif ? ` — ${r.motif}` : ''}
+                {r.sens === 'recu' ? `${t('Carry-over received on ')}${periodeCp(x.periode)}` : `${t('Carry-over granted to ')}${periodeCp(x.periode)}`}{t(': ')}{fJ(r.jours)}{t(' on #le')}{fmt(parse(r.date))}{t(' by ')}{r.par}
+                {' '}{t('— until ')}{fmt(parse(x.expire))}{r.motif ? ` — ${r.motif}` : ''}
               </div>
             );
           })}
         </div>
       )}
-      <p className="text-muted fine">Échéance : le {fmt(parse(expire))}, fin de la période suivante (seul un report légal court au-delà). Décision tracée (auteur, date, échéance) ; le motif n’est lu que par le service RH et le salarié.</p>
+      <p className="text-muted fine">{t('Due: ')}{fmt(parse(expire))}{t(', end of the next period (only a legal carry-over runs beyond). Decision recorded (author, date, due date); the reason is read only by HR and the employee.')}</p>
     </Dialog>
   );
 }

@@ -103,6 +103,17 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
       'client/src/components/elearning/ElearningFormations.tsx', 'client/src/components/organismes/ChoixOrganisme.tsx',
       'client/src/state/confirmations-attente.ts'],
   },
+  {
+    // Soldes, demandes et absences, règles, natures ; clôtures, fractionnement, informations au retour, monétisations du CET ;
+    // dialogues de pose, signalement, qualification, prolongation, annulation, CET, report, monétisation, clôture et
+    // fractionnement ; confirmations qu'ils ouvrent (refus d'une absence, monétisation).
+    ecran: 'Congés & absences', fichiers: ['client/src/pages/Absences.tsx', 'client/src/pages/absences-filtres.ts',
+      'client/src/components/CloturesConges.tsx', 'client/src/components/Fractionnement.tsx', 'client/src/components/InformationsRetour.tsx',
+      'client/src/components/MonetisationsCet.tsx', 'client/src/dialogs/AbsDialog.tsx', 'client/src/dialogs/AbsSignalDialog.tsx',
+      'client/src/dialogs/AbsNatureDialog.tsx', 'client/src/dialogs/AbsProlongerDialog.tsx', 'client/src/dialogs/AbsAnnulerDialog.tsx',
+      'client/src/dialogs/CetDialog.tsx', 'client/src/dialogs/ReportDialog.tsx', 'client/src/dialogs/MonetisationCetDialog.tsx',
+      'client/src/dialogs/ClotureCongesDialog.tsx', 'client/src/dialogs/FractionnementDialog.tsx', 'client/src/state/confirmations-cet.ts'],
+  },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */
@@ -213,4 +224,18 @@ test('Expositions (C2P) : règles à paramètres, la phrase française d’avant
   assert.match(note, /^Une nuit compte quand le poste comprend au moins 1 h de travail entre 0 h et 5 h \(art\. D4163-2\),/);
   assert.match(note, /comptent au seuil de 50 nuits, les autres à celui de 120 ; seuils/);
   assert.equal(enFrancais('Settings → Privacy'), 'Paramètres → Confidentialité', 'segments');
+});
+
+test('Formations, Congés & absences : tables de libellés traduites au rendu, phrase française d’avant', async () => {
+  const { FILTRES_STATUT, FILTRES_TYPE, FILTRES_PERIODE } = await import('../client/src/pages/absences-filtres.ts');
+  const { FILTRES_ELEARNING } = await import('../client/src/components/organismes/etat.ts');
+  const { PAIE_COURT } = await import('../client/src/pages/Absences.tsx');
+  for (const l of [...FILTRES_STATUT, ...FILTRES_TYPE, ...FILTRES_PERIODE, ...FILTRES_ELEARNING].map(([, x]) => x).concat(Object.values(PAIE_COURT))) {
+    assert.ok(enFrancais(l) !== sansContexte(l), l);
+  }
+  assert.deepEqual([enFrancais('paid#fem'), enFrancais('Approved or qualified#fem-plural'), enFrancais('Completions to approve')], ['payée', 'Validées ou qualifiées', 'Fins à valider']);
+  // Contexte suivi d'un blanc : le blanc reste en anglais (« 2025 and 2026 »).
+  choisirLangue('en');
+  assert.deepEqual([t(' and #et'), t(' on #le'), t('Cancelled on #fem'), t('Save #verb')], [' and ', ' on ', 'Cancelled on ', 'Save ']);
+  assert.equal(tn(2, 'place left', 'places left'), '2 places left');
 });

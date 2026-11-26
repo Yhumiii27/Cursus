@@ -6127,3 +6127,56 @@ réglages, une rubrique de plus, des éléments de plus dans la famille « astre
   repos, astreintes de week-end ou de jour férié majorées ou non — et codes Sage de AST_COMP et AST_REPOS. Défaut appliqué
   d'ici là : barème nul, aucune compensation chiffrée. Un barème différencié (week-end, férié, nuit) demanderait de
   compléter la règle.
+
+## Lot 18 : planning d'équipe, habilitations des postes déjà planifiés (CU-142, 26 novembre 2026)
+
+CU-142 (analyse comparative du 26 octobre 2026) demandait un planning d'équipe : cycles 2x8 / 3x8 avec rotation, échanges
+de poste validés par le manager, alerte quand un créneau exige une habilitation que la personne n'a pas ou plus. Le
+lot 12, chantier C5 (t192, ci-dessus), livré ensuite, couvre déjà l'essentiel ; l'état des lieux du 26 novembre 2026 :
+
+| Demande de CU-142 | État |
+| --- | --- |
+| Cycles 2x8, 3x8, sur mesure | Fait (C5) : `cycles`, modèles Journée, 2x8, 3x8, 5x8, cycles saisis dans Référentiels → Cycles |
+| Affecter une personne ou une équipe à un cycle à partir d'une date | Fait pour la personne (`roulements`, « Affecter ») ; une équipe entière par la reprise des « équipes par quart » (`planning.reprise`) ; pas d'affectation d'équipe générique (question CU-142-Q1) |
+| Postes calculés, jamais stockés un à un | Écart voulu (C5) : les créneaux générés sont stockés, car un planning publié est un document daté et versionné, communiqué au salarié et gardé un an pour l'inspection du travail (art. D3171-7, D3171-16) |
+| Échange : demande, acceptation, validation du manager, journal, droits | Fait (C5) : `echangesPoste`, actions `planning.echange.*` |
+| Alerte d'habilitation manquante ou expirée à la date du créneau | Fait à la génération et à la publication (C5 : refus ou alerte à motiver) ; **ajouté par ce lot** : le suivi des postes déjà planifiés, ci-dessous |
+| Exigences du poste | Fait : poste et équipe (`exigencesDe`), besoins de poste (Référentiels → Besoins de poste) |
+| Repos quotidien de 11 h, hebdomadaire de 35 h | Fait (C5) : alertes à motiver, jamais un blocage ; valeur réduite de l'accord réglable |
+| Nombre maximal de nuits consécutives | Non contrôlé : aucune règle légale ; question CU-142-Q2 |
+
+**Ajout du lot 18 : habilitations des postes déjà planifiés.** La publication contrôlait les habilitations une fois ;
+une habilitation retirée ou suspendue après coup, une délivrance attendue ou une échéance qui tombe avant un poste déjà
+publié ne se voyaient plus. Ni table, ni colonne, ni action, ni migration : tout est calculé à l'affichage.
+
+- **Règle** (`shared/rules/planning-habilitations.ts`, `habilitationsPlanifiees`) : postes à venir (d'aujourd'hui à la fin
+  demandée) que voit le planificateur (version publiée, ou brouillon qui la remplacera ; `creneauxPlanificateur`), mêmes
+  exigences qu'à la publication (`joursExiges`, extrait de `controlesSalarie` dans `shared/rules/planning-apercu.ts` avec
+  `joursAbsents` et `nomsExigences`), mêmes contrôles (`alertesHabilitations`, début = aujourd'hui) : `habilitation`
+  (non détenue, en attente, retirée, suspendue, expirée ou prérequis échu dès aujourd'hui), `habilitation_expire`
+  (expirée avant le poste : texte « …, avant ce poste »), `formation` (formation exigée non valide à la date du poste).
+  Jours d'absence en vigueur et repos non contrôlés ; la réserve d'aptitude n'est jamais rendue (donnée de santé).
+- **Écrans**, planificateur seul (service RH : tous sauf lui-même ; manager et suppléant « planning » : ceux qu'il
+  planifie, `decideur`) et module activé : « ! » dans la case de la grille et texte du manque dans son libellé
+  (`CaseEquipe.habilitation`, `client/src/components/planning/planning-vue.ts`) ; panneau « Habilitations à revoir sur les
+  postes planifiés » (`client/src/components/planning/HabilitationsPlanifiees.tsx`, `habilitationsAVenir` : fenêtre de
+  l'instantané, 12 semaines) sous la grille de l'onglet Planning d'équipe (équipe affichée) et sur le tableau de bord RH
+  (toutes équipes). Les nombres comptent les postes (salarié et jour).
+- **Journal et RGPD** : rien d'écrit ni de journalisé ; même finalité et mêmes destinataires que le planning d'équipe
+  (docs/RGPD.md), aucune donnée nouvelle.
+- **Tests** : `tests/planning-habilitations.test.ts` (règle, filtres, expiration avant le poste, absence, vue),
+  `tests/client-planning-habilitations.test.ts` (grille, panneau du manager, tableau de bord RH, consultation, module
+  désactivé).
+- **Questions en attente** (choix par défaut appliqués d'ici là) :
+  - **CU-142-Q1** (service RH, exploitation) : faut-il affecter une équipe entière à un cycle et à un groupe en un geste,
+    en dehors de la reprise des « équipes par quart » ? Défaut : non, l'affectation reste nominative (chaque salarié a son
+    groupe, sa date et sa fin), la reprise couvre la mise en service.
+  - **CU-142-Q2** (service RH, CSE) : nombre maximal de postes de nuit consécutifs. Le Code du travail n'en fixe pas (seuls
+    la durée par nuit, la moyenne sur 12 semaines et le repos sont contrôlés) ; un accord ou le médecin du travail peut le
+    faire. Défaut : aucun contrôle ; une valeur de l'accord deviendrait une alerte à motiver, jamais un blocage.
+  - **CU-142-Q3** (service RH, HSE) : un poste déjà publié dont l'habilitation ne sera plus valide doit-il prévenir le
+    manager par e-mail ou par notification, en plus du signal à l'écran ? Défaut : signal à l'écran seulement (grille et
+    panneaux), rien n'est envoyé ni stocké.
+  - Rappel : CU-142 voulait des contrôles légaux en alerte, jamais en blocage. C'est le cas du repos et des durées ; une
+    habilitation qui manque déjà bloque la publication, d'après la réponse de l'entreprise du 1er novembre 2026 (C5), et
+    ce choix est gardé.

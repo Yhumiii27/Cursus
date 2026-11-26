@@ -8,6 +8,8 @@
 // Étape 3 : « ! » après la lettre d'un poste en conflit avec une mission ou une tâche Keystone, une session de formation ou
 // une astreinte (planificateur seul, sans blocage) ; la couverture compte aussi, horaire par horaire, les secouristes et
 // équipiers d'intervention de l'équipe.
+// CU-142 (lot 18) : « ! » aussi sur un poste à venir dont une habilitation exigée ne sera pas valide ce jour-là, et, sous la
+// grille, la liste de ces postes pour l'équipe (HabilitationsPlanifiees.tsx).
 // Sous la grille : échanges de poste (validation par le manager des deux, son suppléant « planning » ou le service RH),
 // affectations au roulement, versions publiées (registre gardé pour l'inspection du travail) et affichage réglementaire de
 // l'horaire collectif et de la composition des équipes successives (art. D3171-7), à imprimer ou à exporter.
@@ -25,6 +27,7 @@ import { useDomain, useRole } from '../../state/derived.ts';
 import { decideur } from '../../state/delegues.ts';
 import { useData, useStore } from '../../state/store.tsx';
 import { Btn, Empty, Fine, Panel, Tag, Two } from '../ui.tsx';
+import { HabilitationsPlanifieesPanel } from './HabilitationsPlanifiees.tsx';
 import { affichageEquipe, csvAffichage, equipesDuPlanning, grilleEquipe, jourCourt, joursDe, posteTexte, type CaseEquipe, type CouvertureJour, type LigneEquipe } from './planning-vue.ts';
 
 /** Jours affichés : deux semaines. */
@@ -91,7 +94,7 @@ function GrilleEquipe({ jours, lignes, couverture, ti, ouvrir }: {
                   <button type="button" className={`planning-case poste-${c.etat}${c.brouillon ? ' poste-brouillon' : ''}`} data-case={`${l}-${i}`}
                     tabIndex={l === li && i === co ? 0 : -1} aria-label={`${r.nom}, ${c.texte}`} title={c.texte}
                     onFocus={() => montrer(l, i)} onClick={() => toucher(l, i)} onKeyDown={e => deplacer(e, l, i)}>
-                    <span aria-hidden="true">{c.marque}{c.brouillon ? '*' : ''}{c.conflit ? '!' : ''}</span>
+                    <span aria-hidden="true">{c.marque}{c.brouillon ? '*' : ''}{c.conflit || c.habilitation ? '!' : ''}</span>
                   </button>
                 </td>
               ))}
@@ -193,12 +196,14 @@ export function PlanningEquipe() {
         <Fine>
           {hors && 'Période hors des semaines chargées avec l’écran (8 semaines passées, 12 à venir) : postes lus dans l’historique. '}
           Lettre de chaque case : code de l’horaire (R : repos{planif ? ', A : absent, sans la nature de l’absence' : ''}) ; * : brouillon ou modification à publier, que
-          le salarié ne voit pas encore{planif ? ' ; ! : conflit avec une mission ou une tâche Keystone, une session de formation ou une astreinte (détail de la case), sans blocage' : ''}.
+          le salarié ne voit pas encore{planif ? ' ; ! : conflit avec une mission ou une tâche Keystone, une session de formation ou une astreinte, ou habilitation exigée non valide à la date du poste (détail de la case), sans blocage' : ''}.
           Couverture : postes planifiés du jour sur le besoin minimal de l’équipe (Référentiels → Besoins de poste), « ! » quand il n’est pas couvert ou qu’un
           horaire n’a pas le minimum de secouristes ou d’équipiers d’intervention de l’équipe (Référentiels → Postes){planif ? ', absents retirés' : ''}. Le planning
           reste une prévision : les heures réellement faites se déclarent sur la feuille de temps.
         </Fine>
       </Panel>
+
+      {planif && !hors && <HabilitationsPlanifieesPanel equipe={equipe} />}
 
       {echanges.length > 0 && (
         <Panel title="Échanges de poste" aside={plural(echanges.filter(e => e.statut === 'accepte').length, 'à valider', 'à valider')}>

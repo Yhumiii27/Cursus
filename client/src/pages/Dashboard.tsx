@@ -24,6 +24,8 @@ import { BadgeEntretien } from '../components/OrigineEntretien.tsx';
 import { AIDE_SOI_MEME, fichePropre } from '../../../shared/rules/soi-meme.ts';
 // lot 12 — C5 (planning d'équipe, étape 3) : couverture minimale par poste planifié
 import { CouvertureCreneauxPanel } from '../components/planning/CouvertureCreneaux.tsx';
+// CU-142 (lot 18) : habilitations des postes déjà planifiés (service RH)
+import { HabilitationsPlanifieesPanel } from '../components/planning/HabilitationsPlanifiees.tsx';
 
 /** Ligne d'échéance (tableau de bord, page Échéances). */
 export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; onAct: () => unknown }) {
@@ -208,6 +210,7 @@ export function Dashboard() {
         <CouverturePanel style={{ flex: '1 1 100%' }} />
         {/* lot 12 — C5 (planning d'équipe, étape 3) : même couverture, poste par poste, sur les postes publiés. */}
         <CouvertureCreneauxPanel />
+        <HabilitationsPlanifieesPanel />
 
         <Panel style={{ flex: '1 1 560px' }} title="Échéances prioritaires"
           aside={<a href="/echeances" className="link-more" onClick={e => { e.preventDefault(); go('echeances'); }}>Toutes les échéances →</a>}>

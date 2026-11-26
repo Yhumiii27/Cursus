@@ -52,13 +52,7 @@ export function joursPlanifiesDe(creneaux: readonly Creneau[], empId: number, du
 export function controlesSalarie(d: Domain, emp: Employe, ex: Pick<EmpX, 'id' | 'habs' | 'rawCerts' | 'med'> | undefined, jours: readonly JourPlanifie[],
   du: ISODate, au: ISODate): AlertePlanning[] {
   const ds = d.ds;
-  const absents = new Set<ISODate>();
-  const premier = jours[0]?.jour, dernier = jours.at(-1)?.jour;
-  if (premier && dernier) {
-    for (const a of ds.absences.filter(x => x.empId === emp.id && absenceBloque(x) && x.au >= premier && x.du <= dernier)) {
-      for (let j = a.du; j <= a.au; j = addD(j, 1)) absents.add(j);
-    }
-  }
+  const absents = joursAbsents(d, emp.id, jours);
   const c = d.contratOf(emp);
   const out = controlesPlanning({
     employe: emp, jours, du, au, reglages: ds.settings, derogationDominicale: !!derogationDe(ds, emp), absents,
@@ -67,12 +61,35 @@ export function controlesSalarie(d: Domain, emp: Employe, ex: Pick<EmpX, 'id' | 
   // Étape 3 : conflits avec les autres engagements du salarié, en information.
   out.push(...conflitsPlanning(d, emp.id, jours, du, au, absents).map(x => ({ empId: x.empId, jour: x.jour, portee: 'jour' as const, code: x.code, gravite: GRAVITE[x.code], texte: x.texte })));
   if (!ex) return out;
-  const noms = {
-    habilitation: (id: string) => ds.referentiels.habilitations.find(h => h.id === id)?.nom ?? id,
-    formation: (id: string) => ds.referentiels.formations.find(f => f.id === id)?.court ?? id,
-  };
+  return [...out, ...alertesHabilitations(ex, joursExiges(d, emp, jours, du, au, absents), du, d.ti, nomsExigences(d))];
+}
+
+/** Jours d'absence en vigueur (validée ou signalée) d'un salarié entre le premier et le dernier de `jours`, sans la nature. */
+export function joursAbsents(d: Domain, empId: number, jours: readonly { jour: ISODate }[]): Set<ISODate> {
+  const absents = new Set<ISODate>();
+  const premier = jours[0]?.jour, dernier = jours.at(-1)?.jour;
+  if (premier && dernier) {
+    for (const a of d.ds.absences.filter(x => x.empId === empId && absenceBloque(x) && x.au >= premier && x.du <= dernier)) {
+      for (let j = a.du; j <= a.au; j = addD(j, 1)) absents.add(j);
+    }
+  }
+  return absents;
+}
+
+/** Libellés des habilitations et formations exigées, pour le texte des alertes. */
+export const nomsExigences = (d: Domain) => ({
+  habilitation: (id: string) => d.ds.referentiels.habilitations.find(h => h.id === id)?.nom ?? id,
+  formation: (id: string) => d.ds.referentiels.formations.find(f => f.id === id)?.court ?? id,
+});
+
+/**
+ * Jours travaillés d'un salarié du `du` au `au` (ni repos, ni absence) avec leurs exigences : celles de son poste et de son
+ * équipe (`exigencesDe`), plus celles des besoins de poste de l'horaire tenu ce jour-là.
+ */
+export function joursExiges(d: Domain, emp: Employe, jours: readonly JourPlanifie[], du: ISODate, au: ISODate, absents: ReadonlySet<ISODate>) {
+  const ds = d.ds;
   const base = exigencesDe(ds, emp);
-  const travailles = jours.filter(j => j.horaire && j.jour >= du && j.jour <= au && !absents.has(j.jour)).map(j => {
+  return jours.filter(j => j.horaire && j.jour >= du && j.jour <= au && !absents.has(j.jour)).map(j => {
     const propres = besoinsDuJour(ds.besoinsPoste, emp.equipe, j.horaire!.code, j.jour);
     return {
       jour: j.jour,
@@ -82,7 +99,6 @@ export function controlesSalarie(d: Domain, emp: Employe, ex: Pick<EmpX, 'id' | 
       },
     };
   });
-  return [...out, ...alertesHabilitations(ex, travailles, du, d.ti, noms)];
 }
 
 /** Fiches enrichies (sortis compris) indexées, pour les contrôles d'habilitation. */

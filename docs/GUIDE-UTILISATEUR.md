@@ -353,6 +353,13 @@ Publier). C'est une information : rien n'est bloqué, aucun motif n'est demandé
 **Couverture** signale aussi un horaire qui n'a pas le minimum de secouristes ou d'équipiers d'intervention fixé pour
 l'équipe (Référentiels → Postes), par exemple : SST au poste N (0 sur 1).
 
+Une fois le planning publié, Cursus continue de vérifier les **habilitations** : un « ! » marque aussi un poste à venir dont
+une habilitation ou une formation exigée (par le poste, l'équipe ou le besoin de poste) ne sera pas valide ce jour-là —
+non détenue, en attente de délivrance, retirée, suspendue, ou expirée avant le poste. Le panneau « Habilitations à revoir
+sur les postes planifiés », sous la grille (et sur le tableau de bord du service RH, toutes équipes), liste ces postes sur
+les 12 semaines à venir, publiés ou à publier : confiez le poste à un autre salarié, proposez un échange ou faites
+renouveler l'habilitation à temps. C'est un signal, recalculé à chaque affichage ; rien n'est bloqué après la publication.
+
 Les **échanges** acceptés par les deux salariés s'affichent sous la grille : « Examiner » montre les contrôles recalculés
 pour les deux, puis Valider (avec un motif s'il y a des alertes) ou Refuser. Un suppléant qui a reçu une délégation
 « planning » fait de même pendant l'absence du manager.

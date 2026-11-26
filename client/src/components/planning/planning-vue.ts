@@ -12,6 +12,9 @@
 //   couverture-creneaux.ts), absences retirées pour le planificateur seul.
 // - Étape 3 : conflits d'un poste avec une mission ou une tâche Keystone, une session de formation, une astreinte
 //   (shared/rules/planning-conflits.ts), marqués « ! » et écrits dans le texte de la case, pour le planificateur seul.
+// - CU-142 (lot 18) : poste à venir dont une habilitation ou une formation exigée ne sera pas valide ce jour-là
+//   (shared/rules/planning-habilitations.ts), marqué « ! » et écrit dans le texte de la case, pour le planificateur seul ;
+//   listé, toutes équipes du planificateur, par `habilitationsAVenir` (panneau de l'onglet et du tableau de bord).
 // - Affichage réglementaire : horaire collectif (horaires de l'équipe, avec leur plage et leur pause) et composition
 //   nominative des équipes successives (qui tient chaque poste, jour par jour), d'après les seuls postes publiés.
 import { addD, isFerie, parse } from '../../../../shared/dates.ts';
@@ -19,10 +22,13 @@ import type { Domain } from '../../../../shared/domain.ts';
 import { fH, plural } from '../../../../shared/format.ts';
 import { cycleDe } from '../../../../shared/rules/cycles.ts';
 import { dureeHoraire, horaireDe, plageTexte } from '../../../../shared/rules/horaires.ts';
-import { besoinsDuJour, creneauxPlanificateur, etatPourPlanificateur, horaireDuCreneau, STATUT_ECHANGE } from '../../../../shared/rules/planning.ts';
+import { besoinsDuJour, creneauxPlanificateur, etatPourPlanificateur, fenetrePlanning, horaireDuCreneau, STATUT_ECHANGE } from '../../../../shared/rules/planning.ts';
 // lot 12 — C5 étape 3 (conflits, couverture par créneau)
 import { couvertureCreneaux, creneauCouvertureTexte, manquesCreneau } from '../../../../shared/rules/couverture-creneaux.ts';
 import { conflitsDuJour, conflitsPlanning } from '../../../../shared/rules/planning-conflits.ts';
+// CU-142 (lot 18) : habilitations des postes déjà planifiés
+import { fichesEnrichies } from '../../../../shared/rules/planning-apercu.ts';
+import { habilitationsPlanifiees, manquesDuJour, type ManqueHabilitation } from '../../../../shared/rules/planning-habilitations.ts';
 import type { ISODate } from '../../../../shared/types.ts';
 import type { Creneau, EchangePoste } from '../../../../shared/types-planning.ts';
 
@@ -47,6 +53,8 @@ export interface CaseEquipe {
   texte: string;
   /** Étape 3 : poste en conflit avec un autre engagement du salarié (planificateur seul), marqué « ! ». */
   conflit?: boolean;
+  /** CU-142 : habilitation ou formation exigée non valide à la date de ce poste à venir (planificateur seul), marqué « ! ». */
+  habilitation?: boolean;
 }
 export interface LigneEquipe { empId: number | null; nom: string; cases: CaseEquipe[]; resume: string }
 export interface CouvertureJour { jour: ISODate; texte: string; court: string; manque: boolean }
@@ -89,6 +97,7 @@ export function grilleEquipe(d: Domain, equipe: string, jours: readonly ISODate[
     // Conflits des jours planifiés (planificateur seul) : missions, sessions, astreintes.
     const planifies = jours.flatMap(jour => { const c = parCle.get(`${empId}|${jour}`); return c ? [{ jour, horaire: horaireDuCreneau(c) }] : []; });
     const conflits = planificateur ? conflitsPlanning(d, empId, planifies, premier, dernier) : [];
+    const manques = planificateur ? manquesHabilitation(d, nominatifs, empId, premier, dernier) : [];
     const cases = jours.map((jour): CaseEquipe => {
       const c = parCle.get(`${empId}|${jour}`) ?? null;
       const absent = planificateur && etatPourPlanificateur({ empId, jour, horaire: null }, absences) === 'absent';
@@ -99,9 +108,10 @@ export function grilleEquipe(d: Domain, equipe: string, jours: readonly ISODate[
       const etat: EtatCase = c.horaire ? 'poste' : 'repos';
       const suite = brouillon ? (c.remplaceId ? ', modification à publier' : ', brouillon à publier') : `, publié${c.version ? ` (version ${c.version})` : ''}`;
       const conflit = conflitsDuJour(conflits, empId, jour).map(x => x.texte.slice(x.texte.indexOf(' : ') + 3));
+      const manque = manquesDuJour(manques, empId, jour).map(m => m.texte);
       return {
-        jour, etat, marque: c.horaire ?? 'R', brouillon, creneau: c, conflit: conflit.length > 0,
-        texte: `${jourLong(jour)} — ${c.horaire ? `poste ${posteTexte(c)}` : 'repos'}${suite}${ferie}${conflit.length ? ` ; conflit : ${conflit.join(' ; ')}` : ''}`,
+        jour, etat, marque: c.horaire ?? 'R', brouillon, creneau: c, conflit: conflit.length > 0, habilitation: manque.length > 0,
+        texte: `${jourLong(jour)} — ${c.horaire ? `poste ${posteTexte(c)}` : 'repos'}${suite}${ferie}${conflit.length ? ` ; conflit : ${conflit.join(' ; ')}` : ''}${manque.length ? ` ; ${manque.join(' ; ')}` : ''}`,
       };
     });
     const postes = cases.filter(x => x.etat === 'poste');
@@ -266,4 +276,32 @@ export function couvertureAVenir(d: Domain, n: number, avecAbsences: boolean): {
     }
   }
   return { creneaux, manques: manques.sort((a, b) => a.jour.localeCompare(b.jour) || a.equipe.localeCompare(b.equipe) || a.horaire.localeCompare(b.horaire)) };
+}
+
+// — CU-142 (lot 18) : habilitations des postes déjà planifiés —
+
+/** Fiches enrichies d'un instantané (sortis compris), calculées une fois par instantané. */
+const FICHES = new WeakMap<Domain, ReturnType<typeof fichesEnrichies>>();
+const fichesDe = (d: Domain) => {
+  let f = FICHES.get(d);
+  if (!f) FICHES.set(d, f = fichesEnrichies(d));
+  return f;
+};
+
+/** Manques d'un salarié sur les jours à venir de la grille (`creneaux` : ceux, en vigueur, que la grille montre). */
+function manquesHabilitation(d: Domain, creneaux: readonly Creneau[], empId: number, premier: ISODate, dernier: ISODate): ManqueHabilitation[] {
+  if (dernier < d.ti || !creneaux.some(c => c.empId === empId && c.horaire && c.jour >= d.ti)) return [];
+  return habilitationsPlanifiees(d, { creneaux: creneaux.filter(c => c.empId === empId), fiches: fichesDe(d), du: premier, au: dernier });
+}
+
+/**
+ * Postes à venir de l'instantané (d'aujourd'hui à la fin de sa fenêtre, 12 semaines) dont une habilitation ou une formation
+ * exigée ne sera pas valide ce jour-là, pour les salariés que la personne planifie (`retenir`) ; `equipe` : une seule équipe
+ * (celle de l'onglet), sinon toutes. Publiés et brouillons, absences retirées (planificateur seul).
+ */
+export function habilitationsAVenir(d: Domain, retenir: (empId: number) => boolean, equipe?: string): ManqueHabilitation[] {
+  if (!d.ds.settings.planningActif) return [];
+  const creneaux = (d.ds.creneaux ?? []).filter(c => !equipe || c.equipe === equipe);
+  if (!creneaux.some(c => c.horaire && c.jour >= d.ti)) return [];
+  return habilitationsPlanifiees(d, { creneaux, fiches: fichesDe(d), au: fenetrePlanning(d.ti).au, retenir });
 }

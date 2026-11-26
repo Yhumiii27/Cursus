@@ -5,6 +5,7 @@ import { isValidDate } from '../../../shared/dates.ts';
 import { type ChampPlage, controlePlage } from '../../../shared/rules/plage-session.ts';
 import { controleSession } from '../../../shared/rules/sessions.ts';
 import type { ISODate } from '../../../shared/types.ts';
+import { t } from '../i18n/langue.ts';
 
 /** Texte obligatoire : `vide` s'il n'est fait que d'espaces. */
 export const erreurTexte = (v: string, vide: string): string | null => v.trim() ? null : vide;
@@ -12,13 +13,13 @@ export const erreurTexte = (v: string, vide: string): string | null => v.trim() 
 /** Date obligatoire : `vide` si rien n'est saisi, sinon date invalide (saisie incomplète au clavier). */
 export function erreurDate(v: string, vide: string): string | null {
   if (!v) return vide;
-  return isValidDate(v) ? null : 'Date invalide.';
+  return isValidDate(v) ? null : t('Invalid date.');
 }
 
 /** Période du … au … : les deux dates obligatoires, la fin le jour du début au plus tôt (l'erreur va sous la fin). */
 export function erreursPeriode(du: string, au: string, vides: { du: string; au: string }): { du: string | null; au: string | null } {
   const eDu = erreurDate(du, vides.du);
-  const eAu = erreurDate(au, vides.au) ?? (!eDu && au < du ? 'La fin précède le début.' : null);
+  const eAu = erreurDate(au, vides.au) ?? (!eDu && au < du ? t('The end comes before the start.') : null);
   return { du: eDu, au: eAu };
 }
 
@@ -26,7 +27,7 @@ export function erreursPeriode(du: string, au: string, vides: { du: string; au: 
 export function erreurEntier(v: string, min: number, vide: string): string | null {
   const n = Number(v);
   if (!v.trim() || Number.isNaN(n)) return vide;
-  return Number.isInteger(n) && n >= min ? null : `Nombre entier, au moins ${min}.`;
+  return Number.isInteger(n) && n >= min ? null : t(`Whole number, at least ${min}.`);
 }
 
 /** Champs d'une session de formation (dialogs/SessionDialog.tsx) ; `fin`, `jours`, `horaires` : plage (plage-session.ts). */
@@ -41,9 +42,9 @@ export function erreursSession(
   today: ISODate, v: { date: string; lieu: string; places: string; fin?: string; jours?: ISODate[]; horaires?: unknown[] }, opts: { dateActuelle?: ISODate; inscrits?: number } = {},
 ) {
   const champs: Record<ChampSession, string | null> = {
-    date: erreurDate(v.date, 'Indiquez la date de la session.'),
-    lieu: erreurTexte(v.lieu, 'Indiquez le lieu.'),
-    places: erreurEntier(v.places, 1, 'Indiquez le nombre de places.'),
+    date: erreurDate(v.date, t('Enter the date of the session.')),
+    lieu: erreurTexte(v.lieu, t('Enter the place.')),
+    places: erreurEntier(v.places, 1, t('Enter the number of seats.')),
     fin: null, jours: null, horaires: null,
   };
   const plage = isValidDate(v.date) ? controlePlage(v.date, v) : null;
@@ -59,8 +60,8 @@ export function erreursSession(
 /** Nombre de jours, par demi-journée, entre 0,5 et `max` (solde disponible). */
 export function erreurJours(v: string, max: number): string | null {
   const j = Number(v);
-  if (!v.trim() || Number.isNaN(j)) return 'Indiquez le nombre de jours.';
-  if (!(j > 0) || (j * 2) % 1 !== 0) return 'Nombre de jours par demi-journée : 0,5, 1, 1,5…';
-  if (j > max) return max > 0 ? `${String(max).replace('.', ',')} j au plus.` : 'Aucun jour disponible.';
+  if (!v.trim() || Number.isNaN(j)) return t('Enter the number of days.');
+  if (!(j > 0) || (j * 2) % 1 !== 0) return t('Number of days by half-day: 0.5, 1, 1.5…');
+  if (j > max) return max > 0 ? `${String(max).replace('.', ',')}${t(' d at most.')}` : t('No day available.');
   return null;
 }

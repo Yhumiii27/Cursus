@@ -7,7 +7,7 @@
 import { useMemo, useState } from 'react';
 import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { FACTEURS_C2P } from '../../../shared/constants.ts';
-import { fmtIso, plural } from '../../../shared/format.ts';
+import { fmtIso } from '../../../shared/format.ts';
 import { ARTICLE_C2P, C2P_SEUIL_ALTERNANT, C2P_SEUIL_NUIT, exportC2p } from '../../../shared/rules/c2p.ts';
 import type { LigneC2p } from '../../../shared/types.ts';
 import { Btn, Chips, Empty, Fine, Kpi, Kpis, NoteAccent, Page, Panel, Seg, Tag, Two } from '../components/ui.tsx';
@@ -15,6 +15,7 @@ import { SuiteListe } from '../components/TriListe.tsx';
 import { usePagination } from '../components/tri.ts';
 import { downloadCsv } from '../print.ts';
 import { useDomain } from '../state/derived.ts';
+import { t, tn } from '../i18n/langue.ts';
 import { useStore } from '../state/store.tsx';
 
 /** Seuil affiché : « 120 », « 60,5 » au prorata. */
@@ -25,7 +26,7 @@ function Compte({ n, s, expose }: { n: number; s: number; expose: boolean }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
       <span className="tnum">{n} / {seuil(s)}</span>
-      {expose && <Tag cls="tag-accent">Exposé</Tag>}
+      {expose && <Tag cls="tag-accent">{t('Exposed')}</Tag>}
     </div>
   );
 }
@@ -33,10 +34,10 @@ function Compte({ n, s, expose }: { n: number; s: number; expose: boolean }) {
 /** À signaler sur la ligne : nuits sous un horaire à qualifier, semaines sans horaire, feuilles pas encore validées. */
 function signalements(l: LigneC2p): string[] {
   return [
-    l.nuitsAQualifier ? `${plural(l.nuitsAQualifier, 'nuit', 'nuits')} sous un horaire à qualifier` : '',
-    l.nuitsAQualifier && l.nuitsAlternantes < l.seuilAlternant && l.nuitsAlternantes + l.nuitsAQualifier >= l.seuilAlternant ? 'seuil des équipes alternantes atteint si l’horaire est alternant' : '',
-    l.semainesSansHoraire ? `${plural(l.semainesSansHoraire, 'semaine', 'semaines')} sans horaire (aucune nuit comptée)` : '',
-    l.feuillesNonValidees ? `${plural(l.feuillesNonValidees, 'feuille', 'feuilles')} pas encore ${l.feuillesNonValidees > 1 ? 'validées' : 'validée'}` : '',
+    l.nuitsAQualifier ? `${tn(l.nuitsAQualifier, 'night', 'nights')}${t(' under a schedule to qualify')}` : '',
+    l.nuitsAQualifier && l.nuitsAlternantes < l.seuilAlternant && l.nuitsAlternantes + l.nuitsAQualifier >= l.seuilAlternant ? t('alternating shifts threshold reached if the schedule is alternating') : '',
+    l.semainesSansHoraire ? `${tn(l.semainesSansHoraire, 'week', 'weeks')}${t(' without a schedule (no night counted)')}` : '',
+    l.feuillesNonValidees ? `${tn(l.feuillesNonValidees, 'timesheet', 'timesheets')}${l.feuillesNonValidees > 1 ? t(' not yet approved#plural') : t(' not yet approved')}` : '',
   ].filter(Boolean);
 }
 
@@ -51,7 +52,7 @@ export function Prevention() {
   const lignes = useMemo(() => (s?.lignes ?? []).filter(l => filtre === 'tous' || l.expositions.length > 0 || l.nuitsAQualifier > 0)
     .map(l => ({ l, e: d.emp(l.empId) })).filter(x => !!x.e).sort((a, b) => a.e!.nom.localeCompare(b.e!.nom, 'fr')), [s, filtre, d]);
   const page = usePagination(lignes, `${annee}|${filtre}`);
-  if (!s) return <Page title="Expositions (C2P)"><Empty>Synthèse indisponible pour ce profil.</Empty></Page>;
+  if (!s) return <Page title={t('Exposures (C2P)')}><Empty>{t('Summary unavailable for this profile.')}</Empty></Page>;
 
   const declares = s.lignes.filter(l => l.declarant === 'employeur');
   const compte = (f: string) => declares.filter(l => l.expositions.includes(f as LigneC2p['expositions'][number])).length;
@@ -61,54 +62,54 @@ export function Prevention() {
   const sansHoraire = s.lignes.filter(l => l.semainesSansHoraire > 0).length, nonValidees = s.lignes.filter(l => l.feuillesNonValidees > 0).length;
 
   return (
-    <Page kicker={`Compte professionnel de prévention · ${enCours ? `année en cours, au ${fmtIso(s.arrete)}` : `année ${s.annee}`}`} title="Expositions (C2P)"
+    <Page kicker={`${t('Occupational prevention account')} · ${enCours ? `${t('current year, as of ')}${fmtIso(s.arrete)}` : `${t('year ')}${s.annee}`}`} title={t('Exposures (C2P)')}
       actions={<>
-        {syntheses.length > 1 && <Seg name="c2pAnnee" label="Année" value={s.annee} onChange={setAnnee} options={syntheses.map(y => [y.annee, String(y.annee)])} />}
-        {x.rows.length > 0 && <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={() => downloadCsv(x.fichier, x.head, x.rows)}>Exporter pour la DSN (CSV)</Btn>}
+        {syntheses.length > 1 && <Seg name="c2pAnnee" label={t('Year')} value={s.annee} onChange={setAnnee} options={syntheses.map(y => [y.annee, String(y.annee)])} />}
+        {x.rows.length > 0 && <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={() => downloadCsv(x.fichier, x.head, x.rows)}>{t('Export for the DSN (CSV)')}</Btn>}
       </>}>
       <Kpis>
-        <Kpi kicker="Salariés exposés" value={exposes} sub={`sur ${plural(declares.length, 'salarié déclaré', 'salariés déclarés')} par l’employeur`} />
-        <Kpi kicker={FACTEURS_C2P.nuit.label} value={compte('nuit')} sub={`${C2P_SEUIL_NUIT} nuits par an, au prorata`} />
-        <Kpi kicker={FACTEURS_C2P.alternant.label} value={compte('alternant')} sub={`${C2P_SEUIL_ALTERNANT} nuits par an, au prorata`} />
-        <Kpi kicker="Facteurs du poste" value={declares.filter(l => l.facteursPoste.length > 0).length} sub="répétitif, hyperbare, températures, bruit" />
+        <Kpi kicker={t('Exposed employees')} value={exposes} sub={`${t('out of ')}${tn(declares.length, 'employee declared', 'employees declared')}${t(' by the employer')}`} />
+        <Kpi kicker={FACTEURS_C2P.nuit.label} value={compte('nuit')} sub={t(`${C2P_SEUIL_NUIT} nights a year, pro rata`)} />
+        <Kpi kicker={FACTEURS_C2P.alternant.label} value={compte('alternant')} sub={t(`${C2P_SEUIL_ALTERNANT} nights a year, pro rata`)} />
+        <Kpi kicker={t('Job factors')} value={declares.filter(l => l.facteursPoste.length > 0).length} sub={t('repetitive, hyperbaric, temperatures, noise')} />
       </Kpis>
 
       {s.horairesAQualifier.length > 0 && (
         <NoteAccent>
-          {plural(s.horairesAQualifier.length, 'horaire de nuit', 'horaires de nuit')} à qualifier, équipes successives alternantes ou non :{' '}
-          {s.horairesAQualifier.join(', ')}. Leurs nuits comptent au travail de nuit (seuil de {C2P_SEUIL_NUIT}) en attendant.{' '}
-          <Btn small onClick={() => go('referentiels', { refOnglet: 'horaires' })}>Qualifier les horaires</Btn>
+          {tn(s.horairesAQualifier.length, 'night schedule', 'night schedules')}{t(' to qualify, alternating successive shifts or not: ')}
+          {s.horairesAQualifier.join(', ')}. {t(`Their nights count as night work (threshold of ${C2P_SEUIL_NUIT}) in the meantime.`)}{' '}
+          <Btn small onClick={() => go('referentiels', { refOnglet: 'horaires' })}>{t('Qualify the schedules')}</Btn>
         </NoteAccent>
       )}
 
       <Panel head={
         <div className="panel-head top">
           <div>
-            <h2>Expositions par salarié</h2>
-            <div className="text-muted sub">{plural(s.lignes.length, 'salarié sous contrat', 'salariés sous contrat')} en {s.annee}</div>
+            <h2>{t('Exposures by employee')}</h2>
+            <div className="text-muted sub">{tn(s.lignes.length, 'employee under contract', 'employees under contract')}{t(' in ')}{s.annee}</div>
           </div>
-          <Seg name="c2pFiltre" label="Salariés affichés" value={filtre} onChange={setFiltre} options={[['exposes', 'Exposés ou à qualifier'], ['tous', 'Tous']]} />
+          <Seg name="c2pFiltre" label={t('Employees shown')} value={filtre} onChange={setFiltre} options={[['exposes', t('Exposed or to qualify')], ['tous', t('All#masc')]]} />
         </div>
       }>
-        {lignes.length === 0 ? <Empty pad="sm">Aucun salarié exposé en {s.annee}, ni de nuit sous un horaire à qualifier.</Empty> : (
+        {lignes.length === 0 ? <Empty pad="sm">{t(`No employee exposed in ${s.annee}, nor any night under a schedule to qualify.`)}</Empty> : (
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Collaborateur</th><th>Période</th><th>Travail de nuit</th><th>Équipes alternantes</th><th>Facteurs du poste</th><th>Déclaration</th><th>À vérifier</th></tr></thead>
+              <thead><tr><th>{t('Employee')}</th><th>{t('Period')}</th><th>{t('Night work')}</th><th>{t('Alternating shifts')}</th><th>{t('Job factors')}</th><th>{t('Declaration')}</th><th>{t('To check')}</th></tr></thead>
               <tbody>
                 {page.lignes.map(({ l, e }) => {
                   const a = signalements(l);
                   return (
                     <tr key={l.empId}>
                       <td><Two main={e!.nom} sub={[e!.poste, e!.equipe].filter(Boolean).join(' · ')} /></td>
-                      <td className="nowrap"><Two main={`${fmtIso(l.du)} – ${fmtIso(l.au)}`} sub={l.prorata < 1 ? `seuils au prorata (${Math.round(l.prorata * 100)} % de l’année)` : undefined} /></td>
+                      <td className="nowrap"><Two main={`${fmtIso(l.du)} – ${fmtIso(l.au)}`} sub={l.prorata < 1 ? t(`thresholds pro rata (${Math.round(l.prorata * 100)} % of the year)`) : undefined} /></td>
                       <td><Compte n={l.nuits} s={l.seuilNuit} expose={l.expositions.includes('nuit')} /></td>
                       <td><Compte n={l.nuitsAlternantes} s={l.seuilAlternant} expose={l.expositions.includes('alternant')} /></td>
                       <td>{l.facteursPoste.length
                         ? <Chips items={l.facteursPoste.map(f => ({ key: f, label: FACTEURS_C2P[f].label, cls: 'tag-neutral' }))} />
-                        : <span className="text-muted">Aucun</span>}</td>
+                        : <span className="text-muted">{t('None')}</span>}</td>
                       <td>{l.declarant === 'employeur'
-                        ? (l.expositions.length ? <Tag cls="tag-accent">{plural(l.expositions.length, 'facteur', 'facteurs')} à déclarer</Tag> : <span className="text-muted">Rien à déclarer</span>)
-                        : l.declarant === 'ett' ? <Two main="Par l’agence d’intérim" sub="expositions à lui transmettre" /> : <Two main="Non déclaré" sub="contrat de moins d’un mois" />}</td>
+                        ? (l.expositions.length ? <Tag cls="tag-accent">{tn(l.expositions.length, 'factor', 'factors')}{t(' to declare')}</Tag> : <span className="text-muted">{t('Nothing to declare')}</span>)
+                        : l.declarant === 'ett' ? <Two main={t('By the temporary work agency')} sub={t('exposures to send to it')} /> : <Two main={t('Not declared')} sub={t('contract of less than a month')} />}</td>
                       <td>{a.length ? <span className="sub">{a.join(' · ')}</span> : <span className="text-muted">—</span>}</td>
                     </tr>
                   );
@@ -117,22 +118,16 @@ export function Prevention() {
             </table>
           </div>
         )}
-        <SuiteListe p={page} unite={['salarié', 'salariés']} />
+        <SuiteListe p={page} unite={['employee#lower', 'employees#lower']} />
         {(sansHoraire > 0 || nonValidees > 0) && (
           <Fine>
-            {[sansHoraire ? `${plural(sansHoraire, 'salarié a', 'salariés ont')} des semaines validées sans horaire de poste : aucune nuit n’y est comptée` : '',
-              nonValidees ? `${plural(nonValidees, 'salarié a', 'salariés ont')} des feuilles pas encore validées : leurs nuits comptent à la validation` : ''].filter(Boolean).join(' · ')}
-            {' '}(colonne « À vérifier », filtre « Tous »).
+            {[sansHoraire ? `${tn(sansHoraire, 'employee has', 'employees have')}${t(' approved weeks without a shift schedule: no night is counted in them')}` : '',
+              nonValidees ? `${tn(nonValidees, 'employee has', 'employees have')}${t(' timesheets not yet approved: their nights count at approval')}` : ''].filter(Boolean).join(' · ')}
+            {' '}{t('(column “To check”, filter “All”).')}
           </Fine>
         )}
         <Fine>
-          Une nuit compte quand le poste comprend au moins 1 h de travail entre 0 h et 5 h ({ARTICLE_C2P}), d’après l’horaire de poste figé sur la feuille
-          validée : Cursus ne compte que les nuits issues des horaires de poste, une feuille sans horaire compte sans nuit. Les nuits faites sous un horaire
-          qualifié « équipes successives alternantes » (Référentiels → Horaires) comptent au seuil de {C2P_SEUIL_ALTERNANT} nuits, les autres à celui
-          de {C2P_SEUIL_NUIT} ; seuils réglementaires, non réglables, au prorata d’un contrat de moins d’un an ; un contrat de moins d’un mois n’est pas
-          déclaré. Travail répétitif, milieu hyperbare, températures extrêmes et bruit se cochent sur le poste (Référentiels → Postes) quand ses titulaires
-          y sont exposés au-delà du seuil après protections. L’export liste les lignes à saisir dans la DSN de Sage avec les codes internes de Cursus et le
-          code DSN présumé, à confirmer par la paie.
+          {t(`A night counts when the shift includes at least 1 h of work between 0:00 and 5:00 (${ARTICLE_C2P}), from the shift schedule frozen on the approved timesheet: Cursus only counts the nights from shift schedules, a timesheet without a schedule counts no night. Nights worked under a schedule qualified “alternating successive shifts” (Reference data → Schedules) count towards the threshold of ${C2P_SEUIL_ALTERNANT} nights, the others towards that of ${C2P_SEUIL_NUIT}; regulatory thresholds, not adjustable, pro rata for a contract of less than a year; a contract of less than a month is not declared. Repetitive work, hyperbaric environment, extreme temperatures and noise are ticked on the job (Reference data → Jobs) when its holders are exposed to them beyond the threshold after protection. The export lists the lines to enter in Sage’s DSN with Cursus’s internal codes and the presumed DSN code, to be confirmed by payroll.`)}
         </Fine>
       </Panel>
     </Page>

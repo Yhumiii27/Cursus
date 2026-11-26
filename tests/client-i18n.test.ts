@@ -140,6 +140,10 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
     ecran: 'Missions & déplacements', fichiers: ['client/src/pages/Missions.tsx', 'client/src/pages/PlanningMissions.tsx', 'client/src/pages/planning-missions.ts',
       'client/src/components/GrandDeplacement.tsx'],
   },
+  {
+    // Vue « un jour » des feuilles de temps (téléphone, tablette) et horaire du jour (aussi sur la grille de la semaine).
+    ecran: 'Saisie du jour', fichiers: ['client/src/pages/SaisieJour.tsx', 'client/src/components/HorairesFeuille.tsx'],
+  },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */

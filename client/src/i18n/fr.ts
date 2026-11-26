@@ -1966,6 +1966,20 @@ export const FR: Record<string, string> = {
   'No assignment in progress or upcoming.': 'Aucune mission en cours ou à venir.',
   'Keystone project': 'Projet Keystone',
   'Upcoming': 'À venir',
+  // Saisie du jour et horaire du jour (pages/SaisieJour.tsx, components/HorairesFeuille.tsx).
+  'Clock in#verb': 'Pointer',
+  'Day shown': 'Jour affiché',
+  'Schedule of the day': 'Horaire du jour',
+  'Proposed by the team: to confirm or to change': 'Proposé par l’équipe : à confirmer ou à changer',
+  'Optional': 'Facultatif',
+  'optional': 'facultatif',
+  'Schedule — ': 'Horaire — ',
+  'Delete the line ': 'Supprimer la ligne ',
+  'Total of the day': 'Total du jour',
+  'Total of the week': 'Total de la semaine',
+  'Default schedule of the team, proposed: to confirm or to change': 'Horaire par défaut de l’équipe, proposé : à confirmer ou à changer',
+  'in italics: proposed by the team': 'en italique : proposé par l’équipe',
+  'Schedules: ': 'Horaires : ',
 };
 
 /** Chaînes à paramètres : motif sur la chaîne source entière → remplacement. */

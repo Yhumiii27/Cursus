@@ -20,6 +20,7 @@ import { BoutonPointer } from '../components/BoutonPointer.tsx';
 import { estLignePointee } from '../../../shared/rules/pointage-feuille.ts';
 import { ChoixHoraire, type HorairesFeuille } from '../components/HorairesFeuille.tsx';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 /**
  * Champ d'heures : valeur locale, envoyée au serveur à la sortie du champ ou sur Entrée. `label` : nom pour un lecteur
@@ -90,8 +91,8 @@ export function SaisieJour({ wk, days, lignes, perDay, total, editable, occupe, 
 
   return (
     <div className="saisie-jour">
-      {pointer && <BoutonPointer titre="Pointer" />}
-      <div className={`jours-semaine${days.length > 5 ? ' sept' : ''}`} role="group" aria-label="Jour affiché">
+      {pointer && <BoutonPointer titre={t('Clock in#verb')} />}
+      <div className={`jours-semaine${days.length > 5 ? ' sept' : ''}`} role="group" aria-label={t('Day shown')}>
         {days.map((j, i) => (
           <button key={j.day} type="button" className={`jour-btn${j.weekend ? ' weekend' : ''}`} aria-pressed={i === jour} onClick={() => setUi({ tsJour: i })}>
 
@@ -109,10 +110,10 @@ export function SaisieJour({ wk, days, lignes, perDay, total, editable, occupe, 
         {horaires && (
           <div className="jour-ligne">
             <div className="grow">
-              <div>Horaire du jour</div>
-              <div className="text-muted sub">{horaires.jours[jour].propose ? 'Proposé par l’équipe : à confirmer ou à changer' : 'Facultatif'}</div>
+              <div>{t('Schedule of the day')}</div>
+              <div className="text-muted sub">{horaires.jours[jour].propose ? t('Proposed by the team: to confirm or to change') : t('Optional')}</div>
             </div>
-            <ChoixHoraire key={jour} h={horaires} di={jour} label={`Horaire — ${x.long}`} style={{ width: 96 }} />
+            <ChoixHoraire key={jour} h={horaires} di={jour} label={`${t('Schedule — ')}${x.long}`} style={{ width: 96 }} />
           </div>
         )}
         {lignes.map((l, li) => {
@@ -128,15 +129,15 @@ export function SaisieJour({ wk, days, lignes, perDay, total, editable, occupe, 
               <ChampHeures key={`${li}-${jour}`} className="champ-jour" value={num(l.h[jour])} label={nomChamp(l, x.long)}
                 disabled={!editable || (x.locked && !alerte) || ligneAstreinte(l) || /* lot 12 — C6 */ estLignePointee(l)} alerte={alerte} alerteId={alerteId}
                 onCommit={raw => enregistrer(li, jour, raw)} />
-              {editable && !(ligneAstreinte(l) && l.h.some(v => Number(v) > 0)) && /* lot 12 — C6 */ !estLignePointee(l) && <CloseButton label={`Supprimer la ligne ${l.projet}`} disabled={occupe} onClick={ev => supprimer(li, ev)} />}
+              {editable && !(ligneAstreinte(l) && l.h.some(v => Number(v) > 0)) && /* lot 12 — C6 */ !estLignePointee(l) && <CloseButton label={`${t('Delete the line ')}${l.projet}`} disabled={occupe} onClick={ev => supprimer(li, ev)} />}
             </div>
           );
         })}
         <div className="jour-totaux">
-          <span>Total du jour</span><span className="tnum">{perDay[jour] ? fH(perDay[jour]) : '—'}</span>
+          <span>{t('Total of the day')}</span><span className="tnum">{perDay[jour] ? fH(perDay[jour]) : '—'}</span>
         </div>
         <div className="jour-totaux">
-          <span>Total de la semaine</span><span className="tnum">{fH(total)}</span>
+          <span>{t('Total of the week')}</span><span className="tnum">{fH(total)}</span>
         </div>
       </section>
     </div>

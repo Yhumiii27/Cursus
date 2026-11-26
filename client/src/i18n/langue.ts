@@ -4,7 +4,7 @@
 // Le changement vaut aussitôt, sans aller-retour au serveur : l'attribut `lang` de <html> change et les composants abonnés
 // (`useLangue`) sont rendus de nouveau. Le texte saisi par les personnes s'affiche tel quel, jamais passé par `t()`.
 import { useSyncExternalStore } from 'react';
-import { makeT, type Lang, type T } from './traduire.ts';
+import { enFrancais, makeT, sansContexte, type Lang, type T } from './traduire.ts';
 
 export { type Lang, type T };
 export const LANGUE_COOKIE = 'cursus-lang';
@@ -36,6 +36,14 @@ export const langueCourante = (): Lang => courante;
 
 /** Traduit une chaîne source anglaise dans la langue affichée (identité en anglais). */
 export const t: T = s => traduire(s);
+
+/**
+ * Nombre suivi de son nom, traduit : `tn(3, 'entry', 'entries')` donne « 3 entries » en anglais (pluriel dès 0 et au-delà de
+ * 1) et, en français, le singulier ou le pluriel du dictionnaire selon la règle de `plural` (shared/format.ts : pluriel
+ * au-delà de 1), « 3 saisies », « 0 saisie ». Les deux formes anglaises ont leur entrée française.
+ */
+export const tn = (n: number, un: string, plusieurs: string): string =>
+  courante === 'fr' ? `${n} ${n > 1 ? enFrancais(plusieurs) : enFrancais(un)}` : `${n} ${sansContexte(n === 1 ? un : plusieurs)}`;
 
 /** Change la langue : cookie, attribut `lang` de <html>, composants abonnés rendus de nouveau. */
 export function choisirLangue(l: Lang, doc: Document | null = docu()): void {

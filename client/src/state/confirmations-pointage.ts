@@ -4,19 +4,20 @@
 import type { CorrectionPointage, ZonePointage } from '../../../shared/types.ts';
 import { objetCorrection } from '../components/temps/pointage-etat.ts';
 import type { Confirmation } from './confirmations.ts';
+import { t } from '../i18n/langue.ts';
 
 /** Refus d'une demande de correction : le salarié voit le refus et son motif dans ses pointages. */
 export function refusCorrectionPointage(c: Pick<CorrectionPointage, 'id' | 'nature' | 'horodatage' | 'sens' | 'jour'>, nom: string): Confirmation {
   return {
-    titre: 'Refuser la correction de pointage',
-    question: `Refuser la demande de ${nom} : ${objetCorrection(c).toLowerCase()} ?`,
-    suites: ['Les pointages ne changent pas.', `${nom} voit le refus et son motif dans ses pointages ; le motif n’est jamais recopié au journal.`],
-    bouton: 'Refuser la demande',
+    titre: t('Refuse the clock-in correction'),
+    question: `${t('Refuse the request of ')}${nom} : ${objetCorrection(c).toLowerCase()} ?`,
+    suites: [t('The clock-ins do not change.'), `${nom}${t(' sees the refusal and its reason in their clock-ins; the reason is never copied to the log.')}`],
+    bouton: t('Refuse the request'),
     action: 'pointage.refuserCorrection',
     payload: { id: c.id },
     motif: {
-      label: 'Motif du refus', requis: true, placeholder: 'Présence non constatée ce jour-là, pointage déjà présent…',
-      aide: `Le motif est visible de ${nom} : n’y indiquez aucune information médicale (300 caractères au plus).`,
+      label: t('Reason for the refusal'), requis: true, placeholder: t('Presence not observed that day, clock-in already there…'),
+      aide: `${t('The reason is visible to ')}${nom}${t(': do not put any medical information in it (300 characters at most).')}`,
     },
   };
 }
@@ -24,10 +25,10 @@ export function refusCorrectionPointage(c: Pick<CorrectionPointage, 'id' | 'natu
 /** Retrait d'une demande en attente, par le salarié (`soi`) ou son valideur. */
 export function retraitCorrectionPointage(c: Pick<CorrectionPointage, 'id' | 'nature' | 'horodatage' | 'sens' | 'jour'>, nom: string, soi: boolean): Confirmation {
   return {
-    titre: 'Retirer la demande de correction',
-    question: `Retirer ${soi ? 'votre demande' : `la demande de ${nom}`} : ${objetCorrection(c).toLowerCase()} ?`,
-    suites: ['La demande reste visible comme retirée ; les pointages ne changent pas.'],
-    bouton: 'Retirer la demande',
+    titre: t('Withdraw the correction request'),
+    question: `${soi ? t('Withdraw your request') : `${t('Withdraw the request of ')}${nom}`} : ${objetCorrection(c).toLowerCase()} ?`,
+    suites: [t('The request stays visible as withdrawn; the clock-ins do not change.')],
+    bouton: t('Withdraw the request'),
     action: 'pointage.annulerCorrection',
     payload: { id: c.id },
   };
@@ -36,10 +37,10 @@ export function retraitCorrectionPointage(c: Pick<CorrectionPointage, 'id' | 'na
 /** Étape 3 : suppression d'une zone de la géolocalisation (administrateur RH) ; les verdicts déjà gardés restent. */
 export function suppressionZonePointage(z: Pick<ZonePointage, 'id' | 'libelle'>): Confirmation {
   return {
-    titre: 'Supprimer la zone de pointage',
-    question: `Supprimer la zone « ${z.libelle} » ?`,
-    suites: ['Les pointages déjà faits gardent leur verdict.', 'Sans zone active, la position n’est plus demandée au pointage.'],
-    bouton: 'Supprimer la zone',
+    titre: t('Delete the clock-in zone'),
+    question: `${t('Delete the zone ')}« ${z.libelle} » ?`,
+    suites: [t('Clock-ins already made keep their verdict.'), t('Without an active zone, the position is no longer asked at clock-in.')],
+    bouton: t('Delete the zone'),
     action: 'pointage.zone.supprimer',
     payload: { id: z.id },
   };

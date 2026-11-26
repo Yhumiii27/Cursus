@@ -7,6 +7,7 @@ import { VERDICTS_ZONE } from '../../../../shared/rules/geolocalisation.ts';
 import { hhmmParis, modeTempsAu, MOTIFS_CORRECTION } from '../../../../shared/rules/pointage.ts';
 import type { CorrectionPointage, Dataset, ISODate, ModeTemps, VerdictZone } from '../../../../shared/types.ts';
 import { decideur } from '../../state/delegues.ts';
+import { t } from '../../i18n/langue.ts';
 
 /** « 7 h 30 », « 45 min », « 0 h » : durée en minutes. */
 export function fMinutes(m: number): string {
@@ -39,24 +40,24 @@ export function correctionsAValider(d: Domain, o: { rh: boolean; manager: boolea
 }
 
 export const STATUTS_CORRECTION: Record<CorrectionPointage['statut'], { label: string; cls: string }> = {
-  demandee: { label: 'En attente', cls: 'tag-accent' },
-  validee: { label: 'Validée', cls: 'tag-neutral' },
-  refusee: { label: 'Refusée', cls: 'tag-outline' },
-  annulee: { label: 'Retirée', cls: 'tag-outline' },
+  demandee: { label: 'Pending', cls: 'tag-accent' },
+  validee: { label: 'Approved#fem', cls: 'tag-neutral' },
+  refusee: { label: 'Refused#fem', cls: 'tag-outline' },
+  annulee: { label: 'Withdrawn#fem', cls: 'tag-outline' },
 };
 
 /** « Arrivée à 08:00 oubliée, mardi 6 oct. » ; « Retrait d'un pointage du 6 oct. 2026 » : objet d'une demande, sans commentaire. */
 export function objetCorrection(c: Pick<CorrectionPointage, 'nature' | 'horodatage' | 'sens' | 'jour'>): string {
-  if (c.nature === 'ajout' && c.horodatage) return `${c.sens === 'S' ? 'Départ' : 'Arrivée'} à ${hhmmParis(c.horodatage)} à ajouter, le ${fmtIso(c.jour)}`;
-  return `Pointage erroné à retirer, le ${fmtIso(c.jour)}`;
+  if (c.nature === 'ajout' && c.horodatage) return `${c.sens === 'S' ? t('Out') : t('In')}${t(' at ')}${hhmmParis(c.horodatage)}${t(' to add, on ')}${fmtIso(c.jour)}`;
+  return `${t('Wrong clock-in to remove, on ')}${fmtIso(c.jour)}`;
 }
 export const motifCorrection = (c: Pick<CorrectionPointage, 'motif'>) => MOTIFS_CORRECTION[c.motif] ?? c.motif;
 
 /** État de présence du jour (sans la nature d'une absence). */
 export const PRESENCES: Record<string, { label: string; cls: string }> = {
-  present: { label: 'Présent', cls: 'tag-accent' },
-  parti: { label: 'Parti', cls: 'tag-neutral' },
-  non_pointe: { label: 'Non pointé', cls: 'tag-outline' },
+  present: { label: 'Present', cls: 'tag-accent' },
+  parti: { label: 'Left', cls: 'tag-neutral' },
+  non_pointe: { label: 'Not clocked in', cls: 'tag-outline' },
   absent: { label: 'Absent', cls: 'tag-outline' },
 };
 

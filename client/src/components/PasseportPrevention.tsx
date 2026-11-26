@@ -5,7 +5,7 @@
 // Le format d'import de la plateforme n'est pas connu : gabarit de colonnes réglé dans Paramètres, mention « à confirmer ».
 import { useMemo, useState } from 'react';
 import { CheckSquareIcon, DownloadSimpleIcon } from '@phosphor-icons/react';
-import { fmtIso, plural } from '../../../shared/format.ts';
+import { fmtIso } from '../../../shared/format.ts';
 import { lignesPasseport, MENTION_PASSEPORT, plageLigne } from '../../../shared/rules/passeport-prevention.ts';
 import type { LignePasseport } from '../../../shared/types.ts';
 import { api } from '../api.ts';
@@ -15,21 +15,22 @@ import { useStore } from '../state/store.tsx';
 import { usePagination } from './tri.ts';
 import { SuiteListe } from './TriListe.tsx';
 import { Btn, Empty, Fine, Panel, Seg, Tag, Two } from './ui.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 type Vue = 'a-declarer' | 'declarees';
 
 /** Retrait d'une marque posée par erreur : la ligne est de nouveau proposée à l'export. */
 const retrait = (l: LignePasseport, nom: string): Confirmation => ({
-  titre: 'Retirer la marque « déclarée »',
-  question: `Retirer la marque du ${fmtIso(l.declareLe!)} sur « ${l.intitule} » de ${nom} ?`,
-  suites: ['La ligne est de nouveau proposée à l’export.', 'Rien n’est modifié sur la plateforme du Passeport de prévention.'],
-  bouton: 'Retirer la marque',
+  titre: t('Remove the “declared” mark'),
+  question: `${t('Remove the mark of ')}${fmtIso(l.declareLe!)}${t(' on “')}${l.intitule}${t('” of ')}${nom} ?`,
+  suites: [t('The line is offered again for export.'), t('Nothing is changed on the Prevention passport platform.')],
+  bouton: t('Remove the mark'),
   action: 'passeport.retirer',
   payload: { cle: l.cle },
 });
 
 /** « 7 h », « 3,5 h », ou « durée inconnue ». */
-const duree = (n: number | null) => (n == null ? 'durée inconnue' : `${String(n).replace('.', ',')} h`);
+const duree = (n: number | null) => (n == null ? t('unknown duration') : `${String(n).replace('.', ',')} h`);
 
 export function PasseportPrevention() {
   const d = useDomain();
@@ -58,9 +59,9 @@ export function PasseportPrevention() {
     try {
       const r = await api.passeportPrevention(du, au, vue);
       if (vue === 'a-declarer') setExporte({ an, cles: r.cles });
-      notify(`Passeport de prévention : ${plural(r.nombre, 'ligne exportée', 'lignes exportées')}`
-        + (r.interimaires ? ` (${plural(r.interimaires, 'ligne d’intérimaire écartée', 'lignes d’intérimaires écartées')} : déclarées par l’agence)` : '')
-        + ' — export tracé dans le journal');
+      notify(`${t('Prevention passport: ')}${tn(r.nombre, 'line exported', 'lines exported')}`
+        + (r.interimaires ? ` (${tn(r.interimaires, 'line of a temp worker set aside', 'lines of temp workers set aside')}${t(': declared by the agency)')}` : '')
+        + t(' — export recorded in the log'));
     } catch (err) {
       notify((err as Error).message, true);
     } finally {
@@ -72,41 +73,41 @@ export function PasseportPrevention() {
     <Panel head={
       <div className="panel-head top">
         <div>
-          <h2>Passeport de prévention</h2>
+          <h2>{t('Prevention passport')}</h2>
           <div className="text-muted sub">
-            {plural(aDeclarer.length, 'ligne à déclarer', 'lignes à déclarer')} · {plural(declarees.length, 'déjà déclarée', 'déjà déclarées')} en {an}
-            {' '}· {plural(marquees, 'formation marquée', 'formations marquées')} au catalogue
+            {tn(aDeclarer.length, 'line to declare', 'lines to declare')} · {tn(declarees.length, 'already declared', 'already declared#fem-plural')}{t(' in #year')}{an}
+            {' '}· {tn(marquees, 'training course marked', 'training courses marked')}{t(' in the catalogue')}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-          <label htmlFor="passeport-annee" className="sr-only">Année</label>
+          <label htmlFor="passeport-annee" className="sr-only">{t('Year')}</label>
           <select className="input" id="passeport-annee" value={an} onChange={e => setAn(Number(e.target.value))} style={{ maxWidth: 110 }}>
             {annees.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
-          <Seg name="passeportVue" label="Lignes affichées" value={vue} onChange={setVue} options={[['a-declarer', 'À déclarer'], ['declarees', 'Déjà déclarées']]} />
-          {peut && lignes.length > 0 && <Btn variant="secondary" small icon={<DownloadSimpleIcon size={14} />} disabled={busy} onClick={exporter}>Exporter (CSV)</Btn>}
+          <Seg name="passeportVue" label={t('Lines shown')} value={vue} onChange={setVue} options={[['a-declarer', t('To declare')], ['declarees', t('Already declared#fem-plural-cap')]]} />
+          {peut && lignes.length > 0 && <Btn variant="secondary" small icon={<DownloadSimpleIcon size={14} />} disabled={busy} onClick={exporter}>{t('Export (CSV)')}</Btn>}
           {peut && vue === 'a-declarer' && aDeclarer.length > 0 && (
             <Btn variant="secondary" small icon={<CheckSquareIcon size={14} />} onClick={() => openDialog({ type: 'passeportDeclarer', du, au, exportees: exporte?.an === an ? exporte.cles : null })}>
-              Marquer déclarées…
+              {t('Mark as declared…')}
             </Btn>
           )}
         </div>
       </div>
     }>
       {lignes.length === 0
-        ? <Empty pad="sm">{vue === 'a-declarer' ? `Aucune ligne à déclarer en ${an}.` : `Aucune ligne déclarée en ${an}.`}</Empty>
+        ? <Empty pad="sm">{`${vue === 'a-declarer' ? t('No line to declare in ') : t('No line declared in ')}${an}.`}</Empty>
         : (
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Collaborateur</th><th>Formation</th><th>Dates</th><th>Durée</th><th>Résultat</th><th>État</th></tr></thead>
+              <thead><tr><th>{t('Employee')}</th><th>{t('Training course')}</th><th>{t('Dates')}</th><th>{t('Duration')}</th><th>{t('Result')}</th><th>{t('State')}</th></tr></thead>
               <tbody>
                 {page.lignes.map(l => {
                   const e = d.emp(l.empId);
                   return (
                     <tr key={l.cle}>
                       <td>
-                        <Two main={e?.nom ?? '—'} sub={e?.matriculePaie ? `matricule ${e.matriculePaie}` : 'sans matricule de paie'} />
-                        {l.interim && <Tag cls="tag-outline">Intérimaire : voir avec l’agence</Tag>}
+                        <Two main={e?.nom ?? '—'} sub={e?.matriculePaie ? `${t('employee no. ')}${e.matriculePaie}` : t('no payroll number')} />
+                        {l.interim && <Tag cls="tag-outline">{t('Temp worker: see with the agency')}</Tag>}
                       </td>
                       <td><Two main={l.intitule} sub={l.organisme || undefined} /></td>
                       <td className="nowrap">{plageLigne(l)}</td>
@@ -115,10 +116,10 @@ export function PasseportPrevention() {
                       <td className="nowrap">
                         {l.declareLe
                           ? <>
-                            <Tag cls="tag-neutral">Déclarée le {fmtIso(l.declareLe)}</Tag>
-                            {peut && <Btn small onClick={() => openDialog({ type: 'confirmer', c: retrait(l, e?.nom ?? 'ce salarié') })}>Retirer</Btn>}
+                            <Tag cls="tag-neutral">{t('Declared on#fem')} {fmtIso(l.declareLe)}</Tag>
+                            {peut && <Btn small onClick={() => openDialog({ type: 'confirmer', c: retrait(l, e?.nom ?? t('this employee')) })}>{t('Remove')}</Btn>}
                           </>
-                          : <Tag cls="tag-accent">À déclarer</Tag>}
+                          : <Tag cls="tag-accent">{t('To declare')}</Tag>}
                       </td>
                     </tr>
                   );
@@ -127,13 +128,9 @@ export function PasseportPrevention() {
             </table>
           </div>
         )}
-      <SuiteListe p={page} unite={['ligne', 'lignes']} />
+      <SuiteListe p={page} unite={['line', 'lines']} />
       <Fine>
-        {MENTION_PASSEPORT} (Caisse des dépôts) : colonnes de l’export réglées dans Paramètres → Passeport de prévention ; le prénom est le premier
-        mot du nom de la fiche, à vérifier pour un prénom composé. Cursus ne détient pas le NIR : rapprochement par le matricule de paie dans Sage.
-        Sont proposées les certifications et formations suivies des formations cochées « Passeport de prévention » dans Référentiels → Formations ;
-        une ligne marquée déclarée ne l’est plus. « Marquer déclarées » ne coche d’office que les lignes du dernier export. Une formation d’intérimaire
-        se déclare en principe par l’entreprise de travail temporaire : elle est écartée de l’export.
+        {MENTION_PASSEPORT}{t(' (Caisse des dépôts): export columns set in Settings → Prevention passport; the first name is the first word of the name on the sheet, to check for a compound first name. Cursus does not hold the NIR: matching by the payroll number in Sage. Offered are the certifications and training followed of the training courses ticked “Prevention passport” in Reference data → Training; a line marked declared is no longer offered. “Mark as declared” only ticks by default the lines of the last export. Training of a temp worker is in principle declared by the temporary work agency: it is set aside from the export.')}
       </Fine>
     </Panel>
   );

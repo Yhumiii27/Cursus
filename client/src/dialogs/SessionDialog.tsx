@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { PLAN_LABEL } from '../../../shared/constants.ts';
 import { addD, isValidDate, weekday } from '../../../shared/dates.ts';
-import { fH, fmtIsoShort, plural } from '../../../shared/format.ts';
+import { fH, fmtIsoShort } from '../../../shared/format.ts';
 import { dureeHeures } from '../../../shared/rules/formations-temps.ts';
 import { finSession, heuresHoraire, joursOuvres, plageTexte, SESSION_ETENDUE_MAX } from '../../../shared/rules/plage-session.ts';
 import { inscritsDe, sessionPassee } from '../../../shared/rules/sessions.ts';
@@ -22,6 +22,7 @@ import { apresCreation } from './retour-session.ts';
 // lot 12 — C4 (organismes de formation et e-learning) : organisme de la session, figé à sa création.
 import { ChoixOrganisme } from '../components/organismes/ChoixOrganisme.tsx';
 import { organismeDuPlan, organismeFinal } from '../../../shared/rules/organismes.ts';
+import { t, tn } from '../i18n/langue.ts';
 
 /** Horaires saisis : aucun (journées entières), les mêmes chaque jour, ou un par jour. */
 type ModeHoraires = 'aucun' | 'commun' | 'jour';
@@ -29,6 +30,7 @@ type ModeHoraires = 'aucun' | 'commun' | 'jour';
 interface HoraireSaisi { debut: string; fin: string; pause: string }
 
 const HORAIRE_DEFAUT: HoraireSaisi = { debut: '08:30', fin: '16:30', pause: '60' };
+// Jours abrégés comme les dates (fmtIsoShort), en français pour l'instant (CU-N01).
 const JOUR_COURT = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'];
 const saisi = (h: HoraireSession): HoraireSaisi => ({ debut: h.debut, fin: h.fin, pause: String(h.pause ?? 0) });
 const envoye = (h: HoraireSaisi) => ({ debut: h.debut, fin: h.fin, pause: h.pause.trim() === '' ? 0 : Number(h.pause) });
@@ -45,11 +47,11 @@ function ChampsHoraire({ id, h, onChange, legende }: { id: string; h: HoraireSai
   return (
     <div className="row-wrap" style={{ gap: 'var(--space-2)', alignItems: 'center' }}>
       {legende && <span className="text-muted sub" style={{ minWidth: 84 }}>{legende}</span>}
-      <input className="input" id={`${id}-debut`} type="time" aria-label={`Début${legende ? ` (${legende})` : ''}`} value={h.debut} onChange={e => onChange({ ...h, debut: e.target.value })} style={{ width: 132 }} />
-      <span className="text-muted">à</span>
-      <input className="input" id={`${id}-fin`} type="time" aria-label={`Fin${legende ? ` (${legende})` : ''}`} value={h.fin} onChange={e => onChange({ ...h, fin: e.target.value })} style={{ width: 132 }} />
-      <span className="text-muted">pause</span>
-      <input className="input" id={`${id}-pause`} type="number" min={0} max={240} step={5} aria-label={`Pause en minutes${legende ? ` (${legende})` : ''}`} value={h.pause} onChange={e => onChange({ ...h, pause: e.target.value })} style={{ width: 72 }} />
+      <input className="input" id={`${id}-debut`} type="time" aria-label={`${t('Start')}${legende ? ` (${legende})` : ''}`} value={h.debut} onChange={e => onChange({ ...h, debut: e.target.value })} style={{ width: 132 }} />
+      <span className="text-muted">{t('to#time')}</span>
+      <input className="input" id={`${id}-fin`} type="time" aria-label={`${t('End')}${legende ? ` (${legende})` : ''}`} value={h.fin} onChange={e => onChange({ ...h, fin: e.target.value })} style={{ width: 132 }} />
+      <span className="text-muted">{t('break')}</span>
+      <input className="input" id={`${id}-pause`} type="number" min={0} max={240} step={5} aria-label={`${t('Break in minutes')}${legende ? ` (${legende})` : ''}`} value={h.pause} onChange={e => onChange({ ...h, pause: e.target.value })} style={{ width: 72 }} />
       <span className="text-muted">min</span>
     </div>
   );
@@ -82,7 +84,7 @@ export function SessionDialog({ f: f0, planId, places: places0, sessionId, retou
   const [busy, setBusy] = useState(false);
   const v = useVerification();
   if (sessionId != null && !s) return null;
-  if (!s && !fixe && !forms.length) return <ReferentielVide titre="Nouvelle session" onglet="formations" texte="Catalogue des formations vide." />;
+  if (!s && !fixe && !forms.length) return <ReferentielVide titre={t('New session')} onglet="formations" texte={t('Training catalogue empty.')} />;
   const fm = d.fm(f);
   const waiting = emps.flatMap(e => e.certs).filter(c => c.f === f && c.key !== 'ok' && !c.session && !c.sessionPassee).length;
 
@@ -136,27 +138,27 @@ export function SessionDialog({ f: f0, planId, places: places0, sessionId, retou
   };
 
   return (
-    <Dialog title={s ? 'Modifier la session' : 'Nouvelle session'} width={600} onSubmit={confirm} fermer={retour ? () => openDialog(retour) : undefined} actions={<>
-      <CancelButton label={retour ? 'Revenir à la planification' : undefined} />
-      <SubmitButton busy={busy}>{s ? 'Enregistrer' : 'Créer la session'}</SubmitButton>
+    <Dialog title={t(s ? 'Edit the session' : 'New session')} width={600} onSubmit={confirm} fermer={retour ? () => openDialog(retour) : undefined} actions={<>
+      <CancelButton label={retour ? t('Back to the planning') : undefined} />
+      <SubmitButton busy={busy}>{t(s ? 'Save' : 'Create the session')}</SubmitButton>
     </>}>
       {fixe
-        ? <Field label="Formation"><Static>{fm?.nom ?? fixe}{fm?.duree ? <div className="text-muted sub">Durée : {fm.duree}</div> : null}</Static></Field>
+        ? <Field label={t('Training course')}><Static>{fm?.nom ?? fixe}{fm?.duree ? <div className="text-muted sub">{t('Duration: ')}{fm.duree}</div> : null}</Static></Field>
         : (
-          <Field label="Formation" htmlFor="sess-f">
+          <Field label={t('Training course')} htmlFor="sess-f">
             <select className="input" id="sess-f" value={f} onChange={e => setF(e.target.value)}>
               {forms.map(o => <option key={o.id} value={o.id}>{o.nom}{o.duree ? ` · ${o.duree}` : ''}</option>)}
             </select>
           </Field>
         )}
-      {plan && <Fine>Action du plan {plan.exercice} · {plan.equipe} · {plan.periode} · {PLAN_LABEL[plan.statut].toLowerCase()} : elle passera « engagée ».</Fine>}
+      {plan && <Fine>{t('Action of the plan ')}{plan.exercice} · {plan.equipe} · {plan.periode} · {PLAN_LABEL[plan.statut].toLowerCase()}{t(': it will become “committed”.')}</Fine>}
       <div className="grid-2">
-        <Field label="Premier jour" htmlFor="sess-date" requis erreur={erreur('date')}><input className="input" id="sess-date" type="date" min={passee ? undefined : addD(d.ti, 1)} value={date} onChange={e => setDate(e.target.value)} /></Field>
-        <Field label="Dernier jour" htmlFor="sess-fin" erreur={erreur('fin')}><input className="input" id="sess-fin" type="date" min={date || undefined} value={fin} onChange={e => setFin(e.target.value)} /></Field>
+        <Field label={t('First day')} htmlFor="sess-date" requis erreur={erreur('date')}><input className="input" id="sess-date" type="date" min={passee ? undefined : addD(d.ti, 1)} value={date} onChange={e => setDate(e.target.value)} /></Field>
+        <Field label={t('Last day#field')} htmlFor="sess-fin" erreur={erreur('fin')}><input className="input" id="sess-fin" type="date" min={date || undefined} value={fin} onChange={e => setFin(e.target.value)} /></Field>
       </div>
-      {!plusieurs && <Fine>Dernier jour vide : session d’une journée.</Fine>}
+      {!plusieurs && <Fine>{t('Last day empty: one-day session.')}</Fine>}
       {plusieurs && (
-        <Field label={`Jours de la session (${plural(coches.length, 'jour', 'jours')})`} erreur={erreur('jours')}>
+        <Field label={`${t('Days of the session')} (${tn(coches.length, 'day', 'days')})`} erreur={erreur('jours')}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2) var(--space-4)' }}>
             {periode.map(j => (
               <label key={j} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
@@ -168,11 +170,11 @@ export function SessionDialog({ f: f0, planId, places: places0, sessionId, retou
           </div>
         </Field>
       )}
-      <Field label="Horaires" htmlFor="sess-horaires" erreur={erreur('horaires')}>
+      <Field label={t('Times')} htmlFor="sess-horaires" erreur={erreur('horaires')}>
         <select className="input" id="sess-horaires" value={modeEffectif} onChange={e => setMode(e.target.value as ModeHoraires)}>
-          <option value="aucun">Sans horaire (journées entières)</option>
-          <option value="commun">{plusieurs ? 'Mêmes horaires chaque jour' : 'Horaires de la journée'}</option>
-          {plusieurs && <option value="jour">Horaires par jour</option>}
+          <option value="aucun">{t('No times (whole days)')}</option>
+          <option value="commun">{t(plusieurs ? 'Same times each day' : 'Times of the day')}</option>
+          {plusieurs && <option value="jour">{t('Times per day')}</option>}
         </select>
       </Field>
       {modeEffectif === 'commun' && <ChampsHoraire id="sess-h" h={commun} onChange={setCommun} />}
@@ -186,29 +188,29 @@ export function SessionDialog({ f: f0, planId, places: places0, sessionId, retou
       )}
       {(prevues != null || catalogue != null) && (
         <Fine>
-          {prevues != null ? `Heures prévues : ${fH(prevues)}${catalogue != null ? ` (catalogue : ${fH(catalogue)})` : ''}` : `Sans horaire : ${fH(catalogue!)} au catalogue, réparties sur ${plural(coches.length || 1, 'jour', 'jours')}`}
-          {' · proposées dans la feuille de temps des inscrits (ligne interne, modifiable).'}
+          {prevues != null ? `${t('Planned hours: ')}${fH(prevues)}${catalogue != null ? `${t(' (catalogue: ')}${fH(catalogue)})` : ''}` : `${t('No times: ')}${fH(catalogue!)}${t(' in the catalogue, spread over ')}${tn(coches.length || 1, 'day', 'days')}`}
+          {t(' · offered in the timesheet of those enrolled (internal line, editable).')}
         </Fine>
       )}
-      <Field label="Places" htmlFor="sess-places" requis erreur={erreur('places')}>
+      <Field label={t('Places')} htmlFor="sess-places" requis erreur={erreur('places')}>
         <input className="input" id="sess-places" type="number" min={Math.max(1, s?.inscrits ?? 1)} max={60} step={1} value={places} onChange={e => setPlaces(e.target.value)} />
       </Field>
-      <Field label="Lieu" htmlFor="sess-lieu" requis erreur={erreur('lieu')}><input className="input" id="sess-lieu" type="text" maxLength={200} placeholder="Site de Lyon — salle B" value={lieu} onChange={e => setLieu(e.target.value)} /></Field>
+      <Field label={t('Place')} htmlFor="sess-lieu" requis erreur={erreur('lieu')}><input className="input" id="sess-lieu" type="text" maxLength={200} placeholder={t('Lyon site — room B')} value={lieu} onChange={e => setLieu(e.target.value)} /></Field>
       {/* lot 12 — C4 : organisme de la session, figé à la création (l'historique ne bascule plus avec le catalogue). */}
       {!s && (
-        <ChoixOrganisme id="sess-organisme" valeur={organismeValeur} onChange={setOrganisme} actuel={organismeDefaut} vide={organismeDefaut != null ? 'Celui proposé (plan ou catalogue)' : 'Aucun (le catalogue n’en indique pas)'}
-          le={isValidDate(date) ? date : d.ti} aide="Proposé d’après le plan ou le catalogue ; la session le garde, même si le catalogue change ensuite." />
+        <ChoixOrganisme id="sess-organisme" valeur={organismeValeur} onChange={setOrganisme} actuel={organismeDefaut} vide={t(organismeDefaut != null ? 'The one offered (plan or catalogue)' : 'None (the catalogue gives none)')}
+          le={isValidDate(date) ? date : d.ti} aide={t('Offered from the plan or the catalogue; the session keeps it, even if the catalogue changes afterwards.')} />
       )}
       {s ? (
         <Fine>
-          {plural(s.inscrits, 'inscrit', 'inscrits')} · session {plageTexte(s)}.
-          {passee ? ' Session passée : corrigez ses dates si elle a eu lieu d’autres jours, la clôture date les certifications de son dernier jour.' : ''}
-          {moved && convoquees > 0 ? ` Les nouvelles dates, les nouveaux horaires ou le nouveau lieu rendent caduques ${plural(convoquees, 'convocation envoyée', 'convocations envoyées')} : elles repasseront « à envoyer ».` : ''}
-          {reconfirmer ? ` La session repassera « à confirmer » : faites confirmer les nouvelles dates par ${fm?.organisme ?? 'l’organisme'}.` : ''}
+          {tn(s.inscrits, 'enrolled', 'enrolled#plural')}{t(' · session ')}{plageTexte(s)}.
+          {passee ? t(' Past session: correct its dates if it took place on other days, the closing dates the certifications on its last day.') : ''}
+          {moved && convoquees > 0 ? `${t(' The new dates, the new times or the new place make void ')}${tn(convoquees, 'notice sent', 'notices sent')}${t(': they will go back to “to send”.')}` : ''}
+          {reconfirmer ? `${t(' The session will go back to “to confirm”: have the new dates confirmed by ')}${fm?.organisme ?? t('the provider')}.` : ''}
         </Fine>
       ) : (
         <p className="text-muted fine">
-          {fm && (waiting ? `${plural(waiting, 'collaborateur attend', 'collaborateurs attendent')} un renouvellement ${fm.court}.` : `Aucun renouvellement ${fm.court} en attente.`)}
+          {fm && (waiting ? `${tn(waiting, 'employee waits', 'employees wait')}${t(' for a renewal ')}${fm.court}.` : `${t('No renewal ')}${fm.court}${t(' pending#renewal')}.`)}
         </p>
       )}
     </Dialog>

@@ -6,7 +6,7 @@ import { CalendarBlankIcon, PlusIcon } from '@phosphor-icons/react';
 import { CERT_LABEL, CLS, RANK, SESS_CLS, SESSION_PASSEE } from '../../../shared/constants.ts';
 import type { CertInfo, EmpX } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
-import { fmt, fmtShort, plural, rel, validiteLabel } from '../../../shared/format.ts';
+import { fmt, fmtShort, rel, validiteLabel } from '../../../shared/format.ts';
 import { inscritsDe } from '../../../shared/rules/sessions.ts';
 import type { Session } from '../../../shared/types.ts';
 import { CatalogueVide } from '../components/ReferentielVide.tsx';
@@ -24,6 +24,7 @@ import { EvaluationsManagerPanel, IndicateursEvaluationPanel } from '../componen
 // lot 12 — C4 (organismes de formation et e-learning) : onglet E-learning.
 import { ElearningFormations } from '../components/elearning/ElearningFormations.tsx';
 import { organismeDeSession } from '../../../shared/rules/organismes.ts';
+import { t, tn } from '../i18n/langue.ts';
 
 const TYPES: Record<UiState['typeForm'], string | null> = { toutes: null, reg: 'Réglementaire', rec: 'Recommandée', int: 'Interne' };
 
@@ -73,7 +74,7 @@ export function Formations() {
       return {
         f,
         titulaires: holders.length, due: holders.filter(c => c.key === 'due').length, exp: holders.filter(c => c.key === 'exp').length,
-        next: next ? `Prochaine session le ${fmtShort(parse(next.date))} · ${plural(Math.max(0, next.places - next.inscrits), 'place restante', 'places restantes')}` : 'Aucune session planifiée',
+        next: next ? `${t('Next session on ')}${fmtShort(parse(next.date))} · ${tn(Math.max(0, next.places - next.inscrits), 'place left', 'places left')}` : t('No session planned'),
       };
     });
   }, [scope, forms, upcoming, ui.typeForm]);
@@ -86,7 +87,7 @@ export function Formations() {
       .filter(c => c.key !== 'ok' && !c.session)
       .map(c => {
         const r = d.ds.demandesCollab.find(x => x.empId === e.id && x.type === 'formation' && x.f === c.f && x.statut === 'attente');
-        return { e, c, demande: r ? `Demande transmise au service RH le ${fmtShort(parse(r.date))}` : null };
+        return { e, c, demande: r ? `${t('Request sent to HR on ')}${fmtShort(parse(r.date))}` : null };
       }))
       .sort((a, b) => a.c.d - b.c.d || a.e.nom.localeCompare(b.e.nom));
   }, [d, scope, manager]);
@@ -114,12 +115,12 @@ export function Formations() {
 
   const kicker = manager
     ? [
-        teams.length ? `${teams.length > 1 ? 'Équipes' : 'Équipe'} ${teams.join(', ')}` : 'Aucune équipe encadrée',
-        plural(scope.length, 'collaborateur', 'collaborateurs'),
-        plural(renewals.length, 'renouvellement à prévoir', 'renouvellements à prévoir'),
-        plural(upcoming.length, 'session à venir', 'sessions à venir'),
+        teams.length ? `${t(teams.length > 1 ? 'Teams' : 'Team')} ${teams.join(', ')}` : t('No team managed'),
+        tn(scope.length, 'employee', 'employees'),
+        tn(renewals.length, 'renewal to plan', 'renewals to plan'),
+        tn(upcoming.length, 'upcoming session', 'upcoming sessions'),
       ].join(' · ')
-    : `${plural(forms.length, 'formation suivie', 'formations suivies')} · ${plural(upcoming.length, 'session à venir', 'sessions à venir')}${aCloturer.length ? ` · ${aCloturer.length} à clôturer` : ''}`;
+    : `${tn(forms.length, 'training course followed', 'training courses followed')} · ${tn(upcoming.length, 'upcoming session', 'upcoming sessions')}${aCloturer.length ? ` · ${aCloturer.length}${t(' to close')}` : ''}`;
 
   // lot 12 — C4 : onglet E-learning dès qu'un module existe ou qu'une inscription est reçue (manager : son équipe).
   const voitElearning = (d.ds.modulesElearning ?? []).length > 0 || (d.ds.inscriptionsElearning ?? []).length > 0;
@@ -128,31 +129,31 @@ export function Formations() {
   return (
     <Page
       kicker={kicker}
-      title="Formations"
-      actions={onglet === 'sessions' ? <Seg name="typeForm" label="Type de formation" value={ui.typeForm} onChange={v => setUi({ typeForm: v })}
-        options={[['toutes', 'Toutes'], ['reg', 'Réglementaires'], ['rec', 'Recommandées'], ['int', 'Internes']]} /> : undefined}
+      title={t('Training')}
+      actions={onglet === 'sessions' ? <Seg name="typeForm" label={t('Type of training')} value={ui.typeForm} onChange={v => setUi({ typeForm: v })}
+        options={[['toutes', t('All#fem-plural')], ['reg', t('Regulatory#plural')], ['rec', t('Recommended#plural')], ['int', t('Internal#plural')]]} /> : undefined}
     >
       {/* lot 12 — C4 : sessions (écran d'avant le lot 12) ou modules d'e-learning. */}
       {voitElearning && (
-        <Seg name="formOnglet" label="Onglet de Formations" value={onglet} onChange={v => setUi({ formOnglet: v })} style={{ alignSelf: 'flex-start', flexWrap: 'wrap' }}
-          options={[['sessions', 'Sessions et certifications'], ['elearning', 'E-learning']]} />
+        <Seg name="formOnglet" label={t('Training tab')} value={onglet} onChange={v => setUi({ formOnglet: v })} style={{ alignSelf: 'flex-start', flexWrap: 'wrap' }}
+          options={[['sessions', t('Sessions and certifications')], ['elearning', t('E-learning')]]} />
       )}
       {onglet === 'elearning' ? <ElearningFormations /> : <>
       {/* Évaluations à froid à faire sur l'équipe directe (lot 7, t121). */}
       {manager && <EvaluationsManagerPanel />}
       {manager && (
         <Panel highlight={shownRenewals.length > 0}
-          title={filteredFm ? `À renouveler dans votre équipe — ${filteredFm.court}` : 'À renouveler dans votre équipe'}
-          aside={plural(shownRenewals.length, 'certification sans session planifiée', 'certifications sans session planifiée')}>
+          title={filteredFm ? `${t('To renew in your team')} — ${filteredFm.court}` : t('To renew in your team')}
+          aside={tn(shownRenewals.length, 'certification without a planned session', 'certifications without a planned session')}>
           {shownRenewals.length > 0 && (
             <div className="scroll-x">
               <table className="table">
                 <thead><tr>
-                  <ThTri t={tRen} col="nom">Collaborateur</ThTri>
-                  <ThTri t={tRen} col="certification">Certification</ThTri>
-                  <ThTri t={tRen} col="echeance">Échéance</ThTri>
-                  <ThTri t={tRen} col="statut" premier="desc">Statut</ThTri>
-                  <th>Prochaine session</th><th></th>
+                  <ThTri t={tRen} col="nom">{t('Employee')}</ThTri>
+                  <ThTri t={tRen} col="certification">{t('Certification')}</ThTri>
+                  <ThTri t={tRen} col="echeance">{t('Due date')}</ThTri>
+                  <ThTri t={tRen} col="statut" premier="desc">{t('Status')}</ThTri>
+                  <th>{t('Next session')}</th><th></th>
                 </tr></thead>
                 <tbody>
                   {pageRen.lignes.map(({ e, c, demande }) => {
@@ -164,18 +165,18 @@ export function Formations() {
                         <td><Two main={fmt(c.exp)} sub={rel(c.d)} nowrap subNowrap /></td>
                         <td><Tag cls={CLS[c.key]}>{CERT_LABEL[c.key]}</Tag></td>
                         <td>
-                          <Two nowrap main={s ? plageCourte(s) : 'Aucune session ouverte'}
-                            sub={s ? `${s.lieu} · ${plural(s.places - s.inscrits, 'place restante', 'places restantes')}` : 'à demander au service RH'} />
+                          <Two nowrap main={s ? plageCourte(s) : t('No open session')}
+                            sub={s ? `${s.lieu} · ${tn(s.places - s.inscrits, 'place left', 'places left')}` : t('to request from HR')} />
                         </td>
                         <td className="right">
                           {c.sessionPassee
-                            ? <span className="note-accent nowrap">{SESSION_PASSEE} par le service RH</span>
+                            ? <span className="note-accent nowrap">{SESSION_PASSEE}{t(' by HR')}</span>
                             : demande
                             ? <span className="note-accent nowrap">{demande}</span>
                             : (
                               <div className="actions-end">
-                                <Btn small onClick={stop(() => openDialog({ type: 'reqForm', empId: e.id, f: c.f }))}>Demander au RH</Btn>
-                                {s && <Btn small variant="secondary" onClick={stop(() => openDialog({ type: 'plan', empId: e.id, certId: c.id }))}>Planifier</Btn>}
+                                <Btn small onClick={stop(() => openDialog({ type: 'reqForm', empId: e.id, f: c.f }))}>{t('Ask HR')}</Btn>
+                                {s && <Btn small variant="secondary" onClick={stop(() => openDialog({ type: 'plan', empId: e.id, certId: c.id }))}>{t('Plan')}</Btn>}
                               </div>
                             )}
                         </td>
@@ -186,24 +187,24 @@ export function Formations() {
               </table>
             </div>
           )}
-          <SuiteListe p={pageRen} unite={['renouvellement', 'renouvellements']} />
+          <SuiteListe p={pageRen} unite={['renewal', 'renewals']} />
           {shownRenewals.length === 0 && (
             <Empty pad="sm">{scope.length === 0
-              ? 'Aucun collaborateur dans votre équipe.'
-              : filteredFm ? 'Aucun renouvellement à prévoir pour cette formation.' : 'Aucune certification à renouveler dans votre équipe.'}</Empty>
+              ? t('No employee in your team.')
+              : t(filteredFm ? 'No renewal to plan for this training course.' : 'No certification to renew in your team.')}</Empty>
           )}
-          <Fine>Planifier inscrit directement le collaborateur à une session ouverte. Sans session, la demande est transmise au service RH, qui l’inscrit ou l’ajoute au plan de formation.</Fine>
+          <Fine>{t('Plan enrols the employee directly in an open session. Without a session, the request is sent to HR, who enrols them or adds them to the training plan.')}</Fine>
         </Panel>
       )}
 
-      {forms.length === 0 && <CatalogueVide onglet="formations" texte="Catalogue des formations vide." />}
+      {forms.length === 0 && <CatalogueVide onglet="formations" texte={t('Training catalogue empty.')} />}
       <div className="cards-grid">
         {cards.map(c => {
           const selected = ui.formationFilter === c.f.id;
           return (
             <PickCard key={c.f.id} kicker={c.f.type} title={c.f.nom} selected={selected}
-              body={`Validité ${validiteLabel(c.f.validite)} · ${c.f.duree} · ${c.f.organisme}`}
-              stats={[[c.titulaires, 'titulaires'], [c.due, 'à renouveler'], [c.exp, 'expirées']]}
+              body={`${t('Validity ')}${validiteLabel(c.f.validite)} · ${c.f.duree} · ${c.f.organisme}`}
+              stats={[[c.titulaires, t('holders')], [c.due, t('to renew')], [c.exp, t('expired#fem-plural')]]}
               meta={<><CalendarBlankIcon size={13} /><span>{c.next}</span></>}
               onClick={() => setUi({ formationFilter: selected ? null : c.f.id })} />
           );
@@ -211,11 +212,11 @@ export function Formations() {
       </div>
 
       {aCloturer.length > 0 && (
-        <Panel highlight title={filteredFm ? `Sessions à clôturer — ${filteredFm.court}` : 'Sessions à clôturer'}
-          aside="présence, résultats et certifications des inscrits">
+        <Panel highlight title={filteredFm ? `${t('Sessions to close')} — ${filteredFm.court}` : t('Sessions to close')}
+          aside={t('attendance, results and certifications of those enrolled')}>
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Date</th><th>Formation</th><th>Lieu</th><th>Inscrits</th><th>Statut</th><th></th></tr></thead>
+              <thead><tr><th>{t('Date')}</th><th>{t('Training course')}</th><th>{t('Place')}</th><th>{t('Enrolled')}</th><th>{t('Status')}</th><th></th></tr></thead>
               <tbody>
                 {aCloturer.map(s => {
                   const fm = d.fm(s.formation);
@@ -224,9 +225,9 @@ export function Formations() {
                       <td className="nowrap"><Ouvrir onOpen={() => openDetail(s)}>{plageCourte(s)}</Ouvrir></td>
                       <td><Two main={fm.nom} sub={organismeAffiche(s, fm.organisme)} /></td>
                       <td className="text-muted">{s.lieu}</td>
-                      <td className="tnum nowrap">{plural(s.inscrits, 'inscrit', 'inscrits')}</td>
+                      <td className="tnum nowrap">{tn(s.inscrits, 'enrolled', 'enrolled#plural')}</td>
                       <td><Tag cls={SESS_CLS[SESSION_PASSEE]}>{SESSION_PASSEE}</Tag></td>
-                      <td className="right">{formations && <Btn small variant="secondary" onClick={stop(() => openDialog({ type: 'cloture', sessionId: s.id }))}>Clôturer</Btn>}</td>
+                      <td className="right">{formations && <Btn small variant="secondary" onClick={stop(() => openDialog({ type: 'cloture', sessionId: s.id }))}>{t('Close#session')}</Btn>}</td>
                     </tr>
                   );
                 })}
@@ -237,11 +238,11 @@ export function Formations() {
       )}
 
       {enCours.length > 0 && (
-        <Panel title={filteredFm ? `Sessions en cours — ${filteredFm.court}` : 'Sessions en cours'}
-          aside={espaceRh ? 'clôture à partir du dernier jour' : 'commencées, plus d’inscription possible'}>
+        <Panel title={filteredFm ? `${t('Sessions in progress')} — ${filteredFm.court}` : t('Sessions in progress')}
+          aside={t(espaceRh ? 'closing from the last day' : 'started, no more enrolment possible')}>
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Dates</th><th>Formation</th><th>Lieu</th><th>Inscrits</th>{manager && <th>Votre équipe</th>}<th>Statut</th>{formations && <th></th>}</tr></thead>
+              <thead><tr><th>{t('Dates')}</th><th>{t('Training course')}</th><th>{t('Place')}</th><th>{t('Enrolled')}</th>{manager && <th>{t('Your team')}</th>}<th>{t('Status')}</th>{formations && <th></th>}</tr></thead>
               <tbody>
                 {enCours.map(s => {
                   const fm = d.fm(s.formation);
@@ -252,10 +253,10 @@ export function Formations() {
                       <td className="nowrap">{espaceRh ? <Ouvrir onOpen={() => openDetail(s)}>{plageCourte(s)}</Ouvrir> : plageCourte(s)}</td>
                       <td><Two main={fm.nom} sub={organismeAffiche(s, fm.organisme)} /></td>
                       <td className="text-muted">{s.lieu}</td>
-                      <td className="tnum nowrap">{plural(s.inscrits, 'inscrit', 'inscrits')}</td>
+                      <td className="tnum nowrap">{tn(s.inscrits, 'enrolled', 'enrolled#plural')}</td>
                       {manager && <td className={team.length ? undefined : 'text-muted'} style={{ fontSize: 13 }}>{team.length ? team.join(', ') : '—'}</td>}
-                      <td><Tag cls="tag-outline">{dernierJour ? 'Dernier jour' : `En cours jusqu’au ${fmtShort(parse(finSession(s)))}`}</Tag></td>
-                      {formations && <td className="right">{dernierJour && <Btn small variant="secondary" onClick={stop(() => openDialog({ type: 'cloture', sessionId: s.id }))}>Clôturer</Btn>}</td>}
+                      <td><Tag cls="tag-outline">{dernierJour ? t('Last day') : `${t('In progress until ')}${fmtShort(parse(finSession(s)))}`}</Tag></td>
+                      {formations && <td className="right">{dernierJour && <Btn small variant="secondary" onClick={stop(() => openDialog({ type: 'cloture', sessionId: s.id }))}>{t('Close#session')}</Btn>}</td>}
                     </tr>
                   );
                 })}
@@ -267,16 +268,16 @@ export function Formations() {
 
       <Panel head={
         <div className="panel-head center">
-          <h2>{filteredFm ? `Sessions à venir — ${filteredFm.court}` : 'Sessions à venir'}</h2>
+          <h2>{filteredFm ? `${t('Upcoming sessions')} — ${filteredFm.court}` : t('Upcoming sessions')}</h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-            {filteredFm && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setUi({ formationFilter: null })}>Toutes les sessions</button>}
-            {formations && <Btn variant="secondary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'session', f: ui.formationFilter ?? undefined })}>Nouvelle session</Btn>}
+            {filteredFm && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setUi({ formationFilter: null })}>{t('All sessions')}</button>}
+            {formations && <Btn variant="secondary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'session', f: ui.formationFilter ?? undefined })}>{t('New session')}</Btn>}
           </div>
         </div>
       }>
         <div className="scroll-x">
           <table className="table">
-            <thead><tr><th>Date</th><th>Formation</th><th>Lieu</th><th>Inscrits</th>{manager && <th>Votre équipe</th>}<th>Statut</th></tr></thead>
+            <thead><tr><th>{t('Date')}</th><th>{t('Training course')}</th><th>{t('Place')}</th><th>{t('Enrolled')}</th>{manager && <th>{t('Your team')}</th>}<th>{t('Status')}</th></tr></thead>
             <tbody>
               {sessions.map(s => {
                 const fm = d.fm(s.formation);
@@ -303,17 +304,17 @@ export function Formations() {
             </tbody>
           </table>
         </div>
-        {sessions.length === 0 && <Empty pad="sm">Aucune session à venir pour cette formation.</Empty>}
-        {espaceRh && sessions.length > 0 && <Fine>{formations
-          ? 'Cliquez sur une session pour voir ses inscrits, la confirmer (liste à transmettre à l’organisme), la modifier ou l’annuler.'
-          : 'Cliquez sur une session pour voir ses inscrits.'}</Fine>}
+        {sessions.length === 0 && <Empty pad="sm">{t('No upcoming session for this training course.')}</Empty>}
+        {espaceRh && sessions.length > 0 && <Fine>{t(formations
+          ? 'Click a session to see those enrolled, confirm it (list to send to the provider), change it or cancel it.'
+          : 'Click a session to see those enrolled.')}</Fine>}
       </Panel>
 
       {terminees.length > 0 && (
-        <Panel title="Sessions clôturées ou annulées" aside="les plus récentes">
+        <Panel title={t('Sessions closed or cancelled')} aside={t('the most recent')}>
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Date</th><th>Formation</th><th>Lieu</th><th>Inscrits</th><th>Statut</th></tr></thead>
+              <thead><tr><th>{t('Date')}</th><th>{t('Training course')}</th><th>{t('Place')}</th><th>{t('Enrolled')}</th><th>{t('Status')}</th></tr></thead>
               <tbody>
                 {terminees.map(s => {
                   const fm = d.fm(s.formation);
@@ -322,7 +323,7 @@ export function Formations() {
                       <td className="nowrap"><Ouvrir onOpen={() => openDetail(s)}>{plageCourte(s)}</Ouvrir></td>
                       <td><Two main={fm.nom} sub={organismeAffiche(s, fm.organisme)} /></td>
                       <td className="text-muted">{s.lieu}</td>
-                      <td className="tnum nowrap">{s.statut === 'Annulée' ? '—' : plural(s.inscrits, 'inscrit', 'inscrits')}</td>
+                      <td className="tnum nowrap">{s.statut === 'Annulée' ? '—' : tn(s.inscrits, 'enrolled', 'enrolled#plural')}</td>
                       <td><Tag cls={SESS_CLS[s.statut]}>{s.statut}</Tag></td>
                     </tr>
                   );

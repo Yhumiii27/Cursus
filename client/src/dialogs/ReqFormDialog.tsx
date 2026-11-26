@@ -3,7 +3,7 @@
 // Doublons (demande identique en attente, inscription à venir) et conflits de dates de la session souhaitée contrôlés en direct.
 import { useMemo, useState } from 'react';
 import { certEnVigueur, sessionActive, type EmpX } from '../../../shared/domain.ts';
-import { fmt, key, plural } from '../../../shared/format.ts';
+import { fmt, key } from '../../../shared/format.ts';
 import { blocage, conflitsSession } from '../../../shared/rules/conflits.ts';
 import { plageCourte, sessionDu } from '../../../shared/rules/plage-session.ts';
 import { Bloquant, CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
@@ -12,6 +12,7 @@ import { ChoixCollaborateur } from '../components/ChoixCollaborateur.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 /**
  * Collaborateur concerné par une demande faite par un manager : le membre désigné (`empId`)
@@ -32,11 +33,11 @@ export function useCible(empId: number | null | undefined) {
 
 /** Champ « Pour » : nom du membre désigné, ou choix parmi les membres de l'équipe (obligatoire). */
 export function CibleField({ c, id, erreur }: { c: ReturnType<typeof useCible>; id: string; erreur?: string | null }) {
-  if (c.fixe && c.cible) return <Field label="Pour"><Static>{c.cible.nom} · {c.cible.poste}</Static></Field>;
+  if (c.fixe && c.cible) return <Field label={t('For')}><Static>{c.cible.nom} · {c.cible.poste}</Static></Field>;
   return (
-    <Field label="Pour" htmlFor={id} requis erreur={erreur}>
+    <Field label={t('For')} htmlFor={id} requis erreur={erreur}>
       <ChoixCollaborateur id={id} emps={c.membres} valeur={c.cible?.id ?? null} onChange={c.setSel} requis erreur={erreur}
-        placeholder={c.membres.length ? 'Choisir un collaborateur de votre équipe' : 'Aucun collaborateur dans votre équipe'} />
+        placeholder={t(c.membres.length ? 'Choose an employee of your team' : 'No employee in your team')} />
     </Field>
   );
 }
@@ -47,6 +48,7 @@ const derniere = (e: EmpX, f: string) => certEnVigueur(e.rawCerts, f);
 /**
  * Motif proposé : recyclage seulement si la formation a déjà été suivie ; sinon prérequis
  * d'une habilitation détenue ou demandée, ou formation initiale. Vide si le collaborateur n'est pas connu.
+ * Texte saisi prérempli, enregistré tel quel : il reste en français quelle que soit la langue de l'interface (CU-N01).
  */
 function motifPropose(e: EmpX | undefined, f: string | undefined): string {
   if (!e || !f || f === 'autre') return '';
@@ -93,21 +95,21 @@ export function ReqFormDialog({ f: f0, sessionId: s0, empId }: { f?: string; ses
   const conflits = sujet && choisie ? conflitsSession(d, sujet.id, choisie) : [];
   const bloque = (c.pourMembre && !e) || enCours || !!inscrit || !!blocage(conflits);
   const existant = soi
-    ? (enCours ? 'Une demande pour cette formation est déjà en cours.' : inscrit ? `Vous êtes déjà inscrit à la session ${sessionDu(inscrit)}.` : null)
+    ? (enCours ? t('A request for this training course is already in progress.') : inscrit ? `${t('You are already enrolled in the session ')}${sessionDu(inscrit)}.` : null)
     : !e ? null
-    : enCours ? `Une demande pour cette formation est déjà en cours pour ${e.nom}.`
+    : enCours ? `${t('A request for this training course is already in progress for ')}${e.nom}.`
     : isAutre ? null
-    : inscrit ? `${e.nom} est déjà inscrit à la session ${sessionDu(inscrit)}.`
-    : !last ? `${e.nom} n’a pas encore suivi cette formation.`
-    : last.key === 'ok' ? `${e.nom} détient cette certification, valide jusqu’au ${fmt(last.exp)}.`
-    : last.key === 'due' ? `Certification de ${e.nom} à renouveler : elle expire le ${fmt(last.exp)}.`
-    : `Certification de ${e.nom} expirée le ${fmt(last.exp)}.`;
+    : inscrit ? `${e.nom}${t(' is already enrolled in the session ')}${sessionDu(inscrit)}.`
+    : !last ? `${e.nom}${t(' has not yet followed this training course.')}`
+    : last.key === 'ok' ? `${e.nom}${t(' holds this certification, valid until ')}${fmt(last.exp)}.`
+    : last.key === 'due' ? `${t('Certification of ')}${e.nom}${t(' to renew: it expires on ')}${fmt(last.exp)}.`
+    : `${t('Certification of ')}${e.nom}${t(' expired on ')}${fmt(last.exp)}.`;
   // Inscription directe (dialogue de planification) : formations du catalogue affiché uniquement.
   const directe = !!e && !!last && last.key !== 'ok' && !inscrit && ouvertes.length > 0 && forms.some(x => x.id === f);
   const erreurs = {
-    cible: c.pourMembre && !e ? 'Choisissez le collaborateur concerné.' : null,
-    libelle: isAutre ? erreurTexte(libelle, 'Indiquez l’intitulé de la formation souhaitée.') : null,
-    motif: erreurTexte(motif, 'Indiquez le motif de la demande.'),
+    cible: c.pourMembre && !e ? t('Choose the employee concerned.') : null,
+    libelle: isAutre ? erreurTexte(libelle, t('Enter the title of the training course wanted.')) : null,
+    motif: erreurTexte(motif, t('Enter the reason for the request.')),
   };
 
   const confirm = async () => {
@@ -121,44 +123,44 @@ export function ReqFormDialog({ f: f0, sessionId: s0, empId }: { f?: string; ses
   };
 
   return (
-    <Dialog title="Demander une formation" width={540} onSubmit={confirm} actions={<>
+    <Dialog title={t('Request a training course')} width={540} onSubmit={confirm} actions={<>
       <CancelButton />
-      {directe && <button type="button" className="btn btn-ghost" onClick={() => openDialog({ type: 'plan', empId: e!.id, certId: last!.id })}>Inscrire directement</button>}
-      <SubmitButton busy={busy}>Envoyer la demande</SubmitButton>
+      {directe && <button type="button" className="btn btn-ghost" onClick={() => openDialog({ type: 'plan', empId: e!.id, certId: last!.id })}>{t('Enrol directly')}</button>}
+      <SubmitButton busy={busy}>{t('Send the request')}</SubmitButton>
     </>}>
       {c.pourMembre && <CibleField c={c} id="rf-emp" erreur={v.erreur(erreurs.cible)} />}
-      <Field label="Formation" htmlFor="rf-f">
+      <Field label={t('Training course')} htmlFor="rf-f">
         <select className="input" id="rf-f" value={f} onChange={ev => { setF(ev.target.value); setSession(''); }}>
           {options.map(o => <option key={o.id} value={o.id}>{o.nom}</option>)}
-          <option value="autre">Autre — hors catalogue</option>
+          <option value="autre">{t('Other — outside the catalogue')}</option>
         </select>
       </Field>
       {existant && (enCours || inscrit ? <Bloquant>{existant}</Bloquant> : <Fine>{existant}</Fine>)}
       {isAutre && (
-        <Field label="Intitulé souhaité" htmlFor="rf-lib" requis erreur={v.erreur(erreurs.libelle)}>
-          <input className="input" id="rf-lib" type="text" placeholder="Anglais technique, management…" value={libelle} onChange={ev => setLibelle(ev.target.value)} />
+        <Field label={t('Title wanted')} htmlFor="rf-lib" requis erreur={v.erreur(erreurs.libelle)}>
+          <input className="input" id="rf-lib" type="text" placeholder={t('Technical English, management…')} value={libelle} onChange={ev => setLibelle(ev.target.value)} />
         </Field>
       )}
       {sessions.length > 0 && (
-        <Field label="Session souhaitée" htmlFor="rf-s">
+        <Field label={t('Session wanted')} htmlFor="rf-s">
           <select className="input" id="rf-s" value={session} onChange={ev => setSession(ev.target.value)}>
-            <option value="">Pas de préférence</option>
+            <option value="">{t('No preference')}</option>
             {sessions.map(s => (
-              <option key={s.id} value={String(s.id)}>{`${plageCourte(s)} · ${s.lieu} · ${s.inscrits < s.places ? plural(s.places - s.inscrits, 'place', 'places') : 'complète, liste d’attente'}`}</option>
+              <option key={s.id} value={String(s.id)}>{`${plageCourte(s)} · ${s.lieu} · ${s.inscrits < s.places ? tn(s.places - s.inscrits, 'place', 'places') : t('full, waiting list')}`}</option>
             ))}
           </select>
         </Field>
       )}
-      {choisie && choisie.inscrits >= choisie.places && <Fine>Session complète : le service RH pourra placer {soi ? 'votre demande' : 'la demande'} en liste d’attente, dans l’ordre où il accepte les demandes ; une place libérée est proposée au premier de la file.</Fine>}
+      {choisie && choisie.inscrits >= choisie.places && <Fine>{t(soi ? 'Session full: HR may put your request on the waiting list, in the order in which it accepts the requests; a place freed is offered to the first in the queue.' : 'Session full: HR may put the request on the waiting list, in the order in which it accepts the requests; a place freed is offered to the first in the queue.')}</Fine>}
       <Controles msgs={conflits} />
-      {!isAutre && sessions.length === 0 && <Fine>Aucune session ouverte : la demande sera ajoutée au plan de formation.</Fine>}
-      <Field label="Motif" htmlFor="rf-m" requis erreur={v.erreur(erreurs.motif)}>
-        <textarea className="input mid" id="rf-m" rows={3} placeholder={c.pourMembre ? 'Besoin identifié, échéance, chantier à venir…' : 'Pourquoi cette formation ?'}
+      {!isAutre && sessions.length === 0 && <Fine>{t('No open session: the request will be added to the training plan.')}</Fine>}
+      <Field label={t('Reason')} htmlFor="rf-m" requis erreur={v.erreur(erreurs.motif)}>
+        <textarea className="input mid" id="rf-m" rows={3} placeholder={t(c.pourMembre ? 'Need identified, due date, upcoming worksite…' : 'Why this training course?')}
           value={motif} onChange={ev => setMotif(ev.target.value)} />
       </Field>
       <Fine>{c.pourMembre
-        ? `Demande transmise au service RH${e ? ` pour ${e.nom}` : ''}, qui l’inscrit à une session ou l’ajoute au plan de formation.`
-        : 'Votre demande est transmise au service RH, qui vous répond ici.'}</Fine>
+        ? `${t('Request sent to HR')}${e ? `${t(' for ')}${e.nom}` : ''}${t(', who enrols them in a session or adds them to the training plan.')}`
+        : t('Your request is sent to HR, who answers you here.')}</Fine>
     </Dialog>
   );
 }

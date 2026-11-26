@@ -12,6 +12,7 @@ import { feuillesDeLaPeriode, type GroupePaie, periodeLabel } from '../../../sha
 import type { LotPaie, ModeRegularisation, SageMode } from '../../../shared/types.ts';
 import type { NomAction } from '../api.ts';
 import type { DialogState, UiState } from './store.tsx';
+import { t } from '../i18n/langue.ts';
 
 /** Longueur maximale d'un motif (contrôlée aussi par le serveur). */
 export const MOTIF_MAX = 500;
@@ -300,13 +301,14 @@ export function rattachementEquipe(equipe: string, parente: string | null, valid
 export function desinscription(p: { empId: number; sessionId: number }, nom: string, quoi: string,
   opts: { recyclage: boolean; convoque: boolean; retour?: DialogState }): Confirmation {
   return {
-    titre: 'Désinscrire de la session',
-    question: `Désinscrire ${nom} de la session ${quoi} ?`,
+    // Chaînes sources anglaises (CU-N01), comme l'écran Formations qui l'ouvre.
+    titre: t('Unenrol from the session'),
+    question: `${t('Unenrol')} ${nom}${t(' from the session ')}${quoi} ?`,
     suites: [
-      `La place est libérée${opts.recyclage ? ' et le recyclage redevient à planifier' : ' et l’inscription en formation initiale est retirée'}.`,
-      opts.convoque ? `${nom} reçoit l’annulation de sa convocation par e-mail, avec le fichier d’agenda qui retire la session.` : '',
+      `${t('The place is freed')}${t(opts.recyclage ? ' and the refresher is to plan again' : ' and the enrolment in initial training is removed')}.`,
+      opts.convoque ? `${nom}${t(' receives the cancellation of their notice by e-mail, with the calendar file that removes the session.')}` : '',
     ].filter(Boolean),
-    bouton: 'Désinscrire',
+    bouton: t('Unenrol'),
     action: 'plan.desinscrire',
     payload: p,
     ...(opts.retour ? { ensuite: { retour: opts.retour } } : {}),

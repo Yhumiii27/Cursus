@@ -93,6 +93,16 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
   },
   { ecran: 'Confidentialité', fichiers: ['client/src/pages/Confidentialite.tsx'] },
   { ecran: 'Expositions (C2P)', fichiers: ['client/src/pages/Prevention.tsx'] },
+  {
+    // Sessions, renouvellements, listes d'attente, e-learning, passeport de prévention, évaluations ; dialogues de session
+    // (création, détail, clôture), de planification et de demande, confirmations qu'ils ouvrent (désinscription, retrait
+    // de la liste d'attente, abandon et suppression d'une inscription à l'e-learning).
+    ecran: 'Formations', fichiers: ['client/src/pages/Formations.tsx', 'client/src/dialogs/SessionDialog.tsx', 'client/src/dialogs/SessionDetailDialog.tsx',
+      'client/src/dialogs/ClotureDialog.tsx', 'client/src/dialogs/PlanDialog.tsx', 'client/src/dialogs/ReqFormDialog.tsx',
+      'client/src/components/ListeAttente.tsx', 'client/src/components/PasseportPrevention.tsx', 'client/src/components/Evaluations.tsx',
+      'client/src/components/elearning/ElearningFormations.tsx', 'client/src/components/organismes/ChoixOrganisme.tsx',
+      'client/src/state/confirmations-attente.ts'],
+  },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */

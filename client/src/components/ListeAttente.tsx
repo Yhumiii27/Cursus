@@ -7,7 +7,7 @@
 // Le jeu de données est déjà restreint au profil (server/src/dataset.ts) : le salarié ne voit que sa place, jamais les autres.
 import { parse } from '../../../shared/dates.ts';
 import { sessionActive } from '../../../shared/domain.ts';
-import { equipeLabel, fmt, fmtShort, plural } from '../../../shared/format.ts';
+import { equipeLabel, fmt, fmtShort } from '../../../shared/format.ts';
 import { attenteActive, fileDe, placeTexte, placesAProposer } from '../../../shared/rules/liste-attente.ts';
 import { sessionDu } from '../../../shared/rules/plage-session.ts';
 import type { AttenteSession, Employe, Session } from '../../../shared/types.ts';
@@ -16,11 +16,12 @@ import { retraitAttente } from '../state/confirmations-attente.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { Btn, Fine, NoteAccent, Panel, SectionLabel, Tag, Two } from './ui.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 /** État d'une attente en file : proposée au service RH (place libérée), ou en attente avec sa place. */
 const etat = (a: AttenteSession) => (a.statut === 'proposee'
-  ? <Tag cls="tag-accent" style={{ flex: 'none' }}>Place proposée</Tag>
-  : <Tag cls="tag-outline" style={{ flex: 'none' }}>{a.position ? `${a.position}${a.position === 1 ? 'er' : 'e'} en file` : 'En file'}</Tag>);
+  ? <Tag cls="tag-accent" style={{ flex: 'none' }}>{t('Place offered')}</Tag>
+  : <Tag cls="tag-outline" style={{ flex: 'none' }}>{a.position ? `${a.position}${t(a.position === 1 ? 'st in the queue' : 'th in the queue')}` : t('In the queue')}</Tag>);
 
 /** File d'attente d'une session ouverte, dans le détail de la session. */
 export function ListeAttenteSession({ s }: { s: Session }) {
@@ -36,10 +37,10 @@ export function ListeAttenteSession({ s }: { s: Session }) {
   const horsTour = placesAProposer(s, d.ds.attentesSession ?? []) > 0;
   const aVenir = sessionActive(s) && s.date >= d.ti;
   return <>
-    <SectionLabel>Liste d’attente ({file.length})</SectionLabel>
+    <SectionLabel>{t('Waiting list')} ({file.length})</SectionLabel>
     <div className="scroll-x">
       <table className="table">
-        <thead><tr><th>Rang</th><th>Collaborateur</th><th>Parcours</th><th>État</th>{formations && aVenir && <th></th>}</tr></thead>
+        <thead><tr><th>{t('Rank')}</th><th>{t('Employee')}</th><th>{t('Path')}</th><th>{t('State')}</th>{formations && aVenir && <th></th>}</tr></thead>
         <tbody>
           {file.map(a => {
             const e = d.emp(a.empId);
@@ -48,17 +49,17 @@ export function ListeAttenteSession({ s }: { s: Session }) {
             return (
               <tr key={a.id}>
                 <td className="nowrap">{a.position ?? '—'}</td>
-                <td><Two main={nom} sub={`${equipeLabel(e)} · en file depuis le ${fmtShort(parse(a.le))}`} /></td>
-                <td>{a.certId ? 'Recyclage' : 'Formation initiale'}</td>
+                <td><Two main={nom} sub={`${equipeLabel(e)}${t(' · in the queue since ')}${fmtShort(parse(a.le))}`} /></td>
+                <td>{t(a.certId ? 'Refresher' : 'Initial training')}</td>
                 <td>
                   {etat(a)}
-                  {a.statut === 'proposee' && a.proposeeLe && <div className="text-muted sub nowrap">le {fmtShort(parse(a.proposeeLe))}{libres ? '' : ' · plus de place libre'}</div>}
+                  {a.statut === 'proposee' && a.proposeeLe && <div className="text-muted sub nowrap">{t('on#le')} {fmtShort(parse(a.proposeeLe))}{libres ? '' : t(' · no free place left')}</div>}
                 </td>
                 {formations && aVenir && (
                   <td className="right">
                     <div className="actions-end">
-                      {confirmable && <Btn small variant="secondary" disabled={occupe} onClick={agir(() => run('attente.confirmer', { id: a.id }))}>Confirmer l’inscription</Btn>}
-                      <Btn small disabled={occupe} onClick={() => openDialog({ type: 'confirmer', c: retraitAttente(a, nom, quoi, { soi: false, proposee: a.statut === 'proposee', retour: { type: 'sessionDetail', sessionId: s.id } }) })}>Retirer</Btn>
+                      {confirmable && <Btn small variant="secondary" disabled={occupe} onClick={agir(() => run('attente.confirmer', { id: a.id }))}>{t('Confirm the enrolment')}</Btn>}
+                      <Btn small disabled={occupe} onClick={() => openDialog({ type: 'confirmer', c: retraitAttente(a, nom, quoi, { soi: false, proposee: a.statut === 'proposee', retour: { type: 'sessionDetail', sessionId: s.id } }) })}>{t('Remove')}</Btn>
                     </div>
                   </td>
                 )}
@@ -69,11 +70,10 @@ export function ListeAttenteSession({ s }: { s: Session }) {
       </table>
     </div>
     <Fine>
-      Ordre d’acceptation des demandes par le service RH, sans autre priorité. Quand une place se libère, Cursus propose au service RH le premier encore admissible
-      (contrat, absences et autres sessions ces jours-là, certification toujours à renouveler) ; {d.ds.settings.formationsAttenteMode === 'automatique'
-        ? 'réglage « inscription automatique » : il est inscrit et convoqué aussitôt.'
-        : 'l’inscription est confirmée ici, et la convocation part à ce moment-là.'}
-      {' '}La liste est close si la session est annulée ou clôturée : les demandes repassent au plan de formation.
+      {t('Order in which HR accepts the requests, with no other priority. When a place frees up, Cursus offers HR the first person still eligible (contract, absences and other sessions on those days, certification still to renew); ')}{t(d.ds.settings.formationsAttenteMode === 'automatique'
+        ? 'setting “automatic enrolment”: they are enrolled and sent the notice at once.'
+        : 'the enrolment is confirmed here, and the notice goes at that moment.')}
+      {' '}{t('The list is closed if the session is cancelled or closed: the requests go back to the training plan.')}
     </Fine>
   </>;
 }
@@ -91,19 +91,19 @@ function LigneAttente({ a, soi, peutRetirer }: { a: AttenteSession; soi: boolean
       <div className="item-head">
         <div>
           <div style={{ fontSize: 14 }}>{fm?.nom ?? s.formation}</div>
-          <div className="text-muted sub">Session {sessionDu(s)} · {s.lieu} · complète</div>
+          <div className="text-muted sub">{t('Session ')}{sessionDu(s)} · {s.lieu}{t(' · full#fem')}</div>
         </div>
         {etat(a)}
       </div>
       <div className="sub text-n400">
         {a.statut === 'proposee'
-          ? 'Une place s’est libérée : le service RH confirme l’inscription, la convocation suivra'
-          : `${placeTexte(a.position)} depuis le ${fmt(parse(a.le))} : ${soi ? 'vous serez inscrit' : 'inscription'} si une place se libère`}
+          ? t('A place has freed up: HR confirms the enrolment, the notice will follow')
+          : `${placeTexte(a.position)}${t(' since #le')}${fmt(parse(a.le))}${t(soi ? ': you will be enrolled if a place frees up' : ': enrolment if a place frees up')}`}
       </div>
       {peutRetirer && (
         <div className="actions-end">
           <Btn small onClick={() => openDialog({ type: 'confirmer', c: retraitAttente(a, nom, `${fm?.court ?? s.formation} ${sessionDu(s)}`, { soi, proposee: a.statut === 'proposee' }) })}>
-            {soi ? 'Me retirer de la liste' : 'Retirer de la liste'}
+            {t(soi ? 'Remove me from the list' : 'Remove from the list')}
           </Btn>
         </div>
       )}
@@ -117,9 +117,9 @@ export function ListeAttentePortail({ empId }: { empId: number }) {
   const mes = (d.ds.attentesSession ?? []).filter(a => a.empId === empId && attenteActive(a));
   if (!mes.length) return null;
   return (
-    <Panel title="Mes listes d’attente" aside={plural(mes.length, 'session complète', 'sessions complètes')} style={{ gap: 'var(--space-2)' }}>
+    <Panel title={t('My waiting lists')} aside={tn(mes.length, 'full session', 'full sessions')} style={{ gap: 'var(--space-2)' }}>
       {mes.map(a => <LigneAttente key={a.id} a={a} soi peutRetirer />)}
-      <Fine>La file suit l’ordre dans lequel le service RH a accepté les demandes. Retiré de la liste, vous n’y retrouvez pas votre place.</Fine>
+      <Fine>{t('The queue follows the order in which HR accepted the requests. Once removed from the list, you do not get your place back.')}</Fine>
     </Panel>
   );
 }
@@ -133,12 +133,12 @@ export function ListeAttenteFiche({ e }: { e: Employe }) {
   // Retrait : service RH et référent HSE, ou le manager direct (jamais la lecture seule ni un N+2 en consultation).
   const peutRetirer = formations || (manager && d.mgrOf(e) === d.ds.user?.empId && !(d.ds.lectureSeule ?? []).includes(e.id));
   return <>
-    <SectionLabel>Listes d’attente</SectionLabel>
+    <SectionLabel>{t('Waiting lists')}</SectionLabel>
     <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
       {siennes.map(a => <LigneAttente key={a.id} a={a} soi={false} peutRetirer={peutRetirer} />)}
     </div>
     {siennes.some(a => a.statut === 'proposee') && formations && (
-      <NoteAccent>Place libérée : confirmez l’inscription depuis le détail de la session (Formations).</NoteAccent>
+      <NoteAccent>{t('Place freed: confirm the enrolment from the detail of the session (Training).')}</NoteAccent>
     )}
   </>;
 }
@@ -149,5 +149,5 @@ export function ResumeAttente({ s }: { s: Pick<Session, 'id'> }) {
   const file = fileDe(d.ds.attentesSession ?? [], s.id);
   if (!file.length) return null;
   const proposees = file.filter(a => a.statut === 'proposee').length;
-  return <div className="text-muted sub nowrap">{file.length} en liste d’attente{proposees ? ` · ${plural(proposees, 'place à confirmer', 'places à confirmer')}` : ''}</div>;
+  return <div className="text-muted sub nowrap">{file.length}{t(' on the waiting list')}{proposees ? ` · ${tn(proposees, 'place to confirm', 'places to confirm')}` : ''}</div>;
 }

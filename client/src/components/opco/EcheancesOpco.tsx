@@ -3,7 +3,7 @@
 // attendu (shared/rules/opco.ts, `echeanceOpco`). Dépassées d'abord, puis celles des 12 prochains mois. Une ligne ouvre le
 // dossier dans Plan & budget. Service RH et lecture seule (qui reçoivent les dossiers) ; rien pour les autres profils.
 import { useMemo } from 'react';
-import { fmtIso, plural, rel } from '../../../../shared/format.ts';
+import { fmtIso, rel } from '../../../../shared/format.ts';
 import { addD } from '../../../../shared/dates.ts';
 import { echeanceOpco, STATUTS_OPCO } from '../../../../shared/rules/opco.ts';
 import { Ouvrir } from '../Cliquable.tsx';
@@ -11,6 +11,7 @@ import { Empty, Panel, Tag } from '../ui.tsx';
 import { useDomain, useRole } from '../../state/derived.ts';
 import { useStore } from '../../state/store.tsx';
 import { CLS_OPCO, nomDossierOpco } from './commun.ts';
+import { t, tn } from '../../i18n/langue.ts';
 
 /** Horizon des échéances à venir montrées : 12 mois, comme les renouvellements. */
 const HORIZON_JOURS = 366;
@@ -30,11 +31,11 @@ export function EcheancesOpcoPanel() {
   const retards = lignes.filter(l => l.e.retard).length;
   const ouvrir = (id: number, exercice: number) => go('budget', { budgetOnglet: 'opco', opcoSel: id, exercice, opcoFiltre: 'tous', opcoCode: null, opcoDispositif: null });
   return (
-    <Panel title="Dossiers OPCO" aside={lignes.length ? `${plural(lignes.length, 'échéance', 'échéances')}${retards ? ` · ${plural(retards, 'dépassée', 'dépassées')}` : ''}` : undefined}>
+    <Panel title={t('OPCO files')} aside={lignes.length ? `${tn(lignes.length, 'due date', 'due dates')}${retards ? ` · ${tn(retards, 'overdue#fem', 'overdue#fem-plural')}` : ''}` : undefined}>
       {lignes.length > 0 && (
         <div className="scroll-x">
           <table className="table">
-            <thead><tr><th>Action du plan</th><th>Échéance</th><th>Date</th><th>État</th></tr></thead>
+            <thead><tr><th>{t('Action of the plan')}</th><th>{t('Due date')}</th><th>{t('Date')}</th><th>{t('State')}</th></tr></thead>
             <tbody>
               {lignes.map(({ x, e }) => (
                 <tr key={x.id} className="clickable" onClick={() => ouvrir(x.id, x.exercice)}>
@@ -51,8 +52,8 @@ export function EcheancesOpcoPanel() {
           </table>
         </div>
       )}
-      {lignes.length === 0 && <Empty pad="sm">Aucune échéance de dossier OPCO sur les 12 prochains mois.</Empty>}
-      <p className="fine text-muted">Délais réglés dans Paramètres → Dossiers OPCO, à confirmer avec les conditions de l’OPCO. Le service RH reçoit aussi ces échéances dans le récapitulatif par e-mail, sans montant ni nom.</p>
+      {lignes.length === 0 && <Empty pad="sm">{t('No OPCO file due date over the next 12 months.')}</Empty>}
+      <p className="fine text-muted">{t('Delays set in Settings → OPCO files, to confirm with the conditions of the OPCO. HR also receive these due dates in the summary by e-mail, without amount or name.')}</p>
     </Panel>
   );
 }

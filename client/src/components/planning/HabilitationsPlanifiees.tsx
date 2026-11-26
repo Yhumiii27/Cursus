@@ -5,7 +5,7 @@
 // les salariés, sauf lui-même), manager et suppléant « planning » (ceux qu'il planifie). Sur l'onglet Planning d'équipe
 // (`equipe` : l'équipe affichée) et sur le tableau de bord RH (toutes les équipes). Module désactivé : rien.
 import { useMemo } from 'react';
-import { plural } from '../../../../shared/format.ts';
+import { t, tn } from '../../i18n/langue.ts';
 import { useDomain, useRole } from '../../state/derived.ts';
 import { decideur } from '../../state/delegues.ts';
 import { Fine, Panel, Tag, Two } from '../ui.tsx';
@@ -27,27 +27,25 @@ export function HabilitationsPlanifieesPanel({ equipe }: { equipe?: string }) {
   const postes = (l: typeof manques) => new Set(l.map(m => `${m.empId}|${m.jour}`)).size;
   const n = postes(manques), publies = postes(manques.filter(m => m.statut === 'publie'));
   return (
-    <Panel highlight style={{ flex: '1 1 100%' }} title="Habilitations à revoir sur les postes planifiés"
-      aside={`${plural(n, 'poste', 'postes')}${publies ? ` · dont ${publies} déjà publié${publies > 1 ? 's' : ''}` : ''}`}>
+    <Panel highlight style={{ flex: '1 1 100%' }} title={t('Authorisations to review on the planned shifts')}
+      aside={`${tn(n, 'shift', 'shifts')}${publies ? `${t(' · of which ')}${publies}${publies > 1 ? t(' already published#plural') : t(' already published')}` : ''}`}>
       <div className="scroll-x">
         <table className="table">
-          <thead><tr><th>Poste</th><th>Salarié</th><th>Habilitation ou formation exigée</th><th>État</th></tr></thead>
+          <thead><tr><th>{t('Shift')}</th><th>{t('Employee#salarie')}</th><th>{t('Authorisation or training required')}</th><th>{t('State')}</th></tr></thead>
           <tbody>
             {manques.map(m => (
               <tr key={`${m.empId}|${m.jour}|${m.code}|${m.texte}`}>
-                <td><Two main={`${jourCourt(m.jour)} · ${m.horaire}`} sub={equipe ? undefined : `Équipe ${m.equipe}`} nowrap /></td>
+                <td><Two main={`${jourCourt(m.jour)} · ${m.horaire}`} sub={equipe ? undefined : `${t('Team ')}${m.equipe}`} nowrap /></td>
                 <td>{d.personName(m.empId)}</td>
                 <td className="sub">{m.texte}</td>
-                <td><Tag cls={m.statut === 'publie' ? 'tag-accent' : 'tag-neutral'}>{m.statut === 'publie' ? 'Publié' : 'À publier'}</Tag></td>
+                <td><Tag cls={m.statut === 'publie' ? 'tag-accent' : 'tag-neutral'}>{m.statut === 'publie' ? t('Published#masc') : t('To publish')}</Tag></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
       <Fine>
-        Postes à venir des 12 prochaines semaines dont une habilitation ou une formation exigée (Référentiels → Postes, équipe, Besoins de poste) ne sera pas
-        valide à la date du poste : absente, en attente de délivrance, retirée, suspendue, ou expirée avant le poste. Un brouillon sera refusé ou demandera un
-        motif à la publication ; un poste déjà publié se corrige (autre salarié, échange) ou attend le renouvellement. Jours d’absence non comptés.
+        {t('Upcoming shifts of the next 12 weeks for which an authorisation or a training required (Reference data → Jobs, team, Shift needs) will not be valid on the date of the shift: missing, awaiting issue, withdrawn, suspended, or expired before the shift. A draft will be refused or will ask for a reason at publication; a shift already published is corrected (other employee, swap) or waits for the renewal. Days of absence not counted.')}
       </Fine>
     </Panel>
   );

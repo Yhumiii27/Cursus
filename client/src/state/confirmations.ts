@@ -56,17 +56,17 @@ const motifRefus = (lecteurs: string, placeholder: string) => ({
 export function refusDemande(r: { id: number; type: string }, nom: string, objet: string, opts: { manager?: string | null; retire?: boolean } = {}): Confirmation {
   const document = r.type === 'document';
   return {
-    titre: document ? 'Refuser la déclaration' : 'Refuser la demande',
-    question: `Refuser ${document ? 'la déclaration' : 'la demande'} de ${nom} : ${objet} ?`,
+    titre: document ? t('Refuse the declaration') : t('Refuse the request'),
+    question: `${document ? t('Refuse the declaration of ') : t('Refuse the request of ')}${nom} : ${objet} ?`,
     suites: [
-      document ? (opts.retire ? 'Le document, déjà enregistré dans le dossier avant la validation RH, en est retiré.' : 'Le dossier n’est pas modifié.') : '',
-      `${nom} voit le refus et son motif dans son espace.`,
-      opts.manager ? `Le refus n’apparaît pas dans l’espace de ${opts.manager}, qui a fait la demande : à prévenir si besoin.` : '',
+      document ? (opts.retire ? t('The document, already recorded in the file before HR approval, is removed from it.') : t('The file is not changed.')) : '',
+      `${nom}${t(' sees the refusal and its reason in their space.')}`,
+      opts.manager ? `${t('The refusal does not appear in the space of ')}${opts.manager}${t(', who made the request: to tell if needed.')}` : '',
     ].filter(Boolean),
-    bouton: document ? 'Refuser la déclaration' : 'Refuser la demande',
+    bouton: document ? t('Refuse the declaration') : t('Refuse the request'),
     action: 'demande.refuser',
     payload: { id: r.id },
-    motif: motifRefus(nom, document ? 'Document illisible, date d’expiration erronée…' : 'Budget de l’exercice engagé, formation interne prévue…'),
+    motif: motifRefus(nom, document ? t('Document unreadable, wrong expiry date…') : t('Budget of the year committed, internal training planned…')),
   };
 }
 

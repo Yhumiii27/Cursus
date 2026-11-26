@@ -125,6 +125,16 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
       'client/src/dialogs/FraisAvanceDialog.tsx', 'client/src/dialogs/FraisPlafondDialog.tsx', 'client/src/dialogs/FraisVehiculeDialog.tsx',
       'client/src/dialogs/FraisReferentielDialog.tsx', 'client/src/state/confirmations-frais.ts'],
   },
+  {
+    // Indicateurs, demandes des collaborateurs (acceptation sur liste d'attente, refus), contrats, couvertures (équipes,
+    // postes planifiés), habilitations des postes planifiés, dossiers à effacer, sessions, déplacements.
+    ecran: 'Tableau de bord', fichiers: ['client/src/pages/Dashboard.tsx', 'client/src/components/Couverture.tsx', 'client/src/components/DossiersEchus.tsx',
+      'client/src/components/planning/CouvertureCreneaux.tsx', 'client/src/components/planning/HabilitationsPlanifiees.tsx',
+      'client/src/dialogs/AccepterAttenteDialog.tsx'],
+  },
+  {
+    ecran: 'Échéances', fichiers: ['client/src/pages/Echeances.tsx', 'client/src/components/IndicateursACompleter.tsx', 'client/src/components/opco/EcheancesOpco.tsx'],
+  },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */

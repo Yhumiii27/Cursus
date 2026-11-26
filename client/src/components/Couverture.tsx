@@ -4,13 +4,14 @@
 // pour le référent HSE, sans les absences hors chantiers qu'il ne reçoit pas : `sansAbsences`) ; à défaut, il est calculé ici.
 import { useMemo, type CSSProperties } from 'react';
 import { parse } from '../../../shared/dates.ts';
-import { fmtShort, plural } from '../../../shared/format.ts';
+import { fmtShort } from '../../../shared/format.ts';
 import { causesTexte, couvertureTexte, etatsCouverture, manqueImmediat } from '../../../shared/rules/couverture.ts';
 import type { EtatCouverture } from '../../../shared/types.ts';
 import { useDomain, useIntentPermis } from '../state/derived.ts';
 import { useAgir } from '../state/actions.ts';
 import { useStore } from '../state/store.tsx';
 import { Chips, Fine, Panel, Tag, Two } from './ui.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 /** États de couverture de l'instantané (toutes les équipes reçues), ou de celles nommées. */
 export function useCouverture(equipes?: readonly string[]): EtatCouverture[] {
@@ -26,12 +27,12 @@ export function CouvertureCellule({ equipe }: { equipe: string }) {
   const d = useDomain();
   const liste = useCouverture(useMemo(() => [equipe], [equipe]));
   const q = d.ds.referentiels.equipes.find(x => x.nom === equipe);
-  if (!q?.couverture?.length) return <span className="text-muted">Aucun seuil</span>;
+  if (!q?.couverture?.length) return <span className="text-muted">{t('No threshold')}</span>;
   return (
     <Chips items={q.couverture.map(l => {
       const x = liste.find(y => y.formation === l.formation);
       const court = d.fm(l.formation)?.court ?? l.formation;
-      return { key: l.formation, label: x ? `${court} ${x.compte}/${l.min}` : `${court} · ${l.min} min.`, cls: !x ? 'tag-outline' : x.manque ? 'tag-accent' : 'tag-neutral' };
+      return { key: l.formation, label: x ? `${court} ${x.compte}/${l.min}` : `${court} · ${l.min}${t(' min.')}`, cls: !x ? 'tag-outline' : x.manque ? 'tag-accent' : 'tag-neutral' };
     })} />
   );
 }
@@ -49,14 +50,14 @@ function Alerte({ x, equipe }: { x: EtatCouverture; equipe: boolean }) {
   return (
     <div className="list-row stack">
       <div className="item-head">
-        <div style={{ minWidth: 0 }}><Two main={equipe ? `Équipe ${x.equipe} · ${court}` : court} sub={couvertureTexte(x, court, d.ti)} /></div>
-        <Tag cls={immediat ? 'tag-accent' : 'tag-outline'} style={{ flex: 'none' }}>{immediat ? 'Sous le minimum' : 'À anticiper'}</Tag>
+        <div style={{ minWidth: 0 }}><Two main={equipe ? `${t('Team ')}${x.equipe} · ${court}` : court} sub={couvertureTexte(x, court, d.ti)} /></div>
+        <Tag cls={immediat ? 'tag-accent' : 'tag-outline'} style={{ flex: 'none' }}>{immediat ? t('Below the minimum') : t('To anticipate')}</Tag>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-        <span className="text-muted sub">{causesTexte(x.manque!.causes)}{prochaine ? ` · prochaine session le ${fmtShort(parse(prochaine.date))}` : ' · aucune session ouverte'}</span>
+        <span className="text-muted sub">{causesTexte(x.manque!.causes)}{prochaine ? `${t(' · next session on ')}${fmtShort(parse(prochaine.date))}` : t(' · no open session')}</span>
         {permis(intent) && (
           <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={agir(() => runIntent(intent))}>
-            {prochaine ? 'Inscrire à la prochaine session' : 'Voir les sessions'}
+            {prochaine ? t('Enrol in the next session') : t('See the sessions')}
           </button>
         )}
       </div>
@@ -72,12 +73,11 @@ export function CouverturePanel({ equipes, style }: { equipes?: readonly string[
   const liste = useCouverture(equipes).filter(x => x.manque).sort((a, b) => a.manque!.le.localeCompare(b.manque!.le));
   if (!liste.length) return null;
   return (
-    <Panel highlight style={style} title="Couverture minimale des équipes"
-      aside={`${plural(liste.length, 'seuil non tenu', 'seuils non tenus')} · secouristes et équipiers d’intervention`}>
+    <Panel highlight style={style} title={t('Minimum coverage of the teams')}
+      aside={`${tn(liste.length, 'threshold not met', 'thresholds not met')}${t(' · first aiders and response team members')}`}>
       <div className="list">{liste.map(x => <Alerte key={`${x.equipe}-${x.formation}`} x={x} equipe />)}</div>
       <Fine>
-        Membres présents, sans absence en cours, titulaires d’une certification valide, chaque jour jusqu’à l’horizon d’alerte. Un
-        recyclage planifié ne compte qu’une fois la certification enregistrée. Seuils : Référentiels → Postes, exigences communes de l’équipe.
+        {t('Members present, without an absence in progress, holding a valid certification, every day up to the alert horizon. A planned refresher only counts once the certification is recorded. Thresholds: Reference data → Jobs, common requirements of the team.')}
       </Fine>
       <SansAbsences liste={liste} />
     </Panel>
@@ -87,7 +87,7 @@ export function CouverturePanel({ equipes, style }: { equipes?: readonly string[
 /** Vue du référent HSE (`sansAbsences`) : les absences hors chantiers, qu'il ne reçoit pas, ne sont pas comptées. */
 function SansAbsences({ liste }: { liste: readonly EtatCouverture[] }) {
   if (!liste.some(x => x.sansAbsences)) return null;
-  return <Fine>Absences hors chantiers non prises en compte : couverture à vérifier avec le service RH.</Fine>;
+  return <Fine>{t('Absences outside worksites not taken into account: coverage to check with HR.')}</Fine>;
 }
 
 /** Couverture d'une équipe (Équipes & managers) : chaque seuil, tenu ou non. */
@@ -100,7 +100,7 @@ export function CouvertureEquipe({ equipe }: { equipe: string }) {
       {liste.map(x => x.manque ? <Alerte key={x.formation} x={x} equipe={false} /> : (
         <div key={x.formation} className="list-row">
           <div className="grow"><Two main={d.fm(x.formation)?.court ?? x.formation} sub={couvertureTexte(x, d.fm(x.formation)?.court ?? x.formation, d.ti)} /></div>
-          <Tag cls="tag-neutral" style={{ flex: 'none' }}>Couverture tenue</Tag>
+          <Tag cls="tag-neutral" style={{ flex: 'none' }}>{t('Coverage met')}</Tag>
         </div>
       ))}
       <SansAbsences liste={liste} />

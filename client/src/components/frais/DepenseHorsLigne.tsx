@@ -14,6 +14,7 @@ import { fileAppareil } from '../../pwa/useHorsLigne.ts';
 import type { PorteurFrais } from '../../state/hors-ligne.ts';
 import { Field } from '../Dialog.tsx';
 import { Btn, Fine, Panel } from '../ui.tsx';
+import { t } from '../../i18n/langue.ts';
 import { CATEGORIES_RAPIDES, champsDepense, erreursDepense, payloadDepense } from './saisie.ts';
 
 export function DepenseHorsLigne({ onGardee }: { onGardee: () => void }) {
@@ -32,7 +33,7 @@ export function DepenseHorsLigne({ onGardee }: { onGardee: () => void }) {
 
   const c = { ...champsDepense(ti, categorie), date, montant };
   const e = erreursDepense(c, ti);
-  const errPhoto = !photo ? 'Photographiez le reçu.' : erreurPiece({ type: photo.type, taille: photo.size });
+  const errPhoto = !photo ? t('Take a photo of the receipt.') : erreurPiece({ type: photo.type, taille: photo.size });
   const envoyer = async (ev: FormEvent) => {
     ev.preventDefault();
     if (busy) return;
@@ -42,42 +43,42 @@ export function DepenseHorsLigne({ onGardee }: { onGardee: () => void }) {
       const p = await preparerPhoto(photo!);
       await fileAppareil()!.ajouter(porteur, 'frais.ligne.ajouter', { ...payloadDepense(c), empId: porteur.empId },
         { pieces: [{ nom: p.name, type: p.type, octets: new Uint8Array(await p.arrayBuffer()) }], champPieces: 'jetons' });
-      setMessage('Dépense gardée sur cet appareil : elle part au retour du réseau, dans la note du mois.');
+      setMessage(t('Expense kept on this device: it is sent when the network is back, in the month’s report.'));
       setMontant(''); setPhoto(null); setCle(k => k + 1); setTente(false);
       onGardee();
     } catch (err) {
-      setMessage(`Dépense non gardée — ${(err as Error).message}`);
+      setMessage(`${t('Expense not kept')} — ${(err as Error).message}`);
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Panel title="Nouvelle dépense">
+    <Panel title={t('New expense')}>
       <form onSubmit={envoyer} noValidate style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
         <div>
-          <label className="btn btn-primary btn-sm" htmlFor="hl-photo"><CameraIcon size={16} aria-hidden="true" /> Photographier le reçu</label>
+          <label className="btn btn-primary btn-sm" htmlFor="hl-photo"><CameraIcon size={16} aria-hidden="true" /> {t('Photograph the receipt')}</label>
           <input key={cle} id="hl-photo" className="sr-only" {...CHAMP_PHOTO} onChange={ev => setPhoto(ev.target.files?.[0] ?? null)} />
           <div className={tente && errPhoto ? 'field-erreur' : 'text-muted sub'} role={tente && errPhoto ? 'alert' : undefined}>
-            {photo ? `${photo.name} · ${tailleTexte(photo.size)}` : tente && errPhoto ? errPhoto : 'La position GPS de la photo n’est jamais envoyée.'}
+            {photo ? `${photo.name} · ${tailleTexte(photo.size)}` : tente && errPhoto ? errPhoto : t('The photo’s GPS position is never sent.')}
           </div>
         </div>
         <div className="grid-2">
-          <Field label="Montant (€)" htmlFor="hl-montant" requis erreur={tente && e.montant}>
+          <Field label={t('Amount (€)')} htmlFor="hl-montant" requis erreur={tente && e.montant}>
             <input className="input tnum" id="hl-montant" inputMode="decimal" value={montant} onChange={ev => setMontant(ev.target.value)} />
           </Field>
-          <Field label="Date" htmlFor="hl-date" requis erreur={tente && e.date}>
+          <Field label={t('Date')} htmlFor="hl-date" requis erreur={tente && e.date}>
             <input className="input" id="hl-date" type="date" max={ti} value={date} onChange={ev => setDate(ev.target.value)} />
           </Field>
         </div>
-        <Field label="Catégorie" htmlFor="hl-categorie">
+        <Field label={t('Category')} htmlFor="hl-categorie">
           <select className="input" id="hl-categorie" value={categorie} onChange={ev => setCategorie(ev.target.value as CategorieFrais)}>
             {CATEGORIES_RAPIDES.map(x => <option key={x} value={x}>{CATEGORIES_FRAIS[x].label}</option>)}
           </select>
         </Field>
-        <div><Btn type="submit" variant="primary" small disabled={busy}>Garder la dépense</Btn></div>
+        <div><Btn type="submit" variant="primary" small disabled={busy}>{t('Keep the expense')}</Btn></div>
         {message && <div className="text-muted sub" role="status">{message}</div>}
-        <Fine>Commerçant, TVA et rattachement se complètent ensuite dans Mes frais. Les frais médicaux ne se saisissent pas hors ligne.</Fine>
+        <Fine>{t('Merchant, VAT and allocation are completed later in My expenses. Medical expenses cannot be entered offline.')}</Fine>
       </form>
     </Panel>
   );

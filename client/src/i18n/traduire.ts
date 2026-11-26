@@ -8,6 +8,12 @@ export type Lang = 'fr' | 'en';
 export const LANGUES: readonly Lang[] = ['fr', 'en'];
 export type T = (anglais: string) => string;
 
+/**
+ * Contexte d'une chaîne source : `'Approved#fem'` départage deux traductions françaises d'une même chaîne anglaise
+ * (« Validée » face à « Validé ») ; le contexte ne s'affiche jamais (retiré en anglais et quand aucune entrée n'existe).
+ */
+export const sansContexte = (s: string): string => s.replace(/#[\w-]+$/, '');
+
 /** Entrée exacte du dictionnaire français, sinon undefined. */
 export const frExact = (s: string): string | undefined => (s && Object.hasOwn(FR, s) ? FR[s] : undefined);
 
@@ -23,6 +29,7 @@ export function enFrancais(s: string): string {
   if (!s) return s;
   const exact = frExact(s);
   if (exact != null) return exact;
+  s = sansContexte(s);
   if (/^[\s\d.,%€$+−–-]*$/.test(s)) return s;
   const parts = s.split(/( · | — | → | \/ )/);
   if (parts.length > 1) return parts.map((p, i) => (i % 2 ? p : frSegment(p))).join('');
@@ -30,7 +37,7 @@ export function enFrancais(s: string): string {
 }
 
 /** Traducteur d'une langue : l'anglais est l'identité. */
-export const makeT = (l: Lang): T => (l === 'fr' ? enFrancais : s => s);
+export const makeT = (l: Lang): T => (l === 'fr' ? enFrancais : sansContexte);
 
 /** Locale des formats Intl. */
 export const localeIntl = (l: Lang) => (l === 'fr' ? 'fr-FR' : 'en-GB');

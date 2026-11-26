@@ -10,11 +10,12 @@ import { fmt } from '../../../shared/format.ts';
 import { boutonsSaisie, libelleSaisie } from '../pwa/saisie-hors-ligne.ts';
 import type { EntreeFile } from '../state/hors-ligne.ts';
 import { Btn, Tag } from './ui.tsx';
+import { t } from '../i18n/langue.ts';
 
 /** Heure de la saisie sur l'appareil (indicative : celle qui fait foi est l'heure de réception par le serveur). */
 const quand = (iso: string) => {
   const d = new Date(iso);
-  return `${fmt(d)} à ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+  return `${fmt(d)}${t(' at ')}${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
 };
 
 type Entree = Pick<EntreeFile, 'id' | 'nom' | 'payload' | 'creeLe' | 'etat' | 'motif'> & { conflit?: boolean };
@@ -27,21 +28,21 @@ export function FileEnAttente({ entrees, reprendre, abandonner, ouvrirFeuille, o
   if (!entrees.length) return null;
   const actif = !!(reprendre || abandonner || ouvrirFeuille);
   return (
-    <ul className="file-attente" aria-label="Saisies gardées sur cet appareil">
+    <ul className="file-attente" aria-label={t('Entries kept on this device')}>
       {entrees.map(e => (
         <li key={e.id}>
           <div className="grow">
             <div>{libelleSaisie(e.nom, e.payload)}</div>
-            <div className="text-muted sub">Saisie le {quand(e.creeLe)}</div>
+            <div className="text-muted sub">{t('Entered on ')}{quand(e.creeLe)}</div>
             {e.etat === 'a_reprendre' && e.motif && <div className="note-accent">{e.motif}</div>}
-            {e.etat === 'a_reprendre' && e.conflit && <div className="text-muted sub">Ressaisissez la valeur dans la feuille si elle doit remplacer celle du serveur, puis abandonnez cette saisie.</div>}
+            {e.etat === 'a_reprendre' && e.conflit && <div className="text-muted sub">{t('Type the value again in the timesheet if it must replace the server’s, then drop this entry.')}</div>}
           </div>
-          <Tag cls={e.etat === 'a_reprendre' ? 'tag-accent' : 'tag-outline'}>{e.etat === 'a_reprendre' ? 'À reprendre' : 'En attente d’envoi'}</Tag>
+          <Tag cls={e.etat === 'a_reprendre' ? 'tag-accent' : 'tag-outline'}>{e.etat === 'a_reprendre' ? t('To resume') : t('Waiting to be sent')}</Tag>
           {actif && (
             <div className="file-boutons">
-              {boutonsSaisie(e).map(b => b === 'renvoyer' ? reprendre && <Btn key={b} small disabled={occupe} onClick={() => void reprendre(e.id)}>Renvoyer</Btn>
-                : b === 'feuille' ? ouvrirFeuille && <Btn key={b} small disabled={occupe} onClick={() => ouvrirFeuille(e)}>Ouvrir la feuille</Btn>
-                : abandonner && <Btn key={b} small disabled={occupe} onClick={() => abandonner(e)}>Abandonner…</Btn>)}
+              {boutonsSaisie(e).map(b => b === 'renvoyer' ? reprendre && <Btn key={b} small disabled={occupe} onClick={() => void reprendre(e.id)}>{t('Send again')}</Btn>
+                : b === 'feuille' ? ouvrirFeuille && <Btn key={b} small disabled={occupe} onClick={() => ouvrirFeuille(e)}>{t('Open the timesheet')}</Btn>
+                : abandonner && <Btn key={b} small disabled={occupe} onClick={() => abandonner(e)}>{t('Drop…')}</Btn>)}
             </div>
           )}
         </li>

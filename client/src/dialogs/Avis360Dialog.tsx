@@ -11,6 +11,7 @@ import { CancelButton, Dialog, Field, SubmitButton, useVerification } from '../c
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function Avis360Dialog({ id }: { id: number }) {
   const d = useDomain();
@@ -34,14 +35,14 @@ export function Avis360Dialog({ id }: { id: number }) {
         setVerbatim(r.reponse.verbatim ?? '');
       }
       setCharge(true);
-    }).catch(() => { if (actif) { setCharge(true); notify('Votre avis n’a pas pu être relu : réessayez', true); } });
+    }).catch(() => { if (actif) { setCharge(true); notify(t('Your feedback could not be read again: try again'), true); } });
     return () => { actif = false; };
   }, [sid, repondue, notify]);
   if (!s) return null;
-  const evalue = d.ds.annuaire.find(p => p.id === s.empId)?.nom ?? 'un collègue';
+  const evalue = d.ds.annuaire.find(p => p.id === s.empId)?.nom ?? t('a colleague');
   const repondues = Object.values(notes).filter(Boolean).length;
-  const notesErr = !repondues ? 'Répondez à au moins une question, ou déclinez la sollicitation.' : null;
-  const verbatimErr = verbatim.trim().length > VERBATIM_360_MAX ? `${VERBATIM_360_MAX} caractères au plus.` : null;
+  const notesErr = !repondues ? t('Answer at least one question, or decline the request.') : null;
+  const verbatimErr = verbatim.trim().length > VERBATIM_360_MAX ? t(`${VERBATIM_360_MAX} characters at most.`) : null;
 
   const envoyer = async () => {
     if (busy || !charge || !v.verifier(notesErr, verbatimErr)) return;
@@ -59,22 +60,22 @@ export function Avis360Dialog({ id }: { id: number }) {
   };
 
   return (
-    <Dialog title={`Avis demandé — ${evalue}`} width={640} tall onSubmit={envoyer}
+    <Dialog title={`${t('Feedback requested#one')} — ${evalue}`} width={640} tall onSubmit={envoyer}
       confirmation={decliner ? {
-        texte: s.statut === 'repondue' ? 'Décliner la sollicitation ? Votre avis déjà donné sera effacé.' : 'Décliner la sollicitation ? Vous ne pourrez plus donner d’avis.',
-        bouton: 'Décliner', occupe: busy, confirmer: confirmerRefus, annuler: () => setDecliner(false),
+        texte: t(s.statut === 'repondue' ? 'Decline the request? Your feedback already given will be erased.' : 'Decline the request? You will no longer be able to give feedback.'),
+        bouton: t('Decline'), occupe: busy, confirmer: confirmerRefus, annuler: () => setDecliner(false),
       } : null}
       actions={<>
         <CancelButton />
-        <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setDecliner(true)}>Décliner</button>
-        <SubmitButton busy={busy}>{s.statut === 'repondue' ? 'Enregistrer mes modifications' : 'Envoyer mon avis'}</SubmitButton>
+        <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setDecliner(true)}>{t('Decline')}</button>
+        <SubmitButton busy={busy}>{t(s.statut === 'repondue' ? 'Save my changes' : 'Send my feedback')}</SubmitButton>
       </>}>
       <div className="text-muted sub">
-        Vous êtes sollicité comme {RELATION_360_UN[s.relation].toLowerCase()} · réponses jusqu’au {fmtIso(s.echeance ?? d.ti)} · questionnaire {QUESTIONNAIRE_360.version}
+        {t('You are asked as ')}{RELATION_360_UN[s.relation].toLowerCase()} · {t('answers until ')}{fmtIso(s.echeance ?? d.ti)} · {t('questionnaire ')}{QUESTIONNAIRE_360.version}
       </div>
       <Fine>{TEXTE_CONFIDENTIALITE_360}</Fine>
-      {!charge ? <p className="text-muted" style={{ fontSize: 13 }}>Lecture de votre avis…</p> : (<>
-        <Field label="Comportements observés au travail" erreur={v.erreur(notesErr)} requis>
+      {!charge ? <p className="text-muted" style={{ fontSize: 13 }}>{t('Reading your feedback…')}</p> : (<>
+        <Field label={t('Behaviours observed at work')} erreur={v.erreur(notesErr)} requis>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
             {QUESTIONNAIRE_360.questions.map(q => (
               <fieldset key={q.cle} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
@@ -90,17 +91,17 @@ export function Avis360Dialog({ id }: { id: number }) {
                   <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)', fontSize: 13 }}>
                     <input type="radio" name={`f360-${q.cle}`} value="" checked={!notes[q.cle]} style={{ accentColor: 'var(--color-accent)' }}
                       onChange={() => setNotes(x => ({ ...x, [q.cle]: '' }))} />
-                    Je ne peux pas me prononcer
+                    {t('I cannot say')}
                   </label>
                 </div>
               </fieldset>
             ))}
           </div>
         </Field>
-        <Field label="Commentaire (facultatif)" htmlFor="f360-verbatim" erreur={v.erreur(verbatimErr)}>
+        <Field label={t('Comment (optional)')} htmlFor="f360-verbatim" erreur={v.erreur(verbatimErr)}>
           <textarea className="input mid" id="f360-verbatim" rows={3} value={verbatim} maxLength={VERBATIM_360_MAX} onChange={ev => setVerbatim(ev.target.value)} />
         </Field>
-        <Fine>Commentaire : des faits observés au travail, sans rien sur la santé, la vie personnelle ou les opinions de la personne, et sans détail qui vous désigne. Le service RH le relit avant toute restitution.</Fine>
+        <Fine>{t('Comment: facts observed at work, nothing about the person’s health, private life or opinions, and no detail that points to you. HR reads it before any feedback is shared.')}</Fine>
       </>)}
     </Dialog>
   );

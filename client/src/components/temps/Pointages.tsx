@@ -12,7 +12,7 @@
 // sont dans l'instantané (server/src/vues-pointage.ts).
 import { useEffect, useState } from 'react';
 import { addD, joursSemaine, parse } from '../../../../shared/dates.ts';
-import { equipeLabel, fmtIso, fmtShort, plural } from '../../../../shared/format.ts';
+import { equipeLabel, fmtIso, fmtShort } from '../../../../shared/format.ts';
 import { ANOMALIES_POINTAGE, hhmmParis } from '../../../../shared/rules/pointage.ts';
 import { feuilleCalculee } from '../../../../shared/rules/pointage-feuille.ts';
 import type { Employe, ISODate } from '../../../../shared/types.ts';
@@ -23,6 +23,7 @@ import { useDomain, useRole } from '../../state/derived.ts';
 import { useStore } from '../../state/store.tsx';
 import { Btn, Empty, Fine, NoteAccent, Panel, stop, Tag, Two } from '../ui.tsx';
 import { Ouvrir } from '../Cliquable.tsx';
+import { t, tn } from '../../i18n/langue.ts';
 import { correctionsAValider, fMinutes, fSolde, modeDe, motifCorrection, objetCorrection, PRESENCES, STATUTS_CORRECTION, valideurPointages, verdictTexte } from './pointage-etat.ts';
 
 /** Lecture à la demande, relue quand l'instantané change (une correction validée ajoute un pointage). */
@@ -56,10 +57,10 @@ export function PointagesSemaine({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const corrections = (data.correctionsPointage ?? []).filter(c => c.empId === emp.id && c.jour >= wk && c.jour <= au).sort((a, b) => b.demandeLe.localeCompare(a.demandeLe));
 
   const signaler = () => openDialog({ type: 'correctionPointage', empId: emp.id, nature: 'ajout', jour: au < data.today ? au : data.today });
-  const actions = peutCorriger && <Btn small variant="secondary" onClick={signaler}>{soiMeme ? 'Signaler un oubli' : 'Ajouter un pointage'}</Btn>;
+  const actions = peutCorriger && <Btn small variant="secondary" onClick={signaler}>{t(soiMeme ? 'Report a missed clock-in' : 'Add a clock-in')}</Btn>;
 
-  if (erreur && !l) return <Panel title="Pointages de la semaine"><Empty>{erreur}</Empty></Panel>;
-  if (!l) return <Panel title="Pointages de la semaine"><Empty>Chargement des pointages…</Empty></Panel>;
+  if (erreur && !l) return <Panel title={t('Clock-ins of the week')}><Empty>{erreur}</Empty></Panel>;
+  if (!l) return <Panel title={t('Clock-ins of the week')}><Empty>{t('Loading clock-ins…')}</Empty></Panel>;
 
   const jours = joursSemaine(wk);
   const postes = (j: ISODate) => l.postes.filter(p => p.jour === j);
@@ -70,26 +71,26 @@ export function PointagesSemaine({ emp, wk }: { emp: Employe; wk: ISODate }) {
 
   return (
     <>
-      <Panel title={`Pointages de la semaine${soiMeme ? '' : ` · ${emp.nom}`}`} aside={actions || undefined}>
-        {mode === 'declaratif' && !l.pointages.length && <Fine>{soiMeme ? 'Vous ne pointez pas' : `${emp.nom} ne pointe pas`} : le temps se déclare sur la feuille de temps.</Fine>}
+      <Panel title={`${t('Clock-ins of the week')}${soiMeme ? '' : ` · ${emp.nom}`}`} aside={actions || undefined}>
+        {mode === 'declaratif' && !l.pointages.length && <Fine>{soiMeme ? t('You do not clock in') : `${emp.nom}${t(' does not clock in')}`}{t(': time is declared on the timesheet.')}</Fine>}
         {feuilleCalculee(sh) && (
           <NoteAccent>
-            Mode calculé : la ligne « PTG » de la feuille reprend le pointé de chaque jour, à répartir sur les projets.
+            {t('Calculated mode: the timesheet’s “PTG” line takes each day’s clocked time, to spread over the projects.')}
             {sh && (sh.statut === 'brouillon' || sh.statut === 'rejetee') && (soiMeme || valideur) && <>
-              {' '}<button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={agir(() => run('pointage.reprendreFeuille', { empId: emp.id, week: wk }))}>Reprendre le pointé sur la feuille</button>
+              {' '}<button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={agir(() => run('pointage.reprendreFeuille', { empId: emp.id, week: wk }))}>{t('Copy the clocked time to the timesheet')}</button>
             </>}
           </NoteAccent>
         )}
         <div className="scroll-x">
           <table className="table">
-            <thead><tr><th>Jour</th><th>Postes</th><th>Pauses</th><th className="right">Pointé</th><th className="right">Prévu</th><th className="right">Solde</th></tr></thead>
+            <thead><tr><th>{t('Day')}</th><th>{t('Shifts')}</th><th>{t('Breaks')}</th><th className="right">{t('Clocked')}</th><th className="right">{t('Planned')}</th><th className="right">{t('Balance')}</th></tr></thead>
             <tbody>
               {jours.map(j => {
                 const x = l.jours.find(y => y.jour === j), ps = postes(j);
                 return (
                   <tr key={j}>
                     <td className="nowrap">{jourCourt(j)}</td>
-                    <td>{ps.length ? ps.map(p => `${hhmmParis(p.debut)} – ${p.enCours ? 'en cours' : hhmmParis(p.fin)}`).join(', ') : <span className="text-muted">—</span>}</td>
+                    <td>{ps.length ? ps.map(p => `${hhmmParis(p.debut)} – ${p.enCours ? t('ongoing') : hhmmParis(p.fin)}`).join(', ') : <span className="text-muted">—</span>}</td>
                     <td className="text-muted">{ps.flatMap(p => p.pauses).map(m => fMinutes(m)).join(', ') || '—'}</td>
                     <td className="right tnum">{x?.realise ? fMinutes(x.realise) : '—'}</td>
                     <td className="right tnum text-muted">{x?.theorique ? fMinutes(x.theorique) : '—'}</td>
@@ -97,13 +98,13 @@ export function PointagesSemaine({ emp, wk }: { emp: Employe; wk: ISODate }) {
                   </tr>
                 );
               })}
-              <tr><td><strong>Semaine</strong></td><td /><td /><td className="right tnum"><strong>{fMinutes(total)}</strong></td><td className="right tnum text-muted">{fMinutes(theo)}</td><td className="right tnum"><strong>{fSolde(total - theo)}</strong></td></tr>
+              <tr><td><strong>{t('Week')}</strong></td><td /><td /><td className="right tnum"><strong>{fMinutes(total)}</strong></td><td className="right tnum text-muted">{fMinutes(theo)}</td><td className="right tnum"><strong>{fSolde(total - theo)}</strong></td></tr>
             </tbody>
           </table>
         </div>
         {l.anomalies.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-            <strong className="sub">{plural(l.anomalies.length, 'point à justifier', 'points à justifier')}</strong>
+            <strong className="sub">{tn(l.anomalies.length, 'point to justify', 'points to justify')}</strong>
             {l.anomalies.map(a => (
               <span key={`${a.jour}|${a.code}|${a.texte}`} className="sub"><Tag cls="tag-outline">{ANOMALIES_POINTAGE[a.code]}</Tag> {fmtShort(parse(a.jour))} — {a.texte}</span>
             ))}
@@ -111,11 +112,11 @@ export function PointagesSemaine({ emp, wk }: { emp: Employe; wk: ISODate }) {
         )}
       </Panel>
 
-      <Panel title="Détail des pointages" aside={plural(l.pointages.filter(p => p.annuleId == null && !neutralises.has(p.id)).length, 'pointage', 'pointages')}>
-        {!l.pointages.length ? <Empty pad="sm">Aucun pointage cette semaine.</Empty> : (
+      <Panel title={t('Clock-in details')} aside={tn(l.pointages.filter(p => p.annuleId == null && !neutralises.has(p.id)).length, 'clock-in', 'clock-ins')}>
+        {!l.pointages.length ? <Empty pad="sm">{t('No clock-in this week.')}</Empty> : (
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Jour</th><th>Heure</th><th>Sens</th><th>Origine</th><th></th></tr></thead>
+              <thead><tr><th>{t('Day')}</th><th>{t('Time')}</th><th>{t('Direction')}</th><th>{t('Origin')}</th><th></th></tr></thead>
               <tbody>
                 {jours.flatMap(j => parJour(j).filter(p => p.annuleId == null).map(p => {
                   const retire = neutralises.has(p.id);
@@ -123,19 +124,19 @@ export function PointagesSemaine({ emp, wk }: { emp: Employe; wk: ISODate }) {
                     <tr key={p.id}>
                       <td className="nowrap">{jourCourt(j)}</td>
                       <td className="tnum">{retire ? <s>{hhmmParis(p.horodatage)}</s> : hhmmParis(p.horodatage)}</td>
-                      <td>{p.sens === 'S' ? 'Départ' : p.sens === 'E' ? 'Arrivée' : '—'}</td>
+                      <td>{p.sens === 'S' ? t('Out') : p.sens === 'E' ? t('In') : '—'}</td>
                       <td className="text-muted sub">
-                        {retire ? 'retiré par une correction' : p.source === 'correction' ? 'correction validée' : p.horsLigne ? 'différé (hors ligne)' : 'pointage'}
+                        {t(retire ? 'removed by a correction' : p.source === 'correction' ? 'approved correction' : p.horsLigne ? 'deferred (offline)' : 'clock-in')}
                         {/* Étape 3 : verdict de géolocalisation (entier pour le salarié et le service RH, « dans » ou « hors » pour le manager). */}
                         {!retire && p.zone && <> · {verdictTexte(p.zone)}</>}
                       </td>
                       <td className="right">
                         {peutCorriger && !retire && !enAttente.has(p.id) && (
                           <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'correctionPointage', empId: emp.id, nature: 'neutralisation', pointageId: p.id, jour: p.jour, heure: hhmmParis(p.horodatage), sens: p.sens ?? undefined })}>
-                            Retirer
+                            {t('Remove')}
                           </button>
                         )}
-                        {enAttente.has(p.id) && <Tag cls="tag-outline">Retrait demandé</Tag>}
+                        {enAttente.has(p.id) && <Tag cls="tag-outline">{t('Removal requested')}</Tag>}
                       </td>
                     </tr>
                   );
@@ -144,10 +145,10 @@ export function PointagesSemaine({ emp, wk }: { emp: Employe; wk: ISODate }) {
             </table>
           </div>
         )}
-        <Fine>Une saisie n’est jamais modifiée : une correction ajoute un pointage, ou en retire un par une ligne qui le désigne. Après la validation de la feuille, la correction passe par sa réouverture (service RH).</Fine>
+        <Fine>{t('An entry is never changed: a correction adds a clock-in, or removes one by a line that points to it. Once the timesheet is approved, the correction goes through its reopening (HR).')}</Fine>
       </Panel>
 
-      {corrections.length > 0 && <CorrectionsListe titre={soiMeme ? 'Mes demandes de correction' : 'Demandes de correction'} ids={corrections.map(c => c.id)} />}
+      {corrections.length > 0 && <CorrectionsListe titre={t(soiMeme ? 'My correction requests' : 'Correction requests')} ids={corrections.map(c => c.id)} />}
     </>
   );
 }
@@ -162,16 +163,16 @@ function CorrectionsListe({ titre, ids }: { titre: string; ids: number[] }) {
     <Panel title={titre}>
       <div className="scroll-x">
         <table className="table">
-          <thead><tr><th>Demande</th><th>Motif</th><th>Statut</th><th></th></tr></thead>
+          <thead><tr><th>{t('Request')}</th><th>{t('Reason')}</th><th>{t('Status')}</th><th></th></tr></thead>
           <tbody>
             {liste.map(c => (
               <tr key={c.id}>
-                <td><Two main={objetCorrection(c)} sub={`${c.demandeParInteresse ? 'Demandée' : `Saisie par ${c.demandePar ?? 'le valideur'}`} le ${fmtIso(c.demandeLe.slice(0, 10))}`} /></td>
+                <td><Two main={objetCorrection(c)} sub={`${c.demandeParInteresse ? t('Requested') : `${t('Entered by ')}${c.demandePar ?? t('the approver')}`}${t(' on ')}${fmtIso(c.demandeLe.slice(0, 10))}`} /></td>
                 <td className="text-muted sub">{motifCorrection(c)}{c.commentaire ? ` · ${c.commentaire}` : ''}</td>
-                <td><Tag cls={STATUTS_CORRECTION[c.statut].cls}>{STATUTS_CORRECTION[c.statut].label}</Tag>{c.statut === 'refusee' && c.motifRefus && <div className="text-muted sub">{c.motifRefus}</div>}</td>
+                <td><Tag cls={STATUTS_CORRECTION[c.statut].cls}>{t(STATUTS_CORRECTION[c.statut].label)}</Tag>{c.statut === 'refusee' && c.motifRefus && <div className="text-muted sub">{c.motifRefus}</div>}</td>
                 <td className="right">
                   {c.statut === 'demandee' && (c.empId === me || valideurPointages(d, c.empId, { rh, manager, me, soi })) && (
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'confirmer', c: retraitCorrectionPointage(c, d.personName(c.empId), c.empId === me) })}>Retirer la demande</button>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'confirmer', c: retraitCorrectionPointage(c, d.personName(c.empId), c.empId === me) })}>{t('Withdraw the request')}</button>
                   )}
                 </td>
               </tr>
@@ -192,10 +193,10 @@ export function CorrectionsAValider() {
   const file = correctionsAValider(d, { rh, manager, me, soi });
   if (!file.length) return null;
   return (
-    <Panel highlight title="Corrections de pointage à valider" aside={plural(file.length, 'demande', 'demandes')}>
+    <Panel highlight title={t('Clock-in corrections to approve')} aside={tn(file.length, 'request', 'requests')}>
       <div className="scroll-x">
         <table className="table">
-          <thead><tr><th>Collaborateur</th><th>Demande</th><th>Motif</th><th></th></tr></thead>
+          <thead><tr><th>{t('Employee')}</th><th>{t('Request')}</th><th>{t('Reason')}</th><th></th></tr></thead>
           <tbody>
             {file.map(c => {
               const e = d.emp(c.empId);
@@ -207,8 +208,8 @@ export function CorrectionsAValider() {
                   <td className="text-muted sub">{motifCorrection(c)}{c.commentaire ? ` · ${c.commentaire}` : ''}</td>
                   <td className="right">
                     <div className="actions-end">
-                      <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={stop(() => openDialog({ type: 'confirmer', c: refusCorrectionPointage(c, d.personName(c.empId)) }))}>Refuser</button>
-                      <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={stop(agir(() => run('pointage.validerCorrection', { id: c.id })))}>Valider</button>
+                      <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={stop(() => openDialog({ type: 'confirmer', c: refusCorrectionPointage(c, d.personName(c.empId)) }))}>{t('Refuse')}</button>
+                      <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={stop(agir(() => run('pointage.validerCorrection', { id: c.id })))}>{t('Approve')}</button>
                     </div>
                   </td>
                 </tr>
@@ -217,7 +218,7 @@ export function CorrectionsAValider() {
           </tbody>
         </table>
       </div>
-      <Fine>Une demande se fait sous {d.ds.settings.pointageDelaiCorrectionJours} jours. Validée, elle ajoute le pointage oublié ou retire le pointage erroné ; la feuille d’une semaine déjà validée passe d’abord par sa réouverture.</Fine>
+      <Fine>{t(`A request is made within ${d.ds.settings.pointageDelaiCorrectionJours} days. Once approved, it adds the missed clock-in or removes the wrong one; the timesheet of an already approved week goes through its reopening first.`)}</Fine>
     </Panel>
   );
 }
@@ -226,21 +227,21 @@ export function CorrectionsAValider() {
 export function PresencesDuJour() {
   const d = useDomain();
   const { v, erreur } = useLecture<PresencesPointages>(() => api.presencesPointages(), [d.ds]);
-  if (erreur && !v) return <Panel title="Présences du jour"><Empty>{erreur}</Empty></Panel>;
-  if (!v) return <Panel title="Présences du jour"><Empty>Chargement…</Empty></Panel>;
+  if (erreur && !v) return <Panel title={t('Today’s attendance')}><Empty>{erreur}</Empty></Panel>;
+  if (!v) return <Panel title={t('Today’s attendance')}><Empty>{t('Loading…')}</Empty></Panel>;
   const liste = v.presences.map(p => ({ p, e: d.emp(p.empId) })).filter(x => !!x.e).sort((a, b) => a.e!.nom.localeCompare(b.e!.nom));
   const n = (etat: string) => liste.filter(x => x.p.etat === etat).length;
   return (
-    <Panel title="Présences du jour" aside={liste.length ? `${n('present')} présent${n('present') > 1 ? 's' : ''} · ${n('non_pointe')} non pointé${n('non_pointe') > 1 ? 's' : ''}` : undefined}>
-      {!liste.length ? <Empty pad="sm">Aucun salarié de votre périmètre ne pointe aujourd’hui.</Empty> : (
+    <Panel title={t('Today’s attendance')} aside={liste.length ? `${tn(n('present'), 'present', 'present#plural')} · ${tn(n('non_pointe'), 'not clocked in', 'not clocked in#plural')}` : undefined}>
+      {!liste.length ? <Empty pad="sm">{t('No employee in your scope clocks in today.')}</Empty> : (
         <div className="scroll-x">
           <table className="table">
-            <thead><tr><th>Collaborateur</th><th>État</th><th className="right">À justifier</th></tr></thead>
+            <thead><tr><th>{t('Employee')}</th><th>{t('Status#presence')}</th><th className="right">{t('To justify')}</th></tr></thead>
             <tbody>
               {liste.map(({ p, e }) => (
                 <tr key={p.empId}>
                   <td><Two main={e!.nom} sub={equipeLabel(e!)} nowrap /></td>
-                  <td><Tag cls={PRESENCES[p.etat]?.cls ?? 'tag-outline'}>{PRESENCES[p.etat]?.label ?? p.etat}{p.depuis ? ` depuis ${p.depuis}` : ''}</Tag></td>
+                  <td><Tag cls={PRESENCES[p.etat]?.cls ?? 'tag-outline'}>{PRESENCES[p.etat] ? t(PRESENCES[p.etat].label) : p.etat}{p.depuis ? `${t(' since ')}${p.depuis}` : ''}</Tag></td>
                   <td className="right tnum">{p.anomalies || ''}</td>
                 </tr>
               ))}
@@ -248,7 +249,7 @@ export function PresencesDuJour() {
           </table>
         </div>
       )}
-      <Fine>Outil d’organisation du jour : la nature d’une absence n’est jamais montrée, et le détail heure par heure reste sur la semaine du salarié.</Fine>
+      <Fine>{t('A tool to organise the day: the nature of an absence is never shown, and the hour-by-hour detail stays on the employee’s week.')}</Fine>
     </Panel>
   );
 }

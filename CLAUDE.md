@@ -18,6 +18,29 @@ Lire d'abord `README.md` et `docs/ARCHITECTURE.md` ; le reste à faire se tient 
 https://claude.ai/artifact/Rs7kooJdowShdYUqNS8jQf, `norma/REGLES.md` § 3) ; `docs/RESTE_A_FAIRE.md` est la liste close au
 24 novembre 2026, gardée pour ses décisions et ses preuves.
 
+## Langue de l'interface (CU-N01, Norma § 2 et § 7)
+
+Chaînes sources en anglais, traduites en français par `client/src/i18n/` ; le français est la langue par défaut et
+l'interface française reste mot pour mot celle d'avant la reprise. Sélecteur FR / EN en haut de la paire
+langue / affichage (`PrefsStack` de la coque, `i18n/BoutonLangue.tsx`), cookie `cursus-lang`, changement sans
+rechargement.
+
+- `t('English source')` : entrée exacte de `i18n/fr.ts` (`FR`), sinon règle à paramètres (`FR_REGLES`, pour une chaîne
+  qui porte un nombre : ``t(`at least ${n} characters`)``), sinon segments autour de « · », « — », « → », « / ».
+- `tn(n, 'entry', 'entries')` : nombre et nom (pluriel anglais dès 0, pluriel français au-delà de 1, comme `plural`).
+- Contexte `'Approved#fem'` : départage deux traductions d'une même chaîne anglaise (« Validée », « Validé ») ; il ne
+  s'affiche jamais. Une chaîne identique dans les deux langues va dans `MEMES_EN_FRANCAIS`.
+- Une ternaire dans `t()` ne porte que des chaînes à traduire (`cond ? t('a') : t('b')` sinon) ; une table de libellés
+  garde ses sources anglaises et se traduit au rendu (`t(TABLE[k].label)`), avec son test de complétude.
+- Jamais par `t()` : le texte saisi, les noms, les données, les messages du serveur ; restent aussi en français pour
+  l'instant les libellés de `shared/` (constantes, règles, aide) et les dates (`fmtIso`, `fr-FR`).
+- Complétude : `tests/client-i18n.test.ts` (`ECRANS_MIGRES`, `FICHIERS_MIGRES`) — chaque littéral de `t()` et de `tn()`
+  des fichiers migrés a sa traduction, et ils n'ont plus de texte français en dur dans le JSX. Un écran se reprend en
+  entier (page, composants et dialogues qu'il ouvre), puis s'ajoute à `ECRANS_MIGRES`.
+- Repris : la coque (`App.tsx`, `layout/`, `components/Dialog.tsx`, thème), la connexion (`pages/Login.tsx`), Hors ligne,
+  Changer mon mot de passe, Avis demandés, Pointages (page, pointage du jour, semaine, corrections, présences du jour,
+  dialogue de correction, confirmations). Tous les autres écrans restent en français en dur.
+
 ## Échanges avec les autres outils (décisions M-17 et M-18 de Matrix)
 
 Matrix administre seul le serveur PostgreSQL commun : il définit ce que chaque outil publie, qui le lit et qui écrit

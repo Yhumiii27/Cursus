@@ -11,11 +11,11 @@
 //   ou une position introuvable n'empêche jamais de pointer. Seul le verdict est gardé par le serveur.
 import { useCallback, useEffect, useState } from 'react';
 import { SignInIcon, SignOutIcon } from '@phosphor-icons/react';
-import { plural } from '../../../shared/format.ts';
 import { api, type EtatPointages } from '../api.ts';
 import { useRole } from '../state/derived.ts';
 import { useData, useStore } from '../state/store.tsx';
 import { Fine, Panel, Tag } from './ui.tsx';
+import { t, tn } from '../i18n/langue.ts';
 import { fMinutes, fSolde, pointe, verdictTexte } from './temps/pointage-etat.ts';
 import { GARDE_POSITION_MS, positionAuClic } from '../pwa/position.ts';
 
@@ -43,7 +43,7 @@ export function useEtatPointage(actif: boolean) {
   return { etat, erreur, recharger };
 }
 
-export function BoutonPointer({ titre = 'Pointage du jour' }: { titre?: string }) {
+export function BoutonPointer({ titre }: { titre?: string }) {
   const data = useData();
   const { me } = useRole();
   const { run, go } = useStore();
@@ -70,38 +70,38 @@ export function BoutonPointer({ titre = 'Pointage du jour' }: { titre?: string }
   const nAnomalies = etat?.anomalies.length ?? 0;
 
   return (
-    <Panel title={titre} aside={etat ? <Tag cls={present ? 'tag-accent' : 'tag-outline'}>{present ? `Présent depuis ${etat.depuis}` : etat.postes.length ? 'Parti' : 'Non pointé'}</Tag> : undefined}>
+    <Panel title={titre ?? t('Today’s clock-in')} aside={etat ? <Tag cls={present ? 'tag-accent' : 'tag-outline'}>{present ? `${t('In since ')}${etat.depuis}` : t(etat.postes.length ? 'Left' : 'Not clocked in')}</Tag> : undefined}>
       <div className="row-wrap" style={{ alignItems: 'center', gap: 'var(--space-3)' }}>
         <button type="button" className="btn btn-primary" disabled={busy} onClick={pointer} style={{ minHeight: 44 }}>
-          {present ? <SignOutIcon size={16} /> : <SignInIcon size={16} />} {localise ? 'Lecture de la position…' : present ? 'Pointer le départ' : 'Pointer l’arrivée'}
+          {present ? <SignOutIcon size={16} /> : <SignInIcon size={16} />} {t(localise ? 'Reading the position…' : present ? 'Clock out' : 'Clock in')}
         </button>
         {etat && etat.pointages.length > 0 && (
           <span className="text-muted sub">
-            {etat.pointages.map(p => `${p.heure} ${p.sens === 'S' ? 'départ' : 'arrivée'}${p.differe ? ' (différé)' : ''}${p.zone ? ` (${verdictTexte(p.zone)})` : ''}`).join(' · ')}
+            {etat.pointages.map(p => `${p.heure} ${p.sens === 'S' ? t('out') : t('in')}${p.differe ? ` ${t('(deferred)')}` : ''}${p.zone ? ` (${verdictTexte(p.zone)})` : ''}`).join(' · ')}
           </span>
         )}
       </div>
       {dc && (
         <div className="row-wrap" style={{ gap: 'var(--space-4)', marginTop: 'var(--space-2)' }}>
-          <span className="sub"><span className="text-muted">Aujourd’hui </span><span className="tnum">{fMinutes(dc.jour.realise)} / {fMinutes(dc.jour.theorique)}</span></span>
-          <span className="sub"><span className="text-muted">Semaine </span><span className="tnum">{fMinutes(dc.semaine.realise)} · solde {fSolde(dc.semaine.solde)}</span></span>
+          <span className="sub"><span className="text-muted">{t('Today ')}</span><span className="tnum">{fMinutes(dc.jour.realise)} / {fMinutes(dc.jour.theorique)}</span></span>
+          <span className="sub"><span className="text-muted">{t('Week ')}</span><span className="tnum">{fMinutes(dc.semaine.realise)} · {t('balance ')}{fSolde(dc.semaine.solde)}</span></span>
         </div>
       )}
       {nAnomalies > 0 && (
         <Fine muted={false}>
-          {plural(nAnomalies, 'point à justifier', 'points à justifier')} cette semaine :{' '}
-          <a href="/pointages" onClick={e => { e.preventDefault(); go('pointages'); }}>voir mes pointages</a>.
+          {tn(nAnomalies, 'point to justify', 'points to justify')}{t(' this week:')}{' '}
+          <a href="/pointages" onClick={e => { e.preventDefault(); go('pointages'); }}>{t('see my clock-ins')}</a>.
         </Fine>
       )}
-      {erreur && <Fine>État du jour indisponible : {erreur}</Fine>}
+      {erreur && <Fine>{t('Today’s status unavailable: ')}{erreur}</Fine>}
       <Fine>
-        Heure du serveur.{' '}
+        {t('Server time.')}{' '}
         {data.settings.pointageHorsLigne
-          ? 'Sans réseau, le pointage est gardé sur l’appareil avec son heure et part « différé » au retour du réseau.'
-          : 'Sans réseau, le pointage n’est pas possible : pointez une fois connecté.'}{' '}
+          ? t('Without a network, the clock-in is kept on the device with its time and is sent “deferred” when the network is back.')
+          : t('Without a network, clocking in is not possible: clock in once connected.')}{' '}
         {etat?.geoloc
-          ? `En ligne, votre position est lue une fois, au clic, pour vérifier que vous êtes sur une zone de pointage : seul le résultat (dans la zone, hors zone…) est gardé, jamais la position. Vous pouvez refuser : le pointage est enregistré quand même, et part au plus tard ${Math.round(GARDE_POSITION_MS / 1000)} secondes après le clic.`
-          : 'Aucune position n’est enregistrée.'}
+          ? t(`Online, your position is read once, on the click, to check that you are in a clock-in zone: only the result (in the zone, outside the zone…) is kept, never the position. You may refuse: the clock-in is recorded anyway, and is sent at the latest ${Math.round(GARDE_POSITION_MS / 1000)} seconds after the click.`)
+          : t('No position is recorded.')}
       </Fine>
     </Panel>
   );

@@ -4,12 +4,13 @@
 // réponses, ni la synthèse. Rien ne se donne hors ligne : l'avis part au serveur ou pas du tout (jamais dans la file de
 // l'appareil). Ouvert seulement le module activé (réglage `feedback360Actif`).
 import { useMemo } from 'react';
-import { fmtIso, plural } from '../../../shared/format.ts';
+import { fmtIso } from '../../../shared/format.ts';
 import { RELATION_360_UN, TEXTE_CONFIDENTIALITE_360 } from '../../../shared/rules/feedback360.ts';
 import type { Sollicitation360 } from '../../../shared/types.ts';
 import { Empty, Fine, Page, Panel, Tag } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 export function AvisDemandes() {
   const d = useDomain();
@@ -25,12 +26,12 @@ export function AvisDemandes() {
       closes: siennes.filter(s => !ouverte(s) || s.statut === 'declinee').sort((a, b) => b.id - a.id),
     };
   }, [d, me]);
-  const nom = (id: number) => d.ds.annuaire.find(p => p.id === id)?.nom ?? 'Collègue';
+  const nom = (id: number) => d.ds.annuaire.find(p => p.id === id)?.nom ?? t('Colleague');
   const ligne = (s: Sollicitation360, action: string | null, etat: string, cls: string) => (
     <div key={s.id} className="list-row">
       <div className="grow" style={{ minWidth: 0 }}>
         <div style={{ fontSize: 14 }}>{nom(s.empId)}</div>
-        <div className="text-muted sub">Comme {RELATION_360_UN[s.relation].toLowerCase()}{s.echeance ? ` · jusqu’au ${fmtIso(s.echeance)}` : ''}</div>
+        <div className="text-muted sub">{t('As ')}{RELATION_360_UN[s.relation].toLowerCase()}{s.echeance ? ` · ${t('until ')}${fmtIso(s.echeance)}` : ''}</div>
       </div>
       <Tag cls={cls} style={{ flex: 'none' }}>{etat}</Tag>
       {action && (
@@ -41,22 +42,22 @@ export function AvisDemandes() {
   );
 
   return (
-    <Page kicker="Feedback 360°" title="Avis demandés" note="Des collègues vous demandent un avis sur leur travail, pour leur entretien. Répondre est facultatif : vous pouvez décliner.">
+    <Page kicker={t('360° feedback')} title={t('Feedback requested')} note={t('Colleagues ask for your feedback on their work, for their review. Answering is optional: you may decline.')}>
       <Fine>{TEXTE_CONFIDENTIALITE_360}</Fine>
-      {!horsLigne.enLigne && <Fine>Hors ligne : un avis se donne connecté, il n’est jamais gardé sur l’appareil.</Fine>}
-      <Panel title="À donner" aside={plural(v.aDonner.length, 'avis', 'avis')}>
+      {!horsLigne.enLigne && <Fine>{t('Offline: feedback is given while connected, it is never kept on the device.')}</Fine>}
+      <Panel title={t('To give')} aside={tn(v.aDonner.length, 'feedback', 'feedbacks')}>
         {v.aDonner.length
-          ? <div className="list">{v.aDonner.map(s => ligne(s, 'Donner mon avis', 'À donner', 'tag-accent'))}</div>
-          : <Empty>Aucun avis à donner.</Empty>}
+          ? <div className="list">{v.aDonner.map(s => ligne(s, t('Give my feedback'), t('To give'), 'tag-accent'))}</div>
+          : <Empty>{t('No feedback to give.')}</Empty>}
       </Panel>
       {v.donnees.length > 0 && (
-        <Panel title="Avis donnés" aside="modifiables jusqu’à l’échéance">
-          <div className="list">{v.donnees.map(s => ligne(s, 'Modifier mon avis', 'Avis donné', 'tag-neutral'))}</div>
+        <Panel title={t('Given feedback')} aside={t('can be changed until the deadline')}>
+          <div className="list">{v.donnees.map(s => ligne(s, t('Change my feedback'), t('Feedback given'), 'tag-neutral'))}</div>
         </Panel>
       )}
       {v.closes.length > 0 && (
-        <Panel title="Terminés">
-          <div className="list">{v.closes.map(s => ligne(s, null, s.statut === 'declinee' ? 'Décliné' : s.statut === 'repondue' ? 'Avis versé' : 'Clos sans réponse', 'tag-outline'))}</div>
+        <Panel title={t('Closed')}>
+          <div className="list">{v.closes.map(s => ligne(s, null, t(s.statut === 'declinee' ? 'Declined' : s.statut === 'repondue' ? 'Feedback filed' : 'Closed without answer'), 'tag-outline'))}</div>
         </Panel>
       )}
     </Page>

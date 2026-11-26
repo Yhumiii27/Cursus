@@ -8,6 +8,7 @@ import { decap, fmtIso } from '../../../shared/format.ts';
 import { depotOuvert, erreurPiece, LISTE_TYPES_PIECES, OBJETS_PIECE, piecesDe, TAILLE_MAX_PIECE, tailleTexte, TYPES_PIECES } from '../../../shared/rules/pieces.ts';
 import type { ObjetPiece, Piece } from '../../../shared/types.ts';
 import { api, lienPiece } from '../api.ts';
+import { t } from '../i18n/langue.ts';
 import { useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { Field } from './Dialog.tsx';
@@ -46,7 +47,7 @@ export function usePieceJointe(): PieceAJoindre {
         envoye.current = { fichier, jeton: p.jeton };
         return [p.jeton];
       } catch (e) {
-        notify(`Pièce justificative non envoyée — ${(e as Error).message}`, true);
+        notify(`${t('Supporting document not sent')} — ${(e as Error).message}`, true);
         return null;
       }
     },
@@ -67,8 +68,8 @@ export function ChoixPiece({ piece, id, label, aide, onChoix, requis, erreur }: 
     <Field label={label} htmlFor={id} requis={requis} erreur={piece.erreur ?? erreur}>
       <input key={cle} className="input" id={id} type="file" accept={ACCEPTE} onChange={ev => choisir(ev.target.files?.[0] ?? null)} />
       <div className="text-muted sub" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-        <span>{piece.fichier && !piece.erreur ? `${piece.fichier.name} · ${tailleTexte(piece.fichier.size)} ·` : `PDF, JPEG ou PNG, ${tailleTexte(TAILLE_MAX_PIECE)} au plus.`}{aide ? ` ${aide}` : ''}</span>
-        {piece.fichier && <Btn small onClick={() => { choisir(null); setCle(c => c + 1); }}>Retirer le fichier</Btn>}
+        <span>{piece.fichier && !piece.erreur ? `${piece.fichier.name} · ${tailleTexte(piece.fichier.size)} ·` : `${t('PDF, JPEG or PNG, ')}${tailleTexte(TAILLE_MAX_PIECE)}${t(' at most.')}`}{aide ? ` ${aide}` : ''}</span>
+        {piece.fichier && <Btn small onClick={() => { choisir(null); setCle(c => c + 1); }}>{t('Remove the file')}</Btn>}
       </div>
     </Field>
   );
@@ -80,10 +81,10 @@ function LignePiece({ p, retirable }: { p: Piece; retirable: boolean }) {
   const retirer = () => openDialog({
     type: 'confirmer',
     c: {
-      titre: 'Retirer la pièce justificative', question: `Retirer « ${p.nom} » du dossier ?`,
-      suites: ['Le fichier est effacé ; sa description (date, auteur) reste dans le dossier.', 'Les sauvegardes en gardent la copie jusqu’à leur rotation.'],
-      bouton: 'Retirer la pièce', action: 'piece.retirer', payload: { id: p.id },
-      motif: { label: 'Motif du retrait', requis: true, aide: 'Gardé avec la pièce : lu par le service RH, et par le salarié dans l’export de ses données.', placeholder: 'Document illisible, mauvais salarié…' },
+      titre: t('Remove the supporting document'), question: t(`Remove “${p.nom}” from the file?`),
+      suites: [t('The file is erased; its description (date, author) stays in the file.'), t('Backups keep their copy until they are rotated.')],
+      bouton: t('Remove the document'), action: 'piece.retirer', payload: { id: p.id },
+      motif: { label: t('Reason for the removal'), requis: true, aide: t('Kept with the document: read by HR, and by the employee in the export of their data.'), placeholder: t('Unreadable document, wrong employee…') },
       ensuite: dialog ? { retour: dialog } : undefined,
     },
   });
@@ -91,13 +92,13 @@ function LignePiece({ p, retirable }: { p: Piece; retirable: boolean }) {
     <li className="boxed" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
         <a href={lienPiece(p.id)} target="_blank" rel="noopener noreferrer" style={{ overflowWrap: 'anywhere' }}>{p.nom}</a>
-        <span className="text-muted sub">{TYPES_PIECES[p.type]?.label ?? p.type} · {tailleTexte(p.taille)} · envoyée le {fmtIso(isoParis(new Date(p.deposeLe)))} par {p.deposePar}</span>
+        <span className="text-muted sub">{TYPES_PIECES[p.type]?.label ?? p.type} · {tailleTexte(p.taille)} · {t('sent on ')}{fmtIso(isoParis(new Date(p.deposeLe)))}{t(' by ')}{p.deposePar}</span>
         <span style={{ flex: 1 }} />
-        <a className="btn btn-ghost btn-sm" href={lienPiece(p.id, true)}>Télécharger</a>
-        {retirable && <Btn small onClick={retirer}>Retirer</Btn>}
+        <a className="btn btn-ghost btn-sm" href={lienPiece(p.id, true)}>{t('Download')}</a>
+        {retirable && <Btn small onClick={retirer}>{t('Remove')}</Btn>}
       </div>
       {p.type !== 'application/pdf' && (
-        <img src={lienPiece(p.id)} alt={`Aperçu : ${decap(OBJETS_PIECE[p.objet].label)}`} loading="lazy"
+        <img src={lienPiece(p.id)} alt={`${t('Preview: ')}${decap(OBJETS_PIECE[p.objet].label)}`} loading="lazy"
           style={{ maxWidth: '100%', maxHeight: 220, objectFit: 'contain', alignSelf: 'flex-start', borderRadius: 'var(--radius-sm)' }} />
       )}
     </li>
@@ -105,14 +106,14 @@ function LignePiece({ p, retirable }: { p: Piece; retirable: boolean }) {
 }
 
 /** Pièces déjà jointes à un objet (rien s'il n'en a pas) : à ouvrir avant de valider. */
-export function PiecesJointes({ objet, objetId, label = 'Pièces jointes' }: { objet: ObjetPiece; objetId: number | null | undefined; label?: string }) {
+export function PiecesJointes({ objet, objetId, label }: { objet: ObjetPiece; objetId: number | null | undefined; label?: string }) {
   const { data } = useStore();
   const { rh, formations } = useRole();
   const pieces = piecesDe(data?.pieces, objet, objetId);
   if (!pieces.length) return null;
   const retirable = rh || (formations && (objet === 'certification' || objet === 'habTitre'));
   return (
-    <Field label={label}>
+    <Field label={label ?? t('Attachments')}>
       <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
         {pieces.map(p => <LignePiece key={p.id} p={p} retirable={retirable} />)}
       </ul>
@@ -130,7 +131,7 @@ export function LiensPieces({ objet, objetId }: { objet: ObjetPiece; objetId: nu
   if (!pieces.length) return null;
   return (
     <div className="sub" style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', marginTop: 'var(--space-1)' }}>
-      <span className="text-muted">{pieces.length > 1 ? 'Pièces jointes :' : 'Pièce jointe :'}</span>
+      <span className="text-muted">{pieces.length > 1 ? t('Attachments:') : t('Attachment:')}</span>
       {pieces.map(p => (
         <a key={p.id} href={lienPiece(p.id)} target="_blank" rel="noopener noreferrer" onClick={ev => ev.stopPropagation()} style={{ overflowWrap: 'anywhere' }}>
           {p.nom} ({TYPES_PIECES[p.type]?.label ?? p.type}, {tailleTexte(p.taille)})

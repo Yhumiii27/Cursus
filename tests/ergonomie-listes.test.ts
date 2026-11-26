@@ -139,8 +139,9 @@ test('pagination : le hook rend les 50 premières lignes dans l’ordre reçu (t
   assert.deepEqual([court.lignes.length, court.active], [30, false]);
   // Le pied de liste (components/TriListe.tsx) affiche les lignes sur le total, 50 de plus ou toutes.
   const pied = lire('client/src/components/TriListe.tsx');
-  assert.match(pied, /Afficher \$\{Math\.min\(TAILLE_PAGE, p\.reste\)\} de plus/);
-  assert.match(pied, /Tout afficher/);
+  // Chaînes sources anglaises (CU-N01), rendues « Afficher 50 de plus » et « Tout afficher » en français.
+  assert.match(pied, /Show \$\{Math\.min\(TAILLE_PAGE, p\.reste\)\} more/);
+  assert.match(pied, /tr\('Show all'\)/);
   assert.match(pied, /aria-sort=\{s\}/);
 });
 

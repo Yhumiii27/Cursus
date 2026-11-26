@@ -17,7 +17,8 @@ export const MODELE_TITRE_LABEL: Record<ModeleTitre, string> = {
 };
 
 /** Modèle rappelé à la délivrance : « modèle NF C18-510 ». */
-export const MODELE_TITRE_COURT: Record<ModeleTitre, string> = { generique: 'modèle générique', electrique: 'modèle NF C18-510', conduite: 'autorisation de conduite R4323-56' };
+/** Chaînes sources anglaises, traduites au rendu (`t(MODELE_TITRE_COURT[m])`, CU-N01). */
+export const MODELE_TITRE_COURT: Record<ModeleTitre, string> = { generique: 'generic template', electrique: 'NF C18-510 template', conduite: 'R4323-56 driving authorisation' };
 
 /** Titre visé : délivrance (date, signataire) ; l'échéance est calculée avec la validité de l'habilitation. */
 export interface DelivranceImprimee { delivree: ISODate; par: string }

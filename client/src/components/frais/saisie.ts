@@ -8,6 +8,7 @@ import { CATEGORIES_FRAIS, estDevise, LISTE_CATEGORIES_FRAIS } from '../../../..
 import type { LectureRecu } from '../../../../shared/rules/frais-lecture.ts';
 import { tauxPropose } from '../../../../shared/rules/frais-tva.ts';
 import type { CategorieFrais, ISODate, LigneFrais } from '../../../../shared/types.ts';
+import { t } from '../../i18n/langue.ts';
 
 /** Champs du formulaire, en texte (tels que saisis). */
 export interface ChampsDepense {
@@ -24,18 +25,18 @@ export const CATEGORIES_RAPIDES: CategorieFrais[] = LISTE_CATEGORIES_FRAIS.filte
 
 /** Champs vides (nouvelle dépense) ou repris d'une dépense à modifier. */
 export function champsDepense(today: ISODate, categorie: CategorieFrais, l?: LigneFrais | null): ChampsDepense {
-  const t = (v: number | null | undefined) => (v == null ? '' : String(v).replace('.', ','));
+  const txt = (v: number | null | undefined) => (v == null ? '' : String(v).replace('.', ','));
   if (!l) {
     return {
-      date: today, categorie, montant: '', devise: 'EUR', taux: '', montantEur: '', tvaTaux: t(tauxPropose(categorie)), tvaMontant: '', commercant: '', invites: '',
+      date: today, categorie, montant: '', devise: 'EUR', taux: '', montantEur: '', tvaTaux: txt(tauxPropose(categorie)), tvaMontant: '', commercant: '', invites: '',
       forfait: '', pays: '', km: '', vehiculeId: '', depart: '', arrivee: '', motifDepassement: '', sansJustificatif: false,
     };
   }
   const [forfait, pays] = (l.forfait ?? '').split(':');
   return {
-    date: l.date, categorie: l.categorie, montant: t(l.montant), devise: l.devise, taux: t(l.taux), montantEur: l.devise === 'EUR' || l.taux ? '' : t(l.montantEur),
-    tvaTaux: t(l.tvaTaux), tvaMontant: t(l.tvaMontant), commercant: l.commercant ?? '', invites: l.invites ?? '', forfait: forfait ?? '', pays: pays ?? '',
-    km: t(l.km), vehiculeId: l.vehiculeId ? String(l.vehiculeId) : '', depart: l.depart ?? '', arrivee: l.arrivee ?? '', motifDepassement: l.motifDepassement ?? '',
+    date: l.date, categorie: l.categorie, montant: txt(l.montant), devise: l.devise, taux: txt(l.taux), montantEur: l.devise === 'EUR' || l.taux ? '' : txt(l.montantEur),
+    tvaTaux: txt(l.tvaTaux), tvaMontant: txt(l.tvaMontant), commercant: l.commercant ?? '', invites: l.invites ?? '', forfait: forfait ?? '', pays: pays ?? '',
+    km: txt(l.km), vehiculeId: l.vehiculeId ? String(l.vehiculeId) : '', depart: l.depart ?? '', arrivee: l.arrivee ?? '', motifDepassement: l.motifDepassement ?? '',
     sansJustificatif: l.sansJustificatif,
   };
 }
@@ -53,27 +54,27 @@ export type ErreursDepense = Partial<Record<'date' | 'montant' | 'devise' | 'km'
 /** Contrôles de la saisie, sous chaque champ ; `aJustificatif` : un fichier choisi ou déjà joint. */
 export function erreursDepense(c: ChampsDepense, today: ISODate): ErreursDepense {
   const e: ErreursDepense = {};
-  e.date = !c.date ? 'Indiquez la date de la dépense.' : !isValidDate(c.date) ? 'Date invalide.' : c.date > today ? 'La date ne peut pas être dans le futur.' : null;
+  e.date = !c.date ? t('Enter the date of the expense.') : !isValidDate(c.date) ? t('Invalid date.') : c.date > today ? t('The date cannot be in the future.') : null;
   if (c.categorie === 'ik') {
     const km = nombreSaisi(c.km);
-    e.km = km === null ? 'Indiquez la distance parcourue.' : km <= 0 || km > 5000 ? 'Distance en km, plus de 0 et 5 000 au plus.' : null;
-    e.vehiculeId = c.vehiculeId ? null : 'Choisissez le véhicule (déclarez-le d’abord dans Mes frais).';
+    e.km = km === null ? t('Enter the distance travelled.') : km <= 0 || km > 5000 ? t('Distance in km, more than 0 and 5,000 at most.') : null;
+    e.vehiculeId = c.vehiculeId ? null : t('Choose the vehicle (declare it first in My expenses).');
     return e;
   }
   const m = nombreSaisi(c.montant);
   if (c.categorie === 'forfait') {
-    e.forfait = !c.forfait ? 'Choisissez le forfait.' : c.forfait === 'etranger' && !c.pays ? 'Choisissez le pays.' : null;
-    e.montant = c.montant.trim() && (m === null || m <= 0) ? 'Montant en euros, plus de 0.' : null;
+    e.forfait = !c.forfait ? t('Choose the flat rate.') : c.forfait === 'etranger' && !c.pays ? t('Choose the country.') : null;
+    e.montant = c.montant.trim() && (m === null || m <= 0) ? t('Amount in euros, more than 0.') : null;
     return e;
   }
-  e.montant = !c.montant.trim() ? 'Indiquez le montant payé.' : m === null || m <= 0 || m > 100000 ? 'Montant plus de 0 et 100 000 au plus.' : null;
+  e.montant = !c.montant.trim() ? t('Enter the amount paid.') : m === null || m <= 0 || m > 100000 ? t('Amount more than 0 and 100,000 at most.') : null;
   const devise = c.devise.trim().toUpperCase() || 'EUR';
-  e.devise = estDevise(devise) ? null : 'Code de devise à trois lettres (EUR, USD…).';
+  e.devise = estDevise(devise) ? null : t('Three-letter currency code (EUR, USD…).');
   if (devise !== 'EUR' && !e.devise) {
     const taux = nombreSaisi(c.taux), deb = nombreSaisi(c.montantEur);
-    e.taux = (c.taux.trim() && (taux === null || taux <= 0)) || (c.montantEur.trim() && (deb === null || deb <= 0)) ? 'Taux ou montant débité : nombre positif.' : null;
+    e.taux = (c.taux.trim() && (taux === null || taux <= 0)) || (c.montantEur.trim() && (deb === null || deb <= 0)) ? t('Rate or amount debited: positive number.') : null;
   }
-  e.invites = c.categorie === 'repas_affaires' && !c.invites.trim() ? 'Indiquez les invités du repas d’affaires.' : null;
+  e.invites = c.categorie === 'repas_affaires' && !c.invites.trim() ? t('Enter the guests of the business meal.') : null;
   return e;
 }
 
@@ -92,19 +93,19 @@ export function payloadDepense(c: ChampsDepense): Record<string, unknown> {
   };
 }
 
-/** Champs proposés d'après un reçu collé : seulement ceux reconnus (montant, date, devise, TVA, commerçant). */
+/** Champs proposés d'après un reçu collé : seulement ceux reconnus (montant, date, devise, TVA, commerçant), nommés dans la langue affichée. */
 export function propositionsRecu(r: LectureRecu, c: ChampsDepense): { champs: ChampsDepense; reconnus: string[] } {
   const out = { ...c }, reconnus: string[] = [];
-  const t = (n: number) => String(n).replace('.', ',');
-  if (r.montant !== undefined) { out.montant = t(r.montant); reconnus.push('montant'); }
-  if (r.date) { out.date = r.date; reconnus.push('date'); }
-  if (r.devise) { out.devise = r.devise; reconnus.push('devise'); }
+  const txt = (n: number) => String(n).replace('.', ',');
+  if (r.montant !== undefined) { out.montant = txt(r.montant); reconnus.push(t('amount#lower')); }
+  if (r.date) { out.date = r.date; reconnus.push(t('date')); }
+  if (r.devise) { out.devise = r.devise; reconnus.push(t('currency#lower')); }
   if (r.tva?.length) {
-    out.tvaTaux = t(r.tva[0].taux);
-    out.tvaMontant = r.tva.length === 1 && r.tva[0].montant != null ? t(r.tva[0].montant) : '';
-    reconnus.push('TVA');
+    out.tvaTaux = txt(r.tva[0].taux);
+    out.tvaMontant = r.tva.length === 1 && r.tva[0].montant != null ? txt(r.tva[0].montant) : '';
+    reconnus.push(t('VAT'));
   }
-  if (r.commercant) { out.commercant = r.commercant; reconnus.push('commerçant'); }
+  if (r.commercant) { out.commercant = r.commercant; reconnus.push(t('merchant#lower')); }
   return { champs: out, reconnus };
 }
 

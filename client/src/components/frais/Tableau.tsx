@@ -8,13 +8,13 @@
 // (`resumesFrais`), et le réintégrable, la part de chaque note calculée par le serveur sur l'instantané complet
 // (`reintegrableFrais`, cumul kilométrique exact de l'année). Chaque indicateur dit sa période.
 import { addM } from '../../../../shared/dates.ts';
-import { plural } from '../../../../shared/format.ts';
 import { periodeLabel } from '../../../../shared/rules/paie.ts';
 import { CATEGORIES_FRAIS } from '../../../../shared/rules/frais.ts';
 import { FENETRE_FRAIS_MOIS, retenuParCategorie } from '../../../../shared/rules/frais-fenetre.ts';
 import { useDomain } from '../../state/derived.ts';
 import { Bar, Empty, Kpi, Kpis, Panel } from '../ui.tsx';
 import { depensesParMois, euros, syntheseNote } from './commun.ts';
+import { t, tn } from '../../i18n/langue.ts';
 
 export function TableauFrais() {
   const d = useDomain();
@@ -22,7 +22,7 @@ export function TableauFrais() {
   const compte = (s: string[]) => notes.filter(n => s.includes(n.statut)).length;
   const depuis = addM(`${d.ti.slice(0, 7)}-01`, -11);
   const mois = depensesParMois(notes, lignes, depuis, resumes);
-  const periode = `${periodeLabel(depuis.slice(0, 7))} à ${periodeLabel(d.ti.slice(0, 7))}`;
+  const periode = `${periodeLabel(depuis.slice(0, 7))}${t(' to #a')}${periodeLabel(d.ti.slice(0, 7))}`;
   const max = Math.max(1, ...mois.map(m => m.montant));
   // Par catégorie, sur les notes soumises des douze derniers mois (dépenses retenues).
   const ids = new Set(notes.filter(n => n.statut !== 'brouillon' && n.statut !== 'annulee' && n.periode >= depuis.slice(0, 7)).map(n => n.id));
@@ -40,25 +40,25 @@ export function TableauFrais() {
   return (
     <>
       <Kpis>
-        <Kpi kicker="À valider (manager)" value={compte(['soumise'])} sub="notes soumises" />
-        <Kpi kicker="À contrôler" value={compte(['validee'])} sub="notes validées" />
-        <Kpi kicker="En attente de la paie" value={compte(['controlee', 'en_paiement'])} sub="contrôlées ou dans un lot" />
-        <Kpi kicker="Délai moyen" value={delai === null ? '—' : `${delai} j`} sub="de la soumission au contrôle, notes des douze derniers mois" />
+        <Kpi kicker={t('To approve (manager)')} value={compte(['soumise'])} sub={t('notes submitted')} />
+        <Kpi kicker={t('To check#controle')} value={compte(['validee'])} sub={t('notes approved')} />
+        <Kpi kicker={t('Waiting for payroll')} value={compte(['controlee', 'en_paiement'])} sub={t('checked or in a batch')} />
+        <Kpi kicker={t('Average delay')} value={delai === null ? '—' : `${delai}${t(' d#days')}`} sub={t('from submission to check, notes of the last twelve months')} />
       </Kpis>
-      <Panel title="Dépenses des douze derniers mois" aside={`${periode} · montants retenus, notes soumises`}>
-        {mois.length === 0 ? <Empty>Aucune dépense sur la période.</Empty> : (
+      <Panel title={t('Expenses of the last twelve months')} aside={`${periode}${t(' · amounts retained, notes submitted')}`}>
+        {mois.length === 0 ? <Empty>{t('No expense over the period.')}</Empty> : (
           <table className="table">
-            <thead><tr><th>Mois</th><th>Notes</th><th>Montant</th><th><span className="sr-only">Part</span></th></tr></thead>
+            <thead><tr><th>{t('Month')}</th><th>{t('Notes')}</th><th>{t('Amount')}</th><th><span className="sr-only">{t('Share')}</span></th></tr></thead>
             <tbody>{mois.map(m => (
               <tr key={m.mois}><td>{periodeLabel(m.mois)}</td><td className="tnum">{m.notes}</td><td className="tnum nowrap">{euros(m.montant)}</td><td style={{ width: '40%' }}><Bar pct={(m.montant / max) * 100} /></td></tr>
             ))}</tbody>
           </table>
         )}
       </Panel>
-      <Panel title="Par catégorie" aside={`${periode} · montants retenus`}>
-        {cats.length === 0 ? <Empty>Aucune dépense sur la période.</Empty> : (
+      <Panel title={t('By category')} aside={`${periode}${t(' · amounts retained')}`}>
+        {cats.length === 0 ? <Empty>{t('No expense over the period.')}</Empty> : (
           <table className="table">
-            <thead><tr><th>Catégorie</th><th>Montant</th><th><span className="sr-only">Part</span></th></tr></thead>
+            <thead><tr><th>{t('Category')}</th><th>{t('Amount')}</th><th><span className="sr-only">{t('Share')}</span></th></tr></thead>
             <tbody>{cats.map(([c, v]) => (
               <tr key={c}><td>{CATEGORIES_FRAIS[c].label}</td><td className="tnum nowrap">{euros(Math.round(v * 100) / 100)}</td><td style={{ width: '40%' }}><Bar pct={(v / maxCat) * 100} /></td></tr>
             ))}</tbody>
@@ -66,8 +66,8 @@ export function TableauFrais() {
         )}
       </Panel>
       <Kpis>
-        <Kpi kicker="Réintégrable" value={euros(Math.round(reintegrable * 100) / 100)} sub={`allocations au-delà des limites d’exonération, notes soumises en circuit ou payées depuis moins de ${FENETRE_FRAIS_MOIS} mois`} />
-        <Kpi kicker="Avances en cours" value={euros(avances.reduce((s, a) => s + a.montant, 0))} sub={plural(avances.length, 'avance validée ou versée', 'avances validées ou versées')} />
+        <Kpi kicker={t('Reinstatable')} value={euros(Math.round(reintegrable * 100) / 100)} sub={`${t('allowances beyond the exemption limits, notes submitted in the circuit or paid less than ')}${FENETRE_FRAIS_MOIS}${t(' months ago')}`} />
+        <Kpi kicker={t('Advances in progress')} value={euros(avances.reduce((s, a) => s + a.montant, 0))} sub={tn(avances.length, 'advance approved or paid', 'advances approved or paid')} />
       </Kpis>
     </>
   );

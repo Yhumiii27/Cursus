@@ -9,6 +9,7 @@ import { addM } from '../../../../shared/dates.ts';
 import { borneFrais, HISTORIQUE_FRAIS_MAX_MOIS, moisDe, moisEntre } from '../../../../shared/rules/frais-fenetre.ts';
 import { STATUTS_NOTE_FRAIS } from '../../../../shared/rules/frais.ts';
 import { periodeLabel } from '../../../../shared/rules/paie.ts';
+import { t } from '../../i18n/langue.ts';
 
 /** Mois AAAA-MM décalé de `n` mois. */
 const decaler = (mois: string, n: number) => addM(`${mois}-01`, n).slice(0, 7);
@@ -23,7 +24,7 @@ export function periodeAnciennes(today: string, rang = 0): { du: string; au: str
 }
 
 /** Libellé d'une période : « juillet 2023 à juin 2025 ». */
-export const libellePeriode = (p: { du: string; au: string }) => `${periodeLabel(p.du)} à ${periodeLabel(p.au)}`;
+export const libellePeriode = (p: { du: string; au: string }) => `${periodeLabel(p.du)}${t(' to #a')}${periodeLabel(p.au)}`;
 
 /** Saisie de la recherche (onglet Historique) : champs du formulaire, tels que tapés. */
 export interface SaisieRecherche { empId: string; du: string; au: string; statut: string; note: string }
@@ -44,17 +45,17 @@ export function lireRecherche(s: SaisieRecherche, today: string): Recherche {
   if (s.note.trim()) {
     const n = Number(s.note.trim());
     if (Number.isInteger(n) && n > 0) return { ok: true, note: n };
-    return { ok: false, erreurs: { note: 'Numéro de note invalide.' } };
+    return { ok: false, erreurs: { note: t('Invalid note number.') } };
   }
   const au = s.au ? moisDe(s.au) : today.slice(0, 7);
-  if (!au) erreurs.au = 'Mois invalide.';
+  if (!au) erreurs.au = t('Invalid month.');
   const du = s.du ? moisDe(s.du) : au && decaler(au, -(HISTORIQUE_FRAIS_MAX_MOIS - 1));
-  if (!du) erreurs.du = 'Mois invalide.';
-  if (du && au && du > au) erreurs.du = 'Le début suit la fin.';
-  else if (du && au && moisEntre(du, au) > HISTORIQUE_FRAIS_MAX_MOIS) erreurs.du = `${HISTORIQUE_FRAIS_MAX_MOIS} mois au plus par recherche.`;
-  if (s.statut && !Object.hasOwn(STATUTS_NOTE_FRAIS, s.statut)) erreurs.statut = 'Statut inconnu.';
+  if (!du) erreurs.du = t('Invalid month.');
+  if (du && au && du > au) erreurs.du = t('The start follows the end.');
+  else if (du && au && moisEntre(du, au) > HISTORIQUE_FRAIS_MAX_MOIS) erreurs.du = t(`${HISTORIQUE_FRAIS_MAX_MOIS} months at most per search.`);
+  if (s.statut && !Object.hasOwn(STATUTS_NOTE_FRAIS, s.statut)) erreurs.statut = t('Unknown status.');
   const empId = s.empId ? Number(s.empId) : null;
-  if (empId !== null && !(Number.isInteger(empId) && empId > 0)) erreurs.empId = 'Salarié inconnu.';
+  if (empId !== null && !(Number.isInteger(empId) && empId > 0)) erreurs.empId = t('Unknown employee.');
   if (Object.keys(erreurs).length) return { ok: false, erreurs };
   return { ok: true, note: null, filtres: { empId, du: du!, au: au!, statut: s.statut || null } };
 }

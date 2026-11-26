@@ -5,6 +5,7 @@
 // - Service RH et comptabilité : notes à contrôler, toutes les notes, avances, exports comptables, tableau de bord ;
 //   lot 12 — C2 : historique (recherche dans toute la base, notes archivées comprises : ?onglet=historique).
 import type { Role } from '../../../../shared/types.ts';
+import { traduites } from '../../i18n/langue.ts';
 
 /** `premier` : aucun onglet choisi (adresse sans paramètre), le premier de l'espace. */
 export type OngletFrais = 'premier' | 'notes' | 'valider' | 'equipe' | 'controle' | 'avances' | 'exports' | 'tableau' | 'historique';
@@ -16,10 +17,12 @@ export function ongletsFrais(role: Role): OngletFrais[] {
   return ['notes'];
 }
 
-export const LIBELLES_ONGLETS_FRAIS: Record<OngletFrais, string> = {
-  premier: '', notes: 'Notes', valider: 'À valider', equipe: 'Équipe', controle: 'À contrôler', avances: 'Avances', exports: 'Exports comptables', tableau: 'Tableau de bord',
-  historique: 'Historique',
+/** Sources anglaises des libellés d'onglets (traduites à la lecture : `LIBELLES_ONGLETS_FRAIS`). */
+export const SOURCES_ONGLETS_FRAIS: Record<OngletFrais, string> = {
+  premier: '', notes: 'Notes', valider: 'To approve', equipe: 'Team', controle: 'To check#controle', avances: 'Advances', exports: 'Accounting exports', tableau: 'Dashboard',
+  historique: 'History',
 };
+export const LIBELLES_ONGLETS_FRAIS = traduites(SOURCES_ONGLETS_FRAIS);
 
 /** Onglet affiché : celui demandé s'il existe dans l'espace, sinon le premier. */
 export const ongletFraisDe = (role: Role, demande: OngletFrais): OngletFrais => (ongletsFrais(role).includes(demande) ? demande : ongletsFrais(role)[0]);

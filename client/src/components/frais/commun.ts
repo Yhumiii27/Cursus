@@ -16,6 +16,7 @@ import { alertesDeNote, noteEnCircuit } from '../../../../shared/rules/frais-ale
 import { type AlerteFrais, bloquantes, totalReintegrable } from '../../../../shared/rules/frais-politique.ts';
 import { tvaRecuperable } from '../../../../shared/rules/frais-tva.ts';
 import { decideur } from '../../state/delegues.ts';
+import { t } from '../../i18n/langue.ts';
 import type { AvanceFrais, CurrentUser, ISODate, LigneFrais, NoteFrais, Piece, ResumeNoteFrais, StatutAvanceFrais } from '../../../../shared/types.ts';
 
 /** Montant au centime : « 1 234,50 € » (une autre devise : son code). */
@@ -29,17 +30,17 @@ export const moisNote = (n: Pick<NoteFrais, 'periode'>) => { const p = periodeLa
 export function rattachement(d: Domain, n: Pick<NoteFrais, 'voyageId' | 'missionId' | 'projet'>): string {
   if (n.voyageId) {
     const v = d.ds.voyages.find(x => x.id === n.voyageId);
-    if (v) return `Déplacement : ${d.destOf(v.dest)?.pays ?? v.dest}, ${fmtIso(v.depart)} → ${fmtIso(v.retour)}`;
+    if (v) return `${t('Trip: ')}${d.destOf(v.dest)?.pays ?? v.dest}, ${fmtIso(v.depart)} → ${fmtIso(v.retour)}`;
   }
   if (n.missionId) {
     const m = d.ds.missions.find(x => x.id === n.missionId);
-    if (m) return `Mission : ${m.projet} · ${m.lieu}`;
+    if (m) return `${t('Assignment: ')}${m.projet} · ${m.lieu}`;
   }
-  return n.projet ? `Projet ou chantier : ${n.projet}` : '';
+  return n.projet ? `${t('Project or worksite: ')}${n.projet}` : '';
 }
 
 /** Libellé d'une note dans une liste ou un message : « Note n° 12 — octobre 2026 ». */
-export const nomNote = (n: Pick<NoteFrais, 'id' | 'periode' | 'medicale'>) => `Note n° ${n.id} — ${moisNote(n)}${n.medicale ? ' · frais médicaux' : ''}`;
+export const nomNote = (n: Pick<NoteFrais, 'id' | 'periode' | 'medicale'>) => `${t('Note no. ')}${n.id} — ${moisNote(n)}${n.medicale ? t(' · medical expenses') : ''}`;
 
 /** Justificatifs en vigueur d'une dépense (frais médicaux compris pour qui les reçoit). */
 export const justificatifs = (pieces: readonly Piece[] | undefined, l: Pick<LigneFrais, 'id'>) =>
@@ -105,13 +106,14 @@ export function syntheseNote(d: Domain, n: NoteFrais): SyntheseNote {
 /** Classe de l'étiquette d'une alerte. */
 export const clsAlerte = (a: Pick<AlerteFrais, 'niveau'>) => (a.niveau === 'bloquant' ? 'tag-accent' : a.niveau === 'alerte' ? 'tag-outline' : 'tag-neutral');
 
+/** Libellés : sources anglaises, traduites au rendu (`t(st.label)`). */
 export const STATUTS_AVANCE: Record<StatutAvanceFrais, { label: string; cls: string }> = {
-  demandee: { label: 'À valider', cls: 'tag-accent' },
-  validee: { label: 'Validée, versée avec la paie', cls: 'tag-neutral' },
-  en_paiement: { label: 'En paiement', cls: 'tag-neutral' },
-  versee: { label: 'Versée', cls: 'tag-neutral' },
-  refusee: { label: 'Refusée', cls: 'tag-outline' },
-  annulee: { label: 'Annulée', cls: 'tag-outline' },
+  demandee: { label: 'To approve', cls: 'tag-accent' },
+  validee: { label: 'Approved, paid with the payroll#fem', cls: 'tag-neutral' },
+  en_paiement: { label: 'Being paid', cls: 'tag-neutral' },
+  versee: { label: 'Paid#versee', cls: 'tag-neutral' },
+  refusee: { label: 'Refused#fem', cls: 'tag-outline' },
+  annulee: { label: 'Cancelled#fem', cls: 'tag-outline' },
 };
 
 /** Avance que la personne peut valider ou refuser : manager direct, suppléant « frais », ou service RH (jamais la sienne). */

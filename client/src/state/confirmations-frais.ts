@@ -5,58 +5,59 @@ import type { AvanceFrais, LigneFrais, NoteFrais } from '../../../shared/types.t
 import { CATEGORIES_FRAIS } from '../../../shared/rules/frais.ts';
 import { euros, nomNote } from '../components/frais/commun.ts';
 import type { Confirmation } from './confirmations.ts';
+import { t, tn } from '../i18n/langue.ts';
 
-const AIDE = (lecteurs: string) => `Le motif est visible de ${lecteurs} ; il n’est ni recopié au journal ni envoyé par e-mail. N’y indiquez aucune information médicale.`;
+const AIDE = (lecteurs: string) => `${t('The reason is visible to ')}${lecteurs}${t('; it is neither copied into the log nor sent by e-mail. Do not put any medical information in it.')}`;
 
 /** Renvoi pour correction (`frais.note.renvoyer`) : par le valideur (note soumise) ou le contrôleur (validée, contrôlée). */
 export function renvoiNote(n: NoteFrais, nom: string, parControleur: boolean): Confirmation {
   return {
-    titre: 'Renvoyer pour correction',
-    question: `Renvoyer la ${nomNote(n).toLowerCase()} de ${nom} pour correction ?`,
+    titre: t('Send back for correction'),
+    question: `${t('Send back the ')}${nomNote(n).toLowerCase()}${t(' of #de')}${nom}${t(' for correction?')}`,
     suites: [
-      'La note redevient modifiable par le salarié, qui la soumettra de nouveau.',
-      parControleur ? 'Elle repassera par la validation du manager.' : 'Le salarié est prévenu par e-mail, sans le motif.',
+      t('The note becomes editable again by the employee, who will submit it again.'),
+      parControleur ? t('It will go through the manager’s approval again.') : t('The employee is told by e-mail, without the reason.'),
     ],
-    bouton: 'Renvoyer la note',
+    bouton: t('Send back the note'),
     action: 'frais.note.renvoyer',
     payload: { id: n.id },
-    motif: { label: 'Motif du renvoi', requis: true, aide: AIDE(`${nom}, de son manager et du contrôleur`), placeholder: 'Justificatif illisible, date à corriger…' },
+    motif: { label: t('Reason for sending back'), requis: true, aide: AIDE(`${nom}${t(', of their manager and of the checker')}`), placeholder: t('Supporting document unreadable, date to correct…') },
   };
 }
 
 /** Refus d'une dépense au contrôle (`frais.ligne.refuser`). */
 export function refusDepense(l: LigneFrais, nom: string): Confirmation {
   return {
-    titre: 'Refuser la dépense',
-    question: `Refuser la dépense du ${l.date} (${CATEGORIES_FRAIS[l.categorie].label.toLowerCase()}, ${euros(l.montantEur)}) de ${nom} ?`,
-    suites: ['Elle reste dans la note, sans être remboursée ; le salarié lit le motif dans Mes frais.'],
-    bouton: 'Refuser la dépense',
+    titre: t('Refuse the expense'),
+    question: `${t('Refuse the expense of #du')}${l.date} (${CATEGORIES_FRAIS[l.categorie].label.toLowerCase()}, ${euros(l.montantEur)})${t(' of #de')}${nom}${t('?#question')}`,
+    suites: [t('It stays in the note, without being reimbursed; the employee reads the reason in My expenses.')],
+    bouton: t('Refuse the expense'),
     action: 'frais.ligne.refuser',
     payload: { id: l.id },
-    motif: { label: 'Motif du refus', requis: true, aide: AIDE(nom), placeholder: 'Dépense personnelle, déjà remboursée…' },
+    motif: { label: t('Reason for the refusal'), requis: true, aide: AIDE(nom), placeholder: t('Personal expense, already reimbursed…') },
   };
 }
 
 /** Annulation d'une note (`frais.note.annuler`) : l'intéressé avant la validation, le service RH avant le paiement. */
 export function annulationNote(n: NoteFrais, nom: string | null): Confirmation {
   return {
-    titre: 'Annuler la note',
-    question: `Annuler la ${nomNote(n).toLowerCase()}${nom ? ` de ${nom}` : ''} ?`,
-    suites: ['La note reste en base, annulée : ses dépenses ne seront pas remboursées. Une dépense se ressaisit dans une autre note.'],
-    bouton: 'Annuler la note',
+    titre: t('Cancel the note'),
+    question: `${t('Cancel the #la')}${nomNote(n).toLowerCase()}${nom ? `${t(' of #de')}${nom}` : ''}${t('?#question')}`,
+    suites: [t('The note stays in the base, cancelled: its expenses will not be reimbursed. An expense is entered again in another note.')],
+    bouton: t('Cancel the note'),
     action: 'frais.note.annuler',
     payload: { id: n.id },
-    motif: { label: 'Motif de l’annulation', requis: false, aide: AIDE(nom ?? 'vous'), placeholder: 'Note en double, déplacement annulé…' },
+    motif: { label: t('Reason for the cancellation'), requis: false, aide: AIDE(nom ?? t('you')), placeholder: t('Duplicate note, trip cancelled…') },
   };
 }
 
 /** Suppression d'une dépense d'une note en saisie (`frais.ligne.supprimer`) : ses justificatifs sont retirés. */
 export function suppressionDepense(l: LigneFrais): Confirmation {
   return {
-    titre: 'Retirer la dépense',
-    question: `Retirer la dépense du ${l.date} (${CATEGORIES_FRAIS[l.categorie].label.toLowerCase()}, ${euros(l.montant, l.devise)}) de la note ?`,
-    suites: ['Ses justificatifs sont retirés aussi.'],
-    bouton: 'Retirer la dépense',
+    titre: t('Remove the expense'),
+    question: `${t('Remove the expense of #du')}${l.date} (${CATEGORIES_FRAIS[l.categorie].label.toLowerCase()}, ${euros(l.montant, l.devise)})${t(' from the note?')}`,
+    suites: [t('Its supporting documents are removed too.')],
+    bouton: t('Remove the expense'),
     action: 'frais.ligne.supprimer',
     payload: { id: l.id },
   };
@@ -65,25 +66,25 @@ export function suppressionDepense(l: LigneFrais): Confirmation {
 /** Refus d'une avance (`frais.avance.refuser`). */
 export function refusAvance(a: AvanceFrais, nom: string): Confirmation {
   return {
-    titre: 'Refuser l’avance',
-    question: `Refuser l’avance de ${euros(a.montant)} demandée par ${nom} ?`,
-    bouton: 'Refuser l’avance',
+    titre: t('Refuse the advance'),
+    question: `${t('Refuse the advance of ')}${euros(a.montant)}${t(' requested by #fem')}${nom}${t('?#question')}`,
+    bouton: t('Refuse the advance'),
     action: 'frais.avance.refuser',
     payload: { id: a.id },
-    motif: { label: 'Motif du refus', requis: true, aide: AIDE(nom), placeholder: 'Déplacement annulé, montant à revoir…' },
+    motif: { label: t('Reason for the refusal'), requis: true, aide: AIDE(nom), placeholder: t('Trip cancelled, amount to review…') },
   };
 }
 
 /** Annulation d'un export comptable (`frais.export.annuler`). `telecharge` : son fichier a déjà été téléchargé. */
 export function annulationExport(id: number, notes: number, telecharge: boolean): Confirmation {
   return {
-    titre: 'Annuler l’export comptable',
-    question: `Annuler l’export comptable n° ${id} (${notes} note${notes > 1 ? 's' : ''}) ?`,
+    titre: t('Cancel the accounting export'),
+    question: `${t('Cancel the accounting export no. ')}${id} (${tn(notes, 'note', 'notes')})${t('?#question')}`,
     suites: [
-      'Ses notes redeviennent à exporter et partiront dans le prochain export.',
-      telecharge ? 'Son fichier a déjà été téléchargé : retirez de la comptabilité les écritures déjà importées.' : 'Son fichier n’a pas été téléchargé.',
+      t('Its notes are to export again and will go in the next export.'),
+      telecharge ? t('Its file has already been downloaded: remove from the accounts the entries already imported.') : t('Its file has not been downloaded.'),
     ],
-    bouton: 'Annuler l’export',
+    bouton: t('Cancel the export'),
     action: 'frais.export.annuler',
     payload: { id },
   };

@@ -45,6 +45,17 @@ export const t: T = s => traduire(s);
 export const tn = (n: number, un: string, plusieurs: string): string =>
   courante === 'fr' ? `${n} ${n > 1 ? enFrancais(plusieurs) : enFrancais(un)}` : `${n} ${sansContexte(n === 1 ? un : plusieurs)}`;
 
+/**
+ * Table de libellés lue dans la langue affichée : les sources anglaises restent dans `sources` et chaque clé, lue au
+ * rendu, rend sa traduction (`LIBELLES.historique` donne « Historique » en français, « History » en anglais). Pour une
+ * table exportée qu'un module sans React ou un test lit déjà par sa valeur.
+ */
+export function traduites<K extends string>(sources: Record<K, string>): Readonly<Record<K, string>> {
+  const o = {} as Record<K, string>;
+  for (const k of Object.keys(sources) as K[]) Object.defineProperty(o, k, { enumerable: true, get: () => t(sources[k]) });
+  return o;
+}
+
 /** Change la langue : cookie, attribut `lang` de <html>, composants abonnés rendus de nouveau. */
 export function choisirLangue(l: Lang, doc: Document | null = docu()): void {
   if (doc) {

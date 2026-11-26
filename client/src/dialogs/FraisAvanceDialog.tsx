@@ -7,6 +7,7 @@ import { Fine } from '../components/ui.tsx';
 import { nombreSaisi } from '../components/frais/saisie.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function FraisAvanceDialog({ empId }: { empId?: number | null }) {
   const d = useDomain();
@@ -20,7 +21,7 @@ export function FraisAvanceDialog({ empId }: { empId?: number | null }) {
   const voyages = d.ds.voyages.filter(x => x.empId === qui && !x.annuleLe && x.retour >= d.ti);
   const missions = d.ds.missions.filter(x => x.empId === qui && x.au >= d.ti);
   const n = nombreSaisi(montant);
-  const errMontant = !montant.trim() ? 'Indiquez le montant de l’avance.' : n === null || n <= 0 || n > 20000 ? 'Montant en euros, plus de 0 et 20 000 au plus.' : null;
+  const errMontant = !montant.trim() ? t('Enter the amount of the advance.') : n === null || n <= 0 || n > 20000 ? t('Amount in euros, more than 0 and 20,000 at most.') : null;
 
   const envoyer = async () => {
     if (busy || !v.verifier(errMontant)) return;
@@ -33,21 +34,21 @@ export function FraisAvanceDialog({ empId }: { empId?: number | null }) {
   };
 
   return (
-    <Dialog title="Demander une avance sur frais" width={520} onSubmit={envoyer} actions={<>
+    <Dialog title={t('Request an expense advance')} width={520} onSubmit={envoyer} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Demander l’avance</SubmitButton>
+      <SubmitButton busy={busy}>{t('Request the advance')}</SubmitButton>
     </>}>
-      <Field label="Montant (€)" htmlFor="frais-av-montant" requis erreur={v.erreur(errMontant) || (montant ? errMontant : null)}>
+      <Field label={t('Amount (€)')} htmlFor="frais-av-montant" requis erreur={v.erreur(errMontant) || (montant ? errMontant : null)}>
         <input className="input tnum" id="frais-av-montant" inputMode="decimal" value={montant} onChange={ev => setMontant(ev.target.value)} autoFocus />
       </Field>
-      <Field label="Déplacement ou mission" htmlFor="frais-av-rattache">
+      <Field label={t('Trip or assignment')} htmlFor="frais-av-rattache">
         <select className="input" id="frais-av-rattache" value={rattache} onChange={ev => setRattache(ev.target.value)}>
-          <option value="">Aucun</option>
-          {voyages.map(x => <option key={`v${x.id}`} value={`v${x.id}`}>Déplacement : {d.destOf(x.dest)?.pays ?? x.dest}, {fmtIso(x.depart)} → {fmtIso(x.retour)}</option>)}
-          {missions.map(x => <option key={`m${x.id}`} value={`m${x.id}`}>Mission : {x.projet} · {x.lieu}, {fmtIso(x.du)} → {fmtIso(x.au)}</option>)}
+          <option value="">{t('None')}</option>
+          {voyages.map(x => <option key={`v${x.id}`} value={`v${x.id}`}>{t('Trip: ')}{d.destOf(x.dest)?.pays ?? x.dest}, {fmtIso(x.depart)} → {fmtIso(x.retour)}</option>)}
+          {missions.map(x => <option key={`m${x.id}`} value={`m${x.id}`}>{t('Assignment: ')}{x.projet} · {x.lieu}, {fmtIso(x.du)} → {fmtIso(x.au)}</option>)}
         </select>
       </Field>
-      <Fine>L’avance est versée avec la paie une fois validée, puis déduite des remboursements des notes du même déplacement ou de la même mission.</Fine>
+      <Fine>{t('The advance is paid with the payroll once approved, then deducted from the reimbursements of the notes of the same trip or the same assignment.')}</Fine>
     </Dialog>
   );
 }

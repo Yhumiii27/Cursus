@@ -277,7 +277,7 @@ test('justificatif d’absence : joint au signalement par l’intéressé, vu de
   const dl = await appel(`/api/pieces/${id}?telecharger=1`, { headers: gest });
   assert.match(String(dl.headers['content-disposition']), /^attachment; /);
   // Pièce versée dans Codex que Codex ne sert pas : source indisponible (503, message affiché), jamais une erreur interne.
-  const codexAvant = Object.fromEntries(['CODEX_URL', 'CODEX_DOCUMENTS_TOKEN', 'CODEX_DOCUMENTS_SECRET', 'CODEX_DOCUMENTS_OWNER'].map(k => [k, process.env[k]]));
+  const codexAvant = Object.fromEntries(['CODEX_URL', 'CODEX_CURSUS_TOKEN', 'CODEX_CURSUS_SECRET'].map(k => [k, process.env[k]]));
   const fichierLocal = p.fichier;
   await db.update('pieces', id, { fichier: 'ged:RHF-RHU-0001' });
   try {
@@ -285,7 +285,7 @@ test('justificatif d’absence : joint au signalement par l’intéressé, vu de
     const nonRaccorde = await appel(`/api/pieces/${id}`, { headers: gest });
     assert.equal(nonRaccorde.status, 503);
     assert.equal(nonRaccorde.json().error, CODEX_ILLISIBLE);
-    Object.assign(process.env, { CODEX_URL: 'http://127.0.0.1:1', CODEX_DOCUMENTS_TOKEN: 'jeton-de-cursus-chez-codex-0123456789abcdef', CODEX_DOCUMENTS_OWNER: 'svc-cursus' });
+    Object.assign(process.env, { CODEX_URL: 'http://127.0.0.1:1', CODEX_CURSUS_TOKEN: 'jeton-de-cursus-chez-codex-0123456789abcdef' });
     const injoignable = await appel(`/api/pieces/${id}`, { headers: gest });
     assert.equal(injoignable.status, 503);
     assert.equal(injoignable.json().error, CODEX_ILLISIBLE);

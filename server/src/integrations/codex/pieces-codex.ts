@@ -1,20 +1,22 @@
 // lot 16 — versement des pièces justificatives dans Codex (décision du propriétaire du 10 novembre 2026 : tous les
-// documents de la suite sont stockés dans Codex ; demandes docs/demandes/codex-lot16-documents.md, Codex#29, et
-// matrix-lot16-documents.md, Matrix#87). Réglage « Stockage des pièces » = « Codex » :
+// documents de la suite sont stockés dans Codex ; demande docs/demandes/codex-lot16-documents.md, livrée par Codex le
+// 26/11/2026, Codex#38 ; CU-037). Réglage « Stockage des pièces » = « Codex » :
 // - une pièce envoyée attend dans le dossier local (chiffrée, comme avant) d'être jointe à son objet ; jointe, elle est
-//   versée dans Codex par le passage horaire des pièces (et au démarrage) : dépôt avec sa catégorie, le
-//   matricule de la personne, sa fin de conservation et son empreinte, puis nom stocké `ged:<identifiant Codex>` et
-//   fichier local effacé. Les pièces déjà dans le dossier local sont reprises de la même façon (reprise du lot 16) ;
+//   versée dans Codex par le passage horaire des pièces (et au démarrage) : dépôt avec sa catégorie (`category`), le
+//   matricule de la personne (`subjectMatricule`), sa fin de conservation quand Cursus la connaît (`expiresAt`) et son
+//   empreinte, puis nom stocké `ged:<identifiant Codex>` et fichier local effacé. Les pièces déjà dans le dossier local
+//   sont reprises de la même façon (reprise du lot 16, docs/ARCHITECTURE.md) ;
 // - une pièce versée se relit et se détruit par l'API de Codex (server/src/integrations/codex/ged.ts) ;
-// - le réglage n'est accepté que si Codex est raccordé (CODEX_URL, jeton et/ou secret, compte de service) et si chaque
-//   catégorie de Cursus figure dans son registre (`codex.pub_types_document`, lien de lecture demandé à Matrix) ;
-//   tant que Codex n'a pas livré la lecture et la destruction par l'application, il reste refusé.
+// - une pièce sans personne (dossier OPCO collectif) reste dans le dossier local : Codex exige un matricule ;
+// - le réglage n'est accepté que si Codex est raccordé (CODEX_URL et CODEX_CURSUS_TOKEN, ou Codex simulé) et si chaque
+//   catégorie de Cursus figure dans son registre (`codex.pub_types_document`, lien de lecture demandé à Matrix).
 // Une pièce n'est jamais versée deux fois : la `sourceRef` `cursus:piece/<id>` rend le dépôt rejouable chez Codex.
 import { matricule, plural } from '../../../../shared/format.ts';
-import { CATEGORIES_CODEX, categoriesManquantes, DEPARTEMENT_CODEX, sourceRefPiece, titrePiece, type TypeCodexLu } from '../../../../shared/rules/pieces-codex.ts';
+import { categorieDePiece, categoriesManquantes, estMatriculeCodex, OBJETS_NON_VERSES, REGISTRE_CODEX_ATTENDU, sourceRefPiece, titrePiece, type TypeCodexLu } from '../../../../shared/rules/pieces-codex.ts';
+import type { DemandeCollab } from '../../../../shared/types.ts';
 import { refusPiecesLocales } from '../../config.ts';
 import type { Db } from '../../db.ts';
-import { type ClientCodex, clientCodex, CodexIndisponible, CodexRefus } from './codex-documents.ts';
+import { type ClientCodex, clientCodex, CodexIndisponible, CodexRefus, simulationCodex } from './codex-documents.ts';
 import { estFichierGed, GED_NON_RACCORDEE, nomGed } from './ged.ts';
 import { log } from '../../logs.ts';
 import { depotLocal, empreinte, type PieceEnregistree, stockagePieces } from '../../pieces.ts';
@@ -36,12 +38,13 @@ export async function lireTypesCodex(db: Db): Promise<TypeCodexLu[] | null> {
  * Refus du stockage dans Codex, ou null s'il peut être choisi : raccordement configuré, dossier local chiffré (les pièces y
  * attendent leur versement), catégories présentes dans le registre de Codex.
  */
-export async function refusCodex(db: Db, o: { client?: ClientCodex | null; types?: TypeCodexLu[] | null } = {}): Promise<string | null> {
+export async function refusCodex(db: Db, o: { client?: ClientCodex | null; types?: readonly TypeCodexLu[] | null } = {}): Promise<string | null> {
   const client = o.client === undefined ? clientCodex() : o.client;
   if (!client) return GED_NON_RACCORDEE;
   const local = refusPiecesLocales();
   if (local) return local;
-  const types = o.types === undefined ? await lireTypesCodex(db) : o.types;
+  // Codex simulé : son registre est celui que Codex publie pour Cursus.
+  const types = o.types === undefined ? (simulationCodex() ? REGISTRE_CODEX_ATTENDU : await lireTypesCodex(db)) : o.types;
   if (!types) return `Registre des types de Codex illisible (${VUE_TYPES}) : lien de lecture de cursus_app à accorder par Matrix (demande du lot 16), sur le serveur PostgreSQL commun.`;
   const manquantes = categoriesManquantes(types);
   if (manquantes.length) return `Catégories absentes du registre de Codex : ${manquantes.join(', ')} (demande du lot 16 à Codex). Aucune pièce n’est versée avant leur création.`;
@@ -67,7 +70,8 @@ async function matriculeDe(db: Db, empId: number | null): Promise<string | null>
  */
 export async function verserPieces(db: Db, client: ClientCodex, o: { limite?: number } = {}): Promise<BilanVersement> {
   const limite = o.limite ?? PAR_PASSAGE;
-  const a = `objet IS NOT NULL AND retiree_le IS NULL AND fichier IS NOT NULL AND fichier NOT LIKE 'ged:%'`;
+  const exclus = [...OBJETS_NON_VERSES].map(o => `'${o}'`).join(', ');
+  const a = `objet IS NOT NULL AND objet NOT IN (${exclus}) AND retiree_le IS NULL AND fichier IS NOT NULL AND fichier NOT LIKE 'ged:%'`;
   const lignes = (await db.query(`SELECT id FROM pieces WHERE ${a} ORDER BY id LIMIT ${Number(limite)}`)) as { id: number }[];
   const local = depotLocal(db);
   let versees = 0, enEchec = 0;
@@ -81,14 +85,19 @@ export async function verserPieces(db: Db, client: ClientCodex, o: { limite?: nu
       log.avertissement(`Pièce justificative n° ${id} : fichier local absent, illisible ou altéré, non versée dans Codex (contrôle d’intégrité)`);
       continue;
     }
-    const c = CATEGORIES_CODEX[p.objet];
+    const kind = p.objet === 'declaration' ? (await db.get<DemandeCollab>('demandesCollab', p.objetId))?.declaration?.kind : null;
+    const categorie = categorieDePiece(p.objet, { kind });
     const mat = await matriculeDe(db, p.empId);
+    if (!categorie || !mat || !estMatriculeCodex(mat)) {
+      enEchec++;
+      log.avertissement(`Pièce justificative n° ${id} : ${categorie ? 'matricule de la personne absent ou refusé par Codex' : 'catégorie de Codex inconnue (document déclaré)'}, gardée dans le dossier local`);
+      continue;
+    }
     let docId: string;
     try {
       ({ id: docId } = await client.deposer(octets, p.type, p.nom, {
-        sourceRef: sourceRefPiece(id), title: titrePiece(p.objet, { matricule: mat, objetId: p.objetId, deposeLe: p.deposeLe }),
-        typeCode: c.typeCode, subtype: c.sousType, department: DEPARTEMENT_CODEX, conf: c.conf,
-        subjectMatricule: mat, expiresAt: p.conserverJusquau ?? null, sha256: empreinte(octets),
+        sourceRef: sourceRefPiece(id), title: titrePiece(categorie, { matricule: mat, deposeLe: p.deposeLe }),
+        category: categorie, subjectMatricule: mat, expiresAt: p.conserverJusquau ?? null, sha256: empreinte(octets),
       }));
     } catch (err) {
       if (err instanceof CodexIndisponible) { log.avertissement(`Versement des pièces dans Codex interrompu : ${err.message}`); break; }

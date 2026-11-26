@@ -5997,34 +5997,65 @@ par le propriétaire le 9 novembre 2026 : « Libellés des référentiels ».
 Décision du propriétaire du 10 novembre 2026 : « quel que soit le logiciel de notre suite, tout doit être stocké dans
 Codex ». Demandes portées le même jour : à Codex (`docs/demandes/codex-lot16-documents.md`, Codex#29 : catégories du
 dossier du personnel, dépôt d'un enregistrement sans circuit, lecture et destruction par l'application) et à Matrix
-(`matrix-lot16-documents.md`, Matrix#87 : lecture de `codex.pub_types_document` et `codex.pub_documents`).
+(`matrix-lot16-documents.md`, Matrix#87 : lecture de `codex.pub_types_document` et `codex.pub_documents`). Codex a livré
+les points 1 à 4 le 26 novembre 2026 (Codex#38, décision D-32 de Codex, durées à confirmer par le DPO ; contrat :
+`docs/api.md` de Codex, « Enregistrements du dossier du personnel (Cursus) ») ; Cursus s'y est aligné le même jour (CU-037).
 
-- **Règles** (`shared/rules/pieces-codex.ts`) : catégorie de Codex de chaque objet de pièce (type `RHF`, sous-type,
-  confidentialité ; codes proposés, à aligner sur la réponse de Codex), département `RHU`, titre neutre
-  (« Attestation de formation — EMP-0002 — 2026-09 » : ni nom ni donnée de santé ; un justificatif de frais médicaux porte
-  le titre de tout justificatif de frais), `sourceRef` `cursus:piece/<id>`, motif codé d'une destruction (`retrait`,
-  `conservation` au terme échu, `effacement` demandé avant le terme ; posés par `server/src/conservation.ts`).
-- **Client** (`server/src/integrations/codex/codex-documents.ts`) : `POST /api/documents` en `multipart/form-data`, jeton
-  `Bearer` et/ou signature HMAC-SHA256 du corps brut (`X-Codex-Timestamp`, `X-Codex-Signature: v1=…`), signée à chaque
-  essai (anti-rejeu de Codex) ; relecture et destruction aux adresses demandées ; erreurs passagères (réseau, 5xx, 429 :
-  `CodexIndisponible`) ou définitives (4xx : `CodexRefus`). Configuration dans l'environnement seulement : `CODEX_URL`,
-  `CODEX_DOCUMENTS_TOKEN` et/ou `CODEX_DOCUMENTS_SECRET`, `CODEX_DOCUMENTS_OWNER` (compte de service propriétaire, jamais la
-  personne connectée), contrôlés au démarrage (`problemesCodex`).
+- **Règles** (`shared/rules/pieces-codex.ts`) : un seul type de Codex, `DPE` « Dossier du personnel — enregistrement »
+  (département `RHU`, sans circuit), dont la catégorie (`category`) fixe chez Codex sous-type, confidentialité et
+  conservation. Catégorie de chaque objet de pièce (`categorieDePiece`) : `absence` → `absence`, `certification` →
+  `training_certificate`, `habTitre` → `authorisation`, `voyage` → `travel`, `ligneFrais` → `expense`,
+  `ligneFraisSante` → `expense_health`, `vehiculePerso` → `personal_vehicle`, `declaration` → `identity` (passeport,
+  visa) ou `vaccination` (vaccin) d'après `declaration.kind` ; `dossierOpco` : aucune (ci-dessous). Titre neutre
+  (« Attestation de formation — EMP-0002 — 2026-09 » : ni nom ni donnée de santé ; passeport, visa et vaccination portent
+  le même « Document déclaré », un justificatif de frais médicaux celui de tout justificatif de frais), `sourceRef`
+  `cursus:piece/<id>`, matricule de la personne (`EMP-…`, ou `I…` / `E…` d'une personne sur site extérieure,
+  `estMatriculeCodex`), motif codé d'une destruction (`retrait`, `conservation` au terme échu, `effacement` demandé avant
+  le terme ; posés par `server/src/conservation.ts`).
+- **Client** (`server/src/integrations/codex/codex-documents.ts`) : jeton `Authorization: Bearer <CODEX_CURSUS_TOKEN>`
+  (obligatoire, il désigne Cursus chez Codex) et, avec `CODEX_CURSUS_SECRET`, signature HMAC-SHA256
+  (`X-Codex-Timestamp`, `X-Codex-Signature: v1=…`) du corps brut pour le dépôt, de `<MÉTHODE> <chemin>\n` + corps pour la
+  lecture et la destruction, refaite à chaque essai (anti-rejeu de Codex). Dépôt `POST /api/documents` en
+  `multipart/form-data` (`category`, `subjectMatricule`, `sha256`, `typeCode` `DPE`, `expiresAt` si Cursus connaît la fin
+  de conservation ; ni propriétaire, ni sous-type, ni confidentialité : Codex les fixe), rejouable (200 `replayed`), 410
+  `destroyed` pour une `sourceRef` détruite ; lecture `GET /api/documents/{id}/file` contrôlée contre `X-Codex-SHA256`
+  (absente ou différente : refus `sha256_mismatch` ; envoi coupé : indisponible) ; destruction
+  `POST /api/documents/{id}/destroy` `{"reason"}`, rejouable (`alreadyDestroyed`, 404 sans effet), 409 `legal_hold` ou
+  `in_use` signalés. Erreurs passagères (réseau, 5xx, 429 : `CodexIndisponible`) ou définitives (4xx : `CodexRefus`).
+  Configuration dans l'environnement seulement : `CODEX_URL` (adresse de base, sans chemin : la signature porte le chemin
+  vu par Codex), `CODEX_CURSUS_TOKEN`, `CODEX_CURSUS_SECRET`, contrôlés au démarrage (`problemesCodex` ; les anciennes
+  `CODEX_DOCUMENTS_*` sont refusées).
+- **Codex simulé** (`server/src/integrations/codex/codex-simule.ts`, `CODEX_SIMULATION=1`, refusé en production et avec
+  `CODEX_URL`) : démonstration, développement et essais tant que les identifiants ne sont pas posés. Il tient le contrat
+  (validation, empreinte 422, `sourceRef` réemployée 409, redépôt détruit 410, `X-Codex-SHA256`, destruction motivée et
+  rejouable, gel juridique 409) et garde les fichiers sur le poste (`CODEX_SIMULATION_DIR`, sinon `codex-simule/` à côté
+  de la base) ; son registre est celui que Codex publie (`REGISTRE_CODEX_ATTENDU`).
 - **Stockage « Codex »** (réglage `piecesStockage = 'ged'`) : une pièce envoyée attend dans le dossier local, chiffrée
   (`CURSUS_PIECES_KEY` toujours exigée), d'être jointe ; le passage horaire des pièces (`verserSiCodex`,
-  `server/src/integrations/codex/pieces-codex.ts`) verse les pièces jointes, 50 par passage : contrôle de l'empreinte, dépôt, nom stocké
-  `ged:<identifiant Codex>` posé seulement s'il n'a pas changé entre-temps, copie locale effacée. Même chemin pour la
-  reprise des pièces d'avant. Refus définitif : pièce gardée en local, signalée aux journaux ; Codex injoignable : arrêt,
-  nouvel essai au passage suivant. Une pièce versée se relit (`DepotGed.lire`) pour les utilisateurs de Cursus, avec ses
-  droits, son journal des consultations et le contrôle de l'empreinte, et se détruit au nettoyage d'une pièce retirée,
-  avec le motif codé.
+  `server/src/integrations/codex/pieces-codex.ts`) verse les pièces jointes, 50 par passage : contrôle de l'empreinte,
+  catégorie et matricule (sinon gardée en local, signalée), dépôt, nom stocké `ged:<identifiant Codex>` posé seulement
+  s'il n'a pas changé entre-temps, copie locale effacée. Refus définitif : pièce gardée en local, signalée aux journaux ;
+  Codex injoignable : arrêt, nouvel essai au passage suivant. Une pièce versée se relit (`DepotGed.lire`) pour les
+  utilisateurs de Cursus, avec ses droits, son journal des consultations et le double contrôle de l'empreinte (celle de
+  Codex, puis celle de l'envoi) ; illisible : 503 « source indisponible » (`CODEX_ILLISIBLE`), jamais une erreur de page.
+  Elle se détruit au nettoyage d'une pièce retirée, avec le motif codé ; sous gel juridique, le nom stocké reste et le
+  refus est signalé à chaque passage jusqu'à sa levée dans Codex.
+- **Dossier OPCO collectif** (question CU-037-Q1, choix par défaut) : Codex exige le matricule de la personne concernée ;
+  les pièces d'un dossier OPCO sans salarié restent dans le dossier local (ni versées, ni comptées « à verser »), jusqu'à
+  ce que Codex accepte un enregistrement `opco` sans personne (demande à porter, après « validé » du propriétaire).
 - **Choix refusé** (`refusCodex`, action `parametres.maj`) sans raccordement configuré, sans clé de chiffrement en
-  production, sans lecture de `codex.pub_types_document` (lien de Matrix ; SQLite : jamais) ou quand une catégorie manque
-  au registre de Codex. Tant que Codex n'a pas livré les points 2 à 4 de la demande, il n'a pas créé ces catégories :
-  aucune pièce ne part, rien ne fait deux copies.
-- **Tests** : `tests/pieces-codex.test.ts` (règles, configuration, client face à un Codex simulé qui vérifie jeton et
-  signature, versement et reprise, échecs, destruction avec motif, réglage refusé) ; `tests/pieces.test.ts` (adaptateur sans
-  raccordement).
+  production, sans lecture de `codex.pub_types_document` (lien de Matrix ; SQLite : jamais) ou quand une catégorie du type
+  `DPE` manque au registre de Codex (publié après `npm run registry:apply` chez Codex).
+- **Reprise des pièces du dossier local** (étape d'exploitation, jamais lancée sur des données réelles sans le
+  propriétaire) : 1. `npm run pieces:verifier` (toutes les pièces lues, empreintes conformes) et sauvegarde du volume ;
+  2. poser `CODEX_URL`, `CODEX_CURSUS_TOKEN` (et `CODEX_CURSUS_SECRET`), mêmes valeurs chez Codex, redémarrer ;
+  3. Paramètres → Pièces justificatives → « Codex » (refusé tant que Codex n'est pas prêt) ; 4. le passage horaire verse
+  50 pièces à la fois, bilan dans les journaux du serveur (« n pièces versées dans Codex · n restent à verser ») ; chaque
+  pièce versée perd sa copie locale seulement après la réponse de Codex, et la `sourceRef` rend tout nouvel essai sans
+  doublon ; 5. vérifier dans les journaux qu'il ne reste que les pièces OPCO collectives et les refus signalés.
+- **Tests** : `tests/pieces-codex.test.ts` (règles, configuration, client face à un Codex qui vérifie jeton et signature,
+  empreinte de lecture, Codex simulé, versement et reprise, échecs, destruction avec motif et gel juridique, réglage
+  refusé ou accepté avec le Codex simulé) ; `tests/pieces.test.ts` (pièce versée que Codex ne sert pas : 503).
 
 ## Norma 1.2.0 : formulaires en panneau latéral, langue de l'interface, formats dans la base (24 novembre 2026)
 

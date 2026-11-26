@@ -1,6 +1,6 @@
 # Demande à Codex (GED) — tous les documents de Cursus stockés dans Codex (lot 16)
 
-**Statut : validée par le propriétaire et portée le 10 novembre 2026** dans le `REQUESTS.md` de Codex (PR Codex#29), ouverte. Elle reprend et
+**Statut : validée par le propriétaire et portée le 10 novembre 2026** dans le `REQUESTS.md` de Codex (PR Codex#29) ; **points 1 à 4 livrés par Codex le 26 novembre 2026** (Codex#38 : type `DPE`, onze catégories, jeton `CODEX_CURSUS_TOKEN`), Cursus aligné le même jour (CU-037, `docs/ARCHITECTURE.md`, « Lot 16 »). Restent chez Codex : durées à confirmer par le DPO, filtre de `pub_journal` par Matrix, chiffrement au repos ; question ouverte côté Cursus : CU-037-Q1 (pièces d'un dossier OPCO collectif, sans matricule). Elle reprend et
 complète `codex-lot11-pieces.md` (types des pièces des dossiers OPCO et des notes de frais), restée à valider.
 
 ## Décision du propriétaire (10 novembre 2026)
@@ -90,7 +90,7 @@ Cursus le fait déjà. Refus si le document est sous gel juridique.
 
 - L'adaptateur `ged` (`server/src/integrations/codex/ged.ts`) dépose, relit et détruit par ces points d'entrée ; le réglage
   « Stockage des pièces » passe à « GED » ; jeton et adresse dans l'environnement (`CODEX_URL`,
-  `CODEX_DOCUMENTS_TOKEN`, `CODEX_DOCUMENTS_SECRET`), jamais dans la base.
+  `CODEX_CURSUS_TOKEN`, `CODEX_CURSUS_SECRET` depuis la réponse de Codex du 26/11/2026), jamais dans la base.
 - Reprise des pièces du dossier local : chacune déposée, vérifiée par son empreinte, puis effacée localement.
 - Tant que les points 2 à 4 ne sont pas livrés, Cursus garde ses pièces en local : déposer des brouillons qu'on ne peut ni
   relire ni détruire ferait deux copies, dont une hors de ses règles de conservation.

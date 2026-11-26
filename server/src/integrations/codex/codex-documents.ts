@@ -1,52 +1,70 @@
-// lot 16 — client des documents de Codex (demande docs/demandes/codex-lot16-documents.md, Codex#29) : dépôt d'une pièce
-// (`POST /api/documents`, déjà livré par Codex, demande CX-03 d'Arche), relecture (`GET /api/documents/{id}/file`) et
-// destruction (`POST /api/documents/{id}/destroy`), demandées à Codex le 10/11/2026. Authentification de Codex
-// (docs/api.md de Codex, « Authentification ») : jeton `Authorization: Bearer` et/ou signature HMAC-SHA256 du corps brut
-// (`X-Codex-Timestamp`, `X-Codex-Signature: v1=…`), chaque essai signé à nouveau (anti-rejeu de Codex). Un `GET` est
-// signé sur un corps vide, en attendant que Codex fixe la forme de la lecture.
-// Configuration dans l'environnement seulement, jamais dans la base : CODEX_URL, CODEX_DOCUMENTS_TOKEN et/ou
-// CODEX_DOCUMENTS_SECRET, CODEX_DOCUMENTS_OWNER (compte de service propriétaire des pièces : identifiant Codex, ou
-// matricule EMP-…). Sans elle, le stockage « GED » reste fermé (server/src/integrations/codex/pieces-codex.ts).
-import { createHmac, randomBytes } from 'node:crypto';
-import type { MotifDestruction } from '../../../../shared/rules/pieces-codex.ts';
+// lot 16 — client des enregistrements du dossier du personnel chez Codex (CU-037 ; demande
+// docs/demandes/codex-lot16-documents.md, livrée par Codex le 26/11/2026, Codex#38 ; contrat : docs/api.md de Codex,
+// « Enregistrements du dossier du personnel (Cursus) ») : dépôt (`POST /api/documents`), lecture du fichier
+// (`GET /api/documents/{id}/file`, empreinte `X-Codex-SHA256` contrôlée) et destruction (`POST /api/documents/{id}/destroy`,
+// motif `retrait` | `conservation` | `effacement`).
+// Authentification propre à Cursus : jeton `Authorization: Bearer <CODEX_CURSUS_TOKEN>` (obligatoire : il désigne Cursus)
+// et, avec CODEX_CURSUS_SECRET, signature HMAC-SHA256 (`X-Codex-Timestamp`, `X-Codex-Signature: v1=…`) du corps brut pour
+// le dépôt, de `<MÉTHODE> <chemin>\n` suivi du corps pour la lecture et la destruction ; chaque essai est signé à nouveau
+// (anti-rejeu de Codex).
+// Configuration dans l'environnement seulement, jamais dans la base : CODEX_URL (adresse de base de Codex, sans chemin),
+// CODEX_CURSUS_TOKEN, CODEX_CURSUS_SECRET (facultatif) ; ou CODEX_SIMULATION=1 hors production (Codex simulé,
+// server/src/integrations/codex/codex-simule.ts). Sans elle, le stockage « Codex » reste fermé.
+import { createHash, createHmac, randomBytes } from 'node:crypto';
+import type { CategorieDossier, MotifDestruction } from '../../../../shared/rules/pieces-codex.ts';
+import { clientSimule } from './codex-simule.ts';
 
 type Env = Record<string, string | undefined>;
 
 export interface ConfigCodex {
   url: string;
-  jeton: string | null;
+  jeton: string;
   secret: string | null;
-  /** Propriétaire des documents déposés : jamais la personne connectée. */
-  proprietaire: { ownerId: string } | { ownerMatricule: string };
 }
 
-/** Configuration lue dans l'environnement, ou null si le raccordement n'est pas configuré (ou mal). */
+/** Variables d'avant le contrat de Codex (demande du lot 16) : remplacées par CODEX_CURSUS_TOKEN et CODEX_CURSUS_SECRET. */
+const ANCIENNES = ['CODEX_DOCUMENTS_TOKEN', 'CODEX_DOCUMENTS_SECRET', 'CODEX_DOCUMENTS_OWNER'];
+
+/** Codex simulé demandé (CODEX_SIMULATION=1) : démonstration, développement et essais, jamais en production. */
+export const simulationCodex = (env: Env = process.env) => env.CODEX_SIMULATION?.trim() === '1';
+
+/** Configuration lue dans l'environnement, ou null si le raccordement réel n'est pas configuré (ou mal). */
 export function configCodex(env: Env = process.env): ConfigCodex | null {
   return problemesCodex(env).length || !env.CODEX_URL?.trim() ? null : {
     url: env.CODEX_URL!.trim().replace(/\/+$/, ''),
-    jeton: env.CODEX_DOCUMENTS_TOKEN?.trim() || null,
-    secret: env.CODEX_DOCUMENTS_SECRET?.trim() || null,
-    proprietaire: proprietaire(env.CODEX_DOCUMENTS_OWNER!.trim()),
+    jeton: env.CODEX_CURSUS_TOKEN!.trim(),
+    secret: env.CODEX_CURSUS_SECRET?.trim() || null,
   };
 }
 
-const proprietaire = (v: string) => (/^EMP-\d+$/.test(v) ? { ownerMatricule: v } : { ownerId: v });
-
-/** Problèmes de configuration du raccordement à Codex (config.ts, `problemesConfig`) ; rien si CODEX_URL est absente. */
+/** Problèmes de configuration du raccordement à Codex (config.ts, `problemesConfig`) ; rien si rien n'est posé. */
 export function problemesCodex(env: Env = process.env): string[] {
-  const url = env.CODEX_URL?.trim();
-  const autres = ['CODEX_DOCUMENTS_TOKEN', 'CODEX_DOCUMENTS_SECRET', 'CODEX_DOCUMENTS_OWNER'].filter(k => env[k]?.trim());
-  if (!url) return autres.length ? [`${autres.join(', ')} ${autres.length > 1 ? 'sont définies' : 'est définie'} sans CODEX_URL : le raccordement à Codex reste fermé. Indiquez l’adresse de Codex, ou retirez-les.`] : [];
   const out: string[] = [];
+  const anciennes = ANCIENNES.filter(k => env[k]?.trim());
+  if (anciennes.length) out.push(`${anciennes.join(', ')} : variables remplacées par CODEX_CURSUS_TOKEN et CODEX_CURSUS_SECRET (contrat de Codex du 26/11/2026, le propriétaire des pièces est fixé par Codex). Renommez-les ou retirez-les.`);
+  const sim = env.CODEX_SIMULATION?.trim();
+  if (sim && sim !== '0' && sim !== '1') out.push(`CODEX_SIMULATION vaut « ${sim} » : indiquez 1 (Codex simulé, hors production) ou 0.`);
+  if (sim === '1' && env.NODE_ENV === 'production') out.push('CODEX_SIMULATION=1 est réservée à la démonstration et au développement : retirez-la en production, raccordez Codex par CODEX_URL et CODEX_CURSUS_TOKEN.');
+  if (sim === '1' && env.CODEX_URL?.trim()) out.push('CODEX_SIMULATION=1 et CODEX_URL sont définies ensemble : choisissez le Codex simulé ou le vrai.');
+  const url = env.CODEX_URL?.trim();
+  const autres = ['CODEX_CURSUS_TOKEN', 'CODEX_CURSUS_SECRET'].filter(k => env[k]?.trim());
+  if (!url) {
+    if (autres.length) out.push(`${autres.join(', ')} ${autres.length > 1 ? 'sont définies' : 'est définie'} sans CODEX_URL : le raccordement à Codex reste fermé. Indiquez l’adresse de Codex, ou retirez-les.`);
+    return out;
+  }
   if (!/^https?:\/\/[^\s/]+/i.test(url) || !URL.canParse(url)) out.push('CODEX_URL n’est pas une adresse http(s) valide : indiquez l’adresse de base de Codex, par exemple http://codex.interne:3100.');
-  else if (new URL(url).username || new URL(url).password) out.push('CODEX_URL contient un identifiant ou un mot de passe (utilisateur:motdepasse@) : indiquez l’adresse seule, l’authentification passe par CODEX_DOCUMENTS_TOKEN et CODEX_DOCUMENTS_SECRET.');
-  if (!env.CODEX_DOCUMENTS_TOKEN?.trim() && !env.CODEX_DOCUMENTS_SECRET?.trim()) out.push('CODEX_URL est définie sans CODEX_DOCUMENTS_TOKEN ni CODEX_DOCUMENTS_SECRET : définissez le jeton et/ou le secret de signature convenus avec Codex.');
-  for (const k of ['CODEX_DOCUMENTS_TOKEN', 'CODEX_DOCUMENTS_SECRET']) {
+  else {
+    const u = new URL(url);
+    if (u.username || u.password) out.push('CODEX_URL contient un identifiant ou un mot de passe (utilisateur:motdepasse@) : indiquez l’adresse seule, l’authentification passe par CODEX_CURSUS_TOKEN et CODEX_CURSUS_SECRET.');
+    // La signature de la lecture et de la destruction porte le chemin vu par Codex : /api/documents/…, à la racine.
+    if (u.pathname.replace(/\/+$/, '') || u.search || u.hash) out.push('CODEX_URL contient un chemin ou des paramètres : indiquez l’adresse de base de Codex seule (Codex servi à la racine, par exemple http://codex.interne:3100).');
+  }
+  if (!env.CODEX_CURSUS_TOKEN?.trim()) out.push('CODEX_URL est définie sans CODEX_CURSUS_TOKEN : posez le jeton de Cursus convenu avec Codex (la même valeur chez Codex).');
+  for (const k of ['CODEX_CURSUS_TOKEN', 'CODEX_CURSUS_SECRET']) {
     const v = env[k]?.trim();
     // Même règle que Codex (docs/api.md de Codex : 32 caractères dont 10 différents au moins).
     if (v && (v.length < 32 || new Set(v).size < 10)) out.push(`${k} est trop faible : 32 caractères au moins, dont 10 différents (openssl rand -base64 32).`);
   }
-  if (!env.CODEX_DOCUMENTS_OWNER?.trim()) out.push('CODEX_URL est définie sans CODEX_DOCUMENTS_OWNER : indiquez le compte de service de Cursus chez Codex (identifiant Codex ou matricule EMP-…), propriétaire des pièces déposées.');
   return out;
 }
 
@@ -62,11 +80,8 @@ export class CodexRefus extends Error {
 export interface MetaDepot {
   sourceRef: string;
   title: string;
-  typeCode: string;
-  subtype: string;
-  department: string;
-  conf: string;
-  subjectMatricule: string | null;
+  category: CategorieDossier;
+  subjectMatricule: string;
   expiresAt: string | null;
   sha256: string;
 }
@@ -76,36 +91,37 @@ export interface ReponseDepot { id: string; replayed: boolean }
 const DELAI_MS = 30_000;
 const court = (s: string, n = 200) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
-/** Client des documents de Codex ; `f` : fetch remplaçable (tests, Codex simulé). */
+/** Client des enregistrements de Codex ; `f` : fetch remplaçable (tests, Codex simulé). */
 export class ClientCodex {
   readonly config: ConfigCodex;
   private readonly f: typeof fetch;
   constructor(config: ConfigCodex, f: typeof fetch = fetch) { this.config = config; this.f = f; }
 
-  /** En-têtes d'authentification d'un corps brut (signé à chaque essai : Codex refuse une signature rejouée). */
-  entetes(corps: Buffer): Record<string, string> {
-    const h: Record<string, string> = {};
-    if (this.config.jeton) h.authorization = `Bearer ${this.config.jeton}`;
+  /**
+   * En-têtes d'authentification ; `signe` : octets couverts par la signature (corps brut du dépôt, ou
+   * `<MÉTHODE> <chemin>\n` + corps pour la lecture et la destruction). Signé à chaque essai : Codex refuse un rejeu.
+   */
+  entetes(signe: Buffer): Record<string, string> {
+    const h: Record<string, string> = { authorization: `Bearer ${this.config.jeton}` };
     if (this.config.secret) {
       const ts = String(Math.floor(Date.now() / 1000));
-      const sig = createHmac('sha256', this.config.secret).update(`${ts}.`).update(corps).digest('hex');
       h['x-codex-timestamp'] = ts;
-      h['x-codex-signature'] = `v1=${sig}`;
+      h['x-codex-signature'] = `v1=${createHmac('sha256', this.config.secret).update(`${ts}.`).update(signe).digest('hex')}`;
     }
     return h;
   }
 
-  private async appel(chemin: string, init: { method: 'GET' | 'POST'; corps?: Buffer; type?: string }): Promise<Response> {
+  private async appel(chemin: string, init: { method: 'GET' | 'POST'; corps?: Buffer; type?: string; route?: boolean }): Promise<Response> {
     const corps = init.corps ?? Buffer.alloc(0);
+    const signe = init.route ? Buffer.concat([Buffer.from(`${init.method} ${chemin}\n`), corps]) : corps;
     try {
       return await this.f(`${this.config.url}${chemin}`, {
         method: init.method, redirect: 'manual', signal: AbortSignal.timeout(DELAI_MS),
-        headers: { ...this.entetes(corps), ...(init.type ? { 'content-type': init.type } : {}), 'x-request-id': `cursus-${randomBytes(8).toString('hex')}` },
+        headers: { ...this.entetes(signe), ...(init.type ? { 'content-type': init.type } : {}), 'x-request-id': `cursus-${randomBytes(8).toString('hex')}` },
         ...(init.method === 'POST' ? { body: new Uint8Array(corps) } : {}),
       });
     } catch (err) {
-      const c = (err as { cause?: { code?: string } })?.cause?.code;
-      throw new CodexIndisponible(`Codex injoignable (${c ?? (err as Error)?.name ?? 'erreur réseau'})`);
+      throw new CodexIndisponible(`Codex injoignable (${injoignable(err)})`);
     }
   }
 
@@ -117,11 +133,14 @@ export class ClientCodex {
     throw new CodexRefus(r.status, code, message);
   }
 
-  /** Dépôt d'une pièce (multipart `meta` + `file`) ; rejouable par sa `sourceRef` (200 `replayed`). */
+  /**
+   * Dépôt d'un enregistrement (multipart `meta` + `file`) ; rejouable par sa `sourceRef` (200 `replayed`). Une
+   * `sourceRef` dont l'enregistrement a été détruit ne se redépose pas : 410, refus `destroyed`.
+   */
   async deposer(octets: Buffer, type: string, nom: string, meta: MetaDepot): Promise<ReponseDepot> {
     const frontiere = `cursus-${randomBytes(12).toString('hex')}`;
-    const { subjectMatricule, expiresAt, ...reste } = meta;
-    const champMeta = JSON.stringify({ ...reste, ...this.config.proprietaire, ...(subjectMatricule ? { subjectMatricule } : {}), ...(expiresAt ? { expiresAt } : {}) });
+    const { expiresAt, ...reste } = meta;
+    const champMeta = JSON.stringify({ ...reste, typeCode: 'DPE', ...(expiresAt ? { expiresAt } : {}) });
     const nomSur = nom.replace(/["\r\n\\]/g, '_');
     const corps = Buffer.concat([
       Buffer.from(`--${frontiere}\r\nContent-Disposition: form-data; name="meta"\r\nContent-Type: application/json\r\n\r\n${champMeta}\r\n`),
@@ -136,25 +155,44 @@ export class ClientCodex {
     return { id: j.id, replayed: j.replayed === true };
   }
 
-  /** Fichier tel que déposé ; null si Codex ne l'a plus (404, 410). */
+  /**
+   * Fichier tel que déposé, contrôlé contre l'empreinte que Codex a enregistrée (`X-Codex-SHA256`) ; null si Codex ne
+   * l'a pas (404 : détruit, ou jamais déposé par Cursus). Un envoi coupé (fichier altéré chez Codex) : indisponible.
+   */
   async lire(id: string): Promise<Buffer | null> {
-    const r = await this.appel(`/api/documents/${encodeURIComponent(id)}/file`, { method: 'GET' });
+    const r = await this.appel(`/api/documents/${encodeURIComponent(id)}/file`, { method: 'GET', route: true });
     if (r.status === 404 || r.status === 410) return null;
     if (r.status !== 200) await ClientCodex.echecCodex(r, 'Lecture dans Codex');
-    return Buffer.from(await r.arrayBuffer());
+    let octets: Buffer;
+    try { octets = Buffer.from(await r.arrayBuffer()); } catch (err) { throw new CodexIndisponible(`Lecture dans Codex interrompue (${injoignable(err)})`); }
+    const attendue = r.headers.get('x-codex-sha256')?.trim().toLowerCase();
+    if (attendue !== createHash('sha256').update(octets).digest('hex')) {
+      throw new CodexRefus(r.status, 'sha256_mismatch', `Lecture dans Codex : ${attendue ? 'empreinte du fichier reçu différente de X-Codex-SHA256' : 'réponse sans empreinte X-Codex-SHA256'}`);
+    }
+    return octets;
   }
 
-  /** Destruction (fichier et versions) avec un motif codé ; un document déjà détruit (404, 410) ne l'est pas deux fois. */
-  async detruire(id: string, motif: MotifDestruction, sourceRef?: string): Promise<void> {
-    const corps = Buffer.from(JSON.stringify({ reason: motif, ...(sourceRef ? { sourceRef } : {}) }));
-    const r = await this.appel(`/api/documents/${encodeURIComponent(id)}/destroy`, { method: 'POST', corps, type: 'application/json' });
-    if (r.status === 404 || r.status === 410) return;
-    if (r.status !== 200 && r.status !== 204) await ClientCodex.echecCodex(r, 'Destruction dans Codex');
+  /**
+   * Destruction (document, versions et fichiers ; trace sans contenu chez Codex) avec un motif codé. Rejouable : un
+   * enregistrement déjà détruit (200 `alreadyDestroyed`) ou que Codex n'a pas (404) n'est pas une erreur. Gel juridique
+   * ou document visé par un circuit : refus 409 (`legal_hold`, `in_use`), rien n'est fait chez Codex.
+   */
+  async detruire(id: string, motif: MotifDestruction): Promise<{ dejaDetruit: boolean }> {
+    const corps = Buffer.from(JSON.stringify({ reason: motif }));
+    const r = await this.appel(`/api/documents/${encodeURIComponent(id)}/destroy`, { method: 'POST', corps, type: 'application/json', route: true });
+    if (r.status === 404) return { dejaDetruit: true };
+    if (r.status !== 200) await ClientCodex.echecCodex(r, 'Destruction dans Codex');
+    const j = (await r.json().catch(() => null)) as { alreadyDestroyed?: unknown } | null;
+    return { dejaDetruit: j?.alreadyDestroyed === true };
   }
 }
 
-/** Client de l'environnement, ou null si le raccordement n'est pas configuré. */
-export const clientCodex = (env: Env = process.env, f: typeof fetch = fetch): ClientCodex | null => {
+const injoignable = (err: unknown) => (err as { cause?: { code?: string } })?.cause?.code ?? (err as Error)?.name ?? 'erreur réseau';
+
+/** Client de l'environnement (Codex réel, ou simulé avec CODEX_SIMULATION=1), ou null si le raccordement n'est pas configuré. */
+export function clientCodex(env: Env = process.env, f: typeof fetch = fetch): ClientCodex | null {
+  if (problemesCodex(env).length) return null;
+  if (simulationCodex(env)) return clientSimule(env);
   const c = configCodex(env);
   return c ? new ClientCodex(c, f) : null;
-};
+}

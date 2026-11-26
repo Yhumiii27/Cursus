@@ -69,6 +69,13 @@ Un dossier par outil sous `server/src/integrations/` (`clavis/`, `codex/`, `keys
 un état affiché (« source indisponible », refus motivé, 503 avec message), jamais une erreur interne ; détail
 `docs/ECHANGES.md`, « Où vivent les connecteurs ».
 
+Pièces justificatives dans Codex (lot 16, CU-037, contrat de Codex du 26 novembre 2026) : `codex/codex-documents.ts`
+(jeton `CODEX_CURSUS_TOKEN`, signature facultative `CODEX_CURSUS_SECRET`, type `DPE` et `category` de
+`shared/rules/pieces-codex.ts`, empreinte `X-Codex-SHA256` contrôlée à la lecture), Codex simulé `codex/codex-simule.ts`
+(`CODEX_SIMULATION=1`, jamais en production) pour la démonstration et les essais ; détail `docs/ARCHITECTURE.md`,
+« Lot 16 ». La reprise des pièces locales est une étape d'exploitation : jamais lancée sur des données réelles sans le
+propriétaire.
+
 ## Connexion par Clavis (24 novembre 2026)
 
 Décision du propriétaire : une seule base pour tous les outils. Avec `CURSUS_OIDC_EMETTEUR` (adresse de Clavis) la

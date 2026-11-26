@@ -9,26 +9,27 @@ import { CancelButton, Dialog, Field, Static, SubmitButton, useVerification } fr
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function DetachementDialog({ id }: { id: number }) {
   const d = useDomain();
   const { run, closeDialog } = useStore();
-  const t = d.ds.voyages.find(v => v.id === id);
-  const [certificat, setCertificat] = useState(t?.detachementLe ?? '');
-  const [information, setInformation] = useState(t?.informationLe ?? '');
+  const vo = d.ds.voyages.find(x => x.id === id);
+  const [certificat, setCertificat] = useState(vo?.detachementLe ?? '');
+  const [information, setInformation] = useState(vo?.informationLe ?? '');
   const [busy, setBusy] = useState(false);
   const v = useVerification();
-  const emp = t ? d.emp(t.empId) : undefined, dest = t ? d.destOf(t.dest) : undefined;
-  if (!t || !emp || !dest) return null;
+  const emp = vo ? d.emp(vo.empId) : undefined, dest = vo ? d.destOf(vo.dest) : undefined;
+  if (!vo || !emp || !dest) return null;
 
   const secu = SECU_RULES[secuDe(dest)];
-  const duree = days(parse(t.depart), parse(t.retour)) + 1;
+  const duree = days(parse(vo.depart), parse(vo.retour)) + 1;
   // L'information écrite n'est due qu'au-delà de 4 semaines ; une saisie antérieure reste modifiable.
-  const longue = duree > MISSION_LONGUE_JOURS || !!t.informationLe;
+  const longue = duree > MISSION_LONGUE_JOURS || !!vo.informationLe;
   // Dates facultatives (vide : saisie effacée) : une date incorrecte est signalée dès la saisie.
-  const erreur = (x: string) => !x ? null : !isValidDate(x) ? 'Date invalide.' : x > d.ti ? 'Aujourd’hui au plus tard.' : null;
+  const erreur = (x: string) => !x ? null : !isValidDate(x) ? t('Invalid date.') : x > d.ti ? t('Today at the latest.') : null;
   const certErr = erreur(certificat), infoErr = longue ? erreur(information) : null;
-  const inchange = certificat === (t.detachementLe ?? '') && (!longue || information === (t.informationLe ?? ''));
+  const inchange = certificat === (vo.detachementLe ?? '') && (!longue || information === (vo.informationLe ?? ''));
 
   const confirm = async () => {
     if (busy || !v.verifier(certErr, infoErr)) return;
@@ -41,26 +42,26 @@ export function DetachementDialog({ id }: { id: number }) {
   };
 
   return (
-    <Dialog title="Formalités de détachement" width={540} onSubmit={confirm} actions={<>
+    <Dialog title={t('Posting formalities')} width={540} onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Enregistrer</SubmitButton>
+      <SubmitButton busy={busy}>{t('Save')}</SubmitButton>
     </>}>
       <div className="grid-2">
-        <Field label="Collaborateur"><Static>{emp.nom} · {emp.poste}</Static></Field>
-        <Field label="Déplacement"><Static>{dest.pays} · {fmtShort(parse(t.depart))} → {fmt(parse(t.retour))}</Static></Field>
+        <Field label={t('Employee')}><Static>{emp.nom} · {emp.poste}</Static></Field>
+        <Field label={t('Trip')}><Static>{dest.pays} · {fmtShort(parse(vo.depart))} → {fmt(parse(vo.retour))}</Static></Field>
       </div>
-      <div className="boxed text-muted sub">{secu.label} — {secu.portee.toLowerCase()} : {secu.demarche}, avant le départ.</div>
-      <Field label={`${secu.label} obtenu le`} htmlFor="dt-secu" erreur={certErr}>
+      <div className="boxed text-muted sub">{secu.label} — {secu.portee.toLowerCase()}{t(': ')}{secu.demarche}{t(', before the departure.')}</div>
+      <Field label={`${secu.label}${t(' obtained on')}`} htmlFor="dt-secu" erreur={certErr}>
         <input className="input" id="dt-secu" type="date" max={d.ti} value={certificat} onChange={ev => setCertificat(ev.target.value)} style={{ maxWidth: 200 }} />
       </Field>
       {longue && (
-        <Field label={`Information écrite remise le (mission de ${duree} jours)`} htmlFor="dt-info" erreur={infoErr}>
+        <Field label={`${t('Written information handed over on (assignment of ')}${duree}${t(' days)')}`} htmlFor="dt-info" erreur={infoErr}>
           <input className="input" id="dt-info" type="date" max={d.ti} value={information} onChange={ev => setInformation(ev.target.value)} style={{ maxWidth: 200 }} />
         </Field>
       )}
       <Fine>
-        {longue ? 'Au-delà de 4 semaines consécutives à l’étranger, le salarié reçoit avant son départ un document écrit : pays, durée, devise de la rémunération, avantages, conditions de rapatriement. ' : ''}
-        Formalités non faites au départ : la ressource est « No Go » pour Keystone (motif DETACHEMENT). Une date effacée annule la saisie.
+        {longue ? t('Beyond 4 consecutive weeks abroad, the employee receives before their departure a written document: country, duration, currency of the pay, benefits, repatriation conditions. ') : ''}
+        {t('Formalities not done at the departure: the resource is “No Go” for Keystone (reason DETACHEMENT). An erased date cancels the entry.')}
       </Fine>
     </Dialog>
   );

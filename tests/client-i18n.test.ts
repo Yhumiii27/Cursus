@@ -144,6 +144,14 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
     // Vue « un jour » des feuilles de temps (téléphone, tablette) et horaire du jour (aussi sur la grille de la semaine).
     ecran: 'Saisie du jour', fichiers: ['client/src/pages/SaisieJour.tsx', 'client/src/components/HorairesFeuille.tsx'],
   },
+  {
+    // Demandes Keystone, déplacements à venir et annulés, dossier voyage (vigilance, formalités, notes rattachées), dossiers
+    // voyageurs, destinations ; dialogues de déplacement (création, modification, import), de détachement et de formalité ;
+    // confirmations de refus d'une demande Keystone et d'annulation (fonctions reprises dans confirmations*.ts).
+    ecran: 'Voyages', fichiers: ['client/src/pages/Voyages.tsx', 'client/src/components/VoyageVigilance.tsx', 'client/src/dialogs/TripDialog.tsx',
+      'client/src/dialogs/TripModifierDialog.tsx', 'client/src/dialogs/TripImportDialog.tsx', 'client/src/dialogs/DetachementDialog.tsx',
+      'client/src/dialogs/FormaliteDialog.tsx'],
+  },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */

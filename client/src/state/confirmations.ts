@@ -90,13 +90,13 @@ export function refusAbsence(a: { id: number }, nom: string, quoi: string, manag
 /** Refus d'une demande de déplacement reçue de Keystone. `chantier` : « K-2041 · Usine de Kenitra ». */
 export function refusKeystone(dm: { id: number }, nom: string, chantier: string): Confirmation {
   return {
-    titre: 'Refuser la demande Keystone',
-    question: `Refuser le déplacement de ${nom} pour le chantier ${chantier} ?`,
-    suites: ['Keystone reçoit la décision et le chef de projet en est notifié, sans le motif.', 'Le refus est inscrit au journal de Cursus (Paramètres) avec son motif, sa date et votre nom.'],
-    bouton: 'Refuser la demande',
+    titre: t('Refuse the Keystone request'),
+    question: `${t('Refuse the trip of ')}${nom}${t(' for the worksite ')}${chantier}${t('?#question')}`,
+    suites: [t('Keystone receives the decision and the project manager is notified of it, without the reason.'), t('The refusal is entered in the Cursus log (Settings) with its reason, its date and your name.')],
+    bouton: t('Refuse the request'),
     action: 'keystone.refuser',
     payload: { id: dm.id },
-    motif: { label: 'Motif du refus', requis: true, aide: 'Le motif reste dans Cursus, lisible du service RH dans le journal : il n’est jamais transmis à Keystone.', placeholder: 'Visa impossible à obtenir à temps, habilitation manquante…' },
+    motif: { label: t('Reason for the refusal'), requis: true, aide: t('The reason stays in Cursus, readable by HR in the log: it is never sent to Keystone.'), placeholder: t('Visa impossible to obtain in time, authorisation missing…') },
   };
 }
 

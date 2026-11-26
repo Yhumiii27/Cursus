@@ -260,8 +260,9 @@ const source = (f: string) => readFileSync(new URL(`../client/src/${f}`, import.
 
 test('listes vides : un message plutôt qu’un cadre vide (tableau de bord, missions)', () => {
   const dash = source('pages/Dashboard.tsx'), missions = source('pages/Missions.tsx');
-  for (const m of ['Aucune échéance dans les {horizon} jours.', 'Aucune équipe.', 'Aucune session à venir.', 'Aucun déplacement à préparer.']) assert.ok(dash.includes(`<Empty`) && dash.includes(m), m);
-  for (const m of ['Personne en mission ni absent sur les 4 semaines.', 'Aucune mission en cours ou à venir.']) assert.ok(missions.includes(m), m);
+  // Chaînes sources anglaises (CU-N01) : « Aucune échéance dans les {horizon} jours. », « Aucune équipe. »…
+  for (const m of ["{t('No due date in the next ')}{horizon}{t(' days.')}", "t('No team.')", "t('No upcoming session.')", "t('No trip to prepare.')"]) assert.ok(dash.includes(`<Empty`) && dash.includes(m), m);
+  for (const m of ["t('Nobody on assignment or absent over the 4 weeks.')", "t('No assignment in progress or upcoming.')"]) assert.ok(missions.includes(m), m);
 });
 
 test('impression : jetons clairs pour Ctrl+P, A4 à 15 mm, cadre caché avec l’onglet en secours, en-tête employeur, matricules', () => {

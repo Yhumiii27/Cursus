@@ -43,15 +43,15 @@ export function annulationEntretien(x: Pick<Entretien, 'id' | 'type' | 'date'>, 
   const saisies = o.saisies ?? [];
   const type = ENT_TYPES[x.type].nom;
   return {
-    titre: 'Annuler l’entretien',
-    question: `Annuler l’${type.charAt(0).toLowerCase()}${type.slice(1)} de ${nom} prévu le ${fmtIso(x.date)} ?`,
+    titre: t('Cancel the review'),
+    question: `${t('Cancel the #elided')}${type.charAt(0).toLowerCase()}${type.slice(1)}${t(' of #de-name')}${nom}${t(' planned on ')}${fmtIso(x.date)}${t('?#question')}`,
     suites: [
-      o.crCommence ? 'Le compte rendu déjà commencé est supprimé avec l’entretien. S’il a eu lieu, fermez plutôt ce dialogue et clôturez-le.' : '',
-      saisies.length ? `Retirés avec l’entretien : ${saisies.join(', ')} (les objectifs évalués redeviennent en cours).` : '',
-      o.passe ? '' : `${nom} reçoit l’annulation de sa convocation (événement retiré de son agenda).`,
-      'L’échéance qu’il couvrait redevient à planifier.',
+      o.crCommence ? t('The report already started is deleted with the review. If it took place, close this dialogue instead and close the review.') : '',
+      saisies.length ? `${t('Removed with the review: ')}${saisies.join(', ')}${t(' (the evaluated objectives are in progress again).')}` : '',
+      o.passe ? '' : `${nom}${t(' receives the cancellation of their notice (event removed from their calendar).')}`,
+      t('The due date it covered is to plan again.'),
     ].filter(Boolean),
-    bouton: 'Annuler l’entretien',
+    bouton: t('Cancel the review'),
     action: 'entretien.annuler',
     // `confirmer` seulement si la confirmation a annoncé la suppression d'un compte rendu commencé : sinon, un compte rendu
     // écrit depuis la dernière relecture (le salarié rédige au fil) fait refuser l'annulation (409), affichée dans le dialogue.

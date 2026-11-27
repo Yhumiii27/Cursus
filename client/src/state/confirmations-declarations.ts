@@ -5,53 +5,54 @@ import { fmtIso } from '../../../shared/format.ts';
 import { refDeclaration } from '../../../shared/rules/declarations-presence.ts';
 import type { DeclarationPresence, LienDeclaration } from '../../../shared/types.ts';
 import type { Confirmation } from './confirmations.ts';
+import { t } from '../i18n/langue.ts';
 
 const qui = (d: DeclarationPresence) => `${d.prenom} ${d.nom} (${d.entreprise})`;
-const venue = (d: DeclarationPresence) => (d.du === d.au ? `le ${fmtIso(d.du)}` : `du ${fmtIso(d.du)} au ${fmtIso(d.au)}`);
+const venue = (d: DeclarationPresence) => (d.du === d.au ? `${t('on ')}${fmtIso(d.du)}` : `${t('from #du-min')}${fmtIso(d.du)}${t(' to #au')}${fmtIso(d.au)}`);
 
 /** Refus d'une déclaration à valider : motif obligatoire, gardé au dossier du service RH (jamais publié). */
 export function refusDeclaration(d: DeclarationPresence, conservationMois: number): Confirmation {
   return {
-    titre: 'Refuser la déclaration',
-    question: `Refuser la déclaration ${refDeclaration(d.id)} de ${qui(d)}, venue ${venue(d)} ?`,
+    titre: t('Refuse the declaration'),
+    question: `${t('Refuse the declaration #ref')}${refDeclaration(d.id)}${t(' of #de-name')}${qui(d)}${t(', visit ')}${venue(d)}${t('?#question')}`,
     suites: [
-      'La personne n’est pas attendue sur site : rien n’est publié au poste de garde.',
-      `La déclaration est effacée ${conservationMois} mois après le refus.`,
+      t('The person is not expected on site: nothing is published at the gatehouse.'),
+      `${t('The declaration is erased ')}${conservationMois}${t(' months after the refusal.')}`,
     ],
-    bouton: 'Refuser',
+    bouton: t('Refuse'),
     action: 'presence.refuser',
     payload: { id: d.id },
-    motif: { label: 'Motif du refus', requis: true, aide: 'Le motif reste au service RH ; il n’est ni publié, ni écrit au journal.', placeholder: 'Personne inconnue de l’entreprise, venue non prévue…' },
+    motif: { label: t('Reason for the refusal'), requis: true, aide: t('The reason stays with HR; it is neither published nor written in the log.'), placeholder: t('Person unknown to the company, visit not planned…') },
   };
 }
 
 /** Annulation : venue validée qui n'aura pas lieu (publiée comme annulée), ou déclaration à valider classée sans suite. */
 export function annulationDeclaration(d: DeclarationPresence, conservationMois: number): Confirmation {
   return {
-    titre: d.statut === 'validee' ? 'Annuler la venue' : 'Classer sans suite',
+    titre: t(d.statut === 'validee' ? 'Cancel the visit' : 'Close without action'),
     question: d.statut === 'validee'
-      ? `Annuler la venue de ${qui(d)} ${venue(d)} (${refDeclaration(d.id)}) ?`
-      : `Classer sans suite la déclaration ${refDeclaration(d.id)} de ${qui(d)}, venue ${venue(d)} ?`,
+      ? `${t('Cancel the visit of ')}${qui(d)} ${venue(d)} (${refDeclaration(d.id)})${t('?#question')}`
+      : `${t('Close without action the declaration ')}${refDeclaration(d.id)}${t(' of #de-name')}${qui(d)}${t(', visit ')}${venue(d)}${t('?#question')}`,
     suites: d.statut === 'validee'
-      ? ['La présence prévue reste publiée, marquée annulée, pour que le poste de garde ne l’attende plus.', 'La fiche de la personne est gardée.']
-      : [`La déclaration est classée sans suite, puis effacée ${conservationMois} mois après.`],
-    bouton: d.statut === 'validee' ? 'Annuler la venue' : 'Classer sans suite',
+      ? [t('The planned presence stays published, marked cancelled, so that the gatehouse no longer expects it.'), t('The person’s sheet is kept.')]
+      : [`${t('The declaration is closed without action, then erased ')}${conservationMois}${t(' months later.')}`],
+    bouton: t(d.statut === 'validee' ? 'Cancel the visit' : 'Close without action'),
     action: 'presence.annuler',
     payload: { id: d.id },
-    motif: { label: d.statut === 'validee' ? 'Motif de l’annulation' : 'Motif', requis: true, aide: 'Le motif reste au service RH ; il n’est ni publié, ni écrit au journal.', placeholder: 'Chantier reporté, personne remplacée…' },
+    motif: { label: t(d.statut === 'validee' ? 'Reason for the cancellation' : 'Reason'), requis: true, aide: t('The reason stays with HR; it is neither published nor written in the log.'), placeholder: t('Worksite postponed, person replaced…') },
   };
 }
 
 /** Révocation d'un lien : il ne reçoit plus rien ; les déclarations déjà faites restent. */
 export function revocationLien(l: LienDeclaration): Confirmation {
   return {
-    titre: 'Révoquer le lien',
-    question: `Révoquer le lien de déclaration de ${l.entreprise} ?`,
+    titre: t('Revoke the link'),
+    question: `${t('Revoke the declaration link of ')}${l.entreprise}${t('?#question')}`,
     suites: [
-      'Le lien ne reçoit plus de déclaration ; celles déjà faites restent à traiter.',
-      'Créez ensuite un nouveau lien si l’entreprise doit encore déclarer des venues (lien transmis par erreur, perdu…).',
+      t('The link no longer receives declarations; those already made remain to be processed.'),
+      t('Then create a new link if the company must still declare visits (link sent by mistake, lost…).'),
     ],
-    bouton: 'Révoquer',
+    bouton: t('Revoke'),
     action: 'presence.lien.revoquer',
     payload: { id: l.id },
   };

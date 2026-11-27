@@ -6,61 +6,62 @@ import { fmtIso } from '../../../shared/format.ts';
 import { eurosOpco, statutPrecedent, STATUTS_OPCO } from '../../../shared/rules/opco.ts';
 import type { DossierOpco, VersementOpco } from '../../../shared/types.ts';
 import type { Confirmation } from './confirmations.ts';
+import { t } from '../i18n/langue.ts';
 
 /** Où va le motif d'un retour en arrière sur un dossier OPCO. */
-export const AIDE_MOTIF_OPCO = 'Le motif reste sur le dossier, lu par le service RH seulement : jamais recopié au journal ni montré à la lecture seule.';
+export const aideMotifOpco = () => t('The reason stays on the file, read by HR only: never copied into the log nor shown to read-only access.');
 
-const motif = (label: string, placeholder: string) => ({ label, requis: true, aide: AIDE_MOTIF_OPCO, placeholder });
+const motif = (label: string, placeholder: string) => ({ label, requis: true, aide: aideMotifOpco(), placeholder });
 
 /** Retour d'un cran (`opco.rouvrir`) : l'état d'avant et les champs effacés. `nom` : action du plan du dossier. */
 export function reouvertureOpco(d: DossierOpco, nom: string, versements: number): Confirmation | null {
   const r = statutPrecedent(d, versements);
   if (!('vers' in r)) return null;
   const effaces: Partial<Record<DossierOpco['statut'], string>> = {
-    depose: 'La date de dépôt est effacée.',
-    accorde: 'La date, le montant et la référence de l’accord sont effacés.',
-    refuse: 'La date et le motif du refus sont effacés.',
-    facture: 'La date d’envoi des justificatifs et le montant facturé sont effacés.',
-    solde: 'L’écart figé au solde est effacé.',
-    abandonne: 'L’abandon et son motif sont effacés.',
+    depose: t('The filing date is erased.'),
+    accorde: t('The date, the amount and the reference of the agreement are erased.'),
+    refuse: t('The date and the reason for the refusal are erased.'),
+    facture: t('The date of sending the supporting documents and the amount invoiced are erased.'),
+    solde: t('The difference frozen at settlement is erased.'),
+    abandonne: t('The abandonment and its reason are erased.'),
   };
   return {
-    titre: 'Rouvrir le dossier OPCO',
-    question: `Ramener le dossier OPCO de ${nom} de « ${STATUTS_OPCO[d.statut].label} » à « ${STATUTS_OPCO[r.vers].label} » ?`,
-    suites: [effaces[d.statut] ?? '', 'Le retour est daté et signé ; le journal garde les anciennes valeurs.'].filter(Boolean),
-    bouton: 'Rouvrir le dossier',
+    titre: t('Reopen the OPCO file'),
+    question: `${t('Take the OPCO file of ')}${nom}${t(' back from “')}${STATUTS_OPCO[d.statut].label}${t('” to “')}${STATUTS_OPCO[r.vers].label}${t('”?')}`,
+    suites: [effaces[d.statut] ?? '', t('The return is dated and signed; the log keeps the old values.')].filter(Boolean),
+    bouton: t('Reopen the file'),
     action: 'opco.rouvrir',
     payload: { id: d.id, de: d.statut },
-    motif: motif('Motif de la réouverture', 'Accord saisi sur le mauvais dossier, refus contesté…'),
+    motif: motif(t('Reason for the reopening'), t('Agreement entered on the wrong file, refusal contested…')),
   };
 }
 
 /** Annulation d'un versement saisi par erreur (`opco.annulerVersement`). `dernier` : aucun autre versement ne reste. */
 export function annulationVersementOpco(v: VersementOpco, nom: string, dernier: boolean, retour: string | null): Confirmation {
   return {
-    titre: 'Annuler le versement',
-    question: `Annuler le versement du ${fmtIso(v.le)} (${eurosOpco(v.montant)}) du dossier OPCO de ${nom} ?`,
+    titre: t('Cancel the payment'),
+    question: `${t('Cancel the payment of ')}${fmtIso(v.le)} (${eurosOpco(v.montant)})${t(' of the OPCO file of ')}${nom}${t('?#question')}`,
     suites: [
-      'Le versement reste en base, daté et signé, mais ne compte plus dans les sommes reçues.',
-      dernier && retour ? `Sans autre versement, le dossier redevient « ${retour} ».` : '',
+      t('The payment stays in the database, dated and signed, but no longer counts in the sums received.'),
+      dernier && retour ? `${t('Without any other payment, the file goes back to “')}${retour}${t('”.')}` : '',
     ].filter(Boolean),
-    bouton: 'Annuler le versement',
+    bouton: t('Cancel the payment'),
     action: 'opco.annulerVersement',
     payload: { id: v.id },
-    motif: motif('Motif de l’annulation', 'Montant mal saisi, virement d’un autre dossier…'),
+    motif: motif(t('Reason for the cancellation'), t('Amount entered wrongly, transfer from another file…')),
   };
 }
 
 /** Suppression d'un dossier saisi par erreur (`opco.supprimer`) : sans versement ni pièce en vigueur. */
 export function suppressionDossierOpco(d: DossierOpco, nom: string): Confirmation {
   return {
-    titre: 'Supprimer le dossier OPCO',
-    question: `Supprimer le dossier OPCO de ${nom} (${STATUTS_OPCO[d.statut].label.toLowerCase()}) ?`,
-    suites: ['Le dossier reste en base, daté et signé, mais sort de l’écran, des sommes et des relances.'],
-    bouton: 'Supprimer le dossier',
+    titre: t('Delete the OPCO file'),
+    question: `${t('Delete the OPCO file of ')}${nom} (${STATUTS_OPCO[d.statut].label.toLowerCase()})${t('?#question')}`,
+    suites: [t('The file stays in the database, dated and signed, but leaves the screen, the sums and the reminders.')],
+    bouton: t('Delete the file'),
     action: 'opco.supprimer',
     payload: { id: d.id },
-    motif: motif('Motif de la suppression', 'Doublon, dossier créé sur la mauvaise action…'),
+    motif: motif(t('Reason for the deletion'), t('Duplicate, file created on the wrong action…')),
     ensuite: { ui: { opcoSel: null } },
   };
 }

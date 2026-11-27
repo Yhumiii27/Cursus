@@ -4,18 +4,19 @@
 import { TYPES_ENTITE } from '../../../shared/rules/entites.ts';
 import type { Entite } from '../../../shared/types.ts';
 import type { Confirmation } from './confirmations.ts';
+import { t } from '../i18n/langue.ts';
 
 export function fermetureEntite(x: Pick<Entite, 'code' | 'nom' | 'type'>): Confirmation {
   const type = TYPES_ENTITE[x.type].toLowerCase();
   return {
-    titre: `Fermer ${x.type === 'societe' ? 'la société' : 'l’établissement'}`,
-    question: `Fermer ${x.type === 'societe' ? 'la société' : 'l’établissement'} ${x.nom} ?`,
+    titre: t(x.type === 'societe' ? 'Close the company' : 'Close the establishment'),
+    question: `${t(x.type === 'societe' ? 'Close the company' : 'Close the establishment')} ${x.nom}${t('?#question')}`,
     suites: [
-      `${x.type === 'societe' ? 'Elle' : 'Il'} n’est plus ${x.type === 'societe' ? 'proposée' : 'proposé'} au rattachement des équipes${x.type === 'societe' ? ' ni des établissements' : ''}.`,
-      `Rien n’est supprimé : ${type} et son historique restent au référentiel, et l’administrateur RH ${x.type === 'societe' ? 'la' : 'le'} rouvre à tout moment.`,
-      'Aucun valideur ne change : les validations suivent les managers et les équipes parentes.',
+      t(x.type === 'societe' ? 'It is no longer offered for attaching teams or establishments.' : 'It is no longer offered for attaching teams.'),
+      `${t('Nothing is deleted: ')}${type}${x.type === 'societe' ? t(' and its history stay in the reference data, and the HR administrator reopens it at any time.#fem') : t(' and its history stay in the reference data, and the HR administrator reopens it at any time.#masc')}`,
+      t('No approver changes: the approvals follow the managers and the parent teams.'),
     ],
-    bouton: 'Fermer',
+    bouton: t('Close#verb'),
     action: 'entite.fermer',
     payload: { code: x.code },
   };

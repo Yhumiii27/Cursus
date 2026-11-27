@@ -187,6 +187,9 @@ const FICHIERS_MIGRES = [
   'client/src/pages/Login.tsx', 'client/src/layout/Coque.tsx',
   // Écrans entiers (page, composants et dialogues qu'elle ouvre), 26 novembre 2026.
   ...ECRANS_MIGRES.flatMap(e => e.fichiers),
+  // Toutes les confirmations (dialogs/ConfirmerDialog.tsx), 27 novembre 2026 : celles que les écrans migrés n'emportent pas.
+  ...['', '-annulations', '-astreintes', '-declarations', '-entites', '-forfait-heures', '-objectifs', '-opco', '-organismes', '-referentiels']
+    .map(s => `client/src/state/confirmations${s}.ts`),
 ];
 
 /** Chaînes sources d'un fichier : arguments littéraux de t(), libellés du menu et des options, textes de la connexion. */

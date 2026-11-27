@@ -3,15 +3,15 @@
 // habilitation exigée. Données seulement.
 // L'archivage se défait (« Rétablir », sans confirmation) ; la confirmation annonce ce qu'il change, dont les demandes des
 // collaborateurs encore en attente : sur un élément archivé, elles ne s'acceptent plus (à refuser, ou à rétablir d'abord).
-import { plural } from '../../../shared/format.ts';
 import { CODE_DELEGATION } from '../../../shared/rules/activites.ts';
 import type { ReferentielId } from '../../../shared/rules/referentiels.ts';
 import type { Destination, Formation, HabType, Horaire, Poste, Projet } from '../../../shared/types.ts';
 import type { Confirmation } from './confirmations.ts';
+import { t, tn } from '../i18n/langue.ts';
 
 /** Demandes des collaborateurs en attente sur l'élément (`quoi` : « la formation »…) : elles ne s'acceptent plus une fois archivé. */
 const demandesTexte = (demandes: number, quoi: string) => (demandes
-  ? [`${plural(demandes, 'demande de collaborateur attend', 'demandes de collaborateurs attendent')} une réponse (tableau de bord) : ${demandes > 1 ? 'elles ne pourront plus qu’être refusées' : 'elle ne pourra plus qu’être refusée'}, sauf à rétablir ${quoi}.`]
+  ? [`${tn(demandes, 'employee request awaits', 'employee requests await')}${t(' an answer (dashboard): ')}${t(demandes > 1 ? 'they can now only be refused' : 'it can now only be refused')}${t(', unless restoring ')}${quoi}.`]
   : []);
 
 /**
@@ -20,17 +20,17 @@ const demandesTexte = (demandes: number, quoi: string) => (demandes
  */
 export function archivageFormation(f: Pick<Formation, 'id' | 'court'>, titulaires: number, demandes = 0): Confirmation {
   return {
-    titre: 'Archiver la formation',
-    question: `Archiver la formation « ${f.court} » ?`,
+    titre: t('Archive the training course'),
+    question: `${t('Archive the training course “')}${f.court}${t('”?')}`,
     suites: [
-      'Elle n’est plus proposée : catalogue, sessions, certifications, demandes des collaborateurs.',
+      t('It is no longer offered: catalogue, sessions, certifications, employee requests.'),
       titulaires
-        ? `Les certifications de ${plural(titulaires, 'salarié', 'salariés')} restent au dossier (historique, prérequis, Go / No Go), sans compter dans les statuts ni les échéances.`
-        : 'Aucun salarié n’en détient de certification.',
-      ...demandesTexte(demandes, 'la formation'),
-      'Elle reste reconnue dans les échanges avec Keystone, et se rétablit à tout moment.',
+        ? `${t('The certifications of ')}${tn(titulaires, 'employee#salarie', 'employees#salarie')}${t(' stay in the file (history, prerequisites, Go / No Go), without counting in the statuses or the due dates.')}`
+        : t('No employee holds a certification of it.'),
+      ...demandesTexte(demandes, t('the training course')),
+      t('It remains recognised in the exchanges with Keystone, and can be restored at any time.#fem'),
     ],
-    bouton: 'Archiver',
+    bouton: t('Archive'),
     action: 'referentiel.formation.archiver',
     payload: { id: f.id },
   };
@@ -43,22 +43,22 @@ export function archivageFormation(f: Pick<Formation, 'id' | 'court'>, titulaire
 export function archivageHabilitation(h: Pick<HabType, 'id' | 'nom'>, titres: number, attente: { demandes: number; aDelivrer: number } = { demandes: 0, aDelivrer: 0 }): Confirmation {
   const { demandes, aDelivrer } = attente;
   return {
-    titre: 'Archiver l’habilitation',
-    question: `Archiver l’habilitation « ${h.nom} » ?`,
+    titre: t('Archive the authorisation'),
+    question: `${t('Archive the authorisation “')}${h.nom}${t('”?')}`,
     suites: [
-      'Elle n’est plus proposée : délivrance, demandes des collaborateurs.',
+      t('It is no longer offered: issue, employee requests.'),
       titres
-        ? `${plural(titres, 'titre délivré reste', 'titres délivrés restent')} au dossier et dans le Go / No Go, sans compter dans les statuts ni les échéances.`
-        : 'Aucun titre n’a été délivré.',
+        ? `${tn(titres, 'issued title stays', 'issued titles stay')}${t(' in the file and in the Go / No Go, without counting in the statuses or the due dates.')}`
+        : t('No title has been issued.'),
       ...(aDelivrer
         ? [aDelivrer > 1
-          ? `${aDelivrer} titres demandés attendent leur délivrance : ils quittent l’écran Habilitations et ne se délivrent plus, sauf à rétablir l’habilitation.`
-          : '1 titre demandé attend sa délivrance : il quitte l’écran Habilitations et ne se délivre plus, sauf à rétablir l’habilitation.']
+          ? `${aDelivrer}${t(' requested titles await their issue: they leave the Authorisations screen and are no longer issued, unless restoring the authorisation.')}`
+          : t('1 requested title awaits its issue: it leaves the Authorisations screen and is no longer issued, unless restoring the authorisation.')]
         : []),
-      ...demandesTexte(demandes, 'l’habilitation'),
-      'Elle reste reconnue dans les échanges avec Keystone, et se rétablit à tout moment.',
+      ...demandesTexte(demandes, t('the authorisation')),
+      t('It remains recognised in the exchanges with Keystone, and can be restored at any time.#fem'),
     ],
-    bouton: 'Archiver',
+    bouton: t('Archive'),
     action: 'referentiel.habilitation.archiver',
     payload: { id: h.id },
   };
@@ -67,14 +67,14 @@ export function archivageHabilitation(h: Pick<HabType, 'id' | 'nom'>, titres: nu
 /** Archivage d'une destination ; `prevus` : déplacements non terminés vers ce pays. */
 export function archivageDestination(dest: Pick<Destination, 'code' | 'pays'>, prevus: number): Confirmation {
   return {
-    titre: 'Archiver la destination',
-    question: `Archiver la destination « ${dest.pays} » ?`,
+    titre: t('Archive the destination'),
+    question: `${t('Archive the destination “')}${dest.pays}${t('”?')}`,
     suites: [
-      'Elle n’est plus proposée pour un nouveau déplacement (saisie, import), ni pour un visa.',
-      prevus ? `${plural(prevus, 'déplacement prévu garde', 'déplacements prévus gardent')} son dossier voyage.` : 'Aucun déplacement prévu vers ce pays.',
-      'Une demande de Keystone vers ce pays reste reçue ; la destination se rétablit à tout moment.',
+      t('It is no longer offered for a new trip (entry, import), nor for a visa.'),
+      prevus ? `${tn(prevus, 'planned trip keeps', 'planned trips keep')}${t(' its travel file.')}` : t('No trip planned to this country.'),
+      t('A Keystone request to this country is still received; the destination can be restored at any time.'),
     ],
-    bouton: 'Archiver',
+    bouton: t('Archive'),
     action: 'referentiel.destination.archiver',
     payload: { id: dest.code },
   };
@@ -82,19 +82,19 @@ export function archivageDestination(dest: Pick<Destination, 'code' | 'pays'>, p
 
 /** Référentiel type (celui de la démonstration, server/src/seed.ts) : ce qu'il ajoute, en quelques mots. */
 const TYPE_LIBELLE: Record<ReferentielId, [string, string]> = {
-  formations: ['le catalogue type des formations', 'Les 11 formations courantes d’un site industriel (SST, habilitation électrique, ATEX, CACES, incendie…) sont ajoutées au catalogue.'],
-  habilitations: ['le référentiel type des habilitations', 'Les 6 habilitations courantes (électrique, conduite de chariots et de nacelles, ATEX, travaux en hauteur, AIPR) sont ajoutées, avec leurs formations prérequises.'],
-  destinations: ['le référentiel type des destinations', 'Les 8 destinations de la démonstration (Maroc, Inde, États-Unis, Côte d’Ivoire…) sont ajoutées, avec leurs formalités d’entrée.'],
+  formations: ['the standard training catalogue', 'The 11 common training courses of an industrial site (first aid, electrical authorisation, ATEX, CACES, fire…) are added to the catalogue.'],
+  habilitations: ['the standard authorisations reference data', 'The 6 common authorisations (electrical, driving forklifts and aerial platforms, ATEX, work at height, AIPR) are added, with their prerequisite training courses.'],
+  destinations: ['the standard destinations reference data', 'The 8 destinations of the demonstration (Morocco, India, United States, Ivory Coast…) are added, with their entry formalities.'],
 };
 
 /** Chargement du référentiel type dans un référentiel vide, à vérifier ensuite par le service RH. */
 export function chargementType(ref: ReferentielId): Confirmation {
-  const [quoi, ajout] = TYPE_LIBELLE[ref];
+  const [quoi, ajout] = TYPE_LIBELLE[ref].map(s => t(s));
   return {
-    titre: 'Charger le référentiel type',
-    question: `Charger ${quoi} ?`,
-    suites: [ajout, 'À vérifier et compléter ensuite : validités, coûts, organismes, signataires, formalités. Les éléments inutiles s’archivent.'],
-    bouton: 'Charger',
+    titre: t('Load the standard reference data'),
+    question: `${t('Load #verb')}${quoi}${t('?#question')}`,
+    suites: [ajout, t('To check and complete afterwards: validities, costs, training providers, signatories, formalities. Unneeded items are archived.')],
+    bouton: t('Load'),
     action: 'referentiel.charger',
     payload: { referentiel: ref },
   };
@@ -103,13 +103,13 @@ export function chargementType(ref: ReferentielId): Confirmation {
 /** Archivage d'un poste inoccupé (le serveur refuse tant qu'un salarié présent l'occupe). */
 export function archivagePoste(p: Pick<Poste, 'id' | 'nom'>): Confirmation {
   return {
-    titre: 'Archiver le poste',
-    question: `Archiver le poste « ${p.nom} » ?`,
+    titre: t('Archive the job'),
+    question: `${t('Archive the job “')}${p.nom}${t('”?')}`,
     suites: [
-      'Il n’est plus proposé sur les fiches ; celles des salariés sortis le gardent, avec son intitulé.',
-      'Il se rétablit à tout moment, avec ses exigences.',
+      t('It is no longer offered on the sheets; those of employees who have left keep it, with its title.'),
+      t('It can be restored at any time, with its requirements.'),
     ],
-    bouton: 'Archiver',
+    bouton: t('Archive'),
     action: 'referentiel.poste.archiver',
     payload: { id: p.id },
   };
@@ -118,14 +118,14 @@ export function archivagePoste(p: Pick<Poste, 'id' | 'nom'>): Confirmation {
 /** Archivage d'une activité interne (onglet Activités internes) : plus imputable dans les feuilles de temps. */
 export function archivageActivite(a: Pick<Projet, 'code' | 'nom'>): Confirmation {
   return {
-    titre: 'Archiver l’activité',
-    question: `Archiver l’activité ${a.code} « ${a.nom} » ?`,
+    titre: t('Archive the activity'),
+    question: `${t('Archive the activity ')}${a.code}${t(' “')}${a.nom}${t('”?')}`,
     suites: [
-      'Elle n’est plus proposée dans les feuilles de temps : aucune nouvelle ligne ne s’y impute. Les heures déjà saisies restent sur les feuilles.',
-      ...(a.code === CODE_DELEGATION ? ['C’est le code des heures de délégation : les élus au CSE ne pourront plus en déclarer tant qu’elle n’est pas rétablie.'] : []),
-      'Elle se rétablit à tout moment.',
+      t('It is no longer offered in the timesheets: no new line is charged to it. The hours already entered stay on the timesheets.'),
+      ...(a.code === CODE_DELEGATION ? [t('It is the code of the delegation hours: the CSE members will no longer be able to declare any as long as it is not restored.')] : []),
+      t('It can be restored at any time.#fem'),
     ],
-    bouton: 'Archiver',
+    bouton: t('Archive'),
     action: 'referentiel.activite.archiver',
     payload: { id: a.code },
   };
@@ -137,13 +137,13 @@ export function archivageActivite(a: Pick<Projet, 'code' | 'nom'>): Confirmation
  */
 export function demandeHabilitation(x: { empId: number; h: string; nom: string; label: string }): Confirmation {
   return {
-    titre: 'Demander l’habilitation',
-    question: `Demander l’habilitation « ${x.label} » pour ${x.nom} ?`,
+    titre: t('Request the authorisation'),
+    question: `${t('Request the authorisation “')}${x.label}${t('” for ')}${x.nom}${t('?#question')}`,
     suites: [
-      'Un titre « en attente » de délivrance s’ajoute à l’écran Habilitations ; il se délivre après contrôle des prérequis.',
-      'Une fois demandé, le titre ne se retire pas : il reste en attente jusqu’à sa délivrance.',
+      t('A title “awaiting” issue is added to the Authorisations screen; it is issued after checking the prerequisites.'),
+      t('Once requested, the title is not withdrawn: it stays pending until its issue.'),
     ],
-    bouton: 'Demander l’habilitation',
+    bouton: t('Request the authorisation'),
     action: 'hab.demander',
     payload: { empId: x.empId, h: x.h },
   };
@@ -152,13 +152,13 @@ export function demandeHabilitation(x: { empId: number; h: string; nom: string; 
 /** Archivage d'un horaire de poste (lot 6, shared/rules/horaires.ts) : plus proposé, les feuilles qui le portent le gardent. */
 export function archivageHoraire(h: Pick<Horaire, 'code' | 'nom'>): Confirmation {
   return {
-    titre: 'Archiver l’horaire',
-    question: `Archiver l’horaire ${h.code} « ${h.nom} » ?`,
+    titre: t('Archive the schedule'),
+    question: `${t('Archive the schedule ')}${h.code}${t(' “')}${h.nom}${t('”?')}`,
     suites: [
-      'Il n’est plus proposé dans les feuilles de temps ni comme horaire par défaut d’une équipe.',
-      'Les feuilles qui le portent déjà le gardent. Il se rétablit à tout moment.',
+      t('It is no longer offered in the timesheets nor as a team’s default schedule.'),
+      t('The timesheets that carry it already keep it. It can be restored at any time.'),
     ],
-    bouton: 'Archiver',
+    bouton: t('Archive'),
     action: 'referentiel.horaire.archiver',
     payload: { id: h.code },
   };

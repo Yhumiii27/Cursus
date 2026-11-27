@@ -4,7 +4,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PlusIcon } from '@phosphor-icons/react';
 import { COMPTE_TYPE_LABEL, ESPACE_LABEL, PROFILS_RH } from '../../../shared/constants.ts';
-import { equipeLabel, fmt, norm, plural } from '../../../shared/format.ts';
+import { equipeLabel, fmt, norm } from '../../../shared/format.ts';
+import { t, tn } from '../i18n/langue.ts';
 import type { CompteVue, ProfilRh } from '../../../shared/types.ts';
 import { api, type NomAction } from '../api.ts';
 import { parDate, parTexte, trier, usePagination, useTri, type Colonne } from '../components/tri.ts';
@@ -33,12 +34,12 @@ const COLONNES: Record<string, Colonne<CompteVue>> = {
 
 /** État de connexion d'un compte : le premier motif qui empêche ou conditionne la connexion. */
 function etat(c: CompteVue): { label: string; cls: string } {
-  if (!c.actif) return { label: 'Désactivé', cls: 'tag-accent' };
-  if (c.sorti) return { label: 'Salarié sorti', cls: 'tag-accent' };
-  if (!c.espaces.length) return { label: 'Aucun espace', cls: 'tag-accent' };
-  if (c.bloqueJusqua) return { label: `Bloqué jusqu’à ${heure(c.bloqueJusqua)}`, cls: 'tag-accent' };
-  if (c.changerMotDePasse) return { label: 'Mot de passe provisoire', cls: 'tag-outline' };
-  return { label: 'Actif', cls: 'tag-neutral' };
+  if (!c.actif) return { label: t('Disabled#masc'), cls: 'tag-accent' };
+  if (c.sorti) return { label: t('Employee who left'), cls: 'tag-accent' };
+  if (!c.espaces.length) return { label: t('No space'), cls: 'tag-accent' };
+  if (c.bloqueJusqua) return { label: `${t('Locked until ')}${heure(c.bloqueJusqua)}`, cls: 'tag-accent' };
+  if (c.changerMotDePasse) return { label: t('Temporary password'), cls: 'tag-outline' };
+  return { label: t('Active#masc'), cls: 'tag-neutral' };
 }
 
 export function ComptesPanel() {
@@ -62,11 +63,11 @@ export function ComptesPanel() {
   useEffect(() => charger(), [data, charger]);
 
   // Tri par colonne et pagination (t145) : l'ordre du serveur tant qu'aucun en-tête n'est cliqué.
-  const t = useTri('comptes');
+  const tri = useTri('comptes');
   const liste = useMemo(() => {
     const q = norm(recherche.trim());
-    return trier((comptes ?? []).filter(c => !q || norm(`${c.nom} ${c.identifiant}`).includes(q)), COLONNES, t.tri);
-  }, [comptes, recherche, t.tri]);
+    return trier((comptes ?? []).filter(c => !q || norm(`${c.nom} ${c.identifiant}`).includes(q)), COLONNES, tri.tri);
+  }, [comptes, recherche, tri.tri]);
   const page = usePagination(liste, recherche);
 
   // Salariés présents sans compte : un compte externe peut être rattaché à l'une de ces fiches.
@@ -100,38 +101,38 @@ export function ComptesPanel() {
     <Panel head={
       <div className="panel-head center">
         <div>
-          <h2>Comptes et accès</h2>
+          <h2>{t('Accounts and access')}</h2>
           <div className="text-muted sub">
-            {comptes ? `${plural(comptes.length, 'compte', 'comptes')} · ${plural(actifs, 'actif', 'actifs')}` : 'Chargement…'}
+            {comptes ? `${tn(comptes.length, 'account', 'accounts')} · ${tn(actifs, 'active', 'active#plural')}` : t('Loading…')}
           </div>
         </div>
         <div className="actions-end" style={{ alignItems: 'center' }}>
-          <input className="input" type="search" placeholder="Rechercher un compte…" aria-label="Rechercher un compte" value={recherche}
+          <input className="input" type="search" placeholder={t('Search for an account…')} aria-label={t('Search for an account')} value={recherche}
             onChange={e => setRecherche(e.target.value)} style={{ width: 220 }} />
-          <Btn variant="primary" small icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'compte' })}>Créer un compte</Btn>
+          <Btn variant="primary" small icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'compte' })}>{t('Create an account')}</Btn>
         </div>
       </div>
     }>
       <Fine>
-        {PROFILS_RH.rh_gestionnaire.label} : {minuscule(PROFILS_RH.rh_gestionnaire.aide)}. {PROFILS_RH.rh_admin.label} : {minuscule(PROFILS_RH.rh_admin.aide)}.
-        {' '}Un salarié ouvre aussi son espace collaborateur, et l’espace manager s’il encadre une équipe. Désactiver un compte ferme aussitôt ses sessions.
-        {' '}Un membre du service RH qui est aussi salarié porte son profil sur le compte rattaché à sa fiche : Cursus l’empêche alors de décider de ses propres absences, feuilles de temps ou entretiens. Un compte externe créé avant la fiche s’y rattache (« Rattacher à une fiche »).
+        {PROFILS_RH.rh_gestionnaire.label}{t(': ')}{minuscule(PROFILS_RH.rh_gestionnaire.aide)}. {PROFILS_RH.rh_admin.label}{t(': ')}{minuscule(PROFILS_RH.rh_admin.aide)}.
+        {' '}{t('An employee also opens their employee space, and the manager space if they lead a team. Disabling an account closes its sessions at once.')}
+        {' '}{t('A member of HR who is also an employee carries their profile on the account attached to their sheet: Cursus then prevents them from deciding on their own absences, timesheets or reviews. An external account created before the sheet is attached to it (“Attach to a sheet”).')}
       </Fine>
       <Fine>
-        Profils restreints, dans l’espace RH : {RESTREINTS.map(p => `${PROFILS_RH[p].label} (${minuscule(PROFILS_RH[p].aide)})`).join(' ; ')}.
+        {t('Restricted profiles, in the HR space: ')}{RESTREINTS.map(p => `${PROFILS_RH[p].label} (${minuscule(PROFILS_RH[p].aide)})`).join(t('; '))}.
       </Fine>
       {erreur && <p className="form-error">{erreur}</p>}
-      {comptes != null && liste.length === 0 && <Empty pad="sm">{recherche ? 'Aucun compte ne correspond à la recherche.' : 'Aucun compte.'}</Empty>}
+      {comptes != null && liste.length === 0 && <Empty pad="sm">{t(recherche ? 'No account matches the search.' : 'No account.')}</Empty>}
       {liste.length > 0 && (
         <div className="scroll-x" style={{ maxHeight: 560, overflowY: 'auto' }}>
           <table className="table">
             <thead><tr>
-              <ThTri t={t} col="nom">Personne</ThTri>
-              <ThTri t={t} col="identifiant">Identifiant</ThTri>
-              <ThTri t={t} col="profil">Profil RH</ThTri>
-              <th>Espaces</th>
-              <ThTri t={t} col="etat">État</ThTri>
-              <ThTri t={t} col="connexion" premier="desc">Dernière connexion</ThTri>
+              <ThTri t={tri} col="nom">{t('Person')}</ThTri>
+              <ThTri t={tri} col="identifiant">{t('Login')}</ThTri>
+              <ThTri t={tri} col="profil">{t('HR profile')}</ThTri>
+              <th>{t('Spaces')}</th>
+              <ThTri t={tri} col="etat">{t('State')}</ThTri>
+              <ThTri t={tri} col="connexion" premier="desc">{t('Last sign-in')}</ThTri>
               <th></th>
             </tr></thead>
             <tbody>
@@ -142,35 +143,35 @@ export function ComptesPanel() {
                 const last = c.derniereConnexion ? new Date(c.derniereConnexion) : null;
                 return (
                   <tr key={c.id}>
-                    <td><Two main={<>{c.nom}{moi && <span className="text-muted"> · vous</span>}</>} sub={e ? `${e.poste} · ${equipeLabel(e)}` : `Externe · ${c.adresse ?? ''}`} /></td>
-                    <td title={`Créé le ${fmt(new Date(c.creation))}${c.creePar ? ` par ${c.creePar}` : ''}`}>
+                    <td><Two main={<>{c.nom}{moi && <span className="text-muted">{t(' · you')}</span>}</>} sub={e ? `${e.poste} · ${equipeLabel(e)}` : `${t('External')} · ${c.adresse ?? ''}`} /></td>
+                    <td title={`${t('Created on ')}${fmt(new Date(c.creation))}${c.creePar ? `${t(' by ')}${c.creePar}` : ''}`}>
                       <Two main={<span style={MONO}>{coupure(c.identifiant)}</span>}
-                        sub={c.type === 'microsoft' && !c.rattache ? `${COMPTE_TYPE_LABEL.microsoft} · rattaché à la première connexion` : COMPTE_TYPE_LABEL[c.type]} />
+                        sub={c.type === 'microsoft' && !c.rattache ? `${COMPTE_TYPE_LABEL.microsoft} · ${t('attached at the first sign-in')}` : COMPTE_TYPE_LABEL[c.type]} />
                     </td>
                     <td>
-                      <select className="input" aria-label={`Profil RH de ${c.nom}`} value={c.profilRh} disabled={busy === c.id}
+                      <select className="input" aria-label={`${t('HR profile of ')}${c.nom}`} value={c.profilRh} disabled={busy === c.id}
                         onChange={ev => agir(c, 'compte.profil', { profilRh: ev.target.value })} style={{ minWidth: 160 }}>
                         {(Object.keys(PROFILS_RH) as ProfilRh[]).map(p => <option key={p} value={p} disabled={!c.empId && p === 'aucun'}>{PROFILS_RH[p].label}</option>)}
                       </select>
                     </td>
                     <td>{c.espaces.length ? <Chips items={c.espaces.map(r => ({ key: r, label: r === 'rh' ? PROFILS_RH[c.profilRh]?.espace ?? ESPACE_LABEL.rh : ESPACE_LABEL[r], cls: 'tag-outline' }))} /> : <span className="text-muted">—</span>}</td>
                     <td><Tag cls={st.cls}>{st.label}</Tag></td>
-                    <td>{last ? <Two main={fmt(last)} sub={heure(c.derniereConnexion!)} nowrap /> : <span className="text-muted">Jamais</span>}</td>
+                    <td>{last ? <Two main={fmt(last)} sub={heure(c.derniereConnexion!)} nowrap /> : <span className="text-muted">{t('Never')}</span>}</td>
                     <td>
                       <div className="actions-end">
                         {/* Compte externe, le sien compris : la fiche du même nom est proposée en premier. */}
                         {!c.empId && libres.length > 0 && (
-                          <select className="input" aria-label={`Rattacher le compte de ${c.nom} à une fiche salarié`} value="" disabled={busy === c.id}
+                          <select className="input" aria-label={`${t('Attach the account of ')}${c.nom}${t(' to an employee sheet')}`} value="" disabled={busy === c.id}
                             onChange={ev => rattacher(c, ev.target.value)} style={{ width: 180 }}>
-                            <option value="">Rattacher à une fiche…</option>
+                            <option value="">{t('Attach to a sheet…')}</option>
                             {[...libres.filter(e => norm(e.nom) === norm(c.nom)), ...libres.filter(e => norm(e.nom) !== norm(c.nom))]
                               .map(e => <option key={e.id} value={e.id}>{e.nom} — {e.poste}</option>)}
                           </select>
                         )}
                         {!moi && <>
-                          {c.type === 'local' && c.actif && <Btn small disabled={busy === c.id} onClick={() => reinitialiser(c)} title="Attribuer un nouveau mot de passe provisoire">Mot de passe</Btn>}
-                          {c.type === 'microsoft' && c.rattache && <Btn small disabled={busy === c.id} onClick={() => delier(c)} title="Identité Microsoft recréée : rattacher le compte à la prochaine connexion">Délier</Btn>}
-                          <Btn small disabled={busy === c.id} onClick={() => basculer(c)}>{c.actif ? 'Désactiver' : 'Réactiver'}</Btn>
+                          {c.type === 'local' && c.actif && <Btn small disabled={busy === c.id} onClick={() => reinitialiser(c)} title={t('Give a new temporary password')}>{t('Password')}</Btn>}
+                          {c.type === 'microsoft' && c.rattache && <Btn small disabled={busy === c.id} onClick={() => delier(c)} title={t('Microsoft identity recreated: attach the account at the next sign-in')}>{t('Unlink')}</Btn>}
+                          <Btn small disabled={busy === c.id} onClick={() => basculer(c)}>{t(c.actif ? 'Disable' : 'Enable again')}</Btn>
                         </>}
                       </div>
                     </td>
@@ -181,7 +182,7 @@ export function ComptesPanel() {
           </table>
         </div>
       )}
-      <SuiteListe p={page} unite={['compte', 'comptes']} />
+      <SuiteListe p={page} unite={['account', 'accounts']} />
     </Panel>
   );
 }

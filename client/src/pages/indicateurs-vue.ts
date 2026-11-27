@@ -149,11 +149,11 @@ export const MANQUES_BDESE: readonly { rubrique: string; quoi: string; source: s
 
 /** Rubriques 3° à 10° de l'article R2312-9 : hors de Cursus, avec leur source attendue. */
 export const RUBRIQUES_HORS_CURSUS: readonly { numero: string; titre: string; source: string }[] = [
-  { numero: '3°', titre: 'Equity, debt and taxes', source: 'accounts' },
+  { numero: '3°', titre: 'Equity, debt and taxes', source: 'accounting' },
   { numero: '4°', titre: 'Pay of the employees and executives', source: 'Sage (payroll): no pay in Cursus' },
   { numero: '5°', titre: 'Staff representation and social and cultural activities', source: 'CSE and accounts' },
-  { numero: '6°', titre: 'Pay of the funders', source: 'accounts' },
-  { numero: '7°', titre: 'Financial flows towards the company', source: 'accounts' },
+  { numero: '6°', titre: 'Pay of the funders', source: 'accounting' },
+  { numero: '7°', titre: 'Financial flows towards the company', source: 'accounting' },
   { numero: '8°', titre: 'Partnerships', source: 'management' },
   { numero: '9°', titre: 'Commercial and financial transfers between the entities of the group', source: 'accounts of the group' },
   { numero: '10°', titre: 'Environment (environmental consequences of the activity)', source: 'Vigie and QHSE department' },

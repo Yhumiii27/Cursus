@@ -10,6 +10,7 @@ import { DeviceMobileIcon } from '@phosphor-icons/react';
 import { encartIosMasque, masquerEncartIos } from '../pwa/appareil.ts';
 import { estIos, installer, useEtatPwa } from '../pwa/enregistrement.ts';
 import { Btn, Fine, Panel } from './ui.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function InstallerApplication({ menu, fermer }: {
   /** Entrée du menu (tiroir) : bouton seul, sans encart iOS. */
@@ -23,27 +24,27 @@ export function InstallerApplication({ menu, fermer }: {
     if (menu) {
       return (
         <button type="button" className="coque-entry installer-menu" onClick={installerMaintenant}>
-          <DeviceMobileIcon size={16} className="coque-entry-icon" aria-hidden="true" /><span className="coque-entry-label">Installer l’application</span>
+          <DeviceMobileIcon size={16} className="coque-entry-icon" aria-hidden="true" /><span className="coque-entry-label">{t('Install the application')}</span>
         </button>
       );
     }
     return (
-      <Panel title="Cursus sur votre téléphone">
-        <div style={{ fontSize: 14 }}>Ouvrez Cursus d’un geste depuis l’écran d’accueil, en plein écran ; vos heures restent saisissables si le réseau tombe.</div>
-        <div><Btn small variant="primary" icon={<DeviceMobileIcon size={14} />} onClick={installerMaintenant}>Installer l’application</Btn></div>
+      <Panel title={t('Cursus on your phone')}>
+        <div style={{ fontSize: 14 }}>{t('Open Cursus in one gesture from the home screen, full screen; your hours can still be entered if the network goes down.')}</div>
+        <div><Btn small variant="primary" icon={<DeviceMobileIcon size={14} />} onClick={installerMaintenant}>{t('Install the application')}</Btn></div>
       </Panel>
     );
   }
   if (menu || masque || !estIos()) return null;
   return (
-    <Panel title="Cursus sur votre iPhone">
+    <Panel title={t('Cursus on your iPhone')}>
       <ol className="etapes-installation">
-        <li>Dans Safari, touchez « Partager » (le carré avec une flèche vers le haut).</li>
-        <li>Choisissez « Sur l’écran d’accueil », puis « Ajouter ».</li>
-        <li>Ouvrez Cursus depuis l’icône et connectez-vous une fois : l’application installée a sa propre session.</li>
+        <li>{t('In Safari, tap “Share” (the square with an arrow pointing up).')}</li>
+        <li>{t('Choose “Add to Home Screen”, then “Add”.')}</li>
+        <li>{t('Open Cursus from the icon and sign in once: the installed application has its own session.')}</li>
       </ol>
-      <Fine>Les notifications sur l’iPhone ne fonctionnent que dans l’application installée (iOS 16.4 ou plus récent).</Fine>
-      <div><Btn small onClick={() => { masquerEncartIos(); setMasque(true); }}>Ne plus afficher</Btn></div>
+      <Fine>{t('Notifications on the iPhone only work in the installed application (iOS 16.4 or later).')}</Fine>
+      <div><Btn small onClick={() => { masquerEncartIos(); setMasque(true); }}>{t('Do not show again')}</Btn></div>
     </Panel>
   );
 }

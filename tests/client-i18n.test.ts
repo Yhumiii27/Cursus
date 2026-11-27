@@ -226,6 +226,15 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
     // (générer, publier, créneau, roulement, échange et sa validation, reprise), partagés avec l'onglet Planning d'équipe de Temps.
     ecran: 'Mon planning', fichiers: ['client/src/pages/MonPlanning.tsx', 'client/src/components/planning/planning-vue.ts', 'client/src/dialogs/PlanningDialog.tsx'],
   },
+  // Comptes et accès : liste, création d'un compte, mot de passe provisoire (confirmations : state/confirmations.ts, déjà repris).
+  { ecran: 'Comptes', fichiers: ['client/src/pages/Comptes.tsx', 'client/src/dialogs/CompteDialog.tsx', 'client/src/dialogs/MotDePasseProvisoireDialog.tsx'] },
+  // Journal des actions et historique d'une fiche (libellés des actions, shared/journal.ts, en français).
+  { ecran: 'Journal', fichiers: ['client/src/pages/Journal.tsx'] },
+  { ecran: 'Messagerie', fichiers: ['client/src/pages/Messagerie.tsx'] },
+  // Page publique de déclaration de présence (refus du serveur et contrôles de shared/ en français).
+  { ecran: 'Déclarer', fichiers: ['client/src/pages/Declarer.tsx'] },
+  // Cadre de l'aide et installation de l'application (le guide, shared/aide.ts, reste en français).
+  { ecran: 'Aide', fichiers: ['client/src/pages/Aide.tsx', 'client/src/components/InstallerApplication.tsx'] },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */

@@ -8,6 +8,7 @@ import { Fine, Page, Panel, Seg } from '../components/ui.tsx';
 // lot 11 — pwa : installation de l'application (bouton Android, encart iPhone).
 import { InstallerApplication } from '../components/InstallerApplication.tsx';
 import { allowedView, useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 /**
  * Texte où la mention « à compléter par le gestionnaire de paie » ressort ; espaces insécables à l'intérieur des guillemets,
@@ -24,8 +25,8 @@ function Rubrique({ r }: { r: RubriqueAide }) {
   return (
     <Panel title={r.titre}>
       {r.intro && <p className="info-intro">{avecMentions(r.intro)}</p>}
-      {r.etapes && <ol className="aide-liste">{r.etapes.map(t => <li key={t}>{avecMentions(t)}</li>)}</ol>}
-      {r.points && <ul className="aide-liste">{r.points.map(t => <li key={t}>{avecMentions(t)}</li>)}</ul>}
+      {r.etapes && <ol className="aide-liste">{r.etapes.map(x => <li key={x}>{avecMentions(x)}</li>)}</ol>}
+      {r.points && <ul className="aide-liste">{r.points.map(x => <li key={x}>{avecMentions(x)}</li>)}</ul>}
     </Panel>
   );
 }
@@ -41,10 +42,10 @@ export function Aide() {
   const retour = () => go(allowedView(session?.role ?? 'rh', ''));
 
   return (
-    <Page kicker="Guide d’utilisation" title="Aide"
-      note="Les gestes de chaque rôle dans Cursus, la procédure mensuelle de paie et l’ouverture progressive au groupe pilote."
-      actions={!user && <a className="btn btn-secondary" href="/" onClick={e => { e.preventDefault(); retour(); }}>Retour à la connexion</a>}>
-      <Seg name="aide-partie" label="Partie du guide" value={p.id} onChange={setPartie} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
+    <Page kicker={t('User guide')} title={t('Help')}
+      note={t('The gestures of each role in Cursus, the monthly payroll procedure and the gradual opening to the pilot group.')}
+      actions={!user && <a className="btn btn-secondary" href="/" onClick={e => { e.preventDefault(); retour(); }}>{t('Back to the sign-in')}</a>}>
+      <Seg name="aide-partie" label={t('Part of the guide')} value={p.id} onChange={setPartie} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
         options={GUIDE_AIDE.map(x => [x.id, x.court] as [PartieAideId, string])} />
       <p className="info-intro">{p.pour}</p>
       <InstallerApplication />
@@ -57,8 +58,7 @@ export function Aide() {
         </div>
       </div>
       <Fine>
-        Une question, une remarque du groupe pilote : adressez-vous au service RH. Version détaillée de ce guide, avec la
-        procédure de paie pas à pas : docs/GUIDE-UTILISATEUR.md, remis par le service RH.
+        {t('A question, a remark from the pilot group: ask HR. Detailed version of this guide, with the payroll procedure step by step: docs/GUIDE-UTILISATEUR.md, handed over by HR.')}
       </Fine>
     </Page>
   );

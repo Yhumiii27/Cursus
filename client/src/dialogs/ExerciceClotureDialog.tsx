@@ -4,12 +4,13 @@
 // La clôture est définitive : une confirmation remplace les boutons avant l'envoi.
 import { useState } from 'react';
 import { PLAN_CLS, PLAN_LABEL } from '../../../shared/constants.ts';
-import { fmtEur, plural } from '../../../shared/format.ts';
+import { fmtEur } from '../../../shared/format.ts';
 import { clotureDe, controleCloture, reportables } from '../../../shared/rules/exercices.ts';
 import { Bloquant, CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Empty, Fine, Tag } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 export function ExerciceClotureDialog({ exercice }: { exercice: number }) {
   const d = useDomain();
@@ -21,7 +22,7 @@ export function ExerciceClotureDialog({ exercice }: { exercice: number }) {
   const v = useVerification();
   const refus = controleCloture(d.ds, exercice, d.year);
   // Report vers un exercice suivant déjà clos : impossible (il ne se modifie plus).
-  const suivantClos = coches.size > 0 && !!clotureDe(d.ds, exercice + 1) ? `L’exercice ${exercice + 1} est clos : décochez les actions à reporter.` : null;
+  const suivantClos = coches.size > 0 && !!clotureDe(d.ds, exercice + 1) ? `${t('The financial year ')}${exercice + 1}${t(' is closed: untick the actions to postpone.')}` : null;
   const realisees = d.ds.plan.filter(l => l.exercice === exercice && l.statut === 'realise').length;
   const basculer = (id: number, oui: boolean) => setCoches(s => { const n = new Set(s); if (oui) n.add(id); else n.delete(id); return n; });
 
@@ -41,19 +42,17 @@ export function ExerciceClotureDialog({ exercice }: { exercice: number }) {
   const laissees = actions.length - coches.size;
 
   return (
-    <Dialog title={`Clôturer l’exercice ${exercice}`} width={720} tall onSubmit={envoyer} confirmation={confirmer ? {
-      texte: `Clôturer l’exercice ${exercice}${coches.size ? ` et reporter ${plural(coches.size, 'action', 'actions')} sur ${exercice + 1}` : ''} ? Le plan et les enveloppes ${exercice} ne seront plus modifiables ; la clôture est définitive.`,
-      bouton: 'Clôturer l’exercice', occupe: busy, confirmer: cloturer, annuler: () => setConfirmer(false),
+    <Dialog title={`${t('Close the financial year ')}${exercice}`} width={720} tall onSubmit={envoyer} confirmation={confirmer ? {
+      texte: `${t('Close the financial year ')}${exercice}${coches.size ? `${t(' and postpone ')}${tn(coches.size, 'action', 'actions')}${t(' to#year-after')}${exercice + 1}` : ''}${t('? The plan and the envelopes ')}${exercice}${t(' will no longer be editable; the closing is final.')}`,
+      bouton: t('Close the financial year'), occupe: busy, confirmer: cloturer, annuler: () => setConfirmer(false),
     } : null} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Clôturer l’exercice</SubmitButton>
+      <SubmitButton busy={busy}>{t('Close the financial year')}</SubmitButton>
     </>}>
       <Fine>
-        {plural(realisees, 'action réalisée reste', 'actions réalisées restent')} dans l’exercice {exercice}. Cochez les actions prévues ou engagées à reporter
-        sur {exercice + 1} : elles y sont recréées au premier trimestre, au même coût prévu et au même statut (les sessions ouvertes les suivent), et
-        apparaissent « Reportées » dans {exercice}. Les autres restent dans {exercice}, telles quelles.
+        {tn(realisees, 'action done stays', 'actions done stay')}{t(' in the financial year ')}{exercice}{t('. Tick the planned or committed actions to postpone to ')}{exercice + 1}{t(': they are created again there in the first quarter, at the same planned cost and with the same status (the open sessions follow them), and appear “Postponed” in ')}{exercice}{t('. The others stay in ')}{exercice}{t(', as they are.')}
       </Fine>
-      <Field label={`Actions à reporter sur ${exercice + 1}`}>
+      <Field label={`${t('Actions to postpone to ')}${exercice + 1}`}>
         {actions.length ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
             {actions.map(l => {
@@ -63,18 +62,18 @@ export function ExerciceClotureDialog({ exercice }: { exercice: number }) {
                   <input type="checkbox" checked={coches.has(l.id)} onChange={e => basculer(l.id, e.target.checked)} style={{ accentColor: 'var(--color-accent)', flex: 'none' }} />
                   <span style={{ minWidth: 0, flex: 1 }}>
                     <span style={{ fontSize: 14 }}>{fm ? fm.nom : l.libelle}</span>
-                    <span className="text-muted sub" style={{ display: 'block' }}>{l.equipe} · {l.periode} · {l.effectif} pers. · {fmtEur(l.cout)}</span>
+                    <span className="text-muted sub" style={{ display: 'block' }}>{l.equipe} · {l.periode} · {l.effectif}{t(' pers.')} · {fmtEur(l.cout)}</span>
                   </span>
                   <Tag cls={PLAN_CLS[l.statut]} style={{ flex: 'none' }}>{PLAN_LABEL[l.statut]}</Tag>
                 </label>
               );
             })}
           </div>
-        ) : <Empty pad="sm">Aucune action prévue ou engagée : rien à reporter.</Empty>}
+        ) : <Empty pad="sm">{t('No planned or committed action: nothing to postpone.')}</Empty>}
       </Field>
       {refus && <Bloquant>{refus}.</Bloquant>}
       {suivantClos && <Bloquant>{suivantClos}</Bloquant>}
-      {actions.length > 0 && <Fine>{plural(coches.size, 'action reportée', 'actions reportées')} · {plural(laissees, 'action laissée', 'actions laissées')} dans {exercice}.</Fine>}
+      {actions.length > 0 && <Fine>{tn(coches.size, 'action postponed', 'actions postponed')} · {tn(laissees, 'action left', 'actions left')}{t(' in#year')}{exercice}.</Fine>}
     </Dialog>
   );
 }

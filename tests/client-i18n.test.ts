@@ -205,6 +205,38 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
   // Relevés d'heures des intérimaires (panneau de l'écran Temps ; confirmation d'envoi : state/confirmations.ts).
   { ecran: 'Relevés', fichiers: ['client/src/pages/Releves.tsx'] },
   { ecran: 'Chantiers', fichiers: ['client/src/pages/Chantiers.tsx'] },
+  {
+    // Enveloppes, consommation, plan prévisionnel et indicateurs de formation ; onglet et détail des dossiers OPCO ; dialogues
+    // des enveloppes, de l'import, de la clôture d'un exercice et d'une action, de la correction d'une ligne, et ceux d'un dossier
+    // OPCO (création, étapes, pièce, versement). Statuts, dispositifs et motifs des dossiers (shared/rules/opco.ts) restent en français.
+    ecran: 'Plan & budget', fichiers: ['client/src/pages/Budget.tsx', 'client/src/components/IndicateursFormation.tsx',
+      'client/src/components/opco/ColonneOpco.tsx', 'client/src/components/opco/DossiersOpco.tsx', 'client/src/components/opco/DossierOpcoPanel.tsx',
+      'client/src/dialogs/BudgetDialog.tsx', 'client/src/dialogs/PlanImportDialog.tsx', 'client/src/dialogs/ExerciceClotureDialog.tsx',
+      'client/src/dialogs/PlanRealiserDialog.tsx', 'client/src/dialogs/PlanLigneDialog.tsx', 'client/src/dialogs/OpcoDossierDialog.tsx',
+      'client/src/dialogs/OpcoEtapeDialog.tsx', 'client/src/dialogs/OpcoPieceDialog.tsx', 'client/src/dialogs/OpcoVersementDialog.tsx'],
+  },
+  {
+    // Onglets, tableaux et graphiques, BDESE, index d'égalité, arrêtés et leurs confirmations, impression ; mise à disposition
+    // du CSE. Titres, définitions et lignes des tableaux viennent du serveur (shared/rules/indicateurs-legaux.ts) en français.
+    ecran: 'Indicateurs sociaux', fichiers: ['client/src/pages/Indicateurs.tsx', 'client/src/pages/indicateurs-vue.ts',
+      'client/src/components/graphiques/Barres.tsx', 'client/src/components/graphiques/Pyramide.tsx', 'client/src/dialogs/ArreteCseDialog.tsx'],
+  },
+  {
+    // Mes postes, mes échanges, postes de l'équipe ; textes du planning d'équipe (planning-vue.ts) et dialogues du planning
+    // (générer, publier, créneau, roulement, échange et sa validation, reprise), partagés avec l'onglet Planning d'équipe de Temps.
+    ecran: 'Mon planning', fichiers: ['client/src/pages/MonPlanning.tsx', 'client/src/components/planning/planning-vue.ts', 'client/src/dialogs/PlanningDialog.tsx'],
+  },
+  // Comptes et accès : liste, création d'un compte, mot de passe provisoire (confirmations : state/confirmations.ts, déjà repris).
+  { ecran: 'Comptes', fichiers: ['client/src/pages/Comptes.tsx', 'client/src/dialogs/CompteDialog.tsx', 'client/src/dialogs/MotDePasseProvisoireDialog.tsx'] },
+  // Journal des actions et historique d'une fiche (libellés des actions, shared/journal.ts, en français).
+  { ecran: 'Journal', fichiers: ['client/src/pages/Journal.tsx'] },
+  { ecran: 'Messagerie', fichiers: ['client/src/pages/Messagerie.tsx'] },
+  // Page publique de déclaration de présence (refus du serveur et contrôles de shared/ en français).
+  { ecran: 'Déclarer', fichiers: ['client/src/pages/Declarer.tsx'] },
+  // Cadre de l'aide et installation de l'application (le guide, shared/aide.ts, reste en français).
+  { ecran: 'Aide', fichiers: ['client/src/pages/Aide.tsx', 'client/src/components/InstallerApplication.tsx'] },
+  // Reprise depuis Lucca (types, champs, issues et motifs de shared/rules/reprise.ts en français).
+  { ecran: 'Mise en service', fichiers: ['client/src/pages/MiseEnService.tsx'] },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */
@@ -359,4 +391,25 @@ test('partie 6 (annuaire, organigramme, entretiens, personnes sur site, relevés
   choisirLangue('en');
   assert.deepEqual([t('Organisation chart'), t('Closed#fem'), t(' of #date'), tn(1, 'person', 'people'), tn(2, 'person', 'people')],
     ['Organisation chart', 'Closed', ' of ', '1 person', '2 people']);
+});
+
+test('partie 7 (Plan & budget, Indicateurs sociaux, Mon planning, Comptes, Journal, Messagerie, Déclarer, Aide) : tables de libellés et phrase française d’avant', async () => {
+  const { LIBELLE_ONGLET } = await import('../client/src/pages/indicateurs-onglets.ts');
+  const { MANQUES_BDESE, RUBRIQUES_HORS_CURSUS, etatIndex, texteSeuils } = await import('../client/src/pages/indicateurs-vue.ts');
+  const sources = [...Object.values(LIBELLE_ONGLET), ...MANQUES_BDESE.flatMap(m => [m.rubrique, m.quoi, m.source]), ...RUBRIQUES_HORS_CURSUS.flatMap(r => [r.titre, r.source])];
+  // Tables rendues par t() au rendu : titres et boutons des étapes d'un dossier OPCO, axes de répartition, vues du journal.
+  for (const [f, re] of [['client/src/dialogs/OpcoEtapeDialog.tsx', /(?:titre|bouton|date): '([^']+)'/g], ['client/src/components/opco/DossiersOpco.tsx', /\['(?:dispositif|equipe|trimestre)', '([^']+)'\]/g],
+    ['client/src/pages/Journal.tsx', /\['(?:tout|operations|connexions|keystone)', '([^']+)'\]/g]] as const) {
+    for (const m of lire(f).matchAll(re)) sources.push(m[1]);
+  }
+  for (const l of sources) assert.ok(MEMES_EN_FRANCAIS.includes(l) || enFrancais(l) !== sansContexte(l), l);
+  assert.deepEqual([LIBELLE_ONGLET.ages, t(LIBELLE_ONGLET.ages), etatIndex('hors_cursus')], ['Ages and seniority', 'Âges et ancienneté', 'Hors Cursus']);
+  assert.equal(texteSeuils([{ annee: 2025, arrete: null, seuil: 5, r: {} }, { annee: 2026, arrete: 3, seuil: 3, r: {} }]), 'seuils d’anonymat : 2025 : 5, 2026 : 3');
+  assert.equal(`${t('Close the financial year ')}2026${t(' and postpone ')}${tn(2, 'action', 'actions')}${t(' to#year-after')}2027${t('? The plan and the envelopes ')}2026${t(' will no longer be editable; the closing is final.')}`,
+    'Clôturer l’exercice 2026 et reporter 2 actions sur 2027 ? Le plan et les enveloppes 2026 ne seront plus modifiables ; la clôture est définitive.');
+  assert.deepEqual([t(`${3} to handle`), tn(1, 'year#count', 'years#count'), tn(3, 'year#count', 'years#count'), t('Choose “Add to Home Screen”, then “Add”.')],
+    ['3 à traiter', '1 an', '3 ans', 'Choisissez « Sur l’écran d’accueil », puis « Ajouter ».']);
+  choisirLangue('en');
+  assert.deepEqual([t(LIBELLE_ONGLET.formation), t('Requested#masc'), tn(2, 'file#opco', 'files#opco'), tn(1, 'employee#salarie', 'employees#salarie')],
+    ['Training', 'Requested', '2 files', '1 employee']);
 });

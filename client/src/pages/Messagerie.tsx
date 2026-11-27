@@ -4,7 +4,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { EnvelopeSimpleIcon, PaperPlaneTiltIcon } from '@phosphor-icons/react';
 import { HEURE_RECAPITULATIF, MODE_NOTIFICATION_LABEL } from '../../../shared/constants.ts';
-import { key, plural } from '../../../shared/format.ts';
+import { key } from '../../../shared/format.ts';
+import { t, tn } from '../i18n/langue.ts';
 import { MESSAGERIE_VIDE, agencesInterim, normaliserAdresse } from '../../../shared/rules/messagerie.ts';
 import type { ModeNotification } from '../../../shared/types.ts';
 import type { EnvoisState, NomAction } from '../api.ts';
@@ -18,9 +19,9 @@ const MODES = Object.entries(MODE_NOTIFICATION_LABEL) as [ModeNotification, stri
 /** État de la messagerie : simulation, échecs en cours, envoi en reprise, ou à jour. */
 function MessagerieTag({ etat }: { etat: EnvoisState['email'] | null }) {
   if (!etat) return null;
-  if (etat.mode !== 'api') return <Tag cls="tag-outline">Simulation</Tag>;
-  if (etat.echecsEnCours) return <Tag cls="tag-accent">{plural(etat.echecsEnCours, 'e-mail en échec', 'e-mails en échec')}</Tag>;
-  if (etat.enReprise) return <Tag cls="tag-accent">Microsoft 365 ne répond pas</Tag>;
+  if (etat.mode !== 'api') return <Tag cls="tag-outline">{t('Simulation')}</Tag>;
+  if (etat.echecsEnCours) return <Tag cls="tag-accent">{tn(etat.echecsEnCours, 'e-mail failed', 'e-mails failed')}</Tag>;
+  if (etat.enReprise) return <Tag cls="tag-accent">{t('Microsoft 365 does not answer')}</Tag>;
   return <Tag cls="tag-neutral">Microsoft 365</Tag>;
 }
 
@@ -65,66 +66,66 @@ export function MessageriePanel({ etat, reload }: { etat: EnvoisState['email'] |
   const envoyerEssai = async () => { if ((await agir('messagerie.essai', { adresse: essai })).ok) setEssai(''); };
 
   return (
-    <Panel title="Messagerie" aside={<MessagerieTag etat={etat} />} style={{ gap: 'var(--space-4)' }}>
+    <Panel title={t('Messaging')} aside={<MessagerieTag etat={etat} />} style={{ gap: 'var(--space-4)' }}>
       <Fine>
         {etat?.mode === 'api'
-          ? `E-mails envoyés par Microsoft 365 depuis ${etat.expediteur} : notifications des étapes de validation, convocations (avec leur fichier .ics), relevés d’heures des agences d’intérim. Chacun passe par la file d’envoi, suivie ci-dessous (Envois).`
-          : 'Mode simulation (CURSUS_MAIL_FROM non définie) : aucun e-mail ne part. Chacun est tracé dans le journal et visible dans Envois, marqué « simulé ». Mise en service par le service informatique : docs/EMAILS.md.'}
+          ? `${t('E-mails sent by Microsoft 365 from ')}${etat.expediteur}${t(': notifications of the approval steps, notices to attend (with their .ics file), hours statements of the temporary work agencies. Each one goes through the sending queue, followed below (Sendings).')}`
+          : t('Simulation mode (CURSUS_MAIL_FROM not set): no e-mail leaves. Each one is traced in the log and visible in Sendings, marked “simulated”. Set-up by the IT department: docs/EMAILS.md.')}
       </Fine>
-      <Fine>Les e-mails ne contiennent ni donnée de santé, ni motif d’absence médical, ni numéro de passeport, ni les commentaires saisis dans Cursus : ils renvoient à Cursus pour le détail.</Fine>
+      <Fine>{t('E-mails contain neither health data, nor medical absence reason, nor passport number, nor the comments entered in Cursus: they refer to Cursus for the detail.')}</Fine>
 
       <div className="grid-2">
-        <Field label="Service RH" htmlFor="msg-rh">
-          <input className="input" id="msg-rh" type="email" placeholder="rh@entreprise.fr" value={f.rh} disabled={!admin} onChange={e => setF({ ...f, rh: e.target.value })} />
-          <span className="text-muted sub">Valideur des salariés sans manager ; les réponses aux e-mails lui parviennent</span>
+        <Field label={t('HR department')} htmlFor="msg-rh">
+          <input className="input" id="msg-rh" type="email" placeholder={t('hr@company.fr')} value={f.rh} disabled={!admin} onChange={e => setF({ ...f, rh: e.target.value })} />
+          <span className="text-muted sub">{t('Approver of the employees without a manager; the answers to the e-mails reach it')}</span>
         </Field>
-        <Field label="Notifications du service RH">
-          <Seg name="msg-rh-mode" label="Notifications du service RH" value={f.rhMode} options={MODES} disabled={!admin} onChange={v => setF({ ...f, rhMode: v })} style={{ flexWrap: 'wrap' }} />
+        <Field label={t('Notifications of HR')}>
+          <Seg name="msg-rh-mode" label={t('Notifications of HR')} value={f.rhMode} options={MODES} disabled={!admin} onChange={v => setF({ ...f, rhMode: v })} style={{ flexWrap: 'wrap' }} />
         </Field>
-        <Field label="Service de santé au travail" htmlFor="msg-sante">
-          <input className="input" id="msg-sante" type="email" placeholder="contact@sante-travail.fr" value={f.santeTravail} disabled={!admin} onChange={e => setF({ ...f, santeTravail: e.target.value })} />
+        <Field label={t('Occupational health service')} htmlFor="msg-sante">
+          <input className="input" id="msg-sante" type="email" placeholder={t('contact@occupational-health.fr')} value={f.santeTravail} disabled={!admin} onChange={e => setF({ ...f, santeTravail: e.target.value })} />
         </Field>
       </div>
 
-      <SectionLabel>Agences d’intérim</SectionLabel>
+      <SectionLabel>{t('Temporary work agencies')}</SectionLabel>
       {agences.length ? (
         <div className="grid-2" style={{ marginTop: 'calc(-1 * var(--space-2))' }}>
           {agences.map((nom, i) => (
             <Field key={nom} label={nom} htmlFor={`msg-agence-${i}`}>
-              <input className="input" id={`msg-agence-${i}`} type="email" placeholder="releves@agence.fr" value={f.agences[nom] ?? ''} disabled={!admin}
+              <input className="input" id={`msg-agence-${i}`} type="email" placeholder={t('statements@agency.fr')} value={f.agences[nom] ?? ''} disabled={!admin}
                 onChange={e => setF({ ...f, agences: { ...f.agences, [nom]: e.target.value } })} />
             </Field>
           ))}
         </div>
-      ) : <Fine>Aucun intérimaire : l’agence se saisit sur la fiche de l’intérimaire.</Fine>}
-      <Fine>Le relevé hebdomadaire des heures validées de leurs intérimaires (CSV joint) part à cette adresse dès que toutes les feuilles de la semaine sont validées ; le service RH le suit et le renvoie depuis Temps de travail.</Fine>
+      ) : <Fine>{t('No temporary worker: the agency is entered on the sheet of the temporary worker.')}</Fine>}
+      <Fine>{t('The weekly statement of the approved hours of their temporary workers (CSV attached) goes to this address as soon as all the timesheets of the week are approved; HR follows it and sends it again from Working time.')}</Fine>
       {admin && (
         <div className="actions-end">
-          <Btn variant="primary" disabled={!dirty || busy} onClick={enregistrer}>Enregistrer les adresses</Btn>
+          <Btn variant="primary" disabled={!dirty || busy} onClick={enregistrer}>{t('Save the addresses')}</Btn>
         </div>
       )}
 
-      <SectionLabel>Destinataires</SectionLabel>
+      <SectionLabel>{t('Recipients')}</SectionLabel>
       <Fine muted={!sansAdresse.length}>
         {sansAdresse.length
-          ? `${plural(sansAdresse.length, 'salarié sans adresse e-mail', 'salariés sans adresse e-mail')} (fiche à compléter) : ${sansAdresse.slice(0, 8).map(e => e.nom).join(', ')}${sansAdresse.length > 8 ? '…' : ''}. Ses convocations sont à remettre en main propre.`
-          : 'Chaque salarié a une adresse e-mail professionnelle sur sa fiche.'}
+          ? `${tn(sansAdresse.length, 'employee without an e-mail address', 'employees without an e-mail address')}${t(' (sheet to complete): ')}${sansAdresse.slice(0, 8).map(e => e.nom).join(', ')}${sansAdresse.length > 8 ? '…' : ''}${t('. Their notices to attend are to hand over in person.')}`
+          : t('Each employee has a work e-mail address on their sheet.')}
       </Fine>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap', justifyContent: 'space-between' }}>
         <span className="text-muted sub">
-          {etat ? `${plural(etat.recapitulatif, 'notification en attente', 'notifications en attente')} du récapitulatif quotidien (chaque jour à partir de ${HEURE_RECAPITULATIF} h)` : 'Récapitulatif quotidien : chargement…'}
+          {etat ? `${tn(etat.recapitulatif, 'notification pending', 'notifications pending')}${t(' of the daily summary (each day from ')}${HEURE_RECAPITULATIF}${t(' h)')}` : t('Daily summary: loading…')}
         </span>
-        <Btn small icon={<PaperPlaneTiltIcon size={14} />} disabled={!etat?.recapitulatif || busy} onClick={() => agir('messagerie.recapituler')}>Envoyer maintenant</Btn>
+        <Btn small icon={<PaperPlaneTiltIcon size={14} />} disabled={!etat?.recapitulatif || busy} onClick={() => agir('messagerie.recapituler')}>{t('Send now')}</Btn>
       </div>
 
       {admin && <>
-        <SectionLabel>E-mail d’essai</SectionLabel>
+        <SectionLabel>{t('Test e-mail')}</SectionLabel>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-          <input className="input" type="email" aria-label="Adresse du destinataire de l’e-mail d’essai" placeholder="prenom.nom@entreprise.fr" value={essai}
+          <input className="input" type="email" aria-label={t('Address of the recipient of the test e-mail')} placeholder={t('first.last@company.fr')} value={essai}
             onChange={e => setEssai(e.target.value)} style={{ flex: '1 1 220px', width: 'auto' }} />
-          <Btn icon={<EnvelopeSimpleIcon size={14} />} disabled={!normaliserAdresse(essai) || busy} onClick={envoyerEssai}>Envoyer un e-mail d’essai</Btn>
+          <Btn icon={<EnvelopeSimpleIcon size={14} />} disabled={!normaliserAdresse(essai) || busy} onClick={envoyerEssai}>{t('Send a test e-mail')}</Btn>
         </div>
-        <Fine>Mise en service : l’e-mail d’essai part de la boîte d’envoi ; son suivi (accusé de Microsoft 365 ou erreur) figure dans Envois.</Fine>
+        <Fine>{t('Set-up: the test e-mail leaves from the sending mailbox; its follow-up (acknowledgement of Microsoft 365 or error) appears in Sendings.')}</Fine>
       </>}
     </Panel>
   );

@@ -5,7 +5,8 @@
 // confirmé. Chaque lot reste listé avec son compte rendu ; « Rejouer » reprend son type, ses colonnes et sa date, le
 // fichier étant rechargé (son contenu n'est pas conservé). Règles : shared/rules/reprise.ts ; serveur : actions/reprise.ts.
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
-import { fmtIso, plural } from '../../../shared/format.ts';
+import { fmtIso } from '../../../shared/format.ts';
+import { t, tn } from '../i18n/langue.ts';
 import { lireCsv } from '../../../shared/rules/imports.ts';
 import {
   analyserReprise, bilanReprise, DATE_REPRISE_CONSEILLEE, ISSUE_LABEL, type IssueReprise, modeleReprise, reconnaitreColonnes, REPRISES,
@@ -66,13 +67,13 @@ export function MiseEnService() {
   const aEcrire = b ? b.crees + b.majs : 0;
   const premiere = useMemo(() => lireCsv(texte).lignes[1] ?? [], [texte]);
 
-  if (!rh) return <Page title="Mise en service"><Empty>Mise en service réservée au service RH.</Empty></Page>;
+  if (!rh) return <Page title={t('Set-up')}><Empty>{t('Set-up reserved to HR.')}</Empty></Page>;
 
   /** Nouveau contenu : colonnes reconnues par leur nom, ou celles du lot rejoué si les en-têtes sont les mêmes. */
-  const charger = (t: string, nom: string) => {
-    const entetes = lireCsv(t).lignes[0] ?? [], cle = entetes.join('\u0001');
+  const charger = (contenu: string, nom: string) => {
+    const entetes = lireCsv(contenu).lignes[0] ?? [], cle = entetes.join('\u0001');
     const meme = rejeu && rejeu.entetes.join('\u0001') === cle;
-    setTexte(t);
+    setTexte(contenu);
     setFichier(nom);
     setConfirmer(false);
     // Saisie dans la zone de texte sans changer les en-têtes : les colonnes rapprochées à la main restent.
@@ -83,11 +84,11 @@ export function MiseEnService() {
   };
   const onFile = (ev: ChangeEvent<HTMLInputElement>) => {
     const file = ev.target.files?.[0];
-    if (file) readText(file, t => charger(t, file.name));
+    if (file) readText(file, contenu => charger(contenu, file.name));
     ev.target.value = '';
   };
-  const changerType = (t: TypeReprise) => {
-    setType(t);
+  const changerType = (ty: TypeReprise) => {
+    setType(ty);
     setTexte(''); setFichier(''); setColonnes([]); setEquipes({}); setConfirmations([]); setConfirmer(false); setRejeu(null); setComptes(false);
   };
   /** Une colonne par champ : choisir un champ déjà pris le retire de l'autre colonne. */
@@ -113,43 +114,43 @@ export function MiseEnService() {
 
   const lignes = (analyse?.lignes ?? []).filter(l => filtre === 'toutes' || (filtre === 'refus' ? l.issue === 'refus' : l.ecriture));
   const lots = data.reprises;
-  const faits = (t: TypeReprise) => lots.filter(l => l.type === t).length;
+  const faits = (ty: TypeReprise) => lots.filter(l => l.type === ty).length;
 
   return (
-    <Page kicker="Administration · Reprise depuis Lucca" title="Mise en service" actions={
-      <button type="button" className="btn btn-ghost btn-sm" onClick={() => go('parametres')}>← Paramètres</button>
-    } note="Ordre conseillé : référentiels (écran Référentiels), salariés, soldes de congés, certifications, visites médicales (l’aptitude, prérequis de plusieurs habilitations), habilitations. Chaque import se rejoue sans créer de doublon ; après la reprise, Cursus fait foi pour les salariés et les compteurs.">
-      <Panel title="Import" aside={!admin ? <Tag cls="tag-outline">Consultation</Tag> : undefined} style={{ gap: 'var(--space-4)' }}>
-        <Seg name="reprise-type" label="Données à importer" value={type} onChange={changerType}
-          options={TYPES_REPRISE.map(t => [t, <>{REPRISES[t].label}{faits(t) ? ' · importé' : ''}</>])} />
+    <Page kicker={`${t('Administration')} · ${t('Takeover from Lucca')}`} title={t('Set-up')} actions={
+      <button type="button" className="btn btn-ghost btn-sm" onClick={() => go('parametres')}>{t('← Settings')}</button>
+    } note={t('Recommended order: reference data (Reference data screen), employees, leave balances, certifications, medical visits (fitness, prerequisite of several authorisations), authorisations. Each import can be run again without creating duplicates; after the takeover, Cursus is the reference for the employees and the counters.')}>
+      <Panel title={t('Importing')} aside={!admin ? <Tag cls="tag-outline">{t('Read only#tag')}</Tag> : undefined} style={{ gap: 'var(--space-4)' }}>
+        <Seg name="reprise-type" label={t('Data to import')} value={type} onChange={changerType}
+          options={TYPES_REPRISE.map(ty => [ty, <>{REPRISES[ty].label}{faits(ty) ? t(' · imported') : ''}</>])} />
         <Fine>{R.aide}</Fine>
-        {!admin ? <Fine>Les imports sont réservés à l’administrateur RH ; les lots déjà importés et leur compte rendu restent consultables ci-dessous.</Fine> : (
+        {!admin ? <Fine>{t('Imports are reserved to the HR administrator; the batches already imported and their report stay readable below.')}</Fine> : (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={modele}>Télécharger le modèle CSV</button>
-              <span className="text-muted sub">Colonnes : {R.champs.map(c => c.label).join(' ; ')}. Séparateur « ; », première ligne d’en-têtes.</span>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={modele}>{t('Download the CSV template')}</button>
+              <span className="text-muted sub">{t('Columns: ')}{R.champs.map(c => c.label).join(t('; '))}{t('. Separator “;”, first line of headers.')}</span>
             </div>
-            {rejeu && <NoteAccent>Rejouer le lot n° {rejeu.lot} : rechargez le fichier (son contenu n’est pas conservé dans Cursus). Ses colonnes et ses rapprochements seront repris si les en-têtes n’ont pas changé.</NoteAccent>}
+            {rejeu && <NoteAccent>{t('Run batch no. ')}{rejeu.lot}{t(' again: load the file again (its content is not kept in Cursus). Its columns and its matchings will be taken over if the headers have not changed.')}</NoteAccent>}
             <div className="grid-2">
-              <Field label="Fichier CSV" htmlFor="reprise-fichier">
+              <Field label={t('CSV file')} htmlFor="reprise-fichier">
                 <input ref={champFichier} id="reprise-fichier" type="file" accept=".csv,.txt,text/csv" onChange={onFile} className="text-n300" style={{ fontSize: 13, maxWidth: '100%' }} />
               </Field>
               {type === 'soldes' && (
-                <Field label="Date d’arrêté des soldes" htmlFor="reprise-date" requis erreur={analyse?.bloquant?.startsWith('Date') ? 'Date invalide.' : null}>
+                <Field label={t('Date of the balances')} htmlFor="reprise-date" requis erreur={analyse?.bloquant?.startsWith('Date') ? t('Invalid date.') : null}>
                   <input className="input" id="reprise-date" type="date" value={dateReprise} onChange={e => setDateReprise(e.target.value)} />
                 </Field>
               )}
               {type === 'salaries' && (
-                <Field label="Comptes de connexion">
+                <Field label={t('Sign-in accounts')}>
                   <label style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center', fontSize: 13 }}>
                     <input type="checkbox" checked={comptes} onChange={e => setComptes(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-                    Créer les comptes Microsoft 365 à partir des adresses e-mail
+                    {t('Create the Microsoft 365 accounts from the e-mail addresses')}
                   </label>
                 </Field>
               )}
             </div>
-            {fichier && <span className="note-accent">Fichier chargé : {fichier}</span>}
-            <Field label="Ou coller le contenu" htmlFor="reprise-texte">
+            {fichier && <span className="note-accent">{t('File loaded: ')}{fichier}</span>}
+            <Field label={t('Or paste the content')} htmlFor="reprise-texte">
               <textarea className="input mono-input" id="reprise-texte" rows={3} value={texte} placeholder={modeleReprise(type).entetes.join(';')}
                 onChange={e => charger(e.target.value, '')} />
             </Field>
@@ -157,18 +158,18 @@ export function MiseEnService() {
         )}
         {admin && analyse && analyse.entetes.length > 0 && (
           <>
-            <SectionLabel>Colonnes du fichier</SectionLabel>
+            <SectionLabel>{t('Columns of the file')}</SectionLabel>
             <div className="scroll-x">
               <table className="table" style={{ fontSize: 13 }}>
-                <thead><tr><th>Colonne</th><th>Première ligne</th><th>Champ de Cursus</th></tr></thead>
+                <thead><tr><th>{t('Column')}</th><th>{t('First line')}</th><th>{t('Field of Cursus')}</th></tr></thead>
                 <tbody>
                   {analyse.entetes.map((h, i) => (
                     <tr key={i}>
-                      <td>{h || <span className="text-muted">(sans titre)</span>}</td>
+                      <td>{h || <span className="text-muted">{t('(untitled)')}</span>}</td>
                       <td className="text-muted">{premiere[i] || '—'}</td>
                       <td>
-                        <select className="input" aria-label={`Champ de la colonne ${h || i + 1}`} value={colonnes[i] ?? ''} onChange={e => choisirColonne(i, e.target.value)}>
-                          <option value="">— Ignorée —</option>
+                        <select className="input" aria-label={`${t('Field of the column ')}${h || i + 1}`} value={colonnes[i] ?? ''} onChange={e => choisirColonne(i, e.target.value)}>
+                          <option value="">{t('— Ignored —')}</option>
                           {R.champs.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                         </select>
                       </td>
@@ -181,14 +182,14 @@ export function MiseEnService() {
         )}
         {admin && analyse && analyse.equipesInconnues.length > 0 && (
           <>
-            <SectionLabel>Équipes absentes de Cursus</SectionLabel>
+            <SectionLabel>{t('Teams missing from Cursus')}</SectionLabel>
             <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
               {analyse.equipesInconnues.map(q => (
                 <div key={q} className="list-row">
                   <div className="grow" style={{ fontSize: 14 }}>{q}</div>
-                  <select className="input" style={{ maxWidth: 280 }} aria-label={`Équipe ${q}`} value={equipes[q] ?? ''} onChange={e => setEquipes(x => ({ ...x, [q]: e.target.value }))}>
-                    <option value="">Créer l’équipe « {q} »</option>
-                    {d.equipes.map(x => <option key={x} value={x}>Rattacher à {x}</option>)}
+                  <select className="input" style={{ maxWidth: 280 }} aria-label={`${t('Team ')}${q}`} value={equipes[q] ?? ''} onChange={e => setEquipes(x => ({ ...x, [q]: e.target.value }))}>
+                    <option value="">{t('Create the team “')}{q}{t('”#close')}</option>
+                    {d.equipes.map(x => <option key={x} value={x}>{t('Attach to ')}{x}</option>)}
                   </select>
                 </div>
               ))}
@@ -199,16 +200,16 @@ export function MiseEnService() {
         {admin && analyse && b && !analyse.bloquant && (
           <>
             <div className="panel-head">
-              <h3 style={{ fontSize: 14, margin: 0 }}>Aperçu</h3>
+              <h3 style={{ fontSize: 14, margin: 0 }}>{t('Preview')}</h3>
               <span className="text-muted sub">
-                {plural(analyse.lignes.length, 'ligne', 'lignes')} · {plural(b.crees, 'ajout', 'ajouts')} · {plural(b.majs, 'mise à jour', 'mises à jour')} · {plural(b.ignorees, 'ignorée', 'ignorées')} · {plural(b.refusees, 'refusée', 'refusées')}
+                {tn(analyse.lignes.length, 'line', 'lines')} · {tn(b.crees, 'addition', 'additions')} · {tn(b.majs, 'update', 'updates')} · {tn(b.ignorees, 'ignored#fem', 'ignored#fem-plural')} · {tn(b.refusees, 'refused#fem', 'refused#fem-plural')}
               </span>
             </div>
-            <Seg name="reprise-filtre" label="Lignes affichées" value={filtre} onChange={setFiltre}
-              options={[['toutes', 'Toutes'], ['ecrites', 'À écrire'], ['refus', 'Refusées']]} />
+            <Seg name="reprise-filtre" label={t('Lines shown')} value={filtre} onChange={setFiltre}
+              options={[['toutes', t('All#fem')], ['ecrites', t('To write')], ['refus', t('Refused#fem-plural')]]} />
             <div className="scroll-x">
               <table className="table" style={{ fontSize: 13 }}>
-                <thead><tr><th>Ligne</th><th>Salarié</th><th>Résultat</th><th>Détail</th></tr></thead>
+                <thead><tr><th>{t('Line#row')}</th><th>{t('Employee#salarie')}</th><th>{t('Result')}</th><th>{t('Detail')}</th></tr></thead>
                 <tbody>
                   {lignes.map(l => (
                     <tr key={l.n} style={l.issue === 'refus' || l.issue === 'ignoree' ? { opacity: l.confirmation ? 1 : 0.7 } : undefined}>
@@ -228,55 +229,55 @@ export function MiseEnService() {
                       </td>
                     </tr>
                   ))}
-                  {!lignes.length && <tr><td colSpan={4} className="text-muted">Aucune ligne dans ce filtre.</td></tr>}
+                  {!lignes.length && <tr><td colSpan={4} className="text-muted">{t('No line in this filter.')}</td></tr>}
                 </tbody>
               </table>
             </div>
             {confirmer ? (
-              <div className="card" role="group" aria-label="Confirmer l’import" style={{ padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+              <div className="card" role="group" aria-label={t('Confirm the import')} style={{ padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
                 <div style={{ fontSize: 14 }}>
-                  Importer {plural(aEcrire, 'ligne', 'lignes')} ({plural(b.crees, 'ajout', 'ajouts')}, {plural(b.majs, 'mise à jour', 'mises à jour')}){type === 'soldes' && dateReprise ? `, soldes arrêtés au ${fmtIso(dateReprise)}` : ''} ?
-                  {b.refusees ? ` ${plural(b.refusees, 'ligne refusée ne sera pas importée', 'lignes refusées ne seront pas importées')} : corrigez le fichier et rejouez l’import.` : ''}
-                  {type === 'salaries' && comptes ? ' Les comptes Microsoft 365 des salariés présents qui n’en ont pas seront créés.' : ''}
+                  {t('Import ')}{tn(aEcrire, 'line', 'lines')} ({tn(b.crees, 'addition', 'additions')}, {tn(b.majs, 'update', 'updates')}){type === 'soldes' && dateReprise ? `${t(', balances at ')}${fmtIso(dateReprise)}` : ''}{t('?#question')}
+                  {b.refusees ? ` ${tn(b.refusees, 'refused line will not be imported', 'refused lines will not be imported')}${t(': correct the file and run the import again.')}` : ''}
+                  {type === 'salaries' && comptes ? t(' The Microsoft 365 accounts of the present employees who have none will be created.') : ''}
                 </div>
                 <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-                  <button type="button" className="btn btn-primary" disabled={occupe} onClick={agir(importer)}>Confirmer l’import</button>
-                  <button type="button" className="btn btn-secondary" disabled={occupe} onClick={() => setConfirmer(false)}>Annuler</button>
+                  <button type="button" className="btn btn-primary" disabled={occupe} onClick={agir(importer)}>{t('Confirm the import')}</button>
+                  <button type="button" className="btn btn-secondary" disabled={occupe} onClick={() => setConfirmer(false)}>{t('Cancel')}</button>
                 </div>
               </div>
             ) : (
               <div>
                 {aEcrire > 0
-                  ? <button type="button" className="btn btn-primary" onClick={() => setConfirmer(true)}>Importer {plural(aEcrire, 'ligne', 'lignes')}</button>
-                  : <p className="field-erreur bloquant">Aucune ligne à importer : {b.refusees ? 'corrigez les lignes refusées' : 'tout est déjà à jour'}.</p>}
+                  ? <button type="button" className="btn btn-primary" onClick={() => setConfirmer(true)}>{t('Import ')}{tn(aEcrire, 'line', 'lines')}</button>
+                  : <p className="field-erreur bloquant">{t('No line to import: ')}{t(b.refusees ? 'correct the refused lines' : 'everything is already up to date')}.</p>}
               </div>
             )}
           </>
         )}
       </Panel>
 
-      <Panel title="Lots importés" aside={lots.length ? plural(lots.length, 'lot', 'lots') : undefined}>
+      <Panel title={t('Imported batches')} aside={lots.length ? tn(lots.length, 'batch', 'batches') : undefined}>
         {lots.length ? (
           <div className="list">
             {lots.map(lot => {
-              const t = (TYPES_REPRISE as string[]).includes(lot.type) ? REPRISES[lot.type as TypeReprise] : null;
+              const rep = (TYPES_REPRISE as string[]).includes(lot.type) ? REPRISES[lot.type as TypeReprise] : null;
               const deplie = ouvert === lot.id;
               return (
                 <div key={lot.id} className="list-row stack">
                   <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center', flexWrap: 'wrap' }}>
                     <div className="grow" style={{ minWidth: 220, flex: 1 }}>
-                      <div style={{ fontSize: 14 }}>{t?.label ?? lot.type} · lot n° {lot.id}{lot.fichier ? ` · ${lot.fichier}` : ''}</div>
+                      <div style={{ fontSize: 14 }}>{rep?.label ?? lot.type} · {t('batch no. ')}{lot.id}{lot.fichier ? ` · ${lot.fichier}` : ''}</div>
                       <div className="text-muted sub">
-                        {quand(lot.le)} · {lot.par}{lot.dateReprise ? ` · soldes au ${fmtIso(lot.dateReprise)}` : ''} · {plural(lot.crees, 'ajout', 'ajouts')}, {plural(lot.majs, 'mise à jour', 'mises à jour')}, {plural(lot.ignorees, 'ignorée', 'ignorées')}, {plural(lot.refusees, 'refusée', 'refusées')}
+                        {quand(lot.le)} · {lot.par}{lot.dateReprise ? ` · ${t('balances at ')}${fmtIso(lot.dateReprise)}` : ''} · {tn(lot.crees, 'addition', 'additions')}, {tn(lot.majs, 'update', 'updates')}, {tn(lot.ignorees, 'ignored#fem', 'ignored#fem-plural')}, {tn(lot.refusees, 'refused#fem', 'refused#fem-plural')}
                       </div>
                     </div>
-                    <button type="button" className="btn btn-ghost btn-sm" aria-expanded={deplie} onClick={() => setOuvert(deplie ? null : lot.id)}>{deplie ? 'Masquer le compte rendu' : 'Compte rendu'}</button>
-                    {admin && t && <button type="button" className="btn btn-secondary btn-sm" onClick={() => rejouer(lot)}>Rejouer</button>}
+                    <button type="button" className="btn btn-ghost btn-sm" aria-expanded={deplie} onClick={() => setOuvert(deplie ? null : lot.id)}>{t(deplie ? 'Hide the report' : 'Report#import')}</button>
+                    {admin && rep && <button type="button" className="btn btn-secondary btn-sm" onClick={() => rejouer(lot)}>{t('Run again')}</button>}
                   </div>
                   {deplie && (
                     <div className="scroll-x">
                       <table className="table" style={{ fontSize: 13 }}>
-                        <thead><tr><th>Ligne</th><th>Salarié</th><th>Résultat</th><th>Motif</th></tr></thead>
+                        <thead><tr><th>{t('Line#row')}</th><th>{t('Employee#salarie')}</th><th>{t('Result')}</th><th>{t('Reason')}</th></tr></thead>
                         <tbody>{lot.rapport.map(x => <tr key={x.n}><td className="tnum">{x.n}</td><td className="nowrap">{x.nom}</td><td>{x.issue}</td><td>{x.motif}</td></tr>)}</tbody>
                       </table>
                     </div>
@@ -285,7 +286,7 @@ export function MiseEnService() {
               );
             })}
           </div>
-        ) : <Empty pad="sm">Aucun import pour l’instant.</Empty>}
+        ) : <Empty pad="sm">{t('No import for now.')}</Empty>}
       </Panel>
     </Page>
   );

@@ -22,14 +22,16 @@ import { nomDossierOpco } from '../components/opco/commun.ts';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import type { NomAction } from '../api.ts';
+import { t } from '../i18n/langue.ts';
 
+/** Titre, bouton et libellé de la date de chaque étape : chaînes sources anglaises, traduites au rendu. */
 const TITRES: Record<EtapeOpco, { titre: string; bouton: string; date: string }> = {
-  deposer: { titre: 'Dossier déposé à l’OPCO', bouton: 'Enregistrer le dépôt', date: 'Déposé le' },
-  accorder: { titre: 'Accord de l’OPCO', bouton: 'Enregistrer l’accord', date: 'Accordé le' },
-  refuser: { titre: 'Refus de l’OPCO', bouton: 'Enregistrer le refus', date: 'Refusé le' },
-  facturer: { titre: 'Justificatifs envoyés à l’OPCO', bouton: 'Enregistrer l’envoi', date: 'Envoyés le' },
-  solder: { titre: 'Solder le dossier OPCO', bouton: 'Solder le dossier', date: 'Soldé le' },
-  abandonner: { titre: 'Abandonner le dossier OPCO', bouton: 'Abandonner le dossier', date: '' },
+  deposer: { titre: 'File filed with the OPCO', bouton: 'Save the filing', date: 'Filed on' },
+  accorder: { titre: 'Approval of the OPCO', bouton: 'Save the approval', date: 'Granted on' },
+  refuser: { titre: 'Refusal of the OPCO', bouton: 'Save the refusal', date: 'Refused on' },
+  facturer: { titre: 'Supporting documents sent to the OPCO', bouton: 'Save the sending', date: 'Sent on#plural' },
+  solder: { titre: 'Settle the OPCO file', bouton: 'Settle the file', date: 'Settled on' },
+  abandonner: { titre: 'Abandon the OPCO file', bouton: 'Abandon the file', date: '' },
 };
 
 /** Action de chaque étape, nommée en entier (tests/actions-contrat.test.ts : aucun nom construit). */
@@ -40,9 +42,9 @@ const ACTIONS = {
 /** Message sous un montant : vide (exigé) ou mal écrit. */
 function erreurMontant(v: string, vide: string | null): string | null {
   if (!v.trim()) return vide;
-  return montantOpco(v) === null ? 'Montant en euros, de 0 à 1 000 000.' : null;
+  return montantOpco(v) === null ? t('Amount in euros, from 0 to 1,000,000.') : null;
 }
-const erreurReference = (v: string) => (v.trim() && !referenceValide(v.trim()) ? 'Lettres, chiffres, « . », « / », « _ » ou « - », sans espace, 40 caractères au plus.' : null);
+const erreurReference = (v: string) => (v.trim() && !referenceValide(v.trim()) ? t('Letters, digits, “.”, “/”, “_” or “-”, without a space, 40 characters at most.') : null);
 
 export function OpcoEtapeDialog({ id, etape }: { id: number; etape: EtapeOpco }) {
   const d = useDomain();
@@ -61,7 +63,7 @@ export function OpcoEtapeDialog({ id, etape }: { id: number; etape: EtapeOpco })
   const [busy, setBusy] = useState(false);
   const v = useVerification();
   if (!dossier) return null;
-  const t = TITRES[etape];
+  const ti = TITRES[etape];
   const nom = nomDossierOpco(d, dossier);
 
   // Pièces de la demande de remboursement : exigées par le serveur quand les pièces justificatives sont activées.
@@ -70,13 +72,13 @@ export function OpcoEtapeDialog({ id, etape }: { id: number; etape: EtapeOpco })
   const solde = etape === 'solder' ? ecartAuSolde(dossier, d.ds.versementsOpco) : null;
   // Date du fait : jamais dans le futur, jamais avant l'étape précédente (contrôle repris du serveur).
   const avant = etape === 'accorder' || etape === 'refuser' ? dossier.deposeLe : etape === 'facturer' ? dossier.accordLe : etape === 'solder' ? dossier.factureLe : null;
-  const dateErr = etape === 'abandonner' ? null : erreurDate(le, 'Indiquez la date.')
-    ?? (le > d.ti ? 'La date ne peut pas être dans le futur.' : avant && le < avant ? `La date précède celle de l’étape précédente (${fmtIso(avant)}).` : null);
-  const montantErr = etape === 'accorder' ? erreurMontant(montant, 'Indiquez le montant accordé.') : etape === 'facturer' ? erreurMontant(montant, 'Indiquez le montant facturé.') : null;
+  const dateErr = etape === 'abandonner' ? null : erreurDate(le, t('Enter the date.'))
+    ?? (le > d.ti ? t('The date cannot be in the future.') : avant && le < avant ? `${t('The date comes before that of the previous step (')}${fmtIso(avant)}).` : null);
+  const montantErr = etape === 'accorder' ? erreurMontant(montant, t('Enter the amount granted.')) : etape === 'facturer' ? erreurMontant(montant, t('Enter the amount invoiced.')) : null;
   const plafondErr = etape === 'accorder' ? erreurMontant(plafond, null) : null;
   const refErr = erreurReference(reference);
-  const motifErr = (etape === 'refuser' || etape === 'abandonner') && !motif ? 'Choisissez le motif.' : null;
-  const piecesErr = manquent.length ? `Joignez d’abord au dossier : ${manquent.map(n => decap(NATURES_PIECE_OPCO[n])).join(', ')}.` : null;
+  const motifErr = (etape === 'refuser' || etape === 'abandonner') && !motif ? t('Choose the reason.') : null;
+  const piecesErr = manquent.length ? `${t('First attach to the file: ')}${manquent.map(n => decap(NATURES_PIECE_OPCO[n])).join(', ')}.` : null;
 
   const envoyer = async () => {
     if (busy || !v.verifier(dateErr, montantErr, plafondErr, refErr, motifErr, piecesErr)) return;
@@ -95,70 +97,70 @@ export function OpcoEtapeDialog({ id, etape }: { id: number; etape: EtapeOpco })
   };
 
   return (
-    <Dialog title={t.titre} width={520} onSubmit={envoyer} actions={<>
+    <Dialog title={t(ti.titre)} width={520} onSubmit={envoyer} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>{t.bouton}</SubmitButton>
+      <SubmitButton busy={busy}>{t(ti.bouton)}</SubmitButton>
     </>}>
-      <Field label="Dossier">
-        <Static>{nom}<div className="text-muted sub">« {STATUTS_OPCO[dossier.statut].label} »{dossier.reference ? ` · dossier ${dossier.reference}` : ''}</div></Static>
+      <Field label={t('File#opco')}>
+        <Static>{nom}<div className="text-muted sub">{t('“#open')}{STATUTS_OPCO[dossier.statut].label}{t('”#close')}{dossier.reference ? ` · ${t('file#opco')} ${dossier.reference}` : ''}</div></Static>
       </Field>
       {etape !== 'abandonner' && (
-        <Field label={t.date} htmlFor="opco-le" requis erreur={v.erreur(dateErr) || (le ? dateErr : null)}>
+        <Field label={t(ti.date)} htmlFor="opco-le" requis erreur={v.erreur(dateErr) || (le ? dateErr : null)}>
           <input className="input" id="opco-le" type="date" min={avant ?? undefined} max={d.ti} value={le} onChange={e => setLe(e.target.value)} />
         </Field>
       )}
       {etape === 'deposer' && (
-        <Field label="Numéro du dossier chez l’OPCO" htmlFor="opco-ref" erreur={refErr}>
+        <Field label={t('Number of the file at the OPCO')} htmlFor="opco-ref" erreur={refErr}>
           <input className="input" id="opco-ref" value={reference} onChange={e => setReference(e.target.value)} autoComplete="off" />
         </Field>
       )}
       {etape === 'accorder' && <>
         <div className="grid-2">
-          <Field label="Montant accordé (€)" htmlFor="opco-montant" requis erreur={v.erreur(montantErr) || (montant.trim() ? montantErr : null)}>
+          <Field label={t('Amount granted (€)')} htmlFor="opco-montant" requis erreur={v.erreur(montantErr) || (montant.trim() ? montantErr : null)}>
             <input className="input tnum" id="opco-montant" inputMode="decimal" value={montant} onChange={e => setMontant(e.target.value)} autoFocus />
           </Field>
-          <Field label="Plafond horaire (€ / h)" htmlFor="opco-plafond" erreur={plafondErr}>
+          <Field label={t('Hourly cap (€ / h)')} htmlFor="opco-plafond" erreur={plafondErr}>
             <input className="input tnum" id="opco-plafond" inputMode="decimal" value={plafond} onChange={e => setPlafond(e.target.value)} />
           </Field>
         </div>
-        <Field label="Référence de l’accord" htmlFor="opco-ref" erreur={refErr}>
+        <Field label={t('Reference of the approval')} htmlFor="opco-ref" erreur={refErr}>
           <input className="input" id="opco-ref" value={reference} onChange={e => setReference(e.target.value)} autoComplete="off" />
         </Field>
       </>}
       {etape === 'facturer' && (
-        <Field label="Montant facturé (€)" htmlFor="opco-montant" requis erreur={v.erreur(montantErr) || (montant.trim() ? montantErr : null)}>
+        <Field label={t('Amount invoiced (€)')} htmlFor="opco-montant" requis erreur={v.erreur(montantErr) || (montant.trim() ? montantErr : null)}>
           <input className="input tnum" id="opco-montant" inputMode="decimal" value={montant} onChange={e => setMontant(e.target.value)} autoFocus />
         </Field>
       )}
       {(etape === 'refuser' || etape === 'abandonner') && (
-        <Field label={etape === 'refuser' ? 'Motif du refus' : 'Motif de l’abandon'} htmlFor="opco-motif" requis erreur={v.erreur(motifErr)}>
+        <Field label={t(etape === 'refuser' ? 'Reason for the refusal' : 'Reason for the abandonment')} htmlFor="opco-motif" requis erreur={v.erreur(motifErr)}>
           <select className="input" id="opco-motif" value={motif} onChange={e => setMotif(e.target.value)}>
-            <option value="">Choisir…</option>
+            <option value="">{t('Choose…')}</option>
             {Object.entries<string>(etape === 'refuser' ? MOTIFS_REFUS_OPCO : MOTIFS_ABANDON_OPCO).map(([k, l]) => <option key={k} value={k as MotifRefusOpco | MotifAbandonOpco}>{l}</option>)}
           </select>
         </Field>
       )}
       {solde && (
         solde.ecart > 0
-          ? <Field label={`Écart restant : ${eurosOpco(solde.ecart)} accordés non reçus`} htmlFor="opco-ecart">
+          ? <Field label={`${t('Remaining difference: ')}${eurosOpco(solde.ecart)}${t(' granted not received')}`} htmlFor="opco-ecart">
               <select className="input" id="opco-ecart" value={nature || solde.nature} onChange={e => setNature(e.target.value as EcartSoldeOpco)}>
                 {(['partiel', 'perte'] as const).map(k => <option key={k} value={k}>{ECARTS_SOLDE_OPCO[k]}</option>)}
               </select>
             </Field>
-          : <Fine>Tout l’accordé a été reçu : le dossier se solde sans écart.</Fine>
+          : <Fine>{t('All of the granted amount has been received: the file is settled without difference.')}</Fine>
       )}
       {piecesErr && (
         <div className={`note-accent${v.tente ? ' bloquant' : ''}`} tabIndex={v.tente ? -1 : undefined} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
           <span style={{ flex: 1 }}>{piecesErr}</span>
-          <Btn small onClick={() => openDialog({ type: 'opcoPiece', id: dossier.id, nature: manquent[0] })}>Joindre une pièce</Btn>
+          <Btn small onClick={() => openDialog({ type: 'opcoPiece', id: dossier.id, nature: manquent[0] })}>{t('Attach a document')}</Btn>
         </div>
       )}
       <Fine>
-        {etape === 'refuser' || etape === 'abandonner' ? 'Le motif reste sur le dossier, au service RH : jamais au journal ni à la lecture seule. ' : ''}
-        {etape === 'facturer' ? 'Demande de remboursement : facture et certificat de réalisation (ou feuilles d’émargement) à transmettre à l’OPCO. ' : ''}
-        {etape === 'solder' ? 'Le solde fige l’écart entre l’accordé et le reçu ; le dossier sort des relances. ' : ''}
-        {etape === 'abandonner' ? 'Le dossier sort des relances ; la ligne du plan peut de nouveau être supprimée. ' : ''}
-        L’administrateur RH peut revenir sur une étape enregistrée par erreur.
+        {etape === 'refuser' || etape === 'abandonner' ? t('The reason stays on the file, with HR: never in the log nor in read only. ') : ''}
+        {etape === 'facturer' ? t('Reimbursement request: invoice and certificate of completion (or attendance sheets) to send to the OPCO. ') : ''}
+        {etape === 'solder' ? t('The settlement freezes the difference between the granted and the received amounts; the file leaves the reminders. ') : ''}
+        {etape === 'abandonner' ? t('The file leaves the reminders; the line of the plan can be deleted again. ') : ''}
+        {t('The HR administrator can go back on a step recorded by mistake.')}
       </Fine>
     </Dialog>
   );

@@ -6,7 +6,7 @@
 // modification, lecture seule en consultation (sans motifs) ; le serveur contrôle tout de nouveau.
 import { useMemo, useState } from 'react';
 import { DownloadSimpleIcon } from '@phosphor-icons/react';
-import { fmtEur, fmtIso, plural, rel } from '../../../../shared/format.ts';
+import { fmtEur, fmtIso, rel } from '../../../../shared/format.ts';
 import {
   DISPOSITIFS_OPCO, echeanceOpco, type EcheanceOpco, LISTE_DISPOSITIFS, CODES_OPCO, montantsOpco, OPCOS, STATUTS_OPCO, syntheseOpco, versementsDeLaPeriode,
   type LigneSyntheseOpco,
@@ -21,9 +21,11 @@ import { useDomain } from '../../state/derived.ts';
 import { useStore } from '../../state/store.tsx';
 import { CLS_OPCO, nomDossierOpco, passeFiltre } from './commun.ts';
 import { DossierOpcoPanel } from './DossierOpcoPanel.tsx';
+import { t, tn } from '../../i18n/langue.ts';
 
 type Axe = 'opco' | 'dispositif' | 'equipe' | 'trimestre';
-const AXES: [Axe, string][] = [['opco', 'OPCO'], ['dispositif', 'Dispositif'], ['equipe', 'Équipe'], ['trimestre', 'Trimestre']];
+// Libellés : chaînes sources anglaises, traduites au rendu.
+const AXES: [Axe, string][] = [['opco', 'OPCO'], ['dispositif', 'Scheme'], ['equipe', 'Team'], ['trimestre', 'Quarter']];
 
 /** Échéance d'un dossier en une ligne : « Justificatifs à envoyer… · 12 nov. 2026 (dans 5 j) ». */
 export const texteEcheance = (e: EcheanceOpco) => `${e.libelle} · ${fmtIso(e.echeance)} (${rel(e.jours)})`;
@@ -57,39 +59,39 @@ export function DossiersOpco({ exercice }: { exercice: number }) {
   const codes = CODES_OPCO.filter(c => c === ui.opcoCode || lignes.some(l => l.x.opco === c));
   const dispositifs = LISTE_DISPOSITIFS.filter(c => c === ui.opcoDispositif || lignes.some(l => l.x.dispositif === c));
   const periode = versementsDeLaPeriode(versements, du, au).filter(v => dossiers.some(x => x.id === v.dossierId));
-  const periodeErr = !du || !au ? 'Indiquez les deux dates.' : au < du ? 'La fin précède le début.' : null;
+  const periodeErr = !du || !au ? t('Enter both dates.') : au < du ? t('The end comes before the start.') : null;
   const ventilation: LigneSyntheseOpco[] = { opco: syn.parOpco, dispositif: syn.parDispositif, equipe: syn.parEquipe, trimestre: syn.parTrimestre }[axe];
   const nomAxe = (cle: string) => (axe === 'opco' ? OPCOS[cle as CodeOpco] ?? cle : axe === 'dispositif' ? DISPOSITIFS_OPCO[cle as DispositifOpco]?.label ?? cle : cle);
 
   const exporterDossiers = () => {
     const x = csvOpco(d, exercice, affichees.map(l => l.x));
     downloadCsv(x.fichier, x.head, x.rows);
-    notify(`Export CSV généré — ${plural(affichees.length, 'dossier', 'dossiers')}`);
+    notify(`${t('CSV export generated — ')}${tn(affichees.length, 'file#opco', 'files#opco')}`);
   };
   const exporterVersements = () => {
     if (periodeErr) return;
     const x = csvVersementsOpco(d, du, au, periode);
     downloadCsv(x.fichier, x.head, x.rows);
-    notify(`Export CSV généré — ${plural(periode.length, 'versement', 'versements')}`);
+    notify(`${t('CSV export generated — ')}${tn(periode.length, 'payment', 'payments')}`);
   };
 
   return <>
     <Kpis>
-      <Kpi kicker="Demandé" value={fmtEur(syn.total.demande)} sub={`${plural(syn.total.dossiers, 'dossier', 'dossiers')} sur l’exercice ${exercice}${syn.total.refuse ? ` · ${fmtEur(syn.total.refuse)} refusés` : ''}`} />
-      <Kpi kicker="Accordé" value={fmtEur(syn.total.accorde)}
-        sub={syn.tauxPriseEnCharge != null ? `${syn.tauxPriseEnCharge.toLocaleString('fr-FR')} % du coût des actions · reste à charge ${fmtEur(syn.resteACharge)}` : 'aucune action avec un dossier en cours'} />
-      <Kpi kicker="Reçu" value={fmtEur(syn.total.recu)}
-        sub={`${fmtEur(syn.total.facture)} facturés à l’OPCO · ${syn.total.attenduOrganisme ? `${fmtEur(syn.total.attenduOrganisme)} encore attendus par les organismes (subrogation)` : 'entreprise et organismes (subrogation)'}`} />
-      <Kpi kicker="À récupérer" value={fmtEur(syn.total.aRecuperer)} sub={syn.retards ? plural(syn.retards, 'dossier en retard', 'dossiers en retard') : 'aucun dossier en retard'} />
+      <Kpi kicker={t('Requested#masc')} value={fmtEur(syn.total.demande)} sub={`${tn(syn.total.dossiers, 'file#opco', 'files#opco')}${t(' over the financial year ')}${exercice}${syn.total.refuse ? ` · ${fmtEur(syn.total.refuse)}${t(' refused#plural')}` : ''}`} />
+      <Kpi kicker={t('Granted')} value={fmtEur(syn.total.accorde)}
+        sub={syn.tauxPriseEnCharge != null ? `${syn.tauxPriseEnCharge.toLocaleString('fr-FR')}${t(' % of the cost of the actions')} · ${t('remaining cost ')}${fmtEur(syn.resteACharge)}` : t('no action with a file in progress')} />
+      <Kpi kicker={t('Received')} value={fmtEur(syn.total.recu)}
+        sub={`${fmtEur(syn.total.facture)}${t(' invoiced to the OPCO')} · ${syn.total.attenduOrganisme ? `${fmtEur(syn.total.attenduOrganisme)}${t(' still expected by the providers (subrogation)')}` : t('company and providers (subrogation)')}`} />
+      <Kpi kicker={t('To recover')} value={fmtEur(syn.total.aRecuperer)} sub={syn.retards ? tn(syn.retards, 'file late', 'files late') : t('no file late')} />
     </Kpis>
     {syn.total.dossiers > 0 && (
       <p className="fine text-muted">
-        Dossiers par état : {Object.entries(syn.parStatut).filter(([, n]) => n).map(([k, n]) => `${STATUTS_OPCO[k as StatutOpco].label} : ${n}`).join(' · ')}
+        {t('Files by state: ')}{Object.entries(syn.parStatut).filter(([, n]) => n).map(([k, n]) => `${STATUTS_OPCO[k as StatutOpco].label} : ${n}`).join(' · ')}
       </p>
     )}
 
     {retards.length > 0 && (
-      <Panel highlight title="Dossiers en retard" aside={plural(retards.length, 'échéance dépassée', 'échéances dépassées')}>
+      <Panel highlight title={t('Files late')} aside={tn(retards.length, 'due date passed', 'due dates passed')}>
         <div className="list">
           {retards.map(l => (
             <div key={l.x.id} className="list-row clickable" onClick={() => setUi({ opcoSel: l.x.id, opcoFiltre: 'tous' })}>
@@ -107,37 +109,37 @@ export function DossiersOpco({ exercice }: { exercice: number }) {
     <div className="row-wrap">
       <Panel style={{ flex: '1 1 420px', minWidth: 0 }} head={
         <div className="panel-head center">
-          <h2>Dossiers OPCO {exercice}</h2>
+          <h2>{t('OPCO files ')}{exercice}</h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-            <Seg name="opcoFiltre" label="État des dossiers" value={ui.opcoFiltre}
-              onChange={v => setUi({ opcoFiltre: v })} options={[['tous', 'Tout'], ['en_cours', 'En cours'], ['retards', 'En retard'], ['clos', 'Clos']]} />
+            <Seg name="opcoFiltre" label={t('State of the files')} value={ui.opcoFiltre}
+              onChange={v => setUi({ opcoFiltre: v })} options={[['tous', t('All#everything')], ['en_cours', t('In progress')], ['retards', t('Late')], ['clos', t('Closed#plural')]]} />
             {codes.length > 1 && (
               <select className="input" aria-label="OPCO" value={ui.opcoCode ?? ''} onChange={e => setUi({ opcoCode: (e.target.value || null) as CodeOpco | null })} style={{ width: 'auto' }}>
-                <option value="">Tous les OPCO</option>
+                <option value="">{t('All OPCOs')}</option>
                 {codes.map(c => <option key={c} value={c}>{OPCOS[c]}</option>)}
               </select>
             )}
             {dispositifs.length > 1 && (
-              <select className="input" aria-label="Dispositif" value={ui.opcoDispositif ?? ''} onChange={e => setUi({ opcoDispositif: (e.target.value || null) as DispositifOpco | null })} style={{ width: 'auto', maxWidth: 260 }}>
-                <option value="">Tous les dispositifs</option>
+              <select className="input" aria-label={t('Scheme')} value={ui.opcoDispositif ?? ''} onChange={e => setUi({ opcoDispositif: (e.target.value || null) as DispositifOpco | null })} style={{ width: 'auto', maxWidth: 260 }}>
+                <option value="">{t('All schemes')}</option>
                 {dispositifs.map(c => <option key={c} value={c}>{DISPOSITIFS_OPCO[c].label}</option>)}
               </select>
             )}
-            {affichees.length > 0 && <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exporterDossiers}>Exporter (CSV)</Btn>}
+            {affichees.length > 0 && <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exporterDossiers}>{t('Export (CSV)')}</Btn>}
           </div>
         </div>
       }>
         {affichees.length > 0 && (
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Action du plan</th><th>État</th><th className="right">Demandé</th><th className="right">Accordé</th><th className="right">Reçu</th><th className="right">À récupérer</th></tr></thead>
+              <thead><tr><th>{t('Action of the plan')}</th><th>{t('State')}</th><th className="right">{t('Requested#masc')}</th><th className="right">{t('Granted')}</th><th className="right">{t('Received')}</th><th className="right">{t('To recover')}</th></tr></thead>
               <tbody>
                 {affichees.map(({ x, e, m, nom }) => (
                   <tr key={x.id} className="clickable" onClick={() => ouvrir(x)}
                     style={{ backgroundColor: ui.opcoSel === x.id ? 'color-mix(in srgb, var(--color-accent) 10%, transparent)' : undefined }}>
                     <td style={{ minWidth: 200 }}>
                       <div><Ouvrir pressed={ui.opcoSel === x.id} onOpen={() => ouvrir(x)}>{nom}</Ouvrir></div>
-                      <div className="text-muted sub">{OPCOS[x.opco]} · {DISPOSITIFS_OPCO[x.dispositif].label}{x.reference ? ` · ${x.reference}` : ''}{x.subrogation ? ' · subrogation' : ''}</div>
+                      <div className="text-muted sub">{OPCOS[x.opco]} · {DISPOSITIFS_OPCO[x.dispositif].label}{x.reference ? ` · ${x.reference}` : ''}{x.subrogation ? ` · ${t('subrogation')}` : ''}</div>
                     </td>
                     <td>
                       <Tag cls={CLS_OPCO[x.statut]}>{STATUTS_OPCO[x.statut].label}</Tag>
@@ -146,18 +148,17 @@ export function DossiersOpco({ exercice }: { exercice: number }) {
                     <td className="right tnum nowrap">{fmtEur(m.demande)}</td>
                     <td className="right tnum nowrap">{x.accordLe ? fmtEur(m.accorde) : '—'}</td>
                     <td className="right tnum nowrap">{fmtEur(m.recuEntreprise + m.payeOrganisme)}</td>
-                    <td className="right tnum nowrap">{x.subrogation ? (m.attenduOrganisme ? <Two main={fmtEur(m.attenduOrganisme)} sub="à l’organisme" /> : '—') : m.aRecuperer ? fmtEur(m.aRecuperer) : '—'}</td>
+                    <td className="right tnum nowrap">{x.subrogation ? (m.attenduOrganisme ? <Two main={fmtEur(m.attenduOrganisme)} sub={t('to the provider')} /> : '—') : m.aRecuperer ? fmtEur(m.aRecuperer) : '—'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-        {lignes.length > 0 && affichees.length === 0 && <Empty pad="sm">Aucun dossier avec ces filtres.</Empty>}
+        {lignes.length > 0 && affichees.length === 0 && <Empty pad="sm">{t('No file with these filters.')}</Empty>}
         {lignes.length === 0 && (
           <Empty pad="sm">
-            Aucun dossier OPCO sur l’exercice {exercice}. Un dossier se crée depuis sa ligne du plan (onglet Plan & budget, colonne OPCO) : il suit la
-            demande de prise en charge, de son dépôt au solde.
+            {t('No OPCO file in the financial year ')}{exercice}{t('. A file is created from its line of the plan (Plan & budget tab, OPCO column): it follows the funding request, from its filing to its settlement.')}
           </Empty>
         )}
       </Panel>
@@ -165,10 +166,10 @@ export function DossiersOpco({ exercice }: { exercice: number }) {
     </div>
 
     {lignes.length > 0 && (
-      <Panel title="Répartition" aside={<Seg name="opcoAxe" label="Répartition par" value={axe} onChange={setAxe} options={AXES} style={{ flexWrap: 'wrap' }} />}>
+      <Panel title={t('Breakdown')} aside={<Seg name="opcoAxe" label={t('Breakdown by')} value={axe} onChange={setAxe} options={AXES.map(([k, l]) => [k, t(l)] as [Axe, string])} style={{ flexWrap: 'wrap' }} />}>
         <div className="scroll-x">
           <table className="table">
-            <thead><tr><th>{AXES.find(a => a[0] === axe)![1]}</th><th className="right">Dossiers</th><th className="right">Demandé</th><th className="right">Accordé</th><th className="right">Facturé</th><th className="right">Reçu</th><th className="right">À récupérer</th></tr></thead>
+            <thead><tr><th>{t(AXES.find(a => a[0] === axe)![1])}</th><th className="right">{t('Files#opco')}</th><th className="right">{t('Requested#masc')}</th><th className="right">{t('Granted')}</th><th className="right">{t('Invoiced')}</th><th className="right">{t('Received')}</th><th className="right">{t('To recover')}</th></tr></thead>
             <tbody>
               {ventilation.map(v => (
                 <tr key={v.cle}>
@@ -189,13 +190,13 @@ export function DossiersOpco({ exercice }: { exercice: number }) {
 
     <Panel head={
       <div className="panel-head center">
-        <h2>Versements de l’OPCO</h2>
+        <h2>{t('Payments of the OPCO')}</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-          <label className="text-muted sub" htmlFor="opco-periode-du">Du</label>
+          <label className="text-muted sub" htmlFor="opco-periode-du">{t('From#date')}</label>
           <input className="input" id="opco-periode-du" type="date" value={du} onChange={e => setDu(e.target.value)} style={{ width: 'auto' }} aria-invalid={periodeErr ? true : undefined} />
-          <label className="text-muted sub" htmlFor="opco-periode-au">au</label>
+          <label className="text-muted sub" htmlFor="opco-periode-au">{t('to#date')}</label>
           <input className="input" id="opco-periode-au" type="date" value={au} onChange={e => setAu(e.target.value)} style={{ width: 'auto' }} aria-invalid={periodeErr ? true : undefined} />
-          {!periodeErr && periode.length > 0 && <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exporterVersements}>Exporter (CSV)</Btn>}
+          {!periodeErr && periode.length > 0 && <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exporterVersements}>{t('Export (CSV)')}</Btn>}
         </div>
       </div>
     }>
@@ -203,15 +204,15 @@ export function DossiersOpco({ exercice }: { exercice: number }) {
       {!periodeErr && periode.length > 0 && (
         <div className="scroll-x">
           <table className="table">
-            <thead><tr><th>Versé le</th><th>Dossier</th><th>Payé à</th><th>Référence</th><th className="right">Montant</th></tr></thead>
+            <thead><tr><th>{t('Paid on')}</th><th>{t('File#opco')}</th><th>{t('Paid to')}</th><th>{t('Reference')}</th><th className="right">{t('Amount')}</th></tr></thead>
             <tbody>
               {periode.map(v => {
                 const x = dossiers.find(y => y.id === v.dossierId)!;
                 return (
                   <tr key={v.id}>
                     <td className="nowrap">{fmtIso(v.le)}</td>
-                    <td><Two main={nomDossierOpco(d, x)} sub={`${OPCOS[x.opco]}${x.reference ? ` · ${x.reference}` : ''} · exercice ${x.exercice}`} /></td>
-                    <td className="nowrap">{v.destinataire === 'organisme' ? 'Organisme' : 'Entreprise'}</td>
+                    <td><Two main={nomDossierOpco(d, x)} sub={`${OPCOS[x.opco]}${x.reference ? ` · ${x.reference}` : ''} · ${t('financial year ')}${x.exercice}`} /></td>
+                    <td className="nowrap">{t(v.destinataire === 'organisme' ? 'Provider' : 'Company')}</td>
                     <td className="nowrap">{v.reference ?? '—'}</td>
                     <td className="right tnum nowrap">{fmtEur(v.montant)}</td>
                   </tr>
@@ -221,11 +222,9 @@ export function DossiersOpco({ exercice }: { exercice: number }) {
           </table>
         </div>
       )}
-      {!periodeErr && periode.length === 0 && <Empty pad="sm">Aucun versement de l’OPCO sur cette période.</Empty>}
+      {!periodeErr && periode.length === 0 && <Empty pad="sm">{t('No payment of the OPCO over this period.')}</Empty>}
       <p className="fine text-muted">
-        Versements reçus sur la période, tous exercices confondus (date d’encaissement), pour le rapprochement avec la comptabilité. Montants des
-        indicateurs ci-dessus : comptés sur l’exercice de l’action du plan. Délais des échéances : Paramètres → Dossiers OPCO (à confirmer avec
-        les conditions de l’OPCO).
+        {t('Payments received over the period, all financial years together (date of receipt), for the reconciliation with the accounts. Amounts of the indicators above: counted in the financial year of the action of the plan. Delays of the due dates: Settings → OPCO files (to confirm with the conditions of the OPCO).')}
       </p>
     </Panel>
   </>;

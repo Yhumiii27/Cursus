@@ -16,7 +16,7 @@
 //   l'onglet affiché, ou la BDESE entière sur l'onglet BDESE). Chaque année de la BDESE garde son propre seuil d'anonymat.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { DownloadSimpleIcon, LockSimpleIcon, PrinterIcon } from '@phosphor-icons/react';
-import { fmtIso, plural } from '../../../shared/format.ts';
+import { fmtIso } from '../../../shared/format.ts';
 import { type Case, type GroupeIndicateurs, GROUPES_INDICATEURS, type IndicateursLegaux, type TableauIndicateur } from '../../../shared/rules/indicateurs-legaux.ts';
 import type { ArreteIndicateurs } from '../../../shared/types.ts';
 import { Barres } from '../components/graphiques/Barres.tsx';
@@ -33,6 +33,7 @@ import {
   seuilAnnee, tableauDe, texteMasquees, texteSeuils,
 } from './indicateurs-vue.ts';
 import { LIBELLE_ONGLET, ONGLETS_INDICATEURS, type OngletIndicateurs, TABLEAUX_ONGLET } from './indicateurs-onglets.ts';
+import { t, tn } from '../i18n/langue.ts';
 
 /** Années proposées : les cinq dernières et celles qui ont un arrêté. */
 function anneesProposees(courante: number, arretes: readonly ArreteIndicateurs[]): number[] {
@@ -68,17 +69,17 @@ function Valeur({ c, seuil, suffixe = '' }: { c: Case | undefined; seuil: number
 }
 
 /** Tableau accessible d'un indicateur : légende, en-têtes de colonne et de ligne, total en gras. */
-function Tableau({ t, seuil, legende = true }: { t: TableauIndicateur; seuil: number; legende?: boolean }) {
+function Tableau({ tb, seuil, legende = true }: { tb: TableauIndicateur; seuil: number; legende?: boolean }) {
   return (
     <div className="scroll-x">
       <table className="table tableau-indicateur">
-        <caption className={legende ? undefined : 'sr-only'}>{t.titre}</caption>
-        <thead><tr><th scope="col">{t.dimension}</th>{t.colonnes.map(c => <th key={c} scope="col" className="right">{c}</th>)}</tr></thead>
+        <caption className={legende ? undefined : 'sr-only'}>{tb.titre}</caption>
+        <thead><tr><th scope="col">{tb.dimension}</th>{tb.colonnes.map(c => <th key={c} scope="col" className="right">{c}</th>)}</tr></thead>
         <tbody>
-          {t.lignes.map((l, i) => (
+          {tb.lignes.map((l, i) => (
             <tr key={l}>
               <th scope="row" style={{ fontWeight: l === 'Total' ? 600 : 'normal' }}>{l}</th>
-              {t.colonnes.map((c, j) => <td key={c} className="right tnum nowrap"><Valeur c={t.cases[i]?.[j]} seuil={seuil} /></td>)}
+              {tb.colonnes.map((c, j) => <td key={c} className="right tnum nowrap"><Valeur c={tb.cases[i]?.[j]} seuil={seuil} /></td>)}
             </tr>
           ))}
         </tbody>
@@ -88,40 +89,40 @@ function Tableau({ t, seuil, legende = true }: { t: TableauIndicateur; seuil: nu
 }
 
 /** Lignes d'un tableau hors total (graphiques). */
-const sansTotal = (t: TableauIndicateur) => t.lignes.map((l, i) => [l, i] as const).filter(([l]) => l !== 'Total');
+const sansTotal = (tb: TableauIndicateur) => tb.lignes.map((l, i) => [l, i] as const).filter(([l]) => l !== 'Total');
 
 /** Graphique d'un tableau, quand il en a un : barres par modalité, ou pyramide par sexe ; null sinon. */
-function graphique(t: TableauIndicateur, seuil: number): ReactNode {
+function graphique(tb: TableauIndicateur, seuil: number): ReactNode {
   const barres = (col: number, suffixe = '') => (
-    <Barres titre={`${t.titre} — ${t.colonnes[col]}`} seuil={seuil} suffixe={suffixe} barres={sansTotal(t).map(([l, i]) => ({ libelle: l, c: t.cases[i]?.[col] }))} />
+    <Barres titre={`${tb.titre} — ${tb.colonnes[col]}`} seuil={seuil} suffixe={suffixe} barres={sansTotal(tb).map(([l, i]) => ({ libelle: l, c: tb.cases[i]?.[col] }))} />
   );
-  const groupe = t.lignes.length > 1;
-  switch (t.id) {
+  const groupe = tb.lignes.length > 1;
+  switch (tb.id) {
     case 'effectifs': return groupe ? barres(0) : null;
     case 'mouvements': return groupe ? barres(0) : null;
     case 'sortiesMotifs': case 'entreesContrats': return barres(0);
     case 'absenteisme':
       // Ensemble : les motifs de l'année ; par groupe : le taux de chaque modalité.
       return groupe ? barres(2, ' %')
-        : <Barres titre={`${t.titre} par motif`} seuil={seuil} suffixe=" %" barres={t.colonnes.slice(3).map((c, j) => ({ libelle: c.replace(' (%)', ''), c: t.cases[0]?.[j + 3] }))} />;
+        : <Barres titre={`${tb.titre}${t(' by reason')}`} seuil={seuil} suffixe=" %" barres={tb.colonnes.slice(3).map((c, j) => ({ libelle: c.replace(' (%)', ''), c: tb.cases[0]?.[j + 3] }))} />;
     case 'absenteismeSante': return barres(0, ' %');
     case 'formation': return groupe ? barres(3, ' %') : null;
     case 'ages': case 'anciennete':
-      return <Pyramide titre={t.titre} seuil={seuil} tranches={sansTotal(t).map(([l, i]) => ({ libelle: l, femmes: t.cases[i]?.[0], hommes: t.cases[i]?.[1] }))} />;
+      return <Pyramide titre={tb.titre} seuil={seuil} tranches={sansTotal(tb).map(([l, i]) => ({ libelle: l, femmes: tb.cases[i]?.[0], hommes: tb.cases[i]?.[1] }))} />;
     default: return null;
   }
 }
 
 /** Panneau d'un tableau : graphique, tableau, définition retenue et complétude. */
-function PanneauTableau({ t, seuil }: { t: TableauIndicateur; seuil: number }) {
-  const g = graphique(t, seuil);
+function PanneauTableau({ tb, seuil }: { tb: TableauIndicateur; seuil: number }) {
+  const g = graphique(tb, seuil);
   return (
-    <Panel title={t.titre} style={{ gap: 'var(--space-3)' }}>
+    <Panel title={tb.titre} style={{ gap: 'var(--space-3)' }}>
       {g != null && <div className="graphes">{g}</div>}
-      <Tableau t={t} seuil={seuil} legende={false} />
+      <Tableau tb={tb} seuil={seuil} legende={false} />
       <Fine>
-        <strong>Définition retenue.</strong> {t.definition}
-        {t.completude != null && <>{' '}<strong>Complétude : {t.completude} %</strong>{t.completudeTexte ? ` — ${t.completudeTexte}` : ''}.</>}
+        <strong>{t('Definition used.')}</strong> {tb.definition}
+        {tb.completude != null && <>{' '}<strong>{t('Completeness: ')}{tb.completude} %</strong>{tb.completudeTexte ? ` — ${tb.completudeTexte}` : ''}.</>}
       </Fine>
     </Panel>
   );
@@ -129,15 +130,15 @@ function PanneauTableau({ t, seuil }: { t: TableauIndicateur; seuil: number }) {
 
 /** Indicateurs clés de l'ensemble (onglet Effectifs). */
 function KpisEffectifs({ r }: { r: IndicateursLegaux }) {
-  const t = tableauDe(r, 'effectifs');
-  if (!t) return null;
-  const k = (col: number, kicker: string, sub: string) => <Kpi kicker={kicker} value={<Valeur c={caseDe(t, null, col)} seuil={r.seuil} />} sub={sub} />;
+  const tb = tableauDe(r, 'effectifs');
+  if (!tb) return null;
+  const k = (col: number, kicker: string, sub: string) => <Kpi kicker={kicker} value={<Valeur c={caseDe(tb, null, col)} seuil={r.seuil} />} sub={sub} />;
   return (
     <Kpis>
-      {k(0, 'Effectif au 31 décembre', 'salariés présents, hors intérimaires')}
-      {k(1, 'Effectif moyen', 'Sécurité sociale (art. L130-1 du CSS)')}
-      {k(2, 'Équivalents temps plein', 'au dernier jour de la période')}
-      {k(3, 'Effectif du Code du travail', 'art. L1111-2 et L1111-3')}
+      {k(0, t('Headcount at 31 December'), t('employees present, excluding temporary workers'))}
+      {k(1, t('Average headcount'), t('Social security (art. L130-1 of the CSS)'))}
+      {k(2, t('Full-time equivalents'), t('on the last day of the period'))}
+      {k(3, t('Headcount under the Labour Code'), t('art. L1111-2 and L1111-3'))}
     </Kpis>
   );
 }
@@ -149,7 +150,7 @@ function TableauBdese({ b, annees }: { b: BlocBdese; annees: readonly AnneeBdese
     <div className="scroll-x">
       <table className="table tableau-indicateur tableau-bdese">
         <caption>{b.titre}</caption>
-        <thead><tr><th scope="col">Indicateur</th>{annees.map(a => <th key={a.annee} scope="col" className="right">{a.annee}{a.arrete ? <span className="sr-only"> (arrêté)</span> : null}</th>)}</tr></thead>
+        <thead><tr><th scope="col">{t('Indicator')}</th>{annees.map(a => <th key={a.annee} scope="col" className="right">{a.annee}{a.arrete ? <span className="sr-only">{t(' (frozen)')}</span> : null}</th>)}</tr></thead>
         <tbody>
           {b.lignes.map(l => (
             <tr key={l.libelle}>
@@ -165,38 +166,37 @@ function TableauBdese({ b, annees }: { b: BlocBdese; annees: readonly AnneeBdese
 
 function OngletBdese({ annees }: { annees: readonly AnneeBdese[] }) {
   return (<>
-    <Panel title="Base de données économiques, sociales et environnementales" style={{ gap: 'var(--space-2)' }}>
+    <Panel title={t('Economic, social and environmental database')} style={{ gap: 'var(--space-2)' }}>
       <Fine muted={false}>
-        Entreprise de moins de 300 salariés, sans accord sur la BDESE : contenu de l’article R2312-9 du Code du travail, sur les années{' '}
-        {annees.map(a => a.annee).join(', ')}. Cursus remplit les rubriques 1° (investissement social) et 2° (égalité professionnelle) avec ce qu’il
-        connaît ; le reste est listé avec sa source. Pas de bilan social sous 300 salariés (art. L2312-28).
+        {t('Company of fewer than 300 employees, without an agreement on the BDESE: content of article R2312-9 of the Labour Code, over the years')}{' '}
+        {annees.map(a => a.annee).join(', ')}{t('. Cursus fills headings 1° (social investment) and 2° (gender equality at work) with what it knows; the rest is listed with its source. No social report under 300 employees (art. L2312-28).')}
       </Fine>
       <div className="chips">
-        {annees.map(a => <Tag key={a.annee} cls={a.arrete ? 'tag-accent' : 'tag-outline'}>{a.annee} : {a.arrete ? `arrêté n° ${a.arrete}` : 'calcul du jour'}, seuil {a.seuil}</Tag>)}
+        {annees.map(a => <Tag key={a.annee} cls={a.arrete ? 'tag-accent' : 'tag-outline'}>{a.annee}{t(': ')}{a.arrete ? `${t('freeze no. ')}${a.arrete}` : t('calculation of the day')}{t(', threshold ')}{a.seuil}</Tag>)}
       </div>
     </Panel>
-    <Panel title="1° Investissement social" style={{ gap: 'var(--space-4)' }}>
+    <Panel title={t('1° Social investment')} style={{ gap: 'var(--space-4)' }}>
       {rubrique1(annees).map(b => <TableauBdese key={b.titre} b={b} annees={annees} />)}
     </Panel>
-    <Panel title="2° Égalité professionnelle entre les femmes et les hommes" style={{ gap: 'var(--space-4)' }}>
+    <Panel title={t('2° Gender equality at work between women and men')} style={{ gap: 'var(--space-4)' }}>
       {rubrique2(annees).map(b => <TableauBdese key={b.titre} b={b} annees={annees} />)}
     </Panel>
-    <Panel title="À compléter hors de Cursus" style={{ gap: 'var(--space-3)' }}>
+    <Panel title={t('To complete outside Cursus')} style={{ gap: 'var(--space-3)' }}>
       <div className="scroll-x">
         <table className="table">
-          <caption className="sr-only">Indicateurs des rubriques 1° et 2° que Cursus ne fournit pas</caption>
-          <thead><tr><th scope="col">Rubrique</th><th scope="col">Indicateur</th><th scope="col">Source</th></tr></thead>
-          <tbody>{MANQUES_BDESE.map(m => <tr key={m.quoi}><td className="nowrap">{m.rubrique}</td><th scope="row" style={{ fontWeight: 'normal' }}>{m.quoi}</th><td className="text-muted">{m.source}</td></tr>)}</tbody>
+          <caption className="sr-only">{t('Indicators of headings 1° and 2° that Cursus does not provide')}</caption>
+          <thead><tr><th scope="col">{t('Heading')}</th><th scope="col">{t('Indicator')}</th><th scope="col">{t('Source')}</th></tr></thead>
+          <tbody>{MANQUES_BDESE.map(m => <tr key={m.quoi}><td className="nowrap">{t(m.rubrique)}</td><th scope="row" style={{ fontWeight: 'normal' }}>{t(m.quoi)}</th><td className="text-muted">{t(m.source)}</td></tr>)}</tbody>
         </table>
       </div>
       <div className="scroll-x">
         <table className="table">
-          <caption className="sr-only">Rubriques 3° à 10°, hors de Cursus</caption>
-          <thead><tr><th scope="col">Rubrique</th><th scope="col">Thème (hors Cursus)</th><th scope="col">Source</th></tr></thead>
-          <tbody>{RUBRIQUES_HORS_CURSUS.map(r => <tr key={r.numero}><td className="nowrap">{r.numero}</td><th scope="row" style={{ fontWeight: 'normal' }}>{r.titre}</th><td className="text-muted">{r.source}</td></tr>)}</tbody>
+          <caption className="sr-only">{t('Headings 3° to 10°, outside Cursus')}</caption>
+          <thead><tr><th scope="col">{t('Heading')}</th><th scope="col">{t('Theme (outside Cursus)')}</th><th scope="col">{t('Source')}</th></tr></thead>
+          <tbody>{RUBRIQUES_HORS_CURSUS.map(r => <tr key={r.numero}><td className="nowrap">{r.numero}</td><th scope="row" style={{ fontWeight: 'normal' }}>{t(r.titre)}</th><td className="text-muted">{t(r.source)}</td></tr>)}</tbody>
         </table>
       </div>
-      <Fine>Perspectives sur les trois années suivantes : à rédiger par la direction. Un accord d’entreprise peut changer l’organisation et le contenu de la BDESE (art. L2312-21).</Fine>
+      <Fine>{t('Outlook over the next three years: to be written by the management. A company agreement can change the organisation and the content of the BDESE (art. L2312-21).')}</Fine>
     </Panel>
   </>);
 }
@@ -205,20 +205,19 @@ function OngletEgalite({ r }: { r: IndicateursLegaux }) {
   const x = r.index;
   return (<>
     <Kpis>
-      <Kpi kicker="Groupes valides" value={`${x.groupesValides} / ${x.groupes}`} sub="catégorie × âge, au moins 3 femmes et 3 hommes" />
-      <Kpi kicker="Effectif dans ces groupes" value={x.partGroupesValides == null ? '—' : `${x.partGroupesValides} %`} sub="sous 40 %, l’indicateur 1 n’est pas calculable" />
-      <Kpi kicker="Retours de congé de maternité" value={<Valeur c={x.retoursMaternite} seuil={r.seuil} />} sub={`ou d’adoption, terminés en ${x.annee}`} />
+      <Kpi kicker={t('Valid groups')} value={`${x.groupesValides} / ${x.groupes}`} sub={t('category × age, at least 3 women and 3 men')} />
+      <Kpi kicker={t('Headcount in these groups')} value={x.partGroupesValides == null ? '—' : `${x.partGroupesValides} %`} sub={t('under 40 %, indicator 1 cannot be calculated')} />
+      <Kpi kicker={t('Returns from maternity leave')} value={<Valeur c={x.retoursMaternite} seuil={r.seuil} />} sub={`${t('or adoption leave, ended in ')}${x.annee}`} />
     </Kpis>
-    <PanneauTableau t={x.effectifs} seuil={r.seuil} />
-    <Panel title={`Index d’égalité professionnelle ${x.annee}`} style={{ gap: 'var(--space-3)' }}>
+    <PanneauTableau tb={x.effectifs} seuil={r.seuil} />
+    <Panel title={`${t('Gender equality index ')}${x.annee}`} style={{ gap: 'var(--space-3)' }}>
       <NoteAccent>
-        Données manquantes : les rémunérations et les augmentations sont dans Sage, aucune n’entre dans Cursus. Les indicateurs 1, 2 et 4 et la note se
-        calculent dans Sage ou sur Egapro ; Cursus prépare les effectifs pris en compte et les retours de congé de maternité.
+        {t('Missing data: pay and pay rises are in Sage, none enters Cursus. Indicators 1, 2 and 4 and the score are calculated in Sage or on Egapro; Cursus prepares the headcounts taken into account and the returns from maternity leave.')}
       </NoteAccent>
       <div className="scroll-x">
         <table className="table">
-          <caption className="sr-only">Indicateurs de l’index d’égalité professionnelle et leur source</caption>
-          <thead><tr><th scope="col">N°</th><th scope="col">Indicateur</th><th scope="col" className="right">Points</th><th scope="col">État</th><th scope="col">Source</th></tr></thead>
+          <caption className="sr-only">{t('Indicators of the gender equality index and their source')}</caption>
+          <thead><tr><th scope="col">{t('No.')}</th><th scope="col">{t('Indicator')}</th><th scope="col" className="right">{t('Points')}</th><th scope="col">{t('State')}</th><th scope="col">{t('Source')}</th></tr></thead>
           <tbody>
             {x.indicateurs.map(i => (
               <tr key={i.numero}>
@@ -233,9 +232,7 @@ function OngletEgalite({ r }: { r: IndicateursLegaux }) {
         </table>
       </div>
       <Fine>
-        Index des entreprises de 50 à 250 salariés (art. L1142-8, D1142-2) : publication au plus tard le 1er mars, déclaration sur Egapro, résultats
-        versés à la BDESE. Les groupes de moins de 3 personnes d’un sexe sont exclus de l’indicateur 1. Indicateur 3 : Cursus connaît les retours de
-        congé, pas les augmentations.
+        {t('Index of companies of 50 to 250 employees (art. L1142-8, D1142-2): publication by 1 March at the latest, declaration on Egapro, results filed in the BDESE. Groups of fewer than 3 people of one sex are excluded from indicator 1. Indicator 3: Cursus knows the returns from leave, not the pay rises.')}
       </Fine>
     </Panel>
   </>);
@@ -251,26 +248,26 @@ function OngletArretes({ arretes, annee, courante, seuil }: { arretes: readonly 
   const cibleArretee = arreteEnVigueur(arretes, cible);
   const tries = [...arretes].sort((a, b) => b.annee - a.annee || b.id - a.id);
   return (
-    <Panel title="Arrêtés annuels" aside={admin && !cibleArretee
-      ? <Btn variant="primary" small icon={<LockSimpleIcon size={14} />} onClick={() => openDialog({ type: 'confirmer', c: confirmationArreter(cible, seuil) })}>Arrêter {cible}</Btn>
+    <Panel title={t('Annual freezes')} aside={admin && !cibleArretee
+      ? <Btn variant="primary" small icon={<LockSimpleIcon size={14} />} onClick={() => openDialog({ type: 'confirmer', c: confirmationArreter(cible, seuil) })}>{t('Freeze ')}{cible}</Btn>
       : undefined} style={{ gap: 'var(--space-3)' }}>
-      {tries.length === 0 ? <Empty pad="sm">Aucun arrêté : les chiffres affichés sont calculés à chaque consultation.</Empty> : (
+      {tries.length === 0 ? <Empty pad="sm">{t('No freeze: the figures shown are calculated at each consultation.')}</Empty> : (
         <div className="scroll-x">
           <table className="table">
-            <caption className="sr-only">Arrêtés annuels des indicateurs sociaux</caption>
-            <thead><tr><th scope="col">Année</th><th scope="col">Arrêté</th><th scope="col">État</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
+            <caption className="sr-only">{t('Annual freezes of the social indicators')}</caption>
+            <thead><tr><th scope="col">{t('Year')}</th><th scope="col">{t('Freeze')}</th><th scope="col">{t('State')}</th><th scope="col"><span className="sr-only">{t('Actions')}</span></th></tr></thead>
             <tbody>
               {tries.map(a => (
                 <tr key={a.id}>
                   <th scope="row" className="tnum">{a.annee}</th>
-                  <td><div>n° {a.id}</div><div className="text-muted sub">{resumeArrete(a)}</div>
-                    {a.annuleLe && a.annuleMotif && <div className="text-muted sub">Motif : {a.annuleMotif}</div>}</td>
-                  <td>{a.annuleLe ? <Tag cls="tag-outline">Annulé</Tag> : a.cseLe ? <Tag cls="tag-accent">Au CSE</Tag> : <Tag cls="tag-neutral">En vigueur</Tag>}</td>
+                  <td><div>{t('no. ')}{a.id}</div><div className="text-muted sub">{resumeArrete(a)}</div>
+                    {a.annuleLe && a.annuleMotif && <div className="text-muted sub">{t('Reason: ')}{a.annuleMotif}</div>}</td>
+                  <td>{a.annuleLe ? <Tag cls="tag-outline">{t('Cancelled#masc')}</Tag> : a.cseLe ? <Tag cls="tag-accent">{t('At the CSE')}</Tag> : <Tag cls="tag-neutral">{t('In force')}</Tag>}</td>
                   <td>
                     <div className="actions-end" style={{ flexWrap: 'wrap' }}>
-                      <Btn small onClick={() => setUi({ indAnnee: a.annee, indOnglet: 'bdese' })}>Voir la BDESE</Btn>
-                      {rh && !a.annuleLe && <Btn small onClick={() => openDialog({ type: 'arreteCse', id: a.id })}>{a.cseLe ? 'Changer la date du CSE' : 'Mis à disposition du CSE'}</Btn>}
-                      {admin && !a.annuleLe && <Btn small onClick={() => openDialog({ type: 'confirmer', c: confirmationAnnuler(a) })}>Annuler</Btn>}
+                      <Btn small onClick={() => setUi({ indAnnee: a.annee, indOnglet: 'bdese' })}>{t('See the BDESE')}</Btn>
+                      {rh && !a.annuleLe && <Btn small onClick={() => openDialog({ type: 'arreteCse', id: a.id })}>{t(a.cseLe ? 'Change the date of the CSE' : 'Made available to the CSE')}</Btn>}
+                      {admin && !a.annuleLe && <Btn small onClick={() => openDialog({ type: 'confirmer', c: confirmationAnnuler(a) })}>{t('Cancel')}</Btn>}
                     </div>
                   </td>
                 </tr>
@@ -280,11 +277,8 @@ function OngletArretes({ arretes, annee, courante, seuil }: { arretes: readonly 
         </div>
       )}
       <Fine>
-        L’arrêté fige les agrégats d’une année close, déjà masqués, par groupement (ensemble, sexe, catégorie, statut, contrat ; jamais l’équipe), avec le
-        seuil et la version des règles : les purges de conservation (temps 3 ans, dossiers 5 ans) et les corrections ne changent plus les chiffres de N-2
-        présentés au CSE. Il n’est jamais supprimé : il s’annule avec un motif (service RH seulement, jamais au journal). Le CSE n’a pas d’accès à Cursus :
-        imprimez ou exportez la BDESE, déposez-la, puis notez la date de mise à disposition. {admin ? '' : 'Arrêter ou annuler : administrateur RH.'}
-        {enVigueur ? ` ${annee} : arrêté n° ${enVigueur.id} en vigueur.` : annee >= courante ? ` ${annee} n’est pas terminée : elle ne s’arrête qu’à partir du 1er janvier ${annee + 1}.` : ''}
+        {t('The freeze fixes the aggregates of a closed year, already masked, by grouping (overall, sex, category, status, contract; never the team), with the threshold and the version of the rules: the retention purges (time 3 years, files 5 years) and the corrections no longer change the figures of N-2 presented to the CSE. It is never deleted: it is cancelled with a reason (HR only, never in the log). The CSE has no access to Cursus: print or export the BDESE, file it, then note the date it was made available. ')}{admin ? '' : t('Freeze or cancel: HR administrator.')}
+        {enVigueur ? ` ${annee}${t(': freeze no. ')}${enVigueur.id}${t(' in force.')}` : annee >= courante ? ` ${annee}${t(' is not over: it can only be frozen from 1 January ')}${annee + 1}.` : ''}
       </Fine>
     </Panel>
   );
@@ -323,20 +317,20 @@ export function Indicateurs() {
     }));
     return { annee: a.annee, arrete: a.arrete, seuil: seuilAnnee(rs, d.ds.settings.indicateursSeuil), r: rs };
   });
-  const seuilTexte = onglet === 'bdese' ? texteSeuils(bdese) : `seuil d’anonymat ${seuil}`;
+  const seuilTexte = onglet === 'bdese' ? texteSeuils(bdese) : `${t('anonymity threshold ')}${seuil}`;
 
   // Onglet BDESE : les trois années et les groupements de la BDESE en un fichier (route dédiée) ; ailleurs, l'onglet affiché.
   const exporter = () => {
-    (onglet === 'bdese' ? exporterBdese(annee, d.ds.user.role) : exporterIndicateurs(requete, d.ds.user.role)).then(nom => notify(`Export CSV généré — ${nom}`), (e: Error) => notify(e.message, true));
+    (onglet === 'bdese' ? exporterBdese(annee, d.ds.user.role) : exporterIndicateurs(requete, d.ds.user.role)).then(nom => notify(`${t('CSV export generated — ')}${nom}`), (e: Error) => notify(e.message, true));
   };
   const imprimer = () => {
     if (!r) return;
-    const titre = `Indicateurs sociaux ${annee} — ${LIBELLE_ONGLET[onglet]}`;
+    const titre = `${t('Social indicators ')}${annee} — ${t(LIBELLE_ONGLET[onglet])}`;
     const sections = onglet === 'bdese' ? sectionsBdese(bdese)
       : onglet === 'egalite' ? sectionsEgalite(r)
-      : sectionsTableaux((TABLEAUX_ONGLET[onglet] ?? []).map(id => tableauDe(r, id)).filter((t): t is TableauIndicateur => !!t), r.seuil);
+      : sectionsTableaux((TABLEAUX_ONGLET[onglet] ?? []).map(id => tableauDe(r, id)).filter((tb): tb is TableauIndicateur => !!tb), r.seuil);
     if (!printDocument(titre, onglet === 'bdese' ? `BDESE (art. R2312-9) · ${bdese.map(colonneAnnee).join(' · ')}` : origine(r), sections)) {
-      notify('Impression impossible : autorisez les fenêtres surgissantes', true);
+      notify(t('Printing impossible: allow pop-up windows'), true);
     }
   };
 
@@ -344,41 +338,41 @@ export function Indicateurs() {
   let contenu: ReactNode;
   if (onglet === 'arretes') contenu = <OngletArretes arretes={arretes} annee={annee} courante={courante} seuil={d.ds.settings.indicateursSeuil} />;
   else if (erreur) contenu = <Panel><p role="alert" style={{ margin: 0 }}>{erreur}</p></Panel>;
-  else if (!r) contenu = <Panel><Empty pad="sm">Calcul des indicateurs…</Empty></Panel>;
+  else if (!r) contenu = <Panel><Empty pad="sm">{t('Calculating the indicators…')}</Empty></Panel>;
   else if (onglet === 'bdese') contenu = <OngletBdese annees={bdese} />;
   else if (onglet === 'egalite') contenu = <OngletEgalite r={r} />;
   else {
-    const tableaux = (TABLEAUX_ONGLET[onglet] ?? []).map(id => tableauDe(r, id)).filter((t): t is TableauIndicateur => !!t);
+    const tableaux = (TABLEAUX_ONGLET[onglet] ?? []).map(id => tableauDe(r, id)).filter((tb): tb is TableauIndicateur => !!tb);
     contenu = <>
       {onglet === 'effectifs' && <KpisEffectifs r={r} />}
-      {tableaux.map(t => <PanneauTableau key={t.id} t={t} seuil={r.seuil} />)}
+      {tableaux.map(tb => <PanneauTableau key={tb.id} tb={tb} seuil={r.seuil} />)}
     </>;
   }
 
   return (
-    <Page kicker={`BDESE et égalité professionnelle · année ${annee}${figes ? ` · arrêté n° ${enVigueur.id}` : ''} · ${seuilTexte}`} title="Indicateurs sociaux"
+    <Page kicker={`${t('BDESE and gender equality at work')} · ${t('year ')}${annee}${figes ? ` · ${t('freeze no. ')}${enVigueur.id}` : ''} · ${seuilTexte}`} title={t('Social indicators')}
       actions={<>
-        <select className="input" aria-label="Année" value={annee} onChange={e => setUi({ indAnnee: Number(e.target.value) === courante ? null : Number(e.target.value) })} style={{ width: 'auto' }}>
-          {anneesProposees(courante, arretes).map(a => <option key={a} value={a}>{a}{a === courante ? ' (en cours)' : ''}</option>)}
+        <select className="input" aria-label={t('Year')} value={annee} onChange={e => setUi({ indAnnee: Number(e.target.value) === courante ? null : Number(e.target.value) })} style={{ width: 'auto' }}>
+          {anneesProposees(courante, arretes).map(a => <option key={a} value={a}>{a}{a === courante ? t(' (in progress)') : ''}</option>)}
         </select>
         {avecGroupe && (
-          <select className="input" aria-label="Groupement" value={groupe} onChange={e => setUi({ indGroupe: e.target.value as GroupeIndicateurs })} style={{ width: 'auto' }}>
-            {(Object.keys(GROUPES_INDICATEURS) as GroupeIndicateurs[]).map(g => <option key={g} value={g}>{g === 'aucun' ? 'Sans groupement' : `Par ${GROUPES_INDICATEURS[g].toLowerCase()}`}</option>)}
+          <select className="input" aria-label={t('Grouping')} value={groupe} onChange={e => setUi({ indGroupe: e.target.value as GroupeIndicateurs })} style={{ width: 'auto' }}>
+            {(Object.keys(GROUPES_INDICATEURS) as GroupeIndicateurs[]).map(g => <option key={g} value={g}>{g === 'aucun' ? t('Without grouping') : `${t('By ')}${GROUPES_INDICATEURS[g].toLowerCase()}`}</option>)}
           </select>
         )}
         {onglet !== 'arretes' && r && <>
-          <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exporter}>Exporter (CSV)</Btn>
-          <Btn variant="secondary" icon={<PrinterIcon size={14} />} onClick={imprimer}>Imprimer</Btn>
+          <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exporter}>{t('Export (CSV)')}</Btn>
+          <Btn variant="secondary" icon={<PrinterIcon size={14} />} onClick={imprimer}>{t('Print')}</Btn>
         </>}
       </>}>
-      <Seg name="indOnglet" label="Indicateurs affichés" value={onglet} onChange={o => setUi({ indOnglet: o })} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
-        options={ONGLETS_INDICATEURS.map(o => [o, LIBELLE_ONGLET[o]])} />
+      <Seg name="indOnglet" label={t('Indicators shown')} value={onglet} onChange={o => setUi({ indOnglet: o })} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
+        options={ONGLETS_INDICATEURS.map(o => [o, t(LIBELLE_ONGLET[o])])} />
       {enVigueur && onglet !== 'arretes' && onglet !== 'bdese' && (
         <NoteAccent>
-          {annee} est arrêtée (arrêté n° {enVigueur.id}, {fmtIso(enVigueur.arreteLe.slice(0, 10))}{enVigueur.cseLe ? `, au CSE le ${fmtIso(enVigueur.cseLe)}` : ''}).{' '}
-          {groupe === 'equipe' ? 'Le groupement par équipe n’est pas figé : calcul du jour. ' : ''}
-          <Seg name="indSource" label="Chiffres affichés" value={calculDuJour ? 'calcul' : 'arrete'} onChange={v => setCalculDuJour(v === 'calcul')}
-            options={[['arrete', 'Chiffres arrêtés'], ['calcul', 'Calcul du jour']]} disabled={groupe === 'equipe'} />
+          {annee}{t(' is frozen (freeze no. ')}{enVigueur.id}, {fmtIso(enVigueur.arreteLe.slice(0, 10))}{enVigueur.cseLe ? `${t(', at the CSE on ')}${fmtIso(enVigueur.cseLe)}` : ''}).{' '}
+          {groupe === 'equipe' ? t('The grouping by team is not frozen: calculation of the day. ') : ''}
+          <Seg name="indSource" label={t('Figures shown')} value={calculDuJour ? 'calcul' : 'arrete'} onChange={v => setCalculDuJour(v === 'calcul')}
+            options={[['arrete', t('Frozen figures')], ['calcul', t('Calculation of the day')]]} disabled={groupe === 'equipe'} />
         </NoteAccent>
       )}
       {r && onglet !== 'arretes' && onglet !== 'bdese' && r.avertissements.length > 0 && (
@@ -386,11 +380,10 @@ export function Indicateurs() {
       )}
       {contenu}
       <Fine>
-        Agrégats calculés par le serveur sur l’année civile, jamais de liste nominative. {onglet === 'bdese' && new Set(bdese.map(a => a.seuil)).size > 1
-          ? <>« &lt; k » : case qui porte sur moins de k personnes, k étant le seuil de l’année (celui de son arrêté, ou le réglage pour un calcul du jour : {texteSeuils(bdese).replace('seuils d’anonymat : ', '')}), ou</>
-          : <>« &lt; {onglet === 'bdese' ? bdese[0].seuil : seuil} » : case qui porte sur moins de {onglet === 'bdese' ? bdese[0].seuil : seuil} personnes, ou</>}
-        {' '}qu’un total permettrait de retrouver par différence (seuil d’anonymat, Paramètres → Indicateurs sociaux). Intérimaires sans fiche dans Cursus non
-        comptés. {plural(arretes.filter(a => !a.annuleLe).length, 'arrêté en vigueur', 'arrêtés en vigueur')}.
+        {t('Aggregates calculated by the server over the calendar year, never a list of names. ')}{onglet === 'bdese' && new Set(bdese.map(a => a.seuil)).size > 1
+          ? <>{t('“< k”: cell covering fewer than k people, k being the threshold of the year (that of its freeze, or the setting for a calculation of the day: ')}{texteSeuils(bdese).replace(t('anonymity thresholds: '), '')}{t('), or')}</>
+          : <>{t('“< #open')}{onglet === 'bdese' ? bdese[0].seuil : seuil}{t('”: cell covering fewer than ')}{onglet === 'bdese' ? bdese[0].seuil : seuil}{t(' people, or')}</>}
+        {' '}{t('that a total would allow to find by difference (anonymity threshold, Settings → Social indicators). Temporary workers without a sheet in Cursus not counted. ')}{tn(arretes.filter(a => !a.annuleLe).length, 'freeze in force', 'freezes in force')}.
       </Fine>
     </Page>
   );

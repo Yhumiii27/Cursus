@@ -3,6 +3,7 @@
 import { useId } from 'react';
 import type { Case } from '../../../../shared/rules/indicateurs-legaux.ts';
 import { LARGEUR, maximum, texteCase } from './commun.ts';
+import { t } from '../../i18n/langue.ts';
 
 export interface TranchePyramide { libelle: string; femmes: Case | undefined; hommes: Case | undefined }
 
@@ -11,7 +12,7 @@ const LIGNE = 22, BARRE = 14, CENTRE = 96, ENTETE = 18;
 export function Pyramide({ titre, tranches, seuil }: { titre: string; tranches: readonly TranchePyramide[]; seuil: number }) {
   const id = useId();
   if (!tranches.length) return null;
-  const max = maximum(tranches.flatMap(t => [t.femmes, t.hommes]));
+  const max = maximum(tranches.flatMap(x => [x.femmes, x.hommes]));
   const cote = (LARGEUR - CENTRE) / 2, utile = cote - 30;
   const gauche = cote, droite = cote + CENTRE;
   const h = ENTETE + tranches.length * LIGNE;
@@ -32,16 +33,16 @@ export function Pyramide({ titre, tranches, seuil }: { titre: string; tranches: 
   return (
     <svg className="graph" viewBox={`0 0 ${LARGEUR} ${h}`} role="img" aria-labelledby={`${id}-t ${id}-d`} preserveAspectRatio="xMinYMin meet">
       <title id={`${id}-t`}>{titre}</title>
-      <desc id={`${id}-d`}>{tranches.map(t => `${t.libelle} : femmes ${texteCase(t.femmes, seuil)}, hommes ${texteCase(t.hommes, seuil)}`).join(' ; ')}</desc>
-      <text className="graph-muet" x={gauche - 4} y={11} textAnchor="end">Femmes</text>
-      <text className="graph-muet" x={droite + 4} y={11}>Hommes</text>
-      {lignes.map((t, i) => {
+      <desc id={`${id}-d`}>{tranches.map(x => `${x.libelle}${t(': women ')}${texteCase(x.femmes, seuil)}${t(', men ')}${texteCase(x.hommes, seuil)}`).join(t('; '))}</desc>
+      <text className="graph-muet" x={gauche - 4} y={11} textAnchor="end">{t('Women')}</text>
+      <text className="graph-muet" x={droite + 4} y={11}>{t('Men')}</text>
+      {lignes.map((x, i) => {
         const y = ENTETE + i * LIGNE;
         return (
-          <g key={t.libelle}>
-            {barre(t.femmes, y, 'f')}
-            <text className="graph-texte" x={LARGEUR / 2} y={y + 11} textAnchor="middle">{t.libelle}</text>
-            {barre(t.hommes, y, 'h')}
+          <g key={x.libelle}>
+            {barre(x.femmes, y, 'f')}
+            <text className="graph-texte" x={LARGEUR / 2} y={y + 11} textAnchor="middle">{x.libelle}</text>
+            {barre(x.hommes, y, 'h')}
           </g>
         );
       })}

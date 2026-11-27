@@ -19,6 +19,7 @@ import { Btn, CloseButton, Fine, SectionLabel, Tag } from '../ui.tsx';
 import { CLS_OPCO, nomDossierOpco } from './commun.ts';
 // lot 12 — C4 (organismes de formation et e-learning) : avertissements Qualiopi et NDA de la fiche de l'organisme.
 import { avertissementsOrganisme, organismeDuPlan, organismeFinal } from '../../../../shared/rules/organismes.ts';
+import { t } from '../../i18n/langue.ts';
 
 /** Ligne libellé / valeur du panneau. */
 function Ligne({ label, children }: { label: string; children: React.ReactNode }) {
@@ -56,24 +57,24 @@ export function DossierOpcoPanel({ panneau, dossier: x, onClose }: { panneau: Re
 
   // Chronologie : étapes datées (et signées pour la création et les corrections), versements compris.
   const chrono: { le: string; texte: string }[] = [
-    { le: x.creeLe.slice(0, 10), texte: `Dossier créé par ${x.creePar}` },
-    ...(x.deposeLe ? [{ le: x.deposeLe, texte: `Déposé${x.reference ? ` (dossier ${x.reference})` : ''}` }] : []),
-    ...(x.accordLe ? [{ le: x.accordLe, texte: `Accordé : ${eurosOpco(x.montantAccorde ?? 0)}${x.accordReference ? ` (réf. ${x.accordReference})` : ''}` }] : []),
-    ...(x.refusLe ? [{ le: x.refusLe, texte: `Refusé${x.refusMotif ? ` — ${decap(MOTIFS_REFUS_OPCO[x.refusMotif])}` : ''}` }] : []),
-    ...(x.factureLe ? [{ le: x.factureLe, texte: `Justificatifs envoyés : ${eurosOpco(x.montantFacture ?? 0)} facturés` }] : []),
-    ...versements.map(v => ({ le: v.le, texte: `Versement de ${eurosOpco(v.montant)} ${v.destinataire === 'organisme' ? 'à l’organisme' : 'à l’entreprise'}` })),
-    ...(x.soldeLe ? [{ le: x.soldeLe, texte: `Soldé${x.soldeEcart ? ` — écart de ${eurosOpco(x.soldeEcart)} : ${decap(ECARTS_SOLDE_OPCO[x.soldeNature ?? 'aucun'])}` : ', sans écart'}` }] : []),
-    ...(x.abandonLe ? [{ le: x.abandonLe, texte: `Abandonné${x.abandonMotif ? ` — ${decap(MOTIFS_ABANDON_OPCO[x.abandonMotif])}` : ''}` }] : []),
-    ...(x.corrigeLe ? [{ le: x.corrigeLe, texte: `Corrigé par ${x.corrigePar ?? '—'}${x.corrigeMotif ? ` — ${x.corrigeMotif}` : ''}` }] : []),
+    { le: x.creeLe.slice(0, 10), texte: `${t('File created by ')}${x.creePar}` },
+    ...(x.deposeLe ? [{ le: x.deposeLe, texte: `${t('Filed#opco')}${x.reference ? `${t(' (file ')}${x.reference})` : ''}` }] : []),
+    ...(x.accordLe ? [{ le: x.accordLe, texte: `${t('Granted: ')}${eurosOpco(x.montantAccorde ?? 0)}${x.accordReference ? `${t(' (ref. ')}${x.accordReference})` : ''}` }] : []),
+    ...(x.refusLe ? [{ le: x.refusLe, texte: `${t('Refused#masc')}${x.refusMotif ? ` — ${decap(MOTIFS_REFUS_OPCO[x.refusMotif])}` : ''}` }] : []),
+    ...(x.factureLe ? [{ le: x.factureLe, texte: `${t('Supporting documents sent: ')}${eurosOpco(x.montantFacture ?? 0)}${t(' invoiced#plural')}` }] : []),
+    ...versements.map(v => ({ le: v.le, texte: `${t('Payment of ')}${eurosOpco(v.montant)} ${t(v.destinataire === 'organisme' ? 'to the provider' : 'to the company')}` })),
+    ...(x.soldeLe ? [{ le: x.soldeLe, texte: `${t('Settled#opco')}${x.soldeEcart ? `${t(' — difference of ')}${eurosOpco(x.soldeEcart)}${t(': ')}${decap(ECARTS_SOLDE_OPCO[x.soldeNature ?? 'aucun'])}` : t(', without difference')}` }] : []),
+    ...(x.abandonLe ? [{ le: x.abandonLe, texte: `${t('Abandoned#masc')}${x.abandonMotif ? ` — ${decap(MOTIFS_ABANDON_OPCO[x.abandonMotif])}` : ''}` }] : []),
+    ...(x.corrigeLe ? [{ le: x.corrigeLe, texte: `${t('Corrected by ')}${x.corrigePar ?? '—'}${x.corrigeMotif ? ` — ${x.corrigeMotif}` : ''}` }] : []),
   ].sort((a, b) => a.le.localeCompare(b.le));
 
   const retirerPiece = (p: Piece) => openDialog({
     type: 'confirmer',
     c: {
-      titre: 'Retirer la pièce du dossier OPCO', question: `Retirer « ${p.nom} » du dossier OPCO de ${nom} ?`,
-      suites: ['Le fichier est effacé ; sa description (nature, date, auteur) reste dans le dossier.', 'Les sauvegardes en gardent la copie jusqu’à leur rotation.'],
-      bouton: 'Retirer la pièce', action: 'piece.retirer', payload: { id: p.id },
-      motif: { label: 'Motif du retrait', requis: true, aide: 'Gardé avec la pièce, lu par le service RH seulement ; jamais recopié au journal.', placeholder: 'Mauvais document, doublon…' },
+      titre: t('Remove the document from the OPCO file'), question: `${t('Remove “')}${p.nom}${t('” from the OPCO file of ')}${nom}${t('?#question')}`,
+      suites: [t('The file is erased; its description (nature, date, author) stays in the file.'), t('Backups keep their copy until they are rotated.')],
+      bouton: t('Remove the document'), action: 'piece.retirer', payload: { id: p.id },
+      motif: { label: t('Reason for the removal'), requis: true, aide: t('Kept with the document, read by HR only; never copied to the log.'), placeholder: t('Wrong document, duplicate…') },
     },
   });
   // Pièce comptable encore à conserver (facture, accord) : retrait par l'administrateur RH seulement.
@@ -90,37 +91,37 @@ export function DossierOpcoPanel({ panneau, dossier: x, onClose }: { panneau: Re
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
         <Tag cls={CLS_OPCO[x.statut]}>{STATUTS_OPCO[x.statut].label}</Tag>
-        {x.subrogation && <Tag cls="tag-outline">Subrogation</Tag>}
-        {x.reference && <span className="text-muted sub">Dossier {x.reference}</span>}
+        {x.subrogation && <Tag cls="tag-outline">{t('Subrogation')}</Tag>}
+        {x.reference && <span className="text-muted sub">{t('File ')}{x.reference}</span>}
       </div>
-      {e && <div className={e.retard ? 'note-accent' : 'text-muted sub'}>{e.libelle} : {fmtIso(e.echeance)} ({rel(e.jours)})</div>}
-      {x.statut === 'a_deposer' && !x.organismeQualiopi && !avertissements.length && <div className="note-accent">Organisme sans certification Qualiopi déclarée : condition de la prise en charge par l’OPCO.</div>}
+      {e && <div className={e.retard ? 'note-accent' : 'text-muted sub'}>{e.libelle}{t(': ')}{fmtIso(e.echeance)} ({rel(e.jours)})</div>}
+      {x.statut === 'a_deposer' && !x.organismeQualiopi && !avertissements.length && <div className="note-accent">{t('Provider without a declared Qualiopi certification: condition of the funding by the OPCO.')}</div>}
       {/* lot 12 — C4 */}
       {avertissements.map(a => <div key={a} className="note-accent">{a}</div>)}
 
       <div>
-        <SectionLabel>Montants</SectionLabel>
-        <Ligne label="Demandé">{eurosOpco(m.demande)}</Ligne>
-        {x.accordLe && <Ligne label="Accordé">{eurosOpco(m.accorde)}{x.plafondHoraire != null ? ` · plafond ${eurosOpco(x.plafondHoraire)} / h` : ''}</Ligne>}
-        {m.facture != null && <Ligne label="Facturé">{eurosOpco(m.facture)}</Ligne>}
-        {m.recuEntreprise > 0 && <Ligne label="Reçu par l’entreprise">{eurosOpco(m.recuEntreprise)}</Ligne>}
-        {m.payeOrganisme > 0 && <Ligne label="Payé à l’organisme">{eurosOpco(m.payeOrganisme)}</Ligne>}
-        {m.aRecuperer > 0 && <Ligne label="À récupérer">{eurosOpco(m.aRecuperer)}</Ligne>}
-        {m.attenduOrganisme > 0 && <Ligne label="Attendu par l’organisme">{eurosOpco(m.attenduOrganisme)}</Ligne>}
-        {reste && <Ligne label="Coût de l’action · reste à charge">{fmtEur(reste.cout)} · {fmtEur(reste.reste)}</Ligne>}
+        <SectionLabel>{t('Amounts')}</SectionLabel>
+        <Ligne label={t('Requested#masc')}>{eurosOpco(m.demande)}</Ligne>
+        {x.accordLe && <Ligne label={t('Granted')}>{eurosOpco(m.accorde)}{x.plafondHoraire != null ? ` · ${t('cap ')}${eurosOpco(x.plafondHoraire)} / h` : ''}</Ligne>}
+        {m.facture != null && <Ligne label={t('Invoiced')}>{eurosOpco(m.facture)}</Ligne>}
+        {m.recuEntreprise > 0 && <Ligne label={t('Received by the company')}>{eurosOpco(m.recuEntreprise)}</Ligne>}
+        {m.payeOrganisme > 0 && <Ligne label={t('Paid to the provider')}>{eurosOpco(m.payeOrganisme)}</Ligne>}
+        {m.aRecuperer > 0 && <Ligne label={t('To recover')}>{eurosOpco(m.aRecuperer)}</Ligne>}
+        {m.attenduOrganisme > 0 && <Ligne label={t('Expected by the provider')}>{eurosOpco(m.attenduOrganisme)}</Ligne>}
+        {reste && <Ligne label={t('Cost of the action · remaining cost')}>{fmtEur(reste.cout)} · {fmtEur(reste.reste)}</Ligne>}
       </div>
 
       <div>
-        <SectionLabel>Formation et organisme</SectionLabel>
-        <Ligne label="Dates">{x.du ? `${fmtIso(x.du)}${x.au && x.au !== x.du ? ` → ${fmtIso(x.au)}` : ''}` : 'à préciser'}</Ligne>
-        <Ligne label="Heures · effectif">{x.heures != null ? `${x.heures.toLocaleString('fr-FR')} h` : '—'} · {x.effectif ?? '—'}</Ligne>
-        {(fiche || l?.f) && <Ligne label="Organisme">{fiche?.nomUsuel ?? (l?.f ? d.fm(l.f)?.organisme : null) ?? '—'}</Ligne>}
+        <SectionLabel>{t('Training and provider')}</SectionLabel>
+        <Ligne label={t('Dates')}>{x.du ? `${fmtIso(x.du)}${x.au && x.au !== x.du ? ` → ${fmtIso(x.au)}` : ''}` : t('to specify')}</Ligne>
+        <Ligne label={t('Hours · headcount')}>{x.heures != null ? `${x.heures.toLocaleString('fr-FR')} h` : '—'} · {x.effectif ?? '—'}</Ligne>
+        {(fiche || l?.f) && <Ligne label={t('Provider')}>{fiche?.nomUsuel ?? (l?.f ? d.fm(l.f)?.organisme : null) ?? '—'}</Ligne>}
         <Ligne label="SIRET · NDA">{x.organismeSiret ?? '—'} · {x.organismeNda ?? '—'}</Ligne>
-        <Ligne label="Qualiopi">{x.organismeQualiopi ? 'Certifié' : 'Non déclaré'}</Ligne>
+        <Ligne label="Qualiopi">{t(x.organismeQualiopi ? 'Certified' : 'Not declared')}</Ligne>
       </div>
 
       <div>
-        <SectionLabel>Chronologie</SectionLabel>
+        <SectionLabel>{t('Chronology')}</SectionLabel>
         <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
           {chrono.map((c, i) => <li key={i} style={{ fontSize: 13 }}><span className="text-muted tnum">{fmtIso(c.le)}</span> · {c.texte}</li>)}
         </ul>
@@ -128,20 +129,20 @@ export function DossierOpcoPanel({ panneau, dossier: x, onClose }: { panneau: Re
 
       {(versements.length > 0 || annules.length > 0) && (
         <div>
-          <SectionLabel>Versements</SectionLabel>
+          <SectionLabel>{t('Payments')}</SectionLabel>
           <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
             {versements.map(v => (
               <li key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap', fontSize: 13 }}>
                 <span className="tnum">{fmtIso(v.le)} · {eurosOpco(v.montant)}</span>
-                <span className="text-muted sub">{v.destinataire === 'organisme' ? 'à l’organisme' : 'à l’entreprise'}{v.reference ? ` · ${v.reference}` : ''}</span>
+                <span className="text-muted sub">{t(v.destinataire === 'organisme' ? 'to the provider' : 'to the company')}{v.reference ? ` · ${v.reference}` : ''}</span>
                 <span style={{ flex: 1 }} />
                 {admin && x.statut !== 'solde' && (
-                  <Btn small onClick={() => openDialog({ type: 'confirmer', c: annulationVersementOpco(v, nom, versements.length === 1, x.statut === 'rembourse' ? STATUTS_OPCO[x.factureLe ? 'facture' : 'accorde'].label : null) })}>Annuler</Btn>
+                  <Btn small onClick={() => openDialog({ type: 'confirmer', c: annulationVersementOpco(v, nom, versements.length === 1, x.statut === 'rembourse' ? STATUTS_OPCO[x.factureLe ? 'facture' : 'accorde'].label : null) })}>{t('Cancel')}</Btn>
                 )}
               </li>
             ))}
             {annules.map(v => (
-              <li key={v.id} className="text-muted sub" style={{ textDecoration: 'line-through' }}>{fmtIso(v.le)} · {eurosOpco(v.montant)} — annulé{v.annulePar ? ` par ${v.annulePar}` : ''}</li>
+              <li key={v.id} className="text-muted sub" style={{ textDecoration: 'line-through' }}>{fmtIso(v.le)} · {eurosOpco(v.montant)}{t(' — cancelled#masc')}{v.annulePar ? `${t(' by ')}${v.annulePar}` : ''}</li>
             ))}
           </ul>
         </div>
@@ -149,13 +150,13 @@ export function DossierOpcoPanel({ panneau, dossier: x, onClose }: { panneau: Re
 
       {rh && (
         <div>
-          <SectionLabel>Pièces</SectionLabel>
+          <SectionLabel>{t('Documents')}</SectionLabel>
           {piecesActives && (
-            <ul style={{ listStyle: 'none', margin: '0 0 var(--space-2)', padding: 0, display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1) var(--space-2)' }} aria-label="Pièces attendues">
+            <ul style={{ listStyle: 'none', margin: '0 0 var(--space-2)', padding: 0, display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1) var(--space-2)' }} aria-label={t('Expected documents')}>
               {attendues.map(a => {
                 const manque = manquantes.includes(a.nature);
                 // Certificat de réalisation absent mais feuilles d'émargement jointes : elles le remplacent.
-                const etat = manque ? 'à joindre' : pieces.some(p => p.nature === a.nature) ? 'jointe' : a.requise ? 'émargement joint' : 'facultative';
+                const etat = t(manque ? 'to attach' : pieces.some(p => p.nature === a.nature) ? 'attached#fem' : a.requise ? 'attendance sheet attached' : 'optional#fem');
                 return (
                   <li key={a.nature}>
                     <Tag cls={manque ? 'tag-accent' : 'tag-neutral'}>{NATURES_PIECE_OPCO[a.nature]} · {etat}</Tag>
@@ -170,36 +171,36 @@ export function DossierOpcoPanel({ panneau, dossier: x, onClose }: { panneau: Re
                 <li key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap', fontSize: 13 }}>
                   <a href={lienPiece(p.id)} target="_blank" rel="noopener noreferrer" style={{ overflowWrap: 'anywhere' }}>{p.nom}</a>
                   <span className="text-muted sub">
-                    {p.nature ? NATURES_PIECE_OPCO[p.nature] : 'Pièce'} · {TYPES_PIECES[p.type]?.label ?? p.type} · {tailleTexte(p.taille)} · {fmtIso(isoParis(new Date(p.deposeLe)))}
-                    {p.conserverJusquau ? ` · conservée jusqu’au ${fmtIso(p.conserverJusquau)}` : ''}
+                    {p.nature ? NATURES_PIECE_OPCO[p.nature] : t('Document')} · {TYPES_PIECES[p.type]?.label ?? p.type} · {tailleTexte(p.taille)} · {fmtIso(isoParis(new Date(p.deposeLe)))}
+                    {p.conserverJusquau ? ` · ${t('kept until ')}${fmtIso(p.conserverJusquau)}` : ''}
                   </span>
                   <span style={{ flex: 1 }} />
-                  {retirable(p) && <Btn small onClick={() => retirerPiece(p)}>Retirer</Btn>}
+                  {retirable(p) && <Btn small onClick={() => retirerPiece(p)}>{t('Remove')}</Btn>}
                 </li>
               ))}
             </ul>
           )}
-          {!piecesActives && <Fine>Pièces justificatives désactivées : l’administrateur RH les active dans Paramètres → Pièces justificatives. Les pièces attendues ne sont alors qu’indiquées.</Fine>}
-          {piecesActives && !pieces.length && <Fine>Aucune pièce jointe.</Fine>}
+          {!piecesActives && <Fine>{t('Supporting documents disabled: the HR administrator enables them in Settings → Supporting documents. The expected documents are then only shown.')}</Fine>}
+          {piecesActives && !pieces.length && <Fine>{t('No document attached.')}</Fine>}
         </div>
       )}
 
       {rh && (
         <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-          {etapes.deposer && <Btn variant="secondary" onClick={() => openDialog({ type: 'opcoEtape', id: x.id, etape: 'deposer' })}>Dossier déposé</Btn>}
-          {etapes.accorder && <Btn variant="secondary" onClick={() => openDialog({ type: 'opcoEtape', id: x.id, etape: 'accorder' })}>Accord reçu</Btn>}
-          {etapes.refuser && <Btn onClick={() => openDialog({ type: 'opcoEtape', id: x.id, etape: 'refuser' })}>Refus reçu</Btn>}
-          {etapes.facturer && <Btn variant="secondary" onClick={() => openDialog({ type: 'opcoEtape', id: x.id, etape: 'facturer' })}>Justificatifs envoyés</Btn>}
-          {etapes.versement && <Btn variant="secondary" onClick={() => openDialog({ type: 'opcoVersement', id: x.id })}>Versement reçu</Btn>}
-          {etapes.solder && <Btn onClick={() => openDialog({ type: 'opcoEtape', id: x.id, etape: 'solder' })}>Solder</Btn>}
-          {piecesActives && <Btn onClick={() => openDialog({ type: 'opcoPiece', id: x.id })}>Joindre une pièce</Btn>}
-          {etapes.modifier && <Btn onClick={() => openDialog({ type: 'opcoDossier', id: x.id })}>{x.statut === 'a_deposer' ? 'Modifier' : 'Corriger'}</Btn>}
-          {etapes.abandonner && <Btn onClick={() => openDialog({ type: 'opcoEtape', id: x.id, etape: 'abandonner' })}>Abandonner</Btn>}
-          {reouverture && precedent && <Btn onClick={() => openDialog({ type: 'confirmer', c: reouverture })}>Revenir à « {STATUTS_OPCO[precedent].label} »</Btn>}
-          {admin && !versements.length && !pieces.length && <Btn onClick={() => openDialog({ type: 'confirmer', c: suppressionDossierOpco(x, nom) })}>Supprimer</Btn>}
+          {etapes.deposer && <Btn variant="secondary" onClick={() => openDialog({ type: 'opcoEtape', id: x.id, etape: 'deposer' })}>{t('File filed')}</Btn>}
+          {etapes.accorder && <Btn variant="secondary" onClick={() => openDialog({ type: 'opcoEtape', id: x.id, etape: 'accorder' })}>{t('Approval received')}</Btn>}
+          {etapes.refuser && <Btn onClick={() => openDialog({ type: 'opcoEtape', id: x.id, etape: 'refuser' })}>{t('Refusal received')}</Btn>}
+          {etapes.facturer && <Btn variant="secondary" onClick={() => openDialog({ type: 'opcoEtape', id: x.id, etape: 'facturer' })}>{t('Supporting documents sent')}</Btn>}
+          {etapes.versement && <Btn variant="secondary" onClick={() => openDialog({ type: 'opcoVersement', id: x.id })}>{t('Payment received')}</Btn>}
+          {etapes.solder && <Btn onClick={() => openDialog({ type: 'opcoEtape', id: x.id, etape: 'solder' })}>{t('Settle')}</Btn>}
+          {piecesActives && <Btn onClick={() => openDialog({ type: 'opcoPiece', id: x.id })}>{t('Attach a document')}</Btn>}
+          {etapes.modifier && <Btn onClick={() => openDialog({ type: 'opcoDossier', id: x.id })}>{x.statut === 'a_deposer' ? t('Edit') : t('Correct')}</Btn>}
+          {etapes.abandonner && <Btn onClick={() => openDialog({ type: 'opcoEtape', id: x.id, etape: 'abandonner' })}>{t('Abandon')}</Btn>}
+          {reouverture && precedent && <Btn onClick={() => openDialog({ type: 'confirmer', c: reouverture })}>{t('Back to “')}{STATUTS_OPCO[precedent].label}{t('”#close')}</Btn>}
+          {admin && !versements.length && !pieces.length && <Btn onClick={() => openDialog({ type: 'confirmer', c: suppressionDossierOpco(x, nom) })}>{t('Delete')}</Btn>}
         </div>
       )}
-      {!rh && <Fine>Consultation : les motifs (refus, abandon, corrections) et les pièces restent au service RH.</Fine>}
+      {!rh && <Fine>{t('Read only: the reasons (refusal, abandonment, corrections) and the documents stay with HR.')}</Fine>}
     </aside>
   );
 }

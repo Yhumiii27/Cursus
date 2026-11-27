@@ -7,6 +7,7 @@ import { dossiersDeLaLigne, STATUTS_OPCO } from '../../../../shared/rules/opco.t
 import type { PlanAction } from '../../../../shared/types.ts';
 import { useDomain, useRole } from '../../state/derived.ts';
 import { useStore } from '../../state/store.tsx';
+import { t } from '../../i18n/langue.ts';
 
 export function ColonneOpco({ l }: { l: PlanAction }) {
   const d = useDomain();
@@ -19,12 +20,12 @@ export function ColonneOpco({ l }: { l: PlanAction }) {
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
       {dossiers.map(x => (
         <button key={x.id} type="button" className="btn btn-ghost btn-sm" style={{ padding: '0 var(--space-1)', whiteSpace: 'nowrap' }}
-          aria-label={`Dossier OPCO : ${STATUTS_OPCO[x.statut].label}${accorde(x) != null ? `, ${fmtEur(accorde(x)!)} accordés` : ''} — ouvrir`}
+          aria-label={`${t('OPCO file: ')}${STATUTS_OPCO[x.statut].label}${accorde(x) != null ? `, ${fmtEur(accorde(x)!)}${t(' granted')}` : ''}${t(' — open')}`}
           onClick={() => setUi({ budgetOnglet: 'opco', opcoSel: x.id, opcoFiltre: 'tous', opcoCode: null, opcoDispositif: null })}>
           {STATUTS_OPCO[x.statut].label}{accorde(x) != null ? ` · ${fmtEur(accorde(x)!)}` : ''}
         </button>
       ))}
-      {creer && <button type="button" className="btn btn-ghost btn-sm" style={{ padding: '0 var(--space-1)' }} aria-label={dossiers.length ? 'Créer un autre dossier OPCO' : 'Créer un dossier OPCO'} onClick={() => openDialog({ type: 'opcoDossier', planActionId: l.id })}>{dossiers.length ? 'Nouveau dossier' : 'Créer'}</button>}
+      {creer && <button type="button" className="btn btn-ghost btn-sm" style={{ padding: '0 var(--space-1)' }} aria-label={t(dossiers.length ? 'Create another OPCO file' : 'Create an OPCO file')} onClick={() => openDialog({ type: 'opcoDossier', planActionId: l.id })}>{t(dossiers.length ? 'New file#opco' : 'Create')}</button>}
       {!dossiers.length && !creer && <span className="text-muted">—</span>}
     </div>
   );

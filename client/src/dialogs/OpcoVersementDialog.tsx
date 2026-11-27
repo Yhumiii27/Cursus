@@ -12,6 +12,7 @@ import { Fine, Seg } from '../components/ui.tsx';
 import { nomDossierOpco } from '../components/opco/commun.ts';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 export function OpcoVersementDialog({ id }: { id: number }) {
   const d = useDomain();
@@ -32,10 +33,10 @@ export function OpcoVersementDialog({ id }: { id: number }) {
   const deja = versementsDe(d.ds.versementsOpco, dossier.id);
 
   const montantNum = montant.trim() ? montantOpco(montant) : null;
-  const montantErr = !montant.trim() ? 'Indiquez le montant versé.' : montantNum === null || montantNum === 0 ? 'Montant en euros, plus de 0 et 1 000 000 au plus.' : null;
-  const dateErr = erreurDate(le, 'Indiquez la date du versement.')
-    ?? (le > d.ti ? 'La date ne peut pas être dans le futur.' : dossier.accordLe && le < dossier.accordLe ? `Le versement précède l’accord (${fmtIso(dossier.accordLe)}).` : null);
-  const refErr = reference.trim() && !referenceValide(reference.trim()) ? 'Lettres, chiffres, « . », « / », « _ » ou « - », sans espace, 40 caractères au plus.' : null;
+  const montantErr = !montant.trim() ? t('Enter the amount paid.#opco') : montantNum === null || montantNum === 0 ? t('Amount in euros, more than 0 and 1,000,000 at most.') : null;
+  const dateErr = erreurDate(le, t('Enter the date of the payment.'))
+    ?? (le > d.ti ? t('The date cannot be in the future.') : dossier.accordLe && le < dossier.accordLe ? `${t('The payment comes before the approval (')}${fmtIso(dossier.accordLe)}).` : null);
+  const refErr = reference.trim() && !referenceValide(reference.trim()) ? t('Letters, digits, “.”, “/”, “_” or “-”, without a space, 40 characters at most.') : null;
 
   const envoyer = async () => {
     if (busy || !v.verifier(montantErr, dateErr, refErr)) return;
@@ -48,36 +49,35 @@ export function OpcoVersementDialog({ id }: { id: number }) {
   };
 
   return (
-    <Dialog title="Versement de l’OPCO" width={520} onSubmit={envoyer} actions={<>
+    <Dialog title={t('Payment of the OPCO')} width={520} onSubmit={envoyer} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Enregistrer le versement</SubmitButton>
+      <SubmitButton busy={busy}>{t('Save the payment')}</SubmitButton>
     </>}>
-      <Field label="Dossier">
+      <Field label={t('File#opco')}>
         <Static>{nomDossierOpco(d, dossier)}
           <div className="text-muted sub">
-            {`Attendu ${eurosOpco(m.attendu)} · reçu ${eurosOpco(m.recuEntreprise + m.payeOrganisme)}`}
-            {deja.length ? ` · ${deja.length} versement${deja.length > 1 ? 's' : ''} déjà enregistré${deja.length > 1 ? 's' : ''}` : ''}
+            {`${t('Expected ')}${eurosOpco(m.attendu)} · ${t('received ')}${eurosOpco(m.recuEntreprise + m.payeOrganisme)}`}
+            {deja.length ? ` · ${tn(deja.length, 'payment already recorded', 'payments already recorded')}` : ''}
           </div>
         </Static>
       </Field>
       <div className="grid-2">
-        <Field label="Versé le" htmlFor="opco-v-le" requis erreur={v.erreur(dateErr) || (le ? dateErr : null)}>
+        <Field label={t('Paid on')} htmlFor="opco-v-le" requis erreur={v.erreur(dateErr) || (le ? dateErr : null)}>
           <input className="input" id="opco-v-le" type="date" min={dossier.accordLe ?? undefined} max={d.ti} value={le} onChange={e => setLe(e.target.value)} />
         </Field>
-        <Field label="Montant (€)" htmlFor="opco-v-montant" requis erreur={v.erreur(montantErr) || (montant.trim() ? montantErr : null)}>
+        <Field label={t('Amount (€)')} htmlFor="opco-v-montant" requis erreur={v.erreur(montantErr) || (montant.trim() ? montantErr : null)}>
           <input className="input tnum" id="opco-v-montant" inputMode="decimal" value={montant} onChange={e => setMontant(e.target.value)} autoFocus />
         </Field>
       </div>
-      <Field label="Payé à">
-        <Seg name="opco-destinataire" label="Destinataire du versement" value={destinataire} onChange={setDestinataire} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
-          options={[['entreprise', 'L’entreprise'], ['organisme', 'L’organisme (subrogation)']]} />
+      <Field label={t('Paid to')}>
+        <Seg name="opco-destinataire" label={t('Recipient of the payment')} value={destinataire} onChange={setDestinataire} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
+          options={[['entreprise', t('The company')], ['organisme', t('The provider (subrogation)')]]} />
       </Field>
-      <Field label="Référence du virement ou de l’avis de paiement" htmlFor="opco-v-ref" erreur={refErr}>
+      <Field label={t('Reference of the transfer or of the payment advice')} htmlFor="opco-v-ref" erreur={refErr}>
         <input className="input" id="opco-v-ref" value={reference} onChange={e => setReference(e.target.value)} autoComplete="off" />
       </Field>
       <Fine>
-        Le dossier passe « Remboursé » ; un acompte n’empêche pas d’envoyer ensuite les justificatifs. Un versement saisi par erreur
-        s’annule avec un motif, par l’administrateur RH.
+        {t('The file becomes “Reimbursed”; an advance does not prevent sending the supporting documents afterwards. A payment entered by mistake is cancelled with a reason, by the HR administrator.')}
       </Fine>
     </Dialog>
   );

@@ -5,13 +5,13 @@
 // serveur refuse une ouverture postérieure à la clôture.
 import { useState } from 'react';
 import { TYPES_CONTRAT } from '../../../../shared/constants.ts';
-import { plural } from '../../../../shared/format.ts';
 import { ANCIENNETES, CONTRATS_EXCLUABLES, campagne, PREAVIS, PREAVIS_TOUTE_ANNEE } from '../../../../shared/rules/campagne.ts';
 import type { TypeContrat } from '../../../../shared/types.ts';
 import { Field } from '../../components/Dialog.tsx';
 import { Btn, Fine, Panel } from '../../components/ui.tsx';
 import { useDomain, useRole } from '../../state/derived.ts';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
+import { t, tn } from '../../i18n/langue.ts';
 
 const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 /** Jours de chaque mois d'une année ordinaire (le 29 février n'existe pas chaque année). */
@@ -25,10 +25,10 @@ export function JourMois({ id, label, value, onChange, disabled }: { id: string;
   return (
     <Field label={label} htmlFor={`${id}-jour`}>
       <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-        <select className="input" id={`${id}-jour`} aria-label={`${label} : jour`} value={j} disabled={disabled} onChange={e => changer(m, Number(e.target.value))} style={{ width: 80 }}>
+        <select className="input" id={`${id}-jour`} aria-label={`${label}${t(': day')}`} value={j} disabled={disabled} onChange={e => changer(m, Number(e.target.value))} style={{ width: 80 }}>
           {Array.from({ length: JOURS_MOIS[m - 1] }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n === 1 ? '1er' : n}</option>)}
         </select>
-        <select className="input" aria-label={`${label} : mois`} value={m} disabled={disabled} onChange={e => changer(Number(e.target.value), j)} style={{ flex: 1 }}>
+        <select className="input" aria-label={`${label}${t(': month')}`} value={m} disabled={disabled} onChange={e => changer(Number(e.target.value), j)} style={{ flex: 1 }}>
           {MOIS.map((nom, i) => <option key={nom} value={i + 1}>{nom}</option>)}
         </select>
       </div>
@@ -46,7 +46,7 @@ export function Entretiens({ s }: SectionProps) {
   const [busy, setBusy] = useState(false);
   const dDebut = debut ?? s.campagneDebut, dFin = fin ?? s.campagneFin;
   const modifiees = dDebut !== s.campagneDebut || dFin !== s.campagneFin;
-  const ordre = dDebut > dFin ? 'L’ouverture doit précéder la clôture, dans la même année.' : null;
+  const ordre = dDebut > dFin ? t('The opening must precede the closing, in the same year.') : null;
   const c = campagne({ ...s, campagneDebut: dDebut, campagneFin: dFin }, d.year);
 
   const enregistrerDates = async () => {
@@ -56,54 +56,54 @@ export function Entretiens({ s }: SectionProps) {
     setBusy(false);
     if (r.ok) { setDebut(null); setFin(null); }
   };
-  const exclure = (t: TypeContrat, oui: boolean) =>
-    enregistrer({ campagneExclus: CONTRATS_EXCLUABLES.filter(x => (x === t ? oui : s.campagneExclus.includes(x))) });
+  const exclure = (ty: TypeContrat, oui: boolean) =>
+    enregistrer({ campagneExclus: CONTRATS_EXCLUABLES.filter(x => (x === ty ? oui : s.campagneExclus.includes(x))) });
 
   return (
-    <Panel title="Campagne d’entretiens annuels" style={{ gap: 'var(--space-4)' }}>
+    <Panel title={t('Annual review campaign')} style={{ gap: 'var(--space-4)' }}>
       <div className="grid-2">
-        <JourMois id="camp-debut" label="Ouverture" value={dDebut} onChange={setDebut} disabled={!admin} />
-        <JourMois id="camp-fin" label="Clôture (échéance)" value={dFin} onChange={setFin} disabled={!admin} />
+        <JourMois id="camp-debut" label={t('Opening')} value={dDebut} onChange={setDebut} disabled={!admin} />
+        <JourMois id="camp-fin" label={t('Closing (due date)')} value={dFin} onChange={setFin} disabled={!admin} />
       </div>
       {ordre && <p className="form-error">{ordre}</p>}
       {admin && modifiees && (
         <div className="actions-end">
-          <Btn variant="secondary" disabled={busy} onClick={() => { setDebut(null); setFin(null); }}>Annuler</Btn>
-          <Btn variant="primary" disabled={busy} onClick={enregistrerDates}>Enregistrer les dates</Btn>
+          <Btn variant="secondary" disabled={busy} onClick={() => { setDebut(null); setFin(null); }}>{t('Cancel')}</Btn>
+          <Btn variant="primary" disabled={busy} onClick={enregistrerDates}>{t('Save the dates')}</Btn>
         </div>
       )}
-      <Fine>{c.libelle}. L’entretien annuel d’évaluation, distinct de l’entretien de parcours professionnel, est attendu de chaque salarié concerné avant la clôture.</Fine>
+      <Fine>{c.libelle}{t('. The annual appraisal review, distinct from the professional career review, is expected from each employee concerned before the closing.')}</Fine>
 
-      <Field label="Ancienneté minimale à l’ouverture" htmlFor="camp-anciennete">
+      <Field label={t('Minimum seniority at the opening')} htmlFor="camp-anciennete">
         <select className="input" id="camp-anciennete" value={s.campagneAncienneteMois} disabled={!admin}
           onChange={e => enregistrer({ campagneAncienneteMois: Number(e.target.value) })}>
           {[...new Set([...ANCIENNETES, s.campagneAncienneteMois])].sort((a, z) => a - z)
-            .map(n => <option key={n} value={n}>{n ? plural(n, 'mois', 'mois') : 'Aucune'}</option>)}
+            .map(n => <option key={n} value={n}>{n ? tn(n, 'month#count', 'months#count') : t('None#fem')}</option>)}
         </select>
       </Field>
 
-      <Field label="Contrats concernés">
+      <Field label={t('Contracts concerned')}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-          {CONTRATS_EXCLUABLES.map(t => (
-            <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
-              <input type="checkbox" checked={!s.campagneExclus.includes(t)} disabled={!admin} onChange={e => exclure(t, !e.target.checked)}
+          {CONTRATS_EXCLUABLES.map(ty => (
+            <label key={ty} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
+              <input type="checkbox" checked={!s.campagneExclus.includes(ty)} disabled={!admin} onChange={e => exclure(ty, !e.target.checked)}
                 style={{ accentColor: 'var(--color-accent)' }} />
-              {TYPES_CONTRAT[t].label}
+              {TYPES_CONTRAT[ty].label}
             </label>
           ))}
-          <span className="text-muted sub">CDI : toujours concernés · intérim : jamais (l’intérimaire relève de son agence).</span>
+          <span className="text-muted sub">{t('Permanent contracts: always concerned · temp work: never (the temp worker comes under their agency).')}</span>
         </div>
       </Field>
 
-      <Field label="Échéance affichée dans Entretiens" htmlFor="camp-preavis">
+      <Field label={t('Due date shown in Reviews')} htmlFor="camp-preavis">
         <select className="input" id="camp-preavis" value={s.campagnePreavisJours} disabled={!admin}
           onChange={e => enregistrer({ campagnePreavisJours: Number(e.target.value) })}>
           {[...new Set([...PREAVIS, s.campagnePreavisJours])].sort((a, z) => z - a).map(n => (
-            <option key={n} value={n}>{n >= PREAVIS_TOUTE_ANNEE ? 'Toute l’année' : n ? `${n} jours avant l’ouverture` : 'À l’ouverture'}</option>
+            <option key={n} value={n}>{n >= PREAVIS_TOUTE_ANNEE ? t('All year') : n ? `${n}${t(' days before the opening')}` : t('At the opening')}</option>
           ))}
         </select>
       </Field>
-      <Fine>L’entretien annuel apparaît « À planifier » dans les échéances à traiter à partir de ce moment, pour chaque salarié concerné qui n’en a pas eu dans l’année ; il se planifie depuis cette ligne.</Fine>
+      <Fine>{t('The annual review appears “To plan” in the due dates to handle from that moment, for each employee concerned who has not had one in the year; it is planned from this line.')}</Fine>
     </Panel>
   );
 }

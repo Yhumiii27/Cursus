@@ -9,14 +9,15 @@ import { Field } from '../../components/Dialog.tsx';
 import { Fine, NoteAccent, Panel, Tag } from '../../components/ui.tsx';
 import { useRole } from '../../state/derived.ts';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
+import { t } from '../../i18n/langue.ts';
 
 export function Pieces({ s }: SectionProps) {
   const { admin } = useRole();
   const enregistrer = useEnregistrerReglages();
   const actif = s.piecesStockage === 'local' || s.piecesStockage === 'ged';
   return (
-    <Panel title="Pièces justificatives" aside={<Tag cls={actif ? 'tag-neutral' : 'tag-outline'}>{actif ? 'Activées' : 'Désactivées'}</Tag>} style={{ gap: 'var(--space-4)' }}>
-      <Field label="Stockage des pièces" htmlFor="param-pieces">
+    <Panel title={t('Supporting documents')} aside={<Tag cls={actif ? 'tag-neutral' : 'tag-outline'}>{actif ? t('Activated#fem-plural') : t('Deactivated#fem-plural')}</Tag>} style={{ gap: 'var(--space-4)' }}>
+      <Field label={t('Storage of the documents')} htmlFor="param-pieces">
         <select className="input" id="param-pieces" value={s.piecesStockage} disabled={!admin}
           onChange={e => enregistrer({ piecesStockage: e.target.value as StockagePieces })}>
           <option value="desactive">{STOCKAGE_LABEL.desactive}</option>
@@ -24,34 +25,18 @@ export function Pieces({ s }: SectionProps) {
           <option value="ged">{STOCKAGE_LABEL.ged}</option>
         </select>
       </Field>
-      {!actif && <NoteAccent>À activer après l’avis du DPO : les justificatifs d’absence et les copies de documents peuvent contenir des données de santé.</NoteAccent>}
+      {!actif && <NoteAccent>{t('To activate after the DPO’s opinion: the absence supporting documents and the copies of documents may contain health data.')}</NoteAccent>}
       <Fine>
-        Activées, les dialogues proposent de joindre un fichier : justificatif d’absence (saisie, qualification, signalement par
-        l’intéressé), attestation de formation, titre d’habilitation signé, copie d’un document déclaré par le collaborateur ; la
-        fiche du collaborateur liste les pièces et en joint aux certifications et habilitations déjà enregistrées. PDF, JPEG ou PNG,
-        reconnus sur leur contenu, {tailleTexte(TAILLE_MAX_PIECE)} au plus.
+        {t('Activated, the dialogs offer to attach a file: absence supporting document (entry, qualification, report by the person concerned), training certificate, signed authorisation title, copy of a document declared by the employee; the employee’s sheet lists the documents and attaches some to the certifications and authorisations already recorded. PDF, JPEG or PNG, recognised on their content, ')}{tailleTexte(TAILLE_MAX_PIECE)}{t(' at most.')}
       </Fine>
       <Fine>
-        Accès : le service RH voit tout ; le référent HSE / formation, les attestations et titres d’habilitation ; le salarié, ses
-        propres pièces ; le manager, les attestations et titres de son équipe, jamais un justificatif d’absence ni un document
-        déclaré ; ni la paie, ni la lecture seule. Chaque envoi, consultation et retrait est tracé dans le journal, sans le nom
-        du fichier.
+        {t('Access: HR sees everything; the HSE / training referent, the certificates and authorisation titles; the employee, their own documents; the manager, the certificates and titles of their team, never an absence supporting document nor a declared document; neither payroll, nor the read-only role. Each upload, consultation and removal is traced in the log, without the file name.')}
       </Fine>
       <Fine>
-        Stockage : dossier « pieces » à côté de la base (volume des données), sous un nom aléatoire, chiffré par le serveur
-        quand le service informatique a défini la clé de chiffrement (obligatoire en production ; sans elle, hors production,
-        les fichiers sont écrits en clair), avec l’empreinte SHA-256 de
-        chaque fichier, vérifiée à chaque ouverture et par le contrôle d’intégrité. Les sauvegardes emportent les fichiers que
-        désigne chaque copie, et la restauration les remet en place. Une pièce retirée garde sa description, son fichier est
-        effacé ; la durée de conservation suit celle du dossier qu’elle justifie. Désactiver la fonction n’efface rien : les
-        pièces déjà jointes restent consultables.
+        {t('Storage: “pieces” folder next to the database (data volume), under a random name, encrypted by the server when the IT department has defined the encryption key (mandatory in production; without it, outside production, the files are written in clear), with the SHA-256 fingerprint of each file, checked at each opening and by the integrity check. The backups carry the files that each copy designates, and the restoration puts them back in place. A removed document keeps its description, its file is erased; the retention period follows that of the file it supports. Deactivating the function erases nothing: the documents already attached stay readable.')}
       </Fine>
       <Fine>
-        Codex : chaque pièce attend dans le dossier local d’être jointe, puis elle est versée dans Codex au passage horaire
-        (catégorie du dossier du personnel, matricule, fin de conservation, empreinte), et sa copie locale est effacée. Les
-        pièces déjà dans le dossier local sont reprises de la même façon. Cursus la relit pour ses utilisateurs, avec les
-        mêmes droits, et la fait détruire dans Codex à son retrait. Choix refusé tant que Codex n’est pas raccordé par le
-        service informatique ou que ses catégories manquent dans son registre.
+        {t('Codex: each document waits in the local folder to be attached, then it is filed in Codex at the hourly pass (category of the personnel file, employee number, end of retention, fingerprint), and its local copy is erased. The documents already in the local folder are taken over the same way. Cursus reads it again for its users, with the same rights, and has it destroyed in Codex when it is removed. Choice refused as long as Codex is not connected by the IT department or its categories are missing from its register.')}
       </Fine>
     </Panel>
   );

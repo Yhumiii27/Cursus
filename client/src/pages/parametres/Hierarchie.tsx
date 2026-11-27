@@ -9,46 +9,40 @@ import type { OrganigrammeOuvert } from '../../../../shared/types.ts';
 import { Fine, Panel } from '../../components/ui.tsx';
 import { useRole } from '../../state/derived.ts';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
+import { t } from '../../i18n/langue.ts';
 
 export function Hierarchie({ s }: SectionProps) {
   const { admin } = useRole();
   const enregistrer = useEnregistrerReglages();
   return (
-    <Panel title="Hiérarchie des managers" style={{ gap: 'var(--space-4)' }}>
+    <Panel title={t('Hierarchy of managers')} style={{ gap: 'var(--space-4)' }}>
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
         <input type="checkbox" checked={s.consultationN2} disabled={!admin} onChange={e => enregistrer({ consultationN2: e.target.checked })}
           style={{ accentColor: 'var(--color-accent)', marginTop: 'var(--space-1)', flex: 'none' }} />
-        <span>Consultation N+2 : le manager voit, en lecture seule, les membres des équipes rattachées aux siennes</span>
+        <span>{t('N+2 consultation: the manager sees, read only, the members of the teams attached to theirs')}</span>
       </label>
       {/* Délégation des validations (t135) : congés et feuilles de temps ; les entretiens seulement si cette case l'ouvre. */}
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
         <input type="checkbox" checked={s.delegationEntretiens} disabled={!admin} onChange={e => enregistrer({ delegationEntretiens: e.target.checked })}
           style={{ accentColor: 'var(--color-accent)', marginTop: 'var(--space-1)', flex: 'none' }} />
-        <span>Délégation des entretiens : le suppléant d’un manager absent peut aussi recevoir ses entretiens</span>
+        <span>{t('Delegation of reviews: the deputy of an absent manager can also receive their reviews')}</span>
       </label>
       <Fine>
-        Une équipe peut être rattachée à une équipe parente (écran Équipes & managers, {PROFONDEUR_MAX} niveaux au plus) : le manager de l’équipe,
-        quand il en est membre, soumet alors ses absences, ses feuilles de temps et ses entretiens au manager de l’équipe parente, et non plus au
-        service RH. Les demandes déjà en attente changent de valideur à l’enregistrement ; le nouveau valideur en est prévenu. La consultation N+2
-        montre la fiche, les absences et les feuilles des membres des équipes rattachées, avec les mêmes restrictions que pour l’équipe directe et
-        sans aptitude médicale détaillée ni entretien ; les décisions restent à leur manager direct.
+        {t('A team can be attached to a parent team (Teams & managers screen, ')}{PROFONDEUR_MAX}{t(' levels at most): the team’s manager, when they are a member of it, then submits their absences, timesheets and reviews to the parent team’s manager, and no longer to HR. The requests already pending change approver on saving; the new approver is notified. The N+2 consultation shows the sheet, absences and timesheets of the members of the attached teams, with the same restrictions as for the direct team and without detailed medical fitness nor review; the decisions stay with their direct manager.')}
       </Fine>
       {/* lot 11 — organigramme */}
       <div className="field" style={{ maxWidth: 360 }}>
-        <label htmlFor="reglage-organigramme">Organigramme ouvert à</label>
+        <label htmlFor="reglage-organigramme">{t('Organisation chart open to')}</label>
         <select className="input" id="reglage-organigramme" value={s.organigrammeOuvert ?? 'tous'} disabled={!admin}
           onChange={e => enregistrer({ organigrammeOuvert: e.target.value as OrganigrammeOuvert })}>
           {(Object.entries(ORGANIGRAMME_OUVERT) as [OrganigrammeOuvert, string][]).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
       </div>
       <Fine>
-        L’organigramme ne montre que l’annuaire (nom, poste, équipe, manager) des présents du jour : ni contrat, ni absence, ni santé. Le suppléant
-        d’un manager n’y figure que pour les personnes qui voient déjà la délégation, sans les dates. Le service RH le voit toujours.
+        {t('The organisation chart only shows the directory (name, job, team, manager) of those present on the day: neither contract, nor absence, nor health. A manager’s deputy only appears in it for the people who already see the delegation, without the dates. HR always sees it.')}
       </Fine>
       <Fine>
-        Pendant ses absences, un manager peut déléguer ses validations à un suppléant pour une période datée (Mon espace ; ou le service RH, écran
-        Équipes & managers) : son responsable est proposé d’abord. Le suppléant reçoit les congés et les feuilles de temps de l’équipe, et les entretiens
-        si la case ci-dessus est cochée ; il ne décide jamais de ses propres demandes, qui vont au responsable du manager ou au service RH.
+        {t('During their absences, a manager can delegate their approvals to a deputy for a dated period (My space; or HR, Teams & managers screen): their superior is offered first. The deputy receives the leave and timesheets of the team, and the reviews if the box above is ticked; they never decide their own requests, which go to the manager’s superior or to HR.')}
       </Fine>
     </Panel>
   );

@@ -10,6 +10,7 @@ import { Fine, Panel, Seg } from '../../components/ui.tsx';
 import { useRole } from '../../state/derived.ts';
 import { useStore } from '../../state/store.tsx';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
+import { t } from '../../i18n/langue.ts';
 
 const SEUILS: [number, string][] = Array.from({ length: SEUIL_INDICATEURS_MAX - SEUIL_INDICATEURS_MIN + 1 }, (_, i) => {
   const n = SEUIL_INDICATEURS_MIN + i;
@@ -30,14 +31,14 @@ export function Indicateurs({ s }: SectionProps) {
   const cocher = (n: NatureAbsence, oui: boolean) => enregistrer({ absenteismeNatures: NATURES_ABSENTEISME_POSSIBLES.filter(x => (x === n ? oui : s.absenteismeNatures.includes(x))) });
   const parDefaut = NATURES_ABSENTEISME_DEFAUT.length === s.absenteismeNatures.length && NATURES_ABSENTEISME_DEFAUT.every(n => s.absenteismeNatures.includes(n));
   return (
-    <Panel title="Indicateurs sociaux" style={{ gap: 'var(--space-4)' }}>
-      <Field label="Seuil d’anonymat">
-        <Seg name="param-ind-seuil" label="Seuil d’anonymat des indicateurs" value={s.indicateursSeuil} disabled={!admin} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
+    <Panel title={t('Social indicators')} style={{ gap: 'var(--space-4)' }}>
+      <Field label={t('Anonymity threshold')}>
+        <Seg name="param-ind-seuil" label={t('Anonymity threshold of the indicators')} value={s.indicateursSeuil} disabled={!admin} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
           options={SEUILS} onChange={v => enregistrer({ indicateursSeuil: v })} />
-        <span className="text-muted sub">Une case qui porte sur moins de {s.indicateursSeuil} personnes s’affiche « &lt; {s.indicateursSeuil} », et une autre l’est aussi quand un total la laisserait retrouver</span>
+        <span className="text-muted sub">{t('A cell that covers fewer than ')}{s.indicateursSeuil}{t(' people is shown “< ')}{s.indicateursSeuil}{t('”, and another one is too when a total would let it be found')}</span>
       </Field>
       <fieldset style={{ border: 0, padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-        <legend style={{ fontSize: 14, marginBottom: 'var(--space-2)' }}>Absences comptées dans l’absentéisme{parDefaut ? ' (choix par défaut)' : ''}</legend>
+        <legend style={{ fontSize: 14, marginBottom: 'var(--space-2)' }}>{t('Absences counted in absenteeism')}{parDefaut ? t(' (default choice)') : ''}</legend>
         {PAR_CATEGORIE.map(([c, natures]) => (
           <div key={c} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
             <span className="text-muted sub">{CATEGORIES_ABSENCE[c]}</span>
@@ -52,10 +53,8 @@ export function Indicateurs({ s }: SectionProps) {
         ))}
       </fieldset>
       <Fine>
-        Les jours d’absence sont comptés dans les jours ouvrés théoriques du régime de chaque salarié (un arrêt en jours calendaires ne compte
-        pas ses week-ends), sur l’année civile. Par défaut : santé, enfant malade, sans solde et absence injustifiée, hors congés et
-        parentalité — définition à arrêter avec le CSE. Un arrêté annuel garde le seuil et la version des règles de sa date.{' '}
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => go('indicateurs')}>Ouvrir les indicateurs</button>
+        {t('The absence days are counted in the theoretical working days of each employee’s regime (a sick leave in calendar days does not count its weekends), over the calendar year. By default: health, sick child, unpaid and unjustified absence, apart from leave and parenthood — definition to be decided with the CSE. An annual statement keeps the threshold and the version of the rules of its date.')}{' '}
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => go('indicateurs')}>{t('Open the indicators')}</button>
       </Fine>
     </Panel>
   );

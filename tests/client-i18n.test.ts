@@ -250,6 +250,13 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
       'client/src/dialogs/RefCycleDialog.tsx', 'client/src/dialogs/HoraireVariableDialog.tsx', 'client/src/dialogs/ModuleElearningDialog.tsx',
       'client/src/dialogs/OrganismeDialog.tsx', 'client/src/dialogs/OrganismeContactDialog.tsx', 'client/src/dialogs/OrganismeFusionDialog.tsx'],
   },
+  {
+    // Partie 8. Toutes les sections (pages/parametres/), le travail de nuit, le forfait annuel en heures, la géolocalisation et
+    // ses zones, l'effacement des dossiers (libellés de shared/ en français : modes, catégories, aides des réglages).
+    ecran: 'Paramètres', fichiers: ['client/src/pages/Parametres.tsx', 'client/src/components/ReglagesNuit.tsx', 'client/src/components/temps/ReglagesForfaitHeures.tsx',
+      'client/src/components/temps/GeolocPointage.tsx', 'client/src/dialogs/AnonymiserDialog.tsx', 'client/src/dialogs/ZonePointageDialog.tsx',
+      ...['AbsencesPaie', 'Agenda', 'Astreintes', 'Badgeage', 'CompteEpargneTemps', 'Conges', 'Conservation', 'Contrats', 'DecompteHeures', 'Demonstration', 'DeplacementsPaie', 'EntretienMiCarriere', 'Entretiens', 'Envois', 'EvaluationsFormation', 'Feries', 'FeuillesTemps', 'ForfaitJours', 'Formations', 'Fractionnement', 'Hierarchie', 'Indicateurs', 'Keystone', 'ListeAttente', 'MatriculesPaie', 'NotesFrais', 'ObjectifsSuivis', 'Opco', 'PasseportPrevention', 'Pieces', 'Planning', 'PostesRisques', 'ReglagesPaie', 'RelancesEcheances', 'ReposHebdomadaire', 'Reprise', 'Rgpd', 'SagePaie', 'Sante', 'Suivi'].map(f => `client/src/pages/parametres/${f}.tsx`)],
+  },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */

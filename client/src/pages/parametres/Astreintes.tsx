@@ -14,6 +14,7 @@ import { Field } from '../../components/Dialog.tsx';
 import { Btn, Fine, NoteAccent, Panel, Seg } from '../../components/ui.tsx';
 import { useRole } from '../../state/derived.ts';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
+import { t } from '../../i18n/langue.ts';
 
 const COMPENSATIONS = Object.entries(COMPENSATION_LABEL) as [CompensationAstreinte, string][];
 /** Délai de prévenance au plus (jours), comme le contrôle du réglage (shared/reglages.ts). */
@@ -40,11 +41,11 @@ export function Astreintes({ s }: SectionProps) {
 
   const nombre = (v: string) => Number(v.trim().replace(',', '.'));
   const maxPeriode = repos ? REPOS_PERIODE_MAX : MONTANT_PERIODE_MAX, maxHeure = repos ? 60 : MONTANT_HEURE_MAX;
-  const erreurPeriode = !/^\d+([.,]\d{1,2})?$/.test(periode.trim()) || nombre(periode) > maxPeriode ? `Indiquez un nombre de 0 à ${maxPeriode}, deux décimales au plus.` : null;
+  const erreurPeriode = !/^\d+([.,]\d{1,2})?$/.test(periode.trim()) || nombre(periode) > maxPeriode ? `${t('Enter a number from 0 to ')}${maxPeriode}${t(', two decimals at most.')}` : null;
   const erreurHeure = (repos ? !/^\d{1,2}$/.test(heure.trim()) : !/^\d+([.,]\d{1,2})?$/.test(heure.trim())) || nombre(heure) > maxHeure
-    ? (repos ? `Indiquez un nombre de minutes entier, de 0 à ${maxHeure}.` : `Indiquez un montant de 0 à ${maxHeure}, deux décimales au plus.`) : null;
+    ? (repos ? `${t('Enter a whole number of minutes, from 0 to ')}${maxHeure}.` : `${t('Enter an amount from 0 to ')}${maxHeure}${t(', two decimals at most.')}`) : null;
   const erreurBaremeAccord = !erreurPeriode && !erreurHeure && (nombre(periode) > 0 || nombre(heure) > 0) && !accord.trim()
-    ? 'Un barème suppose l’accord collectif ou la décision de l’employeur qui le fixe (art. L3121-11 et L3121-12) : indiquez sa référence.' : null;
+    ? t('A scale assumes the collective agreement or the employer’s decision that sets it (art. L3121-11 and L3121-12): enter its reference.') : null;
   const baremeModifie = nombre(periode) !== parPeriode || nombre(heure) !== parHeure;
   const enregistrerBareme = async () => {
     const erreur = [['ast-bareme-periode', erreurPeriode], ['ast-bareme-heure', erreurHeure], ['ast-accord', erreurBaremeAccord]].find(([, e]) => e);
@@ -58,9 +59,9 @@ export function Astreintes({ s }: SectionProps) {
   const bareme = baremeTexte(s);
 
   const n = Number(delai);
-  const erreurDelai = !/^\d{1,2}$/.test(delai.trim()) || n < DELAI_JOUR_FRANC || n > DELAI_MAX ? `Indiquez un nombre de jours entier, de ${DELAI_JOUR_FRANC} à ${DELAI_MAX}.` : null;
+  const erreurDelai = !/^\d{1,2}$/.test(delai.trim()) || n < DELAI_JOUR_FRANC || n > DELAI_MAX ? `${t('Enter a whole number of days, from ')}${DELAI_JOUR_FRANC}${t(' to #nombre')}${DELAI_MAX}.` : null;
   const erreurAccord = !erreurDelai && n < DELAI_PREVENANCE_LEGAL && !accord.trim()
-    ? `Un délai de moins de ${DELAI_PREVENANCE_LEGAL} jours suppose un accord collectif (art. L3121-11) : indiquez sa référence.` : null;
+    ? `${t('A notice of less than ')}${DELAI_PREVENANCE_LEGAL}${t(' days assumes a collective agreement (art. L3121-11): enter its reference.')}` : null;
   const modifie = n !== s.astreinteDelaiPrevenance || accord.trim() !== s.astreinteAccord;
   const enregistrer = async () => {
     const erreur = [['ast-delai', erreurDelai], ['ast-accord', erreurAccord]].find(([, e]) => e);
@@ -71,54 +72,50 @@ export function Astreintes({ s }: SectionProps) {
   };
 
   return (
-    <Panel title="Astreintes" style={{ gap: 'var(--space-4)' }}>
+    <Panel title={t('On-call duty')} style={{ gap: 'var(--space-4)' }}>
       <div className="row-wrap" style={{ gap: 'var(--space-3)' }}>
-        <Field label="Délai de prévenance (jours)" htmlFor="ast-delai" requis erreur={tente && erreurDelai}>
+        <Field label={t('Notice period (days)')} htmlFor="ast-delai" requis erreur={tente && erreurDelai}>
           <input className="input tnum" id="ast-delai" inputMode="numeric" value={delai} disabled={!admin} onChange={e => setDelai(e.target.value)} style={{ maxWidth: 120 }} />
         </Field>
       </div>
-      <Field label={<>Référence de l’accord sur les astreintes{n >= DELAI_PREVENANCE_LEGAL && <span className="who"> · facultatif</span>}</>} htmlFor="ast-accord"
+      <Field label={<>{t('Reference of the agreement on on-call duty')}{n >= DELAI_PREVENANCE_LEGAL && <span className="who">{t(' · optional')}</span>}</>} htmlFor="ast-accord"
         requis={n < DELAI_PREVENANCE_LEGAL} erreur={tente && erreurAccord}>
-        <input className="input" id="ast-accord" maxLength={120} placeholder="Accord d’entreprise sur le temps de travail du …" value={accord} disabled={!admin} onChange={e => setAccord(e.target.value)} />
+        <input className="input" id="ast-accord" maxLength={120} placeholder={t('Company agreement on working time of …')} value={accord} disabled={!admin} onChange={e => setAccord(e.target.value)} />
       </Field>
-      {admin && modifie && <div className="actions-end"><Btn variant="primary" disabled={busy} onClick={enregistrer}>Enregistrer le délai</Btn></div>}
+      {admin && modifie && <div className="actions-end"><Btn variant="primary" disabled={busy} onClick={enregistrer}>{t('Save the notice')}</Btn></div>}
       <Fine>
-        La programmation individuelle est communiquée au salarié au moins {DELAI_PREVENANCE_LEGAL} jours à l’avance à défaut d’accord (art. R3121-3) : e-mail et
-        événement d’agenda. En dessous du délai réglé, la planification exige le motif des circonstances exceptionnelles ; jamais moins d’un jour franc.
+        {t('The individual schedule is given to the employee at least ')}{DELAI_PREVENANCE_LEGAL}{t(' days in advance failing an agreement (art. R3121-3): e-mail and calendar event. Below the set notice, the planning requires the reason of the exceptional circumstances; never less than one clear day.')}
       </Fine>
 
-      <Field label="Forme de la compensation">
-        <Seg name="ast-compensation" label="Forme de la compensation" value={s.astreinteCompensation} options={COMPENSATIONS} disabled={!admin}
+      <Field label={t('Form of compensation')}>
+        <Seg name="ast-compensation" label={t('Form of compensation')} value={s.astreinteCompensation} options={COMPENSATIONS} disabled={!admin}
           onChange={v => save({ astreinteCompensation: v })} style={{ flexWrap: 'wrap' }} />
       </Field>
       <div className="row-wrap" style={{ gap: 'var(--space-3)' }}>
-        <Field label={repos ? 'Repos par période (heures)' : 'Compensation par période (euros)'} htmlFor="ast-bareme-periode" erreur={tenteBareme && erreurPeriode}>
+        <Field label={repos ? t('Rest per period (hours)') : t('Compensation per period (euros)')} htmlFor="ast-bareme-periode" erreur={tenteBareme && erreurPeriode}>
           <input className="input tnum" id="ast-bareme-periode" inputMode="decimal" value={periode} disabled={!admin} onChange={e => setPeriode(e.target.value)} style={{ maxWidth: 140 }} />
         </Field>
-        <Field label={repos ? 'Repos par heure d’astreinte (minutes)' : 'Compensation par heure d’astreinte (euros)'} htmlFor="ast-bareme-heure" erreur={tenteBareme && erreurHeure}>
+        <Field label={repos ? t('Rest per on-call hour (minutes)') : t('Compensation per on-call hour (euros)')} htmlFor="ast-bareme-heure" erreur={tenteBareme && erreurHeure}>
           <input className="input tnum" id="ast-bareme-heure" inputMode="decimal" value={heure} disabled={!admin} onChange={e => setHeure(e.target.value)} style={{ maxWidth: 140 }} />
         </Field>
       </div>
       {tenteBareme && erreurBaremeAccord && <NoteAccent>{erreurBaremeAccord}</NoteAccent>}
-      {admin && baremeModifie && <div className="actions-end"><Btn variant="primary" disabled={busy} onClick={enregistrerBareme}>Enregistrer le barème</Btn></div>}
+      {admin && baremeModifie && <div className="actions-end"><Btn variant="primary" disabled={busy} onClick={enregistrerBareme}>{t('Save the scale')}</Btn></div>}
       <Fine>
-        {bareme ? `Barème en vigueur : ${bareme}. ` : 'Aucun barème réglé : la compensation n’est ni chiffrée ni transmise. '}
-        Chaque astreinte terminée reçoit sa compensation au mois de son début ({repos ? 'AST_REPOS, en heures' : 'AST_COMP, en euros'}), figée dans le lot de paie qui l’emporte.
+        {bareme ? `${t('Scale in force: ')}${bareme}. ` : t('No scale set: the compensation is neither calculated nor transmitted. ')}
+        {t('Each completed on-call duty receives its compensation in the month of its start (')}{repos ? t('AST_REPOS, in hours') : t('AST_COMP, in euros')}{t('), frozen in the payroll batch that carries it.')}
       </Fine>
-      {!s.astreinteAccord && <NoteAccent>Accord sur les astreintes non référencé : forme et montant de la compensation à confirmer. Le récapitulatif mensuel remis au salarié (art. R3121-2) indique la forme réglée ici.</NoteAccent>}
+      {!s.astreinteAccord && <NoteAccent>{t('Agreement on on-call duty not referenced: form and amount of the compensation to be confirmed. The monthly summary given to the employee (art. R3121-2) states the form set here.')}</NoteAccent>}
       <Fine>
-        Chaque astreinte donne lieu à une compensation, financière ou en repos (art. L3121-9). Cursus transmet à la paie les heures (AST_H) et les périodes
-        (AST_PER) d’astreinte terminées, et la compensation chiffrée d’après le barème ci-dessus (AST_COMP ou AST_REPOS). Ces rubriques sont désactivées tant que la paie n’a pas
-        donné leurs codes : les éléments sont listés « à saisir dans Sage » dans le résumé du lot. Les interventions sont du travail effectif, décomptées sur la
-        feuille de temps (heures normales, supplémentaires, de nuit et du dimanche).
+        {t('Each on-call duty gives rise to a compensation, financial or in rest (art. L3121-9). Cursus transmits to payroll the hours (AST_H) and the periods (AST_PER) of completed on-call duty, and the compensation calculated from the scale above (AST_COMP or AST_REPOS). These items are deactivated as long as payroll has not given their codes: the items are listed “to be entered in Sage” in the batch summary. The interventions are actual work, counted on the timesheet (normal, overtime, night and Sunday hours).')}
       </Fine>
 
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
         <input type="checkbox" checked={s.astreinteMineurs} disabled={!admin} onChange={e => save({ astreinteMineurs: e.target.checked })}
           style={{ accentColor: 'var(--color-accent)', marginTop: 'var(--space-1)', flex: 'none' }} />
         <span>
-          Admettre l’astreinte d’un salarié de moins de 18 ans
-          <span className="text-muted sub" style={{ display: 'block' }}>Décochée par défaut : le travail de nuit lui est interdit (art. L3163-2) et une intervention ne se programme pas.</span>
+          {t('Allow the on-call duty of an employee under 18')}
+          <span className="text-muted sub" style={{ display: 'block' }}>{t('Unticked by default: night work is forbidden to them (art. L3163-2) and an intervention is not scheduled.')}</span>
         </span>
       </label>
     </Panel>

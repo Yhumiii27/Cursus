@@ -17,6 +17,7 @@ import { useRole } from '../../state/derived.ts';
 import { useData, useStore } from '../../state/store.tsx';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
 import { GeolocPointage } from '../../components/temps/GeolocPointage.tsx';
+import { t, tn } from '../../i18n/langue.ts';
 
 /** Régimes qui peuvent pointer (jamais le forfait jours ni le cadre dirigeant). */
 const REGIMES = (['35h', '39h_rtt', 'forfait_heures_hebdo', 'forfait_heures_annuel', 'partiel'] as const).map(r => [r, TEMPS_TRAVAIL[r].label] as const);
@@ -58,9 +59,9 @@ export function Badgeage({ s }: SectionProps) {
   const copier = async () => {
     try {
       await navigator.clipboard.writeText(texte.join('\n\n'));
-      notify('Mention d’information copiée');
+      notify(t('Information notice copied'));
     } catch {
-      notify('Copie impossible dans ce navigateur : sélectionnez le texte', true);
+      notify(t('Copy impossible in this browser: select the text'), true);
     }
   };
   const entier = (k: 'pointageDelaiCorrectionJours' | 'pointageEcartDiffereMin' | 'pointageEcartAnomalieMin' | 'conservationPointagesAns', valeurs: number[], unite: (n: number) => string, id: string, label: string) => (
@@ -72,89 +73,85 @@ export function Badgeage({ s }: SectionProps) {
   );
 
   return (
-    <Panel title="Badgeage" style={{ gap: 'var(--space-4)' }}>
+    <Panel title={t('Badge clocking')} style={{ gap: 'var(--space-4)' }}>
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
         <input type="checkbox" checked={v.pointageActif} disabled={!admin} onChange={e => { maj({ pointageActif: e.target.checked }); setTente(false); }}
           style={{ accentColor: 'var(--color-accent)', marginTop: 'var(--space-1)', flex: 'none' }} />
         <span>
-          Activer le pointage des heures (bouton « Pointer » sur le téléphone et l’ordinateur)
-          <span className="text-muted sub" style={{ display: 'block' }}>Moyen de contrôle de l’activité : après l’information et la consultation du CSE (art. L2312-38), sur le fondement de l’accord d’entreprise, et l’information de chaque salarié (art. L1222-4).</span>
+          {t('Activate the clocking of hours (“Clock in” button on the phone and the computer)')}
+          <span className="text-muted sub" style={{ display: 'block' }}>{t('Means of controlling the activity: after informing and consulting the CSE (art. L2312-38), on the basis of the company agreement, and informing each employee (art. L1222-4).')}</span>
         </span>
       </label>
       <div className="row-wrap" style={{ gap: 'var(--space-3)' }}>
-        <Field label="Référence de l’accord d’entreprise" htmlFor="bdg-accord" requis={v.pointageActif} erreur={tente && erreurActivation && !v.pointageAccord.trim() ? 'Indiquez la référence de l’accord.' : null}>
-          <input className="input" id="bdg-accord" maxLength={200} placeholder="Accord sur l’aménagement du temps de travail du …" value={v.pointageAccord} disabled={!admin} onChange={e => maj({ pointageAccord: e.target.value })} />
+        <Field label={t('Reference of the company agreement')} htmlFor="bdg-accord" requis={v.pointageActif} erreur={tente && erreurActivation && !v.pointageAccord.trim() ? t('Enter the reference of the agreement.') : null}>
+          <input className="input" id="bdg-accord" maxLength={200} placeholder={t('Agreement on the organisation of working time of …')} value={v.pointageAccord} disabled={!admin} onChange={e => maj({ pointageAccord: e.target.value })} />
         </Field>
-        <Field label="Avis du CSE le" htmlFor="bdg-cse" requis={v.pointageActif} erreur={tente && erreurActivation && !v.pointageCseLe ? 'Indiquez la date de l’avis du CSE.' : null}>
+        <Field label={t('CSE’s opinion on')} htmlFor="bdg-cse" requis={v.pointageActif} erreur={tente && erreurActivation && !v.pointageCseLe ? t('Enter the date of the CSE’s opinion.') : null}>
           <input className="input" id="bdg-cse" type="date" value={v.pointageCseLe ?? ''} disabled={!admin} onChange={e => maj({ pointageCseLe: e.target.value || null })} style={{ maxWidth: 200 }} />
         </Field>
       </div>
 
-      <Field label="Populations qui pointent" htmlFor="bdg-populations" erreur={tente ? erreurPopulations : null}>
+      <Field label={t('Populations who clock in')} htmlFor="bdg-populations" erreur={tente ? erreurPopulations : null}>
         <div id="bdg-populations" tabIndex={-1} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-          {!populations.length && <span className="text-muted sub">Aucune : tout le personnel déclare son temps sur la feuille.</span>}
+          {!populations.length && <span className="text-muted sub">{t('None: all staff declare their time on the timesheet.')}</span>}
           {populations.map((p, i) => (
             <div key={i} className="row-wrap" style={{ gap: 'var(--space-2)', alignItems: 'center' }}>
-              <select className="input" aria-label={`Population ${i + 1} : critère`} value={p.critere} disabled={!admin} onChange={e => majPopulation(i, { critere: e.target.value as CriterePopulation, valeur: '' })} style={{ maxWidth: 220 }}>
+              <select className="input" aria-label={`${t('Population ')}${i + 1}${t(': criterion')}`} value={p.critere} disabled={!admin} onChange={e => majPopulation(i, { critere: e.target.value as CriterePopulation, valeur: '' })} style={{ maxWidth: 220 }}>
                 {Object.entries(CRITERES_POPULATION).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
               </select>
-              <select className="input" aria-label={`Population ${i + 1} : valeur`} value={p.valeur} disabled={!admin} onChange={e => majPopulation(i, { valeur: e.target.value })} style={{ maxWidth: 220 }}>
-                <option value="">Choisir…</option>
+              <select className="input" aria-label={`${t('Population ')}${i + 1}${t(': value')}`} value={p.valeur} disabled={!admin} onChange={e => majPopulation(i, { valeur: e.target.value })} style={{ maxWidth: 220 }}>
+                <option value="">{t('Choose…')}</option>
                 {valeurs(p.critere).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                {p.valeur && !valeurs(p.critere).some(([k]) => k === p.valeur) && <option value={p.valeur}>{p.valeur} (absente du référentiel)</option>}
+                {p.valeur && !valeurs(p.critere).some(([k]) => k === p.valeur) && <option value={p.valeur}>{p.valeur}{t(' (missing from the reference data)')}</option>}
               </select>
-              <select className="input" aria-label={`Population ${i + 1} : mode`} value={p.mode} disabled={!admin} onChange={e => majPopulation(i, { mode: e.target.value as ModeTemps })} style={{ maxWidth: 300 }}>
+              <select className="input" aria-label={`${t('Population ')}${i + 1}${t(': mode')}`} value={p.mode} disabled={!admin} onChange={e => majPopulation(i, { mode: e.target.value as ModeTemps })} style={{ maxWidth: 300 }}>
                 {Object.entries(MODES_TEMPS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
               </select>
-              <input className="input" type="date" aria-label={`Population ${i + 1} : date d’effet`} value={p.effet} disabled={!admin} onChange={e => majPopulation(i, { effet: e.target.value })} style={{ maxWidth: 170 }} />
-              {admin && <CloseButton size={28} label={`Retirer la population ${i + 1}`} onClick={() => maj({ pointagePopulations: populations.filter((_, j) => j !== i) })} />}
+              <input className="input" type="date" aria-label={`${t('Population ')}${i + 1}${t(': effective date')}`} value={p.effet} disabled={!admin} onChange={e => majPopulation(i, { effet: e.target.value })} style={{ maxWidth: 170 }} />
+              {admin && <CloseButton size={28} label={`${t('Remove population ')}${i + 1}`} onClick={() => maj({ pointagePopulations: populations.filter((_, j) => j !== i) })} />}
             </div>
           ))}
           {admin && populations.length < POPULATIONS_MAX && (
             <div>
               <button type="button" className="btn btn-ghost btn-sm"
-                onClick={() => maj({ pointagePopulations: [...populations, { critere: 'equipe', valeur: '', mode: 'controle', effet: data.today }] })}>Ajouter une population</button>
+                onClick={() => maj({ pointagePopulations: [...populations, { critere: 'equipe', valeur: '', mode: 'controle', effet: data.today }] })}>{t('Add a population')}</button>
             </div>
           )}
         </div>
       </Field>
       <Fine>
-        La population la plus récente qui désigne le salarié à une date dit son mode, figé sur chaque feuille à sa création : changer une population ne recalcule
-        jamais une semaine passée. Contrôlé : la feuille reste déclarative, les écarts avec les pointages sont signalés. Calculé : les heures de chaque jour
-        viennent des pointages (ligne « PTG » de la feuille), à répartir sur les projets. Forfait jours et cadres dirigeants ne pointent jamais.
+        {t('The most recent population that designates the employee at a date says their mode, frozen on each timesheet at its creation: changing a population never recalculates a past week. Controlled: the timesheet stays declarative, the gaps with the clock-ins are flagged. Calculated: the hours of each day come from the clock-ins (“PTG” line of the timesheet), to be split over the projects. Fixed-days and executive staff never clock in.')}
       </Fine>
       <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
         <input type="checkbox" checked={v.pointageInterim} disabled={!admin} onChange={e => maj({ pointageInterim: e.target.checked })} style={{ accentColor: 'var(--color-accent)', flex: 'none' }} />
-        <span>Les intérimaires des populations pointent aussi</span>
+        <span>{t('The temps of the populations clock in too')}</span>
       </label>
       <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
         <input type="checkbox" checked={v.pointageHorsLigne} disabled={!admin} onChange={e => maj({ pointageHorsLigne: e.target.checked })} style={{ accentColor: 'var(--color-accent)', flex: 'none' }} />
-        <span>Admettre le pointage sans réseau (heure de l’appareil, marqué « différé »)</span>
+        <span>{t('Allow clocking without network (device time, marked “deferred”)')}</span>
       </label>
       <div className="row-wrap" style={{ gap: 'var(--space-3)' }}>
-        {entier('pointageDelaiCorrectionJours', [3, 5, 7, 10, 14, 21, 31], n => `${n} jours`, 'bdg-delai', 'Délai d’une demande de correction')}
-        {entier('pointageEcartDiffereMin', [1, 2, 5, 10, 15, 30, 60], n => `${n} min`, 'bdg-differe', 'Écart toléré hors ligne')}
-        {entier('pointageEcartAnomalieMin', [0, 5, 10, 15, 30, 60], n => (n ? `${n} min par jour` : 'Tout écart'), 'bdg-ecart', 'Écart déclaré / pointé signalé')}
-        {entier('conservationPointagesAns', Array.from({ length: CONSERVATION_POINTAGES_MAX - CONSERVATION_POINTAGES_MIN + 1 }, (_, i) => CONSERVATION_POINTAGES_MIN + i), n => `${n} an${n > 1 ? 's' : ''}`, 'bdg-conservation', 'Conservation des pointages')}
+        {entier('pointageDelaiCorrectionJours', [3, 5, 7, 10, 14, 21, 31], n => tn(n, 'day', 'days'), 'bdg-delai', t('Time limit of a correction request'))}
+        {entier('pointageEcartDiffereMin', [1, 2, 5, 10, 15, 30, 60], n => `${n}${t(' min')}`, 'bdg-differe', t('Gap tolerated offline'))}
+        {entier('pointageEcartAnomalieMin', [0, 5, 10, 15, 30, 60], n => (n ? `${n}${t(' min per day')}` : t('Any gap')), 'bdg-ecart', t('Gap declared / clocked flagged'))}
+        {entier('conservationPointagesAns', Array.from({ length: CONSERVATION_POINTAGES_MAX - CONSERVATION_POINTAGES_MIN + 1 }, (_, i) => CONSERVATION_POINTAGES_MIN + i), n => tn(n, 'year#count', 'years#count'), 'bdg-conservation', t('Retention of clock-ins'))}
       </div>
-      {admin && modifie && <div className="actions-end"><Btn variant="primary" disabled={busy} onClick={enregistrer}>Enregistrer le badgeage</Btn></div>}
-      {!s.pointageActif && <NoteAccent>Badgeage désactivé : aucun bouton « Pointer », aucune entrée « Pointages » dans les menus. Avant l’activation : avis du CSE, accord, analyse d’impact (AIPD) avec le DPO et information des salariés.</NoteAccent>}
+      {admin && modifie && <div className="actions-end"><Btn variant="primary" disabled={busy} onClick={enregistrer}>{t('Save the badge clocking')}</Btn></div>}
+      {!s.pointageActif && <NoteAccent>{t('Badge clocking deactivated: no “Clock in” button, no “Clock-ins” entry in the menus. Before activation: CSE’s opinion, agreement, impact assessment (DPIA) with the DPO and informing the employees.')}</NoteAccent>}
       <Fine>
-        Conservation : 1 an au moins (art. D3171-16), 5 ans au plus (référentiel CNIL de la gestion du personnel) ; durée à confirmer avec le DPO. Pas de badgeuse
-        murale : le pointage se fait dans Cursus, sur le téléphone ou l’ordinateur. Aucun rappel « sortie manquante » n’est envoyé : l’anomalie
-        s’affiche à l’ouverture et dans la file du manager.
+        {t('Retention: 1 year at least (art. D3171-16), 5 years at most (CNIL reference for personnel management); duration to be confirmed with the DPO. No wall badge reader: clocking is done in Cursus, on the phone or the computer. No “missing exit” reminder is sent: the anomaly is shown on opening and in the manager’s queue.')}
       </Fine>
       {/* Étape 3 : géolocalisation au pointage (option désactivée) et zones (components/temps/GeolocPointage.tsx). */}
       <GeolocPointage s={s} />
       <div>
-        <button type="button" className="btn btn-ghost btn-sm" aria-expanded={mention} onClick={() => setMention(m => !m)}>{mention ? 'Masquer la mention d’information des salariés' : 'Afficher la mention d’information des salariés'}</button>
+        <button type="button" className="btn btn-ghost btn-sm" aria-expanded={mention} onClick={() => setMention(m => !m)}>{mention ? t('Hide the employees’ information notice') : t('Show the employees’ information notice')}</button>
       </div>
       {mention && (
         <div className="boxed" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           <strong>{texte[0]}</strong>
-          {texte.slice(1).map(t => <p key={t} className="sub" style={{ margin: 0 }}>{t}</p>)}
-          <div className="actions-end"><Btn small onClick={copier}>Copier le texte</Btn></div>
-          <Fine>Texte proposé d’après les réglages enregistrés, à relire par le DPO avant l’affichage et la remise à chaque salarié concerné.</Fine>
+          {texte.slice(1).map(p => <p key={p} className="sub" style={{ margin: 0 }}>{p}</p>)}
+          <div className="actions-end"><Btn small onClick={copier}>{t('Copy the text')}</Btn></div>
+          <Fine>{t('Text proposed from the saved settings, to be reviewed by the DPO before posting and handing over to each employee concerned.')}</Fine>
         </div>
       )}
     </Panel>

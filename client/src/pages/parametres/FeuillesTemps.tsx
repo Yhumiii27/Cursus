@@ -7,37 +7,37 @@ import { Field } from '../../components/Dialog.tsx';
 import { Fine, Panel } from '../../components/ui.tsx';
 import { useRole } from '../../state/derived.ts';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
+import { t } from '../../i18n/langue.ts';
 
 const SEMAINES = Array.from({ length: 11 }, (_, i) => i + 2);
-const JOURS: [number, string][] = [[1, 'Lundi'], [2, 'Mardi'], [3, 'Mercredi'], [4, 'Jeudi'], [5, 'Vendredi']];
+/** Jour limite : sources anglaises, traduites au rendu. */
+const JOURS: [number, string][] = [[1, 'Following Monday'], [2, 'Following Tuesday'], [3, 'Following Wednesday'], [4, 'Following Thursday'], [5, 'Following Friday']];
 const HEURES = Array.from({ length: 24 }, (_, i) => i);
 
 export function FeuillesTemps({ s }: SectionProps) {
   const { admin } = useRole();
   const save = useEnregistrerReglages();
   return (
-    <Panel title="Suivi des feuilles de temps" style={{ gap: 'var(--space-4)' }}>
+    <Panel title={t('Follow-up of timesheets')} style={{ gap: 'var(--space-4)' }}>
       <div className="row-wrap" style={{ gap: 'var(--space-3)' }}>
-        <Field label="Feuille attendue le" htmlFor="ft-jour">
+        <Field label={t('Timesheet expected on')} htmlFor="ft-jour">
           <select className="input" id="ft-jour" value={s.feuilleLimiteJour} disabled={!admin} onChange={e => save({ feuilleLimiteJour: Number(e.target.value) })}>
-            {JOURS.map(([v, l]) => <option key={v} value={v}>{l} suivant</option>)}
+            {JOURS.map(([v, l]) => <option key={v} value={v}>{t(l)}</option>)}
           </select>
         </Field>
-        <Field label="À" htmlFor="ft-heure">
+        <Field label={t('At#time')} htmlFor="ft-heure">
           <select className="input" id="ft-heure" value={s.feuilleLimiteHeure} disabled={!admin} onChange={e => save({ feuilleLimiteHeure: Number(e.target.value) })}>
-            {HEURES.map(h => <option key={h} value={h}>{h} h</option>)}
+            {HEURES.map(h => <option key={h} value={h}>{h}{t(' h#hours')}</option>)}
           </select>
         </Field>
-        <Field label="Semaines affichées" htmlFor="ft-semaines">
+        <Field label={t('Weeks shown')} htmlFor="ft-semaines">
           <select className="input" id="ft-semaines" value={s.suiviSemaines} disabled={!admin} onChange={e => save({ suiviSemaines: Number(e.target.value) })}>
-            {SEMAINES.map(n => <option key={n} value={n}>{n} semaines</option>)}
+            {SEMAINES.map(n => <option key={n} value={n}>{n}{t(' weeks#count')}</option>)}
           </select>
         </Field>
       </div>
       <Fine>
-        Une feuille de temps est attendue {delaiTexte(s)} : passé ce délai, une feuille non saisie, en brouillon ou à corriger est en retard,
-        signalée dans l’écran Temps de travail et relancée en un clic (e-mail au salarié et à son valideur). La clôture des variables de paie se
-        règle dans la section Paie.
+        {t('A timesheet is expected ')}{delaiTexte(s)}{t(': past this time limit, a timesheet not entered, in draft or to correct is late, flagged in the Working time screen and reminded in one click (e-mail to the employee and their approver). The closing of payroll variables is set in the Payroll section.')}
       </Fine>
     </Panel>
   );

@@ -9,8 +9,10 @@ import { Btn, Fine, Panel, Seg } from '../../components/ui.tsx';
 import { useRole } from '../../state/derived.ts';
 import { JourMois } from './Entretiens.tsx';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
+import { t } from '../../i18n/langue.ts';
 
-const REGLES: [RegleFractionnement, string][] = [['legal', 'Règle légale'], ['accord', 'Accord d’entreprise'], ['aucun', 'Aucun jour (accord)']];
+/** Règles : sources anglaises, traduites au rendu. */
+const REGLES: [RegleFractionnement, string][] = [['legal', 'Legal rule'], ['accord', 'Company agreement'], ['aucun', 'No day (agreement)']];
 
 export function Fractionnement({ s }: SectionProps) {
   const { admin, espaceRh } = useRole();
@@ -25,8 +27,8 @@ export function Fractionnement({ s }: SectionProps) {
     setRegle(s.fractionnementRegle); setAccord(s.fractionnementAccord); setDebut(s.fractionnementDebut); setFin(s.fractionnementFin); setTente(false);
   }, [s.fractionnementRegle, s.fractionnementAccord, s.fractionnementDebut, s.fractionnementFin]);
   if (!espaceRh) return null;
-  const erreurAccord = regle !== 'legal' && !accord.trim() ? 'Indiquez la référence de l’accord collectif d’entreprise (art. L3141-21).' : null;
-  const ordre = debut >= fin ? 'Le début de la période doit précéder sa fin, dans la même année.' : null;
+  const erreurAccord = regle !== 'legal' && !accord.trim() ? t('Enter the reference of the company collective agreement (art. L3141-21).') : null;
+  const ordre = debut >= fin ? t('The start of the period must precede its end, in the same year.') : null;
   const modifie = regle !== s.fractionnementRegle || accord.trim() !== s.fractionnementAccord || debut !== s.fractionnementDebut || fin !== s.fractionnementFin;
   const enregistrer = async () => {
     if (erreurAccord || ordre) { setTente(true); if (erreurAccord) document.getElementById('param-fract-accord')?.focus(); return; }
@@ -35,30 +37,26 @@ export function Fractionnement({ s }: SectionProps) {
     setBusy(false);
   };
   return (
-    <Panel title="Fractionnement des congés" style={{ gap: 'var(--space-4)' }}>
-      <Field label="Jours de fractionnement">
-        <Seg name="param-fract-regle" label="Jours de fractionnement" value={regle} options={REGLES} disabled={!admin} onChange={setRegle} style={{ flexWrap: 'wrap' }} />
+    <Panel title={t('Splitting of leave')} style={{ gap: 'var(--space-4)' }}>
+      <Field label={t('Splitting days')}>
+        <Seg name="param-fract-regle" label={t('Splitting days')} value={regle} options={REGLES.map(([k, l]) => [k, t(l)])} disabled={!admin} onChange={setRegle} style={{ flexWrap: 'wrap' }} />
       </Field>
-      <Field label="Référence de l’accord" htmlFor="param-fract-accord" requis={regle !== 'legal'} erreur={tente && erreurAccord}>
-        <input className="input" id="param-fract-accord" maxLength={120} placeholder="Accord d’entreprise sur les congés du …" value={accord} disabled={!admin}
+      <Field label={t('Reference of the agreement')} htmlFor="param-fract-accord" requis={regle !== 'legal'} erreur={tente && erreurAccord}>
+        <input className="input" id="param-fract-accord" maxLength={120} placeholder={t('Company agreement on leave of …')} value={accord} disabled={!admin}
           onChange={e => setAccord(e.target.value)} />
       </Field>
       <div className="grid-2">
-        <JourMois id="fract-debut" label="Congé principal : début de la période" value={debut} onChange={setDebut} disabled={!admin} />
-        <JourMois id="fract-fin" label="Fin de la période" value={fin} onChange={setFin} disabled={!admin} />
+        <JourMois id="fract-debut" label={t('Main leave: start of the period')} value={debut} onChange={setDebut} disabled={!admin} />
+        <JourMois id="fract-fin" label={t('End of the period')} value={fin} onChange={setFin} disabled={!admin} />
       </div>
       {tente && ordre && <p className="form-error">{ordre}</p>}
       {admin && modifie && (
         <div className="actions-end">
-          <Btn variant="primary" disabled={busy} onClick={enregistrer}>Enregistrer le fractionnement</Btn>
+          <Btn variant="primary" disabled={busy} onClick={enregistrer}>{t('Save the splitting')}</Btn>
         </div>
       )}
       <Fine>
-        Règle légale, supplétive (art. L3141-23) : 2 jours ouvrables de plus quand le salarié prend hors de la période au moins 6 jours de son congé
-        principal (4 semaines, 5e exclue), 1 jour pour 3 à 5 ; crédités en jours ouvrés. Un accord d’entreprise peut fixer d’autres règles ou d’autres
-        dates, ou écarter ces jours (art. L3141-21) : à vérifier avec les accords et la CCN des industries chimiques. Le congé principal, au moins
-        12 jours ouvrables continus et 24 au plus d’affilée, est seulement signalé ; les jours de fractionnement sont proposés après la période et
-        crédités par le service RH, jamais d’office, ou écartés par la renonciation écrite du salarié (art. L3141-19).
+        {t('Legal, default rule (art. L3141-23): 2 more working days when the employee takes outside the period at least 6 days of their main leave (4 weeks, 5th excluded), 1 day for 3 to 5; credited in working days. A company agreement may set other rules or other dates, or rule out these days (art. L3141-21): to be checked with the agreements and the CCN of the chemical industries. The main leave, at least 12 continuous working days and 24 at most in a row, is only flagged; the splitting days are offered after the period and credited by HR, never automatically, or ruled out by the employee’s written waiver (art. L3141-19).')}
       </Fine>
     </Panel>
   );

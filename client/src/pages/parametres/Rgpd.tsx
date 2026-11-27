@@ -11,6 +11,7 @@ import { Btn, Fine, Panel } from '../../components/ui.tsx';
 import { useRole } from '../../state/derived.ts';
 import { useStore } from '../../state/store.tsx';
 import type { SectionProps } from './commun.ts';
+import { t } from '../../i18n/langue.ts';
 
 interface Form { responsable: string; dpo: string }
 const formDe = (c: ContactsConfidentialite): Form => ({ responsable: c.responsable ?? '', dpo: c.dpo ?? '' });
@@ -23,10 +24,10 @@ export function Rgpd(_: SectionProps) {
   const [f, setF] = useState<Form>(formDe(CONTACTS_VIDES));
   const [busy, setBusy] = useState(false);
   const charger = useCallback(() => api.confidentialite().then(c => { setEnVigueur(c); setF(formDe(c)); })
-    .catch((err: Error) => notify(`Coordonnées de la page Confidentialité indisponibles — ${err.message}`, true)), [notify]);
+    .catch((err: Error) => notify(`${t('Contact details of the Privacy page unavailable — ')}${err.message}`, true)), [notify]);
   useEffect(() => { charger(); }, [charger]);
 
-  const erreurs = { responsable: erreurDe(f.responsable, 'Responsable du traitement'), dpo: erreurDe(f.dpo, 'Délégué à la protection des données') };
+  const erreurs = { responsable: erreurDe(f.responsable, t('Data controller')), dpo: erreurDe(f.dpo, t('Data protection officer')) };
   const dirty = !!enVigueur && JSON.stringify(f) !== JSON.stringify(formDe(enVigueur));
   const enregistrer = async () => {
     if (erreurs.responsable || erreurs.dpo) return;
@@ -40,23 +41,22 @@ export function Rgpd(_: SectionProps) {
   };
 
   return (
-    <Panel title="Confidentialité" style={{ gap: 'var(--space-4)' }}>
+    <Panel title={t('Privacy')} style={{ gap: 'var(--space-4)' }}>
       <Fine>
-        Coordonnées affichées sur la page <a href="/confidentialite" onClick={e => { e.preventDefault(); go('confidentialite'); }}>Confidentialité</a>,
-        ouverte à tous les salariés depuis leur espace et depuis l’écran de connexion. Non renseignées, la page renvoie au service RH.
+        {t('Contact details shown on the ')}<a href="/confidentialite" onClick={e => { e.preventDefault(); go('confidentialite'); }}>{t('Privacy')}</a>{t(', open to all employees from their space and from the sign-in screen. Not filled in, the page refers to HR.')}
       </Fine>
-      <Field label="Responsable du traitement" htmlFor="conf-responsable" erreur={erreurs.responsable}>
+      <Field label={t('Data controller')} htmlFor="conf-responsable" erreur={erreurs.responsable}>
         <textarea className="input short" id="conf-responsable" rows={2} disabled={!admin || !enVigueur}
-          placeholder="Raison sociale, adresse du siège, représentant légal" value={f.responsable} onChange={e => setF({ ...f, responsable: e.target.value })} />
+          placeholder={t('Company name, address of the head office, legal representative')} value={f.responsable} onChange={e => setF({ ...f, responsable: e.target.value })} />
       </Field>
-      <Field label="Délégué à la protection des données (DPO)" htmlFor="conf-dpo" erreur={erreurs.dpo}>
+      <Field label={t('Data protection officer (DPO)')} htmlFor="conf-dpo" erreur={erreurs.dpo}>
         <textarea className="input short" id="conf-dpo" rows={2} disabled={!admin || !enVigueur}
-          placeholder="Nom, adresse e-mail ou postale" value={f.dpo} onChange={e => setF({ ...f, dpo: e.target.value })} />
+          placeholder={t('Name, e-mail or postal address')} value={f.dpo} onChange={e => setF({ ...f, dpo: e.target.value })} />
       </Field>
-      <Fine>Ni le texte de la page ni ces coordonnées ne remplacent le registre des traitements : descriptif complet dans docs/RGPD.md, à compléter avec le DPO.</Fine>
+      <Fine>{t('Neither the text of the page nor these contact details replace the record of processing activities: full description in docs/RGPD.md, to complete with the DPO.')}</Fine>
       {admin && (
         <div className="actions-end">
-          <Btn variant="primary" disabled={!dirty || busy} onClick={enregistrer}>Enregistrer les coordonnées</Btn>
+          <Btn variant="primary" disabled={!dirty || busy} onClick={enregistrer}>{t('Save the contact details')}</Btn>
         </div>
       )}
     </Panel>

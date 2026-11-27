@@ -9,8 +9,9 @@ import { Field } from '../../components/Dialog.tsx';
 import { Fine, Panel, Seg } from '../../components/ui.tsx';
 import { useRole } from '../../state/derived.ts';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
+import { t } from '../../i18n/langue.ts';
 
-const RAPPELS: [number, string][] = [[15, '15 j'], [30, '30 j'], [60, '60 j'], [90, '90 j']];
+const RAPPELS = (): [number, string][] => [15, 30, 60, 90].map(n => [n, `${n}${t(' d#days')}`]);
 
 export function DeplacementsPaie({ s }: SectionProps) {
   const { admin, espaceRh } = useRole();
@@ -22,34 +23,28 @@ export function DeplacementsPaie({ s }: SectionProps) {
     if (depart !== (s.deplacementsPaieAPartirDu ?? '')) enregistrer({ deplacementsPaieAPartirDu: depart || null });
   };
   return (
-    <Panel title="Déplacements et paie" style={{ gap: 'var(--space-4)' }}>
+    <Panel title={t('Trips and payroll')} style={{ gap: 'var(--space-4)' }}>
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
         <input type="checkbox" checked={s.deplacementsFichierPaie} disabled={!admin} onChange={e => enregistrer({ deplacementsFichierPaie: e.target.checked })}
           style={{ accentColor: 'var(--color-accent)', marginTop: 'var(--space-1)', flex: 'none' }} />
-        <span>Transmettre les déplacements dans le fichier d’import de la paie</span>
+        <span>{t('Transmit the trips in the payroll import file')}</span>
       </label>
       <Fine>
-        Chaque lot de paie calcule, mois par mois : jours et nuits de grand déplacement en France (missions des chantiers que le service RH a
-        qualifiés, écran Missions), jours de mission à l’étranger par pays (déplacements), et un forfait par trajet aller ou retour ; jours
-        d’absence exclus, déplacements annulés retirés (régularisation au lot suivant). Quantités seules : le barème reste dans Sage. Décoché
-        (par défaut, tant que la paie n’a pas confirmé ses codes), comme pour une rubrique désactivée, les quantités partent sans code Sage :
-        listées « à saisir dans Sage » dans le résumé du lot et l’export des variables, elles ne repartent pas une fois le lot confirmé.
+        {t('Each payroll batch calculates, month by month: days and nights of long-distance travel in France (worksite assignments qualified by HR, Assignments screen), days of assignment abroad by country (trips), and a flat rate per outbound or return journey; absence days excluded, cancelled trips removed (adjustment in the next batch). Quantities only: the scale stays in Sage. Unticked (by default, as long as payroll has not confirmed its codes), as for a deactivated item, the quantities go without a Sage code: listed “to be entered in Sage” in the batch summary and the export of variables, they do not go again once the batch is confirmed.')}
       </Fine>
-      <Field label="Déplacements transmis à partir du" htmlFor="param-deplacements-depuis">
+      <Field label={t('Trips transmitted from')} htmlFor="param-deplacements-depuis">
         <input className="input" id="param-deplacements-depuis" type="date" value={depart} disabled={!admin} style={{ maxWidth: 200 }}
           onChange={ev => setDepart(ev.target.value)} onBlur={enregistrerDepart} />
       </Field>
       <Fine>
-        Date de mise en service (conseillée : le 1er janvier 2027, comme les absences) : aucun jour de déplacement d’avant ne part, Lucca et
-        Sage les ont traités. Sans date, le premier lot de paie pose la sienne au premier jour de la période ouverte.
+        {t('Go-live date (recommended: 1 January 2027, like the absences): no trip day before it goes, Lucca and Sage processed them. Without a date, the first payroll batch sets its own at the first day of the open period.')}
       </Fine>
-      <Field label="Vigilance des pays : rappel avant un départ">
-        <Seg name="param-vigilance-rappel" label="Vigilance des pays : rappel avant un départ" value={s.vigilanceRappelJours} options={RAPPELS} disabled={!admin}
+      <Field label={t('Country vigilance: reminder before a departure')}>
+        <Seg name="param-vigilance-rappel" label={t('Country vigilance: reminder before a departure')} value={s.vigilanceRappelJours} options={RAPPELS()} disabled={!admin}
           onChange={v => enregistrer({ vigilanceRappelJours: v })} style={{ flexWrap: 'wrap' }} />
       </Field>
       <Fine>
-        Le dossier voyage rappelle de vérifier la vigilance du pays sur France Diplomatie tant que la vérification manque ou date de plus de ce
-        nombre de jours (écran Référentiels, destinations). France Diplomatie n’a pas d’API : la mise à jour reste manuelle.
+        {t('The travel file reminds to check the country’s vigilance on France Diplomatie as long as the check is missing or is older than this number of days (Reference data screen, destinations). France Diplomatie has no API: the update stays manual.')}
       </Fine>
     </Panel>
   );

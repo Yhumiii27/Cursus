@@ -6,8 +6,9 @@ import { Field } from '../../components/Dialog.tsx';
 import { Fine, Panel, Seg } from '../../components/ui.tsx';
 import { useRole } from '../../state/derived.ts';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
+import { t } from '../../i18n/langue.ts';
 
-const mois = (valeurs: number[]): [number, string][] => valeurs.map(n => [n, `${n} mois`]);
+const mois = (valeurs: number[]): [number, string][] => valeurs.map(n => [n, `${n}${t(' months#count')}`]);
 /**
  * Âges proposés pour la visite de mi-carrière, tous ceux qu'accepte le réglage (`entier(40, 55)`, shared/reglages.ts) :
  * 45 ans à défaut d'accord de branche (art. L4624-2-2), l'âge fixé par l'accord sinon.
@@ -19,42 +20,34 @@ export function Sante({ s }: SectionProps) {
   const save = useEnregistrerReglages();
   if (!espaceRh) return null;
   return (
-    <Panel title="Santé" style={{ gap: 'var(--space-4)' }}>
-      <Field label="Visite d’information et de prévention (VIP)">
-        <Seg name="param-sante-vip" label="Périodicité de la VIP" value={s.santeVipMois} options={mois([12, 24, 36, 48, 60])} disabled={!admin}
+    <Panel title={t('Health')} style={{ gap: 'var(--space-4)' }}>
+      <Field label={t('Information and prevention visit (VIP)')}>
+        <Seg name="param-sante-vip" label={t('Frequency of the VIP')} value={s.santeVipMois} options={mois([12, 24, 36, 48, 60])} disabled={!admin}
           onChange={v => save({ santeVipMois: v })} style={{ flexWrap: 'wrap' }} />
       </Field>
-      <Field label="VIP adaptée (travail de nuit, handicap, invalidité)">
-        <Seg name="param-sante-vip-adaptee" label="Périodicité de la VIP adaptée" value={s.santeVipAdapteeMois} options={mois([12, 24, 36])} disabled={!admin}
+      <Field label={t('Adapted VIP (night work, disability, invalidity)')}>
+        <Seg name="param-sante-vip-adaptee" label={t('Frequency of the adapted VIP')} value={s.santeVipAdapteeMois} options={mois([12, 24, 36])} disabled={!admin}
           onChange={v => save({ santeVipAdapteeMois: v })} style={{ flexWrap: 'wrap' }} />
       </Field>
-      <Field label="Suivi renforcé : visite intermédiaire">
-        <Seg name="param-sante-sir-intermediaire" label="Visite intermédiaire du suivi renforcé" value={s.santeSirIntermediaireMois} options={mois([12, 24])} disabled={!admin}
+      <Field label={t('Enhanced monitoring: intermediate visit')}>
+        <Seg name="param-sante-sir-intermediaire" label={t('Intermediate visit of the enhanced monitoring')} value={s.santeSirIntermediaireMois} options={mois([12, 24])} disabled={!admin}
           onChange={v => save({ santeSirIntermediaireMois: v })} style={{ flexWrap: 'wrap' }} />
       </Field>
-      <Field label="Suivi renforcé : examen d’aptitude">
-        <Seg name="param-sante-sir-aptitude" label="Examen d’aptitude du suivi renforcé" value={s.santeSirAptitudeMois} options={mois([24, 36, 48])} disabled={!admin}
+      <Field label={t('Enhanced monitoring: fitness examination')}>
+        <Seg name="param-sante-sir-aptitude" label={t('Fitness examination of the enhanced monitoring')} value={s.santeSirAptitudeMois} options={mois([24, 36, 48])} disabled={!admin}
           onChange={v => save({ santeSirAptitudeMois: v })} style={{ flexWrap: 'wrap' }} />
       </Field>
-      <Field label="Visite de mi-carrière" htmlFor="param-sante-mi-carriere">
+      <Field label={t('Mid-career visit')} htmlFor="param-sante-mi-carriere">
         <select className="input" id="param-sante-mi-carriere" value={s.santeMiCarriereAge} disabled={!admin}
           onChange={e => save({ santeMiCarriereAge: Number(e.target.value) })} style={{ maxWidth: 240 }}>
-          {AGES_MI_CARRIERE.map(n => <option key={n} value={n}>{n} ans{n === 45 ? ' (à défaut d’accord de branche)' : ''}</option>)}
+          {AGES_MI_CARRIERE.map(n => <option key={n} value={n}>{n}{t(' years old')}{n === 45 ? t(' (failing a branch agreement)') : ''}</option>)}
         </select>
       </Field>
       <Fine>
-        La date de la prochaine visite fixée par le médecin du travail, saisie avec son avis, prime toujours. À défaut, la visite suit la
-        périodicité du type de suivi du salarié : VIP 5 ans au plus (art. R4624-16), VIP adaptée 3 ans au plus (art. R4624-17), suivi
-        individuel renforcé avec une visite intermédiaire à 2 ans au plus et un examen d’aptitude à 4 ans au plus (art. R4624-28). Le suivi
-        renforcé se déduit des habilitations et des postes cochés « suivi individuel renforcé » dans Référentiels ; sans examen d’aptitude
-        enregistré, l’échéance « Examen d’aptitude requis » s’affiche.
+        {t('The date of the next visit set by the occupational doctor, entered with their opinion, always prevails. Failing that, the visit follows the frequency of the employee’s type of monitoring: VIP 5 years at most (art. R4624-16), adapted VIP 3 years at most (art. R4624-17), enhanced individual monitoring with an intermediate visit at 2 years at most and a fitness examination at 4 years at most (art. R4624-28). The enhanced monitoring is deduced from the authorisations and the jobs ticked “enhanced individual monitoring” in Reference data; without a fitness examination recorded, the due date “Fitness examination required” is shown.')}
       </Fine>
       <Fine>
-        Visites dues signalées dans les échéances : embauche dans les 3 mois de l’entrée, le jour même pour un suivi renforcé ou un mineur
-        (art. R4624-10, R4624-18 et R4624-24) ; reprise après un congé de maternité ou une maladie professionnelle, 30 jours d’accident du
-        travail ou 60 jours de maladie (art. R4624-31, seuils de la loi) ; mi-carrière l’année de l’âge choisi ci-dessus, 45 ans à défaut
-        d’accord de branche (art. L4624-2-2) ; fin de carrière ou post-exposition avant le départ d’un salarié en suivi renforcé ou exposé
-        à des risques particuliers (art. L4624-2-1).
+        {t('Visits due flagged in the due dates: hiring within 3 months of the entry, the same day for enhanced monitoring or a minor (art. R4624-10, R4624-18 and R4624-24); return after a maternity leave or an occupational disease, 30 days of work accident or 60 days of illness (art. R4624-31, thresholds of the law); mid-career in the year of the age chosen above, 45 years failing a branch agreement (art. L4624-2-2); end of career or post-exposure before the departure of an employee under enhanced monitoring or exposed to particular risks (art. L4624-2-1).')}
       </Fine>
     </Panel>
   );

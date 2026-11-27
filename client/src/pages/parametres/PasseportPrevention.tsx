@@ -7,6 +7,7 @@ import type { ColonnePasseport } from '../../../../shared/types.ts';
 import { Fine, NoteAccent, Panel } from '../../components/ui.tsx';
 import { useDomain, useRole } from '../../state/derived.ts';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
+import { t } from '../../i18n/langue.ts';
 
 export function PasseportPrevention({ s }: SectionProps) {
   const d = useDomain();
@@ -17,10 +18,10 @@ export function PasseportPrevention({ s }: SectionProps) {
     enregistrer({ passeportColonnes: COLONNES_PASSEPORT.map(x => x.id).filter(k => (k === c ? oui : s.passeportColonnes.includes(k))) });
   const marquees = d.ds.referentiels.formations.filter(f => f.passeportPrevention && !f.archive).length;
   return (
-    <Panel title="Passeport de prévention" style={{ gap: 'var(--space-4)' }}>
-      <NoteAccent>{MENTION_PASSEPORT} : colonnes à ajuster quand la Caisse des dépôts publiera le format d’import des employeurs.</NoteAccent>
+    <Panel title={t('Prevention passport')} style={{ gap: 'var(--space-4)' }}>
+      <NoteAccent>{MENTION_PASSEPORT}{t(': columns to adjust when the Caisse des dépôts publishes the employers’ import format.')}</NoteAccent>
       <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-        <legend className="text-muted sub" style={{ marginBottom: 'var(--space-2)' }}>Colonnes de l’export, dans cet ordre</legend>
+        <legend className="text-muted sub" style={{ marginBottom: 'var(--space-2)' }}>{t('Columns of the export, in this order')}</legend>
         {COLONNES_PASSEPORT.map(c => {
           const coche = s.passeportColonnes.includes(c.id);
           return (
@@ -34,9 +35,7 @@ export function PasseportPrevention({ s }: SectionProps) {
         })}
       </fieldset>
       <Fine>
-        Export depuis l’écran Formations (service RH et référent HSE), tracé dans le journal, suivi d’une mention sur chaque ligne. Sont exportées les
-        certifications et formations suivies des formations cochées « Passeport de prévention » dans Référentiels → Formations ({marquees} en
-        vigueur), hors celles déjà marquées déclarées. Cursus ne détient pas le NIR.
+        {t('Export from the Training screen (HR and HSE referent), traced in the log, followed by a mention on each line. Exported are the certifications and training courses followed of the training courses ticked “Prevention passport” in Reference data → Training (')}{marquees}{t(' in force), except those already marked declared. Cursus does not hold the NIR.')}
       </Fine>
     </Panel>
   );

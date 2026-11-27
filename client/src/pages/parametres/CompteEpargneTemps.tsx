@@ -11,6 +11,7 @@ import { Field } from '../../components/Dialog.tsx';
 import { Btn, Fine, NoteAccent, Panel } from '../../components/ui.tsx';
 import { useRole } from '../../state/derived.ts';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
+import { t } from '../../i18n/langue.ts';
 
 const PLAFONDS_RTT = [0, 2, 3, 5, 6, 8, 10, 12, 15, 20, 25];
 const PLAFONDS_CP = [0, 1, 2, 3, 4, 5];
@@ -31,7 +32,7 @@ export function CompteEpargneTemps({ s }: SectionProps) {
   }, [s.cetMonetisation, s.cetMonetisationAccord, s.cetMonetisationPlafond, s.cetReprisMonetisable]);
   if (!espaceRh) return null;
   const liste = (valeurs: number[], v: number) => [...new Set([...valeurs, v])].sort((a, b) => a - b);
-  const erreurAccord = ouverte && !accord.trim() ? 'Indiquez la référence de l’accord collectif qui prévoit la monétisation.' : null;
+  const erreurAccord = ouverte && !accord.trim() ? t('Enter the reference of the collective agreement that provides for monetisation.') : null;
   const modifie = ouverte !== s.cetMonetisation || accord.trim() !== s.cetMonetisationAccord || plafond !== s.cetMonetisationPlafond || repris !== s.cetReprisMonetisable;
   const enregistrer = async () => {
     if (erreurAccord) { setTente(true); document.getElementById('param-cet-accord')?.focus(); return; }
@@ -40,57 +41,51 @@ export function CompteEpargneTemps({ s }: SectionProps) {
     setBusy(false);
   };
   return (
-    <Panel title="Compte épargne-temps" style={{ gap: 'var(--space-4)' }}>
+    <Panel title={t('Time savings account')} style={{ gap: 'var(--space-4)' }}>
       <div className="grid-2">
-        <Field label="RTT placés par an, au plus" htmlFor="param-cet-rtt">
+        <Field label={t('RTT placed per year, at most')} htmlFor="param-cet-rtt">
           <select className="input" id="param-cet-rtt" value={s.cetPlafondRtt} disabled={!admin} onChange={e => save({ cetPlafondRtt: Number(e.target.value) })}>
-            {liste(PLAFONDS_RTT, s.cetPlafondRtt).map(n => <option key={n} value={n}>{n ? `${n} j` : 'Aucun'}</option>)}
+            {liste(PLAFONDS_RTT, s.cetPlafondRtt).map(n => <option key={n} value={n}>{n ? `${n}${t(' d#days')}` : t('None')}</option>)}
           </select>
         </Field>
-        <Field label="CP de la 5e semaine par période, au plus" htmlFor="param-cet-cp">
+        <Field label={t('CP of the 5th week per period, at most')} htmlFor="param-cet-cp">
           <select className="input" id="param-cet-cp" value={s.cetPlafondCp} disabled={!admin} onChange={e => save({ cetPlafondCp: Number(e.target.value) })}>
-            {liste(PLAFONDS_CP, s.cetPlafondCp).map(n => <option key={n} value={n}>{n ? `${n} j` : 'Aucun'}</option>)}
+            {liste(PLAFONDS_CP, s.cetPlafondCp).map(n => <option key={n} value={n}>{n ? `${n}${t(' d#days')}` : t('None')}</option>)}
           </select>
         </Field>
       </div>
       <Fine>
-        Plafonds par défaut en attendant l’accord sur le compte épargne-temps : seuls les CP au-delà de 20 jours ouvrés (5e semaine) s’épargnent
-        (art. L3151-2). Les jours épargnés se prennent en congé sur le CET, validé par le manager comme un congé payé et décompté en jours ouvrés ;
-        le congé part dans le fichier de paie sous la rubrique « CET », désactivée et à confirmer par la paie : d’ici là, chaque congé est listé
-        « à saisir dans Sage » dans le lot. Le solde est liquidé en entier à la sortie.
+        {t('Default ceilings pending the agreement on the time savings account: only the CP beyond 20 working days (5th week) are saved (art. L3151-2). The days saved are taken as leave on the CET, approved by the manager like a paid leave and counted in working days; the leave goes in the payroll file under the “CET” item, deactivated and to be confirmed by payroll: until then, each leave is listed “to be entered in Sage” in the batch. The balance is fully paid out on leaving.')}
       </Fine>
 
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
         <input type="checkbox" checked={ouverte} disabled={!admin} onChange={e => { setOuverte(e.target.checked); setTente(false); }}
           style={{ accentColor: 'var(--color-accent)', marginTop: 'var(--space-1)', flex: 'none' }} />
         <span>
-          Permettre la monétisation des jours épargnés
-          <span className="text-muted sub" style={{ display: 'block' }}>Seulement si l’accord collectif qui institue le compte épargne-temps le prévoit (art. L3151-3).</span>
+          {t('Allow the monetisation of the days saved')}
+          <span className="text-muted sub" style={{ display: 'block' }}>{t('Only if the collective agreement that sets up the time savings account provides for it (art. L3151-3).')}</span>
         </span>
       </label>
-      <Field label="Référence de l’accord collectif" htmlFor="param-cet-accord" requis={ouverte} erreur={tente && erreurAccord}>
-        <input className="input" id="param-cet-accord" maxLength={120} placeholder="Accord d’entreprise sur le compte épargne-temps du …" value={accord} disabled={!admin} onChange={e => setAccord(e.target.value)} />
+      <Field label={t('Reference of the collective agreement')} htmlFor="param-cet-accord" requis={ouverte} erreur={tente && erreurAccord}>
+        <input className="input" id="param-cet-accord" maxLength={120} placeholder={t('Company agreement on the time savings account of …')} value={accord} disabled={!admin} onChange={e => setAccord(e.target.value)} />
       </Field>
-      <Field label="Jours monétisés par salarié et par an, au plus" htmlFor="param-cet-plafond-mon">
+      <Field label={t('Days monetised per employee and per year, at most')} htmlFor="param-cet-plafond-mon">
         <select className="input" id="param-cet-plafond-mon" value={plafond} disabled={!admin} onChange={e => setPlafond(Number(e.target.value))} style={{ maxWidth: 240 }}>
-          {liste(PLAFONDS_MONETISATION, plafond).map(n => <option key={n} value={n}>{n} j</option>)}
+          {liste(PLAFONDS_MONETISATION, plafond).map(n => <option key={n} value={n}>{n}{t(' d#days')}</option>)}
         </select>
       </Field>
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
         <input type="checkbox" checked={repris} disabled={!admin} onChange={e => setRepris(e.target.checked)}
           style={{ accentColor: 'var(--color-accent)', marginTop: 'var(--space-1)', flex: 'none' }} />
         <span>
-          Solde repris de l’ancien outil monétisable
-          <span className="text-muted sub" style={{ display: 'block' }}>À cocher seulement s’il ne contient aucun jour de congé payé : son origine (CP ou RTT) n’est pas connue de Cursus.</span>
+          {t('Balance taken over from the former tool monetisable')}
+          <span className="text-muted sub" style={{ display: 'block' }}>{t('To tick only if it contains no paid leave day: its origin (CP or RTT) is not known to Cursus.')}</span>
         </span>
       </label>
-      {admin && modifie && <div className="actions-end"><Btn variant="primary" disabled={busy} onClick={enregistrer}>Enregistrer la monétisation</Btn></div>}
-      {!s.cetMonetisation && <NoteAccent>Accord sur la monétisation du compte épargne-temps non référencé : les jours épargnés se prennent en congé ou sont liquidés à la sortie, aucune monétisation.</NoteAccent>}
+      {admin && modifie && <div className="actions-end"><Btn variant="primary" disabled={busy} onClick={enregistrer}>{t('Save the monetisation')}</Btn></div>}
+      {!s.cetMonetisation && <NoteAccent>{t('Agreement on the monetisation of the time savings account not referenced: the days saved are taken as leave or paid out on leaving, no monetisation.')}</NoteAccent>}
       <Fine>
-        Seuls les jours venus des RTT se monétisent : les CP placés (5e semaine) ne le peuvent pas, la loi réservant la monétisation des droits issus du congé
-        annuel aux jours au-delà de 30 jours ouvrables (art. L3151-3). Les congés pris sur le CET s’imputent d’abord sur les CP placés. Le salarié demande,
-        le service RH valide ou refuse ; validés, les jours partent à la paie sous la rubrique CET_MON (Sage calcule le montant), désactivée tant que la paie
-        n’a pas donné son code : ils sont alors listés « à saisir dans Sage » dans le résumé du lot.
+        {t('Only the days coming from RTT are monetised: the CP placed (5th week) cannot be, the law reserving the monetisation of rights from annual leave to the days beyond 30 working days (art. L3151-3). Leave taken on the CET is charged first to the CP placed. The employee requests, HR approves or refuses; once approved, the days go to payroll under the CET_MON item (Sage calculates the amount), deactivated as long as payroll has not given its code: they are then listed “to be entered in Sage” in the batch summary.')}
       </Fine>
     </Panel>
   );

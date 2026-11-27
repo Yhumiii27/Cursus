@@ -390,3 +390,24 @@ test('partie 6 (annuaire, organigramme, entretiens, personnes sur site, relevés
   assert.deepEqual([t('Organisation chart'), t('Closed#fem'), t(' of #date'), tn(1, 'person', 'people'), tn(2, 'person', 'people')],
     ['Organisation chart', 'Closed', ' of ', '1 person', '2 people']);
 });
+
+test('partie 7 (Plan & budget, Indicateurs sociaux, Mon planning, Comptes, Journal, Messagerie, Déclarer, Aide) : tables de libellés et phrase française d’avant', async () => {
+  const { LIBELLE_ONGLET } = await import('../client/src/pages/indicateurs-onglets.ts');
+  const { MANQUES_BDESE, RUBRIQUES_HORS_CURSUS, etatIndex, texteSeuils } = await import('../client/src/pages/indicateurs-vue.ts');
+  const sources = [...Object.values(LIBELLE_ONGLET), ...MANQUES_BDESE.flatMap(m => [m.rubrique, m.quoi, m.source]), ...RUBRIQUES_HORS_CURSUS.flatMap(r => [r.titre, r.source])];
+  // Tables rendues par t() au rendu : titres et boutons des étapes d'un dossier OPCO, axes de répartition, vues du journal.
+  for (const [f, re] of [['client/src/dialogs/OpcoEtapeDialog.tsx', /(?:titre|bouton|date): '([^']+)'/g], ['client/src/components/opco/DossiersOpco.tsx', /\['(?:dispositif|equipe|trimestre)', '([^']+)'\]/g],
+    ['client/src/pages/Journal.tsx', /\['(?:tout|operations|connexions|keystone)', '([^']+)'\]/g]] as const) {
+    for (const m of lire(f).matchAll(re)) sources.push(m[1]);
+  }
+  for (const l of sources) assert.ok(MEMES_EN_FRANCAIS.includes(l) || enFrancais(l) !== sansContexte(l), l);
+  assert.deepEqual([LIBELLE_ONGLET.ages, t(LIBELLE_ONGLET.ages), etatIndex('hors_cursus')], ['Ages and seniority', 'Âges et ancienneté', 'Hors Cursus']);
+  assert.equal(texteSeuils([{ annee: 2025, arrete: null, seuil: 5, r: {} }, { annee: 2026, arrete: 3, seuil: 3, r: {} }]), 'seuils d’anonymat : 2025 : 5, 2026 : 3');
+  assert.equal(`${t('Close the financial year ')}2026${t(' and postpone ')}${tn(2, 'action', 'actions')}${t(' to#year-after')}2027${t('? The plan and the envelopes ')}2026${t(' will no longer be editable; the closing is final.')}`,
+    'Clôturer l’exercice 2026 et reporter 2 actions sur 2027 ? Le plan et les enveloppes 2026 ne seront plus modifiables ; la clôture est définitive.');
+  assert.deepEqual([t(`${3} to handle`), tn(1, 'year#count', 'years#count'), tn(3, 'year#count', 'years#count'), t('Choose “Add to Home Screen”, then “Add”.')],
+    ['3 à traiter', '1 an', '3 ans', 'Choisissez « Sur l’écran d’accueil », puis « Ajouter ».']);
+  choisirLangue('en');
+  assert.deepEqual([t(LIBELLE_ONGLET.formation), t('Requested#masc'), tn(2, 'file#opco', 'files#opco'), tn(1, 'employee#salarie', 'employees#salarie')],
+    ['Training', 'Requested', '2 files', '1 employee']);
+});

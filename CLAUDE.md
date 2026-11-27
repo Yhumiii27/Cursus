@@ -75,7 +75,13 @@ rechargement.
   `ChoixCollaborateur.tsx`, Organigramme (liste et vue graphique), Entretiens / 360° (échéances et comptes rendus, objectifs,
   points de suivi, feedback 360° ; compte rendu `EntDialog`, objectifs et souhaits `EntretienSuivi.tsx`, `Feedback360Bloc.tsx`,
   `Synthese360.tsx`, planification, remise, dialogues des objectifs, des souhaits et des répondants), Mes objectifs, Personnes
-  sur site (et ses dialogues : extérieur, lien, validation d'une déclaration), Relevés (`Releves.tsx`) et Chantiers. Aide d'un motif lue au rendu : `aideMotifCorrection()`, `aideMotifOpco()`
+  sur site (et ses dialogues : extérieur, lien, validation d'une déclaration), Relevés (`Releves.tsx`) et Chantiers, puis
+  (partie 7) Plan & budget (enveloppes, consommation, plan prévisionnel, `IndicateursFormation.tsx`, onglet et détail des
+  dossiers OPCO `components/opco/`, dialogues des enveloppes, de l'import, des clôtures, de la correction d'une ligne et d'un
+  dossier OPCO), Indicateurs sociaux (onglets, BDESE, index d'égalité, arrêtés et leurs confirmations, impression, graphiques
+  `components/graphiques/`, `ArreteCseDialog`), Mon planning avec `planning-vue.ts` et tous les dialogues de `PlanningDialog.tsx`
+  (partagés avec le planning d'équipe), Comptes (et `CompteDialog`, `MotDePasseProvisoireDialog`), Journal (historique de la
+  fiche compris), Messagerie, Déclarer, le cadre de l'Aide et `InstallerApplication.tsx`. Aide d'un motif lue au rendu : `aideMotifCorrection()`, `aideMotifOpco()`
   (`AIDE_MOTIF_CORRECTION` reste le texte français, pour les tests). Restent en français : le motif prérempli d'une demande
   de formation (texte saisi), les en-têtes des exports CSV et l'exemple de l'import e-learning, les jours abrégés de
   `SessionDialog`, les mois des notes de frais et des heures de délégation (comme les dates), les messages des règles de
@@ -83,11 +89,12 @@ rechargement.
   de `shared/` (statuts et catégories des notes de frais, types de véhicule, alertes, échéances, destinations, jours de la
   semaine, types d'entretien, statuts des objectifs et du 360°), le compte rendu d'entretien imprimé (`dialogs/compteRendu*.ts` :
   libellés des sections, mention d'information, aussi montrés dans `EntDialog`), l'organigramme imprimé et son export
-  (`organigramme-vue.ts`), l'historique de la fiche (`HistoriqueFiche` de `pages/Journal.tsx`) et les panneaux de l'écran Temps hors de la
+  (`organigramme-vue.ts`), les tableaux venus du serveur des Indicateurs sociaux (titres, définitions, lignes :
+  `shared/rules/indicateurs-legaux.ts`), le guide de l'Aide (`shared/aide.ts`), les libellés des actions du journal
+  (`shared/journal.ts`), les statuts, dispositifs et motifs des dossiers OPCO (`shared/rules/opco.ts`) et les panneaux de l'écran Temps hors de la
   grille (`LotsPaie`, `SuiviFeuilles`, `ReposAVerifier`, `AlertesDurees`, `Astreintes`, forfait annuel en heures,
-  planning d'équipe). Tous les autres écrans restent en français en dur (prochains : Budget, Indicateurs, Mon planning et le
-  planning d'équipe (`PlanningDialog.tsx`, `planning-vue.ts`), Référentiels, Paramètres, Comptes, Mise en service, Journal,
-  Messagerie, Portail, Déclarer, Aide).
+  grille du planning d'équipe `PlanningEquipe.tsx`). Tous les autres écrans restent en français en dur (prochains :
+  Référentiels, Paramètres, Mise en service, Portail, la grille du planning d'équipe).
 - Table exportée déjà lue par sa valeur (module sans React, test) : `traduites({ clé: 'English source' })` de
   `i18n/langue.ts` rend chaque libellé dans la langue affichée à la lecture (`LIBELLES_ONGLETS_FRAIS`, `MARQUE` du planning
   des missions).

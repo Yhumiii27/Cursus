@@ -7,7 +7,8 @@
 // archivé compris.
 import { useState } from 'react';
 import { PlusIcon } from '@phosphor-icons/react';
-import { fH, plural } from '../../../shared/format.ts';
+import { fH } from '../../../shared/format.ts';
+import { t, tn } from '../i18n/langue.ts';
 import { dureeHoraire, equipesDeLHoraire, horairesDe, plageTexte } from '../../../shared/rules/horaires.ts';
 import { alternantTexte, horaireDeNuitC2p } from '../../../shared/rules/c2p.ts';
 // lot 12 — C6 (badgeage virtuel)
@@ -32,14 +33,14 @@ function QualificationC2p({ h, peut }: { h: Horaire; peut: boolean }) {
   const { occupe, agir } = useAgir();
   const nuit = horaireDeNuitC2p(h);
   if (!nuit && h.alternant == null) return <span className="text-muted">—</span>;
-  if (!peut) return h.alternant == null ? <Tag cls="tag-accent">À qualifier</Tag> : <span>{alternantTexte(h.alternant)}</span>;
+  if (!peut) return h.alternant == null ? <Tag cls="tag-accent">{t('To qualify')}</Tag> : <span>{alternantTexte(h.alternant)}</span>;
   const valeur = QUALIFS.find(([, v]) => v === (h.alternant ?? null))![0];
   return (
-    <select className="input" aria-label={`Horaire ${h.code} : équipes successives alternantes (C2P)`} value={valeur} disabled={occupe} style={{ minWidth: 190 }}
+    <select className="input" aria-label={`${t('Schedule ')}${h.code}${t(': alternating successive shifts (C2P)')}`} value={valeur} disabled={occupe} style={{ minWidth: 190 }}
       onChange={e => agir(() => run('referentiel.horaire.alternant', { id: h.code, alternant: QUALIFS.find(([k]) => k === e.target.value)![1] }))()}>
-      <option value="">À qualifier</option>
-      <option value="oui">Équipes successives alternantes</option>
-      <option value="non">Non alternant</option>
+      <option value="">{t('To qualify')}</option>
+      <option value="oui">{t('Alternating successive shifts')}</option>
+      <option value="non">{t('Non-alternating')}</option>
     </select>
   );
 }
@@ -57,44 +58,44 @@ export function Horaires() {
     <Panel head={
       <div className="panel-head top">
         <div>
-          <h2>Horaires de poste</h2>
-          <div className="text-muted sub">{plural(enVigueur.length, 'horaire en vigueur', 'horaires en vigueur')}{nArchives ? ` · ${plural(nArchives, 'archivé', 'archivés')}` : ''}</div>
+          <h2>{t('Shift schedules')}</h2>
+          <div className="text-muted sub">{tn(enVigueur.length, 'schedule in force', 'schedules in force')}{nArchives ? ` · ${tn(nArchives, 'archived#masc', 'archived#masc-plural')}` : ''}</div>
         </div>
         <div className="actions-end" style={{ alignItems: 'center' }}>
           {nArchives > 0 && (
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 13, cursor: 'pointer' }}>
               <input type="checkbox" checked={archives} onChange={e => setArchives(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-              Afficher les archivés
+              {t('Show the archived ones#masc')}
             </label>
           )}
-          {rh && <Btn variant="primary" small icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'refHoraire' })}>Nouvel horaire</Btn>}
+          {rh && <Btn variant="primary" small icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'refHoraire' })}>{t('New schedule')}</Btn>}
         </div>
       </div>
     }>
-      {lignes.length === 0 ? <Empty pad="sm">Aucun horaire de poste : les feuilles de temps se tiennent sans horaire.</Empty> : (
+      {lignes.length === 0 ? <Empty pad="sm">{t('No shift schedule: the timesheets are kept without a schedule.')}</Empty> : (
         <div className="scroll-x">
           <table className="table">
-            <thead><tr><th>Horaire</th><th>Plage</th><th className="right">Travail</th><th>Équipes</th><th>Équipes alternantes (C2P)</th><th>État</th><th></th></tr></thead>
+            <thead><tr><th>{t('Schedule')}</th><th>{t('Range')}</th><th className="right">{t('Work')}</th><th>{t('Teams')}</th><th>{t('Alternating shifts (C2P)')}</th><th>{t('State')}</th><th></th></tr></thead>
             <tbody>
               {lignes.map(h => {
                 const equipes = equipesDeLHoraire(d.ds.referentiels.equipes, h.code);
                 return (
                   <tr key={h.code}>
                     <td><Two main={<><span style={{ color: 'var(--color-accent-300)' }}>{h.code}</span> · {h.nom}</>} /></td>
-                    <td className="nowrap"><Two main={plageTexte(h)} sub={<>{h.pause ? `pause ${h.pause} min` : 'sans pause'}{/* lot 12 — C6 (badgeage virtuel) */ estVariable(h) && <> · <Tag cls="tag-accent-2">Variable</Tag></>}</>} /></td>
+                    <td className="nowrap"><Two main={plageTexte(h)} sub={<>{h.pause ? `${t('break ')}${h.pause}${t(' min')}` : t('without break')}{/* lot 12 — C6 (badgeage virtuel) */ estVariable(h) && <> · <Tag cls="tag-accent-2">{t('Variable')}</Tag></>}</>} /></td>
                     <td className="right tnum nowrap">{fH(dureeHoraire(h))}</td>
                     <td>{equipes.length ? equipes.join(', ') : <span className="text-muted">—</span>}</td>
                     <td><QualificationC2p h={h} peut={formations} /></td>
-                    <td>{h.archive ? <Tag cls="tag-outline">Archivé</Tag> : <Tag cls="tag-neutral">En vigueur</Tag>}</td>
+                    <td>{h.archive ? <Tag cls="tag-outline">{t('Archived#masc')}</Tag> : <Tag cls="tag-neutral">{t('In force')}</Tag>}</td>
                     <td className="right">
                       {rh && (
                         <div className="actions-end">
-                          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'refHoraire', code: h.code })}>Modifier</button>
+                          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'refHoraire', code: h.code })}>{t('Edit')}</button>
                           {/* lot 12 — C6 (badgeage virtuel) : plages fixes et mobiles, plafonds du report. */}
-                          {!h.archive && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'horaireVariable', code: h.code })}>{estVariable(h) ? 'Horaire variable' : 'Rendre variable'}</button>}
+                          {!h.archive && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'horaireVariable', code: h.code })}>{estVariable(h) ? t('Variable schedule') : t('Make variable')}</button>}
                           {h.archive
-                            ? <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={agir(() => run('referentiel.horaire.archiver', { id: h.code, archive: false }))}>Rétablir</button>
-                            : <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={() => openDialog({ type: 'confirmer', c: archivageHoraire(h) })}>Archiver</button>}
+                            ? <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={agir(() => run('referentiel.horaire.archiver', { id: h.code, archive: false }))}>{t('Restore')}</button>
+                            : <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={() => openDialog({ type: 'confirmer', c: archivageHoraire(h) })}>{t('Archive')}</button>}
                         </div>
                       )}
                     </td>
@@ -106,11 +107,7 @@ export function Horaires() {
         </div>
       )}
       <Fine>
-        Horaire du jour choisi sur la feuille de temps (un par jour, pour toute la feuille ; les heures restent saisies par projet), proposé d’après
-        l’horaire par défaut de l’équipe (onglet Postes) et modifiable par le salarié, son manager ou le service RH. Il est facultatif : sans horaire, la
-        feuille se tient comme avant. Une fin antérieure au début finit le lendemain (poste de nuit). Compte professionnel de prévention : un horaire
-        qui compte au moins 1 h de travail entre 0 h et 5 h se qualifie « équipes successives alternantes » (2x8, 3x8 en roulement : seuil de 50 nuits
-        par an) ou non (travail de nuit : 120 nuits) ; à qualifier, ses nuits comptent au travail de nuit (écran Expositions).
+        {t('The schedule of the day is chosen on the timesheet (one per day, for the whole timesheet; the hours stay entered by project), offered from the team’s default schedule (Jobs tab) and editable by the employee, their manager or HR. It is optional: without a schedule, the timesheet is kept as before. An end earlier than the start ends the next day (night shift). Professional prevention account: a schedule with at least 1 h of work between 0:00 and 5:00 is qualified “alternating successive shifts” (2x8, 3x8 in rotation: threshold of 50 nights a year) or not (night work: 120 nights); while to qualify, its nights count as night work (Exposures screen).')}
       </Fine>
     </Panel>
   );

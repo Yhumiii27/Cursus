@@ -5,23 +5,24 @@
 // la liste des objets réaffectés est confirmée, et leur nombre envoyé (refus si l'écran est en retard). Motif obligatoire,
 // gardé sur la fiche absorbée (service RH), jamais recopié au journal.
 import { useState } from 'react';
-import { plural } from '../../../shared/format.ts';
 import { erreurMotifCorrection, MOTIF_CORRECTION_MAX } from '../../../shared/rules/corrections.ts';
 import { organismeActif, rattachementsDe, refusFusion, TYPES_ORGANISME, type Rattachements } from '../../../shared/rules/organismes.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine, NoteAccent } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
+/** Singulier et pluriel, sources anglaises (`tn`, CU-N01). */
 const LIBELLES: Record<keyof Rattachements, [string, string]> = {
-  formations: ['formation du catalogue', 'formations du catalogue'], sessions: ['session', 'sessions'], suivies: ['formation suivie', 'formations suivies'],
-  plan: ['ligne du plan', 'lignes du plan'], dossiers: ['dossier OPCO', 'dossiers OPCO'], modules: ['module d’e-learning', 'modules d’e-learning'],
-  contacts: ['contact', 'contacts'], tarifs: ['tarif', 'tarifs'],
+  formations: ['catalogue training course', 'catalogue training courses'], sessions: ['session', 'sessions'], suivies: ['training course followed', 'training courses followed'],
+  plan: ['plan line', 'plan lines'], dossiers: ['OPCO file#count', 'OPCO files#count'], modules: ['e-learning module', 'e-learning modules'],
+  contacts: [t('contact'), t('contacts')], tarifs: ['rate', 'rates'],
 };
 
 /** Objets réaffectés, en toutes lettres (« 2 formations du catalogue, 5 sessions »). */
 export const objetsTexte = (r: Rattachements) =>
-  (Object.keys(LIBELLES) as (keyof Rattachements)[]).filter(k => r[k] > 0).map(k => plural(r[k], LIBELLES[k][0], LIBELLES[k][1])).join(', ');
+  (Object.keys(LIBELLES) as (keyof Rattachements)[]).filter(k => r[k] > 0).map(k => tn(r[k], LIBELLES[k][0], LIBELLES[k][1])).join(', ');
 
 export function OrganismeFusionDialog({ source: id }: { source: number }) {
   const d = useDomain();
@@ -39,7 +40,7 @@ export function OrganismeFusionDialog({ source: id }: { source: number }) {
     .sort((a, b) => a.nomUsuel.localeCompare(b.nomUsuel, 'fr')) : [];
   const r = source ? rattachementsDe(d.ds, source.id) : null;
   const total = r ? Object.values(r).reduce((a, b) => a + b, 0) : 0;
-  const errCible = !cible ? 'Choisissez la fiche qui reste.' : refusFusion(source, c);
+  const errCible = !cible ? t('Choose the sheet that stays.') : refusFusion(source, c);
   const errMotif = erreurMotifCorrection(motif);
   const envoyer = async (force = false) => {
     if (busy || !v.verifier(errCible, errMotif, !source)) return;
@@ -53,26 +54,26 @@ export function OrganismeFusionDialog({ source: id }: { source: number }) {
     setUi({ orgSel: c!.id });
   };
   return (
-    <Dialog title={`Fusionner ${source?.nomUsuel ?? 'l’organisme'}`} width={560} onSubmit={() => envoyer()}
+    <Dialog title={`${t('Merge ')}${source?.nomUsuel ?? t('the provider')}`} width={560} onSubmit={() => envoyer()}
       confirmation={confirmer && c ? {
-        texte: `Fusionner « ${source!.nomUsuel} » dans « ${c.nomUsuel} » ? ${total ? `${objetsTexte(r!)} passent à « ${c.nomUsuel} ».` : 'Aucun objet à réaffecter.'} Il n’y a pas de défusion simple.`,
-        bouton: 'Fusionner', occupe: busy, confirmer: () => envoyer(true), annuler: () => setConfirmer(false),
+        texte: `${t('Merge “')}${source!.nomUsuel}${t('” into “')}${c.nomUsuel}${t('”? ')}${total ? `${objetsTexte(r!)}${t(' move to “')}${c.nomUsuel}${t('”.')}` : t('No object to reassign.')}${t(' There is no simple unmerge.')}`,
+        bouton: t('Merge#verb'), occupe: busy, confirmer: () => envoyer(true), annuler: () => setConfirmer(false),
       } : null}
-      actions={!source ? <CancelButton label="Fermer" /> : <><CancelButton /><SubmitButton busy={busy}>Fusionner</SubmitButton></>}>
-      {!source ? <Bloquant>Cet organisme n’existe plus.</Bloquant> : <>
-        <Field label="Fiche absorbée (archivée ensuite)"><Static pad>{source.nomUsuel} · {TYPES_ORGANISME[source.type]}{source.siret ? ` · SIRET ${source.siret}` : ''}</Static></Field>
-        <Field label="Fiche qui reste" htmlFor="of-cible" requis erreur={cible ? errCible : v.erreur(errCible)}>
+      actions={!source ? <CancelButton label={t('Close')} /> : <><CancelButton /><SubmitButton busy={busy}>{t('Merge#verb')}</SubmitButton></>}>
+      {!source ? <Bloquant>{t('This provider no longer exists.')}</Bloquant> : <>
+        <Field label={t('Absorbed sheet (archived afterwards)')}><Static pad>{source.nomUsuel} · {TYPES_ORGANISME[source.type]}{source.siret ? `${t(' · SIRET ')}${source.siret}` : ''}</Static></Field>
+        <Field label={t('Sheet that stays')} htmlFor="of-cible" requis erreur={cible ? errCible : v.erreur(errCible)}>
           <select className="input" id="of-cible" autoFocus value={cible} onChange={e => setCible(e.target.value)}>
-            <option value="">Choisir…</option>
-            {candidates.map(o => <option key={o.id} value={o.id}>{o.nomUsuel}{o.siret ? ` · SIRET ${o.siret}` : ''}{o.aVerifier ? ' · à vérifier' : ''}</option>)}
+            <option value="">{t('Choose…')}</option>
+            {candidates.map(o => <option key={o.id} value={o.id}>{o.nomUsuel}{o.siret ? `${t(' · SIRET ')}${o.siret}` : ''}{o.aVerifier ? t(' · to be checked') : ''}</option>)}
           </select>
         </Field>
-        {r && <p style={{ margin: 0, fontSize: 14 }}>{total ? `Réaffectés : ${objetsTexte(r)}.` : 'Aucun objet ne désigne cette fiche.'} Ses graphies ({[...new Set([source.nomUsuel, ...source.alias])].join(', ')}) deviennent des alias de la fiche qui reste.</p>}
-        {c && !errCible && !c.siret && source.siret && <NoteAccent>Le SIRET {source.siret} passe à « {c.nomUsuel} », qui n’en avait pas.</NoteAccent>}
-        <Field label="Motif de la fusion" htmlFor="of-motif" requis erreur={motif.trim() ? errMotif : v.erreur(errMotif)}>
-          <textarea className="input" id="of-motif" rows={2} value={motif} maxLength={MOTIF_CORRECTION_MAX} placeholder="Même SIRET, graphie reprise d’un ancien texte libre…" onChange={e => setMotif(e.target.value)} />
+        {r && <p style={{ margin: 0, fontSize: 14 }}>{total ? `${t('Reassigned: ')}${objetsTexte(r)}.` : t('No object designates this sheet.')}{t(' Its spellings (')}{[...new Set([source.nomUsuel, ...source.alias])].join(', ')}{t(') become aliases of the sheet that stays.')}</p>}
+        {c && !errCible && !c.siret && source.siret && <NoteAccent>{t('The SIRET ')}{source.siret}{t(' moves to “')}{c.nomUsuel}{t('”, which had none.')}</NoteAccent>}
+        <Field label={t('Reason for the merge')} htmlFor="of-motif" requis erreur={motif.trim() ? errMotif : v.erreur(errMotif)}>
+          <textarea className="input" id="of-motif" rows={2} value={motif} maxLength={MOTIF_CORRECTION_MAX} placeholder={t('Same SIRET, spelling taken over from an old free text…')} onChange={e => setMotif(e.target.value)} />
         </Field>
-        <Fine>Le motif reste sur la fiche absorbée, lu par le service RH seulement ; le journal note les codes des deux fiches et le nombre d’objets réaffectés.</Fine>
+        <Fine>{t('The reason stays on the absorbed sheet, read by HR only; the log records the codes of both sheets and the number of objects reassigned.')}</Fine>
       </>}
     </Dialog>
   );

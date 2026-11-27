@@ -15,9 +15,10 @@ import { Bloquant, CancelButton, Controles, Dialog, Field, SubmitButton, useVeri
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
-/** Jours de la semaine des besoins (0 = lundi … 6 = dimanche). */
-export const JOURS_BESOIN = ['Lun.', 'Mar.', 'Mer.', 'Jeu.', 'Ven.', 'Sam.', 'Dim.'] as const;
+/** Jours de la semaine des besoins (0 = lundi … 6 = dimanche) : sources anglaises, traduites au rendu (`t(JOURS_BESOIN[j])`). */
+export const JOURS_BESOIN = ['Mon.', 'Tue.', 'Wed.', 'Thu.', 'Fri.', 'Sat.', 'Sun.'] as const;
 
 /** Séquence saisie : codes séparés par des espaces ou des virgules, « - » pour un repos. */
 export const lireSequence = (texte: string): string[] => texte.split(/[\s,;]+/).map(x => x.trim().toUpperCase()).filter(Boolean).map(x => (x === '-' || x === 'R' ? '' : x));
@@ -55,43 +56,42 @@ export function RefCycleDialog({ code }: { code?: string | null }) {
   };
 
   return (
-    <Dialog title={avant ? `Cycle ${avant.code}` : 'Nouveau cycle de roulement'} width={600} onSubmit={envoyer}
-      actions={disparu ? <CancelButton label="Fermer" /> : <><CancelButton /><SubmitButton busy={busy}>{avant ? 'Enregistrer' : 'Ajouter au référentiel'}</SubmitButton></>}>
-      {disparu ? <Bloquant>Ce cycle n’existe plus.</Bloquant> : <>
+    <Dialog title={avant ? `${t('Cycle ')}${avant.code}` : t('New rotation cycle')} width={600} onSubmit={envoyer}
+      actions={disparu ? <CancelButton label={t('Close')} /> : <><CancelButton /><SubmitButton busy={busy}>{avant ? t('Save') : t('Add to the reference data')}</SubmitButton></>}>
+      {disparu ? <Bloquant>{t('This cycle no longer exists.')}</Bloquant> : <>
         {!avant && (
-          <Field label="Code" htmlFor="cyc-code" requis erreur={tape(saisi, erreurs.code)}>
+          <Field label={t('Code')} htmlFor="cyc-code" requis erreur={tape(saisi, erreurs.code)}>
             <input className="input" id="cyc-code" autoFocus value={saisi} maxLength={8} placeholder="3X8" onChange={e => setSaisi(e.target.value.toUpperCase())} style={{ maxWidth: 140 }} />
           </Field>
         )}
-        <Field label="Libellé" htmlFor="cyc-nom" requis erreur={tape(nom, erreurs.nom)}>
-          <input className="input" id="cyc-nom" autoFocus={!!avant} value={nom} maxLength={NOM_CYCLE_MAX} placeholder="3x8 : matin, après-midi, nuit" onChange={e => setNom(e.target.value)} />
+        <Field label={t('Label')} htmlFor="cyc-nom" requis erreur={tape(nom, erreurs.nom)}>
+          <input className="input" id="cyc-nom" autoFocus={!!avant} value={nom} maxLength={NOM_CYCLE_MAX} placeholder={t('3x8: morning, afternoon, night')} onChange={e => setNom(e.target.value)} />
         </Field>
-        <Field label="Séquence, jour par jour" htmlFor="cyc-seq" requis erreur={tape(sequence, erreurs.longueur ?? erreurs.sequence)}>
+        <Field label={t('Sequence, day by day')} htmlFor="cyc-seq" requis erreur={tape(sequence, erreurs.longueur ?? erreurs.sequence)}>
           <textarea className="input short" id="cyc-seq" rows={2} value={sequence} placeholder="M M M M M - - AM AM AM AM AM - -" onChange={e => setSequence(e.target.value)} style={{ resize: 'vertical' }} />
           <span className="text-muted sub">
-            Un code d’horaire en vigueur ({horairesEnVigueur(d.ds.referentiels).map(h => h.code).join(', ') || 'aucun'}) ou « - » pour un repos, séparés par des espaces ;
-            {` ${seq.length} jour${seq.length > 1 ? 's' : ''}`} (au plus {LONGUEUR_MAX}).
+            {t('A schedule code in force (')}{horairesEnVigueur(d.ds.referentiels).map(h => h.code).join(', ') || t('none')}{t(') or “-” for a rest, separated by spaces;')}
+            {` ${tn(seq.length, 'day', 'days')}`}{t(' (at most ')}{LONGUEUR_MAX}).
           </span>
         </Field>
         <div className="grid-2">
-          <Field label="Groupes et décalages" htmlFor="cyc-groupes" requis erreur={tape(groupes, erreurs.groupes)}>
+          <Field label={t('Groups and offsets')} htmlFor="cyc-groupes" requis erreur={tape(groupes, erreurs.groupes)}>
             <input className="input" id="cyc-groupes" value={groupes} placeholder="A:0 B:7 C:14" onChange={e => setGroupes(e.target.value)} />
-            <span className="text-muted sub">Code du groupe et décalage en jours sur la séquence ; {GROUPES_MAX} groupes au plus.</span>
+            <span className="text-muted sub">{t('Group code and offset in days on the sequence; ')}{GROUPES_MAX}{t(' groups at most.')}</span>
           </Field>
-          <Field label="Jour d’origine" htmlFor="cyc-origine" requis erreur={v.erreur(erreurs.origine)}>
+          <Field label={t('Day of origin')} htmlFor="cyc-origine" requis erreur={v.erreur(erreurs.origine)}>
             <input className="input" id="cyc-origine" type="date" value={origine} onChange={e => setOrigine(e.target.value)} />
-            <span className="text-muted sub">Premier jour de la séquence du groupe de décalage 0 (un lundi, de préférence).</span>
+            <span className="text-muted sub">{t('First day of the sequence of the offset group 0 (a Monday, preferably).')}</span>
           </Field>
         </div>
         {ind && (
           <Fine muted={false}>
-            {fH(ind.heuresSemaine)} par semaine en moyenne · {ind.nuitsSemaine.toLocaleString('fr-FR')} poste{ind.nuitsSemaine > 1 ? 's' : ''} de nuit par semaine · {Math.round(ind.dimanches * 100)} % des dimanches travaillés (groupe de décalage 0).
+            {fH(ind.heuresSemaine)}{t(' per week on average · ')}{ind.nuitsSemaine.toLocaleString('fr-FR')}{t(ind.nuitsSemaine > 1 ? ' night shifts per week · ' : ' night shift per week · ')}{Math.round(ind.dimanches * 100)}{t(' % of Sundays worked (offset group 0).')}
           </Fine>
         )}
         {ind && <Controles msgs={ind.alertes.map(text => ({ text, bad: false }))} />}
         <Fine>
-          Le code ne change plus. Les créneaux déjà générés ou publiés ne changent pas : seules les prochaines générations suivent la nouvelle séquence. Un cycle
-          s’archive (il n’est plus proposé aux affectations) une fois ses affectations terminées.
+          {t('The code no longer changes. The slots already generated or published do not change: only the next generations follow the new sequence. A cycle is archived (it is no longer offered for assignments) once its assignments are over.')}
         </Fine>
       </>}
     </Dialog>
@@ -126,52 +126,51 @@ export function RefBesoinDialog({ id, equipe }: { id?: number | null; equipe?: s
     if (x.ok) closeDialog();
   };
   return (
-    <Dialog title={avant ? 'Besoin de poste' : 'Nouveau besoin de poste'} width={600} onSubmit={envoyer}
-      actions={disparu ? <CancelButton label="Fermer" /> : <><CancelButton /><SubmitButton busy={busy}>{avant ? 'Enregistrer' : 'Ajouter'}</SubmitButton></>}>
-      {disparu ? <Bloquant>Ce besoin n’existe plus.</Bloquant> : <>
+    <Dialog title={avant ? t('Job need') : t('New job need')} width={600} onSubmit={envoyer}
+      actions={disparu ? <CancelButton label={t('Close')} /> : <><CancelButton /><SubmitButton busy={busy}>{avant ? t('Save') : t('Add')}</SubmitButton></>}>
+      {disparu ? <Bloquant>{t('This need no longer exists.')}</Bloquant> : <>
         <div className="grid-2">
-          <Field label="Équipe" htmlFor="bes-equipe" requis erreur={v.erreur(erreurs.equipe)}>
+          <Field label={t('Team')} htmlFor="bes-equipe" requis erreur={v.erreur(erreurs.equipe)}>
             <select className="input" id="bes-equipe" value={eq} onChange={e => setEq(e.target.value)}>
               {r.equipes.map(q => <option key={q.nom} value={q.nom}>{q.nom}</option>)}
             </select>
           </Field>
-          <Field label="Horaire" htmlFor="bes-horaire" requis erreur={v.erreur(erreurs.horaire)}>
+          <Field label={t('Schedule')} htmlFor="bes-horaire" requis erreur={v.erreur(erreurs.horaire)}>
             <select className="input" id="bes-horaire" value={horaire} onChange={e => setHoraire(e.target.value)}>
-              <option value="">Choisir…</option>
+              <option value="">{t('Choose…')}</option>
               {horairesEnVigueur(r).map(h => <option key={h.code} value={h.code}>{h.code} · {h.nom}</option>)}
             </select>
           </Field>
         </div>
-        <Field label="Jours de la semaine" requis erreur={v.erreur(erreurs.jours)}>
-          <div className="chips" role="group" aria-label="Jours de la semaine" style={{ gap: 'var(--space-2) var(--space-4)' }}>
+        <Field label={t('Days of the week')} requis erreur={v.erreur(erreurs.jours)}>
+          <div className="chips" role="group" aria-label={t('Days of the week')} style={{ gap: 'var(--space-2) var(--space-4)' }}>
             {JOURS_BESOIN.map((j, i) => (
               <label key={j} style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14, cursor: 'pointer' }}>
                 <input type="checkbox" checked={jours.includes(i)} onChange={e => setJours(e.target.checked ? [...jours, i].sort() : jours.filter(x => x !== i))} style={{ accentColor: 'var(--color-accent)' }} />
-                {j}
+                {t(j)}
               </label>
             ))}
           </div>
         </Field>
         <div className="grid-2">
-          <Field label="Effectif minimal" htmlFor="bes-effectif" requis erreur={v.erreur(erreurs.effectifMin)}>
+          <Field label={t('Minimum headcount')} htmlFor="bes-effectif" requis erreur={v.erreur(erreurs.effectifMin)}>
             <input className="input tnum" id="bes-effectif" inputMode="numeric" value={effectif} maxLength={2} onChange={e => setEffectif(e.target.value.replace(/\D/g, ''))} style={{ maxWidth: 120 }} />
           </Field>
-          <Field label={<>Activité<span className="who"> · facultatif</span></>} htmlFor="bes-activite">
-            <input className="input" id="bes-activite" value={activite} maxLength={60} placeholder="Conduite de ligne, cariste…" onChange={e => setActivite(e.target.value)} />
+          <Field label={<>{t('Activity')}<span className="who">{t(' · optional')}</span></>} htmlFor="bes-activite">
+            <input className="input" id="bes-activite" value={activite} maxLength={60} placeholder={t('Line driving, forklift driver…')} onChange={e => setActivite(e.target.value)} />
           </Field>
         </div>
         <div className="grid-2">
-          <Field label="À partir du" htmlFor="bes-du" requis erreur={v.erreur(erreurs.du)}>
+          <Field label={t('From the#date')} htmlFor="bes-du" requis erreur={v.erreur(erreurs.du)}>
             <input className="input" id="bes-du" type="date" value={du} onChange={e => setDu(e.target.value)} />
           </Field>
-          <Field label={<>Jusqu’au<span className="who"> · facultatif</span></>} htmlFor="bes-au" erreur={v.erreur(erreurs.au)}>
+          <Field label={<>{t('Until#date')}<span className="who">{t(' · optional')}</span></>} htmlFor="bes-au" erreur={v.erreur(erreurs.au)}>
             <input className="input" id="bes-au" type="date" value={au} min={du || undefined} onChange={e => setAu(e.target.value)} />
           </Field>
         </div>
         <ExigencesChoix value={exigences} onChange={setExigences} avant={avant?.exigences ?? null} erreurs={{ formations: v.erreur(erreurs.exigences), habilitations: null }} />
         <Fine>
-          Exigences propres au créneau, en plus de celles du poste et de l’équipe (exemple : un cariste CACES sur le poste de nuit) : elles sont contrôlées à la
-          date de chaque créneau avant la publication. L’effectif minimal s’affiche sur la ligne de couverture du planning.
+          {t('Requirements specific to the slot, on top of those of the job and of the team (example: a CACES forklift driver on the night shift): they are checked at the date of each slot before publication. The minimum headcount is shown on the coverage line of the planning.')}
         </Fine>
       </>}
     </Dialog>

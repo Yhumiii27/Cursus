@@ -13,6 +13,7 @@ import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerific
 import { CloseButton, Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 /** Minutes → heures saisies (« 7,5 ») ; vide sans valeur. */
 const heures = (m: number | null | undefined) => (m == null ? '' : String(Math.round((m / 60) * 100) / 100).replace('.', ','));
@@ -31,7 +32,7 @@ export function HoraireVariableDialog({ code }: { code: string }) {
   const [accord, setAccord] = useState(h?.accordVariable ?? '');
   const [busy, setBusy] = useState(false);
   const v = useVerification();
-  if (!h) return <Dialog title="Horaire variable" width={480} actions={<CancelButton label="Fermer" />}><Bloquant>Cet horaire n’existe plus.</Bloquant></Dialog>;
+  if (!h) return <Dialog title={t('Variable schedule')} width={480} actions={<CancelButton label={t('Close')} />}><Bloquant>{t('This schedule no longer exists.')}</Bloquant></Dialog>;
 
   const saisie = { variable, plages, dureeReference: duree, reportMaxSemaine: report, cumulMax: cumul, accordVariable: accord };
   const { erreurs } = controlerHoraireVariable(h, saisie);
@@ -46,55 +47,53 @@ export function HoraireVariableDialog({ code }: { code: string }) {
   };
 
   return (
-    <Dialog title={`Horaire ${h.code} · horaire variable`} width={600} onSubmit={envoyer} actions={<>
+    <Dialog title={`${t('Schedule ')}${h.code}${t(' · variable schedule')}`} width={600} onSubmit={envoyer} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Enregistrer</SubmitButton>
+      <SubmitButton busy={busy}>{t('Save')}</SubmitButton>
     </>}>
-      <Field label="Horaire"><Static>{h.nom} · {plageTexte(h)}, pause {h.pause} min ({fH(dureeHoraire(h))} de travail)</Static></Field>
+      <Field label={t('Schedule')}><Static>{h.nom} · {plageTexte(h)}{t(', break ')}{h.pause}{t(' min (')}{fH(dureeHoraire(h))}{t(' of work)')}</Static></Field>
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
         <input type="checkbox" checked={variable} onChange={x => setVariable(x.target.checked)} style={{ accentColor: 'var(--color-accent)', marginTop: 'var(--space-1)', flex: 'none' }} />
         <span>
-          Horaire variable (horaires individualisés)
-          <span className="text-muted sub" style={{ display: 'block' }}>Arrivée et départ au choix dans les plages mobiles, présence obligatoire dans les plages fixes ; suppose que le CSE n’y soit pas opposé (art. L3121-48).</span>
+          {t('Variable schedule (individualised hours)')}
+          <span className="text-muted sub" style={{ display: 'block' }}>{t('Arrival and departure at will in the mobile ranges, presence mandatory in the fixed ranges; assumes the CSE does not oppose it (art. L3121-48).')}</span>
         </span>
       </label>
       {variable && <>
-        <Field label="Plages, dans l’ordre de la journée" requis erreur={v.erreur(erreurs.plages)}>
+        <Field label={t('Ranges, in the order of the day')} requis erreur={v.erreur(erreurs.plages)}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
             {plages.map((p, i) => (
               <div key={i} className="row-wrap" style={{ gap: 'var(--space-2)', alignItems: 'center' }}>
-                <select className="input" aria-label={`Type de la plage ${i + 1}`} value={p.type} onChange={x => changer(i, { type: x.target.value as PlageHoraire['type'] })} style={{ maxWidth: 230 }}>
+                <select className="input" aria-label={`${t('Type of range ')}${i + 1}`} value={p.type} onChange={x => changer(i, { type: x.target.value as PlageHoraire['type'] })} style={{ maxWidth: 230 }}>
                   {Object.entries(TYPES_PLAGE).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                 </select>
-                <input className="input tnum" aria-label={`Début de la plage ${i + 1}`} inputMode="numeric" maxLength={8} placeholder="09:00" value={p.debut} onChange={x => changer(i, { debut: x.target.value })} style={{ maxWidth: 96 }} />
+                <input className="input tnum" aria-label={`${t('Start of range ')}${i + 1}`} inputMode="numeric" maxLength={8} placeholder="09:00" value={p.debut} onChange={x => changer(i, { debut: x.target.value })} style={{ maxWidth: 96 }} />
                 <span className="text-muted">–</span>
-                <input className="input tnum" aria-label={`Fin de la plage ${i + 1}`} inputMode="numeric" maxLength={8} placeholder="11:30" value={p.fin} onChange={x => changer(i, { fin: x.target.value })} style={{ maxWidth: 96 }} />
-                {plages.length > 1 && <CloseButton size={28} label={`Retirer la plage ${i + 1}`} onClick={() => setPlages(l => l.filter((_, j) => j !== i))} />}
+                <input className="input tnum" aria-label={`${t('End of range ')}${i + 1}`} inputMode="numeric" maxLength={8} placeholder="11:30" value={p.fin} onChange={x => changer(i, { fin: x.target.value })} style={{ maxWidth: 96 }} />
+                {plages.length > 1 && <CloseButton size={28} label={`${t('Remove range ')}${i + 1}`} onClick={() => setPlages(l => l.filter((_, j) => j !== i))} />}
               </div>
             ))}
             {plages.length < PLAGES_MAX && (
-              <div><button type="button" className="btn btn-ghost btn-sm" onClick={() => setPlages(l => [...l, { type: 'fixe', debut: '', fin: '' }])}>Ajouter une plage</button></div>
+              <div><button type="button" className="btn btn-ghost btn-sm" onClick={() => setPlages(l => [...l, { type: 'fixe', debut: '', fin: '' }])}>{t('Add a range')}</button></div>
             )}
           </div>
         </Field>
         <div className="row-wrap" style={{ gap: 'var(--space-3)' }}>
-          <Field label="Durée de référence (heures par jour)" htmlFor="hv-duree" erreur={v.erreur(erreurs.dureeReference)}>
+          <Field label={t('Reference duration (hours per day)')} htmlFor="hv-duree" erreur={v.erreur(erreurs.dureeReference)}>
             <input className="input tnum" id="hv-duree" inputMode="decimal" maxLength={6} placeholder={heures(Math.round(dureeHoraire(h) * 60))} value={duree} onChange={x => setDuree(x.target.value)} style={{ maxWidth: 120 }} />
           </Field>
-          <Field label="Report par semaine (heures)" htmlFor="hv-report" erreur={v.erreur(erreurs.reportMaxSemaine)}>
+          <Field label={t('Carry-over per week (hours)')} htmlFor="hv-report" erreur={v.erreur(erreurs.reportMaxSemaine)}>
             <input className="input tnum" id="hv-report" inputMode="decimal" maxLength={6} placeholder={heures(REPORT_MAX_SEMAINE_MIN)} value={report} onChange={x => setReport(x.target.value)} style={{ maxWidth: 120 }} />
           </Field>
-          <Field label="Cumul autorisé (heures)" htmlFor="hv-cumul" erreur={v.erreur(erreurs.cumulMax)}>
+          <Field label={t('Authorised cumulative (hours)')} htmlFor="hv-cumul" erreur={v.erreur(erreurs.cumulMax)}>
             <input className="input tnum" id="hv-cumul" inputMode="decimal" maxLength={6} placeholder={heures(CUMUL_MAX_MIN)} value={cumul} onChange={x => setCumul(x.target.value)} style={{ maxWidth: 120 }} />
           </Field>
         </div>
-        <Field label="Référence de l’accord collectif" htmlFor="hv-accord" erreur={v.erreur(erreurs.accordVariable)}>
-          <input className="input" id="hv-accord" maxLength={ACCORD_VARIABLE_MAX} placeholder="Accord d’entreprise sur les horaires variables du …" value={accord} onChange={x => setAccord(x.target.value)} />
+        <Field label={t('Reference of the collective agreement')} htmlFor="hv-accord" erreur={v.erreur(erreurs.accordVariable)}>
+          <input className="input" id="hv-accord" maxLength={ACCORD_VARIABLE_MAX} placeholder={t('Company agreement on variable schedules of …')} value={accord} onChange={x => setAccord(x.target.value)} />
         </Field>
         <Fine>
-          Vides : la durée de l’horaire et les plafonds supplétifs ({fH(REPORT_MAX_SEMAINE_MIN / 60)} reportées d’une semaine à l’autre, {fH(CUMUL_MAX_MIN / 60)} de cumul).
-          D’autres plafonds exigent la référence de l’accord. Un report dans les plafonds n’est pas une heure supplémentaire (art. L3121-51) ; au-delà,
-          l’excédent est signalé au débit-crédit. Les pointages hors d’une plage fixe sont signalés à justifier.
+          {t('Empty: the duration of the schedule and the default ceilings (')}{fH(REPORT_MAX_SEMAINE_MIN / 60)}{t(' carried over from one week to the next, ')}{fH(CUMUL_MAX_MIN / 60)}{t(' cumulative). Other ceilings require the reference of the agreement. A carry-over within the ceilings is not overtime (art. L3121-51); beyond, the excess is flagged in the debit-credit. Clock-ins outside a fixed range are flagged to be justified.')}
         </Fine>
       </>}
     </Dialog>

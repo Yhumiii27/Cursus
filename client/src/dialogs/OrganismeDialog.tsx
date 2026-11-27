@@ -11,6 +11,7 @@ import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerific
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 const caseStyle = { accentColor: 'var(--color-accent)' } as const;
 
@@ -60,49 +61,49 @@ export function OrganismeDialog({ id }: { id?: number | null }) {
   };
 
   return (
-    <Dialog title={avant ? `Organisme ${avant.nomUsuel}` : 'Nouvel organisme de formation'} width={640} tall onSubmit={envoyer}
-      actions={disparu ? <CancelButton label="Fermer" /> : <><CancelButton /><SubmitButton busy={busy}>{avant ? 'Enregistrer' : 'Ajouter au référentiel'}</SubmitButton></>}>
-      {disparu ? <Bloquant>Cet organisme n’existe plus.</Bloquant> : <>
-        <Field label="Nom usuel" htmlFor="org-nom" requis erreur={erreur('nomUsuel', nomUsuel)}>
-          <input className="input" id="org-nom" type="text" autoFocus value={nomUsuel} maxLength={NOM_ORGANISME_MAX} placeholder="Apave" onChange={e => setNomUsuel(e.target.value)} />
+    <Dialog title={avant ? `${t('Provider ')}${avant.nomUsuel}` : t('New training provider')} width={640} tall onSubmit={envoyer}
+      actions={disparu ? <CancelButton label={t('Close')} /> : <><CancelButton /><SubmitButton busy={busy}>{avant ? t('Save') : t('Add to the reference data')}</SubmitButton></>}>
+      {disparu ? <Bloquant>{t('This provider no longer exists.')}</Bloquant> : <>
+        <Field label={t('Usual name')} htmlFor="org-nom" requis erreur={erreur('nomUsuel', nomUsuel)}>
+          <input className="input" id="org-nom" type="text" autoFocus value={nomUsuel} maxLength={NOM_ORGANISME_MAX} placeholder={t('Apave')} onChange={e => setNomUsuel(e.target.value)} />
         </Field>
         <div className="grid-2">
           {avant
-            ? <Field label="Code"><Static pad>{avant.code}</Static></Field>
+            ? <Field label={t('Code')}><Static pad>{avant.code}</Static></Field>
             : (
-              <Field label="Code" htmlFor="org-code" erreur={erreur('code', code)}>
-                <input className="input" id="org-code" type="text" value={code} maxLength={32} placeholder={propose || 'd’après le nom usuel'} onChange={e => setCode(e.target.value)} />
+              <Field label={t('Code')} htmlFor="org-code" erreur={erreur('code', code)}>
+                <input className="input" id="org-code" type="text" value={code} maxLength={32} placeholder={propose || t('from the usual name')} onChange={e => setCode(e.target.value)} />
               </Field>
             )}
-          <Field label="Type" htmlFor="org-type" requis erreur={v.erreur(erreurs.type)}>
+          <Field label={t('Type')} htmlFor="org-type" requis erreur={v.erreur(erreurs.type)}>
             <select className="input" id="org-type" value={type} onChange={e => setType(e.target.value)}>
               {Object.entries(TYPES_ORGANISME).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
           </Field>
         </div>
-        <Field label="Raison sociale" htmlFor="org-rs" erreur={erreur('raisonSociale', raisonSociale)}>
+        <Field label={t('Company name')} htmlFor="org-rs" erreur={erreur('raisonSociale', raisonSociale)}>
           <input className="input" id="org-rs" type="text" value={raisonSociale} maxLength={120} onChange={e => setRaisonSociale(e.target.value)} />
         </Field>
         <div className="grid-2">
-          <Field label="SIRET" htmlFor="org-siret" erreur={erreur('siret', siret)}>
-            <input className="input tnum" id="org-siret" inputMode="numeric" value={siret} maxLength={17} placeholder="14 chiffres" onChange={e => setSiret(e.target.value)} />
+          <Field label={t('SIRET')} htmlFor="org-siret" erreur={erreur('siret', siret)}>
+            <input className="input tnum" id="org-siret" inputMode="numeric" value={siret} maxLength={17} placeholder={t('14 digits')} onChange={e => setSiret(e.target.value)} />
           </Field>
           {type !== 'interne' && (
-            <Field label="Déclaration d’activité (NDA)" htmlFor="org-nda" erreur={erreur('nda', nda)}>
-              <input className="input tnum" id="org-nda" inputMode="numeric" value={nda} maxLength={14} placeholder="11 chiffres" onChange={e => setNda(e.target.value)} />
+            <Field label={t('Declaration of activity (NDA)')} htmlFor="org-nda" erreur={erreur('nda', nda)}>
+              <input className="input tnum" id="org-nda" inputMode="numeric" value={nda} maxLength={14} placeholder={t('11 digits')} onChange={e => setNda(e.target.value)} />
             </Field>
           )}
         </div>
         {type !== 'interne' && <>
-          <Field label="Région de déclaration" htmlFor="org-region" erreur={erreur('ndaRegion', ndaRegion)}>
-            <input className="input" id="org-region" type="text" value={ndaRegion} maxLength={80} placeholder="Grand Est" onChange={e => setNdaRegion(e.target.value)} />
+          <Field label={t('Region of declaration')} htmlFor="org-region" erreur={erreur('ndaRegion', ndaRegion)}>
+            <input className="input" id="org-region" type="text" value={ndaRegion} maxLength={80} placeholder={t('Grand Est')} onChange={e => setNdaRegion(e.target.value)} />
           </Field>
           <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
             <input type="checkbox" checked={qualiopi} onChange={e => setQualiopi(e.target.checked)} style={caseStyle} />
-            Certifié Qualiopi
+            {t('Qualiopi certified')}
           </label>
           {qualiopi && <>
-            <Field label="Catégories certifiées" erreur={v.erreur(erreurs.qualiopiCategories)}>
+            <Field label={t('Certified categories')} erreur={v.erreur(erreurs.qualiopiCategories)}>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
                 {(Object.keys(CATEGORIES_QUALIOPI) as CategorieQualiopi[]).map(c => (
                   <label key={c} style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 13 }}>
@@ -112,32 +113,32 @@ export function OrganismeDialog({ id }: { id?: number | null }) {
               </div>
             </Field>
             <div className="grid-2">
-              <Field label="Certificateur" htmlFor="org-certif" erreur={erreur('qualiopiCertificateur', certificateur)}>
-                <input className="input" id="org-certif" type="text" value={certificateur} maxLength={80} placeholder="AFNOR Certification" onChange={e => setCertificateur(e.target.value)} />
+              <Field label={t('Certifier')} htmlFor="org-certif" erreur={erreur('qualiopiCertificateur', certificateur)}>
+                <input className="input" id="org-certif" type="text" value={certificateur} maxLength={80} placeholder={t('AFNOR Certification')} onChange={e => setCertificateur(e.target.value)} />
               </Field>
-              <Field label="Numéro de certificat" htmlFor="org-num" erreur={erreur('qualiopiNumero', numero)}>
+              <Field label={t('Certificate number')} htmlFor="org-num" erreur={erreur('qualiopiNumero', numero)}>
                 <input className="input" id="org-num" type="text" value={numero} maxLength={40} onChange={e => setNumero(e.target.value)} />
               </Field>
             </div>
-            <Field label="Fin de validité" htmlFor="org-valide" erreur={erreur('qualiopiValideJusquau', valide)}>
+            <Field label={t('End of validity')} htmlFor="org-valide" erreur={erreur('qualiopiValideJusquau', valide)}>
               <input className="input" id="org-valide" type="date" value={valide} onChange={e => setValide(e.target.value)} />
             </Field>
           </>}
-          <Field label="Dernière vérification (liste publique, certificat)" htmlFor="org-verifie" erreur={erreur('qualiopiVerifieLe', verifie)}>
+          <Field label={t('Last check (public list, certificate)')} htmlFor="org-verifie" erreur={erreur('qualiopiVerifieLe', verifie)}>
             <input className="input" id="org-verifie" type="date" value={verifie} onChange={e => setVerifie(e.target.value)} />
           </Field>
         </>}
-        <Field label="Adresse" htmlFor="org-adresse" erreur={erreur('adresse', adresse)}>
+        <Field label={t('Address')} htmlFor="org-adresse" erreur={erreur('adresse', adresse)}>
           <input className="input" id="org-adresse" type="text" value={adresse} maxLength={200} onChange={e => setAdresse(e.target.value)} />
         </Field>
-        <Field label="Site web" htmlFor="org-web" erreur={erreur('siteWeb', siteWeb)}>
+        <Field label={t('Website')} htmlFor="org-web" erreur={erreur('siteWeb', siteWeb)}>
           <input className="input" id="org-web" type="url" inputMode="url" value={siteWeb} maxLength={200} placeholder="https://" onChange={e => setSiteWeb(e.target.value)} />
         </Field>
         <Fine>
           {avant
-            ? 'Le nom usuel est recopié sur les formations du catalogue qui désignent cet organisme. '
-            : 'Le code identifie la fiche dans le journal (jamais son nom, qui peut être celui d’un formateur indépendant) : il ne change plus. '}
-          Sans date de validité, une certification Qualiopi reste « à vérifier ». Qualiopi absent ou échu : avertissement seulement.
+            ? t('The usual name is copied onto the catalogue training courses that designate this provider. ')
+            : t('The code identifies the sheet in the log (never its name, which may be that of an independent trainer): it no longer changes. ')}
+          {t('Without a validity date, a Qualiopi certification stays “to be checked”. Qualiopi missing or expired: warning only.')}
         </Fine>
       </>}
     </Dialog>
@@ -164,21 +165,21 @@ export function OrganismeConditionsDialog({ id }: { id: number }) {
     if (r.ok) closeDialog();
   };
   return (
-    <Dialog title={`Conditions — ${avant?.nomUsuel ?? 'organisme'}`} width={520} onSubmit={envoyer}
-      actions={!avant ? <CancelButton label="Fermer" /> : <><CancelButton /><SubmitButton busy={busy}>Enregistrer</SubmitButton></>}>
-      {!avant ? <Bloquant>Cet organisme n’existe plus.</Bloquant> : <>
+    <Dialog title={`${t('Conditions — ')}${avant?.nomUsuel ?? t('provider')}`} width={520} onSubmit={envoyer}
+      actions={!avant ? <CancelButton label={t('Close')} /> : <><CancelButton /><SubmitButton busy={busy}>{t('Save')}</SubmitButton></>}>
+      {!avant ? <Bloquant>{t('This provider no longer exists.')}</Bloquant> : <>
         <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
           <input type="checkbox" checked={subrogation} onChange={e => setSubrogation(e.target.checked)} style={caseStyle} />
-          Accepte la subrogation de paiement (l’OPCO le paie directement)
+          {t('Accepts payment subrogation (the OPCO pays it directly)')}
         </label>
-        <Field label="Délai d’annulation sans frais (jours)" htmlFor="org-delai" erreur={delai.trim() ? erreurs.delaiAnnulationJours ?? null : null}>
+        <Field label={t('Cancellation notice without fees (days)')} htmlFor="org-delai" erreur={delai.trim() ? erreurs.delaiAnnulationJours ?? null : null}>
           <input className="input tnum" id="org-delai" type="number" inputMode="numeric" min={0} max={365} step={1} value={delai} onChange={e => setDelai(e.target.value)} />
         </Field>
-        <Field label="Conditions (paiement, annulation…)" htmlFor="org-cond" erreur={erreurs.conditions ?? null}>
+        <Field label={t('Conditions (payment, cancellation…)')} htmlFor="org-cond" erreur={erreurs.conditions ?? null}>
           <textarea className="input" id="org-cond" rows={3} value={conditions} maxLength={CONDITIONS_MAX} onChange={e => setConditions(e.target.value)}
-            placeholder="Paiement à 30 jours, annulation facturée 50 % sous 10 jours…" />
+            placeholder={t('Payment at 30 days, cancellation charged 50 % within 10 days…')} />
         </Field>
-        <Fine>Données commerciales tenues par le service RH ; lisibles du référent formation et de la lecture seule, jamais recopiées au journal.</Fine>
+        <Fine>{t('Commercial data kept by HR; readable by the training referent and the read-only role, never copied into the log.')}</Fine>
       </>}
     </Dialog>
   );

@@ -237,6 +237,19 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
   { ecran: 'Aide', fichiers: ['client/src/pages/Aide.tsx', 'client/src/components/InstallerApplication.tsx'] },
   // Reprise depuis Lucca (types, champs, issues et motifs de shared/rules/reprise.ts en français).
   { ecran: 'Mise en service', fichiers: ['client/src/pages/MiseEnService.tsx'] },
+  {
+    // Partie 8. Formations, habilitations, postes, destinations, activités internes, horaires, entités et sites, organismes,
+    // modules e-learning, cycles et besoins de poste, avec leurs dialogues (libellés de shared/ en français).
+    ecran: 'Référentiels', fichiers: ['client/src/pages/Referentiels.tsx', 'client/src/pages/ReferentielsPostes.tsx', 'client/src/pages/ReferentielsActivites.tsx',
+      'client/src/pages/ReferentielsHoraires.tsx', 'client/src/pages/ReferentielsEntites.tsx', 'client/src/pages/ReferentielsCycles.tsx',
+      'client/src/pages/ReferentielsModules.tsx', 'client/src/pages/ReferentielsOrganismes.tsx', 'client/src/components/organismes/etat.ts',
+      'client/src/components/ExigencesChoix.tsx', 'client/src/dialogs/RefFormationDialog.tsx',
+      'client/src/dialogs/RefHabilitationDialog.tsx', 'client/src/dialogs/RefDestinationDialog.tsx', 'client/src/dialogs/RefActiviteDialog.tsx',
+      'client/src/dialogs/RefSiteDialog.tsx', 'client/src/dialogs/RefPosteC2pDialog.tsx', 'client/src/dialogs/RefHoraireDialog.tsx',
+      'client/src/dialogs/RefEntiteDialog.tsx', 'client/src/dialogs/RefEquipeDialog.tsx', 'client/src/dialogs/RefPosteDialog.tsx',
+      'client/src/dialogs/RefCycleDialog.tsx', 'client/src/dialogs/HoraireVariableDialog.tsx', 'client/src/dialogs/ModuleElearningDialog.tsx',
+      'client/src/dialogs/OrganismeDialog.tsx', 'client/src/dialogs/OrganismeContactDialog.tsx', 'client/src/dialogs/OrganismeFusionDialog.tsx'],
+  },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */

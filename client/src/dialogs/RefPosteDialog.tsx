@@ -3,7 +3,6 @@
 // détiennent déjà tous ses titulaires, à valider. Une exigence ajoutée rend non conformes les titulaires à qui elle
 // manque : ils sont annoncés, et l'enregistrement se confirme.
 import { useMemo, useState } from 'react';
-import { plural } from '../../../shared/format.ts';
 import { controlerPoste, effetExigences, effetTexte, exigencesProposees, nombreExigences, titulaires } from '../../../shared/rules/exigences.ts';
 import { ARTICLE_L4154, avertissementRenforcee, raisonsDExaminer } from '../../../shared/rules/formation-renforcee.ts';
 import type { Exigences } from '../../../shared/types.ts';
@@ -12,6 +11,7 @@ import { ExigencesChoix } from '../components/ExigencesChoix.tsx';
 import { Btn, Fine, NoteAccent } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 /** Proposition déjà toute cochée : rien à reprendre. */
 const inclus = (a: Exigences, b: Exigences) => a.formations.every(f => b.formations.includes(f)) && a.habilitations.every(h => b.habilitations.includes(h));
@@ -62,53 +62,52 @@ export function RefPosteDialog({ id }: { id?: number | null }) {
   };
 
   return (
-    <Dialog title={avant ? `Poste ${avant.nom}` : 'Nouveau poste'} width={620} onSubmit={() => envoyer()}
+    <Dialog title={avant ? `${t('Job ')}${avant.nom}` : t('New job')} width={620} onSubmit={() => envoyer()}
       confirmation={confirmer ? {
-        texte: `${effetTexte(effet!)}. Enregistrer quand même ?`,
-        bouton: 'Enregistrer quand même', occupe: busy, confirmer: () => envoyer(true), annuler: () => setConfirmer(false),
+        texte: `${effetTexte(effet!)}${t('. Save anyway?')}`,
+        bouton: t('Save anyway'), occupe: busy, confirmer: () => envoyer(true), annuler: () => setConfirmer(false),
       } : null}
-      actions={disparu ? <CancelButton label="Fermer" /> : <>
+      actions={disparu ? <CancelButton label={t('Close')} /> : <>
         <CancelButton />
-        <SubmitButton busy={busy}>{avant ? 'Enregistrer' : 'Ajouter au référentiel'}</SubmitButton>
+        <SubmitButton busy={busy}>{avant ? t('Save') : t('Add to the reference data')}</SubmitButton>
       </>}>
-      {disparu ? <Bloquant>Ce poste n’existe plus.</Bloquant> : <>
-        <Field label="Intitulé du poste" htmlFor="rposte-nom" requis erreur={nom.trim() ? erreurs.nom ?? null : v.erreur(erreurs.nom)}>
-          <input className="input" id="rposte-nom" type="text" autoFocus value={nom} maxLength={80} placeholder="Cariste" onChange={e => setNom(e.target.value)} />
+      {disparu ? <Bloquant>{t('This job no longer exists.')}</Bloquant> : <>
+        <Field label={t('Job title')} htmlFor="rposte-nom" requis erreur={nom.trim() ? erreurs.nom ?? null : v.erreur(erreurs.nom)}>
+          <input className="input" id="rposte-nom" type="text" autoFocus value={nom} maxLength={80} placeholder={t('Forklift driver')} onChange={e => setNom(e.target.value)} />
         </Field>
         <ExigencesChoix value={exigences} onChange={setExigences} avant={avant} erreurs={{ formations: v.erreur(erreurs.formations), habilitations: v.erreur(erreurs.habilitations) }} />
         <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
           <input type="checkbox" checked={sir} onChange={e => setSir(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-          Poste à risques particuliers : suivi individuel renforcé de ses titulaires (art. R4624-23)
+          {t('Job with particular risks: enhanced individual monitoring of its holders (art. R4624-23)')}
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
           <input type="checkbox" checked={expose} onChange={e => setExpose(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-          Poste exposé à des risques particuliers (agents chimiques dangereux, CMR, ATEX…) : visite post-exposition à la sortie (art. L4624-2-1)
+          {t('Job exposed to particular risks (hazardous chemical agents, CMR, ATEX…): post-exposure visit on leaving (art. L4624-2-1)')}
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
           <input type="checkbox" checked={risques} onChange={e => setRisques(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-          Liste des postes à risques particuliers ({ARTICLE_L4154}) : formation renforcée à la sécurité des CDD, intérimaires et alternants
+          {t('List of jobs with particular risks (')}{ARTICLE_L4154}{t('): enhanced safety training of fixed-term employees, temps and work-study students')}
         </label>
-        {aExaminer.length > 0 && <Fine>À examiner pour la liste des postes à risques particuliers ({aExaminer.join(' · ')}) : à cocher après avis du médecin du travail et du CSE.</Fine>}
-        {renforcee && <NoteAccent>{renforcee} Désignez-la dans Paramètres → Postes à risques particuliers.</NoteAccent>}
+        {aExaminer.length > 0 && <Fine>{t('To examine for the list of jobs with particular risks (')}{aExaminer.join(' · ')}{t('): to tick after the opinion of the occupational doctor and the CSE.')}</Fine>}
+        {renforcee && <NoteAccent>{renforcee}{t(' Designate it in Settings → Jobs with particular risks.')}</NoteAccent>}
         {avant && nombreExigences(proposees) > 0 && !inclus(proposees, exigences) && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
             <Fine>
-              Détenus par {membres.length > 1 ? `les ${membres.length} titulaires` : 'son titulaire'} :{' '}
+              {t('Held by ')}{membres.length > 1 ? `${t('the #les')}${membres.length}${t(' holders')}` : t('its holder')}{t(':#colon')}{' '}
               {[...proposees.formations.map(f => d.fm(f).court), ...proposees.habilitations.map(h => d.hm(h).nom)].join(', ')}.
             </Fine>
             <Btn small onClick={() => setExigences({ formations: [...new Set([...exigences.formations, ...proposees.formations])], habilitations: [...new Set([...exigences.habilitations, ...proposees.habilitations])] })}>
-              Reprendre ces titres
+              {t('Take over these titles')}
             </Btn>
           </div>
         )}
         <Fine>
-          {avant ? `${plural(membres.length, 'salarié occupe', 'salariés occupent')} ce poste. ` : ''}
-          Une exigence jamais obtenue rend le salarié « Non conforme », avec une échéance « exigence manquante » (inscrire à la
-          formation, demander l’habilitation). Sans exigence, le statut des titulaires ne change pas.
-          {avant && nom.trim() && nom.trim() !== avant.nom ? ' Le nouvel intitulé est recopié sur leurs fiches.' : ''}
+          {avant ? `${tn(membres.length, 'employee holds', 'employees hold')}${t(' this job. ')}` : ''}
+          {t('A requirement never obtained makes the employee “Non-compliant”, with a “missing requirement” due date (enrol in the training course, request the authorisation). Without a requirement, the status of the holders does not change.')}
+          {avant && nom.trim() && nom.trim() !== avant.nom ? t(' The new title is copied onto their sheets.') : ''}
         </Fine>
         {nouveaux.length > 0 && !confirmer && <NoteAccent>{effetTexte(effet!)}.</NoteAccent>}
-        {effet && effet.resolus > 0 && <Fine>{plural(effet.resolus, 'salarié n’a plus d’exigence manquante', 'salariés n’ont plus d’exigence manquante')}.</Fine>}
+        {effet && effet.resolus > 0 && <Fine>{tn(effet.resolus, 'employee no longer has a missing requirement', 'employees no longer have a missing requirement')}.</Fine>}
       </>}
     </Dialog>
   );

@@ -7,12 +7,12 @@ import { useState } from 'react';
 import { FACTEURS_C2P } from '../../../shared/constants.ts';
 import { titulaires } from '../../../shared/rules/exigences.ts';
 import { ARTICLE_C2P, FACTEURS_POSTE, facteursDuPoste } from '../../../shared/rules/c2p.ts';
-import { plural } from '../../../shared/format.ts';
 import type { FacteurPoste } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Dialog, SubmitButton } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 export function RefPosteC2pDialog({ id }: { id: number }) {
   const d = useDomain();
@@ -33,29 +33,26 @@ export function RefPosteC2pDialog({ id }: { id: number }) {
   };
 
   return (
-    <Dialog title={poste ? `Facteurs d’exposition · ${poste.nom}` : 'Facteurs d’exposition'} width={600} onSubmit={envoyer}
-      actions={!poste ? <CancelButton label="Fermer" /> : <>
+    <Dialog title={poste ? `${t('Exposure factors')} · ${poste.nom}` : t('Exposure factors')} width={600} onSubmit={envoyer}
+      actions={!poste ? <CancelButton label={t('Close')} /> : <>
         <CancelButton />
-        <SubmitButton busy={busy}>Enregistrer</SubmitButton>
+        <SubmitButton busy={busy}>{t('Save')}</SubmitButton>
       </>}>
-      {!poste ? <Bloquant>Ce poste n’existe plus.</Bloquant> : <>
+      {!poste ? <Bloquant>{t('This job no longer exists.')}</Bloquant> : <>
         <fieldset style={{ border: 0, padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-          <legend className="sr-only">Facteurs d’exposition au-delà du seuil, après protections</legend>
+          <legend className="sr-only">{t('Exposure factors beyond the threshold, after protection')}</legend>
           {FACTEURS_POSTE.map(f => (
             <label key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-2)', fontSize: 14 }}>
               <input type="checkbox" checked={facteurs.includes(f)} onChange={e => basculer(f, e.target.checked)} style={{ accentColor: 'var(--color-accent)', marginTop: 3 }} />
               <span>
                 {FACTEURS_C2P[f].label}
-                <span className="text-muted sub" style={{ display: 'block' }}>Seuil : {FACTEURS_C2P[f].seuil}</span>
+                <span className="text-muted sub" style={{ display: 'block' }}>{t('Threshold: ')}{FACTEURS_C2P[f].seuil}</span>
               </span>
             </label>
           ))}
         </fieldset>
         <Fine>
-          À cocher quand les titulaires du poste ({plural(n, 'salarié présent', 'salariés présents')}) y sont exposés au-delà du seuil ({ARTICLE_C2P}),
-          compte tenu des protections collectives et individuelles, d’après l’évaluation des risques (DUERP) ou un référentiel de branche homologué. Leur
-          exposition est celle du poste qu’ils occupent, sur leur période de l’année (écran Expositions). Travail de nuit et équipes successives
-          alternantes ne se cochent pas : Cursus les compte d’après les horaires de poste.
+          {t('To tick when the holders of the job (')}{tn(n, 'present employee', 'present employees')}{t(') are exposed to it beyond the threshold (')}{ARTICLE_C2P}{t('), given the collective and individual protections, according to the risk assessment (DUERP) or an approved branch reference. Their exposure is that of the job they hold, over their period of the year (Exposures screen). Night work and alternating successive shifts are not ticked: Cursus counts them from the shift schedules.')}
         </Fine>
       </>}
     </Dialog>

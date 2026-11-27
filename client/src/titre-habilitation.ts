@@ -10,10 +10,11 @@ import { equipeLabel, fmt } from '../../shared/format.ts';
 import type { HabType, ISODate, ModeleTitre } from '../../shared/types.ts';
 import { matriculesImprimes, printDocument, type PrintSection } from './print.ts';
 
+/** Chaînes sources anglaises, traduites au rendu (`t(MODELE_TITRE_LABEL[m])`, CU-N01). */
 export const MODELE_TITRE_LABEL: Record<ModeleTitre, string> = {
-  generique: 'Générique (intitulé, précision, dates, signatures)',
-  electrique: 'Habilitation électrique (NF C18-510)',
-  conduite: 'Autorisation de conduite (R4323-56, R489, R486)',
+  generique: 'Generic (title, details, dates, signatures)',
+  electrique: 'Electrical authorisation (NF C18-510)',
+  conduite: 'Driving authorisation (R4323-56, R489, R486)',
 };
 
 /** Modèle rappelé à la délivrance : « modèle NF C18-510 ». */

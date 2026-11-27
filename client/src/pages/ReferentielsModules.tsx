@@ -5,7 +5,8 @@
 // un cadre. Création, modification et archivage : droit « formations » ; la lecture seule consulte.
 import { useState } from 'react';
 import { PlusIcon } from '@phosphor-icons/react';
-import { fmtEur, fmtIso, plural } from '../../../shared/format.ts';
+import { fmtEur, fmtIso } from '../../../shared/format.ts';
+import { t, tn } from '../i18n/langue.ts';
 import { inscriptionOuverte, LANGUES_MODULE } from '../../../shared/rules/elearning.ts';
 import { organismeFinal } from '../../../shared/rules/organismes.ts';
 import type { ModuleElearning } from '../../../shared/types-organismes.ts';
@@ -30,24 +31,24 @@ export function ModulesElearning() {
     <Panel head={
       <div className="panel-head top">
         <div>
-          <h2>Modules e-learning</h2>
-          <div className="text-muted sub">{plural(enVigueur.length, 'module en vigueur', 'modules en vigueur')}{liste.length > enVigueur.length ? ` · ${plural(liste.length - enVigueur.length, 'archivé', 'archivés')}` : ''}</div>
+          <h2>{t('E-learning modules')}</h2>
+          <div className="text-muted sub">{tn(enVigueur.length, 'module in force', 'modules in force')}{liste.length > enVigueur.length ? ` · ${tn(liste.length - enVigueur.length, 'archived#masc', 'archived#masc-plural')}` : ''}</div>
         </div>
         <div className="actions-end" style={{ alignItems: 'center' }}>
           {liste.length > enVigueur.length && (
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 13, cursor: 'pointer' }}>
               <input type="checkbox" checked={archives} onChange={e => setArchives(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-              Afficher les archivés
+              {t('Show the archived ones#masc')}
             </label>
           )}
-          {formations && <Btn variant="primary" small icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'moduleElearning' })}>Nouveau module</Btn>}
+          {formations && <Btn variant="primary" small icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'moduleElearning' })}>{t('New module')}</Btn>}
         </div>
       </div>
     }>
-      {lignes.length === 0 ? <Empty pad="sm">{liste.length ? 'Tous les modules sont archivés.' : 'Aucun module d’e-learning : ajoutez ceux que proposent vos organismes (lien d’accès, durée, formation du catalogue validée).'}</Empty> : (
+      {lignes.length === 0 ? <Empty pad="sm">{liste.length ? t('All modules are archived.') : t('No e-learning module: add those your providers offer (access link, duration, catalogue training course validated).')}</Empty> : (
         <div className="scroll-x">
           <table className="table">
-            <thead><tr><th>Module</th><th>Organisme</th><th>Formation validée</th><th>Durée</th><th>Accès</th>{formations && <th className="right">Licence</th>}<th>Inscrits</th><th>État</th>{formations && <th></th>}</tr></thead>
+            <thead><tr><th>{t('Module')}</th><th>{t('Provider')}</th><th>{t('Validated training course')}</th><th>{t('Duration')}</th><th>{t('Access')}</th>{formations && <th className="right">{t('Licence')}</th>}<th>{t('Enrolled')}</th><th>{t('State')}</th>{formations && <th></th>}</tr></thead>
             <tbody>
               {lignes.map(m => {
                 const o = organismeFinal(d.ds.organismes, m.organismeId) ?? d.ds.referentiels.organismes?.find(x => x.id === m.organismeId);
@@ -55,22 +56,22 @@ export function ModulesElearning() {
                   <tr key={m.id}>
                     <td style={{ minWidth: 200 }}>
                       {/* Lien d'accès : nouvel onglet, sans transmettre la page d'origine (jamais dans un cadre). */}
-                      <Two main={<a href={m.url} target="_blank" rel="noopener noreferrer">{m.intitule}</a>} sub={`${m.code} · ${LANGUES_MODULE[m.langue] ?? m.langue}${m.attestationRequise ? ' · attestation exigée' : ''}`} />
+                      <Two main={<a href={m.url} target="_blank" rel="noopener noreferrer">{m.intitule}</a>} sub={`${m.code} · ${LANGUES_MODULE[m.langue] ?? m.langue}${m.attestationRequise ? t(' · certificate required') : ''}`} />
                     </td>
                     <td>{o?.nomUsuel ?? '—'}</td>
                     <td>{m.formation ? d.fm(m.formation)?.court ?? m.formation : '—'}</td>
                     <td className="nowrap">{m.dureeHeures != null ? `${String(m.dureeHeures).replace('.', ',')} h` : '—'}</td>
-                    <td className="nowrap">{m.accesMois ? `${m.accesMois} mois` : 'sans limite'}</td>
+                    <td className="nowrap">{m.accesMois ? `${m.accesMois}${t(' months#count')}` : t('without limit')}</td>
                     {formations && <td className="right tnum nowrap">{m.coutLicence != null ? fmtEur(m.coutLicence) : '—'}</td>}
-                    <td className="tnum nowrap">{ouvertes(m)} en cours · {terminees(m)} terminés</td>
-                    <td>{m.archive ? <Tag cls="tag-outline">Archivé le {fmtIso(m.archive)}</Tag> : <Tag cls="tag-neutral">En vigueur</Tag>}</td>
+                    <td className="tnum nowrap">{ouvertes(m)}{t(' in progress · ')}{terminees(m)}{t(' completed#masc-plural')}</td>
+                    <td>{m.archive ? <Tag cls="tag-outline">{t('Archived on #masc')}{fmtIso(m.archive)}</Tag> : <Tag cls="tag-neutral">{t('In force')}</Tag>}</td>
                     {formations && (
                       <td className="right">
                         <div className="actions-end" style={{ flexWrap: 'nowrap' }}>
-                          <Btn small onClick={() => openDialog({ type: 'moduleElearning', id: m.id })}>Modifier</Btn>
+                          <Btn small onClick={() => openDialog({ type: 'moduleElearning', id: m.id })}>{t('Edit')}</Btn>
                           {m.archive
-                            ? <Btn small disabled={occupe} onClick={agir(() => run('elearning.module.archiver', { id: m.id, archive: false }))}>Rétablir</Btn>
-                            : <Btn small onClick={() => openDialog({ type: 'confirmer', c: archivageModule(m, ouvertes(m)) })}>Archiver</Btn>}
+                            ? <Btn small disabled={occupe} onClick={agir(() => run('elearning.module.archiver', { id: m.id, archive: false }))}>{t('Restore')}</Btn>
+                            : <Btn small onClick={() => openDialog({ type: 'confirmer', c: archivageModule(m, ouvertes(m)) })}>{t('Archive')}</Btn>}
                         </div>
                       </td>
                     )}
@@ -82,9 +83,7 @@ export function ModulesElearning() {
         </div>
       )}
       <Fine>
-        Pas de plateforme intégrée : le lien s’ouvre chez l’organisme. Le suivi se limite au statut, à l’avancement déclaré ou importé, à la date de fin et à
-        la réussite, sans temps de connexion. La fin d’un module, validée par le service RH, crée la formation suivie et, pour un module rattaché au catalogue,
-        la certification. Inscriptions et import : écran Formations, onglet E-learning.
+        {t('No integrated platform: the link opens at the provider. The follow-up is limited to the status, the progress declared or imported, the end date and the success, without connection time. The end of a module, approved by HR, creates the training followed and, for a module attached to the catalogue, the certification. Enrolments and import: Training screen, E-learning tab.')}
       </Fine>
     </Panel>
   );

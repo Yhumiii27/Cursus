@@ -5,6 +5,7 @@ import { actif } from '../../../shared/rules/referentiels.ts';
 import type { Exigences } from '../../../shared/types.ts';
 import { Field, Static } from './Dialog.tsx';
 import { useDomain } from '../state/derived.ts';
+import { t } from '../i18n/langue.ts';
 
 /** Cases à cocher d'une liste (formations ou habilitations), dans l'ordre du référentiel. */
 function Cases({ label, items, coches, onChange }: {
@@ -16,7 +17,7 @@ function Cases({ label, items, coches, onChange }: {
       {items.map(x => (
         <label key={x.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14, cursor: 'pointer' }}>
           <input type="checkbox" checked={coches.includes(x.id)} onChange={e => cocher(x.id, e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-          {x.label}{x.archive ? <span className="text-muted"> · archivée, plus exigée</span> : null}
+          {x.label}{x.archive ? <span className="text-muted">{t(' · archived, no longer required')}</span> : null}
         </label>
       ))}
     </div>
@@ -32,15 +33,15 @@ export function ExigencesChoix({ value, onChange, avant, erreurs }: {
   const formations = r.formations.filter(f => actif(f) || avant?.formations.includes(f.id)).map(f => ({ id: f.id, label: f.court, archive: !actif(f) }));
   const habilitations = r.habilitations.filter(h => actif(h) || avant?.habilitations.includes(h.id)).map(h => ({ id: h.id, label: h.nom, archive: !actif(h) }));
   return <>
-    <Field label="Formations exigées" erreur={erreurs.formations}>
+    <Field label={t('Required training courses')} erreur={erreurs.formations}>
       {formations.length
-        ? <Cases label="Formations exigées" items={formations} coches={value.formations} onChange={f => onChange({ ...value, formations: f })} />
-        : <Static pad>Catalogue des formations vide (onglet Formations).</Static>}
+        ? <Cases label={t('Required training courses')} items={formations} coches={value.formations} onChange={f => onChange({ ...value, formations: f })} />
+        : <Static pad>{t('Training catalogue empty (Training tab).')}</Static>}
     </Field>
-    <Field label="Habilitations exigées" erreur={erreurs.habilitations}>
+    <Field label={t('Required authorisations')} erreur={erreurs.habilitations}>
       {habilitations.length
-        ? <Cases label="Habilitations exigées" items={habilitations} coches={value.habilitations} onChange={h => onChange({ ...value, habilitations: h })} />
-        : <Static pad>Aucune habilitation au référentiel (onglet Habilitations).</Static>}
+        ? <Cases label={t('Required authorisations')} items={habilitations} coches={value.habilitations} onChange={h => onChange({ ...value, habilitations: h })} />
+        : <Static pad>{t('No authorisation in the reference data (Authorisations tab).')}</Static>}
     </Field>
   </>;
 }

@@ -6,7 +6,6 @@
 import { useMemo, useState } from 'react';
 import { present } from '../../../shared/rules/contrats.ts';
 import { controlerExigences, effetExigences, effetTexte, exigencesEquipe, exigencesProposees, nombreExigences } from '../../../shared/rules/exigences.ts';
-import { plural } from '../../../shared/format.ts';
 import { mineursDeLEquipe } from '../../../shared/rules/mineurs.ts';
 import { controlerCouverture, COUVERTURE_LIGNES_MAX, COUVERTURE_PROPOSEE, couvertureEquipe, RECOMMANDATION_INRS } from '../../../shared/rules/couverture.ts';
 import { actif } from '../../../shared/rules/referentiels.ts';
@@ -17,6 +16,7 @@ import { ExigencesChoix } from '../components/ExigencesChoix.tsx';
 import { Btn, Fine, NoteAccent, Seg } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 export function RefEquipeDialog({ nom }: { nom: string }) {
   const d = useDomain();
@@ -51,7 +51,7 @@ export function RefEquipeDialog({ nom }: { nom: string }) {
   const ligne = (i: number, x: Partial<{ formation: string; min: string }>) => setCouverture(c => c.map((l, j) => (j === i ? { ...l, ...x } : l)));
   const mineurs = useMemo(() => mineursDeLEquipe(d.ds.employes, nom, d.ti), [d, nom]);
   const errNuit = nuit === 'oui' && mineurs.length
-    ? `L’équipe compte un salarié de moins de 18 ans (${mineurs.map(e => e.nom).join(', ')}) : il ne peut pas travailler de nuit (art. L3163-2) — affectez-le d’abord à une autre équipe.`
+    ? `${t('The team has an employee under 18 (')}${mineurs.map(e => e.nom).join(', ')}${t('): they cannot work at night (art. L3163-2) — first assign them to another team.')}`
     : null;
   const proposees = useMemo(() => exigencesProposees(d.ds, membres), [d, membres]);
   const cle = JSON.stringify(exigences);
@@ -78,82 +78,80 @@ export function RefEquipeDialog({ nom }: { nom: string }) {
   };
 
   return (
-    <Dialog title={`Équipe ${nom} — exigences et organisation`} width={620} onSubmit={() => envoyer()}
+    <Dialog title={`${t('Team ')}${nom}${t(' — requirements and organisation')}`} width={620} onSubmit={() => envoyer()}
       confirmation={confirmer ? {
-        texte: `${effetTexte(effet)}. Enregistrer quand même ?`,
-        bouton: 'Enregistrer quand même', occupe: busy, confirmer: () => envoyer(true), annuler: () => setConfirmer(false),
+        texte: `${effetTexte(effet)}${t('. Save anyway?')}`,
+        bouton: t('Save anyway'), occupe: busy, confirmer: () => envoyer(true), annuler: () => setConfirmer(false),
       } : null}
-      actions={!equipe ? <CancelButton label="Fermer" /> : <>
+      actions={!equipe ? <CancelButton label={t('Close')} /> : <>
         <CancelButton />
-        <SubmitButton busy={busy}>Enregistrer</SubmitButton>
+        <SubmitButton busy={busy}>{t('Save')}</SubmitButton>
       </>}>
-      {!equipe ? <Bloquant>Cette équipe n’existe plus.</Bloquant> : <>
+      {!equipe ? <Bloquant>{t('This team no longer exists.')}</Bloquant> : <>
         <ExigencesChoix value={exigences} onChange={setExigences} avant={avant} erreurs={{ formations: v.erreur(erreurs.formations), habilitations: v.erreur(erreurs.habilitations) }} />
         {nombreExigences(proposees) > 0 && aReprendre > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
             <Fine>
-              Détenus par {membres.length > 1 ? `les ${membres.length} membres` : 'son membre'} :{' '}
+              {t('Held by ')}{membres.length > 1 ? `${t('the #les')}${membres.length}${t(' members')}` : t('its member')}{t(':#colon')}{' '}
               {[...proposees.formations.map(f => d.fm(f).court), ...proposees.habilitations.map(h => d.hm(h).nom)].join(', ')}.
             </Fine>
             <Btn small onClick={() => setExigences({ formations: [...new Set([...exigences.formations, ...proposees.formations])], habilitations: [...new Set([...exigences.habilitations, ...proposees.habilitations])] })}>
-              Reprendre ces titres
+              {t('Take over these titles')}
             </Btn>
           </div>
         )}
-        <Field label="Organisation du travail" erreur={v.erreur(errNuit)}>
+        <Field label={t('Organisation of work')} erreur={v.erreur(errNuit)}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-            <span style={{ fontSize: 14 }}>Travail de nuit ou en continu</span>
-            <Seg name="equipe-nuit" label="Travail de nuit ou en continu" value={nuit} onChange={setNuit} style={{ alignSelf: 'flex-start' }}
-              options={[...(equipe.nuit == null ? [['nr', 'À renseigner'] as ['nr', string]] : []), ['oui', 'Oui'], ['non', 'Non']]} />
+            <span style={{ fontSize: 14 }}>{t('Night or continuous work')}</span>
+            <Seg name="equipe-nuit" label={t('Night or continuous work')} value={nuit} onChange={setNuit} style={{ alignSelf: 'flex-start' }}
+              options={[...(equipe.nuit == null ? [['nr', t('To fill in')] as ['nr', string]] : []), ['oui', t('Yes')], ['non', t('No')]]} />
             <span className="text-muted sub">
-              {nuit === 'nr' ? 'Tant que la réponse n’est pas donnée, la fiche des salariés de moins de 18 ans rappelle l’interdiction du travail de nuit. '
-                : ''}Une équipe de nuit ou en continu ne reçoit aucun salarié de moins de 18 ans (art. L3163-2).
+              {nuit === 'nr' ? t('As long as the answer is not given, the sheet of employees under 18 recalls the ban on night work. ')
+                : ''}{t('A night or continuous team takes no employee under 18 (art. L3163-2).')}
             </span>
           </div>
         </Field>
-        <Field label="Couverture minimale (secouristes, équipiers incendie)" erreur={v.erreur(errCouverture)}>
+        <Field label={t('Minimum coverage (first-aiders, fire team members)')} erreur={v.erreur(errCouverture)}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
             {couverture.map((l, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-                <select className="input" aria-label={`Formation du seuil ${i + 1}`} value={l.formation} onChange={e => ligne(i, { formation: e.target.value })} style={{ flex: '1 1 220px' }}>
-                  <option value="">Formation…</option>
-                  {formationsCouverture.map(f => <option key={f.id} value={f.id}>{f.court}{actif(f) ? '' : ' (archivée)'}</option>)}
+                <select className="input" aria-label={`${t('Training course of threshold ')}${i + 1}`} value={l.formation} onChange={e => ligne(i, { formation: e.target.value })} style={{ flex: '1 1 220px' }}>
+                  <option value="">{t('Training course…')}</option>
+                  {formationsCouverture.map(f => <option key={f.id} value={f.id}>{f.court}{actif(f) ? '' : t(' (archived)#fem')}</option>)}
                 </select>
-                <input className="input" type="number" min={1} max={Math.max(1, membres.length)} step={1} inputMode="numeric" aria-label={`Minimum du seuil ${i + 1}`}
+                <input className="input" type="number" min={1} max={Math.max(1, membres.length)} step={1} inputMode="numeric" aria-label={`${t('Minimum of threshold ')}${i + 1}`}
                   value={l.min} onChange={e => ligne(i, { min: e.target.value })} style={{ width: 96 }} />
-                <span className="text-muted sub">au minimum</span>
-                <Btn small onClick={() => setCouverture(c => c.filter((_, j) => j !== i))}>Retirer</Btn>
+                <span className="text-muted sub">{t('at least#minimum')}</span>
+                <Btn small onClick={() => setCouverture(c => c.filter((_, j) => j !== i))}>{t('Remove')}</Btn>
               </div>
             ))}
             <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-              {couverture.length === 0 && sst && <Btn small onClick={() => setCouverture([{ formation: sst.id, min: String(COUVERTURE_PROPOSEE.min) }])}>Proposer 1 {sst.court} au minimum</Btn>}
-              {couverture.length < COUVERTURE_LIGNES_MAX && <Btn small onClick={() => setCouverture(c => [...c, { formation: '', min: '1' }])}>Ajouter un seuil</Btn>}
+              {couverture.length === 0 && sst && <Btn small onClick={() => setCouverture([{ formation: sst.id, min: String(COUVERTURE_PROPOSEE.min) }])}>{t('Offer 1 ')}{sst.court}{t(' at least')}</Btn>}
+              {couverture.length < COUVERTURE_LIGNES_MAX && <Btn small onClick={() => setCouverture(c => [...c, { formation: '', min: '1' }])}>{t('Add a threshold')}</Btn>}
             </div>
             <span className="text-muted sub">
-              {couverture.length ? 'Chaque jour, au moins ce nombre de membres présents, sans absence en cours, titulaires d’une certification valide ; sinon une alerte datée. '
-                : 'Aucun seuil : pas de suivi de la couverture pour cette équipe. '}{RECOMMANDATION_INRS} Équipes successives (2x8, 3x8, continu) : une équipe par quart.
+              {couverture.length ? t('Every day, at least this number of present members, without a current absence, holding a valid certification; otherwise a dated alert. ')
+                : t('No threshold: no coverage follow-up for this team. ')}{RECOMMANDATION_INRS}{t(' Successive shifts (2x8, 3x8, continuous): one team per shift.')}
             </span>
           </div>
         </Field>
-        <Field label="Horaire de poste par défaut" htmlFor="equipe-horaire">
+        <Field label={t('Default shift schedule')} htmlFor="equipe-horaire">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
             <select className="input" id="equipe-horaire" value={horaire} onChange={e => setHoraire(e.target.value)} style={{ maxWidth: 360 }}>
-              <option value="">Aucun horaire</option>
-              {horaireArchive?.archive && <option value={horaireArchive.code}>{horaireTexte(horaireArchive)} (archivé)</option>}
+              <option value="">{t('No schedule')}</option>
+              {horaireArchive?.archive && <option value={horaireArchive.code}>{horaireTexte(horaireArchive)}{t(' (archived)#masc')}</option>}
               {horaires.map(h => <option key={h.code} value={h.code}>{horaireTexte(h)} — {h.nom}</option>)}
             </select>
             <span className="text-muted sub">
-              Proposé chaque jour où des heures sont saisies sur les feuilles de temps des membres, qui peuvent le changer jour par jour (Référentiels →
-              Horaires). Facultatif : sans horaire, la feuille se tient comme avant.
+              {t('Offered every day hours are entered on the members’ timesheets, who can change it day by day (Reference data → Schedules). Optional: without a schedule, the timesheet is kept as before.')}
             </span>
           </div>
         </Field>
         <Fine>
-          {plural(membres.length, 'membre', 'membres')}. Ces exigences s’ajoutent à celles du poste de chacun (une exigence
-          commune aux deux ne compte qu’une fois) ; sans exigence, le statut des membres ne change pas.
+          {tn(membres.length, 'member', 'members')}{t('. These requirements are added to those of each one’s job (a requirement common to both only counts once); without a requirement, the status of the members does not change.')}
         </Fine>
         {nouveaux.length > 0 && !confirmer && <NoteAccent>{effetTexte(effet)}.</NoteAccent>}
-        {effet.resolus > 0 && <Fine>{plural(effet.resolus, 'salarié n’a plus d’exigence manquante', 'salariés n’ont plus d’exigence manquante')}.</Fine>}
+        {effet.resolus > 0 && <Fine>{tn(effet.resolus, 'employee no longer has a missing requirement', 'employees no longer have a missing requirement')}.</Fine>}
       </>}
     </Dialog>
   );

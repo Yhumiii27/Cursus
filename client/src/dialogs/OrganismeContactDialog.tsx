@@ -9,6 +9,7 @@ import { Bloquant, CancelButton, Dialog, Field, SubmitButton, useVerification } 
 import { Fine, NoteAccent } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function OrganismeContactDialog({ organismeId, id }: { organismeId: number; id?: number | null }) {
   const d = useDomain();
@@ -35,35 +36,35 @@ export function OrganismeContactDialog({ organismeId, id }: { organismeId: numbe
     if (r.ok) closeDialog();
   };
   return (
-    <Dialog title={`${avant ? 'Contact' : 'Nouveau contact'} — ${o?.nomUsuel ?? 'organisme'}`} width={520} onSubmit={envoyer}
-      actions={disparu ? <CancelButton label="Fermer" /> : <><CancelButton /><SubmitButton busy={busy}>{avant ? 'Enregistrer' : 'Ajouter le contact'}</SubmitButton></>}>
-      {disparu ? <Bloquant>Ce contact ou cet organisme n’existe plus.</Bloquant> : <>
-        <Field label="Nom" htmlFor="oc-nom" requis erreur={erreur('nom', nom)}>
+    <Dialog title={`${avant ? t('Contact') : t('New contact')} — ${o?.nomUsuel ?? t('provider')}`} width={520} onSubmit={envoyer}
+      actions={disparu ? <CancelButton label={t('Close')} /> : <><CancelButton /><SubmitButton busy={busy}>{avant ? t('Save') : t('Add the contact')}</SubmitButton></>}>
+      {disparu ? <Bloquant>{t('This contact or this provider no longer exists.')}</Bloquant> : <>
+        <Field label={t('Name')} htmlFor="oc-nom" requis erreur={erreur('nom', nom)}>
           <input className="input" id="oc-nom" type="text" autoFocus value={nom} maxLength={80} autoComplete="off" onChange={e => setNom(e.target.value)} />
         </Field>
         <div className="grid-2">
-          <Field label="Rôle" htmlFor="oc-role" requis erreur={v.erreur(erreurs.role)}>
+          <Field label={t('Role')} htmlFor="oc-role" requis erreur={v.erreur(erreurs.role)}>
             <select className="input" id="oc-role" value={role} onChange={e => setRole(e.target.value)}>
               {Object.entries(ROLES_CONTACT).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
           </Field>
-          <Field label="Fonction" htmlFor="oc-fonction" erreur={erreur('fonction', fonction)}>
-            <input className="input" id="oc-fonction" type="text" value={fonction} maxLength={80} placeholder="Chargée de clientèle" onChange={e => setFonction(e.target.value)} />
+          <Field label={t('Function')} htmlFor="oc-fonction" erreur={erreur('fonction', fonction)}>
+            <input className="input" id="oc-fonction" type="text" value={fonction} maxLength={80} placeholder={t('Account manager')} onChange={e => setFonction(e.target.value)} />
           </Field>
         </div>
         <div className="grid-2">
-          <Field label="E-mail" htmlFor="oc-email" erreur={erreur('email', email)}>
+          <Field label={t('E-mail')} htmlFor="oc-email" erreur={erreur('email', email)}>
             <input className="input" id="oc-email" type="email" inputMode="email" autoComplete="off" value={email} maxLength={120} onChange={e => setEmail(e.target.value)} />
           </Field>
-          <Field label="Téléphone" htmlFor="oc-tel" erreur={erreur('telephone', telephone)}>
+          <Field label={t('Phone')} htmlFor="oc-tel" erreur={erreur('telephone', telephone)}>
             <input className="input" id="oc-tel" type="tel" inputMode="tel" autoComplete="off" value={telephone} maxLength={25} onChange={e => setTelephone(e.target.value)} />
           </Field>
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
           <input type="checkbox" checked={principal} onChange={e => setPrincipal(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-          Contact principal (destinataire proposé de la liste des inscrits)
+          {t('Main contact (offered recipient of the list of enrolled)')}
         </label>
-        <Fine>Donnée personnelle d’un tiers : service RH et référent formation seulement. Conservée le temps de la relation, plus 3 ans.</Fine>
+        <Fine>{t('Personal data of a third party: HR and training referent only. Kept for the duration of the relationship, plus 3 years.')}</Fine>
       </>}
     </Dialog>
   );
@@ -98,45 +99,45 @@ export function OrganismeTarifDialog({ organismeId, id }: { organismeId: number;
   };
   const catalogue = d.ds.referentiels.formations.filter(f => !f.archive || f.id === avant?.formation);
   return (
-    <Dialog title={`${avant ? 'Tarif' : 'Nouveau tarif'} — ${o?.nomUsuel ?? 'organisme'}`} width={560} onSubmit={envoyer}
-      actions={disparu ? <CancelButton label="Fermer" /> : <><CancelButton /><SubmitButton busy={busy}>{avant ? 'Enregistrer' : 'Ajouter le tarif'}</SubmitButton></>}>
-      {disparu ? <Bloquant>Ce tarif ou cet organisme n’existe plus.</Bloquant> : <>
-        <Field label="Formation du catalogue" htmlFor="ot-formation" erreur={v.erreur(erreurs.formation)}>
+    <Dialog title={`${avant ? t('Rate') : t('New rate')} — ${o?.nomUsuel ?? t('provider')}`} width={560} onSubmit={envoyer}
+      actions={disparu ? <CancelButton label={t('Close')} /> : <><CancelButton /><SubmitButton busy={busy}>{avant ? t('Save') : t('Add the rate')}</SubmitButton></>}>
+      {disparu ? <Bloquant>{t('This rate or this provider no longer exists.')}</Bloquant> : <>
+        <Field label={t('Catalogue training course')} htmlFor="ot-formation" erreur={v.erreur(erreurs.formation)}>
           <select className="input" id="ot-formation" autoFocus value={formation} onChange={e => setFormation(e.target.value)}>
-            <option value="">Hors catalogue (libellé)</option>
+            <option value="">{t('Outside the catalogue (label)')}</option>
             {catalogue.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
           </select>
         </Field>
         {!formation && (
-          <Field label="Libellé" htmlFor="ot-libelle" requis erreur={erreur('libelle', libelle)}>
-            <input className="input" id="ot-libelle" type="text" value={libelle} maxLength={120} placeholder="Journée d’audit, licence annuelle…" onChange={e => setLibelle(e.target.value)} />
+          <Field label={t('Label')} htmlFor="ot-libelle" requis erreur={erreur('libelle', libelle)}>
+            <input className="input" id="ot-libelle" type="text" value={libelle} maxLength={120} placeholder={t('Audit day, annual licence…')} onChange={e => setLibelle(e.target.value)} />
           </Field>
         )}
         <div className="grid-2">
-          <Field label="Modalité" htmlFor="ot-modalite" requis erreur={v.erreur(erreurs.modalite)}>
+          <Field label={t('Modality')} htmlFor="ot-modalite" requis erreur={v.erreur(erreurs.modalite)}>
             <select className="input" id="ot-modalite" value={modalite} onChange={e => setModalite(e.target.value)}>
               {Object.entries(MODALITES_TARIF).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
           </Field>
-          <Field label="Unité" htmlFor="ot-unite" requis erreur={v.erreur(erreurs.unite)}>
+          <Field label={t('Unit')} htmlFor="ot-unite" requis erreur={v.erreur(erreurs.unite)}>
             <select className="input" id="ot-unite" value={unite} onChange={e => setUnite(e.target.value)}>
               {Object.entries(UNITES_TARIF).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
           </Field>
         </div>
-        <Field label="Montant hors taxes (€)" htmlFor="ot-montant" requis erreur={erreur('montantHt', montant)}>
+        <Field label={t('Amount excluding taxes (€)')} htmlFor="ot-montant" requis erreur={erreur('montantHt', montant)}>
           <input className="input tnum" id="ot-montant" inputMode="decimal" value={montant} placeholder="450" onChange={e => setMontant(e.target.value)} />
         </Field>
         <div className="grid-2">
-          <Field label="Valable du" htmlFor="ot-du" requis erreur={erreur('valableDu', du)}>
+          <Field label={t('Valid from')} htmlFor="ot-du" requis erreur={erreur('valableDu', du)}>
             <input className="input" id="ot-du" type="date" value={du} onChange={e => setDu(e.target.value)} />
           </Field>
-          <Field label="Au (facultatif)" htmlFor="ot-au" erreur={erreur('valableAu', au)}>
+          <Field label={t('To (optional)')} htmlFor="ot-au" erreur={erreur('valableAu', au)}>
             <input className="input" id="ot-au" type="date" value={au} onChange={e => setAu(e.target.value)} />
           </Field>
         </div>
-        {existant && <NoteAccent>Tarif en vigueur pour cette formation : {fmtEur(existant.montantHt)} {UNITES_TARIF[existant.unite]} depuis le {existant.valableDu.split('-').reverse().join('/')} ; le plus récent sera proposé.</NoteAccent>}
-        <Fine>Proposé pour préremplir un coût, jamais imposé. Données commerciales : service RH.</Fine>
+        {existant && <NoteAccent>{t('Rate in force for this training course: ')}{fmtEur(existant.montantHt)} {UNITES_TARIF[existant.unite]}{t(' since #date')}{existant.valableDu.split('-').reverse().join('/')}{t('; the most recent will be offered.')}</NoteAccent>}
+        <Fine>{t('Offered to prefill a cost, never imposed. Commercial data: HR.')}</Fine>
       </>}
     </Dialog>
   );

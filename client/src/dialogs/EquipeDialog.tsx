@@ -5,6 +5,7 @@ import { Bloquant, CancelButton, Dialog, Field, SubmitButton, useVerification } 
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { managerCandidates } from '../pages/Equipes.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function EquipeDialog({ nom: nom0 }: { nom?: string | null }) {
   const d = useDomain();
@@ -34,16 +35,16 @@ export function EquipeDialog({ nom: nom0 }: { nom?: string | null }) {
   const mgr = managerId ? Number(managerId) : null;
   const mgrChanged = edit && mgr !== (equipe?.managerId ?? null);
   // Doublon signalé dès la saisie ; nom manquant, à l'envoi.
-  const nomErr = !nouveau ? 'Indiquez le nom de l’équipe.' : doublon ? 'Une équipe porte déjà ce nom.' : null;
+  const nomErr = !nouveau ? t('Enter the name of the team.') : doublon ? t('A team already has this name.') : null;
 
   const chosen = mgr ? d.emp(mgr) : undefined;
   const autres = mgr ? d.teamsOf(mgr).filter(n => !noms.has(n)) : [];
-  const hint = !chosen ? 'Sans manager, les heures, absences et entretiens de l’équipe sont validés par le service RH.'
+  const hint = !chosen ? t('Without a manager, the hours, absences and reviews of the team are approved by HR.')
     : [
-      `${chosen.nom} validera les heures, les absences et les entretiens de l’équipe.`,
+      `${chosen.nom}${t(' will approve the hours, absences and reviews of the team.')}`,
       // Hiérarchie (t136) : manager membre de l'équipe validé par celui de l'équipe parente, à défaut par le RH.
-      members.has(chosen.id) ? `Membre de l’équipe : ses propres validations reviendront ${equipe?.parente ? `au manager de l’équipe parente (${equipe.parente})` : 'au service RH'}.` : `Rattachement actuel : ${equipeLabel(chosen)}.`,
-      autres.length ? `Encadre déjà : ${autres.join(', ')}.` : '',
+      members.has(chosen.id) ? `${t('Member of the team: their own approvals will go ')}${equipe?.parente ? `${t('to the manager of the parent team (')}${equipe.parente})` : t('to HR#au')}.` : `${t('Current attachment: ')}${equipeLabel(chosen)}.`,
+      autres.length ? `${t('Already manages: ')}${autres.join(', ')}.` : '',
     ].filter(Boolean).join(' ');
 
   const confirm = async () => {
@@ -67,33 +68,33 @@ export function EquipeDialog({ nom: nom0 }: { nom?: string | null }) {
   };
 
   return (
-    <Dialog title={edit ? `Équipe ${nom0}` : 'Nouvelle équipe'} onSubmit={confirm} actions={disparue ? <CancelButton label="Fermer" /> : <>
+    <Dialog title={edit ? `${t('Team ')}${nom0}` : t('New team')} onSubmit={confirm} actions={disparue ? <CancelButton label={t('Close')} /> : <>
       <CancelButton />
-      <SubmitButton busy={busy}>{edit ? 'Enregistrer' : 'Créer l’équipe'}</SubmitButton>
+      <SubmitButton busy={busy}>{t(edit ? 'Save' : 'Create the team')}</SubmitButton>
     </>}>
-      {disparue ? <Bloquant>Cette équipe n’existe plus.</Bloquant> : <>
-        <Field label="Nom de l’équipe" htmlFor="equipe-nom" requis erreur={doublon ? nomErr : v.erreur(nomErr)}>
-          <input className="input" id="equipe-nom" type="text" autoFocus value={nom} placeholder="Maintenance — site de Lyon" onChange={e => setNom(e.target.value)} />
+      {disparue ? <Bloquant>{t('This team no longer exists.')}</Bloquant> : <>
+        <Field label={t('Name of the team')} htmlFor="equipe-nom" requis erreur={doublon ? nomErr : v.erreur(nomErr)}>
+          <input className="input" id="equipe-nom" type="text" autoFocus value={nom} placeholder={t('Maintenance — Lyon site')} onChange={e => setNom(e.target.value)} />
         </Field>
-        <Field label={<>Manager <span className="who">· facultatif</span></>} htmlFor="equipe-mgr">
+        <Field label={<>{t('Manager')} <span className="who">{t('· optional')}</span></>} htmlFor="equipe-mgr">
           <select className="input" id="equipe-mgr" value={managerId} onChange={e => setManagerId(e.target.value)}>
-            <option value="">Aucun manager — validations par le RH</option>
+            <option value="">{t('No manager — approvals by HR')}</option>
             {mgrMissing && <option value={String(equipe!.managerId)}>{d.personName(equipe!.managerId!)}</option>}
             {inTeam.length > 0 && (
-              <optgroup label="Membres de l’équipe">
+              <optgroup label={t('Members of the team')}>
                 {inTeam.map(e => <option key={e.id} value={e.id}>{e.nom} — {e.poste}</option>)}
               </optgroup>
             )}
             {others.length > 0 && (
-              <optgroup label={inTeam.length ? 'Autres collaborateurs' : 'Collaborateurs'}>
+              <optgroup label={t(inTeam.length ? 'Other employees' : 'Employees')}>
                 {others.map(e => <option key={e.id} value={e.id}>{e.nom} — {equipeLabel(e)}</option>)}
               </optgroup>
             )}
           </select>
         </Field>
         <p className="text-muted fine">{hint}</p>
-        {renamed && <p className="text-muted fine">Le nouveau nom s’applique aux fiches des membres, aux enveloppes budgétaires et au plan de formation.</p>}
-        {!edit && <p className="text-muted fine">Les intérimaires ne peuvent pas être désignés manager. Les membres s’ajoutent ensuite depuis l’écran Équipes & managers.</p>}
+        {renamed && <p className="text-muted fine">{t('The new name applies to the members’ sheets, to the budget envelopes and to the training plan.')}</p>}
+        {!edit && <p className="text-muted fine">{t('Temporary workers cannot be appointed manager. The members are then added from the Teams & managers screen.')}</p>}
       </>}
     </Dialog>
   );

@@ -5,12 +5,12 @@
 // valides appliquées ; une valeur identique ne change rien. Fin d'office seulement si le réglage l'admet, pour un module
 // sans attestation exigée, une ligne « terminé » et « réussi » ; sinon la fin attend la validation du service RH.
 import { useMemo, useState, type ChangeEvent } from 'react';
-import { plural } from '../../../shared/format.ts';
 import { COLONNES_IMPORT_ELEARNING, effetImport, finAutomatique, lireImportElearning } from '../../../shared/rules/elearning.ts';
 import { CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Btn, Fine, NoteAccent, Tag } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 /** Exemple affiché (« Charger un exemple ») : colonnes admises seulement. */
 const EXEMPLE = 'matricule;module;statut;avancement;date de fin;reussite\n';
@@ -44,9 +44,9 @@ export function ElearningImportDialog() {
     const read = (enc: string) => {
       const fr = new FileReader();
       fr.onload = () => {
-        const t = String(fr.result || '');
-        if (enc === 'utf-8' && t.includes('�')) read('windows-1252');
-        else { setTexte(t); setFichier(file.name); }
+        const s = String(fr.result || '');
+        if (enc === 'utf-8' && s.includes('�')) read('windows-1252');
+        else { setTexte(s); setFichier(file.name); }
       };
       fr.readAsText(file, enc);
     };
@@ -63,7 +63,7 @@ export function ElearningImportDialog() {
     setFichier('exemple-avancement.csv');
   };
 
-  const errTexte = !texte.trim() ? 'Chargez un fichier ou collez son contenu.' : lu && 'refus' in lu ? lu.refus : !valides ? 'Aucune ligne valide : corrigez le fichier (voir l’aperçu).' : null;
+  const errTexte = !texte.trim() ? t('Load a file or paste its content.') : lu && 'refus' in lu ? lu.refus : !valides ? t('No valid line: correct the file (see the preview).') : null;
   const envoyer = async () => {
     if (busy || !v.verifier(errTexte)) return;
     setBusy(true);
@@ -74,42 +74,41 @@ export function ElearningImportDialog() {
   const nom = (id: number | null) => (id != null ? d.emp(id)?.nom ?? '—' : '—');
   const code = (id: number | null) => modules.find(x => x.id === id)?.code ?? '—';
   return (
-    <Dialog title="Importer l’avancement e-learning" width={760} tall onSubmit={envoyer}
-      actions={<><CancelButton /><SubmitButton busy={busy}>{valides ? `Appliquer ${plural(valides, 'ligne', 'lignes')}` : 'Importer'}</SubmitButton></>}>
-      <Field label="Fichier exporté de la plateforme (CSV)" htmlFor="ie-file">
+    <Dialog title={t('Import the e-learning progress')} width={760} tall onSubmit={envoyer}
+      actions={<><CancelButton /><SubmitButton busy={busy}>{valides ? `${t('Apply #verb')}${tn(valides, 'line', 'lines')}` : t('Import')}</SubmitButton></>}>
+      <Field label={t('File exported from the platform (CSV)')} htmlFor="ie-file">
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
           <input id="ie-file" type="file" accept=".csv,.txt,text/csv" onChange={onFile} className="text-n300" style={{ fontSize: 13, maxWidth: '100%' }} />
-          <Btn small onClick={exemple}>Charger un exemple</Btn>
-          {fichier && <span className="note-accent">Fichier chargé : {fichier}</span>}
+          <Btn small onClick={exemple}>{t('Load an example')}</Btn>
+          {fichier && <span className="note-accent">{t('File loaded: ')}{fichier}</span>}
         </div>
         <span className="text-muted sub">
-          Colonnes admises : {COLONNES_IMPORT_ELEARNING}. Toute autre colonne (temps de connexion, journal d’activité, score détaillé) fait refuser le
-          fichier. Le salarié doit déjà être inscrit au module : l’import n’inscrit personne.
+          {t('Columns accepted: ')}{COLONNES_IMPORT_ELEARNING}{t('. Any other column (connection time, activity log, detailed score) makes the file refused. The employee must already be enrolled in the module: the import enrols no one.')}
         </span>
       </Field>
-      <Field label="Ou coller le contenu" htmlFor="ie-text" erreur={texte.trim() ? errTexte : v.erreur(errTexte)}>
+      <Field label={t('Or paste the content')} htmlFor="ie-text" erreur={texte.trim() ? errTexte : v.erreur(errTexte)}>
         <textarea className="input mono-input" id="ie-text" rows={4} value={texte} onChange={e => { setTexte(e.target.value); setFichier(''); }}
           placeholder={EXEMPLE.trim()} style={{ height: 'auto', minHeight: 88, resize: 'vertical' }} />
       </Field>
       {lignes.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           <div className="panel-head">
-            <h3 style={{ fontSize: 14, margin: 0 }}>Aperçu</h3>
-            <span className="text-muted sub">{plural(lignes.length, 'ligne', 'lignes')} · {valides} valides · {lignes.length - valides} en erreur</span>
+            <h3 style={{ fontSize: 14, margin: 0 }}>{t('Preview')}</h3>
+            <span className="text-muted sub">{tn(lignes.length, 'line', 'lines')} · {valides}{t(' valid#plural')} · {lignes.length - valides}{t(' in error')}</span>
           </div>
           <div className="scroll-x">
             <table className="table" style={{ fontSize: 13 }}>
-              <thead><tr><th>Ligne</th><th>Salarié</th><th>Module</th><th>Avancement</th><th>Effet</th></tr></thead>
+              <thead><tr><th>{t('Line')}</th><th>{t('Employee#salarie')}</th><th>{t('Module')}</th><th>{t('Progress')}</th><th>{t('Effect')}</th></tr></thead>
               <tbody>
                 {lignes.map((l, k) => (
                   <tr key={l.n} style={l.errs.length ? { opacity: 0.6 } : undefined}>
                     <td className="tnum">{l.n}</td>
                     <td className="nowrap">{nom(l.empId)}</td>
                     <td className="nowrap">{code(l.moduleId)}</td>
-                    <td className="nowrap">{l.statut === 'termine' || l.dateFin ? `terminé${l.dateFin ? ` le ${l.dateFin.split('-').reverse().join('/')}` : ''}` : l.avancement != null ? `${l.avancement} %` : '—'}{l.reussi === true ? ' · réussi' : l.reussi === false ? ' · non réussi' : ''}</td>
+                    <td className="nowrap">{l.statut === 'termine' || l.dateFin ? `${t('completed#masc')}${l.dateFin ? `${t(' on #le')}${l.dateFin.split('-').reverse().join('/')}` : ''}` : l.avancement != null ? `${l.avancement} %` : '—'}{l.reussi === true ? t(' · passed') : l.reussi === false ? t(' · not passed') : ''}</td>
                     <td>{l.errs.length ? <span className="note-accent">{l.errs.join(' · ')}</span>
-                      : effets[k] === 'fin' ? <Tag cls="tag-accent">Fin validée d’office</Tag>
-                      : effets[k] === 'maj' ? <Tag cls="tag-neutral">Mise à jour</Tag> : <Tag cls="tag-outline">Inchangée</Tag>}</td>
+                      : effets[k] === 'fin' ? <Tag cls="tag-accent">{t('Completion approved automatically')}</Tag>
+                      : effets[k] === 'maj' ? <Tag cls="tag-neutral">{t('Update#noun')}</Tag> : <Tag cls="tag-outline">{t('Unchanged#fem')}</Tag>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -118,9 +117,9 @@ export function ElearningImportDialog() {
         </div>
       )}
       {auto
-        ? <NoteAccent>Fin automatique à l’import activée (Paramètres) : une ligne « terminé » et « réussi » d’un module sans attestation exigée crée la formation suivie.</NoteAccent>
-        : <Fine>Les fins importées attendent la validation du service RH (onglet E-learning, « Fins à valider »).</Fine>}
-      <Fine>Le journal ne garde que le nombre de lignes. Le DPO valide l’import depuis une plateforme tierce ; ce suivi n’est jamais un contrôle de l’activité.</Fine>
+        ? <NoteAccent>{t('Automatic completion on import enabled (Settings): a “completed” and “passed” line of a module without a required certificate creates the attended training course.')}</NoteAccent>
+        : <Fine>{t('The imported completions await HR approval (E-learning tab, “Completions to approve”).')}</Fine>}
+      <Fine>{t('The log only keeps the number of lines. The DPO validates the import from a third-party platform; this tracking is never a monitoring of activity.')}</Fine>
     </Dialog>
   );
 }

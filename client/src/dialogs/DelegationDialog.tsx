@@ -12,6 +12,7 @@ import { Fine } from '../components/ui.tsx';
 import { suppleantsCandidats, verifierDelegation } from '../state/delegation-saisie.ts';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function DelegationDialog({ managerId }: { managerId: number }) {
   const d = useDomain();
@@ -44,24 +45,24 @@ export function DelegationDialog({ managerId }: { managerId: number }) {
   };
 
   return (
-    <Dialog title={`Déléguer les validations${mgr ? ` de ${mgr.nom}` : ''}`} width={540} onSubmit={envoyer}
-      actions={!mgr ? <CancelButton label="Fermer" /> : <><CancelButton /><SubmitButton busy={busy}>Déléguer</SubmitButton></>}>
-      {!mgr ? <Bloquant>Ce manager n’existe plus.</Bloquant> : <>
-        <Field label="Suppléant" htmlFor="delegation-suppleant" requis erreur={v.erreur(erreurSuppleant)}>
+    <Dialog title={`${t('Delegate the approvals')}${mgr ? `${t(' of #de-name')}${mgr.nom}` : ''}`} width={540} onSubmit={envoyer}
+      actions={!mgr ? <CancelButton label={t('Close')} /> : <><CancelButton /><SubmitButton busy={busy}>{t('Delegate')}</SubmitButton></>}>
+      {!mgr ? <Bloquant>{t('This manager no longer exists.')}</Bloquant> : <>
+        <Field label={t('Deputy')} htmlFor="delegation-suppleant" requis erreur={v.erreur(erreurSuppleant)}>
           <select className="input" id="delegation-suppleant" value={suppleant} onChange={ev => setSuppleant(ev.target.value)}>
-            <option value="">Choisir le suppléant…</option>
-            {candidats.map(e => <option key={e.id} value={e.id}>{e.nom} — {e.id === n1 ? 'responsable (N+1)' : equipeLabel(e)}</option>)}
+            <option value="">{t('Choose the deputy…')}</option>
+            {candidats.map(e => <option key={e.id} value={e.id}>{e.nom} — {e.id === n1 ? t('superior (N+1)') : equipeLabel(e)}</option>)}
           </select>
         </Field>
         <div className="grid-2">
-          <Field label="Du" htmlFor="delegation-du" requis erreur={null}>
+          <Field label={t('From#label')} htmlFor="delegation-du" requis erreur={null}>
             <input className="input" id="delegation-du" type="date" value={du} onChange={ev => setDu(ev.target.value)} />
           </Field>
-          <Field label="Au (inclus)" htmlFor="delegation-au" requis erreur={erreurPeriode && (du && au ? erreurPeriode : v.erreur(erreurPeriode))}>
+          <Field label={t('To (included)')} htmlFor="delegation-au" requis erreur={erreurPeriode && (du && au ? erreurPeriode : v.erreur(erreurPeriode))}>
             <input className="input" id="delegation-au" type="date" value={au} onChange={ev => setAu(ev.target.value)} />
           </Field>
         </div>
-        <Field label="Le suppléant valide" erreur={v.erreur(erreurPerimetre)}>
+        <Field label={t('The deputy approves')} erreur={v.erreur(erreurPerimetre)}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
             {(Object.keys(PERIMETRES_DELEGATION) as PerimetreDelegation[]).filter(p => (p !== 'entretiens' || entretiens) && (p !== 'frais' || frais) && /* lot 12 — C5 (planning d'équipe) : module activé */ (p !== 'planning' || planning)).map(p => (
               <label key={p} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14, cursor: 'pointer' }}>
@@ -72,10 +73,8 @@ export function DelegationDialog({ managerId }: { managerId: number }) {
           </div>
         </Field>
         <Fine>
-          Pendant la période, le suppléant reçoit les demandes de l’équipe et en décide ; l’espace Manager de Cursus lui est ouvert et ses décisions sont
-          signées « par délégation de {mgr.nom} ». {mgr.nom} garde la main à son retour. Le suppléant ne décide jamais de ses propres demandes : elles vont
-          au responsable de {mgr.nom}, ou au service RH. {DUREE_MAX_DELEGATION} jours au plus ; une délégation se révoque à tout moment.
-          {!entretiens && ' Les entretiens restent au manager (réglage de Paramètres → Hiérarchie des managers).'}
+          {t('During the period, the deputy receives the team’s requests and decides on them; the Manager space of Cursus is open to them and their decisions are signed “by delegation of ')}{mgr.nom}{t('”. ')}{mgr.nom}{t(' takes over again on their return. The deputy never decides on their own requests: they go to the superior of ')}{mgr.nom}{t(', or to HR. ')}{DUREE_MAX_DELEGATION}{t(' days at most; a delegation can be revoked at any time.')}
+          {!entretiens && t(' The reviews stay with the manager (setting of Settings → Managers’ hierarchy).')}
         </Fine>
       </>}
     </Dialog>

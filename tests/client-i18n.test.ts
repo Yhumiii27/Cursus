@@ -101,7 +101,7 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
       'client/src/dialogs/ClotureDialog.tsx', 'client/src/dialogs/PlanDialog.tsx', 'client/src/dialogs/ReqFormDialog.tsx',
       'client/src/components/ListeAttente.tsx', 'client/src/components/PasseportPrevention.tsx', 'client/src/components/Evaluations.tsx',
       'client/src/components/elearning/ElearningFormations.tsx', 'client/src/components/organismes/ChoixOrganisme.tsx',
-      'client/src/state/confirmations-attente.ts'],
+      'client/src/state/confirmations-attente.ts', 'client/src/dialogs/ElearningDialogs.tsx', 'client/src/dialogs/ElearningImportDialog.tsx'],
   },
   {
     // Soldes, demandes et absences, règles, natures ; clôtures, fractionnement, informations au retour, monétisations du CET ;
@@ -168,6 +168,15 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
       'client/src/dialogs/ContactUrgenceDialog.tsx', 'client/src/dialogs/FormationSuivieDialog.tsx', 'client/src/dialogs/MandatDialog.tsx',
       'client/src/dialogs/PieceDialog.tsx', 'client/src/dialogs/RenouvelerCddDialog.tsx', 'client/src/dialogs/SortieDialog.tsx',
       'client/src/state/confirmations-contrats.ts', 'client/src/state/confirmations-forfait.ts', 'client/src/state/confirmations-corrections.ts'],
+  },
+  // Grille de la semaine, file de validation et récapitulatif paie (les panneaux de l'écran gardent leurs propres fichiers).
+  { ecran: 'Temps de travail (grille de la semaine)', fichiers: ['client/src/pages/Temps.tsx'] },
+  {
+    // Cartes, détail de l'équipe, à affecter ; hiérarchie (équipe parente, lecture seule N+2), délégations des validations ;
+    // dialogues de l'équipe, de rattachement et de délégation ; confirmation de la révocation.
+    ecran: 'Équipes & managers', fichiers: ['client/src/pages/Equipes.tsx', 'client/src/components/Hierarchie.tsx', 'client/src/components/Delegations.tsx',
+      'client/src/dialogs/EquipeDialog.tsx', 'client/src/dialogs/EquipeRattachementDialog.tsx', 'client/src/dialogs/DelegationDialog.tsx',
+      'client/src/state/confirmations-delegations.ts'],
   },
 ];
 

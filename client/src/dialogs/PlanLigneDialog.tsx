@@ -14,6 +14,7 @@ import { ChoixOrganisme } from '../components/organismes/ChoixOrganisme.tsx';
 import { coutDuTarif, organismeDeFormation, tarifEnVigueur, UNITES_TARIF } from '../../../shared/rules/organismes.ts';
 import { dureeHeuresDe } from '../../../shared/rules/heures-formation.ts';
 import { Btn } from '../components/ui.tsx';
+import { t } from '../i18n/langue.ts';
 
 /** Valeur du sélecteur de formation pour une action hors catalogue. */
 const HORS = '';
@@ -47,7 +48,7 @@ export function PlanLigneDialog({ id }: { id: number }) {
   const formations = d.ds.referentiels.formations.filter(x => !x.archive || x.id === l.f);
   const equipes = d.equipes.includes(l.equipe) ? d.equipes : [l.equipe, ...d.equipes];
   const e = erreursLignePlan(d, l, { f: f || null, libelle, equipe, periode, effectif: effectif.trim(), cout: cout.trim().replace(/\s/g, '') });
-  const motifErr = !motif.trim() ? 'Indiquez le motif de la correction.' : null;
+  const motifErr = !motif.trim() ? t('Enter the reason for the correction.') : null;
   const session = sessionsDeLaLigne(d, l)[0];
 
   const envoyer = async () => {
@@ -64,58 +65,58 @@ export function PlanLigneDialog({ id }: { id: number }) {
   };
 
   return (
-    <Dialog title="Corriger l’action du plan" width={560} onSubmit={envoyer} actions={<>
+    <Dialog title={t('Correct the action of the plan')} width={560} onSubmit={envoyer} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Enregistrer la correction</SubmitButton>
+      <SubmitButton busy={busy}>{t('Save the correction')}</SubmitButton>
     </>}>
-      <Field label="Formation" htmlFor="pl-f" requis erreur={v.erreur(e.formation) || (f !== (l.f ?? HORS) ? e.formation : null)}>
+      <Field label={t('Training#course')} htmlFor="pl-f" requis erreur={v.erreur(e.formation) || (f !== (l.f ?? HORS) ? e.formation : null)}>
         <select className="input" id="pl-f" value={f} onChange={ev => { setF(ev.target.value); setOrganismeId(''); }} disabled={!!session}>
           {formations.map(o => <option key={o.id} value={o.id}>{o.nom}</option>)}
-          <option value={HORS}>Hors catalogue</option>
+          <option value={HORS}>{t('Outside the catalogue')}</option>
         </select>
       </Field>
       {!f && (
-        <Field label="Intitulé" htmlFor="pl-libelle" requis erreur={v.erreur(e.formation)}>
+        <Field label={t('Title#training')} htmlFor="pl-libelle" requis erreur={v.erreur(e.formation)}>
           <input className="input" id="pl-libelle" maxLength={LIBELLE_PLAN_MAX} value={libelle} onChange={ev => setLibelle(ev.target.value)} />
         </Field>
       )}
       <div className="grid-2">
-        <Field label="Équipe" htmlFor="pl-equipe" requis erreur={v.erreur(e.equipe)}>
+        <Field label={t('Team')} htmlFor="pl-equipe" requis erreur={v.erreur(e.equipe)}>
           <select className="input" id="pl-equipe" value={equipe} onChange={ev => setEquipe(ev.target.value)}>
             {equipes.map(q => <option key={q} value={q}>{q}</option>)}
           </select>
         </Field>
-        <Field label="Trimestre" htmlFor="pl-periode" requis erreur={v.erreur(e.periode)}>
+        <Field label={t('Quarter')} htmlFor="pl-periode" requis erreur={v.erreur(e.periode)}>
           <select className="input" id="pl-periode" value={periode} onChange={ev => setPeriode(ev.target.value)}>
-            {TRIMESTRES.map(t => <option key={t} value={t}>{t} {l.exercice}</option>)}
+            {TRIMESTRES.map(q => <option key={q} value={q}>{q} {l.exercice}</option>)}
           </select>
         </Field>
-        <Field label="Effectif prévu" htmlFor="pl-effectif" requis erreur={v.erreur(e.effectif) || (effectif.trim() ? e.effectif : null)}>
+        <Field label={t('Planned headcount')} htmlFor="pl-effectif" requis erreur={v.erreur(e.effectif) || (effectif.trim() ? e.effectif : null)}>
           <input className="input tnum" id="pl-effectif" inputMode="numeric" value={effectif} onChange={ev => setEffectif(ev.target.value)} />
         </Field>
-        <Field label="Coût prévu (€)" htmlFor="pl-cout" requis erreur={v.erreur(e.cout) || (cout.trim() ? e.cout : null)}>
+        <Field label={t('Planned cost (€)')} htmlFor="pl-cout" requis erreur={v.erreur(e.cout) || (cout.trim() ? e.cout : null)}>
           <input className="input tnum" id="pl-cout" inputMode="decimal" value={cout} onChange={ev => setCout(ev.target.value)} />
         </Field>
       </div>
       {/* lot 12 — C4 : organisme prévu (avertissements Qualiopi au début du trimestre) et tarif en vigueur proposé. */}
-      <ChoixOrganisme id="pl-organisme" valeur={organismeId} onChange={setOrganismeId} actuel={l.organismeId ?? null} label="Organisme prévu"
-        vide={catalogue ? `Celui du catalogue (${catalogue.nomUsuel})` : 'Celui du catalogue'} le={debut > d.ti ? debut : d.ti} />
+      <ChoixOrganisme id="pl-organisme" valeur={organismeId} onChange={setOrganismeId} actuel={l.organismeId ?? null} label={t('Planned provider')}
+        vide={catalogue ? `${t('The one of the catalogue (')}${catalogue.nomUsuel})` : t('The one of the catalogue')} le={debut > d.ti ? debut : d.ti} />
       {tarif && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
           <span className="text-muted sub">
-            Tarif en vigueur : {fmtEur(tarif.montantHt)} {UNITES_TARIF[tarif.unite]}
-            {coutTarif == null ? ' (durée du catalogue inconnue : coût à calculer)' : coutTarif !== tarif.montantHt ? `, soit ${fmtEur(coutTarif)}` : ''}.
+            {t('Rate in force: ')}{fmtEur(tarif.montantHt)} {UNITES_TARIF[tarif.unite]}
+            {coutTarif == null ? t(' (length in the catalogue unknown: cost to calculate)') : coutTarif !== tarif.montantHt ? `${t(', i.e. ')}${fmtEur(coutTarif)}` : ''}.
           </span>
-          {coutTarif != null && String(coutTarif) !== cout.trim().replace(',', '.') && <Btn small onClick={() => setCout(String(coutTarif))}>Reprendre ce coût</Btn>}
+          {coutTarif != null && String(coutTarif) !== cout.trim().replace(',', '.') && <Btn small onClick={() => setCout(String(coutTarif))}>{t('Use this cost')}</Btn>}
         </div>
       )}
-      <Field label="Motif de la correction" htmlFor="pl-motif" requis erreur={v.erreur(motifErr)}>
-        <textarea className="input mid" id="pl-motif" rows={2} maxLength={MOTIF_CORRECTION_MAX} placeholder="Erreur de trimestre à l’import, effectif revu…"
+      <Field label={t('Reason for the correction')} htmlFor="pl-motif" requis erreur={v.erreur(motifErr)}>
+        <textarea className="input mid" id="pl-motif" rows={2} maxLength={MOTIF_CORRECTION_MAX} placeholder={t('Wrong quarter at the import, headcount reviewed…')}
           value={motif} onChange={ev => setMotif(ev.target.value)} />
       </Field>
       <Fine>
-        {PLAN_LABEL[l.statut]} · {l.exercice} · actuellement {fmtEur(l.cout)} pour {l.effectif} pers.
-        {session ? ' Une session est rattachée à cette action : sa formation ne change plus.' : ''} La correction est datée et signée ; le motif reste au service RH.
+        {PLAN_LABEL[l.statut]} · {l.exercice} · {t('currently ')}{fmtEur(l.cout)}{t(' for ')}{l.effectif}{t(' pers.')}
+        {session ? t(' A session is attached to this action: its training no longer changes.') : ''}{t(' The correction is dated and signed; the reason stays with HR.')}
       </Fine>
     </Dialog>
   );

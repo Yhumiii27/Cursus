@@ -205,6 +205,16 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
   // Relevés d'heures des intérimaires (panneau de l'écran Temps ; confirmation d'envoi : state/confirmations.ts).
   { ecran: 'Relevés', fichiers: ['client/src/pages/Releves.tsx'] },
   { ecran: 'Chantiers', fichiers: ['client/src/pages/Chantiers.tsx'] },
+  {
+    // Enveloppes, consommation, plan prévisionnel et indicateurs de formation ; onglet et détail des dossiers OPCO ; dialogues
+    // des enveloppes, de l'import, de la clôture d'un exercice et d'une action, de la correction d'une ligne, et ceux d'un dossier
+    // OPCO (création, étapes, pièce, versement). Statuts, dispositifs et motifs des dossiers (shared/rules/opco.ts) restent en français.
+    ecran: 'Plan & budget', fichiers: ['client/src/pages/Budget.tsx', 'client/src/components/IndicateursFormation.tsx',
+      'client/src/components/opco/ColonneOpco.tsx', 'client/src/components/opco/DossiersOpco.tsx', 'client/src/components/opco/DossierOpcoPanel.tsx',
+      'client/src/dialogs/BudgetDialog.tsx', 'client/src/dialogs/PlanImportDialog.tsx', 'client/src/dialogs/ExerciceClotureDialog.tsx',
+      'client/src/dialogs/PlanRealiserDialog.tsx', 'client/src/dialogs/PlanLigneDialog.tsx', 'client/src/dialogs/OpcoDossierDialog.tsx',
+      'client/src/dialogs/OpcoEtapeDialog.tsx', 'client/src/dialogs/OpcoPieceDialog.tsx', 'client/src/dialogs/OpcoVersementDialog.tsx'],
+  },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */

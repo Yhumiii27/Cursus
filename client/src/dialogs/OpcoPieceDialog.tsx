@@ -11,6 +11,7 @@ import { Fine } from '../components/ui.tsx';
 import { nomDossierOpco } from '../components/opco/commun.ts';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function OpcoPieceDialog({ id, nature: proposee }: { id: number; nature?: NaturePiece | null }) {
   const d = useDomain();
@@ -27,8 +28,8 @@ export function OpcoPieceDialog({ id, nature: proposee }: { id: number; nature?:
   const [busy, setBusy] = useState(false);
   const v = useVerification();
   if (!dossier) return null;
-  const manque = !piece.fichier ? 'Choisissez le fichier à joindre.' : null;
-  const natureErr = !nature ? 'Choisissez la nature de la pièce.' : null;
+  const manque = !piece.fichier ? t('Choose the file to attach.') : null;
+  const natureErr = !nature ? t('Choose the nature of the document.') : null;
 
   const confirm = async () => {
     if (busy || !v.verifier(natureErr, manque, piece.erreur)) return;
@@ -40,24 +41,23 @@ export function OpcoPieceDialog({ id, nature: proposee }: { id: number; nature?:
   };
 
   return (
-    <Dialog title="Pièce du dossier OPCO" width={560} onSubmit={confirm} actions={<>
+    <Dialog title={t('Document of the OPCO file')} width={560} onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Joindre la pièce</SubmitButton>
+      <SubmitButton busy={busy}>{t('Attach the document')}</SubmitButton>
     </>}>
-      <Field label="Dossier"><Static>{nomDossierOpco(d, dossier)}</Static></Field>
-      <PiecesJointes objet="dossierOpco" objetId={dossier.id} label="Déjà jointes" />
+      <Field label={t('File#opco')}><Static>{nomDossierOpco(d, dossier)}</Static></Field>
+      <PiecesJointes objet="dossierOpco" objetId={dossier.id} label={t('Already attached')} />
       {piece.actif ? <>
-        <Field label="Nature" htmlFor="opco-piece-nature" requis erreur={v.erreur(natureErr)}>
+        <Field label={t('Nature')} htmlFor="opco-piece-nature" requis erreur={v.erreur(natureErr)}>
           <select className="input" id="opco-piece-nature" value={nature} onChange={e => setNature(e.target.value as NaturePiece)}>
-            <option value="">Choisir…</option>
+            <option value="">{t('Choose…')}</option>
             {(Object.keys(NATURES_PIECE_OPCO) as NaturePiece[]).map(n => <option key={n} value={n}>{NATURES_PIECE_OPCO[n]}</option>)}
           </select>
         </Field>
-        <ChoixPiece piece={piece} id="opco-piece-fichier" label="Fichier" requis erreur={v.erreur(manque)} />
-      </> : <Fine>Pièces justificatives désactivées : l’administrateur RH les active dans Paramètres → Pièces justificatives.</Fine>}
+        <ChoixPiece piece={piece} id="opco-piece-fichier" label={t('File#upload')} requis erreur={v.erreur(manque)} />
+      </> : <Fine>{t('Supporting documents disabled: the HR administrator enables them in Settings → Supporting documents.')}</Fine>}
       <Fine>
-        Pièce de l’entreprise, sans salarié : visible du seul service RH. La facture et l’accord sont gardés 10 ans après la fin de
-        l’exercice (pièces comptables) ; avant, seul l’administrateur RH peut les retirer. Le journal garde sa nature, jamais le nom du fichier.
+        {t('Document of the company, without an employee: visible to HR only. The invoice and the approval are kept 10 years after the end of the financial year (accounting documents); before, only the HR administrator can remove them. The log keeps its nature, never the name of the file.')}
       </Fine>
     </Dialog>
   );

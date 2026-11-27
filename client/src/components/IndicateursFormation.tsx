@@ -7,7 +7,8 @@
 // d'emploi et par sexe, taux d'accès, masqués sous le seuil d'anonymat), pour le service RH et la lecture seule.
 import { useMemo } from 'react';
 import { DownloadSimpleIcon } from '@phosphor-icons/react';
-import { fH, fmtEur, plural } from '../../../shared/format.ts';
+import { fH, fmtEur } from '../../../shared/format.ts';
+import { t, tn } from '../i18n/langue.ts';
 import { indicateursFormation, type LigneIndicateur } from '../../../shared/rules/heures-formation.ts';
 import { csvFormationsSuivies, csvIndicateurs } from '../formations-csv.ts';
 import { downloadCsv } from '../print.ts';
@@ -24,7 +25,7 @@ function Tableau({ titre, lignes }: { titre: string; lignes: LigneIndicateur[] }
   const visibles = lignes.filter(l => l.realisations > 0);
   return (
     <table className="table">
-      <thead><tr><th scope="col">{titre}</th><th scope="col" className="right">Stagiaires</th><th scope="col" className="right">Formations</th><th scope="col" className="right">Heures</th></tr></thead>
+      <thead><tr><th scope="col">{titre}</th><th scope="col" className="right">{t('Trainees')}</th><th scope="col" className="right">{t('Trainings')}</th><th scope="col" className="right">{t('Hours')}</th></tr></thead>
       <tbody>
         {visibles.map(l => (
           <tr key={l.cle}>
@@ -34,7 +35,7 @@ function Tableau({ titre, lignes }: { titre: string; lignes: LigneIndicateur[] }
             <td className="right tnum">{fH(l.heures)}{l.inconnues ? ` + ${l.inconnues} ?` : ''}</td>
           </tr>
         ))}
-        {!visibles.length && <tr><td colSpan={4} className="text-muted">Aucune formation réalisée.</td></tr>}
+        {!visibles.length && <tr><td colSpan={4} className="text-muted">{t('No training done.')}</td></tr>}
       </tbody>
     </table>
   );
@@ -51,45 +52,42 @@ export function IndicateursFormationPanel({ exercice }: { exercice: number }) {
   const exporter = () => {
     const c = csvIndicateurs(d, x);
     downloadCsv(c.fichier, c.head, c.rows);
-    notify('Export CSV des indicateurs généré');
+    notify(t('CSV export of the indicators generated'));
   };
   const exporterSuivies = () => {
     const c = csvFormationsSuivies(d, exercice);
     downloadCsv(c.fichier, c.head, c.rows);
-    notify(`Export CSV généré — ${plural(c.rows.length, 'formation suivie', 'formations suivies')}`);
+    notify(`${t('CSV export generated — ')}${tn(c.rows.length, 'training attended', 'trainings attended')}`);
   };
   return (<>
-    <Panel title={`Indicateurs de formation ${exercice}`} aside={<div className="actions-end">
-      <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={exporterSuivies}>Formations suivies</Btn>
-      <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={exporter}>Exporter les indicateurs</Btn>
+    <Panel title={`${t('Training indicators ')}${exercice}`} aside={<div className="actions-end">
+      <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={exporterSuivies}>{t('Trainings attended')}</Btn>
+      <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={exporter}>{t('Export the indicators')}</Btn>
     </div>} style={{ gap: 'var(--space-3)' }}>
       <div className="text-muted sub">
-        {plural(x.total.stagiaires, 'stagiaire', 'stagiaires')} · {plural(x.total.realisations, 'formation réalisée', 'formations réalisées')} · {fH(x.total.heures)}
-        {' '}· {x.tauxRealisation == null ? 'aucune action au plan' : `${x.actionsRealisees} / ${x.actions} actions du plan réalisées (${x.tauxRealisation} %)`}
-        {' '}· coût prévu {fmtEur(x.coutPrevu)}, réalisé {fmtEur(x.coutRealise)}
+        {tn(x.total.stagiaires, 'trainee', 'trainees')} · {tn(x.total.realisations, 'training done', 'trainings done')} · {fH(x.total.heures)}
+        {' '}· {x.tauxRealisation == null ? t('no action in the plan') : `${x.actionsRealisees} / ${x.actions}${t(' actions of the plan done (')}${x.tauxRealisation} %)`}
+        {' '}· {t('planned cost ')}{fmtEur(x.coutPrevu)}{t(', done ')}{fmtEur(x.coutRealise)}
       </div>
       {souhaits.versees > 0 && (
         <div className="text-muted sub">
-          Issues des entretiens : {plural(souhaits.versees, 'demande versée', 'demandes versées')} depuis un souhait à avis favorable · {souhaits.acceptees} acceptées
-          {' '}· {plural(souhaits.lignesPlan, 'ligne du plan', 'lignes du plan')} d’origine « entretien »
+          {t('From the reviews: ')}{tn(souhaits.versees, 'request filed', 'requests filed')}{t(' from a wish with a favourable opinion')} · {souhaits.acceptees}{t(' accepted#fem-plural-after')}
+          {' '}· {tn(souhaits.lignesPlan, 'line of the plan', 'lines of the plan')}{t(' of “review” origin')}
         </div>
       )}
-      <div className="scroll-x"><Tableau titre="Catégorie" lignes={x.parCategorie} /></div>
-      <div className="scroll-x"><Tableau titre="Équipe" lignes={x.parEquipe} /></div>
-      <div className="scroll-x"><Tableau titre="Statut" lignes={x.parStatut} /></div>
+      <div className="scroll-x"><Tableau titre={t('Category')} lignes={x.parCategorie} /></div>
+      <div className="scroll-x"><Tableau titre={t('Team')} lignes={x.parEquipe} /></div>
+      <div className="scroll-x"><Tableau titre={t('Status')} lignes={x.parStatut} /></div>
       {x.inconnues.length > 0 && (
         <NoteAccent>
-          {plural(x.inconnues.length, 'formation de durée inconnue', 'formations de durée inconnue')}, hors des heures :{' '}
-          {x.inconnues.slice(0, 5).map(r => `${r.intitule} (${r.nom})`).join(', ')}{x.inconnues.length > 5 ? '…' : ''} — complétez la durée en heures
-          (Référentiels → Formations, ou la formation suivie).
+          {tn(x.inconnues.length, 'training of unknown length', 'trainings of unknown length')}{t(', outside the hours:')}{' '}
+          {x.inconnues.slice(0, 5).map(r => `${r.intitule} (${r.nom})`).join(', ')}{x.inconnues.length > 5 ? '…' : ''}{t(' — complete the length in hours (Reference data → Trainings, or the training attended).')}
         </NoteAccent>
       )}
       <Fine>
-        Formations réalisées dans l’année : participations présentes aux sessions clôturées (horaires de la session, sinon durée du
-        catalogue), certifications enregistrées sans session et formations suivies, hors catalogue comprises. Le site compte moins de
-        300 salariés : pas de bilan social obligatoire, ces indicateurs servent à la BDESE.
-        {versIndicateurs && <>{' '}Par sexe et par catégorie d’emploi, avec le taux d’accès :{' '}
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => go('indicateurs', { indOnglet: 'formation', indAnnee: exercice })}>Indicateurs sociaux</button></>}
+        {t('Trainings done in the year: participations present at the closed sessions (times of the session, otherwise length in the catalogue), certifications recorded without a session and trainings attended, outside the catalogue included. The site has fewer than 300 employees: no compulsory social report, these indicators serve the BDESE.')}
+        {versIndicateurs && <>{' '}{t('By sex and by job category, with the access rate:')}{' '}
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => go('indicateurs', { indOnglet: 'formation', indAnnee: exercice })}>{t('Social indicators')}</button></>}
       </Fine>
     </Panel>
     {/* Évaluation des formations (lot 7, t121) : par organisme et par formation, export CSV. */}

@@ -20,6 +20,7 @@ import { MOTIF_MAX } from '../state/confirmations.ts';
 import { ChoixOrganisme } from '../components/organismes/ChoixOrganisme.tsx';
 import { organismeDuPlan, organismeFinal, qualiopiValideLe } from '../../../shared/rules/organismes.ts';
 import type { Organisme } from '../../../shared/types-organismes.ts';
+import { t } from '../i18n/langue.ts';
 
 /** lot 12 — C4 : SIRET, NDA et Qualiopi (valide à la date `le`) proposés par une fiche ; vides sans fiche. */
 const declaresPar = (o: Organisme | null, le: string) => ({ organismeSiret: o?.siret ?? null, organismeNda: o?.nda ?? null, organismeQualiopi: !!o && qualiopiValideLe(o, le) });
@@ -82,7 +83,7 @@ export function OpcoDossierDialog({ planActionId, id }: { planActionId?: number 
     subrogation, organismeSiret: siret, organismeNda: nda, organismeQualiopi: qualiopi,
   };
   const { erreurs } = controlerSaisieOpco(saisie);
-  const motifErr = correction ? erreurTexte(motif, 'Indiquez le motif de la correction.') ?? (motif.trim().length > MOTIF_MAX ? `${MOTIF_MAX} caractères au plus.` : null) : null;
+  const motifErr = correction ? erreurTexte(motif, t('Enter the reason for the correction.')) ?? (motif.trim().length > MOTIF_MAX ? t(`${MOTIF_MAX} characters at most.`) : null) : null;
   // Erreur d'un champ : dès la saisie (valeur mal écrite), toutes après une première tentative.
   const err = (k: keyof SaisieOpco) => erreurs[k] ?? null;
 
@@ -106,12 +107,12 @@ export function OpcoDossierDialog({ planActionId, id }: { planActionId?: number 
   };
 
   return (
-    <Dialog title={dossier ? (correction ? 'Corriger le dossier OPCO' : 'Modifier le dossier OPCO') : 'Nouveau dossier OPCO'} width={620} tall onSubmit={envoyer} actions={<>
+    <Dialog title={t(dossier ? (correction ? 'Correct the OPCO file' : 'Edit the OPCO file') : 'New OPCO file')} width={620} tall onSubmit={envoyer} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>{dossier ? (correction ? 'Corriger le dossier' : 'Enregistrer') : 'Créer le dossier'}</SubmitButton>
+      <SubmitButton busy={busy}>{t(dossier ? (correction ? 'Correct the file' : 'Save') : 'Create the file')}</SubmitButton>
     </>}>
-      <Field label="Action du plan">
-        <Static>{fm ? fm.nom : l.libelle}<div className="text-muted sub">{l.equipe} · {l.periode} {l.exercice} · {fmtEur(l.coutReel ?? l.cout)} pour {l.effectifReel ?? l.effectif} pers.{fm ? ` · ${fm.organisme}` : ''}</div></Static>
+      <Field label={t('Action of the plan')}>
+        <Static>{fm ? fm.nom : l.libelle}<div className="text-muted sub">{l.equipe} · {l.periode} {l.exercice} · {fmtEur(l.coutReel ?? l.cout)}{t(' for ')}{l.effectifReel ?? l.effectif}{t(' pers.')}{fm ? ` · ${fm.organisme}` : ''}</div></Static>
       </Field>
       <div className="grid-2">
         <Field label="OPCO" htmlFor="opco-code" requis erreur={v.erreur(err('opco'))}>
@@ -119,79 +120,78 @@ export function OpcoDossierDialog({ planActionId, id }: { planActionId?: number 
             {CODES_OPCO.map(c => <option key={c} value={c}>{OPCOS[c]}</option>)}
           </select>
         </Field>
-        <Field label="Dispositif" htmlFor="opco-dispositif" requis erreur={v.erreur(err('dispositif'))}>
+        <Field label={t('Scheme')} htmlFor="opco-dispositif" requis erreur={v.erreur(err('dispositif'))}>
           <select className="input" id="opco-dispositif" value={dispositif} onChange={e => setDispositif(e.target.value as DispositifOpco)}>
             {LISTE_DISPOSITIFS.map(x => <option key={x} value={x}>{DISPOSITIFS_OPCO[x].label}</option>)}
           </select>
         </Field>
       </div>
-      <Field label="Numéro du dossier chez l’OPCO" htmlFor="opco-reference" erreur={reference.trim() ? err('reference') : null}>
-        <input className="input" id="opco-reference" value={reference} placeholder="Attribué au dépôt sur le portail" onChange={e => setReference(e.target.value)} autoComplete="off" />
+      <Field label={t('Number of the file at the OPCO')} htmlFor="opco-reference" erreur={reference.trim() ? err('reference') : null}>
+        <input className="input" id="opco-reference" value={reference} placeholder={t('Given at the filing on the portal')} onChange={e => setReference(e.target.value)} autoComplete="off" />
       </Field>
       <div className="grid-2">
-        <Field label="Formation du" htmlFor="opco-du" erreur={err('du')}>
+        <Field label={t('Training from')} htmlFor="opco-du" erreur={err('du')}>
           <input className="input" id="opco-du" type="date" value={du} onChange={e => setDu(e.target.value)} />
         </Field>
-        <Field label="Au" htmlFor="opco-au" erreur={err('au')}>
+        <Field label={t('To#date-cap')} htmlFor="opco-au" erreur={err('au')}>
           <input className="input" id="opco-au" type="date" min={du || undefined} value={au} onChange={e => setAu(e.target.value)} />
         </Field>
       </div>
       <div className="grid-2">
-        <Field label="Heures de formation" htmlFor="opco-heures" erreur={heures.trim() ? err('heures') : null}>
+        <Field label={t('Training hours')} htmlFor="opco-heures" erreur={heures.trim() ? err('heures') : null}>
           <input className="input tnum" id="opco-heures" inputMode="decimal" value={heures} onChange={e => setHeures(e.target.value)} />
         </Field>
-        <Field label="Effectif" htmlFor="opco-effectif" erreur={effectif.trim() ? err('effectif') : null}>
+        <Field label={t('Headcount')} htmlFor="opco-effectif" erreur={effectif.trim() ? err('effectif') : null}>
           <input className="input tnum" id="opco-effectif" inputMode="numeric" value={effectif} onChange={e => setEffectif(e.target.value)} />
         </Field>
       </div>
       <div className="grid-2">
-        <Field label="Coûts pédagogiques demandés (€)" htmlFor="opco-montant" erreur={montant.trim() ? err('montantDemande') : null}>
+        <Field label={t('Teaching costs requested (€)')} htmlFor="opco-montant" erreur={montant.trim() ? err('montantDemande') : null}>
           <input className="input tnum" id="opco-montant" inputMode="decimal" value={montant} onChange={e => setMontant(e.target.value)} />
         </Field>
         {annexesPermises && (
-          <Field label="Frais annexes ou rémunération (€)" htmlFor="opco-annexes" erreur={annexes.trim() ? err('montantDemandeAnnexes') : null}>
+          <Field label={t('Ancillary costs or pay (€)')} htmlFor="opco-annexes" erreur={annexes.trim() ? err('montantDemandeAnnexes') : null}>
             <input className="input tnum" id="opco-annexes" inputMode="decimal" value={annexes} onChange={e => setAnnexes(e.target.value)} />
           </Field>
         )}
       </div>
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
         <input type="checkbox" checked={subrogation} onChange={e => setSubrogation(e.target.checked)} style={{ accentColor: 'var(--color-accent)', marginTop: 'var(--space-1)', flex: 'none' }} />
-        <span>Subrogation : l’OPCO paie directement l’organisme de formation</span>
+        <span>{t('Subrogation: the OPCO pays the training provider directly')}</span>
       </label>
       {/* lot 12 — C4 : organisme du dossier ; ses SIRET, NDA et Qualiopi sont proposés, ce qui est déclaré à l'OPCO reste saisi ici. */}
       {dossier
-        ? <Field label="Organisme de formation"><Static>{ficheDossier?.nomUsuel ?? fm?.organisme ?? '—'}</Static></Field>
-        : <ChoixOrganisme id="opco-organisme" valeur={organismeId} onChange={choisirOrganisme} actuel={organismeDefaut?.id ?? null} vide="Aucun (saisie manuelle)" le={du || d.ti} />}
+        ? <Field label={t('Training provider')}><Static>{ficheDossier?.nomUsuel ?? fm?.organisme ?? '—'}</Static></Field>
+        : <ChoixOrganisme id="opco-organisme" valeur={organismeId} onChange={choisirOrganisme} actuel={organismeDefaut?.id ?? null} vide={t('None (manual entry)')} le={du || d.ti} />}
       {subrogation && (dossier ? ficheDossier : ficheDe(Number(organismeId) || null))?.subrogationAcceptee === false && (
-        <Fine>L’organisme n’a pas déclaré accepter la subrogation (fiche du référentiel) : à vérifier avec lui.</Fine>
+        <Fine>{t('The provider has not declared it accepts subrogation (sheet of the reference data): to check with them.')}</Fine>
       )}
       <div className="grid-2">
-        <Field label="SIRET de l’organisme" htmlFor="opco-siret" erreur={siret.trim() ? err('organismeSiret') : null}>
-          <input className="input tnum" id="opco-siret" inputMode="numeric" value={siret} placeholder="14 chiffres" onChange={e => setSiret(e.target.value)} autoComplete="off" />
+        <Field label={t('SIRET of the provider')} htmlFor="opco-siret" erreur={siret.trim() ? err('organismeSiret') : null}>
+          <input className="input tnum" id="opco-siret" inputMode="numeric" value={siret} placeholder={t('14 digits')} onChange={e => setSiret(e.target.value)} autoComplete="off" />
         </Field>
-        <Field label="Déclaration d’activité (NDA)" htmlFor="opco-nda" erreur={nda.trim() ? err('organismeNda') : null}>
-          <input className="input tnum" id="opco-nda" inputMode="numeric" value={nda} placeholder="11 chiffres" onChange={e => setNda(e.target.value)} autoComplete="off" />
+        <Field label={t('Declaration of activity (NDA)')} htmlFor="opco-nda" erreur={nda.trim() ? err('organismeNda') : null}>
+          <input className="input tnum" id="opco-nda" inputMode="numeric" value={nda} placeholder={t('11 digits')} onChange={e => setNda(e.target.value)} autoComplete="off" />
         </Field>
       </div>
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
         <input type="checkbox" checked={qualiopi} onChange={e => setQualiopi(e.target.checked)} style={{ accentColor: 'var(--color-accent)', marginTop: 'var(--space-1)', flex: 'none' }} />
-        <span>Organisme certifié Qualiopi (condition de la prise en charge)</span>
+        <span>{t('Provider certified Qualiopi (condition of the funding)')}</span>
       </label>
       {memeDispositif.length > 0 && (
         <NoteAccent>
-          Cette ligne porte déjà {memeDispositif.length > 1 ? `${memeDispositif.length} dossiers en cours` : 'un dossier en cours'} pour ce dispositif ({memeDispositif.map(x => STATUTS_OPCO[x.statut].label.toLowerCase()).join(', ')}) :
-          un second dossier ne se justifie que pour un autre financeur.
+          {t('This line already carries ')}{memeDispositif.length > 1 ? `${memeDispositif.length}${t(' files in progress')}` : t('a file in progress')}{t(' for this scheme (')}{memeDispositif.map(x => STATUTS_OPCO[x.statut].label.toLowerCase()).join(', ')}{t('): a second file is only justified for another funder.')}
         </NoteAccent>
       )}
       {correction && (
-        <Field label="Motif de la correction" htmlFor="opco-motif" requis erreur={v.erreur(motifErr) || (motif.trim().length > MOTIF_MAX ? motifErr : null)}>
-          <textarea className="input" id="opco-motif" rows={2} value={motif} placeholder="Numéro mal recopié, dates de la formation déplacées…" onChange={e => setMotif(e.target.value)} />
+        <Field label={t('Reason for the correction')} htmlFor="opco-motif" requis erreur={v.erreur(motifErr) || (motif.trim().length > MOTIF_MAX ? motifErr : null)}>
+          <textarea className="input" id="opco-motif" rows={2} value={motif} placeholder={t('Number copied wrongly, dates of the training moved…')} onChange={e => setMotif(e.target.value)} />
         </Field>
       )}
       <Fine>
         {correction ? `${aideMotifOpco()} ` : ''}
-        {dossier ? '' : 'Le dossier commence « À déposer » : ses échéances (dépôt avant le début, justificatifs après la fin) partent des dates de la formation. '}
-        Saisie à reporter aussi sur le portail de l’OPCO : Cursus ne s’y connecte pas.
+        {dossier ? '' : t('The file starts “To file”: its due dates (filing before the start, supporting documents after the end) start from the dates of the training. ')}
+        {t('Entry to copy also on the portal of the OPCO: Cursus does not connect to it.')}
       </Fine>
     </Dialog>
   );

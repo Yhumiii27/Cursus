@@ -12,11 +12,12 @@ import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { controlerSuivie } from '../../../shared/rules/formations-suivies.ts';
 import { present } from '../../../shared/rules/contrats.ts';
+import { t } from '../i18n/langue.ts';
 
 /** Message sous le champ du coût réel (aussi dans la clôture d'une session, ClotureDialog). */
 export function erreurCoutReel(v: string): string | null {
-  if (!v.trim()) return 'Indiquez le coût réel (0 si l’action n’a rien coûté).';
-  return montantReel(v) === null ? `Montant en euros, de 0 à ${fmtEur(COUT_REEL_MAX)}.` : null;
+  if (!v.trim()) return t('Enter the actual cost (0 if the action cost nothing).');
+  return montantReel(v) === null ? `${t('Amount in euros, from 0 to ')}${fmtEur(COUT_REEL_MAX)}.` : null;
 }
 
 export function PlanRealiserDialog({ id }: { id: number }) {
@@ -43,7 +44,7 @@ export function PlanRealiserDialog({ id }: { id: number }) {
   const suivie = choisis.length ? controlerSuivie(d, { f: l.f ?? '', libelle: l.libelle ?? '', du, au, duree }, l.f ? { f: l.f } : null).erreurs : {};
   const fm = l.f ? d.fm(l.f) : null;
   const coutErr = erreurCoutReel(cout);
-  const effectifErr = effectif.trim() && effectifReel(effectif) === null ? 'Nombre entier de personnes, 0 ou plus.' : null;
+  const effectifErr = effectif.trim() && effectifReel(effectif) === null ? t('Whole number of people, 0 or more.') : null;
   const montant = montantReel(cout);
   const ecart = montant === null ? 0 : montant - l.cout;
 
@@ -59,24 +60,24 @@ export function PlanRealiserDialog({ id }: { id: number }) {
   };
 
   return (
-    <Dialog title="Clôturer l’action du plan" width={520} onSubmit={envoyer} actions={<>
+    <Dialog title={t('Close the action of the plan')} width={520} onSubmit={envoyer} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Clôturer l’action</SubmitButton>
+      <SubmitButton busy={busy}>{t('Close the action')}</SubmitButton>
     </>}>
-      <Field label="Action">
-        <Static>{fm ? fm.nom : l.libelle}<div className="text-muted sub">{l.equipe} · {l.periode} {l.exercice} · prévu {fmtEur(l.cout)} pour {l.effectif} pers.</div></Static>
+      <Field label={t('Action')}>
+        <Static>{fm ? fm.nom : l.libelle}<div className="text-muted sub">{l.equipe} · {l.periode} {l.exercice} · {t('planned ')}{fmtEur(l.cout)}{t(' for ')}{l.effectif}{t(' pers.')}</div></Static>
       </Field>
       <div className="grid-2">
-        <Field label="Coût réel (€)" htmlFor="pr-cout" requis erreur={v.erreur(coutErr) || (cout.trim() ? coutErr : null)}>
+        <Field label={t('Actual cost (€)')} htmlFor="pr-cout" requis erreur={v.erreur(coutErr) || (cout.trim() ? coutErr : null)}>
           <input className="input tnum" id="pr-cout" inputMode="decimal" value={cout} onChange={e => setCout(e.target.value)} autoFocus />
         </Field>
-        <Field label="Effectif réel" htmlFor="pr-effectif" erreur={effectifErr}>
+        <Field label={t('Actual headcount')} htmlFor="pr-effectif" erreur={effectifErr}>
           <input className="input tnum" id="pr-effectif" inputMode="numeric" value={effectif} onChange={e => setEffectif(e.target.value)} />
         </Field>
       </div>
       {candidats.length > 0 && <>
-        <Field label="Bénéficiaires (formation suivie enregistrée)">
-          <div className="chips" role="group" aria-label="Bénéficiaires" style={{ gap: 'var(--space-2) var(--space-4)' }}>
+        <Field label={t('Beneficiaries (training attended recorded)')}>
+          <div className="chips" role="group" aria-label={t('Beneficiaries')} style={{ gap: 'var(--space-2) var(--space-4)' }}>
             {candidats.map(e => (
               <label key={e.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14, cursor: 'pointer' }}>
                 <input type="checkbox" checked={choisis.includes(e.id)} onChange={ev => cocher(e.id, ev.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
@@ -87,25 +88,25 @@ export function PlanRealiserDialog({ id }: { id: number }) {
         </Field>
         {choisis.length > 0 && (
           <div className="grid-2">
-            <Field label="Formation suivie du" htmlFor="pr-du" requis erreur={v.erreur(suivie.du) || (du ? suivie.du ?? null : null)}>
+            <Field label={t('Training attended from')} htmlFor="pr-du" requis erreur={v.erreur(suivie.du) || (du ? suivie.du ?? null : null)}>
               <input className="input" id="pr-du" type="date" max={d.ti} value={du} onChange={e => setDu(e.target.value)} />
             </Field>
-            <Field label="Au" htmlFor="pr-au" erreur={au ? suivie.au ?? null : v.erreur(suivie.au)}>
+            <Field label={t('To#date-cap')} htmlFor="pr-au" erreur={au ? suivie.au ?? null : v.erreur(suivie.au)}>
               <input className="input" id="pr-au" type="date" min={du || undefined} max={d.ti} value={au} onChange={e => setAu(e.target.value)} />
             </Field>
           </div>
         )}
         {choisis.length > 0 && fm?.dureeHeures == null && (
-          <Field label="Durée (heures)" htmlFor="pr-duree" erreur={duree ? suivie.duree ?? null : null}>
+          <Field label={t('Length (hours)')} htmlFor="pr-duree" erreur={duree ? suivie.duree ?? null : null}>
             <input className="input tnum" id="pr-duree" inputMode="decimal" value={duree} placeholder="14" onChange={e => setDuree(e.target.value)} />
           </Field>
         )}
       </>}
       <Fine>
-        {montant !== null && ecart ? `Écart au prévu : ${ecart > 0 ? '+' : '−'}${fmtEur(Math.abs(ecart))}. ` : ''}
-        L’action passe « Réalisée » : son coût réel compte dans le réalisé de l’enveloppe {l.equipe}.
-        {parSession ? ' Ses participants ont leur certification par la clôture de la session.' : candidats.length ? ' Les bénéficiaires cochés reçoivent la formation dans leurs formations suivies (passeport, bilan à 8 ans, indicateurs).' : ''}
-        {!parSession && fm && choisis.length > 0 ? ' Formation du catalogue : enregistrez aussi la certification de chacun depuis sa fiche, c’est elle qui compte pour la conformité ; elle représente alors la formation au passeport et dans les indicateurs, sans double compte.' : ''}
+        {montant !== null && ecart ? `${t('Difference from the plan: ')}${ecart > 0 ? '+' : '−'}${fmtEur(Math.abs(ecart))}. ` : ''}
+        {t('The action becomes “Done”: its actual cost counts in the done amount of the envelope ')}{l.equipe}.
+        {parSession ? t(' Its participants have their certification through the closing of the session.') : candidats.length ? t(' The ticked beneficiaries receive the training in their trainings attended (passport, 8-year review, indicators).') : ''}
+        {!parSession && fm && choisis.length > 0 ? t(' Training from the catalogue: also record the certification of each one from their sheet, it is the one that counts for compliance; it then stands for the training in the passport and in the indicators, without double counting.') : ''}
       </Fine>
     </Dialog>
   );

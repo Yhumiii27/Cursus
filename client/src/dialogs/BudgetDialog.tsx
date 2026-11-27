@@ -6,6 +6,7 @@ import { fmtEur, key } from '../../../shared/format.ts';
 import { CancelButton, Dialog, SubmitButton } from '../components/Dialog.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 /** Dernier exercice antérieur à `exercice` qui a des enveloppes, ou null. */
 const exercicePrecedent = (budgets: Record<string, Record<string, number>>, exercice: number) =>
@@ -37,14 +38,14 @@ export function BudgetDialog({ exercice }: { exercice: number }) {
   };
 
   return (
-    <Dialog title={`Enveloppes budgétaires ${exercice}`} onSubmit={confirm} actions={<>
+    <Dialog title={`${t('Budget envelopes ')}${exercice}`} onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Enregistrer</SubmitButton>
+      <SubmitButton busy={busy}>{t('Save')}</SubmitButton>
     </>}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
         {precedent != null && (
           <div>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={reprendre}>Reprendre les enveloppes de {precedent}</button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={reprendre}>{t('Take over the envelopes of ')}{precedent}</button>
           </div>
         )}
         {equipes.map(e => {
@@ -61,7 +62,7 @@ export function BudgetDialog({ exercice }: { exercice: number }) {
           );
         })}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 14, paddingTop: 'var(--space-3)', background: 'var(--rule-soft) no-repeat top / 100% 1px' }}>
-          <span>Enveloppe totale</span>
+          <span>{t('Total envelope')}</span>
           <span className="tnum" style={{ fontFamily: 'var(--font-heading)', fontWeight: 'var(--font-heading-weight)', fontSize: 18 }}>{fmtEur(total)}</span>
         </div>
       </div>

@@ -7,6 +7,7 @@ import { fmtIso } from '../../../shared/format.ts';
 import { useAgir } from '../state/actions.ts';
 import { useData, useStore } from '../state/store.tsx';
 import { Btn, Fine, NoteAccent, Panel, Tag } from './ui.tsx';
+import { t } from '../i18n/langue.ts';
 
 /** Adresse d'abonnement d'un jeton, sur le nom de la page (celui que voit le salarié, derrière le reverse proxy). */
 export const adresseAgenda = (jeton: string, origine = window.location.origin) => `${origine}/api/agenda/${jeton}.ics`;
@@ -27,41 +28,40 @@ export function AgendaPortail() {
   const revoquer = agir(async () => { const r = await run('agenda.revoquerJeton'); if (r.ok) setAdresse(null); });
   const copier = async () => {
     if (!adresse) return;
-    try { await navigator.clipboard.writeText(adresse); notify('Adresse copiée : collez-la dans Outlook'); } catch { notify('Copie impossible : sélectionnez l’adresse et copiez-la', true); }
+    try { await navigator.clipboard.writeText(adresse); notify(t('Address copied: paste it into Outlook')); } catch { notify(t('Copy impossible: select the address and copy it'), true); }
   };
 
   return (
-    <Panel title="Mon agenda dans Outlook" aside={jeton ? <Tag cls="tag-neutral">Abonnement en vigueur</Tag> : undefined}>
+    <Panel title={t('My calendar in Outlook')} aside={jeton ? <Tag cls="tag-neutral">{t('Subscription in force')}</Tag> : undefined}>
       {adresse ? (
         <>
-          <label className="text-muted sub" htmlFor="agenda-adresse">Adresse d’abonnement (affichée une seule fois)</label>
+          <label className="text-muted sub" htmlFor="agenda-adresse">{t('Subscription address (shown only once)')}</label>
           <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
             <input className="input" id="agenda-adresse" readOnly value={adresse} onFocus={e => e.target.select()} style={{ flex: '1 1 260px', minWidth: 0 }} />
-            <Btn small onClick={copier}>Copier</Btn>
+            <Btn small onClick={copier}>{t('Copy')}</Btn>
           </div>
-          <NoteAccent>Gardez cette adresse pour vous : qui la connaît voit votre agenda. En cas de doute, révoquez-la et créez-en une autre.</NoteAccent>
+          <NoteAccent>{t('Keep this address for yourself: whoever knows it sees your calendar. If in doubt, revoke it and create another.')}</NoteAccent>
         </>
       ) : (
         <div style={{ fontSize: 14 }}>
-          {jeton ? `Abonnement créé le ${fmtIso(jeton.creeLe.slice(0, 10))}. L’adresse ne s’affiche plus : créez-en une nouvelle si vous l’avez perdue (l’ancienne cesse de fonctionner).`
-            : 'Vos formations, entretiens, absences et déplacements dans votre agenda Outlook, mis à jour automatiquement.'}
+          {jeton ? `${t('Subscription created on ')}${fmtIso(jeton.creeLe.slice(0, 10))}${t('. The address is no longer shown: create a new one if you have lost it (the old one stops working).')}`
+            : t('Your training courses, reviews, absences and trips in your Outlook calendar, updated automatically.')}
         </div>
       )}
       {data.settings.agendaFluxActif && (
         <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-          <Btn small variant={jeton ? 'ghost' : 'primary'} disabled={occupe} onClick={creer}>{jeton ? 'Nouvelle adresse' : 'Créer mon adresse d’abonnement'}</Btn>
-          {jeton && <Btn small disabled={occupe} onClick={revoquer}>Révoquer l’abonnement</Btn>}
+          <Btn small variant={jeton ? 'ghost' : 'primary'} disabled={occupe} onClick={creer}>{jeton ? t('New address') : t('Create my subscription address')}</Btn>
+          {jeton && <Btn small disabled={occupe} onClick={revoquer}>{t('Revoke the subscription')}</Btn>}
         </div>
       )}
       {!data.settings.agendaFluxActif && jeton && (
         <>
-          <Fine>L’abonnement à l’agenda est suspendu par le service RH : votre agenda ne se met plus à jour.</Fine>
-          <div><Btn small disabled={occupe} onClick={revoquer}>Révoquer l’abonnement</Btn></div>
+          <Fine>{t('The calendar subscription is suspended by HR: your calendar no longer updates.')}</Fine>
+          <div><Btn small disabled={occupe} onClick={revoquer}>{t('Revoke the subscription')}</Btn></div>
         </>
       )}
       <Fine>
-        Dans Outlook : « Ajouter un calendrier », puis « À partir d’Internet », et collez l’adresse. Les absences y figurent sous « Absent »,
-        sans leur nature. Les congés validés arrivent aussi par l’e-mail de décision (fichier joint).
+        {t('In Outlook: “Add calendar”, then “From Internet”, and paste the address. The absences appear in it under “Absent”, without their nature. Approved leave also arrives with the decision e-mail (attached file).')}
       </Fine>
     </Panel>
   );

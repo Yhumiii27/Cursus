@@ -20,6 +20,7 @@ import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { ETAT_ASTREINTE, etatAstreinte, maintenant } from './astreintes-etat.ts';
 import { Btn, Fine, NoteAccent, Panel, Tag } from './ui.tsx';
+import { t } from '../i18n/langue.ts';
 
 /**
  * Mois (« AAAA-MM ») où le salarié a accompli au moins une heure d'astreinte avant l'instant `jusqua` (minutes d'horloge,
@@ -134,35 +135,34 @@ export function AstreintesPortail({ e }: { e: Employe }) {
   const imprimer = () => {
     if (!mois) return;
     if (!printDocument(titreRecapitulatif(mois, m), `${e.nom} · ${e.poste}`, sectionsRecapitulatif(d.ds, e, mois, m), e.id, matriculesImprimes(e))) {
-      notify('Autorisez les fenêtres surgissantes pour imprimer le récapitulatif', true);
+      notify(t('Allow pop-up windows to print the summary'), true);
     }
   };
 
   return (
-    <Panel title="Mes astreintes" aside={mois && <Btn small icon={<PrinterIcon size={14} />} onClick={imprimer}>Imprimer le récapitulatif</Btn>} style={{ gap: 'var(--space-3)' }}>
+    <Panel title={t('My on-call duty')} aside={mois && <Btn small icon={<PrinterIcon size={14} />} onClick={imprimer}>{t('Print the summary')}</Btn>} style={{ gap: 'var(--space-3)' }}>
       {prochaines.map(a => (
         <div key={a.id} className="item-head">
-          <div><div style={{ fontSize: 14 }}>{cap(periodeAstreinteTexte(a))}</div><div className="text-muted sub">{fH(heuresAstreinte(a))} · communiquée le {fmtIso(a.communiqueLe)}</div></div>
+          <div><div style={{ fontSize: 14 }}>{cap(periodeAstreinteTexte(a))}</div><div className="text-muted sub">{fH(heuresAstreinte(a))}{t(' · communicated on ')}{fmtIso(a.communiqueLe)}</div></div>
           <Tag cls={ETAT_ASTREINTE[etatAstreinte(a, m)].cls} style={{ flex: 'none' }}>{ETAT_ASTREINTE[etatAstreinte(a, m)].label}</Tag>
         </div>
       ))}
       {mois && b && (<>
         <div className="field">
-          <label htmlFor="ast-recap-mois">Récapitulatif du mois</label>
+          <label htmlFor="ast-recap-mois">{t('Summary of the month')}</label>
           <select className="input" id="ast-recap-mois" value={mois} onChange={ev => setChoix(ev.target.value)} style={{ maxWidth: 240 }}>
             {tous.map(x => <option key={x} value={x}>{cap(periodeLabel(x))}</option>)}
           </select>
         </div>
-        <NoteAccent>{provisoire ? `Provisoire (mois en cours, heures accomplies à ce jour) : ${bilanTexte(b)}` : cap(bilanTexte(b))}</NoteAccent>
+        <NoteAccent>{provisoire ? `${t('Provisional (current month, hours completed to date): ')}${bilanTexte(b)}` : cap(bilanTexte(b))}</NoteAccent>
         {ints.map(x => (
-          <div key={x.id} className="sub">{cap(parse(x.jour).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }))} : intervention de {heureTexte(x.debut)} à {heureTexte(x.fin)} ({fH(x.heures)})</div>
+          <div key={x.id} className="sub">{cap(parse(x.jour).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }))}{t(': intervention from ')}{heureTexte(x.debut)}{t(' to #heure')}{heureTexte(x.fin)} ({fH(x.heures)})</div>
         ))}
       </>)}
-      <div className="sub">Compensation : {compensationTexte(d.ds.settings)}</div>
-      {mois && compensationDuMois(d.ds, e.id, mois, m) && <div className="sub">Compensation du mois : {compensationDuMois(d.ds, e.id, mois, m)}</div>}
+      <div className="sub">{t('Compensation: ')}{compensationTexte(d.ds.settings)}</div>
+      {mois && compensationDuMois(d.ds, e.id, mois, m) && <div className="sub">{t('Compensation of the month: ')}{compensationDuMois(d.ds, e.id, mois, m)}</div>}
       <Fine>
-        Récapitulatif des heures d’astreinte et de leur compensation remis chaque mois (art. R3121-2). Vos interventions sont du travail effectif, sur votre feuille
-        de temps ; après chacune, 11 heures de repos consécutives sont dues.
+        {t('Summary of on-call hours and their compensation given each month (art. R3121-2). Your interventions are actual work, on your timesheet; after each one, 11 consecutive hours of rest are due.')}
       </Fine>
     </Panel>
   );

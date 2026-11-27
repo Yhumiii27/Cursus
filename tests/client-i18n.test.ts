@@ -257,6 +257,13 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
       'client/src/components/temps/GeolocPointage.tsx', 'client/src/dialogs/AnonymiserDialog.tsx', 'client/src/dialogs/ZonePointageDialog.tsx',
       ...['AbsencesPaie', 'Agenda', 'Astreintes', 'Badgeage', 'CompteEpargneTemps', 'Conges', 'Conservation', 'Contrats', 'DecompteHeures', 'Demonstration', 'DeplacementsPaie', 'EntretienMiCarriere', 'Entretiens', 'Envois', 'EvaluationsFormation', 'Feries', 'FeuillesTemps', 'ForfaitJours', 'Formations', 'Fractionnement', 'Hierarchie', 'Indicateurs', 'Keystone', 'ListeAttente', 'MatriculesPaie', 'NotesFrais', 'ObjectifsSuivis', 'Opco', 'PasseportPrevention', 'Pieces', 'Planning', 'PostesRisques', 'ReglagesPaie', 'RelancesEcheances', 'ReposHebdomadaire', 'Reprise', 'Rgpd', 'SagePaie', 'Sante', 'Suivi'].map(f => `client/src/pages/parametres/${f}.tsx`)],
   },
+  {
+    // Partie 8. Situation, à faire, indicateurs, formations planifiées, certifications, habilitations, voyages, demandes, données
+    // personnelles, agenda Outlook, modules en ligne, appareils ; bloc « Mes astreintes » (son récapitulatif imprimé reste en
+    // français : components/AstreintesPortail.tsx est contrôlé à part).
+    ecran: 'Mon espace', fichiers: ['client/src/pages/Portail.tsx', 'client/src/components/AgendaPortail.tsx', 'client/src/components/elearning/MesModules.tsx',
+      'client/src/components/MesAppareils.tsx', 'client/src/components/OrigineEntretien.tsx'],
+  },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */

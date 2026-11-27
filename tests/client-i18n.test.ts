@@ -181,19 +181,19 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
   // Recherche de l'en-tête (annuaire filtré, suggestions) et choix d'un collaborateur dans les dialogues et les filtres.
   { ecran: 'Annuaire (recherche)', fichiers: ['client/src/layout/RechercheGlobale.tsx', 'client/src/components/ChoixCollaborateur.tsx'] },
   {
-    // Arbre en liste et vue graphique, filtres, service choisi et fil d'Ariane, anomalies (le document imprimé et l'export
-    // CSV, construits par organigramme-vue.ts et listes-csv.ts, restent en français).
-    ecran: 'Organigramme', fichiers: ['client/src/pages/Organigramme.tsx', 'client/src/components/organigramme/ArbreGraphique.tsx'],
+    // Arbre en liste et vue graphique, filtres, service choisi et fil d'Ariane, anomalies ; document imprimé et en-têtes du CSV
+    // (organigramme-vue.ts, partie 8 : le CSV se lit dans un tableur, aucun outil ne l'importe).
+    ecran: 'Organigramme', fichiers: ['client/src/pages/Organigramme.tsx', 'client/src/components/organigramme/ArbreGraphique.tsx', 'client/src/organigramme-vue.ts'],
   },
   {
     // Échéances et comptes rendus, objectifs, points de suivi, feedback 360° ; compte rendu (sections, objectifs, souhaits,
-    // feedback 360° et sa synthèse), planification, remise de la copie, dialogues des objectifs, des souhaits et des répondants
-    // (le compte rendu imprimé, ses libellés de sections et la mention d'information, dialogs/compteRendu*.ts, restent en français).
+    // feedback 360° et sa synthèse), planification, remise de la copie, dialogues des objectifs, des souhaits et des répondants ;
+    // compte rendu imprimé, section « fin de carrière » et mention d'information (dialogs/compteRendu*.ts, partie 8).
     ecran: 'Entretiens / 360°', fichiers: ['client/src/pages/Entretiens.tsx', 'client/src/pages/EntretiensSuivi.tsx', 'client/src/pages/EntretiensFeedback360.tsx',
       'client/src/components/EntretienSuivi.tsx', 'client/src/components/Feedback360Bloc.tsx', 'client/src/components/Synthese360.tsx',
       'client/src/dialogs/EntDialog.tsx', 'client/src/dialogs/EntPlanDialog.tsx', 'client/src/dialogs/RemiseDialog.tsx', 'client/src/dialogs/ObjectifDialog.tsx',
       'client/src/dialogs/ObjectifAvancerDialog.tsx', 'client/src/dialogs/ObjectifEvaluerDialog.tsx', 'client/src/dialogs/SouhaitDialog.tsx',
-      'client/src/dialogs/Feedback360SolliciterDialog.tsx'],
+      'client/src/dialogs/Feedback360SolliciterDialog.tsx', 'client/src/dialogs/compteRendu.ts', 'client/src/dialogs/compteRendu-suivi.ts'],
   },
   { ecran: 'Mes objectifs', fichiers: ['client/src/pages/MesObjectifs.tsx'] },
   {
@@ -225,6 +225,10 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
     // Mes postes, mes échanges, postes de l'équipe ; textes du planning d'équipe (planning-vue.ts) et dialogues du planning
     // (générer, publier, créneau, roulement, échange et sa validation, reprise), partagés avec l'onglet Planning d'équipe de Temps.
     ecran: 'Mon planning', fichiers: ['client/src/pages/MonPlanning.tsx', 'client/src/components/planning/planning-vue.ts', 'client/src/dialogs/PlanningDialog.tsx'],
+  },
+  {
+    // Partie 8. Grille du planning d'équipe de Temps de travail (couverture, échanges, roulements, versions publiées, affichage imprimé).
+    ecran: 'Planning d’équipe', fichiers: ['client/src/components/planning/PlanningEquipe.tsx'],
   },
   // Comptes et accès : liste, création d'un compte, mot de passe provisoire (confirmations : state/confirmations.ts, déjà repris).
   { ecran: 'Comptes', fichiers: ['client/src/pages/Comptes.tsx', 'client/src/dialogs/CompteDialog.tsx', 'client/src/dialogs/MotDePasseProvisoireDialog.tsx'] },
@@ -439,4 +443,49 @@ test('partie 7 (Plan & budget, Indicateurs sociaux, Mon planning, Comptes, Journ
   choisirLangue('en');
   assert.deepEqual([t(LIBELLE_ONGLET.formation), t('Requested#masc'), tn(2, 'file#opco', 'files#opco'), tn(1, 'employee#salarie', 'employees#salarie')],
     ['Training', 'Requested', '2 files', '1 employee']);
+});
+
+test('partie 8 (Référentiels, Paramètres, Mon espace, planning d’équipe, compte rendu et organigramme imprimés) : tables de libellés et phrase française d’avant', async () => {
+  const { FILTRES_ORGANISMES, QUALIOPI_COURT } = await import('../client/src/components/organismes/etat.ts');
+  const { MODELE_TITRE_LABEL } = await import('../client/src/titre-habilitation.ts');
+  const { JOURS_BESOIN } = await import('../client/src/dialogs/RefCycleDialog.tsx');
+  const { ENTETE_CSV_ORGANIGRAMME } = await import('../client/src/organigramme-vue.ts');
+  const { FIN_CARRIERE, INFO_LABEL, libelleSection, whoLabel } = await import('../client/src/dialogs/compteRendu.ts');
+  const sources: string[] = [...FILTRES_ORGANISMES.map(([, l]) => l), ...Object.values(QUALIOPI_COURT).filter(l => l !== '—'), ...Object.values(MODELE_TITRE_LABEL),
+    ...JOURS_BESOIN, ...ENTETE_CSV_ORGANIGRAMME, FIN_CARRIERE[1], INFO_LABEL];
+  // Tables non exportées, rendues par t() au rendu : onglets, choix des réglages, descriptions des routes Keystone, libellés d'une fusion.
+  const tables: [string, RegExp][] = [
+    ['client/src/pages/Referentiels.tsx', /\['(?:formations|habilitations|postes|destinations|activites|horaires|entites|organismes|modules|cycles|besoins)', '([A-Z][^']+)'\]/g],
+    ['client/src/dialogs/OrganismeFusionDialog.tsx', /: \['([^']+)', '([^']+)'\]/g],
+    ['client/src/pages/parametres/Agenda.tsx', /\['(?:sessions|entretiens|absences|deplacements|postes)', '([^']+)'\]/g],
+    ['client/src/pages/parametres/Envois.tsx', /\['(?:tous|a_envoyer|echec|envoye|simule|toutes|keystone|email)', '([^']+)'\]/g],
+    ['client/src/pages/parametres/DecompteHeures.tsx', /\[(?:'dixieme'|'tiers'|44|45|46), '([^']+)'\]/g],
+    ['client/src/pages/parametres/ForfaitJours.tsx', /\['(?:signature|cloture)', '([^']+)'\]/g],
+    ['client/src/components/temps/ReglagesForfaitHeures.tsx', /\['(?:cloture|periode)', '([^']+)'\]/g],
+    ['client/src/pages/parametres/FeuillesTemps.tsx', /\[\d, '([^']+)'\]/g],
+    ['client/src/pages/parametres/Fractionnement.tsx', /\['(?:legal|accord|aucun)', '([^']+)'\]/g],
+    ['client/src/pages/parametres/ListeAttente.tsx', /\['(?:confirmer|automatique)', '([^']+)'\]/g],
+    ['client/src/pages/parametres/ReglagesPaie.tsx', /\['(?:paiement|repos)', '([^']+)'\]/g],
+    ['client/src/pages/parametres/Opco.tsx', /\['opcoDelai\w+', '([^']+)'/g],
+    ['client/src/pages/parametres/Planning.tsx', /\['planning\w+', '([^']+)'/g],
+    ['client/src/pages/parametres/RelancesEcheances.tsx', /(?:quotidien|lundi|mardi|mercredi|jeudi|vendredi): '([^']+)'/g],
+    ['client/src/pages/parametres/Keystone.tsx', /\['(?:PUT|GET|POST)', '[^']+', '([^']+)'\]/g],
+    ['client/src/pages/parametres/NotesFrais.tsx', /\['(?:generique|tva|salarie|journal)', '([^']+)'\]/g],
+  ];
+  for (const [f, re] of tables) {
+    const trouvees = [...lire(f).matchAll(re)].flatMap(m => m.slice(1).filter(Boolean));
+    assert.ok(trouvees.length > 0, `${f} : table relevée`);
+    sources.push(...trouvees);
+  }
+  // « Mes astreintes » (son récapitulatif imprimé reste en français) : chaque t() du bloc du portail.
+  for (const m of lire('client/src/components/AstreintesPortail.tsx').matchAll(/\bt\('((?:[^'\\]|\\.)*)'\)/g)) sources.push(m[1]);
+  for (const l of sources) assert.ok(MEMES_EN_FRANCAIS.includes(l) || enFrancais(l) !== sansContexte(l), l);
+  assert.deepEqual([t(FIN_CARRIERE[1]), libelleSection('fincarriere', FIN_CARRIERE[1]), libelleSection('objectifs', 'Objectifs de l’année à venir'), whoLabel('mgr')],
+    ['Fin de carrière : maintien dans l’emploi, aménagements souhaités', 'Fin de carrière : maintien dans l’emploi, aménagements souhaités', 'Objectifs de l’année à venir', 'Évaluateur']);
+  assert.deepEqual(JOURS_BESOIN.map(j => t(j)), ['Lun.', 'Mar.', 'Mer.', 'Jeu.', 'Ven.', 'Sam.', 'Dim.']);
+  assert.deepEqual([tn(2, 'training course in force', 'training courses in force'), tn(1, 'archived#fem', 'archived#fem-plural'), t('None (0 %)#fem'), t(' d#days')],
+    ['2 formations en vigueur', '1 archivée', 'Aucune (0 %)', ' j']);
+  choisirLangue('en');
+  assert.deepEqual([t(FIN_CARRIERE[1]), whoLabel('sal'), t(QUALIOPI_COURT.echu), tn(2, 'archived#masc', 'archived#masc-plural'), t(' h#hours')],
+    ['End of career: job retention, desired adjustments', 'Employee', 'Expired', '2 archived', ' h']);
 });

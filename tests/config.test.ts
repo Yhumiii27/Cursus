@@ -1,7 +1,7 @@
 // Règles de configuration du lot 8 (server/src/config.ts, chantier B) : image sans base désignée, adresse publique
 // exigée en production (boucle locale explicite et démonstration exemptées), superutilisateur PostgreSQL, proxys crus
 // sans restriction (S7), démonstration publique sans secrets de l'entreprise (S3) et liaisons sortantes coupées sauf
-// CURSUS_DEMO_LIAISONS=1, e-mails toujours simulés en démonstration, démonstration branchée sur la base epc2i (simple
+// CURSUS_DEMO_LIAISONS=1, e-mails toujours simulés en démonstration, démonstration branchée sur la base atrium (simple
 // avertissement dans le lot 8), MATRIX_URL avec identifiants (avertissement), commandes d'exploitation.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const config = await import('../server/src/config.ts');
-const { avertissementsConfig, boucleLocaleExplicite, cibleBase, configMail, demoSurBaseCommune, liaisonsCoupees, problemesConfig, verifierConfig } = config;
+const { ANCIENNE_BASE_COMMUNE, avertissementsConfig, BASE_COMMUNE, BASES_COMMUNES, boucleLocaleExplicite, cibleBase, configMail, demoSurBaseCommune, estBaseCommune, liaisonsCoupees, problemesConfig, verifierConfig } = config;
 const { keystoneSortant } = await import('../server/src/integrations/keystone/keystone.ts');
 const { declarerBase } = await import('../server/src/integrations/matrix/matrix.ts');
 const { nouvelleBase } = await import('./base.ts');
@@ -23,7 +23,7 @@ const PROD = { NODE_ENV: 'production', CURSUS_SECRET: 'x'.repeat(32), KEYSTONE_A
 /** Variables posées par l'image Docker (Dockerfile). */
 const IMAGE = { NODE_ENV: 'production', TZ: 'Europe/Paris', CURSUS_HOST: '0.0.0.0', CURSUS_TRUST_PROXY: 'loopback,uniquelocal', CURSUS_API_PORT: '3000', CURSUS_DB: '/data/cursus.db', CURSUS_CONTENEUR: '1' };
 const DEMO_PUBLIQUE = { ...IMAGE, CURSUS_SECRET: 'd'.repeat(40), KEYSTONE_API_KEY: 'demo-keystone', CURSUS_DEMO: '1', CURSUS_DEMO_PUBLIQUE: '1' };
-const URL_PG = 'postgres://cursus_app:secret@epc2i-postgres:5432/epc2i';
+const URL_PG = 'postgres://cursus_app:secret@atrium-postgres:5432/atrium';
 
 /** Le seul problème signalé, qui doit correspondre à `re`. */
 function seul(env: Record<string, string | undefined>, re: RegExp, label: string) {
@@ -62,19 +62,19 @@ test('CURSUS_PUBLIC_URL exigée en production, hors démonstration et hors boucl
 });
 
 test('DATABASE_URL : rôle postgres refusé, rôle et base lus sans le mot de passe', () => {
-  seul({ ...PROD, DATABASE_URL: 'postgres://postgres:secret@epc2i-postgres:5432/epc2i' }, /rôle postgres \(superutilisateur\)/, 'postgres');
-  assert.ok(!problemesConfig({ ...PROD, DATABASE_URL: 'postgres://postgres:secret@h/epc2i' }).join().includes('secret'), 'mot de passe jamais affiché');
+  seul({ ...PROD, DATABASE_URL: 'postgres://postgres:secret@atrium-postgres:5432/atrium' }, /rôle postgres \(superutilisateur\)/, 'postgres');
+  assert.ok(!problemesConfig({ ...PROD, DATABASE_URL: 'postgres://postgres:secret@h/atrium' }).join().includes('secret'), 'mot de passe jamais affiché');
   assert.deepEqual(problemesConfig({ ...PROD, DATABASE_URL: URL_PG }), []);
-  assert.deepEqual(cibleBase({ DATABASE_URL: 'postgresql://cursus%5Fapp:s%40cret@[::1]:5432/epc2i?sslmode=require' }), { role: 'cursus_app', base: 'epc2i', hote: '::1', sslmode: 'require', tls: 'sslmode=require' });
+  assert.deepEqual(cibleBase({ DATABASE_URL: 'postgresql://cursus%5Fapp:s%40cret@[::1]:5432/atrium?sslmode=require' }), { role: 'cursus_app', base: 'atrium', hote: '::1', sslmode: 'require', tls: 'sslmode=require' });
   // Rôle lu comme node-postgres : ?user= l'emporte, PGUSER en dernier recours ; « POSTGRES » est un autre rôle.
-  seul({ ...PROD, DATABASE_URL: 'postgres://epc2i-postgres:5432/epc2i?user=postgres&password=x' }, /rôle postgres \(superutilisateur\)/, '?user=postgres');
-  seul({ ...PROD, DATABASE_URL: 'postgres://cursus_app:x@epc2i-postgres:5432/epc2i?user=postgres' }, /rôle postgres/, '?user= l’emporte');
-  seul({ ...PROD, DATABASE_URL: 'postgres://epc2i-postgres:5432/epc2i', PGUSER: 'postgres' }, /rôle postgres/, 'PGUSER=postgres');
-  assert.deepEqual(problemesConfig({ ...PROD, DATABASE_URL: 'postgres://epc2i-postgres:5432/epc2i', PGUSER: 'cursus_app' }), [], 'PGUSER=cursus_app');
-  assert.equal(cibleBase({ DATABASE_URL: 'postgres://POSTGRES:x@h/epc2i' })?.role, 'POSTGRES');
+  seul({ ...PROD, DATABASE_URL: 'postgres://atrium-postgres:5432/atrium?user=postgres&password=x' }, /rôle postgres \(superutilisateur\)/, '?user=postgres');
+  seul({ ...PROD, DATABASE_URL: 'postgres://cursus_app:x@atrium-postgres:5432/atrium?user=postgres' }, /rôle postgres/, '?user= l’emporte');
+  seul({ ...PROD, DATABASE_URL: 'postgres://atrium-postgres:5432/atrium', PGUSER: 'postgres' }, /rôle postgres/, 'PGUSER=postgres');
+  assert.deepEqual(problemesConfig({ ...PROD, DATABASE_URL: 'postgres://atrium-postgres:5432/atrium', PGUSER: 'cursus_app' }), [], 'PGUSER=cursus_app');
+  assert.equal(cibleBase({ DATABASE_URL: 'postgres://POSTGRES:x@h/atrium' })?.role, 'POSTGRES');
   // Aucun rôle : node-postgres prendrait le compte du système ; refusé en production seulement.
-  seul({ ...PROD, DATABASE_URL: 'postgres://epc2i-postgres:5432/epc2i' }, /DATABASE_URL ne désigne aucun rôle/, 'sans rôle');
-  assert.deepEqual(problemesConfig({ ...PROD, NODE_ENV: undefined, DATABASE_URL: 'postgres://h/epc2i' }), [], 'hors production');
+  seul({ ...PROD, DATABASE_URL: 'postgres://atrium-postgres:5432/atrium' }, /DATABASE_URL ne désigne aucun rôle/, 'sans rôle');
+  assert.deepEqual(problemesConfig({ ...PROD, NODE_ENV: undefined, DATABASE_URL: 'postgres://h/atrium' }), [], 'hors production');
   // Chiffrement lu comme node-postgres : sslmode, ssl=true, PGSSLMODE quand l'adresse n'en dit rien.
   const tls = (url: string, env: Record<string, string> = {}) => cibleBase({ DATABASE_URL: url, ...env })?.tls;
   assert.equal(tls('postgres://u@h/b?ssl=true'), 'ssl=true');
@@ -153,13 +153,19 @@ test('démonstration publique : Keystone et Matrix coupés sauf CURSUS_DEMO_LIAI
   }
 });
 
-test('démonstration sur la base epc2i du serveur commun : avertissement, jamais un refus (lot 8)', () => {
+test('démonstration sur la base atrium du serveur commun : avertissement, jamais un refus (lot 8)', () => {
   const demo = { ...DEMO_PUBLIQUE, DATABASE_URL: URL_PG };
   assert.equal(demoSurBaseCommune(demo), true);
   assert.deepEqual(problemesConfig(demo), [], 'la démonstration en ligne n’est pas arrêtée');
-  assert.match(avertissementsConfig(demo).join(), /Démonstration \(CURSUS_DEMO=1\) branchée sur la base epc2i du serveur commun : ses salariés fictifs sont publiés aux autres outils/);
+  assert.match(avertissementsConfig(demo).join(), /Démonstration \(CURSUS_DEMO=1\) branchée sur la base atrium du serveur commun : ses salariés fictifs sont publiés aux autres outils/);
   assert.equal(demoSurBaseCommune({ ...demo, DATABASE_URL: 'postgres://cursus_app:s@h:5432/demo_cursus' }), false, 'base de démonstration séparée');
   assert.equal(demoSurBaseCommune({ ...PROD, DATABASE_URL: URL_PG }), false, 'production');
+  // Ancien nom de la base commune (avant le renommage du serveur par Matrix) : reconnu de même.
+  const ancien = { ...demo, DATABASE_URL: URL_PG.replace(/\/atrium$/, `/${ANCIENNE_BASE_COMMUNE}`) };
+  assert.equal(demoSurBaseCommune(ancien), true, ANCIENNE_BASE_COMMUNE);
+  assert.match(avertissementsConfig(ancien).join(), new RegExp(`branchée sur la base ${ANCIENNE_BASE_COMMUNE} du serveur commun`));
+  assert.deepEqual(BASES_COMMUNES, [BASE_COMMUNE, ANCIENNE_BASE_COMMUNE]);
+  assert.equal(estBaseCommune(BASE_COMMUNE) && estBaseCommune(ANCIENNE_BASE_COMMUNE) && !estBaseCommune('atrium_demo') && !estBaseCommune(null), true);
   assert.deepEqual(avertissementsConfig(demo, { reglesDemo: false }), []);
 });
 
@@ -180,7 +186,7 @@ test('verifierConfig : avertissements écrits sans arrêter ; refus nommant la c
   const exit = t.mock.method(process, 'exit', ((code?: number) => { throw new Error(`exit ${code}`); }) as never);
   verifierConfig({ ...DEMO_PUBLIQUE, DATABASE_URL: URL_PG });
   assert.equal(warn.mock.callCount(), 1);
-  assert.match(String(warn.mock.calls[0].arguments[0]), /^Configuration à revoir :\n {2}– Démonstration \(CURSUS_DEMO=1\) branchée sur la base epc2i/);
+  assert.match(String(warn.mock.calls[0].arguments[0]), /^Configuration à revoir :\n {2}– Démonstration \(CURSUS_DEMO=1\) branchée sur la base atrium/);
   assert.equal(exit.mock.callCount(), 0);
   assert.throws(() => verifierConfig({ ...PROD, CURSUS_TRUST_PROXY: 'true' }, { commande: 'npm run comptes' }), /exit 1/);
   assert.match(String(error.mock.calls[0].arguments[0]), /^npm run comptes refusée en production :\n {2}– CURSUS_TRUST_PROXY=true/);
@@ -194,7 +200,7 @@ test('npm run comptes et npm run reprise-postgres : refus en production avant d�
   const ROOT = fileURLToPath(new URL('..', import.meta.url));
   const dir = mkdtempSync(join(tmpdir(), 'cursus-commandes-'));
   try {
-    const env = { PATH: process.env.PATH ?? '', ...PROD, CURSUS_DB: join(dir, 'cursus.db'), DATABASE_URL: 'postgres://postgres:secret@127.0.0.1:1/epc2i', CURSUS_PURGE_DATABASE_URL: 'postgres://cursus_purge:secret@127.0.0.1:1/epc2i' };
+    const env = { PATH: process.env.PATH ?? '', ...PROD, CURSUS_DB: join(dir, 'cursus.db'), DATABASE_URL: 'postgres://postgres:secret@127.0.0.1:1/atrium', CURSUS_PURGE_DATABASE_URL: 'postgres://cursus_purge:secret@127.0.0.1:1/atrium' };
     const lancer = (fichier: string, ...args: string[]) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', fichier, ...args], { cwd: ROOT, encoding: 'utf8', env });
     const comptes = lancer('server/src/comptes-cli.ts', 'admin', 'rachel.martin@entreprise.fr');
     assert.equal(comptes.status, 1);

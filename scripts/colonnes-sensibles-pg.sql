@@ -4,7 +4,7 @@
 -- server/migrations-pg/, 0011 pour les dernières). Une ligne par colonne lisible ; aucune ligne : contrôle réussi.
 -- La fermeture est faite par Matrix (droits.colonnes_sensibles du socle, déclencheur droits_ddl) : tant que la demande
 -- de docs/DEMANDES-LOT8-DONNEES.md n'est pas appliquée, des lignes sortent et l'étape de la CI est non bloquante.
---   psql -d epc2i -v ON_ERROR_STOP=1 -At -f scripts/colonnes-sensibles-pg.sql
+--   psql -d atrium -v ON_ERROR_STOP=1 -At -f scripts/colonnes-sensibles-pg.sql
 SELECT format('cursus.%I.%I lisible par matrix_lecture (%s)', c.relname, a.attname,
               CASE WHEN col_description(c.oid, a.attnum) ~ '(Sensible|à exclure de matrix_lecture)' THEN 'colonne' ELSE 'table' END || ' déclarée sensible')
 FROM pg_class c

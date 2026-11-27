@@ -1,5 +1,6 @@
 // Affichage sombre / clair (Norma 1.0, propriétaire 24 novembre 2026 ; client/src/theme/) sous node --test :
-// cookie epc2i-theme → thème (sombre par défaut), script d'amorçage client/public/theme.js (même règle, attribut posé
+// cookie atrium-theme (Norma 3.0 ; l'ancien nom lu à défaut, jamais écrit) → thème (sombre par défaut), script
+// d'amorçage client/public/theme.js (même règle, attribut posé
 // avant le rendu), bouton de l'en-tête (attribut, couleurs du navigateur et cookie changés sans aller-retour au serveur),
 // place du bouton dans l'en-tête, charte de Norma importée avec ses valeurs claires.
 import { afterEach, test } from 'node:test';
@@ -10,7 +11,7 @@ import { runInNewContext } from 'node:vm';
 await import('./outils/rendu.ts');
 const { cleanup, fireEvent, render, screen } = await import('@testing-library/react');
 const { createElement } = await import('react');
-const { appliquerTheme, FOND_THEME, THEME_COOKIE, themeCookie, themeCourant, themeDuCookie, themeOf } = await import('../client/src/theme/theme.ts');
+const { appliquerTheme, FOND_THEME, LEGACY_THEME_COOKIE, THEME_COOKIE, themeCookie, themeCourant, themeDuCookie, themeOf } = await import('../client/src/theme/theme.ts');
 const { BoutonTheme } = await import('../client/src/theme/BoutonTheme.tsx');
 
 const lire = (f: string) => readFileSync(new URL(`../${f}`, import.meta.url), 'utf8');
@@ -19,25 +20,28 @@ const lire = (f: string) => readFileSync(new URL(`../${f}`, import.meta.url), 'u
 function pageNeuve() {
   delete document.documentElement.dataset.theme;
   document.cookie = `${THEME_COOKIE}=; path=/; max-age=0`;
+  document.cookie = `${LEGACY_THEME_COOKIE}=; path=/; max-age=0`;
   document.head.innerHTML = '<meta name="color-scheme" content="dark" /><meta name="theme-color" content="#161826" />';
 }
 afterEach(() => { cleanup(); pageNeuve(); });
 
 test('cookie → thème : « light » donne le clair, toute autre valeur ou son absence le sombre (par défaut)', () => {
-  assert.equal(THEME_COOKIE, 'epc2i-theme');
+  assert.equal(THEME_COOKIE, 'atrium-theme');
   assert.equal(themeOf('light'), 'light');
   for (const v of ['dark', 'LIGHT', '', undefined, null, 'clair']) assert.equal(themeOf(v), 'dark', String(v));
-  assert.equal(themeDuCookie('a=1; epc2i-theme=light; b=2'), 'light');
-  assert.equal(themeDuCookie('epc2i-theme=dark'), 'dark');
-  assert.equal(themeDuCookie('x-epc2i-theme=light; theme=light'), 'dark', 'nom exact du cookie seulement');
+  assert.equal(themeDuCookie('a=1; atrium-theme=light; b=2'), 'light');
+  assert.equal(themeDuCookie('atrium-theme=dark'), 'dark');
+  assert.equal(themeDuCookie('x-atrium-theme=light; theme=light'), 'dark', 'nom exact du cookie seulement');
   assert.equal(themeDuCookie(''), 'dark');
   assert.equal(themeDuCookie(undefined), 'dark');
-  assert.equal(themeCookie('light'), 'epc2i-theme=light; path=/; max-age=31536000; samesite=lax', 'un an, tout le site');
+  assert.equal(themeDuCookie(`${LEGACY_THEME_COOKIE}=light`), 'light', 'ancien nom lu à défaut du nouveau');
+  assert.equal(themeDuCookie(`${LEGACY_THEME_COOKIE}=light; atrium-theme=dark`), 'dark', 'le nouveau nom prime');
+  assert.equal(themeCookie('light'), 'atrium-theme=light; path=/; max-age=31536000; samesite=lax', 'un an, tout le site');
 });
 
 test('script d’amorçage theme.js : même règle que le module, attribut et couleurs du navigateur posés avant le rendu', () => {
   const script = lire('client/public/theme.js');
-  for (const cookie of ['', 'epc2i-theme=light', 'a=1; epc2i-theme=light', 'epc2i-theme=dark', 'epc2i-theme=autre', 'theme=light']) {
+  for (const cookie of ['', 'atrium-theme=light', 'a=1; atrium-theme=light', 'atrium-theme=dark', 'atrium-theme=autre', 'theme=light', `${LEGACY_THEME_COOKIE}=light`, `${LEGACY_THEME_COOKIE}=light; atrium-theme=dark`]) {
     const attributs: Record<string, string> = {};
     const metas: Record<string, Record<string, string>> = { 'meta[name="color-scheme"]': {}, 'meta[name="theme-color"]': {} };
     const document = {
@@ -68,12 +72,12 @@ test('appliquerTheme : attribut de <html>, color-scheme et theme-color, cookie ;
   assert.equal(document.documentElement.dataset.theme, 'light');
   assert.equal(document.querySelector('meta[name="color-scheme"]')!.getAttribute('content'), 'light');
   assert.equal(document.querySelector('meta[name="theme-color"]')!.getAttribute('content'), '#f4f5f9');
-  assert.match(document.cookie, /epc2i-theme=light/);
+  assert.match(document.cookie, /atrium-theme=light/);
   delete document.documentElement.dataset.theme;
   assert.equal(themeCourant(), 'light', 'sans attribut : le cookie');
   appliquerTheme('dark');
   assert.equal(themeCourant(), 'dark');
-  assert.match(document.cookie, /epc2i-theme=dark/);
+  assert.match(document.cookie, /atrium-theme=dark/);
 });
 
 test('sélecteur d’affichage : groupe « Affichage », lune « Affichage sombre » et soleil « Affichage clair », aria-pressed, thème changé au clic', () => {
@@ -90,10 +94,10 @@ test('sélecteur d’affichage : groupe « Affichage », lune « Affichage sombr
   fireEvent.click(clair);
   assert.equal(clair.getAttribute('aria-pressed'), 'true');
   assert.equal(document.documentElement.dataset.theme, 'light');
-  assert.match(document.cookie, /epc2i-theme=light/);
+  assert.match(document.cookie, /atrium-theme=light/);
   fireEvent.click(sombre);
   assert.equal(document.documentElement.dataset.theme, 'dark');
-  assert.match(document.cookie, /epc2i-theme=dark/);
+  assert.match(document.cookie, /atrium-theme=dark/);
 });
 
 test('sélecteur monté sur l’attribut posé par theme.js : l’affichage clair d’une visite précédente reste choisi', () => {

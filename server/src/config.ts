@@ -81,8 +81,20 @@ export function liaisonsCoupees(env: Env = process.env): boolean {
   return demoPublique(env) && env.CURSUS_DEMO_LIAISONS !== '1';
 }
 
-/** Base du serveur PostgreSQL commun EPC2I (socle de Matrix) : celle de la production, jamais d'une démonstration. */
-export const BASE_COMMUNE = 'epc2i';
+/**
+ * Base du serveur PostgreSQL commun de la suite Atrium (socle de Matrix) : celle de la production, jamais d'une
+ * démonstration. Le serveur en service garde son ancien nom jusqu'au renommage fait par Matrix (MX-N11, prérequis P4 de
+ * son docs/renommage-atrium.md) : Cursus reconnaît les deux (`BASES_COMMUNES`), avant comme après l'opération.
+ */
+export const BASE_COMMUNE = 'atrium';
+/** Ancien nom de la base commune, reconnu pendant la transition seulement (à retirer une fois le serveur renommé). */
+export const ANCIENNE_BASE_COMMUNE = 'epc2i';
+/** Noms reconnus comme la base commune : le nouveau, puis l'ancien. */
+export const BASES_COMMUNES: readonly string[] = [BASE_COMMUNE, ANCIENNE_BASE_COMMUNE];
+/** La base désignée est-elle celle du serveur commun (sous l'un de ses deux noms) ? */
+export function estBaseCommune(base: string | null | undefined): boolean {
+  return BASES_COMMUNES.includes(base ?? '');
+}
 /** Rôle de Cursus sur le serveur commun (socle de Matrix, infra/postgres-socle/01-base-et-roles.sql). */
 export const ROLE_CURSUS = 'cursus_app';
 
@@ -112,13 +124,13 @@ export function cibleBase(env: Env = process.env): { role: string; base: string;
 }
 
 /**
- * Démonstration branchée sur la base du serveur commun (epc2i) : ses salariés fictifs seraient publiés aux autres outils
+ * Démonstration branchée sur la base du serveur commun (`BASES_COMMUNES`) : ses salariés fictifs seraient publiés aux autres outils
  * par les vues pub_. Dans le lot 8, signalée seulement (avertissement au démarrage, état « degrade » du point de santé),
  * pour ne pas arrêter la démonstration en ligne avant la décision du propriétaire ; interdite au jour de la bascule
  * (docs/BASCULE-PRODUCTION.md) et dès que la base porte la purge ou le réglage `exploitation` (server/src/index.ts).
  */
 export function demoSurBaseCommune(env: Env = process.env): boolean {
-  return demoActive(env) && cibleBase(env)?.base === BASE_COMMUNE;
+  return demoActive(env) && estBaseCommune(cibleBase(env)?.base);
 }
 
 export function portEcoute(env: Env = process.env): number {
@@ -377,7 +389,7 @@ export function problemesBase(env: Env = process.env): string[] {
   const out: string[] = [];
   const url = env.DATABASE_URL?.trim();
   if (url && (!/^postgres(ql)?:\/\/[^\s]+$/i.test(url) || !URL.canParse(url))) {
-    out.push('DATABASE_URL n’est pas une adresse PostgreSQL valide : postgres://cursus_app:<mot de passe>@<hôte>:5432/epc2i (vide ou absente : base SQLite locale).');
+    out.push('DATABASE_URL n’est pas une adresse PostgreSQL valide : postgres://cursus_app:<mot de passe>@<hôte>:5432/atrium (vide ou absente : base SQLite locale).');
   }
   const pool = env.CURSUS_PG_POOL?.trim();
   if (pool && !(/^\d+$/.test(pool) && Number(pool) >= 1 && Number(pool) <= 100)) out.push(`CURSUS_PG_POOL doit être un nombre de connexions entre 1 et 100 (valeur actuelle : ${pool}).`);
@@ -438,7 +450,7 @@ function problemesProduction(env: Env): string[] {
   // en SQLite (choix du lot 8).
   const choix = (env.CURSUS_BASE ?? '').trim();
   if (choix && !['sqlite', 'postgres'].includes(choix)) out.push(`CURSUS_BASE vaut « ${choix} » : indiquez postgres (serveur commun, avec DATABASE_URL) ou sqlite (fichier local, choisi explicitement).`);
-  else if (choix === 'postgres' && !url) out.push('CURSUS_BASE=postgres est définie sans DATABASE_URL : indiquez l’adresse du serveur PostgreSQL commun (rôle cursus_app, base epc2i).');
+  else if (choix === 'postgres' && !url) out.push('CURSUS_BASE=postgres est définie sans DATABASE_URL : indiquez l’adresse du serveur PostgreSQL commun (rôle cursus_app, base atrium).');
   else if (choix === 'sqlite' && url) out.push('CURSUS_BASE=sqlite est définie avec DATABASE_URL : les deux se contredisent. Pour passer au serveur commun, retirez CURSUS_BASE (ou posez CURSUS_BASE=postgres) ; sinon retirez DATABASE_URL.');
   else if (env.CURSUS_CONTENEUR === '1' && !demo && !url && choix !== 'sqlite') {
     out.push('Image Docker sans DATABASE_URL : Cursus démarrerait sur un fichier SQLite vide du volume (/data/cursus.db), que les autres outils ne voient pas. '
@@ -456,7 +468,7 @@ function problemesProduction(env: Env): string[] {
   if (!demo && cible?.role === 'postgres') {
     out.push('DATABASE_URL se connecte avec le rôle postgres (superutilisateur) : Cursus aurait tous les droits sur le serveur commun. Utilisez le rôle cursus_app du socle.');
   } else if (!demo && cible && !cible.role && enProduction(env)) {
-    out.push('DATABASE_URL ne désigne aucun rôle (ni utilisateur dans l’adresse, ni ?user=, ni PGUSER) : node-postgres prendrait le compte du système. Indiquez le rôle cursus_app du socle (postgres://cursus_app:<mot de passe>@<hôte>:5432/epc2i).');
+    out.push('DATABASE_URL ne désigne aucun rôle (ni utilisateur dans l’adresse, ni ?user=, ni PGUSER) : node-postgres prendrait le compte du système. Indiquez le rôle cursus_app du socle (postgres://cursus_app:<mot de passe>@<hôte>:5432/atrium).');
   }
   // Constat S7 : true, ou un réseau qui couvre toutes les adresses (préfixe /0, 0.0.0.0/0, ::/0), revient au même.
   const proxy = trustProxy(env);
@@ -580,7 +592,7 @@ export function avertissementsConfig(env: Env = process.env, opts: OptionsConfig
       + 'Utilisez le rôle cursus_app (docs/BASCULE-PRODUCTION.md) ; refusé hors démonstration.');
   }
   if (demoSurBaseCommune(env)) {
-    out.push(`Démonstration (CURSUS_DEMO=1) branchée sur la base ${BASE_COMMUNE} du serveur commun : ses salariés fictifs sont publiés aux autres outils par les vues pub_. `
+    out.push(`Démonstration (CURSUS_DEMO=1) branchée sur la base ${cibleBase(env)!.base} du serveur commun : ses salariés fictifs sont publiés aux autres outils par les vues pub_. `
       + 'Choix retenu (docs/BASCULE-PRODUCTION.md, Q1) : à la mise en production dans cette même application, purge des données fictives (npm run purge-demo), puis CURSUS_DEMO retirée ; la démonstration y est ensuite refusée.');
   }
   const liaisons = definies(env, ['KEYSTONE_URL', 'MATRIX_URL']);

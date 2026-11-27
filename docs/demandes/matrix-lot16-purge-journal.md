@@ -19,7 +19,7 @@ Cursus ne crée ni rôle ni droit sur le serveur commun : le rôle et ses droits
 
 1. `init/01-base-et-roles.sql` : rôle `cursus_purge`, aucun attribut d'administration, membre d'aucun groupe ; LOGIN
    avec le mot de passe `CURSUS_PURGE_PASSWORD` s'il est fourni (facultatif, comme `bi_reader`), sinon NOLOGIN ;
-   CONNECT sur `epc2i`.
+   CONNECT sur la base commune (`atrium`).
 2. `init/03-droits.sql` (rejoué après la migration 0035 de Cursus ; sans effet tant qu'elle n'est pas passée) : exactement
    les droits de `docs/demandes/matrix-lot16-purge-journal.sql` (`droitsPurgeSql` de `server/src/journal-purge.ts`) :
    USAGE sur `cursus` ; SELECT (id, at, action, paie) et DELETE sur `cursus.journal` ; SELECT sur
@@ -36,5 +36,5 @@ La purge reste désactivée sur le serveur commun (avertissement au démarrage d
 
 ## Côté Cursus
 
-`CURSUS_PURGE_DATABASE_URL=postgres://cursus_purge:<mot de passe>@epc2i-postgres:5432/epc2i` (docs/DEPLOIEMENT.md,
-« Variante : serveur PostgreSQL commun EPC2I », point 7).
+`CURSUS_PURGE_DATABASE_URL=postgres://cursus_purge:<mot de passe>@atrium-postgres:5432/atrium` (docs/DEPLOIEMENT.md,
+« Variante : serveur PostgreSQL commun de la suite Atrium », point 7).

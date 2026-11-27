@@ -106,7 +106,7 @@ if (DEMO) {
 }
 // Contrôle de la base au démarrage (lot 8, chantier B ; règles : server/src/pre-vol.ts, controlerDemarrage) : en
 // production hors démonstration, refus d'une base qui porte des données de démonstration ou d'une connexion en
-// superutilisateur ; démonstration sur la base epc2i refusée dès que la base a servi en production ou a été purgée.
+// superutilisateur ; démonstration sur la base atrium refusée dès que la base a servi en production ou a été purgée.
 // Fait avant tout chargement et avant le marquage `exploitation`, qui ne doit jamais être posé sur une démonstration.
 const refusBase = await controlerDemarrage(db);
 if (refusBase.length) arret.echec(refusBase.join(' ; '));

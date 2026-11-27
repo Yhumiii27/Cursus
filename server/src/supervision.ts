@@ -12,7 +12,7 @@
 // - `orphelins` : références orphelines (server/src/integrite.ts) ;
 // - `secret-microsoft` : secret client Entra qui expire dans 30 jours ou moins (CURSUS_OIDC_SECRET_EXPIRE) ;
 // - `secret-envoi` : secret propre à l'envoi des e-mails qui expire dans 30 jours ou moins (CURSUS_MAIL_SECRET_EXPIRE) ;
-// - `demo-base-commune` : démonstration branchée sur la base epc2i du serveur commun (signalée, jamais arrêtée, lot 8) ;
+// - `demo-base-commune` : démonstration branchée sur la base atrium du serveur commun (signalée, jamais arrêtée, lot 8) ;
 // - `sauvegarde` : dernière sauvegarde du serveur commun de plus de 26 h, ou témoin illisible (CURSUS_SAUVEGARDE_TEMOIN,
 //   server/src/sauvegarde-temoin.ts) ;
 // - en production hors démonstration seulement : `donnees-demo` (données du jeu fictif dans la base), `aucun-admin`

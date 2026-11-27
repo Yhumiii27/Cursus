@@ -3,7 +3,7 @@
 # - Données : /data (base SQLite et sauvegardes) — y monter un volume persistant, sinon elles sont perdues à chaque
 #   déploiement. Au démarrage, le conteneur rend ce volume au compte `cursus` de l'image puis abandonne les droits root
 #   (server/src/conteneur.ts) : un volume créé par une image antérieure, qui tournait sous root, reste utilisable.
-# - Serveur PostgreSQL commun EPC2I : DATABASE_URL (rôle cursus_app, base epc2i), variable d'exécution de l'hébergeur
+# - Serveur PostgreSQL commun de la suite Atrium : DATABASE_URL (rôle cursus_app, base atrium), variable d'exécution de l'hébergeur
 #   seulement, jamais dans l'image ni au build (la construction ne touche pas à la base). Avec elle, /data ne sert plus
 #   qu'au fichier SQLite de repli et à ses sauvegardes (retour arrière, reprise des données) : garder le volume.
 # - Variables obligatoires : CURSUS_SECRET et KEYSTONE_API_KEY.

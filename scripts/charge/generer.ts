@@ -1,7 +1,7 @@
 // npm run charge:generer -- --ans 5 --effectif 100 --interimaires 20 --seed 42 : jeu de données réaliste pour l'essai de
 // charge sur PostgreSQL (lot 8, chantier E ; méthode : docs/ARCHITECTURE.md, « Performances »). Il travaille dans un
 // schéma jetable `cursus_charge_<horodatage>` du serveur de test de CURSUS_TEST_DATABASE_URL et refuse le serveur
-// commun EPC2I (scripts/charge/commun.ts) ; le schéma reste en place pour les essais (npm run charge), jusqu'à
+// commun de la suite Atrium (scripts/charge/commun.ts) ; le schéma reste en place pour les essais (npm run charge), jusqu'à
 // `npm run charge:generer -- --supprimer`, qui retire tous les schémas de l'essai de ce serveur.
 //   - migrations de server/migrations-pg/, amorçages d'une base neuve et référentiel de la démonstration (seedDemo) ;
 //   - fiches portées à l'effectif (dont les intérimaires de trois agences), deux équipes de plus (8 managers), un

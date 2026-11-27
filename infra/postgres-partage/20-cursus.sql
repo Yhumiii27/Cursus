@@ -1,4 +1,4 @@
--- Partage des données EPC2I, fichier 20 : vues publiées par Cursus (schéma cursus).
+-- Partage des données de la suite Atrium, fichier 20 : vues publiées par Cursus (schéma cursus).
 --
 -- Copie qualifiée des vues pub_ de la migration 0002_partage de Cursus (server/migrations-pg/0002_partage.sql du dépôt
 -- Cursus, sous-étape 8.b) : c'est Cursus qui crée ses vues et leurs colonnes prérequises, à son démarrage. Rejouer ce
@@ -16,7 +16,7 @@
 -- pas de colonne). Celle-ci ne lit que des colonnes présentes dès 0002 : elle se rejoue avant comme après 0011.
 -- Exécution : en tant que cursus_app (ou un administrateur membre de matrix_admin, SET ROLE cursus_app), après le
 -- premier démarrage de Cursus sur le serveur (voir README.md) :
---   psql "postgres://cursus_app:…@hôte:5432/epc2i" -v ON_ERROR_STOP=1 -1 -f partage/20-cursus.sql
+--   psql "postgres://cursus_app:…@hôte:5432/atrium" -v ON_ERROR_STOP=1 -1 -f partage/20-cursus.sql
 -- Rejouable. Les vues ne lisent que des tables du schéma cursus. Droits : 90-droits.sql.
 --
 -- Colonnes sensibles, jamais lues par une vue pub_ (convention du 15/10/2026, droits.colonnes_sensibles, P-04) :

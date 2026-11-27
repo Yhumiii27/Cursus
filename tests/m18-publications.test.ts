@@ -4,7 +4,7 @@
 // dessus, échouerait sur le serveur commun (la vue appartient à matrix_gestion) : aucune migration après 0029 n'en
 // contient. Les migrations publiées 0002, 0004 et 0011, qui ont créé les vues, restent intactes (empreintes figées) :
 // elles ne sont jamais rejouées sur une base déjà migrée, et sur une base neuve les vues qu'elles créent sont ensuite
-// reprises par Matrix (docs/DEPLOIEMENT.md, « Variante : serveur PostgreSQL commun EPC2I »).
+// reprises par Matrix (docs/DEPLOIEMENT.md, « Variante : serveur PostgreSQL commun de la suite Atrium »).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 

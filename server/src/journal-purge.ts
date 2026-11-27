@@ -91,7 +91,7 @@ export function problemesPurge(env: Env = process.env): string[] {
   const url = urlPurge(env);
   if (!url) return [];
   if (!/^postgres(ql)?:\/\/[^\s]+$/i.test(url) || !URL.canParse(url)) {
-    return ['CURSUS_PURGE_DATABASE_URL n’est pas une adresse PostgreSQL valide : postgres://cursus_purge:<mot de passe>@<hôte>:5432/epc2i.'];
+    return ['CURSUS_PURGE_DATABASE_URL n’est pas une adresse PostgreSQL valide : postgres://cursus_purge:<mot de passe>@<hôte>:5432/atrium.'];
   }
   if (!(env.DATABASE_URL ?? '').trim()) {
     return ['CURSUS_PURGE_DATABASE_URL est définie sans DATABASE_URL : sur une base SQLite, la purge du journal se fait dans Cursus, sans rôle dédié. Retirez-la.'];

@@ -49,7 +49,7 @@ let nomBase: string | null = null;
 let schemas = 0;
 const ouvertes = new Set<PgDb>();
 
-/** Base PostgreSQL du fichier de test, créée au premier appel (tri C comme la base epc2i du socle). */
+/** Base PostgreSQL du fichier de test, créée au premier appel (tri C comme la base atrium du socle). */
 function urlBase(): Promise<string> {
   base ??= (async () => {
     nomBase = `cursus_test_${process.pid}_${randomBytes(4).toString('hex')}`;

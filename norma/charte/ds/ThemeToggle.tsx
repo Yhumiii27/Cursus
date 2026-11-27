@@ -1,8 +1,8 @@
 'use client';
 // Norma 2.0 : remplacé par ThemeSwitch / PrefsStack (HeaderTools.tsx, charte/COQUE.md § 4), gardé le temps que chaque outil
-// passe à la coque commune ; à retirer en 3.0.
+// passe à la coque commune ; à retirer en 4.0 (Norma 3.0 ne retire rien d'autre que l'ancien nom écrit du cookie).
 // Bascule sombre / clair de l'en-tête, à côté du sélecteur de langue (Norma 1.0). Change l'attribut data-theme de <html>
-// et le cookie epc2i-theme sans aller-retour au serveur ; le serveur relit le cookie aux pages suivantes.
+// et le cookie atrium-theme sans aller-retour au serveur ; le serveur relit le cookie aux pages suivantes.
 import { Moon, Sun } from '@phosphor-icons/react/dist/ssr';
 import { useState } from 'react';
 import { useI18n } from '@/i18n/client';

@@ -1,7 +1,7 @@
 // Sélecteur d'affichage sombre | clair (Norma 2.0, COQUE.md § 4) : le bas de la paire langue / affichage
 // (layout/Coque.tsx, `Preferences`), sous le sélecteur FR | EN, de même taille (classes coque-pref de
 // norma/charte/coque.css). Lune = affichage sombre, soleil = affichage clair, `aria-pressed`, noms lus par un lecteur
-// d'écran et en infobulle (i18n/langue.ts). Change l'attribut data-theme de <html> et le cookie epc2i-theme dans le
+// d'écran et en infobulle (i18n/langue.ts). Change l'attribut data-theme de <html> et le cookie atrium-theme dans le
 // navigateur (theme/theme.ts), sans aller-retour au serveur ; le changement est diffusé (THEME_EVENT) pour que les deux
 // copies de la paire (en-tête de page, barre supérieure du téléphone) restent d'accord.
 import { useEffect, useState } from 'react';

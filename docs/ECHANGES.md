@@ -31,7 +31,7 @@ schéma `codex` n'est lu que par sa vue `codex.pub_types_document` (lot 16, lign
 | Cursus → Codex : pièces justificatives (lot 16, décision du 10/11/2026 : tous les documents dans Codex ; contrat livré par Codex#38 le 26/11/2026, CU-037) | API de Codex : `POST ${CODEX_URL}/api/documents` (jeton `CODEX_CURSUS_TOKEN`, signature HMAC `CODEX_CURSUS_SECRET` facultative, type `DPE`, `category`, `subjectMatricule`, `sha256`, `sourceRef` `cursus:piece/<id>` rejouable), lecture `GET …/{id}/file` (empreinte `X-Codex-SHA256` contrôlée) et destruction `POST …/{id}/destroy` (motif `retrait` / `conservation` / `effacement`) ; client `server/src/integrations/codex/codex-documents.ts`, versement `server/src/integrations/codex/pieces-codex.ts`, Codex simulé `codex-simule.ts` (`CODEX_SIMULATION=1`, hors production). Stockage « Codex » refusé tant que Codex n'est pas raccordé et que ses catégories manquent ; aucune pièce réelle versée aujourd'hui | Conforme (API) |
 | Cursus → Vigie, Crucible, Arche | Aucun envoi | — |
 
-Hors du groupe (ni schéma ni outil EPC2I) : e-mails par Microsoft Graph, notifications push par les services des
+Hors du groupe (ni schéma ni outil de la suite Atrium) : e-mails par Microsoft Graph, notifications push par les services des
 navigateurs, connexion Microsoft Entra ID, fichier d'import de Sage Paie téléchargé par la paie.
 
 ### Où vivent les connecteurs (Norma § 5, 24/11/2026)

@@ -28,12 +28,11 @@ Vigie et Crucible, sous des matricules fixés ici. **Toutes ces données sont fi
   d'eux voit son site remis à vide), site et unité remis à vide seulement s'ils valent encore la valeur posée. Le
   paramétrage du service RH, saisi avant ou après l'ajout (site `lyon` créé à la main, équipe « Direction » homonyme,
   poste « Magasinier » avec ses exigences, équipe rattachée à `lyon`, rattachement refait), est gardé, comme le profil
-  `parametrage` le veut. Le nom « EPC2I » donné à l'entité reste.
-- Adresses : celles des personas de Keystone sont gardées en `@epc2i.fr`, **le domaine réel de l'entreprise** (celui
-  d'Entra ID), pour le rapprochement par e-mail de Keystone ; les autres sont en `@epc2i.example` (domaine réservé). Aucun
+  `parametrage` le veut. Le nom « Société mère » donné à l'entité reste.
+- Adresses : toutes en `@atrium.example` (domaine fictif réservé), comme les personas de Keystone, de Crucible et de
+  Vigie depuis le renommage de la suite en Atrium (27 novembre 2026), pour le rapprochement par e-mail. Aucun
   e-mail ne part d'une instance de démonstration, même avec `CURSUS_MAIL_*` posées (`configMail`, server/src/config.ts :
-  toujours en simulation avec `CURSUS_DEMO=1`) ; ne pas lever cette garde sur l'instance commune. Le passage de ces
-  personas en `@epc2i.example` est demandé à Keystone (`docs/demandes/demo-commune-keystone.md`). Ces fiches et leurs
+  toujours en simulation avec `CURSUS_DEMO=1`) ; ne pas lever cette garde sur l'instance commune. Ces fiches et leurs
   comptes partent avec la purge comme les autres (reconnues par le réglage `demoCommun` et `cree_par`, pas par le
   domaine).
 
@@ -80,7 +79,7 @@ Commercial `COM-VENTE`. Équipes ajoutées (manager = responsable de départemen
 | Magasin | ACH-MAGASIN | lyon | Achats | EMP-0046 Fabien Bertrand |
 | Essais R&D | RDI-ESSAIS | site_rd | R&D | EMP-0060 Hélène Marchal |
 
-Les équipes racines relèvent de l'entité unique (société « EPC2I », site `lyon`). Le site d'une fiche est celui de son
+Les équipes racines relèvent de l'entité unique (société « Société mère », site `lyon`). Le site d'une fiche est celui de son
 équipe : les personnes d'un autre site que leur département ont une équipe rattachée (Projets Le Havre, Zone d'essais,
 Essais R&D).
 
@@ -89,73 +88,73 @@ Essais R&D).
 EMP-0001 à EMP-0024 (jeu de Cursus) ne bougent pas. Outils : K Keystone, C Codex, V Vigie, Cr Crucible. Contrats CDI
 (cadres au forfait annuel en jours, techniciens à 39 h avec RTT, ouvriers à 35 h), entrées passées, aucune donnée de
 santé ; quelques formations (SST, habilitation électrique, CACES, travail en hauteur, EPI). Adresse : celle de l'outil
-source (Keystone `@epc2i.fr`, Crucible et Vigie `@epc2i.example`), sinon `prenom.nom@epc2i.example`.
+source (Keystone, Crucible et Vigie, toutes en `@atrium.example`), sinon `prenom.nom@atrium.example`.
 
 | Matricule | Personne | Poste | Équipe | Unité | Site | Adresse | Outils |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| EMP-0025 | Marie Lefebvre | Directrice de portefeuille | Projets | PRJ | lyon | marie.lefebvre@epc2i.fr | K, C |
-| EMP-0026 | Romain Aubert | Chef de projet | Projets Le Havre | PRJ-HAVRE | le_havre | romain.aubert@epc2i.fr | K, C |
-| EMP-0027 | Sophie Perrin | Cheffe de projet | Projets | PRJ | lyon | sophie.perrin@epc2i.example | K, C |
-| EMP-0028 | Cédric Moreau | Chef de projet | Projets | PRJ | lyon | cedric.moreau@epc2i.example | K, C |
-| EMP-0029 | Léa Marchand | Contrôleuse de gestion | Projets | PRJ | lyon | lea.marchand@epc2i.fr | K, C |
-| EMP-0030 | Damien Roux | Planificateur | Projets | PRJ | lyon | damien.roux@epc2i.example | K |
-| EMP-0031 | Camille Verdier | Coordinatrice logistique | Projets | PRJ | lyon | camille.verdier@epc2i.fr | K |
-| EMP-0032 | Ines Duarte | Responsable contrôle de projet | Projets | PRJ | lyon | ines.duarte@epc2i.example | K |
-| EMP-0033 | Marion Kerviel | Responsable ingénierie | Ingénierie | ING | lyon | marion.kerviel@epc2i.fr | K, C |
-| EMP-0034 | Antoine Girard | Référent ingénierie | Ingénierie | ING | lyon | antoine.girard@epc2i.fr | K, C |
-| EMP-0035 | Julien Wagner | Ingénieur structure | Ingénierie | ING | lyon | julien.wagner@epc2i.fr | K, C |
-| EMP-0036 | Samir Haddad | Ingénieur électricité | Ingénierie | ING | lyon | samir.haddad@epc2i.example | K (« Sami »), C |
-| EMP-0037 | Camille Morvan | Automaticienne | Ingénierie | ING | lyon | camille.morvan@epc2i.example | K (« Claire »), C |
-| EMP-0038 | Pauline Noguès | Responsable MEP | MEP | MEP | lyon | pauline.nogues@epc2i.example | K, C |
-| EMP-0039 | Sophie Renard | Ingénieure MEP | MEP | MEP | lyon | sophie.renard@epc2i.example | K |
-| EMP-0040 | Olivier Blanc | Responsable opérations chantier | Chantier | CHA | le_havre | olivier.blanc@epc2i.example | K, C |
-| EMP-0041 | Lucas Fabre | Responsable de chantier | Chantier | CHA | le_havre | lucas.fabre@epc2i.example | K, C |
-| EMP-0042 | Amélie Ollivier | Cheffe de site | Chantier | CHA | le_havre | amelie.ollivier@epc2i.example | K |
-| EMP-0043 | Thomas Kerbrat | Opérations de levage | Chantier | CHA | le_havre | thomas.kerbrat@epc2i.example | K |
-| EMP-0044 | Gabriel Comte | Responsable qualité | Qualité | QUA | lyon | gabriel.comte@epc2i.fr | K, C |
-| EMP-0045 | Hélène Sauvage | Technicienne QA/QC | Qualité | QUA | lyon | helene.sauvage@epc2i.example | K, C |
-| EMP-0046 | Fabien Bertrand | Responsable achats et stock | Achats | ACH | marseille | fabien.bertrand@epc2i.fr | K, C |
-| EMP-0047 | Claire Bardet | Responsable HSE et gestion documentaire | HSE | HSE | lyon | claire.bardet@epc2i.example | C |
-| EMP-0048 | Hélène Costa | Directrice générale | Direction | DIR | lyon | helene.costa@epc2i.example | C |
-| EMP-0049 | Nadia Benali | Responsable RH | RH | RHU | lyon | nadia.benali@epc2i.example | C |
-| EMP-0050 | Thomas Weil | Responsable financier | Finance | FIN | lyon | thomas.weil@epc2i.example | C |
-| EMP-0051 | Inès Rahmani | Juriste | Juridique | JUR | lyon | ines.rahmani@epc2i.example | C |
-| EMP-0052 | Marc Delorme | Responsable SI | SI | DSI | lyon | marc.delorme@epc2i.example | C |
-| EMP-0053 | Lucie Martin | Chargée de communication | Communication | CMN | lyon | lucie.martin@epc2i.example | C |
-| EMP-0054 | Yasmine Aït-Saïd | Responsable R&D | R&D | RDI | lyon | yasmine.ait.said@epc2i.example | C |
-| EMP-0055 | James Holt | Auditeur interne | Qualité | QUA | lyon | james.holt@epc2i.example | C |
-| EMP-0056 | David Imbert | Chef de projet | Projets | PRJ | lyon | david.imbert@epc2i.example | K (« D. Imbert ») |
-| EMP-0057 | Karine Blanchard | Cheffe de projet | Projets | PRJ | lyon | karine.blanchard@epc2i.example | K (« K. Blanchard ») |
-| EMP-0058 | Arnaud Naveau | Chef de projet | Projets | PRJ | lyon | arnaud.naveau@epc2i.example | K (« A. Naveau ») |
-| EMP-0059 | Laure Fontaine | Cheffe de projet | Projets | PRJ | lyon | laure.fontaine@epc2i.example | K (« L. Fontaine ») |
-| EMP-0060 | Hélène Marchal | Directrice R&D | Essais R&D | RDI-ESSAIS | site_rd | h.marchal@epc2i.example | Cr |
-| EMP-0061 | Antoine Leroy | Coordinateur des moyens d’essais | Essais R&D | RDI-ESSAIS | site_rd | a.leroy@epc2i.example | Cr |
-| EMP-0062 | Nathalie Brun | Référente sécurité pyrotechnique | Essais R&D | RDI-ESSAIS | site_rd | n.brun@epc2i.example | Cr |
-| EMP-0063 | Damien Petit | Responsable du PDE | Essais R&D | RDI-ESSAIS | site_rd | d.petit@epc2i.example | Cr |
-| EMP-0064 | Camille Fabre | Cheffe de projet R&D | Essais R&D | RDI-ESSAIS | site_rd | c.fabre@epc2i.example | Cr |
-| EMP-0065 | Julien Masson | Technicien d’essais | Essais R&D | RDI-ESSAIS | site_rd | j.masson@epc2i.example | Cr |
-| EMP-0066 | Olivier Caron | Responsable ingénierie | Ingénierie | ING | lyon | o.caron@epc2i.example | Cr |
-| EMP-0067 | Sandrine Roux | Responsable du laboratoire 67 | Essais R&D | RDI-ESSAIS | site_rd | s.roux@epc2i.example | Cr |
-| EMP-0068 | Mehdi Arnaud | Chef de projet R&D | Essais R&D | RDI-ESSAIS | site_rd | m.arnaud@epc2i.example | Cr |
-| EMP-0069 | Thierry Nguyen | Monteur | Atelier montage | CHA-MONTAGE | lyon | t.nguyen@epc2i.example | V |
-| EMP-0070 | Michel Girard | Usineur | Atelier usinage | CHA-USINAGE | lyon | m.girard@epc2i.example | V |
-| EMP-0071 | Paul Roux | Usineur | Atelier usinage | CHA-USINAGE | lyon | p.roux@epc2i.example | V |
-| EMP-0072 | Alice Martin | Technicienne d’essais | Zone d’essais | ING-ESSAIS | lyon_essais | a.martin@epc2i.example | V |
-| EMP-0073 | Jérôme Petit | Chef de zone d’essais | Zone d’essais | ING-ESSAIS | lyon_essais | j.petit@epc2i.example | V |
-| EMP-0074 | René Fontaine | Magasinier | Magasin | ACH-MAGASIN | lyon | r.fontaine@epc2i.example | V |
-| EMP-0075 | Émilie Dubois | Ingénieure bureau d’études | Bureau d’études | ING-BE | lyon | e.dubois@epc2i.example | V |
-| EMP-0076 | Laurent Moreau | Responsable qualité atelier | Qualité | QUA | lyon | l.moreau@epc2i.example | V |
-| EMP-0077 | Stéphane Benali | Chef d’atelier montage | Atelier montage | CHA-MONTAGE | lyon | s.benali@epc2i.example | V |
-| EMP-0078 | Kevin Bernard | Monteur | Atelier montage | CHA-MONTAGE | lyon | k.bernard@epc2i.example | V |
-| EMP-0079 | Céline Lefèvre | Animatrice QHSE | HSE | HSE | lyon | c.lefevre@epc2i.example | V |
-| EMP-0080 | Henri Marchand | Directeur de site | Direction | DIR | lyon | h.marchand@epc2i.example | V |
-| EMP-0081 | Yves Lambert | Usineur | Atelier usinage | CHA-USINAGE | lyon | y.lambert@epc2i.example | V |
+| EMP-0025 | Marie Lefebvre | Directrice de portefeuille | Projets | PRJ | lyon | marie.lefebvre@atrium.example | K, C |
+| EMP-0026 | Romain Aubert | Chef de projet | Projets Le Havre | PRJ-HAVRE | le_havre | romain.aubert@atrium.example | K, C |
+| EMP-0027 | Sophie Perrin | Cheffe de projet | Projets | PRJ | lyon | sophie.perrin@atrium.example | K, C |
+| EMP-0028 | Cédric Moreau | Chef de projet | Projets | PRJ | lyon | cedric.moreau@atrium.example | K, C |
+| EMP-0029 | Léa Marchand | Contrôleuse de gestion | Projets | PRJ | lyon | lea.marchand@atrium.example | K, C |
+| EMP-0030 | Damien Roux | Planificateur | Projets | PRJ | lyon | damien.roux@atrium.example | K |
+| EMP-0031 | Camille Verdier | Coordinatrice logistique | Projets | PRJ | lyon | camille.verdier@atrium.example | K |
+| EMP-0032 | Ines Duarte | Responsable contrôle de projet | Projets | PRJ | lyon | ines.duarte@atrium.example | K |
+| EMP-0033 | Marion Kerviel | Responsable ingénierie | Ingénierie | ING | lyon | marion.kerviel@atrium.example | K, C |
+| EMP-0034 | Antoine Girard | Référent ingénierie | Ingénierie | ING | lyon | antoine.girard@atrium.example | K, C |
+| EMP-0035 | Julien Wagner | Ingénieur structure | Ingénierie | ING | lyon | julien.wagner@atrium.example | K, C |
+| EMP-0036 | Samir Haddad | Ingénieur électricité | Ingénierie | ING | lyon | samir.haddad@atrium.example | K (« Sami »), C |
+| EMP-0037 | Camille Morvan | Automaticienne | Ingénierie | ING | lyon | camille.morvan@atrium.example | K (« Claire »), C |
+| EMP-0038 | Pauline Noguès | Responsable MEP | MEP | MEP | lyon | pauline.nogues@atrium.example | K, C |
+| EMP-0039 | Sophie Renard | Ingénieure MEP | MEP | MEP | lyon | sophie.renard@atrium.example | K |
+| EMP-0040 | Olivier Blanc | Responsable opérations chantier | Chantier | CHA | le_havre | olivier.blanc@atrium.example | K, C |
+| EMP-0041 | Lucas Fabre | Responsable de chantier | Chantier | CHA | le_havre | lucas.fabre@atrium.example | K, C |
+| EMP-0042 | Amélie Ollivier | Cheffe de site | Chantier | CHA | le_havre | amelie.ollivier@atrium.example | K |
+| EMP-0043 | Thomas Kerbrat | Opérations de levage | Chantier | CHA | le_havre | thomas.kerbrat@atrium.example | K |
+| EMP-0044 | Gabriel Comte | Responsable qualité | Qualité | QUA | lyon | gabriel.comte@atrium.example | K, C |
+| EMP-0045 | Hélène Sauvage | Technicienne QA/QC | Qualité | QUA | lyon | helene.sauvage@atrium.example | K, C |
+| EMP-0046 | Fabien Bertrand | Responsable achats et stock | Achats | ACH | marseille | fabien.bertrand@atrium.example | K, C |
+| EMP-0047 | Claire Bardet | Responsable HSE et gestion documentaire | HSE | HSE | lyon | claire.bardet@atrium.example | C |
+| EMP-0048 | Hélène Costa | Directrice générale | Direction | DIR | lyon | helene.costa@atrium.example | C |
+| EMP-0049 | Nadia Benali | Responsable RH | RH | RHU | lyon | nadia.benali@atrium.example | C |
+| EMP-0050 | Thomas Weil | Responsable financier | Finance | FIN | lyon | thomas.weil@atrium.example | C |
+| EMP-0051 | Inès Rahmani | Juriste | Juridique | JUR | lyon | ines.rahmani@atrium.example | C |
+| EMP-0052 | Marc Delorme | Responsable SI | SI | DSI | lyon | marc.delorme@atrium.example | C |
+| EMP-0053 | Lucie Martin | Chargée de communication | Communication | CMN | lyon | lucie.martin@atrium.example | C |
+| EMP-0054 | Yasmine Aït-Saïd | Responsable R&D | R&D | RDI | lyon | yasmine.ait.said@atrium.example | C |
+| EMP-0055 | James Holt | Auditeur interne | Qualité | QUA | lyon | james.holt@atrium.example | C |
+| EMP-0056 | David Imbert | Chef de projet | Projets | PRJ | lyon | david.imbert@atrium.example | K (« D. Imbert ») |
+| EMP-0057 | Karine Blanchard | Cheffe de projet | Projets | PRJ | lyon | karine.blanchard@atrium.example | K (« K. Blanchard ») |
+| EMP-0058 | Arnaud Naveau | Chef de projet | Projets | PRJ | lyon | arnaud.naveau@atrium.example | K (« A. Naveau ») |
+| EMP-0059 | Laure Fontaine | Cheffe de projet | Projets | PRJ | lyon | laure.fontaine@atrium.example | K (« L. Fontaine ») |
+| EMP-0060 | Hélène Marchal | Directrice R&D | Essais R&D | RDI-ESSAIS | site_rd | h.marchal@atrium.example | Cr |
+| EMP-0061 | Antoine Leroy | Coordinateur des moyens d’essais | Essais R&D | RDI-ESSAIS | site_rd | a.leroy@atrium.example | Cr |
+| EMP-0062 | Nathalie Brun | Référente sécurité pyrotechnique | Essais R&D | RDI-ESSAIS | site_rd | n.brun@atrium.example | Cr |
+| EMP-0063 | Damien Petit | Responsable du PDE | Essais R&D | RDI-ESSAIS | site_rd | d.petit@atrium.example | Cr |
+| EMP-0064 | Camille Fabre | Cheffe de projet R&D | Essais R&D | RDI-ESSAIS | site_rd | c.fabre@atrium.example | Cr |
+| EMP-0065 | Julien Masson | Technicien d’essais | Essais R&D | RDI-ESSAIS | site_rd | j.masson@atrium.example | Cr |
+| EMP-0066 | Olivier Caron | Responsable ingénierie | Ingénierie | ING | lyon | o.caron@atrium.example | Cr |
+| EMP-0067 | Sandrine Roux | Responsable du laboratoire 67 | Essais R&D | RDI-ESSAIS | site_rd | s.roux@atrium.example | Cr |
+| EMP-0068 | Mehdi Arnaud | Chef de projet R&D | Essais R&D | RDI-ESSAIS | site_rd | m.arnaud@atrium.example | Cr |
+| EMP-0069 | Thierry Nguyen | Monteur | Atelier montage | CHA-MONTAGE | lyon | t.nguyen@atrium.example | V |
+| EMP-0070 | Michel Girard | Usineur | Atelier usinage | CHA-USINAGE | lyon | m.girard@atrium.example | V |
+| EMP-0071 | Paul Roux | Usineur | Atelier usinage | CHA-USINAGE | lyon | p.roux@atrium.example | V |
+| EMP-0072 | Alice Martin | Technicienne d’essais | Zone d’essais | ING-ESSAIS | lyon_essais | a.martin@atrium.example | V |
+| EMP-0073 | Jérôme Petit | Chef de zone d’essais | Zone d’essais | ING-ESSAIS | lyon_essais | j.petit@atrium.example | V |
+| EMP-0074 | René Fontaine | Magasinier | Magasin | ACH-MAGASIN | lyon | r.fontaine@atrium.example | V |
+| EMP-0075 | Émilie Dubois | Ingénieure bureau d’études | Bureau d’études | ING-BE | lyon | e.dubois@atrium.example | V |
+| EMP-0076 | Laurent Moreau | Responsable qualité atelier | Qualité | QUA | lyon | l.moreau@atrium.example | V |
+| EMP-0077 | Stéphane Benali | Chef d’atelier montage | Atelier montage | CHA-MONTAGE | lyon | s.benali@atrium.example | V |
+| EMP-0078 | Kevin Bernard | Monteur | Atelier montage | CHA-MONTAGE | lyon | k.bernard@atrium.example | V |
+| EMP-0079 | Céline Lefèvre | Animatrice QHSE | HSE | HSE | lyon | c.lefevre@atrium.example | V |
+| EMP-0080 | Henri Marchand | Directeur de site | Direction | DIR | lyon | h.marchand@atrium.example | V |
+| EMP-0081 | Yves Lambert | Usineur | Atelier usinage | CHA-USINAGE | lyon | y.lambert@atrium.example | V |
 
 EMP-0081 Yves Lambert est sorti (CDD arrivé à son terme le 1er octobre 2026, « Fin de contrat » dans Vigie). EMP-0049
 Nadia Benali a le profil gestionnaire RH ; les autres comptes ajoutés n'ont aucun profil RH.
 
 **Aucune fiche** pour les personnes externes : clients (Nadia Bensaïd de Keystone…), contacts des filiales APM et SAI
-d'Arche, responsables de zone de Keystone (Olivier Castel, Aïcha Diallo, Sophie Nguyen), partenaire EPC France de
+d'Arche, responsables de zone de Keystone (Olivier Castel, Aïcha Diallo, Sophie Nguyen), Filiale partenaire de
 Crucible (Isabelle Garnier), contacts des entreprises extérieures de Vigie, comptes techniques (Codex, Keystone, Vigie,
 administrateur de Crucible).
 
@@ -172,7 +171,7 @@ planifiée de 35 h), comme l'exemple d'heures validées de Matrix (`data/contrat
 
 - **Antoine Leroy** : EMP-0014 (chargé RH de Cursus) et EMP-0061 (coordinateur des moyens d'essais de Crucible) sont deux
   personnes distinctes, distinguées par matricule et par adresse (`antoine.leroy@entreprise.example`,
-  `a.leroy@epc2i.example`).
+  `a.leroy@atrium.example`).
 - Autres homonymies de nom de famille sans conséquence : Roux, Girard, Moreau, Martin, Fontaine, Petit, Benali, Fabre,
   Marchand, Lambert, Bernard, Perrin entre le jeu de Cursus et les autres outils.
 - **Keystone** : « Sami Haddad » (Codex : Samir Haddad, retenu), « Claire Morvan » (Codex : Camille Morvan, retenu),
@@ -184,15 +183,15 @@ planifiée de 35 h), comme l'exemple d'heures validées de Matrix (`data/contrat
   Crucible Olivier Caron ; responsable qualité : Gabriel Comte (Keystone, Codex) et « [L. Moreau] » (Vigie).
 - **Vigie** : 13 personnes « [C. Lefèvre] » à l'initiale seule (prénoms choisis d'après l'initiale), sites `ville-a`,
   `ville-b` (et `ville-c` fermé) hors des codes de Matrix ; projets `K-2024-097`… inconnus de Keystone.
-- **Crucible** : site `RD-SITE` hors format Matrix, entités `EPC2I`, `EPCFR`.
+- **Crucible** : site `RD-SITE` hors format Matrix, codes d'entités hors format Matrix (société et filiale partenaire).
 - **Cursus** : codes de projets du jeu `K-2614`, `K-2620`, `K-2611`, `K-2625`, `K-2631`, `K-2633` inconnus de
   Keystone (gardés : ils portent les chantiers et le Go / No Go du jeu) ; signataires sans fiche (Sandrine Vidal,
   Olivier Marchal, Philippe Aubert, Jean-Marc Perret) gardés tels quels.
-- **Adresses** : Keystone `@epc2i.fr`, Vigie et Crucible `@epc2i.example`, Codex sans adresse, Cursus
+- **Adresses** : Keystone `@atrium.example`, Vigie et Crucible `@atrium.example`, Codex sans adresse, Cursus
   `@entreprise.example`. `pub_salaries` ne publie pas l'adresse (M-18 : à demander à Matrix comme une publication).
 
 ## Demandes aux autres outils (à valider par le propriétaire)
 
 `docs/demandes/demo-commune-keystone.md`, `-vigie.md`, `-codex.md`, `-crucible.md`, `-matrix.md` : renseigner ces
-matricules dans leur démonstration, harmoniser prénoms et sites, éventuellement les adresses `@epc2i.example`. Rien
+matricules dans leur démonstration, harmoniser prénoms et sites, éventuellement les adresses `@atrium.example`. Rien
 n'est écrit dans leurs dépôts.

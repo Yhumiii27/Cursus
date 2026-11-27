@@ -14,7 +14,7 @@ import { accessSync, constants, existsSync, statfsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { adminsActifs } from './comptes.ts';
 import {
-  avertissementsConfig, BASE_COMMUNE, cibleBase, configMail, configOidc, demoActive, demoSurBaseCommune, enProduction, type Env, originePublique,
+  ANCIENNE_BASE_COMMUNE, avertissementsConfig, BASE_COMMUNE, cibleBase, configMail, configOidc, demoActive, demoSurBaseCommune, enProduction, estBaseCommune, type Env, originePublique,
   problemesConfig, ROLE_CURSUS, trustProxy,
 } from './config.ts';
 import { lireConfidentialite } from './confidentialite.ts';
@@ -80,7 +80,7 @@ const ko = (domaine: Domaine, code: string, niveau: Exclude<Niveau, 'ok'>, messa
 
 /**
  * Hôte du serveur PostgreSQL joint sans quitter la machine ou le réseau Docker : nom de service sans point
- * (epc2i-postgres), boucle locale, adresse privée. Ailleurs, la connexion doit être chiffrée (sslmode).
+ * (atrium-postgres), boucle locale, adresse privée. Ailleurs, la connexion doit être chiffrée (sslmode).
  */
 export function hoteInterne(hote: string): boolean {
   const h = hote.toLowerCase();
@@ -120,23 +120,24 @@ export function controlesConfig(envBrut: Env, aujourdhui: string): Controle[] {
     ? ko(C, 'config.demo', 'bloquant', `Variables de démonstration ou de test présentes : ${demo.join(', ')}.`, `Retirez-les de l’application avant la mise en service (${PROCEDURE}).`)
     : ok(C, 'config.demo', 'Aucune variable de démonstration ni de test.'));
 
-  // Serveur commun : rôle cursus_app, base epc2i, connexion chiffrée hors du réseau Docker.
+  // Serveur commun : rôle cursus_app, base atrium (ou son ancien nom, avant le renommage par Matrix), connexion chiffrée
+  // hors du réseau Docker.
   const cible = cibleBase(env);
   if (!(env.DATABASE_URL ?? '').trim()) {
     out.push(ko(C, 'config.base', 'attention', 'DATABASE_URL absente : base SQLite locale (fichier), que les autres outils du groupe ne voient pas.',
-      'La production cible le serveur PostgreSQL commun : DATABASE_URL=postgres://cursus_app:<mot de passe>@epc2i-postgres:5432/epc2i.'));
+      `La production cible le serveur PostgreSQL commun : DATABASE_URL=postgres://cursus_app:<mot de passe>@atrium-postgres:5432/${BASE_COMMUNE} (avant le renommage du serveur par Matrix : hôte ${ANCIENNE_BASE_COMMUNE}-postgres, base ${ANCIENNE_BASE_COMMUNE}).`));
   } else if (cible) {
     out.push(cible.role === ROLE_CURSUS
       ? ok(C, 'config.base.role', `DATABASE_URL : rôle ${ROLE_CURSUS}.`)
       : ko(C, 'config.base.role', 'bloquant', `DATABASE_URL se connecte avec le rôle « ${cible.role || '(aucun)'} » au lieu de ${ROLE_CURSUS}.`, `Utilisez le rôle ${ROLE_CURSUS} créé par le socle du serveur commun.`));
-    out.push(cible.base === BASE_COMMUNE
-      ? ok(C, 'config.base.nom', `DATABASE_URL : base ${BASE_COMMUNE}.`)
-      : ko(C, 'config.base.nom', 'bloquant', `DATABASE_URL désigne la base « ${cible.base || '(aucune)'} » au lieu de ${BASE_COMMUNE}.`, `Désignez la base ${BASE_COMMUNE} du serveur commun (schéma cursus).`));
+    out.push(estBaseCommune(cible.base)
+      ? ok(C, 'config.base.nom', `DATABASE_URL : base ${cible.base}.`)
+      : ko(C, 'config.base.nom', 'bloquant', `DATABASE_URL désigne la base « ${cible.base || '(aucune)'} » au lieu de ${BASE_COMMUNE} (${ANCIENNE_BASE_COMMUNE} avant le renommage du serveur commun).`, `Désignez la base ${BASE_COMMUNE} du serveur commun (schéma cursus ; ${ANCIENNE_BASE_COMMUNE} tant que Matrix ne l’a pas renommée).`));
     // Chiffrement lu comme node-postgres : sslmode, ssl=true ou PGSSLMODE (cibleBase).
     out.push(hoteInterne(cible.hote) || cible.tls
       ? ok(C, 'config.base.tls', cible.tls ? `Connexion au serveur chiffrée (${cible.tls}).` : `Serveur joint sur le réseau interne (${cible.hote}).`)
       : ko(C, 'config.base.tls', 'bloquant', `Le serveur PostgreSQL ${cible.hote} est joint hors du réseau Docker sans connexion chiffrée : le mot de passe et les données passeraient en clair.`,
-        'Ajoutez ?sslmode=require (ou verify-full) à DATABASE_URL, ou joignez le serveur par le réseau interne (epc2i-postgres).'));
+        'Ajoutez ?sslmode=require (ou verify-full) à DATABASE_URL, ou joignez le serveur par le réseau interne (atrium-postgres).'));
   }
 
   // Adresse publique, quelle que soit l'adresse d'écoute : une instance de production derrière Caddy écoute sur la boucle
@@ -452,7 +453,7 @@ async function controlesDonnees(db: Db, opts: OptionsBase): Promise<Controle[]> 
  * - En production hors démonstration : données du jeu de démonstration dans la base (`indicesDemo`), connexion au
  *   serveur PostgreSQL en rôle postgres ou en superutilisateur, quelle que soit l'adresse (la configuration ne voit que
  *   DATABASE_URL). C'est ici que le réglage `exploitation` serait posé à tort sur une base de démonstration.
- * - Démonstration branchée sur la base epc2i (signalée seulement dans le lot 8) : refusée dès que la base porte le
+ * - Démonstration branchée sur la base commune (signalée seulement dans le lot 8) : refusée dès que la base porte le
  *   réglage `exploitation` (elle a servi en production) ou la trace de la purge (`purge.demo`) : la démonstration
  *   rechargerait ses salariés fictifs dans la base de production.
  */
@@ -475,7 +476,7 @@ export async function controlerDemarrage(db: Db, env: Env = process.env): Promis
     const purge = await db.one<{ at: string }>('SELECT at FROM journal WHERE action = ? ORDER BY id LIMIT 1', [ACTION_PURGE_DEMO]);
     if (exploitation || purge) {
       const pourquoi = exploitation ? `a servi en production (depuis le ${exploitation.premierDemarrageHorsDemo.slice(0, 10)})` : `a été vidée de ses données fictives le ${purge!.at.slice(0, 10)}`;
-      out.push(`démonstration (CURSUS_DEMO=1) sur la base ${BASE_COMMUNE}, qui ${pourquoi} : elle y rechargerait ses salariés fictifs. Retirez CURSUS_DEMO, ou déplacez la démonstration sur une application à part, en SQLite (${PROCEDURE}).`);
+      out.push(`démonstration (CURSUS_DEMO=1) sur la base ${cibleBase(env)!.base}, qui ${pourquoi} : elle y rechargerait ses salariés fictifs. Retirez CURSUS_DEMO, ou déplacez la démonstration sur une application à part, en SQLite (${PROCEDURE}).`);
     }
   }
   return out;

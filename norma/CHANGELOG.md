@@ -1,5 +1,98 @@
 # Norma — journal des versions
 
+## 3.1.0 — 27 novembre 2026
+
+Décisions du propriétaire du même jour : l'outil des équipes d'ingénierie, construit en sortant des éléments d'ingénierie de
+Keystone, s'appelle **Ingenium** (ING-01, réponse en séance) ; le dépôt `Yhumiii27/ingenium` est créé (ING-02).
+
+- **Registre** (`registre/outils.json`) : ligne `ingenium` — schéma `ingenium`, rôle `ingenium_app`, ports 4000 / 4010,
+  dépôt `Yhumiii27/ingenium`, connexion par Clavis (`ENTRA_ISSUER`, `INGENIUM_ACCESS_FROM_CLAVIS=on`), commits en anglais ;
+  champ facultatif `domaine` (adresse publique dans Coolify), posé pour Ingenium : `ingenium.projectdirection.fr`.
+- `REGLES.md` § 1 (tableau de la suite) et § 2 (langue des commits) ; `README.md`.
+- **Logo** `charte/logos/ingenium.svg` (tuile carmin, compas de dessin traçant un arc) et entrée `ingenium` de `ToolLogo`
+  (`ToolCode`, `TOOL_CODES`).
+- **Tronc commun des menus** (`charte/COQUE.md` § 2 bis, `ds/base-nav.ts`, `ds/BaseNav.tsx`, `ds/taches-fr.ts`) : accueil
+  « Ma discipline », entrées Mes projets (`FolderUser`, `/my/projects`) et Référentiel technique (`Gear`, `/reference`,
+  source « Technical reference ») ; icône `Gear` ajoutée.
+- **Suivi** : `reste-a-faire/ingenium.json` (livraisons 0 à 5, mise en service, points de Keystone qui suivraient
+  l'ingénierie selon ING-03) ; `decisions/ingenium.json` : ING-01 et ING-02 décidées, nom pris au registre ;
+  `OUTILS_A_VENIR` vide (`outils/suivi/build.mjs`, `decisions/SCHEMA.md`, `test/suivi.test.mjs`).
+- **Version mineure** : aucun outil ne change son code ; chacun reprend la copie à sa prochaine mise à jour de Norma.
+
+## 3.0.0 — 27 novembre 2026
+
+Décisions du propriétaire : « Supprime les appellations […] de tous nos fichiers : pour le moment l'outil n'est pas approuvé
+au niveau groupe » — la suite s'appelle **Atrium** ; « Fais un seul artifact pour la liste des décisions et le
+questionnaire où tu attends des réponses de ma part ; tiens-le à jour au fur et à mesure. C'est cet artifact qui nous fera
+suivre tous les softs au même endroit. »
+
+- **Suite Atrium** : plus aucune appellation de l'ancienne suite ni de l'entreprise dans Norma (règles, charte, registre,
+  outils, propositions, reste à faire, journal — anciennes entrées comprises, sens gardé). Là où un texte nommait
+  l'entreprise, il dit « l'entreprise », « le groupe », « l'ingénierie », « Keystone » pour ses projets, ou rien ; l'entité
+  partenaire de Crucible est « l'entité partenaire ». `REGLES.md` § 1 donne le nom de la suite.
+- **Cookie d'affichage** `atrium-theme` (`charte/ds/theme.ts`) : seul nom **écrit** (`themeCookie`) ; l'ancien nom reste
+  **lu** à défaut du nouveau pendant la transition (`LEGACY_THEME_COOKIE`, `THEME_COOKIES_READ`, `themeFromCookies`,
+  `themeFromCookieHeader`), à retirer en 4.0 ; événement `THEME_EVENT` = `atrium-theme` ; glisser-déposer de « Mes tâches »
+  `application/x-atrium-task`. `charte/README.md` : le serveur lit le thème par `themeFromCookies`.
+- **Serveur commun** : noms cibles au registre (`registre/outils.json`, `serveur_commun` : base `atrium`, hôte
+  `atrium-postgres`, `/etc/atrium/`, rôle `atrium_sauvegarde`) et `REGLES.md` § 9. **Le serveur en service n'est pas
+  renommé par cette version** : Matrix le fait dans une opération séparée (MX-N11, question `matrix:REN-1`).
+- **Page unique « Suivi Atrium »** (`outils/suivi/`, `npm run suivi` → `.artifacts/suivi.html`, `RESTE-A-FAIRE.md` ;
+  `npm run reste-a-faire` en est un alias) : onglets « À décider » (réponse enregistrée dans la base de l'artefact,
+  collection `answers`, un document par question, même forme que les anciens questionnaires ; lecture seule sans base),
+  « Décidé » et « Reste à faire », une carte par outil (questions à décider, points restants). Publiée à l'adresse
+  d'artefact de la suite avec les capacités `db` et `user`.
+- **Décisions** `decisions/<outil>.json` (schéma `decisions/SCHEMA.md`, contrôle `validerDecisions`) : un fichier par outil
+  du registre, `norma.json` et `ingenium.json` (outil d'ingénierie en cadrage). Repris : questionnaires d'Arche, Crucible,
+  Modulus, Vector (dépôts sur `main`), de l'outil d'ingénierie et `propositions/questionnaire-taches` (décidé) ; réponses
+  déjà données dans les pages d'Arche, Crucible et Modulus (source « questionnaire <outil> ») ; questions ouvertes des
+  sessions (Keystone R-N01, Vigie VG-N04, Codex O-12 et dossier du personnel, Cursus CU-037, CU-142, CU-051, Arche dépôt
+  dans Codex, Clavis DR-7 à DR-13, DM-2, DM-3, Matrix REN-1, suite : déploiement du tronc commun, transport des e-mails,
+  ajustement de TA-2).
+- `REGLES.md` § 3 : une seule page de suivi ; toute question pour le propriétaire va dans `decisions/<outil>.json` ; les
+  pages de questionnaire des outils ne sont plus publiées (le modèle `outils/questionnaire/` reste distribué).
+- Tests : `test/theme.test.mjs` (nom écrit, ancien nom lu, priorité du nouveau), `test/suivi.test.mjs` (schéma, un fichier
+  par outil, ids uniques, réponses reprises, page, aucune ancienne appellation).
+- **Reste à faire** : NO-010 et NO-011 faits ; un point d'adoption par outil (R-N06, CX-N10, AR-N06, VG-N10, CR-N08,
+  CU-N08, CL-N10, MX-N10, MO-N03, VE-N03) ; MX-N11 (renommage du serveur commun).
+- **Version majeure** : chaque outil change son code — lecture du thème par `themeFromCookies` (sinon l'ancien réglage est
+  ignoré), tests qui citent l'ancien nom du cookie, textes de l'outil.
+
+## 2.4.0 — 27 novembre 2026
+
+Décision du propriétaire : « le tronc commun des menus n'est pas disponible sur tous les sites. Je veux dans ce tronc commun
+les menus suivants : 1- Accueil ; 2- Mes tâches (sous le même format que Teams, un affichage en liste, un en kanban et un en
+calendrier) ; 3- Mes approbations. […] les tâches et approbations doivent montrer toutes les tâches et toutes les
+approbations qu'un utilisateur a même si la provenance est d'un autre outil. » Elle tranche TA-11, TA-15 et TA-16 ; le
+propriétaire a confirmé le même jour la réponse proposée pour TA-1 à TA-10, TA-12, TA-13 et TA-14
+(`propositions/TACHES-ET-APPROBATIONS.md` § 7 bis).
+
+- **Tronc commun des menus** (`charte/COQUE.md` § 2 bis) : premier bloc de la barre latérale, sous ⌘K — Accueil (typé selon
+  l'outil : contenu fixé pour les dix outils), Mes tâches, Mes approbations, puis une ou deux entrées métier par outil
+  (tableau § 2 bis.3) ; mêmes place, ordre, icônes Phosphor (`House`, `CheckSquare`, `Stamp`) et libellés partout ;
+  pastilles = tâches et approbations ouvertes de toute la suite.
+- **Composants** `charte/ds` : `BaseNav` (rendu) et `base-nav.ts` (modèle pur : `BASE_ENTRIES`, `TOOL_BASE`, `baseNav`,
+  `activeEntry`, `baseNavProblems`) ; `MyTasks` — liste groupée et triable, kanban À faire · En cours · En attente · Fait
+  (déplacement seulement par une transition ouverte par l'outil propriétaire, boutons clavier), calendrier mois / semaine ;
+  `MyApprovals` — filtres outil, type, échéance ; Approuver / Refuser seulement quand la décision peut être prise ici ;
+  `TaskSource`, `DueText`, `StateTag`, `OpenInTool`, `SourcesBanner` ; règles pures `task-rules.ts` ; français des
+  libellés `taches-fr.ts` (`TACHES_FR`). Données par les props, rien n'est chargé par la charte.
+- `coque.css` : classes `.coque-base-nav`, `.coque-task-*`, `.coque-kanban-*`, `.coque-cal-*`, `.coque-appr-*`,
+  `.coque-sr-only` (variables seulement) ; ≤ 1024 px, le kanban défile en largeur.
+- **Contrat** `contrats/taches-v1.md` (nouveau dossier distribué aux outils) : `<outil>.pub_taches` v1 (24 colonnes),
+  `matrix.pub_taches` et `matrix.pub_taches_sources` (Matrix), échange de jeton RFC 8693 chez Clavis (prérequis de la
+  phase 2), `GET /api/v1/taches/{tache_id}` et `POST /api/v1/taches/{tache_id}/decision` (motif, version, clé
+  d'idempotence, contrôles et journal de l'outil propriétaire, codes 401 à 503), phases 1 à 3. `REGLES.md` § 5 et § 7.
+- Plan de déploiement `propositions/DEPLOIEMENT-TRONC-COMMUN.md` (par outil, pilote Keystone + Codex + Arche) ;
+  questionnaire `questionnaire-taches` : questions marquées décidées.
+- Tests `test/taches.test.mjs` : tronc commun pour chaque outil du registre, colonnes du contrat = `PUB_TACHES_COLUMNS`,
+  règles des vues (échéances, tri, kanban, calendrier), décisions possibles ici, traduction française de chaque libellé.
+- **Reste à faire** : NO-009 en cours ; un point d'adoption par outil (R-N05, CX-N09, AR-N05, VG-N09, CR-N07, CU-N07,
+  CL-N08, MX-N08, MO-N02, VE-N02), MX-N09 (réunion `matrix.pub_taches`), CL-N09 (échange de jeton).
+- **Version mineure** : rien n'est retiré ni changé dans les exports existants ; un outil reprend la copie (`copier`) sans
+  changer son code et passe `verifier`. L'adoption du tronc commun est suivie par outil dans le reste à faire, comme les
+  logos de 2.3.0.
+
 ## 2.3.0 — 25 novembre 2026
 
 Logos des outils, validés par le propriétaire (page de proposition du 25 novembre 2026).
@@ -127,5 +220,5 @@ Première version, à la demande du propriétaire (un dépôt pour le socle comm
 - `dependances.json` : minimums (Next.js 16.4.6), autorisées, interdites et dérogations (PGlite : Keystone, Codex, Vigie).
 - `outils/norma.mjs` : `copier` et `verifier`.
 - Thème clair (propriétaire, 24 novembre 2026) : variables `[data-theme="light"]` dans `nocturne.css`, cookie
-  `epc2i-theme`, `ds/theme.ts`, bouton `ds/ThemeToggle.tsx` à côté du sélecteur de langue.
+  `atrium-theme`, `ds/theme.ts`, bouton `ds/ThemeToggle.tsx` à côté du sélecteur de langue.
 - Dépendances de Cursus déclarées (Express, Vite, tests d'interface).

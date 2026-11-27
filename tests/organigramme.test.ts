@@ -22,17 +22,17 @@ const delegation = (managerId: number, suppleantId: number, o: Partial<Delegatio
 });
 
 const ENTITES: Entite[] = [
-  entite('epc2i', { nom: 'EPC2I', ordre: 1 }),
-  entite('lyon', { nom: 'Lyon', type: 'etablissement', parente: 'epc2i', siret: '55210055400013', siteCode: 'lab67', ordre: 2 }),
-  entite('alsace', { nom: 'Alsace', type: 'etablissement', parente: 'epc2i', ordre: 1 }),
+  entite('siege', { nom: 'Société mère', ordre: 1 }),
+  entite('lyon', { nom: 'Lyon', type: 'etablissement', parente: 'siege', siret: '55210055400013', siteCode: 'lab67', ordre: 2 }),
+  entite('alsace', { nom: 'Alsace', type: 'etablissement', parente: 'siege', ordre: 1 }),
   entite('ancienne', { nom: 'Ancienne', actif: false, fermeLe: '2026-01-01', ordre: 3 }),
   entite('orphelin', { nom: 'Orphelin', type: 'etablissement', parente: 'disparue', ordre: 4 }),
 ];
 const EQUIPES: Equipe[] = [
   equipe('Production', 3, { entite: 'lyon', ordre: 1, siteCode: 'lab67', uniteCode: 'PRD' }),
-  equipe('Maintenance', 12, { parente: 'Production', ordre: 2, entite: 'epc2i' }),
+  equipe('Maintenance', 12, { parente: 'Production', ordre: 2, entite: 'siege' }),
   equipe('Méthodes', null, { parente: 'Maintenance', ordre: 3 }),
-  equipe('Commercial', 9, { entite: 'epc2i', ordre: 0 }),
+  equipe('Commercial', 9, { entite: 'siege', ordre: 0 }),
   equipe('Site de Lyon', null, { ordre: 4 }),
   equipe('Fantôme', null, { parente: 'Disparue', ordre: 5, entite: 'inconnue' }),
 ];
@@ -81,10 +81,10 @@ test('arbre : sociétés et établissements, équipes racines et rattachées, pr
   const a = arbre(ENTITES, EQUIPES, ANNUAIRE, [], T);
   // Sociétés d'abord, dans l'ordre ; établissement d'une société absente au premier niveau ; entité fermée sans équipe
   // retirée.
-  assert.deepEqual(a.entites.map(e => [e.code, e.type, e.etablissements.map(x => x.code)]), [['epc2i', 'societe', ['alsace', 'lyon']], ['orphelin', 'etablissement', []]]);
-  const epc2i = a.entites[0];
-  assert.deepEqual(noms(epc2i.equipes), ['Commercial']);
-  const lyon = epc2i.etablissements[1];
+  assert.deepEqual(a.entites.map(e => [e.code, e.type, e.etablissements.map(x => x.code)]), [['siege', 'societe', ['alsace', 'lyon']], ['orphelin', 'etablissement', []]]);
+  const siege = a.entites[0];
+  assert.deepEqual(noms(siege.equipes), ['Commercial']);
+  const lyon = siege.etablissements[1];
   assert.deepEqual([lyon.nom, lyon.siret, lyon.siteCode, lyon.fermee], ['Lyon', '55210055400013', 'lab67', false]);
   // L'entité posée sur une équipe rattachée (Maintenance) n'est pas lue : elle suit la Production.
   assert.deepEqual(noms(lyon.equipes), ['Production']);
@@ -97,8 +97,8 @@ test('arbre : sociétés et établissements, équipes racines et rattachées, pr
   assert.equal(maint.valideurManager, 3, 'N+1 du manager : celui de l’équipe parente');
   const meth = equipeDe(maint.equipes, 'Méthodes')!;
   assert.deepEqual([meth.manager, meth.valideurManager, meth.membres.map(m => m.valideur)], [null, 0, [0]], 'équipe sans manager : le service RH');
-  assert.deepEqual([meth.effectif, maint.effectif, prod.effectif, lyon.effectif, epc2i.effectif], [1, 3, 4, 4, 5]);
-  assert.equal(epc2i.equipes[0].membres[0].nom, 'Zoé Commerciale', 'présente jusqu’à son dernier jour');
+  assert.deepEqual([meth.effectif, maint.effectif, prod.effectif, lyon.effectif, siege.effectif], [1, 3, 4, 4, 5]);
+  assert.equal(siege.equipes[0].membres[0].nom, 'Zoé Commerciale', 'présente jusqu’à son dernier jour');
   // Équipes racines sans entité : sans entité, d'une entité inconnue, d'une équipe parente inconnue.
   assert.deepEqual(noms(a.sansEntite), ['Site de Lyon', 'Fantôme']);
   assert.deepEqual(a.sansEntite[1].membres.map(m => m.nom), ['Fantomas']);
@@ -152,12 +152,12 @@ test('arbre : service RH — salariés à affecter, anomalies, étiquettes de co
 
 test('arbre : entité fermée qui porte encore une équipe (écriture directe) montrée, marquée fermée ; base vide', () => {
   const a = arbre(ENTITES, [equipe('Archives', 5, { entite: 'ancienne' })], [p(5, 'Archiviste', 'Archives')], [], T);
-  assert.deepEqual(a.entites.map(e => [e.code, e.fermee, e.effectif]), [['epc2i', false, 0], ['ancienne', true, 1], ['orphelin', false, 0]]);
+  assert.deepEqual(a.entites.map(e => [e.code, e.fermee, e.effectif]), [['siege', false, 0], ['ancienne', true, 1], ['orphelin', false, 0]]);
   assert.deepEqual(arbre([], [], [], [], T), { entites: [], sansEntite: [], aAffecter: [], anomalies: [], effectif: 0 });
 });
 
 test('chemin d’une équipe et sous-arbre', () => {
   assert.deepEqual(cheminEquipe(EQUIPES, 'Méthodes'), { chemin: ['Production', 'Maintenance', 'Méthodes'], entite: 'lyon' });
-  assert.deepEqual(cheminEquipe(EQUIPES, 'Commercial'), { chemin: ['Commercial'], entite: 'epc2i' });
+  assert.deepEqual(cheminEquipe(EQUIPES, 'Commercial'), { chemin: ['Commercial'], entite: 'siege' });
   assert.deepEqual(sousArbre(EQUIPES, ['Production']), ['Production', 'Maintenance', 'Méthodes']);
 });

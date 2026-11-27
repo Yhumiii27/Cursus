@@ -162,7 +162,7 @@ test('refus sans appel : base exploitée, reprise sur le serveur commun, compte 
   const rh = (await db2.one<{ id: number }>('SELECT id FROM comptes WHERE emp_id IS NULL'))!;
   await db2.update('comptes', rh.id, { oid: '00000000-0000-0000-0000-000000000001' });
   assert.equal(deciderPurge(await releverBase(db2), OPTIONS).statut, 'possible');
-  await db2.update('comptes', rh.id, { identifiant: 'rh@epc2i.fr' });
+  await db2.update('comptes', rh.id, { identifiant: 'rh@atrium.example' });
   d = deciderPurge(await releverBase(db2), OPTIONS);
   assert.match(d.statut === 'refusee' ? d.motifs.join(' ') : '', /1 compte Microsoft s’est connecté avec une adresse hors de entreprise\.example/);
   await db2.update('comptes', rh.id, { oid: null });
@@ -857,7 +857,7 @@ test('purge puis reprise Lucca (reprise.importer) : les vrais salariés commence
   const R = await import('../shared/rules/reprise.ts');
   const { lireCsv } = await import('../shared/rules/imports.ts');
   // Premier administrateur créé après la purge (npm run comptes -- admin).
-  const compte = await db.insert<{ id: number; identifiant: string }>('comptes', { nom: 'Responsable RH', adresse: 'rh@epc2i.fr', identifiant: 'rh@epc2i.fr', type: 'microsoft', profilRh: 'rh_admin', actif: true, creation: '2027-01-02T08:00:00Z', creePar: 'Ligne de commande (npm run comptes)' });
+  const compte = await db.insert<{ id: number; identifiant: string }>('comptes', { nom: 'Responsable RH', adresse: 'rh@atrium.example', identifiant: 'rh@atrium.example', type: 'microsoft', profilRh: 'rh_admin', actif: true, creation: '2027-01-02T08:00:00Z', creePar: 'Ligne de commande (npm run comptes)' });
   const user = { role: 'rh', empId: null, nom: 'Responsable RH', intitule: '', profilRh: 'rh_admin', compteId: compte.id } as any;
   const texte = [
     'Matricule;Prénom;Nom;Intitulé du poste;Département;Catégorie;Type de contrat;Temps de travail;Date d\'entrée;Date de fin;Date de naissance;Adresse e-mail',

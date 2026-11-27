@@ -3,11 +3,11 @@
 // server/src/pre-vol.ts, appelé par server/src/index.ts). Sur les deux moteurs (tests/base.ts) :
 // - /api/health répond pendant qu'une transaction garde le verrou d'écriture, et passe « indisponible » si la sonde de la
 //   base ne répond pas dans son délai ;
-// - alertes : données de démonstration, démonstration sur epc2i, aucun administrateur RH, e-mails en simulation,
+// - alertes : données de démonstration, démonstration sur la base commune, aucun administrateur RH, e-mails en simulation,
 //   sauvegarde ancienne ou témoin illisible, secret d'envoi qui expire ; détail réservé à la supervision ;
 // - état relu par la tâche horaire (cache), gardé si la base ne répond plus ;
 // - démarrage refusé en production sur une base de démonstration (vrai serveur, fichier SQLite), et pour une
-//   démonstration sur epc2i dès que la base a servi en production ou a été purgée.
+//   démonstration sur la base commune dès que la base a servi en production ou a été purgée.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -22,6 +22,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 const { DELAI_SANTE_MS, demarrerSurveillance, etatSante, FRAICHEUR_DONNEES_MS, rafraichirSurveillance, routeSante } = await import('../server/src/supervision.ts');
 const { lireTemoin, SAUVEGARDE_MAX_HEURES, TEMOIN_MAX_OCTETS } = await import('../server/src/sauvegarde-temoin.ts');
 const { controlerDemarrage } = await import('../server/src/pre-vol.ts');
+const { ANCIENNE_BASE_COMMUNE } = await import('../server/src/config.ts');
 const { creerCompte } = await import('../server/src/comptes.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { SqliteDb } = await import('../server/src/db.ts');
@@ -35,7 +36,7 @@ process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
 const GUID = '0f8fad5b-d9cb-469f-a165-70867728950e';
 const MAIL = { CURSUS_MAIL_FROM: 'cursus@entreprise.fr', CURSUS_MAIL_TENANT: GUID, CURSUS_MAIL_CLIENT_ID: 'app-envoi', CURSUS_MAIL_CLIENT_SECRET: 's'.repeat(40) };
 const PROD = { NODE_ENV: 'production', ...MAIL };
-const EPC2I = 'postgres://cursus_app:mdp@epc2i-postgres:5432/epc2i';
+const COMMUNE = 'postgres://cursus_app:mdp@atrium-postgres:5432/atrium';
 const admin = async (db: Db) => await creerCompte(db, { type: 'local', identifiant: 'admin', nom: 'Rachel Martin', adresse: 'rachel.martin@entreprise.fr', profilRh: 'rh_admin' }, 'Ligne de commande');
 const sante = async (db: Db, env: Record<string, string>, detail = true) => await etatSante(db, detail, '2026-10-10T06:00:00.000Z', env);
 
@@ -91,10 +92,10 @@ test('alertes de production : données de démonstration, aucun administrateur R
   assert.deepEqual((await sante(demo, { NODE_ENV: 'production', CURSUS_DEMO: '1' })).alertes, []);
   assert.deepEqual((await sante(vide, {})).alertes, []);
   assert.equal((await sante(vide, {})).mode, 'developpement');
-  // Démonstration branchée sur epc2i : signalée (lot 8), jamais arrêtée.
-  const epc2i = await sante(demo, { NODE_ENV: 'production', CURSUS_DEMO: '1', CURSUS_DEMO_PUBLIQUE: '1', DATABASE_URL: EPC2I });
-  assert.deepEqual([epc2i.statut, epc2i.alertes], ['degrade', ['demo-base-commune']]);
-  assert.deepEqual((await sante(demo, { CURSUS_DEMO: '1', DATABASE_URL: EPC2I.replace('/epc2i', '/cursus_demo') })).alertes, [], 'autre base : rien');
+  // Démonstration branchée sur la base commune : signalée (lot 8), jamais arrêtée.
+  const commune = await sante(demo, { NODE_ENV: 'production', CURSUS_DEMO: '1', CURSUS_DEMO_PUBLIQUE: '1', DATABASE_URL: COMMUNE });
+  assert.deepEqual([commune.statut, commune.alertes], ['degrade', ['demo-base-commune']]);
+  assert.deepEqual((await sante(demo, { CURSUS_DEMO: '1', DATABASE_URL: COMMUNE.replace('/atrium', '/cursus_demo') })).alertes, [], 'autre base : rien');
 });
 
 test('état des données : alerte levée relue à chaque appel, sinon cache d’une minute ; gardé si la base ne répond plus', async () => {
@@ -199,7 +200,7 @@ test('secret d’envoi des e-mails : « degrade » 30 jours avant son expiration
   assert.equal((await sante(db, sansSecret)).secretEnvoi, undefined);
 });
 
-test('démarrage : base de démonstration et superutilisateur refusés en production, démonstration sur epc2i exploitée ou purgée refusée', async () => {
+test('démarrage : base de démonstration et superutilisateur refusés en production, démonstration sur la base commune exploitée ou purgée refusée', async () => {
   const vide = await nouvelleBase();
   // Base de test PostgreSQL : connectée en postgres (rôle d'administration des tests), donc refusée en production.
   const superutilisateur = PG ? ['connecté au serveur PostgreSQL en « postgres » (superutilisateur)'] : [];
@@ -213,12 +214,14 @@ test('démarrage : base de démonstration et superutilisateur refusés en produc
   assert.match(motifs.at(-1)!, /^la base contient des données de démonstration \(réglage demo \(jeu chargé le \d{4}-\d{2}-\d{2}\), \d+ comptes du jeu de démonstration/);
   assert.match(motifs.at(-1)!, /npm run purge-demo/);
   assert.deepEqual(await refus(demo, { NODE_ENV: 'production', CURSUS_DEMO: '1' }), [], 'démonstration : son jeu est attendu');
-  // Démonstration sur epc2i : signalée tant que la base n'a pas servi en production ; refusée ensuite.
-  const env = { NODE_ENV: 'production', CURSUS_DEMO: '1', CURSUS_DEMO_PUBLIQUE: '1', DATABASE_URL: EPC2I };
+  // Démonstration sur la base commune : signalée tant que la base n'a pas servi en production ; refusée ensuite.
+  const env = { NODE_ENV: 'production', CURSUS_DEMO: '1', CURSUS_DEMO_PUBLIQUE: '1', DATABASE_URL: COMMUNE };
   assert.deepEqual(await controlerDemarrage(demo, env), []);
   await demo.setSetting('exploitation', { premierDemarrageHorsDemo: '2027-01-04T07:00:00.000Z', version: '1.0.0' });
-  assert.match((await controlerDemarrage(demo, env))[0], /^démonstration \(CURSUS_DEMO=1\) sur la base epc2i, qui a servi en production \(depuis le 2027-01-04\)/);
-  assert.deepEqual(await controlerDemarrage(demo, { ...env, DATABASE_URL: EPC2I.replace('/epc2i', '/demo') }), [], 'autre base');
+  assert.match((await controlerDemarrage(demo, env))[0], /^démonstration \(CURSUS_DEMO=1\) sur la base atrium, qui a servi en production \(depuis le 2027-01-04\)/);
+  assert.deepEqual(await controlerDemarrage(demo, { ...env, DATABASE_URL: COMMUNE.replace('/atrium', '/demo') }), [], 'autre base');
+  assert.match((await controlerDemarrage(demo, { ...env, DATABASE_URL: COMMUNE.replace('/atrium', `/${ANCIENNE_BASE_COMMUNE}`) }))[0],
+    new RegExp(`^démonstration \\(CURSUS_DEMO=1\\) sur la base ${ANCIENNE_BASE_COMMUNE}, qui a servi en production`), 'ancien nom de la base commune');
   const purgee = await nouvelleBase();
   await purgee.insert('journal', { at: '2026-12-15T09:00:00.000Z', actor: 'Ligne de commande', role: null, action: 'purge.demo', message: 'Purge des données fictives' });
   assert.match((await controlerDemarrage(purgee, env))[0], /qui a été vidée de ses données fictives le 2026-12-15/);

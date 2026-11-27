@@ -1,7 +1,7 @@
 // Ouverture du serveur PostgreSQL de DATABASE_URL comme au démarrage de Cursus (migrations de server/migrations-pg/,
 // contrôle du schéma, amorçages d'une base neuve, démonstration si CURSUS_DEMO=1 sur un schéma vide), puis état du
 // schéma : tables de cursus, rien dans public. Sert à l'intégration continue (job postgres) et aux essais sur le socle.
-//   DATABASE_URL=postgres://cursus_app:…@127.0.0.1:5432/epc2i node scripts/schema-pg.ts
+//   DATABASE_URL=postgres://cursus_app:…@127.0.0.1:5432/atrium node scripts/schema-pg.ts
 import { demoActive } from '../server/src/config.ts';
 import { openDb, TABLES, urlPostgres } from '../server/src/db.ts';
 import { mettreAJourBase } from '../server/src/demarrage.ts';

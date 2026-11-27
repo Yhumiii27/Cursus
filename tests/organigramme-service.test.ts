@@ -22,15 +22,15 @@ const p = (id: number, nom: string, eq: string | null, poste = `Poste ${id}`): P
 
 // Site > service > atelier : Production (PDE) > Maintenance (lab67) > Électricité ; Qualité à part ; Commercial à Lyon.
 const ENTITES: Entite[] = [
-  entite('epc2i', { nom: 'EPC2I', ordre: 0, siteCode: 'pde' }),
-  entite('lyon', { nom: 'Lyon', type: 'etablissement', parente: 'epc2i', ordre: 1 }),
+  entite('siege', { nom: 'Société mère', ordre: 0, siteCode: 'pde' }),
+  entite('lyon', { nom: 'Lyon', type: 'etablissement', parente: 'siege', ordre: 1 }),
 ];
 const SITES: Site[] = [{ code: 'pde', libelle: 'PDE', actif: true, ordre: 0 }, { code: 'lab67', libelle: 'Laboratoire 67', actif: true, ordre: 1 }];
 const EQUIPES: Equipe[] = [
-  equipe('Production', 3, { entite: 'epc2i', ordre: 0 }),
+  equipe('Production', 3, { entite: 'siege', ordre: 0 }),
   equipe('Maintenance', 12, { parente: 'Production', ordre: 1, siteCode: 'lab67' }),
   equipe('Électricité', 6, { parente: 'Maintenance', ordre: 2 }),
-  equipe('Qualité', 23, { entite: 'epc2i', ordre: 3 }),
+  equipe('Qualité', 23, { entite: 'siege', ordre: 3 }),
   equipe('Commercial', 9, { entite: 'lyon', ordre: 4 }),
   equipe('Orpheline', null, { ordre: 5 }),
 ];
@@ -48,7 +48,7 @@ const noms = (a: Parameters<typeof clesDepliables>[0]) => clesDepliables(a).filt
 test('service choisi : l’équipe et ses sous-équipes, ses équipes parentes gardées sans membres ; ni autre équipe ni salarié à affecter', () => {
   const v = filtrerArbre(BRUT, EQUIPES, ENTITES, { ...sansFiltre, service: 'Maintenance' });
   assert.deepEqual(noms(v), ['Production', 'Maintenance', 'Électricité']);
-  assert.deepEqual(v.entites.map(n => n.code), ['epc2i'], 'Lyon (Commercial) écartée');
+  assert.deepEqual(v.entites.map(n => n.code), ['siege'], 'Lyon (Commercial) écartée');
   assert.deepEqual(v.entites[0].equipes[0].membres, [], 'Production : chemin seulement');
   assert.deepEqual(v.sansEntite, []);
   assert.deepEqual(v.aAffecter, []);
@@ -59,8 +59,8 @@ test('service choisi : l’équipe et ses sous-équipes, ses équipes parentes g
   assert.deepEqual(racine.equipes.map(q => q.nom), ['Électricité']);
   // CSV : le chemin et la société restent, seules les personnes du service sont listées.
   assert.deepEqual(lignesOrganigramme(v, contexte).map(l => [l.societe, l.chemin, l.nom]), [
-    ['EPC2I', 'Production › Maintenance', 'Karim Haddad'], ['EPC2I', 'Production › Maintenance', 'Mehdi Benali'],
-    ['EPC2I', 'Production › Maintenance › Électricité', 'Thomas Garnier'],
+    ['Société mère', 'Production › Maintenance', 'Karim Haddad'], ['Société mère', 'Production › Maintenance', 'Mehdi Benali'],
+    ['Société mère', 'Production › Maintenance › Électricité', 'Thomas Garnier'],
   ]);
   // Équipe sans entité choisie seule ; équipe sans sous-équipe.
   const orph = filtrerArbre(BRUT, EQUIPES, ENTITES, { ...sansFiltre, service: 'Orpheline' });
@@ -84,7 +84,7 @@ test('service inconnu, vide ou absent de l’arbre : l’arbre entier, comme san
 test('service combiné à l’entité, au site et à la recherche : la recherche ne porte que sur le service', () => {
   // Entité : un service d'une autre entité ne laisse rien.
   assert.equal(filtrerArbre(BRUT, EQUIPES, ENTITES, { ...sansFiltre, entite: 'lyon', service: 'Maintenance' }).effectif, 0);
-  assert.equal(filtrerArbre(BRUT, EQUIPES, ENTITES, { ...sansFiltre, entite: 'epc2i', service: 'Maintenance' }).effectif, 3);
+  assert.equal(filtrerArbre(BRUT, EQUIPES, ENTITES, { ...sansFiltre, entite: 'siege', service: 'Maintenance' }).effectif, 3);
   // Site : Maintenance et Électricité héritent de lab67 ; Production (PDE) n'est que le chemin.
   const site = filtrerArbre(BRUT, EQUIPES, ENTITES, { ...sansFiltre, site: 'lab67', service: 'Maintenance' });
   assert.equal(site.effectif, 3);
@@ -110,7 +110,7 @@ test('services proposés : équipes de l’arbre avec leur chemin, triées par c
 
 test('fil d’Ariane : entité, puis équipes parentes (de la plus haute à la plus proche) ; rien pour une équipe racine sans entité', () => {
   assert.deepEqual(filAriane(EQUIPES, ENTITES, 'Électricité'), [
-    { libelle: 'EPC2I', service: null }, { libelle: 'Production', service: 'Production' }, { libelle: 'Maintenance', service: 'Maintenance' },
+    { libelle: 'Société mère', service: null }, { libelle: 'Production', service: 'Production' }, { libelle: 'Maintenance', service: 'Maintenance' },
   ]);
   assert.deepEqual(filAriane(EQUIPES, ENTITES, 'Commercial'), [{ libelle: 'Lyon', service: null }]);
   assert.deepEqual(filAriane(EQUIPES, ENTITES, 'Orpheline'), []);
@@ -125,8 +125,8 @@ test('adresse : service (équipe du référentiel reçu) et présentation ; vale
   // Hors du périmètre : une équipe absente du référentiel reçu est refusée.
   const reduit = { referentiels: { entites: ENTITES, sites: SITES, equipes: EQUIPES.filter(q => q.nom !== 'Qualité') } } as never;
   assert.equal(lireUrl('organigramme', '?service=Qualit%C3%A9', reduit).orgService, null);
-  const ui = { orgEntite: 'epc2i', orgSite: null, orgService: 'Électricité', orgVue: 'graphique' } as never;
-  assert.equal(adresse('organigramme', ui), '/organigramme?entite=epc2i&service=%C3%89lectricit%C3%A9&vue=graphique');
+  const ui = { orgEntite: 'siege', orgSite: null, orgService: 'Électricité', orgVue: 'graphique' } as never;
+  assert.equal(adresse('organigramme', ui), '/organigramme?entite=siege&service=%C3%89lectricit%C3%A9&vue=graphique');
   assert.equal(adresse('organigramme', { orgEntite: null, orgSite: null, orgService: null, orgVue: 'liste' } as never), '/organigramme');
 });
 
@@ -140,13 +140,13 @@ test('vue graphique : « N personnes » au-delà du seuil dans « Tout déplier 
   const service = sectionsImpressionGraphique(BRUT, contexte, 'Maintenance');
   assert.equal(service.length, 1);
   assert.equal(service[0].titre, 'Service Production › Maintenance');
-  assert.equal(service[0].sousTitre, 'Rattachement : EPC2I › Production');
+  assert.equal(service[0].sousTitre, 'Rattachement : Société mère › Production');
   assert.equal(service[0].arbre[0].libelle, 'Maintenance');
   assert.deepEqual(service[0].arbre[0].enfants!.map(n => [n.libelle, !!n.groupe]), [['Karim Haddad', false], ['Mehdi Benali', false], ['Électricité', true]]);
   assert.equal(service[0].echelle, 100);
   const pages = sectionsImpressionGraphique(BRUT, contexte);
-  assert.deepEqual(pages.map(s => s.titre), ['EPC2I', 'Lyon (EPC2I)', 'Équipes sans entité', 'À affecter']);
-  assert.equal(pages[0].arbre[0].libelle, 'EPC2I', 'boîte de l’entité en haut');
+  assert.deepEqual(pages.map(s => s.titre), ['Société mère', 'Lyon (Société mère)', 'Équipes sans entité', 'À affecter']);
+  assert.equal(pages[0].arbre[0].libelle, 'Société mère', 'boîte de l’entité en haut');
   assert.deepEqual(pages[0].arbre[0].enfants!.map(n => n.libelle), ['Production', 'Qualité']);
   assert.deepEqual(pages[3].arbre[0].enfants!.map(n => n.libelle), ['Sans Équipe']);
   assert.equal(sectionsImpressionGraphique(BRUT, contexte, 'Inconnue').length, 4, 'service inconnu : toutes les pages');

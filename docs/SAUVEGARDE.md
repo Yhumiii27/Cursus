@@ -437,7 +437,7 @@ nouvelle version : la copie `avant-migration` faite au redémarrage s'y ajoute, 
 doit être modifiée ou recevoir de nouvelles migrations nommées. C'est aussi la sauvegarde à restaurer pour
 revenir à la version précédente si la copie `avant-migration` a disparu depuis.
 
-## 10. Serveur PostgreSQL commun EPC2I (`DATABASE_URL`)
+## 10. Serveur PostgreSQL commun de la suite Atrium (`DATABASE_URL`)
 
 Avec `DATABASE_URL`, `npm run backup` et `npm run restore` refusent de tourner : la base n'est plus un fichier. Deux
 choses sont alors à sauvegarder, à la même heure : le schéma `cursus` du serveur commun, et le volume des pièces
@@ -449,7 +449,7 @@ suit en est la part de Cursus, à valider avec l'exploitant du serveur et le DPO
 
 | Quoi | Qui | Quand | Où |
 | --- | --- | --- | --- |
-| Schéma `cursus` (toutes les données sauf les fichiers des pièces) | exploitant du serveur commun : tâche planifiée Coolify `sh /opt/epc2i/sauvegarde/sauvegarder.sh` (rôle `epc2i_sauvegarde`, membre de `pg_read_all_data`) | chaque nuit à 2 h 15 (proposition de Matrix) | `cursus.dump` du dossier daté du volume `epc2i_sauvegardes`, 14 jours ; copie hors du serveur chiffrée (question P-08 de Matrix) |
+| Schéma `cursus` (toutes les données sauf les fichiers des pièces) | exploitant du serveur commun : tâche planifiée Coolify `sh /opt/atrium/sauvegarde/sauvegarder.sh` (rôle `atrium_sauvegarde`, membre de `pg_read_all_data`) | chaque nuit à 2 h 15 (proposition de Matrix) | `cursus.dump` du dossier daté du volume `atrium_sauvegardes`, 14 jours ; copie hors du serveur chiffrée (question P-08 de Matrix) |
 | Volume des pièces justificatives | service informatique (exploitant de Cursus) : copie restic ci-dessous | juste après la sauvegarde du schéma, chaque nuit (2 h 45 par exemple) | dépôt restic hors de la machine, en France ou dans l'UE, en ajout seul (section 5) |
 | `CURSUS_PIECES_KEY`, `CURSUS_SECRET`, mot de passe restic | service informatique | à chaque changement | coffre-fort de mots de passe, jamais avec les copies |
 
@@ -499,8 +499,8 @@ l'onglet des volumes de l'application Cursus dans Coolify (`docker volume inspec
 set -eu
 set -a; . /etc/cursus/restic.env; set +a
 VOLUME=/var/lib/docker/volumes/<volume de Cursus>/_data
-# Seulement si la sauvegarde du schéma de la nuit est faite (dossier daté du jour dans le volume epc2i_sauvegardes).
-SAUVEGARDES=/var/lib/docker/volumes/<volume epc2i_sauvegardes>/_data
+# Seulement si la sauvegarde du schéma de la nuit est faite (dossier daté du jour dans le volume atrium_sauvegardes).
+SAUVEGARDES=/var/lib/docker/volumes/<volume atrium_sauvegardes>/_data
 ls -d "$SAUVEGARDES/$(date +%Y-%m-%d)_"* >/dev/null 2>&1 || { echo "Pas de sauvegarde du schéma cursus cette nuit : copie des pièces reportée" >&2; exit 1; }
 restic backup --tag cursus-pieces --host cursus "$VOLUME/pieces"
 ```
@@ -557,7 +557,7 @@ serveur commun en service), avec `npm run pieces:verifier` comme critère de ré
 ### Disque de l'hôte : chiffrement à vérifier
 
 Le chiffrement des pièces par Cursus ne couvre ni la base (dumps, fichiers du serveur PostgreSQL) ni les journaux.
-Le disque de l'hôte Coolify qui porte le serveur commun, les volumes de Cursus et `epc2i_sauvegardes` doit donc être
+Le disque de l'hôte Coolify qui porte le serveur commun, les volumes de Cursus et `atrium_sauvegardes` doit donc être
 chiffré au repos (option de l'hébergeur ou LUKS, `docs/DEPLOIEMENT.md`, « Protection des données sur le disque »).
 **À vérifier et à noter** dans le registre d'exploitation avant la mise en service : ce n'est pas établi aujourd'hui pour
 l'hôte Coolify (constat D6 du lot 8). La copie hors du serveur des dumps de Matrix doit être chiffrée de même (question

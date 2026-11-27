@@ -747,7 +747,7 @@ const MATRICE: Ligne[] = [
   { action: 'astreinte.retirerIntervention', droits: '    O    O    O    -    O    -    -    -    -', p: async () => ({ id: await intervention() }) },
   // lot 11 — organigramme : entités, sites et rattachements d'équipe, service RH ; fermeture et réouverture,
   // administrateur RH ; impression et export de l'organigramme, ouvert à tous par défaut (réglage organigrammeOuvert).
-  { action: 'entite.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ code: 'epc2i', nom: 'EPC2I', type: 'societe', siren: '552100554', idcc: '44' }) },
+  { action: 'entite.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ code: 'siege', nom: 'Société mère', type: 'societe', siren: '552100554', idcc: '44' }) },
   { action: 'entite.modifier', droits: '                     O    O    -    -    -    -    -    -    -', p: async () => { await entiteEssai(); return { code: 'essai', nom: 'Essai SAS', idcc: '0044' }; } },
   { action: 'entite.fermer', droits: '                       O    -    -    -    -    -    -    -    -', p: async () => { await entiteEssai(); return { code: 'essai' }; } },
   { action: 'entite.rouvrir', droits: '                      O    -    -    -    -    -    -    -    -', p: async () => { await entiteEssai(false); return { code: 'essai' }; } },

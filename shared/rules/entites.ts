@@ -129,7 +129,7 @@ export function controlerEntite(p: SaisieEntite, entites: readonly Entite[], sit
   const idccTexte = texte(p.idcc), idcc = idccTexte ? normaliserIdcc(idccTexte) : null;
   const siteCode = normaliserCodeEntite(p.siteCode) || null;
   if (!existant) {
-    if (!code) erreurs.code = 'Indiquez le code de l’entité (« epc2i », « site_67 »…).';
+    if (!code) erreurs.code = 'Indiquez le code de l’entité (« siege », « site_67 »…).';
     else if (!CODE_ENTITE.test(code)) erreurs.code = 'Code : 2 à 32 lettres minuscules, chiffres ou « _ », en commençant par une lettre.';
     else if (entites.some(x => x.code === code)) erreurs.code = `Le code ${code} existe déjà (entités fermées comprises).`;
   }

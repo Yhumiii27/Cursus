@@ -1,4 +1,4 @@
-# Coque commune des outils (Norma 2.0)
+# Coque commune des outils (Norma 2.0, tronc commun des menus 2.4)
 
 Demande du propriétaire (24 novembre 2026) : « ce qui est commun à tous les outils doit se retrouver à la même place dans
 toutes les pages » — affichage clair / sombre, changement de langue, et plus largement le genre d'affichage, les polices,
@@ -21,6 +21,8 @@ outils communs (§ 3). L'audit qui a mené à ce contrat : `AUDIT-2026-11-24.md`
 | `ds/FilterBar.tsx` | `FilterBar`, `FilterGroup`, `FilterLabel`, `FilterNote`, `FilterChips` (onglets : `Segmented`) |
 | `ds/Kpi.tsx`, `ds/EmptyState.tsx` | `KpiGrid`, `KpiTile`, `EmptyState` |
 | `ds/index.ts` | `SidePanel` = `Drawer` (panneau latéral des formulaires) |
+| `ds/base-nav.ts`, `ds/BaseNav.tsx` | tronc commun des menus (Norma 2.4, § 2 bis) : modèle pur et rendu |
+| `ds/MyTasks.tsx`, `ds/MyApprovals.tsx`, `ds/TaskParts.tsx`, `ds/task-rules.ts`, `ds/taches-fr.ts` | « Mes tâches » (liste, kanban, calendrier), « Mes approbations », règles pures, français des libellés |
 
 Les composants React posent les classes de `coque.css` ; un outil sans React (Matrix) ou dont le client n'est pas en
 Next.js (Cursus, Vite + React : les composants qui n'utilisent pas `next/link` / `next/navigation` s'y reprennent, sinon le
@@ -60,7 +62,8 @@ De haut en bas, padding 18 / 14 px, gap 14 px, bordure droite `--color-neutral-9
    (`--color-neutral-400`, contraste AA dans les deux affichages, Norma 2.2) ;
    ⌘K / Ctrl+K y met le focus, Entrée ouvre la première page trouvée, Échap vide ; pendant la saisie les résultats
    (page + section) remplacent le menu. **Toujours juste sous la marque.**
-3. **Entrées fixes** (`NavList` + `NavEntry`) : Accueil, Mon travail… — 13 px, padding 7 / 8 px, rayon 8, icône 16 px,
+3. **Tronc commun des menus** (`BaseNav`, § 2 bis : Accueil, Mes tâches, Mes approbations, une ou deux entrées métier ;
+   `NavList` + `NavEntry` pour une entrée fixe de plus) — 13 px, padding 7 / 8 px, rayon 8, icône 16 px,
    `--color-neutral-300` ; page courante `aria-current="page"` : fond `--color-accent-900`, texte `--color-accent-300` ;
    pastille de compte `--color-accent-800` / `--color-accent-100`, 11 px.
 4. **Sections par thème** (`NavSections` + `NavSection`) : titre en capitales 10,5 px (`--text-eyebrow`, `--tracking-caps`),
@@ -73,6 +76,114 @@ De haut en bas, padding 18 / 14 px, gap 14 px, bordure droite `--color-neutral-9
 
 Sélecteurs propres à un outil (site de Vigie, CAPEX d'Arche, projet de Keystone) : dans la section qu'ils concernent ou sous
 le fil d'Ariane de l'en-tête, jamais à la place des éléments ci-dessus.
+
+## 2 bis. Tronc commun des menus (Norma 2.4)
+
+Décision du propriétaire (27 novembre 2026) : « le tronc commun des menus n'est pas disponible sur tous les sites. Je veux
+dans ce tronc commun les menus suivants : 1- Accueil ; 2- Mes tâches (sous le même format que Teams, un affichage en liste,
+un en kanban et un en calendrier) ; 3- Mes approbations. Le minimum est ces trois menus, chaque accueil doit être typé en
+fonction de l'outil, et les tâches et approbations doivent montrer toutes les tâches et toutes les approbations qu'un
+utilisateur a même si la provenance est d'un autre outil. En fonction de l'outil métier tu peux ajouter un ou deux menus
+dans la liste pour ceux qui te semblent les plus importants. » (réponses TA-11, TA-15, TA-16 ; proposition
+`propositions/TACHES-ET-APPROBATIONS.md`, plan de déploiement `propositions/DEPLOIEMENT-TRONC-COMMUN.md`).
+
+### 2 bis.1 Le bloc
+
+Premier bloc de la barre latérale, **juste sous la recherche de pages ⌘K**, avant les sections par thème, séparé d'elles par
+un filet (`.coque-base-nav`). Rendu par `BaseNav` (`ds/BaseNav.tsx`) d'après le modèle pur `ds/base-nav.ts` :
+
+| # | Entrée (FR / source EN) | Icône Phosphor | Chemin conseillé | Pastille |
+| --- | --- | --- | --- | --- |
+| 1 | Accueil / Home | `House` | `/` | — |
+| 2 | Mes tâches / My tasks | `CheckSquare` | `/my/tasks` | tâches ouvertes de la personne **dans toute la suite** |
+| 3 | Mes approbations / My approvals | `Stamp` | `/my/approvals` | approbations ouvertes de la personne dans toute la suite |
+| 4–5 | une ou deux entrées propres au métier (§ 2 bis.3) | voir le tableau | voir le tableau | selon l'outil |
+
+- **Même place, même ordre, mêmes icônes, mêmes libellés** dans les onze outils ; les trois premières entrées sont
+  toujours visibles (une personne sans tâche voit une liste vide, jamais une entrée absente). Les entrées métier suivent
+  les droits de l'outil (`hidden`).
+- Chemin : un outil qui a déjà une route la garde (`paths`, ex. Vigie `{ tasks: '/a-faire' }`, Codex
+  `{ approvals: '/validations' }`) ; une route en français est permise (`/mes-taches`, `/mes-approbations`).
+- Pastilles : `baseCounts` (`ds/task-rules.ts`) sur les lignes de `matrix.pub_taches` de la personne, chaque tâche comptée
+  une fois (`outil` + `tache_id`). Aucune pastille à zéro.
+- Libellés : sources anglaises traduites par l'outil ; leur français est dans `ds/taches-fr.ts` (`TACHES_FR`), à reporter
+  dans le dictionnaire de l'outil.
+- Une entrée de l'outil qui faisait double emploi (Keystone « Documents · Codex », Vigie « À faire », Crucible « À décider »,
+  Arche « Mes actions » de l'accueil) rejoint une section par thème ou devient la vue « Cet outil » de Mes tâches.
+- Matrix (HTML sans React) écrit le même bloc : `<nav class="coque-nav coque-base-nav">` et trois `a.coque-entry`.
+
+### 2 bis.2 Accueil typé selon l'outil
+
+La page `/` de chaque outil est son **accueil métier** (tuiles KPI, listes courtes, liens vers les sections), jamais la
+liste des tâches de la suite (c'est « Mes tâches ») ; elle peut montrer un encart « À traiter » (les trois premières tâches
+et approbations) qui renvoie à Mes tâches. Contenu (`TOOL_BASE[outil].home`) :
+
+| Outil | Ce que montre l'accueil |
+| --- | --- |
+| Keystone | mes projets en cours (avancement, alertes, prochain jalon), tâches du jour, approbations en attente, activité récente |
+| Codex | documents récents et à réviser, circuits où je suis valideur, échéances de revue et de conservation, recherche documentaire |
+| Vigie | tableau de bord QHSE du site choisi : TF1 / TG, jours sans accident, événements récents, actions en retard, échéances |
+| Cursus | mon espace RH : soldes de congés, feuille de temps de la semaine, formations et habilitations à échéance, demandes ; l'équipe d'un manager |
+| Arche | mes CAPEX (phase DIG-PRODI, prochain jalon, budget et réalisé), jalons G1 / G2 / G3 à venir, alertes du portefeuille |
+| Crucible | occupation des moyens d'essais de la semaine, mes réservations, conflits et incidents ouverts |
+| Clavis | pour chacun : mes accès et mes demandes ; pour la DSI : comptes à activer, demandes, revues et écarts |
+| Matrix | état du serveur commun : outils et publications, publications à appliquer, liens demandés, journal unifié récent |
+| Modulus | mes affaires (étape, offre en cours, échéance), offres à revoir, dernières publications du catalogue et des prix |
+| Vector | expéditions en cours (prochaine étape, ETA, retard), demandes à trier, documents manquants, incidents |
+| Ingenium | « Ma discipline » : entrées attendues bloquantes, livrables à diffuser cette semaine, contrôles de cohérence ouverts, repères P&ID non rattachés, articles à valider ; par projet de l'équipe, avancement des livrables, couverture P&ID et pack ingénierie |
+
+### 2 bis.3 Entrées propres au métier (une ou deux par outil)
+
+Choisies le 27 novembre 2026 d'après le relevé de la proposition (§ 1) : l'objet que la personne suit au quotidien
+(« Mes <objets> ») et, quand il existe, le registre ou la vue de pilotage qu'elle ouvre le plus.
+
+| Outil | Entrée 4 | Entrée 5 | Raison |
+| --- | --- | --- | --- |
+| Keystone | Mes projets (`FolderUser`, `/my/projects`) | Mes tableaux de bord (`Gauge`, `/my/dashboards`) | les deux entrées fixes de Keystone hors tronc commun, déjà utilisées |
+| Codex | Documents (`Books`, `/documents`) | Mes documents (`FileText`, `/mes-documents`) | le registre est le cœur de la GED ; « mes documents » = propriétaire ou rédacteur |
+| Vigie | Événements (`Siren`, `/evenements`) | Plan d'actions (`ListChecks`, `/actions`) | les deux écrans QHSE les plus ouverts (signalement, suivi des actions) |
+| Cursus | Mes temps (`Clock`, `/temps`) | Mes absences (`CalendarX`, `/absences`) | gestes RH quotidiens de chaque salarié (pointage, feuille de temps, congés) |
+| Arche | Mes CAPEX (`FolderUser`, `/my/capex`) | Portefeuille (`SquaresFour`, `/portfolio`) | l'objet suivi et la vue groupe / filiale de pilotage |
+| Crucible | Planning des moyens (`CalendarDots`, `/planning`) | Mes besoins d'essais (`Flask`, `/my/needs`) | la grille de réservation et la demande de l'équipe projet |
+| Clavis | Annuaire (`TreeStructure`, `/directory`) | Mes accès (`Key`, `/account/access`) | l'organigramme (accueil actuel) et ses propres droits |
+| Matrix | Publications (`Database`, `/publications`) | Liens entre outils (`FlowArrow`, `/liens`) | les deux décisions que porte Matrix (M-18, M-17) |
+| Modulus | Mes affaires (`Handshake`, `/my/deals`) | Catalogue (`Cube`, `/catalogue`) | l'affaire suivie par le commercial et le catalogue des machines standard |
+| Vector | Mes expéditions (`Truck`, `/my/shipments`) | Demandes d'expédition (`PaperPlaneTilt`, `/requests`) | l'expédition suivie et la file des demandes à trier |
+| Ingenium | Mes projets (`FolderUser`, `/my/projects`) | Référentiel technique (`Gear`, `/reference`) | les projets de l'équipe d'ingénierie de la personne, et les articles, structures et plans que créent les bureaux d'études |
+
+Une entrée métier se change dans Norma (`ds/base-nav.ts` et ce tableau), jamais dans un outil seul.
+
+### 2 bis.4 Mes tâches : liste, kanban, calendrier (comme Teams / Planner)
+
+`MyTasks` (`ds/MyTasks.tsx`) : toutes les tâches de la personne dans toute la suite (`matrix.pub_taches`, contrat
+`contrats/taches-v1.md`), dans trois vues choisies par le `Segmented` de la charte dans la barre d'outils, état dans l'URL
+(`?vue=liste|kanban|calendrier`, défaut `liste`) ; onglets « Toute la suite » / « Cet outil » (`?portee=`, TA-15) posés
+par l'outil dans la même barre.
+
+- **Liste** : groupée (échéance : en retard · aujourd'hui · cette semaine · plus tard · sans échéance · terminées ; ou par
+  outil, état, type), triable par colonne (`aria-sort`) ; colonnes tâche (titre, type et référence), outil d'origine (logo
+  16 px et nom), échéance (retard en accent **avec** l'icône d'avertissement), état, priorité, « Ouvrir » / « Ouvrir dans
+  <outil> ».
+- **Kanban** : quatre colonnes À faire · En cours · En attente · Fait (`etat`). Une carte ne se déplace (glisser-déposer,
+  ou les boutons « → <colonne> » pour le clavier) **que si l'outil propriétaire ouvre la transition** (`actions` :
+  `demarrer`, `suspendre`, `reprendre`, `terminer`) et que l'outil peut agir sur la ligne (`moveAction`) : la sienne, ou une
+  autre avec `decision_a_distance` en phase 2 ; sinon la carte est fixe. ≤ 1024 px, les colonnes défilent en largeur.
+- **Calendrier** : mois (semaines complètes du lundi au dimanche) ou semaine, tâches à leur échéance, aujourd'hui marqué
+  (`aria-current="date"`), période précédente / suivante ; une tâche sans échéance n'y est pas.
+- Une source illisible (`matrix.pub_taches_sources`) : bandeau « <outil> : source indisponible » (`SourcesBanner`), jamais
+  une erreur de page.
+
+### 2 bis.5 Mes approbations
+
+`MyApprovals` (`ds/MyApprovals.tsx`) : les décisions attendues de la personne dans toute la suite, plus celles décidées
+depuis sept jours ; filtres outil (puces), type (liste) et échéance (toutes · en retard · pour cette semaine · sans
+échéance). Chaque ligne : outil d'origine, titre (type seul si `sensible` hors de l'outil propriétaire), type et
+référence, « en suppléance », échéance, état ou résultat, lien profond. **Approuver / Refuser ne sont rendus que si la
+décision peut être prise ici** (`decisionsHere`) : ligne de l'outil lui-même, ou `decision_a_distance` et phase 2 active
+(`remote`) ; sinon « Ouvrir dans <outil> ». Le motif d'un refus se saisit dans le panneau latéral de l'outil (`onDecide`).
+
+Les composants ne chargent rien : l'outil leur passe les lignes, le jour de son horloge métier (`today`) et ses rappels
+(`onMove`, `onDecide`, `viewHref`).
 
 ## 3. En-tête de page (`PageHeader`)
 
@@ -132,7 +243,7 @@ Demande du propriétaire (24 novembre 2026). `PrefsStack` = `LangSwitch` au-dess
 - **Langue** : `LangSwitch onSelect` (Server Action qui pose le cookie de langue de l'outil) puis rafraîchissement. Un outil
   dont l'interface n'existe qu'en français (Vigie, Cursus aujourd'hui) garde **le même bloc**, EN désactivé
   (`available={['fr']}`), jusqu'à ce que son i18n soit en place (Norma § 2).
-- **Affichage** : cookie `epc2i-theme`, `data-theme` sur `<html>` posé par le serveur (inchangé, voir `README.md`) ; le
+- **Affichage** : cookie `atrium-theme` (Norma 3.0 ; l'ancien nom reste lu à défaut, `themeFromCookies`), `data-theme` sur `<html>` posé par le serveur (voir `README.md`) ; le
   changement est diffusé (`THEME_EVENT`) pour que les deux copies (en-tête, barre supérieure) restent d'accord.
 - HTML simple : `<div class="coque-prefs"><div class="coque-pref" role="group" aria-label="Langue"><button class="coque-pref-opt" aria-pressed="true" lang="fr" title="Français">FR</button>…</div><div class="coque-pref" role="group" aria-label="Affichage">…</div></div>`.
 

@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   Norma 2.0 — coque commune des outils de la suite EPC2I (charte/COQUE.md).
+   Norma 2.0 — coque commune des outils de la suite Atrium (charte/COQUE.md).
    Reprise de la coque de Keystone (src/components/app/shell/*.module.css, commit f412d0e) ; mêmes mesures, valeurs
    prises dans les variables de nocturne.css (jamais de couleur en dur). Classes globales : les composants React de
    charte/ds (AppShell, Sidebar, PageHeader, HeaderTools…) les posent, et un outil sans React (Matrix, page statique)
@@ -283,6 +283,100 @@
   background: var(--color-surface);
 }
 
+/* ── 8 ter. Tronc commun des menus, « Mes tâches », « Mes approbations » (Norma 2.4, COQUE.md § 2 bis) ── */
+/* Bloc commun en tête de la barre latérale : Accueil · Mes tâches · Mes approbations · 1 ou 2 entrées métier, puis un
+   filet avant les sections par thème. */
+.coque-base-nav { padding-bottom: 10px; border-bottom: 1px solid var(--color-neutral-900); }
+.coque-sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0);
+  white-space: nowrap; border: 0;
+}
+.coque-tasks, .coque-approvals, .coque-cal { display: flex; flex-direction: column; gap: 12px; }
+.coque-task-src {
+  display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-small); color: var(--color-neutral-300);
+  white-space: nowrap;
+}
+.coque-task-src svg { flex: none; border-radius: 4px; }
+.coque-task-title { font-size: var(--text-ui); color: var(--color-text); text-decoration: none; overflow-wrap: anywhere; }
+a.coque-task-title:hover { color: var(--color-accent-300); }
+.coque-task-sub { display: block; font-size: var(--text-caption); color: var(--color-neutral-400); }
+.coque-task-muted { font-size: var(--text-small); color: var(--color-neutral-400); }
+.coque-task-late { display: inline-flex; align-items: center; gap: 4px; color: var(--color-accent-300); }
+.coque-task-high { font-size: var(--text-caption); color: var(--color-accent-300); }
+.coque-task-count { font-size: var(--text-caption); color: var(--color-neutral-400); font-variant-numeric: tabular-nums; }
+.coque-task-actions { display: flex; justify-content: flex-end; gap: 8px; white-space: nowrap; }
+.coque-task-open.btn { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-control); }
+.coque-task-unavail {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--radius-md);
+  border: 1px solid var(--color-accent-800); color: var(--color-accent-200); font-size: var(--text-control);
+}
+/* Liste : groupes (échéance, outil, état, type), colonnes triables. */
+.coque-task-table { width: 100%; }
+.coque-task-group th {
+  text-align: left; padding-top: 14px; font-size: var(--text-eyebrow); letter-spacing: var(--tracking-caps);
+  text-transform: uppercase; color: var(--color-neutral-300);
+}
+.coque-task-sort {
+  border: 0; padding: 0; background: transparent; font: inherit; color: inherit; letter-spacing: inherit;
+  text-transform: inherit; cursor: pointer;
+}
+.coque-task-sort:hover { color: var(--color-accent-300); }
+th[aria-sort='ascending'] .coque-task-sort::after { content: ' ↑'; }
+th[aria-sort='descending'] .coque-task-sort::after { content: ' ↓'; }
+/* Tableau kanban : quatre colonnes (À faire, En cours, En attente, Fait). */
+.coque-kanban { display: grid; grid-template-columns: repeat(4, minmax(220px, 1fr)); gap: 12px; align-items: start; }
+.coque-kanban-col {
+  display: flex; flex-direction: column; gap: 8px; min-height: 120px; padding: 10px; border-radius: var(--radius-lg);
+  background: var(--color-surface); border: 1px solid var(--color-neutral-900);
+}
+.coque-kanban-col.is-over { border-color: var(--color-accent-700); background: var(--color-accent-900); }
+.coque-kanban-head {
+  display: flex; align-items: center; gap: 8px; margin: 0; font-size: var(--text-eyebrow); font-weight: var(--weight-strong);
+  letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--color-neutral-300);
+}
+.coque-kanban-card {
+  display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: var(--radius-md);
+  background: var(--color-bg); border: 1px solid var(--color-neutral-800); box-shadow: var(--shadow-sm);
+}
+.coque-kanban-card.is-draggable { cursor: grab; }
+.coque-kanban-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: var(--text-small); }
+.coque-kanban-moves { display: flex; flex-wrap: wrap; gap: 4px; }
+.coque-kanban-move.btn { font-size: var(--text-caption); padding: 2px 6px; }
+/* Calendrier : mois ou semaine, tâches par échéance. */
+.coque-cal-title { font-size: var(--text-ui); font-weight: var(--weight-strong); min-width: 140px; text-align: center; }
+.coque-cal-grid { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.coque-cal-grid th {
+  font-size: var(--text-eyebrow); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--color-neutral-400);
+  padding: 6px; text-align: left;
+}
+.coque-cal-day {
+  vertical-align: top; height: 96px; padding: 6px; border: 1px solid var(--color-neutral-900); background: var(--color-surface);
+}
+.coque-cal-grid.is-week .coque-cal-day { height: 240px; }
+.coque-cal-day.is-out { background: var(--color-bg); }
+.coque-cal-day.is-out .coque-cal-num { color: var(--color-neutral-500); }
+.coque-cal-day.is-today { box-shadow: inset 0 0 0 1px var(--color-accent-700); }
+.coque-cal-num { display: block; font-size: var(--text-small); color: var(--color-neutral-300); margin-bottom: 4px; }
+.coque-cal-day.is-today .coque-cal-num { color: var(--color-accent-300); font-weight: var(--weight-strong); }
+.coque-cal-item {
+  display: flex; align-items: center; gap: 4px; margin-top: 3px; padding: 2px 4px; border-radius: var(--radius-sm);
+  background: var(--color-neutral-900); color: var(--color-text); font-size: var(--text-caption); text-decoration: none;
+  overflow: hidden;
+}
+.coque-cal-item:hover { background: var(--color-accent-900); }
+.coque-cal-item .coque-task-src span { display: none; }
+.coque-cal-item-title { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.coque-cal-item.is-done .coque-cal-item-title { text-decoration: line-through; color: var(--color-neutral-400); }
+/* Approbations : une ligne par décision attendue. */
+.coque-appr-type { min-height: var(--control-h); font-size: var(--text-control); max-width: 260px; }
+.coque-appr-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.coque-appr-row {
+  display: grid; grid-template-columns: 120px minmax(0, 1fr) 90px 110px auto; align-items: center; gap: 12px;
+  padding: 10px 4px; border-bottom: 1px solid var(--color-neutral-900);
+}
+.coque-appr-main { display: flex; flex-direction: column; min-width: 0; }
+.coque-appr-result { font-size: var(--text-small); color: var(--color-neutral-300); }
+
 /* ── 8. Barre supérieure (≤ 1024 px) ────────────────────────────────────── */
 .coque-topbar { display: none; }
 .coque-menu-btn.btn { gap: 8px; min-height: var(--touch-target); font-size: var(--text-ui); }
@@ -319,6 +413,14 @@
   }
   .coque-backdrop.is-on { opacity: 1; pointer-events: auto; }
   .coque-kbd { display: none; }
+}
+/* ≤ 1024 px : le tableau kanban défile en largeur, une ligne d'approbation passe sur deux lignes (Norma 2.4). */
+@media (max-width: 1024px) {
+  .coque-kanban { grid-template-columns: repeat(4, minmax(240px, 82vw)); overflow-x: auto; scroll-snap-type: x mandatory; }
+  .coque-kanban-col { scroll-snap-align: start; }
+  .coque-appr-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .coque-appr-row .coque-task-actions { grid-column: 1 / -1; justify-content: flex-start; flex-wrap: wrap; }
+  .coque-cal-day { height: 72px; padding: 4px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .coque-side, .coque-side.is-open, .coque-backdrop { transition: none; }

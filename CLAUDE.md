@@ -2,7 +2,7 @@
 
 @norma/REGLES.md
 
-Règles communes de la suite EPC2I (Norma) : copie versionnée dans `norma/` (version `norma/VERSION`), contrôlée par
+Règles communes de la suite Atrium (Norma) : copie versionnée dans `norma/` (version `norma/VERSION`), contrôlée par
 `npm run norma:check` (CI) ; elles se changent dans le dépôt `Yhumiii27/Norma`, jamais ici. Ce fichier n'ajoute que les
 règles propres à Cursus.
 
@@ -13,10 +13,19 @@ latérale (26 px, `.coque-logo-mark`) et de la barre supérieure (20 px, `.coque
 512 masquable, iOS 180) sont ce logo rendu sans dépendance par `scripts/icones.mjs`, à relancer quand le logo change
 (`tests/pwa.test.ts` compare au contenu commité).
 
-Cursus est l'outil RH du groupe EPC2I (formations, habilitations, temps, absences, entretiens, déplacements, frais).
+Cursus est l'outil RH du groupe (formations, habilitations, temps, absences, entretiens, déplacements, frais).
 Lire d'abord `README.md` et `docs/ARCHITECTURE.md` ; le reste à faire se tient dans Norma (`reste-a-faire/cursus.json` du dépôt `Yhumiii27/Norma`, page globale
 https://claude.ai/artifact/Rs7kooJdowShdYUqNS8jQf, `norma/REGLES.md` § 3) ; `docs/RESTE_A_FAIRE.md` est la liste close au
 24 novembre 2026, gardée pour ses décisions et ses preuves.
+
+## Suite Atrium (27 novembre 2026)
+
+La suite s'appelle Atrium (Norma 3.0) : plus aucune appellation de l'ancienne suite ni de l'entreprise dans les fichiers
+(entreprise : « l'entreprise », « le groupe » ; adresses fictives en `@atrium.example`). Restent seulement : les migrations
+publiées (`server/migrations-pg/`), la copie du socle de Matrix (`infra/postgres-socle/`), les demandes déjà envoyées
+(`docs/demandes/*.sql`) et l'ancien nom de la base commune, reconnu pendant la transition (`ANCIENNE_BASE_COMMUNE`,
+`BASES_COMMUNES` de `server/src/config.ts` ; `docs/DEPLOIEMENT.md`, « Renommage du serveur commun »). Cookie d'affichage
+`atrium-theme`, l'ancien nom lu à défaut (`themeFromCookieHeader` de Norma, `client/public/theme.js`).
 
 ## Langue de l'interface (CU-N01, Norma § 2 et § 7)
 

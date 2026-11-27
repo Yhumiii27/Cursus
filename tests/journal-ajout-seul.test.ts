@@ -154,13 +154,13 @@ test('messages d’échec de la purge : rôle, migration, droits', () => {
 });
 
 test('configuration : CURSUS_PURGE_DATABASE_URL contrôlée, absence signalée sur le serveur PostgreSQL', () => {
-  const pgUrl = 'postgres://cursus_app:x@hote:5432/epc2i';
+  const pgUrl = 'postgres://cursus_app:x@hote:5432/atrium';
   assert.deepEqual(problemesPurge({}), []);
-  assert.deepEqual(problemesPurge({ DATABASE_URL: pgUrl, CURSUS_PURGE_DATABASE_URL: 'postgres://cursus_purge:y@hote:5432/epc2i' }), []);
+  assert.deepEqual(problemesPurge({ DATABASE_URL: pgUrl, CURSUS_PURGE_DATABASE_URL: 'postgres://cursus_purge:y@hote:5432/atrium' }), []);
   assert.match(problemesPurge({ DATABASE_URL: pgUrl, CURSUS_PURGE_DATABASE_URL: 'pas une adresse' })[0], /n’est pas une adresse PostgreSQL/);
-  assert.match(problemesPurge({ CURSUS_PURGE_DATABASE_URL: 'postgres://cursus_purge:y@hote/epc2i' })[0], /sans DATABASE_URL/);
+  assert.match(problemesPurge({ CURSUS_PURGE_DATABASE_URL: 'postgres://cursus_purge:y@hote/atrium' })[0], /sans DATABASE_URL/);
   assert.match(problemesPurge({ DATABASE_URL: pgUrl, CURSUS_PURGE_DATABASE_URL: pgUrl })[0], /rôle « cursus_app »/);
-  assert.match(problemesPurge({ DATABASE_URL: pgUrl, CURSUS_PURGE_DATABASE_URL: 'postgres://h:5432/epc2i?user=cursus_purge' }).join(''), /^$/);
+  assert.match(problemesPurge({ DATABASE_URL: pgUrl, CURSUS_PURGE_DATABASE_URL: 'postgres://h:5432/atrium?user=cursus_purge' }).join(''), /^$/);
   assert.deepEqual(avertissementsPurge({}), []);
   assert.match(avertissementsPurge({ DATABASE_URL: pgUrl })[0], /purge du journal des actions .* est désactivée/);
   assert.ok(problemesConfig({ DATABASE_URL: pgUrl, CURSUS_PURGE_DATABASE_URL: pgUrl }).some(p => /cursus_purge/.test(p)), 'contrôlé au démarrage');

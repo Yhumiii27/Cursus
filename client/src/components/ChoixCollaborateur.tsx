@@ -13,6 +13,7 @@ import { equipeLabel, matricule } from '../../../shared/format.ts';
 import type { Employe } from '../../../shared/types.ts';
 import { actifApresSaisie, designePar, enQuittant } from './combobox.ts';
 import { chercherCollaborateurs, deplacer } from './recherche.ts';
+import { t, tn } from '../i18n/langue.ts';
 
 /** Ce qu'une suggestion montre d'un collaborateur, et ce que la recherche lit. */
 export type Suggere = Pick<Employe, 'id' | 'nom' | 'poste' | 'equipe' | 'matriculePaie'>;
@@ -38,8 +39,8 @@ export function ListeSuggestions<T extends Suggere>({ id, ouvert, options, actif
         </li>
       ))}
       {fin}
-      {options.length === 0 && <li role="presentation" className="combo-note text-muted">Aucun collaborateur ne correspond à cette recherche.</li>}
-      {reste > 0 && <li role="presentation" className="combo-note text-muted">{`${reste} autre${reste > 1 ? 's' : ''} : précisez la recherche (nom, poste, équipe ou matricule).`}</li>}
+      {options.length === 0 && <li role="presentation" className="combo-note text-muted">{t('No employee matches this search.')}</li>}
+      {reste > 0 && <li role="presentation" className="combo-note text-muted">{`${tn(reste, 'other', 'others')}${t(': narrow the search (name, job, team or employee number).')}`}</li>}
     </ul>
   );
 }
@@ -136,7 +137,7 @@ export function ChoixCollaborateur<T extends Suggere>({ id, emps, valeur, onChan
         aria-label={label} aria-expanded={ouvert} aria-controls={liste} aria-autocomplete="list"
         aria-activedescendant={ouvert && actif >= 0 ? `${liste}-${actif}` : undefined}
         aria-required={requis || undefined} aria-invalid={erreur ? true : undefined} aria-describedby={erreur ? `${id}-erreur` : undefined}
-        placeholder={placeholder ?? (vide ? vide : 'Nom, poste, équipe ou matricule')} value={texte}
+        placeholder={placeholder ?? (vide ? vide : t('Name, job, team or employee number'))} value={texte}
         onChange={ev => onSaisie(ev.target.value)} onKeyDown={onKey} onBlur={onQuitter}
         onClick={() => { if (!ouvert) ouvrir(saisi ? 0 : rang()); }} />
       <ListeSuggestions id={liste} ouvert={ouvert} options={options} actif={actif} choisi={valeur}

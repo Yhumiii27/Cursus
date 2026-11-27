@@ -5,7 +5,7 @@
 // temps (pas d'action dans la file d'attente de l'appareil). Ouvert seulement si le réglage `objectifsActifs` l'est.
 import { useMemo } from 'react';
 import { ENT_TYPES, REQ_CLS, REQ_LABEL } from '../../../shared/constants.ts';
-import { fmtIso, plural } from '../../../shared/format.ts';
+import { fmtIso } from '../../../shared/format.ts';
 import { estEvalue, STATUT_OBJECTIF_LABEL, TYPES_FIXATION } from '../../../shared/rules/objectifs.ts';
 import { derniereMiseAJour, objectifsAMettreAJour } from '../../../shared/rules/objectifs-suivi.ts';
 import { AVIS_SOUHAIT_LABEL, NON_VERSE_LABEL, souhaitsDe } from '../../../shared/rules/souhaits.ts';
@@ -16,6 +16,7 @@ import { Bar, Empty, Fine, NoteAccent, Page, Panel, Tag, Two } from '../componen
 import { retraitProposition } from '../state/confirmations-objectifs.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 export function MesObjectifs() {
   const d = useDomain();
@@ -39,9 +40,9 @@ export function MesObjectifs() {
   const entretienDe = (o: Objectif) => d.ds.entretiens.find(x => x.id === o.entretienId);
 
   return (
-    <Page kicker="Entretiens suivis" title="Mes objectifs" note="Objectifs fixés à votre entretien annuel : mettez à jour leur avancement en cours d’année ; ils sont évalués à l’entretien annuel suivant.">
-      {v.aMettreAJour.size > 0 && <NoteAccent>{plural(v.aMettreAJour.size, 'objectif approche', 'objectifs approchent')} de son échéance sans mise à jour depuis un mois : indiquez où vous en êtes.</NoteAccent>}
-      <Panel title="En cours" aside={plural(v.enCours.length, 'objectif', 'objectifs')}>
+    <Page kicker={t('Followed reviews')} title={t('My objectives')} note={t('Objectives set at your annual review: update their progress during the year; they are evaluated at the next annual review.')}>
+      {v.aMettreAJour.size > 0 && <NoteAccent>{tn(v.aMettreAJour.size, 'objective nears', 'objectives near')}{t(' its due date without an update for a month: say where you stand.')}</NoteAccent>}
+      <Panel title={t('In progress')} aside={tn(v.enCours.length, 'objective', 'objectives')}>
         {v.enCours.length > 0 ? (
           <div className="list">
             {v.enCours.map(o => (
@@ -50,36 +51,36 @@ export function MesObjectifs() {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 14 }}>{o.libelle}</div>
                     <div className="text-muted sub">{detailObjectif(o)}</div>
-                    {o.mesure && <div className="text-muted sub">Mesure : {o.mesure}</div>}
+                    {o.mesure && <div className="text-muted sub">{t('Measure: ')}{o.mesure}</div>}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginTop: 'var(--space-1)' }}>
-                      <Bar pct={o.avancement} width={140} /><span className="text-muted sub tnum">{o.avancement} % · mis à jour le {fmtIso(derniereMiseAJour(o))}</span>
+                      <Bar pct={o.avancement} width={140} /><span className="text-muted sub tnum">{o.avancement} % · {t('updated on ')}{fmtIso(derniereMiseAJour(o))}</span>
                     </div>
-                    {o.commentaireSal && <div className="text-muted sub">Mon commentaire : {o.commentaireSal}</div>}
+                    {o.commentaireSal && <div className="text-muted sub">{t('My comment: ')}{o.commentaireSal}</div>}
                   </div>
-                  {v.aMettreAJour.has(o.id) ? <Tag cls="tag-accent" style={{ flex: 'none' }}>À mettre à jour</Tag> : <Tag cls="tag-neutral" style={{ flex: 'none' }}>En cours</Tag>}
+                  {v.aMettreAJour.has(o.id) ? <Tag cls="tag-accent" style={{ flex: 'none' }}>{t('To update')}</Tag> : <Tag cls="tag-neutral" style={{ flex: 'none' }}>{t('In progress')}</Tag>}
                 </div>
                 <div className="actions-end">
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => openDialog({ type: 'objectifAvancer', id: o.id })}>Mettre à jour l’avancement</button>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => openDialog({ type: 'objectifAvancer', id: o.id })}>{t('Update the progress')}</button>
                 </div>
               </div>
             ))}
           </div>
-        ) : <Empty>Aucun objectif en cours. Les objectifs se fixent à l’entretien annuel.</Empty>}
+        ) : <Empty>{t('No objective in progress. Objectives are set at the annual review.')}</Empty>}
       </Panel>
 
       {(v.enPreparation.length > 0 || v.annuel) && (
-        <Panel title="En préparation" aside={v.annuel ? `entretien annuel prévu le ${fmtIso(v.annuel.date)}` : undefined}>
+        <Panel title={t('In preparation')} aside={v.annuel ? `${t('annual review planned on ')}${fmtIso(v.annuel.date)}` : undefined}>
           {v.enPreparation.length > 0 && (
             <div className="list">
               {v.enPreparation.map(o => (
                 <div key={o.id} className="list-row stack">
                   <div className="item-head">
                     <Two main={o.libelle} sub={detailObjectif(o)} />
-                    <Tag cls={STATUT_OBJECTIF_CLS[o.statut]} style={{ flex: 'none' }}>{o.statut === 'propose' ? 'Proposé, à valider' : 'Fixé'}</Tag>
+                    <Tag cls={STATUT_OBJECTIF_CLS[o.statut]} style={{ flex: 'none' }}>{t(o.statut === 'propose' ? 'Proposed, to approve' : 'Set#objective')}</Tag>
                   </div>
                   {o.statut === 'propose' && (
                     <div className="actions-end">
-                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'confirmer', c: retraitProposition(o) })}>Retirer ma proposition</button>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'confirmer', c: retraitProposition(o) })}>{t('Withdraw my proposal')}</button>
                     </div>
                   )}
                 </div>
@@ -88,15 +89,15 @@ export function MesObjectifs() {
           )}
           {v.annuel && (
             <div className="actions-end">
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'ent', entId: v.annuel!.id })}>Ouvrir le compte rendu</button>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => openDialog({ type: 'objectif', mode: 'proposer', entretienId: v.annuel!.id })}>Proposer un objectif</button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'ent', entId: v.annuel!.id })}>{t('Open the report')}</button>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => openDialog({ type: 'objectif', mode: 'proposer', entretienId: v.annuel!.id })}>{t('Propose an objective')}</button>
             </div>
           )}
-          <Fine>Votre évaluateur valide ou reformule vos propositions avant de clore l’entretien.</Fine>
+          <Fine>{t('Your reviewer approves or rephrases your proposals before closing the review.')}</Fine>
         </Panel>
       )}
 
-      <Panel title="Évalués" aside={plural(v.evalues.length, 'objectif', 'objectifs')}>
+      <Panel title={t('Evaluated#plural')} aside={tn(v.evalues.length, 'objective', 'objectives')}>
         {v.evalues.length > 0 ? (
           <div className="list">
             {v.evalues.map(o => {
@@ -104,17 +105,17 @@ export function MesObjectifs() {
               return (
                 <div key={o.id} className="list-row stack">
                   <div className="item-head">
-                    <Two main={o.libelle} sub={`${x ? `Fixé à l’entretien du ${fmtIso(x.date)}` : ''}${o.evaluation ? ` · ${o.evaluation}` : ''}`} />
+                    <Two main={o.libelle} sub={`${x ? `${t('Set at the review of ')}${fmtIso(x.date)}` : ''}${o.evaluation ? ` · ${o.evaluation}` : ''}`} />
                     <Tag cls={STATUT_OBJECTIF_CLS[o.statut]} style={{ flex: 'none' }}>{STATUT_OBJECTIF_LABEL[o.statut]}</Tag>
                   </div>
                 </div>
               );
             })}
           </div>
-        ) : <Empty>Aucun objectif évalué pour l’instant.</Empty>}
+        ) : <Empty>{t('No objective evaluated yet.')}</Empty>}
       </Panel>
 
-      <Panel title="Mes souhaits de formation" aside="exprimés en entretien">
+      <Panel title={t('My training wishes')} aside={t('expressed in a review')}>
         {v.souhaits.length > 0 ? (
           <div className="list">
             {v.souhaits.map(({ x, s }) => {
@@ -122,17 +123,17 @@ export function MesObjectifs() {
               return (
                 <div key={`${x.id}-${s.cle}`} className="list-row stack">
                   <div className="item-head">
-                    <Two main={nomSouhait(d, s)} sub={<><Ouvrir onOpen={() => openDialog({ type: 'ent', entId: x.id })}>{ENT_TYPES[x.type].nom} du {fmtIso(x.date)}</Ouvrir>{s.avis ? ` · avis ${AVIS_SOUHAIT_LABEL[s.avis].toLowerCase()}` : ''}</>} />
+                    <Two main={nomSouhait(d, s)} sub={<><Ouvrir onOpen={() => openDialog({ type: 'ent', entId: x.id })}>{ENT_TYPES[x.type].nom}{t(' of #date')}{fmtIso(x.date)}</Ouvrir>{s.avis ? ` · ${t('opinion ')}${AVIS_SOUHAIT_LABEL[s.avis].toLowerCase()}` : ''}</>} />
                     {s.nonVerse ? <Tag cls="tag-outline" style={{ flex: 'none' }}>{NON_VERSE_LABEL[s.nonVerse]}</Tag>
-                      : r ? <Tag cls={REQ_CLS[r.statut]} style={{ flex: 'none' }}>Demande {REQ_LABEL[r.statut].toLowerCase()}</Tag>
-                      : <Tag cls="tag-outline" style={{ flex: 'none' }}>{x.statut === 'planifie' ? 'En préparation' : 'Au compte rendu'}</Tag>}
+                      : r ? <Tag cls={REQ_CLS[r.statut]} style={{ flex: 'none' }}>{t('Request ')}{REQ_LABEL[r.statut].toLowerCase()}</Tag>
+                      : <Tag cls="tag-outline" style={{ flex: 'none' }}>{t(x.statut === 'planifie' ? 'In preparation' : 'In the report')}</Tag>}
                   </div>
                 </div>
               );
             })}
           </div>
-        ) : <Empty>Aucun souhait de formation exprimé en entretien.</Empty>}
-        <Fine>Un souhait à avis favorable de votre manager devient, à la clôture de l’entretien, une demande au service RH, qui décide de la suite.</Fine>
+        ) : <Empty>{t('No training wish expressed in a review.')}</Empty>}
+        <Fine>{t('A wish with a favourable opinion of your manager becomes, at the closing of the review, a request to HR, who decides what follows.')}</Fine>
       </Panel>
     </Page>
   );

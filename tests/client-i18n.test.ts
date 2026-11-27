@@ -178,6 +178,33 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
       'client/src/dialogs/EquipeDialog.tsx', 'client/src/dialogs/EquipeRattachementDialog.tsx', 'client/src/dialogs/DelegationDialog.tsx',
       'client/src/state/confirmations-delegations.ts'],
   },
+  // Recherche de l'en-tête (annuaire filtré, suggestions) et choix d'un collaborateur dans les dialogues et les filtres.
+  { ecran: 'Annuaire (recherche)', fichiers: ['client/src/layout/RechercheGlobale.tsx', 'client/src/components/ChoixCollaborateur.tsx'] },
+  {
+    // Arbre en liste et vue graphique, filtres, service choisi et fil d'Ariane, anomalies (le document imprimé et l'export
+    // CSV, construits par organigramme-vue.ts et listes-csv.ts, restent en français).
+    ecran: 'Organigramme', fichiers: ['client/src/pages/Organigramme.tsx', 'client/src/components/organigramme/ArbreGraphique.tsx'],
+  },
+  {
+    // Échéances et comptes rendus, objectifs, points de suivi, feedback 360° ; compte rendu (sections, objectifs, souhaits,
+    // feedback 360° et sa synthèse), planification, remise de la copie, dialogues des objectifs, des souhaits et des répondants
+    // (le compte rendu imprimé, ses libellés de sections et la mention d'information, dialogs/compteRendu*.ts, restent en français).
+    ecran: 'Entretiens / 360°', fichiers: ['client/src/pages/Entretiens.tsx', 'client/src/pages/EntretiensSuivi.tsx', 'client/src/pages/EntretiensFeedback360.tsx',
+      'client/src/components/EntretienSuivi.tsx', 'client/src/components/Feedback360Bloc.tsx', 'client/src/components/Synthese360.tsx',
+      'client/src/dialogs/EntDialog.tsx', 'client/src/dialogs/EntPlanDialog.tsx', 'client/src/dialogs/RemiseDialog.tsx', 'client/src/dialogs/ObjectifDialog.tsx',
+      'client/src/dialogs/ObjectifAvancerDialog.tsx', 'client/src/dialogs/ObjectifEvaluerDialog.tsx', 'client/src/dialogs/SouhaitDialog.tsx',
+      'client/src/dialogs/Feedback360SolliciterDialog.tsx'],
+  },
+  { ecran: 'Mes objectifs', fichiers: ['client/src/pages/MesObjectifs.tsx'] },
+  {
+    // Déclarations à valider, présences prévues, extérieurs, intérimaires, liens de déclaration ; dialogues de la fiche
+    // d'extérieur, du lien et de la validation (confirmations : state/confirmations-declarations.ts, déjà repris).
+    ecran: 'Personnes sur site', fichiers: ['client/src/pages/PersonnesSite.tsx', 'client/src/dialogs/ExterieurDialog.tsx',
+      'client/src/dialogs/LienDeclarationDialog.tsx', 'client/src/dialogs/ValiderDeclarationDialog.tsx'],
+  },
+  // Relevés d'heures des intérimaires (panneau de l'écran Temps ; confirmation d'envoi : state/confirmations.ts).
+  { ecran: 'Relevés', fichiers: ['client/src/pages/Releves.tsx'] },
+  { ecran: 'Chantiers', fichiers: ['client/src/pages/Chantiers.tsx'] },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */
@@ -322,4 +349,14 @@ test('Notes de frais : tables de libellés traduites à la lecture, phrase fran�
   choisirLangue('en');
   assert.deepEqual([MARQUE.demande, MARQUE.ferie], ['R', 'H']);
   assert.deepEqual([LIBELLES_ONGLETS_FRAIS.historique, LIBELLES_ONGLETS_FRAIS.controle, t('?#question')], ['History', 'To check', '?']);
+});
+
+test('partie 6 (annuaire, organigramme, entretiens, personnes sur site, relevés, chantiers) : la phrase française d’avant, contextes départagés', () => {
+  assert.deepEqual([t('Closed#fem'), t(' of #date'), t(' of '), t('Set#objective'), t('on #date')], ['Fermée', ' du ', ' sur ', 'Fixé', 'le ']);
+  assert.deepEqual([tn(3, 'other', 'others'), tn(1, 'refusal', 'refusals'), tn(2, 'refusal', 'refusals'), tn(2, 'timesheet approved', 'timesheets approved')],
+    ['3 autres', '1 refus', '2 refus', '2 feuilles validées']);
+  assert.equal(`${t('Collection closed on ')}12/11/2026${t(': ')}${tn(2, 'answer received', 'answers received')}`, 'Collecte close le 12/11/2026 : 2 réponses reçues');
+  choisirLangue('en');
+  assert.deepEqual([t('Organisation chart'), t('Closed#fem'), t(' of #date'), tn(1, 'person', 'people'), tn(2, 'person', 'people')],
+    ['Organisation chart', 'Closed', ' of ', '1 person', '2 people']);
 });

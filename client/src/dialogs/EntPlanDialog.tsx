@@ -15,6 +15,7 @@ import { erreurDate } from '../components/controles.ts';
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function EntPlanDialog({ empId, kind: kind0 }: { empId: number; kind: EntretienType }) {
   const d = useDomain();
@@ -26,7 +27,7 @@ export function EntPlanDialog({ empId, kind: kind0 }: { empId: number; kind: Ent
   const v = useVerification();
   const emp = d.emp(empId);
   if (!emp) return null;
-  const dateErr = erreurDate(date, 'Indiquez la date de l’entretien.') ?? (date < d.ti ? `Date passée : à partir du ${fmtIso(d.ti)}.` : horsContratLe(emp, date));
+  const dateErr = erreurDate(date, t('Enter the date of the review.')) ?? (date < d.ti ? `${t('Past date: from ')}${fmtIso(d.ti)}.` : horsContratLe(emp, date));
   const { prevu, aConfirmer, msg } = reprogrammation(d, empId, kind, date, nonTenu);
   const msgs: Conflit[] = [
     ...(msg ? [msg] : []),
@@ -42,26 +43,26 @@ export function EntPlanDialog({ empId, kind: kind0 }: { empId: number; kind: Ent
   };
 
   return (
-    <Dialog title={`Planifier un entretien — ${emp.nom}`} width={520} onSubmit={confirm} actions={<>
+    <Dialog title={`${t('Plan a review')} — ${emp.nom}`} width={520} onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>{prevu ? 'Reprogrammer et convoquer' : 'Planifier et convoquer'}</SubmitButton>
+      <SubmitButton busy={busy}>{t(prevu ? 'Reschedule and invite' : 'Plan and invite')}</SubmitButton>
     </>}>
-      <Field label="Type" htmlFor="ep-k">
+      <Field label={t('Type')} htmlFor="ep-k">
         <select className="input" id="ep-k" value={kind} onChange={e => { setKind(e.target.value as EntretienType); setNonTenu(false); }}>
           {(Object.keys(ENT_TYPES) as EntretienType[]).map(k => <option key={k} value={k}>{ENT_TYPES[k].nom}</option>)}
         </select>
       </Field>
-      <Field label="Date" htmlFor="ep-d" requis erreur={v.erreur(dateErr)}>
+      <Field label={t('Date')} htmlFor="ep-d" requis erreur={v.erreur(dateErr)}>
         <input className="input" id="ep-d" type="date" min={d.ti} value={date} onChange={e => setDate(e.target.value)} />
       </Field>
       <Controles msgs={msgs} />
       {aConfirmer && (
         <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 13 }}>
           <input type="checkbox" checked={nonTenu} onChange={ev => setNonTenu(ev.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-          L’entretien prévu n’a pas eu lieu : le reprogrammer, avec son compte rendu
+          {t('The planned review did not take place: reschedule it, with its report')}
         </label>
       )}
-      <div style={{ fontSize: 13 }}>Évaluateur : {d.mgrName(d.mgrOf(emp))}</div>
+      <div style={{ fontSize: 13 }}>{t('Reviewer: ')}{d.mgrName(d.mgrOf(emp))}</div>
       <Fine>{ENT_TYPES[kind].base}</Fine>
     </Dialog>
   );

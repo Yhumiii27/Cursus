@@ -16,15 +16,16 @@ import { erreurDate } from '../components/controles.ts';
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export type ModeObjectif = 'ajouter' | 'proposer' | 'modifier' | 'ajuster';
 
 const TITRES: Record<ModeObjectif, string> = {
-  ajouter: 'Fixer un objectif', proposer: 'Proposer un objectif', modifier: 'Modifier l’objectif', ajuster: 'Ajuster l’objectif en cours d’année',
+  ajouter: 'Set an objective', proposer: 'Propose an objective', modifier: 'Edit the objective', ajuster: 'Adjust the objective during the year',
 };
 
 /** Aide de saisie commune : ce qu'un objectif contient, et ce qu'il ne contient jamais. */
-export const AIDE_OBJECTIF = 'Un objectif décrit un résultat de travail mesurable. N’y mettez ni donnée de santé, ni appréciation de la personne : il figure au compte rendu et reste consultable pendant toute la durée de conservation des entretiens.';
+export const AIDE_OBJECTIF = 'An objective describes a measurable work result. Put in it no health data and no appraisal of the person: it appears in the report and stays readable for the whole retention period of the reviews.';
 
 export function ObjectifDialog({ mode, entretienId, id, retour }: { mode: ModeObjectif; entretienId?: number; id?: number; retour?: number }) {
   const d = useDomain();
@@ -47,19 +48,19 @@ export function ObjectifDialog({ mode, entretienId, id, retour }: { mode: ModeOb
   const revenir = () => (retour ? openDialog({ type: 'ent', entId: retour }) : closeDialog());
   const saisie = { libelle, mesure, categorie, poids: poids.trim() === '' ? null : poids.trim(), echeance: echeance || null };
   // Contrôles champ par champ (les mêmes que le serveur, shared/rules/objectifs.ts).
-  const libelleErr = !libelle.trim() ? 'Indiquez l’objectif.' : libelle.trim().length > LIBELLE_OBJECTIF_MAX ? `${LIBELLE_OBJECTIF_MAX} caractères au plus.` : null;
-  const mesureErr = mesure.trim().length > MESURE_MAX ? `${MESURE_MAX} caractères au plus.` : null;
+  const libelleErr = !libelle.trim() ? t('Enter the objective.') : libelle.trim().length > LIBELLE_OBJECTIF_MAX ? t(`${LIBELLE_OBJECTIF_MAX} characters at most.`) : null;
+  const mesureErr = mesure.trim().length > MESURE_MAX ? t(`${MESURE_MAX} characters at most.`) : null;
   const n = Number(poids);
-  const poidsErr = poids.trim() === '' ? null : !Number.isInteger(n) || n < 0 || n > 100 ? 'Un nombre entier de 0 à 100.' : null;
+  const poidsErr = poids.trim() === '' ? null : !Number.isInteger(n) || n < 0 || n > 100 ? t('A whole number from 0 to 100.') : null;
   // Poids total des objectifs fixés au même entretien : 100 % au plus.
-  const autres = objectifsFixesA(d.ds.objectifs ?? [], x.id).filter(y => y.id !== o?.id).reduce((t, y) => t + (y.poids ?? 0), 0);
-  const totalErr = !poidsErr && poids.trim() !== '' && autres + n > 100 ? `Poids total des objectifs de l’entretien : ${autres + n} %, 100 % au plus (${autres} % déjà réparti).` : null;
+  const autres = objectifsFixesA(d.ds.objectifs ?? [], x.id).filter(y => y.id !== o?.id).reduce((s, y) => s + (y.poids ?? 0), 0);
+  const totalErr = !poidsErr && poids.trim() !== '' && autres + n > 100 ? `${t('Total weight of the review’s objectives: ')}${autres + n}${t(' %, 100 % at most (')}${autres}${t(' % already shared).')}` : null;
   const echeanceErr = echeance ? erreurDate(echeance, '') : null;
-  const motifErr = mode !== 'ajuster' ? null : !motif.trim() ? 'Indiquez le motif de l’ajustement.' : motif.trim().length > MOTIF_AJUSTEMENT_MAX ? `${MOTIF_AJUSTEMENT_MAX} caractères au plus.` : null;
+  const motifErr = mode !== 'ajuster' ? null : !motif.trim() ? t('Enter the reason for the adjustment.') : motif.trim().length > MOTIF_AJUSTEMENT_MAX ? t(`${MOTIF_AJUSTEMENT_MAX} characters at most.`) : null;
   const lu = lireObjectif(saisie, o ?? undefined);
   const inchange = mode === 'ajuster' && o && typeof lu !== 'string'
     && lu.libelle === o.libelle && lu.mesure === o.mesure && lu.categorie === o.categorie && lu.poids === o.poids && lu.echeance === o.echeance
-    ? 'Aucun changement : modifiez au moins un champ, ou fermez.' : null;
+    ? t('No change: change at least one field, or close.') : null;
 
   const envoyer = async () => {
     if (busy || !v.verifier(libelleErr, mesureErr, poidsErr, totalErr, echeanceErr, motifErr, inchange)) return;
@@ -83,44 +84,44 @@ export function ObjectifDialog({ mode, entretienId, id, retour }: { mode: ModeOb
   const validation = mode === 'modifier' && o?.statut === 'propose';
 
   return (
-    <Dialog title={`${validation ? 'Valider la proposition' : TITRES[mode]} — ${e.nom}`} width={560} onSubmit={envoyer} fermer={retour ? revenir : undefined}
+    <Dialog title={`${t(validation ? 'Approve the proposal' : TITRES[mode])} — ${e.nom}`} width={560} onSubmit={envoyer} fermer={retour ? revenir : undefined}
       confirmation={retirer ? {
-        texte: `Retirer cet objectif de l’entretien ? ${o?.statut === 'propose' ? 'La proposition du salarié est supprimée.' : 'Il n’apparaîtra plus au compte rendu.'}`,
-        bouton: 'Retirer', occupe: busy, confirmer: confirmerRetrait, annuler: () => setRetirer(false),
+        texte: `${t('Remove this objective from the review?')} ${t(o?.statut === 'propose' ? 'The employee’s proposal is deleted.' : 'It will no longer appear in the report.')}`,
+        bouton: t('Remove'), occupe: busy, confirmer: confirmerRetrait, annuler: () => setRetirer(false),
       } : null}
       actions={<>
         <CancelButton />
-        {retirable && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setRetirer(true)}>Retirer</button>}
-        <SubmitButton busy={busy}>{mode === 'ajouter' ? 'Fixer l’objectif' : mode === 'proposer' ? 'Proposer' : mode === 'ajuster' ? 'Ajuster' : validation ? 'Valider' : 'Enregistrer'}</SubmitButton>
+        {retirable && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setRetirer(true)}>{t('Remove')}</button>}
+        <SubmitButton busy={busy}>{t(mode === 'ajouter' ? 'Set the objective' : mode === 'proposer' ? 'Propose' : mode === 'ajuster' ? 'Adjust' : validation ? 'Approve' : 'Save')}</SubmitButton>
       </>}>
-      <Fine>{AIDE_OBJECTIF}</Fine>
-      {o?.libelleInitial && <Fine>Libellé fixé à l’entretien : « {o.libelleInitial} »{o.ajusteLe ? ` — ajusté le ${fmtIso(o.ajusteLe)}` : ''}.</Fine>}
-      <Field label="Objectif" htmlFor="obj-libelle" requis erreur={v.erreur(libelleErr)}>
+      <Fine>{t(AIDE_OBJECTIF)}</Fine>
+      {o?.libelleInitial && <Fine>{t('Label set at the review: “')}{o.libelleInitial}{t('”#close')}{o.ajusteLe ? ` — ${t('adjusted on ')}${fmtIso(o.ajusteLe)}` : ''}.</Fine>}
+      <Field label={t('Objective')} htmlFor="obj-libelle" requis erreur={v.erreur(libelleErr)}>
         <input className="input" id="obj-libelle" value={libelle} maxLength={LIBELLE_OBJECTIF_MAX} onChange={ev => setLibelle(ev.target.value)} />
       </Field>
-      <Field label="Indicateur ou critère de mesure" htmlFor="obj-mesure" erreur={v.erreur(mesureErr)}>
+      <Field label={t('Indicator or measurement criterion')} htmlFor="obj-mesure" erreur={v.erreur(mesureErr)}>
         <textarea className="input mid" id="obj-mesure" rows={2} value={mesure} maxLength={MESURE_MAX} onChange={ev => setMesure(ev.target.value)} />
       </Field>
       <div className="grid-2">
-        <Field label="Catégorie" htmlFor="obj-categorie">
+        <Field label={t('Category')} htmlFor="obj-categorie">
           <select className="input" id="obj-categorie" value={categorie} onChange={ev => setCategorie(ev.target.value as CategorieObjectif)}>
             {CATEGORIES_OBJECTIF.map(c => <option key={c} value={c}>{CATEGORIE_OBJECTIF_LABEL[c]}</option>)}
           </select>
         </Field>
-        <Field label="Échéance" htmlFor="obj-echeance" erreur={v.erreur(echeanceErr)}>
+        <Field label={t('Due date')} htmlFor="obj-echeance" erreur={v.erreur(echeanceErr)}>
           <input className="input" id="obj-echeance" type="date" value={echeance} onChange={ev => setEcheance(ev.target.value)} />
         </Field>
       </div>
-      <Field label="Poids (%, facultatif)" htmlFor="obj-poids" erreur={v.erreur(poidsErr ?? totalErr)}>
+      <Field label={t('Weight (%, optional)')} htmlFor="obj-poids" erreur={v.erreur(poidsErr ?? totalErr)}>
         <input className="input" id="obj-poids" inputMode="numeric" value={poids} onChange={ev => setPoids(ev.target.value)} style={{ maxWidth: 120 }} />
       </Field>
       {mode === 'ajuster' && (
-        <Field label="Motif de l’ajustement" htmlFor="obj-motif" requis erreur={v.erreur(motifErr ?? inchange)}>
+        <Field label={t('Reason for the adjustment')} htmlFor="obj-motif" requis erreur={v.erreur(motifErr ?? inchange)}>
           <textarea className="input mid" id="obj-motif" rows={2} value={motif} maxLength={MOTIF_AJUSTEMENT_MAX} onChange={ev => setMotif(ev.target.value)} />
         </Field>
       )}
-      {mode === 'proposer' && <Fine>Votre évaluateur valide ou reformule la proposition avant la clôture de l’entretien.</Fine>}
-      {mode === 'ajuster' && <Fine>L’ajustement est daté et tracé ; le libellé fixé à l’entretien reste au compte rendu.</Fine>}
+      {mode === 'proposer' && <Fine>{t('Your reviewer approves or rephrases the proposal before the closing of the review.')}</Fine>}
+      {mode === 'ajuster' && <Fine>{t('The adjustment is dated and traced; the label set at the review stays in the report.')}</Fine>}
     </Dialog>
   );
 }

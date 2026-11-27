@@ -4,7 +4,7 @@
 // et lecture seule en consultation. lot 14, étape 2 : pré-déclarations (shared/rules/declarations-presence.ts) — à valider et
 // liens par entreprise ou agence pour le service RH, présences prévues validées pour tous les lecteurs de l'écran.
 import { useState } from 'react';
-import { fmt, fmtIso, plural } from '../../../shared/format.ts';
+import { fmt, fmtIso } from '../../../shared/format.ts';
 import { CONSERVATION_DEFAUT_MOIS, nomComplet, refDeclaration, STATUT_DECLARATION_LABEL } from '../../../shared/rules/declarations-presence.ts';
 import { present } from '../../../shared/rules/contrats.ts';
 import type { DeclarationPresence, Employe } from '../../../shared/types.ts';
@@ -12,15 +12,16 @@ import { annulationDeclaration, refusDeclaration, revocationLien } from '../stat
 import { Btn, Empty, Page, Panel, Two } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 function Titres({ e }: { e: Employe }) {
   const d = useDomain();
   const { certs, habs } = d.titresDe(e, d.ds.settings.horizonAlerte);
   const parts = [
-    ...certs.map(c => `${c.fm.nom}${c.fm.validite ? ` · jusqu’au ${fmt(c.exp)}` : ''}`),
-    ...habs.map(h => `${h.hm.nom}${h.exp ? ` · jusqu’au ${fmt(h.exp)}` : ''}`),
+    ...certs.map(c => `${c.fm.nom}${c.fm.validite ? `${t(' · until ')}${fmt(c.exp)}` : ''}`),
+    ...habs.map(h => `${h.hm.nom}${h.exp ? `${t(' · until ')}${fmt(h.exp)}` : ''}`),
   ];
-  return parts.length ? <span>{parts.join(' — ')}</span> : <span className="text-muted">aucun titre</span>;
+  return parts.length ? <span>{parts.join(' — ')}</span> : <span className="text-muted">{t('no title')}</span>;
 }
 
 const venue = (x: DeclarationPresence) => (x.du === x.au ? fmtIso(x.du) : `${fmtIso(x.du)} → ${fmtIso(x.au)}`);
@@ -36,11 +37,11 @@ function Declarations({ liste, aValider }: { liste: DeclarationPresence[]; aVali
   return (
     <div className="scroll-x">
       <table className="table">
-        <thead><tr><th>Personne</th><th>{aValider ? 'Référence' : 'Matricule'}</th><th>Site</th><th>Venue</th><th>Objet</th><th></th></tr></thead>
+        <thead><tr><th>{t('Person')}</th><th>{t(aValider ? 'Reference' : 'Employee number')}</th><th>{t('Site')}</th><th>{t('Visit')}</th><th>{t('Purpose')}</th><th></th></tr></thead>
         <tbody>
           {liste.map(x => (
             <tr key={x.id}>
-              <td><Two main={fiche(x)?.nom ?? nomComplet(x)} sub={`${x.entreprise}${x.categorie === 'interimaire' ? ' (agence)' : ''}${x.email ? ` · ${x.email}` : ''}`} nowrap /></td>
+              <td><Two main={fiche(x)?.nom ?? nomComplet(x)} sub={`${x.entreprise}${x.categorie === 'interimaire' ? t(' (agency)') : ''}${x.email ? ` · ${x.email}` : ''}`} nowrap /></td>
               <td className="tnum" style={{ whiteSpace: 'nowrap' }}>{aValider ? refDeclaration(x.id) : fiche(x)?.matriculeSite ?? '—'}</td>
               <td>{site(x.siteCode)}</td>
               <td className="tnum" style={{ whiteSpace: 'nowrap' }}>{venue(x)}{x.statut === 'annulee' && <> · <span className="text-danger">{STATUT_DECLARATION_LABEL.annulee}</span></>}</td>
@@ -48,9 +49,9 @@ function Declarations({ liste, aValider }: { liste: DeclarationPresence[]; aVali
               <td className="right">
                 {rh && (
                   <div style={{ display: 'flex', gap: 'var(--space-1)', justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
-                    {aValider && <Btn small onClick={() => openDialog({ type: 'confirmer', c: refusDeclaration(x, mois) })}>Refuser</Btn>}
-                    {(x.statut === 'validee' || aValider) && <Btn small onClick={() => openDialog({ type: 'confirmer', c: annulationDeclaration(x, mois) })}>{aValider ? 'Sans suite' : 'Annuler'}</Btn>}
-                    {aValider && <Btn small variant="secondary" onClick={() => openDialog({ type: 'validerDeclaration', id: x.id })}>Valider</Btn>}
+                    {aValider && <Btn small onClick={() => openDialog({ type: 'confirmer', c: refusDeclaration(x, mois) })}>{t('Refuse')}</Btn>}
+                    {(x.statut === 'validee' || aValider) && <Btn small onClick={() => openDialog({ type: 'confirmer', c: annulationDeclaration(x, mois) })}>{t(aValider ? 'No follow-up' : 'Cancel')}</Btn>}
+                    {aValider && <Btn small variant="secondary" onClick={() => openDialog({ type: 'validerDeclaration', id: x.id })}>{t('Approve')}</Btn>}
                   </div>
                 )}
               </td>
@@ -79,29 +80,29 @@ export function PersonnesSite() {
   const liens = (d.ds.liensDeclaration ?? []).filter(l => !l.revoqueLe).sort((a, b) => a.entreprise.localeCompare(b.entreprise));
   return (
     <Page
-      kicker="Intérimaires et salariés d’entreprises extérieures · matricule de site permanent (I, E)"
-      title="Personnes sur site"
+      kicker={t('Temporary workers and employees of outside companies · permanent site number (I, E)')}
+      title={t('People on site')}
       actions={rh ? <>
-        <button type="button" className="btn btn-secondary" onClick={() => openDialog({ type: 'lienDeclaration' })}>Nouveau lien de déclaration</button>
-        <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'exterieur' })}>Nouvel extérieur</button>
+        <button type="button" className="btn btn-secondary" onClick={() => openDialog({ type: 'lienDeclaration' })}>{t('New declaration link')}</button>
+        <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'exterieur' })}>{t('New outside worker')}</button>
       </> : undefined}
     >
       <div className="filtres-liste">
-        <input className="input" type="search" placeholder="Nom, entreprise, agence ou matricule…" aria-label="Rechercher une personne sur site" value={recherche} onChange={ev => setRecherche(ev.target.value)} />
+        <input className="input" type="search" placeholder={t('Name, company, agency or number…')} aria-label={t('Search for a person on site')} value={recherche} onChange={ev => setRecherche(ev.target.value)} />
       </div>
       {rh && (
-        <Panel title="Déclarations à valider" aside={plural(aValider.length, 'déclaration', 'déclarations')} highlight={aValider.length > 0}>
-          {aValider.length === 0 ? <Empty>Aucune déclaration en attente{q ? ' pour cette recherche' : ''}.</Empty> : <Declarations liste={aValider} aValider />}
+        <Panel title={t('Declarations to approve')} aside={tn(aValider.length, 'declaration', 'declarations')} highlight={aValider.length > 0}>
+          {aValider.length === 0 ? <Empty>{t('No declaration pending')}{q ? t(' for this search') : ''}.</Empty> : <Declarations liste={aValider} aValider />}
         </Panel>
       )}
-      <Panel title="Présences prévues" aside={`${plural(prevues.length, 'venue', 'venues')} · validées par le service RH`}>
-        {prevues.length === 0 ? <Empty>Aucune venue prévue{q ? ' pour cette recherche' : ''}.</Empty> : <Declarations liste={prevues} aValider={false} />}
+      <Panel title={t('Planned presences')} aside={`${tn(prevues.length, 'visit', 'visits')} · ${t('approved by HR#visits')}`}>
+        {prevues.length === 0 ? <Empty>{t('No visit planned')}{q ? t(' for this search') : ''}.</Empty> : <Declarations liste={prevues} aValider={false} />}
       </Panel>
-      <Panel title="Salariés d’entreprises extérieures" aside={plural(exterieurs.length, 'fiche', 'fiches')}>
-        {exterieurs.length === 0 ? <Empty>Aucune fiche d’extérieur{q ? ' pour cette recherche' : ''}.</Empty> : (
+      <Panel title={t('Employees of outside companies')} aside={tn(exterieurs.length, 'sheet', 'sheets')}>
+        {exterieurs.length === 0 ? <Empty>{t('No outside worker’s sheet')}{q ? t(' for this search') : ''}.</Empty> : (
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Personne</th><th>Matricule</th><th>Titres et habilitations</th><th></th></tr></thead>
+              <thead><tr><th>{t('Person')}</th><th>{t('Employee number')}</th><th>{t('Titles and authorisations')}</th><th></th></tr></thead>
               <tbody>
                 {exterieurs.map(e => (
                   <tr key={e.id}>
@@ -110,9 +111,9 @@ export function PersonnesSite() {
                     <td><Titres e={e} /></td>
                     <td className="right">
                       <div style={{ display: 'flex', gap: 'var(--space-1)', justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
-                        {formations && <Btn small onClick={() => openDialog({ type: 'cert', empId: e.id })}>Certification</Btn>}
-                        {formations && <Btn small onClick={() => openDialog({ type: 'hab', empId: e.id, mode: 'deliver' })}>Habilitation</Btn>}
-                        {rh && <Btn small onClick={() => openDialog({ type: 'exterieur', id: e.id })}>Modifier</Btn>}
+                        {formations && <Btn small onClick={() => openDialog({ type: 'cert', empId: e.id })}>{t('Certification')}</Btn>}
+                        {formations && <Btn small onClick={() => openDialog({ type: 'hab', empId: e.id, mode: 'deliver' })}>{t('Authorisation')}</Btn>}
+                        {rh && <Btn small onClick={() => openDialog({ type: 'exterieur', id: e.id })}>{t('Edit')}</Btn>}
                       </div>
                     </td>
                   </tr>
@@ -122,15 +123,15 @@ export function PersonnesSite() {
           </div>
         )}
       </Panel>
-      <Panel title="Intérimaires présents" aside={`${plural(interimaires.length, 'intérimaire', 'intérimaires')} · fiche dans l’annuaire`}>
-        {interimaires.length === 0 ? <Empty>Aucun intérimaire présent{q ? ' pour cette recherche' : ''}.</Empty> : (
+      <Panel title={t('Temporary workers present')} aside={`${tn(interimaires.length, 'temporary worker', 'temporary workers')} · ${t('sheet in the directory')}`}>
+        {interimaires.length === 0 ? <Empty>{t('No temporary worker present')}{q ? t(' for this search') : ''}.</Empty> : (
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Personne</th><th>Matricule de site</th><th>Agence</th></tr></thead>
+              <thead><tr><th>{t('Person')}</th><th>{t('Site number')}</th><th>{t('Agency')}</th></tr></thead>
               <tbody>
                 {interimaires.map(e => (
                   <tr key={e.id}>
-                    <td><Two main={e.nom} sub={e.equipe ?? 'à affecter'} nowrap /></td>
+                    <td><Two main={e.nom} sub={e.equipe ?? t('to assign')} nowrap /></td>
                     <td className="tnum">{e.matriculeSite ?? '—'}</td>
                     <td>{e.agence ?? '—'}</td>
                   </tr>
@@ -141,18 +142,18 @@ export function PersonnesSite() {
         )}
       </Panel>
       {rh && (
-        <Panel title="Liens de déclaration" aside={plural(liens.length, 'lien en vigueur', 'liens en vigueur')}>
-          {liens.length === 0 ? <Empty>Aucun lien : créez-en un par entreprise extérieure ou par agence d’intérim.</Empty> : (
+        <Panel title={t('Declaration links')} aside={tn(liens.length, 'link in force', 'links in force')}>
+          {liens.length === 0 ? <Empty>{t('No link: create one per outside company or per temporary work agency.')}</Empty> : (
             <div className="scroll-x">
               <table className="table">
-                <thead><tr><th>Entreprise ou agence</th><th>Créé</th><th>Dernière déclaration</th><th></th></tr></thead>
+                <thead><tr><th>{t('Company or agency')}</th><th>{t('Created#masc')}</th><th>{t('Last declaration')}</th><th></th></tr></thead>
                 <tbody>
                   {liens.map(l => (
                     <tr key={l.id}>
-                      <td><Two main={l.entreprise} sub={l.categorie === 'interimaire' ? 'Agence d’intérim' : 'Entreprise extérieure'} nowrap /></td>
+                      <td><Two main={l.entreprise} sub={t(l.categorie === 'interimaire' ? 'Temporary work agency' : 'Outside company')} nowrap /></td>
                       <td>{fmt(new Date(l.creeLe))} · {l.creePar}</td>
                       <td>{l.dernierUsage ? fmt(new Date(l.dernierUsage)) : '—'}</td>
-                      <td className="right"><Btn small onClick={() => openDialog({ type: 'confirmer', c: revocationLien(l) })}>Révoquer</Btn></td>
+                      <td className="right"><Btn small onClick={() => openDialog({ type: 'confirmer', c: revocationLien(l) })}>{t('Revoke')}</Btn></td>
                     </tr>
                   ))}
                 </tbody>

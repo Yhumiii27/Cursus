@@ -13,6 +13,7 @@ import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { imprimerCompteRendu } from './compteRendu.ts';
+import { t } from '../i18n/langue.ts';
 
 export function RemiseDialog({ entId }: { entId: number }) {
   const d = useDomain();
@@ -29,9 +30,9 @@ export function RemiseDialog({ entId }: { entId: number }) {
   const modes = (Object.keys(MODES_REMISE) as ModeRemise[])
     .filter(m => !(m === 'refus' && x.signSal) && !(m === 'portail' && x.remiseMode === 'portail'));
   const papier = mode === 'main_propre' || mode === 'refus';
-  const modeErr = mode ? null : 'Choisissez le mode de remise.';
+  const modeErr = mode ? null : t('Choose the handover mode.');
   // Erreur de date : vide ou incomplète, sinon la règle partagée avec le serveur (aujourd'hui au plus tard, pas avant la clôture).
-  const dateErr = !papier ? null : erreurDate(date, 'Indiquez le jour de la remise.') ?? (() => {
+  const dateErr = !papier ? null : erreurDate(date, t('Enter the day of the handover.')) ?? (() => {
     const err = controleRemise(x, mode, date, d.ti);
     return err && err.startsWith('Date') ? `${err}.` : null;
   })();
@@ -46,23 +47,23 @@ export function RemiseDialog({ entId }: { entId: number }) {
     if (r.ok) openDialog({ type: 'ent', entId: x.id });
   };
   const imprimer = () => {
-    if (!imprimerCompteRendu(d, x)) notify('Autorisez les fenêtres surgissantes pour imprimer le compte rendu', true);
+    if (!imprimerCompteRendu(d, x)) notify(t('Allow pop-up windows to print the report'), true);
   };
 
   return (
-    <Dialog title="Remettre la copie du compte rendu" width={560} onSubmit={envoyer} actions={<>
+    <Dialog title={t('Hand over the copy of the report')} width={560} onSubmit={envoyer} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Enregistrer la remise</SubmitButton>
+      <SubmitButton busy={busy}>{t('Record the handover')}</SubmitButton>
     </>}>
-      <Field label="Compte rendu">
+      <Field label={t('Report')}>
         <Static>
-          {ENT_TYPES[x.type].nom} du {fmtIso(x.date)}
-          <div className="text-muted sub">{e.nom} · {x.signSal ? `signé par le salarié le ${fmtIso(x.signSal)}` : 'non signé par le salarié'}</div>
+          {ENT_TYPES[x.type].nom}{t(' of #date')}{fmtIso(x.date)}
+          <div className="text-muted sub">{e.nom} · {x.signSal ? `${t('signed by the employee on ')}${fmtIso(x.signSal)}` : t('not signed by the employee')}</div>
         </Static>
       </Field>
-      {precedente && <Fine>{precedente}. Une remise sur papier la complète.</Fine>}
-      <Field label="Mode de remise" requis erreur={v.erreur(modeErr)}>
-        <div role="radiogroup" aria-label="Mode de remise" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+      {precedente && <Fine>{precedente}{t('. A handover on paper completes it.')}</Fine>}
+      <Field label={t('Handover mode')} requis erreur={v.erreur(modeErr)}>
+        <div role="radiogroup" aria-label={t('Handover mode')} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           {modes.map(m => (
             <label key={m} className="boxed" style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', cursor: 'pointer' }}>
               <input type="radio" name="remise-mode" value={m} checked={mode === m} onChange={() => setMode(m)}
@@ -76,13 +77,13 @@ export function RemiseDialog({ entId }: { entId: number }) {
         </div>
       </Field>
       {papier && (
-        <Field label={mode === 'refus' ? 'Jour du refus et de la remise' : 'Jour de la remise'} htmlFor="remise-date" requis erreur={v.erreur(dateErr) || (dateErr && date ? dateErr : null)}>
+        <Field label={t(mode === 'refus' ? 'Day of the refusal and of the handover' : 'Day of the handover')} htmlFor="remise-date" requis erreur={v.erreur(dateErr) || (dateErr && date ? dateErr : null)}>
           <input className="input" id="remise-date" type="date" min={debutRemise(x)} max={d.ti} value={date} onChange={ev => setDate(ev.target.value)} />
         </Field>
       )}
-      {mode === 'portail' && <Fine>Le salarié doit avoir un compte Cursus actif. Sans adresse e-mail sur sa fiche, prévenez-le vous-même.</Fine>}
+      {mode === 'portail' && <Fine>{t('The employee must have an active Cursus account. Without an e-mail address on their sheet, inform them yourself.')}</Fine>}
       <div>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={imprimer}>Imprimer le compte rendu</button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={imprimer}>{t('Print the report')}</button>
       </div>
     </Dialog>
   );

@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { DownloadSimpleIcon, PaperPlaneTiltIcon } from '@phosphor-icons/react';
 import { ENVOI_CLS, ENVOI_LABEL } from '../../../shared/constants.ts';
 import { isoWeek, mondayOf } from '../../../shared/dates.ts';
-import { fmt, key, plural } from '../../../shared/format.ts';
+import { fmt, key } from '../../../shared/format.ts';
 import { adresseAgence, agencesInterim } from '../../../shared/rules/messagerie.ts';
 import { heuresTexte, releveAgence, releveCsv, semainesAutomatiques } from '../../../shared/rules/releves.ts';
 import type { ISODate } from '../../../shared/types.ts';
@@ -15,10 +15,11 @@ import { downloadCsv } from '../print.ts';
 import { useDomain } from '../state/derived.ts';
 import { envoiReleve } from '../state/confirmations.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 const quand = (at: string) => {
   const x = new Date(at);
-  return `${fmt(x)} à ${x.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+  return `${fmt(x)}${t(' at ')}${x.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
 };
 
 export function RelevesPanel({ wk }: { wk: ISODate }) {
@@ -38,7 +39,7 @@ export function RelevesPanel({ wk }: { wk: ISODate }) {
   const telecharger = (x: (typeof agences)[number]) => {
     const csv = releveCsv(x.r);
     downloadCsv(csv.fichier, csv.head, csv.rows);
-    notify(`Relevé exporté — ${plural(x.r.lignes.length, 'intérimaire', 'intérimaires')}`);
+    notify(`${t('Statement exported — ')}${tn(x.r.lignes.length, 'temporary worker', 'temporary workers')}`);
   };
   // Renvoi, ou relevé sans les feuilles pas encore validées : confirmation (state/confirmations.ts) ; sinon, aussitôt.
   const envoyer = async (x: (typeof agences)[number]) => {
@@ -52,47 +53,45 @@ export function RelevesPanel({ wk }: { wk: ISODate }) {
   };
 
   return (
-    <Panel title="Relevés d’heures des intérimaires" aside={`Semaine ${isoWeek(wk)}`}>
+    <Panel title={t('Hours statements of the temporary workers')} aside={`${t('Week ')}${isoWeek(wk)}`}>
       <Fine>
-        Chaque semaine, le relevé des heures validées des intérimaires part par e-mail à leur agence (fichier CSV joint), dès que toutes leurs feuilles
-        de la semaine sont validées, même avec retard (jusqu’à cinq semaines). S’il manque une feuille, le relevé peut être envoyé sans elle : le relevé
-        complet suit à sa validation. Un relevé se renvoie à tout moment.
+        {t('Each week, the statement of the approved hours of the temporary workers is e-mailed to their agency (CSV file attached), as soon as all their timesheets of the week are approved, even late (up to five weeks). If a timesheet is missing, the statement can be sent without it: the complete statement follows at its approval. A statement can be sent again at any time.')}
       </Fine>
-      {agences.length === 0 ? <Fine>Aucun intérimaire en mission cette semaine.</Fine> : (
+      {agences.length === 0 ? <Fine>{t('No temporary worker on assignment this week.')}</Fine> : (
         <div className="scroll-x">
           <table className="table">
-            <thead><tr><th>Agence</th><th>Intérimaires</th><th>Heures validées</th><th>Relevé</th><th></th></tr></thead>
+            <thead><tr><th>{t('Agency')}</th><th>{t('Temporary workers')}</th><th>{t('Approved hours')}</th><th>{t('Statement')}</th><th></th></tr></thead>
             <tbody>
               {agences.map(x => {
                 const dernier = x.envois[0];
                 const total = x.r.lignes.length + x.r.enAttente.length;
                 return (
                   <tr key={x.agence}>
-                    <td><Two main={x.agence} sub={x.adresse ?? 'Adresse à renseigner (Paramètres → Messagerie)'} /></td>
-                    <td><Two main={`${x.r.lignes.length} / ${total} feuille${total > 1 ? 's' : ''} validée${total > 1 ? 's' : ''}`}
-                      sub={x.r.enAttente.length ? `en attente : ${x.r.enAttente.map(e => e.nom).join(', ')}` : x.r.lignes.map(l => l.nom).join(', ')} /></td>
+                    <td><Two main={x.agence} sub={x.adresse ?? t('Address to enter (Settings → Messaging)')} /></td>
+                    <td><Two main={`${x.r.lignes.length} / ${tn(total, 'timesheet approved', 'timesheets approved')}`}
+                      sub={x.r.enAttente.length ? `${t('pending: ')}${x.r.enAttente.map(e => e.nom).join(', ')}` : x.r.lignes.map(l => l.nom).join(', ')} /></td>
                     <td className="tnum">{heuresTexte(x.r.heures)} h</td>
                     <td>
                       {dernier ? <>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-                          <span>{dernier.enAttente ? 'Transmis (incomplet)' : 'Transmis'}</span>
+                          <span>{t(dernier.enAttente ? 'Sent (incomplete)' : 'Sent#statement')}</span>
                           {dernier.envoi && <Tag cls={ENVOI_CLS[dernier.envoi]}>{ENVOI_LABEL[dernier.envoi]}</Tag>}
                         </div>
                         <div className="text-muted sub">
-                          le {quand(dernier.creation)} · {dernier.par === 'Cursus' ? 'envoi automatique' : `par ${dernier.par}`}
-                          {x.envois.length > 1 ? ` · ${plural(x.envois.length, 'envoi', 'envois')}` : ''}
-                          {dernier.enAttente ? ` · ${plural(dernier.enAttente, 'feuille manquait', 'feuilles manquaient')} : relevé complet ${x.automatique ? 'envoyé automatiquement après la validation' : 'à renvoyer après la validation'}` : ''}
+                          {t('on #date')}{quand(dernier.creation)} · {dernier.par === 'Cursus' ? t('automatic sending') : `${t('by ')}${dernier.par}`}
+                          {x.envois.length > 1 ? ` · ${tn(x.envois.length, 'sending', 'sendings')}` : ''}
+                          {dernier.enAttente ? ` · ${tn(dernier.enAttente, 'timesheet was missing', 'timesheets were missing')}${t(x.automatique ? ': complete statement sent automatically after the approval' : ': complete statement to send again after the approval')}` : ''}
                         </div>
                       </> : <span className="text-muted sub">
-                        {!x.adresse ? 'Non transmis : adresse de l’agence manquante' : x.r.enAttente.length ? 'Non transmis : feuilles à valider'
-                          : future ? 'Semaine à venir' : x.automatique ? 'Envoi automatique imminent' : wk === mondayOf(data.today) ? 'Envoi automatique après le vendredi' : 'Non transmis'}
+                        {t(!x.adresse ? 'Not sent: agency’s address missing' : x.r.enAttente.length ? 'Not sent: timesheets to approve'
+                          : future ? 'Coming week' : x.automatique ? 'Automatic sending imminent' : wk === mondayOf(data.today) ? 'Automatic sending after Friday' : 'Not sent')}
                       </span>}
                     </td>
                     <td className="right">
                       <div className="actions-end">
                         <Btn small icon={<DownloadSimpleIcon size={14} />} disabled={!x.r.lignes.length} onClick={() => telecharger(x)}>CSV</Btn>
                         <Btn small variant="secondary" icon={<PaperPlaneTiltIcon size={14} />} disabled={!x.adresse || !x.r.lignes.length || future || busy === x.agence}
-                          onClick={() => envoyer(x)}>{x.envois.length ? 'Renvoyer' : 'Envoyer'}</Btn>
+                          onClick={() => envoyer(x)}>{t(x.envois.length ? 'Send again' : 'Send')}</Btn>
                       </div>
                     </td>
                   </tr>

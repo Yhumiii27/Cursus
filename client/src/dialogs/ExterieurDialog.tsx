@@ -5,6 +5,7 @@ import { erreursExterieur, normaliserExterieur, TEXTE_MAX } from '../../../share
 import { CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function ExterieurDialog({ id }: { id?: number }) {
   const d = useDomain();
@@ -25,24 +26,23 @@ export function ExterieurDialog({ id }: { id?: number }) {
     if (r.ok) closeDialog();
   };
   return (
-    <Dialog title={e ? `Fiche d’extérieur — ${e.nom}` : 'Nouvel extérieur'} width={520} onSubmit={confirm} actions={<>
+    <Dialog title={e ? `${t('Outside worker’s sheet')} — ${e.nom}` : t('New outside worker')} width={520} onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>{e ? 'Enregistrer' : 'Créer la fiche'}</SubmitButton>
+      <SubmitButton busy={busy}>{t(e ? 'Save' : 'Create the sheet')}</SubmitButton>
     </>}>
-      <Field label="Nom et prénom" htmlFor="ext-nom" requis>
+      <Field label={t('Full name')} htmlFor="ext-nom" requis>
         <input className="input" id="ext-nom" maxLength={TEXTE_MAX} value={nom} onChange={ev => setNom(ev.target.value)} />
       </Field>
-      <Field label="Entreprise" htmlFor="ext-ent" requis>
+      <Field label={t('Company')} htmlFor="ext-ent" requis>
         <input className="input" id="ext-ent" maxLength={TEXTE_MAX} value={entreprise} onChange={ev => setEntreprise(ev.target.value)} />
       </Field>
-      <Field label="Adresse e-mail professionnelle" htmlFor="ext-mail">
+      <Field label={t('Work e-mail address')} htmlFor="ext-mail">
         <input className="input" id="ext-mail" type="email" value={email} onChange={ev => setEmail(ev.target.value)} />
       </Field>
       {v.erreur(erreurs[0] ?? null) && <p className="text-danger fine" role="alert">{erreurs[0]}</p>}
       <p className="text-muted fine">
-        {e ? `Matricule de site ${e.matriculeSite}, permanent.` : 'Un matricule de site E est attribué à la création, définitivement : la personne le retrouve à chaque venue.'}
-        {' '}La fiche sert aux titres, aux habilitations et aux présences sur site ; elle n’entre ni dans la paie, ni dans les congés, ni dans les effectifs.
-        L’adresse e-mail permet de rattacher le compte Microsoft de la personne dans les autres outils.
+        {e ? `${t('Site number ')}${e.matriculeSite}${t(', permanent.')}` : t('A site number E is given at creation, for good: the person finds it again at each visit.')}
+        {' '}{t('The sheet is used for titles, authorisations and presences on site; it enters neither payroll, nor leave, nor headcount. The e-mail address allows the person’s Microsoft account to be attached in the other tools.')}
       </p>
     </Dialog>
   );

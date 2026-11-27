@@ -19,8 +19,9 @@ import { Seg } from '../components/ui.tsx';
 import { OngletObjectifs, OngletPoints } from './EntretiensSuivi.tsx';
 import { OngletFeedback360 } from './EntretiensFeedback360.tsx';
 import type { OngletEntretiens } from './entretiens-onglets.ts';
+import { t } from '../i18n/langue.ts';
 
-const RISK_TEXT = 'Conditions non remplies — abondement correctif de 3 000 € sur le CPF (entreprises de 50 salariés et plus)';
+const RISK_TEXT = 'Conditions not met — corrective top-up of €3,000 on the CPF (companies of 50 employees or more)';
 
 export function Entretiens() {
   const d = useDomain();
@@ -40,8 +41,8 @@ export function Entretiens() {
 
     const obligRows = oblig.filter(o => o.st !== 'ok').sort((a, b) => a.due.localeCompare(b.due)).map(o => ({
       key: `${o.id}-${o.kind}`, o,
-      due: o.pl ? `Prévu le ${fmt(parse(o.pl.date))}` : fmt(parse(o.due)),
-      rel: o.pl ? `évaluateur : ${d.mgrName(d.mgrOf(o.e))}` : o.st === 'todo' ? 'non obligatoire' : rel(days(d.today, parse(o.due))),
+      due: o.pl ? `${t('Planned on ')}${fmt(parse(o.pl.date))}` : fmt(parse(o.due)),
+      rel: o.pl ? `${t('reviewer: ')}${d.mgrName(d.mgrOf(o.e))}` : o.st === 'todo' ? t('not compulsory') : rel(days(d.today, parse(o.due))),
       // Planification réservée au service RH (jamais pour son propre entretien) et au manager direct (le serveur refuse
       // sinon) ; déjà planifié, il se reprogramme.
       canPlan: (rh && o.id !== soi) || (manager && decideur(d, o.e, me, 'entretiens')),
@@ -54,8 +55,8 @@ export function Entretiens() {
         const e = d.emp(x.empId);
         if (!e) return [];
         // Planifié à une date passée sans avoir été clos : à clore s'il a eu lieu, sinon à reprogrammer ou annuler.
-        const [statut, cls] = x.statut === 'planifie' && x.date < d.ti ? ['Date dépassée', 'tag-accent'] : statutEntretien(x);
-        return [{ x, nom: e.nom, eval: `Évaluateur : ${d.mgrName(d.mgrOf(e))}`, statut, cls }];
+        const [statut, cls] = x.statut === 'planifie' && x.date < d.ti ? [t('Date passed'), 'tag-accent'] : statutEntretien(x);
+        return [{ x, nom: e.nom, eval: `${t('Reviewer: ')}${d.mgrName(d.mgrOf(e))}`, statut, cls }];
       });
 
     const eppO = oblig.filter(o => o.kind === 'epp');
@@ -72,8 +73,8 @@ export function Entretiens() {
 
     const nextEpp = oblig.find(o => o.kind === 'epp');
     const kicker = collab && nextEpp
-      ? `Prochain entretien de parcours professionnel : avant le ${fmt(parse(nextEpp.due))}`
-      : 'Code du travail · loi n° 2025-989 du 24 octobre 2025';
+      ? `${t('Next career review: before ')}${fmt(parse(nextEpp.due))}`
+      : t('Labour Code · law no. 2025-989 of 24 October 2025');
 
     return { obligRows, entRows, k, kicker, scopeIds };
   }, [d, data, year, rh, manager, collab, me, soi]);
@@ -90,56 +91,56 @@ export function Entretiens() {
   };
 
   return (
-    <Page kicker={v.kicker} title="Entretiens">
+    <Page kicker={v.kicker} title={t('Reviews')}>
       {manager && (
         <div className="boxed" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 13 }}>Vos propres entretiens se préparent et se signent dans votre espace collaborateur ; votre responsable les conduit.</span>
-          <Btn variant="secondary" small disabled={bascule} onClick={versMesEntretiens}>Mes entretiens</Btn>
+          <span style={{ fontSize: 13 }}>{t('Your own reviews are prepared and signed in your employee space; your manager conducts them.')}</span>
+          <Btn variant="secondary" small disabled={bascule} onClick={versMesEntretiens}>{t('My reviews')}</Btn>
         </div>
       )}
       {/* lot 12 — C3 (entretiens suivis) : onglets, hors de l'espace collaborateur (« Mes objectifs » y a sa page). */}
       {!collab && (
-        <Seg name="entOnglet" label="Onglet d’Entretiens" value={onglet} onChange={o => setUi({ entOnglet: o })} style={{ alignSelf: 'flex-start', flexWrap: 'wrap' }}
-          options={[['echeances', 'Échéances et comptes rendus'], ['objectifs', 'Objectifs'], ['points', 'Points de suivi'], ...(feedback ? [['feedback', 'Feedback 360°'] as [OngletEntretiens, string]] : [])]} />
+        <Seg name="entOnglet" label={t('Reviews tab')} value={onglet} onChange={o => setUi({ entOnglet: o })} style={{ alignSelf: 'flex-start', flexWrap: 'wrap' }}
+          options={[['echeances', t('Due dates and reports')], ['objectifs', t('Objectives')], ['points', t('Follow-up meetings')], ...(feedback ? [['feedback', t('360° feedback')] as [OngletEntretiens, string]] : [])]} />
       )}
       {onglet === 'feedback' ? <OngletFeedback360 /> : onglet === 'objectifs' ? <OngletObjectifs ids={v.scopeIds} /> : onglet === 'points' ? <OngletPoints ids={v.scopeIds} /> : <>
       {!collab && (
         <Kpis>
-          <Kpi kicker="Parcours pro en retard" value={v.k.late} sub="premier dans l’année, puis tous les 4 ans" />
-          <Kpi kicker="À échéance sous 90 jours" value={v.k.soon} sub="entretiens de parcours professionnel" />
-          <Kpi kicker="États des lieux 8 ans" value={v.k.bilans} sub={`${v.k.risk} avec risque d’abondement CPF`} />
-          <Kpi kicker={`Campagne annuelle ${year}`} value={v.k.ann} sub="entretiens d’évaluation réalisés" />
+          <Kpi kicker={t('Career reviews late')} value={v.k.late} sub={t('first within the year, then every 4 years')} />
+          <Kpi kicker={t('Due within 90 days')} value={v.k.soon} sub={t('career reviews')} />
+          <Kpi kicker={t('8-year assessments')} value={v.k.bilans} sub={`${v.k.risk}${t(' with a risk of CPF top-up')}`} />
+          <Kpi kicker={`${t('Annual campaign ')}${year}`} value={v.k.ann} sub={t('appraisal reviews held')} />
         </Kpis>
       )}
 
       <div className="row-wrap">
-        <Panel style={{ flex: '1 1 560px' }} title="Échéances à traiter">
+        <Panel style={{ flex: '1 1 560px' }} title={t('Due dates to handle')}>
           {v.obligRows.length > 0 ? (
             <div className="scroll-x">
               <table className="table">
-                <thead><tr><th>Collaborateur</th><th>Entretien</th><th>Échéance</th><th>Statut</th><th></th></tr></thead>
+                <thead><tr><th>{t('Employee')}</th><th>{t('Review')}</th><th>{t('Due date')}</th><th>{t('Status')}</th><th></th></tr></thead>
                 <tbody>
                   {v.obligRows.map(({ key, o, due, rel: relLabel, canPlan }) => (
                     <tr key={key}>
                       <td><Two main={o.e.nom} sub={equipeLabel(o.e)} nowrap /></td>
                       <td>
                         <Two main={o.libelle ?? ENT_TYPES[o.kind].nom} sub={o.detail} />
-                        {o.risk && <div className="note-accent">{RISK_TEXT}</div>}
+                        {o.risk && <div className="note-accent">{t(RISK_TEXT)}</div>}
                       </td>
                       <td><Two main={due} sub={relLabel} nowrap subNowrap /></td>
                       <td><Tag cls={statutObligation(o)[1]}>{statutObligation(o)[0]}</Tag></td>
                       <td className="right">
-                        {canPlan && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'entPlan', empId: o.id, kind: o.kind })}>{o.pl ? 'Reprogrammer' : 'Planifier'}</button>}
+                        {canPlan && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'entPlan', empId: o.id, kind: o.kind })}>{t(o.pl ? 'Reschedule' : 'Plan')}</button>}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          ) : <p className="text-muted empty">Aucune échéance à traiter.</p>}
+          ) : <p className="text-muted empty">{t('No due date to handle.')}</p>}
         </Panel>
 
-        <Panel style={{ flex: '1 1 360px', gap: 'var(--space-2)' }} title={`Entretiens ${year}`}>
+        <Panel style={{ flex: '1 1 360px', gap: 'var(--space-2)' }} title={`${t('Reviews ')}${year}`}>
           {v.entRows.map(r => (
             <div key={r.x.id} className={`list-row top${compteRendu ? ' clickable' : ''}`} style={{ justifyContent: 'space-between', gap: 'var(--space-3)' }}
               onClick={compteRendu ? () => openDialog({ type: 'ent', entId: r.x.id }) : undefined}>
@@ -152,8 +153,8 @@ export function Entretiens() {
               <Tag cls={r.cls} style={{ flex: 'none' }}>{r.statut}</Tag>
             </div>
           ))}
-          {v.entRows.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Aucun entretien en {year}.</p>}
-          <Fine>L’entretien de parcours professionnel ne porte pas sur l’évaluation du travail : comptes rendus distincts de l’entretien annuel.</Fine>
+          {v.entRows.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>{t('No review in ')}{year}.</p>}
+          <Fine>{t('The career review does not cover the appraisal of work: reports separate from the annual review.')}</Fine>
         </Panel>
       </div>
       </>}

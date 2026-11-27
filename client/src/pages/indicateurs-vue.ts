@@ -3,7 +3,8 @@
 // chiffre est une case de la réponse du serveur, masquée « < k » comme elle y est. Une case masquée d'une année reste
 // masquée dans la BDESE ; aucune somme ni différence n'est faite dans le navigateur.
 import { CATEGORIES_EMPLOI, type Case, type GroupeIndicateurs, GROUPES_BDESE, GROUPES_INDICATEURS, type IndicateursLegaux, INDICATEURS_INDEX, NON_RENSEIGNE, SEXES, type TableauIndicateur } from '../../../shared/rules/indicateurs-legaux.ts';
-import { fmtIso, plural } from '../../../shared/format.ts';
+import { fmtIso } from '../../../shared/format.ts';
+import { t, tn } from '../i18n/langue.ts';
 import type { ArreteIndicateurs } from '../../../shared/types.ts';
 import { texteCase } from '../components/graphiques/commun.ts';
 import type { PrintSection } from '../print.ts';
@@ -20,27 +21,27 @@ export function caseDe(t: TableauIndicateur | undefined, ligne: string | null, c
 }
 
 /** Libellé de l'aide d'une case masquée. */
-export const aideMasque = (seuil: number) => `Masqué : moins de ${seuil} personnes, ou case qu’un total permettrait de retrouver (seuil d’anonymat)`;
+export const aideMasque = (seuil: number) => `${t('Masked: fewer than ')}${seuil}${t(' people, or cell that a total would allow to find (anonymity threshold)')}`;
 
 /** Lignes d'un tableau en texte (impression), « < k » pour une case masquée. */
-export function lignesTexte(t: TableauIndicateur, seuil: number): string[][] {
-  return t.lignes.map((l, i) => [l, ...t.colonnes.map((_, j) => texteCase(t.cases[i]?.[j], seuil))]);
+export function lignesTexte(tb: TableauIndicateur, seuil: number): string[][] {
+  return tb.lignes.map((l, i) => [l, ...tb.colonnes.map((_, j) => texteCase(tb.cases[i]?.[j], seuil))]);
 }
 
 /** Définition et complétude d'un tableau, en une phrase. */
-export const noteTableau = (t: TableauIndicateur) =>
-  [t.definition, t.completude != null ? `Complétude : ${t.completude} %${t.completudeTexte ? ` (${t.completudeTexte})` : ''}.` : ''].filter(Boolean).join(' ');
+export const noteTableau = (tb: TableauIndicateur) =>
+  [tb.definition, tb.completude != null ? `${t('Completeness: ')}${tb.completude} %${tb.completudeTexte ? ` (${tb.completudeTexte})` : ''}.` : ''].filter(Boolean).join(' ');
 
 /** Sections d'impression de tableaux (impression de l'onglet). */
 export function sectionsTableaux(tableaux: readonly TableauIndicateur[], seuil: number): PrintSection[] {
-  return tableaux.map(t => ({ title: t.titre, table: { head: [t.dimension, ...t.colonnes], rows: lignesTexte(t, seuil) }, text: noteTableau(t) }));
+  return tableaux.map(tb => ({ title: tb.titre, table: { head: [tb.dimension, ...tb.colonnes], rows: lignesTexte(tb, seuil) }, text: noteTableau(tb) }));
 }
 
 /** Sous-titre d'un document ou de l'écran : année, groupement, seuil, règles, calcul ou arrêté. */
 export function origine(r: IndicateursLegaux & { arrete?: { id: number; annule: boolean } | null }): string {
   return [
-    r.libelle, `groupement : ${GROUPES_INDICATEURS[r.groupe].toLowerCase()}`, `seuil d’anonymat ${r.seuil}`, `règles ${r.regles}`,
-    r.arrete ? `arrêté n° ${r.arrete.id}${r.arrete.annule ? ' (annulé)' : ''}` : `calculé le ${fmtIso(r.calculeLe)}`,
+    r.libelle, `${t('grouping: ')}${GROUPES_INDICATEURS[r.groupe].toLowerCase()}`, `${t('anonymity threshold ')}${r.seuil}`, `${t('rules ')}${r.regles}`,
+    r.arrete ? `${t('freeze no. ')}${r.arrete.id}${r.arrete.annule ? t(' (cancelled)#masc') : ''}` : `${t('calculated on ')}${fmtIso(r.calculeLe)}`,
   ].join(' · ');
 }
 
@@ -59,11 +60,11 @@ export const seuilAnnee = (r: AnneeBdese['r'], defaut: number) => r.aucun?.seuil
 /** Seuils des années de la BDESE en clair : un seul quand ils sont égaux, sinon celui de chaque année. */
 export function texteSeuils(annees: readonly AnneeBdese[]): string {
   const k = new Set(annees.map(a => a.seuil));
-  return k.size <= 1 ? `seuil d’anonymat ${annees[0]?.seuil ?? ''}`.trim() : `seuils d’anonymat : ${annees.map(a => `${a.annee} : ${a.seuil}`).join(', ')}`;
+  return k.size <= 1 ? `${t('anonymity threshold ')}${annees[0]?.seuil ?? ''}`.trim() : `${t('anonymity thresholds: ')}${annees.map(a => `${a.annee}${t(': ')}${a.seuil}`).join(', ')}`;
 }
 
 /** Colonne d'une année (en-tête d'impression) : année, arrêté, seuil. */
-export const colonneAnnee = (a: AnneeBdese) => `${a.annee} (${a.arrete ? `arrêté n° ${a.arrete}, ` : 'calcul du jour, '}seuil ${a.seuil})`;
+export const colonneAnnee = (a: AnneeBdese) => `${a.annee} (${a.arrete ? `${t('freeze no. ')}${a.arrete}, ` : `${t('calculation of the day')}, `}${t('threshold ')}${a.seuil})`;
 /** Groupements lus pour la BDESE : tous figés par un arrêté (server/src/indicateurs.ts, GROUPES_ARRETE). */
 export { GROUPES_BDESE };
 
@@ -76,41 +77,41 @@ const ligne = (annees: readonly AnneeBdese[], libelle: string, g: GroupeIndicate
 
 /** Modalités d'un groupement lues dans la réponse la plus récente (hors total). */
 const modalites = (annees: readonly AnneeBdese[], g: GroupeIndicateurs, id: string) => {
-  const t = [...annees].reverse().map(a => tableauDe(a.r[g], id)).find(Boolean);
-  return t ? t.lignes.filter(l => l !== 'Total') : [];
+  const tb = [...annees].reverse().map(a => tableauDe(a.r[g], id)).find(Boolean);
+  return tb ? tb.lignes.filter(l => l !== 'Total') : [];
 };
 
 /** Rubrique 1° (investissement social) : effectifs, contrats, catégories, âges, ancienneté, mouvements, formation, absentéisme. */
 export function rubrique1(annees: readonly AnneeBdese[]): BlocBdese[] {
   const parTranche = (id: string) => modalites(annees, 'aucun', id).map(l => ligne(annees, l, 'aucun', id, l, 3));
   return [
-    { titre: 'Effectifs', lignes: [
-      ligne(annees, 'Effectif au 31 décembre', 'aucun', 'effectifs', null, 0),
-      ligne(annees, 'Effectif moyen (Sécurité sociale)', 'aucun', 'effectifs', null, 1),
-      ligne(annees, 'Équivalents temps plein au 31 décembre', 'aucun', 'effectifs', null, 2),
-      ligne(annees, 'Effectif du Code du travail (L1111-2)', 'aucun', 'effectifs', null, 3),
-      ligne(annees, 'Intérimaires (moyenne)', 'aucun', 'effectifs', null, 4),
+    { titre: t('Headcounts'), lignes: [
+      ligne(annees, t('Headcount at 31 December'), 'aucun', 'effectifs', null, 0),
+      ligne(annees, t('Average headcount (Social security)'), 'aucun', 'effectifs', null, 1),
+      ligne(annees, t('Full-time equivalents at 31 December'), 'aucun', 'effectifs', null, 2),
+      ligne(annees, t('Headcount under the Labour Code (L1111-2)'), 'aucun', 'effectifs', null, 3),
+      ligne(annees, t('Temporary workers (average)'), 'aucun', 'effectifs', null, 4),
     ] },
-    { titre: 'Effectif au 31 décembre par nature du contrat', lignes: modalites(annees, 'contrat', 'effectifs').map(l => ligne(annees, l, 'contrat', 'effectifs', l, 0)) },
-    { titre: 'Emplois par catégorie (effectif au 31 décembre)', lignes: modalites(annees, 'categorie', 'effectifs').map(l => ligne(annees, l, 'categorie', 'effectifs', l, 0)) },
-    { titre: 'Âge au 31 décembre', lignes: parTranche('ages') },
-    { titre: 'Ancienneté au 31 décembre', lignes: parTranche('anciennete') },
-    { titre: 'Entrées et sorties', lignes: [
-      ligne(annees, 'Entrées', 'aucun', 'mouvements', null, 0),
-      ligne(annees, 'Sorties', 'aucun', 'mouvements', null, 1),
-      ligne(annees, 'Fins de contrat prévues', 'aucun', 'mouvements', null, 2),
-      ligne(annees, 'Taux de rotation', 'aucun', 'mouvements', null, 3, ' %'),
+    { titre: t('Headcount at 31 December by nature of the contract'), lignes: modalites(annees, 'contrat', 'effectifs').map(l => ligne(annees, l, 'contrat', 'effectifs', l, 0)) },
+    { titre: t('Jobs by category (headcount at 31 December)'), lignes: modalites(annees, 'categorie', 'effectifs').map(l => ligne(annees, l, 'categorie', 'effectifs', l, 0)) },
+    { titre: t('Age at 31 December'), lignes: parTranche('ages') },
+    { titre: t('Seniority at 31 December'), lignes: parTranche('anciennete') },
+    { titre: t('Arrivals and departures'), lignes: [
+      ligne(annees, t('Arrivals'), 'aucun', 'mouvements', null, 0),
+      ligne(annees, t('Departures'), 'aucun', 'mouvements', null, 1),
+      ligne(annees, t('Planned ends of contract'), 'aucun', 'mouvements', null, 2),
+      ligne(annees, t('Turnover rate'), 'aucun', 'mouvements', null, 3, ' %'),
     ] },
-    { titre: 'Formation', lignes: [
-      ligne(annees, 'Stagiaires', 'aucun', 'formation', null, 0),
-      ligne(annees, 'Heures de formation', 'aucun', 'formation', null, 1),
-      ligne(annees, 'Heures par stagiaire', 'aucun', 'formation', null, 2),
-      ligne(annees, 'Taux d’accès', 'aucun', 'formation', null, 3, ' %'),
+    { titre: t('Training#course'), lignes: [
+      ligne(annees, t('Trainees'), 'aucun', 'formation', null, 0),
+      ligne(annees, t('Training hours'), 'aucun', 'formation', null, 1),
+      ligne(annees, t('Hours per trainee'), 'aucun', 'formation', null, 2),
+      ligne(annees, t('Access rate'), 'aucun', 'formation', null, 3, ' %'),
     ] },
-    { titre: 'Conditions de travail : absentéisme', lignes: [
-      ligne(annees, 'Taux d’absentéisme', 'aucun', 'absenteisme', null, 2, ' %'),
-      ligne(annees, 'dont maladie', 'aucun', 'absenteisme', null, 3, ' %'),
-      ligne(annees, 'dont accidents du travail, de trajet, maladies professionnelles', 'aucun', 'absenteisme', null, 4, ' %'),
+    { titre: t('Working conditions: absenteeism'), lignes: [
+      ligne(annees, t('Absenteeism rate'), 'aucun', 'absenteisme', null, 2, ' %'),
+      ligne(annees, t('of which illness'), 'aucun', 'absenteisme', null, 3, ' %'),
+      ligne(annees, t('of which accidents at work, commuting accidents, occupational diseases'), 'aucun', 'absenteisme', null, 4, ' %'),
     ] },
   ];
 }
@@ -119,59 +120,59 @@ export function rubrique1(annees: readonly AnneeBdese[]): BlocBdese[] {
 export function rubrique2(annees: readonly AnneeBdese[]): BlocBdese[] {
   const sexes = [...Object.values(SEXES).map(s => s.pluriel), NON_RENSEIGNE];
   const parSexe = (titre: string, id: string, col: number, suffixe?: string): BlocBdese =>
-    ({ titre, lignes: sexes.map(s => ligne(annees, s, 'sexe', id, s, col, suffixe)) });
+    ({ titre: t(titre), lignes: sexes.map(s => ligne(annees, s, 'sexe', id, s, col, suffixe)) });
   return [
-    parSexe('Effectif au 31 décembre', 'effectifs', 0),
-    parSexe('Embauches (entrées)', 'mouvements', 0),
-    parSexe('Sorties', 'mouvements', 1),
-    parSexe('Stagiaires de la formation', 'formation', 0),
-    parSexe('Heures de formation', 'formation', 1),
-    parSexe('Taux d’accès à la formation', 'formation', 3, ' %'),
-    parSexe('Taux d’absentéisme (conditions de travail)', 'absenteisme', 2, ' %'),
-    { titre: 'Effectifs pris en compte pour l’index, par catégorie (femmes / hommes)', lignes: Object.values(CATEGORIES_EMPLOI).flatMap(c => [
-      ligne(annees, `${c.pluriel} — femmes`, 'aucun', 'indexEffectifs', c.pluriel, 0),
-      ligne(annees, `${c.pluriel} — hommes`, 'aucun', 'indexEffectifs', c.pluriel, 1),
+    parSexe('Headcount at 31 December', 'effectifs', 0),
+    parSexe('Hirings (arrivals)', 'mouvements', 0),
+    parSexe('Departures', 'mouvements', 1),
+    parSexe('Trainees of the training', 'formation', 0),
+    parSexe('Training hours', 'formation', 1),
+    parSexe('Access rate to training', 'formation', 3, ' %'),
+    parSexe('Absenteeism rate (working conditions)', 'absenteisme', 2, ' %'),
+    { titre: t('Headcounts taken into account for the index, by category (women / men)'), lignes: Object.values(CATEGORIES_EMPLOI).flatMap(c => [
+      ligne(annees, `${c.pluriel}${t(' — women')}`, 'aucun', 'indexEffectifs', c.pluriel, 0),
+      ligne(annees, `${c.pluriel}${t(' — men')}`, 'aucun', 'indexEffectifs', c.pluriel, 1),
     ]) },
   ];
 }
 
-/** Ce que la rubrique 1° ou 2° demande et que Cursus ne fournit pas (encore), avec sa source attendue. */
+/** Ce que la rubrique 1° ou 2° demande et que Cursus ne fournit pas (encore), avec sa source attendue (chaînes sources anglaises, traduites au rendu). */
 export const MANQUES_BDESE: readonly { rubrique: string; quoi: string; source: string }[] = [
-  { rubrique: '1°', quoi: 'Emploi des travailleurs handicapés', source: 'déclaration annuelle (DOETH) de la DSN, dans Sage : donnée de santé, jamais saisie dans Cursus' },
-  { rubrique: '1°', quoi: 'Stagiaires (conventions de stage)', source: 'service RH : les conventions de stage n’ont pas de fiche dans Cursus' },
-  { rubrique: '1°', quoi: 'Durée du travail et temps partiel', source: 'régime de chaque fiche connu de Cursus ; décompte par régime à ajouter (non calculé à ce jour)' },
-  { rubrique: '1°', quoi: 'Accidents du travail déclarés, taux de fréquence et de gravité', source: 'Vigie (déclarations d’accident) ; Cursus n’a que les jours d’arrêt' },
-  { rubrique: '1° et 2°', quoi: 'Perspectives (années N+1 à N+3)', source: 'direction : projections, sans saisie dans Cursus' },
-  { rubrique: '2°', quoi: 'Promotions, qualification et classification par sexe', source: 'service RH et Sage (coefficients de la CCN) : pas d’historique de classification dans Cursus' },
-  { rubrique: '2°', quoi: 'Rémunération effective par sexe et catégorie', source: 'Sage (aucune rémunération dans Cursus)' },
+  { rubrique: '1°', quoi: 'Employment of disabled workers', source: 'annual declaration (DOETH) of the DSN, in Sage: health data, never entered in Cursus' },
+  { rubrique: '1°', quoi: 'Interns (internship agreements)', source: 'HR: internship agreements have no sheet in Cursus' },
+  { rubrique: '1°', quoi: 'Working time and part time', source: 'regime of each sheet known to Cursus; count by regime to add (not calculated to date)' },
+  { rubrique: '1°', quoi: 'Declared accidents at work, frequency and severity rates', source: 'Vigie (accident declarations); Cursus only has the days off work' },
+  { rubrique: '1° and 2°', quoi: 'Outlook (years N+1 to N+3)', source: 'management: projections, without entry in Cursus' },
+  { rubrique: '2°', quoi: 'Promotions, qualification and classification by sex', source: 'HR and Sage (coefficients of the collective agreement): no classification history in Cursus' },
+  { rubrique: '2°', quoi: 'Actual pay by sex and category', source: 'Sage (no pay in Cursus)' },
 ];
 
 /** Rubriques 3° à 10° de l'article R2312-9 : hors de Cursus, avec leur source attendue. */
 export const RUBRIQUES_HORS_CURSUS: readonly { numero: string; titre: string; source: string }[] = [
-  { numero: '3°', titre: 'Fonds propres, endettement et impôts', source: 'comptabilité' },
-  { numero: '4°', titre: 'Rémunération des salariés et dirigeants', source: 'Sage (paie) : aucune rémunération dans Cursus' },
-  { numero: '5°', titre: 'Représentation du personnel et activités sociales et culturelles', source: 'CSE et comptabilité' },
-  { numero: '6°', titre: 'Rémunération des financeurs', source: 'comptabilité' },
-  { numero: '7°', titre: 'Flux financiers à destination de l’entreprise', source: 'comptabilité' },
-  { numero: '8°', titre: 'Partenariats', source: 'direction' },
-  { numero: '9°', titre: 'Transferts commerciaux et financiers entre les entités du groupe', source: 'comptabilité du groupe' },
-  { numero: '10°', titre: 'Environnement (conséquences environnementales de l’activité)', source: 'Vigie et service QHSE' },
+  { numero: '3°', titre: 'Equity, debt and taxes', source: 'accounts' },
+  { numero: '4°', titre: 'Pay of the employees and executives', source: 'Sage (payroll): no pay in Cursus' },
+  { numero: '5°', titre: 'Staff representation and social and cultural activities', source: 'CSE and accounts' },
+  { numero: '6°', titre: 'Pay of the funders', source: 'accounts' },
+  { numero: '7°', titre: 'Financial flows towards the company', source: 'accounts' },
+  { numero: '8°', titre: 'Partnerships', source: 'management' },
+  { numero: '9°', titre: 'Commercial and financial transfers between the entities of the group', source: 'accounts of the group' },
+  { numero: '10°', titre: 'Environment (environmental consequences of the activity)', source: 'Vigie and QHSE department' },
 ];
 
 /** Sections d'impression de la BDESE : rubriques 1° et 2° remplies, manques et rubriques 3° à 10° listés. */
 export function sectionsBdese(annees: readonly AnneeBdese[]): PrintSection[] {
-  const head = ['Indicateur', ...annees.map(colonneAnnee)];
+  const head = [t('Indicator'), ...annees.map(colonneAnnee)];
   const bloc = (rub: string) => (b: BlocBdese): PrintSection => ({
     title: `${rub} — ${b.titre}`, table: { head, rows: b.lignes.map(l => [l.libelle, ...l.cases.map((c, i) => texteCase(c, annees[i].seuil, l.suffixe))]) },
   });
   const seuils = new Set(annees.map(a => a.seuil));
   const k = seuils.size === 1 ? String(annees[0].seuil) : 'k';
   return [
-    ...rubrique1(annees).map(bloc('1° Investissement social')),
-    ...rubrique2(annees).map(bloc('2° Égalité professionnelle')),
-    { title: 'À compléter hors de Cursus (rubriques 1° et 2°)', table: { head: ['Rubrique', 'Indicateur', 'Source'], rows: MANQUES_BDESE.map(m => [m.rubrique, m.quoi, m.source]) } },
-    { title: 'Rubriques 3° à 10° (hors de Cursus)', table: { head: ['Rubrique', 'Thème', 'Source'], rows: RUBRIQUES_HORS_CURSUS.map(r => [r.numero, r.titre, r.source]) } },
-    { title: 'Lecture', text: `Chiffres de Cursus calculés sur l’année civile, ou figés par l’arrêté de l’année quand il existe. « < ${k} » : case masquée sous le seuil d’anonymat (moins de ${k} personnes) ou qui permettrait de retrouver une case masquée par différence.${seuils.size === 1 ? '' : ` Chaque année garde le seuil de son arrêté ou du calcul (${texteSeuils(annees).replace('seuils d’anonymat : ', '')}).`}` },
+    ...rubrique1(annees).map(bloc(t('1° Social investment'))),
+    ...rubrique2(annees).map(bloc(t('2° Gender equality at work'))),
+    { title: t('To complete outside Cursus (headings 1° and 2°)'), table: { head: [t('Heading'), t('Indicator'), t('Source')], rows: MANQUES_BDESE.map(m => [t(m.rubrique), t(m.quoi), t(m.source)]) } },
+    { title: t('Headings 3° to 10° (outside Cursus)'), table: { head: [t('Heading'), t('Theme'), t('Source')], rows: RUBRIQUES_HORS_CURSUS.map(r => [r.numero, t(r.titre), t(r.source)]) } },
+    { title: t('Reading'), text: `${t('Figures of Cursus calculated over the calendar year, or frozen by the freeze of the year when there is one. “< #open')}${k}${t('”: cell masked under the anonymity threshold (fewer than ')}${k}${t(' people) or that would allow to find a masked cell by difference.')}${seuils.size === 1 ? '' : `${t(' Each year keeps the threshold of its freeze or of the calculation (')}${texteSeuils(annees).replace(t('anonymity thresholds: '), '')}).`}` },
   ];
 }
 
@@ -182,17 +183,17 @@ export function sectionsEgalite(r: IndicateursLegaux): PrintSection[] {
   const x = r.index;
   return [
     ...sectionsTableaux([x.effectifs], r.seuil),
-    { title: 'Groupes de l’indicateur 1', rows: [
-      ['Groupes valides (au moins 3 femmes et 3 hommes)', `${x.groupesValides} sur ${x.groupes}`],
-      ['Part de l’effectif dans ces groupes', x.partGroupesValides == null ? '—' : `${x.partGroupesValides} %`],
-      ['Retours de congé de maternité ou d’adoption', texteCase(x.retoursMaternite, r.seuil)],
+    { title: t('Groups of indicator 1'), rows: [
+      [t('Valid groups (at least 3 women and 3 men)'), `${x.groupesValides}${t(' out of ')}${x.groupes}`],
+      [t('Share of the headcount in these groups'), x.partGroupesValides == null ? '—' : `${x.partGroupesValides} %`],
+      [t('Returns from maternity or adoption leave'), texteCase(x.retoursMaternite, r.seuil)],
     ] },
-    { title: 'Indicateurs de l’index', table: { head: ['N°', 'Indicateur', 'Points', 'État', 'Source'], rows: x.indicateurs.map(i => [String(i.numero), i.libelle, String(i.points), i.etat === 'hors_cursus' ? 'Hors Cursus' : 'Préparé en partie', i.source]) } },
+    { title: t('Indicators of the index'), table: { head: [t('No.'), t('Indicator'), t('Points'), t('State'), t('Source')], rows: x.indicateurs.map(i => [String(i.numero), i.libelle, String(i.points), etatIndex(i.etat), i.source]) } },
   ];
 }
 
 /** Libellé de l'état d'un indicateur de l'index. */
-export const etatIndex = (etat: (typeof INDICATEURS_INDEX)[number]['etat']) => (etat === 'hors_cursus' ? 'Hors Cursus' : 'Préparé en partie');
+export const etatIndex = (etat: (typeof INDICATEURS_INDEX)[number]['etat']) => (etat === 'hors_cursus' ? t('Outside Cursus') : t('Partly prepared'));
 
 // — Arrêtés —
 
@@ -202,14 +203,14 @@ export const arreteEnVigueur = (arretes: readonly ArreteIndicateurs[] | undefine
 /** Confirmation de l'arrêté de l'année (administrateur RH). */
 export function confirmationArreter(annee: number, seuil: number): Confirmation {
   return {
-    titre: `Arrêter les indicateurs ${annee}`,
-    question: `Figer les indicateurs sociaux de ${annee} pour la BDESE ?`,
+    titre: `${t('Freeze the indicators ')}${annee}`,
+    question: `${t('Freeze the social indicators of ')}${annee}${t(' for the BDESE?')}`,
     suites: [
-      `Les agrégats de l’année, déjà masqués au seuil d’anonymat actuel (${seuil}), sont figés par groupement (ensemble, sexe, catégorie, statut, contrat) avec la version des règles.`,
-      'Les purges de conservation et les corrections faites ensuite ne changent plus ces chiffres.',
-      'L’arrêté n’est jamais supprimé : il s’annule avec un motif, puis un nouvel arrêté peut être pris.',
+      `${t('The aggregates of the year, already masked at the current anonymity threshold (')}${seuil}${t('), are frozen by grouping (overall, sex, category, status, contract) with the version of the rules.')}`,
+      t('The retention purges and the corrections made afterwards no longer change these figures.'),
+      t('The freeze is never deleted: it is cancelled with a reason, then a new freeze can be taken.'),
     ],
-    bouton: `Arrêter ${annee}`,
+    bouton: `${t('Freeze ')}${annee}`,
     action: 'indicateurs.arreter',
     payload: { annee },
   };
@@ -218,18 +219,18 @@ export function confirmationArreter(annee: number, seuil: number): Confirmation 
 /** Confirmation de l'annulation d'un arrêté (administrateur RH), motif obligatoire. */
 export function confirmationAnnuler(a: Pick<ArreteIndicateurs, 'id' | 'annee' | 'cseLe'>): Confirmation {
   return {
-    titre: `Annuler l’arrêté n° ${a.id}`,
-    question: `Annuler l’arrêté des indicateurs ${a.annee} ?`,
+    titre: `${t('Cancel the freeze no. ')}${a.id}`,
+    question: `${t('Cancel the freeze of the indicators ')}${a.annee}${t('?#question')}`,
     suites: [
-      'L’arrêté reste consultable, marqué annulé ; un nouvel arrêté de l’année peut ensuite être pris.',
-      a.cseLe ? `Il a été mis à disposition du CSE le ${fmtIso(a.cseLe)} : prévenez les élus de la nouvelle version.` : '',
+      t('The freeze stays readable, marked cancelled; a new freeze of the year can then be taken.'),
+      a.cseLe ? `${t('It was made available to the CSE on ')}${fmtIso(a.cseLe)}${t(': tell the elected members about the new version.')}` : '',
     ].filter(Boolean),
-    bouton: 'Annuler l’arrêté',
+    bouton: t('Cancel the freeze'),
     action: 'indicateurs.annulerArrete',
     payload: { id: a.id },
     motif: {
-      label: 'Motif de l’annulation', requis: true, placeholder: 'Correction des sorties de décembre, catégories reprises de Sage…',
-      aide: 'Le motif reste avec l’arrêté, lu par le service RH seulement ; il n’est jamais écrit au journal ni montré à la lecture seule.',
+      label: t('Reason for the cancellation'), requis: true, placeholder: t('Correction of the departures of December, categories taken from Sage…'),
+      aide: t('The reason stays with the freeze, read by HR only; it is never written in the log nor shown in read only.'),
     },
   };
 }
@@ -237,16 +238,16 @@ export function confirmationAnnuler(a: Pick<ArreteIndicateurs, 'id' | 'annee' | 
 /** Résumé d'un arrêté : date, auteur (service RH seulement), CSE, annulation. */
 export function resumeArrete(a: ArreteIndicateurs): string {
   return [
-    `Arrêté le ${fmtIso(a.arreteLe.slice(0, 10))}${a.arretePar ? ` par ${a.arretePar}` : ''}`,
-    `seuil ${a.seuil}`, `règles ${a.reglesVersion}`,
-    a.cseLe ? `mis à disposition du CSE le ${fmtIso(a.cseLe)}` : 'pas encore mis à disposition du CSE',
-    a.annuleLe ? `annulé le ${fmtIso(a.annuleLe.slice(0, 10))}${a.annulePar ? ` par ${a.annulePar}` : ''}` : '',
+    `${t('Frozen on ')}${fmtIso(a.arreteLe.slice(0, 10))}${a.arretePar ? `${t(' by ')}${a.arretePar}` : ''}`,
+    `${t('threshold ')}${a.seuil}`, `${t('rules ')}${a.reglesVersion}`,
+    a.cseLe ? `${t('made available to the CSE on ')}${fmtIso(a.cseLe)}` : t('not yet made available to the CSE'),
+    a.annuleLe ? `${t('cancelled on ')}${fmtIso(a.annuleLe.slice(0, 10))}${a.annulePar ? `${t(' by ')}${a.annulePar}` : ''}` : '',
   ].filter(Boolean).join(' · ');
 }
 
 /** Nombre de cases masquées d'une réponse (tableaux et index), pour le résumé de l'écran. */
 export function casesMasquees(r: IndicateursLegaux): number {
-  const n = (t: TableauIndicateur) => t.cases.flat().filter(c => c.masque).length;
-  return r.tableaux.reduce((s, t) => s + n(t), n(r.index.effectifs) + (r.index.retoursMaternite.masque ? 1 : 0));
+  const n = (tb: TableauIndicateur) => tb.cases.flat().filter(c => c.masque).length;
+  return r.tableaux.reduce((s, tb) => s + n(tb), n(r.index.effectifs) + (r.index.retoursMaternite.masque ? 1 : 0));
 }
-export const texteMasquees = (n: number) => plural(n, 'case masquée', 'cases masquées');
+export const texteMasquees = (n: number) => tn(n, 'cell masked', 'cells masked');

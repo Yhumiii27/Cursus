@@ -3,6 +3,7 @@
 import { useId } from 'react';
 import type { Case } from '../../../../shared/rules/indicateurs-legaux.ts';
 import { LARGEUR, maximum, texteCase } from './commun.ts';
+import { t } from '../../i18n/langue.ts';
 
 export interface BarreDonnee { libelle: string; c: Case | undefined }
 
@@ -17,7 +18,7 @@ export function Barres({ titre, barres, seuil, suffixe = '' }: { titre: string; 
   return (
     <svg className="graph" viewBox={`0 0 ${LARGEUR} ${h}`} role="img" aria-labelledby={`${id}-t ${id}-d`} preserveAspectRatio="xMinYMin meet">
       <title id={`${id}-t`}>{titre}</title>
-      <desc id={`${id}-d`}>{barres.map(b => `${b.libelle} : ${texteCase(b.c, seuil, suffixe)}`).join(' ; ')}</desc>
+      <desc id={`${id}-d`}>{barres.map(b => `${b.libelle}${t(': ')}${texteCase(b.c, seuil, suffixe)}`).join(t('; '))}</desc>
       {barres.map((b, i) => {
         const y = i * LIGNE;
         const masque = !b.c || b.c.masque || b.c.valeur == null;

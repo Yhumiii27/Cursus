@@ -215,6 +215,12 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
       'client/src/dialogs/PlanRealiserDialog.tsx', 'client/src/dialogs/PlanLigneDialog.tsx', 'client/src/dialogs/OpcoDossierDialog.tsx',
       'client/src/dialogs/OpcoEtapeDialog.tsx', 'client/src/dialogs/OpcoPieceDialog.tsx', 'client/src/dialogs/OpcoVersementDialog.tsx'],
   },
+  {
+    // Onglets, tableaux et graphiques, BDESE, index d'égalité, arrêtés et leurs confirmations, impression ; mise à disposition
+    // du CSE. Titres, définitions et lignes des tableaux viennent du serveur (shared/rules/indicateurs-legaux.ts) en français.
+    ecran: 'Indicateurs sociaux', fichiers: ['client/src/pages/Indicateurs.tsx', 'client/src/pages/indicateurs-vue.ts',
+      'client/src/components/graphiques/Barres.tsx', 'client/src/components/graphiques/Pyramide.tsx', 'client/src/dialogs/ArreteCseDialog.tsx'],
+  },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */

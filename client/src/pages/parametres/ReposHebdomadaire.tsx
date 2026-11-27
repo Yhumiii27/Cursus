@@ -11,6 +11,7 @@ import { Btn, Fine, Panel } from '../../components/ui.tsx';
 import { useRole } from '../../state/derived.ts';
 import { useData, useStore } from '../../state/store.tsx';
 import type { SectionProps } from './commun.ts';
+import { t } from '../../i18n/langue.ts';
 
 const TYPES = Object.entries(DEROGATIONS_DOMINICALES) as [TypeDerogationDominicale, { label: string; aide: string }][];
 
@@ -19,11 +20,9 @@ export function ReposHebdomadaire(_: SectionProps) {
   const equipes = data.referentiels.equipes;
   if (!equipes.length) return null;
   return (
-    <Panel title="Repos hebdomadaire" style={{ gap: 'var(--space-4)' }}>
+    <Panel title={t('Weekly rest')} style={{ gap: 'var(--space-4)' }}>
       <Fine>
-        Samedi et dimanche sont grisés dans les feuilles de temps mais restent saisissables (chantier, déplacement, impératif). Une semaine de 7 jours
-        travaillés est toujours signalée (6 jours au plus et 35 h de repos consécutives, art. L3132-1 et L3132-2) ; les heures du dimanche le sont sauf
-        dérogation au repos dominical réglée pour l’équipe (art. L3132-3).
+        {t('Saturday and Sunday are greyed out in the timesheets but stay enterable (worksite, trip, imperative). A week of 7 days worked is always flagged (6 days at most and 35 h of consecutive rest, art. L3132-1 and L3132-2); the Sunday hours are too except for an exemption from Sunday rest set for the team (art. L3132-3).')}
       </Fine>
       {equipes.map(q => <DerogationEquipe key={q.nom} q={q} />)}
     </Panel>
@@ -40,7 +39,7 @@ function DerogationEquipe({ q }: { q: Equipe }) {
   const [tente, setTente] = useState(false);
   const [busy, setBusy] = useState(false);
   const id = `repos-${q.nom.replace(/\W+/g, '-')}`;
-  const erreur = type !== 'aucune' && !reference.trim() ? 'Indiquez la référence de l’accord, de la convention ou de l’autorisation.' : null;
+  const erreur = type !== 'aucune' && !reference.trim() ? t('Enter the reference of the agreement, the collective agreement or the authorisation.') : null;
   const modifie = type !== (actuelle?.type ?? 'aucune') || (type !== 'aucune' && reference.trim() !== (actuelle?.reference ?? ''));
 
   const enregistrer = async () => {
@@ -53,20 +52,20 @@ function DerogationEquipe({ q }: { q: Equipe }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-      <Field label={`Équipe ${q.nom}`} htmlFor={id}>
+      <Field label={`${t('Team ')}${q.nom}`} htmlFor={id}>
         <select className="input" id={id} value={type} disabled={!admin} onChange={e => setType(e.target.value as TypeDerogationDominicale)} style={{ maxWidth: 280 }}>
-          {TYPES.map(([v, t]) => <option key={v} value={v}>{t.label}</option>)}
+          {TYPES.map(([v, x]) => <option key={v} value={v}>{x.label}</option>)}
         </select>
       </Field>
       {type !== 'aucune' && (
-        <Field label="Référence de l’accord ou de l’autorisation" htmlFor={`${id}-ref`} requis erreur={tente && erreur}>
-          <input className="input" id={`${id}-ref`} maxLength={120} value={reference} disabled={!admin} placeholder={actuelle && !actuelle.reference ? 'Renseignée (service RH)' : 'Accord d’entreprise du …'}
+        <Field label={t('Reference of the agreement or the authorisation')} htmlFor={`${id}-ref`} requis erreur={tente && erreur}>
+          <input className="input" id={`${id}-ref`} maxLength={120} value={reference} disabled={!admin} placeholder={actuelle && !actuelle.reference ? t('Filled in (HR)') : t('Company agreement of …')}
             onChange={e => setReference(e.target.value)} />
         </Field>
       )}
       <Fine>{DEROGATIONS_DOMINICALES[type].aide}</Fine>
       {admin && modifie && (
-        <div className="actions-end"><Btn variant="primary" small disabled={busy} onClick={enregistrer}>Enregistrer</Btn></div>
+        <div className="actions-end"><Btn variant="primary" small disabled={busy} onClick={enregistrer}>{t('Save')}</Btn></div>
       )}
     </div>
   );

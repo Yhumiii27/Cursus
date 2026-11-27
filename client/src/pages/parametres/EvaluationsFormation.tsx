@@ -9,9 +9,10 @@ import { Field } from '../../components/Dialog.tsx';
 import { Fine, Panel, Seg } from '../../components/ui.tsx';
 import { useRole } from '../../state/derived.ts';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
+import { t, tn } from '../../i18n/langue.ts';
 
 /** Délais proposés, tous acceptés par le réglage (`entier(30, 365)`, shared/reglages.ts). */
-const DELAIS: [number, string][] = [60, 90, 120, 180].map(n => [n, `${n} jours`]);
+const DELAIS = (): [number, string][] => [60, 90, 120, 180].map(n => [n, tn(n, 'day', 'days')]);
 const REPONDANTS = Object.entries(REPONDANTS_FROID_LABEL) as [RepondantsFroid, string][];
 
 export function EvaluationsFormation({ s }: SectionProps) {
@@ -22,37 +23,33 @@ export function EvaluationsFormation({ s }: SectionProps) {
   const cocher = (c: CategorieEvaluee, oui: boolean) =>
     enregistrer({ evaluationFroidCategories: CATEGORIES_EVALUEES.filter(x => (x === c ? oui : s.evaluationFroidCategories.includes(x))) });
   return (
-    <Panel title="Évaluation des formations" style={{ gap: 'var(--space-4)' }}>
+    <Panel title={t('Evaluation of training courses')} style={{ gap: 'var(--space-4)' }}>
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
         <input type="checkbox" checked={s.evaluationsActives} disabled={!admin} onChange={e => enregistrer({ evaluationsActives: e.target.checked })}
           style={{ accentColor: 'var(--color-accent)', marginTop: 'var(--space-1)', flex: 'none' }} />
-        <span>Demander l’avis des participants après chaque formation, et l’efficacité quelques mois plus tard</span>
+        <span>{t('Ask the participants’ feedback after each training course, and the effectiveness a few months later')}</span>
       </label>
-      <Field label="Évaluation à froid après la formation">
-        <Seg name="param-eval-delai" label="Délai de l’évaluation à froid" value={s.evaluationFroidDelai} disabled={off} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
-          options={DELAIS.some(([n]) => n === s.evaluationFroidDelai) ? DELAIS : [...DELAIS, [s.evaluationFroidDelai, `${s.evaluationFroidDelai} jours`]]}
+      <Field label={t('Cold evaluation after the training course')}>
+        <Seg name="param-eval-delai" label={t('Time limit of the cold evaluation')} value={s.evaluationFroidDelai} disabled={off} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
+          options={DELAIS().some(([n]) => n === s.evaluationFroidDelai) ? DELAIS() : [...DELAIS(), [s.evaluationFroidDelai, tn(s.evaluationFroidDelai, 'day', 'days')]]}
           onChange={v => enregistrer({ evaluationFroidDelai: v })} />
       </Field>
-      <Field label="Remplie par">
-        <Seg name="param-eval-par" label="Évaluation à froid remplie par" value={s.evaluationFroidPar} disabled={off} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
+      <Field label={t('Filled in by')}>
+        <Seg name="param-eval-par" label={t('Cold evaluation filled in by')} value={s.evaluationFroidPar} disabled={off} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
           options={REPONDANTS} onChange={v => enregistrer({ evaluationFroidPar: v })} />
       </Field>
       <fieldset style={{ border: 0, padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-        <legend style={{ fontSize: 14, marginBottom: 'var(--space-2)' }}>Formations évaluées à froid</legend>
+        <legend style={{ fontSize: 14, marginBottom: 'var(--space-2)' }}>{t('Training courses evaluated cold')}</legend>
         {CATEGORIES_EVALUEES.map(c => (
           <label key={c} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
             <input type="checkbox" checked={s.evaluationFroidCategories.includes(c)} disabled={off} onChange={e => cocher(c, e.target.checked)}
               style={{ accentColor: 'var(--color-accent)', flex: 'none' }} />
-            <span>{c === 'Hors catalogue' ? 'Formations hors catalogue' : `${c}s`}</span>
+            <span>{c === 'Hors catalogue' ? t('Training courses outside the catalogue') : `${c}s`}</span>
           </label>
         ))}
       </fieldset>
       <Fine>
-        À chaud : le salarié note la formation de 1 à 5 dans son espace (encart « À faire » pendant {DELAI_CHAUD_JOURS} jours, un e-mail), ou le service RH
-        recueille son avis à la clôture de la session. À froid : le jour venu, l’efficacité (efficace, partiellement, pas efficace) est demandée par
-        e-mail, puis relancée {RELANCES_FROID.join(' et ')} jours après ; elle reste dans « À faire » du salarié et dans l’écran Formations du manager.
-        Les commentaires ne sont lus que par le service RH ; le référent HSE et la lecture seule voient les indicateurs, sans moyenne sous 3 réponses.
-        Indicateurs par organisme et par formation : Plan & budget. Désactivée : plus de demande ni de relance, les avis déjà donnés restent.
+        {t('Hot: the employee rates the training course from 1 to 5 in their space (“To do” box for ')}{DELAI_CHAUD_JOURS}{t(' days, one e-mail), or HR collects their feedback at the closing of the session. Cold: on the day, the effectiveness (effective, partly, not effective) is requested by e-mail, then reminded ')}{RELANCES_FROID.join(t(' and #et'))}{t(' days afterwards; it stays in the employee’s “To do” and in the manager’s Training screen. The comments are only read by HR; the HSE referent and the read-only role see the indicators, without an average under 3 answers. Indicators by provider and by training course: Plan & budget. Deactivated: no more request nor reminder, the feedback already given stays.')}
       </Fine>
     </Panel>
   );

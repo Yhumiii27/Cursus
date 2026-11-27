@@ -123,7 +123,9 @@ test('CSV : une ligne par personne affichée, colonnes de l’annuaire et struct
   const lignes = lignesOrganigramme(BRUT, { equipes: EQUIPES, entites: ENTITES, sites: SITES, nom: noms });
   const x = csvOrganigramme(T, lignes, null);
   assert.equal(x.fichier, 'organigramme-2026-10-10.csv');
-  assert.deepEqual(x.head, ENTETE_CSV_ORGANIGRAMME);
+  // En-têtes : sources anglaises (ENTETE_CSV_ORGANIGRAMME), traduites à l'export ; le français d'avant, mot pour mot.
+  assert.equal(x.head.length, ENTETE_CSV_ORGANIGRAMME.length);
+  assert.deepEqual(x.head, ['Société', 'Établissement', 'Site', 'Chemin des équipes', 'Équipe', 'Collaborateur', 'Poste', 'Manager de l’équipe', 'Validé par']);
   assert.deepEqual(x.rows, [
     ['Société mère', '', 'PDE', 'Production', 'Production', 'Sophie Lemaire', 'Cheffe d’équipe', 'Sophie Lemaire', 'Service RH'],
     ['Société mère', '', 'PDE', 'Production', 'Production', 'Julien Moreau', 'Opérateur de ligne', 'Sophie Lemaire', 'Sophie Lemaire'],

@@ -3,7 +3,7 @@
 // à la délivrance, suivi individuel renforcé de ses titulaires (case décochée par défaut), modèle du titre imprimé (t115). Une règle modifiée (validité, prérequis, aptitude) vaut aussi pour les titres déjà délivrés :
 // ceux qui deviennent non valides sont annoncés, et l'enregistrement se confirme.
 import { useMemo, useState } from 'react';
-import { plural, validiteLabel } from '../../../shared/format.ts';
+import { validiteLabel } from '../../../shared/format.ts';
 import {
   actif, codeSuggere, controlerHabilitation, effetModification, MODELES_TITRE, titresTexte, VALIDITE_MAX, type ChampHabilitation,
 } from '../../../shared/rules/referentiels.ts';
@@ -13,6 +13,7 @@ import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { MODELE_TITRE_LABEL } from '../titre-habilitation.ts';
 import type { ModeleTitre } from '../../../shared/types.ts';
+import { t, tn } from '../i18n/langue.ts';
 
 export function RefHabilitationDialog({ id }: { id?: string | null }) {
   const d = useDomain();
@@ -66,76 +67,76 @@ export function RefHabilitationDialog({ id }: { id?: string | null }) {
   };
 
   return (
-    <Dialog title={avant ? avant.nom : 'Nouvelle habilitation'} width={620} onSubmit={() => envoyer()}
+    <Dialog title={avant ? avant.nom : t('New authorisation')} width={620} onSubmit={() => envoyer()}
       confirmation={confirmer ? {
-        texte: `${plural(echus.length, 'titre devient non valide', 'titres deviennent non valides')} avec cette règle : ${titresTexte(echus)}. Enregistrer quand même ?`,
-        bouton: 'Enregistrer quand même', occupe: busy, confirmer: () => envoyer(true), annuler: () => setConfirmer(false),
+        texte: `${tn(echus.length, 'title becomes invalid', 'titles become invalid')}${t(' with this rule: ')}${titresTexte(echus)}${t('. Save anyway?')}`,
+        bouton: t('Save anyway'), occupe: busy, confirmer: () => envoyer(true), annuler: () => setConfirmer(false),
       } : null}
-      actions={disparue ? <CancelButton label="Fermer" /> : <>
+      actions={disparue ? <CancelButton label={t('Close')} /> : <>
         <CancelButton />
-        <SubmitButton busy={busy}>{avant ? 'Enregistrer' : 'Ajouter au référentiel'}</SubmitButton>
+        <SubmitButton busy={busy}>{avant ? t('Save') : t('Add to the reference data')}</SubmitButton>
       </>}>
-      {disparue ? <Bloquant>Cette habilitation n’existe plus.</Bloquant> : <>
-        <Field label="Intitulé" htmlFor="rhab-nom" requis erreur={erreur('nom', nom)}>
-          <input className="input" id="rhab-nom" type="text" autoFocus value={nom} maxLength={120} placeholder="Habilitation électrique" onChange={e => setNom(e.target.value)} />
+      {disparue ? <Bloquant>{t('This authorisation no longer exists.')}</Bloquant> : <>
+        <Field label={t('Title#heading')} htmlFor="rhab-nom" requis erreur={erreur('nom', nom)}>
+          <input className="input" id="rhab-nom" type="text" autoFocus value={nom} maxLength={120} placeholder={t('Electrical authorisation')} onChange={e => setNom(e.target.value)} />
         </Field>
         <div className="grid-2">
-          <Field label="Précision" htmlFor="rhab-detail" erreur={erreur('detail', detail)}>
+          <Field label={t('Detail#precision')} htmlFor="rhab-detail" erreur={erreur('detail', detail)}>
             <input className="input" id="rhab-detail" type="text" value={detail} maxLength={120} placeholder="B1V · B2V · BR — NF C18-510" onChange={e => setDetail(e.target.value)} />
           </Field>
           {avant
-            ? <Field label="Code"><Static pad>{avant.id}</Static></Field>
+            ? <Field label={t('Code')}><Static pad>{avant.id}</Static></Field>
             : (
-              <Field label="Code" htmlFor="rhab-code" requis erreur={erreur('code', code)}>
-                <input className="input" id="rhab-code" type="text" value={code} maxLength={32} placeholder={propose || 'd’après l’intitulé'} onChange={e => setCode(e.target.value)} />
+              <Field label={t('Code')} htmlFor="rhab-code" requis erreur={erreur('code', code)}>
+                <input className="input" id="rhab-code" type="text" value={code} maxLength={32} placeholder={propose || t('from the title')} onChange={e => setCode(e.target.value)} />
               </Field>
             )}
         </div>
-        <Field label="Formations prérequises" erreur={v.erreur(erreurs.prereqs)}>
+        <Field label={t('Prerequisite training courses')} erreur={v.erreur(erreurs.prereqs)}>
           {formations.length
             ? (
-              <div className="chips" role="group" aria-label="Formations prérequises" style={{ gap: 'var(--space-2) var(--space-4)' }}>
+              <div className="chips" role="group" aria-label={t('Prerequisite training courses')} style={{ gap: 'var(--space-2) var(--space-4)' }}>
                 {formations.map(f => (
                   <label key={f.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14, cursor: 'pointer' }}>
                     <input type="checkbox" checked={prereqs.includes(f.id)} onChange={e => cocher(f.id, e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-                    {f.court}{f.archive ? <span className="text-muted"> · archivée</span> : null}
+                    {f.court}{f.archive ? <span className="text-muted">{t(' · archived#fem')}</span> : null}
                   </label>
                 ))}
               </div>
             )
-            : <Static pad>Catalogue des formations vide : aucun prérequis possible.</Static>}
+            : <Static pad>{t('Training catalogue empty: no prerequisite possible.')}</Static>}
         </Field>
         <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
           <input type="checkbox" checked={medical} onChange={e => setMedical(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-          Aptitude médicale exigée (visite d’aptitude en cours de validité)
+          {t('Medical fitness required (fitness visit in validity)')}
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
           <input type="checkbox" checked={sir} onChange={e => setSir(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-          Suivi individuel renforcé de ses titulaires (art. R4624-23 : autorisation de conduite, habilitation électrique…)
+          {t('Enhanced individual monitoring of its holders (art. R4624-23: driving authorisation, electrical authorisation…)')}
         </label>
         <div className="grid-2">
-          <Field label="Validité (mois)" htmlFor="rhab-validite" requis erreur={erreur('validite', validite)}>
+          <Field label={t('Validity (months)')} htmlFor="rhab-validite" requis erreur={erreur('validite', validite)}>
             <input className="input" id="rhab-validite" type="number" inputMode="numeric" min={1} max={VALIDITE_MAX} step={1} value={validite} placeholder="36" onChange={e => setValidite(e.target.value)} />
           </Field>
-          <Field label="Signataire par défaut" htmlFor="rhab-signataire" requis erreur={erreur('signataire', signataire)}>
-            <input className="input" id="rhab-signataire" type="text" value={signataire} maxLength={80} placeholder="Responsable maintenance" onChange={e => setSignataire(e.target.value)} />
+          <Field label={t('Default signatory')} htmlFor="rhab-signataire" requis erreur={erreur('signataire', signataire)}>
+            <input className="input" id="rhab-signataire" type="text" value={signataire} maxLength={80} placeholder={t('Maintenance manager')} onChange={e => setSignataire(e.target.value)} />
           </Field>
         </div>
-        <Field label="Modèle du titre imprimé" htmlFor="rhab-modele" erreur={v.erreur(erreurs.modele)}>
+        <Field label={t('Template of the printed title')} htmlFor="rhab-modele" erreur={v.erreur(erreurs.modele)}>
           <select className="input" id="rhab-modele" value={modele} onChange={e => setModele(e.target.value as ModeleTitre)}>
-            {MODELES_TITRE.map(m => <option key={m} value={m}>{MODELE_TITRE_LABEL[m]}</option>)}
+            {MODELES_TITRE.map(m => <option key={m} value={m}>{t(MODELE_TITRE_LABEL[m])}</option>)}
           </select>
         </Field>
         <Fine>
-          {Number.isInteger(n) && n >= 1 && n <= VALIDITE_MAX ? `Validité : ${validiteLabel(n)}. ` : ''}
-          Modèles de titre à faire valider par le référent HSE.{' '}
-          Le signataire est proposé à chaque délivrance, modifiable.{' '}
+          {Number.isInteger(n) && n >= 1 && n <= VALIDITE_MAX ? `${t('Validity: ')}${validiteLabel(n)}. ` : ''}
+          {t('Title templates to have validated by the HSE referent.')}{' '}
+          {t('The signatory is offered at each issue, editable.')}{' '}
           {avant
-            ? 'Validité, prérequis et aptitude valent aussi pour les titres déjà délivrés.'
-            : 'Le code identifie l’habilitation dans les dossiers et auprès de Keystone (exigences des chantiers) : il ne change plus après la création.'}
+            ? t('Validity, prerequisites and fitness also apply to the titles already issued.')
+            : t('The code identifies the authorisation in the files and with Keystone (worksite requirements): it no longer changes after creation.')}
         </Fine>
-        {echus.length > 0 && !confirmer && <NoteAccent>{plural(echus.length, 'titre devient non valide', 'titres deviennent non valides')} avec cette règle : {titresTexte(echus)}.</NoteAccent>}
-        {effet && effet.retablis.length > 0 && <Fine>{plural(effet.retablis.length, 'titre redevient valide', 'titres redeviennent valides')} avec cette règle.</Fine>}
+        {echus.length > 0 && !confirmer && <NoteAccent>{tn(echus.length, 'title becomes invalid', 'titles become invalid')}{t(' with this rule: ')}{titresTexte(echus)}.</NoteAccent>}
+        {effet && effet.retablis.length > 0 && <Fine>{tn(effet.retablis.length, 'title becomes valid again', 'titles become valid again')}{t(' with this rule.')}</Fine>}
       </>}
     </Dialog>
   );

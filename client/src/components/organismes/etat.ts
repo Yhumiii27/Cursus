@@ -4,16 +4,16 @@ import { ETAT_QUALIOPI_LABEL, etatQualiopi, ndaManquant, organismeActif, TYPES_O
 import { finAValider, inscriptionOuverte } from '../../../../shared/rules/elearning.ts';
 import type { InscriptionElearning, Organisme, StatutInscriptionElearning } from '../../../../shared/types-organismes.ts';
 
+// Chaînes sources anglaises des tables de libellés, traduites au rendu (CU-N01).
 /** Filtre de la liste des organismes : en vigueur, à vérifier (reprise), Qualiopi à surveiller, NDA absent, archivés. */
 export type FiltreOrganismes = 'tous' | 'a_verifier' | 'qualiopi' | 'nda' | 'archives';
 export const FILTRES_ORGANISMES: [FiltreOrganismes, string][] = [
-  ['tous', 'En vigueur'], ['a_verifier', 'À vérifier'], ['qualiopi', 'Qualiopi à surveiller'], ['nda', 'NDA absent'], ['archives', 'Archivés'],
+  ['tous', 'In force'], ['a_verifier', 'To check'], ['qualiopi', 'Qualiopi to monitor'], ['nda', 'NDA missing'], ['archives', 'Archived#masc-plural'],
 ];
 /** Formations : sessions (écran d'avant le lot 12) ou e-learning. */
 export type OngletFormations = 'sessions' | 'elearning';
 /** Inscriptions de l'onglet E-learning : ouvertes, fins à valider, terminées, toutes. */
 export type FiltreElearning = 'ouvertes' | 'a_valider' | 'terminees' | 'toutes';
-// Chaînes sources anglaises, traduites au rendu (CU-N01).
 export const FILTRES_ELEARNING: [FiltreElearning, string][] = [['ouvertes', 'In progress'], ['a_valider', 'Completions to approve'], ['terminees', 'Completed#fem-plural'], ['toutes', 'All#fem-plural']];
 
 /** États Qualiopi qui demandent une action (filtre « Qualiopi à surveiller »). */
@@ -37,7 +37,7 @@ export const CLS_QUALIOPI: Record<EtatQualiopi, string> = {
 };
 /** Libellé court d'un état Qualiopi (liste). */
 export const QUALIOPI_COURT: Record<EtatQualiopi, string> = {
-  certifie: 'Certifié', a_echeance: 'À renouveler', echu: 'Échu', a_verifier: 'Sans date', non_certifie: 'Non certifié', sans_objet: '—',
+  certifie: 'Certified', a_echeance: 'To renew', echu: 'Expired#qualiopi', a_verifier: 'Without date', non_certifie: 'Not certified', sans_objet: '—',
 };
 export { ETAT_QUALIOPI_LABEL, TYPES_ORGANISME };
 

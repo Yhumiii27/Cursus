@@ -9,6 +9,7 @@ import { ChoixOrganisme } from '../components/organismes/ChoixOrganisme.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function ModuleElearningDialog({ id }: { id?: number | null }) {
   const d = useDomain();
@@ -40,54 +41,53 @@ export function ModuleElearningDialog({ id }: { id?: number | null }) {
     if (r.ok) closeDialog();
   };
   return (
-    <Dialog title={avant ? `Module ${avant.code}` : 'Nouveau module d’e-learning'} width={600} tall onSubmit={envoyer}
-      actions={disparu ? <CancelButton label="Fermer" /> : <><CancelButton /><SubmitButton busy={busy}>{avant ? 'Enregistrer' : 'Ajouter le module'}</SubmitButton></>}>
-      {disparu ? <Bloquant>Ce module n’existe plus.</Bloquant> : <>
-        <Field label="Intitulé" htmlFor="me-intitule" requis erreur={erreur('intitule', intitule)}>
-          <input className="input" id="me-intitule" type="text" autoFocus value={intitule} maxLength={INTITULE_MODULE_MAX} placeholder="Risque chimique — les bases" onChange={e => setIntitule(e.target.value)} />
+    <Dialog title={avant ? `${t('Module ')}${avant.code}` : t('New e-learning module')} width={600} tall onSubmit={envoyer}
+      actions={disparu ? <CancelButton label={t('Close')} /> : <><CancelButton /><SubmitButton busy={busy}>{avant ? t('Save') : t('Add the module')}</SubmitButton></>}>
+      {disparu ? <Bloquant>{t('This module no longer exists.')}</Bloquant> : <>
+        <Field label={t('Title#heading')} htmlFor="me-intitule" requis erreur={erreur('intitule', intitule)}>
+          <input className="input" id="me-intitule" type="text" autoFocus value={intitule} maxLength={INTITULE_MODULE_MAX} placeholder={t('Chemical risk — the basics')} onChange={e => setIntitule(e.target.value)} />
         </Field>
         <div className="grid-2">
           {avant
-            ? <Field label="Code"><Static pad>{avant.code}</Static></Field>
+            ? <Field label={t('Code')}><Static pad>{avant.code}</Static></Field>
             : (
-              <Field label="Code" htmlFor="me-code" requis erreur={erreur('code', code)}>
+              <Field label={t('Code')} htmlFor="me-code" requis erreur={erreur('code', code)}>
                 <input className="input" id="me-code" type="text" value={code} maxLength={32} placeholder="CHIM-BASES" onChange={e => setCode(e.target.value)} />
               </Field>
             )}
-          <Field label="Langue" htmlFor="me-langue" requis erreur={v.erreur(erreurs.langue)}>
+          <Field label={t('Language')} htmlFor="me-langue" requis erreur={v.erreur(erreurs.langue)}>
             <select className="input" id="me-langue" value={langue} onChange={e => setLangue(e.target.value)}>
               {Object.entries(LANGUES_MODULE).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
           </Field>
         </div>
-        <Field label="Lien d’accès (https)" htmlFor="me-url" requis erreur={erreur('url', url)}>
+        <Field label={t('Access link (https)')} htmlFor="me-url" requis erreur={erreur('url', url)}>
           <input className="input" id="me-url" type="url" inputMode="url" value={url} maxLength={URL_MODULE_MAX} placeholder="https://formation.exemple.fr/module" onChange={e => setUrl(e.target.value)} />
         </Field>
-        <ChoixOrganisme id="me-organisme" valeur={organismeId} onChange={setOrganismeId} actuel={avant?.organismeId ?? null} vide="Aucun (module interne)" erreur={v.erreur(erreurs.organismeId)} />
-        <Field label="Formation du catalogue validée à la fin" htmlFor="me-formation" erreur={v.erreur(erreurs.formation)}>
+        <ChoixOrganisme id="me-organisme" valeur={organismeId} onChange={setOrganismeId} actuel={avant?.organismeId ?? null} vide={t('None (internal module)')} erreur={v.erreur(erreurs.organismeId)} />
+        <Field label={t('Catalogue training course validated at the end')} htmlFor="me-formation" erreur={v.erreur(erreurs.formation)}>
           <select className="input" id="me-formation" value={formation} onChange={e => setFormation(e.target.value)}>
-            <option value="">Aucune (formation suivie hors catalogue)</option>
+            <option value="">{t('None (training followed outside the catalogue)')}</option>
             {catalogue.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
           </select>
         </Field>
         <div className="grid-2">
-          <Field label="Durée (heures)" htmlFor="me-duree" erreur={erreur('dureeHeures', duree)}>
+          <Field label={t('Duration (hours)')} htmlFor="me-duree" erreur={erreur('dureeHeures', duree)}>
             <input className="input tnum" id="me-duree" inputMode="decimal" value={duree} placeholder="2" onChange={e => setDuree(e.target.value)} />
           </Field>
-          <Field label="Validité de l’accès (mois)" htmlFor="me-acces" erreur={erreur('accesMois', acces)}>
-            <input className="input tnum" id="me-acces" type="number" inputMode="numeric" min={1} max={ACCES_MOIS_MAX} step={1} value={acces} placeholder="sans limite" onChange={e => setAcces(e.target.value)} />
+          <Field label={t('Validity of the access (months)')} htmlFor="me-acces" erreur={erreur('accesMois', acces)}>
+            <input className="input tnum" id="me-acces" type="number" inputMode="numeric" min={1} max={ACCES_MOIS_MAX} step={1} value={acces} placeholder={t('without limit')} onChange={e => setAcces(e.target.value)} />
           </Field>
         </div>
-        <Field label="Coût d’une licence (€ HT)" htmlFor="me-cout" erreur={erreur('coutLicence', cout)}>
+        <Field label={t('Cost of a licence (€ excl. VAT)')} htmlFor="me-cout" erreur={erreur('coutLicence', cout)}>
           <input className="input tnum" id="me-cout" inputMode="decimal" value={cout} placeholder="0" onChange={e => setCout(e.target.value)} />
         </Field>
         <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
           <input type="checkbox" checked={attestation} onChange={e => setAttestation(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-          Attestation de fin exigée (jamais de fin automatique à l’import)
+          {t('End certificate required (never an automatic end on import)')}
         </label>
         <Fine>
-          Le lien s’ouvre dans un nouvel onglet, chez l’organisme : Cursus n’intègre aucune plateforme. La fin d’un module rattaché au catalogue, validée par
-          le service RH, crée la certification ; les heures comptent dans le plan et les indicateurs, jamais sur la feuille de temps.
+          {t('The link opens in a new tab, at the provider: Cursus integrates no platform. The end of a module attached to the catalogue, approved by HR, creates the certification; the hours count in the plan and the indicators, never on the timesheet.')}
         </Fine>
       </>}
     </Dialog>

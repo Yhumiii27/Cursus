@@ -16,6 +16,7 @@ import { suppressionZonePointage } from '../../state/confirmations-pointage.ts';
 import { useRole } from '../../state/derived.ts';
 import { useData, useStore } from '../../state/store.tsx';
 import { useEnregistrerReglages } from '../../pages/parametres/commun.ts';
+import { t, tn } from '../../i18n/langue.ts';
 
 const REGIMES = (['35h', '39h_rtt', 'forfait_heures_hebdo', 'forfait_heures_annuel', 'partiel'] as const).map(r => [r, TEMPS_TRAVAIL[r].label] as const);
 const CHAMPS = ['geolocActive', 'geolocFinalite', 'geolocAipdLe', 'geolocPopulations', 'geolocPrecisionM'] as const;
@@ -67,78 +68,77 @@ export function GeolocPointage({ s }: { s: Settings }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-      <strong>Géolocalisation au pointage</strong>
+      <strong>{t('Geolocation at clock-in')}</strong>
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
         <input type="checkbox" checked={v.geolocActive} disabled={!admin} onChange={e => { maj({ geolocActive: e.target.checked }); setTente(false); }}
           style={{ accentColor: 'var(--color-accent)', marginTop: 'var(--space-1)', flex: 'none' }} />
         <span>
-          Vérifier la position au pointage des populations désignées ci-dessous
+          {t('Check the position at clock-in of the populations designated below')}
           <span className="text-muted sub" style={{ display: 'block' }}>
-            Seulement pour des salariés qui n’ont aucun autre moyen de pointer sur place (équipes itinérantes de chantier) : position lue une fois, au clic sur
-            « Pointer », jamais en continu ni hors ligne ; seul le verdict est gardé ; un refus n’empêche jamais de pointer.
+            {t('Only for employees who have no other means of clocking in on site (itinerant worksite teams): position read once, on clicking “Clock in”, never continuously nor offline; only the verdict is kept; a refusal never prevents clocking in.')}
           </span>
         </span>
       </label>
       <div className="row-wrap" style={{ gap: 'var(--space-3)' }}>
-        <Field label="Finalité" htmlFor="geo-finalite" requis={v.geolocActive} erreur={tente && erreurActivation && !v.geolocFinalite.trim() ? 'Écrivez la finalité.' : null}>
-          <textarea className="input" id="geo-finalite" rows={2} maxLength={FINALITE_MAX} disabled={!admin} placeholder="Pourquoi ces salariés ne peuvent pas pointer autrement…"
+        <Field label={t('Purpose#finalite')} htmlFor="geo-finalite" requis={v.geolocActive} erreur={tente && erreurActivation && !v.geolocFinalite.trim() ? t('Write the purpose.') : null}>
+          <textarea className="input" id="geo-finalite" rows={2} maxLength={FINALITE_MAX} disabled={!admin} placeholder={t('Why these employees cannot clock in otherwise…')}
             value={v.geolocFinalite} onChange={e => maj({ geolocFinalite: e.target.value })} style={{ minWidth: 260 }} />
         </Field>
-        <Field label="AIPD validée par le DPO le" htmlFor="geo-aipd" requis={v.geolocActive} erreur={tente && erreurActivation && v.geolocFinalite.trim() && !v.geolocAipdLe ? 'Indiquez la date de l’analyse d’impact.' : null}>
+        <Field label={t('DPIA approved by the DPO on')} htmlFor="geo-aipd" requis={v.geolocActive} erreur={tente && erreurActivation && v.geolocFinalite.trim() && !v.geolocAipdLe ? t('Enter the date of the impact assessment.') : null}>
           <input className="input" id="geo-aipd" type="date" value={v.geolocAipdLe ?? ''} disabled={!admin} onChange={e => maj({ geolocAipdLe: e.target.value || null })} style={{ maxWidth: 200 }} />
         </Field>
-        <Field label="Précision exigée" htmlFor="geo-precision">
+        <Field label={t('Precision required')} htmlFor="geo-precision">
           <select className="input" id="geo-precision" value={v.geolocPrecisionM} disabled={!admin} onChange={e => maj({ geolocPrecisionM: Number(e.target.value) })} style={{ maxWidth: 160 }}>
-            {[PRECISION_MIN_M, 50, 100, 200, 500, PRECISION_MAX_M].map(n => <option key={n} value={n}>{n} m</option>)}
+            {[PRECISION_MIN_M, 50, 100, 200, 500, PRECISION_MAX_M].map(n => <option key={n} value={n}>{n}{t(' m#metres')}</option>)}
           </select>
         </Field>
       </div>
-      <Field label="Populations géolocalisées" htmlFor="geo-populations" erreur={tente ? erreurPopulations ?? (erreurActivation && !populations.length ? 'Désignez au moins une population.' : null) : null}>
+      <Field label={t('Geolocated populations')} htmlFor="geo-populations" erreur={tente ? erreurPopulations ?? (erreurActivation && !populations.length ? t('Designate at least one population.') : null) : null}>
         <div id="geo-populations" tabIndex={-1} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-          {!populations.length && <span className="text-muted sub">Aucune : la position n’est jamais demandée.</span>}
+          {!populations.length && <span className="text-muted sub">{t('None: the position is never requested.')}</span>}
           {populations.map((p, i) => (
             <div key={i} className="row-wrap" style={{ gap: 'var(--space-2)', alignItems: 'center' }}>
-              <select className="input" aria-label={`Population géolocalisée ${i + 1} : critère`} value={p.critere} disabled={!admin} onChange={e => majPopulation(i, { critere: e.target.value as CriterePopulation, valeur: '' })} style={{ maxWidth: 220 }}>
+              <select className="input" aria-label={`${t('Geolocated population ')}${i + 1}${t(': criterion')}`} value={p.critere} disabled={!admin} onChange={e => majPopulation(i, { critere: e.target.value as CriterePopulation, valeur: '' })} style={{ maxWidth: 220 }}>
                 {Object.entries(CRITERES_POPULATION).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
               </select>
-              <select className="input" aria-label={`Population géolocalisée ${i + 1} : valeur`} value={p.valeur} disabled={!admin} onChange={e => majPopulation(i, { valeur: e.target.value })} style={{ maxWidth: 220 }}>
-                <option value="">Choisir…</option>
+              <select className="input" aria-label={`${t('Geolocated population ')}${i + 1}${t(': value')}`} value={p.valeur} disabled={!admin} onChange={e => majPopulation(i, { valeur: e.target.value })} style={{ maxWidth: 220 }}>
+                <option value="">{t('Choose…')}</option>
                 {valeurs(p.critere).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                {p.valeur && !valeurs(p.critere).some(([k]) => k === p.valeur) && <option value={p.valeur}>{p.valeur} (absente du référentiel)</option>}
+                {p.valeur && !valeurs(p.critere).some(([k]) => k === p.valeur) && <option value={p.valeur}>{p.valeur}{t(' (missing from the reference data)')}</option>}
               </select>
-              {admin && <CloseButton size={28} label={`Retirer la population géolocalisée ${i + 1}`} onClick={() => maj({ geolocPopulations: populations.filter((_, j) => j !== i) })} />}
+              {admin && <CloseButton size={28} label={`${t('Remove geolocated population ')}${i + 1}`} onClick={() => maj({ geolocPopulations: populations.filter((_, j) => j !== i) })} />}
             </div>
           ))}
           {admin && populations.length < POPULATIONS_MAX && (
-            <div><button type="button" className="btn btn-ghost btn-sm" onClick={() => maj({ geolocPopulations: [...populations, { critere: 'equipe', valeur: '' }] })}>Ajouter une population</button></div>
+            <div><button type="button" className="btn btn-ghost btn-sm" onClick={() => maj({ geolocPopulations: [...populations, { critere: 'equipe', valeur: '' }] })}>{t('Add a population')}</button></div>
           )}
         </div>
       </Field>
-      <Fine>Une population géolocalisée doit aussi pointer (populations ci-dessus) : son mode et sa date d’effet sont ceux du badgeage. Forfait jours et cadres dirigeants ne sont jamais géolocalisés.</Fine>
-      {admin && modifie && <div className="actions-end"><Btn variant="primary" disabled={busy} onClick={enregistrer}>Enregistrer la géolocalisation</Btn></div>}
+      <Fine>{t('A geolocated population must also clock in (populations above): its mode and its effective date are those of the badge clocking. Fixed-days and executive staff are never geolocated.')}</Fine>
+      {admin && modifie && <div className="actions-end"><Btn variant="primary" disabled={busy} onClick={enregistrer}>{t('Save the geolocation')}</Btn></div>}
 
       <div className="row-wrap" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-2)' }}>
-        <strong className="sub">Zones de pointage{zones ? ` · ${actives} active${actives > 1 ? 's' : ''}` : ''}</strong>
-        {admin && <Btn small variant="secondary" onClick={() => openDialog({ type: 'zonePointage' })}>Ajouter une zone</Btn>}
+        <strong className="sub">{t('Clock-in zones')}{zones ? ` · ${tn(actives, 'active#zone', 'active#zones')}` : ''}</strong>
+        {admin && <Btn small variant="secondary" onClick={() => openDialog({ type: 'zonePointage' })}>{t('Add a zone')}</Btn>}
       </div>
-      {!rh ? <Fine>Zones consultées par le service RH.</Fine>
+      {!rh ? <Fine>{t('Zones consulted by HR.')}</Fine>
         : erreur && !zones ? <Empty pad="sm">{erreur}</Empty>
-        : !zones ? <Empty pad="sm">Chargement des zones…</Empty>
-        : !zones.length ? <Empty pad="sm">Aucune zone : sans zone active, la position n’est pas demandée.</Empty> : (
+        : !zones ? <Empty pad="sm">{t('Loading the zones…')}</Empty>
+        : !zones.length ? <Empty pad="sm">{t('No zone: without an active zone, the position is not requested.')}</Empty> : (
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Zone</th><th>Site ou chantier</th><th className="right">Rayon</th><th>État</th><th></th></tr></thead>
+              <thead><tr><th>{t('Zone')}</th><th>{t('Site or worksite')}</th><th className="right">{t('Radius')}</th><th>{t('State')}</th><th></th></tr></thead>
               <tbody>
                 {zones.map(z => (
                   <tr key={z.id}>
                     <td>{z.libelle}<div className="text-muted sub tnum">{z.lat.toLocaleString('fr-FR', { maximumFractionDigits: 6 })} ; {z.lng.toLocaleString('fr-FR', { maximumFractionDigits: 6 })}</div></td>
                     <td className="text-muted">{[z.siteCode, z.chantierId].filter(Boolean).join(' · ') || '—'}</td>
-                    <td className="right tnum">{z.rayonM.toLocaleString('fr-FR')} m</td>
-                    <td>{z.actif ? <Tag cls="tag-accent">Active</Tag> : <Tag cls="tag-outline">Inactive</Tag>}</td>
+                    <td className="right tnum">{z.rayonM.toLocaleString('fr-FR')}{t(' m#metres')}</td>
+                    <td>{z.actif ? <Tag cls="tag-accent">{t('Active#fem')}</Tag> : <Tag cls="tag-outline">{t('Inactive#fem')}</Tag>}</td>
                     <td className="right nowrap">
                       {admin && <>
-                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'zonePointage', zone: z })}>Modifier</button>
-                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'confirmer', c: suppressionZonePointage(z) })}>Supprimer</button>
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'zonePointage', zone: z })}>{t('Edit')}</button>
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'confirmer', c: suppressionZonePointage(z) })}>{t('Delete')}</button>
                       </>}
                     </td>
                   </tr>
@@ -147,10 +147,9 @@ export function GeolocPointage({ s }: { s: Settings }) {
             </table>
           </div>
         )}
-      {!s.geolocActive && <NoteAccent>Géolocalisation désactivée : aucune position n’est demandée. Avant l’activation : avis du CSE, analyse d’impact (AIPD) avec le DPO, finalité écrite et information des salariés concernés.</NoteAccent>}
+      {!s.geolocActive && <NoteAccent>{t('Geolocation deactivated: no position is requested. Before activation: CSE’s opinion, impact assessment (DPIA) with the DPO, written purpose and informing the employees concerned.')}</NoteAccent>}
       <Fine>
-        Activée, la géolocalisation est admise par le navigateur sur toutes les pages de Cursus (en-tête Permissions-Policy), mais la position n’est demandée
-        qu’aux populations désignées, au clic. Le changement vaut au rechargement de l’application (l’application installée garde sa page jusque-là).
+        {t('Activated, the geolocation is allowed by the browser on all Cursus pages (Permissions-Policy header), but the position is only requested from the designated populations, on click. The change applies when the application is reloaded (the installed application keeps its page until then).')}
       </Fine>
     </div>
   );

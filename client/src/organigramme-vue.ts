@@ -15,6 +15,7 @@ import { ancetres } from '../../shared/rules/hierarchie.ts';
 import { cheminEquipe, sousArbre, type Arbre, type MembreArbre, type NoeudEntite, type NoeudEquipe } from '../../shared/rules/organigramme.ts';
 import type { Entite, Equipe, ISODate, Site } from '../../shared/types.ts';
 import type { PrintArbre } from './print.ts';
+import { t } from './i18n/langue.ts';
 
 /** Clés des nœuds de l'arbre (dépliage, focus) : entité, équipe, personne. */
 export const cleEntite = (code: string) => `e:${code}`;
@@ -137,7 +138,7 @@ export interface LigneOrganigramme {
 /** Lignes de l'arbre filtré, une par personne affichée, dans l'ordre de l'écran (salariés à affecter à la fin). */
 export function lignesOrganigramme(a: Pick<Arbre, 'entites' | 'sansEntite' | 'aAffecter'>, c: Contexte): LigneOrganigramme[] {
   const out: LigneOrganigramme[] = [];
-  const valideur = (id: number) => (id ? c.nom(id) : 'Service RH');
+  const valideur = (id: number) => (id ? c.nom(id) : t('HR department'));
   const equipe = (n: NoeudEquipe, societe: string, etablissement: string, chemin: string[]) => {
     const ch = [...chemin, n.nom];
     const site = libelleSite(c.sites, siteEffectif(c.equipes, c.entites, n.nom));
@@ -154,27 +155,30 @@ export function lignesOrganigramme(a: Pick<Arbre, 'entites' | 'sansEntite' | 'aA
   };
   for (const n of a.entites) entite(n, null);
   for (const q of a.sansEntite) equipe(q, '', '', []);
-  for (const m of a.aAffecter) out.push({ societe: '', etablissement: '', site: '', chemin: '', equipe: 'À affecter', nom: m.nom, poste: m.poste, manager: '', valideur: 'Service RH' });
+  for (const m of a.aAffecter) out.push({ societe: '', etablissement: '', site: '', chemin: '', equipe: t('To assign'), nom: m.nom, poste: m.poste, manager: '', valideur: t('HR department') });
   return out;
 }
 
-/** Fichier CSV de l'organigramme (client/src/listes-csv.ts le met en forme) : en-tête et lignes. */
-export const ENTETE_CSV_ORGANIGRAMME = ['Société', 'Établissement', 'Site', 'Chemin des équipes', 'Équipe', 'Collaborateur', 'Poste', 'Manager de l’équipe', 'Validé par'];
+/**
+ * Fichier CSV de l'organigramme (client/src/listes-csv.ts le met en forme) : en-tête et lignes. En-têtes en sources anglaises,
+ * traduits à l'export (`csvOrganigramme`) : le fichier se lit dans un tableur, aucun outil ne l'importe.
+ */
+export const ENTETE_CSV_ORGANIGRAMME = ['Company#societe', 'Establishment', t('Site'), 'Path of the teams', 'Team', 'Employee', 'Job', 'Team manager', 'Approved by#masc'];
 
 /** Document imprimé : une section par entité (société, puis chacun de ses établissements ; saut de page entre elles), arbre en listes imbriquées. */
 export interface SectionOrganigramme { titre: string; sousTitre: string; arbre: PrintArbre[] }
 
 export function sectionsImpression(a: Pick<Arbre, 'entites' | 'sansEntite' | 'aAffecter'>, c: Contexte): SectionOrganigramme[] {
-  const membre = (m: MembreArbre): PrintArbre => ({ libelle: m.nom, detail: [m.poste, m.manager ? 'manager' : ''].filter(Boolean).join(' · ') });
+  const membre = (m: MembreArbre): PrintArbre => ({ libelle: m.nom, detail: [m.poste, m.manager ? t('manager') : ''].filter(Boolean).join(' · ') });
   const equipe = (n: NoeudEquipe): PrintArbre => ({
     libelle: n.nom,
-    detail: [n.manager ? `manager : ${n.manager}` : 'sans manager (validations par le service RH)', n.suppleant ? `suppléant : ${n.suppleant.nom}` : '',
-      libelleSite(c.sites, siteEffectif(c.equipes, c.entites, n.nom)), `${n.effectif} pers.`].filter(Boolean).join(' · '),
+    detail: [n.manager ? `${t('manager: ')}${n.manager}` : t('without manager (approvals by HR)'), n.suppleant ? `${t('deputy: ')}${n.suppleant.nom}` : '',
+      libelleSite(c.sites, siteEffectif(c.equipes, c.entites, n.nom)), `${n.effectif}${t(' pers.')}`].filter(Boolean).join(' · '),
     enfants: [...n.membres.map(membre), ...n.equipes.map(equipe)],
     groupe: true,
   });
   const entite = (n: NoeudEntite): PrintArbre => ({
-    libelle: n.nom, detail: [n.type === 'societe' ? 'Société' : 'Établissement', n.siret ? `SIRET ${formaterSiren(n.siret)}` : '', `${n.effectif} pers.`].filter(Boolean).join(' · '),
+    libelle: n.nom, detail: [n.type === 'societe' ? t('Company#societe') : t('Establishment'), n.siret ? `${t('SIRET ')}${formaterSiren(n.siret)}` : '', `${n.effectif}${t(' pers.')}`].filter(Boolean).join(' · '),
     enfants: [...n.equipes.map(equipe), ...n.etablissements.map(entite)], groupe: true,
   });
   // Une section (une page) par entité : la société avec ses équipes racines, puis chacun de ses établissements.
@@ -189,13 +193,13 @@ export function sectionsImpression(a: Pick<Arbre, 'entites' | 'sansEntite' | 'aA
     for (const x of n.etablissements) section(x, n.nom);
   };
   for (const n of a.entites) section(n, societeHaut(c, n));
-  if (a.sansEntite.length) sections.push({ titre: 'Équipes sans entité', sousTitre: '', arbre: a.sansEntite.map(equipe) });
-  if (a.aAffecter.length) sections.push({ titre: 'À affecter', sousTitre: 'Salariés sans équipe : validations par le service RH', arbre: a.aAffecter.map(membre) });
+  if (a.sansEntite.length) sections.push({ titre: t('Teams without entity'), sousTitre: '', arbre: a.sansEntite.map(equipe) });
+  if (a.aAffecter.length) sections.push({ titre: t('To assign'), sousTitre: t('Employees without a team: approvals by HR'), arbre: a.aAffecter.map(membre) });
   return sections;
 }
 
 /** Mention des documents de l'organigramme : document interne, état du jour (JJ/MM/AAAA). */
-export const mentionEtat = (today: ISODate) => `Document interne — état au ${today.split('-').reverse().join('/')}`;
+export const mentionEtat = (today: ISODate) => `${t('Internal document — state at ')}${today.split('-').reverse().join('/')}`;
 
 // lot 12 — C7 (organigramme) : choix d'un service (une équipe et ses sous-équipes), vue graphique en arbre vertical et
 // son impression (pages/Organigramme.tsx, components/organigramme/ArbreGraphique.tsx). Rien de neuf n'est lu : l'arbre
@@ -314,10 +318,10 @@ export function echelleImpression(noeuds: readonly PrintArbre[]): number {
  * les équipes sans entité et les salariés à affecter. Chaque section porte son échelle (`echelleImpression`).
  */
 export function sectionsImpressionGraphique(a: Pick<Arbre, 'entites' | 'sansEntite' | 'aAffecter'>, c: Contexte, service?: string | null): (SectionOrganigramme & { echelle: number })[] {
-  const membre = (m: MembreArbre): PrintArbre => ({ libelle: m.nom, detail: [m.poste, m.manager ? 'manager' : ''].filter(Boolean).join(' · ') });
+  const membre = (m: MembreArbre): PrintArbre => ({ libelle: m.nom, detail: [m.poste, m.manager ? t('manager') : ''].filter(Boolean).join(' · ') });
   const equipe = (n: NoeudEquipe): PrintArbre => ({
     libelle: n.nom,
-    detail: [n.manager ? `manager : ${n.manager}` : 'sans manager', n.suppleant ? `suppléant : ${n.suppleant.nom}` : '', `${n.effectif} pers.`].filter(Boolean).join(' · '),
+    detail: [n.manager ? `${t('manager: ')}${n.manager}` : t('without manager'), n.suppleant ? `${t('deputy: ')}${n.suppleant.nom}` : '', `${n.effectif}${t(' pers.')}`].filter(Boolean).join(' · '),
     enfants: [...n.membres.map(membre), ...n.equipes.map(equipe)], groupe: true,
   });
   const avecEchelle = (s: SectionOrganigramme) => ({ ...s, echelle: echelleImpression(s.arbre) });
@@ -325,12 +329,12 @@ export function sectionsImpressionGraphique(a: Pick<Arbre, 'entites' | 'sansEnti
   if (choisi) {
     const { chemin } = cheminEquipe(c.equipes, choisi.nom);
     const ariane = filAriane(c.equipes, c.entites, choisi.nom).map(x => x.libelle);
-    return [avecEchelle({ titre: `Service ${chemin.join(' › ')}`, sousTitre: ariane.length ? `Rattachement : ${ariane.join(' › ')}` : 'Équipe racine', arbre: [equipe(choisi)] })];
+    return [avecEchelle({ titre: `${t('Department ')}${chemin.join(' › ')}`, sousTitre: ariane.length ? `${t('Attachment: ')}${ariane.join(' › ')}` : t('Root team'), arbre: [equipe(choisi)] })];
   }
   const sections: SectionOrganigramme[] = [];
   const section = (n: NoeudEntite, societe: string) => {
     if (n.equipes.length) {
-      const detail = [n.type === 'societe' ? 'Société' : 'Établissement', n.siret ? `SIRET ${formaterSiren(n.siret)}` : '', `${n.effectif} pers.`].filter(Boolean).join(' · ');
+      const detail = [n.type === 'societe' ? t('Company#societe') : t('Establishment'), n.siret ? `${t('SIRET ')}${formaterSiren(n.siret)}` : '', `${n.effectif}${t(' pers.')}`].filter(Boolean).join(' · ');
       sections.push({
         titre: n.type === 'etablissement' && societe ? `${n.nom} (${societe})` : n.nom, sousTitre: detail,
         arbre: [{ libelle: n.nom, detail, enfants: n.equipes.map(equipe), groupe: true }],
@@ -339,9 +343,9 @@ export function sectionsImpressionGraphique(a: Pick<Arbre, 'entites' | 'sansEnti
     for (const x of n.etablissements) section(x, n.nom);
   };
   for (const n of a.entites) section(n, societeHaut(c, n));
-  if (a.sansEntite.length) sections.push({ titre: 'Équipes sans entité', sousTitre: '', arbre: a.sansEntite.map(equipe) });
+  if (a.sansEntite.length) sections.push({ titre: t('Teams without entity'), sousTitre: '', arbre: a.sansEntite.map(equipe) });
   if (a.aAffecter.length) {
-    sections.push({ titre: 'À affecter', sousTitre: 'Salariés sans équipe : validations par le service RH', arbre: [{ libelle: 'À affecter', detail: `${a.aAffecter.length} pers.`, enfants: a.aAffecter.map(membre), groupe: true }] });
+    sections.push({ titre: t('To assign'), sousTitre: t('Employees without a team: approvals by HR'), arbre: [{ libelle: t('To assign'), detail: `${a.aAffecter.length}${t(' pers.')}`, enfants: a.aAffecter.map(membre), groupe: true }] });
   }
   return sections.map(avecEchelle);
 }

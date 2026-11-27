@@ -7,6 +7,7 @@ import { Bloquant, CancelButton, Dialog, Field, SubmitButton, useVerification } 
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function RefSiteDialog({ code }: { code?: string | null }) {
   const d = useDomain();
@@ -31,29 +32,29 @@ export function RefSiteDialog({ code }: { code?: string | null }) {
   };
 
   return (
-    <Dialog title={avant ? `Site ${avant.libelle}` : 'Nouveau site'} width={480} onSubmit={envoyer}
-      actions={disparu ? <CancelButton label="Fermer" /> : <>
+    <Dialog title={avant ? `${t('Site ')}${avant.libelle}` : t('New site')} width={480} onSubmit={envoyer}
+      actions={disparu ? <CancelButton label={t('Close')} /> : <>
         <CancelButton />
-        <SubmitButton busy={busy}>{avant ? 'Enregistrer' : 'Ajouter au référentiel'}</SubmitButton>
+        <SubmitButton busy={busy}>{avant ? t('Save') : t('Add to the reference data')}</SubmitButton>
       </>}>
-      {disparu ? <Bloquant>Ce site n’existe plus.</Bloquant> : <>
+      {disparu ? <Bloquant>{t('This site no longer exists.')}</Bloquant> : <>
         {!avant && (
-          <Field label="Code (Matrix)" htmlFor="rsite-code" requis erreur={tape(saisi, erreurs.code)}>
+          <Field label={t('Code (Matrix)')} htmlFor="rsite-code" requis erreur={tape(saisi, erreurs.code)}>
             <input className="input" id="rsite-code" type="text" autoFocus value={saisi} maxLength={32} placeholder="lab67" autoComplete="off" spellCheck={false}
               onChange={e => setSaisi(e.target.value.toLowerCase())} style={{ maxWidth: 220 }} />
           </Field>
         )}
-        <Field label="Libellé" htmlFor="rsite-libelle" requis erreur={tape(libelle, erreurs.libelle)}>
-          <input className="input" id="rsite-libelle" type="text" autoFocus={!!avant} value={libelle} maxLength={LIBELLE_SITE_MAX} placeholder="Laboratoire 67"
+        <Field label={t('Label')} htmlFor="rsite-libelle" requis erreur={tape(libelle, erreurs.libelle)}>
+          <input className="input" id="rsite-libelle" type="text" autoFocus={!!avant} value={libelle} maxLength={LIBELLE_SITE_MAX} placeholder={t('Laboratory 67')}
             onChange={e => setLibelle(e.target.value)} />
         </Field>
         {avant && (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14, cursor: 'pointer' }}>
             <input type="checkbox" checked={actif} onChange={e => setActif(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-            Site actif (proposé au rattachement des équipes et des entités)
+            {t('Active site (offered for attaching teams and entities)')}
           </label>
         )}
-        <Fine>Le code est celui du référentiel commun de Matrix (lettres minuscules, chiffres, « _ ») et ne change plus. Un site inactif reste porté par les équipes qui l’ont déjà.</Fine>
+        <Fine>{t('The code is that of Matrix’s common reference data (lower-case letters, digits, “_”) and no longer changes. An inactive site stays carried by the teams that already have it.')}</Fine>
       </>}
     </Dialog>
   );

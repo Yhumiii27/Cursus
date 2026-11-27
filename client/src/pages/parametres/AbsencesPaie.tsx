@@ -9,6 +9,7 @@ import { Field } from '../../components/Dialog.tsx';
 import { Fine, Panel } from '../../components/ui.tsx';
 import { useRole } from '../../state/derived.ts';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
+import { t } from '../../i18n/langue.ts';
 
 export function AbsencesPaie({ s }: SectionProps) {
   const { admin } = useRole();
@@ -20,30 +21,21 @@ export function AbsencesPaie({ s }: SectionProps) {
     if (depart !== (s.absencesPaieAPartirDu ?? '')) enregistrer({ absencesPaieAPartirDu: depart || null });
   };
   return (
-    <Panel title="Absences et paie" style={{ gap: 'var(--space-4)' }}>
+    <Panel title={t('Absences and payroll')} style={{ gap: 'var(--space-4)' }}>
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
         <input type="checkbox" checked={s.absencesFichierPaie} disabled={!admin} onChange={e => enregistrer({ absencesFichierPaie: e.target.checked })}
           style={{ accentColor: 'var(--color-accent)', marginTop: 'var(--space-1)', flex: 'none' }} />
-        <span>Transmettre les absences validées dans le fichier d’import de la paie</span>
+        <span>{t('Transmit the approved absences in the payroll import file')}</span>
       </label>
       <Fine>
-        Chaque lot de paie emporte, avec les heures, les absences validées : congés payés en jours ouvrés, RTT ou jours de repos en jours, récupération
-        en heures, demi-journées comprises ; hors congés, une rubrique par rémunération (non payée, indemnisée, salaire maintenu) et par catégorie
-        (santé, parentalité, événement familial), en jours de la nature. Les jours sont ventilés mois par mois ; ceux d’une période close partent en
-        rappel. Une absence annulée, raccourcie ou requalifiée après sa transmission part en régularisation négative dans le lot suivant.
-        Les rubriques d’absence restent « à confirmer » : tant que la paie n’a pas confirmé leur code Sage (écran Temps), seul un lot de simulation
-        se génère ; une rubrique désactivée laisse sa nature à la saisie dans Sage. Décoché, le fichier se limite aux heures ; coché de nouveau,
-        les absences déjà enregistrées ne partent qu’à partir de la période de paie ouverte (la paie a saisi les autres dans Sage).
+        {t('Each payroll batch carries, with the hours, the approved absences: paid leave in working days, RTT or rest days in days, recovery in hours, half-days included; apart from leave, one item per pay (unpaid, compensated, salary maintained) and per category (health, parenthood, family event), in days of the nature. The days are split month by month; those of a closed period go as a back pay. An absence cancelled, shortened or requalified after its transmission goes as a negative adjustment in the next batch. The absence items stay “to be confirmed”: as long as payroll has not confirmed their Sage code (Time screen), only a simulation batch is generated; a deactivated item leaves its nature to be entered in Sage. Unticked, the file is limited to the hours; ticked again, the absences already recorded only go from the open payroll period (payroll entered the others in Sage).')}
       </Fine>
-      <Field label="Absences transmises à partir du" htmlFor="param-absences-depuis">
+      <Field label={t('Absences transmitted from')} htmlFor="param-absences-depuis">
         <input className="input" id="param-absences-depuis" type="date" value={depart} disabled={!admin} style={{ maxWidth: 200 }}
           onChange={ev => setDepart(ev.target.value)} onBlur={enregistrerDepart} />
       </Field>
       <Fine>
-        Date de mise en service (conseillée : la date d’arrêté des compteurs repris de Lucca, le 1er janvier 2027) : aucun jour d’absence d’avant
-        ne part dans le fichier, Lucca et Sage les ont traités. Le service RH est prévenu quand une absence enregistrée, validée ou annulée a des jours
-        avant cette date, à saisir ou corriger dans Sage. Sans date, le premier lot de paie pose la sienne au premier jour de la période ouverte,
-        pour les absences déjà enregistrées ; une absence enregistrée ensuite part entière, en rappel pour un mois clos.
+        {t('Go-live date (recommended: the closing date of the counters taken over from Lucca, 1 January 2027): no absence day before it goes in the file, Lucca and Sage processed them. HR is notified when an absence recorded, approved or cancelled has days before this date, to be entered or corrected in Sage. Without a date, the first payroll batch sets its own at the first day of the open period, for the absences already recorded; an absence recorded afterwards goes in full, as a back pay for a closed month.')}
       </Fine>
     </Panel>
   );

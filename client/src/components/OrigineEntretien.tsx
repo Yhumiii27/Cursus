@@ -7,12 +7,13 @@ import { fmtShort } from '../../../shared/format.ts';
 import { parse } from '../../../shared/dates.ts';
 import type { DemandeCollab } from '../../../shared/types.ts';
 import { Tag } from './ui.tsx';
+import { t } from '../i18n/langue.ts';
 
 /** Libellé de l'origine : « Entretien du 12 oct. », ou « Entretien » ; null hors d'un versement. */
 export function origineEntretien(d: Domain, r: Pick<DemandeCollab, 'entretienId'>): string | null {
   if (!r.entretienId) return null;
   const x = d.ds.entretiens.find(y => y.id === r.entretienId);
-  return x ? `Entretien du ${fmtShort(parse(x.date))}` : 'Entretien';
+  return x ? `${t('Review of ')}${fmtShort(parse(x.date))}` : t('Review#entretien');
 }
 
 export function BadgeEntretien({ d, r }: { d: Domain; r: Pick<DemandeCollab, 'entretienId'> }) {

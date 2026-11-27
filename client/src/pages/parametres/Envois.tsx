@@ -5,7 +5,7 @@ import { Fragment, useCallback, useEffect, useState } from 'react';
 import { ArchiveIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon } from '@phosphor-icons/react';
 import { CIBLE_LABEL, EMAIL_LABEL, ENVOI_CLS, ENVOI_LABEL, EVENEMENT_LABEL, GNG_LABEL } from '../../../../shared/constants.ts';
 import { parse } from '../../../../shared/dates.ts';
-import { fmt, fmtShort, matricule, num, plural } from '../../../../shared/format.ts';
+import { fmt, fmtShort, matricule, num } from '../../../../shared/format.ts';
 import type { CibleEnvoi, Courriel, Envoi } from '../../../../shared/types.ts';
 import { api, type EnvoisState } from '../../api.ts';
 import { Btn, Empty, Fine, Panel, Pre, Seg, Tag, Two, stop } from '../../components/ui.tsx';
@@ -13,9 +13,11 @@ import { Ouvrir } from '../../components/Cliquable.tsx';
 import { useRole } from '../../state/derived.ts';
 import { useData, useStore } from '../../state/store.tsx';
 import { type FiltreCible, type FiltreEnvoi, MONO, quand, type SectionProps, type SuiviEnvois } from './commun.ts';
+import { t, tn } from '../../i18n/langue.ts';
 
-const FILTRES_ENVOI: [FiltreEnvoi, string][] = [['tous', 'Tous'], ['a_envoyer', 'À envoyer'], ['echec', 'En échec'], ['envoye', 'Envoyés'], ['simule', 'Simulés']];
-const FILTRES_CIBLE: [FiltreCible, string][] = [['toutes', 'Toutes cibles'], ['keystone', 'Keystone'], ['email', 'E-mails']];
+/** Filtres : sources anglaises, traduites au rendu. */
+const FILTRES_ENVOI: [FiltreEnvoi, string][] = [['tous', 'All#masc-plural'], ['a_envoyer', 'To send'], ['echec', 'Failed'], ['envoye', 'Sent#plural'], ['simule', 'Simulated#plural']];
+const FILTRES_CIBLE: [FiltreCible, string][] = [['toutes', 'All targets'], ['keystone', t('Keystone')], ['email', t('E-mails')]];
 
 /**
  * Envois sortants : état de l'intégration et derniers messages, relus avec l'instantané (comme le journal) et toutes
@@ -38,8 +40,8 @@ export function useSuiviEnvois(consultation: boolean): SuiviEnvois {
   const enAttente = !!etat?.keystone.nombres.a_envoyer || !!etat?.email?.nombres.a_envoyer;
   useEffect(() => {
     if (!consultation || !enAttente) return;
-    const t = setInterval(recharger, 10_000);
-    return () => clearInterval(t);
+    const minuterie = setInterval(recharger, 10_000);
+    return () => clearInterval(minuterie);
   }, [consultation, enAttente, recharger]);
   return { etat, erreur, filtre, setFiltre, cible, setCible, recharger };
 }
@@ -62,23 +64,23 @@ const GNG_TEXTE: Record<string, string> = { GO: GNG_LABEL.go, GO_RESERVE: GNG_LA
 function resumeEnvoi(e: Envoi, nom: (m: unknown) => string): string {
   if (e.cible === 'email') {
     const m = e.contenu as unknown as Courriel;
-    return `À ${(m.a ?? []).join(', ')} · ${m.objet}${m.pj?.length ? ` · ${plural(m.pj.length, 'pièce jointe', 'pièces jointes')}` : ''}`;
+    return `${t('To #email')}${(m.a ?? []).join(', ')} · ${m.objet}${m.pj?.length ? ` · ${tn(m.pj.length, 'attachment', 'attachments')}` : ''}`;
   }
   const c = e.contenu as Record<string, any>;
   const jour = (v: unknown) => (typeof v === 'string' ? fmtShort(parse(v)) : '—');
   const gng = (v: unknown) => GNG_TEXTE[String(v)] ?? String(v);
   switch (e.type) {
     case 'demande.decision':
-      return `${c.decision === 'acceptee' ? 'Acceptée' : 'Refusée'} · ${c.reference ?? `demande n° ${c.demande}`} · ${nom(c.matricule)} · chantier ${c.chantier}`;
+      return `${c.decision === 'acceptee' ? t('Accepted#fem') : t('Refused#fem')} · ${c.reference ?? `${t('request no. ')}${c.demande}`} · ${nom(c.matricule)}${t(' · worksite ')}${c.chantier}`;
     case 'heures.validees':
-      return `${nom(c.matricule)} · semaine du ${jour(c.semaine)} · ${Object.entries(c.projets ?? {}).map(([p, h]) => `${p} : ${String(num(h)).replace('.', ',')} h`).join(', ')}`;
+      return `${nom(c.matricule)}${t(' · week of ')}${jour(c.semaine)} · ${Object.entries(c.projets ?? {}).map(([p, h]) => `${p}${t(': ')}${String(num(h)).replace('.', ',')} h`).join(', ')}`;
     case 'absence.validee':
     case 'absence.annulee':
-      return `${nom(c.matricule)} · du ${jour(c.du)} au ${jour(c.au)}`;
+      return `${nom(c.matricule)}${t(' · from #date')}${jour(c.du)}${t(' to #date')}${jour(c.au)}`;
     case 'verdict.modifie': {
       const r = c.ressource ?? {};
       const motifs = (r.motifs ?? []).map((m: { code: string }) => m.code).join(', ');
-      return `Chantier ${c.chantier} · ${nom(r.matricule)} : ${r.precedent ? `${gng(r.precedent)} → ` : ''}${gng(r.statut)}${motifs ? ` (${motifs})` : ''}`;
+      return `${t('Worksite ')}${c.chantier} · ${nom(r.matricule)}${t(': ')}${r.precedent ? `${gng(r.precedent)} → ` : ''}${gng(r.statut)}${motifs ? ` (${motifs})` : ''}`;
     }
     default:
       return '';
@@ -87,20 +89,20 @@ function resumeEnvoi(e: Envoi, nom: (m: unknown) => string): string {
 
 /** Suivi d'un message dans la liste : accusé, erreur ou prochaine tentative. */
 function suiviEnvoi(e: Envoi): string {
-  if (e.statut === 'envoye') return `Reçu le ${quand(e.envoi!)} · accusé ${e.accuse ?? '—'}`;
-  if (e.statut === 'simule') return 'Tracé dans le journal (simulation)';
-  if (e.statut === 'echec') return `Échec après ${plural(e.tentatives, 'tentative', 'tentatives')}${e.classe ? ` · classé le ${quand(e.classe)}` : ''} — ${e.erreur ?? 'erreur inconnue'}`;
-  if (!e.tentatives) return 'En file, envoi dans quelques secondes';
-  return `Tentative ${e.tentatives + 1} le ${quand(e.prochaine!)} — ${e.erreur ?? 'erreur inconnue'}`;
+  if (e.statut === 'envoye') return `${t('Received on ')}${quand(e.envoi!)}${t(' · receipt ')}${e.accuse ?? '—'}`;
+  if (e.statut === 'simule') return t('Traced in the log (simulation)');
+  if (e.statut === 'echec') return `${t('Failed after ')}${tn(e.tentatives, 'attempt', 'attempts')}${e.classe ? `${t(' · filed on ')}${quand(e.classe)}` : ''} — ${e.erreur ?? t('unknown error')}`;
+  if (!e.tentatives) return t('Queued, sent in a few seconds');
+  return `${t('Attempt ')}${e.tentatives + 1}${t(' on #le')}${quand(e.prochaine!)} — ${e.erreur ?? t('unknown error')}`;
 }
 
 /** Contenu d'un e-mail tel qu'il part : en-têtes, texte, pièces jointes (nom et type). */
 function DetailEmail({ e }: { e: Envoi }) {
   const m = e.contenu as unknown as Courriel;
-  const entetes = [`À : ${(m.a ?? []).join(', ')}`, ...(m.repondreA ? [`Réponse à : ${m.repondreA}`] : []), `Objet : ${m.objet}`];
+  const entetes = [`${t('To: ')}${(m.a ?? []).join(', ')}`, ...(m.repondreA ? [`${t('Reply to: ')}${m.repondreA}`] : []), `${t('Subject: ')}${m.objet}`];
   const pj = (m.pj ?? []).map(p => `${p.nom} (${p.type.split(';')[0]})`).join(', ');
   // Texte replié à la largeur du panneau, comme dans une messagerie.
-  return <pre className="pre" style={{ maxHeight: 320, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{`${entetes.join('\n')}${pj ? `\nPièces jointes : ${pj}` : ''}\n\n${m.texte}`}</pre>;
+  return <pre className="pre" style={{ maxHeight: 320, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{`${entetes.join('\n')}${pj ? `\n${t('Attachments: ')}${pj}` : ''}\n\n${m.texte}`}</pre>;
 }
 
 /** Vue « Envois » : relance et classement des échecs réservés au service RH (`rh`), la lecture seule consulte. */
@@ -124,21 +126,21 @@ export function Envois({ envois: { etat, erreur: error, filtre, setFiltre, cible
   };
 
   return (
-    <Panel title="Envois" aside={
+    <Panel title={t('Sends')} aside={
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-        <Seg name="envois-cible" label="Destinataire des envois" value={cible} options={FILTRES_CIBLE} onChange={setCible} style={{ flexWrap: 'wrap' }} />
-        <Seg name="envois-filtre" label="Statut des envois" value={filtre} options={FILTRES_ENVOI} onChange={setFiltre} style={{ flexWrap: 'wrap' }} />
-        <Btn small icon={<ArrowClockwiseIcon size={14} />} onClick={() => reload()}>Actualiser</Btn>
+        <Seg name="envois-cible" label={t('Recipient of the sends')} value={cible} options={FILTRES_CIBLE.map(([k, l]) => [k, t(l)])} onChange={setCible} style={{ flexWrap: 'wrap' }} />
+        <Seg name="envois-filtre" label={t('Status of the sends')} value={filtre} options={FILTRES_ENVOI.map(([k, l]) => [k, t(l)])} onChange={setFiltre} style={{ flexWrap: 'wrap' }} />
+        <Btn small icon={<ArrowClockwiseIcon size={14} />} onClick={() => reload()}>{t('Refresh')}</Btn>
       </div>
     }>
-      <Fine>Messages envoyés à Keystone et e-mails envoyés par Microsoft 365, 100 plus récents. Un message Keystone garde sa clé d’idempotence d’une tentative à l’autre : Keystone écarte un message déjà reçu. Après une erreur réseau, un délai dépassé (10 s) ou une erreur 5xx, 408 ou 429, l’envoi est retenté de 1 min à 1 h plus tard, 10 fois au plus, et les messages suivants de la même cible attendent leur tour ; une autre erreur (4xx) le met aussitôt en échec.</Fine>
+      <Fine>{t('Messages sent to Keystone and e-mails sent by Microsoft 365, 100 most recent. A Keystone message keeps its idempotency key from one attempt to the next: Keystone discards a message already received. After a network error, a timeout (10 s) or a 5xx, 408 or 429 error, the send is retried from 1 min to 1 h later, 10 times at most, and the following messages of the same target wait their turn; another error (4xx) puts it at once in failure.')}</Fine>
       {error && <p className="form-error">{error}</p>}
-      {liste == null && !error && <Empty pad="sm">Chargement des envois…</Empty>}
-      {liste != null && liste.length === 0 && <Empty pad="sm">{filtre === 'tous' ? 'Aucun message sortant pour le moment.' : 'Aucun envoi avec ce statut.'}</Empty>}
+      {liste == null && !error && <Empty pad="sm">{t('Loading the sends…')}</Empty>}
+      {liste != null && liste.length === 0 && <Empty pad="sm">{filtre === 'tous' ? t('No outgoing message for now.') : t('No send with this status.')}</Empty>}
       {liste != null && liste.length > 0 && (
         <div className="scroll-x" style={{ maxHeight: 560, overflowY: 'auto' }}>
           <table className="table">
-            <thead><tr><th>Mis en file</th><th>Message</th><th>Statut</th><th>Suivi</th></tr></thead>
+            <thead><tr><th>{t('Queued')}</th><th>{t('Message')}</th><th>{t('Status')}</th><th>{t('Follow-up#suivi')}</th></tr></thead>
             <tbody>
               {liste.map(e => (
                 <Fragment key={e.id}>
@@ -153,23 +155,23 @@ export function Envois({ envois: { etat, erreur: error, filtre, setFiltre, cible
                       <td colSpan={4}>
                         <div className="col-stack" style={{ gap: 'var(--space-3)' }}>
                           <div className="text-muted sub">
-                            {`Type ${e.type}`}
+                            {`${t('Type ')}${e.type}`}
                             {/* La clé d'idempotence ne sert qu'aux destinataires qui la contrôlent (Keystone). */}
-                            {e.cible !== 'email' && <>{' · clé d’idempotence '}<span style={{ ...MONO, overflowWrap: 'anywhere' }}>{e.cle}</span></>}
-                            {` · ${plural(e.tentatives, 'tentative', 'tentatives')}`}
-                            {e.tentative && ` · dernière le ${quand(e.tentative)}`}
-                            {e.envoi && ` · reçu le ${quand(e.envoi)}`}
+                            {e.cible !== 'email' && <>{t(' · idempotency key ')}<span style={{ ...MONO, overflowWrap: 'anywhere' }}>{e.cle}</span></>}
+                            {` · ${tn(e.tentatives, 'attempt', 'attempts')}`}
+                            {e.tentative && `${t(' · last on ')}${quand(e.tentative)}`}
+                            {e.envoi && `${t(' · received on ')}${quand(e.envoi)}`}
                           </div>
-                          {e.erreur && <div className={e.statut === 'envoye' ? 'sub text-n400' : 'note-accent'}>{e.statut === 'envoye' ? 'Erreur avant réussite : ' : 'Dernière erreur : '}{e.erreur}</div>}
-                          {e.accuse && <div className="sub">Accusé de réception : <span style={MONO}>{e.accuse}</span></div>}
+                          {e.erreur && <div className={e.statut === 'envoye' ? 'sub text-n400' : 'note-accent'}>{e.statut === 'envoye' ? t('Error before success: ') : t('Last error: ')}{e.erreur}</div>}
+                          {e.accuse && <div className="sub">{t('Receipt: ')}<span style={MONO}>{e.accuse}</span></div>}
                           {e.cible === 'email' ? <DetailEmail e={e} /> : <Pre maxHeight={240}>{JSON.stringify(e.contenu, null, 2)}</Pre>}
                           {e.statut === 'echec' && gerer && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-                              <Btn variant="secondary" small icon={<ArrowCounterClockwiseIcon size={14} />} disabled={modes[e.cible] !== 'api'} onClick={stop(() => relancer(e.id))}>Relancer</Btn>
-                              {!e.classe && <Btn small icon={<ArchiveIcon size={14} />} onClick={stop(() => classer(e.id))}>Classer</Btn>}
+                              <Btn variant="secondary" small icon={<ArrowCounterClockwiseIcon size={14} />} disabled={modes[e.cible] !== 'api'} onClick={stop(() => relancer(e.id))}>{t('Retry#relancer')}</Btn>
+                              {!e.classe && <Btn small icon={<ArchiveIcon size={14} />} onClick={stop(() => classer(e.id))}>{t('File#verb')}</Btn>}
                               <span className="text-muted sub">
-                                {modes[e.cible] === 'api' ? 'Relancer : nouvelle série de 10 tentatives, même contenu et même clé.' : `Relance impossible en simulation (${e.cible === 'email' ? 'CURSUS_MAIL_FROM' : 'KEYSTONE_URL'} non définie).`}
-                                {!e.classe && ' Classer : échec examiné (refus que la relance ne corrigera pas), retiré des échecs en cours, gardé dans la liste.'}
+                                {modes[e.cible] === 'api' ? t('Retry: new series of 10 attempts, same content and same key.') : `${t('Retry impossible in simulation (')}${e.cible === 'email' ? 'CURSUS_MAIL_FROM' : 'KEYSTONE_URL'}${t(' not defined).')}`}
+                                {!e.classe && t(' File: failure examined (refusal that the retry will not fix), removed from the current failures, kept in the list.')}
                               </span>
                             </div>
                           )}

@@ -9,6 +9,7 @@ import { Bloquant, CancelButton, Dialog, Field, SubmitButton, useVerification } 
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function RefEntiteDialog({ code }: { code?: string | null }) {
   const d = useDomain();
@@ -44,69 +45,68 @@ export function RefEntiteDialog({ code }: { code?: string | null }) {
     if (r.ok) closeDialog();
   };
 
-  const titre = avant ? `${TYPES_ENTITE[avant.type]} ${avant.nom}` : 'Nouvelle entité';
+  const titre = avant ? `${TYPES_ENTITE[avant.type]} ${avant.nom}` : t('New entity');
   return (
     <Dialog title={titre} width={560} onSubmit={envoyer}
-      actions={disparu || matrix ? <CancelButton label="Fermer" /> : <>
+      actions={disparu || matrix ? <CancelButton label={t('Close')} /> : <>
         <CancelButton />
-        <SubmitButton busy={busy}>{avant ? 'Enregistrer' : 'Ajouter au référentiel'}</SubmitButton>
+        <SubmitButton busy={busy}>{avant ? t('Save') : t('Add to the reference data')}</SubmitButton>
       </>}>
-      {disparu ? <Bloquant>Cette entité n’existe plus.</Bloquant> : matrix ? <Bloquant>Cette entité est tenue par Matrix (référentiel commun) : elle s’y modifie.</Bloquant> : <>
+      {disparu ? <Bloquant>{t('This entity no longer exists.')}</Bloquant> : matrix ? <Bloquant>{t('This entity is kept by Matrix (common reference data): it is edited there.')}</Bloquant> : <>
         {!avant && (
           <div className="grid-2">
-            <Field label="Type" htmlFor="rent-type" requis erreur={v.erreur(erreurs.type)}>
+            <Field label={t('Type')} htmlFor="rent-type" requis erreur={v.erreur(erreurs.type)}>
               <select className="input" id="rent-type" autoFocus value={type} onChange={e => setType(e.target.value as TypeEntite | '')}>
-                <option value="" disabled>Choisir…</option>
+                <option value="" disabled>{t('Choose…')}</option>
                 <option value="societe">{TYPES_ENTITE.societe}</option>
                 <option value="etablissement">{TYPES_ENTITE.etablissement}</option>
               </select>
             </Field>
-            <Field label="Code" htmlFor="rent-code" requis erreur={tape(saisi, erreurs.code)}>
+            <Field label={t('Code')} htmlFor="rent-code" requis erreur={tape(saisi, erreurs.code)}>
               <input className="input" id="rent-code" type="text" value={saisi} maxLength={32} placeholder="siege" autoComplete="off" spellCheck={false}
                 onChange={e => setSaisi(e.target.value.toLowerCase())} />
             </Field>
           </div>
         )}
-        <Field label={societe ? 'Raison sociale' : 'Nom de l’établissement'} htmlFor="rent-nom" requis erreur={tape(nom, erreurs.nom)}>
+        <Field label={societe ? t('Company name') : t('Name of the establishment')} htmlFor="rent-nom" requis erreur={tape(nom, erreurs.nom)}>
           <input className="input" id="rent-nom" type="text" autoFocus={!!avant} value={nom} maxLength={NOM_ENTITE_MAX}
-            placeholder={societe ? 'Société mère SAS' : 'Établissement de Lyon'} onChange={e => setNom(e.target.value)} />
+            placeholder={societe ? t('Parent company SAS') : t('Lyon establishment')} onChange={e => setNom(e.target.value)} />
         </Field>
         {type === 'etablissement' && (
-          <Field label="Société" htmlFor="rent-parente" requis erreur={v.erreur(erreurs.parente)}>
+          <Field label={t('Company#societe')} htmlFor="rent-parente" requis erreur={v.erreur(erreurs.parente)}>
             <select className="input" id="rent-parente" value={parente} onChange={e => setParente(e.target.value)}>
-              <option value="">Choisir la société…</option>
+              <option value="">{t('Choose the company…')}</option>
               {societes.map(x => <option key={x.code} value={x.code}>{x.nom}</option>)}
             </select>
           </Field>
         )}
         <div className="grid-2">
           {societe && (
-            <Field label="SIREN" htmlFor="rent-siren" erreur={siren.trim() ? erreurs.siren ?? null : null}>
+            <Field label={t('SIREN')} htmlFor="rent-siren" erreur={siren.trim() ? erreurs.siren ?? null : null}>
               <input className="input tnum" id="rent-siren" type="text" inputMode="numeric" value={siren} maxLength={11} placeholder="552 100 554" autoComplete="off"
                 onChange={e => setSiren(e.target.value)} />
             </Field>
           )}
-          <Field label={societe ? 'SIRET du siège' : 'SIRET'} htmlFor="rent-siret" erreur={siret.trim() ? erreurs.siret ?? null : null}>
+          <Field label={societe ? t('SIRET of the head office') : t('SIRET')} htmlFor="rent-siret" erreur={siret.trim() ? erreurs.siret ?? null : null}>
             <input className="input tnum" id="rent-siret" type="text" inputMode="numeric" value={siret} maxLength={17} placeholder="552 100 554 00013" autoComplete="off"
               onChange={e => setSiret(e.target.value)} />
           </Field>
           {societe && (
-            <Field label="IDCC" htmlFor="rent-idcc" erreur={idcc.trim() ? erreurs.idcc ?? null : null}>
+            <Field label={t('IDCC')} htmlFor="rent-idcc" erreur={idcc.trim() ? erreurs.idcc ?? null : null}>
               <input className="input tnum" id="rent-idcc" type="text" inputMode="numeric" value={idcc} maxLength={4} placeholder="0044" autoComplete="off"
                 onChange={e => setIdcc(e.target.value.replace(/\D/g, ''))} />
             </Field>
           )}
-          <Field label="Site" htmlFor="rent-site" erreur={erreurs.siteCode ?? null}>
+          <Field label={t('Site')} htmlFor="rent-site" erreur={erreurs.siteCode ?? null}>
             <select className="input" id="rent-site" value={siteCode} onChange={e => setSiteCode(e.target.value)}>
-              <option value="">Aucun</option>
+              <option value="">{t('None')}</option>
               {sitesProposes.map(s => <option key={s.code} value={s.code}>{s.libelle}</option>)}
             </select>
           </Field>
         </div>
         <Fine>
-          {avant ? 'Le code et le type ne changent plus. ' : 'Le code (lettres minuscules, chiffres, « _ ») identifie l’entité et ne change plus, comme son type. '}
-          SIREN et SIRET sont contrôlés par leur clé ; le SIRET commence par le SIREN de la société. IDCC des Industries chimiques : 0044.
-          Le site, facultatif, vaut pour les équipes qui n’en portent pas.
+          {avant ? t('The code and the type no longer change. ') : t('The code (lower-case letters, digits, “_”) identifies the entity and no longer changes, like its type. ')}
+          {t('SIREN and SIRET are checked by their key; the SIRET starts with the company’s SIREN. IDCC of the chemical industries: 0044. The site, optional, applies to the teams that carry none.')}
         </Fine>
       </>}
     </Dialog>

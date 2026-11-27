@@ -16,6 +16,7 @@ import { Btn, Fine, NoteAccent, Panel, Seg } from '../../components/ui.tsx';
 import { useDomain, useRole } from '../../state/derived.ts';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
 import { JourMois } from './Entretiens.tsx';
+import { t } from '../../i18n/langue.ts';
 
 /** Nombres proposés, tous acceptés par le réglage (`entier(1, 20)`, shared/reglages.ts). */
 const MAXIMA = [3, 5, 8, 10, 12];
@@ -53,7 +54,7 @@ export function ObjectifsSuivis({ s }: SectionProps) {
   };
   const dDebut = debut ?? s.pointMiAnneeDebut, dFin = fin ?? s.pointMiAnneeFin;
   const modifiees = dDebut !== s.pointMiAnneeDebut || dFin !== s.pointMiAnneeFin;
-  const ordre = dDebut > dFin ? 'Le début de la fenêtre doit précéder sa fin, dans la même année.' : null;
+  const ordre = dDebut > dFin ? t('The start of the window must precede its end, in the same year.') : null;
   const pm = miAnnee({ ...s, pointMiAnneeActif: true, pointMiAnneeDebut: dDebut, pointMiAnneeFin: dFin }, d.year)!;
   const enregistrerFenetre = async () => {
     if (busy || ordre) return;
@@ -64,87 +65,84 @@ export function ObjectifsSuivis({ s }: SectionProps) {
   };
 
   return (
-    <Panel title="Objectifs et points de suivi" style={{ gap: 'var(--space-4)' }}>
+    <Panel title={t('Objectives and follow-up reviews')} style={{ gap: 'var(--space-4)' }}>
       <Case checked={s.objectifsActifs} disabled={!admin} onChange={v => enregistrer({ objectifsActifs: v })}>
-        Suivre des objectifs structurés aux entretiens annuels
-        <span className="text-muted sub" style={{ display: 'block' }}>Fixés et évalués à l’entretien annuel, ajustés en cours d’année avec un motif ; le salarié propose, le manager valide. Désactivé : ni saisie ni « Mes objectifs », les objectifs déjà fixés restent en base.</span>
+        {t('Follow structured objectives in the annual reviews')}
+        <span className="text-muted sub" style={{ display: 'block' }}>{t('Set and evaluated at the annual review, adjusted during the year with a reason; the employee proposes, the manager approves. Deactivated: neither entry nor “My objectives”, the objectives already set stay in the database.')}</span>
       </Case>
       <Case checked={s.objectifsFacultatifs} disabled={!admin || !s.objectifsActifs} onChange={v => enregistrer({ objectifsFacultatifs: v })}>
-        Objectifs facultatifs (première année)
-        <span className="text-muted sub" style={{ display: 'block' }}>La clôture d’un entretien annuel n’exige pas l’évaluation des objectifs repris. Une proposition du salarié reste à valider ou retirer avant la clôture.</span>
+        {t('Optional objectives (first year)')}
+        <span className="text-muted sub" style={{ display: 'block' }}>{t('The closing of an annual review does not require the evaluation of the objectives taken over. A proposal of the employee stays to approve or withdraw before the closing.')}</span>
       </Case>
-      <Field label="Objectifs au plus par entretien">
-        <Seg name="param-objectifs-max" label="Nombre d’objectifs au plus par entretien" value={s.objectifsMax}
+      <Field label={t('Objectives at most per review')}>
+        <Seg name="param-objectifs-max" label={t('Number of objectives at most per review')} value={s.objectifsMax}
           options={[...new Set([...MAXIMA, s.objectifsMax])].sort((a, z) => a - z).map(n => [n, String(n)] as [number, string])}
           disabled={!admin || !s.objectifsActifs} onChange={v => enregistrer({ objectifsMax: v })} style={{ flexWrap: 'wrap' }} />
       </Field>
 
       <Case checked={s.pointMiAnneeActif} disabled={!admin} onChange={v => enregistrer({ pointMiAnneeActif: v })}>
-        Rendre le point de mi-année obligatoire
-        <span className="text-muted sub" style={{ display: 'block' }}>Facultatif par défaut. Obligatoire : il devient une échéance de chaque salarié concerné par la campagne, relancée comme les autres entretiens.</span>
+        {t('Make the mid-year review mandatory')}
+        <span className="text-muted sub" style={{ display: 'block' }}>{t('Optional by default. Mandatory: it becomes a due date of each employee concerned by the campaign, reminded like the other reviews.')}</span>
       </Case>
       <div className="grid-2">
-        <JourMois id="pm-debut" label="Ouverture de la fenêtre" value={dDebut} onChange={setDebut} disabled={!admin || !s.pointMiAnneeActif} />
-        <JourMois id="pm-fin" label="Fin de la fenêtre (échéance)" value={dFin} onChange={setFin} disabled={!admin || !s.pointMiAnneeActif} />
+        <JourMois id="pm-debut" label={t('Opening of the window')} value={dDebut} onChange={setDebut} disabled={!admin || !s.pointMiAnneeActif} />
+        <JourMois id="pm-fin" label={t('End of the window (due date)')} value={dFin} onChange={setFin} disabled={!admin || !s.pointMiAnneeActif} />
       </div>
       {ordre && <p className="form-error">{ordre}</p>}
       {admin && modifiees && (
         <div className="actions-end">
-          <Btn variant="secondary" disabled={busy} onClick={() => { setDebut(null); setFin(null); }}>Annuler</Btn>
-          <Btn variant="primary" disabled={busy} onClick={enregistrerFenetre}>Enregistrer la fenêtre</Btn>
+          <Btn variant="secondary" disabled={busy} onClick={() => { setDebut(null); setFin(null); }}>{t('Cancel')}</Btn>
+          <Btn variant="primary" disabled={busy} onClick={enregistrerFenetre}>{t('Save the window')}</Btn>
         </div>
       )}
-      <Fine>{s.pointMiAnneeActif ? pm.libelle : `${pm.libelle.replace(/^Point de mi-année \d+ — /, 'Fenêtre prévue ')} (appliquée si le point devient obligatoire)`}.</Fine>
+      <Fine>{s.pointMiAnneeActif ? pm.libelle : `${pm.libelle.replace(/^Point de mi-année \d+ — /, t('Planned window '))}${t(' (applied if the review becomes mandatory)')}`}.</Fine>
 
-      <Field label="Souhaits de formation exprimés en entretien">
-        <p style={{ fontSize: 14, margin: 0 }}>Versés automatiquement à la clôture, seulement avec l’avis favorable du manager.</p>
+      <Field label={t('Training wishes expressed in a review')}>
+        <p style={{ fontSize: 14, margin: 0 }}>{t('Transferred automatically at the closing, only with the manager’s favourable opinion.')}</p>
       </Field>
-      <Fine>Chaque souhait favorable devient une demande de formation au service RH, contrôlée comme une demande du salarié (jamais deux fois, ni pendant une inscription à venir) ; acceptée, elle donne une ligne du plan d’origine « entretien ». Les autres souhaits restent au compte rendu.</Fine>
+      <Fine>{t('Each favourable wish becomes a training request to HR, checked like a request from the employee (never twice, nor during an upcoming enrolment); accepted, it gives a plan line of origin “review”. The other wishes stay in the report.')}</Fine>
 
       <Case checked={s.feedback360Actif} disabled={!admin} onChange={v => enregistrer({ feedback360Actif: v })}>
-        Feedback 360° (avis de collègues, du N+2 et de collaborateurs encadrés)
+        {t('360° feedback (opinion of colleagues, the N+2 and supervised employees)')}
         <span className="text-muted sub" style={{ display: 'block' }}>
-          Moyen d’évaluation des salariés : activé seulement avec la référence de l’avis du CSE (art. L2312-38) et de l’analyse d’impact (AIPD), une fois le questionnaire
-          (version {QUESTIONNAIRE_360.version}) porté à la connaissance des salariés (art. L1222-3). Désactivé : plus de sollicitation ; les synthèses déjà jointes restent.
+          {t('Means of evaluating employees: activated only with the reference of the CSE’s opinion (art. L2312-38) and of the impact assessment (DPIA), once the questionnaire (version ')}{QUESTIONNAIRE_360.version}{t(') has been brought to the employees’ attention (art. L1222-3). Deactivated: no more solicitation; the syntheses already attached stay.')}
         </span>
       </Case>
       <div className="grid-2">
-        <Field label="Référence de l’avis du CSE" htmlFor="f360-cse">
-          <input className="input" id="f360-cse" value={rCse} maxLength={120} disabled={!admin} placeholder="Ex. : avis du CSE du 12 mars 2027" onChange={ev => setCse(ev.target.value)} />
+        <Field label={t('Reference of the CSE’s opinion')} htmlFor="f360-cse">
+          <input className="input" id="f360-cse" value={rCse} maxLength={120} disabled={!admin} placeholder={t('E.g.: CSE’s opinion of 12 March 2027')} onChange={ev => setCse(ev.target.value)} />
         </Field>
-        <Field label="Référence de l’AIPD" htmlFor="f360-aipd">
-          <input className="input" id="f360-aipd" value={rAipd} maxLength={120} disabled={!admin} placeholder="Ex. : AIPD-2027-02 validée par le DPO" onChange={ev => setAipd(ev.target.value)} />
+        <Field label={t('Reference of the DPIA')} htmlFor="f360-aipd">
+          <input className="input" id="f360-aipd" value={rAipd} maxLength={120} disabled={!admin} placeholder={t('E.g.: AIPD-2027-02 approved by the DPO')} onChange={ev => setAipd(ev.target.value)} />
         </Field>
       </div>
       {admin && refsModifiees && (
         <div className="actions-end">
-          <Btn variant="secondary" disabled={busy} onClick={() => { setCse(null); setAipd(null); }}>Annuler</Btn>
-          <Btn variant="primary" disabled={busy} onClick={enregistrerRefs}>Enregistrer les références</Btn>
+          <Btn variant="secondary" disabled={busy} onClick={() => { setCse(null); setAipd(null); }}>{t('Cancel')}</Btn>
+          <Btn variant="primary" disabled={busy} onClick={enregistrerRefs}>{t('Save the references')}</Btn>
         </div>
       )}
-      <Field label="Seuil de restitution (réponses par groupe)">
-        <Seg name="param-f360-seuil" label="Seuil de restitution du feedback 360°" value={s.feedback360Seuil}
+      <Field label={t('Restitution threshold (answers per group)')}>
+        <Seg name="param-f360-seuil" label={t('Restitution threshold of the 360° feedback')} value={s.feedback360Seuil}
           options={Array.from({ length: SEUIL_360_MAX - SEUIL_360_MIN + 1 }, (_, i) => SEUIL_360_MIN + i).map(n => [n, String(n)] as [number, string])}
           disabled={!admin} onChange={v => enregistrer({ feedback360Seuil: v })} />
       </Field>
       <div className="grid-2">
-        <Field label="Fenêtre de réponse (jours)">
-          <Seg name="param-f360-fenetre" label="Fenêtre de réponse du feedback 360°" value={s.feedback360FenetreJours}
+        <Field label={t('Response window (days)')}>
+          <Seg name="param-f360-fenetre" label={t('Response window of the 360° feedback')} value={s.feedback360FenetreJours}
             options={[...new Set([14, 21, 28, 42, s.feedback360FenetreJours])].sort((a, z) => a - z).map(n => [n, String(n)] as [number, string])}
             disabled={!admin} onChange={v => enregistrer({ feedback360FenetreJours: v })} style={{ flexWrap: 'wrap' }} />
         </Field>
-        <Field label="Réponses brutes gardées (mois)">
-          <Seg name="param-f360-conservation" label="Conservation des réponses brutes du feedback 360°" value={s.feedback360ConservationMois}
+        <Field label={t('Raw answers kept (months)')}>
+          <Seg name="param-f360-conservation" label={t('Retention of the raw answers of the 360° feedback')} value={s.feedback360ConservationMois}
             options={[...new Set([2, 3, CONSERVATION_360_MAX_MOIS, s.feedback360ConservationMois])].sort((a, z) => a - z).map(n => [n, String(n)] as [number, string])}
             disabled={!admin} onChange={v => enregistrer({ feedback360ConservationMois: v })} style={{ flexWrap: 'wrap' }} />
         </Field>
       </div>
       <Fine>
-        Réponses confidentielles : versées d’un bloc à la clôture, sans répondant ni date ; restituées en moyenne par groupe d’au moins {s.feedback360Seuil} réponses (jamais
-        moins de 3), commentaires après la relecture du service RH. Réponses brutes supprimées à la clôture de l’entretien, et au plus tard {s.feedback360ConservationMois} mois
-        après l’envoi ; la synthèse reste au compte rendu.
+        {t('Confidential answers: transferred in one block at the closing, without respondent nor date; returned as an average per group of at least ')}{s.feedback360Seuil}{t(' answers (never fewer than 3), comments after review by HR. Raw answers deleted at the closing of the review, and at the latest ')}{s.feedback360ConservationMois}{t(' months after sending; the synthesis stays in the report.')}
       </Fine>
-      {!s.feedback360Actif && <NoteAccent>Feedback 360° désactivé : à activer après l’avis du CSE, l’analyse d’impact du DPO et l’information des salariés.</NoteAccent>}
+      {!s.feedback360Actif && <NoteAccent>{t('360° feedback deactivated: to activate after the CSE’s opinion, the DPO’s impact assessment and informing the employees.')}</NoteAccent>}
     </Panel>
   );
 }

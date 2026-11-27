@@ -7,6 +7,7 @@ import { Bloquant, CancelButton, Dialog, Field, SubmitButton, useVerification } 
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function RefHoraireDialog({ code }: { code?: string | null }) {
   const d = useDomain();
@@ -36,45 +37,44 @@ export function RefHoraireDialog({ code }: { code?: string | null }) {
 
   const d0 = normaliserHeure(debut), f0 = normaliserHeure(fin);
   return (
-    <Dialog title={avant ? `Horaire ${avant.code}` : 'Nouvel horaire de poste'} width={500} onSubmit={envoyer}
-      actions={disparu ? <CancelButton label="Fermer" /> : <>
+    <Dialog title={avant ? `${t('Schedule ')}${avant.code}` : t('New shift schedule')} width={500} onSubmit={envoyer}
+      actions={disparu ? <CancelButton label={t('Close')} /> : <>
         <CancelButton />
-        <SubmitButton busy={busy}>{avant ? 'Enregistrer' : 'Ajouter au référentiel'}</SubmitButton>
+        <SubmitButton busy={busy}>{avant ? t('Save') : t('Add to the reference data')}</SubmitButton>
       </>}>
-      {disparu ? <Bloquant>Cet horaire n’existe plus.</Bloquant> : <>
+      {disparu ? <Bloquant>{t('This schedule no longer exists.')}</Bloquant> : <>
         {!avant && (
-          <Field label="Code" htmlFor="rhor-code" requis erreur={tape(saisi, erreurs.code)}>
+          <Field label={t('Code')} htmlFor="rhor-code" requis erreur={tape(saisi, erreurs.code)}>
             <input className="input" id="rhor-code" type="text" autoFocus value={saisi} maxLength={6} placeholder="M"
               onChange={e => setSaisi(e.target.value.toUpperCase())} style={{ maxWidth: 140 }} />
           </Field>
         )}
-        <Field label="Libellé" htmlFor="rhor-nom" requis erreur={tape(nom, erreurs.nom)}>
-          <input className="input" id="rhor-nom" type="text" autoFocus={!!avant} value={nom} maxLength={NOM_HORAIRE_MAX} placeholder="Équipe du matin"
+        <Field label={t('Label')} htmlFor="rhor-nom" requis erreur={tape(nom, erreurs.nom)}>
+          <input className="input" id="rhor-nom" type="text" autoFocus={!!avant} value={nom} maxLength={NOM_HORAIRE_MAX} placeholder={t('Morning shift')}
             onChange={e => setNom(e.target.value)} />
         </Field>
         <div className="row-wrap" style={{ gap: 'var(--space-3)' }}>
-          <Field label="Début" htmlFor="rhor-debut" requis erreur={tape(debut, erreurs.debut)}>
+          <Field label={t('Start')} htmlFor="rhor-debut" requis erreur={tape(debut, erreurs.debut)}>
             <input className="input tnum" id="rhor-debut" type="text" inputMode="numeric" value={debut} maxLength={8} placeholder="05:00"
               onChange={e => setDebut(e.target.value)} style={{ maxWidth: 120 }} />
           </Field>
-          <Field label="Fin" htmlFor="rhor-fin" requis erreur={tape(fin, erreurs.fin)}>
+          <Field label={t('End')} htmlFor="rhor-fin" requis erreur={tape(fin, erreurs.fin)}>
             <input className="input tnum" id="rhor-fin" type="text" inputMode="numeric" value={fin} maxLength={8} placeholder="13:00"
               onChange={e => setFin(e.target.value)} style={{ maxWidth: 120 }} />
           </Field>
-          <Field label="Pause (minutes)" htmlFor="rhor-pause" erreur={erreurs.pause ?? null}>
+          <Field label={t('Break (minutes)')} htmlFor="rhor-pause" erreur={erreurs.pause ?? null}>
             <input className="input tnum" id="rhor-pause" type="text" inputMode="numeric" value={pause} maxLength={3} placeholder="30"
               onChange={e => setPause(e.target.value.replace(/\D/g, ''))} style={{ maxWidth: 120 }} />
           </Field>
         </div>
         {horaire && (
           <Fine>
-            {fH(dureeHoraire(horaire))} de travail{finitLeLendemain(horaire) ? ', fin le lendemain (poste de nuit)' : ''}.
+            {fH(dureeHoraire(horaire))}{t(' of work')}{finitLeLendemain(horaire) ? t(', ending the next day (night shift)') : ''}.
           </Fine>
         )}
-        {!horaire && d0 && f0 && d0 !== f0 && <Fine>Une fin antérieure au début finit le lendemain (poste de nuit).</Fine>}
+        {!horaire && d0 && f0 && d0 !== f0 && <Fine>{t('An end earlier than the start ends the next day (night shift).')}</Fine>}
         <Fine>
-          Le code désigne l’horaire sur les feuilles de temps et ne change plus. Pause de 0 à {PAUSE_MAX} minutes. Une feuille soumise garde l’horaire
-          retenu avec ses heures du moment : modifier les heures ne change que les feuilles encore en saisie et les suivantes.
+          {t('The code designates the schedule on the timesheets and no longer changes. Break from 0 to ')}{PAUSE_MAX}{t(' minutes. A submitted timesheet keeps the schedule chosen with its hours of the moment: changing the hours only changes the timesheets still being entered and the following ones.')}
         </Fine>
       </>}
     </Dialog>

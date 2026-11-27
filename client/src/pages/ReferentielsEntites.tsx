@@ -9,7 +9,8 @@
 import { useState } from 'react';
 import { PlusIcon } from '@phosphor-icons/react';
 import { parse } from '../../../shared/dates.ts';
-import { fmt, plural } from '../../../shared/format.ts';
+import { fmt } from '../../../shared/format.ts';
+import { t, tn } from '../i18n/langue.ts';
 import { entiteDe, entiteOuverte, equipesDeLEntite, TYPES_ENTITE } from '../../../shared/rules/entites.ts';
 import type { Entite } from '../../../shared/types.ts';
 import { Btn, Empty, Fine, Panel, Tag, Two } from '../components/ui.tsx';
@@ -57,24 +58,24 @@ function Entites() {
     <Panel head={
       <div className="panel-head top">
         <div>
-          <h2>Entités</h2>
-          <div className="text-muted sub">{plural(ouvertes.length, 'entité ouverte', 'entités ouvertes')}{nFermees ? ` · ${plural(nFermees, 'fermée', 'fermées')}` : ''}</div>
+          <h2>{t('Entities')}</h2>
+          <div className="text-muted sub">{tn(ouvertes.length, 'open entity', 'open entities')}{nFermees ? ` · ${tn(nFermees, 'closed#fem', 'closed#fem-plural')}` : ''}</div>
         </div>
         <div className="actions-end" style={{ alignItems: 'center' }}>
           {nFermees > 0 && (
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 13, cursor: 'pointer' }}>
               <input type="checkbox" checked={fermees} onChange={e => setFermees(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-              Afficher les fermées
+              {t('Show the closed ones#fem')}
             </label>
           )}
-          {rh && <Btn variant="primary" small icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'refEntite' })}>Nouvelle entité</Btn>}
+          {rh && <Btn variant="primary" small icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'refEntite' })}>{t('New entity')}</Btn>}
         </div>
       </div>
     }>
-      {lignes.length === 0 ? <Empty pad="sm">Aucune entité : elle est créée avec la première équipe, sous la raison sociale du responsable du traitement (Paramètres → Confidentialité).</Empty> : (
+      {lignes.length === 0 ? <Empty pad="sm">{t('No entity: it is created with the first team, under the company name of the data controller (Settings → Privacy).')}</Empty> : (
         <div className="scroll-x">
           <table className="table">
-            <thead><tr><th>Entité</th><th>Type</th><th>SIREN / SIRET</th><th>IDCC</th><th>Site</th><th className="right">Équipes</th><th>État</th>{(rh || admin) && <th></th>}</tr></thead>
+            <thead><tr><th>{t('Entity')}</th><th>{t('Type')}</th><th>{t('SIREN / SIRET')}</th><th>{t('IDCC')}</th><th>{t('Site')}</th><th className="right">{t('Teams')}</th><th>{t('State')}</th>{(rh || admin) && <th></th>}</tr></thead>
             <tbody>
               {lignes.map(x => {
                 const equipes = equipesDeLEntite(r.equipes, x.code);
@@ -82,23 +83,23 @@ function Entites() {
                 const matrix = x.source === 'matrix';
                 return (
                   <tr key={x.code}>
-                    <td><Two main={x.type === 'etablissement' ? <>— {x.nom}</> : x.nom} sub={`code ${x.code}${societe ? ` · société ${societe.nom}` : ''}${matrix ? ' · tenue par Matrix' : ''}`} /></td>
+                    <td><Two main={x.type === 'etablissement' ? <>— {x.nom}</> : x.nom} sub={`${t('code ')}${x.code}${societe ? `${t(' · company ')}${societe.nom}` : ''}${matrix ? t(' · kept by Matrix') : ''}`} /></td>
                     <td className="nowrap">{TYPES_ENTITE[x.type]}</td>
                     <td className="nowrap tnum">{x.type === 'societe'
-                      ? <Two main={x.siren ? formaterSiren(x.siren) : <span className="text-muted">SIREN à saisir</span>} sub={x.siret ? `siège ${formaterSiren(x.siret)}` : undefined} />
-                      : x.siret ? formaterSiren(x.siret) : <span className="text-muted">SIRET à saisir</span>}</td>
+                      ? <Two main={x.siren ? formaterSiren(x.siren) : <span className="text-muted">{t('SIREN to enter')}</span>} sub={x.siret ? `${t('head office ')}${formaterSiren(x.siret)}` : undefined} />
+                      : x.siret ? formaterSiren(x.siret) : <span className="text-muted">{t('SIRET to enter')}</span>}</td>
                     <td className="tnum">{x.idcc ?? <span className="text-muted">—</span>}</td>
                     <td>{x.siteCode ? sites.find(s => s.code === x.siteCode)?.libelle ?? x.siteCode : <span className="text-muted">—</span>}</td>
                     <td className="right tnum" title={equipes.join(', ') || undefined}>{equipes.length}</td>
-                    <td>{entiteOuverte(x) ? <Tag cls="tag-neutral">Ouverte</Tag> : <Tag cls="tag-outline">{x.fermeLe ? `Fermée le ${fmt(parse(x.fermeLe))}` : 'Fermée'}</Tag>}</td>
+                    <td>{entiteOuverte(x) ? <Tag cls="tag-neutral">{t('Open#fem')}</Tag> : <Tag cls="tag-outline">{x.fermeLe ? `${t('Closed on #fem')}${fmt(parse(x.fermeLe))}` : t('Closed#fem')}</Tag>}</td>
                     {(rh || admin) && (
                       <td className="right">
                         {!matrix && (
                           <div className="actions-end" style={{ flexWrap: 'nowrap' }}>
-                            {rh && <Btn small onClick={() => openDialog({ type: 'refEntite', code: x.code })}>Modifier</Btn>}
+                            {rh && <Btn small onClick={() => openDialog({ type: 'refEntite', code: x.code })}>{t('Edit')}</Btn>}
                             {admin && (entiteOuverte(x)
-                              ? <Btn small onClick={() => openDialog({ type: 'confirmer', c: fermetureEntite(x) })}>Fermer</Btn>
-                              : <Btn small disabled={occupe} onClick={agir(() => run('entite.rouvrir', { code: x.code }))}>Rouvrir</Btn>)}
+                              ? <Btn small onClick={() => openDialog({ type: 'confirmer', c: fermetureEntite(x) })}>{t('Close#verb')}</Btn>
+                              : <Btn small disabled={occupe} onClick={agir(() => run('entite.rouvrir', { code: x.code }))}>{t('Reopen')}</Btn>)}
                           </div>
                         )}
                       </td>
@@ -111,11 +112,7 @@ function Entites() {
         </div>
       )}
       <Fine>
-        Deux niveaux : la société (SIREN, IDCC de la convention collective) et ses établissements (SIRET, qui commence par le SIREN de la société).
-        SIREN et SIRET sont contrôlés par leur clé ; ce sont des données publiques (répertoire SIRENE). Une équipe racine relève d’une entité et ses
-        équipes rattachées en héritent (Équipes & managers) : aucun valideur ne change. Le code et le type ne changent plus après la création ; une
-        entité n’est jamais supprimée, elle se ferme quand plus aucune équipe n’en relève. Ce référentiel sera repris de Matrix (référentiel commun),
-        dont Cursus gardera une copie.
+        {t('Two levels: the company (SIREN, IDCC of the collective agreement) and its establishments (SIRET, which starts with the company’s SIREN). SIREN and SIRET are checked by their key; they are public data (SIRENE register). A root team belongs to an entity and its attached teams inherit it (Teams & managers): no approver changes. The code and the type no longer change after creation; an entity is never deleted, it is closed when no team belongs to it any more. This reference data will be taken over from Matrix (common reference data), of which Cursus will keep a copy.')}
       </Fine>
     </Panel>
   );
@@ -133,26 +130,26 @@ function Sites() {
     <Panel head={
       <div className="panel-head top">
         <div>
-          <h2>Sites de rattachement</h2>
-          <div className="text-muted sub">{plural(actifs, 'site actif', 'sites actifs')}{sites.length > actifs ? ` · ${plural(sites.length - actifs, 'inactif', 'inactifs')}` : ''}</div>
+          <h2>{t('Attachment sites')}</h2>
+          <div className="text-muted sub">{tn(actifs, 'active site', 'active sites')}{sites.length > actifs ? ` · ${tn(sites.length - actifs, 'inactive', 'inactive#plural')}` : ''}</div>
         </div>
-        {rh && <div className="actions-end"><Btn variant="primary" small icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'refSite' })}>Nouveau site</Btn></div>}
+        {rh && <div className="actions-end"><Btn variant="primary" small icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'refSite' })}>{t('New site')}</Btn></div>}
       </div>
     }>
-      {sites.length === 0 ? <Empty pad="sm">Aucun site : ajoutez les sites du référentiel commun (code de Matrix) pour rattacher les équipes et filtrer l’organigramme.</Empty> : (
+      {sites.length === 0 ? <Empty pad="sm">{t('No site: add the sites of the common reference data (Matrix code) to attach the teams and filter the organisation chart.')}</Empty> : (
         <div className="scroll-x">
           <table className="table">
-            <thead><tr><th>Site</th><th className="right">Équipes</th><th className="right">Entités</th><th>État</th>{rh && <th></th>}</tr></thead>
+            <thead><tr><th>{t('Site')}</th><th className="right">{t('Teams')}</th><th className="right">{t('Entities')}</th><th>{t('State')}</th>{rh && <th></th>}</tr></thead>
             <tbody>
               {sites.map(s => {
                 const equipes = r.equipes.filter(q => siteEffectif(r.equipes, entites, q.nom) === s.code).length;
                 return (
                   <tr key={s.code}>
-                    <td><Two main={s.libelle} sub={`code ${s.code}`} /></td>
+                    <td><Two main={s.libelle} sub={`${t('code ')}${s.code}`} /></td>
                     <td className="right tnum">{equipes}</td>
                     <td className="right tnum">{entites.filter(x => x.siteCode === s.code).length}</td>
-                    <td>{s.actif ? <Tag cls="tag-neutral">Actif</Tag> : <Tag cls="tag-outline">Inactif</Tag>}</td>
-                    {rh && <td className="right"><Btn small onClick={() => openDialog({ type: 'refSite', code: s.code })}>Modifier</Btn></td>}
+                    <td>{s.actif ? <Tag cls="tag-neutral">{t('Active')}</Tag> : <Tag cls="tag-outline">{t('Inactive')}</Tag>}</td>
+                    {rh && <td className="right"><Btn small onClick={() => openDialog({ type: 'refSite', code: s.code })}>{t('Edit')}</Btn></td>}
                   </tr>
                 );
               })}
@@ -161,9 +158,7 @@ function Sites() {
         </div>
       )}
       <Fine>
-        Copie des sites du référentiel commun de Matrix (code stable, libellé), tenue ici à la main tant que Matrix ne la fournit pas. Le site d’un
-        salarié est celui de son équipe, d’une équipe au-dessus ou, à défaut, de son entité ; il est recalculé à chaque affectation et transmis à Matrix
-        avec la fiche. Un site inactif n’est plus proposé ; les équipes qui le portent le gardent.
+        {t('Copy of the sites of Matrix’s common reference data (stable code, label), kept here by hand as long as Matrix does not provide it. An employee’s site is that of their team, of a team above or, failing that, of their entity; it is recalculated at each assignment and sent to Matrix with the sheet. An inactive site is no longer offered; the teams that carry it keep it.')}
       </Fine>
     </Panel>
   );

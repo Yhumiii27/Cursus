@@ -5,13 +5,14 @@
 // effacées, le dialogue liste ce qui reste et jusqu'à quand (art. 17-3-b du RGPD). Irréversible : les sauvegardes gardent
 // les données jusqu'à leur rotation.
 import { useState } from 'react';
-import { fmtIso, plural } from '../../../shared/format.ts';
+import { fmtIso } from '../../../shared/format.ts';
 import { CATEGORIES_CONSERVATION, categoriesDroitEffacement } from '../../../shared/rules/conservation.ts';
 import type { CategorieConservation } from '../../../shared/types.ts';
 import { CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine, NoteAccent, Tag } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 /** Motif : 500 caractères au plus (contrôle du serveur). */
 const MOTIF_MAX = 500;
@@ -30,10 +31,10 @@ export function AnonymiserDialog({ ids, avantEcheance = false }: { ids: number[]
     // Droit à l'effacement : le serveur écarte en plus les catégories sans donnée.
     const droit = avantEcheance && e ? categoriesDroitEffacement(e, d.ds.settings, d.ti) : null;
     const categories: CategorieConservation[] = droit ? droit.categories : echus.get(id)?.categories ?? [];
-    return { id, nom: e?.nom ?? `n° ${id}`, fin: e?.fin ?? null, categories, anonymise: categories.includes('dossier'), gardees: droit?.gardees ?? [] };
+    return { id, nom: e?.nom ?? `${t('no. ')}${id}`, fin: e?.fin ?? null, categories, anonymise: categories.includes('dossier'), gardees: droit?.gardees ?? [] };
   });
   const anonymises = dossiers.filter(x => x.anonymise).length;
-  const erreur = !motif.trim() ? 'Indiquez le motif : décision du DPO, demande du salarié…' : null;
+  const erreur = !motif.trim() ? t('Enter the reason: DPO’s decision, employee’s request…') : null;
 
   const confirmer = async () => {
     if (busy || !v.verifier(erreur)) return;
@@ -43,39 +44,38 @@ export function AnonymiserDialog({ ids, avantEcheance = false }: { ids: number[]
     if (r.ok) closeDialog();
   };
 
-  const titre = avantEcheance ? 'Droit à l’effacement' : anonymises === dossiers.length && anonymises ? `Anonymiser ${plural(anonymises, 'dossier', 'dossiers')}` : 'Effacer les données échues';
+  const titre = avantEcheance ? t('Right to erasure') : anonymises === dossiers.length && anonymises ? `${t('Anonymise ')}${tn(anonymises, 'file#dossier', 'files#dossier')}` : t('Erase the expired data');
   return (
     <Dialog title={titre} width={620} onSubmit={confirmer} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Effacer définitivement</SubmitButton>
+      <SubmitButton busy={busy}>{t('Erase permanently')}</SubmitButton>
     </>}>
       <NoteAccent>
-        Effacement définitif : rien ne pourra être rétabli depuis Cursus. Les sauvegardes gardent ces données jusqu’à leur rotation
-        (restaurer une copie antérieure les ferait revenir).
+        {t('Permanent erasure: nothing can be restored from Cursus. The backups keep these data until their rotation (restoring an earlier copy would bring them back).')}
       </NoteAccent>
       <ul style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', margin: 0, padding: 0, listStyle: 'none' }}>
         {dossiers.map(x => (
           <li key={x.id} className="boxed">
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
               <span style={{ fontSize: 14 }}>{x.nom}</span>
-              {x.fin && <span className="text-muted sub">sorti le {fmtIso(x.fin)}</span>}
-              <Tag cls={x.anonymise ? 'tag-accent' : 'tag-outline'}>{x.anonymise ? 'Anonymisation du dossier' : 'Effacement partiel'}</Tag>
+              {x.fin && <span className="text-muted sub">{t('left on ')}{fmtIso(x.fin)}</span>}
+              <Tag cls={x.anonymise ? 'tag-accent' : 'tag-outline'}>{x.anonymise ? t('Anonymisation of the file') : t('Partial erasure')}</Tag>
             </div>
             <ul style={{ margin: 'var(--space-2) 0 0', paddingLeft: 'var(--space-5)' }}>
               {(x.anonymise ? ['dossier' as const] : x.categories).map(c => (
                 <li key={c} className="text-muted sub">
-                  <strong>{CATEGORIES_CONSERVATION[c].label}</strong> : {CATEGORIES_CONSERVATION[c].effacement}
-                  {c === 'dossier' && ' ; tout ce qui reste des autres catégories est effacé avec lui'}
+                  <strong>{CATEGORIES_CONSERVATION[c].label}</strong>{t(': ')}{CATEGORIES_CONSERVATION[c].effacement}
+                  {c === 'dossier' && t('; everything that remains of the other categories is erased with it')}
                 </li>
               ))}
             </ul>
             {x.gardees.length > 0 && (
               <>
-                <div className="text-muted sub" style={{ marginTop: 'var(--space-2)' }}>Gardé jusqu’à l’échéance, la loi l’imposant :</div>
+                <div className="text-muted sub" style={{ marginTop: 'var(--space-2)' }}>{t('Kept until the due date, the law requiring it:')}</div>
                 <ul style={{ margin: 'var(--space-1) 0 0', paddingLeft: 'var(--space-5)' }}>
                   {x.gardees.map(g => (
                     <li key={g.categorie} className="text-muted sub">
-                      <strong>{CATEGORIES_CONSERVATION[g.categorie].label}</strong>, jusqu’au {fmtIso(g.jusquAu)} : {CATEGORIES_CONSERVATION[g.categorie].obligation}
+                      <strong>{CATEGORIES_CONSERVATION[g.categorie].label}</strong>{t(', until ')}{fmtIso(g.jusquAu)}{t(': ')}{CATEGORIES_CONSERVATION[g.categorie].obligation}
                     </li>
                   ))}
                 </ul>
@@ -84,16 +84,15 @@ export function AnonymiserDialog({ ids, avantEcheance = false }: { ids: number[]
           </li>
         ))}
       </ul>
-      <Field label="Motif" htmlFor="anonymiser-motif" requis erreur={v.erreur(erreur)}>
+      <Field label={t('Reason')} htmlFor="anonymiser-motif" requis erreur={v.erreur(erreur)}>
         <textarea className="input mid" id="anonymiser-motif" rows={3} autoFocus maxLength={MOTIF_MAX}
-          placeholder={avantEcheance ? 'Demande d’effacement du salarié reçue le …, accord du DPO' : 'Durées fixées par la décision du DPO …'}
+          placeholder={avantEcheance ? t('Erasure request of the employee received on …, DPO’s agreement') : t('Durations set by the DPO’s decision …')}
           value={motif} onChange={e => setMotif(e.target.value)} style={{ resize: 'vertical' }} />
-        <span className="text-muted sub">{motif.trim().length} / {MOTIF_MAX} caractères · gardé avec la trace de l’effacement ; le journal ne nomme personne</span>
+        <span className="text-muted sub">{motif.trim().length} / {MOTIF_MAX}{t(' characters · kept with the trace of the erasure; the log names no one')}</span>
       </Field>
       {avantEcheance && (
         <Fine>
-          Avant l’échéance, l’employeur peut refuser d’effacer ce que la loi lui impose de garder (art. 17-3-b du RGPD) : Cursus efface aussitôt
-          ce qui ne relève d’aucune obligation et garde le reste jusqu’à son échéance, où le dossier vous sera proposé. À examiner avec le DPO.
+          {t('Before the due date, the employer may refuse to erase what the law requires them to keep (art. 17-3-b of the GDPR): Cursus erases at once what comes under no obligation and keeps the rest until its due date, when the file will be offered to you. To examine with the DPO.')}
         </Fine>
       )}
     </Dialog>

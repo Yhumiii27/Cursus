@@ -8,6 +8,7 @@ import { useData } from '../state/store.tsx';
 import type { SectionProps } from './parametres/commun.ts';
 import { useSuiviEnvois } from './parametres/Envois.tsx';
 import { type SectionParametres, SECTIONS } from './parametres/sections.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function Parametres() {
   const data = useData();
@@ -16,16 +17,16 @@ export function Parametres() {
   // Envois sortants : état de l'intégration et derniers messages, rechargés comme le journal.
   const envois = useSuiviEnvois(consultation);
 
-  if (!consultation) return <Page title="Paramètres"><Empty>Paramètres réservés au service RH.</Empty></Page>;
+  if (!consultation) return <Page title={t('Settings')}><Empty>{t('Settings reserved to HR.')}</Empty></Page>;
 
   const props: SectionProps = { s: data.settings, envois };
   const rendre = (place: SectionParametres['place']) => SECTIONS.filter(x => x.place === place).map(({ id, Section }) => <Section key={id} {...props} />);
 
   return (
-    <Page kicker={`Administration · ${user.nom}`} title="Paramètres" note={admin
-      ? 'Ces réglages s’appliquent à tous les utilisateurs de Cursus. Chaque modification est enregistrée immédiatement et tracée dans le journal.'
-      : rh ? 'Consultation : les réglages et les comptes sont réservés à l’administrateur RH ; la transmission à la paie, à l’administrateur RH et au gestionnaire de paie.'
-      : 'Lecture seule : réglages, intégrations, envois et journal des actions, sans modification. Les messages qui peuvent toucher à la santé sont masqués dans le journal.'}>
+    <Page kicker={`${t('Administration')} · ${user.nom}`} title={t('Settings')} note={admin
+      ? t('These settings apply to all Cursus users. Each change is saved immediately and traced in the log.')
+      : rh ? t('Read only: the settings and the accounts are reserved to the HR administrator; the transmission to payroll, to the HR administrator and the payroll manager.')
+      : t('Read only: settings, integrations, sends and log of actions, without change. The messages that may touch on health are hidden in the log.')}>
       <div className="row-wrap">
         <div className="col-stack" style={{ flex: '1 1 480px' }}>{rendre('gauche')}</div>
         <div className="col-stack" style={{ flex: '1 1 380px' }}>{rendre('droite')}</div>

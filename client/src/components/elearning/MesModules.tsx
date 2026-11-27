@@ -3,13 +3,14 @@
 // jamais dans un cadre), échéance, avancement connu, et « J'ai terminé » (fin déclarée, en ligne, validée ensuite par le
 // service RH). Jamais de pourcentage déclaré par le salarié, ni de temps de connexion.
 import { ArrowSquareOutIcon } from '@phosphor-icons/react';
-import { fmtIso, plural } from '../../../../shared/format.ts';
+import { fmtIso } from '../../../../shared/format.ts';
 import { etatInscription, finAcces, inscriptionOuverte, LANGUES_MODULE, STATUT_INSCRIPTION_LABEL, urlModuleValide } from '../../../../shared/rules/elearning.ts';
 import { useAgir } from '../../state/actions.ts';
 import { useDomain } from '../../state/derived.ts';
 import { useStore } from '../../state/store.tsx';
 import { Btn, Fine, Panel, Tag } from '../ui.tsx';
 import { CLS_INSCRIPTION } from '../organismes/etat.ts';
+import { t, tn } from '../../i18n/langue.ts';
 
 /** Ses modules : ouverts d'abord (échéance la plus proche), puis les terminés de l'année ; rien s'il n'en a aucun. */
 export function MesModules({ empId }: { empId: number }) {
@@ -23,7 +24,7 @@ export function MesModules({ empId }: { empId: number }) {
   if (!miennes.length) return null;
   const ouvertes = miennes.filter(inscriptionOuverte).length;
   return (
-    <Panel title="Mes modules en ligne" aside={plural(ouvertes, 'module à suivre', 'modules à suivre')} style={{ gap: 'var(--space-2)' }}>
+    <Panel title={t('My online modules')} aside={tn(ouvertes, 'module to follow', 'modules to follow')} style={{ gap: 'var(--space-2)' }}>
       {miennes.map(i => {
         const m = (d.ds.modulesElearning ?? []).find(x => x.id === i.moduleId);
         if (!m) return null;
@@ -37,30 +38,30 @@ export function MesModules({ empId }: { empId: number }) {
                 <div style={{ fontSize: 14 }}>{m.intitule}</div>
                 <div className="text-muted sub">
                   {[m.dureeHeures != null ? `${String(m.dureeHeures).replace('.', ',')} h` : '', LANGUES_MODULE[m.langue] ?? m.langue,
-                    i.echeance ? `à terminer avant le ${fmtIso(i.echeance)}` : '', fin && ouverte ? `accès jusqu’au ${fmtIso(fin)}` : ''].filter(Boolean).join(' · ')}
+                    i.echeance ? `${t('to complete before ')}${fmtIso(i.echeance)}` : '', fin && ouverte ? `${t('access until ')}${fmtIso(fin)}` : ''].filter(Boolean).join(' · ')}
                 </div>
               </div>
               <Tag cls={i.declareLe && ouverte ? 'tag-outline' : CLS_INSCRIPTION[etat]} style={{ flex: 'none' }}>
-                {i.declareLe && ouverte ? 'Fin déclarée' : STATUT_INSCRIPTION_LABEL[etat]}
+                {i.declareLe && ouverte ? t('End declared') : STATUT_INSCRIPTION_LABEL[etat]}
               </Tag>
             </div>
             <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center', flexWrap: 'wrap' }}>
               {/* Lien d'accès : ouvert hors de Cursus (nouvel onglet, sans transmettre la page d'origine), jamais dans un cadre. */}
               {ouverte && etat !== 'expire' && urlModuleValide(m.url) && (
                 <a className="btn btn-secondary btn-sm" href={m.url} target="_blank" rel="noopener noreferrer">
-                  <ArrowSquareOutIcon size={14} /> Ouvrir le module
+                  <ArrowSquareOutIcon size={14} /> {t('Open the module')}
                 </a>
               )}
-              {ouverte && !i.declareLe && <Btn small disabled={occupe} onClick={agir(() => run('elearning.declarer', { id: i.id }))}>J’ai terminé</Btn>}
+              {ouverte && !i.declareLe && <Btn small disabled={occupe} onClick={agir(() => run('elearning.declarer', { id: i.id }))}>{t('I have finished')}</Btn>}
               <span className="text-muted sub">
-                {i.statut === 'termine' ? `Terminé le ${i.termineLe ? fmtIso(i.termineLe) : '—'}` : i.declareLe ? `Déclaré le ${fmtIso(i.declareLe)} : le service RH valide la fin`
-                  : i.avancement != null ? `Avancement connu : ${i.avancement} %` : etat === 'expire' ? 'Accès expiré : voyez le service RH' : ''}
+                {i.statut === 'termine' ? `${t('Completed on #masc')}${i.termineLe ? fmtIso(i.termineLe) : '—'}` : i.declareLe ? `${t('Declared on #masc')}${fmtIso(i.declareLe)}${t(': HR approves the end')}`
+                  : i.avancement != null ? `${t('Known progress: ')}${i.avancement} %` : etat === 'expire' ? t('Access expired: see HR') : ''}
               </span>
             </div>
           </div>
         );
       })}
-      <Fine>Le module s’ouvre chez l’organisme. Cursus ne garde que le statut, l’avancement transmis par l’organisme et la fin, jamais votre temps de connexion.</Fine>
+      <Fine>{t('The module opens at the provider. Cursus only keeps the status, the progress transmitted by the provider and the end, never your connection time.')}</Fine>
     </Panel>
   );
 }

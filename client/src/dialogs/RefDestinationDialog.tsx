@@ -6,7 +6,6 @@
 // (pas d'API) ; passer à l'orange ou au rouge prévient les managers des voyageurs.
 import { useState } from 'react';
 import { SECU_RULES, VACCINS, VISA_RULES, secuDe } from '../../../shared/constants.ts';
-import { plural } from '../../../shared/format.ts';
 import { controlerDestination, PASSEPORT_MOIS_MAX, VACCIN_TOUJOURS_RECOMMANDE, type ChampDestination } from '../../../shared/rules/referentiels.ts';
 import { devientDeconseillee, VIGILANCES, voyagesVers } from '../../../shared/rules/vigilance.ts';
 import type { SecuDetachement, VaccinId, Vigilance, VisaKind } from '../../../shared/types.ts';
@@ -14,6 +13,7 @@ import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerific
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 type Exigence = '' | 'rec' | 'oblig';
 /** Vaccins à choisir : tous, sauf le DTP, toujours recommandé. */
@@ -61,81 +61,81 @@ export function RefDestinationDialog({ code: code0 }: { code?: string | null }) 
   };
 
   return (
-    <Dialog title={avant ? `Destination ${avant.pays}` : 'Nouvelle destination'} width={620} onSubmit={confirm}
-      actions={disparue ? <CancelButton label="Fermer" /> : <>
+    <Dialog title={avant ? `${t('Destination ')}${avant.pays}` : t('New destination')} width={620} onSubmit={confirm}
+      actions={disparue ? <CancelButton label={t('Close')} /> : <>
         <CancelButton />
-        <SubmitButton busy={busy}>{avant ? 'Enregistrer' : 'Ajouter au référentiel'}</SubmitButton>
+        <SubmitButton busy={busy}>{avant ? t('Save') : t('Add to the reference data')}</SubmitButton>
       </>}>
-      {disparue ? <Bloquant>Cette destination n’existe plus.</Bloquant> : <>
+      {disparue ? <Bloquant>{t('This destination no longer exists.')}</Bloquant> : <>
         <div className="grid-2">
-          <Field label="Pays" htmlFor="rd-pays" requis erreur={erreur('pays', pays)}>
-            <input className="input" id="rd-pays" type="text" autoFocus value={pays} maxLength={60} placeholder="Maroc" onChange={e => setPays(e.target.value)} />
+          <Field label={t('Country')} htmlFor="rd-pays" requis erreur={erreur('pays', pays)}>
+            <input className="input" id="rd-pays" type="text" autoFocus value={pays} maxLength={60} placeholder={t('Morocco')} onChange={e => setPays(e.target.value)} />
           </Field>
           {avant
-            ? <Field label="Code pays"><Static pad>{avant.code}</Static></Field>
+            ? <Field label={t('Country code')}><Static pad>{avant.code}</Static></Field>
             : (
-              <Field label="Code pays (ISO 3166)" htmlFor="rd-code" requis erreur={erreur('code', code)}>
-                <input className="input" id="rd-code" type="text" value={code} maxLength={2} placeholder="MA" autoCapitalize="characters" onChange={e => setCode(e.target.value)} />
+              <Field label={t('Country code (ISO 3166)')} htmlFor="rd-code" requis erreur={erreur('code', code)}>
+                <input className="input" id="rd-code" type="text" value={code} maxLength={2} placeholder={t('MA')} autoCapitalize="characters" onChange={e => setCode(e.target.value)} />
               </Field>
             )}
         </div>
         <div className="grid-2">
-          <Field label="Entrée dans le pays" htmlFor="rd-visa" requis erreur={v.erreur(erreurs.visa)}>
+          <Field label={t('Entry into the country')} htmlFor="rd-visa" requis erreur={v.erreur(erreurs.visa)}>
             <select className="input" id="rd-visa" value={visa} onChange={e => setVisa(e.target.value as VisaKind)}>
               {(Object.keys(VISA_RULES) as VisaKind[]).map(k => <option key={k} value={k}>{`${VISA_RULES[k].label}${VISA_RULES[k].sub ? ` — ${VISA_RULES[k].sub}` : ''}`}</option>)}
             </select>
           </Field>
-          <Field label="Précision" htmlFor="rd-visasub" erreur={erreur('visaSub', visaSub)}>
-            <input className="input" id="rd-visasub" type="text" value={visaSub} maxLength={80} placeholder="séjour ≤ 90 jours" onChange={e => setVisaSub(e.target.value)} />
+          <Field label={t('Detail#precision')} htmlFor="rd-visasub" erreur={erreur('visaSub', visaSub)}>
+            <input className="input" id="rd-visasub" type="text" value={visaSub} maxLength={80} placeholder={t('stay ≤ 90 days')} onChange={e => setVisaSub(e.target.value)} />
           </Field>
         </div>
-        <Field label="Vaccins" erreur={v.erreur(erreurs.oblig ?? erreurs.rec)}>
+        <Field label={t('Vaccines')} erreur={v.erreur(erreurs.oblig ?? erreurs.rec)}>
           <div className="grid-2">
             {CHOIX_VACCINS.map(x => (
               <label key={x} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', fontSize: 13 }}>
                 {VACCINS[x].nom}
                 <select className="input" value={vaccins[x]} onChange={e => setVaccins(o => ({ ...o, [x]: e.target.value as Exigence }))}>
-                  <option value="">Non exigé</option>
-                  <option value="rec">Recommandé</option>
-                  <option value="oblig">Obligatoire à l’entrée</option>
+                  <option value="">{t('Not required')}</option>
+                  <option value="rec">{t('Recommended')}</option>
+                  <option value="oblig">{t('Mandatory on entry')}</option>
                 </select>
               </label>
             ))}
           </div>
         </Field>
-        <Fine>{VACCINS[VACCIN_TOUJOURS_RECOMMANDE].nom} : toujours recommandé (rappel), quelle que soit la destination.</Fine>
+        <Fine>{VACCINS[VACCIN_TOUJOURS_RECOMMANDE].nom}{t(': always recommended (booster), whatever the destination.')}</Fine>
         <div className="grid-2">
-          <Field label="Passeport valide après l’entrée (mois)" htmlFor="rd-pass" erreur={erreur('passMois', passMois)}>
-            <input className="input" id="rd-pass" type="number" inputMode="numeric" min={0} max={PASSEPORT_MOIS_MAX} step={1} value={passMois} placeholder="0 : pendant le séjour" onChange={e => setPassMois(e.target.value)} />
+          <Field label={t('Passport valid after entry (months)')} htmlFor="rd-pass" erreur={erreur('passMois', passMois)}>
+            <input className="input" id="rd-pass" type="number" inputMode="numeric" min={0} max={PASSEPORT_MOIS_MAX} step={1} value={passMois} placeholder={t('0: during the stay')} onChange={e => setPassMois(e.target.value)} />
           </Field>
-          <Field label="Sécurité sociale du détachement" htmlFor="rd-secu" erreur={v.erreur(erreurs.secu)}>
+          <Field label={t('Social security of the posting')} htmlFor="rd-secu" erreur={v.erreur(erreurs.secu)}>
             <select className="input" id="rd-secu" value={secu} onChange={e => setSecu(e.target.value)}>
-              <option value="">{`Selon le code pays — ${deduite}`}</option>
+              <option value="">{`${t('According to the country code — ')}${deduite}`}</option>
               {(Object.keys(SECU_RULES) as SecuDetachement[]).map(k => <option key={k} value={k}>{`${SECU_RULES[k].label} — ${SECU_RULES[k].portee}`}</option>)}
             </select>
           </Field>
         </div>
         <div className="grid-2">
-          <Field label="Vigilance (France Diplomatie)" htmlFor="rd-vigilance" erreur={v.erreur(erreurs.vigilance)}>
+          <Field label={t('Vigilance (France Diplomatie)')} htmlFor="rd-vigilance" erreur={v.erreur(erreurs.vigilance)}>
             <select className="input" id="rd-vigilance" value={vigilance} onChange={e => setVigilance(e.target.value)}>
-              <option value="">Non renseignée</option>
+              <option value="">{t('Not filled in#fem')}</option>
               {(Object.keys(VIGILANCES) as Vigilance[]).map(k => <option key={k} value={k}>{`${k.charAt(0).toUpperCase()}${k.slice(1)} — ${VIGILANCES[k].label}`}</option>)}
             </select>
           </Field>
-          <Field label="Vérifiée le" htmlFor="rd-vigilance-le" erreur={vigilanceLe ? erreurs.vigilanceLe ?? null : v.erreur(erreurs.vigilanceLe)}>
+          <Field label={t('Checked on#fem')} htmlFor="rd-vigilance-le" erreur={vigilanceLe ? erreurs.vigilanceLe ?? null : v.erreur(erreurs.vigilanceLe)}>
             <input className="input" id="rd-vigilance-le" type="date" max={d.ti} value={vigilanceLe} onChange={e => setVigilanceLe(e.target.value)} />
           </Field>
         </div>
         {alerte != null && (
           <Fine>
-            {alerte ? `${plural(alerte, 'déplacement à venir ou en cours', 'déplacements à venir ou en cours')} vers ce pays : les managers des voyageurs seront prévenus à l’enregistrement.` : 'Aucun déplacement prévu vers ce pays.'}
-            {vigilance === 'rouge' ? ' Zone rouge : le Go / No Go des chantiers concernés prend une réserve.' : ''}
+            {alerte ? `${tn(alerte, 'upcoming or current trip', 'upcoming or current trips')}${t(' to this country: the travellers’ managers will be notified on saving.')}` : t('No trip planned to this country.')}
+            {vigilance === 'rouge' ? t(' Red zone: the Go / No Go of the worksites concerned takes a reservation.') : ''}
           </Fine>
         )}
         {destination && <p className="text-muted fine">{d.destSummary(destination)}</p>}
         <Fine>
-          Données indicatives à vérifier sur France Diplomatie, auprès d’un centre de vaccinations internationales et, pour la sécurité sociale, sur cleiss.fr.
-          {prevus ? ` ${plural(prevus, 'déplacement prévu suit', 'déplacements prévus suivent')} la nouvelle règle.` : ''}
+          {t('Indicative data to be checked on France Diplomatie, with an international vaccination centre and, for social security, on cleiss.fr.')}
+          {prevus ? ` ${tn(prevus, 'planned trip follows', 'planned trips follow')}${t(' the new rule.')}` : ''}
         </Fine>
       </>}
     </Dialog>

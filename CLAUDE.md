@@ -81,20 +81,27 @@ rechargement.
   dossier OPCO), Indicateurs sociaux (onglets, BDESE, index d'égalité, arrêtés et leurs confirmations, impression, graphiques
   `components/graphiques/`, `ArreteCseDialog`), Mon planning avec `planning-vue.ts` et tous les dialogues de `PlanningDialog.tsx`
   (partagés avec le planning d'équipe), Comptes (et `CompteDialog`, `MotDePasseProvisoireDialog`), Journal (historique de la
-  fiche compris), Messagerie, Déclarer, le cadre de l'Aide et `InstallerApplication.tsx`, Mise en service. Aide d'un motif lue au rendu : `aideMotifCorrection()`, `aideMotifOpco()`
+  fiche compris), Messagerie, Déclarer, le cadre de l'Aide et `InstallerApplication.tsx`, Mise en service, puis (partie 8)
+  Référentiels (les onze onglets, `ExigencesChoix.tsx`, `components/organismes/etat.ts` et leurs dialogues `Ref*Dialog`,
+  `HoraireVariableDialog`, `ModuleElearningDialog`, `Organisme*Dialog`), Paramètres (les 37 sections de `pages/parametres/`,
+  `ReglagesNuit.tsx`, `temps/ReglagesForfaitHeures.tsx`, `temps/GeolocPointage.tsx`, `AnonymiserDialog`, `ZonePointageDialog`),
+  Mon espace (`Portail.tsx`, `AgendaPortail.tsx`, `elearning/MesModules.tsx`, `MesAppareils.tsx`, `OrigineEntretien.tsx`, bloc
+  du portail de `AstreintesPortail.tsx`), la grille du planning d'équipe (`PlanningEquipe.tsx`, affichage imprimé compris), le
+  compte rendu d'entretien imprimé (`dialogs/compteRendu*.ts` : la section « fin de carrière » et la mention d'information se
+  traduisent au rendu, `libelleSection`, `t(INFO_LABEL)`, aussi dans `EntDialog`), l'organigramme imprimé et les en-têtes de son
+  CSV (`organigramme-vue.ts` ; le CSV se lit dans un tableur, aucun outil ne l'importe). Aide d'un motif lue au rendu : `aideMotifCorrection()`, `aideMotifOpco()`
   (`AIDE_MOTIF_CORRECTION` reste le texte français, pour les tests). Restent en français : le motif prérempli d'une demande
   de formation (texte saisi), les en-têtes des exports CSV et l'exemple de l'import e-learning, les jours abrégés de
   `SessionDialog`, les mois des notes de frais et des heures de délégation (comme les dates), les messages des règles de
   `shared/` (contrôles de la fiche, du CDD, du titre de séjour, de l'avis médical, `heuresSurAbsenceMessage`…), les libellés
   de `shared/` (statuts et catégories des notes de frais, types de véhicule, alertes, échéances, destinations, jours de la
-  semaine, types d'entretien, statuts des objectifs et du 360°), le compte rendu d'entretien imprimé (`dialogs/compteRendu*.ts` :
-  libellés des sections, mention d'information, aussi montrés dans `EntDialog`), l'organigramme imprimé et son export
-  (`organigramme-vue.ts`), les tableaux venus du serveur des Indicateurs sociaux (titres, définitions, lignes :
+  semaine, types d'entretien et libellés de leurs sections, statuts des objectifs et du 360°, modes et aides des réglages,
+  catégories de conservation, types d'organisme, rubriques de paie), les noms des mois du réglage « jour et mois »
+  (`JourMois` de `parametres/Entretiens.tsx`, comme les dates), le récapitulatif imprimé des astreintes
+  (`sectionsRecapitulatif` de `AstreintesPortail.tsx`), les tableaux venus du serveur des Indicateurs sociaux (titres, définitions, lignes :
   `shared/rules/indicateurs-legaux.ts`), le guide de l'Aide (`shared/aide.ts`), les libellés des actions du journal
   (`shared/journal.ts`), les statuts, dispositifs et motifs des dossiers OPCO (`shared/rules/opco.ts`) et les panneaux de l'écran Temps hors de la
-  grille (`LotsPaie`, `SuiviFeuilles`, `ReposAVerifier`, `AlertesDurees`, `Astreintes`, forfait annuel en heures,
-  grille du planning d'équipe `PlanningEquipe.tsx`). Tous les autres écrans restent en français en dur (prochains :
-  Référentiels, Paramètres, Portail, la grille du planning d'équipe).
+  grille (`LotsPaie`, `SuiviFeuilles`, `ReposAVerifier`, `AlertesDurees`, `Astreintes`, forfait annuel en heures).
 - Table exportée déjà lue par sa valeur (module sans React, test) : `traduites({ clé: 'English source' })` de
   `i18n/langue.ts` rend chaque libellé dans la langue affichée à la lecture (`LIBELLES_ONGLETS_FRAIS`, `MARQUE` du planning
   des missions).

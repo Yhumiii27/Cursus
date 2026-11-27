@@ -3,7 +3,7 @@
 // certifications déjà obtenues : les titres qui deviennent échus sont annoncés, et l'enregistrement se confirme.
 import { useMemo, useState } from 'react';
 import { VALIDATION_LABEL } from '../../../shared/constants.ts';
-import { plural, validiteLabel } from '../../../shared/format.ts';
+import { validiteLabel } from '../../../shared/format.ts';
 import {
   codeSuggere, controlerFormation, effetModification, MODES_VALIDATION, titresTexte, TYPES_FORMATION, VALIDITE_MAX, type ChampFormation,
 } from '../../../shared/rules/referentiels.ts';
@@ -15,6 +15,7 @@ import { dureeHeuresDe } from '../../../shared/rules/heures-formation.ts';
 import { ARTICLE_PASSEPORT, passeportPropose } from '../../../shared/rules/passeport-prevention.ts';
 // lot 12 — C4 (organismes de formation et e-learning) : organisme par défaut choisi dans le référentiel.
 import { ChoixOrganisme } from '../components/organismes/ChoixOrganisme.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 export function RefFormationDialog({ id }: { id?: string | null }) {
   const d = useDomain();
@@ -25,7 +26,7 @@ export function RefFormationDialog({ id }: { id?: string | null }) {
   const [nom, setNom] = useState(avant?.nom ?? '');
   const [court, setCourt] = useState(avant?.court ?? '');
   const [code, setCode] = useState('');
-  const [type, setType] = useState<string>(avant?.type ?? 'Réglementaire');
+  const [type, setType] = useState<string>(avant?.type ?? TYPES_FORMATION[0]);
   const [validite, setValidite] = useState(avant ? String(avant.validite) : '');
   const [validation, setValidation] = useState<string>(avant?.validation ?? 'presence');
   const [duree, setDuree] = useState(avant?.duree ?? '');
@@ -71,89 +72,88 @@ export function RefFormationDialog({ id }: { id?: string | null }) {
   };
 
   return (
-    <Dialog title={avant ? `Formation ${avant.court}` : 'Nouvelle formation'} width={600} onSubmit={() => envoyer()}
+    <Dialog title={avant ? `${t('Training course ')}${avant.court}` : t('New training course')} width={600} onSubmit={() => envoyer()}
       confirmation={confirmer ? {
-        texte: `${plural(echus.length, 'titre devient échu', 'titres deviennent échus')} avec cette validité : ${titresTexte(echus)}. Enregistrer quand même ?`,
-        bouton: 'Enregistrer quand même', occupe: busy, confirmer: () => envoyer(true), annuler: () => setConfirmer(false),
+        texte: `${tn(echus.length, 'title becomes expired', 'titles become expired')}${t(' with this validity: ')}${titresTexte(echus)}${t('. Save anyway?')}`,
+        bouton: t('Save anyway'), occupe: busy, confirmer: () => envoyer(true), annuler: () => setConfirmer(false),
       } : null}
-      actions={disparue ? <CancelButton label="Fermer" /> : <>
+      actions={disparue ? <CancelButton label={t('Close')} /> : <>
         <CancelButton />
-        <SubmitButton busy={busy}>{avant ? 'Enregistrer' : 'Ajouter au catalogue'}</SubmitButton>
+        <SubmitButton busy={busy}>{avant ? t('Save') : t('Add to the catalogue')}</SubmitButton>
       </>}>
-      {disparue ? <Bloquant>Cette formation n’existe plus.</Bloquant> : <>
-        <Field label="Intitulé" htmlFor="rf-nom" requis erreur={erreur('nom', nom)}>
-          <input className="input" id="rf-nom" type="text" autoFocus value={nom} maxLength={120} placeholder="Sauveteur secouriste du travail (SST)" onChange={e => setNom(e.target.value)} />
+      {disparue ? <Bloquant>{t('This training course no longer exists.')}</Bloquant> : <>
+        <Field label={t('Title#heading')} htmlFor="rf-nom" requis erreur={erreur('nom', nom)}>
+          <input className="input" id="rf-nom" type="text" autoFocus value={nom} maxLength={120} placeholder={t('Occupational first-aider (SST)')} onChange={e => setNom(e.target.value)} />
         </Field>
         <div className="grid-2">
-          <Field label="Nom court" htmlFor="rf-court" requis erreur={erreur('court', court)}>
-            <input className="input" id="rf-court" type="text" value={court} maxLength={40} placeholder="SST" onChange={e => setCourt(e.target.value)} />
+          <Field label={t('Short name')} htmlFor="rf-court" requis erreur={erreur('court', court)}>
+            <input className="input" id="rf-court" type="text" value={court} maxLength={40} placeholder={t('SST')} onChange={e => setCourt(e.target.value)} />
           </Field>
           {avant
-            ? <Field label="Code"><Static pad>{avant.id}</Static></Field>
+            ? <Field label={t('Code')}><Static pad>{avant.id}</Static></Field>
             : (
-              <Field label="Code" htmlFor="rf-code" requis erreur={erreur('code', code)}>
-                <input className="input" id="rf-code" type="text" value={code} maxLength={32} placeholder={propose || 'd’après le nom court'} onChange={e => setCode(e.target.value)} />
+              <Field label={t('Code')} htmlFor="rf-code" requis erreur={erreur('code', code)}>
+                <input className="input" id="rf-code" type="text" value={code} maxLength={32} placeholder={propose || t('from the short name')} onChange={e => setCode(e.target.value)} />
               </Field>
             )}
         </div>
         <div className="grid-2">
-          <Field label="Type" htmlFor="rf-type" requis erreur={v.erreur(erreurs.type)}>
+          <Field label={t('Type')} htmlFor="rf-type" requis erreur={v.erreur(erreurs.type)}>
             <select className="input" id="rf-type" value={type} onChange={e => setType(e.target.value)}>
-              {TYPES_FORMATION.map(t => <option key={t} value={t}>{t}</option>)}
+              {TYPES_FORMATION.map(ty => <option key={ty} value={ty}>{ty}</option>)}
             </select>
           </Field>
-          <Field label="Validation" htmlFor="rf-validation" requis erreur={v.erreur(erreurs.validation)}>
+          <Field label={t('Validation')} htmlFor="rf-validation" requis erreur={v.erreur(erreurs.validation)}>
             <select className="input" id="rf-validation" value={validation} onChange={e => setValidation(e.target.value)}>
               {MODES_VALIDATION.map(m => <option key={m} value={m}>{VALIDATION_LABEL[m]}</option>)}
             </select>
           </Field>
         </div>
         <div className="grid-2">
-          <Field label="Validité (mois)" htmlFor="rf-validite" requis erreur={erreur('validite', validite)}>
+          <Field label={t('Validity (months)')} htmlFor="rf-validite" requis erreur={erreur('validite', validite)}>
             <input className="input" id="rf-validite" type="number" inputMode="numeric" min={1} max={VALIDITE_MAX} step={1} value={validite} placeholder="24" onChange={e => setValidite(e.target.value)} />
           </Field>
-          <Field label="Coût par stagiaire (€)" htmlFor="rf-cout" erreur={erreur('cout', cout)}>
+          <Field label={t('Cost per trainee (€)')} htmlFor="rf-cout" erreur={erreur('cout', cout)}>
             <input className="input" id="rf-cout" type="number" inputMode="decimal" min={0} step="any" value={cout} placeholder="0" onChange={e => setCout(e.target.value)} />
           </Field>
         </div>
         <div className="grid-2">
-          <Field label="Durée" htmlFor="rf-duree" erreur={erreur('duree', duree)}>
-            <input className="input" id="rf-duree" type="text" value={duree} maxLength={40} placeholder="7 h (MAC)" onChange={e => setDuree(e.target.value)} />
+          <Field label={t('Duration')} htmlFor="rf-duree" erreur={erreur('duree', duree)}>
+            <input className="input" id="rf-duree" type="text" value={duree} maxLength={40} placeholder={t('7 h (refresher)')} onChange={e => setDuree(e.target.value)} />
           </Field>
-          <Field label="Durée en heures" htmlFor="rf-heures" erreur={erreur('dureeHeures', dureeHeures)}>
+          <Field label={t('Duration in hours')} htmlFor="rf-heures" erreur={erreur('dureeHeures', dureeHeures)}>
             <input className="input tnum" id="rf-heures" inputMode="decimal" value={dureeHeures} placeholder={dureeHeuresDe(duree) != null ? String(dureeHeuresDe(duree)) : '7'}
               onChange={e => setDureeHeures(e.target.value)} />
           </Field>
         </div>
         {/* lot 12 — C4 : organisme du référentiel ; « autre » : texte libre, repris en fiche à vérifier au démarrage suivant. */}
-        <ChoixOrganisme id="rf-organisme-id" valeur={organismeId} onChange={setOrganismeId} actuel={avant?.organismeId ?? null} label="Organisme" vide="Autre (texte libre)" />
+        <ChoixOrganisme id="rf-organisme-id" valeur={organismeId} onChange={setOrganismeId} actuel={avant?.organismeId ?? null} label={t('Provider')} vide={t('Other (free text)')} />
         {!fiche && (
-          <Field label="Organisme (texte libre)" htmlFor="rf-organisme" erreur={erreur('organisme', organisme)}>
-            <input className="input" id="rf-organisme" type="text" value={organisme} maxLength={80} placeholder="Interne · HSE" onChange={e => setOrganisme(e.target.value)} />
+          <Field label={t('Provider (free text)')} htmlFor="rf-organisme" erreur={erreur('organisme', organisme)}>
+            <input className="input" id="rf-organisme" type="text" value={organisme} maxLength={80} placeholder={t('Internal · HSE')} onChange={e => setOrganisme(e.target.value)} />
           </Field>
         )}
         <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-2)', fontSize: 14 }}>
           <input type="checkbox" checked={passeport} onChange={e => setPasseport(e.target.checked)} style={{ accentColor: 'var(--color-accent)', marginTop: 3 }} />
           <span>
-            Formation santé-sécurité à déclarer au Passeport de prévention
+            {t('Health and safety training to declare to the Prevention passport')}
             <span className="text-muted sub" style={{ display: 'block' }}>
-              {ARTICLE_PASSEPORT} : ses certifications et formations suivies sont proposées à l’export (écran Formations)
-              {!passeport && passeportPropose({ id: codeFinal, court, nom }) ? ' · formation santé-sécurité : à cocher ?' : ''}
+              {ARTICLE_PASSEPORT}{t(': its certifications and training courses followed are offered for export (Training screen)')}
+              {!passeport && passeportPropose({ id: codeFinal, court, nom }) ? t(' · health and safety training: to tick?') : ''}
             </span>
           </span>
         </label>
         <Fine>
-          {Number.isInteger(n) && n >= 1 && n <= VALIDITE_MAX ? `Validité : ${validiteLabel(n)}. ` : ''}
-          La durée en heures compte les heures des formations suivies dans les indicateurs du plan (sans horaires de session) ;
-          vide, elles comptent « durée inconnue ».{' '}
+          {Number.isInteger(n) && n >= 1 && n <= VALIDITE_MAX ? `${t('Validity: ')}${validiteLabel(n)}. ` : ''}
+          {t('The duration in hours counts the hours of the training courses followed in the plan indicators (without session hours); empty, they count “unknown duration”.')}{' '}
           {avant
-            ? 'Une nouvelle validité vaut aussi pour les certifications déjà obtenues : leurs échéances sont recalculées.'
-            : 'Le code identifie la formation dans les dossiers et auprès de Keystone (exigences des chantiers) : il ne change plus après la création.'}
+            ? t('A new validity also applies to the certifications already obtained: their due dates are recalculated.')
+            : t('The code identifies the training course in the files and with Keystone (worksite requirements): it no longer changes after creation.')}
         </Fine>
         {effet && echus.length > 0 && !confirmer && (
-          <NoteAccent>{plural(echus.length, 'titre devient échu', 'titres deviennent échus')} avec cette validité : {titresTexte(echus)}.</NoteAccent>
+          <NoteAccent>{tn(echus.length, 'title becomes expired', 'titles become expired')}{t(' with this validity: ')}{titresTexte(echus)}.</NoteAccent>
         )}
-        {effet && effet.retablis.length > 0 && <Fine>{plural(effet.retablis.length, 'titre redevient valide', 'titres redeviennent valides')} avec cette validité.</Fine>}
+        {effet && effet.retablis.length > 0 && <Fine>{tn(effet.retablis.length, 'title becomes valid again', 'titles become valid again')}{t(' with this validity.')}</Fine>}
       </>}
     </Dialog>
   );

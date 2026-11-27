@@ -5,7 +5,7 @@
 // l'administrateur RH (`parametres.feries`) ; les autres profils consultent.
 import { useEffect, useMemo, useState } from 'react';
 import { feriesLegaux, parse } from '../../../../shared/dates.ts';
-import { fmtIso, fmtShort, plural } from '../../../../shared/format.ts';
+import { fmtIso, fmtShort } from '../../../../shared/format.ts';
 import {
   absencesRecalculees, anneeEngagee, anneesReglables, controlerFeries, estEngagee, feriesDeLAnnee, ferieDuWeekEnd, FERIES_LABEL, memeReglage, MODALITES_SOLIDARITE, MOTIF_FERIES_MAX,
   reglageAnnee, SOLIDARITE_PAIE,
@@ -17,6 +17,7 @@ import { useDomain, useRole } from '../../state/derived.ts';
 import { useStore } from '../../state/store.tsx';
 import type { Confirmation } from '../../state/confirmations.ts';
 import type { SectionProps } from './commun.ts';
+import { t, tn } from '../../i18n/langue.ts';
 
 const MODALITES = Object.entries(MODALITES_SOLIDARITE) as [ModaliteSolidarite, { label: string; aide: string }][];
 
@@ -61,19 +62,19 @@ export function Feries(_: SectionProps) {
   };
 
   return (
-    <Panel title="Jours fériés et journée de solidarité" style={{ gap: 'var(--space-4)' }}>
-      <Field label="Année">
-        <Seg name="feries-annee" label="Année" value={annee} options={annees.map(a => [a, String(a)] as [number, string])} onChange={setAnnee} />
+    <Panel title={t('Public holidays and solidarity day')} style={{ gap: 'var(--space-4)' }}>
+      <Field label={t('Year')}>
+        <Seg name="feries-annee" label={t('Year')} value={annee} options={annees.map(a => [a, String(a)] as [number, string])} onChange={setAnnee} />
       </Field>
-      <Field label="Journée de solidarité" htmlFor="feries-solidarite">
+      <Field label={t('Solidarity day')} htmlFor="feries-solidarite">
         <select className="input" id="feries-solidarite" value={solidarite} disabled={!admin} onChange={e => { setSolidarite(e.target.value as ModaliteSolidarite); setTente(false); }} style={{ maxWidth: 360 }}>
           {MODALITES.map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
         </select>
       </Field>
       {solidarite === 'autre_ferie' && (
-        <Field label="Jour férié travaillé" htmlFor="feries-ferie" requis erreur={(tente || !!ferie) && erreurFerie}>
+        <Field label={t('Public holiday worked')} htmlFor="feries-ferie" requis erreur={(tente || !!ferie) && erreurFerie}>
           <select className="input" id="feries-ferie" value={ferie} disabled={!admin} onChange={e => setFerie(e.target.value as CodeFerie)} style={{ maxWidth: 360 }}>
-            <option value="">Choisir…</option>
+            <option value="">{t('Choose…')}</option>
             {/* Férié du week-end : grisé, il ne ferait travailler aucun jour ouvré. */}
             {legaux.filter(f => f.code !== '1er_mai' && f.code !== 'pentecote').map(f => {
               const we = ferieDuWeekEnd(annee, f.code);
@@ -85,61 +86,60 @@ export function Feries(_: SectionProps) {
       <Fine>{MODALITES_SOLIDARITE[solidarite].aide}</Fine>
 
       <fieldset style={{ border: 0, padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-        <legend style={{ fontSize: 14, marginBottom: 'var(--space-2)' }}>Fériés chômés en {annee}</legend>
+        <legend style={{ fontSize: 14, marginBottom: 'var(--space-2)' }}>{t('Public holidays off in ')}{annee}</legend>
         {sorts.map(f => (
           <label key={f.code} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', fontSize: 14, cursor: admin ? 'pointer' : undefined }}>
             <input type="checkbox" checked={f.sort === 'chome'} disabled={!admin || f.code === '1er_mai' || f.sort === 'solidarite'}
               onChange={e => basculer(f.code, e.target.checked)} style={{ accentColor: 'var(--color-accent)', flex: 'none' }} />
             <span>
               {FERIES_LABEL[f.code]} <span className="text-muted">· {fmtShort(parse(f.jour))}</span>
-              {f.code === '1er_mai' && <span className="text-muted sub"> — toujours chômé et payé (art. L3133-4)</span>}
-              {f.sort === 'solidarite' && <span className="text-muted sub"> — journée de solidarité, travaillée</span>}
-              {f.sort === 'travaille' && <span className="text-muted sub"> — travaillé comme un jour ordinaire</span>}
+              {f.code === '1er_mai' && <span className="text-muted sub">{t(' — always off and paid (art. L3133-4)')}</span>}
+              {f.sort === 'solidarite' && <span className="text-muted sub">{t(' — solidarity day, worked')}</span>}
+              {f.sort === 'travaille' && <span className="text-muted sub">{t(' — worked like an ordinary day')}</span>}
             </span>
           </label>
         ))}
       </fieldset>
 
-      {enVigueur.le && <Fine>Réglage {annee} enregistré le {fmtIso(enVigueur.le.slice(0, 10))} par {enVigueur.par}{enVigueur.motif ? ` — motif : ${enVigueur.motif}` : ''}.</Fine>}
+      {enVigueur.le && <Fine>{t('Setting ')}{annee}{t(' saved on ')}{fmtIso(enVigueur.le.slice(0, 10))}{t(' by ')}{enVigueur.par}{enVigueur.motif ? `${t(' — reason: ')}${enVigueur.motif}` : ''}.</Fine>}
       {modifie && recalculees.length > 0 && (
         <div className="note-accent">
-          {plural(recalculees.length, 'absence recalculée', 'absences recalculées')} :{' '}
-          {recalculees.slice(0, 8).map(x => `${d.personName(x.absence.empId)} du ${fmtShort(parse(x.absence.du))} (${x.avant} → ${x.apres} j)`).join(', ')}
+          {tn(recalculees.length, 'absence recalculated', 'absences recalculated')}{t(':#colon')}{' '}
+          {recalculees.slice(0, 8).map(x => `${d.personName(x.absence.empId)}${t(' from #date')}${fmtShort(parse(x.absence.du))} (${x.avant} → ${x.apres}${t(' d#days')})`).join(', ')}
           {recalculees.length > 8 ? '…' : ''}
         </div>
       )}
       {estEngagee(engagee) && (
         <div className="note-accent">
-          Année {annee} déjà engagée ({engageeTexte(engagee)}) : une modification demande un motif, gardé pour le service RH.
+          {t('Year ')}{annee}{t(' already committed (')}{engageeTexte(engagee)}{t('): a change requires a reason, kept for HR.')}
         </div>
       )}
-      {admin && modifie && <div className="actions-end"><Btn variant="primary" disabled={busy} onClick={enregistrer}>{`Enregistrer ${annee}`}</Btn></div>}
+      {admin && modifie && <div className="actions-end"><Btn variant="primary" disabled={busy} onClick={enregistrer}>{`${t('Save ')}${annee}`}</Btn></div>}
       <Fine>
-        Un férié non chômé, comme la journée de solidarité travaillée, devient un jour ordinaire : décompté dans les congés, heures proposées, jour de
-        travail du forfait. {SOLIDARITE_PAIE} Le réglage d’une année ne change ni les années précédentes ni les décomptes d’avant la mise en service.
+        {t('A public holiday not taken off, like the solidarity day worked, becomes an ordinary day: counted in leave, hours offered, working day of the fixed-days arrangement. ')}{SOLIDARITE_PAIE}{t(' The setting of a year changes neither the previous years nor the counts from before going live.')}
       </Fine>
     </Panel>
   );
 }
 
 const engageeTexte = (x: { absences: number; clotures: number }) => [
-  x.absences ? plural(x.absences, 'absence transmise à la paie', 'absences transmises à la paie') : '',
-  x.clotures ? plural(x.clotures, 'clôture de congés', 'clôtures de congés') : '',
-].filter(Boolean).join(' et ');
+  x.absences ? tn(x.absences, 'absence transmitted to payroll', 'absences transmitted to payroll') : '',
+  x.clotures ? tn(x.clotures, 'leave closing', 'leave closings') : '',
+].filter(Boolean).join(t(' and #et'));
 
 /** Modification d'une année déjà engagée : motif obligatoire, absences recalculées annoncées. */
 function modificationEngagee(annee: number, engagee: { absences: number; clotures: number }, recalculees: number, payload: Record<string, unknown>): Confirmation {
   return {
-    titre: `Modifier les fériés ${annee}`,
-    question: `Modifier les jours fériés de ${annee}, année déjà engagée (${engageeTexte(engagee)}) ?`,
+    titre: `${t('Edit the public holidays ')}${annee}`,
+    question: `${t('Edit the public holidays of ')}${annee}${t(', year already committed (')}${engageeTexte(engagee)})${t('?#question')}`,
     suites: [
-      recalculees ? `${plural(recalculees, 'absence est recalculée', 'absences sont recalculées')} : ${recalculees > 1 ? 'leurs jours décomptés changent' : 'ses jours décomptés changent'} ; une absence déjà transmise part en régularisation au prochain lot.`
-        : 'Aucune absence de l’année ne change de décompte.',
-      'Les congés déjà clôturés ne sont pas refaits.',
+      recalculees ? `${tn(recalculees, 'absence is recalculated', 'absences are recalculated')}${t(': ')}${recalculees > 1 ? t('their counted days change') : t('its counted days change')}${t('; an absence already transmitted goes as an adjustment in the next batch.')}`
+        : t('No absence of the year changes its count.'),
+      t('The leave already closed is not redone.'),
     ],
-    bouton: 'Enregistrer',
+    bouton: t('Save'),
     action: 'parametres.feries',
     payload,
-    motif: { label: 'Motif de la modification', requis: true, aide: `Gardé avec le réglage, lu par le service RH (${MOTIF_FERIES_MAX} caractères au plus) ; jamais recopié au journal.`, placeholder: 'Décision après avis du CSE du …' },
+    motif: { label: t('Reason for the change'), requis: true, aide: `${t('Kept with the setting, read by HR (')}${MOTIF_FERIES_MAX}${t(' characters at most); never copied into the log.')}`, placeholder: t('Decision after the CSE’s opinion of …') },
   };
 }

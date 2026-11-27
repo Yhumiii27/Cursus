@@ -25,8 +25,10 @@ import { useStore } from '../../state/store.tsx';
 import { type SectionProps, useEnregistrerReglages } from '../../pages/parametres/commun.ts';
 import { JourMois } from '../../pages/parametres/Entretiens.tsx';
 import { periodeTexte } from './forfait-heures-vue.ts';
+import { t } from '../../i18n/langue.ts';
 
-const EMISSIONS: [EmissionForfaitHeures, string][] = [['cloture', 'Mois de la confirmation'], ['periode', 'Dernier mois de la plage']];
+/** Choix : sources anglaises, traduites au rendu. */
+const EMISSIONS: [EmissionForfaitHeures, string][] = [['cloture', 'Month of the confirmation'], ['periode', 'Last month of the range']];
 /** Heures à deux décimales : « 7,02 h ». */
 const heures2 = (n: number) => `${(Math.round(n * 100) / 100).toLocaleString('fr-FR')} h`;
 const saisie = (n: number) => (n ? String(n).replace('.', ',') : '');
@@ -35,10 +37,10 @@ const saisie = (n: number) => (n ? String(n).replace('.', ',') : '');
 export function erreursForfaitHeures(v: { suivi: string; seuil: string; jour: string; accord: string; horsDefaut: boolean }) {
   const seuil = v.seuil.trim(), jour = v.jour.trim().replace(',', '.');
   return {
-    suivi: isValidDate(v.suivi) ? null : 'Indiquez la date du début du suivi.',
-    seuil: /^\d{1,2}$/.test(seuil) && Number(seuil) <= 48 ? null : 'Indiquez un nombre d’heures entier, de 0 à 48.',
-    jour: !jour || (/^\d{1,2}(\.\d{1,2})?$/.test(jour) && Number(jour) <= 12) ? null : 'Indiquez une durée de 0 à 12 h (vide : calculée), deux décimales au plus.',
-    accord: v.horsDefaut && !v.accord.trim() ? 'Indiquez la référence de l’accord collectif qui fixe ces règles.' : null,
+    suivi: isValidDate(v.suivi) ? null : t('Enter the date of the start of the follow-up.'),
+    seuil: /^\d{1,2}$/.test(seuil) && Number(seuil) <= 48 ? null : t('Enter a whole number of hours, from 0 to 48.'),
+    jour: !jour || (/^\d{1,2}(\.\d{1,2})?$/.test(jour) && Number(jour) <= 12) ? null : t('Enter a duration from 0 to 12 h (empty: calculated), two decimals at most.'),
+    accord: v.horsDefaut && !v.accord.trim() ? t('Enter the reference of the collective agreement that sets these rules.') : null,
   };
 }
 
@@ -73,7 +75,7 @@ export function ReglagesForfaitHeures({ s }: Pick<SectionProps, 's'>) {
     || absences.length !== s.forfaitHeuresAbsencesDeduites.length || absences.some(x => !s.forfaitHeuresAbsencesDeduites.includes(x)) || j !== s.forfaitHeuresJour
     || emission !== s.forfaitHeuresEmission || contingent !== s.forfaitHeuresContingent;
   const debutModifie = periode !== s.forfaitHeuresDebutPeriode || suivi !== s.forfaitHeuresDebutSuivi;
-  const basculer = (t: AbsenceType, oui: boolean) => setAbsences(l => (oui ? [...new Set([...l, t])] : l.filter(x => x !== t)));
+  const basculer = (ty: AbsenceType, oui: boolean) => setAbsences(l => (oui ? [...new Set([...l, ty])] : l.filter(x => x !== ty)));
   const ref = periodeReference({ forfaitHeuresDebutPeriode: periode }, d.ti);
 
   const enregistrer = async (ev: FormEvent) => {
@@ -93,71 +95,65 @@ export function ReglagesForfaitHeures({ s }: Pick<SectionProps, 's'>) {
 
   return (
     <form onSubmit={enregistrer} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }} noValidate>
-      <div className="text-muted sub" style={{ fontWeight: 600 }}>Forfait annuel en heures</div>
+      <div className="text-muted sub" style={{ fontWeight: 600 }}>{t('Annual fixed hours')}</div>
       <div className="grid-2">
-        <JourMois id="fh-periode" label="Début de la période de référence" value={periode} onChange={setPeriode} disabled={!admin} />
-        <Field label="Début du suivi dans Cursus" htmlFor="fh-suivi" requis erreur={tente && erreurs.suivi}>
+        <JourMois id="fh-periode" label={t('Start of the reference period')} value={periode} onChange={setPeriode} disabled={!admin} />
+        <Field label={t('Start of the follow-up in Cursus')} htmlFor="fh-suivi" requis erreur={tente && erreurs.suivi}>
           <input className="input" id="fh-suivi" type="date" value={suivi} disabled={!admin} onChange={e => setSuivi(e.target.value)} />
         </Field>
       </div>
       {admin && enregistrees > 0 && (
         <NoteAccent>
-          {enregistrees > 1 ? `${enregistrees} clôtures sont enregistrées` : 'Une clôture est enregistrée'}, repérées par le début de leur plage : changer le début du suivi
-          ou de la période de référence les fait passer « à revoir », et les plages qui les chevauchent restent bloquées (jamais payées deux fois). Confirmation demandée.
+          {enregistrees > 1 ? `${enregistrees}${t(' closings are recorded')}` : t('A closing is recorded')}{t(', identified by the start of their range: changing the start of the follow-up or of the reference period makes them “to review”, and the ranges that overlap them stay blocked (never paid twice). Confirmation requested.')}
         </NoteAccent>
       )}
       <Fine>
-        Période en cours : {periodeTexte(ref)}. Le réalisé d’avant le début du suivi n’est pas dans Cursus (par défaut, la mise en service du {fmtIso(DEBUT_SUIVI_DEFAUT)} ;
-        le forfait 2026 se clôt à la main dans Sage) : une période commencée avant est clôturée « partielle », son début à compléter dans Sage.
+        {t('Current period: ')}{periodeTexte(ref)}{t('. The actual from before the start of the follow-up is not in Cursus (by default, the go-live of ')}{fmtIso(DEBUT_SUIVI_DEFAUT)}{t('; the 2026 fixed hours are closed by hand in Sage): a period started before is closed “partial”, its start to complete in Sage.')}
       </Fine>
       <div className="row-wrap" style={{ gap: 'var(--space-3)' }}>
-        <Field label="Heures à 25 % par semaine travaillée" htmlFor="fh-seuil" requis erreur={tente && erreurs.seuil}>
+        <Field label={t('Hours at 25 % per week worked')} htmlFor="fh-seuil" requis erreur={tente && erreurs.seuil}>
           <input className="input tnum" id="fh-seuil" inputMode="numeric" value={seuil} disabled={!admin} onChange={e => setSeuil(e.target.value)} style={{ maxWidth: 120 }} />
         </Field>
-        <Field label="Heures déduites par jour d’absence" htmlFor="fh-jour" erreur={tente && erreurs.jour}>
-          <input className="input tnum" id="fh-jour" inputMode="decimal" placeholder="Calculée" value={jour} disabled={!admin} onChange={e => setJour(e.target.value)} style={{ maxWidth: 120 }} />
+        <Field label={t('Hours deducted per day of absence')} htmlFor="fh-jour" erreur={tente && erreurs.jour}>
+          <input className="input tnum" id="fh-jour" inputMode="decimal" placeholder={t('Calculated#fem')} value={jour} disabled={!admin} onChange={e => setJour(e.target.value)} style={{ maxWidth: 120 }} />
         </Field>
       </div>
       <Fine>
-        Au-delà de la cible nette, les heures de chaque semaine travaillée sous forfait jusqu’à ce seuil sont majorées de 25 % (HFA25), le reste de 50 % (HFA50) :
-        {' '}{SEUIL_25_DEFAUT} h par défaut, de la 36e à la 43e heure (art. L3121-36 ; ventilation de l’accord). Durée déduite par jour ouvré d’absence : vide, le
-        forfait divisé par les jours ouvrés théoriques de la période (soit {heures2(heuresParJour(undefined, 1607, ref))} pour
-        1 607 h en {ref.debut.slice(0, 4)}) ; sinon la durée fixée par l’accord.
+        {t('Beyond the net target, the hours of each week worked under the fixed hours up to this threshold are increased by 25 % (HFA25), the rest by 50 % (HFA50):')}
+        {' '}{SEUIL_25_DEFAUT}{t(' h by default, from the 36th to the 43rd hour (art. L3121-36; split of the agreement). Duration deducted per working day of absence: empty, the fixed hours divided by the theoretical working days of the period (i.e. ')}{heures2(heuresParJour(undefined, 1607, ref))}{t(' for 1,607 h in ')}{ref.debut.slice(0, 4)}{t('); otherwise the duration set by the agreement.')}
       </Fine>
-      <Field label="Absences déduites de la cible">
+      <Field label={t('Absences deducted from the target')}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 'var(--space-1) var(--space-3)' }}>
-          {ABSENCES_DEDUCTIBLES.map(t => (
-            <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 13 }}>
-              <input type="checkbox" checked={absences.includes(t)} disabled={!admin} onChange={e => basculer(t, e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-              {ABS_LABEL[t]}
+          {ABSENCES_DEDUCTIBLES.map(ty => (
+            <label key={ty} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 13 }}>
+              <input type="checkbox" checked={absences.includes(ty)} disabled={!admin} onChange={e => basculer(ty, e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
+              {ABS_LABEL[ty]}
             </label>
           ))}
         </div>
       </Field>
       <Fine>
-        Par défaut, toutes les absences sauf les congés payés : les 1 607 h comprennent déjà les CP légaux, les jours fériés chômés et la journée de solidarité
-        (art. L3121-41), jamais déduits. Seul le total des heures déduites est gardé sur la clôture, jamais la nature d’une absence.
+        {t('By default, all absences except paid leave: the 1,607 h already include the legal CP, the public holidays off and the solidarity day (art. L3121-41), never deducted. Only the total of the hours deducted is kept on the closing, never the nature of an absence.')}
       </Fine>
-      <Field label="Référence de l’accord collectif" htmlFor="fh-accord" requis={forfaitHeuresHorsDefaut(candidat)} erreur={tente && erreurs.accord}>
-        <input className="input" id="fh-accord" maxLength={120} placeholder="CCN Industries chimiques, accord d’entreprise sur le temps de travail du …" value={accord} disabled={!admin}
+      <Field label={t('Reference of the collective agreement')} htmlFor="fh-accord" requis={forfaitHeuresHorsDefaut(candidat)} erreur={tente && erreurs.accord}>
+        <input className="input" id="fh-accord" maxLength={120} placeholder={t('CCN Chemical industries, company agreement on working time of …')} value={accord} disabled={!admin}
           onChange={e => setAccord(e.target.value)} />
       </Field>
-      <Field label="Heures de la clôture dans la paie">
-        <Seg name="fh-emission" label="Heures de la clôture dans la paie" value={emission} options={EMISSIONS} disabled={!admin} onChange={setEmission} style={{ flexWrap: 'wrap' }} />
+      <Field label={t('Hours of the closing in payroll')}>
+        <Seg name="fh-emission" label={t('Hours of the closing in payroll')} value={emission} options={EMISSIONS.map(([k, l]) => [k, t(l)])} disabled={!admin} onChange={setEmission} style={{ flexWrap: 'wrap' }} />
       </Field>
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
         <input type="checkbox" checked={contingent} disabled={!admin} onChange={e => setContingent(e.target.checked)}
           style={{ accentColor: 'var(--color-accent)', marginTop: 'var(--space-1)', flex: 'none' }} />
         <span>
-          Imputer les heures au-delà du forfait sur le contingent annuel
-          <span className="text-muted sub" style={{ display: 'block' }}>Et la contrepartie obligatoire en repos au-delà ; à cocher une fois l’imputation confirmée par la paie.</span>
+          {t('Charge the hours beyond the fixed hours to the annual quota')}
+          <span className="text-muted sub" style={{ display: 'block' }}>{t('And the mandatory compensatory rest beyond; to tick once the charging is confirmed by payroll.')}</span>
         </span>
       </label>
-      {admin && modifie && <div className="actions-end"><Btn variant="primary" type="submit" disabled={busy}>Enregistrer le forfait annuel en heures</Btn></div>}
-      {!s.forfaitHeuresAccord && <NoteAccent>Accord sur le forfait annuel en heures non référencé : règles par défaut (année civile, 8 h à 25 % par semaine, toutes les absences hors CP).</NoteAccent>}
+      {admin && modifie && <div className="actions-end"><Btn variant="primary" type="submit" disabled={busy}>{t('Save the annual fixed hours')}</Btn></div>}
+      {!s.forfaitHeuresAccord && <NoteAccent>{t('Agreement on the annual fixed hours not referenced: default rules (calendar year, 8 h at 25 % per week, all absences except CP).')}</NoteAccent>}
       <Fine>
-        Rubriques HFA25, HFA50, HCA10 et HCA25 désactivées tant que la paie n’a pas donné leurs codes (Temps de travail → Transmission à Sage Paie → Rubriques) :
-        les heures sont alors listées « à saisir dans Sage ». Mois de la confirmation par défaut ; une plage close par la sortie part avec le solde de sortie.
+        {t('Items HFA25, HFA50, HCA10 and HCA25 deactivated as long as payroll has not given their codes (Working time → Transmission to Sage Paie → Items): the hours are then listed “to be entered in Sage”. Month of the confirmation by default; a range closed by the departure goes with the leaving balance.')}
       </Fine>
     </form>
   );

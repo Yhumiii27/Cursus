@@ -6,34 +6,30 @@ import type { ModeAttente } from '../../../../shared/types.ts';
 import { Fine, Panel, Seg } from '../../components/ui.tsx';
 import { useRole } from '../../state/derived.ts';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
+import { t } from '../../i18n/langue.ts';
 
-const MODES: [ModeAttente, string][] = [['confirmer', 'Proposée au service RH'], ['automatique', 'Inscription automatique']];
+/** Modes : sources anglaises, traduites au rendu. */
+const MODES: [ModeAttente, string][] = [['confirmer', 'Offered to HR'], ['automatique', 'Automatic enrolment']];
 
 export function ListeAttente({ s }: SectionProps) {
   const { admin } = useRole();
   const enregistrer = useEnregistrerReglages();
   return (
-    <Panel title="Liste d’attente des sessions" style={{ gap: 'var(--space-4)' }}>
+    <Panel title={t('Waiting list of the sessions')} style={{ gap: 'var(--space-4)' }}>
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
         <input type="checkbox" checked={s.formationsListeAttente} disabled={!admin} onChange={e => enregistrer({ formationsListeAttente: e.target.checked })}
           style={{ accentColor: 'var(--color-accent)', marginTop: 'var(--space-1)', flex: 'none' }} />
-        <span>Proposer la liste d’attente quand la session demandée est complète</span>
+        <span>{t('Offer the waiting list when the requested session is full')}</span>
       </label>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-        <span style={{ fontSize: 14 }}>Quand une place se libère</span>
-        <Seg name="attente-mode" label="Quand une place se libère" value={s.formationsAttenteMode} disabled={!admin} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
-          options={MODES} onChange={mode => enregistrer({ formationsAttenteMode: mode })} />
+        <span style={{ fontSize: 14 }}>{t('When a place is freed')}</span>
+        <Seg name="attente-mode" label={t('When a place is freed')} value={s.formationsAttenteMode} disabled={!admin} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
+          options={MODES.map(([k, l]) => [k, t(l)])} onChange={mode => enregistrer({ formationsAttenteMode: mode })} />
       </div>
       <Fine>
-        Une demande de formation acceptée sur une session complète place le salarié dans la file de la session, dans l’ordre d’acceptation, sans
-        autre priorité ; la réponse et l’e-mail lui disent que la session est pleine et quelle est sa place. Une place libérée (désinscription,
-        changement de session, recyclage enregistré, places ajoutées, sortie, demande rouverte) est {s.formationsAttenteMode === 'automatique'
-          ? 'donnée au premier encore admissible, inscrit et convoqué aussitôt'
-          : 'proposée au service RH pour le premier encore admissible : l’inscription se confirme dans le détail de la session, et la convocation part à ce moment-là'}.
-        Un salarié qui n’est plus admissible (absent ou inscrit ailleurs ces jours-là, sorti, recyclage déjà enregistré) est passé, le motif au
-        journal. La file est close à l’annulation ou à la clôture de la session : les demandes repassent au plan de formation. Le salarié, son
-        manager et le service RH peuvent retirer une personne de la file. Liste désactivée : la demande va au plan de formation, la réponse dit
-        que la session était complète.
+        {t('A training request accepted on a full session places the employee in the session’s queue, in order of acceptance, without any other priority; the answer and the e-mail tell them the session is full and what their place is. A freed place (unenrolment, change of session, refresher recorded, places added, departure, request reopened) is ')}{s.formationsAttenteMode === 'automatique'
+          ? t('given to the first one still eligible, enrolled and invited at once')
+          : t('offered to HR for the first one still eligible: the enrolment is confirmed in the session detail, and the invitation goes at that moment')}{t('. An employee who is no longer eligible (absent or enrolled elsewhere on those days, left, refresher already recorded) is skipped, the reason in the log. The queue is closed when the session is cancelled or closed: the requests go back to the training plan. The employee, their manager and HR can remove a person from the queue. List deactivated: the request goes to the training plan, the answer says the session was full.')}
       </Fine>
     </Panel>
   );

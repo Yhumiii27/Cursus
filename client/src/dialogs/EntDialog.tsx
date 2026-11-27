@@ -27,7 +27,7 @@ import type { DialogState } from '../state/store.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { EnregistrementAuFil } from '../state/enregistrement.ts';
 import { useStore } from '../state/store.tsx';
-import { imprimerCompteRendu, INFO_LABEL, sectionsDe, whoLabel } from './compteRendu.ts';
+import { imprimerCompteRendu, INFO_LABEL, libelleSection, sectionsDe, whoLabel } from './compteRendu.ts';
 import { t } from '../i18n/langue.ts';
 /**
  * Focus pris par la confirmation de fermeture affichée après un échec (« Reprendre la saisie » ciblé à son
@@ -125,7 +125,7 @@ export function EntDialog({ entId }: { entId: number }) {
     if (restantes.length) {
       setBusy(false);
       setAConfirmer(null);
-      const noms = sections.filter(([k]) => restantes.includes(k)).map(([, label]) => `« ${label} »`);
+      const noms = sections.filter(([k]) => restantes.includes(k)).map(([k, label]) => `« ${libelleSection(k, label)} »`);
       notify(`${action === 'entretien.clore' ? t('Closing interrupted: ') : t('Signature interrupted: ')}${noms.length > 1 ? `${noms.join(', ')}${t(' are not saved#sections')}` : `${noms[0] ?? t('a section')}${t(' is not saved#section')}`}${t('. Try again once the problem is solved.')}`, true);
       return;
     }
@@ -188,7 +188,7 @@ export function EntDialog({ entId }: { entId: number }) {
       {sections.map(([k, label, who]) => {
         const ed = editable.includes(k);
         return (
-          <Field key={k} htmlFor={ed ? `ent-${k}` : undefined} label={<>{label} <span className="text-muted who">· {whoLabel(who)}</span></>}>
+          <Field key={k} htmlFor={ed ? `ent-${k}` : undefined} label={<>{libelleSection(k, label)} <span className="text-muted who">· {whoLabel(who)}</span></>}>
             {ed
               ? <textarea className="input mid" id={`ent-${k}`} rows={3} value={vals[k] ?? ''} aria-invalid={echecs[k] ? true : undefined}
                   aria-describedby={echecs[k] ? `ent-${k}-echec` : undefined}
@@ -201,7 +201,7 @@ export function EntDialog({ entId }: { entId: number }) {
       {hasInfo && (
         <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 13 }}>
           <input type="checkbox" checked={info} disabled={!canMgr} onChange={ev => toggleInfo(ev.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-          {INFO_LABEL}
+          {t(INFO_LABEL)}
         </label>
       )}
       {/* lot 12 — C3 (entretiens suivis) : objectifs et souhaits de formation. */}

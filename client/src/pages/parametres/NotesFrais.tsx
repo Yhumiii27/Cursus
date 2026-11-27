@@ -21,6 +21,7 @@ import { nombreSaisi } from '../../components/frais/saisie.ts';
 import { useDomain, useRole } from '../../state/derived.ts';
 import { useStore } from '../../state/store.tsx';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
+import { t } from '../../i18n/langue.ts';
 
 /** Catégories qui reçoivent un plafond interne : frais réels (ni indemnité kilométrique, ni allocation forfaitaire). */
 const AVEC_PLAFOND = (Object.keys(CATEGORIES_FRAIS) as CategorieFrais[]).filter(c => c !== 'ik' && c !== 'forfait');
@@ -48,9 +49,9 @@ export function NotesFrais({ s }: SectionProps) {
   // Compte d'une catégorie : vide admis (compte proposé) ; comptes généraux et journal : obligatoires.
   const parCategorie = new Set<string>(AVEC_COMPTE);
   const erreurCompte = Object.entries(comptes).find(([k, v]) => {
-    const t = v.trim().toUpperCase();
-    if (k === 'journal') return !estJournal(t);
-    return parCategorie.has(k) ? !!t && !estCompte(t) : !estCompte(t);
+    const x = v.trim().toUpperCase();
+    if (k === 'journal') return !estJournal(x);
+    return parCategorie.has(k) ? !!x && !estCompte(x) : !estCompte(x);
   });
   const enregistrerPlafonds = async () => {
     if (erreurPlafond) { setTente(true); return; }
@@ -70,41 +71,41 @@ export function NotesFrais({ s }: SectionProps) {
   const anneesBareme = [...new Set((d.ds.referentiels.baremesKm ?? []).map(b => b.annee))].sort((a, b) => b - a);
 
   return (
-    <Panel title="Notes de frais" style={{ gap: 'var(--space-4)' }}>
+    <Panel title={t('Expense reports')} style={{ gap: 'var(--space-4)' }}>
       <label className="check-row">
         <input type="checkbox" checked={s.notesFraisActives} disabled={!admin} onChange={e => save({ notesFraisActives: e.target.checked })} />
-        <span>Notes de frais activées (saisie, validation, contrôle, remboursement avec la paie)</span>
+        <span>{t('Expense reports activated (entry, approval, check, reimbursement with payroll)')}</span>
       </label>
-      {!s.notesFraisActives && <Fine>Désactivées par défaut : l’essai de charge (trois et cinq ans de frais) ne tient pas encore tous ses budgets (docs/ARCHITECTURE.md). L’activation est votre décision : vérifiez d’abord les prérequis ci-dessous.</Fine>}
+      {!s.notesFraisActives && <Fine>{t('Deactivated by default: the load test (three and five years of expenses) does not yet meet all its budgets (docs/ARCHITECTURE.md). Activation is your decision: first check the prerequisites below.')}</Fine>}
       {/* lot 12 — C2 : prérequis de l'activation (comptes, rubriques FRAIS_*, barème de l'année), jamais bloquants. */}
-      <div role="list" aria-label="Prérequis de l’activation" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+      <div role="list" aria-label={t('Prerequisites of the activation')} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
         {prerequisFrais(s, d.ds.rubriquesPaie, d.ds.referentiels.baremesKm, annee).map(p => (
           <div key={p.cle} role="listitem" className="list-row" style={{ gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-            <Tag cls={p.ok ? 'tag-neutral' : 'tag-accent'}>{p.ok ? 'Prêt' : 'À faire'}</Tag>
+            <Tag cls={p.ok ? 'tag-neutral' : 'tag-accent'}>{p.ok ? t('Ready') : t('To do')}</Tag>
             <div style={{ flex: '1 1 220px', minWidth: 0 }}><Two main={p.libelle} sub={p.detail} /></div>
           </div>
         ))}
       </div>
       <div className="row-wrap" style={{ gap: 'var(--space-3)' }}>
-        <Field label="Circuit" htmlFor="frais-circuit">
+        <Field label={t('Circuit')} htmlFor="frais-circuit">
           <select className="input" id="frais-circuit" value={s.fraisCircuit} disabled={!admin} onChange={e => save({ fraisCircuit: e.target.value as CircuitFrais })} style={{ maxWidth: 320 }}>
-            <option value="manager_controle">Validation du manager, puis contrôle</option>
-            <option value="manager">Validation du manager seule</option>
+            <option value="manager_controle">{t('Approval by the manager, then check')}</option>
+            <option value="manager">{t('Approval by the manager alone')}</option>
           </select>
         </Field>
-        <Field label="Délai de soumission (mois)" htmlFor="frais-delai">
+        <Field label={t('Submission time limit (months)')} htmlFor="frais-delai">
           <input className="input tnum" id="frais-delai" type="number" min={0} max={24} value={s.fraisDelaiSoumissionMois} disabled={!admin} onChange={e => save({ fraisDelaiSoumissionMois: Number(e.target.value) })} style={{ maxWidth: 100 }} />
         </Field>
-        <Field label="Justificatif exigé au-delà de (€)" htmlFor="frais-seuil">
+        <Field label={t('Supporting document required beyond (€)')} htmlFor="frais-seuil">
           <input className="input tnum" id="frais-seuil" type="number" min={0} max={1000} value={s.fraisSeuilJustificatif} disabled={!admin} onChange={e => save({ fraisSeuilJustificatif: Number(e.target.value) })} style={{ maxWidth: 100 }} />
         </Field>
       </div>
       <label className="check-row">
         <input type="checkbox" checked={s.fraisIkCvReels} disabled={!admin} onChange={e => save({ fraisIkCvReels: e.target.checked })} />
-        <span>Indemnités kilométriques à la puissance réelle au-delà de 7 CV (la part au-delà du barème plafonné est réintégrable)</span>
+        <span>{t('Mileage allowances at the actual horsepower beyond 7 CV (the part beyond the capped scale can be reinstated)')}</span>
       </label>
 
-      <Field label="Plafonds de la politique interne par catégorie (€, vide : aucun)">
+      <Field label={t('Ceilings of the internal policy by category (€, empty: none)')}>
         <div className="row-wrap" style={{ gap: 'var(--space-2)' }}>
           {AVEC_PLAFOND.map(c => (
             <label key={c} className="sub" style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 150 }}>
@@ -114,43 +115,43 @@ export function NotesFrais({ s }: SectionProps) {
           ))}
         </div>
       </Field>
-      {tente && erreurPlafond && <p className="field-erreur" role="alert">Plafond {CATEGORIES_FRAIS[erreurPlafond].label.toLowerCase()} : montant en euros, positif.</p>}
-      {admin && <div><Btn variant="secondary" small onClick={enregistrerPlafonds}>Enregistrer les plafonds</Btn></div>}
-      <Fine>Un dépassement est une alerte : la dépense est acceptée avec un motif ou ramenée au plafond au contrôle. Ce n’est jamais une réintégration dans l’assiette des cotisations.</Fine>
+      {tente && erreurPlafond && <p className="field-erreur" role="alert">{t('Ceiling ')}{CATEGORIES_FRAIS[erreurPlafond].label.toLowerCase()}{t(': amount in euros, positive.')}</p>}
+      {admin && <div><Btn variant="secondary" small onClick={enregistrerPlafonds}>{t('Save the ceilings')}</Btn></div>}
+      <Fine>{t('An overrun is an alert: the expense is accepted with a reason or brought down to the ceiling at the check. It is never a reinstatement in the contribution base.')}</Fine>
 
-      <Field label={`Barème kilométrique ${annee}`}>
+      <Field label={`${t('Mileage scale ')}${annee}`}>
         <div className="row-wrap" style={{ gap: 'var(--space-2)', alignItems: 'center' }}>
-          {(Object.keys(TYPES_VEHICULE) as TypeVehicule[]).map(t => (
-            <span key={t} style={{ display: 'inline-flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-              <span className={baremeSaisi(d.ds.referentiels.baremesKm, annee, t) ? 'tag tag-neutral' : 'tag tag-accent'}>{TYPES_VEHICULE[t]} : {baremeSaisi(d.ds.referentiels.baremesKm, annee, t) ? 'saisi' : 'manquant'}</span>
-              {admin && <Btn small onClick={() => openDialog({ type: 'fraisBareme', annee, vehicule: t })}>Saisir</Btn>}
+          {(Object.keys(TYPES_VEHICULE) as TypeVehicule[]).map(ty => (
+            <span key={ty} style={{ display: 'inline-flex', gap: 'var(--space-2)', alignItems: 'center' }}>
+              <span className={baremeSaisi(d.ds.referentiels.baremesKm, annee, ty) ? 'tag tag-neutral' : 'tag tag-accent'}>{TYPES_VEHICULE[ty]}{t(': ')}{baremeSaisi(d.ds.referentiels.baremesKm, annee, ty) ? t('entered#masc') : t('missing#masc')}</span>
+              {admin && <Btn small onClick={() => openDialog({ type: 'fraisBareme', annee, vehicule: ty })}>{t('Enter#verb')}</Btn>}
             </span>
           ))}
         </div>
       </Field>
-      {!baremeSaisi(d.ds.referentiels.baremesKm, annee) && <NoteAccent>Barème kilométrique {annee} manquant pour les voitures : les indemnités de l’année ne se calculent pas et leurs notes ne se soumettent pas.</NoteAccent>}
-      {anneesBareme.length > 0 && <Fine>Barèmes saisis : {anneesBareme.join(', ')}. {admin ? `Saisir l’année suivante : ` : ''}{admin && <Btn small onClick={() => openDialog({ type: 'fraisBareme', annee: annee + 1, vehicule: 'voiture' })}>{`Barème ${annee + 1}`}</Btn>}</Fine>}
+      {!baremeSaisi(d.ds.referentiels.baremesKm, annee) && <NoteAccent>{t('Mileage scale ')}{annee}{t(' missing for cars: the allowances of the year are not calculated and their reports are not submitted.')}</NoteAccent>}
+      {anneesBareme.length > 0 && <Fine>{t('Scales entered: ')}{anneesBareme.join(', ')}. {admin ? t('Enter the next year: ') : ''}{admin && <Btn small onClick={() => openDialog({ type: 'fraisBareme', annee: annee + 1, vehicule: 'voiture' })}>{`${t('Scale ')}${annee + 1}`}</Btn>}</Fine>}
 
-      <Field label={`Limites d’exonération ${annee} (montants URSSAF)`}>
+      <Field label={`${t('Exemption limits ')}${annee}${t(' (URSSAF amounts)')}`}>
         <table className="table">
           <tbody>
             {(Object.keys(FORFAITS_FRAIS) as (keyof typeof FORFAITS_FRAIS)[]).filter(k => k !== 'etranger').map(k => {
               const f = forfaitsAnnee.find(x => x.code === k && !x.pays);
-              return <tr key={k}><td>{FORFAITS_FRAIS[k]}</td><td className="tnum nowrap">{f ? euros(f.montant) : <span className="tag tag-accent">manquante</span>}</td></tr>;
+              return <tr key={k}><td>{FORFAITS_FRAIS[k]}</td><td className="tnum nowrap">{f ? euros(f.montant) : <span className="tag tag-accent">{t('missing#fem')}</span>}</td></tr>;
             })}
             {forfaitsAnnee.filter(f => f.code === 'etranger').map(f => (
-              <tr key={f.id}><td>Étranger : {d.destOf(f.pays ?? '')?.pays ?? f.pays}</td><td className="tnum nowrap">{euros(f.montant)}</td></tr>
+              <tr key={f.id}><td>{t('Abroad: ')}{d.destOf(f.pays ?? '')?.pays ?? f.pays}</td><td className="tnum nowrap">{euros(f.montant)}</td></tr>
             ))}
           </tbody>
         </table>
       </Field>
       {rh && <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-        <Btn small onClick={() => openDialog({ type: 'fraisForfait', annee })}>{`Saisir une limite ${annee}`}</Btn>
-        <Btn small onClick={() => openDialog({ type: 'fraisForfait', annee: annee + 1 })}>{`Limites ${annee + 1}`}</Btn>
+        <Btn small onClick={() => openDialog({ type: 'fraisForfait', annee })}>{`${t('Enter a limit ')}${annee}`}</Btn>
+        <Btn small onClick={() => openDialog({ type: 'fraisForfait', annee: annee + 1 })}>{`${t('Limits ')}${annee + 1}`}</Btn>
       </div>}
-      <Fine>Montants 2026 de la démonstration repris de 2025 de mémoire : à vérifier sur urssaf.fr. Les forfaits de grand déplacement restent valorisés dans Sage ; Cursus bloque seulement leur cumul avec des frais réels de même nature.</Fine>
+      <Fine>{t('2026 amounts of the demonstration taken over from 2025 from memory: to be checked on urssaf.fr. The long-distance travel flat rates stay valued in Sage; Cursus only blocks their combination with actual expenses of the same nature.')}</Fine>
 
-      <Field label="Fichier d’écritures pour la comptabilité : comptes">
+      <Field label={t('Entries file for accounting: accounts')}>
         <div className="row-wrap" style={{ gap: 'var(--space-2)' }}>
           {AVEC_COMPTE.map(c => (
             <label key={c} className="sub" style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 150 }}>
@@ -158,45 +159,45 @@ export function NotesFrais({ s }: SectionProps) {
               <input className="input" value={comptes[c]} placeholder={COMPTES_FRAIS_DEFAUT[c] ?? compteDeCharge(c, s)} disabled={!admin} onChange={e => setComptes(x => ({ ...x, [c]: e.target.value }))} />
             </label>
           ))}
-          {([['generique', 'Compte générique (divers, frais médicaux)'], ['tva', 'TVA déductible'], ['salarie', 'Compte du salarié'], ['journal', 'Journal']] as const).map(([k, l]) => (
+          {([['generique', 'Generic account (miscellaneous, medical expenses)'], ['tva', 'Deductible VAT'], ['salarie', 'Employee’s account'], ['journal', t('Journal')]] as const).map(([k, l]) => (
             <label key={k} className="sub" style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 150 }}>
-              {l}
+              {t(l)}
               <input className="input" value={comptes[k]} disabled={!admin} onChange={e => setComptes(x => ({ ...x, [k]: e.target.value }))} />
             </label>
           ))}
         </div>
       </Field>
-      {tente && erreurCompte && <p className="field-erreur" role="alert">Compte : chiffres et lettres, 13 caractères au plus ; journal : 1 à 6 lettres ou chiffres.</p>}
-      {admin && <div><Btn variant="secondary" small onClick={enregistrerComptes}>Enregistrer les comptes</Btn></div>}
+      {tente && erreurCompte && <p className="field-erreur" role="alert">{t('Account: digits and letters, 13 characters at most; journal: 1 to 6 letters or digits.')}</p>}
+      {admin && <div><Btn variant="secondary" small onClick={enregistrerComptes}>{t('Save the accounts')}</Btn></div>}
       <div className="row-wrap" style={{ gap: 'var(--space-3)' }}>
-        <Field label="Séparateur" htmlFor="frais-g-sep">
+        <Field label={t('Separator')} htmlFor="frais-g-sep">
           <select className="input" id="frais-g-sep" value={s.fraisGabarit.separateur} disabled={!admin} onChange={e => gabarit({ separateur: e.target.value as GabaritExportComptable['separateur'] })}>
             {Object.entries(SEPARATEURS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
         </Field>
-        <Field label="Décimale" htmlFor="frais-g-dec">
+        <Field label={t('Decimal')} htmlFor="frais-g-dec">
           <select className="input" id="frais-g-dec" value={s.fraisGabarit.decimale} disabled={!admin} onChange={e => gabarit({ decimale: e.target.value as GabaritExportComptable['decimale'] })}>
             {Object.entries(DECIMALES).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
         </Field>
-        <Field label="Dates" htmlFor="frais-g-date">
+        <Field label={t('Dates')} htmlFor="frais-g-date">
           <select className="input" id="frais-g-date" value={s.fraisGabarit.formatDate} disabled={!admin} onChange={e => gabarit({ formatDate: e.target.value as GabaritExportComptable['formatDate'] })}>
             {Object.entries(FORMATS_DATE).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
         </Field>
-        <Field label="Encodage" htmlFor="frais-g-enc">
+        <Field label={t('Encoding')} htmlFor="frais-g-enc">
           <select className="input" id="frais-g-enc" value={s.fraisGabarit.encodage} disabled={!admin} onChange={e => gabarit({ encodage: e.target.value as GabaritExportComptable['encodage'] })}>
             {Object.entries(ENCODAGES).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
         </Field>
       </div>
       <div className="row-wrap" style={{ gap: 'var(--space-3)' }}>
-        <label className="check-row"><input type="checkbox" checked={s.fraisGabarit.entete} disabled={!admin} onChange={e => gabarit({ entete: e.target.checked })} /><span>Ligne d’en-tête</span></label>
+        <label className="check-row"><input type="checkbox" checked={s.fraisGabarit.entete} disabled={!admin} onChange={e => gabarit({ entete: e.target.checked })} /><span>{t('Header line')}</span></label>
         {COLONNES_ECRITURE_FACULTATIVES.map(c => (
           <label key={c} className="check-row"><input type="checkbox" checked={s.fraisGabarit.colonnes.includes(c)} disabled={!admin} onChange={e => void colonne(c, e.target.checked)} /><span>{COLONNES_ECRITURE[c].label}</span></label>
         ))}
       </div>
-      <Fine>Comptes proposés (plan comptable général : 625x, 6061, 6135, TVA 44566, salarié 421, journal OD) à confirmer par la comptabilité. Les frais médicaux portent toujours le compte générique, avec le même libellé que toute dépense.</Fine>
+      <Fine>{t('Accounts offered (general chart of accounts: 625x, 6061, 6135, VAT 44566, employee 421, journal OD) to be confirmed by accounting. Medical expenses always carry the generic account, with the same label as any expense.')}</Fine>
     </Panel>
   );
 }

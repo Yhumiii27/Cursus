@@ -6,6 +6,7 @@ import { Bloquant, CancelButton, Dialog, Field, SubmitButton, useVerification } 
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function RefActiviteDialog({ code }: { code?: string | null }) {
   const d = useDomain();
@@ -30,25 +31,24 @@ export function RefActiviteDialog({ code }: { code?: string | null }) {
   };
 
   return (
-    <Dialog title={avant ? `Activité ${avant.code}` : 'Nouvelle activité interne'} width={480} onSubmit={envoyer}
-      actions={disparu ? <CancelButton label="Fermer" /> : <>
+    <Dialog title={avant ? `${t('Activity ')}${avant.code}` : t('New internal activity')} width={480} onSubmit={envoyer}
+      actions={disparu ? <CancelButton label={t('Close')} /> : <>
         <CancelButton />
-        <SubmitButton busy={busy}>{avant ? 'Enregistrer' : 'Ajouter au référentiel'}</SubmitButton>
+        <SubmitButton busy={busy}>{avant ? t('Save') : t('Add to the reference data')}</SubmitButton>
       </>}>
-      {disparu ? <Bloquant>Cette activité n’existe plus.</Bloquant> : <>
+      {disparu ? <Bloquant>{t('This activity no longer exists.')}</Bloquant> : <>
         {!avant && (
-          <Field label="Code" htmlFor="ract-code" requis erreur={codeIncomplet ? v.erreur(erreurs.code) : erreurs.code ?? null}>
+          <Field label={t('Code')} htmlFor="ract-code" requis erreur={codeIncomplet ? v.erreur(erreurs.code) : erreurs.code ?? null}>
             <input className="input" id="ract-code" type="text" autoFocus value={saisi} maxLength={16} placeholder="INT-FORM"
               onChange={e => setSaisi(e.target.value.toUpperCase())} style={{ maxWidth: 200 }} />
           </Field>
         )}
-        <Field label="Libellé" htmlFor="ract-nom" requis erreur={nom.trim() ? erreurs.nom ?? null : v.erreur(erreurs.nom)}>
-          <input className="input" id="ract-nom" type="text" autoFocus={!!avant} value={nom} maxLength={NOM_ACTIVITE_MAX} placeholder="Formation interne"
+        <Field label={t('Label')} htmlFor="ract-nom" requis erreur={nom.trim() ? erreurs.nom ?? null : v.erreur(erreurs.nom)}>
+          <input className="input" id="ract-nom" type="text" autoFocus={!!avant} value={nom} maxLength={NOM_ACTIVITE_MAX} placeholder={t('Internal training')}
             onChange={e => setNom(e.target.value)} />
         </Field>
         <Fine>
-          Le code désigne l’activité sur les feuilles de temps et ne change plus. Une activité interne n’est jamais envoyée à Keystone, qui ne reçoit que
-          les heures passées sur ses projets.
+          {t('The code designates the activity on the timesheets and no longer changes. An internal activity is never sent to Keystone, which only receives the hours spent on its projects.')}
         </Fine>
       </>}
     </Dialog>

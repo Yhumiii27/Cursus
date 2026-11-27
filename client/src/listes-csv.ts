@@ -16,6 +16,7 @@ import { coutRetenu } from '../../shared/rules/exercices.ts';
 import type { Absence, Employe, ISODate, PlanAction } from '../../shared/types.ts';
 // lot 11 — organigramme
 import { ENTETE_CSV_ORGANIGRAMME, type LigneOrganigramme } from './organigramme-vue.ts';
+import { t } from './i18n/langue.ts';
 // lot 11 — dossiers OPCO
 import { DISPOSITIFS_OPCO, ECARTS_SOLDE_OPCO, montantsOpco, OPCOS, STATUTS_OPCO } from '../../shared/rules/opco.ts';
 import type { DossierOpco, VersementOpco } from '../../shared/types.ts';
@@ -135,7 +136,7 @@ export function csvPlan(d: Domain, exercice: number, lignes: PlanAction[]): List
 export function csvOrganigramme(today: ISODate, lignes: LigneOrganigramme[], entite: string | null): ListeCsv {
   return {
     fichier: `organigramme${entite ? `-${entite}` : ''}-${today}.csv`,
-    head: ENTETE_CSV_ORGANIGRAMME,
+    head: ENTETE_CSV_ORGANIGRAMME.map(h => t(h)),
     rows: lignes.map(l => [l.societe, l.etablissement, l.site, l.chemin, l.equipe, l.nom, l.poste, l.manager, l.valideur]),
   };
 }

@@ -19,7 +19,7 @@ import { useRef, useState, type KeyboardEvent } from 'react';
 import { CalendarPlusIcon, ExportIcon, MegaphoneIcon, PlusIcon, PrinterIcon } from '@phosphor-icons/react';
 import { addD, mondayOf, parse } from '../../../../shared/dates.ts';
 import type { Domain } from '../../../../shared/domain.ts';
-import { fH, fmtIso, plural } from '../../../../shared/format.ts';
+import { fH, fmtIso } from '../../../../shared/format.ts';
 import { ECHANGE_OUVERT, horsFenetre, STATUT_ECHANGE } from '../../../../shared/rules/planning.ts';
 import { useHistoriquePlanning } from '../../planning-api.ts';
 import { downloadCsv, printDocument } from '../../print.ts';
@@ -29,6 +29,7 @@ import { useData, useStore } from '../../state/store.tsx';
 import { Btn, Empty, Fine, Panel, Tag, Two } from '../ui.tsx';
 import { HabilitationsPlanifieesPanel } from './HabilitationsPlanifiees.tsx';
 import { affichageEquipe, csvAffichage, equipesDuPlanning, grilleEquipe, jourCourt, joursDe, posteTexte, type CaseEquipe, type CouvertureJour, type LigneEquipe } from './planning-vue.ts';
+import { t, tn } from '../../i18n/langue.ts';
 
 /** Jours affichés : deux semaines. */
 const JOURS_GRILLE = 14;
@@ -62,27 +63,27 @@ function GrilleEquipe({ jours, lignes, couverture, ti, ouvrir }: {
   };
   const deplacer = (e: KeyboardEvent, l: number, c: number) => {
     const cible: Record<string, [number, number]> = { ArrowLeft: [l, c - 1], ArrowRight: [l, c + 1], ArrowUp: [l - 1, c], ArrowDown: [l + 1, c], Home: [l, 0], End: [l, jours.length - 1] };
-    const t = cible[e.key];
-    if (!t) return;
+    const vers = cible[e.key];
+    if (!vers) return;
     e.preventDefault();
-    const [nl, nc] = [Math.max(0, Math.min(lignes.length - 1, t[0])), Math.max(0, Math.min(jours.length - 1, t[1]))];
+    const [nl, nc] = [Math.max(0, Math.min(lignes.length - 1, vers[0])), Math.max(0, Math.min(jours.length - 1, vers[1]))];
     grille.current?.querySelector<HTMLButtonElement>(`[data-case="${nl}-${nc}"]`)?.focus();
   };
   return (
     <>
       <table ref={grille} className="planning planning-equipe" aria-describedby="planning-equipe-aide">
-        <caption className="sr-only">Planning de l’équipe sur deux semaines : poste de chaque salarié, jour par jour, et couverture des besoins</caption>
+        <caption className="sr-only">{t('Team planning over two weeks: shift of each employee, day by day, and coverage of the needs')}</caption>
         <colgroup><col className="planning-nom" />{jours.map(s => <col key={s} />)}<col className="planning-resume" /></colgroup>
         <thead>
           <tr>
-            <th scope="col"><span className="sr-only">Salarié</span></th>
+            <th scope="col"><span className="sr-only">{t('Employee#salarie')}</span></th>
             {jours.map(s => (
               <th key={s} scope="col" className={`planning-jour tnum${s === ti ? ' aujourdhui' : ''}`}>
                 <span aria-hidden="true"><span>{parse(s).toLocaleDateString('fr-FR', { weekday: 'narrow' })}</span><span>{parse(s).getDate()}</span></span>
-                <span className="sr-only">{jourCourt(s)}{s === ti ? ' (aujourd’hui)' : ''}</span>
+                <span className="sr-only">{jourCourt(s)}{s === ti ? t(' (today)') : ''}</span>
               </th>
             ))}
-            <th scope="col" className="planning-jour"><span className="sr-only">Résumé</span></th>
+            <th scope="col" className="planning-jour"><span className="sr-only">{t('Summary')}</span></th>
           </tr>
         </thead>
         <tbody>
@@ -104,14 +105,14 @@ function GrilleEquipe({ jours, lignes, couverture, ti, ouvrir }: {
         </tbody>
         <tfoot>
           <tr>
-            <th scope="row" className="planning-qui sub">Couverture</th>
+            <th scope="row" className="planning-qui sub">{t('Coverage')}</th>
             {couverture.map(c => <td key={c.jour} className={`planning-couverture tnum${c.manque ? ' manque' : ''}`} title={c.texte}><span aria-hidden="true">{c.court}</span><span className="sr-only">{c.texte}</span></td>)}
-            <td className="planning-total sub">postes / besoin</td>
+            <td className="planning-total sub">{t('shifts / need')}</td>
           </tr>
         </tfoot>
       </table>
-      <p id="planning-equipe-aide" className="sr-only">Flèches pour passer d’un jour ou d’un salarié à l’autre, Début et Fin pour le premier ou le dernier jour ; Entrée ouvre le poste.</p>
-      <p className="planning-detail sub" aria-hidden="true">{detail ?? 'Touchez ou sélectionnez une case pour afficher le détail du jour.'}</p>
+      <p id="planning-equipe-aide" className="sr-only">{t('Arrows to move from one day or one employee to another, Home and End for the first or last day; Enter opens the shift.')}</p>
+      <p className="planning-detail sub" aria-hidden="true">{detail ?? t('Tap or select a cell to show the detail of the day.')}</p>
       <p className="sr-only" aria-live="polite">{annonce}</p>
     </>
   );
@@ -133,7 +134,7 @@ export function PlanningEquipe() {
   const data = useData();
   const hors = !!equipe && horsFenetre(jours[0], fin, d.ti);
   const hist = useHistoriquePlanning(hors ? { du: jours[0], au: fin, equipe } : null, data.user.role, data.revision);
-  if (!equipe) return <Panel title="Planning d’équipe"><Empty pad="sm">Aucune équipe à planifier dans votre périmètre.</Empty></Panel>;
+  if (!equipe) return <Panel title={t('Team planning')}><Empty pad="sm">{t('No team to plan in your scope.')}</Empty></Panel>;
   const planif = planifieEquipe(d, { rh, manager, me }, equipe);
   const historique = hist?.creneaux ?? null;
   const enAttente = !!hist && !hist.creneaux;
@@ -154,10 +155,10 @@ export function PlanningEquipe() {
   const imprimer = () => {
     if (enAttente) return;
     const a = affichageEquipe(d, equipe, jours, historique);
-    printDocument(`Horaire collectif et composition des équipes — ${equipe}`, `Du ${fmtIso(jours[0])} au ${fmtIso(fin)} · postes publiés (art. D3171-7)`, [
-      { title: 'Horaire collectif', table: { head: ['Horaire', 'Libellé', 'Plage', 'Pause', 'Durée'], rows: a.horaires.map(h => [h.code, h.nom, h.plage, h.pause ? `${h.pause} min` : '—', fH(h.duree)]) } },
-      ...(a.groupes.length ? [{ title: 'Groupes de roulement', table: { head: ['Cycle', 'Groupe', 'Salariés'], rows: a.groupes.map(x => [x.cycle, x.groupe, x.salaries.join(', ')]) } }] : []),
-      { title: 'Composition nominative des équipes successives', table: { head: ['Jour', 'Horaire', 'Salariés'], rows: a.composition.map(x => [jourCourt(x.jour), x.horaire, x.salaries.join(', ')]) } },
+    printDocument(`${t('Collective schedule and composition of the teams — ')}${equipe}`, `${t('From #date-cap')}${fmtIso(jours[0])}${t(' to #date')}${fmtIso(fin)}${t(' · published shifts (art. D3171-7)')}`, [
+      { title: t('Collective schedule'), table: { head: [t('Schedule'), t('Label'), t('Range'), t('Break'), t('Duration')], rows: a.horaires.map(h => [h.code, h.nom, h.plage, h.pause ? `${h.pause}${t(' min')}` : '—', fH(h.duree)]) } },
+      ...(a.groupes.length ? [{ title: t('Rotation groups'), table: { head: [t('Cycle'), t('Group'), t('Employees#salaries')], rows: a.groupes.map(x => [x.cycle, x.groupe, x.salaries.join(', ')]) } }] : []),
+      { title: t('Nominative composition of the successive teams'), table: { head: [t('Day'), t('Schedule'), t('Employees#salaries')], rows: a.composition.map(x => [jourCourt(x.jour), x.horaire, x.salaries.join(', ')]) } },
     ]);
   };
   const exporter = () => {
@@ -170,56 +171,52 @@ export function PlanningEquipe() {
       <Panel head={
         <div className="panel-head top">
           <div>
-            <h2>Planning d’équipe</h2>
+            <h2>{t('Team planning')}</h2>
             <div className="text-muted sub">
-              Du {fmtIso(jours[0])} au {fmtIso(fin)}{g.brouillons ? ` · ${plural(g.brouillons, 'créneau à publier', 'créneaux à publier')}` : ''}{planif ? '' : ' · consultation'}
+              {t('From #date-cap')}{fmtIso(jours[0])}{t(' to #date')}{fmtIso(fin)}{g.brouillons ? ` · ${tn(g.brouillons, 'slot to publish', 'slots to publish')}` : ''}{planif ? '' : t(' · read only')}
             </div>
           </div>
           <div className="actions-end" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
-            <label className="sr-only" htmlFor="plan-equipe">Équipe</label>
+            <label className="sr-only" htmlFor="plan-equipe">{t('Team')}</label>
             <select className="input" id="plan-equipe" value={equipe} onChange={e => setUi({ planEquipe: e.target.value })} style={{ minWidth: 160 }}>
               {equipes.map(q => <option key={q} value={q}>{q}</option>)}
             </select>
-            {planif && <Btn small icon={<CalendarPlusIcon size={14} />} onClick={() => openDialog({ type: 'planningGenerer', equipe, du: wk })}>Générer</Btn>}
-            {planif && <Btn small icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'planningCreneau', equipe, jour: wk < d.ti ? d.ti : wk, empId: null })}>Poste à pourvoir</Btn>}
-            {planif && <Btn variant="primary" small icon={<MegaphoneIcon size={14} />} onClick={() => openDialog({ type: 'planningPublier', equipe, du: wk, au: fin })}>Publier</Btn>}
+            {planif && <Btn small icon={<CalendarPlusIcon size={14} />} onClick={() => openDialog({ type: 'planningGenerer', equipe, du: wk })}>{t('Generate')}</Btn>}
+            {planif && <Btn small icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'planningCreneau', equipe, jour: wk < d.ti ? d.ti : wk, empId: null })}>{t('Shift to fill')}</Btn>}
+            {planif && <Btn variant="primary" small icon={<MegaphoneIcon size={14} />} onClick={() => openDialog({ type: 'planningPublier', equipe, du: wk, au: fin })}>{t('Publish')}</Btn>}
           </div>
         </div>
       }>
-        {hist?.erreur ? <Empty pad="sm">Historique illisible : {hist.erreur}</Empty>
-          : enAttente ? <Empty pad="sm">Période hors des semaines chargées : lecture de l’historique…</Empty>
-          : g.lignes.length === 0 ? <Empty pad="sm">Aucun salarié dans cette équipe sur la période.</Empty> : (
+        {hist?.erreur ? <Empty pad="sm">{t('History unreadable: ')}{hist.erreur}</Empty>
+          : enAttente ? <Empty pad="sm">{t('Period outside the weeks loaded: reading the history…')}</Empty>
+          : g.lignes.length === 0 ? <Empty pad="sm">{t('No employee in this team over the period.')}</Empty> : (
           <div className="scroll-x">
             <GrilleEquipe key={`${equipe}|${wk}`} jours={jours} lignes={g.lignes} couverture={g.couverture} ti={d.ti} ouvrir={ouvrir} />
           </div>
         )}
         <Fine>
-          {hors && 'Période hors des semaines chargées avec l’écran (8 semaines passées, 12 à venir) : postes lus dans l’historique. '}
-          Lettre de chaque case : code de l’horaire (R : repos{planif ? ', A : absent, sans la nature de l’absence' : ''}) ; * : brouillon ou modification à publier, que
-          le salarié ne voit pas encore{planif ? ' ; ! : conflit avec une mission ou une tâche Keystone, une session de formation ou une astreinte, ou habilitation exigée non valide à la date du poste (détail de la case), sans blocage' : ''}.
-          Couverture : postes planifiés du jour sur le besoin minimal de l’équipe (Référentiels → Besoins de poste), « ! » quand il n’est pas couvert ou qu’un
-          horaire n’a pas le minimum de secouristes ou d’équipiers d’intervention de l’équipe (Référentiels → Postes){planif ? ', absents retirés' : ''}. Le planning
-          reste une prévision : les heures réellement faites se déclarent sur la feuille de temps.
+          {hors && t('Period outside the weeks loaded with the screen (8 past weeks, 12 to come): shifts read in the history. ')}
+          {t('Letter of each cell: code of the schedule (R: rest')}{planif ? t(', A: absent, without the nature of the absence') : ''}{t('); *: draft or change to publish, which the employee does not see yet')}{planif ? t('; !: conflict with a Keystone assignment or task, a training session or an on-call duty, or required authorisation not valid at the date of the shift (detail of the cell), without blocking') : ''}{t('. Coverage: shifts planned for the day over the minimum need of the team (Reference data → Job needs), “!” when it is not covered or a schedule does not have the minimum of first-aiders or response team members of the team (Reference data → Jobs)')}{planif ? t(', absent removed') : ''}{t('. The planning stays a forecast: the hours actually worked are declared on the timesheet.')}
         </Fine>
       </Panel>
 
       {planif && !hors && <HabilitationsPlanifieesPanel equipe={equipe} />}
 
       {echanges.length > 0 && (
-        <Panel title="Échanges de poste" aside={plural(echanges.filter(e => e.statut === 'accepte').length, 'à valider', 'à valider')}>
+        <Panel title={t('Shift swaps')} aside={tn(echanges.filter(e => e.statut === 'accepte').length, 'to approve#count', 'to approve#count-plural')}>
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Salariés</th><th>Postes</th><th>État</th><th></th></tr></thead>
+              <thead><tr><th>{t('Employees#salaries')}</th><th>{t('Shifts')}</th><th>{t('State')}</th><th></th></tr></thead>
               <tbody>
                 {echanges.map(e => {
                   const a = (d.ds.creneaux ?? []).find(c => c.id === e.creneauDemandeur), b = e.creneauPartenaire ? (d.ds.creneaux ?? []).find(c => c.id === e.creneauPartenaire) : null;
                   return (
                     <tr key={e.id}>
-                      <td><Two main={`${d.personName(e.demandeurId)} → ${d.personName(e.partenaireId)}`} sub={b ? 'échange' : 'cession'} /></td>
-                      <td className="sub">{a ? `${jourCourt(a.jour)} · ${posteTexte(a)}` : '—'}{b ? ` contre ${jourCourt(b.jour)} · ${posteTexte(b)}` : ''}</td>
+                      <td><Two main={`${d.personName(e.demandeurId)} → ${d.personName(e.partenaireId)}`} sub={b ? t('swap') : t('transfer#cession')} /></td>
+                      <td className="sub">{a ? `${jourCourt(a.jour)} · ${posteTexte(a)}` : '—'}{b ? `${t(' against ')}${jourCourt(b.jour)} · ${posteTexte(b)}` : ''}</td>
                       <td><Tag cls={e.statut === 'accepte' ? 'tag-accent' : 'tag-neutral'}>{STATUT_ECHANGE[e.statut]}</Tag></td>
                       <td className="right">
-                        {e.statut === 'accepte' && valideur(e) && <button type="button" className="btn btn-secondary btn-sm" onClick={() => openDialog({ type: 'planningEchangeValider', id: e.id })}>Examiner</button>}
+                        {e.statut === 'accepte' && valideur(e) && <button type="button" className="btn btn-secondary btn-sm" onClick={() => openDialog({ type: 'planningEchangeValider', id: e.id })}>{t('Examine')}</button>}
                       </td>
                     </tr>
                   );
@@ -230,19 +227,19 @@ export function PlanningEquipe() {
         </Panel>
       )}
 
-      <Panel title="Affectations au roulement" aside={planif ? <Btn small icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'planningRoulement', equipe })}>Affecter</Btn> : undefined}>
-        {roulements.length === 0 ? <Empty pad="sm">Aucun salarié de l’équipe affecté à un cycle : le planning se génère d’après ces affectations.</Empty> : (
+      <Panel title={t('Assignments to the rotation')} aside={planif ? <Btn small icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'planningRoulement', equipe })}>{t('Assign')}</Btn> : undefined}>
+        {roulements.length === 0 ? <Empty pad="sm">{t('No employee of the team assigned to a cycle: the planning is generated from these assignments.')}</Empty> : (
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Salarié</th><th>Cycle</th><th>Groupe</th><th>Période</th><th></th></tr></thead>
+              <thead><tr><th>{t('Employee#salarie')}</th><th>{t('Cycle')}</th><th>{t('Group')}</th><th>{t('Period')}</th><th></th></tr></thead>
               <tbody>
                 {roulements.map(r => (
                   <tr key={r.id}>
                     <td>{d.personName(r.empId)}</td>
                     <td>{r.cycle}</td>
                     <td>{r.groupe}</td>
-                    <td className="nowrap">depuis le {fmtIso(r.du)}{r.au ? ` jusqu’au ${fmtIso(r.au)}` : ''}</td>
-                    <td className="right">{planif && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'planningRoulement', equipe, id: r.id })}>Terminer</button>}</td>
+                    <td className="nowrap">{t('since #date')}{fmtIso(r.du)}{r.au ? `${t(' until ')}${fmtIso(r.au)}` : ''}</td>
+                    <td className="right">{planif && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'planningRoulement', equipe, id: r.id })}>{t('End#verb')}</button>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -251,19 +248,19 @@ export function PlanningEquipe() {
         )}
       </Panel>
 
-      <Panel title="Versions publiées et affichage" aside={<div className="actions-end">
-        <Btn small icon={<PrinterIcon size={14} />} disabled={enAttente} onClick={imprimer}>Imprimer l’affichage</Btn>
-        <Btn small icon={<ExportIcon size={14} />} disabled={enAttente} onClick={exporter}>Exporter (CSV)</Btn>
+      <Panel title={t('Published versions and display')} aside={<div className="actions-end">
+        <Btn small icon={<PrinterIcon size={14} />} disabled={enAttente} onClick={imprimer}>{t('Print the display')}</Btn>
+        <Btn small icon={<ExportIcon size={14} />} disabled={enAttente} onClick={exporter}>{t('Export (CSV)')}</Btn>
       </div>}>
-        {publications.length === 0 ? <Empty pad="sm">Aucune version publiée pour cette équipe.</Empty> : (
+        {publications.length === 0 ? <Empty pad="sm">{t('No version published for this team.')}</Empty> : (
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Version</th><th>Période</th><th>Publiée</th><th className="right">Créneaux</th><th className="right">Hors délai</th></tr></thead>
+              <thead><tr><th>{t('Version')}</th><th>{t('Period')}</th><th>{t('Published#fem')}</th><th className="right">{t('Slots')}</th><th className="right">{t('Late#delai')}</th></tr></thead>
               <tbody>
                 {publications.map(p => (
                   <tr key={p.id}>
                     <td className="tnum">{p.version}</td>
-                    <td className="nowrap">du {fmtIso(p.du)} au {fmtIso(p.au)}</td>
+                    <td className="nowrap">{t('from #date')}{fmtIso(p.du)}{t(' to #date')}{fmtIso(p.au)}</td>
                     <td><Two main={fmtIso(p.communiqueLe)} sub={p.publiePar} /></td>
                     <td className="right tnum">{p.creneaux}</td>
                     <td className="right tnum">{p.horsDelai || '—'}</td>
@@ -274,10 +271,7 @@ export function PlanningEquipe() {
           </div>
         )}
         <Fine>
-          Affichage réglementaire (art. D3171-7) : horaire collectif de l’équipe et composition nominative des équipes successives sur les deux semaines affichées,
-          d’après les postes publiés — à afficher ou à tenir en registre. Les versions publiées sont gardées au moins un an pour l’inspection du travail
-          (art. D3171-16) : reculez la semaine dans l’en-tête de l’écran pour afficher, imprimer ou exporter une période plus ancienne (lue dans
-          l’historique).
+          {t('Regulatory display (art. D3171-7): collective schedule of the team and nominative composition of the successive teams over the two weeks shown, from the published shifts — to post or keep in a register. The published versions are kept at least one year for the labour inspectorate (art. D3171-16): go back a week in the screen header to show, print or export an older period (read in the history).')}
         </Fine>
       </Panel>
     </>

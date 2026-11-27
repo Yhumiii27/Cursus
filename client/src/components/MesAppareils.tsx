@@ -17,6 +17,7 @@ import { abonnementActuel, abonnementDuCompte, activerNotifications, desactiverN
 import { useAgir } from '../state/actions.ts';
 import { useStore } from '../state/store.tsx';
 import { Btn, Fine, NoteAccent, Panel, Tag } from './ui.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 export function MesAppareils() {
   const { run, notify, horsLigne: hl } = useStore();
@@ -50,35 +51,35 @@ export function MesAppareils() {
     ev.preventDefault();
     agir(async () => { await run('push.preferences', { types: types ?? [] }); await charger(); })();
   };
-  const basculer = (t: string, oui: boolean) => setTypes(l => oui ? [...new Set([...(l ?? []), t])] : (l ?? []).filter(x => x !== t));
+  const basculer = (ty: string, oui: boolean) => setTypes(l => oui ? [...new Set([...(l ?? []), ty])] : (l ?? []).filter(x => x !== ty));
   const partage = agir(async () => { await hl.definirPartage(!hl.partage); await charger(); });
 
   return (
-    <Panel title="Mes appareils" aside={etat.appareils.length ? <Tag cls="tag-neutral">{etat.appareils.length} abonné{etat.appareils.length > 1 ? 's' : ''}</Tag> : undefined}>
+    <Panel title={t('My devices')} aside={etat.appareils.length ? <Tag cls="tag-neutral">{tn(etat.appareils.length, 'subscribed#device', 'subscribed#devices')}</Tag> : undefined}>
       {!etat.active ? (
-        <Fine>Les notifications sur le téléphone ne sont pas activées sur ce serveur.</Fine>
+        <Fine>{t('Phone notifications are not activated on this server.')}</Fine>
       ) : hl.partage ? (
-        <div style={{ fontSize: 14 }}>Appareil partagé : aucune notification ni saisie gardée hors ligne sur cet appareil.</div>
+        <div style={{ fontSize: 14 }}>{t('Shared device: no notification nor entry kept offline on this device.')}</div>
       ) : !possible ? (
-        <Fine>Ce navigateur ne reçoit pas de notifications ici. Sur iPhone ou iPad, installez d’abord Cursus sur l’écran d’accueil (iOS 16.4 ou plus récent), puis ouvrez-le depuis l’icône.</Fine>
+        <Fine>{t('This browser does not receive notifications here. On iPhone or iPad, first install Cursus on the Home Screen (iOS 16.4 or later), then open it from the icon.')}</Fine>
       ) : (
         <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center' }}>
           {ici
-            ? <><Tag cls="tag-neutral">Notifications activées sur cet appareil</Tag><Btn small disabled={occupe} onClick={desactiver}>Désactiver sur cet appareil</Btn></>
-            : <Btn small variant="primary" disabled={occupe} onClick={activer}>Recevoir les notifications sur cet appareil</Btn>}
-          {etat.appareils.length > 0 && <Btn small disabled={occupe} onClick={agir(async () => { await run('push.tester'); })}>Envoyer une notification d’essai</Btn>}
+            ? <><Tag cls="tag-neutral">{t('Notifications activated on this device')}</Tag><Btn small disabled={occupe} onClick={desactiver}>{t('Deactivate on this device')}</Btn></>
+            : <Btn small variant="primary" disabled={occupe} onClick={activer}>{t('Receive the notifications on this device')}</Btn>}
+          {etat.appareils.length > 0 && <Btn small disabled={occupe} onClick={agir(async () => { await run('push.tester'); })}>{t('Send a test notification')}</Btn>}
         </div>
       )}
       {etat.active && etat.appareils.length > 0 && types && (
-        <form onSubmit={enregistrer} className="choix-notifications" aria-label="Notifications reçues">
-          <span className="text-muted sub">Notifications reçues sur tous vos appareils (aucune tant que rien n’est coché) :</span>
-          {TYPES_PUSH.map(t => (
-            <label key={t} className="check-row">
-              <input type="checkbox" checked={types.includes(t)} onChange={e => basculer(t, e.target.checked)} />
-              <span>{NOTIFICATIONS_PUSH[t].titre}</span>
+        <form onSubmit={enregistrer} className="choix-notifications" aria-label={t('Notifications received')}>
+          <span className="text-muted sub">{t('Notifications received on all your devices (none as long as nothing is ticked):')}</span>
+          {TYPES_PUSH.map(ty => (
+            <label key={ty} className="check-row">
+              <input type="checkbox" checked={types.includes(ty)} onChange={e => basculer(ty, e.target.checked)} />
+              <span>{NOTIFICATIONS_PUSH[ty].titre}</span>
             </label>
           ))}
-          <div><Btn small type="submit" disabled={occupe}>Enregistrer mes choix</Btn></div>
+          <div><Btn small type="submit" disabled={occupe}>{t('Save my choices')}</Btn></div>
         </form>
       )}
       {etat.appareils.length > 0 && (
@@ -86,18 +87,18 @@ export function MesAppareils() {
           {etat.appareils.map(a => (
             <li key={a.id}>
               <div className="grow">
-                <div>{a.appareil ?? 'Appareil'}</div>
-                <div className="text-muted sub">Ajouté le {fmtIso(a.creation.slice(0, 10))}{a.dernierSucces ? ` · dernière notification le ${fmtIso(a.dernierSucces.slice(0, 10))}` : ''}</div>
+                <div>{a.appareil ?? t('Device')}</div>
+                <div className="text-muted sub">{t('Added on #masc')}{fmtIso(a.creation.slice(0, 10))}{a.dernierSucces ? `${t(' · last notification on ')}${fmtIso(a.dernierSucces.slice(0, 10))}` : ''}</div>
               </div>
-              <Btn small disabled={occupe} onClick={retirer(a.id)}>Retirer</Btn>
+              <Btn small disabled={occupe} onClick={retirer(a.id)}>{t('Remove')}</Btn>
             </li>
           ))}
         </ul>
       )}
-      {etat.active && <NoteAccent>Notifications sans nom ni date (elles s’affichent sur l’écran verrouillé) ; aucune de {SILENCE_PUSH.debut} h à {SILENCE_PUSH.fin} h ni le week-end : elles partent le jour ouvré suivant.</NoteAccent>}
+      {etat.active && <NoteAccent>{t('Notifications without name nor date (they are shown on the lock screen); none from ')}{SILENCE_PUSH.debut}{t(' h to ')}{SILENCE_PUSH.fin}{t(' h nor at the weekend: they go on the next working day.')}</NoteAccent>}
       <label className="check-row">
         <input type="checkbox" checked={hl.partage} disabled={occupe} onChange={partage} />
-        <span>Appareil partagé (tablette d’atelier ou de chantier) : ne rien garder sur cet appareil</span>
+        <span>{t('Shared device (workshop or worksite tablet): keep nothing on this device')}</span>
       </label>
     </Panel>
   );

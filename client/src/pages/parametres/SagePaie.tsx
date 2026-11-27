@@ -1,11 +1,12 @@
 // Paramètres → Sage Paie : mode réel de la transmission (simulation ou fichier d'import), rubriques transmises et leur
 // code Sage (réglés dans l'écran Temps, où la paie y a accès), dernier lot de paie (historique complet : écran Temps).
-import { fmtIso, plural } from '../../../../shared/format.ts';
+import { fmtIso } from '../../../../shared/format.ts';
 import { STATUTS_LOT } from '../../../../shared/rules/lots-paie.ts';
 import { MODES_SAGE, periodeLabel, rubriquesPaie } from '../../../../shared/rules/paie.ts';
 import { Fine, Panel, SectionLabel, Tag } from '../../components/ui.tsx';
 import { useData, useStore } from '../../state/store.tsx';
 import { MONO, type SectionProps } from './commun.ts';
+import { t, tn } from '../../i18n/langue.ts';
 
 export function SagePaie(_: SectionProps) {
   const data = useData();
@@ -15,33 +16,33 @@ export function SagePaie(_: SectionProps) {
   const rubriques = rubriquesPaie(data.rubriquesPaie);
   const aConfirmer = rubriques.filter(r => r.active && !r.confirmee).length;
   return (
-    <Panel title="Sage Paie" aside={<Tag cls={mode === 'simulation' ? 'tag-outline' : 'tag-neutral'}>{MODES_SAGE[mode].label}</Tag>}>
+    <Panel title={t('Sage Paie')} aside={<Tag cls={mode === 'simulation' ? 'tag-outline' : 'tag-neutral'}>{MODES_SAGE[mode].label}</Tag>}>
       <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>
-        {MODES_SAGE[mode].aide} Intérimaires exclus (relevé envoyé à l’agence). Mode choisi par le service informatique (SAGE_MODE).
+        {MODES_SAGE[mode].aide}{t(' Temps excluded (statement sent to the agency). Mode chosen by the IT department (SAGE_MODE).')}
       </p>
-      <SectionLabel>Rubriques transmises</SectionLabel>
+      <SectionLabel>{t('Items transmitted')}</SectionLabel>
       <div className="scroll-x">
         <table className="table">
-          <thead><tr><th>Rubrique</th><th>Contenu</th><th>Code Sage</th></tr></thead>
+          <thead><tr><th>{t('Item#rubrique')}</th><th>{t('Content')}</th><th>{t('Sage code')}</th></tr></thead>
           <tbody>
             {rubriques.map(r => (
               <tr key={r.code}>
                 <td className="nowrap" style={MONO}>{r.code}</td>
                 <td className="text-muted" style={{ fontSize: 13 }}>{r.label}</td>
-                <td className="nowrap" style={MONO}>{r.active ? `${r.codeSage}${r.confirmee ? '' : ' (à confirmer)'}` : 'non exportée'}</td>
+                <td className="nowrap" style={MONO}>{r.active ? `${r.codeSage}${r.confirmee ? '' : t(' (to be confirmed)')}` : t('not exported#fem')}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
       <Fine>
-        Codes du plan de paie saisis et confirmés par l’administrateur RH ou le gestionnaire de paie dans l’écran Temps de travail
-        {aConfirmer ? ` : ${plural(aConfirmer, 'rubrique', 'rubriques')} à confirmer, seule la simulation est possible tant qu’une rubrique utilisée ne l’est pas.` : '.'}
+        {t('Codes of the payroll plan entered and confirmed by the HR administrator or the payroll manager in the Working time screen')}
+        {aConfirmer ? `${t(': ')}${tn(aConfirmer, 'item', 'items')}${t(' to confirm, only the simulation is possible as long as an item used is not.')}` : '.'}
       </Fine>
       <Fine>
         {lot
-          ? `Dernier lot de paie : n° ${lot.id}${lot.mode === 'simulation' ? ' (simulation)' : ''}, ${periodeLabel(lot.periode)}, ${STATUTS_LOT[lot.statut].label.toLowerCase()} · généré le ${fmtIso(lot.creation.slice(0, 10))} · ${plural(lot.feuilles.length, 'feuille', 'feuilles')}. Historique, fichier d’import et confirmation de l’import : écran Temps de travail.`
-          : 'Aucun lot de paie pour le moment.'}
+          ? `${t('Last payroll batch: no. ')}${lot.id}${lot.mode === 'simulation' ? t(' (simulation)') : ''}, ${periodeLabel(lot.periode)}, ${STATUTS_LOT[lot.statut].label.toLowerCase()}${t(' · generated on ')}${fmtIso(lot.creation.slice(0, 10))} · ${tn(lot.feuilles.length, 'timesheet#count', 'timesheets#count')}${t('. History, import file and confirmation of the import: Working time screen.')}`
+          : t('No payroll batch for now.')}
       </Fine>
     </Panel>
   );

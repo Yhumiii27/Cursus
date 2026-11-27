@@ -11,10 +11,15 @@ import { matriculesImprimes, printDocument, type PrintSection } from '../print.t
 // lot 12 — C3 (entretiens suivis) : objectifs et souhaits de formation imprimés après les sections rédigées.
 import { annexeFeedback360, sectionsSuivi } from './compteRendu-suivi.ts';
 import { objectifsDuCompteRendu, TYPES_FIXATION } from '../../../shared/rules/objectifs.ts';
+import { t } from '../i18n/langue.ts';
 
-export const FIN_CARRIERE: EntSection = ['fincarriere', 'Fin de carrière : maintien dans l’emploi, aménagements souhaités', 'sal'];
-export const INFO_LABEL = 'Information remise : CPF, VAE, conseil en évolution professionnelle (CEP), abondement employeur';
-export const whoLabel = (who: EntSection[2]) => who === 'mgr' ? 'Évaluateur' : 'Salarié';
+// Libellés en sources anglaises (CU-N01) : FIN_CARRIERE et INFO_LABEL se traduisent au rendu (`libelleSection`, `t(INFO_LABEL)`) ;
+// les autres sections viennent de shared/constants.ts (ENT_TYPES), en français.
+export const FIN_CARRIERE: EntSection = ['fincarriere', 'End of career: job retention, desired adjustments', 'sal'];
+export const INFO_LABEL = 'Information given: CPF, VAE, professional development advice (CEP), employer top-up';
+export const whoLabel = (who: EntSection[2]) => who === 'mgr' ? t('Evaluator') : t('Employee#salarie');
+/** Libellé affiché d'une section : la fin de carrière (propre à cet écran) traduite, les autres telles que shared/ les donne. */
+export const libelleSection = (k: string, label: string) => (k === FIN_CARRIERE[0] ? t(label) : label);
 
 /**
  * Sections du compte rendu : celles du type d'entretien, plus « fin de carrière » à partir de 58 ans. lot 12 — C3
@@ -38,25 +43,25 @@ export function imprimerCompteRendu(d: Domain, x: Entretien): boolean {
   const bilan = x.type === 'bilan' ? obligations(d, [e.id]).find(o => o.kind === 'bilan') : undefined;
   const remise = texteRemise(x);
   const doc: PrintSection[] = [
-    { title: 'Entretien', rows: [
-      ['Collaborateur', `${e.nom} — ${e.poste}, ${equipeLabel(e)}`],
-      ['Date de l’entretien', fmtIso(x.date)],
-      ['Évaluateur', evaluateur],
+    { title: t('Review#entretien'), rows: [
+      [t('Employee'), `${e.nom} — ${e.poste}, ${equipeLabel(e)}`],
+      [t('Date of the review'), fmtIso(x.date)],
+      [t('Evaluator'), evaluateur],
     ] },
-    { title: 'Base légale', text: T0.base },
-    ...(bilan ? [{ title: 'Contrôle automatique', text: bilan.detail }] : []),
-    ...sectionsDe(d, x).map(([k, label, who]) => ({ title: `${label} · ${whoLabel(who)}`, text: x.cr[k]?.trim() || 'Non renseigné' })),
+    { title: t('Legal basis'), text: T0.base },
+    ...(bilan ? [{ title: t('Automatic check'), text: bilan.detail }] : []),
+    ...sectionsDe(d, x).map(([k, label, who]) => ({ title: `${libelleSection(k, label)} · ${whoLabel(who)}`, text: x.cr[k]?.trim() || t('Not filled in') })),
     ...(['epp', 'reprise'].includes(x.type)
-      ? [{ title: 'Information du salarié', text: x.info ? `${INFO_LABEL}.` : 'Information sur le CPF, la VAE, le CEP et l’abondement employeur non remise.' }] : []),
+      ? [{ title: t('Information of the employee'), text: x.info ? `${t(INFO_LABEL)}.` : t('Information on the CPF, the VAE, the CEP and the employer top-up not given.') }] : []),
     // lot 12 — C3 (entretiens suivis)
     ...sectionsSuivi(d, x),
-    { title: 'Signatures', rows: [
-      ['Évaluateur', x.signMgr ? `${evaluateur} — signé le ${fmtIso(x.signMgr)}` : 'Non signé'],
-      ['Salarié', x.signSal ? `${e.nom} — signé le ${fmtIso(x.signSal)}` : 'Non signé par le salarié'],
-      ...(remise ? [['Remise de la copie', remise] as [string, string]] : []),
+    { title: t('Signatures'), rows: [
+      [t('Evaluator'), x.signMgr ? `${evaluateur}${t(' — signed on ')}${fmtIso(x.signMgr)}` : t('Not signed')],
+      [t('Employee#salarie'), x.signSal ? `${e.nom}${t(' — signed on ')}${fmtIso(x.signSal)}` : t('Not signed by the employee')],
+      ...(remise ? [[t('Handing over of the copy'), remise] as [string, string]] : []),
     ] },
     // lot 12 — C3 (feedback 360°, étape 3) : synthèse jointe, en annexe distincte.
     ...annexeFeedback360(x),
   ];
-  return printDocument(`${T0.nom} — compte rendu`, `${e.nom} · ${e.poste} · ${fmtIso(x.date)}${x.signSal ? '' : ' · non signé par le salarié'}`, doc, e.id, matriculesImprimes(e));
+  return printDocument(`${T0.nom}${t(' — report')}`, `${e.nom} · ${e.poste} · ${fmtIso(x.date)}${x.signSal ? '' : t(' · not signed by the employee')}`, doc, e.id, matriculesImprimes(e));
 }

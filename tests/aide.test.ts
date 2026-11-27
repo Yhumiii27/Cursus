@@ -89,12 +89,17 @@ test('groupe pilote : service RH, puis une équipe en horaires de journée, puis
   assert.match(GUIDE, /le service RH d'abord, puis une équipe pilote en horaires\s+de journée, puis tout le site/);
 });
 
-test('groupe pilote : comptes ouverts par un fichier réduit à l’équipe, libellé exact de la case, fiches modifiées signalées', () => {
+test('groupe pilote : comptes ouverts par un fichier réduit à l’équipe, libellé exact de la case, fiches modifiées signalées', async () => {
   // L'import écrit toutes les lignes du fichier et ne crée que des comptes Microsoft 365 (salariés avec une adresse) :
   // l'export complet ouvrirait tout le site, et une fiche corrigée dans Cursus reprendrait les valeurs de Lucca.
   const CASE = '« Créer les comptes Microsoft 365 à partir des adresses e-mail »';
+  // L'écran affiche la case par sa source anglaise (CU-N01) : la source figure dans l'écran et sa traduction française
+  // (client/src/i18n/fr.ts) est exactement le libellé que cite le guide.
+  const SOURCE = 'Create the Microsoft 365 accounts from the e-mail addresses';
   const ecran = readFileSync(join(ROOT, 'client/src/pages/MiseEnService.tsx'), 'utf8');
-  assert.ok(ecran.includes(CASE.slice(2, -2)), 'libellé de la case changé : guide à mettre à jour');
+  assert.ok(ecran.includes(`t('${SOURCE}')`), 'libellé de la case changé : guide à mettre à jour');
+  const { FR } = await import('../client/src/i18n/fr.ts');
+  assert.equal(FR[SOURCE], CASE.slice(2, -2), 'libellé français de la case changé : guide à mettre à jour');
   const etape = GUIDE_AIDE.find(p => p.id === 'pilote')!.rubriques[0].etapes![1];
   const md = GUIDE.slice(GUIDE.indexOf('2. **Équipe pilote'), GUIDE.indexOf('3. **Tout le site'));
   for (const [nom, t] of [['page Aide', etape], ['guide', md.replace(/\s+/g, ' ')]] as const) {

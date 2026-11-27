@@ -68,7 +68,7 @@ export async function inscrireActionsPaie(db: Db): Promise<number> {
 
 /**
  * Droits du rôle de purge sur le schéma de Cursus, ni plus ni moins : ceux que le socle de Matrix accorde sur le serveur
- * commun (demande docs/demandes/matrix-lot16-purge-journal.sql, `schema` = cursus, `base` = epc2i), et que les essais sur
+ * commun (demande docs/demandes/matrix-lot16-purge-journal.sql, `schema` = cursus, `base` = celle de la base commune, `atrium` ou son ancien nom), et que les essais sur
  * PostgreSQL accordent à leur schéma (tests/base.ts). Lecture des seules colonnes que la règle examine, jamais le contenu.
  */
 export function droitsPurgeSql(schema: string, base: string): string {

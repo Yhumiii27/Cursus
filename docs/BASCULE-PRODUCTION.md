@@ -10,7 +10,7 @@ avec ses critères et ses étapes de retour arrière. Elle s'appuie sur trois co
   `--url`, ce que voit un utilisateur à travers le proxy (docs/DEPLOIEMENT.md, « Vérification avant la mise en
   production ») ;
 - **`/api/health`** passe en `degrade` tant qu'un point reste à traiter (données de démonstration, aucun administrateur
-  RH, e-mails simulés, sauvegarde ancienne, secret qui expire, démonstration sur la base `epc2i`).
+  RH, e-mails simulés, sauvegarde ancienne, secret qui expire, démonstration sur la base `atrium`).
 
 Qui fait quoi : le **service informatique** (Coolify, Traefik, variables, sauvegardes), l'**administrateur RH**
 (premier compte, référentiels, reprise Lucca, page Confidentialité), le **propriétaire du projet** (décisions et
@@ -43,10 +43,10 @@ Une fois la base de production démarrée, deux règles deviennent bloquantes d'
 
 - le démarrage en production hors démonstration sur une base qui porte le réglage `demo`, des comptes du jeu de
   démonstration, des adresses `@entreprise.example` ou le lot de paie « Démonstration » est refusé ;
-- une démonstration (`CURSUS_DEMO=1`) sur la base `epc2i` est refusée dès que cette base porte le réglage
+- une démonstration (`CURSUS_DEMO=1`) sur la base `atrium` est refusée dès que cette base porte le réglage
   `exploitation` (premier démarrage en production) ou la trace de la purge (`purge.demo`).
 
-**Au jour J (étape J0-1 ci-dessous), la démonstration sur `epc2i` est interdite** : si l'application de démonstration y
+**Au jour J (étape J0-1 ci-dessous), la démonstration sur la base commune (`atrium`) est interdite** : si l'application de démonstration y
 était branchée, elle est déplacée en SQLite ou arrêtée avant la purge, jamais après.
 
 ## 2. Tableau des secrets
@@ -103,7 +103,7 @@ variables de l'application `cursus-prod` (jamais dans le dépôt ni dans l'image
    compte rendu (README de Matrix, « Restaurer le schéma d'un outil »).
 3. Domaine définitif, certificat, réglages Traefik du § 3, adresse IP du seul conteneur Traefik relevée (et fixée) pour
    `CURSUS_TRUST_PROXY`.
-4. Recette sur une instance de recette séparée (base ou schéma distincts : jamais `epc2i/cursus`).
+4. Recette sur une instance de recette séparée (base ou schéma distincts : jamais `atrium/cursus`).
 
 ### J-7 : application de production, sans la démarrer
 
@@ -118,7 +118,7 @@ variables de l'application `cursus-prod` (jamais dans le dépôt ni dans l'image
    la version de `package.json`, à mettre à jour à chaque version) ; après le premier déploiement, vérifier
    `docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }} {{ index .Config.Labels "org.opencontainers.image.revision" }}' <image>`.
    Puis variables de production (docs/DEPLOIEMENT.md, tableau des variables) : `DATABASE_URL` en `cursus_app` sur
-   `epc2i`, `CURSUS_PUBLIC_URL` en https, `CURSUS_TRUST_PROXY` à la seule adresse de Traefik (§ 3), secrets du § 2, aucune variable de
+   `atrium`, `CURSUS_PUBLIC_URL` en https, `CURSUS_TRUST_PROXY` à la seule adresse de Traefik (§ 3), secrets du § 2, aucune variable de
    démonstration (`CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_DEMO_COMMUN`, `CURSUS_TODAY`,
    `CURSUS_INSECURE_COOKIE`). Ne pas la démarrer.
 2. Dans un conteneur ponctuel de cette application : `npm run verifier-production -- --config-seule` → aucun bloquant.
@@ -140,7 +140,7 @@ variables de l'application `cursus-prod` (jamais dans le dépôt ni dans l'image
      vérifier que `droits.verifier()` ne renvoie aucune erreur ;
    - prévenir les lecteurs des vues `pub_` (Keystone, Vigie, Crucible, Codex, Matrix) qu'ils vident leurs copies des
      matricules EMP-0001 à EMP-0024 (§ 8).
-3. Retirer de l'application de démonstration toute `DATABASE_URL` vers `epc2i` : elle repart en SQLite, ou reste
+3. Retirer de l'application de démonstration toute `DATABASE_URL` vers la base commune (`atrium`) : elle repart en SQLite, ou reste
    arrêtée.
 
 ### J0 : mise en service
@@ -171,7 +171,7 @@ déploiement d'une nouvelle version de `cursus-prod`, et à chaque étape marqu�
 
 ```bash
 pg_dump --format=custom --schema=cursus --file=cursus-$(date +%Y%m%d-%H%M)-avant-deploiement.dump \
-  "postgres://cursus_app:<mot de passe>@epc2i-postgres:5432/epc2i"
+  "postgres://cursus_app:<mot de passe>@atrium-postgres:5432/atrium"
 sha256sum cursus-*-avant-deploiement.dump > cursus-avant-deploiement.sha256
 ```
 

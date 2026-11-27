@@ -21,12 +21,12 @@ const equipe = (nom: string, managerId: number | null, o: Partial<Equipe> = {}):
 const p = (id: number, nom: string, eq: string | null, poste = `Poste ${id}`): PersonneArbre => ({ id, nom, equipe: eq, poste });
 
 const ENTITES: Entite[] = [
-  entite('epc2i', { nom: 'EPC2I', siren: '552100554', ordre: 0, siteCode: 'pde' }),
-  entite('lyon', { nom: 'Lyon', type: 'etablissement', parente: 'epc2i', siret: '55210055400013', ordre: 1 }),
+  entite('siege', { nom: 'Société mère', siren: '552100554', ordre: 0, siteCode: 'pde' }),
+  entite('lyon', { nom: 'Lyon', type: 'etablissement', parente: 'siege', siret: '55210055400013', ordre: 1 }),
 ];
 const SITES: Site[] = [{ code: 'pde', libelle: 'PDE', actif: true, ordre: 0 }, { code: 'lab67', libelle: 'Laboratoire 67', actif: true, ordre: 1 }];
 const EQUIPES: Equipe[] = [
-  equipe('Production', 3, { entite: 'epc2i', ordre: 0 }),
+  equipe('Production', 3, { entite: 'siege', ordre: 0 }),
   equipe('Maintenance', 12, { parente: 'Production', ordre: 1, siteCode: 'lab67', uniteCode: 'PRD-MAINT' }),
   equipe('Commercial', 9, { entite: 'lyon', ordre: 2 }),
   equipe('Orpheline', null, { ordre: 3 }),
@@ -62,12 +62,12 @@ test('sans filtre : l’arbre tel quel ; dépliage de départ (entités et équi
   const v = filtrerArbre(BRUT, EQUIPES, ENTITES, sansFiltre);
   assert.equal(v.entites, BRUT.entites);
   assert.equal(v.chemins.size, 0);
-  assert.deepEqual(depliageInitial(BRUT), [cleEntite('epc2i'), cleEquipe('Production'), cleEntite('lyon'), cleEquipe('Commercial'), cleEquipe('Orpheline')]);
-  assert.deepEqual(clesDepliables(BRUT), [cleEntite('epc2i'), cleEquipe('Production'), cleEquipe('Maintenance'), cleEntite('lyon'), cleEquipe('Commercial'), cleEquipe('Orpheline')]);
+  assert.deepEqual(depliageInitial(BRUT), [cleEntite('siege'), cleEquipe('Production'), cleEntite('lyon'), cleEquipe('Commercial'), cleEquipe('Orpheline')]);
+  assert.deepEqual(clesDepliables(BRUT), [cleEntite('siege'), cleEquipe('Production'), cleEquipe('Maintenance'), cleEntite('lyon'), cleEquipe('Commercial'), cleEquipe('Orpheline')]);
 });
 
 test('filtre d’entité : société avec ses établissements, ou l’établissement seul ; ni équipes sans entité ni salariés à affecter', () => {
-  const societe = filtrerArbre(BRUT, EQUIPES, ENTITES, { ...sansFiltre, entite: 'epc2i' });
+  const societe = filtrerArbre(BRUT, EQUIPES, ENTITES, { ...sansFiltre, entite: 'siege' });
   assert.deepEqual(nomsEquipes(societe), ['Production', 'Maintenance', 'Commercial']);
   assert.deepEqual(societe.sansEntite, []);
   assert.deepEqual(societe.aAffecter, []);
@@ -97,7 +97,7 @@ test('recherche : nom ou poste (accents et casse ignorés) ou nom d’équipe ; 
   assert.deepEqual([...v.trouves], [2]);
   assert.deepEqual(nomsEquipes(v), ['Production', 'Maintenance']);
   assert.deepEqual(v.entites[0].equipes[0].membres, []);
-  assert.deepEqual([...v.chemins].sort(), [cleEntite('epc2i'), cleEquipe('Maintenance'), cleEquipe('Production')].sort());
+  assert.deepEqual([...v.chemins].sort(), [cleEntite('siege'), cleEquipe('Maintenance'), cleEquipe('Production')].sort());
   const poste = filtrerArbre(BRUT, EQUIPES, ENTITES, { ...sansFiltre, recherche: 'OPERATEUR' });
   assert.deepEqual([...poste.trouves], [8]);
   // Équipe trouvée : tous ses membres, surlignés seulement s'ils correspondent eux-mêmes.
@@ -125,11 +125,11 @@ test('CSV : une ligne par personne affichée, colonnes de l’annuaire et struct
   assert.equal(x.fichier, 'organigramme-2026-10-10.csv');
   assert.deepEqual(x.head, ENTETE_CSV_ORGANIGRAMME);
   assert.deepEqual(x.rows, [
-    ['EPC2I', '', 'PDE', 'Production', 'Production', 'Sophie Lemaire', 'Cheffe d’équipe', 'Sophie Lemaire', 'Service RH'],
-    ['EPC2I', '', 'PDE', 'Production', 'Production', 'Julien Moreau', 'Opérateur de ligne', 'Sophie Lemaire', 'Sophie Lemaire'],
-    ['EPC2I', '', 'Laboratoire 67', 'Production › Maintenance', 'Maintenance', 'Karim Haddad', 'Responsable maintenance', 'Karim Haddad', 'Sophie Lemaire'],
-    ['EPC2I', '', 'Laboratoire 67', 'Production › Maintenance', 'Maintenance', 'Mehdi Benali', 'Technicien de maintenance', 'Karim Haddad', 'Karim Haddad'],
-    ['EPC2I', 'Lyon', '', 'Commercial', 'Commercial', 'Nadia Kaci', 'Responsable grands comptes', 'Nadia Kaci', 'Service RH'],
+    ['Société mère', '', 'PDE', 'Production', 'Production', 'Sophie Lemaire', 'Cheffe d’équipe', 'Sophie Lemaire', 'Service RH'],
+    ['Société mère', '', 'PDE', 'Production', 'Production', 'Julien Moreau', 'Opérateur de ligne', 'Sophie Lemaire', 'Sophie Lemaire'],
+    ['Société mère', '', 'Laboratoire 67', 'Production › Maintenance', 'Maintenance', 'Karim Haddad', 'Responsable maintenance', 'Karim Haddad', 'Sophie Lemaire'],
+    ['Société mère', '', 'Laboratoire 67', 'Production › Maintenance', 'Maintenance', 'Mehdi Benali', 'Technicien de maintenance', 'Karim Haddad', 'Karim Haddad'],
+    ['Société mère', 'Lyon', '', 'Commercial', 'Commercial', 'Nadia Kaci', 'Responsable grands comptes', 'Nadia Kaci', 'Service RH'],
     ['', '', '', 'Orpheline', 'Orpheline', 'Paul Seul', 'Poste 20', '', 'Service RH'],
     ['', '', '', '', 'À affecter', 'Sans Équipe', 'Poste 30', '', 'Service RH'],
   ]);
@@ -137,14 +137,14 @@ test('CSV : une ligne par personne affichée, colonnes de l’annuaire et struct
   // Filtre sur un établissement seul : la société parente reste dans la colonne « Société » (registre, OPCO, DSN par SIRET).
   const etab = filtrerArbre(BRUT, EQUIPES, ENTITES, { ...sansFiltre, entite: 'lyon' });
   assert.deepEqual(lignesOrganigramme(etab, { equipes: EQUIPES, entites: ENTITES, sites: SITES, nom: noms }).map(l => [l.societe, l.etablissement, l.nom]),
-    [['EPC2I', 'Lyon', 'Nadia Kaci']]);
+    [['Société mère', 'Lyon', 'Nadia Kaci']]);
   assert.equal(csvOrganigramme(T, [], 'lyon').fichier, 'organigramme-lyon-2026-10-10.csv');
 });
 
 test('impression : une section par entité (société, puis chaque établissement), arbre imbriqué, mention de l’état', () => {
   const noms = (id: number) => ANNUAIRE.find(x => x.id === id)?.nom ?? '';
   const s = sectionsImpression(BRUT, { equipes: EQUIPES, entites: ENTITES, sites: SITES, nom: noms });
-  assert.deepEqual(s.map(x => x.titre), ['EPC2I', 'Lyon (EPC2I)', 'Équipes sans entité', 'À affecter']);
+  assert.deepEqual(s.map(x => x.titre), ['Société mère', 'Lyon (Société mère)', 'Équipes sans entité', 'À affecter']);
   assert.match(s[0].sousTitre, /^Société · 5 pers\.$/);
   assert.match(s[1].sousTitre, /SIRET 552 100 554 00013/);
   const production = s[0].arbre[0];
@@ -154,16 +154,16 @@ test('impression : une section par entité (société, puis chaque établissemen
   assert.equal(production.enfants![0].detail, 'Cheffe d’équipe · manager');
   assert.ok(!JSON.stringify(s).includes('Intérim'), 'aucune étiquette de contrat imprimée');
   // Société sans équipe propre mais avec un établissement : pas de page vide.
-  const seul = arbre([entite('epc2i', { nom: 'EPC2I' }), ENTITES[1]], [equipe('Commercial', 9, { entite: 'lyon' })], ANNUAIRE, [], T);
-  assert.deepEqual(sectionsImpression(seul, { equipes: [], entites: ENTITES, sites: SITES, nom: noms }).map(x => x.titre), ['Lyon (EPC2I)']);
+  const seul = arbre([entite('siege', { nom: 'Société mère' }), ENTITES[1]], [equipe('Commercial', 9, { entite: 'lyon' })], ANNUAIRE, [], T);
+  assert.deepEqual(sectionsImpression(seul, { equipes: [], entites: ENTITES, sites: SITES, nom: noms }).map(x => x.titre), ['Lyon (Société mère)']);
   // Filtre sur un établissement seul : le titre garde la société parente.
   const etab = filtrerArbre(BRUT, EQUIPES, ENTITES, { ...sansFiltre, entite: 'lyon' });
-  assert.deepEqual(sectionsImpression(etab, { equipes: EQUIPES, entites: ENTITES, sites: SITES, nom: noms }).map(x => x.titre), ['Lyon (EPC2I)']);
+  assert.deepEqual(sectionsImpression(etab, { equipes: EQUIPES, entites: ENTITES, sites: SITES, nom: noms }).map(x => x.titre), ['Lyon (Société mère)']);
   // Société ouverte sans équipe ni établissement (créée dans Référentiels → Entités et sites) : pas de page blanche.
   const vide = arbre([...ENTITES, entite('filiale', { nom: 'Filiale vide', ordre: 2 })], EQUIPES, ANNUAIRE, [], T, { rh: true });
   assert.ok(vide.entites.some(n => n.code === 'filiale'), 'l’entité ouverte vide reste dans l’arbre');
   assert.deepEqual(sectionsImpression(vide, { equipes: EQUIPES, entites: ENTITES, sites: SITES, nom: noms }).map(x => x.titre),
-    ['EPC2I', 'Lyon (EPC2I)', 'Équipes sans entité', 'À affecter']);
+    ['Société mère', 'Lyon (Société mère)', 'Équipes sans entité', 'À affecter']);
   assert.equal(mentionEtat(T), 'Document interne — état au 10/10/2026');
 });
 

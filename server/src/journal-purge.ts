@@ -68,7 +68,7 @@ export async function inscrireActionsPaie(db: Db): Promise<number> {
 
 /**
  * Droits du rôle de purge sur le schéma de Cursus, ni plus ni moins : ceux que le socle de Matrix accorde sur le serveur
- * commun (demande docs/demandes/matrix-lot16-purge-journal.sql, `schema` = cursus, `base` = epc2i), et que les essais sur
+ * commun (demande docs/demandes/matrix-lot16-purge-journal.sql, `schema` = cursus, `base` = celle de la base commune, `atrium` ou son ancien nom), et que les essais sur
  * PostgreSQL accordent à leur schéma (tests/base.ts). Lecture des seules colonnes que la règle examine, jamais le contenu.
  */
 export function droitsPurgeSql(schema: string, base: string): string {
@@ -91,7 +91,7 @@ export function problemesPurge(env: Env = process.env): string[] {
   const url = urlPurge(env);
   if (!url) return [];
   if (!/^postgres(ql)?:\/\/[^\s]+$/i.test(url) || !URL.canParse(url)) {
-    return ['CURSUS_PURGE_DATABASE_URL n’est pas une adresse PostgreSQL valide : postgres://cursus_purge:<mot de passe>@<hôte>:5432/epc2i.'];
+    return ['CURSUS_PURGE_DATABASE_URL n’est pas une adresse PostgreSQL valide : postgres://cursus_purge:<mot de passe>@<hôte>:5432/atrium.'];
   }
   if (!(env.DATABASE_URL ?? '').trim()) {
     return ['CURSUS_PURGE_DATABASE_URL est définie sans DATABASE_URL : sur une base SQLite, la purge du journal se fait dans Cursus, sans rôle dédié. Retirez-la.'];

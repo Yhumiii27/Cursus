@@ -4,7 +4,7 @@
 // Référentiel unifié, matricules et écarts relevés : docs/DEMO-COMMUNE.md ; demandes aux autres outils :
 // docs/demandes/demo-commune-<outil>.md.
 // - `ajouterReferentielCommun` : sites de Matrix (lyon, le_havre, marseille) et des essais (lyon_essais, site_rd), entité
-//   EPC2I complétée, équipes existantes rattachées à un site et à une unité de Matrix, équipes des départements et des
+//   « Société mère » complétée, équipes existantes rattachées à un site et à une unité de Matrix, équipes des départements et des
 //   ateliers, fiches 25 à 81 (identifiants FIXES : EMP-0025 à EMP-0081 ; EMP-0001 à EMP-0024 ne bougent pas), comptes de
 //   démonstration, quelques certifications, projets de Keystone et affectations sur HLT-026. Idempotent (rejoué : rien
 //   n'est ajouté deux fois), dans une transaction, refusé sur une base qui ne porte pas le marqueur de démonstration
@@ -41,8 +41,8 @@ import { CREE_PAR_DEMO } from './seed.ts';
 export const REGLAGE_DEMO_COMMUN = 'demoCommun';
 /** Code de journal de l'ajout (libellé : shared/journal.ts) ; décomptes seulement, jamais un nom. */
 export const ACTION_DEMO_COMMUN = 'demo.commun';
-/** Domaine des adresses de démonstration des outils (Crucible, Vigie) ; Keystone garde ses adresses en @epc2i.fr. */
-export const DOMAINE_COMMUN = 'epc2i.example';
+/** Domaine fictif des adresses de démonstration de tous les outils (Keystone, Crucible, Vigie ; suite Atrium). */
+export const DOMAINE_COMMUN = 'atrium.example';
 /** Premier et dernier identifiant du référentiel commun (EMP-0025 à EMP-0081). */
 export const PREMIER_ID_COMMUN = 25;
 export const DERNIER_ID_COMMUN = 81;
@@ -149,7 +149,7 @@ export const EQUIPES_COMMUNES: readonly EquipeCommune[] = [
 
 type Personne = [id: number, nom: string, poste: string, equipe: string, statut: Statut, entree: string, naissance: number, sexe: Sexe, email: string | null, outils: string];
 
-const K = (nom: string) => `${identifiantSuggere(nom, 'local')}@epc2i.fr`;
+const K = (nom: string) => `${identifiantSuggere(nom, 'local')}@${DOMAINE_COMMUN}`;
 const I = (local: string) => `${local}@${DOMAINE_COMMUN}`;
 
 /** Fiches 25 à 81 ; outils : K Keystone, C Codex, V Vigie, Cr Crucible (docs/DEMO-COMMUNE.md). */
@@ -277,7 +277,7 @@ export interface PlanCommun {
   certifications: number;
   projets: string[];
   affectations: number;
-  /** Entité complétée (nom EPC2I, site lyon) : code, ou null. */
+  /** Entité complétée (nom « Société mère », site lyon) : code, ou null. */
   entite: string | null;
 }
 
@@ -366,7 +366,7 @@ export async function ajouterReferentielCommun(db: Db, maintenant = new Date()):
     for (const s of SITES_COMMUNS) if (plan.sites.includes(s.code)) await db.insert<Site>('sites', s);
     const entite = await entiteCible(db);
     if (entite && plan.entite) {
-      await db.update<Entite>('entites', entite.code, { ...(entite.nom === 'Entreprise' ? { nom: 'EPC2I' } : {}), ...(entite.siteCode ? {} : { siteCode: 'lyon' }) });
+      await db.update<Entite>('entites', entite.code, { ...(entite.nom === 'Entreprise' ? { nom: 'Société mère' } : {}), ...(entite.siteCode ? {} : { siteCode: 'lyon' }) });
       if (!entite.siteCode) pose.entite = { code: entite.code, siteCode: 'lyon' };
     }
     // 2. Équipes de la démonstration : site et unité de Matrix (un champ déjà posé par le service RH n'est jamais remplacé).

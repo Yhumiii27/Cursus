@@ -187,11 +187,11 @@ test('populations : critère, date d’effet, la plus récente l’emporte, excl
       { critere: 'equipe', valeur: 'Production', mode: 'calcule', effet: '2027-01-01' },
       { critere: 'regime', valeur: 'partiel', mode: 'controle', effet: '2026-06-01' },
       { critere: 'site', valeur: 'site_67', mode: 'controle', effet: '2026-01-01' },
-      { critere: 'entite', valeur: 'epc', mode: 'calcule', effet: '2026-01-01' },
+      { critere: 'entite', valeur: 'siege', mode: 'calcule', effet: '2026-01-01' },
     ],
   } as const;
   const equipes = [
-    { nom: 'Production', managerId: 1, parente: null, entite: 'epc', siteCode: null }, { nom: 'Ligne 2', managerId: 2, parente: 'Production' },
+    { nom: 'Production', managerId: 1, parente: null, entite: 'siege', siteCode: null }, { nom: 'Ligne 2', managerId: 2, parente: 'Production' },
     { nom: 'Labo', managerId: 3, parente: null, entite: null, siteCode: 'site_67' },
   ];
   const x = { settings: settings as never, equipes };

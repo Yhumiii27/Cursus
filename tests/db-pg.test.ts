@@ -32,8 +32,8 @@ test('paramètres ? traduits en $n, sauf dans les chaînes, les identifiants et 
 
 test('configuration : DATABASE_URL et CURSUS_PG_POOL contrôlées au démarrage, sans afficher l’adresse', () => {
   assert.deepEqual(problemesBase({}), []);
-  assert.deepEqual(problemesBase({ DATABASE_URL: 'postgres://cursus_app:secret@db:5432/epc2i', CURSUS_PG_POOL: '10' }), []);
-  const pbs = problemesBase({ DATABASE_URL: 'mysql://cursus_app:secret@db/epc2i', CURSUS_PG_POOL: '0' });
+  assert.deepEqual(problemesBase({ DATABASE_URL: 'postgres://cursus_app:secret@db:5432/atrium', CURSUS_PG_POOL: '10' }), []);
+  const pbs = problemesBase({ DATABASE_URL: 'mysql://cursus_app:secret@db/atrium', CURSUS_PG_POOL: '0' });
   assert.equal(pbs.length, 2);
   assert.ok(pbs.every(p => !p.includes('secret')), 'mot de passe jamais affiché');
   assert.ok(problemesConfig({ DATABASE_URL: 'pas une adresse' }).some(p => /DATABASE_URL/.test(p)));
@@ -352,7 +352,7 @@ const { creerCompte } = await import('../server/src/comptes.ts');
 test('pré-vol : serveur injoignable ou muet, refus sans afficher l’adresse', async () => {
   // Port fermé : refus immédiat.
   const ferme = await new Promise<number>(res => { const s = createServer().listen(0, '127.0.0.1', () => { const p = (s.address() as AddressInfo).port; s.close(() => res(p)); }); });
-  const refus = await ouvrirPgLecture(`postgres://cursus_app:S3cret@127.0.0.1:${ferme}/epc2i`).catch(e => e as Error);
+  const refus = await ouvrirPgLecture(`postgres://cursus_app:S3cret@127.0.0.1:${ferme}/atrium`).catch(e => e as Error);
   assert.ok(refus instanceof ConnexionImpossible);
   assert.match(refus.message, /^connexion au serveur PostgreSQL impossible \(/);
   assert.ok(!refus.message.includes('S3cret'));
@@ -362,7 +362,7 @@ test('pré-vol : serveur injoignable ou muet, refus sans afficher l’adresse', 
   await new Promise(r => muet.once('listening', r));
   try {
     const port = (muet.address() as AddressInfo).port;
-    const e = await ouvrirPgLecture(`postgres://cursus_app:x@127.0.0.1:${port}/epc2i`, { delaiMs: 200 }).catch(x => x as Error);
+    const e = await ouvrirPgLecture(`postgres://cursus_app:x@127.0.0.1:${port}/atrium`, { delaiMs: 200 }).catch(x => x as Error);
     assert.ok(e instanceof ConnexionImpossible);
     assert.equal(e.message, 'aucune réponse du serveur PostgreSQL en 0.2 s');
   } finally {
@@ -446,7 +446,7 @@ test('pré-vol sur le serveur : base de démonstration chargée bloquante, base 
       }
     };
     await creerCompte(ecriture, { type: 'local', identifiant: 'admin', nom: 'Rachel Martin', adresse: 'rachel.martin@entreprise.fr', profilRh: 'rh_admin' }, null);
-    await ecriture.setSetting('confidentialite', { responsable: 'EPC France', dpo: 'dpo@entreprise.fr' });
+    await ecriture.setSetting('confidentialite', { responsable: 'Filiale partenaire', dpo: 'dpo@entreprise.fr' });
     const vide = await controler();
     assert.deepEqual(vide.filter(c => c.niveau !== 'ok'), [], 'base vide avec un administrateur : conforme');
     await seedDemo(ecriture);

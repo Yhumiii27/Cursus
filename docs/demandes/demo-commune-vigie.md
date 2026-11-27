@@ -15,7 +15,7 @@ matricule ; Vigie doit rapprocher ses personnes des salariés de Cursus (source 
    (`jpetit`), EMP-0074 René Fontaine (`rfontaine`), EMP-0075 Émilie Dubois (`edubois`), EMP-0076 Laurent Moreau
    (`lmoreau`), EMP-0077 Stéphane Benali (`sbenali`), EMP-0078 Kevin Bernard (`kbernard`), EMP-0079 Céline Lefèvre
    (`clefevre`), EMP-0080 Henri Marchand (`hmarchand`), EMP-0081 Yves Lambert (`ylambert`, sorti : fin de CDD le
-   1er octobre 2026 dans Cursus). Adresses inchangées (`c.lefevre@epc2i.example`…), reprises par Cursus.
+   1er octobre 2026 dans Cursus). Adresses inchangées (`c.lefevre@atrium.example`…), reprises par Cursus.
 2. Sites : `ville-a` → `lyon` (hypothèse déjà notée par Matrix, à confirmer par le QHSE), `ville-b` (zone d'essais) →
    `lyon_essais` (code proposé ; à créer dans `matrix.sites`, voir `demo-commune-matrix.md`).
 3. Services → équipes de Cursus : Atelier montage, Atelier usinage, Zone d'essais, Magasin, Bureau d'études (mêmes noms) ;

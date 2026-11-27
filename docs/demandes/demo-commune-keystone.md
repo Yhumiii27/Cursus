@@ -24,8 +24,8 @@ démonstration n'attribue aucun matricule : le rapprochement ne se fait aujourd'
    Antoine Girard (comme Codex) ; prénoms des chefs de projet cités par initiale (« D. Imbert »…) : ceux du tableau.
 3. Responsables : Keystone désigne Sophie Renard à la tête de MEP et Ines Duarte à la tête de « Controls & planning » ;
    Codex désigne Pauline Noguès et Marie Lefebvre. Cursus a retenu Codex comme managers d'équipe : à trancher.
-4. Facultatif : adresses de démonstration en `@epc2i.example` (domaine réservé) au lieu de `@epc2i.fr`. Cursus garde
-   pour l'instant les adresses `@epc2i.fr` des personas, pour que le rapprochement par e-mail fonctionne.
+4. Facultatif : adresses de démonstration en domaine réservé (`@atrium.example` depuis le renommage de la suite, comme
+   Cursus), pour que le rapprochement par e-mail fonctionne.
 5. Les codes de projets du jeu de Cursus (`K-2614`, `K-2620`, `K-2611`, `K-2625`, `K-2631`, `K-2633`) sont inconnus de
    Keystone ; Cursus a ajouté HLT-026, NDC-031, RCF-019… à son cache. Facultatif : reprendre ces chantiers dans la
    démonstration de Keystone, ou les laisser propres à Cursus.

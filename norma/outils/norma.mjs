@@ -14,7 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** What a tool receives (relative to Norma's root). */
-export const DISTRIBUE = ['REGLES.md', 'VERSION', 'CHANGELOG.md', 'dependances.json', 'registre', 'charte', 'outils/norma.mjs', 'outils/pages', 'outils/questionnaire'];
+export const DISTRIBUE = ['REGLES.md', 'VERSION', 'CHANGELOG.md', 'dependances.json', 'registre', 'charte', 'contrats', 'outils/norma.mjs', 'outils/pages', 'outils/questionnaire'];
 const DOSSIER = 'norma';
 
 const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');

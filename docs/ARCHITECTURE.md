@@ -184,7 +184,7 @@ client/src/
   dialogs/         Un fichier par dialogue, rendus par DialogHost
   styles/          app.css (mise en page) et print.css ; la charte Nocturne (thèmes sombre et clair) est la copie de
                    Norma, norma/charte/nocturne.css, importée par main.tsx (jamais modifiée dans Cursus)
-  theme/           Affichage sombre / clair (Norma 1.0) : cookie epc2i-theme, attribut data-theme de <html> posé avant
+  theme/           Affichage sombre / clair (Norma 1.0) : cookie atrium-theme, attribut data-theme de <html> posé avant
                    le rendu par public/theme.js, sélecteur BoutonTheme (bas de la paire langue / affichage)
   i18n/            Langue de l'interface (Norma § 2, CU-N01) : chaînes sources anglaises, dictionnaire français (fr.ts),
                    moteur traduire.ts (repris d'Arche), cookie cursus-lang (français par défaut), sélecteur BoutonLangue
@@ -368,7 +368,7 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   avertissement), rôle absent, `CURSUS_TRUST_PROXY=true` ou un réseau en `/0`, et en démonstration publique les
   variables `CURSUS_MAIL_*`, `CURSUS_OIDC_*`, `SAGE_MODE` (hors simulation) et `SAGE_DOSSIER` ; puis, base accessible à d'autres comptes (« Exploitation »).
   Avertissements jamais bloquants (`avertissementsConfig`) : `MATRIX_URL` avec identifiants, démonstration connectée
-  en rôle `postgres`, démonstration sur la base `epc2i` (`demoSurBaseCommune`), liaisons d'une démonstration publique coupées sans `CURSUS_DEMO_LIAISONS=1`
+  en rôle `postgres`, démonstration sur la base `atrium` (`demoSurBaseCommune`), liaisons d'une démonstration publique coupées sans `CURSUS_DEMO_LIAISONS=1`
   (`liaisonsCoupees` : `keystoneSortant` et `declarerBase` inactifs). Les e-mails sont toujours simulés en démonstration
   (`configMail` renvoie null). `npm run comptes` et `npm run reprise-postgres` appellent aussi `verifierConfig` ; une
   commande qui prépare une démonstration à la production passe `{ reglesDemo: false }`.
@@ -619,7 +619,7 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     déclaration par `Db.jsonCle` ; leurs tests tournent sur les deux moteurs (`nouvelleBase()`), sauf les migrations
     nommées et le banc de rendu du client (SQLite).
 - **Accès à la base : PostgreSQL** (sous-étape 8.b, Matrix `docs/architecture-postgres.md` § 4 et § 8). Avec
-  `DATABASE_URL`, `openDb()` ouvre le serveur PostgreSQL commun EPC2I (base `epc2i`, rôle `cursus_app`, schéma
+  `DATABASE_URL`, `openDb()` ouvre le serveur PostgreSQL commun de la suite Atrium (base `atrium`, rôle `cursus_app`, schéma
   `cursus`) par l'adaptateur `PgDb` (`server/src/db-pg.ts`, pilote `pg`) ; sans elle, SQLite comme avant. Même API `Db` :
   le code applicatif ne sait pas sur quel moteur il tourne.
   - *Connexion.* Pool `pg` (`CURSUS_PG_POOL`, 10 par défaut), `application_name=cursus`, `search_path=cursus` posé par
@@ -693,7 +693,7 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
     formation, horaires de poste d'exemple), puis le rattachement des fiches aux postes, rejoué à chaque démarrage. Le
     jeu de démonstration n'est chargé que si `CURSUS_DEMO=1` sur une base vide, dans la transaction qui la contrôle.
     `npm run backup`, `restore` et `reset-demo` refusent PostgreSQL (sauvegardes du serveur commun : rôle
-    `epc2i_sauvegarde`) ; l'application de bureau force SQLite (`DATABASE_URL` vide).
+    `atrium_sauvegarde`) ; l'application de bureau force SQLite (`DATABASE_URL` vide).
   - *Reprise d'une base SQLite* (sous-étape 8.c, `server/src/reprise-postgres.ts`, `npm run reprise-postgres`) : copie
     cohérente de la base (`VACUUM INTO`, l'original n'est jamais modifié), reprises et migrations nommées appliquées à
     la copie, contrôle de toutes les valeurs d'après les types du schéma cible et des références d'après ses clés
@@ -741,7 +741,7 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
 - **Contrôle au démarrage** (`controlerDemarrage`, `server/src/pre-vol.ts`, lot 8) : après les migrations et avant tout
   chargement ou marquage `exploitation`, en production hors démonstration, refus d'une base qui porte des indices de
   démonstration (`indicesDemo`) ou d'une connexion PostgreSQL en `postgres` ou en superutilisateur ; démonstration sur
-  la base `epc2i` refusée dès que la base porte le réglage `exploitation` ou la ligne `purge.demo` du journal.
+  la base `atrium` refusée dès que la base porte le réglage `exploitation` ou la ligne `purge.demo` du journal.
 - **API Keystone par adresse** (`server/src/integrations/keystone/filtre-keystone.ts`, lot 8) : `CURSUS_KEYSTONE_ADRESSES` (adresses et
   réseaux, `net.BlockList`) lue à la construction de l'application, monté devant `keystoneRoutes` ; 403
   `ADRESSE_REFUSEE` hors liste, d'après `req.ip` (proxy de confiance). Vide : aucun filtre.
@@ -770,7 +770,7 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   reprendre si la mesure dépasse la seconde.
 - **Essai de charge sur PostgreSQL** (lot 8, chantier E, `scripts/charge/`) : `npm run charge:generer -- --ans 5
   --effectif 100 --interimaires 20 --seed 42` crée un schéma jetable `cursus_charge_<horodatage>` sur le serveur de test
-  de `CURSUS_TEST_DATABASE_URL` (serveur commun refusé : base `epc2i`, rôle `cursus_app` ou schéma d'un autre outil),
+  de `CURSUS_TEST_DATABASE_URL` (serveur commun refusé : base `atrium`, rôle `cursus_app` ou schéma d'un autre outil),
   y applique les migrations et le référentiel de démonstration, puis insère en masse 5 ans de données reproductibles par
   la graine : 120 fiches (8 managers, trois agences d'intérim), ≈ 28 000 feuilles, ≈ 7 700 absences, 59 lots mensuels
   transmis par le vrai traitement (`temps.pushSage`) et 10 lots annulés (contenu de 100 Ko en moyenne), 300 000 lignes de

@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const { avertissementsConfig, problemesConfig } = await import('../server/src/config.ts');
+const { avertissementsConfig, BASES_COMMUNES, problemesConfig } = await import('../server/src/config.ts');
 const { codeSortie, colonnesSelect, controlerBase, controleSauvegarde, controlesConfig, hoteInterne, indicesDemo, rapportTexte, secretsEgaux, vuesAttendues } = await import('../server/src/pre-vol.ts');
 const { migrationsPg } = await import('../server/src/db-pg.ts');
 const { creerCompte } = await import('../server/src/comptes.ts');
@@ -33,9 +33,9 @@ const DEMO_COOLIFY = { ...IMAGE, CURSUS_DEMO: '1', CURSUS_DEMO_PUBLIQUE: '1', CU
 /** Production cible : application cursus-prod (docs/BASCULE-PRODUCTION.md), toutes les variables posées. */
 const PRODUCTION = {
   ...IMAGE, CURSUS_TRUST_PROXY: '10.0.1.3',
-  DATABASE_URL: 'postgres://cursus_app:mdp-cursus-app@epc2i-postgres:5432/epc2i',
+  DATABASE_URL: 'postgres://cursus_app:mdp-cursus-app@atrium-postgres:5432/atrium',
   // Purge du journal par le rôle dédié (décision du 25/11/2026, server/src/journal-purge.ts).
-  CURSUS_PURGE_DATABASE_URL: 'postgres://cursus_purge:mdp-cursus-purge@epc2i-postgres:5432/epc2i',
+  CURSUS_PURGE_DATABASE_URL: 'postgres://cursus_purge:mdp-cursus-purge@atrium-postgres:5432/atrium',
   CURSUS_SECRET: 'a'.repeat(64), KEYSTONE_API_KEY: 'b'.repeat(64), KEYSTONE_URL: 'http://keystone:3000', KEYSTONE_TOKEN: 'c'.repeat(64),
   CURSUS_SUPERVISION_TOKEN: 'e'.repeat(64), MATRIX_URL: 'http://matrix:3000', MATRIX_TOKEN: 'f'.repeat(64),
   CURSUS_PUBLIC_URL: 'https://cursus.entreprise.fr',
@@ -50,14 +50,14 @@ test('démonstration Coolify actuelle : aucun refus de démarrage, avertissement
   assert.deepEqual(problemesConfig(DEMO_COOLIFY), []);
   assert.deepEqual(avertissementsConfig(DEMO_COOLIFY), []);
   // Si elle tourne sur le serveur commun, avec les liaisons : signalée, jamais arrêtée.
-  const surEpc2i = { ...DEMO_COOLIFY, DATABASE_URL: 'postgres://cursus_app:mdp@epc2i-postgres:5432/epc2i', KEYSTONE_URL: 'http://keystone:3000', KEYSTONE_TOKEN: 'k'.repeat(40) };
-  assert.deepEqual(problemesConfig(surEpc2i), []);
-  const av = avertissementsConfig(surEpc2i);
+  const surBaseCommune = { ...DEMO_COOLIFY, DATABASE_URL: 'postgres://cursus_app:mdp@atrium-postgres:5432/atrium', KEYSTONE_URL: 'http://keystone:3000', KEYSTONE_TOKEN: 'k'.repeat(40) };
+  assert.deepEqual(problemesConfig(surBaseCommune), []);
+  const av = avertissementsConfig(surBaseCommune);
   assert.equal(av.length, 2);
-  assert.match(av[0], /branchée sur la base epc2i du serveur commun/);
+  assert.match(av[0], /branchée sur la base atrium du serveur commun/);
   assert.match(av[1], /KEYSTONE_URL est définie sans CURSUS_DEMO_LIAISONS=1/);
   // Base provisionnée par Coolify, en rôle postgres (base inconnue, réponse du 24 octobre) : signalée, jamais arrêtée.
-  for (const url of ['postgres://postgres:x@coolify-pg:5432/postgres', 'postgres://postgres:x@epc2i-postgres:5432/epc2i']) {
+  for (const url of ['postgres://postgres:x@coolify-pg:5432/postgres', 'postgres://postgres:x@atrium-postgres:5432/atrium']) {
     const pg = { ...DEMO_COOLIFY, DATABASE_URL: url };
     assert.deepEqual(problemesConfig(pg), [], url);
     assert.ok(avertissementsConfig(pg).some(a => /connectée au serveur PostgreSQL avec le rôle postgres \(superutilisateur\)/.test(a)), url);
@@ -65,7 +65,7 @@ test('démonstration Coolify actuelle : aucun refus de démarrage, avertissement
     assert.equal(code(controlesConfig(pg, JOUR), 'config.base.role')[0].niveau, 'bloquant', url);
   }
   // Pré-vol : la démonstration n'est pas une production.
-  const cs = controlesConfig(surEpc2i, JOUR);
+  const cs = controlesConfig(surBaseCommune, JOUR);
   assert.match(code(cs, 'config.demo')[0].message, /CURSUS_DEMO, CURSUS_DEMO_PUBLIQUE/);
   assert.equal(code(cs, 'config.demo')[0].niveau, 'bloquant');
   assert.equal(codeSortie(cs), 1);
@@ -93,17 +93,22 @@ test('configuration : chaque contrôle propre au pré-vol', () => {
     return l[0];
   };
   // Serveur commun : rôle, base, TLS hors du réseau Docker.
-  assert.equal(ligne({ DATABASE_URL: 'postgres://autre_app:mdp@epc2i-postgres/epc2i' }, 'config.base.role').niveau, 'bloquant');
-  assert.equal(ligne({ DATABASE_URL: 'postgres://cursus_app:mdp@epc2i-postgres/keystone' }, 'config.base.nom').niveau, 'bloquant');
-  assert.equal(ligne({ DATABASE_URL: 'postgres://cursus_app:mdp@db.example.fr/epc2i' }, 'config.base.tls').niveau, 'bloquant');
-  assert.equal(ligne({ DATABASE_URL: 'postgres://cursus_app:mdp@db.example.fr/epc2i?sslmode=prefer' }, 'config.base.tls').niveau, 'bloquant');
-  assert.match(ligne({ DATABASE_URL: 'postgres://cursus_app:mdp@db.example.fr/epc2i?sslmode=verify-full' }, 'config.base.tls').message, /chiffrée \(sslmode=verify-full\)/);
+  assert.equal(ligne({ DATABASE_URL: 'postgres://autre_app:mdp@atrium-postgres/atrium' }, 'config.base.role').niveau, 'bloquant');
+  assert.equal(ligne({ DATABASE_URL: 'postgres://cursus_app:mdp@atrium-postgres/keystone' }, 'config.base.nom').niveau, 'bloquant');
+  // Renommage du serveur commun (Matrix, MX-N11) : le nouveau nom comme l'ancien sont la base commune, avant comme après.
+  for (const base of BASES_COMMUNES) {
+    const l = ligne({ DATABASE_URL: `postgres://cursus_app:mdp@atrium-postgres/${base}` }, 'config.base.nom');
+    assert.deepEqual([l.niveau, l.message], ['ok', `DATABASE_URL : base ${base}.`], base);
+  }
+  assert.equal(ligne({ DATABASE_URL: 'postgres://cursus_app:mdp@db.example.fr/atrium' }, 'config.base.tls').niveau, 'bloquant');
+  assert.equal(ligne({ DATABASE_URL: 'postgres://cursus_app:mdp@db.example.fr/atrium?sslmode=prefer' }, 'config.base.tls').niveau, 'bloquant');
+  assert.match(ligne({ DATABASE_URL: 'postgres://cursus_app:mdp@db.example.fr/atrium?sslmode=verify-full' }, 'config.base.tls').message, /chiffrée \(sslmode=verify-full\)/);
   // Chiffrement par ssl=true ou PGSSLMODE (node-postgres) : reconnu.
-  assert.match(ligne({ DATABASE_URL: 'postgres://cursus_app:mdp@db.example.fr/epc2i?ssl=true' }, 'config.base.tls').message, /chiffrée \(ssl=true\)/);
-  assert.match(ligne({ DATABASE_URL: 'postgres://cursus_app:mdp@db.example.fr/epc2i', PGSSLMODE: 'require' }, 'config.base.tls').message, /chiffrée \(PGSSLMODE=require\)/);
-  assert.equal(ligne({ DATABASE_URL: 'postgres://cursus_app:mdp@db.example.fr/epc2i', PGSSLMODE: 'disable' }, 'config.base.tls').niveau, 'bloquant');
+  assert.match(ligne({ DATABASE_URL: 'postgres://cursus_app:mdp@db.example.fr/atrium?ssl=true' }, 'config.base.tls').message, /chiffrée \(ssl=true\)/);
+  assert.match(ligne({ DATABASE_URL: 'postgres://cursus_app:mdp@db.example.fr/atrium', PGSSLMODE: 'require' }, 'config.base.tls').message, /chiffrée \(PGSSLMODE=require\)/);
+  assert.equal(ligne({ DATABASE_URL: 'postgres://cursus_app:mdp@db.example.fr/atrium', PGSSLMODE: 'disable' }, 'config.base.tls').niveau, 'bloquant');
   // Rôle donné par ?user= : celui que prendrait node-postgres.
-  assert.equal(ligne({ DATABASE_URL: 'postgres://epc2i-postgres/epc2i?user=postgres&password=x' }, 'config.base.role').niveau, 'bloquant');
+  assert.equal(ligne({ DATABASE_URL: 'postgres://atrium-postgres/atrium?user=postgres&password=x' }, 'config.base.role').niveau, 'bloquant');
   assert.equal(ligne({ DATABASE_URL: undefined, CURSUS_BASE: 'sqlite' }, 'config.base').niveau, 'attention');
   assert.equal(code(controlesConfig({ ...PRODUCTION, DATABASE_URL: 'pas une adresse' }, JOUR), 'config.base.role').length, 0, 'adresse illisible : refusée par les règles de démarrage');
   // Connexion Microsoft, e-mails, échéance du secret.
@@ -158,7 +163,7 @@ test('secrets tous différents : noms seuls, paire connexion / envoi admise', ()
 });
 
 test('hôte interne du serveur PostgreSQL : nom de service, boucle locale, adresses privées', () => {
-  for (const h of ['epc2i-postgres', 'localhost', '127.0.0.1', '::1', '10.0.0.4', '172.16.0.2', '172.31.255.1', '192.168.1.10', 'fd12:3456::1']) assert.equal(hoteInterne(h), true, h);
+  for (const h of ['atrium-postgres', 'localhost', '127.0.0.1', '::1', '10.0.0.4', '172.16.0.2', '172.31.255.1', '192.168.1.10', 'fd12:3456::1']) assert.equal(hoteInterne(h), true, h);
   for (const h of ['db.example.fr', '172.32.0.1', '8.8.8.8', '2001:db8::1', '11.0.0.1']) assert.equal(hoteInterne(h), false, h);
 });
 
@@ -198,7 +203,7 @@ async function avecAdmin() {
 
 test('base vide avec un administrateur : aucun bloquant ; base vide sans administrateur : bloquant', async () => {
   const db = await avecAdmin();
-  await db.setSetting('confidentialite', { responsable: 'EPC France, 1 rue de la Chimie', dpo: 'dpo@entreprise.fr' });
+  await db.setSetting('confidentialite', { responsable: 'Filiale partenaire, 1 rue de la Chimie', dpo: 'dpo@entreprise.fr' });
   const cs = await controlerBase(db, options());
   assert.deepEqual(niveaux(cs, 'bloquant'), []);
   assert.deepEqual(niveaux(cs, 'attention'), []);
@@ -213,7 +218,7 @@ test('base vide avec un administrateur : aucun bloquant ; base vide sans adminis
   const sans = await controlerBase(vide, options());
   assert.deepEqual(niveaux(sans, 'bloquant').map(c => c.code), ['base.admin']);
   assert.match(code(sans, 'base.confidentialite')[0].message, /responsable du traitement et DPO non renseignés/);
-  await vide.setSetting('confidentialite', { responsable: 'EPC France', dpo: '' });
+  await vide.setSetting('confidentialite', { responsable: 'Filiale partenaire', dpo: '' });
   assert.match(code(await controlerBase(vide, options()), 'base.confidentialite')[0].message, /DPO non renseigné\./);
   await vide.fermer();
 });

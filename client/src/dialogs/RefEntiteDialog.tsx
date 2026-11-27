@@ -62,14 +62,14 @@ export function RefEntiteDialog({ code }: { code?: string | null }) {
               </select>
             </Field>
             <Field label="Code" htmlFor="rent-code" requis erreur={tape(saisi, erreurs.code)}>
-              <input className="input" id="rent-code" type="text" value={saisi} maxLength={32} placeholder="epc2i" autoComplete="off" spellCheck={false}
+              <input className="input" id="rent-code" type="text" value={saisi} maxLength={32} placeholder="siege" autoComplete="off" spellCheck={false}
                 onChange={e => setSaisi(e.target.value.toLowerCase())} />
             </Field>
           </div>
         )}
         <Field label={societe ? 'Raison sociale' : 'Nom de l’établissement'} htmlFor="rent-nom" requis erreur={tape(nom, erreurs.nom)}>
           <input className="input" id="rent-nom" type="text" autoFocus={!!avant} value={nom} maxLength={NOM_ENTITE_MAX}
-            placeholder={societe ? 'EPC2I SAS' : 'Établissement de Lyon'} onChange={e => setNom(e.target.value)} />
+            placeholder={societe ? 'Société mère SAS' : 'Établissement de Lyon'} onChange={e => setNom(e.target.value)} />
         </Field>
         {type === 'etablissement' && (
           <Field label="Société" htmlFor="rent-parente" requis erreur={v.erreur(erreurs.parente)}>

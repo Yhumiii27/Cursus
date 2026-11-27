@@ -494,7 +494,7 @@ export class PgDb extends Db {
       const { rows: [s] } = await client.query('SELECT to_regnamespace($1) IS NOT NULL AS existe, current_schema() AS courant', [this.schema]);
       if (!s.existe) {
         throw new SchemaPgError(`le schéma ${this.schema} n’existe pas sur le serveur PostgreSQL : il est créé par le socle du serveur commun `
-          + '(Matrix, infra/postgres/init/02-schemas.sql), jamais par Cursus. Vérifiez DATABASE_URL (base epc2i, rôle cursus_app).');
+          + '(Matrix, infra/postgres/init/02-schemas.sql), jamais par Cursus. Vérifiez DATABASE_URL (base atrium, rôle cursus_app).');
       }
       if (s.courant !== this.schema) throw new SchemaPgError(`search_path inattendu (schéma courant : ${s.courant ?? 'aucun'}, attendu : ${this.schema}).`);
       // Migrations sans délai : une instance qui démarre attend celle qui migre, et une migration longue (index sur le

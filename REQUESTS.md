@@ -43,7 +43,7 @@ Format d'une entrée :
 - Réalisé le 2026-11-02 (branche `main-n9x7ps`), points 1 à 5 : garde-fou `tests/m18-publications.test.ts` (aucune migration après
   `0029` ne crée, modifie, commente une vue `pub_` ni ne pose de droit dessus) ; règles dans `docs/ARCHITECTURE.md`
   (« Échanges avec les autres outils »), `docs/demandes/LISEZ-MOI.md` et `CLAUDE.md` ; inventaire `docs/ECHANGES.md` ;
-  procédure de bascule (`docs/DEPLOIEMENT.md`, « Variante : serveur PostgreSQL commun EPC2I » ; `docs/BASCULE-PRODUCTION.md`)
+  procédure de bascule (`docs/DEPLOIEMENT.md`, « Variante : serveur PostgreSQL commun de la suite Atrium » ; `docs/BASCULE-PRODUCTION.md`)
   : les vues de Cursus sont reprises par Matrix (`-v outils=cursus`) au lieu de rejouer `20-cursus.sql`. Répétition du
   2 novembre 2026 sur PostgreSQL 16 avec le socle et le partage de Matrix à jour : reprise à blanc puis réelle, six vues
   passées à `matrix_gestion`, lecteurs conservés, Cursus redémarré sans erreur, `droits.verifier()` sans erreur. Aucun

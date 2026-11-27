@@ -1,11 +1,12 @@
 // Essai de charge sur PostgreSQL (lot 8, chantier E) : éléments communs au générateur (scripts/charge/generer.ts) et à
-// l'exécuteur (scripts/charge/executer.ts). L'essai ne tourne jamais sur le serveur commun EPC2I en service : il
+// l'exécuteur (scripts/charge/executer.ts). L'essai ne tourne jamais sur le serveur commun de la suite Atrium en service : il
 // travaille dans un schéma jetable `cursus_charge_<horodatage>` d'un serveur PostgreSQL 16 de test, désigné comme pour
 // npm run test:pg par CURSUS_TEST_DATABASE_URL (base d'administration : postgres://postgres@127.0.0.1:5432/postgres).
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import pg from 'pg';
 import { RACINE } from '../../server/src/chemins.ts';
+import { estBaseCommune } from '../../server/src/config.ts';
 
 /** Dossier des jeux générés et des rapports (data/ n'est pas versionné : .gitignore). */
 export const DOSSIER_CHARGE = join(RACINE, 'data', 'charge');
@@ -41,7 +42,7 @@ export function urlAdministration(env = process.env): string {
   const url = env.CURSUS_TEST_DATABASE_URL?.trim();
   if (!url) {
     throw new RefusCharge('définissez CURSUS_TEST_DATABASE_URL (base d’administration d’un serveur PostgreSQL 16 de test, par exemple '
-      + 'postgres://postgres@127.0.0.1:5432/postgres) : l’essai de charge ne tourne jamais sur le serveur commun EPC2I.');
+      + 'postgres://postgres@127.0.0.1:5432/postgres) : l’essai de charge ne tourne jamais sur le serveur commun de la suite Atrium.');
   }
   return url;
 }
@@ -50,15 +51,15 @@ export function urlAdministration(env = process.env): string {
 const SCHEMAS_COMMUNS = ['matrix', 'keystone', 'vigie', 'codex', 'arche', 'crucible'];
 
 /**
- * Refus du serveur commun EPC2I : base `epc2i`, rôle `cursus_app`, ou schéma d'un autre outil du socle sur la base.
+ * Refus du serveur commun de la suite Atrium : base `atrium` (ou son ancien nom, `BASES_COMMUNES`), rôle `cursus_app`, ou schéma d'un autre outil du socle sur la base.
  * L'essai écrit des centaines de milliers de lignes et tient le verrou d'écriture : il ralentirait Keystone, Vigie et
  * Crucible, et laisserait des données fictives à côté des vraies.
  */
 export async function refuserServeurCommun(client: pg.Client): Promise<void> {
   const { rows: [s] } = await client.query<{ base: string; role: string; communs: string[] }>(
     'SELECT current_database() AS base, current_user AS role, ARRAY(SELECT nspname::text FROM pg_namespace WHERE nspname = ANY($1)) AS communs', [SCHEMAS_COMMUNS]);
-  if (s.base === 'epc2i' || s.role === 'cursus_app' || s.communs.length) {
-    throw new RefusCharge(`serveur commun EPC2I reconnu (base ${s.base}, rôle ${s.role}${s.communs.length ? `, schémas ${s.communs.join(', ')}` : ''}) : `
+  if (estBaseCommune(s.base) || s.role === 'cursus_app' || s.communs.length) {
+    throw new RefusCharge(`serveur commun reconnu (base ${s.base}, rôle ${s.role}${s.communs.length ? `, schémas ${s.communs.join(', ')}` : ''}) : `
       + 'l’essai de charge ne tourne que sur un serveur PostgreSQL de test (CURSUS_TEST_DATABASE_URL).');
   }
 }

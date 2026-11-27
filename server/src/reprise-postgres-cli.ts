@@ -1,6 +1,6 @@
 // npm run reprise-postgres -- [<base SQLite>] [--a-blanc] : reprise de la base SQLite de Cursus sur le serveur
 // PostgreSQL commun de DATABASE_URL (sous-étape 8.c), service arrêté, une fois avant la bascule ; procédure dans
-// docs/DEPLOIEMENT.md, « Variante : serveur PostgreSQL commun EPC2I ». Sans fichier : CURSUS_DB (data/cursus.db par
+// docs/DEPLOIEMENT.md, « Variante : serveur PostgreSQL commun de la suite Atrium ». Sans fichier : CURSUS_DB (data/cursus.db par
 // défaut). La base SQLite n'est jamais modifiée. --a-blanc : contrôles et copie faits puis annulés, compte rendu affiché.
 // Code de sortie 0 : reprise faite, à blanc réussie ou déjà faite ; 1 : refus ou échec, rien n'a été écrit.
 // Image Docker : volume rendu au compte du service, droits root abandonnés (avant tout autre import).
@@ -13,7 +13,7 @@ import type { PgDb } from './db-pg.ts';
 import { mettreAJourBase } from './demarrage.ts';
 import { type CompteRendu, reprendreSurPostgres } from './reprise-postgres.ts';
 
-const USAGE = 'Usage : DATABASE_URL=postgres://cursus_app:…@<hôte>:5432/epc2i npm run reprise-postgres -- [<base SQLite>] [--a-blanc]';
+const USAGE = 'Usage : DATABASE_URL=postgres://cursus_app:…@<hôte>:5432/atrium npm run reprise-postgres -- [<base SQLite>] [--a-blanc]';
 const args = process.argv.slice(2);
 const aBlanc = args.includes('--a-blanc');
 const inconnues = args.filter(a => a.startsWith('-') && a !== '--a-blanc');

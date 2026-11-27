@@ -96,11 +96,11 @@ test('ajout : matricules, équipes, sites, unités, entité, comptes, projets, a
   const ds = await loadFull(db, RH);
   const fiche = (id: number) => ds.employes.find(e => e.id === id)!;
   assert.equal(fiche(25).nom, 'Marie Lefebvre');
-  assert.equal(fiche(25).email, 'marie.lefebvre@epc2i.fr', 'adresse de Keystone');
+  assert.equal(fiche(25).email, 'marie.lefebvre@atrium.example', 'adresse de Keystone');
   assert.equal(fiche(61).nom, 'Antoine Leroy');
-  assert.equal(fiche(61).email, 'a.leroy@epc2i.example', 'adresse de Crucible');
-  assert.equal(fiche(79).email, 'c.lefevre@epc2i.example', 'adresse de Vigie');
-  assert.equal(fiche(47).email, 'claire.bardet@epc2i.example', 'adresse construite');
+  assert.equal(fiche(61).email, 'a.leroy@atrium.example', 'adresse de Crucible');
+  assert.equal(fiche(79).email, 'c.lefevre@atrium.example', 'adresse de Vigie');
+  assert.equal(fiche(47).email, 'claire.bardet@atrium.example', 'adresse construite');
   // EMP-0014 (Antoine Leroy de Cursus) inchangé, sauf son site et son unité, tirés de son équipe.
   const apres14 = fiche(14);
   assert.deepEqual({ ...apres14, siteCode: null, uniteCode: null }, { ...avant14, siteCode: null, uniteCode: null });
@@ -129,7 +129,7 @@ test('ajout : matricules, équipes, sites, unités, entité, comptes, projets, a
   assert.equal(eq.get('Projets')!.entite, CODE_ENTITE_AMORCEE);
   assert.equal(eq.get('Essais R&D')!.parente, 'R&D');
   const ent = ds.referentiels.entites!.find(x => x.code === CODE_ENTITE_AMORCEE)!;
-  assert.deepEqual([ent.nom, ent.siteCode], ['EPC2I', 'lyon']);
+  assert.deepEqual([ent.nom, ent.siteCode], ['Société mère', 'lyon']);
   assert.deepEqual(ds.referentiels.sites!.map(s => s.code), SITES_COMMUNS.map(s => s.code));
   // Comptes, projets, affectations ; EMP-0018 sur HLT-026 ; séquence au-delà de 81.
   assert.equal(await n(db, 'SELECT COUNT(*) AS n FROM comptes WHERE emp_id >= 25'), 57);

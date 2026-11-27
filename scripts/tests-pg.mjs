@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // npm run test:pg : la suite de tests sur PostgreSQL (CURSUS_TEST_ENGINE=pg, tests/base.ts). CURSUS_TEST_DATABASE_URL
 // désigne la base d'administration d'un serveur PostgreSQL 16 de test (chaque fichier de test y crée puis supprime sa
-// propre base) : jamais le serveur commun EPC2I.
+// propre base) : jamais le serveur commun de la suite Atrium.
 //   CURSUS_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres npm run test:pg
 // npm run test:coverage:pg : même suite, couverture de l'adaptateur PostgreSQL (server/src/db-pg.ts), exclu de la
 // couverture de npm run test:coverage, qui tourne sur SQLite (de même la connexion en lecture seule du pré-vol,

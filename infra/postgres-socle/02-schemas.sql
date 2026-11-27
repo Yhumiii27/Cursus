@@ -1,6 +1,6 @@
 -- Copie du dépôt Matrix (github.com/Yhumiii27/Matrix, privé), infra/postgres/init/02-schemas.sql au commit 403ff37
 -- (recopie du lot 8, 24/10/2026 ; dernier changement de infra/postgres/init : 403ff37). Sert seulement à l'intégration
--- continue de Cursus (.github/workflows/ci.yml, job postgres) et aux essais locaux : socle du serveur commun EPC2I. Ne
+-- continue de Cursus (.github/workflows/ci.yml, job postgres) et aux essais locaux : socle du serveur commun (suite Atrium). Ne
 -- pas modifier ici : recopier le fichier depuis Matrix (tests/socle-colonnes-sensibles.test.ts contrôle la copie).
 
 -- Serveur PostgreSQL commun EPC2I, étape 2 sur 3 : un schéma par outil.

@@ -2,7 +2,7 @@
 # (serveur et client), compilation de l'interface ; parcours de bout en bout (Playwright) en tâche séparée, non bloquante.
 # Toute la logique est dans `npm run check` (package.json) : une autre forge (GitLab, Azure DevOps) l'appelle en une ligne
 # après `npm ci`. Version de Node : .nvmrc (22), celle qui fait foi ; Node 24 est essayé en plus, sans bloquer.
-# Job postgres : la même suite de tests sur PostgreSQL 16 (serveur commun EPC2I), socle compris (infra/postgres-socle/).
+# Job postgres : la même suite de tests sur PostgreSQL 16 (serveur commun de la suite Atrium), socle compris (infra/postgres-socle/).
 name: Vérification
 
 on:
@@ -187,7 +187,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      # Socle (base epc2i, rôles, schémas, droits), copié de Matrix : comme la procédure « Sans Docker » de son README.
+      # Socle (base, rôles, schémas, droits), copié de Matrix : comme la procédure « Sans Docker » de son README. Le socle
+      # crée la base sous son nom actuel (epc2i, jusqu'au renommage du serveur commun par Matrix) ; Cursus accepte les deux noms.
       - name: Socle du serveur commun
         run: for f in infra/postgres-socle/*.sql; do psql -d postgres -v ON_ERROR_STOP=1 -q -f "$f" || exit 1; done
       # Une base par fichier de test, créée et supprimée par tests/base.ts sur ce serveur (rôle postgres) ; le schéma de

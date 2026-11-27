@@ -182,7 +182,7 @@ sudo nano /etc/cursus/cursus.env
 | `CODEX_SIMULATION`, `CODEX_SIMULATION_DIR` | lot 16 : Codex simulé (`1`), pour la démonstration et le développement seulement (refusé en production et avec `CODEX_URL`) ; fichiers gardés dans `CODEX_SIMULATION_DIR` (sinon `codex-simule/` à côté de la base) |
 | `SAGE_MODE`, `SAGE_DOSSIER` | transmission à Sage Paie : à laisser vide (fichier d'import, mode de production) ; dossier de paie (`CURSUS-CHIMIE` par défaut). **Jamais** `SAGE_MODE=api` ni `SAGE_MODE=simulation`, **jamais** `SAGE_URL` : Cursus refuse de démarrer avec eux (voir « Sage Paie ») |
 | `CURSUS_BASE` | à laisser vide hors de l'image Docker. Dans l'image (`CURSUS_CONTENEUR=1`), la production exige `DATABASE_URL` (serveur commun), ou `CURSUS_BASE=sqlite` pour garder volontairement le fichier du volume : sans l'une ni l'autre, Cursus refuse de démarrer plutôt que d'ouvrir un fichier SQLite vide |
-| `CURSUS_PURGE_DATABASE_URL` | serveur PostgreSQL commun seulement : adresse du rôle dédié `cursus_purge` (`postgres://cursus_purge:<mot de passe>@<hôte>:5432/epc2i`), seul à pouvoir supprimer les lignes échues du journal des actions (12 mois, 36 pour la paie ; décision du 25/11/2026). Absente : purge désactivée, avertissement au démarrage. Refusée avec un autre rôle ou sans `DATABASE_URL` (« Variante : serveur PostgreSQL commun EPC2I », point 7) |
+| `CURSUS_PURGE_DATABASE_URL` | serveur PostgreSQL commun seulement : adresse du rôle dédié `cursus_purge` (`postgres://cursus_purge:<mot de passe>@<hôte>:5432/atrium`), seul à pouvoir supprimer les lignes échues du journal des actions (12 mois, 36 pour la paie ; décision du 25/11/2026). Absente : purge désactivée, avertissement au démarrage. Refusée avec un autre rôle ou sans `DATABASE_URL` (« Variante : serveur PostgreSQL commun de la suite Atrium », point 7) |
 | `CURSUS_VAPID_PUBLIC`, `CURSUS_VAPID_PRIVATE`, `CURSUS_VAPID_SUJET` | lot 11 : notifications sur le téléphone (Web Push) ; paire de clés P-256 en base64url et sujet `mailto:` ou `https:` (« Application mobile » ci-dessous). Sans elles, les notifications restent désactivées ; posées incomplètes ou illisibles : signalé au démarrage |
 | `CURSUS_PWA` | lot 11 : à laisser vide (`1`) : application installable sur le téléphone (manifeste, service worker `/sw.js`) ; `0` la coupe (`/sw.js` répond 404), comme le fait l'application de bureau |
 | `CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_DEMO_COMMUN`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE` | **jamais** sur ce serveur (une instance de démonstration en ligne, séparée et aux données fictives : README.md, « Mise en ligne »). La démonstration ouvre l'espace RH sans mot de passe : Cursus refuse de démarrer avec elle, et refuserait de toute façon (403) chaque requête relayée par le proxy |
@@ -197,7 +197,7 @@ par `?user=` ou par `PGUSER` (signalé seulement en démonstration : une démons
 le pré-vol le bloque), ou sans aucun rôle désigné (node-postgres prendrait le compte du système) ;
 `CURSUS_TRUST_PROXY=true` ou un réseau qui couvre toutes les adresses (`0.0.0.0/0`, `::/0`) : en-têtes X-Forwarded-*
 crus de n'importe quel client, indiquez l'adresse ou le réseau du proxy. Simples avertissements, jamais bloquants : `MATRIX_URL` qui porte un identifiant ou un mot de passe, et une
-démonstration branchée sur la base `epc2i` du serveur commun (voir « Vérification avant la mise en production »).
+démonstration branchée sur la base `atrium` du serveur commun (voir « Vérification avant la mise en production »).
 `npm run comptes` et `npm run reprise-postgres` font le même contrôle avant d'ouvrir la base.
 
 ### Vérification avant la mise en production
@@ -221,7 +221,7 @@ avertissements seulement.
 
 | Domaine | Contrôles |
 | --- | --- |
-| Configuration | règles du démarrage en production ; aucune variable de démonstration ni de test (`CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_DEMO_COMMUN`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE`, `CURSUS_OIDC_AUTORITE`) ; `DATABASE_URL` en `cursus_app` sur la base `epc2i`, chiffrée (`sslmode=require` ou `verify-*`, `ssl=true`, ou `PGSSLMODE` quand l'adresse n'en dit rien) si le serveur n'est pas sur le réseau interne ; `CURSUS_PUBLIC_URL` en https, exigée même quand Cursus écoute sur la boucle locale derrière Caddy (exemptée au démarrage pour l'application de bureau seulement) ; connexion Microsoft 365 et e-mails configurés (sinon avertissement) ; secret client Entra valable plus de 30 jours ; jeton de supervision ; `TZ=Europe/Paris` ; secrets tous différents (seuls leurs noms sont affichés) ; `CURSUS_TRUST_PROXY` restreint au proxy (avertissement pour `uniquelocal`, `linklocal`, un nombre de proxys ou un réseau plus large qu'une adresse) ; `MATRIX_TOKEN` avec `MATRIX_URL` |
+| Configuration | règles du démarrage en production ; aucune variable de démonstration ni de test (`CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_DEMO_LIAISONS`, `CURSUS_DEMO_COMMUN`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE`, `CURSUS_OIDC_AUTORITE`) ; `DATABASE_URL` en `cursus_app` sur la base `atrium`, chiffrée (`sslmode=require` ou `verify-*`, `ssl=true`, ou `PGSSLMODE` quand l'adresse n'en dit rien) si le serveur n'est pas sur le réseau interne ; `CURSUS_PUBLIC_URL` en https, exigée même quand Cursus écoute sur la boucle locale derrière Caddy (exemptée au démarrage pour l'application de bureau seulement) ; connexion Microsoft 365 et e-mails configurés (sinon avertissement) ; secret client Entra valable plus de 30 jours ; jeton de supervision ; `TZ=Europe/Paris` ; secrets tous différents (seuls leurs noms sont affichés) ; `CURSUS_TRUST_PROXY` restreint au proxy (avertissement pour `uniquelocal`, `linklocal`, un nombre de proxys ou un réseau plus large qu'une adresse) ; `MATRIX_TOKEN` avec `MATRIX_URL` |
 | Base | serveur commun : rôle `cursus_app` sans superutilisateur, schéma courant `cursus`, ni `CREATE` sur la base ni `pg_read_all_data` / `pg_write_all_data`, migrations du code égales à `schema_migrations` (en attente : avertissement ; inconnues : bloquant), tables et colonnes conformes, vues `pub_` et leurs colonnes conformes à leur dernière définition dans `server/migrations-pg/`, horloge à moins de 60 s ; les deux moteurs : aucune donnée de démonstration (réglage `demo`, comptes du jeu, adresses `@entreprise.example`, lot « Démonstration »), au moins un administrateur RH actif, page Confidentialité renseignée (avertissement), aucune référence orpheline, dossier des pièces accessible en écriture au compte du service avec plus de 1 Go libre |
 
 | Sauvegarde | dernière sauvegarde du serveur commun de moins de 26 h d'après le témoin `CURSUS_SAUVEGARDE_TEMOIN` ; sans témoin, avertissement : vérification à la main (`docs/BASCULE-PRODUCTION.md`, section 7) |
@@ -230,7 +230,7 @@ avertissements seulement.
 Au démarrage, en production hors démonstration, le serveur refait lui-même les contrôles bloquants rapides, après les
 migrations et avant tout chargement : une base qui porte des données de démonstration, ou une connexion au serveur
 PostgreSQL en `postgres` ou en superutilisateur, arrête le démarrage (« Démarrage impossible : … », code 1), avant que
-la base ne soit marquée `exploitation`. Une démonstration branchée sur la base `epc2i` n'est que signalée, sauf si
+la base ne soit marquée `exploitation`. Une démonstration branchée sur la base `atrium` n'est que signalée, sauf si
 cette base a déjà servi en production ou a été purgée : elle est alors refusée. L'oubli de la commande n'est donc pas
 fatal. Procédure de bascule complète, tableau des secrets, réglages Traefik et retour arrière :
 `docs/BASCULE-PRODUCTION.md`.
@@ -615,10 +615,10 @@ sudo docker inspect --format '{{.State.Health.Status}}' cursus  # healthy
   nouvelle version ; retour arrière : relancer l'ancienne image, après restauration de la base si elle a été migrée
   (« Mise à jour », étape 5).
 
-## Variante : serveur PostgreSQL commun EPC2I
+## Variante : serveur PostgreSQL commun de la suite Atrium
 
 Avec `DATABASE_URL`, Cursus n'utilise plus de fichier SQLite : il travaille dans le schéma `cursus` du serveur
-PostgreSQL commun (base `epc2i`, rôle `cursus_app`), partagé avec Keystone, Codex, Vigie et Matrix. Le serveur, ses
+PostgreSQL commun (base `atrium`, rôle `cursus_app`), partagé avec Keystone, Codex, Vigie et Matrix. Le serveur, ses
 rôles, ses droits et ses sauvegardes relèvent de Matrix (`infra/postgres/README.md` du dépôt Matrix) ; Cursus n'y crée
 ni schéma ni rôle et n'y pose aucun droit.
 
@@ -636,7 +636,7 @@ Au déploiement du lot 8, les sessions ouvertes sont fermées (la table `connexi
 l'identifiant) : chacun se reconnecte une fois.
 
 1. **Variables** (service systemd, ou onglet « Environment Variables » de Coolify) :
-   `DATABASE_URL=postgres://cursus_app:<mot de passe>@<hôte>:5432/epc2i` (secret : jamais dans le dépôt ni dans les
+   `DATABASE_URL=postgres://cursus_app:<mot de passe>@<hôte>:5432/atrium` (secret : jamais dans le dépôt ni dans les
    journaux, que Cursus réduit à l'hôte, au port et à la base), `CURSUS_PG_POOL` au besoin (10 connexions par
    défaut, à multiplier par le nombre d'instances), les délais au besoin (ci-dessous), les autres variables inchangées, sauf `CURSUS_BASE=sqlite` à retirer
    (ou à remplacer par `CURSUS_BASE=postgres`) : avec `DATABASE_URL`, elle se contredit et le démarrage comme la
@@ -686,7 +686,7 @@ l'identifiant) : chacun se reconnecte une fois.
    lecture relit alors toute la base, plus lent).
 2. **Premier démarrage** : Cursus applique ses migrations (`server/migrations-pg/`, journal
    `cursus.schema_migrations`), contrôle le schéma et amorce une base neuve (activités internes, horaires de poste
-   d'exemple). Le journal du démarrage affiche « base PostgreSQL <hôte>:<port>/epc2i, schéma cursus ». Un refus
+   d'exemple). Le journal du démarrage affiche « base PostgreSQL <hôte>:<port>/atrium, schéma cursus ». Un refus
    (« schéma cursus absent », « migration inconnue de cette version », colonne manquante) arrête le serveur avant toute
    écriture. Plusieurs instances peuvent démarrer ensemble : les migrations et les écritures sont protégées par des
    verrous du serveur.
@@ -715,10 +715,10 @@ l'identifiant) : chacun se reconnecte une fois.
    ```sh
    # Matrix reprend les vues pub_ de Cursus (créées par ses migrations 0002, 0004 et 0011) : propriétaire matrix_gestion,
    # définition et contrat inscrits au registre matrix.publications ; les lecteurs gardent leur droit.
-   psql -h <hôte> -U postgres -d epc2i -v ON_ERROR_STOP=1 -v outils=cursus -f infra/postgres/partage/14-reprise-publications.sql
-   psql -h <hôte> -U postgres -d epc2i -v ON_ERROR_STOP=1 -f infra/postgres/partage/90-droits.sql
-   psql "postgres://matrix_app:…@<hôte>:5432/epc2i" -v ON_ERROR_STOP=1 -1 -f infra/postgres/partage/95-matrix-journal-unifie.sql
-   psql -h <hôte> -U postgres -d epc2i -c "SELECT gravite, objet, constat FROM droits.verifier() WHERE gravite = 'erreur'"
+   psql -h <hôte> -U postgres -d atrium -v ON_ERROR_STOP=1 -v outils=cursus -f infra/postgres/partage/14-reprise-publications.sql
+   psql -h <hôte> -U postgres -d atrium -v ON_ERROR_STOP=1 -f infra/postgres/partage/90-droits.sql
+   psql "postgres://matrix_app:…@<hôte>:5432/atrium" -v ON_ERROR_STOP=1 -1 -f infra/postgres/partage/95-matrix-journal-unifie.sql
+   psql -h <hôte> -U postgres -d atrium -c "SELECT gravite, objet, constat FROM droits.verifier() WHERE gravite = 'erreur'"
    ```
 
    Décision M-18 de Matrix (1er novembre 2026) : Matrix définit et applique les vues `pub_` de tous les outils (écran
@@ -732,7 +732,7 @@ l'identifiant) : chacun se reconnecte une fois.
 4. **Premier administrateur RH** : `npm run comptes -- admin <identifiant>` avec la même `DATABASE_URL` (dans le
    conteneur sous Coolify : onglet « Terminal »).
 5. **Sauvegardes** : `npm run backup`, `npm run restore` et `npm run reset-demo` refusent PostgreSQL ; la base est
-   sauvegardée avec le serveur commun (rôle `epc2i_sauvegarde`, `infra/postgres/sauvegarde/` de Matrix). Les pièces
+   sauvegardée avec le serveur commun (rôle `atrium_sauvegarde`, `infra/postgres/sauvegarde/` de Matrix). Les pièces
    justificatives restent des fichiers (`CURSUS_PIECES_DIR`, sinon `pieces/` à côté de `CURSUS_DB`, `/data/pieces` dans le conteneur), dans un volume partagé par toutes les instances : ce volume et
    sa sauvegarde restent nécessaires. Lot 8 : avant d'activer les pièces, poser `CURSUS_PIECES_KEY` (chiffrement au
    repos, obligatoire en production) ; copie restic chiffrée du volume juste après le `pg_dump` du schéma, restauration
@@ -749,11 +749,11 @@ l'identifiant) : chacun se reconnecte une fois.
    seul le rôle `cursus_purge`, pendant la fonction `cursus.purger_journal()`, supprime les lignes échues (plus de
    12 mois ; plus de 36 mois pour les actions liées à la paie), et chaque passage ajoute une ligne au registre
    `cursus.journal_purges` (date, règle, limites, nombres, dates extrêmes ; jamais le contenu). Cursus se connecte pour
-   cela avec une seconde adresse, `CURSUS_PURGE_DATABASE_URL=postgres://cursus_purge:<mot de passe>@epc2i-postgres:5432/epc2i`
+   cela avec une seconde adresse, `CURSUS_PURGE_DATABASE_URL=postgres://cursus_purge:<mot de passe>@atrium-postgres:5432/atrium`
    (secret, contrôlée au démarrage : rôle `cursus_purge` exigé), au démarrage puis une fois par jour.
    - **Prérequis (Matrix, sur le serveur commun, avec le « validé » du propriétaire)** : rôle `cursus_purge` créé par le
      socle (`init/01-base-et-roles.sql`, mot de passe `CURSUS_PURGE_PASSWORD` ; sans lui, le rôle existe sans connexion),
-     puis ses droits accordés **après** la migration 0035 de Cursus (`init/03-droits.sql` rejoué) : CONNECT sur `epc2i`,
+     puis ses droits accordés **après** la migration 0035 de Cursus (`init/03-droits.sql` rejoué) : CONNECT sur `atrium`,
      USAGE sur `cursus`, SELECT (id, at, action, paie) et DELETE sur `journal`, SELECT sur `journal_actions_paie`, INSERT
      et SELECT (id) sur `journal_purges`, EXECUTE sur `purger_journal()`, rien d'autre (demande :
      `docs/demandes/matrix-lot16-purge-journal.md`).
@@ -763,6 +763,25 @@ l'identifiant) : chacun se reconnecte une fois.
      purge échoue avec ce motif, sans rien supprimer, et Cursus continue de servir.
    - **Contrôle** : `SELECT le, supprimees_un_an, supprimees_trois_ans FROM cursus.journal_purges ORDER BY id DESC LIMIT 5;`
      (une ligne par jour) ; au démarrage, Cursus refuse un schéma dont un déclencheur du journal manque ou est désactivé.
+
+### Renommage du serveur commun (suite Atrium)
+
+La suite s'appelle **Atrium** (décision du propriétaire du 27 novembre 2026). Le serveur commun en service garde ses
+anciens noms jusqu'à l'opération que Matrix mène seul, en une fois (MX-N11, fiche `docs/renommage-atrium.md` du dépôt
+Matrix) : base `epc2i` → `atrium`, hôte `epc2i-postgres` → `atrium-postgres`, rôle de sauvegarde `epc2i_sauvegarde` →
+`atrium_sauvegarde`, dossier `/etc/epc2i/` → `/etc/atrium/`. Cursus fonctionne avant comme après :
+
+- il ne code en dur ni la base ni l'hôte : tout vient de `DATABASE_URL` (et `CURSUS_PURGE_DATABASE_URL` pour le rôle de
+  purge). Aucune valeur par défaut ne pointe sur le serveur commun ; sans `DATABASE_URL`, Cursus reste en SQLite ;
+- les contrôles qui reconnaissent la base commune (`verifier-production`, ligne `config.base.nom` ; avertissement et
+  refus d'une démonstration branchée sur la base commune ; refus de l'essai de charge) acceptent les deux noms
+  (`BASES_COMMUNES` de `server/src/config.ts` : `atrium`, puis l'ancien nom, à retirer une fois le serveur renommé) ;
+- **bascule** : au moment fixé par Matrix (étape 5.1 de sa fiche), réécrire l'hôte et la base de `DATABASE_URL` et de
+  `CURSUS_PURGE_DATABASE_URL` (`…@atrium-postgres:5432/atrium`) — le script de Matrix
+  (`scripts/renommage-envs-coolify.mjs`) le fait pour l'application Cursus —, puis redémarrer Cursus. Retour arrière :
+  remettre les anciennes adresses (les deux alias d'hôte répondent pendant la transition).
+- Les fichiers de `infra/postgres-socle/` restent la copie du socle de Matrix (au commit noté en tête) : ils créent la
+  base sous son nom actuel, comme l'intégration continue ; ils seront recopiés quand Matrix aura changé son socle.
 
 ### Passage de la démonstration sous PostgreSQL (même application Coolify)
 
@@ -775,7 +794,7 @@ PostgreSQL 16 avec le socle et le partage de Matrix à jour.
    donnée réelle (elles ne bloquent pas la démonstration).
 2. **Arrêt** de l'application de démonstration dans Coolify (la base SQLite ne doit plus être en service), puis copie
    de sécurité du volume (`/data/cursus.db`, `/data/pieces`).
-3. **Variables** de l'application : ajouter `DATABASE_URL=postgres://cursus_app:<mot de passe>@epc2i-postgres:5432/epc2i`
+3. **Variables** de l'application : ajouter `DATABASE_URL=postgres://cursus_app:<mot de passe>@atrium-postgres:5432/atrium`
    (secret), retirer `CURSUS_BASE=sqlite` s'il est posé ; **garder** `CURSUS_DB=/data/cursus.db` (lue par la reprise),
    `CURSUS_DEMO=1`, `CURSUS_DEMO_PUBLIQUE=1`, `CURSUS_TODAY` et l'authentification basique de Coolify.
 4. **Reprise à blanc**, dans un conteneur ponctuel de la même image, lancé depuis le terminal **du serveur** (menu
@@ -786,7 +805,7 @@ PostgreSQL 16 avec le socle et le partage de Matrix à jour.
    (`PGPASS_URL=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=""))' "$PGPASS")`) :
    ```sh
    docker run --rm -it --network coolify -v <volume>:/data -e NODE_ENV=development \
-     -e DATABASE_URL="postgres://cursus_app:${PGPASS_URL}@epc2i-postgres:5432/epc2i" <image> \
+     -e DATABASE_URL="postgres://cursus_app:${PGPASS_URL}@atrium-postgres:5432/atrium" <image> \
      npm run reprise-postgres -- --a-blanc
    ```
    `NODE_ENV=development` : ce conteneur ne reçoit pas les variables de l'application (`CURSUS_SECRET`,
@@ -796,18 +815,18 @@ PostgreSQL 16 avec le socle et le partage de Matrix à jour.
    « aucun » écrites NULL, pièces absentes du dossier. Un refus n'écrit rien : corriger, relancer.
 5. **Reprise réelle** : la même commande sans `--a-blanc` (une transaction, comptes contrôlés, tracée au journal ;
    relancée, elle répond « déjà faite »). Puis `unset PGPASS PGPASS_URL`.
-6. **Démarrage** de l'application : le journal affiche « base PostgreSQL …/epc2i, schéma cursus » et « mode
+6. **Démarrage** de l'application : le journal affiche « base PostgreSQL …/atrium, schéma cursus » et « mode
    démonstration » ; `/api/health` répond 200 avec l'état `degrade` et l'alerte `demo-base-commune` (attendu : salariés
    fictifs publiés aux autres outils). Se connecter et parcourir les écrans.
 7. **Partage (Matrix)** : reprise des vues de Cursus (`partage/14-reprise-publications.sql -v outils=cursus`),
    `90-droits.sql`, `95-matrix-journal-unifie.sql`, puis `droits.verifier()` sans erreur (étape 3 ci-dessus). Sur
-   Coolify, les fichiers sont dans le conteneur PostgreSQL de Matrix (`/opt/epc2i/partage`) et `postgres` y entre par
+   Coolify, les fichiers sont dans le conteneur PostgreSQL de Matrix (`/opt/atrium/partage`) et `postgres` y entre par
    le socket local, sans mot de passe (`P=<conteneur postgres>`) :
    ```sh
-   docker exec $P psql -U postgres -d epc2i -v ON_ERROR_STOP=1 -v outils=cursus -1 -f /opt/epc2i/partage/14-reprise-publications.sql
-   docker exec $P psql -U postgres -d epc2i -v ON_ERROR_STOP=1 -f /opt/epc2i/partage/90-droits.sql
-   docker exec $P psql -U postgres -d epc2i -v ON_ERROR_STOP=1 -1 -c "SET ROLE matrix_app" -f /opt/epc2i/partage/95-matrix-journal-unifie.sql
-   docker exec $P psql -U postgres -d epc2i -c "SELECT gravite, objet, constat FROM droits.verifier() WHERE gravite = 'erreur'"
+   docker exec $P psql -U postgres -d atrium -v ON_ERROR_STOP=1 -v outils=cursus -1 -f /opt/atrium/partage/14-reprise-publications.sql
+   docker exec $P psql -U postgres -d atrium -v ON_ERROR_STOP=1 -f /opt/atrium/partage/90-droits.sql
+   docker exec $P psql -U postgres -d atrium -v ON_ERROR_STOP=1 -1 -c "SET ROLE matrix_app" -f /opt/atrium/partage/95-matrix-journal-unifie.sql
+   docker exec $P psql -U postgres -d atrium -c "SELECT gravite, objet, constat FROM droits.verifier() WHERE gravite = 'erreur'"
    ```
    Fait le 2 novembre 2026 : 6 vues de Cursus reprises par `matrix_gestion`, 46 vues conformes, aucune erreur.
 8. **Démonstration commune** (demande du propriétaire du 2 novembre 2026, `docs/DEMO-COMMUNE.md`) : application en
@@ -1045,7 +1064,7 @@ faite ».
 **Où purger.** La voie recommandée est une nouvelle application Coolify « cursus-prod » sur un espace neuf (réponse de
 l'entreprise du 24 octobre 2026) :
 - démonstration sur un fichier SQLite (`/data/cursus.db`) : purge du fichier, conteneur de démonstration arrêté, puis
-  reprise de ce fichier sur le schéma neuf du serveur commun (« Variante : serveur PostgreSQL commun EPC2I »,
+  reprise de ce fichier sur le schéma neuf du serveur commun (« Variante : serveur PostgreSQL commun de la suite Atrium »,
   `npm run reprise-postgres`), qui garde la ligne `purge.demo` et la séquence des salariés (premier vrai salarié
   EMP-1001) ;
 - démonstration déjà sur le serveur commun : purge en place, toutes les instances arrêtées, pg_dump fait après l'arrêt.
@@ -1314,7 +1333,7 @@ entrées, sorties et compteurs ne se tiennent plus dans Lucca.
   refait au plus une fois par heure.
   Depuis le lot 8, le détail porte la liste `alertes` des raisons de `degrade` : `orphelins`, `secret-microsoft`,
   `secret-envoi` (secret propre à l'envoi des e-mails, `CURSUS_MAIL_SECRET_EXPIRE`, détail `secretEnvoi`),
-  `demo-base-commune` (démonstration branchée sur la base `epc2i`), `sauvegarde` (témoin de plus de 26 h ou illisible,
+  `demo-base-commune` (démonstration branchée sur la base `atrium`), `sauvegarde` (témoin de plus de 26 h ou illisible,
   détail `sauvegarde`), et en production hors démonstration `donnees-demo`, `aucun-admin` et `emails-simulation`.
   Le point de santé ne prend plus le verrou d'écriture : il sonde la base (2 s au plus, sinon 503) et lit le reste
   dans l'état relu au démarrage puis toutes les heures (administrateurs RH et données de démonstration : relus à

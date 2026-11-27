@@ -58,7 +58,7 @@ test('jeton de Clavis : émetteur et audience contrôlés, pas de locataire Micr
       return `${t}.${sign('RSA-SHA256', Buffer.from(t), privateKey).toString('base64url')}`;
     };
     const now = Math.floor(Date.now() / 1000);
-    const ok = { iss: base, aud: 'cursus', exp: now + 600, iat: now, nonce: 'n', tid: 'tenant-de-clavis', oid: '7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f', preferred_username: 'a.b@epc-groupe.com' };
+    const ok = { iss: base, aud: 'cursus', exp: now + 600, iat: now, nonce: 'n', tid: 'tenant-de-clavis', oid: '7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f', preferred_username: 'a.b@atrium.example' };
     assert.equal((await f.verifierJeton(jeton(ok), 'n')).oid, ok.oid);
     await assert.rejects(f.verifierJeton(jeton({ ...ok, iss: 'https://autre.example' }), 'n'), /Émetteur/);
     await assert.rejects(f.verifierJeton(jeton({ ...ok, aud: 'keystone' }), 'n'), /audience/);
@@ -85,7 +85,7 @@ test('profil RH lu dans clavis.pub_acces, reporté sur le compte et journalisé 
     await surServeur(url, `INSERT INTO clavis.pub_acces VALUES ('${OID}', 'cursus', true, 'referent', 'hr', 'rh_gestionnaire', true, now()), ('${OID}', 'keystone', true, 'admin', null, 'director', true, now())`);
     oublierDroitsClavis();
     assert.equal(await droitClavis(db, OID, { frais: true }), 'rh_gestionnaire');
-    const { compte } = await creerCompte(db, { type: 'microsoft', identifiant: 'a.b@epc-groupe.com', nom: 'A B', adresse: 'a.b@epc-groupe.com', profilRh: 'rh_gestionnaire' }, 'Clavis');
+    const { compte } = await creerCompte(db, { type: 'microsoft', identifiant: 'a.b@atrium.example', nom: 'A B', adresse: 'a.b@atrium.example', profilRh: 'rh_gestionnaire' }, 'Clavis');
     await surServeur(url, `UPDATE clavis.pub_acces SET role = 'lecture_seule' WHERE application = 'cursus'`);
     const profil = await droitClavis(db, OID);
     assert.equal(profil, 'lecture_seule');

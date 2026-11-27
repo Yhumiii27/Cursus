@@ -14,7 +14,7 @@ import { themeCookie, type Theme } from './theme';
 export type Lang = 'fr' | 'en';
 
 /** Event sent on `document` when the display changes, so that every copy of the switch (header, top bar) follows. */
-export const THEME_EVENT = 'epc2i-theme';
+export const THEME_EVENT = 'atrium-theme';
 
 interface PrefOption<V extends string> {
   value: V;
@@ -82,7 +82,7 @@ export function LangSwitch({ lang, onSelect, refresh = true, available = ['fr', 
   );
 }
 
-/** Dark / light display: sets `data-theme` on <html> and the suite's `epc2i-theme` cookie, without a server round trip. */
+/** Dark / light display: sets `data-theme` on <html> and the suite's `atrium-theme` cookie, without a server round trip. */
 export function ThemeSwitch({ theme: initial }: { theme: Theme }) {
   const { t } = useI18n();
   const [theme, setTheme] = useState<Theme>(initial);

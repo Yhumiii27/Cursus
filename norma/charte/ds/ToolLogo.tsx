@@ -1,12 +1,12 @@
-// Logos des outils de la suite (Norma 2.3.0, charte/logos/<code>.svg, validés par le propriétaire le 25 novembre 2026).
+// Logos des outils de la suite (Norma 2.3.0, charte/logos/<code>.svg, validés par le propriétaire le 25 novembre 2026 ; Ingenium ajouté en 3.1.0).
 // Fichier généré depuis les SVG de charte/logos : les modifier là, jamais ici. Une tuile de 64 × 64 (dégradé propre à l'outil,
 // glyphe blanc), affichée dans la marque de la barre latérale et de la barre supérieure (COQUE.md § 2) ; le SVG lui-même sert
 // de favicon (src/app/icon.svg de l'outil).
 import { useId, type ReactElement } from 'react';
 
-export type ToolCode = 'arche' | 'clavis' | 'codex' | 'crucible' | 'cursus' | 'keystone' | 'matrix' | 'modulus' | 'vector' | 'vigie';
+export type ToolCode = 'arche' | 'clavis' | 'codex' | 'crucible' | 'cursus' | 'ingenium' | 'keystone' | 'matrix' | 'modulus' | 'vector' | 'vigie';
 
-export const TOOL_CODES: readonly ToolCode[] = ['arche', 'clavis', 'codex', 'crucible', 'cursus', 'keystone', 'matrix', 'modulus', 'vector', 'vigie'];
+export const TOOL_CODES: readonly ToolCode[] = ['arche', 'clavis', 'codex', 'crucible', 'cursus', 'ingenium', 'keystone', 'matrix', 'modulus', 'vector', 'vigie'];
 
 export interface ToolLogoProps {
   /** Code of the tool in Norma's registry. */
@@ -51,6 +51,11 @@ const GLYPHS: Record<ToolCode, (id: string) => ReactElement> = {
   cursus: (id) => (
     <>
       <defs><linearGradient id={id} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#34b088"/><stop offset="1" stopColor="#1a7759"/></linearGradient></defs><rect width="64" height="64" rx="14" fill={`url(#${id})`}/><rect x=".75" y=".75" width="62.5" height="62.5" rx="13.3" fill="none" stroke="#fff" strokeOpacity=".14" strokeWidth="1.5"/><path fill="none" stroke="#fff" strokeWidth="3.6" strokeLinecap="round" strokeLinejoin="round" d="M13 49h10v-8h10v-8h10v-9"/><circle cx="48" cy="15.5" r="4.6" fill="#fff"/>
+    </>
+  ),
+  ingenium: (id) => (
+    <>
+      <defs><linearGradient id={id} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#d4485c"/><stop offset="1" stopColor="#8e1f33"/></linearGradient></defs><rect width="64" height="64" rx="14" fill={`url(#${id})`}/><rect x=".75" y=".75" width="62.5" height="62.5" rx="13.3" fill="none" stroke="#fff" strokeOpacity=".14" strokeWidth="1.5"/><path fill="none" stroke="#fff" strokeWidth="3.6" strokeLinecap="round" strokeLinejoin="round" d="M32 8.5v4"/><circle cx="32" cy="17" r="4.4" fill="#fff"/><path fill="none" stroke="#fff" strokeWidth="3.6" strokeLinecap="round" strokeLinejoin="round" d="M29.6 21L18.5 50M34.4 21L45.5 50"/><path fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" d="M21.5 38.5Q32 44 42.5 38.5"/><circle cx="18.5" cy="50" r="2" fill="#fff"/>
     </>
   ),
   keystone: (id) => (

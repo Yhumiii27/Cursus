@@ -47,10 +47,10 @@ const MEHDI: User = { role: 'collaborateur', empId: 2, nom: 'Mehdi Benali', inti
 const KARIM: User = { role: 'manager', empId: 12, nom: 'Karim Haddad', intitule: 'Manager · Maintenance' };
 
 const societe = (o: Partial<Entite> = {}): Entite => ({
-  code: 'epc2i', nom: 'EPC2I', type: 'societe', parente: null, siren: '552100554', siret: null, idcc: '0044', siteCode: null, ordre: 0, actif: true, fermeLe: null, source: 'local', ...o,
+  code: 'siege', nom: 'Société mère', type: 'societe', parente: null, siren: '552100554', siret: null, idcc: '0044', siteCode: null, ordre: 0, actif: true, fermeLe: null, source: 'local', ...o,
 });
 const etab = (o: Partial<Entite> = {}): Entite => ({
-  code: 'lyon', nom: 'Établissement de Lyon', type: 'etablissement', parente: 'epc2i', siren: null, siret: '55210055400013', idcc: null, siteCode: null, ordre: 1, actif: true, fermeLe: null, source: 'local', ...o,
+  code: 'lyon', nom: 'Établissement de Lyon', type: 'etablissement', parente: 'siege', siren: null, siret: '55210055400013', idcc: null, siteCode: null, ordre: 1, actif: true, fermeLe: null, source: 'local', ...o,
 });
 const SITES: Site[] = [{ code: 'lab67', libelle: 'Laboratoire 67', actif: true, ordre: 0 }, { code: 'ancien', libelle: 'Ancien site', actif: false, ordre: 1 }];
 const eq = (nom: string, o: { managerId?: number | null; parente?: string | null; entite?: string | null; siteCode?: string | null; uniteCode?: string | null; ordre?: number } = {}) =>
@@ -83,13 +83,13 @@ test('SIREN et SIRET : 9 et 14 chiffres, clé de Luhn ; règle de La Poste ; IDC
 });
 
 test('entité : création d’une société puis d’un établissement, contrôles champ par champ', () => {
-  const s = controlerEntite({ code: ' EPC2I ', nom: ' EPC2I   SAS ', type: 'societe', siren: '552 100 554', idcc: '44', siret: '552 100 554 00005' }, [], SITES, null);
+  const s = controlerEntite({ code: ' SIEGE ', nom: ' Société   mère SAS ', type: 'societe', siren: '552 100 554', idcc: '44', siret: '552 100 554 00005' }, [], SITES, null);
   assert.deepEqual(s.erreurs, {});
   assert.deepEqual(s.entite, {
-    code: 'epc2i', nom: 'EPC2I SAS', type: 'societe', parente: null, siren: '552100554', siret: '55210055400005', idcc: '0044', siteCode: null, ordre: 0, actif: true, fermeLe: null, source: 'local',
+    code: 'siege', nom: 'Société mère SAS', type: 'societe', parente: null, siren: '552100554', siret: '55210055400005', idcc: '0044', siteCode: null, ordre: 0, actif: true, fermeLe: null, source: 'local',
   });
   const entites: Entite[] = [s.entite!];
-  const e = controlerEntite({ code: 'lyon', nom: 'Lyon', type: 'etablissement', parente: 'epc2i', siret: '55210055400013', siteCode: 'lab67' }, entites, SITES, null);
+  const e = controlerEntite({ code: 'lyon', nom: 'Lyon', type: 'etablissement', parente: 'siege', siret: '55210055400013', siteCode: 'lab67' }, entites, SITES, null);
   assert.deepEqual(e.erreurs, {});
   assert.equal(e.entite!.ordre, 1);
   assert.equal(e.entite!.siteCode, 'lab67');
@@ -98,21 +98,21 @@ test('entité : création d’une société puis d’un établissement, contrôl
   const err = (p: Parameters<typeof controlerEntite>[0], liste: Entite[] = entites, existant: Entite | null = null) => controlerEntite(p, liste, SITES, existant).erreurs;
   assert.match(err({ nom: 'X', type: 'societe' }).code!, /Indiquez le code/);
   assert.match(err({ code: '1abc', nom: 'X', type: 'societe' }).code!, /2 à 32 lettres/);
-  assert.match(err({ code: 'epc2i', nom: 'X', type: 'societe' }).code!, /existe déjà/);
+  assert.match(err({ code: 'siege', nom: 'X', type: 'societe' }).code!, /existe déjà/);
   assert.match(err({ code: 'x2', nom: '', type: 'societe' }).nom!, /raison sociale/);
   assert.match(err({ code: 'x2', nom: 'N'.repeat(121), type: 'societe' }).nom!, /120 caractères/);
   assert.match(err({ code: 'x2', nom: 'X', type: 'filiale' }).type!, /société ou établissement/);
-  assert.match(err({ code: 'x2', nom: 'X', type: 'societe', parente: 'epc2i' }).parente!, /pas de société parente/);
+  assert.match(err({ code: 'x2', nom: 'X', type: 'societe', parente: 'siege' }).parente!, /pas de société parente/);
   assert.match(err({ code: 'x2', nom: 'X', type: 'societe', siren: '552100555' }).siren!, /clé de contrôle/);
   assert.match(err({ code: 'x2', nom: 'X', type: 'societe', siren: '552100554' }).siren!, /déjà celui d’une autre société/);
   assert.match(err({ code: 'x2', nom: 'X', type: 'etablissement' }).parente!, /Choisissez la société/);
   assert.match(err({ code: 'x2', nom: 'X', type: 'etablissement', parente: 'inconnue' }).parente!, /introuvable/);
   assert.match(err({ code: 'x2', nom: 'X', type: 'etablissement', parente: 'lyon' }, [...entites, e.entite!]).parente!, /introuvable/, 'un établissement n’est pas une société');
-  assert.match(err({ code: 'x2', nom: 'X', type: 'etablissement', parente: 'epc2i' }, [societe({ actif: false, fermeLe: '2026-01-01' })]).parente!, /est fermée/);
-  assert.match(err({ code: 'x2', nom: 'X', type: 'etablissement', parente: 'epc2i', siren: '552100554' }).siren!, /celui de la société/);
-  assert.match(err({ code: 'x2', nom: 'X', type: 'etablissement', parente: 'epc2i', siret: '55210055400014' }).siret!, /clé de contrôle/);
-  assert.match(err({ code: 'x2', nom: 'X', type: 'etablissement', parente: 'epc2i', siret: '73282932000009' }).siret!, /commencer par le SIREN de la société \(552100554\)/);
-  assert.match(err({ code: 'x2', nom: 'X', type: 'etablissement', parente: 'epc2i', siret: '55210055400005' }).siret!, /déjà celui d’une autre entité/);
+  assert.match(err({ code: 'x2', nom: 'X', type: 'etablissement', parente: 'siege' }, [societe({ actif: false, fermeLe: '2026-01-01' })]).parente!, /est fermée/);
+  assert.match(err({ code: 'x2', nom: 'X', type: 'etablissement', parente: 'siege', siren: '552100554' }).siren!, /celui de la société/);
+  assert.match(err({ code: 'x2', nom: 'X', type: 'etablissement', parente: 'siege', siret: '55210055400014' }).siret!, /clé de contrôle/);
+  assert.match(err({ code: 'x2', nom: 'X', type: 'etablissement', parente: 'siege', siret: '73282932000009' }).siret!, /commencer par le SIREN de la société \(552100554\)/);
+  assert.match(err({ code: 'x2', nom: 'X', type: 'etablissement', parente: 'siege', siret: '55210055400005' }).siret!, /déjà celui d’une autre entité/);
   assert.match(err({ code: 'x2', nom: 'X', type: 'societe', siren: '732829320', siret: '55210055400021' }).siret!, /commencer par le SIREN/, 'siège d’une société');
   assert.match(err({ code: 'x2', nom: 'X', type: 'societe', idcc: 'chimie' }).idcc!, /1 à 4 chiffres/);
   assert.match(err({ code: 'x2', nom: 'X', type: 'societe', siteCode: 'nulle_part' }).siteCode!, /inconnu/);
@@ -123,17 +123,17 @@ test('entité : création d’une société puis d’un établissement, contrôl
 test('entité : modification (type fixé, SIREN qui garde les SIRET des établissements, site déjà porté)', () => {
   const entites = [societe(), etab({ siteCode: 'ancien' })];
   // Le type et le code ne changent pas ; le site inactif déjà porté reste admis.
-  const m = controlerEntite({ code: 'autre', type: 'societe', nom: 'Lyon Est', parente: 'epc2i', siret: '55210055400013', siteCode: 'ancien' }, entites, SITES, entites[1]);
+  const m = controlerEntite({ code: 'autre', type: 'societe', nom: 'Lyon Est', parente: 'siege', siret: '55210055400013', siteCode: 'ancien' }, entites, SITES, entites[1]);
   assert.deepEqual(m.erreurs, {});
   assert.deepEqual([m.entite!.code, m.entite!.type, m.entite!.nom, m.entite!.ordre], ['lyon', 'etablissement', 'Lyon Est', 1]);
   // Établissement d'une société fermée depuis : il garde sa société.
   const fermee = [societe({ actif: false, fermeLe: '2026-09-01' }), etab()];
-  assert.deepEqual(controlerEntite({ nom: 'Lyon', parente: 'epc2i', siret: '55210055400013' }, fermee, SITES, fermee[1]).erreurs, {});
+  assert.deepEqual(controlerEntite({ nom: 'Lyon', parente: 'siege', siret: '55210055400013' }, fermee, SITES, fermee[1]).erreurs, {});
   // SIREN de la société changé : refusé tant qu'un établissement porte un SIRET d'un autre SIREN.
-  assert.match(controlerEntite({ nom: 'EPC2I', siren: '732829320' }, entites, SITES, entites[0]).erreurs.siren!, /SIRET de Établissement de Lyon ne commence pas/);
-  assert.deepEqual(controlerEntite({ nom: 'EPC2I', siren: '552100554' }, entites, SITES, entites[0]).erreurs, {});
+  assert.match(controlerEntite({ nom: 'Société mère', siren: '732829320' }, entites, SITES, entites[0]).erreurs.siren!, /SIRET de Établissement de Lyon ne commence pas/);
+  assert.deepEqual(controlerEntite({ nom: 'Société mère', siren: '552100554' }, entites, SITES, entites[0]).erreurs, {});
   // Champs vidés : null.
-  assert.deepEqual([controlerEntite({ nom: 'EPC2I' }, entites, SITES, entites[0]).entite!.siren], [null]);
+  assert.deepEqual([controlerEntite({ nom: 'Société mère' }, entites, SITES, entites[0]).entite!.siren], [null]);
 });
 
 test('entité : ouverture, société d’un établissement, fermeture et réouverture', () => {
@@ -141,19 +141,19 @@ test('entité : ouverture, société d’un établissement, fermeture et réouve
   assert.equal(entiteOuverte(entites[0]), true);
   assert.equal(entiteOuverte(societe({ actif: false, fermeLe: '2026-01-01' })), false);
   assert.equal(entiteOuverte(undefined), false);
-  assert.equal(societeDe(entites, entites[1])?.code, 'epc2i');
-  assert.equal(societeDe(entites, entites[0])?.code, 'epc2i');
-  const equipes = [eq('Production', { entite: 'lyon' }), eq('Maintenance', { parente: 'Production', entite: 'epc2i' }), eq('Commercial', { entite: 'epc2i' })];
+  assert.equal(societeDe(entites, entites[1])?.code, 'siege');
+  assert.equal(societeDe(entites, entites[0])?.code, 'siege');
+  const equipes = [eq('Production', { entite: 'lyon' }), eq('Maintenance', { parente: 'Production', entite: 'siege' }), eq('Commercial', { entite: 'siege' })];
   // L'entité posée sur une équipe rattachée n'est pas lue : elle hérite de son équipe racine.
   assert.equal(entiteEquipe(equipes, 'Maintenance'), 'lyon');
   assert.equal(entiteEquipe(equipes, 'Inconnue'), null);
   assert.deepEqual(equipesDeLEntite(equipes, 'lyon'), ['Production', 'Maintenance']);
   assert.match(refusFermeture(entites[1], entites, equipes)!, /Des équipes relèvent de Établissement de Lyon \(Production, Maintenance\) : rattachez-les/);
-  assert.match(refusFermeture(entites[0], entites, [equipes[2]])!, /Une équipe relève de EPC2I \(Commercial\) : rattachez-la/);
+  assert.match(refusFermeture(entites[0], entites, [equipes[2]])!, /Une équipe relève de Société mère \(Commercial\) : rattachez-la/);
   assert.match(refusFermeture(entites[0], entites, [])!, /établissements ouverts \(Établissement de Lyon\)/);
   assert.equal(refusFermeture(entites[0], [entites[0], etab({ actif: false, fermeLe: '2026-01-01' })], []), null);
   assert.equal(refusFermeture(entites[1], entites, []), null);
-  assert.match(refusReouverture(entites[1], [societe({ actif: false, fermeLe: '2026-01-01' }), entites[1]])!, /La société EPC2I est fermée/);
+  assert.match(refusReouverture(entites[1], [societe({ actif: false, fermeLe: '2026-01-01' }), entites[1]])!, /La société Société mère est fermée/);
   assert.equal(refusReouverture(entites[1], entites), null);
   assert.equal(refusReouverture(entites[0], entites), null);
 });
@@ -161,9 +161,9 @@ test('entité : ouverture, société d’un établissement, fermeture et réouve
 test('rattachements : équipe racine seule, site et unité Matrix, site et unité du salarié', () => {
   const entites = [societe({ siteCode: 'siege' }), etab({ siteCode: 'lab67' }), etab({ code: 'nord', nom: 'Nord', siret: null, actif: false, fermeLe: '2026-01-01' })];
   const equipes = [eq('Production', { entite: 'lyon', uniteCode: 'PRD' }), eq('Maintenance', { parente: 'Production', siteCode: 'atelier', uniteCode: 'PRD-MAINT' }),
-    eq('Méthodes', { parente: 'Maintenance' }), eq('Commercial', { entite: 'epc2i' }), eq('Sans', {})];
-  assert.match(controleEntiteEquipe(equipes, entites, 'Maintenance', 'epc2i')!, /rattachée à l’équipe Production : elle relève de l’entité de son équipe racine/);
-  assert.match(controleEntiteEquipe(equipes, entites, 'Inconnue', 'epc2i')!, /introuvable/);
+    eq('Méthodes', { parente: 'Maintenance' }), eq('Commercial', { entite: 'siege' }), eq('Sans', {})];
+  assert.match(controleEntiteEquipe(equipes, entites, 'Maintenance', 'siege')!, /rattachée à l’équipe Production : elle relève de l’entité de son équipe racine/);
+  assert.match(controleEntiteEquipe(equipes, entites, 'Inconnue', 'siege')!, /introuvable/);
   assert.match(controleEntiteEquipe(equipes, entites, 'Sans', 'inconnue')!, /Entité inconnue introuvable/);
   assert.match(controleEntiteEquipe(equipes, entites, 'Sans', 'nord')!, /L’entité Nord est fermée/);
   assert.equal(controleEntiteEquipe(equipes, entites, 'Sans', 'lyon'), null);
@@ -247,15 +247,15 @@ test('amorçage au démarrage : une société sous la raison sociale du responsa
   await db.tx(async () => {
     await db.insert('equipes', { nom: 'Site de Lyon', managerId: null, ordre: 10 });
     await db.insert('equipes', { nom: 'Méthodes', managerId: null, ordre: 11, parente: 'Production' });
-    await db.setSetting('confidentialite', { responsable: 'EPC2I SAS\n12 rue de l’Usine, 67000 Strasbourg', dpo: null });
+    await db.setSetting('confidentialite', { responsable: 'Société mère SAS\n12 rue de l’Usine, 67000 Strasbourg', dpo: null });
   });
   const avant = await loadFull(db, RH);
   const valideurs = avant.employes.map(e => valideurHierarchique(avant.referentiels.equipes, e));
   const bilan = await amorcerEntites(db);
-  assert.deepEqual(bilan, { code: CODE_ENTITE_AMORCEE, nom: 'EPC2I SAS', equipes: 7, equipesSite: ['Site de Lyon'] });
+  assert.deepEqual(bilan, { code: CODE_ENTITE_AMORCEE, nom: 'Société mère SAS', equipes: 7, equipesSite: ['Site de Lyon'] });
   const apres = await loadFull(db, RH);
   assert.deepEqual(apres.referentiels.entites, [{
-    code: 'entreprise', nom: 'EPC2I SAS', type: 'societe', parente: null, siren: null, siret: null, idcc: null, siteCode: null, ordre: 0, actif: true, fermeLe: null, source: 'local',
+    code: 'entreprise', nom: 'Société mère SAS', type: 'societe', parente: null, siren: null, siret: null, idcc: null, siteCode: null, ordre: 0, actif: true, fermeLe: null, source: 'local',
   }]);
   assert.deepEqual(apres.referentiels.equipes.map(q => [q.nom, q.entite ?? null]), [
     ['Logistique', 'entreprise'], ['Maintenance', 'entreprise'], ['Production', 'entreprise'], ['Qualité & HSE', 'entreprise'], ['Administration', 'entreprise'],
@@ -264,7 +264,7 @@ test('amorçage au démarrage : une société sous la raison sociale du responsa
   assert.deepEqual(apres.employes.map(e => valideurHierarchique(apres.referentiels.equipes, e)), valideurs, 'aucun valideur changé');
   const j = (await journalDe(db, 'entite.amorcer'))!;
   assert.deepEqual(j.payload, { code: 'entreprise', equipes: 7, equipesSite: ['Site de Lyon'] });
-  assert.match(j.message, /^Entité EPC2I SAS créée, 7 équipes racines rattachées ; à vérifier par le service RH \(nom de site, conversion à la main\) : Site de Lyon$/);
+  assert.match(j.message, /^Entité Société mère SAS créée, 7 équipes racines rattachées ; à vérifier par le service RH \(nom de site, conversion à la main\) : Site de Lyon$/);
   // Idempotent : une entité existe, plus rien n'est fait (même après le démarrage complet).
   assert.equal(await amorcerEntites(db), null);
   await mettreAJourBase(db);
@@ -280,7 +280,7 @@ test('amorçage d’une base neuve : rien sans équipe ; la première équipe (e
   // Mise en service : compte de l'administrateur RH, raison sociale saisie, puis équipes créées à la main et par la reprise.
   await db.tx(async () => {
     await db.insert('comptes', { empId: null, nom: 'Responsable RH', adresse: 'rh@exemple.fr', identifiant: 'rh@exemple.fr', type: 'microsoft', oid: null, profilRh: 'rh_admin', actif: true, motDePasse: null, changerMotDePasse: false, echecs: 0, blocageFin: null, creation: '2026-10-01T08:00:00Z', creePar: null, derniereConnexion: null });
-    await db.setSetting('confidentialite', { responsable: 'EPC2I SAS\n12 rue de l’Usine, 67000 Strasbourg', dpo: null });
+    await db.setSetting('confidentialite', { responsable: 'Société mère SAS\n12 rue de l’Usine, 67000 Strasbourg', dpo: null });
   });
   const admin = { role: 'rh', empId: null, nom: 'Responsable RH', intitule: '', profilRh: 'rh_admin', compteId: 1 } as unknown as User;
   const run = async (nom: string, p: Record<string, unknown>) => await db.tx(async () => {
@@ -290,8 +290,8 @@ test('amorçage d’une base neuve : rien sans équipe ; la première équipe (e
     await journaliserAction(db, t, { user: admin, compte: (await db.get('comptes', 1))!, message: o.message ?? null, result: o.result });
     return o.message;
   });
-  assert.equal(await run('equipe.creer', { nom: 'Direction' }), 'Équipe Direction créée · relève de EPC2I SAS');
-  assert.deepEqual((await db.all<Entite>('entites')).map(x => [x.code, x.nom, x.type]), [['entreprise', 'EPC2I SAS', 'societe']]);
+  assert.equal(await run('equipe.creer', { nom: 'Direction' }), 'Équipe Direction créée · relève de Société mère SAS');
+  assert.deepEqual((await db.all<Entite>('entites')).map(x => [x.code, x.nom, x.type]), [['entreprise', 'Société mère SAS', 'societe']]);
   assert.deepEqual((await journalDe(db, 'entite.amorcer'))!.payload, { code: 'entreprise', equipes: 1 });
   // Reprise de Lucca : les équipes du fichier sont créées et rattachées à l'entité unique.
   const texte = ['Matricule;Prénom;Nom;Intitulé du poste;Département;Catégorie;Type de contrat;Temps de travail;Date d\'entrée;Date de fin;Date de naissance;Adresse e-mail',
@@ -318,9 +318,9 @@ test('actions : entités, sites et rattachements, refus, équipe parente qui sui
   const run = runSur(db);
   await amorcerEntites(db);
   // Création d'une société et d'un établissement, puis d'un site.
-  assert.equal(await run(RH, 'entite.creer', { code: 'epc2i', nom: 'EPC2I', type: 'societe', siren: '552 100 554', idcc: '44' }), 'Société EPC2I créée : proposée au rattachement des équipes');
-  assert.equal(await run(GEST, 'entite.creer', { code: 'lyon', nom: 'Lyon', type: 'etablissement', parente: 'epc2i', siret: '55210055400013' }),
-    'Établissement Lyon créé (société EPC2I) : proposé au rattachement des équipes');
+  assert.equal(await run(RH, 'entite.creer', { code: 'siege', nom: 'Société mère', type: 'societe', siren: '552 100 554', idcc: '44' }), 'Société Société mère créée : proposée au rattachement des équipes');
+  assert.equal(await run(GEST, 'entite.creer', { code: 'lyon', nom: 'Lyon', type: 'etablissement', parente: 'siege', siret: '55210055400013' }),
+    'Établissement Lyon créé (société Société mère) : proposé au rattachement des équipes');
   await refus(async () => await run(RH, 'entite.creer', { code: 'lyon', nom: 'Doublon', type: 'societe' }), /existe déjà/);
   assert.equal(await run(RH, 'site.enregistrer', { code: 'lab67', libelle: 'Laboratoire 67' }), 'Site Laboratoire 67 créé');
   assert.equal(await run(RH, 'site.enregistrer', { id: 'lab67', libelle: 'Laboratoire 67' }), null, 'rien de changé');
@@ -354,7 +354,7 @@ test('actions : entités, sites et rattachements, refus, équipe parente qui sui
   assert.equal(q.entite, null);
   const jp = (await journalDe(db, 'equipe.parente'))!.payload;
   assert.deepEqual([jp.avant, jp.apres], [{ parente: null, entite: 'lyon' }, { parente: 'Production', entite: null }]);
-  await refus(async () => await run(RH, 'equipe.entite', { nom: 'Maintenance', entite: 'epc2i' }), /relève de l’entité de son équipe racine/);
+  await refus(async () => await run(RH, 'equipe.entite', { nom: 'Maintenance', entite: 'siege' }), /relève de l’entité de son équipe racine/);
   await run(RH, 'equipe.parente', { nom: 'Maintenance', parente: '' });
   q = (await loadFull(db, RH)).referentiels.equipes.find(x => x.nom === 'Maintenance')!;
   assert.equal(q.entite, 'entreprise', 'entité héritée de la Production gardée');
@@ -362,21 +362,21 @@ test('actions : entités, sites et rattachements, refus, équipe parente qui sui
   await run(RH, 'equipe.entite', { nom: 'Maintenance', entite: 'lyon' });
   await refus(async () => await run(RH, 'entite.fermer', { code: 'lyon' }), /Une équipe relève de Lyon Est \(Maintenance\)/);
   await refus(async () => await run(GEST, 'entite.fermer', { code: 'lyon' }), /administrateur RH/, 403);
-  await refus(async () => await run(RH, 'entite.fermer', { code: 'epc2i' }), /établissements ouverts \(Lyon Est\)/);
+  await refus(async () => await run(RH, 'entite.fermer', { code: 'siege' }), /établissements ouverts \(Lyon Est\)/);
   assert.equal(await run(RH, 'equipe.entite', { nom: 'Maintenance', entite: '' }), 'L’équipe Maintenance ne relève plus d’aucune entité');
   assert.equal(await run(RH, 'entite.fermer', { code: 'lyon' }), 'Établissement Lyon Est fermé : plus proposé au rattachement des équipes');
   assert.equal(await run(RH, 'entite.fermer', { code: 'lyon' }), null);
   await refus(async () => await run(RH, 'equipe.entite', { nom: 'Maintenance', entite: 'lyon' }), /L’entité Lyon Est est fermée/);
-  assert.equal(await run(RH, 'entite.fermer', { code: 'epc2i' }), 'Société EPC2I fermée : plus proposée au rattachement des équipes');
-  await refus(async () => await run(RH, 'entite.rouvrir', { code: 'lyon' }), /La société EPC2I est fermée : rouvrez-la d’abord/);
-  assert.equal(await run(RH, 'entite.rouvrir', { code: 'epc2i' }), 'Société EPC2I rouverte');
-  assert.equal(await run(RH, 'entite.rouvrir', { code: 'epc2i' }), null);
+  assert.equal(await run(RH, 'entite.fermer', { code: 'siege' }), 'Société Société mère fermée : plus proposée au rattachement des équipes');
+  await refus(async () => await run(RH, 'entite.rouvrir', { code: 'lyon' }), /La société Société mère est fermée : rouvrez-la d’abord/);
+  assert.equal(await run(RH, 'entite.rouvrir', { code: 'siege' }), 'Société Société mère rouverte');
+  assert.equal(await run(RH, 'entite.rouvrir', { code: 'siege' }), null);
   assert.equal(await run(RH, 'entite.rouvrir', { code: 'lyon' }), 'Établissement Lyon Est rouvert');
   await db.tx(async () => await db.run(`UPDATE entites SET actif = FALSE, ferme_le = '2026-01-01' WHERE code = 'groupe'`));
   await refus(async () => await run(RH, 'entite.rouvrir', { code: 'groupe' }), /tenue par Matrix/);
   // Journal : codes, type, SIREN, SIRET, IDCC, site et unité ; le nom d'une entité ou d'un site seulement « renseigné ».
   assert.deepEqual((await journalDe(db, 'entite.creer'))!.payload, {
-    code: 'lyon', avant: { nom: null, type: null, parente: null, siret: null }, apres: { nom: '[texte renseigné]', type: 'etablissement', parente: 'epc2i', siret: '55210055400013' },
+    code: 'lyon', avant: { nom: null, type: null, parente: null, siret: null }, apres: { nom: '[texte renseigné]', type: 'etablissement', parente: 'siege', siret: '55210055400013' },
   });
   // Une modification sans effet (même saisie) ne trace que le code.
   assert.deepEqual((await journalDe(db, 'entite.modifier'))!.payload, { code: 'lyon' });
@@ -388,12 +388,12 @@ test('actions : entités, sites et rattachements, refus, équipe parente qui sui
   assert.deepEqual(await changementDe(db, 'entite.rouvrir'), { code: 'lyon', avant: { actif: false, fermeLe: T }, apres: { actif: true, fermeLe: null } });
   assert.deepEqual(await changementDe(db, 'site.enregistrer'), { code: 'lab67', avant: { actif: false }, apres: { actif: true } });
   // Modification partielle : un champ absent garde sa valeur ; null ou une chaîne vide l'efface.
-  assert.equal(await run(RH, 'entite.modifier', { code: 'epc2i', nom: 'EPC2I SAS' }), 'Société EPC2I SAS enregistrée');
-  assert.deepEqual(await db.get<Entite>('entites', 'epc2i').then(x => [x!.nom, x!.siren, x!.idcc]), ['EPC2I SAS', '552100554', '0044']);
+  assert.equal(await run(RH, 'entite.modifier', { code: 'siege', nom: 'Société mère SAS' }), 'Société Société mère SAS enregistrée');
+  assert.deepEqual(await db.get<Entite>('entites', 'siege').then(x => [x!.nom, x!.siren, x!.idcc]), ['Société mère SAS', '552100554', '0044']);
   assert.equal(await run(RH, 'entite.modifier', { code: 'lyon' }), null, 'aucun champ : rien de changé');
-  assert.equal(await run(RH, 'entite.modifier', { code: 'epc2i', idcc: '' }), 'Société EPC2I SAS enregistrée');
-  assert.deepEqual(await db.get<Entite>('entites', 'epc2i').then(x => [x!.nom, x!.siren, x!.idcc]), ['EPC2I SAS', '552100554', null]);
-  assert.equal(await run(RH, 'entite.modifier', { code: 'epc2i', nom: 'EPC2I', idcc: '44' }), 'Société EPC2I enregistrée');
+  assert.equal(await run(RH, 'entite.modifier', { code: 'siege', idcc: '' }), 'Société Société mère SAS enregistrée');
+  assert.deepEqual(await db.get<Entite>('entites', 'siege').then(x => [x!.nom, x!.siren, x!.idcc]), ['Société mère SAS', '552100554', null]);
+  assert.equal(await run(RH, 'entite.modifier', { code: 'siege', nom: 'Société mère', idcc: '44' }), 'Société Société mère enregistrée');
   await refus(async () => await run(RH, 'site.enregistrer', { id: 'lab67', libelle: 'Laboratoire 67', actif: 'false' }), /Indiquez si le site est actif/);
   assert.deepEqual(await changementDe(db, 'equipe.site'), { nom: 'Maintenance', avant: { siteCode: null }, apres: { siteCode: 'lab67' } });
   assert.deepEqual(await changementDe(db, 'equipe.unite'), { nom: 'Maintenance', avant: { uniteCode: null }, apres: { uniteCode: 'PRD-MAINT' } });
@@ -490,9 +490,9 @@ test('cache : delta et oracle après la création, le renommage et la fermeture 
     assert.deepEqual(b.divergences, [], `${quoi} : aucune divergence avec la lecture directe`);
     assert.ok(b.comparaisons > lecteurs.length);
   };
-  await pas('création d’une entité', async () => await run(RH, 'entite.creer', { code: 'epc2i', nom: 'EPC2I', type: 'societe', siren: '552100554' }), ['referentiels']);
-  await pas('établissement', async () => await run(RH, 'entite.creer', { code: 'lyon', nom: 'Lyon', type: 'etablissement', parente: 'epc2i' }), ['referentiels']);
-  await pas('renommage', async () => await run(RH, 'entite.modifier', { code: 'epc2i', nom: 'EPC2I SAS', siren: '552100554' }), ['referentiels']);
+  await pas('création d’une entité', async () => await run(RH, 'entite.creer', { code: 'siege', nom: 'Société mère', type: 'societe', siren: '552100554' }), ['referentiels']);
+  await pas('établissement', async () => await run(RH, 'entite.creer', { code: 'lyon', nom: 'Lyon', type: 'etablissement', parente: 'siege' }), ['referentiels']);
+  await pas('renommage', async () => await run(RH, 'entite.modifier', { code: 'siege', nom: 'Société mère SAS', siren: '552100554' }), ['referentiels']);
   await pas('site', async () => await run(RH, 'site.enregistrer', { code: 'lab67', libelle: 'Laboratoire 67' }), ['referentiels']);
   await pas('rattachement d’une équipe', async () => await run(RH, 'equipe.entite', { nom: 'Maintenance', entite: 'lyon' }), ['referentiels']);
   await pas('site d’une équipe', async () => await run(RH, 'equipe.site', { nom: 'Maintenance', siteCode: 'lab67' }), ['referentiels', 'employes']);
@@ -505,7 +505,7 @@ test('cache : delta et oracle après la création, le renommage et la fermeture 
   await pas('même ordre, autre nom', async () => await db.run(`INSERT INTO entites (code, nom, type, ordre, actif, source) VALUES ('nord', 'Nord bis', 'societe', 0, TRUE, 'local')
     ON CONFLICT (code) DO UPDATE SET nom = excluded.nom`), ['referentiels']);
   assert.deepEqual((await loadFull(db, RH)).referentiels.entites!.map(x => [x.code, x.nom, x.actif]),
-    [['epc2i', 'EPC2I SAS', true], ['nord', 'Nord bis', true], ['lyon', 'Lyon', false]], 'ordre, puis ordre d’insertion');
+    [['siege', 'Société mère SAS', true], ['nord', 'Nord bis', true], ['lyon', 'Lyon', false]], 'ordre, puis ordre d’insertion');
 });
 
 // — Schéma PostgreSQL —
@@ -561,8 +561,8 @@ test('fiches : site et unité tirés de l’équipe à chaque affectation et à 
 test('PostgreSQL : contraintes de 0016_entites (formats, deux niveaux, fermeture, unicité de l’unité)', { skip: !PG && 'PostgreSQL seulement (CURSUS_TEST_ENGINE=pg)' }, async () => {
   const db = await nouvelleBase();
   const refuse = async (sql: string, motif: RegExp) => { await assert.rejects(db.tx(async () => await db.run(sql)), motif); };
-  await db.tx(async () => await db.run(`INSERT INTO entites (code, nom, type, siren, ordre, actif, source) VALUES ('epc2i', 'EPC2I', 'societe', '552100554', 0, TRUE, 'local')`));
-  await refuse(`INSERT INTO entites (code, nom, type, ordre, actif, source) VALUES ('EPC', 'X', 'societe', 0, TRUE, 'local')`, /entites_code_check/);
+  await db.tx(async () => await db.run(`INSERT INTO entites (code, nom, type, siren, ordre, actif, source) VALUES ('siege', 'Société mère', 'societe', '552100554', 0, TRUE, 'local')`));
+  await refuse(`INSERT INTO entites (code, nom, type, ordre, actif, source) VALUES ('SIEGE', 'X', 'societe', 0, TRUE, 'local')`, /entites_code_check/);
   await refuse(`INSERT INTO entites (code, nom, type, ordre, actif, source) VALUES ('x2', 'X', 'filiale', 0, TRUE, 'local')`, /entites_type_check/);
   await refuse(`INSERT INTO entites (code, nom, type, ordre, actif, source) VALUES ('x2', 'X', 'etablissement', 0, TRUE, 'local')`, /entites_parente_check/);
   await refuse(`INSERT INTO entites (code, nom, type, parente, ordre, actif, source) VALUES ('x2', 'X', 'etablissement', 'inconnue', 0, TRUE, 'local')`, /entites_parente_entites_code_fk/);
@@ -573,17 +573,17 @@ test('PostgreSQL : contraintes de 0016_entites (formats, deux niveaux, fermeture
   await refuse(`INSERT INTO entites (code, nom, type, siren, ordre, actif, source) VALUES ('x2', 'X', 'societe', '552100554', 0, TRUE, 'local')`, /entites_siren_unique/);
   await refuse(`INSERT INTO sites (code, libelle, actif, ordre) VALUES ('Lab', 'X', TRUE, 0)`, /sites_code_check/);
   await db.tx(async () => {
-    await db.run(`INSERT INTO equipes (nom, ordre, entite, site_code, unite_code) VALUES ('A', 0, 'epc2i', 'lab67', 'PRD-A1')`);
+    await db.run(`INSERT INTO equipes (nom, ordre, entite, site_code, unite_code) VALUES ('A', 0, 'siege', 'lab67', 'PRD-A1')`);
     await db.run(`INSERT INTO equipes (nom, ordre) VALUES ('B', 1)`);
   });
   await refuse(`UPDATE equipes SET unite_code = 'PRD-A1' WHERE nom = 'B'`, /equipes_unite_code_unique/);
   await refuse(`UPDATE equipes SET unite_code = 'prd' WHERE nom = 'B'`, /equipes_unite_code_check/);
   await refuse(`UPDATE equipes SET site_code = 'Lab 67' WHERE nom = 'B'`, /equipes_site_code_check/);
   await refuse(`UPDATE equipes SET entite = 'inconnue' WHERE nom = 'B'`, /equipes_entite_entites_code_fk/);
-  await refuse(`DELETE FROM entites WHERE code = 'epc2i'`, /equipes_entite_entites_code_fk/);
+  await refuse(`DELETE FROM entites WHERE code = 'siege'`, /equipes_entite_entites_code_fk/);
   // Déclencheurs du cache de l'instantané : révision augmentée, lignes inscrites par code.
   const avant = (await db.etatRevision()).n;
-  await db.tx(async () => await db.run(`UPDATE entites SET nom = 'EPC2I SAS' WHERE code = 'epc2i'`));
+  await db.tx(async () => await db.run(`UPDATE entites SET nom = 'Société mère SAS' WHERE code = 'siege'`));
   const ch = await db.lireChangements(avant, (await db.etatRevision()).n);
-  assert.deepEqual([...(ch!.get('entites') as Set<string>)], ['epc2i']);
+  assert.deepEqual([...(ch!.get('entites') as Set<string>)], ['siege']);
 });

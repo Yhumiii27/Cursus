@@ -1,4 +1,4 @@
-// Copies du serveur commun EPC2I dans le dépôt (lot 8, chantier D) :
+// Copies du serveur commun de la suite Atrium dans le dépôt (lot 8, chantier D) :
 // - infra/postgres-socle/ : copie du socle de Matrix au commit noté en tête. Toute colonne que Cursus déclare sensible
 //   (convention du 15/10/2026, commentaire « Sensible » de ses migrations) doit figurer dans droits.colonnes_sensibles
 //   de la copie, ou dans la demande à Matrix encore en attente (docs/demandes/matrix-lot8-colonnes-sensibles.sql) ;

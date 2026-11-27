@@ -19,7 +19,8 @@
 //   nominative des équipes successives (qui tient chaque poste, jour par jour), d'après les seuls postes publiés.
 import { addD, isFerie, parse } from '../../../../shared/dates.ts';
 import type { Domain } from '../../../../shared/domain.ts';
-import { fH, plural } from '../../../../shared/format.ts';
+import { fH } from '../../../../shared/format.ts';
+import { t, tn } from '../../i18n/langue.ts';
 import { cycleDe } from '../../../../shared/rules/cycles.ts';
 import { dureeHoraire, horaireDe, plageTexte } from '../../../../shared/rules/horaires.ts';
 import { besoinsDuJour, creneauxPlanificateur, etatPourPlanificateur, fenetrePlanning, horaireDuCreneau, STATUT_ECHANGE } from '../../../../shared/rules/planning.ts';
@@ -60,7 +61,7 @@ export interface LigneEquipe { empId: number | null; nom: string; cases: CaseEqu
 export interface CouvertureJour { jour: ISODate; texte: string; court: string; manque: boolean }
 
 /** Texte d'un poste : « M · 5 h – 13 h » ; repos : « repos ». */
-export const posteTexte = (c: Pick<Creneau, 'horaire' | 'debut' | 'fin'>) => (c.horaire && c.debut && c.fin ? `${c.horaire} · ${plageTexte({ debut: c.debut, fin: c.fin })}` : 'repos');
+export const posteTexte = (c: Pick<Creneau, 'horaire' | 'debut' | 'fin'>) => (c.horaire && c.debut && c.fin ? `${c.horaire} · ${plageTexte({ debut: c.debut, fin: c.fin })}` : t('rest#lower'));
 
 /** Salariés de la grille : membres de l'équipe présents sur la période, et ceux qui y ont un créneau (mutés depuis). */
 function salariesDeLEquipe(d: Domain, equipe: string, jours: readonly ISODate[], creneaux: readonly Creneau[]): number[] {
@@ -101,38 +102,38 @@ export function grilleEquipe(d: Domain, equipe: string, jours: readonly ISODate[
     const cases = jours.map((jour): CaseEquipe => {
       const c = parCle.get(`${empId}|${jour}`) ?? null;
       const absent = planificateur && etatPourPlanificateur({ empId, jour, horaire: null }, absences) === 'absent';
-      const ferie = isFerie(jour) ? ' · jour férié' : '';
-      if (absent) return { jour, etat: 'absent', marque: 'A', brouillon: !!c && c.statut === 'brouillon', creneau: c, texte: `${jourLong(jour)} — absent (absence en vigueur)${c?.horaire ? `, poste ${c.horaire} prévu` : ''}${ferie}` };
-      if (!c) return { jour, etat: 'vide', marque: '', brouillon: false, creneau: null, texte: `${jourLong(jour)} — rien de planifié${ferie}` };
+      const ferie = isFerie(jour) ? ` · ${t('public holiday')}` : '';
+      if (absent) return { jour, etat: 'absent', marque: 'A', brouillon: !!c && c.statut === 'brouillon', creneau: c, texte: `${jourLong(jour)} — ${t('absent (absence in force)')}${c?.horaire ? `${t(', shift ')}${c.horaire}${t(' planned#shift')}` : ''}${ferie}` };
+      if (!c) return { jour, etat: 'vide', marque: '', brouillon: false, creneau: null, texte: `${jourLong(jour)} — ${t('nothing planned')}${ferie}` };
       const brouillon = c.statut === 'brouillon';
       const etat: EtatCase = c.horaire ? 'poste' : 'repos';
-      const suite = brouillon ? (c.remplaceId ? ', modification à publier' : ', brouillon à publier') : `, publié${c.version ? ` (version ${c.version})` : ''}`;
+      const suite = brouillon ? t(c.remplaceId ? ', change to publish' : ', draft to publish') : `${t(', published#masc')}${c.version ? `${t(' (version ')}${c.version})` : ''}`;
       const conflit = conflitsDuJour(conflits, empId, jour).map(x => x.texte.slice(x.texte.indexOf(' : ') + 3));
       const manque = manquesDuJour(manques, empId, jour).map(m => m.texte);
       return {
         jour, etat, marque: c.horaire ?? 'R', brouillon, creneau: c, conflit: conflit.length > 0, habilitation: manque.length > 0,
-        texte: `${jourLong(jour)} — ${c.horaire ? `poste ${posteTexte(c)}` : 'repos'}${suite}${ferie}${conflit.length ? ` ; conflit : ${conflit.join(' ; ')}` : ''}${manque.length ? ` ; ${manque.join(' ; ')}` : ''}`,
+        texte: `${jourLong(jour)} — ${c.horaire ? `${t('shift #lower')}${posteTexte(c)}` : t('rest#lower')}${suite}${ferie}${conflit.length ? `${t('; conflict: ')}${conflit.join(t('; '))}` : ''}${manque.length ? `${t('; ')}${manque.join(t('; '))}` : ''}`,
       };
     });
     const postes = cases.filter(x => x.etat === 'poste');
     const heures = postes.reduce((n, x) => { const h = horaireDuCreneau(x.creneau!); return n + (h ? dureeHoraire(h) : 0); }, 0);
     const brouillons = cases.filter(x => x.brouillon).length;
     const absents = cases.filter(x => x.etat === 'absent').length;
-    const resume = [postes.length ? plural(postes.length, 'poste', 'postes') : 'Aucun poste', postes.length ? fH(heures) : '', absents ? plural(absents, 'jour d’absence', 'jours d’absence') : '', brouillons ? `${brouillons} à publier` : '']
+    const resume = [postes.length ? tn(postes.length, 'shift', 'shifts') : t('No shift'), postes.length ? fH(heures) : '', absents ? tn(absents, 'day of absence', 'days of absence') : '', brouillons ? `${brouillons}${t(' to publish')}` : '']
       .filter(Boolean).join(' · ');
     return { empId, nom, cases, resume };
   });
   if (aPourvoir.length) {
     const cases = jours.map((jour): CaseEquipe => {
       const l = aPourvoir.filter(c => c.jour === jour);
-      if (!l.length) return { jour, etat: 'vide', marque: '', brouillon: false, creneau: null, texte: `${jourLong(jour)} — aucun poste à pourvoir` };
+      if (!l.length) return { jour, etat: 'vide', marque: '', brouillon: false, creneau: null, texte: `${jourLong(jour)} — ${t('no shift to fill')}` };
       const brouillon = l.some(c => c.statut === 'brouillon');
       return {
         jour, etat: 'a_pourvoir', marque: l.length > 1 ? String(l.length) : l[0].horaire ?? '?', brouillon, creneau: l[0],
-        texte: `${jourLong(jour)} — ${plural(l.length, 'poste à pourvoir', 'postes à pourvoir')} : ${l.map(posteTexte).join(', ')}${brouillon ? ', à publier' : ''}`,
+        texte: `${jourLong(jour)} — ${tn(l.length, 'shift to fill', 'shifts to fill')}${t(': ')}${l.map(posteTexte).join(', ')}${brouillon ? t(', to publish') : ''}`,
       };
     });
-    lignes.push({ empId: null, nom: 'À pourvoir', cases, resume: plural(aPourvoir.length, 'poste à pourvoir', 'postes à pourvoir') });
+    lignes.push({ empId: null, nom: t('To fill'), cases, resume: tn(aPourvoir.length, 'shift to fill', 'shifts to fill') });
   }
   // Couverture minimale par créneau (formations de l'équipe à chaque horaire tenu), absences retirées pour le planificateur.
   const parCreneau = couvertureCreneaux(d.ds, equipe, jours, [...nominatifs, ...aPourvoir], planificateur);
@@ -153,12 +154,12 @@ export function grilleEquipe(d: Domain, equipe: string, jours: readonly ISODate[
     const total = [...parCode.values()].reduce((a, b) => a + b, 0), min = [...besoins.values()].reduce((a, b) => a + b, 0);
     // Case courte : postes des horaires qui ont un besoin, sur ce besoin (« !1/2 » : un poste du matin sur deux).
     const tenus = [...besoins.keys()].reduce((n, c) => n + (parCode.get(c) ?? 0), 0);
-    const detail = codes.map(c => `${c} ${parCode.get(c) ?? 0}${besoins.has(c) ? ` sur ${besoins.get(c)}` : ''}`).join(', ');
-    const formations = parCreneau.filter(x => x.jour === jour).flatMap(x => x.formations.filter(f => f.titulaires < f.min).map(f => `${court(f.formation)} au poste ${x.horaire} (${f.titulaires} sur ${f.min})`));
+    const detail = codes.map(c => `${c} ${parCode.get(c) ?? 0}${besoins.has(c) ? `${t(' out of ')}${besoins.get(c)}` : ''}`).join(', ');
+    const formations = parCreneau.filter(x => x.jour === jour).flatMap(x => x.formations.filter(f => f.titulaires < f.min).map(f => `${court(f.formation)}${t(' at shift ')}${x.horaire} (${f.titulaires}${t(' out of ')}${f.min})`));
     const manque = manques.length > 0 || formations.length > 0;
     return {
       jour, manque, court: min ? `${manque ? '!' : ''}${tenus}/${min}` : `${formations.length ? '!' : ''}${total || ''}`,
-      texte: `${jourLong(jour)} — ${total ? plural(total, 'poste planifié', 'postes planifiés') : 'aucun poste planifié'}${detail ? ` (${detail})` : ''}${manques.length ? ` : besoin non couvert pour ${manques.join(', ')}` : ''}${formations.length ? ` ; couverture minimale non tenue : ${formations.join(', ')}` : ''}`,
+      texte: `${jourLong(jour)} — ${total ? tn(total, 'shift planned', 'shifts planned') : t('no shift planned')}${detail ? ` (${detail})` : ''}${manques.length ? `${t(': need not covered for ')}${manques.join(', ')}` : ''}${formations.length ? `${t('; minimum cover not held: ')}${formations.join(', ')}` : ''}`,
     };
   });
   return { lignes, couverture, brouillons: lignes.reduce((n, l) => n + l.cases.filter(c => c.brouillon).length, 0) };
@@ -190,14 +191,14 @@ export function joursDuSalarie(creneaux: readonly Creneau[] | undefined, empId: 
   const siens = new Map((creneaux ?? []).filter(c => c.empId === empId && c.statut === 'publie').map(c => [c.jour, c]));
   return jours.map(jour => {
     const c = siens.get(jour) ?? null;
-    return { jour, creneau: c, texte: c ? (c.horaire ? `Poste ${posteTexte(c)}${c.pause ? `, pause ${c.pause} min` : ''}` : 'Repos') : '—' };
+    return { jour, creneau: c, texte: c ? (c.horaire ? `${t('Shift ')}${posteTexte(c)}${c.pause ? `${t(', break ')}${c.pause} min` : ''}` : t('Rest')) : '—' };
   });
 }
 
 /** Échange vu par le salarié : son rôle et l'étape. */
 export function echangeTexte(d: Domain, e: EchangePoste, me: number): string {
   const autre = d.personName(e.demandeurId === me ? e.partenaireId : e.demandeurId);
-  const sens = e.demandeurId === me ? `proposé à ${autre}` : `proposé par ${autre}`;
+  const sens = e.demandeurId === me ? `${t('proposed to ')}${autre}` : `${t('proposed by ')}${autre}`;
   return `${sens} — ${STATUT_ECHANGE[e.statut]}`;
 }
 

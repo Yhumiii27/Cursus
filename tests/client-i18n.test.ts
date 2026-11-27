@@ -221,6 +221,11 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
     ecran: 'Indicateurs sociaux', fichiers: ['client/src/pages/Indicateurs.tsx', 'client/src/pages/indicateurs-vue.ts',
       'client/src/components/graphiques/Barres.tsx', 'client/src/components/graphiques/Pyramide.tsx', 'client/src/dialogs/ArreteCseDialog.tsx'],
   },
+  {
+    // Mes postes, mes échanges, postes de l'équipe ; textes du planning d'équipe (planning-vue.ts) et dialogues du planning
+    // (générer, publier, créneau, roulement, échange et sa validation, reprise), partagés avec l'onglet Planning d'équipe de Temps.
+    ecran: 'Mon planning', fichiers: ['client/src/pages/MonPlanning.tsx', 'client/src/components/planning/planning-vue.ts', 'client/src/dialogs/PlanningDialog.tsx'],
+  },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */

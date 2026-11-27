@@ -1,12 +1,13 @@
 // Ajouter un collaborateur à une équipe : RH pour toute équipe ; manager pour une équipe qu'il encadre, et seulement
 // un salarié « à affecter » (libéré par son manager d'origine) ou membre d'une autre de ses équipes.
 import { useState } from 'react';
-import { equipeLabel, norm, plural } from '../../../shared/format.ts';
+import { equipeLabel, norm } from '../../../shared/format.ts';
 import type { Personne } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Empty, Fine, NoteAccent } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 export function MembreDialog({ equipe: equipe0 }: { equipe?: string | null }) {
   const d = useDomain();
@@ -22,9 +23,9 @@ export function MembreDialog({ equipe: equipe0 }: { equipe?: string | null }) {
 
   if (!equipes.length) {
     return (
-      <Dialog title="Ajouter un membre" width={520} actions={<CancelButton label="Fermer" />}>
+      <Dialog title={t('Add a member')} width={520} actions={<CancelButton label={t('Close')} />}>
         <p className="text-muted" style={{ margin: 0 }}>
-          {rh ? 'Aucune équipe n’est encore créée.' : 'Aucune équipe ne vous est confiée — le service RH désigne les managers d’équipe.'}
+          {t(rh ? 'No team has been created yet.' : 'No team is entrusted to you — HR appoints the team managers.')}
         </p>
       </Dialog>
     );
@@ -49,9 +50,9 @@ export function MembreDialog({ equipe: equipe0 }: { equipe?: string | null }) {
   const managersExclus = autres.some(p => !autreEquipe(p) && reserveRh(p));
   const sel = candidats.find(p => p.id === empId) ?? null;
   const ancienMgr = sel?.equipe ? d.mgrOf(sel) : 0;
-  const encadre = sel ? d.teamsOf(sel.id).filter(t => t !== equipe) : [];
+  const encadre = sel ? d.teamsOf(sel.id).filter(x => x !== equipe) : [];
 
-  const selErr = !sel ? 'Choisissez le collaborateur à ajouter dans la liste.' : null;
+  const selErr = !sel ? t('Choose the employee to add from the list.') : null;
   const confirm = async () => {
     if (busy || !v.verifier(selErr) || !sel) return;
     setBusy(true);
@@ -61,26 +62,26 @@ export function MembreDialog({ equipe: equipe0 }: { equipe?: string | null }) {
   };
 
   return (
-    <Dialog title="Ajouter un membre" width={560} tall onSubmit={confirm} actions={<>
+    <Dialog title={t('Add a member')} width={560} tall onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Ajouter à l’équipe</SubmitButton>
+      <SubmitButton busy={busy}>{t('Add to the team')}</SubmitButton>
     </>}>
       {equipes.length > 1
         ? (
-          <Field label="Équipe" htmlFor="mb-eq">
+          <Field label={t('Team')} htmlFor="mb-eq">
             <select className="input" id="mb-eq" value={equipe} onChange={ev => { setEquipe(ev.target.value); setEmpId(null); }}>
               {equipes.map(nom => <option key={nom} value={nom}>{nom}</option>)}
             </select>
           </Field>
         )
-        : <Field label="Équipe"><Static>{equipe}</Static></Field>}
+        : <Field label={t('Team')}><Static>{equipe}</Static></Field>}
 
-      <Field label="Collaborateur" htmlFor="mb-q">
+      <Field label={t('Employee')} htmlFor="mb-q">
         {/* Entrée dans la recherche n'envoie pas le formulaire : elle choisit le seul collaborateur trouvé. */}
-        <input className="input" id="mb-q" type="search" placeholder="Rechercher un nom, un poste, une équipe…" value={search} onChange={ev => setSearch(ev.target.value)}
+        <input className="input" id="mb-q" type="search" placeholder={t('Search a name, a job, a team…')} value={search} onChange={ev => setSearch(ev.target.value)}
           onKeyDown={ev => { if (ev.key === 'Enter') { ev.preventDefault(); if (shown.length === 1) setEmpId(shown[0].id); } }} />
       </Field>
-      <div role="radiogroup" aria-label="Collaborateur" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', maxHeight: 'min(320px, 40vh)', overflow: 'auto' }}>
+      <div role="radiogroup" aria-label={t('Employee')} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', maxHeight: 'min(320px, 40vh)', overflow: 'auto' }}>
         {shown.map(p => {
           const checked = empId === p.id;
           return (
@@ -88,7 +89,7 @@ export function MembreDialog({ equipe: equipe0 }: { equipe?: string | null }) {
               <input type="radio" name="mb-emp" checked={checked} onChange={() => setEmpId(p.id)} />
               <span className="dot" />
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 14 }}>{p.nom} <span className="text-muted">— {p.equipe ?? 'à affecter'}</span></div>
+                <div style={{ fontSize: 14 }}>{p.nom} <span className="text-muted">— {p.equipe ?? t('to assign')}</span></div>
                 <div className="text-muted sub">{p.poste}</div>
               </div>
             </label>
@@ -96,27 +97,27 @@ export function MembreDialog({ equipe: equipe0 }: { equipe?: string | null }) {
         })}
         {shown.length === 0 && (
           <Empty pad="sm">
-            {candidats.length ? 'Aucun collaborateur ne correspond à cette recherche.'
-              : exclus ? 'Aucun collaborateur à ajouter : les autres font déjà partie de cette équipe ou relèvent du service RH.'
-              : 'Tous les collaborateurs font déjà partie de cette équipe.'}
+            {candidats.length ? t('No employee matches this search.')
+              : exclus ? t('No employee to add: the others are already part of this team or fall under HR.')
+              : t('All the employees are already part of this team.')}
           </Empty>
         )}
       </div>
       {v.erreur(selErr) && <Bloquant>{selErr}</Bloquant>}
-      {!q && candidats.length > 0 && <Fine>{plural(candidats.length, 'collaborateur disponible', 'collaborateurs disponibles')}</Fine>}
-      {!rh && <Fine>Seuls les salariés « à affecter », déjà libérés par leur manager d’origine, peuvent rejoindre votre équipe : pour un membre d’une autre équipe, demandez sa mutation au service RH.</Fine>}
-      {managersExclus && <Fine>{`Les managers d’équipe${monManager ? ', dont votre propre manager,' : ''} ne sont pas proposés : leur affectation relève du service RH.`}</Fine>}
+      {!q && candidats.length > 0 && <Fine>{tn(candidats.length, 'available employee', 'available employees')}</Fine>}
+      {!rh && <Fine>{t('Only employees “to assign”, already released by their original manager, can join your team: for a member of another team, ask HR for their transfer.')}</Fine>}
+      {managersExclus && <Fine>{`${t('Team managers')}${monManager ? t(', including your own manager,') : ''}${t(' are not offered: their assignment falls under HR.')}`}</Fine>}
 
       {sel?.equipe && (
         <NoteAccent>
-          {sel.nom} quittera l’équipe {sel.equipe}{ancienMgr ? `, encadrée par ${d.personName(ancienMgr)}` : ''}.
+          {sel.nom}{t(' will leave the team ')}{sel.equipe}{ancienMgr ? `${t(', managed by ')}${d.personName(ancienMgr)}` : ''}.
         </NoteAccent>
       )}
-      {sel && encadre.length > 0 && <Fine>{sel.nom} reste manager {encadre.length > 1 ? 'des équipes' : 'de l’équipe'} {encadre.join(', ')}.</Fine>}
+      {sel && encadre.length > 0 && <Fine>{sel.nom}{t(' remains manager ')}{t(encadre.length > 1 ? 'of the teams' : 'of the team')} {encadre.join(', ')}.</Fine>}
       <Fine>
         {rh
-          ? `Ses temps et ses absences seront validés par ${d.mgrName(d.mgrOf({ id: sel?.id ?? -1, equipe }))}.`
-          : 'Le collaborateur rejoint votre équipe : vous validerez ses temps et ses absences.'}
+          ? `${t('Their hours and absences will be approved by ')}${d.mgrName(d.mgrOf({ id: sel?.id ?? -1, equipe }))}.`
+          : t('The employee joins your team: you will approve their hours and absences.')}
       </Fine>
     </Dialog>
   );

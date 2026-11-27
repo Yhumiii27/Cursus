@@ -3,7 +3,7 @@
 // service RH (server/src/vues-organismes.ts) et n'est jamais recopié au journal.
 import { plural } from '../../../shared/format.ts';
 import type { InscriptionElearning, ModuleElearning, Organisme, OrganismeContact, OrganismeTarif } from '../../../shared/types-organismes.ts';
-import { AIDE_MOTIF_CORRECTION } from './confirmations-corrections.ts';
+import { aideMotifCorrection } from './confirmations-corrections.ts';
 import type { Confirmation } from './confirmations.ts';
 import { t } from '../i18n/langue.ts';
 
@@ -84,6 +84,6 @@ export function annulationInscription(i: Pick<InscriptionElearning, 'id'>, nom: 
     bouton: t('Delete the enrolment'),
     action: 'elearning.annuler',
     payload: { id: i.id },
-    motif: { label: t('Reason for the deletion'), requis: true, placeholder: t('Enrolment on the wrong sheet, duplicate module…'), aide: AIDE_MOTIF_CORRECTION },
+    motif: { label: t('Reason for the deletion'), requis: true, placeholder: t('Enrolment on the wrong sheet, duplicate module…'), aide: aideMotifCorrection() },
   };
 }

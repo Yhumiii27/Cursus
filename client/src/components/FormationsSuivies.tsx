@@ -11,28 +11,29 @@ import { fH, fmt } from '../../../shared/format.ts';
 import { demandesAClore, heuresSuivie, intituleSuivie, ORIGINE_SUIVIE_LABEL, suivieCertifiee, suiviesEnVigueur, suiviesHorsCertifications } from '../../../shared/rules/formations-suivies.ts';
 import type { FormationSuivie } from '../../../shared/types.ts';
 import { delivrancesAnterieures, mesureFigee } from '../passeport.ts';
-import { AIDE_MOTIF_CORRECTION } from '../state/confirmations-corrections.ts';
+import { aideMotifCorrection } from '../state/confirmations-corrections.ts';
 import type { Confirmation } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { imprimerTitre, titreDocument, titreImprimable } from '../titre-habilitation.ts';
 import { Empty, Panel, SectionLabel, Tag } from './ui.tsx';
+import { t } from '../i18n/langue.ts';
 
 const date = (j: string) => fmt(parse(j));
 
 /** Suppression d'une formation suivie saisie par erreur (administrateur RH), motif obligatoire. */
 export function suppressionSuivie(x: Pick<FormationSuivie, 'id' | 'demandeId'>, nom: string, quoi: string): Confirmation {
   return {
-    titre: 'Supprimer la formation suivie',
-    question: `Supprimer ${quoi} du dossier de ${nom} ?`,
+    titre: t('Delete the attended training course'),
+    question: `${t('Delete #verb')}${quoi}${t(' from the file of ')}${nom}${t('?#question')}`,
     suites: [
-      'Elle reste en base, datée et signée, mais ne compte plus : passeport formation, bilan à 8 ans, indicateurs du plan.',
-      x.demandeId ? 'La demande hors catalogue qu’elle clôt redevient à clore.' : '',
+      t('It stays in the database, dated and signed, but no longer counts: training passport, 8-year review, plan indicators.'),
+      x.demandeId ? t('The off-catalogue request it closes becomes to close again.') : '',
     ].filter(Boolean),
-    bouton: 'Supprimer la formation',
+    bouton: t('Delete the training course'),
     action: 'formationSuivie.annuler',
     payload: { id: x.id },
-    motif: { label: 'Motif de la suppression', requis: true, placeholder: 'Saisie sur la mauvaise fiche, formation annulée…', aide: AIDE_MOTIF_CORRECTION },
+    motif: { label: t('Reason for the deletion'), requis: true, placeholder: t('Entered on the wrong sheet, training cancelled…'), aide: aideMotifCorrection() },
   };
 }
 
@@ -40,7 +41,7 @@ export function suppressionSuivie(x: Pick<FormationSuivie, 'id' | 'demandeId'>, 
 function LigneSuivie({ x, actions }: { x: FormationSuivie; actions?: ReactNode }) {
   const d = useDomain();
   const h = heuresSuivie(d, x);
-  const dates = x.au !== x.du ? `du ${date(x.du)} au ${date(x.au)}` : `le ${date(x.du)}`;
+  const dates = x.au !== x.du ? `${t('from #du-min')}${date(x.du)}${t(' to #au')}${date(x.au)}` : `${t('on ')}${date(x.du)}`;
   // Certification enregistrée pour la même formation : c'est elle qui compte (passeport, indicateurs).
   const certifiee = suivieCertifiee(d.emp(x.empId), x);
   return (
@@ -49,10 +50,10 @@ function LigneSuivie({ x, actions }: { x: FormationSuivie; actions?: ReactNode }
         <div>
           <div style={{ fontSize: 14 }}>{intituleSuivie(d, x)}</div>
           <div className="text-muted sub">
-            Suivie {dates} · {h == null ? 'durée inconnue' : fH(h)}{x.organisme ? ` · ${x.organisme}` : ''} · {ORIGINE_SUIVIE_LABEL[x.origine]}{certifiee ? ' · certification enregistrée' : ''}
+            {t('Attended#fem')} {dates} · {h == null ? t('duration unknown') : fH(h)}{x.organisme ? ` · ${x.organisme}` : ''} · {ORIGINE_SUIVIE_LABEL[x.origine]}{certifiee ? t(' · certification recorded') : ''}
           </div>
         </div>
-        <Tag cls={x.obligatoire ? 'tag-neutral' : 'tag-outline'} style={{ flex: 'none' }}>{x.obligatoire ? 'Obligatoire' : 'Non obligatoire'}</Tag>
+        <Tag cls={x.obligatoire ? 'tag-neutral' : 'tag-outline'} style={{ flex: 'none' }}>{t(x.obligatoire ? 'Mandatory#fem' : 'Not mandatory#fem')}</Tag>
       </div>
       {actions}
     </div>
@@ -68,35 +69,35 @@ export function FormationsSuiviesFiche({ e, parti }: { e: EmpX; parti: boolean }
   const aClore = formations ? demandesAClore(d.ds, e.id) : [];
   if (!liste.length && !aClore.length && !(formations && !parti)) return null;
   return <>
-    <SectionLabel>Formations suivies</SectionLabel>
+    <SectionLabel>{t('Attended training courses')}</SectionLabel>
     <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
       {aClore.map(r => (
         <div key={`d${r.id}`} className="list-row stack">
           <div className="item-head">
             <div>
               <div style={{ fontSize: 14 }}>{r.libelle}</div>
-              <div className="text-muted sub">Demande hors catalogue acceptée le {date(r.date)} · à enregistrer une fois la formation faite</div>
+              <div className="text-muted sub">{t('Off-catalogue request accepted on ')}{date(r.date)}{t(' · to record once the training is done')}</div>
             </div>
-            <Tag cls="tag-outline" style={{ flex: 'none' }}>À clore</Tag>
+            <Tag cls="tag-outline" style={{ flex: 'none' }}>{t('To close')}</Tag>
           </div>
           <div className="actions-end">
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'formationSuivie', empId: e.id, demandeId: r.id })}>Enregistrer la formation suivie</button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'formationSuivie', empId: e.id, demandeId: r.id })}>{t('Record the attended training course')}</button>
           </div>
         </div>
       ))}
       {liste.map(x => (
         <LigneSuivie key={x.id} x={x} actions={formations && (
           <div className="actions-end">
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'formationSuivie', empId: e.id, id: x.id })}>Corriger</button>
-            {admin && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'confirmer', c: suppressionSuivie(x, e.nom, `${intituleSuivie(d, x)} du ${date(x.du)}`) })}>Supprimer</button>}
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'formationSuivie', empId: e.id, id: x.id })}>{t('Correct')}</button>
+            {admin && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'confirmer', c: suppressionSuivie(x, e.nom, `${intituleSuivie(d, x)}${t(' of #du')}${date(x.du)}`) })}>{t('Delete')}</button>}
           </div>
         )} />
       ))}
-      {!liste.length && !aClore.length && <Empty pad="sm">Aucune formation suivie enregistrée hors certifications.</Empty>}
+      {!liste.length && !aClore.length && <Empty pad="sm">{t('No attended training recorded apart from certifications.')}</Empty>}
     </div>
     {formations && !parti && (
       <div className="actions-end">
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'formationSuivie', empId: e.id })}>Enregistrer une formation suivie</button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'formationSuivie', empId: e.id })}>{t('Record an attended training course')}</button>
       </div>
     )}
   </>;
@@ -108,18 +109,18 @@ export function HabilitationsAnterieures({ e }: { e: EmpX }) {
   const liste = delivrancesAnterieures(d, e.id);
   if (!liste.length) return null;
   return <>
-    <SectionLabel>Habilitations antérieures</SectionLabel>
+    <SectionLabel>{t('Previous authorisations')}</SectionLabel>
     <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
       {liste.map(x => (
         <div key={x.id} className="list-row past">
           <div className="grow">
             <div style={{ fontSize: 13 }}>{d.hm(x.h)?.nom ?? x.h}</div>
             <div className="sub">
-              Délivrée le {date(x.delivree)}{x.par ? ` par ${x.par}` : ''}{x.expire ? ` · expirait le ${date(x.expire)}` : ''} · remplacée le {date(x.remplaceeLe!)}
+              {t('Issued on ')}{date(x.delivree)}{x.par ? `${t(' by ')}${x.par}` : ''}{x.expire ? `${t(' · expired on #was')}${date(x.expire)}` : ''}{t(' · replaced on ')}{date(x.remplaceeLe!)}
               {mesureFigee(x) ? ` · ${mesureFigee(x).toLowerCase()}` : ''}
             </div>
           </div>
-          <Tag cls="tag-outline" style={{ flex: 'none' }}>Remplacée</Tag>
+          <Tag cls="tag-outline" style={{ flex: 'none' }}>{t('Replaced#fem')}</Tag>
         </div>
       ))}
     </div>
@@ -132,11 +133,11 @@ export function ImprimerTitre({ e, h }: { e: EmpX; h: HabInfo }) {
   const { notify } = useStore();
   if (!formations || !titreImprimable(h)) return null;
   const imprimer = () => {
-    if (!imprimerTitre(e, h.hm, { delivree: h.delivree!, par: h.par! })) notify('Autorisez les fenêtres surgissantes pour imprimer le titre', true);
+    if (!imprimerTitre(e, h.hm, { delivree: h.delivree!, par: h.par! })) notify(t('Allow pop-up windows to print the title'), true);
   };
   return (
-    <button type="button" className="btn btn-ghost btn-sm" onClick={imprimer} aria-label={`Imprimer le ${titreDocument(h.hm).toLowerCase()} : ${h.hm.nom}`}>
-      <PrinterIcon size={14} /> Imprimer le titre
+    <button type="button" className="btn btn-ghost btn-sm" onClick={imprimer} aria-label={`${t('Print the ')}${titreDocument(h.hm).toLowerCase()}${t(': ')}${h.hm.nom}`}>
+      <PrinterIcon size={14} /> {t('Print the title')}
     </button>
   );
 }
@@ -147,7 +148,7 @@ export function FormationsSuiviesPortail({ empId }: { empId: number }) {
   const liste = suiviesHorsCertifications(d, empId).sort((a, b) => b.du.localeCompare(a.du) || b.id - a.id);
   if (!liste.length) return null;
   return (
-    <Panel title="Mes formations suivies" aside="hors certifications" style={{ gap: 'var(--space-2)' }}>
+    <Panel title={t('My attended training courses')} aside={t('apart from certifications')} style={{ gap: 'var(--space-2)' }}>
       <div className="list">{liste.map(x => <LigneSuivie key={x.id} x={x} />)}</div>
     </Panel>
   );

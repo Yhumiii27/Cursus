@@ -28,9 +28,9 @@ export function LectureSeule({ d, empId }: { d: Domain; empId: number }) {
 /** Élément redirigé, en une ligne : « Karim Haddad, congés du 07/12/2026 au 08/12/2026 ». */
 function decrire(d: Domain, x: ElementRedirige): string {
   const nom = d.personName(x.empId);
-  if (x.kind === 'absence') return `${nom}, congés du ${fmtIso(x.du)} au ${fmtIso(x.au)}`;
-  if (x.kind === 'feuille') return `${nom}, feuille de la semaine ${isoWeek(x.week)}`;
-  return `${nom}, entretien du ${fmtIso(x.date)}`;
+  if (x.kind === 'absence') return `${nom}${t(', leave from ')}${fmtIso(x.du)}${t(' to #au')}${fmtIso(x.au)}`;
+  if (x.kind === 'feuille') return `${nom}${t(', timesheet of week ')}${isoWeek(x.week)}`;
+  return `${nom}${t(', review of ')}${fmtIso(x.date)}`;
 }
 
 /**
@@ -65,10 +65,10 @@ export function ParenteEquipe({ q }: { q: Equipe }) {
   };
   return (
     <div className="field" style={{ flex: '1 1 220px', maxWidth: 320 }}>
-      <label htmlFor="equipe-parente">Équipe parente</label>
+      <label htmlFor="equipe-parente">{t('Parent team')}</label>
       {/* La liste garde l'équipe parente actuelle tant que le changement n'est pas confirmé. */}
       <select className="input" id="equipe-parente" value={q.parente ?? ''} disabled={!rh} onChange={ev => choisir(ev.target.value)}>
-        <option value="">Aucune — manager validé par le RH</option>
+        <option value="">{t('None — manager approved by HR')}</option>
         {possibles.map(nom => <option key={nom} value={nom}>{nom}</option>)}
       </select>
     </div>

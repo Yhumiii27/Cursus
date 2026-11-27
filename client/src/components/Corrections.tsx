@@ -16,6 +16,7 @@ import { reqKind, reqLabel } from '../pages/Dashboard.tsx';
 // lot 12 — C3 (entretiens suivis)
 import { BadgeEntretien } from './OrigineEntretien.tsx';
 import { SectionLabel, Tag } from './ui.tsx';
+import { t } from '../i18n/langue.ts';
 
 /** Boutons de correction d'une certification du dossier (en vigueur ou remplacée). */
 export function ActionsCertification({ e, c }: { e: EmpX; c: CertInfo }) {
@@ -31,13 +32,13 @@ export function ActionsCertification({ e, c }: { e: EmpX; c: CertInfo }) {
     const rendues = brute ? inscriptionsARendre(d, emp, brute, certsApres(emp.certs, c.id)).map(r => ({ session: sessionDu(r.s), refus: r.refus, ouverte: sessionActive(r.s) })) : [];
     openDialog({
       type: 'confirmer',
-      c: suppressionCertification(c, e.nom, `${c.fm.court} du ${fmt(c.obt)}`, { precedente, session: c.session ? sessionDu(c.session) : null, rendues }),
+      c: suppressionCertification(c, e.nom, `${c.fm.court}${t(' of #du')}${fmt(c.obt)}`, { precedente, session: c.session ? sessionDu(c.session) : null, rendues }),
     });
   };
   return (
     <div className="actions-end">
-      <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cert', empId: e.id, certId: c.id })}>Corriger</button>
-      {admin && <button type="button" className="btn btn-ghost btn-sm" onClick={supprimer}>Supprimer</button>}
+      <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cert', empId: e.id, certId: c.id })}>{t('Correct')}</button>
+      {admin && <button type="button" className="btn btn-ghost btn-sm" onClick={supprimer}>{t('Delete')}</button>}
     </div>
   );
 }
@@ -52,10 +53,10 @@ export function CertsAnnulees({ e }: { e: EmpX }) {
       {liste.map(c => (
         <div key={c.id} className="list-row past">
           <div className="grow">
-            <div style={{ fontSize: 13 }}>{d.fm(c.f)?.nom ?? c.f} — obtenue le {fmt(parse(c.obtenue))}</div>
-            <div className="sub">Supprimée le {c.annuleLe ? fmt(parse(c.annuleLe)) : '—'}{c.annulePar ? ` par ${c.annulePar}` : ''}{c.annuleMotif ? ` — ${c.annuleMotif}` : ''}</div>
+            <div style={{ fontSize: 13 }}>{d.fm(c.f)?.nom ?? c.f}{t(' — obtained on ')}{fmt(parse(c.obtenue))}</div>
+            <div className="sub">{t('Deleted on ')}{c.annuleLe ? fmt(parse(c.annuleLe)) : '—'}{c.annulePar ? `${t(' by ')}${c.annulePar}` : ''}{c.annuleMotif ? ` — ${c.annuleMotif}` : ''}</div>
           </div>
-          <Tag cls="tag-outline" style={{ flex: 'none' }}>Supprimée</Tag>
+          <Tag cls="tag-outline" style={{ flex: 'none' }}>{t('Deleted#fem')}</Tag>
         </div>
       ))}
     </div>
@@ -75,7 +76,7 @@ export function DemandesFiche({ e, membre }: { e: EmpX; membre: boolean }) {
   const demandes = d.ds.demandesCollab.filter(r => r.empId === e.id && r.type !== 'document').sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
   if (!demandes.length) return null;
   return <>
-    <SectionLabel>Demandes au service RH</SectionLabel>
+    <SectionLabel>{t('Requests to HR')}</SectionLabel>
     <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
       {demandes.map(r => {
         const objet = reqLabel(r, id => d.fm(id)?.nom ?? id, id => d.hm(id)?.nom ?? id);
@@ -88,8 +89,8 @@ export function DemandesFiche({ e, membre }: { e: EmpX; membre: boolean }) {
                 {/* lot 12 — C3 (entretiens suivis) : badge d'origine d'un souhait versé à la clôture d'un entretien. */}
                 <div style={{ fontSize: 14 }}>{objet}<BadgeEntretien d={d} r={r} /></div>
                 <div className="text-muted sub">
-                  {reqKind(r)} · {r.parId ? `par ${d.personName(r.parId)} (manager)` : 'par le collaborateur'} le {fmtShort(parse(r.date))}
-                  {r.rouverteLe ? ` · rouverte le ${fmtShort(parse(r.rouverteLe))}${r.rouvertePar ? ` par ${r.rouvertePar}` : ''}` : ''}
+                  {reqKind(r)} · {r.parId ? `${t('by #lower')}${d.personName(r.parId)}${t(' (manager)')}` : t('by the employee')}{t(' on #le')}{fmtShort(parse(r.date))}
+                  {r.rouverteLe ? `${t(' · reopened on ')}${fmtShort(parse(r.rouverteLe))}${r.rouvertePar ? `${t(' by ')}${r.rouvertePar}` : ''}` : ''}
                 </div>
               </div>
               <Tag cls={REQ_CLS[r.statut]} style={{ flex: 'none' }}>{REQ_LABEL[r.statut]}</Tag>
@@ -97,9 +98,9 @@ export function DemandesFiche({ e, membre }: { e: EmpX; membre: boolean }) {
             {(rouvrir || retirer) && (
               <div className="actions-end">
                 {rouvrir && <button type="button" className="btn btn-ghost btn-sm"
-                  onClick={() => openDialog({ type: 'confirmer', c: reouvertureDemande(r, e.nom, objet, effetsReouverture(d, r, d.emp(e.id)!)) })}>Rouvrir</button>}
+                  onClick={() => openDialog({ type: 'confirmer', c: reouvertureDemande(r, e.nom, objet, effetsReouverture(d, r, d.emp(e.id)!)) })}>{t('Reopen')}</button>}
                 {retirer && <button type="button" className="btn btn-ghost btn-sm"
-                  onClick={() => openDialog({ type: 'confirmer', c: retraitDemande(r, objet, e.nom) })}>Retirer la demande</button>}
+                  onClick={() => openDialog({ type: 'confirmer', c: retraitDemande(r, objet, e.nom) })}>{t('Withdraw the request')}</button>}
               </div>
             )}
           </div>

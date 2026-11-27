@@ -4,6 +4,7 @@
 import { Btn, Fine, Panel } from './ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 /** Panneau du portail : contact de l'intéressé, à saisir ou modifier. */
 export function ContactUrgencePanel({ empId }: { empId: number }) {
@@ -12,9 +13,9 @@ export function ContactUrgencePanel({ empId }: { empId: number }) {
   const e = d.emp(empId);
   if (!e) return null;
   return (
-    <Panel title="Mon contact d’urgence" aside={<Btn small onClick={() => openDialog({ type: 'contactUrgence', empId })}>{e.urgenceNom ? 'Modifier' : 'Renseigner'}</Btn>}>
-      <div style={{ fontSize: 14, overflowWrap: 'anywhere' }}>{e.urgenceNom ? `${e.urgenceNom} · ${e.urgenceTel ?? ''}` : 'Aucun contact d’urgence indiqué'}</div>
-      <Fine>Personne à prévenir en cas d’accident, sur le site ou en déplacement. Facultatif ; vu du service RH seulement, jamais de votre manager.</Fine>
+    <Panel title={t('My emergency contact')} aside={<Btn small onClick={() => openDialog({ type: 'contactUrgence', empId })}>{t(e.urgenceNom ? 'Edit' : 'Fill in')}</Btn>}>
+      <div style={{ fontSize: 14, overflowWrap: 'anywhere' }}>{e.urgenceNom ? `${e.urgenceNom} · ${e.urgenceTel ?? ''}` : t('No emergency contact given')}</div>
+      <Fine>{t('Person to notify in case of an accident, on site or travelling. Optional; seen by HR only, never by your manager.')}</Fine>
     </Panel>
   );
 }
@@ -30,10 +31,10 @@ export function ContactUrgenceFiche({ empId }: { empId: number }) {
   return (
     <div className="item-head" style={{ alignItems: 'center' }}>
       <div>
-        <div className="text-muted sub">Contact d’urgence</div>
-        <div style={{ fontSize: 13, overflowWrap: 'anywhere' }}>{e.urgenceNom ? `${e.urgenceNom} · ${e.urgenceTel ?? ''}` : 'Non indiqué (le salarié le saisit depuis son espace)'}</div>
+        <div className="text-muted sub">{t('Emergency contact')}</div>
+        <div style={{ fontSize: 13, overflowWrap: 'anywhere' }}>{e.urgenceNom ? `${e.urgenceNom} · ${e.urgenceTel ?? ''}` : t('Not given (the employee enters it from their space)')}</div>
       </div>
-      <Btn small onClick={() => openDialog({ type: 'contactUrgence', empId })}>{e.urgenceNom ? 'Modifier' : 'Renseigner'}</Btn>
+      <Btn small onClick={() => openDialog({ type: 'contactUrgence', empId })}>{t(e.urgenceNom ? 'Edit' : 'Fill in')}</Btn>
     </div>
   );
 }

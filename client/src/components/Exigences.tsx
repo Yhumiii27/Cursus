@@ -6,10 +6,10 @@ import { CERT_LABEL, CLS, HAB_CLS, HAB_LABEL } from '../../../shared/constants.t
 import type { EmpX, Proposal } from '../../../shared/domain.ts';
 import { echeanceExigence, exigencesDe, manquantsTexte, origineTexte, posteDe } from '../../../shared/rules/exigences.ts';
 import { ARTICLE_L4154, contratRenforcee, formationRenforcee } from '../../../shared/rules/formation-renforcee.ts';
-import { plural } from '../../../shared/format.ts';
 import { Fine, NoteAccent, SectionLabel, Tag, Two } from './ui.tsx';
 import { useDomain, useIntentPermis, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 /** État du titre qui remplit une exigence : celui de la certification en vigueur ou du titre délivré (valide, échu…). */
 function Etat({ e, x }: { e: EmpX; x: { type: string; id: string } }) {
@@ -17,19 +17,19 @@ function Etat({ e, x }: { e: EmpX; x: { type: string; id: string } }) {
   const h = x.type === 'habilitation' ? e.habs.find(y => y.h === x.id && y.delivree) : null;
   if (c) return <Tag cls={CLS[c.key]} style={{ flex: 'none' }}>{CERT_LABEL[c.key]}</Tag>;
   if (h) return <Tag cls={HAB_CLS[h.key]} style={{ flex: 'none' }}>{HAB_LABEL[h.key]}</Tag>;
-  return <Tag cls="tag-neutral" style={{ flex: 'none' }}>Obtenue</Tag>;
+  return <Tag cls="tag-neutral" style={{ flex: 'none' }}>{t('Obtained#fem')}</Tag>;
 }
 
 /** Colonne « Exigences » de la liste : manquantes, remplies, ou aucune déclarée. */
 export function ExigencesCellule({ e }: { e: EmpX }) {
   const d = useDomain();
-  if (e.manquants.length) return <Tag cls="tag-accent">{plural(e.manquants.length, 'manquante', 'manquantes')}</Tag>;
-  return exigencesDe(d.ds, e).length ? <Tag cls="tag-neutral">Remplies</Tag> : <span className="text-muted">—</span>;
+  if (e.manquants.length) return <Tag cls="tag-accent">{tn(e.manquants.length, 'missing#fem', 'missing#fem-plural')}</Tag>;
+  return exigencesDe(d.ds, e).length ? <Tag cls="tag-neutral">{t('Met#fem-plural')}</Tag> : <span className="text-muted">—</span>;
 }
 
 /** Motif du statut « Non conforme » dû aux exigences : « Formation exigée non suivie : SST ». */
 export function ExigencesMotif({ e }: { e: EmpX }) {
-  return e.manquants.length ? <NoteAccent>Non conforme · {manquantsTexte(e.manquants)}</NoteAccent> : null;
+  return e.manquants.length ? <NoteAccent>{t('Non-compliant')} · {manquantsTexte(e.manquants)}</NoteAccent> : null;
 }
 
 /**
@@ -45,7 +45,7 @@ export function ExigencesPortail({ e }: { e: EmpX }) {
       {e.manquants.map(m => (
         <button key={`${m.type}-${m.id}`} type="button" className="btn btn-ghost btn-sm"
           onClick={() => openDialog(m.type === 'formation' ? { type: 'reqForm', f: m.id } : { type: 'reqHab' })}>
-          {m.type === 'formation' ? `Demander la formation ${m.label}` : `Demander l’habilitation ${m.label}`}
+          {m.type === 'formation' ? `${t('Request the training course')} ${m.label}` : `${t('Request the authorisation')} ${m.label}`}
         </button>
       ))}
     </div>
@@ -72,8 +72,8 @@ export function ExigencesFiche({ e, membre, parti }: { e: EmpX; membre: boolean;
     if (formations) return a.action && permis(a.action.intent) ? a.action : null;
     if (!membre) return null;
     return m.type === 'formation'
-      ? { label: 'Demander la formation', intent: { type: 'goFormation', f: m.id } }
-      : { label: 'Demander l’habilitation', intent: { type: 'demanderHab', empId: e.id, h: m.id, nom: e.nom, label: m.label } };
+      ? { label: t('Request the training course'), intent: { type: 'goFormation', f: m.id } }
+      : { label: t('Request the authorisation'), intent: { type: 'demanderHab', empId: e.id, h: m.id, nom: e.nom, label: m.label } };
   };
   // Manager : demandes adressées au service RH (dialogues de demande) plutôt que les actions du service RH.
   const lancer = (m: (typeof e.manquants)[number], a: Proposal) => {
@@ -82,11 +82,11 @@ export function ExigencesFiche({ e, membre, parti }: { e: EmpX; membre: boolean;
     else openDialog({ type: 'reqHab', empId: e.id });
   };
   return <>
-    <SectionLabel>Exigences du poste</SectionLabel>
+    <SectionLabel>{t('Job requirements')}</SectionLabel>
     {risques && (
       <Fine>
-        Poste à risques particuliers ({ARTICLE_L4154}) : formation renforcée à la sécurité exigée des CDD, intérimaires et alternants
-        {contratRenforcee(e.typeContrat) ? (formationRenforcee(d.ds) ? ', depuis l’entrée' : ' — formation non désignée dans Paramètres') : ' (contrat non concerné)'}.
+        {t('Job with particular risks (')}{ARTICLE_L4154}{t('): reinforced safety training required of fixed-term, temporary and work-study employees')}
+        {contratRenforcee(e.typeContrat) ? (formationRenforcee(d.ds) ? t(', since the start') : t(' — training not designated in Settings')) : t(' (contract not concerned)')}.
       </Fine>
     )}
     <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
@@ -98,12 +98,12 @@ export function ExigencesFiche({ e, membre, parti }: { e: EmpX; membre: boolean;
         return (
           <div key={`${x.type}-${x.id}`} className="list-row stack">
             <div className="item-head">
-              <Two main={nom} sub={`${x.type === 'formation' ? 'Formation' : 'Habilitation'} · ${origineTexte(x).replace(/^Exigence/, 'exigence')}`} />
-              {m ? <Tag cls="tag-accent" style={{ flex: 'none' }}>Manquante</Tag> : <Etat e={e} x={x} />}
+              <Two main={nom} sub={`${t(x.type === 'formation' ? 'Training course' : 'Authorisation')} · ${origineTexte(x).replace(/^Exigence/, 'exigence')}`} />
+              {m ? <Tag cls="tag-accent" style={{ flex: 'none' }}>{t('Missing#fem')}</Tag> : <Etat e={e} x={x} />}
             </div>
             {m && (ech?.plannedLabel || a) && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-                <span className="note-accent">{ech?.plannedLabel || (x.type === 'formation' ? 'Formation jamais suivie' : 'Habilitation jamais délivrée')}</span>
+                <span className="note-accent">{ech?.plannedLabel || t(x.type === 'formation' ? 'Training course never attended' : 'Authorisation never issued')}</span>
                 {a && <button type="button" className="btn btn-ghost btn-sm" onClick={() => lancer(m, a)}>{a.label}</button>}
               </div>
             )}

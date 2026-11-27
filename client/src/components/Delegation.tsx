@@ -11,6 +11,7 @@ import type { Employe } from '../../../shared/types.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { Fine, NoteAccent, Panel } from './ui.tsx';
+import { t } from '../i18n/langue.ts';
 
 const moisLabel = (m: string) => parse(`${m}-01`).toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' });
 
@@ -25,18 +26,18 @@ export function MandatsFiche({ e }: { e: Employe }) {
   const modifiable = e.id !== soi;
   return (
     <div>
-      <div className="text-muted sub">Mandat au CSE</div>
+      <div className="text-muted sub">{t('CSE mandate')}</div>
       {mandats.map(m => (
         <div key={m.id} style={{ fontSize: 14, display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-          {ROLES_MANDAT[m.role]} · {m.au ? `du ${fmtIso(m.du)} au ${fmtIso(m.au)}` : `depuis le ${fmtIso(m.du)}`} · {fH(m.credit)} par mois
-          {modifiable && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'mandat', empId: e.id, id: m.id })}>Modifier</button>}
+          {ROLES_MANDAT[m.role]} · {m.au ? `${t('from #du-min')}${fmtIso(m.du)}${t(' to #au')}${fmtIso(m.au)}` : `${t('since ')}${fmtIso(m.du)}`} · {fH(m.credit)}{t(' a month')}
+          {modifiable && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'mandat', empId: e.id, id: m.id })}>{t('Edit')}</button>}
         </div>
       ))}
       {modifiable ? (
         <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'mandat', empId: e.id })}>
-          {mandats.length ? 'Ajouter un mandat' : 'Enregistrer un mandat au CSE'}
+          {t(mandats.length ? 'Add a mandate' : 'Record a CSE mandate')}
         </button>
-      ) : !mandats.length ? <div className="text-muted" style={{ fontSize: 13 }}>Aucun mandat : un autre membre du service RH saisit le vôtre.</div> : null}
+      ) : !mandats.length ? <div className="text-muted" style={{ fontSize: 13 }}>{t('No mandate: another member of HR enters yours.')}</div> : null}
     </div>
   );
 }
@@ -46,12 +47,12 @@ export function CompteurDelegation({ emp }: { emp: Employe }) {
   const d = useDomain();
   const lignes = compteurDelegation(d.ds, emp.id, d.ti, effectifReference(d.ds, d.ti));
   if (!lignes?.length) return null;
-  const alertes = lignes.flatMap(l => l.alertes.map(a => `${moisLabel(l.mois)} : ${a}`));
+  const alertes = lignes.flatMap(l => l.alertes.map(a => `${moisLabel(l.mois)}${t(': ')}${a}`));
   return (
-    <Panel title="Heures de délégation (CSE)" aside={ROLES_MANDAT[lignes.at(-1)!.role]}>
+    <Panel title={t('Delegation hours (CSE)')} aside={ROLES_MANDAT[lignes.at(-1)!.role]}>
       <div className="scroll-x">
         <table className="table" style={{ fontSize: 13 }}>
-          <thead><tr><th>Mois</th><th className="right">Crédit</th><th className="right">Utilisées</th><th className="right">Limite du mois</th><th className="right">Report sur 12 mois</th></tr></thead>
+          <thead><tr><th>{t('Month')}</th><th className="right">{t('Credit#noun')}</th><th className="right">{t('Used#fem-plural')}</th><th className="right">{t('Limit of the month')}</th><th className="right">{t('Carry-over over 12 months')}</th></tr></thead>
           <tbody>
             {lignes.map(l => (
               <tr key={l.mois}>
@@ -67,9 +68,7 @@ export function CompteurDelegation({ emp }: { emp: Employe }) {
       </div>
       {alertes.map(a => <NoteAccent key={a}>{a}</NoteAccent>)}
       <Fine>
-        Heures imputées au code {CODE_DELEGATION} dans les feuilles validées. Les heures non utilisées se reportent sur 12 mois ; dans le mois, une fois et demie
-        le crédit au plus, mutualisation entre élus comprise (art. R2315-5 et R2315-6). Un dépassement est signalé, jamais bloqué (circonstances exceptionnelles,
-        art. L2315-7). Visible par le service RH et l’élu seulement.
+        {t('Hours charged to the code ')}{CODE_DELEGATION}{t(' in the approved timesheets. Unused hours are carried over for 12 months; within the month, one and a half times the credit at most, pooling between elected members included (art. R2315-5 and R2315-6). An excess is reported, never blocked (exceptional circumstances, art. L2315-7). Visible to HR and the elected member only.')}
       </Fine>
     </Panel>
   );

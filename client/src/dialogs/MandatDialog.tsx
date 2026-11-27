@@ -10,6 +10,7 @@ import { Bloquant, CancelButton, Dialog, Field, SubmitButton, useVerification } 
 import { Btn, Fine, Seg } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 const ROLES = Object.entries(ROLES_MANDAT) as [RoleMandat, string][];
 
@@ -52,37 +53,36 @@ export function MandatDialog({ empId, id }: { empId: number; id?: number | null 
   };
 
   return (
-    <Dialog title={`Mandat au CSE${e ? ` — ${e.nom}` : ''}`} width={520} onSubmit={envoyer}
+    <Dialog title={`${t('CSE mandate')}${e ? ` — ${e.nom}` : ''}`} width={520} onSubmit={envoyer}
       confirmation={retirer ? {
-        texte: 'Retirer ce mandat ? Son compteur d’heures de délégation disparaît (les heures déjà imputées restent sur les feuilles). Un mandat terminé se garde plutôt avec sa date de fin.',
-        bouton: 'Retirer le mandat', occupe: busy, confirmer: supprimer, annuler: () => setRetirer(false),
+        texte: t('Remove this mandate? Its delegation hours counter disappears (the hours already charged stay on the timesheets). An ended mandate is rather kept with its end date.'),
+        bouton: t('Remove the mandate'), occupe: busy, confirmer: supprimer, annuler: () => setRetirer(false),
       } : null}
-      actions={disparu ? <CancelButton label="Fermer" /> : <>
-        {avant && <Btn onClick={() => setRetirer(true)} disabled={busy}>Retirer</Btn>}
+      actions={disparu ? <CancelButton label={t('Close')} /> : <>
+        {avant && <Btn onClick={() => setRetirer(true)} disabled={busy}>{t('Remove')}</Btn>}
         <CancelButton />
-        <SubmitButton busy={busy}>Enregistrer</SubmitButton>
+        <SubmitButton busy={busy}>{t('Save')}</SubmitButton>
       </>}>
-      {disparu ? <Bloquant>Ce mandat n’existe plus.</Bloquant> : <>
-        <Field label="Mandat" erreur={v.erreur(erreurs.role)}>
-          <Seg name="mandat-role" label="Mandat" value={role} options={ROLES} onChange={choisirRole} />
+      {disparu ? <Bloquant>{t('This mandate no longer exists.')}</Bloquant> : <>
+        <Field label={t('Mandate')} erreur={v.erreur(erreurs.role)}>
+          <Seg name="mandat-role" label={t('Mandate')} value={role} options={ROLES} onChange={choisirRole} />
         </Field>
         <div className="grid-2">
-          <Field label="Début du mandat" htmlFor="mandat-du" requis erreur={du ? erreurs.du ?? null : v.erreur(erreurs.du)}>
+          <Field label={t('Start of the mandate')} htmlFor="mandat-du" requis erreur={du ? erreurs.du ?? null : v.erreur(erreurs.du)}>
             <input className="input" id="mandat-du" type="date" value={du} onChange={ev => setDu(ev.target.value)} />
           </Field>
-          <Field label="Fin du mandat" htmlFor="mandat-au" erreur={erreurs.au ?? null}>
+          <Field label={t('End of the mandate')} htmlFor="mandat-au" erreur={erreurs.au ?? null}>
             <input className="input" id="mandat-au" type="date" value={au} onChange={ev => setAu(ev.target.value)} />
           </Field>
         </div>
-        <Field label="Crédit d’heures de délégation par mois" htmlFor="mandat-credit" requis erreur={credit.trim() ? erreurs.credit ?? null : v.erreur(erreurs.credit)}>
+        <Field label={t('Delegation hours credit per month')} htmlFor="mandat-credit" requis erreur={credit.trim() ? erreurs.credit ?? null : v.erreur(erreurs.credit)}>
           <input className="input" id="mandat-credit" inputMode="decimal" value={credit} onChange={ev => setCredit(ev.target.value.replace(/[^\d.,]/g, '').slice(0, 6))} style={{ maxWidth: 120 }} />
         </Field>
         <Fine>
           {legal != null
-            ? `Table de l’art. R2314-1 pour un effectif de ${effectif} salariés (hors intérim, à vérifier) : ${fH(legal)} par mois pour un titulaire. `
-            : `Effectif de ${effectif} salariés : crédit à saisir d’après l’art. R2314-1. `}
-          Un suppléant n’a pas de crédit propre : il reçoit des heures par mutualisation (art. R2315-6). Le compteur alerte au-delà d’une fois et demie le crédit
-          dans le mois et quand le report sur 12 mois est épuisé, sans jamais bloquer.
+            ? `${t('Table of art. R2314-1 for a headcount of ')}${effectif}${t(' employees (excluding temporary work, to check): ')}${fH(legal)}${t(' a month for a full member. ')}`
+            : `${t('Headcount of ')}${effectif}${t(' employees: credit to enter according to art. R2314-1. ')}`}
+          {t('A substitute has no credit of their own: they receive hours by pooling (art. R2315-6). The counter alerts beyond one and a half times the credit within the month and when the 12-month carry-over is used up, without ever blocking.')}
         </Fine>
       </>}
     </Dialog>

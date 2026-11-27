@@ -5,7 +5,7 @@ import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, HAB_MESURE_LABEL, RANK,
 import type { ContratX, EmpX, HabInfo, Proposal } from '../../../shared/domain.ts';
 import type { Formation } from '../../../shared/types.ts';
 import { days, parse } from '../../../shared/dates.ts';
-import { equipeLabel, fmt, fmtIso, fmtShort, matricule, plural, rel } from '../../../shared/format.ts';
+import { equipeLabel, fmt, fmtIso, fmtShort, matricule, rel } from '../../../shared/format.ts';
 import { sessionDu } from '../../../shared/rules/plage-session.ts';
 import { absenceKinds } from '../../../shared/rules/conges.ts';
 import { habSuivie } from '../../../shared/rules/referentiels.ts';
@@ -51,6 +51,7 @@ import { ListeAttenteFiche } from '../components/ListeAttente.tsx';
 import { imprimerPasseport } from '../passeport.ts';
 import { titreImprimable } from '../titre-habilitation.ts';
 import { membreOuDelegue } from '../state/delegues.ts';
+import { t, tn } from '../i18n/langue.ts';
 
 /** Valeur du filtre d'équipe pour les collaborateurs sans équipe (« À affecter »). */
 const SANS_EQUIPE = '';
@@ -72,7 +73,7 @@ function habSummary(e: EmpX) {
   const suivies = e.habs.filter(habSuivie), hs = suivies.filter(h => h.key !== 'pending');
   const ko = hs.filter(h => h.key === 'exp' || h.key === 'susp' || h.key === 'retiree').length, due = hs.filter(h => h.key === 'due').length, pend = suivies.length - hs.length;
   return {
-    label: ko ? plural(ko, 'non conforme', 'non conformes') : due ? `${due} à renouveler` : !hs.length ? `${pend} en attente` : plural(hs.length, 'valide', 'valides'),
+    label: ko ? tn(ko, 'non-compliant', 'non-compliant#plural') : due ? `${due}${t(' to renew')}` : !hs.length ? `${pend}${t(' pending')}` : tn(hs.length, 'valid', 'valid#plural'),
     cls: ko ? 'tag-accent' : due || !hs.length ? 'tag-outline' : 'tag-neutral',
   };
 }
@@ -86,7 +87,7 @@ function contratCourt(c: ContratX) {
 
 const joursListe = (js: number[]) => {
   const n = js.map(j => JOURS_SEMAINE[j]?.toLowerCase()).filter(Boolean);
-  return n.length > 1 ? `${n.slice(0, -1).join(', ')} et ${n[n.length - 1]}` : n[0] ?? '';
+  return n.length > 1 ? `${n.slice(0, -1).join(', ')}${t(' and #et')}${n[n.length - 1]}` : n[0] ?? '';
 };
 
 export function Collaborateurs() {
@@ -115,7 +116,7 @@ export function Collaborateurs() {
 
   const q = ui.search;
   // Tri par colonne (t145) : l'ordre par défaut (gravité, puis échéance, puis nom) tant qu'aucun en-tête n'est cliqué.
-  const t = useTri('collaborateurs');
+  const tri = useTri('collaborateurs');
   const rows = useMemo(() => trier(liste
     .filter(e => (filtre === 'Toutes' || (filtre === SANS_EQUIPE ? !e.equipe : e.equipe === filtre))
       && (ui.statut === 'tous' || sortis || (ui.statut === 'acompleter' ? !rh || aCompleterIndicateurs(e, d.ti) : e.worst === ui.statut))
@@ -124,7 +125,7 @@ export function Collaborateurs() {
     // Sortis : les départs les plus récents d'abord.
     .sort((a, b) => sortis ? (b.fin ?? '').localeCompare(a.fin ?? '') || a.nom.localeCompare(b.nom)
       : RANK[b.worst] - RANK[a.worst] || (a.next ? a.next.d : 1e9) - (b.next ? b.next.d : 1e9) || a.nom.localeCompare(b.nom)),
-  COLONNES, t.tri), [liste, filtre, ui.statut, sortis, q, t.tri, rh, d.ti]);
+  COLONNES, tri.tri), [liste, filtre, ui.statut, sortis, q, tri.tri, rh, d.ti]);
   // Au-delà de 50 lignes : « Afficher plus » ; les filtres ramènent aux 50 premières (l'export garde toutes les lignes).
   const page = usePagination(rows, `${filtre}|${ui.statut}|${q}`);
 
@@ -132,10 +133,10 @@ export function Collaborateurs() {
   // Écran étroit : la fiche s'affiche sous la liste ; la sélection l'amène dans le champ de vision.
   const panneau = usePanneauVisible<HTMLElement>(sel?.id);
   const certCount = team.reduce((n, e) => n + e.certs.length, 0);
-  const certs = plural(certCount, 'certification suivie', 'certifications suivies');
+  const certs = tn(certCount, 'tracked certification', 'tracked certifications');
   const kicker = manager
-    ? `${myTeams.length ? `${myTeams.length > 1 ? 'Équipes' : 'Équipe'} ${myTeams.join(', ')}` : 'Aucune équipe encadrée'} · ${plural(team.length, 'collaborateur', 'collaborateurs')} · ${certs}`
-    : `${plural(emps.length, 'collaborateur', 'collaborateurs')} · ${plural(d.equipes.length, 'équipe', 'équipes')}${aAffecter ? ` · ${aAffecter} à affecter` : ''} · ${certs}`;
+    ? `${myTeams.length ? `${t(myTeams.length > 1 ? 'Teams' : 'Team')} ${myTeams.join(', ')}` : t('No team managed')} · ${tn(team.length, 'employee', 'employees')} · ${certs}`
+    : `${tn(emps.length, 'employee', 'employees')} · ${tn(d.equipes.length, 'team', 'teams')}${aAffecter ? ` · ${aAffecter}${t(' to assign')}` : ''} · ${certs}`;
   const showEquipe = multi && !sel;
   const cible = filtre !== 'Toutes' && filtre !== SANS_EQUIPE ? filtre : null;
   // Résumé du manager : fins d'essai (avant le délai de prévenance) et fins de contrat de son équipe (shared/rules/contrats.ts).
@@ -146,30 +147,30 @@ export function Collaborateurs() {
   const exporter = () => {
     const x = csvAnnuaire(d, rows);
     downloadCsv(x.fichier, x.head, x.rows);
-    notify(`Export CSV généré — ${plural(rows.length, 'collaborateur', 'collaborateurs')}`);
+    notify(`${t('CSV export generated — ')}${tn(rows.length, 'employee', 'employees')}`);
   };
 
   return (
-    <Page tight kicker={kicker} title="Collaborateurs" actions={<>
+    <Page tight kicker={kicker} title={t('Employees')} actions={<>
       {multi && (
-        <select className="input" aria-label="Équipe" value={filtre} onChange={e => setUi({ equipe: e.target.value })} style={{ width: 'auto', minWidth: 190 }}>
-          <option value="Toutes">{espaceRh ? 'Toutes les équipes' : 'Toutes mes équipes'}</option>
-          {teamOptions.map(nom => <option key={nom} value={nom}>{nom}{sousEquipes.includes(nom) ? ' (lecture seule)' : ''}</option>)}
-          {espaceRh && <option value={SANS_EQUIPE}>{aAffecter ? `À affecter (${aAffecter})` : 'À affecter'}</option>}
+        <select className="input" aria-label={t('Team')} value={filtre} onChange={e => setUi({ equipe: e.target.value })} style={{ width: 'auto', minWidth: 190 }}>
+          <option value="Toutes">{t(espaceRh ? 'All teams' : 'All my teams')}</option>
+          {teamOptions.map(nom => <option key={nom} value={nom}>{nom}{sousEquipes.includes(nom) ? t(' (read only)') : ''}</option>)}
+          {espaceRh && <option value={SANS_EQUIPE}>{aAffecter ? `${t('To assign')} (${aAffecter})` : t('To assign')}</option>}
         </select>
       )}
-      <Seg name="statut" label="Statut" value={ui.statut} onChange={v => setUi({ statut: v })}
-        options={[['tous', 'Tous'], ['ok', 'À jour'], ['due', 'À renouveler'], ['exp', 'Non conformes'], ['sortis', 'Sortis'],
+      <Seg name="statut" label={t('Status')} value={ui.statut} onChange={v => setUi({ statut: v })}
+        options={[['tous', t('All#masc')], ['ok', t('Up to date')], ['due', t('To renew')], ['exp', t('Non-compliant#plural-cap')], ['sortis', t('Left#plural')],
           // lot 11 — indicateurs : sexe ou catégorie d'emploi à compléter, service RH seulement (seul à les recevoir).
-          ...(rh ? [['acompleter', 'Indicateurs à compléter'] as ['acompleter', string]] : [])]} />
-      <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exporter}>Exporter (CSV)</Btn>
-      {rh && <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'employe', equipe: cible })}>Nouveau collaborateur</Btn>}
+          ...(rh ? [['acompleter', t('Indicators to complete')] as ['acompleter', string]] : [])]} />
+      <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exporter}>{t('Export (CSV)')}</Btn>
+      {rh && <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'employe', equipe: cible })}>{t('New employee')}</Btn>}
       {manager && myTeams.length > 0 && (
-        <Btn variant="primary" icon={<UserPlusIcon size={14} />} onClick={() => openDialog({ type: 'membre', equipe: cible && myTeams.includes(cible) ? cible : myTeams[0] })}>Ajouter un membre</Btn>
+        <Btn variant="primary" icon={<UserPlusIcon size={14} />} onClick={() => openDialog({ type: 'membre', equipe: cible && myTeams.includes(cible) ? cible : myTeams[0] })}>{t('Add a member')}</Btn>
       )}
     </>}>
       {contrats.length > 0 && (
-        <Panel highlight title="Fins d’essai et de contrat" aside={plural(contrats.length, 'échéance à anticiper', 'échéances à anticiper')}>
+        <Panel highlight title={t('Ends of trial period and of contract')} aside={tn(contrats.length, 'due date to anticipate', 'due dates to anticipate')}>
           <div className="scroll-x">
             <table className="table">
               <tbody>
@@ -177,7 +178,7 @@ export function Collaborateurs() {
               </tbody>
             </table>
           </div>
-          <Fine>Fin d’essai : date limite pour notifier une rupture dans le délai de prévenance (art. L1221-25) ; décision à prendre avec le service RH.</Fine>
+          <Fine>{t('End of trial period: deadline to notify a termination within the notice period (art. L1221-25); decision to take with HR.')}</Fine>
         </Panel>
       )}
       {manager && <CouverturePanel equipes={myTeams} />}
@@ -186,12 +187,12 @@ export function Collaborateurs() {
           <div className="scroll-x">
             <table className="table">
               <thead><tr>
-                <ThTri t={t} col="nom">Collaborateur</ThTri>
-                {showEquipe && <ThTri t={t} col="equipe">Équipe</ThTri>}
-                <ThTri t={t} col="certifications" premier="desc">Certifications</ThTri>
-                <th>Habilitations</th><th>Exigences</th>
-                <ThTri t={t} col={sortis ? 'sortie' : 'echeance'}>{sortis ? 'Sortie' : 'Prochaine échéance'}</ThTri>
-                <ThTri t={t} col="statut" premier="desc">Statut</ThTri>
+                <ThTri t={tri} col="nom">{t('Employee')}</ThTri>
+                {showEquipe && <ThTri t={tri} col="equipe">{t('Team')}</ThTri>}
+                <ThTri t={tri} col="certifications" premier="desc">{t('Certifications')}</ThTri>
+                <th>{t('Authorisations')}</th><th>{t('Requirements')}</th>
+                <ThTri t={tri} col={sortis ? 'sortie' : 'echeance'}>{t(sortis ? 'Departure#exit' : 'Next due date')}</ThTri>
+                <ThTri t={tri} col="statut" premier="desc">{t('Status')}</ThTri>
               </tr></thead>
               <tbody>
                 {page.lignes.map(e => {
@@ -208,15 +209,15 @@ export function Collaborateurs() {
                           </div>
                         </div>
                       </td>
-                      {showEquipe && <td className={e.equipe ? 'text-muted' : undefined}>{e.equipe ?? <Tag cls="tag-outline">À affecter</Tag>}</td>}
+                      {showEquipe && <td className={e.equipe ? 'text-muted' : undefined}>{e.equipe ?? <Tag cls="tag-outline">{t('To assign')}</Tag>}</td>}
                       <td><Chips items={e.certs.map(c => ({ key: c.id, label: c.fm.court, cls: CLS[c.key] }))} /></td>
                       <td>{e.habs.some(habSuivie) ? <Tag cls={hs.cls}>{hs.label}</Tag> : <span className="text-muted">—</span>}</td>
                       {/* Exigences du poste et de l'équipe (t055) : manquantes, remplies, ou aucune déclarée. */}
                       <td>{sortis ? <span className="text-muted">—</span> : <ExigencesCellule e={e} />}</td>
                       {sortis
-                        ? <td><Two main={e.fin ? fmtIso(e.fin) : '—'} sub={e.motifSortie ? MOTIFS_SORTIE[e.motifSortie] : 'fin de contrat'} nowrap /></td>
-                        : <td><Two main={e.next ? fmt(e.next.exp) : '—'} sub={e.next ? rel(e.next.d) : 'aucune certification suivie'} nowrap /></td>}
-                      <td>{sortis ? <Tag cls="tag-outline">Sorti</Tag> : <Tag cls={CLS[e.worst]}>{EMP_LABEL[e.worst]}</Tag>}</td>
+                        ? <td><Two main={e.fin ? fmtIso(e.fin) : '—'} sub={e.motifSortie ? MOTIFS_SORTIE[e.motifSortie] : t('end of contract')} nowrap /></td>
+                        : <td><Two main={e.next ? fmt(e.next.exp) : '—'} sub={e.next ? rel(e.next.d) : t('no tracked certification')} nowrap /></td>}
+                      <td>{sortis ? <Tag cls="tag-outline">{t('Left#masc')}</Tag> : <Tag cls={CLS[e.worst]}>{EMP_LABEL[e.worst]}</Tag>}</td>
                     </tr>
                   );
                 })}
@@ -225,14 +226,14 @@ export function Collaborateurs() {
           </div>
           {rows.length === 0 && (
             <Empty pad="md">
-              {sortis && liste.length === 0 ? 'Aucun salarié sorti : la sortie s’enregistre depuis la fiche (section Contrat).'
-                : liste.length > 0 ? 'Aucun collaborateur ne correspond à ces filtres.'
-                : manager ? (myTeams.length ? 'Votre équipe ne compte encore aucun collaborateur : ajoutez un membre.' : 'Aucune équipe ne vous est confiée — le service RH désigne les managers d’équipe.')
-                : 'Aucun collaborateur enregistré.'}
+              {sortis && liste.length === 0 ? t('No employee has left: a departure is recorded from the sheet (Contract section).')
+                : liste.length > 0 ? t('No employee matches these filters.')
+                : manager ? (myTeams.length ? t('Your team has no employee yet: add a member.') : t('No team is entrusted to you — HR appoints the team managers.'))
+                : t('No employee recorded.')}
             </Empty>
           )}
-          <SuiteListe p={page} unite={['collaborateur', 'collaborateurs']} />
-          <p className="text-muted fine">{rows.length} {rows.length > 1 ? 'collaborateurs affichés' : 'collaborateur affiché'} sur {liste.length}</p>
+          <SuiteListe p={page} unite={['employee', 'employees']} />
+          <p className="text-muted fine">{rows.length} {t(rows.length > 1 ? 'employees shown' : 'employee shown')}{t(' of ')}{liste.length}</p>
         </section>
 
         {sel && <EmployeePanel panneau={panneau} e={sel} upcomingCount={(f: string) => upcoming.filter(s => s.formation === f && s.inscrits < s.places).length} trips={trips} horizon={horizon} />}
@@ -280,12 +281,12 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
   /** Certifications en vigueur d'une formation archivée au référentiel : plus suivies, gardées au dossier. */
   const archivees = e.rawCerts.filter(c => c.fm.archive);
   const tv = d.travelOf(e, horizon);
-  const nt = trips.find(t => t.empId === e.id);
+  const nt = trips.find(x => x.empId === e.id);
   // État calculé par le serveur pour le manager, qui ne reçoit pas les vaccinations (comme Missions).
   const ntStatus = nt ? TRIP_LABEL[d.tripStatus(nt)] : null;
   const docChips = [
-    ...tv.visas.map(v => ({ key: 'v' + v.dest, label: `${v.type} ${d.destOf(v.dest)?.pays ?? v.dest} · ${v.key === 'exp' ? 'expiré' : 'jusqu’au ' + fmtShort(v.exp)}`, cls: docCls(v.key) })),
-    ...(manager ? [] : tv.vaccins.map(x => ({ key: 'x' + x.v, label: `${x.vm.court}${x.exp ? ' · ' + (x.key === 'exp' ? 'rappel dépassé' : x.exp.getFullYear()) : ''}`, cls: docCls(x.key) }))),
+    ...tv.visas.map(v => ({ key: 'v' + v.dest, label: `${v.type} ${d.destOf(v.dest)?.pays ?? v.dest} · ${v.key === 'exp' ? t('expired') : t('until ') + fmtShort(v.exp)}`, cls: docCls(v.key) })),
+    ...(manager ? [] : tv.vaccins.map(x => ({ key: 'x' + x.v, label: `${x.vm.court}${x.exp ? ' · ' + (x.key === 'exp' ? t('booster overdue') : x.exp.getFullYear()) : ''}`, cls: docCls(x.key) }))),
   ];
   const hasTravel = !!(e.passeport || tv.visas.length || tv.vaccins.length || nt);
 
@@ -293,9 +294,9 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
   const c = d.contratOf(e);
   const tt = TEMPS_TRAVAIL[c.temps];
   const nature = c.typeContrat === 'interim'
-    ? `Intérim${e.agence ? ' · agence ' + e.agence : ''}${e.fin ? ' · mission jusqu’au ' + fmtIso(e.fin) : ''}`
+    ? `${t('Temporary work')}${e.agence ? t(' · agency ') + e.agence : ''}${e.fin ? t(' · assignment until ') + fmtIso(e.fin) : ''}`
     : e.fin
-      ? `${TYPES_CONTRAT[c.typeContrat].label} · du ${fmtIso(e.entree)} au ${fmtIso(e.fin)}`
+      ? `${TYPES_CONTRAT[c.typeContrat].label}${t(' · from ')}${fmtIso(e.entree)}${t(' to #au')}${fmtIso(e.fin)}`
       : TYPES_CONTRAT[c.typeContrat].label;
   // Sortie enregistrée : son échéance est rappelée par la section Sortie (SortieFiche).
   const finD = c.typeContrat !== 'cdi' && e.fin && !e.motifSortie ? days(d.today, parse(e.fin)) : null;
@@ -326,7 +327,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
     if (!a || formations) return a && permis(a.intent) ? a : null;
     if (!membre) return null;
     if (a.intent.type === 'openPlan') return a;
-    if (a.intent.type === 'goFormation') return { label: 'Demander la formation', intent: a.intent };
+    if (a.intent.type === 'goFormation') return { label: t('Request the training course'), intent: a.intent };
     return null;
   };
   /** Convocation à une session à venir (e-mail avec fichier .ics), envoi ou renvoi ; désinscription confirmée, qui libère la place. */
@@ -335,7 +336,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
     openDialog({ type: 'confirmer', c: desinscription({ empId: e.id, sessionId }, e.nom, quoi, { recyclage, convoque }) });
   // « À renvoyer » : convocation déjà envoyée, avant un changement de date ou de lieu de la session.
   const convocation = (convoc: 'now' | 'later' | null, le: string | null) =>
-    convoc === 'now' ? `convocation envoyée${le ? ` le ${fmtShort(parse(le))}` : ''}` : le ? `convocation à renvoyer (envoyée le ${fmtShort(parse(le))})` : 'convocation à envoyer';
+    convoc === 'now' ? `${t('notice sent')}${le ? `${t(' on #le')}${fmtShort(parse(le))}` : ''}` : le ? `${t('notice to resend (sent on ')}${fmtShort(parse(le))})` : t('notice to send');
   const runProposal = (a: Proposal) => {
     const it = a.intent;
     if (!formations && it.type === 'goFormation') openDialog({ type: 'reqForm', empId: e.id, f: it.f });
@@ -347,7 +348,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
 
   // Passeport formation : sections communes au portail du salarié (client/src/passeport.ts).
   const passeportFormation = () => {
-    if (!imprimerPasseport(d, e)) notify('Autorisez les fenêtres surgissantes pour imprimer le passeport formation', true);
+    if (!imprimerPasseport(d, e)) notify(t('Allow pop-up windows to print the training passport'), true);
   };
 
   return (
@@ -357,98 +358,98 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
         <div style={{ flex: 1, minWidth: 0 }}>
           <h3 id="fiche-nom">{e.nom}</h3>
           <div className="text-muted" style={{ fontSize: 13 }}>{e.poste} · {equipeLabel(e)}</div>
-          <div className="text-muted sub" style={{ overflowWrap: 'anywhere' }}>{e.email ?? 'Aucune adresse e-mail professionnelle'}</div>
+          <div className="text-muted sub" style={{ overflowWrap: 'anywhere' }}>{e.email ?? t('No work e-mail address')}</div>
         </div>
         <CloseButton onClick={() => setUi({ selectedId: null })} />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-        {parti ? <Tag cls="tag-outline">Sorti</Tag> : <Tag cls={CLS[e.worst]}>{EMP_LABEL[e.worst]}</Tag>}
-        {!e.equipe && <Tag cls="tag-outline">À affecter</Tag>}
+        {parti ? <Tag cls="tag-outline">{t('Left#masc')}</Tag> : <Tag cls={CLS[e.worst]}>{EMP_LABEL[e.worst]}</Tag>}
+        {!e.equipe && <Tag cls="tag-outline">{t('To assign')}</Tag>}
         {lectureSeule && <LectureSeule d={d} empId={e.id} />}
         <span className="text-muted sub">
-          {plural(e.certs.length, 'certification', 'certifications')} · {parti ? `sorti le ${fmtIso(e.fin!)} : plus d’échéance suivie` : e.next ? 'prochaine échéance le ' + fmt(e.next.exp) : 'aucune échéance'}
+          {tn(e.certs.length, 'certification', 'certifications')} · {parti ? `${t('left on ')}${fmtIso(e.fin!)}${t(': no more due date tracked')}` : e.next ? t('next due date on ') + fmt(e.next.exp) : t('no due date')}
         </span>
         <CopierLien />
       </div>
       {!parti && <ExigencesMotif e={e} />}
-      {lectureSeule && <Fine>Consultation en lecture seule (équipe rattachée) : les absences, les heures, les formations et les entretiens de {e.nom} relèvent de {d.mgrName(valideur)}.</Fine>}
+      {lectureSeule && <Fine>{t('Read-only consultation (attached team): the absences, hours, training and reviews of ')}{e.nom}{t(' are the responsibility of ')}{d.mgrName(valideur)}.</Fine>}
       {/* Manager : verdict et restrictions en vigueur seulement ; demandes de visite et avis : service RH. */}
-      <SectionLabel>Aptitude médicale</SectionLabel>
+      <SectionLabel>{t('Medical fitness')}</SectionLabel>
       <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
         <Aptitude e={e} d={d} horizon={horizon} actions={rh && !parti && !propre ? <>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'visite', empId: e.id })}>{e.med.demande ? 'Demande de visite' : 'Demander une visite'}</button>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'avis', empId: e.id })}>Avis du médecin du travail</button>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'suivi', empId: e.id })}>Type de suivi</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'visite', empId: e.id })}>{t(e.med.demande ? 'Visit request' : 'Request a visit')}</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'avis', empId: e.id })}>{t('Occupational physician’s opinion')}</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'suivi', empId: e.id })}>{t('Type of monitoring')}</button>
         </> : undefined} />
       </div>
       {rh && !parti && propre && <Fine>{AIDE_SOI_MEME.medical}</Fine>}
 
-      <SectionLabel>Certifications</SectionLabel>
+      <SectionLabel>{t('Certifications')}</SectionLabel>
       <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
         {e.certs.map(c => {
           const avail = upcomingCount(c.f);
           return (
             <div key={c.id} className="list-row stack">
               <div className="item-head">
-                <div><div style={{ fontSize: 14 }}>{c.fm.nom}</div><div className="text-muted sub">Obtenue le {fmt(c.obt)} · expire le {fmt(c.exp)}</div></div>
+                <div><div style={{ fontSize: 14 }}>{c.fm.nom}</div><div className="text-muted sub">{t('Obtained on ')}{fmt(c.obt)}{t(' · expires on ')}{fmt(c.exp)}</div></div>
                 <Tag cls={CLS[c.key]} style={{ flex: 'none' }}>{CERT_LABEL[c.key]}</Tag>
               </div>
               <Bar variant="thin" pct={c.pct} color={c.key === 'ok' ? 'var(--color-accent-600)' : 'var(--color-accent-300)'} />
               {c.session && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-                  <NoteAccent icon>Session {sessionDu(c.session)} · {convocation(c.convoc, c.convocLe)}</NoteAccent>
+                  <NoteAccent icon>{t('Session ')}{sessionDu(c.session)} · {convocation(c.convoc, c.convocLe)}</NoteAccent>
                   {canPlan && (
                     <div className="actions-end">
-                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => convoquer(c.session!.id)}>{convocationEnvoyee(c) ? 'Renvoyer la convocation' : 'Envoyer la convocation'}</button>
-                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => desinscrire(c.session!.id, `${c.fm.court} ${sessionDu(c.session!)}`, convocationEnvoyee(c), true)}>Désinscrire</button>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => convoquer(c.session!.id)}>{t(convocationEnvoyee(c) ? 'Resend the notice' : 'Send the notice')}</button>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => desinscrire(c.session!.id, `${c.fm.court} ${sessionDu(c.session!)}`, convocationEnvoyee(c), true)}>{t('Unenrol')}</button>
                     </div>
                   )}
                 </div>
               )}
               {c.sessionPassee && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
-                  <NoteAccent>{SESSION_PASSEE} · session {sessionDu(c.sessionPassee)}</NoteAccent>
-                  {formations && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cloture', sessionId: c.sessionPassee!.id })}>Clôturer la session</button>}
+                  <NoteAccent>{SESSION_PASSEE}{t(' · session ')}{sessionDu(c.sessionPassee)}</NoteAccent>
+                  {formations && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cloture', sessionId: c.sessionPassee!.id })}>{t('Close the session')}</button>}
                 </div>
               )}
               {c.key !== 'ok' && !c.session && !c.sessionPassee && canPlan && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
-                  <span className="text-muted sub">{avail ? plural(avail, 'session disponible', 'sessions disponibles') : 'Aucune session disponible'}</span>
+                  <span className="text-muted sub">{avail ? tn(avail, 'available session', 'available sessions') : t('No session available')}</span>
                   {/* Sans session ouverte, le manager ne peut pas en créer : il adresse la demande au service RH. */}
                   {!formations && !avail
-                    ? <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'reqForm', empId: e.id, f: c.f })}>Demander la formation</button>
-                    : <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'plan', empId: e.id, certId: c.id })}>Planifier un renouvellement</button>}
+                    ? <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'reqForm', empId: e.id, f: c.f })}>{t('Request the training course')}</button>
+                    : <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'plan', empId: e.id, certId: c.id })}>{t('Plan a renewal')}</button>}
                 </div>
               )}
               <ActionsCertification e={e} c={c} />
             </div>
           );
         })}
-        {e.certs.length === 0 && <Empty pad="sm">Aucune certification suivie.</Empty>}
+        {e.certs.length === 0 && <Empty pad="sm">{t('No tracked certification.')}</Empty>}
       </div>
 
       {/* Formations et habilitations exigées par le poste et l'équipe, obtenues ou manquantes. */}
       <ExigencesFiche e={e} membre={membre} parti={parti} />
 
       {(anciennes.length > 0 || archivees.length > 0 || (e.certsAnnulees?.length ?? 0) > 0) && <>
-        <SectionLabel>Historique des certifications</SectionLabel>
+        <SectionLabel>{t('Certification history')}</SectionLabel>
         <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
           {archivees.map(c => (
             <div key={c.id} className="list-row past">
               <div className="grow">
                 <div style={{ fontSize: 13 }}>{c.fm.nom}</div>
-                <div className="sub">Obtenue le {fmt(c.obt)} · expire le {fmt(c.exp)} · plus suivie</div>
+                <div className="sub">{t('Obtained on ')}{fmt(c.obt)}{t(' · expires on ')}{fmt(c.exp)}{t(' · no longer tracked')}</div>
               </div>
-              <Tag cls="tag-outline" style={{ flex: 'none' }}>Formation archivée</Tag>
+              <Tag cls="tag-outline" style={{ flex: 'none' }}>{t('Archived training course')}</Tag>
             </div>
           ))}
           {anciennes.map(c => (
             <div key={c.id} className="list-row past">
               <div className="grow">
                 <div style={{ fontSize: 13 }}>{c.fm.nom}</div>
-                <div className="sub">Obtenue le {fmt(c.obt)} · remplacée le {fmt(c.remplacee!)}{c.fm.archive ? ' · formation archivée' : ''}</div>
+                <div className="sub">{t('Obtained on ')}{fmt(c.obt)}{t(' · replaced on ')}{fmt(c.remplacee!)}{c.fm.archive ? t(' · archived training course') : ''}</div>
               </div>
-              <Tag cls="tag-outline" style={{ flex: 'none' }}>Remplacée</Tag>
+              <Tag cls="tag-outline" style={{ flex: 'none' }}>{t('Replaced#fem')}</Tag>
               <ActionsCertification e={e} c={c} />
             </div>
           ))}
@@ -459,7 +460,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
       <DemandesFiche e={e} membre={membre} />
 
       {inscriptions.length > 0 && <>
-        <SectionLabel>Formations planifiées</SectionLabel>
+        <SectionLabel>{t('Planned training courses')}</SectionLabel>
         <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
           {inscriptions.map(({ i, x, s, fm }) => (
             <div key={i.id} className="list-row stack">
@@ -468,32 +469,32 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
                   <div style={{ fontSize: 14 }}>{fm?.nom ?? s.formation}</div>
                   <div className="text-muted sub">
                     {x.etat === 'a_planifier'
-                      ? `${x.motif} · formation initiale à replanifier`
-                      : `Session ${sessionDu(s)} · ${s.lieu}${fm?.organisme ? ` · ${fm.organisme}` : ''}${s.statut === 'À confirmer' ? ' · à confirmer' : ''}`}
+                      ? `${x.motif}${t(' · initial training to replan')}`
+                      : `${t('Session ')}${sessionDu(s)} · ${s.lieu}${fm?.organisme ? ` · ${fm.organisme}` : ''}${s.statut === 'À confirmer' ? t(' · to be confirmed') : ''}`}
                   </div>
                 </div>
-                {x.etat === 'passee' ? <Tag cls="tag-outline" style={{ flex: 'none' }}>Session passée</Tag>
-                  : x.etat === 'a_planifier' ? <Tag cls="tag-accent" style={{ flex: 'none' }}>À planifier</Tag>
-                  : <Tag cls={i.convoc === 'now' ? 'tag-neutral' : 'tag-outline'} style={{ flex: 'none' }}>{i.convoc === 'now' ? 'Convocation envoyée' : i.convocLe ? 'Convocation à renvoyer' : 'Convocation à envoyer'}</Tag>}
+                {x.etat === 'passee' ? <Tag cls="tag-outline" style={{ flex: 'none' }}>{t('Past session')}</Tag>
+                  : x.etat === 'a_planifier' ? <Tag cls="tag-accent" style={{ flex: 'none' }}>{t('To plan')}</Tag>
+                  : <Tag cls={i.convoc === 'now' ? 'tag-neutral' : 'tag-outline'} style={{ flex: 'none' }}>{t(i.convoc === 'now' ? 'Notice sent' : i.convocLe ? 'Notice to resend' : 'Notice to send')}</Tag>}
               </div>
               {x.etat === 'planifiee' && canPlan && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
                   <span className="text-muted sub">{convocation(i.convoc, i.convocLe)}</span>
                   <div className="actions-end">
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => convoquer(s.id)}>{convocationEnvoyee(i) ? 'Renvoyer la convocation' : 'Envoyer la convocation'}</button>
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => desinscrire(s.id, `${fm?.court ?? s.formation} ${sessionDu(s)}`, convocationEnvoyee(i), false)}>Désinscrire</button>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => convoquer(s.id)}>{t(convocationEnvoyee(i) ? 'Resend the notice' : 'Send the notice')}</button>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => desinscrire(s.id, `${fm?.court ?? s.formation} ${sessionDu(s)}`, convocationEnvoyee(i), false)}>{t('Unenrol')}</button>
                   </div>
                 </div>
               )}
               {x.etat === 'passee' && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
-                  <NoteAccent>{formations ? SESSION_PASSEE : `${SESSION_PASSEE} par le service RH`}</NoteAccent>
-                  {formations && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cloture', sessionId: s.id })}>Clôturer la session</button>}
+                  <NoteAccent>{formations ? SESSION_PASSEE : `${SESSION_PASSEE}${t(' by HR#close')}`}</NoteAccent>
+                  {formations && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cloture', sessionId: s.id })}>{t('Close the session')}</button>}
                 </div>
               )}
               {x.etat === 'a_planifier' && canPlan && (
                 <div className="actions-end">
-                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'plan', empId: e.id, inscriptionId: i.id })}>Planifier</button>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'plan', empId: e.id, inscriptionId: i.id })}>{t('Plan')}</button>
                 </div>
               )}
             </div>
@@ -505,7 +506,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
       <ListeAttenteFiche e={e} />
 
       {e.habs.length > 0 && <>
-        <SectionLabel>Habilitations</SectionLabel>
+        <SectionLabel>{t('Authorisations')}</SectionLabel>
         <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
           {e.habs.map(h => {
             const a = habProposal(h);
@@ -518,7 +519,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
                 <div className="item-head">
                   <div>
                     <div style={{ fontSize: 14 }}>{h.hm.nom}</div>
-                    <div className="text-muted sub">{h.delivree ? `Délivrée le ${fmt(parse(h.delivree))} par ${h.par} · expire le ${fmt(h.exp!)}` : `Demandée le ${fmt(parse(h.demande!))} · en attente de délivrance`}</div>
+                    <div className="text-muted sub">{h.delivree ? `${t('Issued on ')}${fmt(parse(h.delivree))}${t(' by ')}${h.par}${t(' · expires on ')}${fmt(h.exp!)}` : `${t('Requested on ')}${fmt(parse(h.demande!))}${t(' · awaiting issue')}`}</div>
                   </div>
                   <Tag cls={HAB_CLS[h.key]} style={{ flex: 'none' }}>{HAB_LABEL[h.key]}</Tag>
                 </div>
@@ -527,7 +528,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
                   <div className="actions-end">
                     {a && <button type="button" className="btn btn-ghost btn-sm" onClick={() => runProposal(a)}>{a.label}</button>}
                     <ImprimerTitre e={e} h={h} />
-                    {redelivrer && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'hab', empId: e.id, h: h.h, mode: 'deliver' })}>Nouvelle délivrance</button>}
+                    {redelivrer && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'hab', empId: e.id, h: h.h, mode: 'deliver' })}>{t('New issue')}</button>}
                     {mesures.map(m => (
                       <button key={m} type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'habMesure', empId: e.id, h: h.h, action: m })}>{HAB_MESURE_LABEL[m]}</button>
                     ))}
@@ -547,36 +548,36 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
 
       {/* Dossier voyage (passeport, visas, vaccinations) : service RH ; pour le manager, sans les vaccinations. */}
       {hasTravel && (rh || manager) && <>
-        <SectionLabel>Voyages</SectionLabel>
+        <SectionLabel>{t('Trips')}</SectionLabel>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', marginTop: 'calc(-1 * var(--space-2))' }}>
           <div style={{ fontSize: 14 }}>
-            {tv.pass ? `Passeport valide jusqu’au ${fmt(tv.pass.exp)}${tv.pass.key !== 'ok' ? ' · ' + (tv.pass.key === 'exp' ? 'expiré' : 'expire ' + rel(tv.pass.d)) : ''}` : 'Passeport non renseigné'}
+            {tv.pass ? `${t('Passport valid until ')}${fmt(tv.pass.exp)}${tv.pass.key !== 'ok' ? ' · ' + (tv.pass.key === 'exp' ? t('expired') : t('expires ') + rel(tv.pass.d)) : ''}` : t('Passport not entered')}
           </div>
           {docChips.length > 0 && <Chips items={docChips} />}
-          <div className="text-muted sub">{nt ? `Prochain déplacement : ${nt.r.dest.pays}, ${fmt(nt.r.dep)} · ${ntStatus}` : 'Aucun déplacement prévu'}</div>
+          <div className="text-muted sub">{nt ? `${t('Next trip: ')}${nt.r.dest.pays}, ${fmt(nt.r.dep)} · ${ntStatus}` : t('No trip planned')}</div>
           {rh && !parti && (
             <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'fo', empId: e.id })}>Enregistrer une formalité</button>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => go('voyages', { tripSel: nt ? nt.id : null })}>Dossier voyage →</button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'fo', empId: e.id })}>{t('Record a formality')}</button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => go('voyages', { tripSel: nt ? nt.id : null })}>{t('Travel file →')}</button>
             </div>
           )}
         </div>
       </>}
 
-      <SectionLabel>Contrat &amp; temps de travail</SectionLabel>
+      <SectionLabel>{t('Contract & working time')}</SectionLabel>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', marginTop: 'calc(-1 * var(--space-2))' }}>
-        <Info label="Statut">{STATUTS[c.statut].label} <span className="text-muted">· {c.cadre ? 'cadre' : 'non-cadre'}</span></Info>
-        <Info label="Nature du contrat">{nature}</Info>
-        {finD != null && finD <= 60 && <NoteAccent>Fin de contrat {rel(finD)}</NoteAccent>}
-        <Info label="Organisation du temps" sub={<>{tt.aide}{tt.article ? ` (${tt.article})` : ''}</>}>
-          {c.label}{c.partiel && c.jourOff.length > 0 ? ` · ne travaille pas le ${joursListe(c.jourOff)}` : ''}
-          {e.tempsDepuis ? <span className="text-muted"> · depuis le {fmtIso(e.tempsDepuis)}</span> : null}
+        <Info label={t('Status')}>{STATUTS[c.statut].label} <span className="text-muted">· {t(c.cadre ? 'executive' : 'non-executive')}</span></Info>
+        <Info label={t('Type of contract')}>{nature}</Info>
+        {finD != null && finD <= 60 && <NoteAccent>{t('End of contract ')}{rel(finD)}</NoteAccent>}
+        <Info label={t('Working time arrangement')} sub={<>{tt.aide}{tt.article ? ` (${tt.article})` : ''}</>}>
+          {c.label}{c.partiel && c.jourOff.length > 0 ? `${t(' · does not work on ')}${joursListe(c.jourOff)}` : ''}
+          {e.tempsDepuis ? <span className="text-muted">{t(' · since ')}{fmtIso(e.tempsDepuis)}</span> : null}
         </Info>
-        <Info label="Date d’entrée">{fmtIso(e.entree)}</Info>
+        <Info label={t('Start date')}>{fmtIso(e.entree)}</Info>
         {/* Matricule du dossier de paie (Sage) : à saisir sur la fiche, faute de quoi le salarié est refusé d'une transmission réelle. */}
         {espaceRh && !c.interim && (
-          <Info label="Matricule de paie" sub={`Matricule Cursus ${matricule(e.id)}`}>
-            {e.matriculePaie ?? <span className="note-accent">À saisir</span>}
+          <Info label={t('Payroll number')} sub={`${t('Cursus number ')}${matricule(e.id)}`}>
+            {e.matriculePaie ?? <span className="note-accent">{t('To enter')}</span>}
           </Info>
         )}
         <SortieFiche e={e} />
@@ -589,21 +590,21 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
         <TravailNuitFiche e={e} />
         <MandatsFiche e={e} />
         <ContactUrgenceFiche empId={e.id} />
-        <Info label="Manager valideur">{d.mgrName(valideur)}</Info>
-        {rh && e.repriseDate && <Info label="Reprise après absence longue">{`${e.repriseMotif ?? 'Motif non renseigné'} · le ${fmtIso(e.repriseDate)}`}</Info>}
+        <Info label={t('Approving manager')}>{d.mgrName(valideur)}</Info>
+        {rh && e.repriseDate && <Info label={t('Return after a long absence')}>{`${e.repriseMotif ?? t('Reason not entered')}${t(' · on ')}${fmtIso(e.repriseDate)}`}</Info>}
       </div>
 
       {membre && <>
-        <SectionLabel>Pour ce collaborateur</SectionLabel>
+        <SectionLabel>{t('For this employee')}</SectionLabel>
         <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', marginTop: 'calc(-1 * var(--space-2))' }}>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'reqForm', empId: e.id })}>Demander une formation</button>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'reqHab', empId: e.id })}>Demander une habilitation</button>
-          {poseAbsence && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'abs', empId: e.id })}>Poser une absence</button>}
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'absSignal', empId: e.id })}>Signaler une absence</button>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => go('temps', { tsEmp: e.id })}>Feuille de temps →</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'reqForm', empId: e.id })}>{t('Request a training course')}</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'reqHab', empId: e.id })}>{t('Request an authorisation')}</button>
+          {poseAbsence && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'abs', empId: e.id })}>{t('Request an absence')}</button>}
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'absSignal', empId: e.id })}>{t('Report an absence')}</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => go('temps', { tsEmp: e.id })}>{t('Timesheet →')}</button>
         </div>
         {!poseAbsence && (
-          <Fine>{c.interim ? `Congés gérés par l’agence d’intérim${e.agence ? ' ' + e.agence : ''} : aucune absence à poser dans Cursus.` : 'Aucune absence à poser pour ce contrat.'}</Fine>
+          <Fine>{c.interim ? `${t('Leave managed by the temporary work agency')}${e.agence ? ' ' + e.agence : ''}${t(': no absence to request in Cursus.')}` : t('No absence to request for this contract.')}</Fine>
         )}
       </>}
 
@@ -611,10 +612,10 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
       <HistoriqueFiche empId={e.id} />
 
       <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-        {(rh || membre) && <Btn variant="secondary" icon={<PencilSimpleIcon size={14} />} onClick={() => openDialog({ type: 'employe', empId: e.id })}>Modifier la fiche</Btn>}
-        {formations && !parti && !propre && <Btn variant="secondary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'cert', empId: e.id })}>Ajouter une certification</Btn>}
-        <Btn onClick={passeportFormation}>Passeport formation</Btn>
-        {retirable && <Btn icon={<UserMinusIcon size={14} />} onClick={retirer}>Retirer de l’équipe</Btn>}
+        {(rh || membre) && <Btn variant="secondary" icon={<PencilSimpleIcon size={14} />} onClick={() => openDialog({ type: 'employe', empId: e.id })}>{t('Edit the sheet')}</Btn>}
+        {formations && !parti && !propre && <Btn variant="secondary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'cert', empId: e.id })}>{t('Add a certification')}</Btn>}
+        <Btn onClick={passeportFormation}>{t('Training passport')}</Btn>
+        {retirable && <Btn icon={<UserMinusIcon size={14} />} onClick={retirer}>{t('Remove from the team')}</Btn>}
       </div>
       {formations && !parti && propre && <Fine>{AIDE_SOI_MEME.titres}</Fine>}
     </aside>

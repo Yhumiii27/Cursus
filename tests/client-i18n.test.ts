@@ -152,6 +152,23 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
       'client/src/dialogs/TripModifierDialog.tsx', 'client/src/dialogs/TripImportDialog.tsx', 'client/src/dialogs/DetachementDialog.tsx',
       'client/src/dialogs/FormaliteDialog.tsx'],
   },
+  {
+    // Liste et fiche : aptitude, exigences, certifications, formations suivies, pièces, voyages, contrat (sortie et solde,
+    // CDD, titre de séjour, historique, forfaits, mineur, nuit, mandats, contact d'urgence) ; dialogues de la fiche et
+    // confirmations qu'ils ouvrent (avenants, corrections, sortie, retrait de l'équipe, visite).
+    ecran: 'Collaborateurs', fichiers: ['client/src/pages/Collaborateurs.tsx', 'client/src/components/Aptitude.tsx', 'client/src/components/Exigences.tsx',
+      'client/src/components/Sortie.tsx', 'client/src/components/SoldeSortie.tsx', 'client/src/components/ContratFiche.tsx',
+      'client/src/components/HistoriqueContrat.tsx', 'client/src/components/Mineur.tsx', 'client/src/components/TravailNuit.tsx',
+      'client/src/components/Delegation.tsx', 'client/src/components/ContactUrgence.tsx', 'client/src/components/ForfaitJours.tsx',
+      'client/src/components/temps/ForfaitHeuresFiche.tsx', 'client/src/components/Corrections.tsx', 'client/src/components/PiecesFiche.tsx',
+      'client/src/components/CopierLien.tsx', 'client/src/components/FormationsSuivies.tsx', 'client/src/components/PosteChoix.tsx',
+      'client/src/dialogs/CertDialog.tsx', 'client/src/dialogs/VisiteDialog.tsx', 'client/src/dialogs/AvisDialog.tsx', 'client/src/dialogs/SuiviDialog.tsx',
+      'client/src/dialogs/ReqHabDialog.tsx', 'client/src/dialogs/EmployeDialog.tsx', 'client/src/dialogs/FichePropreDialog.tsx',
+      'client/src/dialogs/MembreDialog.tsx', 'client/src/dialogs/AutorisationDialog.tsx', 'client/src/dialogs/AvenantForfaitDialog.tsx',
+      'client/src/dialogs/ContactUrgenceDialog.tsx', 'client/src/dialogs/FormationSuivieDialog.tsx', 'client/src/dialogs/MandatDialog.tsx',
+      'client/src/dialogs/PieceDialog.tsx', 'client/src/dialogs/RenouvelerCddDialog.tsx', 'client/src/dialogs/SortieDialog.tsx',
+      'client/src/state/confirmations-contrats.ts', 'client/src/state/confirmations-forfait.ts', 'client/src/state/confirmations-corrections.ts'],
+  },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */

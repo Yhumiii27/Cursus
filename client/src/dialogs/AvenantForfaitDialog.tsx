@@ -14,6 +14,7 @@ import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerific
 import { Fine } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function AvenantForfaitDialog({ empId }: { empId: number }) {
   const d = useDomain();
@@ -31,16 +32,16 @@ export function AvenantForfaitDialog({ empId }: { empId: number }) {
   if (!emp || !rh) return null;
 
   const c = d.contratOf(emp);
-  const an = Number(annee), n = Number(jours.replace(',', '.')), t = Number(taux);
+  const an = Number(annee), n = Number(jours.replace(',', '.')), tx = Number(taux);
   const deja = avenantsDe(d.ds.avenantsForfait, emp.id, an).reduce((x, a) => x + a.jours, 0);
   const plafond = s.forfaitJoursPlafond ?? PLAFOND_SUPPLETIF, max = plafond - c.joursForfait - deja;
   const k = cumulForfaitJours(d, emp, an);
   // Erreurs du serveur, rattachées à leur champ (l'ordre suit `erreursAvenant`).
-  const erreurs = erreursAvenant(d, emp, { annee: an, jours: n, taux: t, signeLe, reference: reference.trim() });
+  const erreurs = erreursAvenant(d, emp, { annee: an, jours: n, taux: tx, signeLe, reference: reference.trim() });
   const de = (motif: RegExp) => erreurs.find(x => motif.test(x)) ?? null;
-  const errJours = jours.trim() ? de(/^Jours rachetés/) : 'Indiquez le nombre de jours rachetés.';
+  const errJours = jours.trim() ? de(/^Jours rachetés/) : t('Enter the number of days bought back.');
   const errTaux = de(/^Majoration/);
-  const errSigne = erreurDate(signeLe, 'Indiquez la date de signature de l’avenant.') ?? de(/signature|signé/i);
+  const errSigne = erreurDate(signeLe, t('Enter the signature date of the amendment.')) ?? de(/signature|signé/i);
   const errAnnee = de(/^Année/);
   const errRef = de(/^Référence/);
   const errAutre = erreurs.filter(x => ![errJours, errTaux, errSigne, errAnnee, errRef].includes(x));
@@ -48,49 +49,48 @@ export function AvenantForfaitDialog({ empId }: { empId: number }) {
   const confirm = async () => {
     if (busy || !v.verifier(errJours, errTaux, errSigne, errAnnee, errRef, errAutre.length)) return;
     setBusy(true);
-    const r = await run('forfait.avenant', { empId: emp.id, annee: an, jours: n, taux: t, signeLe, reference: reference.trim() || null });
+    const r = await run('forfait.avenant', { empId: emp.id, annee: an, jours: n, taux: tx, signeLe, reference: reference.trim() || null });
     setBusy(false);
     if (r.ok) closeDialog();
   };
 
   return (
-    <Dialog title="Avenant de renonciation à des jours de repos" width={560} onSubmit={confirm} actions={<>
+    <Dialog title={t('Amendment waiving rest days')} width={560} onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Enregistrer l’avenant</SubmitButton>
+      <SubmitButton busy={busy}>{t('Save the amendment')}</SubmitButton>
     </>}>
       <div className="grid-2">
-        <Field label="Collaborateur"><Static>{emp.nom}</Static></Field>
-        <Field label="Forfait">
-          <Static>{c.joursForfait} jours<div className="text-muted sub">{k ? `${fJ(k.done)} travaillés en ${k.annee}` : 'aucune feuille validée cette année-là'}{deja ? ` · ${fJ(deja)} déjà rachetés` : ''}</div></Static>
+        <Field label={t('Employee')}><Static>{emp.nom}</Static></Field>
+        <Field label={t('Package')}>
+          <Static>{c.joursForfait}{t(' days')}<div className="text-muted sub">{k ? `${fJ(k.done)}${t(' worked in ')}${k.annee}` : t('no approved timesheet that year')}{deja ? ` · ${fJ(deja)}${t(' already bought back')}` : ''}</div></Static>
         </Field>
       </div>
       <div className="grid-2">
-        <Field label="Année" htmlFor="af-annee" requis erreur={v.erreur(errAnnee)}>
+        <Field label={t('Year')} htmlFor="af-annee" requis erreur={v.erreur(errAnnee)}>
           <select className="input" id="af-annee" value={annee} onChange={ev => setAnnee(ev.target.value)}>
             {[d.year - 1, d.year, d.year + 1].map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </Field>
-        <Field label="Jours rachetés" htmlFor="af-jours" requis erreur={v.erreur(errJours)}>
-          <input className="input tnum" id="af-jours" inputMode="decimal" placeholder={max > 0 ? `${fJ(max)} au plus` : ''} value={jours} onChange={ev => setJours(ev.target.value)} />
+        <Field label={t('Days bought back')} htmlFor="af-jours" requis erreur={v.erreur(errJours)}>
+          <input className="input tnum" id="af-jours" inputMode="decimal" placeholder={max > 0 ? `${fJ(max)}${t(' at most')}` : ''} value={jours} onChange={ev => setJours(ev.target.value)} />
         </Field>
       </div>
       <div className="grid-2">
-        <Field label="Majoration (%)" htmlFor="af-taux" requis erreur={v.erreur(errTaux)}>
+        <Field label={t('Increase (%)')} htmlFor="af-taux" requis erreur={v.erreur(errTaux)}>
           <input className="input tnum" id="af-taux" inputMode="numeric" value={taux} onChange={ev => setTaux(ev.target.value)} />
         </Field>
-        <Field label="Avenant signé le" htmlFor="af-signe" requis erreur={v.erreur(errSigne)}>
+        <Field label={t('Amendment signed on')} htmlFor="af-signe" requis erreur={v.erreur(errSigne)}>
           <input className="input" id="af-signe" type="date" min={emp.entree} max={d.ti} value={signeLe} onChange={ev => setSigneLe(ev.target.value)} />
         </Field>
       </div>
-      <Field label={<>Référence de l’avenant <span className="who">· facultatif</span></>} htmlFor="af-ref" erreur={v.erreur(errRef)}>
-        <input className="input" id="af-ref" type="text" maxLength={REFERENCE_AVENANT_MAX + 20} placeholder="Avenant forfait jours du …" value={reference} onChange={ev => setReference(ev.target.value)} />
-        <span className="text-muted sub">Gardée sur l’avenant (service RH, paie) ; jamais recopiée au journal</span>
+      <Field label={<>{t('Reference of the amendment')} <span className="who">{t('· optional')}</span></>} htmlFor="af-ref" erreur={v.erreur(errRef)}>
+        <input className="input" id="af-ref" type="text" maxLength={REFERENCE_AVENANT_MAX + 20} placeholder={t('Annual days package amendment of …')} value={reference} onChange={ev => setReference(ev.target.value)} />
+        <span className="text-muted sub">{t('Kept on the amendment (HR, payroll); never copied into the log')}</span>
       </Field>
       {v.tente && errAutre.map(x => <Bloquant key={x}>{x}</Bloquant>)}
       <Fine>
-        Avenant écrit, valable pour l’année (art. L3121-59) : le salarié renonce à des jours de repos contre une majoration d’au moins
-        {` ${s.forfaitJoursMajorationMin ?? MAJORATION_MINIMALE} %`}. Le plafond de l’année devient le forfait plus les jours rachetés, {plafond} jours
-        travaillés au plus{rachatOuvert(s) ? ` (accord : ${s.forfaitJoursAccord})` : ''}. Paie : rubrique JREN, quantité en jours{isValidDate(signeLe) ? `, paie ${/^[aeiou]/.test(periodeLabel(periodeRachat({ annee: an, signeLe }, s, d.ti))) ? 'd’' : 'de '}${periodeLabel(periodeRachat({ annee: an, signeLe }, s, d.ti))}` : ''} ; Sage calcule le montant.
+        {t('Written amendment, valid for the year (art. L3121-59): the employee waives rest days in exchange for an increase of at least')}
+        {` ${s.forfaitJoursMajorationMin ?? MAJORATION_MINIMALE} %`}{t('. The ceiling of the year becomes the package plus the days bought back, ')}{plafond}{t(' days worked at most')}{rachatOuvert(s) ? `${t(' (agreement: ')}${s.forfaitJoursAccord})` : ''}{t('. Payroll: JREN item, quantity in days')}{isValidDate(signeLe) ? `${t(', payroll ')}${t(/^[aeiou]/.test(periodeLabel(periodeRachat({ annee: an, signeLe }, s, d.ti))) ? 'of #elided' : 'of #de')}${periodeLabel(periodeRachat({ annee: an, signeLe }, s, d.ti))}` : ''}{t('; Sage calculates the amount.')}
       </Fine>
     </Dialog>
   );

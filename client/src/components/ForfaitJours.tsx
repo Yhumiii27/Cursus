@@ -13,6 +13,7 @@ import { annulationAvenantForfait } from '../state/confirmations-forfait.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { Bar, Btn, Fine, NoteAccent, Tag } from './ui.tsx';
+import { t } from '../i18n/langue.ts';
 
 /** Années d'une semaine (deux pour une semaine à cheval sur le 31 décembre). */
 const anneesDe = (week: ISODate) => [...new Set([Number(week.slice(0, 4)), Number(addD(week, 6).slice(0, 4))])];
@@ -26,9 +27,9 @@ export function recapForfait(d: Domain, emp: Employe, week: ISODate): { rows: [s
   for (const annee of anneesDe(week)) {
     const k = cumulForfaitJours(d, emp, annee);
     if (!k) continue;
-    rows.push([`Cumul validé ${annee}`, `${fJ(k.done)} / ${fJ(k.plafond)}`]);
-    if (k.rachetes) rows.push([`Dont jours rachetés ${annee} (avenant)`, fJ(k.rachetes)]);
-    if (annee === d.year) rows.push(['Cible à date', fJ(k.prorata)]);
+    rows.push([`${t('Approved cumulative total ')}${annee}`, `${fJ(k.done)} / ${fJ(k.plafond)}`]);
+    if (k.rachetes) rows.push([`${t('Of which days bought back ')}${annee}${t(' (amendment)')}`, fJ(k.rachetes)]);
+    if (annee === d.year) rows.push([t('Target to date'), fJ(k.prorata)]);
     const a = alerteForfait(k);
     if (a) alertes.push(a);
   }
@@ -40,7 +41,7 @@ export function fileForfait(d: Domain, emp: Employe, week: ISODate): string {
   return anneesDe(week).flatMap(annee => {
     const k = cumulForfaitJours(d, emp, annee);
     if (!k) return [];
-    return [`cumul ${annee} : ${fJ(k.done)} / ${fJ(k.plafond)}${k.etat === 'depasse' ? ' (plafond dépassé)' : k.etat === 'alerte' ? ` (alerte ${k.seuil} %)` : ''}`];
+    return [`${t('cumulative total ')}${annee}${t(': ')}${fJ(k.done)} / ${fJ(k.plafond)}${k.etat === 'depasse' ? t(' (ceiling exceeded)') : k.etat === 'alerte' ? `${t(' (alert ')}${k.seuil} %)` : ''}`];
   }).join(' · ');
 }
 
@@ -59,7 +60,7 @@ export function ForfaitJoursFiche({ e }: { e: Employe }) {
   const ouvert = rachatOuvert(d.ds.settings);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-      <div className="text-muted sub">Forfait jours {d.year}</div>
+      <div className="text-muted sub">{t('Annual days package ')}{d.year}</div>
       {k && (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', fontSize: 14, flexWrap: 'wrap' }}>
@@ -67,8 +68,8 @@ export function ForfaitJoursFiche({ e }: { e: Employe }) {
             <Bar pct={k.plafond ? k.done / k.plafond * 100 : 0} width={120} color={k.etat === 'ok' ? 'var(--color-accent-600)' : 'var(--color-accent-300)'} />
           </div>
           <div className="text-muted sub">
-            Cible à date {fJ(k.prorata)}{k.cible !== k.forfait ? ` · forfait de ${k.forfait} jours au prorata de la présence : ${k.cible}` : ''} · alerte à {k.seuil} % du plafond
-            {repos ? ` · jours de repos : ${fJ(repos.droit)} de droit, ${fJ(repos.pris)} pris, ${fJ(repos.poses)} posés${repos.rachetes ? `, ${fJ(repos.rachetes)} rachetés` : ''}, reste ${fJ(repos.reste)}` : ''}
+            {t('Target to date ')}{fJ(k.prorata)}{k.cible !== k.forfait ? `${t(' · package of ')}${k.forfait}${t(' days pro rata of attendance: ')}${k.cible}` : ''}{t(' · alert at ')}{k.seuil}{t(' % of the ceiling')}
+            {repos ? `${t(' · rest days: ')}${fJ(repos.droit)}${t(' entitled, ')}${fJ(repos.pris)}${t(' taken, ')}${fJ(repos.poses)}${t(' booked#rest-days')}${repos.rachetes ? `, ${fJ(repos.rachetes)}${t(' bought back')}` : ''}${t(', remaining ')}${fJ(repos.reste)}` : ''}
           </div>
           {alerte && <NoteAccent>{alerte}</NoteAccent>}
         </>
@@ -78,20 +79,20 @@ export function ForfaitJoursFiche({ e }: { e: Employe }) {
           {avenants.map(a => (
             <li key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap', fontSize: 13 }}>
               <span className={a.annuleLe ? 'text-muted' : undefined}>
-                Avenant de renonciation {a.annee} · {fJ(a.jours)} rachetés{a.taux ? ` · majoration ${a.taux} %` : ''} · signé le {fmtIso(a.signeLe)}{a.reference ? ` · ${a.reference}` : ''}
+                {t('Waiver amendment ')}{a.annee} · {fJ(a.jours)}{t(' bought back')}{a.taux ? `${t(' · increase ')}${a.taux} %` : ''}{t(' · signed on ')}{fmtIso(a.signeLe)}{a.reference ? ` · ${a.reference}` : ''}
               </span>
-              {a.annuleLe && <Tag cls="tag-neutral">Annulé</Tag>}
+              {a.annuleLe && <Tag cls="tag-neutral">{t('Cancelled#masc')}</Tag>}
               {rh && <span className="text-muted sub">{etatRachat(a)}</span>}
               {rh && !a.annuleLe && e.id !== soi && (
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'confirmer', c: annulationAvenantForfait(a, e.nom) })}>Annuler l’avenant</button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'confirmer', c: annulationAvenantForfait(a, e.nom) })}>{t('Cancel the amendment')}</button>
               )}
             </li>
           ))}
         </ul>
       )}
       {rh && k && e.id !== soi && d.contratOf(e).forfait && (ouvert
-        ? <div><Btn small onClick={() => openDialog({ type: 'avenantForfait', empId: e.id })}>Enregistrer un avenant de renonciation</Btn></div>
-        : <Fine>Renonciation à des jours de repos fermée : elle suppose l’accord collectif qui autorise le forfait jours, à référencer dans Paramètres → Forfait jours.</Fine>)}
+        ? <div><Btn small onClick={() => openDialog({ type: 'avenantForfait', empId: e.id })}>{t('Record a waiver amendment')}</Btn></div>
+        : <Fine>{t('Waiver of rest days closed: it requires the collective agreement that authorises the annual days package, to reference in Settings → Annual days package.')}</Fine>)}
     </div>
   );
 }
@@ -106,8 +107,8 @@ export function RachatsEnAttente() {
   if (!dansLeFichier.length && !aSaisir.length) return null;
   return (
     <Fine>
-      {dansLeFichier.length > 0 && `Jours rachetés d’un forfait jours (JREN) dans le prochain lot de leur période : ${texte(dansLeFichier)}. `}
-      {aSaisir.length > 0 && `Jours rachetés d’un forfait jours à saisir dans Sage (rubrique JREN désactivée) : ${texte(aSaisir)} ; chaque lot les liste dans son résumé.`}
+      {dansLeFichier.length > 0 && `${t('Days bought back from an annual days package (JREN) in the next batch of their period: ')}${texte(dansLeFichier)}. `}
+      {aSaisir.length > 0 && `${t('Days bought back from an annual days package to enter in Sage (JREN item disabled): ')}${texte(aSaisir)}${t('; each batch lists them in its summary.')}`}
     </Fine>
   );
 }

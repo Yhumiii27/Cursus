@@ -12,7 +12,7 @@ import { dureeValide } from '../../../shared/rules/heures-formation.ts';
 import { ChoixCollaborateur } from '../components/ChoixCollaborateur.tsx';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Btn, Chips, Fine, NoteAccent, Seg } from '../components/ui.tsx';
-import { AIDE_MOTIF_CORRECTION } from '../state/confirmations-corrections.ts';
+import { aideMotifCorrection } from '../state/confirmations-corrections.ts';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -182,7 +182,7 @@ export function ElearningCorrigerDialog({ id }: { id: number }) {
         <Field label="Motif de la correction" htmlFor="ec-motif" requis erreur={motif.trim() ? errMotif : v.erreur(errMotif)}>
           <textarea className="input" id="ec-motif" rows={2} value={motif} maxLength={MOTIF_CORRECTION_MAX} placeholder="Échéance repoussée, avancement relevé sur la plateforme…" onChange={e => setMotif(e.target.value)} />
         </Field>
-        <Fine>{AIDE_MOTIF_CORRECTION}</Fine>
+        <Fine>{aideMotifCorrection()}</Fine>
       </>}
     </Dialog>
   );

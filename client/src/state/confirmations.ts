@@ -12,7 +12,7 @@ import { feuillesDeLaPeriode, type GroupePaie, periodeLabel } from '../../../sha
 import type { LotPaie, ModeRegularisation, SageMode } from '../../../shared/types.ts';
 import type { NomAction } from '../api.ts';
 import type { DialogState, UiState } from './store.tsx';
-import { t } from '../i18n/langue.ts';
+import { t, tn } from '../i18n/langue.ts';
 
 /** Longueur maximale d'un motif (contrôlée aussi par le serveur). */
 export const MOTIF_MAX = 500;
@@ -230,10 +230,10 @@ export function validationGroupee(feuilles: { empId: number; week: string }[], s
 /** Suppression d'une équipe vide (administrateur RH). */
 export function suppressionEquipe(nom: string): Confirmation {
   return {
-    titre: 'Supprimer l’équipe',
-    question: `Supprimer l’équipe ${nom} ?`,
-    suites: ['Ses enveloppes budgétaires de formation sont supprimées.'],
-    bouton: 'Supprimer l’équipe',
+    titre: t('Delete the team'),
+    question: `${t('Delete the team ')}${nom}${t('?#question')}`,
+    suites: [t('Its training budget envelopes are deleted.')],
+    bouton: t('Delete the team'),
     action: 'equipe.supprimer',
     payload: { nom },
   };
@@ -242,10 +242,10 @@ export function suppressionEquipe(nom: string): Confirmation {
 /** Retrait d'un membre de son équipe : il passe « à affecter ». `ui` : filtres appliqués ensuite (fiche fermée). */
 export function retraitEquipe(empId: number, nom: string, equipe: string, ui?: Partial<UiState>): Confirmation {
   return {
-    titre: 'Retirer de l’équipe',
-    question: `Retirer ${nom} de l’équipe ${equipe} ?`,
-    suites: [`${nom} passe « à affecter » : le service RH valide ses heures, ses absences et ses entretiens jusqu’à sa nouvelle affectation.`],
-    bouton: 'Retirer de l’équipe',
+    titre: t('Remove from the team'),
+    question: `${t('Remove #verb')}${nom}${t(' from the team ')}${equipe}${t('?#question')}`,
+    suites: [`${nom}${t(' becomes “to assign”: HR approves their hours, absences and reviews until their new assignment.')}`],
+    bouton: t('Remove from the team'),
     action: 'equipe.affecter',
     payload: { empId, equipe: null },
     ...(ui ? { ensuite: { ui } } : {}),
@@ -258,18 +258,18 @@ export function retraitEquipe(empId: number, nom: string, equipe: string, ui?: P
  */
 export function changementManager(equipe: string, ancien: string | null, nouveau: { id: number; nom: string } | null, rattaches: string[] = []): Confirmation {
   return {
-    titre: 'Changer le manager',
-    question: nouveau ? `Désigner ${nouveau.nom} manager de l’équipe ${equipe} ?` : `Retirer le manager de l’équipe ${equipe} ?`,
+    titre: t('Change the manager'),
+    question: nouveau ? `${t('Appoint #verb')}${nouveau.nom}${t(' manager of the team ')}${equipe}${t('?#question')}` : `${t('Remove the manager of the team ')}${equipe}${t('?#question')}`,
     suites: [
       nouveau
-        ? `${nouveau.nom} valide désormais les heures, les absences et les entretiens de l’équipe${ancien ? `, à la place de ${ancien}` : ''}.`
-        : `Les heures, les absences et les entretiens de l’équipe sont validés par le service RH${ancien ? `, à la place de ${ancien}` : ''}.`,
-      'Les demandes en attente passent au nouveau valideur.',
+        ? `${nouveau.nom}${t(' now approves the hours, absences and reviews of the team')}${ancien ? `${t(', instead of ')}${ancien}` : ''}.`
+        : `${t('The hours, absences and reviews of the team are approved by HR')}${ancien ? `${t(', instead of ')}${ancien}` : ''}.`,
+      t('The pending requests pass to the new approver.'),
       rattaches.length
-        ? `Managers des équipes rattachées : ${plural(rattaches.length, 'élément en attente change', 'éléments en attente changent')} aussi de valideur, qui en est prévenu par e-mail : ${rattaches.join(' ; ')}.`
+        ? `${t('Managers of the attached teams: ')}${tn(rattaches.length, 'pending item changes', 'pending items change')}${t(' approver as well, who is notified by e-mail: ')}${rattaches.join(' ; ')}.`
         : '',
     ].filter(Boolean),
-    bouton: nouveau ? 'Désigner le manager' : 'Retirer le manager',
+    bouton: t(nouveau ? 'Appoint the manager' : 'Remove the manager'),
     action: 'equipe.manager',
     payload: { nom: equipe, managerId: nouveau?.id ?? null },
   };
@@ -281,15 +281,15 @@ export function changementManager(equipe: string, ancien: string | null, nouveau
  */
 export function rattachementEquipe(equipe: string, parente: string | null, valideur: string | null, redirigees: string[]): Confirmation {
   return {
-    titre: parente ? 'Rattacher l’équipe' : 'Retirer l’équipe parente',
-    question: parente ? `Rattacher l’équipe ${equipe} à l’équipe ${parente} ?` : `Retirer l’équipe parente de l’équipe ${equipe} ?`,
+    titre: t(parente ? 'Attach the team' : 'Remove the parent team'),
+    question: parente ? `${t('Attach the team ')}${equipe}${t(' to the team ')}${parente}${t('?#question')}` : `${t('Remove the parent team of the team ')}${equipe}${t('?#question')}`,
     suites: [
-      valideur ? `Les absences, les feuilles de temps et les entretiens du manager de l’équipe seront validés par ${valideur}.` : '',
+      valideur ? `${t('The absences, timesheets and reviews of the team’s manager will be approved by ')}${valideur}.` : '',
       redirigees.length
-        ? `${plural(redirigees.length, 'élément en attente change', 'éléments en attente changent')} de valideur, qui en est prévenu par e-mail : ${redirigees.join(' ; ')}.`
-        : 'Aucun élément en attente ne change de valideur.',
+        ? `${tn(redirigees.length, 'pending item changes', 'pending items change')}${t(' approver, who is notified by e-mail: ')}${redirigees.join(' ; ')}.`
+        : t('No pending item changes approver.'),
     ].filter(Boolean),
-    bouton: parente ? 'Rattacher' : 'Retirer le rattachement',
+    bouton: t(parente ? 'Attach#team' : 'Remove the attachment'),
     action: 'equipe.parente',
     payload: { nom: equipe, parente },
   };
@@ -319,13 +319,13 @@ export function desinscription(p: { empId: number; sessionId: number }, nom: str
 /** Relevé d'heures des intérimaires envoyé à leur agence : renvoi, ou envoi sans les feuilles pas encore validées. */
 export function envoiReleve(agence: string, adresse: string, semaine: string, numero: number, opts: { renvoi: boolean; enAttente: string[] }): Confirmation {
   return {
-    titre: opts.renvoi ? 'Renvoyer le relevé' : 'Envoyer le relevé',
-    question: `${opts.renvoi ? 'Renvoyer' : 'Envoyer'} le relevé de la semaine ${numero} à ${agence} (${adresse}) ?`,
+    titre: t(opts.renvoi ? 'Resend the statement' : 'Send the statement'),
+    question: `${t(opts.renvoi ? 'Resend' : 'Send')}${t(' the statement of week ')}${numero}${t(' to #a')}${agence} (${adresse})${t('?#question')}`,
     suites: [
-      opts.enAttente.length ? `Feuille non validée, absente du relevé : ${opts.enAttente.join(', ')}. Le relevé complet part à sa validation.` : '',
-      opts.renvoi ? 'L’agence reçoit un nouvel e-mail avec le relevé à jour.' : '',
+      opts.enAttente.length ? `${t('Timesheet not approved, missing from the statement: ')}${opts.enAttente.join(', ')}${t('. The complete statement goes on its approval.')}` : '',
+      opts.renvoi ? t('The agency receives a new e-mail with the up-to-date statement.') : '',
     ].filter(Boolean),
-    bouton: opts.renvoi ? 'Renvoyer le relevé' : 'Envoyer le relevé',
+    bouton: t(opts.renvoi ? 'Resend the statement' : 'Send the statement'),
     action: 'releve.envoyer',
     payload: { agence, semaine },
   };
@@ -334,10 +334,10 @@ export function envoiReleve(agence: string, adresse: string, semaine: string, nu
 /** Annulation d'une demande de visite médicale en cours (faite par erreur, salarié sorti…). */
 export function annulationVisite(x: { id: number; le: string }, nom: string, le: string): Confirmation {
   return {
-    titre: 'Annuler la demande de visite',
-    question: `Annuler la demande de visite du ${le} pour ${nom} ?`,
-    suites: ['La demande est close sans visite ; une nouvelle demande reste possible. Le service de santé au travail n’est pas prévenu : à informer si la demande lui a été transmise.'],
-    bouton: 'Annuler la demande',
+    titre: t('Cancel the visit request'),
+    question: `${t('Cancel the visit request of ')}${le}${t(' for ')}${nom}${t('?#question')}`,
+    suites: [t('The request is closed without a visit; a new request remains possible. The occupational health service is not notified: to inform if the request was passed to it.')],
+    bouton: t('Cancel the request'),
     action: 'medical.annuler',
     payload: { id: x.id },
   };
@@ -349,14 +349,14 @@ export function annulationVisite(x: { id: number; le: string }, nom: string, le:
  */
 export function annulationSortie(e: { id: number; nom: string }, sortie: string, fin: string | null): Confirmation {
   return {
-    titre: 'Annuler la sortie',
-    question: `Annuler la sortie de ${e.nom} (${sortie}) ?`,
+    titre: t('Cancel the departure'),
+    question: `${t('Cancel the departure of ')}${e.nom} (${sortie})${t('?#question')}`,
     suites: [
-      fin ? `Le contrat reprend sa fin prévue, le ${fin}.` : `Le contrat redevient sans date de fin : ${e.nom} retrouve ses accès à Cursus et revient dans la conformité et les échéances.`,
-      'Ce que la sortie a annulé (absences, inscriptions aux sessions, entretiens planifiés, demandes de visite) n’est pas rétabli : à saisir de nouveau si besoin.',
-      'Keystone reçoit le nouveau verdict des chantiers où le salarié est affecté.',
+      fin ? `${t('The contract takes back its planned end, on ')}${fin}.` : `${t('The contract is again without an end date: ')}${e.nom}${t(' gets their access to Cursus back and returns to compliance and due dates.')}`,
+      t('What the departure cancelled (absences, session enrolments, planned reviews, visit requests) is not restored: to enter again if needed.'),
+      t('Keystone receives the new verdict of the worksites where the employee is assigned.'),
     ],
-    bouton: 'Annuler la sortie',
+    bouton: t('Cancel the departure'),
     action: 'employe.annulerSortie',
     payload: { id: e.id },
   };

@@ -14,6 +14,7 @@ import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerific
 import { Fine, SectionLabel } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 /** Erreurs de `validerProfil` qui portent sur les champs de ce dialogue : adresse e-mail, jours non travaillés. */
 const DU_DIALOGUE = /e-mail|^Au moins un jour travaillé|^Répartition impossible/;
@@ -34,7 +35,7 @@ export function FichePropreDialog({ emp }: { emp: Employe }) {
 
   const save = async () => {
     if (busy || !verif.verifier(errors.length > 0)) return;
-    if (!champs.length) { closeDialog(); notify('Aucune modification à enregistrer'); return; }
+    if (!champs.length) { closeDialog(); notify(t('No change to save')); return; }
     setBusy(true);
     const payload: Record<string, unknown> = { id: emp.id, avant: Object.fromEntries(champs.map(k => [k, initial[k] ?? null])) };
     for (const k of champs) payload[k] = v.profil[k];
@@ -45,14 +46,14 @@ export function FichePropreDialog({ emp }: { emp: Employe }) {
   const toggle = (i: number, on: boolean) => setJourOff(j => (on ? [...j, i].sort() : j.filter(x => x !== i)));
 
   return (
-    <Dialog title={`Modifier ma fiche — ${emp.nom}`} width={640} tall onSubmit={save} actions={<><CancelButton /><SubmitButton busy={busy}>Enregistrer</SubmitButton></>}>
+    <Dialog title={`${t('Edit my sheet — ')}${emp.nom}`} width={640} tall onSubmit={save} actions={<><CancelButton /><SubmitButton busy={busy}>{t('Save')}</SubmitButton></>}>
       <Fine>{AIDE_SOI_MEME.fiche}</Fine>
-      <Field label="Adresse e-mail professionnelle" htmlFor="soi-email">
-        <input className="input" id="soi-email" type="email" autoComplete="off" placeholder="prenom.nom@entreprise.fr" value={email} onChange={ev => setEmail(ev.target.value)} />
+      <Field label={t('Work e-mail address')} htmlFor="soi-email">
+        <input className="input" id="soi-email" type="email" autoComplete="off" placeholder={t('firstname.lastname@company.com')} value={email} onChange={ev => setEmail(ev.target.value)} />
       </Field>
       {c.partiel && (
-        <Field label="Jours non travaillés">
-          <div role="group" aria-label="Jours non travaillés" style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2) var(--space-4)' }}>
+        <Field label={t('Days not worked')}>
+          <div role="group" aria-label={t('Days not worked')} style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2) var(--space-4)' }}>
             {JOURS_SEMAINE.map((j, i) => (
               <label key={j} style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14, cursor: 'pointer' }}>
                 <input type="checkbox" checked={jourOff.includes(i)} onChange={ev => toggle(i, ev.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
@@ -63,14 +64,14 @@ export function FichePropreDialog({ emp }: { emp: Employe }) {
         </Field>
       )}
       {verif.tente && errors.map(m => <Bloquant key={m}>{m}</Bloquant>)}
-      <SectionLabel>Contrat &amp; temps de travail</SectionLabel>
+      <SectionLabel>{t('Contract & working time')}</SectionLabel>
       <div className="grid-2">
-        <Field label="Équipe"><Static>{equipeLabel(emp)}</Static></Field>
-        <Field label="Statut"><Static>{STATUTS[c.statut].label} <span className="text-muted">· {c.cadre ? 'cadre' : 'non-cadre'}</span></Static></Field>
-        <Field label="Nature du contrat"><Static>{TYPES_CONTRAT[c.typeContrat].label}{emp.fin ? ` · jusqu’au ${fmtIso(emp.fin)}` : ''}</Static></Field>
-        <Field label="Organisation du temps"><Static>{c.label}</Static></Field>
-        <Field label="Matricule de paie"><Static>{emp.matriculePaie ?? '—'}</Static></Field>
-        <Field label="Date d’entrée"><Static>{fmtIso(emp.entree)}</Static></Field>
+        <Field label={t('Team')}><Static>{equipeLabel(emp)}</Static></Field>
+        <Field label={t('Status')}><Static>{STATUTS[c.statut].label} <span className="text-muted">· {t(c.cadre ? 'executive' : 'non-executive')}</span></Static></Field>
+        <Field label={t('Type of contract')}><Static>{TYPES_CONTRAT[c.typeContrat].label}{emp.fin ? `${t(' · until ')}${fmtIso(emp.fin)}` : ''}</Static></Field>
+        <Field label={t('Working time arrangement')}><Static>{c.label}</Static></Field>
+        <Field label={t('Payroll number')}><Static>{emp.matriculePaie ?? '—'}</Static></Field>
+        <Field label={t('Start date')}><Static>{fmtIso(emp.entree)}</Static></Field>
       </div>
     </Dialog>
   );

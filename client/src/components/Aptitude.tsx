@@ -12,6 +12,7 @@ import { exposeDe } from '../../../shared/rules/visites-dues.ts';
 import type { DemandeVisite } from '../../../shared/types.ts';
 import { matriculesImprimes, printDocument } from '../print.ts';
 import { Tag } from './ui.tsx';
+import { t } from '../i18n/langue.ts';
 
 /**
  * Demande de visite imprimable (ou enregistrée en PDF) pour le service de prévention et de santé au travail :
@@ -20,19 +21,19 @@ import { Tag } from './ui.tsx';
 export function imprimerDemandeVisite(d: Domain, e: EmpX, x: DemandeVisite): boolean {
   const m = MOTIFS_VISITE[x.motif];
   const habs = e.habs.filter(h => h.delivree && h.hm.medical && h.mesure !== 'retrait');
-  return printDocument('Demande de visite médicale', 'À l’attention du service de prévention et de santé au travail', [
+  return printDocument(t('Medical visit request'), t('For the attention of the occupational health and prevention service'), [
     {
-      title: 'Salarié',
-      rows: [['Nom', e.nom], ['Matricule', matriculeAffiche(e)], e.naissanceLe ? ['Date de naissance', fmtIso(e.naissanceLe)] : ['Année de naissance', String(e.naissance)], ['Poste', e.poste], ['Équipe', equipeLabel(e)],
-        ['Contrat', d.contratOf(e).libelle], ['Date d’entrée', fmtIso(e.entree)]],
+      title: t('Employee#salarie'),
+      rows: [[t('Name'), e.nom], [t('Employee number'), matriculeAffiche(e)], e.naissanceLe ? [t('Date of birth'), fmtIso(e.naissanceLe)] : [t('Year of birth'), String(e.naissance)], [t('Job'), e.poste], [t('Team'), equipeLabel(e)],
+        [t('Contract'), d.contratOf(e).libelle], [t('Start date'), fmtIso(e.entree)]],
     },
     {
-      title: 'Visite demandée',
-      rows: [['Motif', m.label], ['Référence', `${m.article} du Code du travail`], ['Demandée le', fmtIso(x.le)], ['Par', `${x.par}, service RH`],
-        ['Dernière visite enregistrée', e.visite ? fmtIso(e.visite) : 'aucune']],
+      title: t('Visit requested'),
+      rows: [[t('Reason'), m.label], [t('Reference'), `${m.article}${t(' of the Labour Code')}`], [t('Requested on#label'), fmtIso(x.le)], [t('By'), `${x.par}${t(', HR')}`],
+        [t('Last visit recorded'), e.visite ? fmtIso(e.visite) : t('none#fem')]],
     },
-    ...(habs.length ? [{ title: 'Habilitations du poste qui exigent l’aptitude médicale', table: { head: ['Habilitation', 'Détail'], rows: habs.map(h => [h.hm.nom, h.hm.detail]) } }] : []),
-    { title: 'Suite donnée', text: 'Merci de convoquer le salarié et d’adresser l’avis d’aptitude au service RH, qui l’enregistre dans Cursus. Cette demande ne contient aucune information médicale.' },
+    ...(habs.length ? [{ title: t('Authorisations of the job that require medical fitness'), table: { head: [t('Authorisation'), t('Detail')], rows: habs.map(h => [h.hm.nom, h.hm.detail]) } }] : []),
+    { title: t('Follow-up'), text: t('Please call the employee in and send the fitness opinion to HR, who records it in Cursus. This request contains no medical information.') },
   ], e.id, `${e.nom} · ${matriculesImprimes(e)}`);
 }
 
@@ -43,13 +44,13 @@ export function imprimerDemandeVisite(d: Domain, e: EmpX, x: DemandeVisite): boo
 export function Aptitude({ e, d, horizon, actions }: { e: EmpX; d: Domain; horizon: number; actions?: ReactNode }) {
   const m = e.med, key = d.medKey(m, horizon);
   const verdict = m.avis === 'inapte' ? AVIS_MEDICAL.inapte.label
-    : !m.ok && !m.verdictSeul ? (m.visite ? 'Aptitude échue' : 'Aucune visite enregistrée')
-    : !m.ok ? 'Aptitude non valide'
-    : m.avis === 'restrictions' ? AVIS_MEDICAL.restrictions.court : 'Apte';
-  const statut = key === 'exp' ? (m.avis === 'inapte' || m.verdictSeul ? 'Non valide' : m.visite ? 'Échue' : 'Non renseignée') : key === 'due' ? (m.ok && m.examenRequis ? 'Examen requis' : 'À renouveler') : 'Valide';
+    : !m.ok && !m.verdictSeul ? t(m.visite ? 'Fitness expired' : 'No visit recorded')
+    : !m.ok ? t('Fitness not valid')
+    : m.avis === 'restrictions' ? AVIS_MEDICAL.restrictions.court : t('Fit');
+  const statut = t(key === 'exp' ? (m.avis === 'inapte' || m.verdictSeul ? 'Not valid#fem' : m.visite ? 'Expired#fem' : 'Not entered#fem') : key === 'due' ? (m.ok && m.examenRequis ? 'Examination required' : 'To renew') : 'Valid#fem');
   // Verdict seul (manager) : ni date ni échéance à afficher.
   // Visite due à un événement (vue manager) : « visite à programmer », sans motif ni date.
-  const detail = !m.verdictSeul ? m.text : m.ok || m.avis === 'inapte' ? `Avis du médecin du travail${m.aProgrammer ? ' · visite à programmer par le service RH' : ''}` : 'Visite à programmer par le service RH';
+  const detail = !m.verdictSeul ? m.text : m.ok || m.avis === 'inapte' ? `${t('Occupational physician’s opinion')}${m.aProgrammer ? t(' · visit to schedule by HR') : ''}` : t('Visit to schedule by HR');
   return (
     <div className="list-row stack">
       <div className="item-head">
@@ -57,21 +58,21 @@ export function Aptitude({ e, d, horizon, actions }: { e: EmpX; d: Domain; horiz
           <div style={{ fontSize: 14 }}>{verdict}</div>
           <div className="text-muted sub">{detail}</div>
           {/* Type de suivi : service RH et intéressé (jamais dans la vue manager, `suivi` null). */}
-          {m.suivi && <div className="text-muted sub">Type de suivi : {suiviTexte(m.suivi)}{m.examenRequis ? ' · examen médical d’aptitude à programmer' : ''}{exposeDe(d.ds, e) ? ' · exposé à des risques particuliers' : ''}</div>}
+          {m.suivi && <div className="text-muted sub">{t('Type of monitoring: ')}{suiviTexte(m.suivi)}{m.examenRequis ? t(' · medical fitness examination to schedule') : ''}{exposeDe(d.ds, e) ? t(' · exposed to particular risks') : ''}</div>}
           {/* Visites dues à un événement (embauche, reprise, mi-carrière, fin de carrière) : service RH et intéressé. */}
-          {m.dues?.map(v => <div key={v.motif} className="text-muted sub">{v.label} : {v.le < d.ti ? 'dépassée depuis le' : 'au plus tard le'} {fmtIso(v.le)} — {v.detail}</div>)}
+          {m.dues?.map(v => <div key={v.motif} className="text-muted sub">{v.label}{t(': ')}{t(v.le < d.ti ? 'overdue since' : 'at the latest on')} {fmtIso(v.le)} — {v.detail}</div>)}
           {/* Travailleur de nuit encore en VIP (shared/rules/repos-nuit.ts) : suivi adapté à prévoir, service RH et intéressé. */}
-          {m.suiviNuit && <div className="text-muted sub">{SUIVI_NUIT} : travailleur de nuit (VIP adaptée, art. R4624-17)</div>}
+          {m.suiviNuit && <div className="text-muted sub">{SUIVI_NUIT}{t(': night worker (adapted VIP, art. R4624-17)')}</div>}
         </div>
         <Tag cls={CLS[key]} style={{ flex: 'none' }}>{statut}</Tag>
       </div>
       {m.restrictions.length > 0 && (
         <div>
-          <div className="text-muted sub">Restrictions et aménagements de poste (avis du médecin du travail)</div>
+          <div className="text-muted sub">{t('Job restrictions and adjustments (occupational physician’s opinion)')}</div>
           <ul className="rules">
             {m.restrictions.map((r, i) => (
               <li key={i} className={restrictionEnVigueur(r, d.ti) ? undefined : 'text-muted'}>
-                {restrictionTexte(r)}{restrictionEnVigueur(r, d.ti) ? '' : ' (terminée)'}
+                {restrictionTexte(r)}{restrictionEnVigueur(r, d.ti) ? '' : t(' (ended)#fem')}
               </li>
             ))}
           </ul>

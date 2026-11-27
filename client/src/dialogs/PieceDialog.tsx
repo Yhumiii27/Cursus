@@ -9,6 +9,7 @@ import { CancelButton, Dialog, Field, Static, SubmitButton, useVerification } fr
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function PieceDialog({ objet, objetId, empId, libelle }: { objet: ObjetPiece; objetId: number; empId: number; libelle?: string }) {
   const d = useDomain();
@@ -18,7 +19,7 @@ export function PieceDialog({ objet, objetId, empId, libelle }: { objet: ObjetPi
   const v = useVerification();
   const emp = d.emp(empId);
   const sante = OBJETS_PIECE[objet].sante;
-  const manque = !piece.fichier ? 'Choisissez le fichier à joindre.' : null;
+  const manque = !piece.fichier ? t('Choose the file to attach.') : null;
 
   const confirm = async () => {
     if (busy || !v.verifier(manque, piece.erreur)) return;
@@ -32,17 +33,17 @@ export function PieceDialog({ objet, objetId, empId, libelle }: { objet: ObjetPi
   return (
     <Dialog title={OBJETS_PIECE[objet].label} width={560} onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Joindre la pièce</SubmitButton>
+      <SubmitButton busy={busy}>{t('Attach the document')}</SubmitButton>
     </>}>
-      <Field label="Collaborateur"><Static>{emp?.nom ?? '—'}{libelle ? ` · ${libelle}` : ''}</Static></Field>
-      <PiecesJointes objet={objet} objetId={objetId} label="Déjà jointes" />
+      <Field label={t('Employee')}><Static>{emp?.nom ?? '—'}{libelle ? ` · ${libelle}` : ''}</Static></Field>
+      <PiecesJointes objet={objet} objetId={objetId} label={t('Already attached')} />
       {piece.actif
-        ? <ChoixPiece piece={piece} id="piece-fichier" label="Fichier" requis erreur={v.erreur(manque)} />
-        : <Fine>Pièces justificatives désactivées : l’administrateur RH les active dans Paramètres → Pièces justificatives.</Fine>}
+        ? <ChoixPiece piece={piece} id="piece-fichier" label={t('File')} requis erreur={v.erreur(manque)} />
+        : <Fine>{t('Supporting documents disabled: the HR administrator enables them in Settings → Supporting documents.')}</Fine>}
       <Fine>
         {sante
-          ? 'Le document n’est visible que du salarié et du service RH, jamais de son manager ni de Keystone.'
-          : 'Le document est visible du service RH, du référent HSE / formation, du salarié et de son manager.'}
+          ? t('The document is visible only to the employee and HR, never to their manager or Keystone.')
+          : t('The document is visible to HR, the HSE / training officer, the employee and their manager.')}
       </Fine>
     </Dialog>
   );

@@ -10,13 +10,13 @@
 //   cadre intérieur suivant l'échelle pour que le défilement couvre tout l'arbre.
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { BuildingsIcon, CaretDownIcon, CaretRightIcon, MagnifyingGlassMinusIcon, MagnifyingGlassPlusIcon, UsersThreeIcon } from '@phosphor-icons/react';
-import { plural } from '../../../../shared/format.ts';
 import { TYPES_ENTITE } from '../../../../shared/rules/entites.ts';
 import type { MembreArbre, NoeudEntite, NoeudEquipe } from '../../../../shared/rules/organigramme.ts';
 import type { Site } from '../../../../shared/types.ts';
 import { cleEntite, cleEquipe, cleMembres, clePersonne, libelleSite, SEUIL_MEMBRES, type ArbreFiltre } from '../../organigramme-vue.ts';
 import { Avatar, Btn, Tag } from '../ui.tsx';
 import { idNoeud, toucheArbre } from './clavier.ts';
+import { t, tn } from '../../i18n/langue.ts';
 
 /** Bornes et pas du zoom, en pour cent. */
 export const ZOOM_MIN = 50, ZOOM_MAX = 150, ZOOM_PAS = 10;
@@ -102,14 +102,14 @@ export function ArbreGraphique(p: PropsArbreGraphique) {
     return (
       <li key={cle} role="treeitem" aria-level={niveau} aria-labelledby={id(cle)} data-cle={cle} tabIndex={cle === tabulable ? 0 : -1}
         className={`orgg-personne${vue.trouves.has(m.id) ? ' trouve' : ''}${ouvrable ? ' ouvrable' : ''}`} onFocus={focus(cle)}>
-        <div className="orgg-personne-ligne" id={id(cle)} onClick={() => { setActif(cle); ouvrirFiche(m.id); }} title={ouvrable ? 'Ouvrir la fiche' : undefined}>
+        <div className="orgg-personne-ligne" id={id(cle)} onClick={() => { setActif(cle); ouvrirFiche(m.id); }} title={ouvrable ? t('Open the sheet') : undefined}>
           <Avatar nom={m.nom} size={20} />
           <span className="orgg-personne-texte">
             <span className="orgg-personne-nom">{m.nom}</span>
-            <span className="orgg-detail">{[m.poste, m.manager ? 'manager' : ''].filter(Boolean).join(' · ')}</span>
+            <span className="orgg-detail">{[m.poste, m.manager ? t('manager') : ''].filter(Boolean).join(' · ')}</span>
           </span>
           {m.etiquette && <Tag cls="tag-outline">{m.etiquette}</Tag>}
-          {ouvrable && <span className="sr-only">, Entrée : ouvrir la fiche</span>}
+          {ouvrable && <span className="sr-only">{t(', Enter: open the sheet')}</span>}
         </div>
       </li>
     );
@@ -126,7 +126,7 @@ export function ArbreGraphique(p: PropsArbreGraphique) {
           className="orgg-replie" onFocus={focus(cle)}>
           <div className="orgg-replie-ligne" id={id(cle)} onClick={ev => { ev.stopPropagation(); setActif(cle); basculer(cle); }}>
             <span className="org-caret" aria-hidden="true">{ouvert ? <CaretDownIcon size={11} /> : <CaretRightIcon size={11} />}</span>
-            {plural(q.membres.length, 'personne', 'personnes')}
+            {tn(q.membres.length, 'person', 'people')}
           </div>
           {ouvert && <ul role="group" className="orgg-membres orgg-membres-replies">{q.membres.map(m => personne(m, niveau + 1))}</ul>}
         </li>
@@ -159,16 +159,16 @@ export function ArbreGraphique(p: PropsArbreGraphique) {
     const site = libelleSite(sites, q.siteCode);
     return boite(cle, niveau, `orgg-equipe${vue.equipesTrouvees.has(q.nom) ? ' trouve' : ''}`, <>
       <span className="orgg-titre">{caret(cle)}<UsersThreeIcon size={14} aria-hidden="true" className="org-icone" /><span className="orgg-nom">{q.nom}</span></span>
-      <span className="orgg-detail">{q.manager ? `manager : ${q.manager}` : 'sans manager — validations par le service RH'}</span>
+      <span className="orgg-detail">{q.manager ? `${t('manager: ')}${q.manager}` : t('no manager — approvals by HR')}</span>
       {(q.suppleant || site || (vueRh && (q.uniteCode || sansEntite))) && (
         <span className="orgg-tags">
-          {q.suppleant && <Tag cls="tag-accent">{`Suppléant : ${q.suppleant.nom}`}</Tag>}
+          {q.suppleant && <Tag cls="tag-accent">{`${t('Deputy: ')}${q.suppleant.nom}`}</Tag>}
           {site && <Tag cls="tag-neutral">{site}</Tag>}
           {vueRh && q.uniteCode && <Tag cls="tag-outline">{q.uniteCode}</Tag>}
-          {vueRh && sansEntite && <Tag cls="tag-outline">Sans entité</Tag>}
+          {vueRh && sansEntite && <Tag cls="tag-outline">{t('No entity')}</Tag>}
         </span>
       )}
-      <span className="orgg-effectif">{plural(q.effectif, 'présent', 'présents')}</span>
+      <span className="orgg-effectif">{tn(q.effectif, 'present', 'present#plural')}</span>
     </>, membres(q, niveau + 1), enfants(q.equipes.map(f => equipe(f, niveau + 1))), () => surEquipe?.(q.nom),
       vue.equipesTrouvees.has(q.nom));
   };
@@ -179,9 +179,9 @@ export function ArbreGraphique(p: PropsArbreGraphique) {
       <span className="orgg-titre">{caret(cle)}<BuildingsIcon size={15} aria-hidden="true" className="org-icone" /><span className="orgg-nom">{n.nom}</span></span>
       <span className="orgg-tags">
         <Tag cls="tag-neutral">{TYPES_ENTITE[n.type]}</Tag>
-        {n.fermee && <Tag cls="tag-outline">Fermée</Tag>}
+        {n.fermee && <Tag cls="tag-outline">{t('Closed#fem')}</Tag>}
       </span>
-      <span className="orgg-effectif">{plural(n.effectif, 'présent', 'présents')}</span>
+      <span className="orgg-effectif">{tn(n.effectif, 'present', 'present#plural')}</span>
     </>, null, enfants([...n.equipes.map(q => equipe(q, niveau + 1)), ...n.etablissements.map(e => entite(e, niveau + 1))]));
   };
 
@@ -189,9 +189,9 @@ export function ArbreGraphique(p: PropsArbreGraphique) {
     ...vue.entites.map(n => entite(n, 1)),
     ...vue.sansEntite.map(q => equipe(q, 1, true)),
     ...(vue.aAffecter.length ? [boite(cleAAffecter, 1, 'orgg-equipe orgg-a-affecter', <>
-      <span className="orgg-titre">{caret(cleAAffecter)}<UsersThreeIcon size={14} aria-hidden="true" className="org-icone" /><span className="orgg-nom">À affecter</span></span>
-      <span className="orgg-detail">sans équipe — validations par le service RH</span>
-      <span className="orgg-effectif">{plural(vue.aAffecter.length, 'personne', 'personnes')}</span>
+      <span className="orgg-titre">{caret(cleAAffecter)}<UsersThreeIcon size={14} aria-hidden="true" className="org-icone" /><span className="orgg-nom">{t('To assign')}</span></span>
+      <span className="orgg-detail">{t('no team — approvals by HR')}</span>
+      <span className="orgg-effectif">{tn(vue.aAffecter.length, 'person', 'people')}</span>
     </>, <ul role="group" className="orgg-membres">{vue.aAffecter.map(m => personne(m, 2))}</ul>, null)] : []),
   ];
 
@@ -200,9 +200,9 @@ export function ArbreGraphique(p: PropsArbreGraphique) {
   return (
     <div className="orgg">
       <div className="orgg-zoom no-print" role="group" aria-label="Taille de l’arbre">
-        <Btn small icon={<MagnifyingGlassMinusIcon size={14} />} onClick={() => changerZoom(-ZOOM_PAS)} disabled={zoom <= ZOOM_MIN}>Réduire</Btn>
+        <Btn small icon={<MagnifyingGlassMinusIcon size={14} />} onClick={() => changerZoom(-ZOOM_PAS)} disabled={zoom <= ZOOM_MIN}>{t('Zoom out')}</Btn>
         <span className="orgg-zoom-valeur" aria-live="polite">{`${zoom} %`}</span>
-        <Btn small icon={<MagnifyingGlassPlusIcon size={14} />} onClick={() => changerZoom(ZOOM_PAS)} disabled={zoom >= ZOOM_MAX}>Agrandir</Btn>
+        <Btn small icon={<MagnifyingGlassPlusIcon size={14} />} onClick={() => changerZoom(ZOOM_PAS)} disabled={zoom >= ZOOM_MAX}>{t('Zoom in')}</Btn>
       </div>
       <div className="orgg-cadre">
         <div className="orgg-echelle" style={taille ? { width: Math.ceil(taille.l * echelle), height: Math.ceil(taille.h * echelle) } : undefined}>

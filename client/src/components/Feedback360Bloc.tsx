@@ -6,7 +6,7 @@
 //   (il conduit lui aussi des entretiens ; onglet « Feedback 360° » de l'écran Entretiens : même compteur) ;
 // - après la clôture : la synthèse (moyennes par groupe d'au moins 3 réponses, commentaires relus par le service RH).
 // Vocabulaire : « confidentiel », jamais « anonyme ».
-import { fmtIso, plural } from '../../../shared/format.ts';
+import { fmtIso } from '../../../shared/format.ts';
 import {
   collecte360, lireSynthese360, RELATION_360_UN, sollicitationMasquee, STATUT_360_LABEL, suivi360, TYPES_360,
 } from '../../../shared/rules/feedback360.ts';
@@ -17,6 +17,7 @@ import { type DialogState, useStore } from '../state/store.tsx';
 import { useEvaluateur } from './EntretienSuivi.tsx';
 import { Synthese360Vue } from './Synthese360.tsx';
 import { Fine, NoteAccent, SectionLabel, Tag } from './ui.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 export function Feedback360Bloc({ x, e, ouvrir }: { x: Entretien; e: Employe; ouvrir: (dlg: DialogState) => void }) {
   const d = useDomain();
@@ -35,12 +36,12 @@ export function Feedback360Bloc({ x, e, ouvrir }: { x: Entretien; e: Employe; ou
   const liste = brutes.map(sollicitationMasquee).sort((a, b) => a.statut.localeCompare(b.statut) || a.id - b.id);
   const suivi = d.ds.suiviFeedback?.find(s => s.entretienId === x.id) ?? suivi360(brutes, x.id);
   const c = collecte360(brutes, x.id);
-  const nom = (id: number) => d.ds.annuaire.find(p => p.id === id)?.nom ?? d.emp(id)?.nom ?? 'Salarié';
+  const nom = (id: number) => d.ds.annuaire.find(p => p.id === id)?.nom ?? d.emp(id)?.nom ?? t('Employee#salarie');
   const proposees = liste.filter(s => s.statut === 'proposee');
   const echue = !!suivi.echeance && suivi.echeance < d.ti;
 
   return (<>
-    <SectionLabel>Feedback 360°</SectionLabel>
+    <SectionLabel>{t('360° feedback')}</SectionLabel>
     {synthese ? <Synthese360Vue s={synthese} /> : (<>
       {liste.length > 0 ? (
         <div className="list">
@@ -48,56 +49,56 @@ export function Feedback360Bloc({ x, e, ouvrir }: { x: Entretien; e: Employe; ou
             <div key={s.id} className="list-row">
               <div className="grow" style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 14 }}>{nom(s.repondantEmpId)}</div>
-                <div className="text-muted sub">{RELATION_360_UN[s.relation]}{s.proposeePar && s.statut === 'proposee' ? ' · proposé par le salarié' : ''}</div>
+                <div className="text-muted sub">{RELATION_360_UN[s.relation]}{s.proposeePar && s.statut === 'proposee' ? t(' · proposed by the employee') : ''}</div>
               </div>
               <Tag cls={s.statut === 'proposee' ? 'tag-outline' : 'tag-neutral'} style={{ flex: 'none' }}>{STATUT_360_LABEL[s.statut]}</Tag>
               {planifie && actif && s.statut === 'proposee' && (evaluateur || salarie) && (
                 <button type="button" className="btn btn-ghost btn-sm" style={{ flex: 'none' }} onClick={() => ouvrir({
                   type: 'confirmer', c: {
-                    titre: 'Retirer la proposition', question: `Retirer ${nom(s.repondantEmpId)} des répondants proposés ?`, bouton: 'Retirer',
-                    suites: ['Cette personne ne sera pas sollicitée.'], action: 'feedback360.retirer', payload: { id: s.id }, ensuite: { retour: { type: 'ent', entId: x.id } },
+                    titre: t('Withdraw the proposal#respondent'), question: `${t('Remove #person')}${nom(s.repondantEmpId)}${t(' from the proposed respondents?')}`, bouton: t('Remove'),
+                    suites: [t('This person will not be asked.')], action: 'feedback360.retirer', payload: { id: s.id }, ensuite: { retour: { type: 'ent', entId: x.id } },
                   },
-                })}>Retirer</button>
+                })}>{t('Remove')}</button>
               )}
             </div>
           ))}
         </div>
-      ) : <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Aucun répondant {salarie ? 'proposé' : 'proposé ni sollicité'}.</p>}
+      ) : <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>{t(salarie ? 'No respondent proposed.' : 'No respondent proposed or asked.')}</p>}
       {suivi.envoyees > 0 && (
         <p style={{ fontSize: 14, margin: 0 }}>
-          {plural(suivi.reponses, 'avis reçu', 'avis reçus')}{suivi.declinees ? ` · ${plural(suivi.declinees, 'refus', 'refus')}` : ''} sur {plural(suivi.envoyees, 'répondant sollicité', 'répondants sollicités')}
-          {suivi.echeance ? ` · ${echue ? 'fenêtre échue le' : 'réponses jusqu’au'} ${fmtIso(suivi.echeance)}` : ''}
+          {tn(suivi.reponses, 'feedback received', 'feedbacks received')}{suivi.declinees ? ` · ${tn(suivi.declinees, 'refusal', 'refusals')}` : ''}{t(' out of ')}{tn(suivi.envoyees, 'respondent asked', 'respondents asked')}
+          {suivi.echeance ? ` · ${t(echue ? 'window ended on' : 'answers until')} ${fmtIso(suivi.echeance)}` : ''}
         </p>
       )}
       {planifie && actif && !c.close && (evaluateur || salarie) && (
         <div className="actions-end" style={{ flexWrap: 'wrap' }}>
           {evaluateur && c.ouverte && (<>
-            <button type="button" className="btn btn-ghost btn-sm" disabled={occupe || echue} onClick={agir(() => run('feedback360.relancer', { entretienId: x.id }))}>Relancer</button>
+            <button type="button" className="btn btn-ghost btn-sm" disabled={occupe || echue} onClick={agir(() => run('feedback360.relancer', { entretienId: x.id }))}>{t('Remind')}</button>
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => ouvrir({
               type: 'confirmer', c: {
-                titre: 'Clore la collecte', question: 'Clore la collecte du feedback 360° ?', bouton: 'Clore la collecte',
+                titre: t('Close the collection'), question: t('Close the collection of the 360° feedback?'), bouton: t('Close the collection'),
                 suites: [
-                  'Les réponses reçues sont versées d’un bloc, sans nom ni date, et la synthèse est jointe au compte rendu.',
-                  `Sous ${d.ds.settings.feedback360Seuil} réponses, rien n’est restitué et les réponses sont supprimées.`,
-                  'Les personnes qui n’ont pas répondu ne le pourront plus.',
+                  t('The answers received are added in one block, without name or date, and the summary is attached to the report.'),
+                  `${t('Below ')}${d.ds.settings.feedback360Seuil}${t(' answers, nothing is passed on and the answers are deleted.')}`,
+                  t('The people who have not answered will no longer be able to.'),
                 ],
                 action: 'feedback360.clore', payload: { entretienId: x.id }, ensuite: { retour: { type: 'ent', entId: x.id } },
               },
-            })}>Clore la collecte</button>
+            })}>{t('Close the collection')}</button>
           </>)}
           {!echue && (
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => ouvrir({ type: 'feedback360Solliciter', entretienId: x.id, retour: x.id })}>
-              {salarie ? 'Proposer des répondants' : proposees.length ? 'Solliciter les répondants' : 'Solliciter des répondants'}
+              {t(salarie ? 'Propose respondents' : proposees.length ? 'Ask the respondents' : 'Ask respondents')}
             </button>
           )}
         </div>
       )}
-      {planifie && evaluateur && c.ouverte && <NoteAccent>Collecte en cours : elle se clôt avant l’entretien (sinon à l’échéance), et l’entretien ne se clôt qu’après.</NoteAccent>}
-      {planifie && evaluateur && !c.ouverte && proposees.length > 0 && <NoteAccent>{plural(proposees.length, 'répondant proposé attend', 'répondants proposés attendent')} votre validation.</NoteAccent>}
+      {planifie && evaluateur && c.ouverte && <NoteAccent>{t('Collection in progress: it closes before the review (otherwise at the due date), and the review closes only afterwards.')}</NoteAccent>}
+      {planifie && evaluateur && !c.ouverte && proposees.length > 0 && <NoteAccent>{tn(proposees.length, 'proposed respondent awaits', 'proposed respondents await')}{t(' your approval.')}</NoteAccent>}
     </>)}
     <Fine>
-      Avis de collègues, du N+2 et de collaborateurs encadrés, confidentiels : versés d’un bloc à la clôture, sans nom ni date ; restitués en moyenne par groupe d’au moins
-      {` ${d.ds.settings.feedback360Seuil}`} réponses, commentaires après relecture du service RH. Personne ne voit qui a répondu.
+      {t('Feedback of colleagues, of the N+2 and of managed employees, confidential: added in one block at the closing, without name or date; passed on as an average per group of at least ')}
+      {d.ds.settings.feedback360Seuil}{t(' answers, comments after review by HR. Nobody sees who answered.')}
     </Fine>
   </>);
 }

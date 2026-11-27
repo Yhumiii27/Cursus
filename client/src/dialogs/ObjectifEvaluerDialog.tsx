@@ -10,6 +10,7 @@ import { erreurDate } from '../components/controles.ts';
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function ObjectifEvaluerDialog({ id, entretienId, retour }: { id: number; entretienId: number; retour?: number }) {
   const d = useDomain();
@@ -24,9 +25,9 @@ export function ObjectifEvaluerDialog({ id, entretienId, retour }: { id: number;
   const v = useVerification();
   const e = o ? d.emp(o.empId) : undefined;
   if (!o || !x || !e) return null;
-  const statutErr = statut ? null : 'Choisissez le résultat.';
-  const evaluationErr = evaluation.trim().length > EVALUATION_MAX ? `${EVALUATION_MAX} caractères au plus.`
-    : statut === 'sans_objet' && !evaluation.trim() ? 'Objectif devenu sans objet : indiquez pourquoi.' : null;
+  const statutErr = statut ? null : t('Choose the result.');
+  const evaluationErr = evaluation.trim().length > EVALUATION_MAX ? t(`${EVALUATION_MAX} characters at most.`)
+    : statut === 'sans_objet' && !evaluation.trim() ? t('Objective no longer applicable: say why.') : null;
   const echeanceErr = statut === 'reconduit' && echeance ? erreurDate(echeance, '') : null;
   const revenir = () => (retour ? openDialog({ type: 'ent', entId: retour }) : closeDialog());
 
@@ -39,22 +40,22 @@ export function ObjectifEvaluerDialog({ id, entretienId, retour }: { id: number;
   };
 
   return (
-    <Dialog title={`Évaluer l’objectif — ${e.nom}`} width={560} onSubmit={envoyer} fermer={retour ? revenir : undefined} actions={<>
+    <Dialog title={`${t('Evaluate the objective')} — ${e.nom}`} width={560} onSubmit={envoyer} fermer={retour ? revenir : undefined} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Enregistrer l’évaluation</SubmitButton>
+      <SubmitButton busy={busy}>{t('Save the evaluation')}</SubmitButton>
     </>}>
-      <Field label="Objectif">
+      <Field label={t('Objective')}>
         <Static>
           {o.libelle}
           <div className="text-muted sub">
-            {fixe ? `Fixé à l’entretien du ${fmtIso(fixe.date)}` : 'Fixé à un entretien précédent'}{o.echeance ? ` · échéance le ${fmtIso(o.echeance)}` : ''} · avancement {o.avancement} %
+            {fixe ? `${t('Set at the review of ')}${fmtIso(fixe.date)}` : t('Set at a previous review')}{o.echeance ? ` · ${t('due on ')}${fmtIso(o.echeance)}` : ''} · {t('progress ')}{o.avancement} %
           </div>
-          {o.mesure && <div className="text-muted sub">Mesure : {o.mesure}</div>}
-          {o.commentaireSal && <div className="text-muted sub">Commentaire du salarié : {o.commentaireSal}</div>}
+          {o.mesure && <div className="text-muted sub">{t('Measure: ')}{o.mesure}</div>}
+          {o.commentaireSal && <div className="text-muted sub">{t('Employee’s comment: ')}{o.commentaireSal}</div>}
         </Static>
       </Field>
-      <Field label="Résultat" requis erreur={v.erreur(statutErr)}>
-        <div role="radiogroup" aria-label="Résultat de l’objectif" style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+      <Field label={t('Result')} requis erreur={v.erreur(statutErr)}>
+        <div role="radiogroup" aria-label={t('Result of the objective')} style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
           {STATUTS_EVALUATION.map(s => (
             <label key={s} className="boxed" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', cursor: 'pointer', fontSize: 13 }}>
               <input type="radio" name="obj-statut" value={s} checked={statut === s} onChange={() => setStatut(s)} style={{ accentColor: 'var(--color-accent)' }} />
@@ -63,19 +64,19 @@ export function ObjectifEvaluerDialog({ id, entretienId, retour }: { id: number;
           ))}
         </div>
       </Field>
-      <Field label={statut === 'sans_objet' ? 'Pourquoi l’objectif est devenu sans objet' : 'Commentaire de l’évaluateur (facultatif)'} htmlFor="obj-evaluation"
+      <Field label={t(statut === 'sans_objet' ? 'Why the objective is no longer applicable' : 'Reviewer’s comment (optional)')} htmlFor="obj-evaluation"
         requis={statut === 'sans_objet'} erreur={v.erreur(evaluationErr)}>
         <textarea className="input mid" id="obj-evaluation" rows={3} value={evaluation} maxLength={EVALUATION_MAX} onChange={ev => setEvaluation(ev.target.value)} />
       </Field>
       {statut === 'reconduit' && (
-        <Field label="Nouvelle échéance (facultatif)" htmlFor="obj-reconduit" erreur={v.erreur(echeanceErr)}>
+        <Field label={t('New due date (optional)')} htmlFor="obj-reconduit" erreur={v.erreur(echeanceErr)}>
           <input className="input" id="obj-reconduit" type="date" min={d.ti} value={echeance} onChange={ev => setEcheance(ev.target.value)} />
         </Field>
       )}
       <Fine>
         {statut === 'reconduit'
-          ? 'Reconduit : l’objectif est repris tel quel dans cet entretien, avec la nouvelle échéance ; modifiez-le ensuite si besoin.'
-          : 'L’évaluation reste modifiable jusqu’à la clôture de l’entretien ; elle figure au compte rendu, que le salarié signe.'}
+          ? t('Carried over: the objective is taken as it is into this review, with the new due date; edit it afterwards if needed.')
+          : t('The evaluation can be changed until the closing of the review; it appears in the report, which the employee signs.')}
       </Fine>
     </Dialog>
   );

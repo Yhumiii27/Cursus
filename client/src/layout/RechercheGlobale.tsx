@@ -13,6 +13,7 @@ import type { Dataset, Role } from '../../../shared/types.ts';
 import { ListeSuggestions } from '../components/ChoixCollaborateur.tsx';
 import { ANNUAIRE_SANS_FILTRE, chercherCollaborateurs, deplacer, estRaccourciRecherche, perimetreRecherche } from '../components/recherche.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 const ID = 'recherche-globale';
 
@@ -70,18 +71,18 @@ export function RechercheGlobale({ data, role }: { data: Dataset; role: Role }) 
     <div className="search combo coque-header-search-field">
       <MagnifyingGlassIcon size={14} />
       <input ref={champ} id={ID} className="input" type="text" role="combobox" autoComplete="off" spellCheck={false}
-        placeholder="Rechercher un collaborateur…" aria-label="Rechercher un collaborateur" aria-keyshortcuts="/"
+        placeholder={t('Search for an employee…')} aria-label={t('Search for an employee')} aria-keyshortcuts="/"
         aria-expanded={ouvert && n > 0} aria-controls={`${ID}-liste`} aria-autocomplete="list"
         aria-activedescendant={ouvert && actif >= 0 ? `${ID}-liste-${actif}` : undefined}
         value={q} onKeyDown={onKey} onBlur={fermer}
         onChange={e => { setUi({ search: e.target.value }); setOuvert(true); setActif(e.target.value.trim() ? 0 : -1); }} />
-      <ListeSuggestions id={`${ID}-liste`} ouvert={ouvert && n > 0} options={suggestions} actif={actif} reste={0} nomVide="Collaborateurs"
+      <ListeSuggestions id={`${ID}-liste`} ouvert={ouvert && n > 0} options={suggestions} actif={actif} reste={0} nomVide={t('Employees')}
         choisir={e => e && ouvrirFiche(e.id)}
         fin={
           <li id={`${ID}-liste-${tous}`} role="option" aria-selected={actif === tous} className={`combo-option combo-tous${actif === tous ? ' actif' : ''}`}
             onMouseDown={ev => ev.preventDefault()} onClick={voirTout}>
-            <span>{`Voir tous les résultats (${total})`}</span>
-            <span className="text-muted sub">Annuaire filtré par la recherche</span>
+            <span>{`${t('See all the results (')}${total})`}</span>
+            <span className="text-muted sub">{t('Directory filtered by the search')}</span>
           </li>
         } />
     </div>

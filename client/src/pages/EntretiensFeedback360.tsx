@@ -9,7 +9,7 @@
 //   ouverture du compte rendu, où l'évaluateur relance et clôt.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ENT_TYPES } from '../../../shared/constants.ts';
-import { fmtIso, plural } from '../../../shared/format.ts';
+import { fmtIso } from '../../../shared/format.ts';
 import { collecte360, lireSynthese360, RELATION_360_UN, sollicitationMasquee, STATUT_360_LABEL, suivi360 } from '../../../shared/rules/feedback360.ts';
 import { api, type Commentaire360 } from '../api.ts';
 import { Ouvrir } from '../components/Cliquable.tsx';
@@ -17,6 +17,7 @@ import { Empty, Fine, Panel, Tag } from '../components/ui.tsx';
 import { useAgir } from '../state/actions.ts';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 export function OngletFeedback360() {
   const d = useDomain();
@@ -24,7 +25,7 @@ export function OngletFeedback360() {
   const { occupe, agir } = useAgir();
   const [commentaires, setCommentaires] = useState<Commentaire360[] | null>(null);
   const relire = useCallback(() => {
-    api.moderation360().then(r => setCommentaires(r.commentaires)).catch(() => notify('Les commentaires à relire n’ont pas pu être lus : réessayez', true));
+    api.moderation360().then(r => setCommentaires(r.commentaires)).catch(() => notify(t('The comments to review could not be read: try again'), true));
   }, [notify]);
   // Relus à l'ouverture de l'onglet et après chaque changement de l'instantané (une clôture verse de nouveaux commentaires).
   useEffect(() => { relire(); }, [relire, d.ds.revision]);
@@ -40,7 +41,7 @@ export function OngletFeedback360() {
       return x ? [{ x, c: collecte360(brutes, id), suivi, sols: brutes.filter(s => s.entretienId === id && s.statut !== 'annulee').map(sollicitationMasquee) }] : [];
     }).sort((a, b) => Number(b.c.ouverte) - Number(a.c.ouverte) || b.x.date.localeCompare(a.x.date));
   }, [d]);
-  const nom = (id: number) => d.ds.annuaire.find(p => p.id === id)?.nom ?? d.emp(id)?.nom ?? 'Salarié';
+  const nom = (id: number) => d.ds.annuaire.find(p => p.id === id)?.nom ?? d.emp(id)?.nom ?? t('Employee#salarie');
   const aRelire = (commentaires ?? []).filter(c => c.statut === 'a_moderer');
   const moderer = (c: Commentaire360, decision: 'retenu' | 'retire') => agir(async () => {
     const r = await run('feedback360.moderer', { id: c.id, decision });
@@ -48,29 +49,27 @@ export function OngletFeedback360() {
   });
 
   return (<>
-    <Panel title="Commentaires à relire" aside={commentaires ? plural(aRelire.length, 'commentaire', 'commentaires') : 'lecture…'} highlight={aRelire.length > 0}>
+    <Panel title={t('Comments to review')} aside={commentaires ? tn(aRelire.length, 'comment', 'comments') : t('reading…')} highlight={aRelire.length > 0}>
       {aRelire.length ? (
         <div className="list">
           {aRelire.map(c => (
             <div key={c.id} className="list-row stack">
-              <div className="text-muted sub">Feedback 360° de {nom(c.empId)}</div>
+              <div className="text-muted sub">{t('360° feedback of ')}{nom(c.empId)}</div>
               <div style={{ fontSize: 14, whiteSpace: 'pre-wrap' }}>« {c.verbatim} »</div>
               <div className="actions-end">
-                <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={moderer(c, 'retire')}>Ne pas restituer</button>
-                <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={moderer(c, 'retenu')}>Restituer</button>
+                <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={moderer(c, 'retire')}>{t('Do not pass on')}</button>
+                <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={moderer(c, 'retenu')}>{t('Pass on')}</button>
               </div>
             </div>
           ))}
         </div>
-      ) : <Empty>Aucun commentaire à relire.</Empty>}
+      ) : <Empty>{t('No comment to review.')}</Empty>}
       <Fine>
-        Restituez un commentaire fait de faits observés au travail ; ne restituez pas celui qui porte sur la santé, la vie personnelle, des opinions, un propos
-        injurieux, ou un détail qui désigne son auteur. Le commentaire n’est jamais modifié : il est restitué tel quel ou pas du tout. Les commentaires qui vous
-        concernent sont relus par un autre membre du service RH.
+        {t('Pass on a comment made of facts observed at work; do not pass on one about health, personal life, opinions, an insulting remark, or a detail that points to its author. The comment is never changed: it is passed on as it is or not at all. The comments about you are reviewed by another member of HR.')}
       </Fine>
     </Panel>
 
-    <Panel title="Collectes" aside={plural(collectes.length, 'entretien', 'entretiens')}>
+    <Panel title={t('Collections')} aside={tn(collectes.length, 'review#lower', 'reviews#lower')}>
       {collectes.length ? (
         <div className="list">
           {collectes.map(({ x, c, suivi, sols }) => {
@@ -78,12 +77,12 @@ export function OngletFeedback360() {
             return (
               <div key={x.id} className="list-row stack">
                 <div className="item-head">
-                  <Ouvrir onOpen={() => openDialog({ type: 'ent', entId: x.id })}>{nom(x.empId)} · {ENT_TYPES[x.type].court} du {fmtIso(x.date)}</Ouvrir>
-                  <Tag cls={c.ouverte ? 'tag-accent' : 'tag-outline'} style={{ flex: 'none' }}>{c.ouverte ? 'Collecte en cours' : s ? 'Synthèse jointe' : c.envoyees ? 'Collecte close' : 'À solliciter'}</Tag>
+                  <Ouvrir onOpen={() => openDialog({ type: 'ent', entId: x.id })}>{nom(x.empId)} · {ENT_TYPES[x.type].court}{t(' of #date')}{fmtIso(x.date)}</Ouvrir>
+                  <Tag cls={c.ouverte ? 'tag-accent' : 'tag-outline'} style={{ flex: 'none' }}>{t(c.ouverte ? 'Collection in progress' : s ? 'Summary attached' : c.envoyees ? 'Collection closed' : 'To request')}</Tag>
                 </div>
                 <div className="text-muted sub">
-                  {suivi.envoyees ? `${plural(suivi.reponses, 'avis', 'avis')} · ${plural(suivi.declinees, 'refus', 'refus')} sur ${suivi.envoyees} sollicités` : s ? `${plural(s.reponses, 'réponse', 'réponses')} sur ${s.envoyees}` : 'Aucune sollicitation envoyée'}
-                  {c.echeance ? ` · échéance le ${fmtIso(c.echeance)}` : ''}{c.proposees ? ` · ${plural(c.proposees, 'proposition à valider', 'propositions à valider')}` : ''}
+                  {suivi.envoyees ? `${tn(suivi.reponses, 'feedback', 'feedbacks')} · ${tn(suivi.declinees, 'refusal', 'refusals')}${t(' out of ')}${suivi.envoyees}${t(' requested')}` : s ? `${tn(s.reponses, 'answer', 'answers')}${t(' out of ')}${s.envoyees}` : t('No request sent')}
+                  {c.echeance ? ` · ${t('due on ')}${fmtIso(c.echeance)}` : ''}{c.proposees ? ` · ${tn(c.proposees, 'proposal to approve', 'proposals to approve')}` : ''}
                 </div>
                 {sols.length > 0 && (
                   <div className="text-muted sub">
@@ -94,8 +93,8 @@ export function OngletFeedback360() {
             );
           })}
         </div>
-      ) : <Empty>Aucun feedback 360° en cours. L’évaluateur sollicite les répondants depuis le compte rendu d’un entretien annuel ou de mi-année.</Empty>}
-      <Fine>Le service RH voit qui a été sollicité et le nombre d’avis reçus, jamais qui a répondu ni qui a dit quoi : les réponses sont versées d’un bloc à la clôture, sans répondant ni date.</Fine>
+      ) : <Empty>{t('No 360° feedback in progress. The reviewer asks the respondents from the report of an annual or mid-year review.')}</Empty>}
+      <Fine>{t('HR sees who was asked and the number of feedbacks received, never who answered nor who said what: the answers are added in one block at the closing, without respondent or date.')}</Fine>
     </Panel>
   </>);
 }

@@ -9,6 +9,7 @@ import { CancelButton, Dialog, Field, SubmitButton, useVerification } from '../c
 import { Bar, Fine } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function ObjectifAvancerDialog({ id, retour }: { id: number; retour?: number }) {
   const d = useDomain();
@@ -24,8 +25,8 @@ export function ObjectifAvancerDialog({ id, retour }: { id: number; retour?: num
   // Le commentaire est celui du salarié : l'évaluateur s'exprime à l'évaluation (refus du serveur sinon).
   const salarie = collab && o.empId === me;
   const n = Number(avancement);
-  const avancementErr = !avancement.trim() ? 'Indiquez l’avancement.' : !Number.isInteger(n) || n < 0 || n > 100 ? 'Un nombre entier de 0 à 100.' : null;
-  const commentaireErr = commentaire.trim().length > COMMENTAIRE_SAL_MAX ? `${COMMENTAIRE_SAL_MAX} caractères au plus.` : null;
+  const avancementErr = !avancement.trim() ? t('Enter the progress.') : !Number.isInteger(n) || n < 0 || n > 100 ? t('A whole number from 0 to 100.') : null;
+  const commentaireErr = commentaire.trim().length > COMMENTAIRE_SAL_MAX ? t(`${COMMENTAIRE_SAL_MAX} characters at most.`) : null;
   const revenir = () => (retour ? openDialog({ type: 'ent', entId: retour }) : closeDialog());
 
   const envoyer = async () => {
@@ -37,24 +38,24 @@ export function ObjectifAvancerDialog({ id, retour }: { id: number; retour?: num
   };
 
   return (
-    <Dialog title={`Avancement — ${salarie ? 'mon objectif' : e.nom}`} width={520} onSubmit={envoyer} fermer={retour ? revenir : undefined} actions={<>
+    <Dialog title={`${t('Progress')} — ${salarie ? t('my objective') : e.nom}`} width={520} onSubmit={envoyer} fermer={retour ? revenir : undefined} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Enregistrer l’avancement</SubmitButton>
+      <SubmitButton busy={busy}>{t('Save the progress')}</SubmitButton>
     </>}>
       <div>
         <div style={{ fontSize: 14 }}>{o.libelle}</div>
-        <div className="text-muted sub">{o.echeance ? `Échéance le ${fmtIso(o.echeance)} · ` : ''}dernière mise à jour le {fmtIso(derniereMiseAJour(o))}</div>
+        <div className="text-muted sub">{o.echeance ? `${t('Due on ')}${fmtIso(o.echeance)} · ` : ''}{t('last update on ')}{fmtIso(derniereMiseAJour(o))}</div>
       </div>
-      <Field label="Avancement (%)" htmlFor="obj-avancement" requis erreur={v.erreur(avancementErr)}>
+      <Field label={t('Progress (%)')} htmlFor="obj-avancement" requis erreur={v.erreur(avancementErr)}>
         <input className="input" id="obj-avancement" type="number" min={0} max={100} step={5} value={avancement} onChange={ev => setAvancement(ev.target.value)} style={{ maxWidth: 120 }} />
       </Field>
       {!avancementErr && <Bar pct={n} />}
       {salarie && (
-        <Field label="Commentaire (facultatif)" htmlFor="obj-commentaire" erreur={v.erreur(commentaireErr)}>
+        <Field label={t('Comment (optional)')} htmlFor="obj-commentaire" erreur={v.erreur(commentaireErr)}>
           <textarea className="input mid" id="obj-commentaire" rows={2} value={commentaire} maxLength={COMMENTAIRE_SAL_MAX} onChange={ev => setCommentaire(ev.target.value)} />
         </Field>
       )}
-      <Fine>{salarie ? 'Votre évaluateur voit l’avancement et votre commentaire ; le journal des actions ne garde que le pourcentage.' : 'Le salarié voit l’avancement dans « Mes objectifs ».'}</Fine>
+      <Fine>{t(salarie ? 'Your reviewer sees the progress and your comment; the action log keeps only the percentage.' : 'The employee sees the progress in “My objectives”.')}</Fine>
     </Dialog>
   );
 }

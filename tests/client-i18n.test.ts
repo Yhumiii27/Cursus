@@ -178,6 +178,24 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
       'client/src/dialogs/EquipeDialog.tsx', 'client/src/dialogs/EquipeRattachementDialog.tsx', 'client/src/dialogs/DelegationDialog.tsx',
       'client/src/state/confirmations-delegations.ts'],
   },
+  // Recherche de l'en-tête (annuaire filtré, suggestions) et choix d'un collaborateur dans les dialogues et les filtres.
+  { ecran: 'Annuaire (recherche)', fichiers: ['client/src/layout/RechercheGlobale.tsx', 'client/src/components/ChoixCollaborateur.tsx'] },
+  {
+    // Arbre en liste et vue graphique, filtres, service choisi et fil d'Ariane, anomalies (le document imprimé et l'export
+    // CSV, construits par organigramme-vue.ts et listes-csv.ts, restent en français).
+    ecran: 'Organigramme', fichiers: ['client/src/pages/Organigramme.tsx', 'client/src/components/organigramme/ArbreGraphique.tsx'],
+  },
+  {
+    // Échéances et comptes rendus, objectifs, points de suivi, feedback 360° ; compte rendu (sections, objectifs, souhaits,
+    // feedback 360° et sa synthèse), planification, remise de la copie, dialogues des objectifs, des souhaits et des répondants
+    // (le compte rendu imprimé, ses libellés de sections et la mention d'information, dialogs/compteRendu*.ts, restent en français).
+    ecran: 'Entretiens / 360°', fichiers: ['client/src/pages/Entretiens.tsx', 'client/src/pages/EntretiensSuivi.tsx', 'client/src/pages/EntretiensFeedback360.tsx',
+      'client/src/components/EntretienSuivi.tsx', 'client/src/components/Feedback360Bloc.tsx', 'client/src/components/Synthese360.tsx',
+      'client/src/dialogs/EntDialog.tsx', 'client/src/dialogs/EntPlanDialog.tsx', 'client/src/dialogs/RemiseDialog.tsx', 'client/src/dialogs/ObjectifDialog.tsx',
+      'client/src/dialogs/ObjectifAvancerDialog.tsx', 'client/src/dialogs/ObjectifEvaluerDialog.tsx', 'client/src/dialogs/SouhaitDialog.tsx',
+      'client/src/dialogs/Feedback360SolliciterDialog.tsx'],
+  },
+  { ecran: 'Mes objectifs', fichiers: ['client/src/pages/MesObjectifs.tsx'] },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */

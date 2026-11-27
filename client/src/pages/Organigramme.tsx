@@ -25,7 +25,6 @@ import {
   ListBulletsIcon, TreeStructureIcon, XIcon,
 } from '@phosphor-icons/react';
 import { TYPES_CONTRAT, vuesDe } from '../../../shared/constants.ts';
-import { plural } from '../../../shared/format.ts';
 import { TYPES_ENTITE } from '../../../shared/rules/entites.ts';
 import { anomalieTexte, arbre, type MembreArbre, type NoeudEntite, type NoeudEquipe } from '../../../shared/rules/organigramme.ts';
 import type { Site } from '../../../shared/types.ts';
@@ -44,6 +43,7 @@ import {
 import { downloadCsv, printDocument } from '../print.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t, tn } from '../i18n/langue.ts';
 
 /** Nœud « À affecter » (service RH) : clé à part, hors des entités et des équipes. */
 const CLE_A_AFFECTER = 'a:';
@@ -113,8 +113,8 @@ export function Organigramme() {
   const nomDe = (id: number) => d.personName(id);
   const contexte = { equipes: r.equipes, entites, sites, nom: nomDe };
   const entiteChoisie = entites.find(x => x.code === ui.orgEntite) ?? null;
-  const portee = [entiteChoisie?.nom, ui.orgSite ? `site ${libelleSite(sites, ui.orgSite)}` : '', /* lot 12 — C7 */ ui.orgService ? `service ${ui.orgService}` : '']
-    .filter(Boolean).join(' · ') || 'Toutes les entités';
+  const portee = [entiteChoisie?.nom, ui.orgSite ? `${t('site ')}${libelleSite(sites, ui.orgSite)}` : '', /* lot 12 — C7 */ ui.orgService ? `${t('service ')}${ui.orgService}` : '']
+    .filter(Boolean).join(' · ') || t('All entities');
   const imprimer = () => {
     const lignes = lignesOrganigramme(vue, contexte);
     // lot 12 — C7 (organigramme) : en vue graphique, l'arbre vertical (le service choisi seul, ou une page par entité),
@@ -123,45 +123,45 @@ export function Organigramme() {
     const sections = graphique
       ? reduites.map((s, i) => ({
         title: s.titre, arbre: s.arbre, saut: i > 0, vertical: true, echelle: s.echelle,
-        sub: [s.sousTitre, s.echelle < 100 ? `arbre réduit à ${s.echelle} % pour tenir dans la largeur de la page${s.echelle <= ECHELLE_MIN ? ' : certaines boîtes peuvent déborder' : ''}` : ''].filter(Boolean).join(' · '),
+        sub: [s.sousTitre, s.echelle < 100 ? `${t('tree reduced to ')}${s.echelle}${t(' % to fit the width of the page')}${s.echelle <= ECHELLE_MIN ? t(': some boxes may overflow') : ''}` : ''].filter(Boolean).join(' · '),
       }))
       : (racineService
         ? sectionsImpressionGraphique(vue, contexte, ui.orgService).map(s => ({ title: s.titre, sub: s.sousTitre, arbre: s.arbre }))
         : sectionsImpression(vue, contexte).map((s, i) => ({ title: s.titre, sub: s.sousTitre, arbre: s.arbre, saut: i > 0 })));
-    if (!printDocument('Organigramme', `${portee} · ${mentionEtat(d.ti)}`, sections, undefined, undefined, { paysage: true, journal: false })) {
-      notify('Impression impossible : autorisez les fenêtres de Cursus dans le navigateur.', true);
+    if (!printDocument(t('Organisation chart'), `${portee} · ${mentionEtat(d.ti)}`, sections, undefined, undefined, { paysage: true, journal: false })) {
+      notify(t('Printing impossible: allow Cursus’s windows in the browser.'), true);
       return;
     }
     const reduite = reduites.find(s => s.echelle < 100);
-    if (reduite) notify(`Arbre trop large pour une page : imprimé réduit (jusqu’à ${Math.min(...reduites.map(s => s.echelle))} %).`);
+    if (reduite) notify(`${t('Tree too wide for a page: printed reduced (down to ')}${Math.min(...reduites.map(s => s.echelle))} %).`);
     void run('organigramme.imprimer', { entite: ui.orgEntite ?? '', lignes: lignes.length, /* lot 12 — C7 */ ...(ui.orgService ? { service: ui.orgService } : {}) }, { silent: true });
   };
   const exporter = () => {
     const x = csvOrganigramme(d.ti, lignesOrganigramme(vue, contexte), ui.orgEntite);
     downloadCsv(x.fichier, x.head, x.rows, undefined, { journal: false });
     void run('organigramme.exporter', { entite: ui.orgEntite ?? '', lignes: x.rows.length, /* lot 12 — C7 */ ...(ui.orgService ? { service: ui.orgService } : {}) }, { silent: true });
-    notify(`Export CSV généré — ${plural(x.rows.length, 'ligne', 'lignes')}`);
+    notify(`${t('CSV export generated — ')}${tn(x.rows.length, 'line', 'lines')}`);
   };
 
   const nEquipes = r.equipes.length, nEntites = entites.filter(x => x.actif && !x.fermeLe).length;
-  const kicker = `${plural(brut.effectif, 'personne présente', 'personnes présentes')} · ${plural(nEquipes, 'équipe', 'équipes')} · ${plural(nEntites, 'entité', 'entités')}`;
+  const kicker = `${tn(brut.effectif, 'person present', 'people present')} · ${tn(nEquipes, 'team', 'teams')} · ${tn(nEntites, 'entity', 'entities')}`;
   const filtre = !!(ui.orgEntite || ui.orgSite || recherche.trim() || /* lot 12 — C7 */ ui.orgService);
   // Entités proposées : celles de l'arbre (sociétés, puis leurs établissements).
   const choixEntites = brut.entites.flatMap(n => [n, ...n.etablissements]);
   const choixSites = sites.filter(s => s.actif || s.code === ui.orgSite || r.equipes.some(q => siteEffectif(r.equipes, entites, q.nom) === s.code));
 
   return (
-    <Page kicker={kicker} title="Organigramme" actions={<>
-      <Btn variant="secondary" icon={<PrinterIcon size={14} />} onClick={imprimer} disabled={vue.effectif === 0}>Imprimer</Btn>
-      <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exporter} disabled={vue.effectif === 0}>Exporter (CSV)</Btn>
+    <Page kicker={kicker} title={t('Organisation chart')} actions={<>
+      <Btn variant="secondary" icon={<PrinterIcon size={14} />} onClick={imprimer} disabled={vue.effectif === 0}>{t('Print')}</Btn>
+      <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exporter} disabled={vue.effectif === 0}>{t('Export (CSV)')}</Btn>
     </>}>
       {vueRh && brut.anomalies.length > 0 && <Anomalies arbreBrut={brut} nom={nomDe} rh={rh} />}
       <Panel className="org-panel">
         <div className="filtres-liste org-filtres no-print">
           <label className="org-recherche">
             <MagnifyingGlassIcon size={14} aria-hidden="true" />
-            <span className="sr-only">Rechercher dans l’organigramme</span>
-            <input className="input" type="search" value={recherche} placeholder={ui.orgService ? `Nom ou poste dans ${ui.orgService}` : 'Nom, poste ou équipe'} onChange={e => setRecherche(e.target.value)}
+            <span className="sr-only">{t('Search the organisation chart')}</span>
+            <input className="input" type="search" value={recherche} placeholder={ui.orgService ? `${t('Name or job in ')}${ui.orgService}` : t('Name, job or team')} onChange={e => setRecherche(e.target.value)}
               onKeyDown={e => {
                 if (e.key !== 'Enter') return;
                 e.preventDefault();
@@ -169,41 +169,41 @@ export function Organigramme() {
               }} />
           </label>
           {choixEntites.length > 1 && (
-            <select className="input" aria-label="Entité" value={ui.orgEntite ?? ''} onChange={e => setUi({ orgEntite: e.target.value || null })}>
-              <option value="">Toutes les entités</option>
+            <select className="input" aria-label={t('Entity')} value={ui.orgEntite ?? ''} onChange={e => setUi({ orgEntite: e.target.value || null })}>
+              <option value="">{t('All entities')}</option>
               {choixEntites.map(x => <option key={x.code} value={x.code}>{x.type === 'etablissement' ? `— ${x.nom}` : x.nom}</option>)}
             </select>
           )}
           {choixSites.length > 0 && (
-            <select className="input" aria-label="Site" value={ui.orgSite ?? ''} onChange={e => setUi({ orgSite: e.target.value || null })}>
-              <option value="">Tous les sites</option>
+            <select className="input" aria-label={t('Site')} value={ui.orgSite ?? ''} onChange={e => setUi({ orgSite: e.target.value || null })}>
+              <option value="">{t('All sites')}</option>
               {choixSites.map(s => <option key={s.code} value={s.code}>{s.libelle}</option>)}
             </select>
           )}
           {/* lot 12 — C7 (organigramme) */}
           {services.length > 0 && <ChoixService services={services} service={ui.orgService} choisir={choisirService} />}
-          <Seg name="org-vue" label="Présentation" value={ui.orgVue} onChange={v => setUi({ orgVue: v })} options={[
-            ['liste', <span key="l" className="org-seg"><ListBulletsIcon size={14} aria-hidden="true" />Liste</span>],
-            ['graphique', <span key="g" className="org-seg"><TreeStructureIcon size={14} aria-hidden="true" />Graphique</span>],
+          <Seg name="org-vue" label={t('Presentation')} value={ui.orgVue} onChange={v => setUi({ orgVue: v })} options={[
+            ['liste', <span key="l" className="org-seg"><ListBulletsIcon size={14} aria-hidden="true" />{t('List')}</span>],
+            ['graphique', <span key="g" className="org-seg"><TreeStructureIcon size={14} aria-hidden="true" />{t('Chart')}</span>],
           ]} />
           <span className="grow" />
-          <Btn small onClick={() => setOuverts(new Set([...(graphique ? clesDepliablesGraphique(vue) : clesDepliables(vue)), CLE_A_AFFECTER]))}>Tout déplier</Btn>
-          <Btn small onClick={() => setOuverts(new Set())}>Tout replier</Btn>
+          <Btn small onClick={() => setOuverts(new Set([...(graphique ? clesDepliablesGraphique(vue) : clesDepliables(vue)), CLE_A_AFFECTER]))}>{t('Expand all')}</Btn>
+          <Btn small onClick={() => setOuverts(new Set())}>{t('Collapse all')}</Btn>
         </div>
         {/* lot 12 — C7 (organigramme) : rattachement du service choisi, proposition de l'équipe touchée, message du téléphone. */}
         {ui.orgService && <Ariane service={ui.orgService} etapes={filAriane(r.equipes, entites, ui.orgService)} choisir={choisirService} />}
         {equipeTouchee && equipeTouchee !== ui.orgService && (
           <div className="org-proposition no-print">
-            <span>{`Équipe ${equipeTouchee}`}</span>
-            <Btn small variant="secondary" onClick={() => choisirService(equipeTouchee)}>Voir ce service seul</Btn>
+            <span>{`${t('Team ')}${equipeTouchee}`}</span>
+            <Btn small variant="secondary" onClick={() => choisirService(equipeTouchee)}>{t('See this department alone')}</Btn>
           </div>
         )}
-        {ui.orgVue === 'graphique' && telephone && <p className="org-note no-print">Vue graphique indisponible sur un écran étroit : l’organigramme s’affiche en liste.</p>}
-        <p className="sr-only" role="status">{filtre ? `${plural(vue.effectif, 'personne affichée', 'personnes affichées')}${recherche.trim() ? `, ${plural(vue.trouves.size, 'résultat', 'résultats')}` : ''}` : ''}</p>
+        {ui.orgVue === 'graphique' && telephone && <p className="org-note no-print">{t('Chart view unavailable on a narrow screen: the organisation chart is shown as a list.')}</p>}
+        <p className="sr-only" role="status">{filtre ? `${tn(vue.effectif, 'person shown', 'people shown')}${recherche.trim() ? `, ${tn(vue.trouves.size, 'result', 'results')}` : ''}` : ''}</p>
         {vue.effectif === 0 && !vue.entites.length && !vue.sansEntite.length
-          ? <Empty pad="sm">{filtre ? 'Aucune équipe ni personne ne correspond à ces filtres.' : 'Aucune équipe pour l’instant : l’organigramme se construit avec les équipes et leurs membres.'}</Empty>
+          ? <Empty pad="sm">{t(filtre ? 'No team or person matches these filters.' : 'No team yet: the organisation chart is built from the teams and their members.')}</Empty>
           : (ui.orgService && !racineService
-            ? <Empty pad="sm">Ce service n’a aucune équipe ni personne sous ces filtres.</Empty>
+            ? <Empty pad="sm">{t('This department has no team or person under these filters.')}</Empty>
             : (graphique
               ? <ArbreGraphique vue={vue} service={racineService} ouverts={ouverts} basculer={basculer} vueRh={vueRh} sites={sites} ficheOuvrable={ficheOuvrable}
                 ouvrirFiche={ouvrirFiche} cleAAffecter={CLE_A_AFFECTER} surEquipe={setEquipeTouchee} />
@@ -211,9 +211,9 @@ export function Organigramme() {
                 ouvrirFiche={ouvrirFiche} surEquipe={setEquipeTouchee} />))}
         <Fine>
           {vueRh
-            ? 'Présents du jour, d’après l’annuaire et les équipes ; les étiquettes de contrat, les salariés à affecter et les anomalies ne sont montrés qu’au service RH. Les validations suivent les managers et les équipes parentes : l’entité ne change aucun valideur.'
-            : 'Présents du jour, d’après l’annuaire : nom, poste, équipe et manager. Aucune donnée de contrat, d’absence ni de santé n’y figure.'}
-          {' '}Impression en paysage, une entité par page (ou le service choisi seul ; en vue graphique, l’arbre vertical) ; l’export CSV reprend les personnes affichées.
+            ? t('Present today, from the directory and the teams; contract labels, employees to assign and anomalies are shown to HR only. Approvals follow the managers and the parent teams: the entity changes no approver.')
+            : t('Present today, from the directory: name, job, team and manager. No contract, absence or health data appears there.')}
+          {' '}{t('Printed in landscape, one entity per page (or the chosen department alone; in chart view, the vertical tree); the CSV export takes the people shown.')}
         </Fine>
       </Panel>
     </Page>
@@ -227,14 +227,14 @@ function Anomalies({ arbreBrut, nom, rh }: { arbreBrut: Pick<ArbreFiltre, 'anoma
   const liste = arbreBrut.anomalies;
   const montrees = toutes ? liste : liste.slice(0, 6);
   return (
-    <Panel highlight title={<span className="org-titre-alerte"><WarningIcon size={16} aria-hidden="true" /> À vérifier</span>} aside={plural(liste.length, 'point', 'points')}>
+    <Panel highlight title={<span className="org-titre-alerte"><WarningIcon size={16} aria-hidden="true" /> {t('To check')}</span>} aside={tn(liste.length, 'point', 'points')}>
       <ul className="org-anomalies">
         {montrees.map(a => <li key={`${a.kind}-${'equipe' in a ? a.equipe : a.empId}`}>{anomalieTexte(a, nom)}</li>)}
       </ul>
       <div className="actions-end no-print" style={{ justifyContent: 'flex-start' }}>
-        {liste.length > montrees.length && <Btn small onClick={() => setToutes(true)}>{`Afficher les ${liste.length}`}</Btn>}
-        <Btn small onClick={() => go('equipes')}>Équipes & managers →</Btn>
-        {rh && <Btn small onClick={() => go('referentiels', { refOnglet: 'entites' })}>Entités et sites →</Btn>}
+        {liste.length > montrees.length && <Btn small onClick={() => setToutes(true)}>{`${t('Show the #all')}${liste.length}`}</Btn>}
+        <Btn small onClick={() => go('equipes')}>{t('Teams & managers')} →</Btn>
+        {rh && <Btn small onClick={() => go('referentiels', { refOnglet: 'entites' })}>{t('Entities and sites')} →</Btn>}
       </div>
     </Panel>
   );
@@ -306,13 +306,13 @@ function Arbre({ vue, ouverts, basculer, vueRh, sites, ficheOuvrable, ouvrirFich
       <li key={cle} role="treeitem" aria-level={niveau} aria-labelledby={idDe(cle)} data-cle={cle} tabIndex={cle === tabulable ? 0 : -1}
         className={`org-item org-personne${vue.trouves.has(m.id) ? ' trouve' : ''}${ouvrable ? ' ouvrable' : ''}`}
         onFocus={ev => { if (ev.target === ev.currentTarget) setActif(cle); }}>
-        <div className="org-ligne" id={idDe(cle)} onClick={() => { setActif(cle); ouvrirFiche(m.id); }} title={ouvrable ? 'Ouvrir la fiche' : undefined}>
+        <div className="org-ligne" id={idDe(cle)} onClick={() => { setActif(cle); ouvrirFiche(m.id); }} title={ouvrable ? t('Open the sheet') : undefined}>
           <Avatar nom={m.nom} size={24} />
           <span className="org-nom">{m.nom}</span>
           <span className="org-detail">{m.poste}</span>
           {m.manager && <Tag cls="tag-neutral">Manager</Tag>}
           {m.etiquette && <Tag cls="tag-outline">{m.etiquette}</Tag>}
-          {ouvrable && <span className="sr-only">, Entrée : ouvrir la fiche</span>}
+          {ouvrable && <span className="sr-only">{t(', Enter: open the sheet')}</span>}
         </div>
       </li>
     );
@@ -325,12 +325,12 @@ function Arbre({ vue, ouverts, basculer, vueRh, sites, ficheOuvrable, ouvrirFich
       branche(cle, niveau, `org-equipe${vue.equipesTrouvees.has(q.nom) ? ' trouve' : ''}`, <>
         <UsersThreeIcon size={14} aria-hidden="true" className="org-icone" />
         <span className="org-nom">{q.nom}</span>
-        <span className="org-detail">{q.manager ? `manager : ${q.manager}` : 'sans manager — validations par le service RH'}</span>
-        {q.suppleant && <Tag cls="tag-accent">{`Suppléant : ${q.suppleant.nom}`}</Tag>}
+        <span className="org-detail">{q.manager ? `${t('manager: ')}${q.manager}` : t('no manager — approvals by HR')}</span>
+        {q.suppleant && <Tag cls="tag-accent">{`${t('Deputy: ')}${q.suppleant.nom}`}</Tag>}
         {site && <Tag cls="tag-neutral">{site}</Tag>}
         {vueRh && q.uniteCode && <Tag cls="tag-outline">{q.uniteCode}</Tag>}
-        {vueRh && sansEntite && <Tag cls="tag-outline">Sans entité</Tag>}
-        <span className="org-effectif">{plural(q.effectif, 'personne', 'personnes')}</span>
+        {vueRh && sansEntite && <Tag cls="tag-outline">{t('No entity')}</Tag>}
+        <span className="org-effectif">{tn(q.effectif, 'person', 'people')}</span>
       </>, <>
         {q.membres.map(m => personne(m, niveau + 1))}
         {q.equipes.map(f => equipe(f, niveau + 1))}
@@ -345,9 +345,9 @@ function Arbre({ vue, ouverts, basculer, vueRh, sites, ficheOuvrable, ouvrirFich
         <BuildingsIcon size={15} aria-hidden="true" className="org-icone" />
         <span className="org-nom">{n.nom}</span>
         <Tag cls="tag-neutral">{TYPES_ENTITE[n.type]}</Tag>
-        {n.fermee && <Tag cls="tag-outline">Fermée</Tag>}
+        {n.fermee && <Tag cls="tag-outline">{t('Closed#fem')}</Tag>}
         {n.siret && <span className="org-detail">SIRET {formaterSiren(n.siret)}</span>}
-        <span className="org-effectif">{plural(n.effectif, 'personne', 'personnes')}</span>
+        <span className="org-effectif">{tn(n.effectif, 'person', 'people')}</span>
       </>, <>
         {n.equipes.map(q => equipe(q, niveau + 1))}
         {n.etablissements.map(e => entite(e, niveau + 1))}
@@ -356,16 +356,16 @@ function Arbre({ vue, ouverts, basculer, vueRh, sites, ficheOuvrable, ouvrirFich
   };
 
   return (
-    <ul role="tree" aria-label="Organigramme" className="org-arbre" ref={racine} onKeyDown={surTouche}>
+    <ul role="tree" aria-label={t('Organisation chart')} className="org-arbre" ref={racine} onKeyDown={surTouche}>
       {/* lot 12 — C7 (organigramme) : le service choisi seul, en haut de l'arbre. */}
       {service && equipe(service, 1)}
       {!service && vue.entites.map(n => entite(n, 1))}
       {!service && vue.sansEntite.map(q => equipe(q, 1, true))}
       {!service && vue.aAffecter.length > 0 && branche(CLE_A_AFFECTER, 1, 'org-equipe org-a-affecter', <>
         <UsersThreeIcon size={14} aria-hidden="true" className="org-icone" />
-        <span className="org-nom">À affecter</span>
-        <span className="org-detail">sans équipe — validations par le service RH</span>
-        <span className="org-effectif">{plural(vue.aAffecter.length, 'personne', 'personnes')}</span>
+        <span className="org-nom">{t('To assign')}</span>
+        <span className="org-detail">{t('no team — approvals by HR')}</span>
+        <span className="org-effectif">{tn(vue.aAffecter.length, 'person', 'people')}</span>
       </>, vue.aAffecter.map(m => personne(m, 2)))}
     </ul>
   );
@@ -384,11 +384,11 @@ function ChoixService({ services, service, choisir }: { services: ReturnType<typ
   // Service changé ailleurs (fil d'Ariane, « Voir ce service seul », adresse) : le champ le reprend.
   const [suivi, setSuivi] = useState(service);
   if (suivi !== service) { setSuivi(service); setSaisie(libelle(service)); }
-  const trouver = (v: string) => { const t = v.trim(); return services.find(x => x.libelle === t || x.nom === t) ?? null; };
+  const trouver = (v: string) => { const s = v.trim(); return services.find(x => x.libelle === s || x.nom === s) ?? null; };
   return (
     <span className="org-service">
       <UsersThreeIcon size={14} aria-hidden="true" />
-      <input className="input" list={liste} aria-label="Service" placeholder="Tous les services" value={saisie}
+      <input className="input" list={liste} aria-label={t('Department')} placeholder={t('All departments')} value={saisie}
         onChange={e => {
           setSaisie(e.target.value);
           const x = trouver(e.target.value);
@@ -404,7 +404,7 @@ function ChoixService({ services, service, choisir }: { services: ReturnType<typ
         onBlur={() => { if (!trouver(saisie)) setSaisie(libelle(service)); }} />
       <datalist id={liste}>{services.map(x => <option key={x.nom} value={x.libelle} />)}</datalist>
       {service && (
-        <button type="button" className="org-service-effacer" aria-label="Effacer le service (tous les services)" title="Tous les services" onClick={() => { setSaisie(''); choisir(null); }}>
+        <button type="button" className="org-service-effacer" aria-label={t('Clear the department (all departments)')} title={t('All departments')} onClick={() => { setSaisie(''); choisir(null); }}>
           <XIcon size={12} aria-hidden="true" />
         </button>
       )}
@@ -415,9 +415,9 @@ function ChoixService({ services, service, choisir }: { services: ReturnType<typ
 /** Fil d'Ariane du service choisi : son entité (retour à tous les services), ses équipes parentes (remonter d'un niveau). */
 function Ariane({ service, etapes, choisir }: { service: string; etapes: ReturnType<typeof filAriane>; choisir: (nom: string | null) => void }) {
   return (
-    <nav className="org-ariane no-print" aria-label="Rattachement du service">
+    <nav className="org-ariane no-print" aria-label={t('Department’s attachment')}>
       <ol>
-        <li><button type="button" className="org-ariane-lien" onClick={() => choisir(null)}>Tous les services</button></li>
+        <li><button type="button" className="org-ariane-lien" onClick={() => choisir(null)}>{t('All departments')}</button></li>
         {etapes.map(x => (
           <li key={`${x.service ?? 'entite'}-${x.libelle}`}>
             {x.service

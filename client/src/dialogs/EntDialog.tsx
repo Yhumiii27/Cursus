@@ -28,6 +28,7 @@ import { useDomain, useRole } from '../state/derived.ts';
 import { EnregistrementAuFil } from '../state/enregistrement.ts';
 import { useStore } from '../state/store.tsx';
 import { imprimerCompteRendu, INFO_LABEL, sectionsDe, whoLabel } from './compteRendu.ts';
+import { t } from '../i18n/langue.ts';
 /**
  * Focus pris par la confirmation de fermeture affichée après un échec (« Reprendre la saisie » ciblé à son
  * apparition, ou bouton choisi) : la section n'est pas renvoyée en quittant le champ, sans quoi un envoi parti
@@ -96,16 +97,16 @@ export function EntDialog({ entId }: { entId: number }) {
   const remise = texteRemise(x);
   const status = x.statut === 'planifie'
     ? x.date < d.ti
-      ? `Planifié le ${fmt(parse(x.date))}, date dépassée — à clore s’il a eu lieu, sinon à reprogrammer ou à annuler.`
-      : `Planifié le ${fmt(parse(x.date))} — le salarié peut préparer sa partie à l’avance.`
+      ? `${t('Planned on ')}${fmt(parse(x.date))}${t(', date passed — to close if it took place, otherwise to reschedule or cancel.')}`
+      : `${t('Planned on ')}${fmt(parse(x.date))}${t(' — the employee can prepare their part in advance.')}`
     // lot 12 — C3 (entretiens suivis) : point de suivi, signature du salarié facultative (il peut encore signer).
     : !x.signSal && x.type === 'point'
-      ? `Clos et signé par l’évaluateur le ${fmt(parse(x.signMgr ?? x.date))} — point de suivi : la signature du salarié est facultative.`
+      ? `${t('Closed and signed by the reviewer on ')}${fmt(parse(x.signMgr ?? x.date))}${t(' — follow-up meeting: the employee’s signature is optional.')}`
     : !x.signSal
-      ? `Clos et signé par l’évaluateur le ${fmt(parse(x.signMgr ?? x.date))} — ${remise
-        ? `non signé par le salarié. ${remise}.`
-        : 'en attente de la signature du salarié. Le compte rendu s’imprime dès maintenant, pour une remise en main propre.'}`
-      : `Signé par les deux parties le ${fmt(parse(x.signSal))} — copie disponible dans l’espace du salarié.${remise ? ` ${remise}.` : ''}`;
+      ? `${t('Closed and signed by the reviewer on ')}${fmt(parse(x.signMgr ?? x.date))} — ${remise
+        ? `${t('not signed by the employee. ')}${remise}.`
+        : t('awaiting the employee’s signature. The report can be printed now, for a handover in person.')}`
+      : `${t('Signed by both parties on ')}${fmt(parse(x.signSal))}${t(' — copy available in the employee’s space.')}${remise ? ` ${remise}.` : ''}`;
 
   const toggleInfo = async (checked: boolean) => {
     setInfo(checked);
@@ -115,8 +116,8 @@ export function EntDialog({ entId }: { entId: number }) {
 
   const aVenir = x.statut === 'planifie' && x.date > d.ti;
   const debut = debutCloture(d, x);
-  const tenuErr = !aVenir ? '' : !isValidDate(tenu) ? 'Date invalide.' : tenu > d.ti ? 'Aujourd’hui au plus tard.'
-    : tenu < debut.min ? `Le ${fmt(parse(debut.min))} au plus tôt (${debut.raison}).` : '';
+  const tenuErr = !aVenir ? '' : !isValidDate(tenu) ? t('Invalid date.') : tenu > d.ti ? t('Today at the latest.')
+    : tenu < debut.min ? `${t('On ')}${fmt(parse(debut.min))}${t(' at the earliest (')}${debut.raison}).` : '';
 
   const finish = async (action: 'entretien.clore' | 'entretien.signer') => {
     setBusy(true);
@@ -125,7 +126,7 @@ export function EntDialog({ entId }: { entId: number }) {
       setBusy(false);
       setAConfirmer(null);
       const noms = sections.filter(([k]) => restantes.includes(k)).map(([, label]) => `« ${label} »`);
-      notify(`${action === 'entretien.clore' ? 'Clôture' : 'Signature'} interrompue : ${noms.length > 1 ? `${noms.join(', ')} ne sont pas enregistrées` : `${noms[0] ?? 'une section'} n’est pas enregistrée`}. Réessayez une fois le problème réglé.`, true);
+      notify(`${action === 'entretien.clore' ? t('Closing interrupted: ') : t('Signature interrupted: ')}${noms.length > 1 ? `${noms.join(', ')}${t(' are not saved#sections')}` : `${noms[0] ?? t('a section')}${t(' is not saved#section')}`}${t('. Try again once the problem is solved.')}`, true);
       return;
     }
     const r = await run(action, action === 'entretien.clore' && aVenir ? { id: x.id, date: tenu } : { id: x.id });
@@ -135,9 +136,9 @@ export function EntDialog({ entId }: { entId: number }) {
   };
   const confirmation = aConfirmer && {
     texte: aConfirmer === 'entretien.clore'
-      ? `Clore l’entretien${aVenir ? `, tenu le ${fmt(parse(tenu))},` : ''} et le signer ? Vos sections ne seront plus modifiables ; ${e.nom} pourra encore compléter les siennes, puis signer.`
-      : 'Signer le compte rendu ? La signature est définitive : vos sections ne seront plus modifiables.',
-    bouton: aConfirmer === 'entretien.clore' ? 'Clore et signer' : 'Signer',
+      ? `${t('Close the review')}${aVenir ? `${t(', held on ')}${fmt(parse(tenu))},` : ''}${t(' and sign it? Your sections will no longer be editable; ')}${e.nom}${t(' can still complete theirs, then sign.')}`
+      : t('Sign the report? The signature is final: your sections will no longer be editable.'),
+    bouton: aConfirmer === 'entretien.clore' ? t('Close and sign') : t('Sign'),
     occupe: busy,
     confirmer: () => finish(aConfirmer),
     annuler: () => setAConfirmer(null),
@@ -161,7 +162,7 @@ export function EntDialog({ entId }: { entId: number }) {
   // enregistrée (après l'ouverture de la fenêtre, que le navigateur n'autorise que pendant le clic).
   const download = () => {
     if (!imprimerCompteRendu(d, x)) {
-      notify('Autorisez les fenêtres surgissantes pour télécharger le compte rendu', true);
+      notify(t('Allow pop-up windows to download the report'), true);
       return;
     }
     if (collab && x.empId === me && !x.telechargeLe) run('entretien.telecharger', { id: x.id }, { silent: true });
@@ -170,20 +171,20 @@ export function EntDialog({ entId }: { entId: number }) {
   return (
     <Dialog title={T0.nom} width={720} tall enregistrer={async () => (await flush()).length === 0} abandonner={() => enregistrement.abandonner()}
       confirmation={confirmation} actions={<>
-      <CancelButton label="Fermer" />
-      {x.statut === 'realise' && <button type="button" className="btn btn-ghost" onClick={download}>Télécharger le compte rendu</button>}
-      {canRemettre && <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => openDialog({ type: 'entRemise', entId: x.id })}>Remettre la copie</button>}
-      {canSign && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => setAConfirmer('entretien.signer')}>Signer le compte rendu</button>}
-      {canMgr && <button type="button" className="btn btn-ghost" disabled={busy} onClick={annuler}>Annuler l’entretien</button>}
-      {canMgr && <button type="button" className="btn btn-secondary" disabled={busy} onClick={reprogrammer}>Reprogrammer</button>}
-      {canMgr && <button type="button" className="btn btn-primary" disabled={busy || !!tenuErr} onClick={() => setAConfirmer('entretien.clore')}>Clore et signer</button>}
+      <CancelButton label={t('Close')} />
+      {x.statut === 'realise' && <button type="button" className="btn btn-ghost" onClick={download}>{t('Download the report')}</button>}
+      {canRemettre && <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => openDialog({ type: 'entRemise', entId: x.id })}>{t('Hand over the copy')}</button>}
+      {canSign && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => setAConfirmer('entretien.signer')}>{t('Sign the report')}</button>}
+      {canMgr && <button type="button" className="btn btn-ghost" disabled={busy} onClick={annuler}>{t('Cancel the review')}</button>}
+      {canMgr && <button type="button" className="btn btn-secondary" disabled={busy} onClick={reprogrammer}>{t('Reschedule')}</button>}
+      {canMgr && <button type="button" className="btn btn-primary" disabled={busy || !!tenuErr} onClick={() => setAConfirmer('entretien.clore')}>{t('Close and sign')}</button>}
     </>}>
       <div>
         <div style={{ fontSize: 14 }}>{e.nom} · {e.poste} · {fmt(parse(x.date))}</div>
-        <div className="text-muted sub">Évaluateur : {evaluateur}</div>
+        <div className="text-muted sub">{t('Reviewer: ')}{evaluateur}</div>
       </div>
       <Fine>{T0.base}</Fine>
-      {bilan && <div className="boxed" style={{ fontSize: 13, padding: 'var(--space-3)' }}>Contrôle automatique : {bilan.detail}</div>}
+      {bilan && <div className="boxed" style={{ fontSize: 13, padding: 'var(--space-3)' }}>{t('Automatic check: ')}{bilan.detail}</div>}
       {sections.map(([k, label, who]) => {
         const ed = editable.includes(k);
         return (
@@ -192,8 +193,8 @@ export function EntDialog({ entId }: { entId: number }) {
               ? <textarea className="input mid" id={`ent-${k}`} rows={3} value={vals[k] ?? ''} aria-invalid={echecs[k] ? true : undefined}
                   aria-describedby={echecs[k] ? `ent-${k}-echec` : undefined}
                   onChange={ev => setVals(s => ({ ...s, [k]: ev.target.value }))} onBlur={ev => { if (!versConfirmation(ev.relatedTarget)) enregistrement.enregistrer(k, ev.target.value); }} />
-              : <div className="text-n300" style={{ fontSize: 14, whiteSpace: 'pre-wrap' }}>{x.cr[k] || 'Non renseigné'}</div>}
-            {ed && echecs[k] && <p className="form-error" id={`ent-${k}-echec`}>Non enregistrée : {echecs[k]}</p>}
+              : <div className="text-n300" style={{ fontSize: 14, whiteSpace: 'pre-wrap' }}>{x.cr[k] || t('Not entered')}</div>}
+            {ed && echecs[k] && <p className="form-error" id={`ent-${k}-echec`}>{t('Not saved: ')}{echecs[k]}</p>}
           </Field>
         );
       })}
@@ -208,11 +209,11 @@ export function EntDialog({ entId }: { entId: number }) {
       {/* lot 12 — C3 (feedback 360°, étape 3) : répondants, compteur global, collecte, synthèse jointe. */}
       <Feedback360Bloc x={x} e={e} ouvrir={ouvrirSuivi} />
       {canMgr && aVenir && (
-        <Field label="Date à laquelle l’entretien a eu lieu" htmlFor="ent-tenu">
+        <Field label={t('Date on which the review took place')} htmlFor="ent-tenu">
           <input className="input" id="ent-tenu" type="date" min={debut.min} max={d.ti} value={tenu} onChange={ev => setTenu(ev.target.value)} aria-invalid={tenuErr ? true : undefined} />
           {tenuErr
             ? <p className="fine note-accent">{tenuErr}</p>
-            : <Fine>Prévu le {fmt(parse(x.date))} : la clôture enregistre la date réelle de l’entretien (échéance suivante, état des lieux à 8 ans).</Fine>}
+            : <Fine>{t('Planned on ')}{fmt(parse(x.date))}{t(': the closing records the actual date of the review (next due date, 8-year assessment).')}</Fine>}
         </Field>
       )}
       <p className="fine note-accent">{status}</p>

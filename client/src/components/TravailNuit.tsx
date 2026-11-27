@@ -6,6 +6,7 @@ import { estTravailleurNuit, NUIT_SEUIL_ANNUEL_LEGAL, plageNuitTexte, reglagesNu
 import type { EmpX } from '../../../shared/domain.ts';
 import { useDomain } from '../state/derived.ts';
 import { NoteAccent, Tag } from './ui.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function TravailNuitFiche({ e }: { e: EmpX }) {
   const d = useDomain();
@@ -16,17 +17,17 @@ export function TravailNuitFiche({ e }: { e: EmpX }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
       <div>
-        <div className="text-muted sub">Travail de nuit</div>
+        <div className="text-muted sub">{t('Night work')}</div>
         <div style={{ fontSize: 14, display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-          Travailleur de nuit <Tag cls="tag-outline">art. L3122-5</Tag>
+          {t('Night worker')} <Tag cls="tag-outline">art. L3122-5</Tag>
         </div>
         <div className="text-muted sub">
-          {x ? `${statutNuitTexte(x, s)} · ` : ''}plage de nuit {plageNuitTexte(s)}
-          {s.nuitSeuilAnnuel !== NUIT_SEUIL_ANNUEL_LEGAL || s.nuitAccord ? ' (accord collectif)' : ' (valeurs supplétives de la loi)'}.
-          Durée quotidienne de 8 h au plus (art. L3122-6), contreparties de l’accord à appliquer.
+          {x ? `${statutNuitTexte(x, s)} · ` : ''}{t('night period ')}{plageNuitTexte(s)}
+          {t(s.nuitSeuilAnnuel !== NUIT_SEUIL_ANNUEL_LEGAL || s.nuitAccord ? ' (collective agreement)' : ' (default legal values)')}.
+          {t(' Daily duration of 8 h at most (art. L3122-6), compensations of the agreement to apply.')}
         </div>
       </div>
-      {e.med.suiviNuit && <NoteAccent>{SUIVI_NUIT} : visite d’information et de prévention adaptée (art. R4624-17), type de suivi à changer sur la fiche.</NoteAccent>}
+      {e.med.suiviNuit && <NoteAccent>{SUIVI_NUIT}{t(': adapted information and prevention visit (art. R4624-17), type of monitoring to change on the sheet.')}</NoteAccent>}
     </div>
   );
 }

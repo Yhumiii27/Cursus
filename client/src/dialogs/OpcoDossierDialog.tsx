@@ -14,7 +14,7 @@ import { Fine, NoteAccent } from '../components/ui.tsx';
 import { erreurTexte } from '../components/controles.ts';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
-import { AIDE_MOTIF_OPCO } from '../state/confirmations-opco.ts';
+import { aideMotifOpco } from '../state/confirmations-opco.ts';
 import { MOTIF_MAX } from '../state/confirmations.ts';
 // lot 12 — C4 (organismes de formation et e-learning) : organisme du dossier (fiche), qui préremplit SIRET, NDA et Qualiopi.
 import { ChoixOrganisme } from '../components/organismes/ChoixOrganisme.tsx';
@@ -189,7 +189,7 @@ export function OpcoDossierDialog({ planActionId, id }: { planActionId?: number 
         </Field>
       )}
       <Fine>
-        {correction ? `${AIDE_MOTIF_OPCO} ` : ''}
+        {correction ? `${aideMotifOpco()} ` : ''}
         {dossier ? '' : 'Le dossier commence « À déposer » : ses échéances (dépôt avant le début, justificatifs après la fin) partent des dates de la formation. '}
         Saisie à reporter aussi sur le portail de l’OPCO : Cursus ne s’y connecte pas.
       </Fine>

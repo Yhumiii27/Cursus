@@ -14,6 +14,7 @@ import { useDomain, useRole } from '../../state/derived.ts';
 import { Fine, NoteAccent } from '../ui.tsx';
 import { etatTexte, voitQuantites, voitRecalcul } from './forfait-heures-vue.ts';
 import { useDroitsForfaitHeures } from './RecapForfaitHeures.tsx';
+import { t } from '../../i18n/langue.ts';
 
 /** Ligne de la fiche collaborateur : forfait annuel en heures de la période en cours et dernière clôture. */
 export function ForfaitHeuresFiche({ e }: { e: Employe }) {
@@ -32,21 +33,21 @@ export function ForfaitHeuresFiche({ e }: { e: Employe }) {
   const q = voitQuantites(r, e.id), net = voitRecalcul(r, e.id);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-      <div className="text-muted sub">Forfait annuel en heures</div>
+      <div className="text-muted sub">{t('Annual hours package')}</div>
       {suivis.map(s => (
         <div key={s.calc.debut}>
           <div className="tnum" style={{ fontSize: 14 }}>
-            {fH(s.calc.realise)} réalisées / {net ? `${fH(s.calc.cibleNette)} de cible nette` : `${fH(s.calc.cible)} de cible`}
+            {fH(s.calc.realise)}{t(' worked#hours')} / {net ? `${fH(s.calc.cibleNette)}${t(' net target')}` : `${fH(s.calc.cible)}${t(' target')}`}
           </div>
           <div className="text-muted sub">
-            Du {fmtIso(s.calc.debut)} au {fmtIso(s.calc.fin)} · forfait de {fH(s.calc.forfait)}
-            {net && s.calc.absences ? ` · ${fH(s.calc.absences)} d’absences déduites` : ''}
-            {s.projection != null ? ` · projection ${fH(s.projection)}` : ''}
+            {t('From#cap-du-short')}{fmtIso(s.calc.debut)}{t(' to #au')}{fmtIso(s.calc.fin)}{t(' · package of ')}{fH(s.calc.forfait)}
+            {net && s.calc.absences ? ` · ${fH(s.calc.absences)}${t(' of absences deducted')}` : ''}
+            {s.projection != null ? `${t(' · projection ')}${fH(s.projection)}` : ''}
           </div>
         </div>
       ))}
-      {q && enVigueur && <div className="text-muted sub">Dernière clôture (du {fmtIso(enVigueur.debut)} au {fmtIso(enVigueur.fin)}{versionsDe(lignes, e.id, enVigueur.debut).length > 1 ? `, version ${enVigueur.version}` : ''}) : {etatTexte(enVigueur, null)}</div>}
-      {aClore.length > 0 && <NoteAccent>{aClore.length > 1 ? `${aClore.length} plages terminées` : 'Plage terminée'} à clôturer : écran Temps de travail, onglet « Forfait annuel en heures ».</NoteAccent>}
+      {q && enVigueur && <div className="text-muted sub">{t('Last closure (from ')}{fmtIso(enVigueur.debut)}{t(' to #au')}{fmtIso(enVigueur.fin)}{versionsDe(lignes, e.id, enVigueur.debut).length > 1 ? `${t(', version ')}${enVigueur.version}` : ''}){t(': ')}{etatTexte(enVigueur, null)}</div>}
+      {aClore.length > 0 && <NoteAccent>{aClore.length > 1 ? `${aClore.length}${t(' periods ended')}` : t('Period ended')}{t(' to close: Working time screen, “Annual hours package” tab.')}</NoteAccent>}
     </div>
   );
 }
@@ -59,12 +60,12 @@ export function ForfaitHeuresEnAttente() {
   // Format du fichier : un écart négatif refusé part « à saisir dans Sage », comme le calcule le serveur.
   const elements = elementsForfaitHeures(d, '9999-12', rubriquesPaie(d.ds.rubriquesPaie), (d.ds.formatFichierPaie ?? FORMAT_FICHIER_DEFAUT).negatifs !== false);
   if (!elements.length) return null;
-  const texte = (l: typeof elements) => l.map(x => `${d.personName(x.empId)} (${x.rubrique} ${fH(x.quantite)}${x.correctif ? ', écart' : ''}, ${periodeLabel(x.periode)})`).join(', ');
+  const texte = (l: typeof elements) => l.map(x => `${d.personName(x.empId)} (${x.rubrique} ${fH(x.quantite)}${x.correctif ? t(', difference') : ''}, ${periodeLabel(x.periode)})`).join(', ');
   const dansLeFichier = elements.filter(x => x.codeSage), aSaisir = elements.filter(x => !x.codeSage);
   return (
     <Fine>
-      {dansLeFichier.length > 0 && `Heures de clôture du forfait annuel en heures dans le prochain lot de leur période : ${texte(dansLeFichier)}. `}
-      {aSaisir.length > 0 && `Heures de clôture du forfait annuel en heures à saisir dans Sage (rubriques HFA et HCA désactivées) : ${texte(aSaisir)} ; chaque lot les liste dans son résumé.`}
+      {dansLeFichier.length > 0 && `${t('Closure hours of the annual hours package in the next batch of their period: ')}${texte(dansLeFichier)}. `}
+      {aSaisir.length > 0 && `${t('Closure hours of the annual hours package to enter in Sage (HFA and HCA items disabled): ')}${texte(aSaisir)}${t('; each batch lists them in its summary.')}`}
     </Fine>
   );
 }

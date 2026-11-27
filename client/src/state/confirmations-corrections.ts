@@ -4,12 +4,18 @@
 import { fmtEur, fmtIso } from '../../../shared/format.ts';
 import type { PlanAction } from '../../../shared/types.ts';
 import type { Confirmation } from './confirmations.ts';
+import { t } from '../i18n/langue.ts';
+import { enFrancais } from '../i18n/traduire.ts';
 
 /** Où va le motif d'une correction (aussi dans dialogs/CertDialog.tsx) : le salarié le retrouve dans la copie de ses données. */
-export const AIDE_MOTIF_CORRECTION = 'Le motif reste dans Cursus, au service RH : jamais montré au manager ni au salarié dans Cursus, jamais recopié au journal ; le salarié le retrouve dans la copie de ses données. N’y indiquez aucune information médicale.';
+const AIDE_MOTIF_SOURCE = 'The reason stays in Cursus, with HR: never shown to the manager or to the employee in Cursus, never copied into the log; the employee finds it in the copy of their data. Do not put any medical information in it.';
+/** Aide traduite dans la langue affichée (dialogues, confirmations). */
+export const aideMotifCorrection = () => t(AIDE_MOTIF_SOURCE);
+/** Texte français de l'aide (tests) : celui qu'affiche `aideMotifCorrection` en français. */
+export const AIDE_MOTIF_CORRECTION = enFrancais(AIDE_MOTIF_SOURCE);
 
 /** Motif obligatoire d'une correction du service RH : gardé dans Cursus, jamais montré hors du service RH. */
-const motifCorrection = (label: string, placeholder: string) => ({ label, requis: true, placeholder, aide: AIDE_MOTIF_CORRECTION });
+const motifCorrection = (label: string, placeholder: string) => ({ label, requis: true, placeholder, aide: aideMotifCorrection() });
 
 /**
  * Suppression d'une certification saisie par erreur. `quoi` : « SST du 3 mai 2025 » ; `precedente` : date de la
@@ -22,45 +28,45 @@ export function suppressionCertification(
   o: { precedente?: string | null; session?: string | null; rendues?: { session: string; refus: string | null; ouverte: boolean }[] } = {},
 ): Confirmation {
   return {
-    titre: 'Supprimer la certification',
-    question: `Supprimer la certification ${quoi} du dossier de ${nom} ?`,
+    titre: t('Delete the certification'),
+    question: `${t('Delete the certification ')}${quoi}${t(' from the file of ')}${nom}${t('?#question')}`,
     suites: [
-      'Elle reste en base, datée et signée, mais ne compte plus : statut, échéances, prérequis des habilitations, Go / No Go.',
-      o.precedente ? `La certification du ${fmtIso(o.precedente)} redevient en vigueur.` : '',
-      o.session ? `Sa place à la session ${o.session} est libérée ; une convocation reçue est annulée par e-mail.` : '',
+      t('It stays in the database, dated and signed, but no longer counts: status, due dates, authorisation prerequisites, Go / No Go.'),
+      o.precedente ? `${t('The certification of ')}${fmtIso(o.precedente)}${t(' is back in force.')}` : '',
+      o.session ? `${t('Its place at the session ')}${o.session}${t(' is freed; a notice received is cancelled by e-mail.')}` : '',
       ...(o.rendues ?? []).map(r => (r.refus
-        ? `Elle avait clos son inscription à la session ${r.session}, qui ne peut plus l’accueillir (${r.refus}) : réinscrivez-le.`
-        : r.ouverte ? `Elle avait clos son inscription à la session ${r.session} : l’inscription est rétablie.`
-        : `Elle avait clos son inscription à la session ${r.session} : sa formation initiale redevient à replanifier.`)),
-      'Une habilitation délivrée qui s’appuie sur elle sans autre certification valide est à suspendre d’abord.',
+        ? `${t('It had closed their enrolment in the session ')}${r.session}${t(', which can no longer take them (')}${r.refus}${t('): re-enrol them.')}`
+        : r.ouverte ? `${t('It had closed their enrolment in the session ')}${r.session}${t(': the enrolment is restored.')}`
+        : `${t('It had closed their enrolment in the session ')}${r.session}${t(': their initial training is to replan again.')}`)),
+      t('An issued authorisation that relies on it without another valid certification is to be suspended first.'),
     ].filter(Boolean),
-    bouton: 'Supprimer la certification',
+    bouton: t('Delete the certification'),
     action: 'cert.annuler',
     payload: { id: c.id },
-    motif: motifCorrection('Motif de la suppression', 'Saisie sur la mauvaise fiche, attestation inexistante…'),
+    motif: motifCorrection(t('Reason for the deletion'), t('Entered on the wrong sheet, certificate non-existent…')),
   };
 }
 
 /** Suppression d'une ligne du plan de formation saisie par erreur. `nom` : formation ou intitulé. */
 export function suppressionLignePlan(l: Pick<PlanAction, 'id' | 'equipe' | 'periode' | 'exercice' | 'cout'>, nom: string): Confirmation {
   return {
-    titre: 'Supprimer l’action du plan',
-    question: `Supprimer ${nom} — ${l.equipe}, ${l.periode} ${l.exercice} (${fmtEur(l.cout)} prévus) ?`,
-    suites: ['La ligne reste en base, datée et signée, mais sort du plan et des sommes des enveloppes.'],
-    bouton: 'Supprimer l’action',
+    titre: t('Delete the plan action'),
+    question: `${t('Delete #verb')}${nom} — ${l.equipe}, ${l.periode} ${l.exercice} (${fmtEur(l.cout)}${t(' planned#amount')})${t('?#question')}`,
+    suites: [t('The line stays in the database, dated and signed, but leaves the plan and the envelope totals.')],
+    bouton: t('Delete the action'),
     action: 'plan.supprimer',
     payload: { id: l.id },
-    motif: motifCorrection('Motif de la suppression', 'Doublon de l’import, action abandonnée…'),
+    motif: motifCorrection(t('Reason for the deletion'), t('Duplicate of the import, action abandoned…')),
   };
 }
 
 /** Retrait d'une demande encore en attente par son auteur. `pour` : nom du salarié quand un manager l'a faite pour lui. */
 export function retraitDemande(r: { id: number }, objet: string, pour?: string | null): Confirmation {
   return {
-    titre: 'Retirer la demande',
-    question: `Retirer ${pour ? `la demande faite pour ${pour}` : 'votre demande'} : ${objet} ?`,
-    suites: ['Le service RH ne la traitera pas ; elle reste listée, « Retirée ». Une nouvelle demande reste possible.'],
-    bouton: 'Retirer la demande',
+    titre: t('Withdraw the request'),
+    question: `${t('Withdraw #verb')}${pour ? `${t('the request made for ')}${pour}` : t('your request')}${t(': ')}${objet}${t('?#question')}`,
+    suites: [t('HR will not process it; it stays listed, “Withdrawn”. A new request remains possible.')],
+    bouton: t('Withdraw the request'),
     action: 'demande.annuler',
     payload: { id: r.id },
   };
@@ -69,12 +75,12 @@ export function retraitDemande(r: { id: number }, objet: string, pour?: string |
 /** Réouverture d'une demande acceptée ou refusée par erreur. `effets` : ce que l'acceptation avait créé et qui est défait. */
 export function reouvertureDemande(r: { id: number; statut: string }, nom: string, objet: string, effets: string[]): Confirmation {
   return {
-    titre: 'Rouvrir la demande',
-    question: `Rouvrir la demande de ${nom} : ${objet} (${r.statut === 'acceptee' ? 'acceptée' : 'refusée'}) ?`,
-    suites: [...effets, 'La demande revient « En attente », à accepter ou refuser de nouveau ; la réponse précédente est effacée.'],
-    bouton: 'Rouvrir la demande',
+    titre: t('Reopen the request'),
+    question: `${t('Reopen the request of ')}${nom}${t(': ')}${objet} (${t(r.statut === 'acceptee' ? 'accepted#fem' : 'refused#fem')})${t('?#question')}`,
+    suites: [...effets, t('The request goes back to “Pending”, to accept or refuse again; the previous answer is erased.')],
+    bouton: t('Reopen the request'),
     action: 'demande.reouvrir',
     payload: { id: r.id },
-    motif: motifCorrection('Motif de la réouverture', 'Acceptée par erreur, session choisie inadaptée…'),
+    motif: motifCorrection(t('Reason for the reopening'), t('Accepted by mistake, unsuitable session chosen…')),
   };
 }

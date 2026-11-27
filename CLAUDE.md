@@ -55,11 +55,24 @@ rechargement.
   effacer), Échéances (avec fiches à compléter et dossiers OPCO), Missions & déplacements (planning des 4 semaines, grand
   déplacement), la saisie du jour des feuilles de temps (`SaisieJour.tsx`, `HorairesFeuille.tsx`), Voyages (dossier voyage,
   vigilance, dialogues de déplacement, d'import, de détachement et de formalité ; refus Keystone et annulation d'un
-  déplacement). Restent en français : le motif prérempli d'une demande de formation (texte saisi), les en-têtes des exports
-  CSV, les jours abrégés de `SessionDialog` et les mois des notes de frais (comme les dates), les dialogues d'e-learning
-  (inscrire, terminer, corriger, importer), les libellés de `shared/` (statuts et catégories des notes de frais, types de
-  véhicule, alertes, échéances, destinations). Tous les autres écrans restent en français en dur (prochains : Collaborateurs
-  et sa fiche avec ses dialogues, la grille de la semaine de `Temps.tsx`, Équipes et le reste de `Hierarchie.tsx`).
+  déplacement), Collaborateurs (liste et fiche : aptitude et demande de visite imprimable, exigences, certifications,
+  formations suivies, pièces, voyages, contrat — sortie et solde de sortie, CDD, titre de séjour, historique, forfaits jours
+  et heures, mineur, nuit, mandats, contact d'urgence — ; dialogues de la fiche : collaborateur, sa propre fiche, membre,
+  certification, visite, avis, suivi, demande d'habilitation, titre de séjour, avenants, CDD, sortie, mandat, pièce,
+  formation suivie ; `PosteChoix.tsx`, `CopierLien.tsx`), la grille de la semaine de `Temps.tsx` (file de validation,
+  récapitulatif paie), Équipes & managers (avec `Hierarchie.tsx`, `Delegations.tsx` et les dialogues d'équipe, de
+  rattachement et de délégation), les dialogues d'e-learning (inscrire, terminer, corriger, importer) et **toutes les
+  confirmations** (`state/confirmations*.ts`). Aide d'un motif lue au rendu : `aideMotifCorrection()`, `aideMotifOpco()`
+  (`AIDE_MOTIF_CORRECTION` reste le texte français, pour les tests). Restent en français : le motif prérempli d'une demande
+  de formation (texte saisi), les en-têtes des exports CSV et l'exemple de l'import e-learning, les jours abrégés de
+  `SessionDialog`, les mois des notes de frais et des heures de délégation (comme les dates), les messages des règles de
+  `shared/` (contrôles de la fiche, du CDD, du titre de séjour, de l'avis médical, `heuresSurAbsenceMessage`…), les libellés
+  de `shared/` (statuts et catégories des notes de frais, types de véhicule, alertes, échéances, destinations, jours de la
+  semaine), l'historique de la fiche (`HistoriqueFiche` de `pages/Journal.tsx`) et les panneaux de l'écran Temps hors de la
+  grille (`LotsPaie`, `SuiviFeuilles`, `ReposAVerifier`, `AlertesDurees`, `Astreintes`, `Releves`, forfait annuel en heures,
+  planning d'équipe, `ChoixCollaborateur`). Tous les autres écrans restent en français en dur (prochains : Annuaire,
+  Organigramme, Entretiens / 360°, Mes objectifs, Compétences, Personnes sur site, Budget, Indicateurs, Relevés, Planning,
+  Chantiers, Référentiels, Paramètres, Comptes, Mise en service, Journal, Messagerie, Portail, Mon planning, Déclarer, Aide).
 - Table exportée déjà lue par sa valeur (module sans React, test) : `traduites({ clé: 'English source' })` de
   `i18n/langue.ts` rend chaque libellé dans la langue affichée à la lecture (`LIBELLES_ONGLETS_FRAIS`, `MARQUE` du planning
   des missions).

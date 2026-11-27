@@ -10,6 +10,7 @@ import { revocationDelegation } from '../state/confirmations-delegations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { Btn, Empty, Fine, Panel, Tag } from './ui.tsx';
+import { t } from '../i18n/langue.ts';
 
 /** Délégations passées gardées à l'écran (les plus récentes). */
 const PASSEES_MAX = 3;
@@ -32,15 +33,15 @@ function LigneDelegation({ g, autre, revocable }: { g: DelegationValidation; aut
       <div className="grow" style={{ minWidth: 0 }}>
         <div style={{ fontSize: 14 }}>{autre}</div>
         <div className="text-muted sub">
-          Du {fmtIso(g.du)} au {fmtIso(g.au)} · {perimetreTexte(perimetreEffectif(d.ds.settings, g)) || 'aucun périmètre en vigueur'}
-          {g.revoqueeLe ? ` · révoquée le ${fmtIso(g.revoqueeLe.slice(0, 10))}` : ''}
+          {t('From#cap-du-short')}{fmtIso(g.du)}{t(' to #au')}{fmtIso(g.au)} · {perimetreTexte(perimetreEffectif(d.ds.settings, g)) || t('no scope in force')}
+          {g.revoqueeLe ? `${t(' · revoked on ')}${fmtIso(g.revoqueeLe.slice(0, 10))}` : ''}
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flex: 'none' }}>
         <Tag cls={ETAT_DELEGATION[etat].cls}>{ETAT_DELEGATION[etat].label}</Tag>
         {actif && revocable && (
           <Btn small onClick={() => openDialog({ type: 'confirmer', c: revocationDelegation(g, d.personName(g.managerId), d.personName(g.suppleantId), etat === 'en_cours') })}>
-            Révoquer
+            {t('Revoke')}
           </Btn>
         )}
       </div>
@@ -62,30 +63,29 @@ export function DelegationsManager({ managerId, cadre = true }: { managerId: num
   const nom = d.personName(managerId);
   const bouton = peut && (
     <Btn small variant="secondary" onClick={() => openDialog({ type: 'delegation', managerId })}>
-      {soi ? 'Déléguer mes validations' : 'Déléguer les validations'}
+      {t(soi ? 'Delegate my approvals' : 'Delegate the approvals')}
     </Btn>
   );
   const contenu = <>
     {liste.length
-      ? <div className="list">{liste.map(g => <LigneDelegation key={g.id} g={g} autre={`Suppléant : ${d.personName(g.suppleantId)}`} revocable={peut} />)}</div>
-      : <Empty pad="sm">{soi ? 'Aucune délégation : pendant vos absences, vos validations restent en attente de votre retour, ou du service RH.' : `Aucune délégation des validations de ${nom}.`}</Empty>}
+      ? <div className="list">{liste.map(g => <LigneDelegation key={g.id} g={g} autre={`${t('Deputy: ')}${d.personName(g.suppleantId)}`} revocable={peut} />)}</div>
+      : <Empty pad="sm">{soi ? t('No delegation: during your absences, your approvals stay pending until your return, or HR.') : `${t('No delegation of the approvals of ')}${nom}.`}</Empty>}
     <Fine>
-      Pendant une absence, {soi ? 'vous pouvez confier vos' : 'le manager peut confier ses'} validations (congés, feuilles de temps) à un suppléant, pour une période
-      datée : il en reçoit les demandes et décide « par délégation ». Le responsable du manager est proposé d’abord.
+      {t('During an absence, ')}{t(soi ? 'you can entrust your' : 'the manager can entrust their')}{t(' approvals (leave, timesheets) to a deputy, for a dated period: they receive the requests and decide “by delegation”. The manager’s superior is offered first.')}
     </Fine>
   </>;
   if (!cadre) {
     return (
       <div className="col-stack" style={{ gap: 'var(--space-2)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-          <h3 style={{ margin: 0, fontSize: 14 }}>Délégation des validations de {nom}</h3>
+          <h3 style={{ margin: 0, fontSize: 14 }}>{t('Delegation of the approvals of ')}{nom}</h3>
           {bouton}
         </div>
         {contenu}
       </div>
     );
   }
-  return <Panel title="Délégation de mes validations" aside={bouton || undefined} style={{ gap: 'var(--space-2)' }}>{contenu}</Panel>;
+  return <Panel title={t('Delegation of my approvals')} aside={bouton || undefined} style={{ gap: 'var(--space-2)' }}>{contenu}</Panel>;
 }
 
 /** Délégations reçues par la personne connectée (suppléant) : qui il remplace, quand, pour quoi. Rien s'il n'en a pas. */
@@ -95,9 +95,9 @@ export function DelegationsRecues() {
   const liste = aAfficher((d.ds.delegations ?? []).filter(g => g.suppleantId === me), d.ti).filter(g => ['en_cours', 'a_venir'].includes(etatDelegation(g, d.ti)));
   if (!liste.length) return null;
   return (
-    <Panel highlight title="Suppléance" aside="validations reçues par délégation" style={{ gap: 'var(--space-2)' }}>
-      <div className="list">{liste.map(g => <LigneDelegation key={g.id} g={g} autre={`Vous remplacez ${d.personName(g.managerId)}`} revocable={false} />)}</div>
-      <Fine>Pendant la délégation, l’espace Manager vous est ouvert (choix de l’espace dans le menu) : les demandes de l’équipe y attendent votre décision.</Fine>
+    <Panel highlight title={t('Deputising')} aside={t('approvals received by delegation')} style={{ gap: 'var(--space-2)' }}>
+      <div className="list">{liste.map(g => <LigneDelegation key={g.id} g={g} autre={`${t('You replace ')}${d.personName(g.managerId)}`} revocable={false} />)}</div>
+      <Fine>{t('During the delegation, the Manager space is open to you (choice of space in the menu): the team’s requests await your decision there.')}</Fine>
     </Panel>
   );
 }
@@ -119,5 +119,5 @@ export function DelegationsPortail() {
  */
 export function suppleanceTexte(d: Domain, e: Pick<Employe, 'id' | 'equipe'>): string {
   const v = valideursDe(d.ds, e, d.ti, 'absences').find(x => x.delegation);
-  return v?.delegation ? ` · en son absence, ${d.mgrName(v.id)} jusqu’au ${fmtIso(v.delegation.au)}` : '';
+  return v?.delegation ? `${t(' · in their absence, ')}${d.mgrName(v.id)}${t(' until #jusquau')}${fmtIso(v.delegation.au)}` : '';
 }

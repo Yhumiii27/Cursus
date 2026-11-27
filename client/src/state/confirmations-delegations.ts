@@ -3,17 +3,18 @@
 import { fmtIso } from '../../../shared/format.ts';
 import type { DelegationValidation } from '../../../shared/types.ts';
 import type { Confirmation } from './confirmations.ts';
+import { t } from '../i18n/langue.ts';
 
 /** Révocation d'une délégation en cours ou à venir : elle cesse aussitôt, le suppléant en est prévenu. */
 export function revocationDelegation(g: Pick<DelegationValidation, 'id' | 'du' | 'au'>, manager: string, suppleant: string, enCours: boolean): Confirmation {
   return {
-    titre: 'Révoquer la délégation',
-    question: `Révoquer la délégation des validations de ${manager} à ${suppleant} (du ${fmtIso(g.du)} au ${fmtIso(g.au)}) ?`,
+    titre: t('Revoke the delegation'),
+    question: `${t('Revoke the delegation of the approvals of ')}${manager}${t(' to #a')}${suppleant} (${t('from #du-min')}${fmtIso(g.du)}${t(' to #au')}${fmtIso(g.au)})${t('?#question')}`,
     suites: [
-      enCours ? `${suppleant} ne décide plus des demandes de l’équipe à partir de maintenant ; celles en attente reviennent à ${manager}.` : 'Elle ne commencera pas.',
-      `${suppleant} en est prévenu par e-mail. Les décisions déjà prises par délégation restent valables.`,
+      enCours ? `${suppleant}${t(' no longer decides on the team’s requests from now on; those pending go back to ')}${manager}.` : t('It will not start.'),
+      `${suppleant}${t(' is notified by e-mail. The decisions already taken by delegation remain valid.')}`,
     ],
-    bouton: 'Révoquer la délégation',
+    bouton: t('Revoke the delegation'),
     action: 'equipe.revoquerDelegation',
     payload: { id: g.id },
   };

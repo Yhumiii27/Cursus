@@ -9,9 +9,10 @@ import { erreurDate } from '../components/controles.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { ChoixPiece, PiecesJointes, usePieceJointe } from '../components/PieceJointe.tsx';
 import { Fine } from '../components/ui.tsx';
-import { AIDE_MOTIF_CORRECTION } from '../state/confirmations-corrections.ts';
+import { aideMotifCorrection } from '../state/confirmations-corrections.ts';
 import { useEnriched } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function CertDialog({ empId, certId }: { empId: number; certId?: number }) {
   const { d, forms } = useEnriched();
@@ -30,9 +31,9 @@ export function CertDialog({ empId, certId }: { empId: number; certId?: number }
   const choix = actuelle && !forms.some(o => o.id === actuelle.f) ? [d.fm(actuelle.f), ...forms] : forms;
   const fm = d.fm(f);
   const valid = isValidDate(date);
-  const fErr = !fm ? (forms.length ? 'Choisissez la formation.' : 'Catalogue des formations vide : ajoutez-les dans l’écran Référentiels.') : null;
-  const dateErr = erreurDate(date, 'Indiquez la date d’obtention.') ?? (actuelle && date > d.ti ? 'La date d’obtention ne peut pas être postérieure à aujourd’hui.' : null);
-  const motifErr = actuelle && !motif.trim() ? 'Indiquez le motif de la correction.' : null;
+  const fErr = !fm ? t(forms.length ? 'Choose the training course.' : 'Training catalogue empty: add them in the Reference data screen.') : null;
+  const dateErr = erreurDate(date, t('Enter the date obtained.')) ?? (actuelle && date > d.ti ? t('The date obtained cannot be later than today.') : null);
+  const motifErr = actuelle && !motif.trim() ? t('Enter the reason for the correction.') : null;
   const inchange = !!actuelle && f === actuelle.f && date === actuelle.obtenue;
   // Habilitation délivrée qui s'appuie sur la certification : correction refusée tant qu'elle n'est pas suspendue.
   const appui = actuelle && fm && valid && !inchange ? refusAppui(habilitationsAppuyees(d, emp, certsApres(emp.certs, actuelle.id, { f, obtenue: date })), 'modifier') : null;
@@ -51,31 +52,31 @@ export function CertDialog({ empId, certId }: { empId: number; certId?: number }
   };
 
   return (
-    <Dialog title={actuelle ? 'Corriger la certification' : 'Ajouter une certification'} onSubmit={confirm} actions={<>
+    <Dialog title={t(actuelle ? 'Correct the certification' : 'Add a certification')} onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>{actuelle ? 'Enregistrer la correction' : 'Ajouter'}</SubmitButton>
+      <SubmitButton busy={busy}>{t(actuelle ? 'Save the correction' : 'Add')}</SubmitButton>
     </>}>
-      <Field label="Collaborateur"><Static>{emp.nom}</Static></Field>
-      <Field label="Formation" htmlFor="cert-f" requis erreur={v.erreur(fErr)}>
+      <Field label={t('Employee')}><Static>{emp.nom}</Static></Field>
+      <Field label={t('Training course')} htmlFor="cert-f" requis erreur={v.erreur(fErr)}>
         <select className="input" id="cert-f" value={f} onChange={e => setF(e.target.value)}>
           {choix.map(o => <option key={o.id} value={o.id}>{o.nom}</option>)}
         </select>
       </Field>
       <div className="grid-2">
-        <Field label="Date d’obtention" htmlFor="cert-date" requis erreur={v.erreur(dateErr)}><input className="input" id="cert-date" type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
-        <Field label="Validité"><Static pad>{fm ? `${validiteLabel(fm.validite)}${valid ? ' · expire le ' + fmt(addMonths(parse(date), fm.validite)) : ''}` : '—'}</Static></Field>
+        <Field label={t('Date obtained')} htmlFor="cert-date" requis erreur={v.erreur(dateErr)}><input className="input" id="cert-date" type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
+        <Field label={t('Validity')}><Static pad>{fm ? `${validiteLabel(fm.validite)}${valid ? t(' · expires on ') + fmt(addMonths(parse(date), fm.validite)) : ''}` : '—'}</Static></Field>
       </div>
-      {!actuelle && <ChoixPiece piece={piece} id="cert-piece" label="Attestation de formation (facultatif)" />}
+      {!actuelle && <ChoixPiece piece={piece} id="cert-piece" label={t('Training certificate (optional)')} />}
       {actuelle && <>
-        <PiecesJointes objet="certification" objetId={actuelle.id} label="Attestations jointes" />
-        <Field label="Motif de la correction" htmlFor="cert-motif" requis erreur={v.erreur(motifErr)}>
-          <textarea className="input mid" id="cert-motif" rows={2} maxLength={MOTIF_CORRECTION_MAX} placeholder="Date de l’attestation mal recopiée, formation confondue…"
+        <PiecesJointes objet="certification" objetId={actuelle.id} label={t('Attached certificates')} />
+        <Field label={t('Reason for the correction')} htmlFor="cert-motif" requis erreur={v.erreur(motifErr)}>
+          <textarea className="input mid" id="cert-motif" rows={2} maxLength={MOTIF_CORRECTION_MAX} placeholder={t('Certificate date copied wrongly, training course confused…')}
             value={motif} onChange={e => setMotif(e.target.value)} />
         </Field>
         {appui && <Bloquant>{appui}</Bloquant>}
         <Fine>
-          Saisie du {fmt(parse(actuelle.obtenue))} pour {d.fm(actuelle.f)?.court ?? actuelle.f}. La correction est datée et signée. {AIDE_MOTIF_CORRECTION}
-          {f !== actuelle.f && actuelle.sessionId ?' La nouvelle formation libère sa place à la session prévue, convocation annulée par e-mail.' : ''}
+          {t('Entry of ')}{fmt(parse(actuelle.obtenue))}{t(' for ')}{d.fm(actuelle.f)?.court ?? actuelle.f}{t('. The correction is dated and signed. ')}{aideMotifCorrection()}
+          {f !== actuelle.f && actuelle.sessionId ? t(' The new training course frees its place at the planned session, notice cancelled by e-mail.') : ''}
         </Fine>
       </>}
     </Dialog>

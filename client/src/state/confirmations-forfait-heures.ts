@@ -4,11 +4,12 @@
 import { fmtIso } from '../../../shared/format.ts';
 import type { ClotureForfaitHeures } from '../../../shared/types.ts';
 import type { Confirmation } from './confirmations.ts';
+import { t } from '../i18n/langue.ts';
 
-const plage = (l: Pick<ClotureForfaitHeures, 'debut' | 'fin'>) => `du ${fmtIso(l.debut)} au ${fmtIso(l.fin)}`;
-const motif = (quoi: string, placeholder: string) => ({
-  label: `Motif de ${quoi}`, requis: true, placeholder,
-  aide: 'Le motif est gardé sur la ligne, visible du seul service RH (ni la paie, ni le salarié, ni le journal des actions) : n’y indiquez aucune information médicale.',
+const plage = (l: Pick<ClotureForfaitHeures, 'debut' | 'fin'>) => `${t('from #du-min')}${fmtIso(l.debut)}${t(' to #au')}${fmtIso(l.fin)}`;
+const motif = (label: string, placeholder: string) => ({
+  label, requis: true, placeholder,
+  aide: t('The reason is kept on the line, visible to HR only (not payroll, nor the employee, nor the action log): do not put any medical information in it.'),
 });
 
 /**
@@ -18,35 +19,35 @@ const motif = (quoi: string, placeholder: string) => ({
  */
 export function rouvertureClotureForfait(l: Pick<ClotureForfaitHeures, 'id' | 'debut' | 'fin' | 'version' | 'sage' | 'lotId'>, nom: string): Confirmation {
   return {
-    titre: 'Rouvrir la clôture du forfait',
-    question: `Rouvrir la clôture du forfait annuel en heures de ${nom} (${plage(l)}) ?`,
+    titre: t('Reopen the package closure'),
+    question: `${t('Reopen the closure of the annual hours package of ')}${nom} (${plage(l)})${t('?#question')}`,
     suites: [
       l.sage
-        ? `Les heures sont déjà transmises à la paie : une version ${l.version + 1} est créée, à confirmer ; seul son écart avec la version transmise partira, dans un lot correctif.`
-        : l.lotId != null ? `Les heures sont dans le lot de paie n° ${l.lotId}, import à confirmer : annulez d’abord ce lot (écran Temps), sinon la réouverture est refusée.`
-        : 'La ligne repasse « à confirmer » : elle sera recalculée à la prochaine clôture et ne partira pas dans le prochain lot de paie d’ici là.',
-      'La réouverture est tracée au journal des actions, sans le motif ni aucune heure.',
+        ? `${t('The hours are already passed to payroll: a version ')}${l.version + 1}${t(' is created, to confirm; only its difference with the version passed will go, in a corrective batch.')}`
+        : l.lotId != null ? `${t('The hours are in payroll batch no. ')}${l.lotId}${t(', import to confirm: cancel this batch first (Time screen), otherwise the reopening is refused.')}`
+        : t('The line goes back to “to confirm”: it will be recalculated at the next closure and will not go in the next payroll batch until then.'),
+      t('The reopening is traced in the action log, without the reason or any hours.'),
     ],
-    bouton: 'Rouvrir la clôture',
+    bouton: t('Reopen the closure'),
     action: 'forfaitHeures.rouvrir',
     payload: { id: l.id },
-    motif: motif('la réouverture', 'Feuille de décembre corrigée, arrêt déclaré après la clôture…'),
+    motif: motif(t('Reason for the reopening'), t('December timesheet corrected, sick leave declared after the closure…')),
   };
 }
 
 /** Annulation avant transmission (hors d'un lot) : la plage redevient à clôturer. */
 export function annulationClotureForfait(l: Pick<ClotureForfaitHeures, 'id' | 'debut' | 'fin'>, nom: string): Confirmation {
   return {
-    titre: 'Annuler la clôture du forfait',
-    question: `Annuler la clôture du forfait annuel en heures de ${nom} (${plage(l)}) ?`,
+    titre: t('Cancel the package closure'),
+    question: `${t('Cancel the closure of the annual hours package of ')}${nom} (${plage(l)})${t('?#question')}`,
     suites: [
-      'Les heures ne partiront pas à la paie ; la plage redevient à clôturer.',
-      'La ligne reste dans l’historique, marquée annulée ; l’annulation est tracée au journal des actions, sans le motif.',
+      t('The hours will not go to payroll; the period is to close again.'),
+      t('The line stays in the history, marked cancelled; the cancellation is traced in the action log, without the reason.'),
     ],
-    bouton: 'Annuler la clôture',
+    bouton: t('Cancel the closure'),
     action: 'forfaitHeures.annuler',
     payload: { id: l.id },
-    motif: motif('l’annulation', 'Plage clôturée par erreur, sortie annulée…'),
+    motif: motif(t('Reason for the cancellation'), t('Period closed by mistake, departure cancelled…')),
   };
 }
 
@@ -57,13 +58,13 @@ export function annulationClotureForfait(l: Pick<ClotureForfaitHeures, 'id' | 'd
  */
 export function changementDebutForfait(patch: Record<string, unknown>, lignes: number): Confirmation {
   return {
-    titre: 'Changer le début du forfait annuel en heures',
-    question: `Changer le début du suivi ou de la période de référence alors que ${lignes > 1 ? `${lignes} clôtures sont enregistrées` : 'une clôture est enregistrée'} ?`,
+    titre: t('Change the start of the annual hours package'),
+    question: `${t('Change the start of the tracking or of the reference period while ')}${lignes > 1 ? `${lignes}${t(' closures are recorded')}` : t('a closure is recorded')}${t('?#question')}`,
     suites: [
-      'Les clôtures enregistrées gardent leurs dates : celles que le changement modifie passent « à revoir ».',
-      'Une plage recalculée qui chevauche une clôture enregistrée reste bloquée, pour que ses heures ne soient jamais payées deux fois : rétablissez le réglage, ou annulez la clôture si elle n’est pas transmise.',
+      t('The recorded closures keep their dates: those the change modifies go to “to review”.'),
+      t('A recalculated period that overlaps a recorded closure stays blocked, so that its hours are never paid twice: restore the setting, or cancel the closure if it is not passed.'),
     ],
-    bouton: 'Changer le début',
+    bouton: t('Change the start'),
     action: 'parametres.maj',
     payload: { ...patch, forfaitHeuresChangementConfirme: true },
   };

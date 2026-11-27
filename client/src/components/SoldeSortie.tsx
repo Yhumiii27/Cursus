@@ -11,17 +11,18 @@ import { csvSoldeSortie, sectionsSoldeSortie, sourceSolde, type SoldeAffiche } f
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { Btn, Fine, NoteAccent } from './ui.tsx';
+import { t } from '../i18n/langue.ts';
 
 const cellule = (n: number | null, unite: 'j' | 'h') => (n == null ? '—' : quantiteTexte(n, unite));
 
 /** Compteurs à la date de sortie : droit ou acquis, pris, posés, solde ; lignes émises à la paie en gras. */
 export function EtatSortieTableau({ etat }: { etat: EtatSortie }) {
   const lignes = lignesEtat(etat);
-  if (!lignes.length) return <Fine>Aucun compteur de congés géré par Cursus pour ce contrat.</Fine>;
+  if (!lignes.length) return <Fine>{t('No leave counter managed by Cursus for this contract.')}</Fine>;
   return (
     <div className="scroll-x">
       <table className="table" style={{ fontSize: 13 }}>
-        <thead><tr><th>Compteur</th><th className="right">Droit ou acquis</th><th className="right">Pris</th><th className="right">Posés</th><th className="right">Solde</th></tr></thead>
+        <thead><tr><th>{t('Counter')}</th><th className="right">{t('Entitlement or acquired')}</th><th className="right">{t('Taken#plural')}</th><th className="right">{t('Booked#plural')}</th><th className="right">{t('Balance')}</th></tr></thead>
         <tbody>
           {lignes.map(l => (
             <tr key={l.libelle} style={l.rubrique ? { fontWeight: 600 } : undefined}>
@@ -54,12 +55,12 @@ export function SoldeSortieFiche({ e }: { e: Employe }) {
   const solde = soldeCourant(d.ds.soldesSortie, e.id);
   const remplaces = (d.ds.soldesSortie ?? []).filter(s => s.empId === e.id && s.remplaceLe);
   const historique = remplaces.length > 0 && (
-    <Fine>{remplaces.map(s => `Solde au ${fmtIso(s.date)} ${transmisTexte(s)}, remplacé le ${fmtIso(s.remplaceLe!.slice(0, 10))} (sortie annulée ou modifiée) : écart à régulariser dans Sage.`).join(' ')}</Fine>
+    <Fine>{remplaces.map(s => `${t('Balance on ')}${fmtIso(s.date)} ${transmisTexte(s)}${t(', replaced on ')}${fmtIso(s.remplaceLe!.slice(0, 10))}${t(' (departure cancelled or changed): difference to regularise in Sage.')}`).join(' ')}</Fine>
   );
   if (!solde && !rh) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-        <div className="text-muted sub">Solde de sortie non photographié (sortie enregistrée avant cette version) : à demander au service RH.</div>
+        <div className="text-muted sub">{t('Departure balance not captured (departure recorded before this version): to ask HR.')}</div>
         {historique}
       </div>
     );
@@ -67,26 +68,26 @@ export function SoldeSortieFiche({ e }: { e: Employe }) {
   const x: SoldeAffiche = { etat: solde?.etat ?? etatSortie(d, e, e.fin), solde };
   // Comparaison au calcul du jour : service RH seulement (la paie ne reçoit pas la nature des absences).
   const aJour = rh && solde && solde.lotId == null ? resumeEtat(etatSortie(d, e, e.fin)) : null;
-  const imprimer = () => { if (!printDocument(`Solde de sortie — ${e.nom}`, `${e.poste} · dernier jour du contrat le ${fmtIso(x.etat.date)}`, sectionsSoldeSortie(d, e, x), e.id, matriculesImprimes(e))) notify('Autorisez les fenêtres surgissantes pour imprimer le solde de sortie', true); };
+  const imprimer = () => { if (!printDocument(`Solde de sortie — ${e.nom}`, `${e.poste} · dernier jour du contrat le ${fmtIso(x.etat.date)}`, sectionsSoldeSortie(d, e, x), e.id, matriculesImprimes(e))) notify(t('Allow pop-up windows to print the departure balance'), true); };
   const exporter = () => { const l = csvSoldeSortie(d, e, x); downloadCsv(l.fichier, l.head, l.rows, e.id); };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
       <div>
-        <div className="text-muted sub">Solde de sortie au {fmtIso(x.etat.date)}</div>
+        <div className="text-muted sub">{t('Departure balance on ')}{fmtIso(x.etat.date)}</div>
         <div style={{ fontSize: 14 }}>{resumeEtat(x.etat)}</div>
         <div className="text-muted sub">{sourceSolde(d, x)}</div>
       </div>
       <EtatSortieTableau etat={x.etat} />
       {x.etat.avertissements.map(a => <NoteAccent key={a}>{a}</NoteAccent>)}
       {aJour && aJour !== resumeEtat(x.etat) && (
-        <NoteAccent>Calcul à ce jour différent ({aJour}) : une feuille ou une absence a changé depuis. Modifiez la sortie pour photographier de nouveau le solde.</NoteAccent>
+        <NoteAccent>{t('Calculation to date different (')}{aJour}{t('): a timesheet or an absence has changed since. Edit the departure to capture the balance again.')}</NoteAccent>
       )}
       <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-        <Btn small icon={<PrinterIcon size={14} />} onClick={imprimer}>Imprimer l’état</Btn>
-        <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={exporter}>Exporter (CSV)</Btn>
+        <Btn small icon={<PrinterIcon size={14} />} onClick={imprimer}>{t('Print the statement')}</Btn>
+        <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={exporter}>{t('Export (CSV)')}</Btn>
       </div>
       {historique}
-      <Fine>Montant de l’indemnité calculé par Sage Paie (règle du dixième ou maintien de salaire) ; CET liquidé en entier ; un trop-pris de RTT est signalé, sans retenue automatique.</Fine>
+      <Fine>{t('Amount of the allowance calculated by Sage Paie (one-tenth rule or salary maintenance); time savings account paid out in full; RTT taken in excess is reported, without automatic deduction.')}</Fine>
     </div>
   );
 }

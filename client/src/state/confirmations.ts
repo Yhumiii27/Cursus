@@ -5,14 +5,14 @@
 // reconnexion Microsoft (state/brouillon.ts).
 // Les actions confirmées gardent leurs contrôles serveur : un écran en retard (demande déjà traitée, feuille
 // modifiée ailleurs) est refusé par le serveur et le dialogue reste ouvert avec le message.
-import { fH, plural } from '../../../shared/format.ts';
+import { fH } from '../../../shared/format.ts';
 import { PERIMETRE_FICHIER } from '../../../shared/rules/lots-paie.ts';
 import type { absencesDuLot } from '../../../shared/rules/absences-paie.ts';
 import { feuillesDeLaPeriode, type GroupePaie, periodeLabel } from '../../../shared/rules/paie.ts';
 import type { LotPaie, ModeRegularisation, SageMode } from '../../../shared/types.ts';
 import type { NomAction } from '../api.ts';
 import type { DialogState, UiState } from './store.tsx';
-import { t } from '../i18n/langue.ts';
+import { t, tn } from '../i18n/langue.ts';
 
 /** Longueur maximale d'un motif (contrôlée aussi par le serveur). */
 export const MOTIF_MAX = 500;
@@ -103,10 +103,10 @@ export function refusKeystone(dm: { id: number }, nom: string, chantier: string)
 /** Suppression d'une ligne de feuille de temps qui porte des heures (`payload` : ligne visée, voir temps.removeLine). */
 export function suppressionLigne(payload: Record<string, unknown>, ligne: string, heures: number): Confirmation {
   return {
-    titre: 'Supprimer la ligne',
-    question: `Supprimer la ligne ${ligne} et ses ${fH(heures)} ?`,
-    suites: ['Les heures de cette ligne sont effacées de la feuille de la semaine.'],
-    bouton: 'Supprimer la ligne',
+    titre: t('Delete the line'),
+    question: `${t('Delete the line ')}${ligne}${t(' and its ')}${fH(heures)}${t('?#question')}`,
+    suites: [t('The hours of this line are erased from the week’s timesheet.')],
+    bouton: t('Delete the line'),
     action: 'temps.removeLine',
     payload,
   };
@@ -121,18 +121,18 @@ export function suppressionLigne(payload: Record<string, unknown>, ligne: string
 export function transmissionSage(feuilles: number, salaries: number, periodes: GroupePaie[] = [], perimetre = PERIMETRE_FICHIER, absences: AbsencesLot | null = null): Confirmation {
   const rappels = periodes.filter(p => p.origine);
   // Feuilles distinctes : une semaine ventilée jour par jour entre un rappel et la période ouverte n'y compte qu'une fois.
-  const parPeriode = feuillesDeLaPeriode(periodes).map(p => `${periodeLabel(p.periode)} (${plural(p.feuilles, 'feuille', 'feuilles')})`);
+  const parPeriode = feuillesDeLaPeriode(periodes).map(p => `${periodeLabel(p.periode)} (${tn(p.feuilles, 'timesheet', 'timesheets')})`);
   return {
-    titre: 'Transmettre à Sage Paie (simulation)',
-    question: `Marquer transmises à Sage Paie ${plural(feuilles, 'feuille validée', 'feuilles validées')} (${plural(salaries, 'salarié', 'salariés')}) ?`,
+    titre: t('Pass to Sage Paie (simulation)'),
+    question: `${t('Mark as passed to Sage Paie ')}${tn(feuilles, 'approved timesheet', 'approved timesheets')} (${tn(salaries, 'employee#salarie', 'employees#salarie')})${t('?#question')}`,
     suites: [
-      'Simulation : rien n’est envoyé à Sage Paie. Les feuilles sont seulement marquées transmises et ne seront plus proposées.',
-      parPeriode.length ? `${parPeriode.length > 1 ? 'Périodes de paie' : 'Période de paie'} : ${parPeriode.join(', ')}.` : '',
-      ...rappels.map(r => `Rappel : ${plural(r.feuilles, 'feuille', 'feuilles')} de ${periodeLabel(r.origine!)}, période close, ${r.feuilles > 1 ? 'partent' : 'part'} sur ${periodeLabel(r.periode)}.`),
+      t('Simulation: nothing is sent to Sage Paie. The timesheets are only marked as passed and will no longer be offered.'),
+      parPeriode.length ? `${t(parPeriode.length > 1 ? 'Pay periods' : 'Pay period')}${t(': ')}${parPeriode.join(', ')}.` : '',
+      ...rappels.map(r => rappelTexte(r)),
       absencesSuite(absences),
       perimetre,
     ].filter(Boolean),
-    bouton: 'Marquer transmises',
+    bouton: t('Mark as passed'),
     action: 'temps.pushSage',
     payload: {},
   };
@@ -154,27 +154,27 @@ export function generationLot(o: {
   deplacements?: { salaries: number; aSaisir: number };
 }): Confirmation {
   const simulation = o.mode === 'simulation';
-  const absences = o.absences?.absences ? `, ${plural(o.absences.absences, 'absence', 'absences')}` : '';
-  const sorties = o.sorties ? `, ${plural(o.sorties, 'solde de sortie', 'soldes de sortie')}` : '';
+  const absences = o.absences?.absences ? `, ${tn(o.absences.absences, 'absence', 'absences')}` : '';
+  const sorties = o.sorties ? `, ${tn(o.sorties, 'departure balance', 'departure balances')}` : '';
   return {
-    titre: simulation ? 'Générer le lot (simulation)' : 'Générer le fichier d’import',
-    question: `Générer le lot ${/^[aeiou]/.test(periodeLabel(o.periode)) ? 'd’' : 'de '}${periodeLabel(o.periode)} : ${plural(o.feuilles, 'feuille validée', 'feuilles validées')}${absences}${sorties} (${plural(o.salaries, 'salarié', 'salariés')}) ?`,
+    titre: t(simulation ? 'Generate the batch (simulation)' : 'Generate the import file'),
+    question: `${t('Generate the batch #lot')}${t(/^[aeiou]/.test(periodeLabel(o.periode)) ? 'of #elided' : 'of #de')}${periodeLabel(o.periode)}${t(': ')}${tn(o.feuilles, 'approved timesheet', 'approved timesheets')}${absences}${sorties} (${tn(o.salaries, 'employee#salarie', 'employees#salarie')})${t('?#question')}`,
     suites: [
       simulation
-        ? 'Simulation : rien n’est envoyé à Sage Paie. Le fichier se télécharge pour essai ; les feuilles ne passent « transmises » qu’à la confirmation.'
-        : 'Les feuilles sont réservées au lot. Téléchargez ensuite son fichier, importez-le dans Sage, puis confirmez l’import : lui seul les marque transmises.',
-      `Avant cette confirmation, le lot peut être annulé : ses feuilles${o.absences?.absences ? ' et ses absences' : ''} redeviennent en attente.`,
-      ...o.rappels.map(r => `Rappel : ${plural(r.feuilles, 'feuille', 'feuilles')} de ${periodeLabel(r.origine!)}, période close, ${r.feuilles > 1 ? 'partent' : 'part'} sur ${periodeLabel(r.periode)}.`),
-      o.correctifs ? `Lot correctif : ${plural(o.correctifs, 'feuille rouverte', 'feuilles rouvertes')} après transmission — ${o.regularisation === 'remplace'
-        ? `rubriques complètes du salarié pour la période d’origine (annule et remplace). Ce lot part seul, à importer en mode remplacement ; ${o.enAttente ? `${plural(o.enAttente, 'autre feuille', 'autres feuilles')} en attente et les absences partiront` : 'les feuilles ordinaires et les absences partiront'} dans le lot suivant, à générer après la confirmation de cet import et à importer comme d’habitude.`
-        : 'seul l’écart avec ce qui est déjà parti, positif ou négatif, en rappel si la période d’origine est close.'}` : '',
+        ? t('Simulation: nothing is sent to Sage Paie. The file is downloaded for testing; the timesheets only become “passed” on confirmation.')
+        : t('The timesheets are reserved for the batch. Then download its file, import it into Sage, then confirm the import: only that marks them as passed.'),
+      `${t('Before this confirmation, the batch can be cancelled: its timesheets')}${o.absences?.absences ? t(' and its absences') : ''}${t(' are pending again.')}`,
+      ...o.rappels.map(r => rappelTexte(r)),
+      o.correctifs ? `${t('Corrective batch: ')}${tn(o.correctifs, 'timesheet reopened', 'timesheets reopened')}${t(' after transmission — ')}${o.regularisation === 'remplace'
+        ? `${t('complete items of the employee for the original period (cancels and replaces). This batch goes alone, to import in replacement mode; ')}${o.enAttente ? `${tn(o.enAttente, 'other timesheet', 'other timesheets')}${t(' pending and the absences will go')}` : t('the ordinary timesheets and the absences will go')}${t(' in the next batch, to generate after the confirmation of this import and to import as usual.')}`
+        : t('only the difference with what has already gone, positive or negative, as a back-pay if the original period is closed.')}` : '',
       absencesSuite(o.absences ?? null),
-      o.deplacements ? `Déplacements : jours et nuits de grand déplacement, jours à l’étranger et trajets de ${plural(o.deplacements.salaries, 'salarié', 'salariés')}${o.deplacements.aSaisir ? ` ; ${plural(o.deplacements.aSaisir, 'élément part', 'éléments partent')} sans code Sage, à saisir dans Sage (liste dans le résumé du lot)` : ''}.` : '',
-      o.sorties ? 'Soldes de sortie : compteurs photographiés à la sortie (congés payés à indemniser, RTT, récupération, CET), en jours et en heures ; Sage calcule le montant de l’indemnité.' : '',
-      o.sansMatricule.length ? `Sans matricule de paie, sous leur matricule Cursus (simulation seulement) : ${o.sansMatricule.join(', ')}.` : '',
+      o.deplacements ? `${t('Trips: days and nights of long-distance travel, days abroad and journeys of ')}${tn(o.deplacements.salaries, 'employee#salarie', 'employees#salarie')}${o.deplacements.aSaisir ? ` ; ${tn(o.deplacements.aSaisir, 'item goes', 'items go')}${t(' without a Sage code, to enter in Sage (list in the batch summary)')}` : ''}.` : '',
+      o.sorties ? t('Departure balances: counters captured at departure (paid leave to compensate, RTT, time off in lieu, time savings account), in days and in hours; Sage calculates the amount of the allowance.') : '',
+      o.sansMatricule.length ? `${t('Without a payroll number, under their Cursus number (simulation only): ')}${o.sansMatricule.join(', ')}.` : '',
       o.perimetre ?? PERIMETRE_FICHIER,
     ].filter(Boolean),
-    bouton: 'Générer le lot',
+    bouton: t('Generate the batch'),
     action: 'paie.lotGenerer',
     payload: { periode: o.periode },
   };
@@ -184,24 +184,28 @@ export function generationLot(o: {
 type AbsencesLot = Pick<ReturnType<typeof absencesDuLot>, 'absences' | 'regularisations' | 'rappels'>;
 function absencesSuite(a: AbsencesLot | null): string {
   if (!a?.absences) return '';
-  return `Absences validées : ${plural(a.absences, 'absence', 'absences')}, en jours (récupération en heures), ventilées par mois`
-    + (a.regularisations ? `, dont ${plural(a.regularisations, 'régularisation', 'régularisations')} d’une absence annulée, raccourcie ou requalifiée après sa transmission (quantité négative)` : '')
-    + (a.rappels.length ? ` ; rappel de ${a.rappels.map(periodeLabel).join(', ')}, période close` : '') + '.';
+  return `${t('Approved absences: ')}${tn(a.absences, 'absence', 'absences')}${t(', in days (time off in lieu in hours), split by month')}`
+    + (a.regularisations ? `${t(', of which #virgule')}${tn(a.regularisations, 'regularisation', 'regularisations')}${t(' of an absence cancelled, shortened or requalified after its transmission (negative quantity)')}` : '')
+    + (a.rappels.length ? `${t(' ; back-pay of ')}${a.rappels.map(periodeLabel).join(', ')}${t(', period closed')}` : '') + '.';
 }
+
+/** Rappel d'une période close annoncé avant la transmission ou la génération d'un lot. */
+const rappelTexte = (r: GroupePaie) =>
+  `${t('Back-pay: ')}${tn(r.feuilles, 'timesheet', 'timesheets')}${t(' of #de-name')}${periodeLabel(r.origine!)}${t(', period closed, ')}${t(r.feuilles > 1 ? 'go#plural' : 'goes')}${t(' on #sur')}${periodeLabel(r.periode)}.`;
 
 /** Annulation d'un lot dont l'import n'est pas confirmé : ses feuilles (et ses absences) sont libérées. */
 export function annulationLot(lot: Pick<LotPaie, 'id' | 'periode' | 'feuilles' | 'telechargements' | 'absences'>): Confirmation {
   return {
-    titre: 'Annuler le lot',
-    question: `Annuler le lot n° ${lot.id} (${periodeLabel(lot.periode)}) ?`,
+    titre: t('Cancel the batch'),
+    question: `${t('Cancel batch no. ')}${lot.id} (${periodeLabel(lot.periode)})${t('?#question')}`,
     suites: [
       lot.feuilles.length > 1
-        ? `Ses ${lot.feuilles.length} feuilles redeviennent en attente et pourront partir dans un nouveau lot.`
-        : lot.feuilles.length ? 'Sa feuille redevient en attente et pourra partir dans un nouveau lot.' : '',
-      lot.absences?.length ? `${plural(lot.absences.length, 'absence redevient', 'absences redeviennent')} en attente.` : '',
-      lot.telechargements ? 'Son fichier a déjà été téléchargé : s’il a été importé dans Sage, supprimez-y cet import, sans quoi les heures seraient payées deux fois.' : '',
+        ? `${t('Its #ses')}${lot.feuilles.length}${t(' timesheets are pending again and can go in a new batch.')}`
+        : lot.feuilles.length ? t('Its timesheet is pending again and can go in a new batch.') : '',
+      lot.absences?.length ? `${tn(lot.absences.length, 'absence is', 'absences are')}${t(' pending again.')}` : '',
+      lot.telechargements ? t('Its file has already been downloaded: if it was imported into Sage, delete this import there, otherwise the hours would be paid twice.') : '',
     ].filter(Boolean),
-    bouton: 'Annuler le lot',
+    bouton: t('Cancel the batch'),
     action: 'paie.lotAnnuler',
     payload: { id: lot.id },
   };
@@ -213,15 +217,17 @@ export function annulationLot(lot: Pick<LotPaie, 'id' | 'periode' | 'feuilles' |
  */
 export function validationGroupee(feuilles: { empId: number; week: string }[], salaries: number, repos = 0): Confirmation {
   return {
-    titre: 'Valider les feuilles soumises',
-    question: `Valider ${plural(feuilles.length, 'feuille soumise', 'feuilles soumises')} (${plural(salaries, 'salarié', 'salariés')}) ?`,
+    titre: t('Approve the submitted timesheets'),
+    question: `${t('Approve #verb')}${tn(feuilles.length, 'submitted timesheet', 'submitted timesheets')} (${tn(salaries, 'employee#salarie', 'employees#salarie')})${t('?#question')}`,
     suites: [
-      'Chaque feuille passe les contrôles de la validation : dépassement sans motif, demande d’absence en attente, heures un jour d’absence. Une feuille refusée reste à valider et le message la nomme.',
+      t('Each timesheet goes through the approval checks: excess without a reason, pending absence request, hours on a day of absence. A refused timesheet stays to approve and the message names it.'),
       // Repos hebdomadaire ou dominical (`repos` : feuilles qui portent l'alerte) : validées quand même, signalées au RH.
-      ...(repos ? [`${repos > 1 ? `${repos} feuilles portent` : '1 feuille porte'} une alerte de repos hebdomadaire ou dominical (7 jours travaillés, heures le dimanche) : validée${repos > 1 ? 's' : ''} quand même, elle${repos > 1 ? 's restent signalées' : ' reste signalée'} au service RH (Temps, « Repos hebdomadaire à vérifier »).`] : []),
-      'Les heures des projets Keystone sont renvoyées à Keystone ; les feuilles validées partent ensuite à la paie.',
+      ...(repos ? [repos > 1
+        ? `${repos}${t(' timesheets carry an alert of weekly or Sunday rest (7 days worked, hours on Sunday): approved anyway, they stay reported to HR (Time, “Weekly rest to check”).')}`
+        : t('1 timesheet carries an alert of weekly or Sunday rest (7 days worked, hours on Sunday): approved anyway, it stays reported to HR (Time, “Weekly rest to check”).')] : []),
+      t('The hours of the Keystone projects are sent back to Keystone; the approved timesheets then go to payroll.'),
     ],
-    bouton: feuilles.length > 1 ? `Valider les ${feuilles.length} feuilles` : 'Valider la feuille',
+    bouton: feuilles.length > 1 ? `${t('Approve the #les')}${feuilles.length}${t(' timesheets#count')}` : t('Approve the timesheet'),
     action: 'temps.validerLot',
     payload: { feuilles },
   };
@@ -230,10 +236,10 @@ export function validationGroupee(feuilles: { empId: number; week: string }[], s
 /** Suppression d'une équipe vide (administrateur RH). */
 export function suppressionEquipe(nom: string): Confirmation {
   return {
-    titre: 'Supprimer l’équipe',
-    question: `Supprimer l’équipe ${nom} ?`,
-    suites: ['Ses enveloppes budgétaires de formation sont supprimées.'],
-    bouton: 'Supprimer l’équipe',
+    titre: t('Delete the team'),
+    question: `${t('Delete the team ')}${nom}${t('?#question')}`,
+    suites: [t('Its training budget envelopes are deleted.')],
+    bouton: t('Delete the team'),
     action: 'equipe.supprimer',
     payload: { nom },
   };
@@ -242,10 +248,10 @@ export function suppressionEquipe(nom: string): Confirmation {
 /** Retrait d'un membre de son équipe : il passe « à affecter ». `ui` : filtres appliqués ensuite (fiche fermée). */
 export function retraitEquipe(empId: number, nom: string, equipe: string, ui?: Partial<UiState>): Confirmation {
   return {
-    titre: 'Retirer de l’équipe',
-    question: `Retirer ${nom} de l’équipe ${equipe} ?`,
-    suites: [`${nom} passe « à affecter » : le service RH valide ses heures, ses absences et ses entretiens jusqu’à sa nouvelle affectation.`],
-    bouton: 'Retirer de l’équipe',
+    titre: t('Remove from the team'),
+    question: `${t('Remove #verb')}${nom}${t(' from the team ')}${equipe}${t('?#question')}`,
+    suites: [`${nom}${t(' becomes “to assign”: HR approves their hours, absences and reviews until their new assignment.')}`],
+    bouton: t('Remove from the team'),
     action: 'equipe.affecter',
     payload: { empId, equipe: null },
     ...(ui ? { ensuite: { ui } } : {}),
@@ -258,18 +264,18 @@ export function retraitEquipe(empId: number, nom: string, equipe: string, ui?: P
  */
 export function changementManager(equipe: string, ancien: string | null, nouveau: { id: number; nom: string } | null, rattaches: string[] = []): Confirmation {
   return {
-    titre: 'Changer le manager',
-    question: nouveau ? `Désigner ${nouveau.nom} manager de l’équipe ${equipe} ?` : `Retirer le manager de l’équipe ${equipe} ?`,
+    titre: t('Change the manager'),
+    question: nouveau ? `${t('Appoint #verb')}${nouveau.nom}${t(' manager of the team ')}${equipe}${t('?#question')}` : `${t('Remove the manager of the team ')}${equipe}${t('?#question')}`,
     suites: [
       nouveau
-        ? `${nouveau.nom} valide désormais les heures, les absences et les entretiens de l’équipe${ancien ? `, à la place de ${ancien}` : ''}.`
-        : `Les heures, les absences et les entretiens de l’équipe sont validés par le service RH${ancien ? `, à la place de ${ancien}` : ''}.`,
-      'Les demandes en attente passent au nouveau valideur.',
+        ? `${nouveau.nom}${t(' now approves the hours, absences and reviews of the team')}${ancien ? `${t(', instead of ')}${ancien}` : ''}.`
+        : `${t('The hours, absences and reviews of the team are approved by HR')}${ancien ? `${t(', instead of ')}${ancien}` : ''}.`,
+      t('The pending requests pass to the new approver.'),
       rattaches.length
-        ? `Managers des équipes rattachées : ${plural(rattaches.length, 'élément en attente change', 'éléments en attente changent')} aussi de valideur, qui en est prévenu par e-mail : ${rattaches.join(' ; ')}.`
+        ? `${t('Managers of the attached teams: ')}${tn(rattaches.length, 'pending item changes', 'pending items change')}${t(' approver as well, who is notified by e-mail: ')}${rattaches.join(' ; ')}.`
         : '',
     ].filter(Boolean),
-    bouton: nouveau ? 'Désigner le manager' : 'Retirer le manager',
+    bouton: t(nouveau ? 'Appoint the manager' : 'Remove the manager'),
     action: 'equipe.manager',
     payload: { nom: equipe, managerId: nouveau?.id ?? null },
   };
@@ -281,15 +287,15 @@ export function changementManager(equipe: string, ancien: string | null, nouveau
  */
 export function rattachementEquipe(equipe: string, parente: string | null, valideur: string | null, redirigees: string[]): Confirmation {
   return {
-    titre: parente ? 'Rattacher l’équipe' : 'Retirer l’équipe parente',
-    question: parente ? `Rattacher l’équipe ${equipe} à l’équipe ${parente} ?` : `Retirer l’équipe parente de l’équipe ${equipe} ?`,
+    titre: t(parente ? 'Attach the team' : 'Remove the parent team'),
+    question: parente ? `${t('Attach the team ')}${equipe}${t(' to the team ')}${parente}${t('?#question')}` : `${t('Remove the parent team of the team ')}${equipe}${t('?#question')}`,
     suites: [
-      valideur ? `Les absences, les feuilles de temps et les entretiens du manager de l’équipe seront validés par ${valideur}.` : '',
+      valideur ? `${t('The absences, timesheets and reviews of the team’s manager will be approved by ')}${valideur}.` : '',
       redirigees.length
-        ? `${plural(redirigees.length, 'élément en attente change', 'éléments en attente changent')} de valideur, qui en est prévenu par e-mail : ${redirigees.join(' ; ')}.`
-        : 'Aucun élément en attente ne change de valideur.',
+        ? `${tn(redirigees.length, 'pending item changes', 'pending items change')}${t(' approver, who is notified by e-mail: ')}${redirigees.join(' ; ')}.`
+        : t('No pending item changes approver.'),
     ].filter(Boolean),
-    bouton: parente ? 'Rattacher' : 'Retirer le rattachement',
+    bouton: t(parente ? 'Attach#team' : 'Remove the attachment'),
     action: 'equipe.parente',
     payload: { nom: equipe, parente },
   };
@@ -319,13 +325,13 @@ export function desinscription(p: { empId: number; sessionId: number }, nom: str
 /** Relevé d'heures des intérimaires envoyé à leur agence : renvoi, ou envoi sans les feuilles pas encore validées. */
 export function envoiReleve(agence: string, adresse: string, semaine: string, numero: number, opts: { renvoi: boolean; enAttente: string[] }): Confirmation {
   return {
-    titre: opts.renvoi ? 'Renvoyer le relevé' : 'Envoyer le relevé',
-    question: `${opts.renvoi ? 'Renvoyer' : 'Envoyer'} le relevé de la semaine ${numero} à ${agence} (${adresse}) ?`,
+    titre: t(opts.renvoi ? 'Resend the statement' : 'Send the statement'),
+    question: `${t(opts.renvoi ? 'Resend' : 'Send')}${t(' the statement of week ')}${numero}${t(' to #a')}${agence} (${adresse})${t('?#question')}`,
     suites: [
-      opts.enAttente.length ? `Feuille non validée, absente du relevé : ${opts.enAttente.join(', ')}. Le relevé complet part à sa validation.` : '',
-      opts.renvoi ? 'L’agence reçoit un nouvel e-mail avec le relevé à jour.' : '',
+      opts.enAttente.length ? `${t('Timesheet not approved, missing from the statement: ')}${opts.enAttente.join(', ')}${t('. The complete statement goes on its approval.')}` : '',
+      opts.renvoi ? t('The agency receives a new e-mail with the up-to-date statement.') : '',
     ].filter(Boolean),
-    bouton: opts.renvoi ? 'Renvoyer le relevé' : 'Envoyer le relevé',
+    bouton: t(opts.renvoi ? 'Resend the statement' : 'Send the statement'),
     action: 'releve.envoyer',
     payload: { agence, semaine },
   };
@@ -334,10 +340,10 @@ export function envoiReleve(agence: string, adresse: string, semaine: string, nu
 /** Annulation d'une demande de visite médicale en cours (faite par erreur, salarié sorti…). */
 export function annulationVisite(x: { id: number; le: string }, nom: string, le: string): Confirmation {
   return {
-    titre: 'Annuler la demande de visite',
-    question: `Annuler la demande de visite du ${le} pour ${nom} ?`,
-    suites: ['La demande est close sans visite ; une nouvelle demande reste possible. Le service de santé au travail n’est pas prévenu : à informer si la demande lui a été transmise.'],
-    bouton: 'Annuler la demande',
+    titre: t('Cancel the visit request'),
+    question: `${t('Cancel the visit request of ')}${le}${t(' for ')}${nom}${t('?#question')}`,
+    suites: [t('The request is closed without a visit; a new request remains possible. The occupational health service is not notified: to inform if the request was passed to it.')],
+    bouton: t('Cancel the request'),
     action: 'medical.annuler',
     payload: { id: x.id },
   };
@@ -349,14 +355,14 @@ export function annulationVisite(x: { id: number; le: string }, nom: string, le:
  */
 export function annulationSortie(e: { id: number; nom: string }, sortie: string, fin: string | null): Confirmation {
   return {
-    titre: 'Annuler la sortie',
-    question: `Annuler la sortie de ${e.nom} (${sortie}) ?`,
+    titre: t('Cancel the departure'),
+    question: `${t('Cancel the departure of ')}${e.nom} (${sortie})${t('?#question')}`,
     suites: [
-      fin ? `Le contrat reprend sa fin prévue, le ${fin}.` : `Le contrat redevient sans date de fin : ${e.nom} retrouve ses accès à Cursus et revient dans la conformité et les échéances.`,
-      'Ce que la sortie a annulé (absences, inscriptions aux sessions, entretiens planifiés, demandes de visite) n’est pas rétabli : à saisir de nouveau si besoin.',
-      'Keystone reçoit le nouveau verdict des chantiers où le salarié est affecté.',
+      fin ? `${t('The contract takes back its planned end, on ')}${fin}.` : `${t('The contract is again without an end date: ')}${e.nom}${t(' gets their access to Cursus back and returns to compliance and due dates.')}`,
+      t('What the departure cancelled (absences, session enrolments, planned reviews, visit requests) is not restored: to enter again if needed.'),
+      t('Keystone receives the new verdict of the worksites where the employee is assigned.'),
     ],
-    bouton: 'Annuler la sortie',
+    bouton: t('Cancel the departure'),
     action: 'employe.annulerSortie',
     payload: { id: e.id },
   };
@@ -366,10 +372,10 @@ export function annulationSortie(e: { id: number; nom: string }, sortie: string,
 /** Rattachement d'un compte (externe) à la fiche de la personne. */
 export function rattachementCompte(c: { id: number; nom: string; identifiant: string }, e: { id: number; nom: string }): Confirmation {
   return {
-    titre: 'Rattacher le compte à une fiche',
-    question: `Rattacher le compte de ${c.nom} (${c.identifiant}) à la fiche de ${e.nom} ?`,
-    suites: ['Le compte ouvre aussi ses espaces de salarié.', 'Il ne peut plus décider de ses propres absences, feuilles de temps ou entretiens.'],
-    bouton: 'Rattacher le compte',
+    titre: t('Attach the account to a sheet'),
+    question: `${t('Attach the account of ')}${c.nom} (${c.identifiant})${t(' to the sheet of ')}${e.nom}${t('?#question')}`,
+    suites: [t('The account also opens their employee spaces.'), t('They can no longer decide on their own absences, timesheets or reviews.')],
+    bouton: t('Attach the account'),
     action: 'compte.rattacher',
     payload: { id: c.id, empId: e.id },
   };
@@ -377,10 +383,10 @@ export function rattachementCompte(c: { id: number; nom: string; identifiant: st
 
 export function desactivationCompte(c: { id: number; nom: string }): Confirmation {
   return {
-    titre: 'Désactiver le compte',
-    question: `Désactiver le compte de ${c.nom} ?`,
-    suites: ['Ses sessions ouvertes sont fermées aussitôt ; le compte pourra être réactivé.'],
-    bouton: 'Désactiver le compte',
+    titre: t('Deactivate the account'),
+    question: `${t('Deactivate the account of ')}${c.nom}${t('?#question')}`,
+    suites: [t('Their open sessions are closed at once; the account can be reactivated.')],
+    bouton: t('Deactivate the account'),
     action: 'compte.activer',
     payload: { id: c.id, actif: false },
   };
@@ -388,10 +394,10 @@ export function desactivationCompte(c: { id: number; nom: string }): Confirmatio
 
 export function delierCompte(c: { id: number; nom: string; identifiant: string }): Confirmation {
   return {
-    titre: 'Délier le compte Microsoft',
-    question: `Retirer le rattachement Microsoft de ${c.nom} ?`,
-    suites: [`Ses sessions sont fermées ; sa prochaine connexion Microsoft avec ${c.identifiant} rattachera le compte à son identité Microsoft actuelle.`],
-    bouton: 'Délier le compte',
+    titre: t('Unlink the Microsoft account'),
+    question: `${t('Remove the Microsoft link of ')}${c.nom}${t('?#question')}`,
+    suites: [`${t('Their sessions are closed; their next Microsoft sign-in with ')}${c.identifiant}${t(' will attach the account to their current Microsoft identity.')}`],
+    bouton: t('Unlink the account'),
     action: 'compte.reinitialiser',
     payload: { id: c.id },
   };
@@ -399,10 +405,10 @@ export function delierCompte(c: { id: number; nom: string; identifiant: string }
 
 export function nouveauMotDePasse(c: { id: number; nom: string; identifiant: string }): Confirmation {
   return {
-    titre: 'Nouveau mot de passe provisoire',
-    question: `Attribuer un nouveau mot de passe provisoire à ${c.nom} ?`,
-    suites: ['L’ancien mot de passe ne fonctionnera plus et ses sessions sont fermées.', 'Le nouveau mot de passe s’affiche une seule fois, à remettre à la personne.'],
-    bouton: 'Attribuer un mot de passe',
+    titre: t('New temporary password'),
+    question: `${t('Assign a new temporary password to ')}${c.nom}${t('?#question')}`,
+    suites: [t('The old password will no longer work and their sessions are closed.'), t('The new password is shown only once, to give to the person.')],
+    bouton: t('Assign a password'),
     action: 'compte.reinitialiser',
     payload: { id: c.id },
     ensuite: { motDePasse: { nom: c.nom, identifiant: c.identifiant } },
@@ -412,10 +418,10 @@ export function nouveauMotDePasse(c: { id: number; nom: string; identifiant: str
 /** Réinitialisation des données de démonstration (administrateur RH, mode démonstration). */
 export function reinitialisationDemo(): Confirmation {
   return {
-    titre: 'Réinitialiser la démonstration',
-    question: 'Réinitialiser toutes les données de démonstration ?',
-    suites: ['Les modifications effectuées depuis le dernier chargement sont effacées. Une sauvegarde de la base est conservée sur le serveur.'],
-    bouton: 'Réinitialiser',
+    titre: t('Reset the demonstration'),
+    question: t('Reset all the demonstration data?'),
+    suites: [t('The changes made since the last loading are erased. A backup of the database is kept on the server.')],
+    bouton: t('Reset'),
     action: 'demo.reinitialiser',
     payload: {},
   };
@@ -426,8 +432,8 @@ export function erreurMotif(c: Confirmation, motif: string): string | null {
   if (!c.motif) return null;
   const m = motif.trim();
   // « Indiquez le motif du refus. », « Indiquez le motif de l’annulation. »
-  if (c.motif.requis && !m) return `Indiquez le ${c.motif.label.charAt(0).toLowerCase()}${c.motif.label.slice(1)}.`;
-  if (m.length > MOTIF_MAX) return `Motif trop long (${MOTIF_MAX} caractères au plus).`;
+  if (c.motif.requis && !m) return `${t('Enter the #motif')}${c.motif.label.charAt(0).toLowerCase()}${c.motif.label.slice(1)}.`;
+  if (m.length > MOTIF_MAX) return `${t('Reason too long (')}${MOTIF_MAX}${t(' characters at most).')}`;
   return null;
 }
 
@@ -444,13 +450,13 @@ export const parametres = (c: Confirmation, motif: string): Record<string, unkno
  */
 export function abandonSaisie(id: string, libelle: string, conflit = false): Confirmation {
   return {
-    titre: 'Abandonner la saisie',
-    question: `Abandonner la saisie « ${libelle} » ?`,
+    titre: t('Abandon the entry'),
+    question: `${t('Abandon the entry “')}${libelle}${t('”?')}`,
     suites: [
-      'Elle est effacée de cet appareil et ne sera jamais envoyée.',
-      conflit ? 'La feuille garde la valeur enregistrée sur le serveur : ressaisissez-y la vôtre si elle doit la remplacer.' : '',
+      t('It is erased from this device and will never be sent.'),
+      conflit ? t('The timesheet keeps the value saved on the server: enter yours again there if it must replace it.') : '',
     ].filter(Boolean),
-    bouton: 'Abandonner la saisie',
+    bouton: t('Abandon the entry'),
     action: null,
     local: 'abandonSaisie',
     payload: { id },

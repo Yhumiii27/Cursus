@@ -3,6 +3,7 @@
 import { fmtIso } from '../../../shared/format.ts';
 import type { ContratHistorique } from '../../../shared/types.ts';
 import type { Confirmation } from './confirmations.ts';
+import { t } from '../i18n/langue.ts';
 
 /**
  * Annulation d'un avenant programmé à une date future, pas encore appliqué : la fiche garde son organisation du temps.
@@ -10,13 +11,13 @@ import type { Confirmation } from './confirmations.ts';
  */
 export function annulationAvenant(l: Pick<ContratHistorique, 'id' | 'effet'>, nom: string, regime: string, actuel: string): Confirmation {
   return {
-    titre: 'Annuler l’avenant programmé',
-    question: `Annuler l’avenant de ${nom} prévu au ${fmtIso(l.effet)} (${regime}) ?`,
+    titre: t('Cancel the scheduled amendment'),
+    question: `${t('Cancel the amendment of ')}${nom}${t(' planned for ')}${fmtIso(l.effet)} (${regime})${t('?#question')}`,
     suites: [
-      `L’organisation du temps reste ${actuel} : rien ne change sur la fiche à cette date.`,
-      'Les feuilles de temps en brouillon des semaines suivantes reprennent ce régime. L’avenant reste dans l’historique, marqué annulé.',
+      `${t('The working time arrangement stays ')}${actuel}${t(': nothing changes on the sheet at this date.')}`,
+      t('The draft timesheets of the following weeks take this arrangement again. The amendment stays in the history, marked cancelled.'),
     ],
-    bouton: 'Annuler l’avenant',
+    bouton: t('Cancel the amendment'),
     action: 'employe.annulerAvenant',
     payload: { id: l.id },
   };

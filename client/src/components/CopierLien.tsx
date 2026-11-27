@@ -4,6 +4,7 @@
 // Presse-papiers refusé (adresse en http, navigateur ancien) : un message invite à copier l'adresse du navigateur.
 import { LinkIcon } from '@phosphor-icons/react';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function CopierLien({ chemin, small = true }: {
   /** Chemin et paramètres à copier (par défaut l'adresse affichée), ex. « /temps?salarie=12&semaine=2027-01-04 ». */
@@ -14,14 +15,14 @@ export function CopierLien({ chemin, small = true }: {
     const lien = new URL(chemin ?? location.pathname + location.search, location.origin).href;
     try {
       await navigator.clipboard.writeText(lien);
-      notify('Lien copié : il ouvre cette page à qui y a accès.');
+      notify(t('Link copied: it opens this page for whoever has access to it.'));
     } catch {
-      notify('Copie impossible dans ce navigateur : copiez l’adresse affichée dans la barre du navigateur.', true);
+      notify(t('Copy impossible in this browser: copy the address shown in the browser bar.'), true);
     }
   };
   return (
-    <button type="button" className={`btn btn-ghost${small ? ' btn-sm' : ''}`} onClick={copier} title="Copier l’adresse de cette page">
-      <LinkIcon size={14} /><span>Copier le lien</span>
+    <button type="button" className={`btn btn-ghost${small ? ' btn-sm' : ''}`} onClick={copier} title={t('Copy the address of this page')}>
+      <LinkIcon size={14} /><span>{t('Copy the link')}</span>
     </button>
   );
 }

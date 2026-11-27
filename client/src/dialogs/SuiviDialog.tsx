@@ -11,6 +11,7 @@ import { CancelButton, Dialog, Field, Static, SubmitButton } from '../components
 import { Fine, NoteAccent } from '../components/ui.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 /** Choix proposés : un des types, ou aucun (VIP par défaut). */
 type Choix = SuiviMedical | '';
@@ -26,9 +27,9 @@ export function SuiviDialog({ empId }: { empId: number }) {
   if (!emp || !rh) return null;
   const suivi = emp.med.suivi;
   const s = d.ds.settings;
-  const rythme = (t: SuiviMedical) => (t === 'sir'
-    ? `visite intermédiaire à ${periodicite('sir', s)} mois, examen d’aptitude à ${s.santeSirAptitudeMois ?? 48} mois`
-    : `visite tous les ${periodicite(t, s)} mois`);
+  const rythme = (k: SuiviMedical) => (k === 'sir'
+    ? `${t('intermediate visit at ')}${periodicite('sir', s)}${t(' months, fitness examination at ')}${s.santeSirAptitudeMois ?? 48}${t(' months#unit')}`
+    : `${t('visit every ')}${periodicite(k, s)}${t(' months#unit')}`);
 
   const enregistrer = async () => {
     if (busy) return;
@@ -39,22 +40,22 @@ export function SuiviDialog({ empId }: { empId: number }) {
   };
 
   const options: [Choix, string, string][] = [
-    ['', 'Non précisé', `VIP par défaut — ${rythme('vip')}`],
+    ['', t('Not specified'), `${t('VIP by default — ')}${rythme('vip')}`],
     ...(Object.keys(SUIVIS_MEDICAUX) as SuiviMedical[]).map((k): [Choix, string, string] => [k, SUIVIS_MEDICAUX[k].label, `${SUIVIS_MEDICAUX[k].article} — ${rythme(k)}`]),
   ];
   return (
-    <Dialog title="Type de suivi médical" width={560} onSubmit={enregistrer} actions={<>
+    <Dialog title={t('Type of medical monitoring')} width={560} onSubmit={enregistrer} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Enregistrer</SubmitButton>
+      <SubmitButton busy={busy}>{t('Save')}</SubmitButton>
     </>}>
-      <Field label="Collaborateur"><Static>{emp.nom} · {emp.poste}</Static></Field>
+      <Field label={t('Employee')}><Static>{emp.nom} · {emp.poste}</Static></Field>
       {suivi?.deduit && (
         <NoteAccent>
-          Suivi individuel renforcé déduit du référentiel ({suivi.origines.join(', ')}) : il s’applique quel que soit le type choisi ici.
+          {t('Reinforced individual monitoring deduced from the reference data (')}{suivi.origines.join(', ')}{t('): it applies whatever type is chosen here.')}
         </NoteAccent>
       )}
-      <Field label="Type de suivi">
-        <div role="radiogroup" aria-label="Type de suivi" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+      <Field label={t('Type of monitoring')}>
+        <div role="radiogroup" aria-label={t('Type of monitoring')} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           {options.map(([k, label, sub]) => (
             <label key={k || 'aucun'} className={`radio radio-opt${choix === k ? ' checked' : ''}`}>
               <input type="radio" name="su-type" checked={choix === k} onChange={() => setChoix(k)} />
@@ -69,12 +70,11 @@ export function SuiviDialog({ empId }: { empId: number }) {
       </Field>
       <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
         <input type="checkbox" checked={expose} onChange={e => setExpose(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-        Exposé à des risques particuliers (agents chimiques dangereux, CMR, ATEX…) : visite post-exposition à sa sortie (art. L4624-2-1)
+        {t('Exposed to particular risks (dangerous chemical agents, CMR, ATEX…): post-exposure visit on leaving (art. L4624-2-1)')}
       </label>
-      {posteDe(d.ds, emp)?.expose && <Fine>Le poste {emp.poste} est coché « exposé à des risques particuliers » au référentiel : la visite est proposée à la sortie quelle que soit cette case.</Fine>}
+      {posteDe(d.ds, emp)?.expose && <Fine>{t('The job ')}{emp.poste}{t(' is ticked “exposed to particular risks” in the reference data: the visit is offered on leaving whatever this box.')}</Fine>}
       <Fine>
-        La date de la prochaine visite fixée par le médecin du travail, saisie avec son avis, prime toujours sur ces périodicités
-        (Paramètres → Santé). Le manager ne voit ni le type de suivi, ni l’exposition, ni la date de la prochaine visite.
+        {t('The date of the next visit set by the occupational physician, entered with their opinion, always prevails over these periodicities (Settings → Health). The manager sees neither the type of monitoring, nor the exposure, nor the date of the next visit.')}
       </Fine>
     </Dialog>
   );

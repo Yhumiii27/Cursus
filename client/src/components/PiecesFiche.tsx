@@ -11,6 +11,7 @@ import { lienPiece } from '../api.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { SectionLabel } from './ui.tsx';
+import { t } from '../i18n/langue.ts';
 
 interface Ligne { objet: ObjetPiece; objetId: number; libelle: string }
 
@@ -24,8 +25,8 @@ export function PiecesFiche({ empId, parti }: { empId: number; parti: boolean })
   const joindre = actif && formations && !parti;
   const titres: Ligne[] = [
     ...[...new Set(e.certs.map(c => c.f))].map(f => certEnVigueur(e.certs, f)).filter(c => !!c)
-      .map(c => ({ objet: 'certification' as const, objetId: c!.id, libelle: `${d.fm(c!.f)?.nom ?? c!.f} · obtenue le ${fmt(parse(c!.obtenue))}` })),
-    ...e.habs.filter(h => h.delivree).map(h => ({ objet: 'habTitre' as const, objetId: h.id, libelle: `${d.hm(h.h)?.nom ?? h.h} · délivrée le ${fmt(parse(h.delivree!))}` })),
+      .map(c => ({ objet: 'certification' as const, objetId: c!.id, libelle: `${d.fm(c!.f)?.nom ?? c!.f}${t(' · obtained on ')}${fmt(parse(c!.obtenue))}` })),
+    ...e.habs.filter(h => h.delivree).map(h => ({ objet: 'habTitre' as const, objetId: h.id, libelle: `${d.hm(h.h)?.nom ?? h.h}${t(' · issued on ')}${fmt(parse(h.delivree!))}` })),
   ];
   // Autres pièces (justificatifs d'absence, documents déclarés, déplacements) : celles que l'instantané transmet.
   const autres = (d.ds.pieces ?? []).filter(p => p.empId === empId && !p.retireeLe && p.objet !== 'certification' && p.objet !== 'habTitre');
@@ -38,7 +39,7 @@ export function PiecesFiche({ empId, parti }: { empId: number; parti: boolean })
     </a>
   );
   return <>
-    <SectionLabel>Pièces justificatives</SectionLabel>
+    <SectionLabel>{t('Supporting documents')}</SectionLabel>
     <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
       {lignes.map(l => {
         const pieces = piecesDe(d.ds.pieces, l.objet, l.objetId);
@@ -48,12 +49,12 @@ export function PiecesFiche({ empId, parti }: { empId: number; parti: boolean })
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 14 }}>{l.libelle}</div>
                 <div className="sub" style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-                  {pieces.length ? pieces.map(p => lien(p.id, p.nom, p.type, p.taille)) : <span className="text-muted">{OBJETS_PIECE[l.objet].label} : aucune pièce jointe</span>}
+                  {pieces.length ? pieces.map(p => lien(p.id, p.nom, p.type, p.taille)) : <span className="text-muted">{OBJETS_PIECE[l.objet].label}{t(': no attachment')}</span>}
                 </div>
               </div>
               {joindre && (
                 <button type="button" className="btn btn-ghost btn-sm" style={{ flex: 'none' }}
-                  onClick={() => openDialog({ type: 'piece', objet: l.objet, objetId: l.objetId, empId, libelle: l.libelle })}>Joindre</button>
+                  onClick={() => openDialog({ type: 'piece', objet: l.objet, objetId: l.objetId, empId, libelle: l.libelle })}>{t('Attach')}</button>
               )}
             </div>
           </div>

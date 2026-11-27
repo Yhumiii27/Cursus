@@ -8,11 +8,12 @@ import { controlerSuivie, LIBELLE_SUIVIE_MAX, obligatoireParDefaut, ORGANISME_SU
 import { actif } from '../../../shared/rules/referentiels.ts';
 import { CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';
-import { AIDE_MOTIF_CORRECTION } from '../state/confirmations-corrections.ts';
+import { aideMotifCorrection } from '../state/confirmations-corrections.ts';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 // lot 12 — C4 (organismes de formation et e-learning) : organisme choisi dans le référentiel, texte libre admis à défaut.
 import { ChoixOrganisme } from '../components/organismes/ChoixOrganisme.tsx';
+import { t } from '../i18n/langue.ts';
 
 /** Valeur du sélecteur pour une formation hors catalogue. */
 const HORS = '';
@@ -46,7 +47,7 @@ export function FormationSuivieDialog({ empId, id, demandeId }: { empId: number;
   const fiche = (d.ds.organismes ?? d.ds.referentiels.organismes ?? []).find(o => o.id === Number(organismeId)) ?? null;
   const texteOrganisme = fiche ? fiche.nomUsuel : organisme;
   const { erreurs, valeur } = controlerSuivie(d, { f, libelle, du, au, duree, organisme: texteOrganisme, obligatoire: oblig }, avant);
-  const motifErr = avant && !motif.trim() ? 'Indiquez le motif de la correction.' : null;
+  const motifErr = avant && !motif.trim() ? t('Enter the reason for the correction.') : null;
   const erreur = (k: keyof typeof erreurs, saisi: string) => (saisi.trim() ? erreurs[k] ?? null : v.erreur(erreurs[k]));
 
   const envoyer = async () => {
@@ -61,56 +62,55 @@ export function FormationSuivieDialog({ empId, id, demandeId }: { empId: number;
   };
 
   return (
-    <Dialog title={avant ? 'Corriger la formation suivie' : 'Enregistrer une formation suivie'} width={600} onSubmit={envoyer} actions={<>
+    <Dialog title={t(avant ? 'Correct the attended training course' : 'Record an attended training course')} width={600} onSubmit={envoyer} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>{avant ? 'Enregistrer la correction' : 'Enregistrer'}</SubmitButton>
+      <SubmitButton busy={busy}>{t(avant ? 'Save the correction' : 'Save')}</SubmitButton>
     </>}>
-      <Field label="Collaborateur"><Static>{emp.nom}{demande ? <div className="text-muted sub">Demande hors catalogue acceptée : {demande.libelle}</div> : null}</Static></Field>
-      <Field label="Formation" htmlFor="fs-f" erreur={v.erreur(erreurs.f)}>
+      <Field label={t('Employee')}><Static>{emp.nom}{demande ? <div className="text-muted sub">{t('Off-catalogue request accepted: ')}{demande.libelle}</div> : null}</Static></Field>
+      <Field label={t('Training course')} htmlFor="fs-f" erreur={v.erreur(erreurs.f)}>
         <select className="input" id="fs-f" value={f} onChange={e => { setF(e.target.value); setObligatoire(null); }}>
-          <option value={HORS}>Hors catalogue</option>
+          <option value={HORS}>{t('Off-catalogue')}</option>
           {catalogue.map(o => <option key={o.id} value={o.id}>{o.nom}</option>)}
         </select>
       </Field>
       {!f && (
-        <Field label="Intitulé" htmlFor="fs-libelle" requis erreur={erreur('libelle', libelle)}>
-          <input className="input" id="fs-libelle" type="text" value={libelle} maxLength={LIBELLE_SUIVIE_MAX} placeholder="Anglais technique, conduite de réunion…" onChange={e => setLibelle(e.target.value)} />
+        <Field label={t('Title#label')} htmlFor="fs-libelle" requis erreur={erreur('libelle', libelle)}>
+          <input className="input" id="fs-libelle" type="text" value={libelle} maxLength={LIBELLE_SUIVIE_MAX} placeholder={t('Technical English, chairing meetings…')} onChange={e => setLibelle(e.target.value)} />
         </Field>
       )}
       <div className="grid-2">
-        <Field label="Du" htmlFor="fs-du" requis erreur={erreur('du', du)}>
+        <Field label={t('From#label')} htmlFor="fs-du" requis erreur={erreur('du', du)}>
           <input className="input" id="fs-du" type="date" max={d.ti} value={du} onChange={e => setDu(e.target.value)} />
         </Field>
-        <Field label="Au" htmlFor="fs-au" erreur={erreur('au', au)}>
+        <Field label={t('To#label')} htmlFor="fs-au" erreur={erreur('au', au)}>
           <input className="input" id="fs-au" type="date" min={du || undefined} max={d.ti} value={au} placeholder={du} onChange={e => setAu(e.target.value)} />
         </Field>
       </div>
       <div className="grid-2">
-        <Field label="Durée (heures)" htmlFor="fs-duree" erreur={erreur('duree', duree)}>
-          <input className="input tnum" id="fs-duree" inputMode="decimal" value={duree} placeholder={fm?.dureeHeures != null ? `${fm.dureeHeures} (catalogue)` : '14'} onChange={e => setDuree(e.target.value)} />
+        <Field label={t('Duration (hours)')} htmlFor="fs-duree" erreur={erreur('duree', duree)}>
+          <input className="input tnum" id="fs-duree" inputMode="decimal" value={duree} placeholder={fm?.dureeHeures != null ? `${fm.dureeHeures}${t(' (catalogue)')}` : '14'} onChange={e => setDuree(e.target.value)} />
         </Field>
         {/* lot 12 — C4 : organisme du référentiel ; « autre » : texte libre, repris en fiche à vérifier au démarrage suivant. */}
-        <ChoixOrganisme id="fs-organisme-id" valeur={organismeId} onChange={setOrganismeId} actuel={avant?.organismeId ?? null} label="Organisme"
-          vide={fm?.organisme ? `Celui du catalogue (${fm.organisme}) ou autre` : 'Autre (texte libre)'} />
+        <ChoixOrganisme id="fs-organisme-id" valeur={organismeId} onChange={setOrganismeId} actuel={avant?.organismeId ?? null} label={t('Training provider')}
+          vide={fm?.organisme ? `${t('The one of the catalogue (')}${fm.organisme}${t(') or other')}` : t('Other (free text)')} />
       </div>
       {!fiche && (
-        <Field label="Organisme (texte libre)" htmlFor="fs-organisme" erreur={erreur('organisme', organisme)}>
-          <input className="input" id="fs-organisme" type="text" value={organisme} maxLength={ORGANISME_SUIVIE_MAX} placeholder={fm?.organisme || 'Organisme de formation'} onChange={e => setOrganisme(e.target.value)} />
+        <Field label={t('Training provider (free text)')} htmlFor="fs-organisme" erreur={erreur('organisme', organisme)}>
+          <input className="input" id="fs-organisme" type="text" value={organisme} maxLength={ORGANISME_SUIVIE_MAX} placeholder={fm?.organisme || t('Training organisation')} onChange={e => setOrganisme(e.target.value)} />
         </Field>
       )}
       <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
         <input type="checkbox" checked={oblig} onChange={e => setObligatoire(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-        Formation obligatoire (exigée par une règle ou une convention)
+        {t('Mandatory training (required by a rule or an agreement)')}
       </label>
       {avant && (
-        <Field label="Motif de la correction" htmlFor="fs-motif" requis erreur={v.erreur(motifErr)}>
-          <textarea className="input mid" id="fs-motif" rows={2} maxLength={MOTIF_CORRECTION_MAX} placeholder="Dates mal recopiées, durée erronée…" value={motif} onChange={e => setMotif(e.target.value)} />
+        <Field label={t('Reason for the correction')} htmlFor="fs-motif" requis erreur={v.erreur(motifErr)}>
+          <textarea className="input mid" id="fs-motif" rows={2} maxLength={MOTIF_CORRECTION_MAX} placeholder={t('Dates copied wrongly, wrong duration…')} value={motif} onChange={e => setMotif(e.target.value)} />
         </Field>
       )}
       <Fine>
-        Une formation non obligatoire compte pour l’état des lieux du bilan à 8 ans (formation autre que réglementaire). Sans durée
-        saisie, celle du catalogue s’applique ; sans l’une ni l’autre, la formation compte « durée inconnue » dans les indicateurs.
-        {avant ? ` ${AIDE_MOTIF_CORRECTION}` : ''}
+        {t('A non-mandatory training course counts towards the 8-year review inventory (training other than regulatory). Without a duration entered, that of the catalogue applies; without either, the training counts as “duration unknown” in the indicators.')}
+        {avant ? ` ${aideMotifCorrection()}` : ''}
       </Fine>
     </Dialog>
   );

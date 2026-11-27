@@ -26,7 +26,7 @@ import { ABS_ABREGE, ACTIVITE_ASTREINTE, TEMPS_TRAVAIL, TS_CLS, TS_LABEL } from 
 import type { Domain } from '../../../shared/domain.ts';
 import { addD, estJourneeSolidarite, isoWeek, isoWeekYear, joursSemaine, mondayOf, parse } from '../../../shared/dates.ts';
 import { DIMANCHE, estWeekEnd, SAMEDI } from '../../../shared/rules/semaine.ts';
-import { cap, equipeLabel, fH, fJ, fmt, fmtShort, key, num, plural } from '../../../shared/format.ts';
+import { cap, equipeLabel, fH, fJ, fmt, fmtShort, key, num } from '../../../shared/format.ts';
 import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
 import { DEMI_LABEL } from '../../../shared/rules/demi-journees.ts';
 import {
@@ -75,6 +75,7 @@ import { PlanningEquipe } from '../components/planning/PlanningEquipe.tsx';
 // lot 12 — C6 (badgeage virtuel)
 import { PointagesSemaine } from '../components/temps/Pointages.tsx';
 import { estLignePointee } from '../../../shared/rules/pointage-feuille.ts';
+import { t, tn } from '../i18n/langue.ts';
 
 /** Année d'une feuille : celle de sa semaine ISO (son jeudi) ; le cumul annuel ventile une semaine à cheval jour par jour. */
 const anneeDe = (week: ISODate) => isoWeekYear(week);
@@ -85,31 +86,31 @@ const anneeDe = (week: ISODate) => isoWeekYear(week);
  * `motifManquant` : durées maximales dépassées sans motif (feuille corrigée par le valideur) ; il se donne en ouvrant la feuille.
  */
 function queueTotal(d: Domain, e: Employe, sh: FeuilleTemps): { main: string; sub: string; aRenvoyer?: boolean; motifManquant?: boolean } {
-  const t = totalFile(d, e, sh), c = calcSheet(d, e, sh);
+  const tot = totalFile(d, e, sh), c = calcSheet(d, e, sh);
   // Repos hebdomadaire ou dominical : signalé au valideur, sans empêcher la validation.
-  const repos = c.repos.length ? { ...t, sub: `${t.sub} · repos hebdomadaire à vérifier` } : t;
-  if (c.depassements.length && !sh.motifDepassement) return { ...repos, sub: `${repos.sub} · motif du dépassement à indiquer`, motifManquant: true };
+  const repos = c.repos.length ? { ...tot, sub: `${tot.sub}${t(' · weekly rest to check')}` } : tot;
+  if (c.depassements.length && !sh.motifDepassement) return { ...repos, sub: `${repos.sub}${t(' · reason for the excess to give')}`, motifManquant: true };
   // Forfait jours au-delà du plafond de l'année : le motif se donne en ouvrant la feuille.
-  return controleValidationForfait(d, e, sh).depassements.length ? { ...repos, sub: `${repos.sub} · motif du dépassement du forfait à indiquer`, motifManquant: true } : repos;
+  return controleValidationForfait(d, e, sh).depassements.length ? { ...repos, sub: `${repos.sub}${t(' · reason for the package excess to give')}`, motifManquant: true } : repos;
 }
 function totalFile(d: Domain, e: Employe, sh: FeuilleTemps): { main: string; sub: string; aRenvoyer?: boolean } {
   const c = calcSheet(d, e, sh), k = c.c;
   if (k.forfait) {
     const cumul = fileForfait(d, employeDeLaFeuille(e, sh), sh.week);
-    return { main: fJ(c.jours), sub: `forfait jours · ${fH(c.total)} déclarées${cumul ? ` · ${cumul}` : ''}` };
+    return { main: fJ(c.jours), sub: `${t('annual days package · ')}${fH(c.total)}${t(' declared#hours')}${cumul ? ` · ${cumul}` : ''}` };
   }
-  if (k.dirigeant) return { main: fJ(c.jours), sub: `cadre dirigeant · ${fH(c.total)} déclarées` };
+  if (k.dirigeant) return { main: fJ(c.jours), sub: `${t('senior executive · ')}${fH(c.total)}${t(' declared#hours')}` };
   if (k.annuel) {
     const cum = cumulAnnuel(d, employeDeLaFeuille(e, sh), anneeDe(sh.week));
-    return { main: fH(c.total), sub: `forfait annuel · cumul validé ${cum.annee} ${fH(cum.done)} / ${fH(cum.cible)}` };
+    return { main: fH(c.total), sub: `${t('annual package · approved cumulative total ')}${cum.annee} ${fH(cum.done)} / ${fH(cum.cible)}` };
   }
   // Seules les heures majorées dépassent le contrat ; les heures incluses au forfait hebdomadaire n'en font pas partie.
   const extra = c.sup25 + c.sup50 + c.hc10 + c.hc25;
   // Sans heure : la semaine doit encore être couverte par une absence (elle a pu être annulée ou raccourcie depuis).
   if (!c.total) return semaineCouverte(d, e, sh.week, sh)
-    ? { main: fH(0), sub: 'semaine d’absence, sans heure' }
-    : { main: fH(0), sub: 'aucune heure : semaine plus couverte par une absence, à renvoyer', aRenvoyer: true };
-  return { main: fH(c.total), sub: extra > 0 ? `dont ${fH(extra)} au-delà du contrat` : 'aucune heure au-delà du contrat' };
+    ? { main: fH(0), sub: t('week of absence, without hours') }
+    : { main: fH(0), sub: t('no hours: week no longer covered by an absence, to send back'), aRenvoyer: true };
+  return { main: fH(c.total), sub: extra > 0 ? `${t('of which ')}${fH(extra)}${t(' beyond the contract')}` : t('no hours beyond the contract') };
 }
 
 interface Recap { rows: [string, string][]; mention?: string; alert?: string; aide: string }
@@ -124,58 +125,58 @@ function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate, sh: Fe
   const art = tt.article ? ` ${tt.article}.` : '';
   // Heures supplémentaires payées, ou remplacées par un repos (mode figé sur la feuille à sa validation) : la ligne du
   // repos acquis n'apparaît que s'il y en a un ; l'intérimaire est réglé par son agence.
-  const recupRows: [string, string][] = c.interim ? [['Récupération', 'géré par l’agence']]
-    : calc.modeHS === 'paiement' ? [] : [['Repos compensateur acquis', fH(calc.recup)]];
+  const recupRows: [string, string][] = c.interim ? [[t('Time off in lieu'), t('managed by the agency')]]
+    : calc.modeHS === 'paiement' ? [] : [[t('Compensatory rest acquired'), fH(calc.recup)]];
   const recupAide = c.interim
-    ? ' Intérim : heures supplémentaires relevées et réglées par l’agence.'
+    ? t(' Temporary work: overtime recorded and paid by the agency.')
     : ` ${MODES_HEURES_SUP[calc.modeHS].aide}`;
   // Lignes ajoutées au décompte : heures du dimanche (comprises dans les autres) : rubrique HDIM, et majoration si le
   // réglage en prévoit une.
   const annexes: [string, string][] = !calc.dimanche || c.forfait ? []
-    : [['Dont heures du dimanche', fH(calc.dimanche)], ...(calc.majDimanche ? [[`Majoration du dimanche (${calc.majDimanche} %)`, fH(calc.dimanche * calc.majDimanche / 100)] as [string, string]] : [])];
+    : [[t('Of which Sunday hours'), fH(calc.dimanche)], ...(calc.majDimanche ? [[`${t('Sunday premium (')}${calc.majDimanche} %)`, fH(calc.dimanche * calc.majDimanche / 100)] as [string, string]] : [])];
   // Jours fériés travaillés (comprises dans les autres) : 1er mai majoré de 100 % (MAJ_1MAI), autres fériés en quantité
   // (FERIE_TRAV) et leur majoration réglée (MAJ_FERIE). Contrepartie obligatoire en repos figée à la validation (COR_ACQUIS).
   const cor = corDeLaFeuille(sh);
   if (!c.forfait) {
-    if (calc.mai1) annexes.push(['Dont heures du 1er mai', fH(calc.mai1)], [`Majoration du 1er mai (${MAJORATION_1ER_MAI} %)`, fH(calc.mai1 * MAJORATION_1ER_MAI / 100)]);
-    if (calc.ferie) annexes.push(['Dont heures un jour férié', fH(calc.ferie)], ...(calc.majFerie ? [[`Majoration des fériés (${calc.majFerie} %)`, fH(calc.ferie * calc.majFerie / 100)] as [string, string]] : []));
-    if (cor) annexes.push(['Contrepartie obligatoire en repos', fH(cor)]);
+    if (calc.mai1) annexes.push([t('Of which 1 May hours'), fH(calc.mai1)], [`${t('1 May premium (')}${MAJORATION_1ER_MAI} %)`, fH(calc.mai1 * MAJORATION_1ER_MAI / 100)]);
+    if (calc.ferie) annexes.push([t('Of which hours on a public holiday'), fH(calc.ferie)], ...(calc.majFerie ? [[`${t('Public holiday premium (')}${calc.majFerie} %)`, fH(calc.ferie * calc.majFerie / 100)] as [string, string]] : []));
+    if (cor) annexes.push([t('Mandatory rest compensation'), fH(cor)]);
     // Heures de nuit d'après les horaires de poste (shared/rules/repos-nuit.ts) : HNUIT, et MAJ_NUIT au taux réglé.
-    if (calc.nuit) annexes.push(['Dont heures de nuit', fH(calc.nuit)], ...(calc.majNuit ? [[`Majoration de nuit (${calc.majNuit} %)`, fH(calc.nuit * calc.majNuit / 100)] as [string, string]] : []));
+    if (calc.nuit) annexes.push([t('Of which night hours'), fH(calc.nuit)], ...(calc.majNuit ? [[`${t('Night premium (')}${calc.majNuit} %)`, fH(calc.nuit * calc.majNuit / 100)] as [string, string]] : []));
   }
   // Contingent annuel d'heures supplémentaires de chaque année de la semaine (deux pour une semaine à cheval sur le
   // 31 décembre ; feuilles validées).
   if (!(c.forfait || c.dirigeant || c.annuel || c.partiel || c.interim)) {
-    for (const k of contingentsDeLaSemaine(d, emp, week)) annexes.push([`Contingent ${k.annee} (heures sup validées)`, `${fH(k.cumul)} / ${fH(k.max)}`]);
+    for (const k of contingentsDeLaSemaine(d, emp, week)) annexes.push([`${t('Quota ')}${k.annee}${t(' (approved overtime)')}`, `${fH(k.cumul)} / ${fH(k.max)}`]);
   }
 
   if (c.forfait) {
     // Cumul validé de l'année (deux pour une semaine à cheval), plafond avec les jours rachetés, alerte au seuil.
     const f = recapForfait(d, emp, week);
     return {
-      rows: [['Jours travaillés', fJ(calc.jours)], ['Heures déclarées (répartition projets)', fH(calc.total)], ...f.rows],
+      rows: [[t('Days worked'), fJ(calc.jours)], [t('Hours declared (project split)'), fH(calc.total)], ...f.rows],
       alert: f.alertes.join(' · ') || undefined,
       aide: tt.aide + art,
     };
   }
   if (c.dirigeant) return {
-    rows: [['Jours de présence', fJ(calc.jours)], ['Heures déclarées (répartition projets)', fH(calc.total)]],
-    mention: 'Non soumis à la durée du travail, art. L3111-2',
+    rows: [[t('Days present'), fJ(calc.jours)], [t('Hours declared (project split)'), fH(calc.total)]],
+    mention: t('Not subject to working time rules, art. L3111-2'),
     aide: tt.aide,
   };
   if (c.annuel) {
     // Cumul de l'année de la feuille ; cible proratisée selon la présence (entrée, fin de contrat).
     const cum = cumulAnnuel(d, emp, anneeDe(week));
     const rows: [string, string][] = [
-      ['Heures de la semaine', fH(calc.total)],
+      [t('Hours of the week'), fH(calc.total)],
       ...annexes,
-      [`Cumul annuel validé ${cum.annee}`, `${fH(cum.done)} / ${fH(cum.cible)}`],
+      [`${t('Approved annual cumulative total ')}${cum.annee}`, `${fH(cum.done)} / ${fH(cum.cible)}`],
     ];
-    if (cum.cible !== c.heuresAnnuelles) rows.push([`Forfait ${cum.annee} au prorata de la présence`, `${fH(cum.cible)} sur ${fH(c.heuresAnnuelles)}`]);
-    if (cum.annee === d.year) rows.push(['Cible à date', fH(cum.prorata)]);
+    if (cum.cible !== c.heuresAnnuelles) rows.push([`${t('Package ')}${cum.annee}${t(' pro rata of attendance')}`, `${fH(cum.cible)}${t(' of ')}${fH(c.heuresAnnuelles)}`]);
+    if (cum.annee === d.year) rows.push([t('Target to date'), fH(cum.prorata)]);
     return {
       rows,
-      alert: cum.depasse ? `Forfait annuel ${cum.annee} dépassé de ${fH(cum.done - cum.cible)} : heures à régulariser en fin d’année` : undefined,
+      alert: cum.depasse ? `${t('Annual package ')}${cum.annee}${t(' exceeded by ')}${fH(cum.done - cum.cible)}${t(': hours to regularise at the end of the year')}` : undefined,
       aide: tt.aide + art,
     };
   }
@@ -183,19 +184,19 @@ function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate, sh: Fe
     // Plafond réglé : le dixième, ou le tiers avec la référence d'un accord (Paramètres → Décompte des heures).
     const p = plafondComplementaires(d.ds.settings);
     return {
-      rows: [['Heures contractuelles', fH(Math.min(calc.total, c.base))], ['Complémentaires +10 %', fH(calc.hc10)], ['Complémentaires +25 %', fH(calc.hc25)], ...annexes],
-      aide: `${tt.aide} Plafond en vigueur : le ${p.label} de la durée contractuelle, soit ${fH(c.base / p.diviseur)} cette semaine (${p.article}).${art}`,
+      rows: [[t('Contractual hours'), fH(Math.min(calc.total, c.base))], [t('Additional +10 %'), fH(calc.hc10)], [t('Additional +25 %'), fH(calc.hc25)], ...annexes],
+      aide: `${tt.aide}${t(' Ceiling in force: the ')}${p.label}${t(' of the contractual duration, i.e. ')}${fH(c.base / p.diviseur)}${t(' this week (')}${p.article}).${art}`,
     };
   }
   if (c.hebdo) {
     // Heures incluses au forfait : +25 % jusqu'à la 43e heure, +50 % au-delà (forfait supérieur à 43 h).
-    const rows: [string, string][] = [['Heures normales (jusqu’à 35 h)', fH(calc.normal)], ['Incluses au forfait +25 %', fH(calc.incluses25)]];
-    if ((c.seuil ?? 0) > 43 || calc.incluses50 > 0) rows.push(['Incluses au forfait +50 %', fH(calc.incluses50)]);
-    rows.push(['Supplémentaires +25 %', fH(calc.sup25)], ['Supplémentaires +50 %', fH(calc.sup50)], ...recupRows, ...annexes);
+    const rows: [string, string][] = [[t('Normal hours (up to 35 h)'), fH(calc.normal)], [t('Included in the package +25 %'), fH(calc.incluses25)]];
+    if ((c.seuil ?? 0) > 43 || calc.incluses50 > 0) rows.push([t('Included in the package +50 %'), fH(calc.incluses50)]);
+    rows.push([t('Overtime +25 %'), fH(calc.sup25)], [t('Overtime +50 %'), fH(calc.sup50)], ...recupRows, ...annexes);
     return { rows, aide: tt.aide + recupAide + art };
   }
   return {
-    rows: [['Heures normales', fH(calc.normal)], ['Supplémentaires +25 %', fH(calc.sup25)], ['Supplémentaires +50 %', fH(calc.sup50)], ...recupRows, ...annexes],
+    rows: [[t('Normal hours'), fH(calc.normal)], [t('Overtime +25 %'), fH(calc.sup25)], [t('Overtime +50 %'), fH(calc.sup50)], ...recupRows, ...annexes],
     aide: tt.aide + recupAide + art,
   };
 }
@@ -227,7 +228,7 @@ export function Temps() {
   // Onglets de l'écran (lot 12, socle ; pages/temps-onglets.ts) : chaque chantier n'ajoute que son onglet (libellé, et
   // contenu dans un composant à lui), dans son bloc. La barre n'est montrée qu'à partir de deux onglets ; un onglet
   // absent pour cet espace (adresse d'un autre) ramène aux feuilles de temps.
-  const onglets: [OngletTemps, string][] = [['feuilles', 'Feuilles de temps']];
+  const onglets: [OngletTemps, string][] = [['feuilles', t('Timesheets')]];
   const contenus: Partial<Record<OngletTemps, ReactNode>> = {};
   // lot 12 — C1 (forfait annuel en heures) : bandeau de clôture, suivi de la période, lignes enregistrées (onglet affiché
   // seulement s'il a quelque chose à montrer ; jamais au référent HSE).
@@ -235,44 +236,44 @@ export function Temps() {
   const libelleForfait = useMemo(() => ongletForfaitHeures(d, droitsForfait), [d, droitsForfait]);
   if (libelleForfait) { onglets.push(['forfait-heures', libelleForfait]); contenus['forfait-heures'] = <RecapForfaitHeures />; }
   // lot 12 — C5 (planning d'équipe) : module activé ; service RH, paie et lecture seule, manager (ses équipes).
-  if (data.settings.planningActif && !collab) { onglets.push(['planning', 'Planning d’équipe']); contenus.planning = <PlanningEquipe />; }
+  if (data.settings.planningActif && !collab) { onglets.push(['planning', t('Team schedule')]); contenus.planning = <PlanningEquipe />; }
   // lot 12 — C6 (badgeage virtuel) : semaine de pointages du salarié affiché, le module activé (pas pour les profils
   // restreints, qui lisent la feuille).
   if (data.settings.pointageActif && (rh || manager || collab)) {
-    onglets.push(['pointages', 'Pointages']);
+    onglets.push(['pointages', t('Clock-ins')]);
     contenus.pointages = tsEmp ? <PointagesSemaine key={`${tsEmp.id}|${wk}`} emp={tsEmp} wk={wk} /> : null;
   }
   const onglet: OngletTemps = onglets.some(([o]) => o === ui.tempsOnglet) ? ui.tempsOnglet : 'feuilles';
 
   return (
     <Page
-      kicker={`Semaine ${isoWeek(wk)} · ${fmtShort(parse(wdays[0]))} → ${fmt(parse(wdays[DIMANCHE]))}`}
-      title="Temps de travail"
+      kicker={`${t('Week ')}${isoWeek(wk)} · ${fmtShort(parse(wdays[0]))} → ${fmt(parse(wdays[DIMANCHE]))}`}
+      title={t('Working time')}
       actions={<>
         {/* Choix du salarié par suggestions (t152) : nom, poste, équipe ou matricule. */}
         {!collab && (
-          <ChoixCollaborateur id="temps-salarie" label="Collaborateur" emps={options} valeur={tsId} style={{ minWidth: 240 }}
-            onChange={id => { if (id != null) setUi({ tsEmp: id }); }} suffixe={e => lecture.has(e.id) ? ' (lecture seule)' : ''} />
+          <ChoixCollaborateur id="temps-salarie" label={t('Employee')} emps={options} valeur={tsId} style={{ minWidth: 240 }}
+            onChange={id => { if (id != null) setUi({ tsEmp: id }); }} suffixe={e => lecture.has(e.id) ? t(' (read only)') : ''} />
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
-          <button type="button" className="btn btn-ghost btn-icon plain" aria-label="Semaine précédente" title="Semaine précédente" onClick={() => setUi({ weekStart: addD(wk, -7) })}><CaretLeftIcon size={14} /></button>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setUi({ weekStart: mondayOf(data.today) })}>Cette semaine</button>
-          <button type="button" className="btn btn-ghost btn-icon plain" aria-label="Semaine suivante" title="Semaine suivante" onClick={() => setUi({ weekStart: addD(wk, 7) })}><CaretRightIcon size={14} /></button>
+          <button type="button" className="btn btn-ghost btn-icon plain" aria-label={t('Previous week')} title={t('Previous week')} onClick={() => setUi({ weekStart: addD(wk, -7) })}><CaretLeftIcon size={14} /></button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setUi({ weekStart: mondayOf(data.today) })}>{t('This week')}</button>
+          <button type="button" className="btn btn-ghost btn-icon plain" aria-label={t('Next week')} title={t('Next week')} onClick={() => setUi({ weekStart: addD(wk, 7) })}><CaretRightIcon size={14} /></button>
         </div>
         {/* Lien de la feuille affichée : salarié (sauf l'espace collaborateur, toujours sa propre feuille) et semaine. */}
         <CopierLien chemin={`/temps?${collab || tsId == null ? '' : `salarie=${tsId}&`}semaine=${wk}`} />
       </>}
     >
       {onglets.length > 1 && (
-        <Seg name="tempsOnglet" label="Onglet de Temps de travail" value={onglet} onChange={v => setUi({ tempsOnglet: v })} style={{ alignSelf: 'flex-start', flexWrap: 'wrap' }}
+        <Seg name="tempsOnglet" label={t('Working time tab')} value={onglet} onChange={v => setUi({ tempsOnglet: v })} style={{ alignSelf: 'flex-start', flexWrap: 'wrap' }}
           options={onglets} />
       )}
       {onglet !== 'feuilles' ? contenus[onglet] : <>
       {!collab && queue.length > 0 && (
-        <Panel highlight title="Feuilles à valider" aside={plural(queue.length, 'feuille à valider', 'feuilles à valider')}>
+        <Panel highlight title={t('Timesheets to approve')} aside={tn(queue.length, 'timesheet to approve', 'timesheets to approve')}>
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Collaborateur</th><th>Semaine</th><th>Total</th><th></th></tr></thead>
+              <thead><tr><th>{t('Employee')}</th><th>{t('Week')}</th><th>{t('Total')}</th><th></th></tr></thead>
               <tbody>
                 {queue.map(({ sh, e }) => {
                   const tot = queueTotal(d, e, sh);
@@ -280,15 +281,15 @@ export function Temps() {
                   return (
                     <tr key={sh.id} className="clickable" onClick={open}>
                       <td><Two main={<Ouvrir onOpen={open}>{e.nom}</Ouvrir>} sub={equipeLabel(e)} nowrap /></td>
-                      <td className="nowrap">S{isoWeek(sh.week)} · {fmtShort(parse(sh.week))}</td>
+                      <td className="nowrap">{t('W#week-short')}{isoWeek(sh.week)} · {fmtShort(parse(sh.week))}</td>
                       <td>
                         <div className="tnum">{tot.main}</div>
                         <div className="text-muted sub">{tot.sub}</div>
                       </td>
                       <td className="right">
                         <div className="actions-end">
-                          <button type="button" className="btn btn-ghost btn-sm" onClick={stop(open)}>Ouvrir</button>
-                          {!tot.aRenvoyer && !tot.motifManquant && valide(e) && <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={agir(() => run('temps.validate', { empId: e.id, week: sh.week }))}>Valider</button>}
+                          <button type="button" className="btn btn-ghost btn-sm" onClick={stop(open)}>{t('Open')}</button>
+                          {!tot.aRenvoyer && !tot.motifManquant && valide(e) && <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={agir(() => run('temps.validate', { empId: e.id, week: sh.week }))}>{t('Approve')}</button>}
                         </div>
                       </td>
                     </tr>
@@ -306,7 +307,7 @@ export function Temps() {
 
       {espaceRh && <AlertesDurees />}
 
-      {tsEmp && lecture.has(tsEmp.id) && <Fine>Consultation en lecture seule (équipe rattachée) : la feuille de {tsEmp.nom} est saisie par lui et validée par {d.mgrName(d.mgrOf(tsEmp))}.</Fine>}
+      {tsEmp && lecture.has(tsEmp.id) && <Fine>{t('Read-only consultation (attached team): the timesheet of ')}{tsEmp.nom}{t(' is entered by them and approved by ')}{d.mgrName(d.mgrOf(tsEmp))}.</Fine>}
       {tsEmp && <AlerteAutorisation e={tsEmp} />}
       {tsEmp && <Sheet key={`${tsEmp.id}|${wk}`} emp={tsEmp} wk={wk} />}
 
@@ -345,7 +346,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const st = sh ? sh.statut : 'vide';
   const actuel = d.contratOf(emp);
   const autreRegime = !!sh?.contrat && (c.libelle !== actuel.libelle || c.jourOff.join() !== actuel.jourOff.join());
-  const regimeNote = !autreRegime ? '' : st === 'soumise' || st === 'validee' ? 'régime figé à la soumission' : 'régime en vigueur cette semaine';
+  const regimeNote = !autreRegime ? '' : t(st === 'soumise' || st === 'validee' ? 'arrangement frozen at submission' : 'arrangement in force this week');
   const validator = d.mgrOf(emp);
   // Un membre du RH ne valide pas sa propre feuille : son manager ou un autre membre du RH le fait.
   const isValidator = (rh && emp.id !== soi) || (manager && validator === me);
@@ -358,7 +359,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const canValidate = st === 'soumise' && isValidator;
   // Horaire de poste du jour : proposé d'après l'équipe, choisi jour par jour (null : aucun horaire à montrer).
   const horaires = useHorairesFeuille(emp, wk, sh, calc.perDay, editable);
-  const submitLabel = isValidator ? 'Soumettre pour validation' : validator ? 'Soumettre au manager' : 'Soumettre au service RH';
+  const submitLabel = t(isValidator ? 'Submit for approval' : validator ? 'Submit to the manager' : 'Submit to HR');
   const base = { empId: emp.id, week: wk };
 
   const absences = joursAbsence(d, emp.id, wk);
@@ -383,11 +384,11 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
     return {
       day, a, locked: (!!fer && ferieBloque) || !!a || hors, hl: (!!m && !fer && !a) || (!!fer && calc.perDay[i] > 0) || [...surAbsence, ...enAttente].some(x => x.di === i),
       label: cap(parse(day).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })), long: jourLong(day), weekend: estWeekEnd(i),
-      note: fer ? mentionFerie(fer, calc.perDay[i], calc.majFerie) : hors ? 'Hors contrat'
-        : a ? `${ABS_ABREGE[a.type]}${a.statut === 'signalee' ? ' (signalée)' : ''}`
+      note: fer ? mentionFerie(fer, calc.perDay[i], calc.majFerie) : hors ? t('Outside the contract')
+        : a ? `${ABS_ABREGE[a.type]}${a.statut === 'signalee' ? t(' (reported)#fem') : ''}`
         : demis[i] ? `${ABS_ABREGE[demis[i].absence.type]} ${DEMI_LABEL[demis[i].demi]} · ${fH(demis[i].max)} max.`
-        : dem ? `${cap(natureAbsence(dem.type))}${demDemi ? ` ${DEMI_LABEL[demDemi]}` : ''} demandé${dem.type === 'RECUP' ? 'e' : ''}` : off ? 'Non travaillé'
-        : estJourneeSolidarite(day) ? 'Journée de solidarité' : m ? `Mission ${m.projet}` : estWeekEnd(i) ? 'Week-end' : '—',
+        : dem ? `${cap(natureAbsence(dem.type))}${demDemi ? ` ${DEMI_LABEL[demDemi]}` : ''}${dem.type === 'RECUP' ? t(' requested#fem') : t(' requested#masc')}` : off ? t('Not worked#masc')
+        : estJourneeSolidarite(day) ? t('Solidarity day') : m ? `${t('Assignment ')}${m.projet}` : estWeekEnd(i) ? t('Weekend') : '—',
     };
   });
   // Samedi et dimanche : repliés en une colonne tant qu'ils sont vides (grille de la semaine) ; dépliés pour y saisir.
@@ -399,8 +400,8 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   // De même pour un jour férié quand le réglage n'en permet plus la saisie : les heures déjà posées restent à retirer.
   const alerteDe = (li: number, di: number) => {
     const a = days[di].a, h = num(lignes[li]?.h[di]);
-    if (a && h > 0) return `${absenceCeJour(a)} : ${editable ? 'videz la cellule' : 'aucune heure ne devrait être saisie'}`;
-    if (feries[di] && ferieBloque && h > 0) return `Férié non saisissable : ${editable ? 'videz la cellule' : 'aucune heure ne devrait être saisie'}`;
+    if (a && h > 0) return `${absenceCeJour(a)}${t(': ')}${t(editable ? 'empty the cell' : 'no hours should be entered')}`;
+    if (feries[di] && ferieBloque && h > 0) return `${t('Public holiday not enterable: ')}${t(editable ? 'empty the cell' : 'no hours should be entered')}`;
     return undefined;
   };
   const enregistrer = async (li: number, di: number, raw: string) => (await run('temps.setCell', { ...base, li, di, value: raw }, { silent: true })).ok;
@@ -434,14 +435,14 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
 
   // Intérimaire : relevé hebdomadaire à l'agence (le service RH voit s'il a été transmis).
   const releve = data.releves.filter(r => key(r.agence) === key(emp.agence) && r.semaine === wk).at(-1);
-  const paie = sh?.sage ? ' · transmise à Sage Paie' : sh?.lotId ? ` · dans le lot de paie n° ${sh.lotId}, import dans Sage à confirmer`
-    : c.interim ? (releve ? ` · relevé transmis à l’agence le ${fmtShort(new Date(releve.creation))}` : ' · relevé hebdomadaire à l’agence d’intérim')
-    : c.dirigeant ? ' · non transmise à la paie (cadre dirigeant, art. L3111-2)'
-    : sh && aRegulariser(sh) ? ' · écart à transmettre à Sage Paie (régularisation, lot correctif)'
-    : ' · en attente de transmission à Sage Paie';
+  const paie = sh?.sage ? t(' · passed to Sage Paie') : sh?.lotId ? `${t(' · in payroll batch no. ')}${sh.lotId}${t(', import into Sage to confirm')}`
+    : c.interim ? (releve ? `${t(' · statement sent to the agency on ')}${fmtShort(new Date(releve.creation))}` : t(' · weekly statement to the temporary work agency'))
+    : c.dirigeant ? t(' · not passed to payroll (senior executive, art. L3111-2)')
+    : sh && aRegulariser(sh) ? t(' · difference to pass to Sage Paie (regularisation, corrective batch)')
+    : t(' · awaiting transmission to Sage Paie');
   const flow = st === 'validee'
-    ? `Validée${sh!.keystone ? ' · heures par projet renvoyées à Keystone' : ''}${paie}`
-    : st === 'soumise' ? `En attente de validation par ${d.mgrName(validator)}` : 'Saisie par jour et par projet — proposée à partir des tâches Keystone';
+    ? `${t('Approved#fem')}${sh!.keystone ? t(' · hours per project sent back to Keystone') : ''}${paie}`
+    : st === 'soumise' ? `${t('Awaiting approval by ')}${d.mgrName(validator)}` : t('Entered by day and by project — proposed from the Keystone tasks');
 
   const reject = agir(async () => {
     const r = await run('temps.reject', { ...base, comment });
@@ -453,9 +454,9 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const motifManquant = depasse && !motif.trim();
   const motifValideur = canValidate && depasse && !motifSoumis;
   // Salarié mineur au-delà de 8 h par jour ou de 35 h par semaine : motif, ou référence de la dérogation de l'inspection.
-  const motifLibelle = calc.depassementsMineur.length ? 'Motif du dépassement ou référence de la dérogation de l’inspection du travail'
+  const motifLibelle = calc.depassementsMineur.length ? t('Reason for the excess or reference of the labour inspectorate derogation')
     // Repos quotidien ou pause insuffisants seulement (horaires de poste, shared/rules/repos-nuit.ts).
-    : calc.depassements.every(x => calc.reposQuotidien.includes(x)) ? 'Motif du repos quotidien ou de la pause insuffisants' : 'Motif du dépassement';
+    : calc.depassements.every(x => calc.reposQuotidien.includes(x)) ? t('Reason for the insufficient daily rest or break') : t('Reason for the excess');
   // Forfait jours : plafond de l'année dépassé avec cette feuille (comptée validée) : motif du valideur exigé.
   const [motifForfait, setMotifForfait] = useState(sh?.motifForfait ?? '');
   const forfaitDepasse = canValidate && sh ? controleValidationForfait(d, emp, sh).depassements : [];
@@ -465,7 +466,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
     <div className="row-wrap">
       <Panel style={{ flex: '1 1 640px', gap: 'var(--space-4)' }} head={
         <div className="panel-head top">
-          <div><h2>{emp.nom}</h2><div className="text-muted sub">{c.label}{regimeNote && ` · ${regimeNote}`} · validation : {d.mgrName(validator)}</div></div>
+          <div><h2>{emp.nom}</h2><div className="text-muted sub">{c.label}{regimeNote && ` · ${regimeNote}`}{t(' · approval: ')}{d.mgrName(validator)}</div></div>
           <Tag cls={TS_CLS[st]}>{TS_LABEL[st]}</Tag>
         </div>
       }>
@@ -476,7 +477,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
             ))}
           </div>
         )}
-        {sh?.comment && st === 'rejetee' && <div style={{ fontSize: 13, color: 'var(--color-accent-300)' }}>{sh.reouverture?.renvoyee ? 'Feuille rouverte par le service RH' : 'Retour du manager'} : {sh.comment}</div>}
+        {sh?.comment && st === 'rejetee' && <div style={{ fontSize: 13, color: 'var(--color-accent-300)' }}>{t(sh.reouverture?.renvoyee ? 'Timesheet reopened by HR' : 'Feedback from the manager')}{t(': ')}{sh.comment}</div>}
 
         {vueJour ? (
           <SaisieJour wk={wk} days={days} lignes={lignes} perDay={calc.perDay} total={calc.total} editable={editable} occupe={occupe}
@@ -487,21 +488,21 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
         <div className="scroll-x">
           <table className="table" style={{ fontSize: 13 }}>
             <thead><tr>
-              <th>Projet · tâche</th>
+              <th>{t('Project · task')}</th>
               {colonnes.map(i => { const x = days[i]; return (
                 <th key={x.day} className={`center nowrap${x.weekend ? ' col-weekend' : ''}`}>
                   <div>{x.label}</div>
                   <div style={{ fontSize: 11, fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: x.hl ? 'var(--color-accent-300)' : 'var(--color-neutral-500)' }}>{x.note}</div>
-                  {i === DIMANCHE && <button type="button" className="btn btn-ghost btn-sm weekend-bascule" aria-expanded onClick={() => setVoirWeekEnd(false)}>Replier</button>}
+                  {i === DIMANCHE && <button type="button" className="btn btn-ghost btn-sm weekend-bascule" aria-expanded onClick={() => setVoirWeekEnd(false)}>{t('Fold')}</button>}
                 </th>
               ); })}
               {!voirWeekEnd && (
                 <th className="center nowrap col-weekend">
-                  <button type="button" className="btn btn-ghost btn-sm weekend-bascule" aria-expanded={false} onClick={() => setVoirWeekEnd(true)}>Sam. · Dim.</button>
-                  <div style={{ fontSize: 11, fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--color-neutral-500)' }}>Week-end</div>
+                  <button type="button" className="btn btn-ghost btn-sm weekend-bascule" aria-expanded={false} onClick={() => setVoirWeekEnd(true)}>{t('Sat. · Sun.')}</button>
+                  <div style={{ fontSize: 11, fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--color-neutral-500)' }}>{t('Weekend')}</div>
                 </th>
               )}
-              <th className="right">Total</th><th></th>
+              <th className="right">{t('Total')}</th><th></th>
             </tr></thead>
             <tbody>
               {horaires && <LigneHoraires h={horaires} colonnes={colonnes} weekEndReplie={!voirWeekEnd} long={days.map(x => x.long)} />}
@@ -526,11 +527,11 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
                   })}
                   {!voirWeekEnd && <td className="center col-weekend tnum nowrap">{heuresWeekEnd(l.h) ? fH(heuresWeekEnd(l.h)) : '—'}</td>}
                   <td className="right nowrap tnum">{fH(l.h.reduce((n, v) => n + num(v), 0))}</td>
-                  <td className="right">{editable && !(ligneAstreinte(l) && l.h.some(v => num(v) > 0)) && /* lot 12 — C6 */ !estLignePointee(l) && <CloseButton size={28} label={`Supprimer la ligne ${l.projet}`} disabled={occupe} onClick={ev => supprimer(li, ev)} />}</td>
+                  <td className="right">{editable && !(ligneAstreinte(l) && l.h.some(v => num(v) > 0)) && /* lot 12 — C6 */ !estLignePointee(l) && <CloseButton size={28} label={`${t('Delete the line ')}${l.projet}`} disabled={occupe} onClick={ev => supprimer(li, ev)} />}</td>
                 </tr>
               ))}
               <tr>
-                <td style={{ fontWeight: 500 }}>Total jour</td>
+                <td style={{ fontWeight: 500 }}>{t('Day total')}</td>
                 {colonnes.map(i => { const h = calc.perDay[i]; return (
                   <td key={i} className={`center${estWeekEnd(i) ? ' col-weekend' : ''}`}><span className="tnum nowrap" style={{ color: h > 10 || (calc.depassementsMineur.length > 0 && h > MINEUR_JOUR_MAX) ? 'var(--color-accent-300)' : 'inherit' }}>{h ? fH(h) : '—'}</span></td>
                 ); })}
@@ -545,20 +546,20 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
         {horaires && <LegendeHoraires h={horaires} />}
         {/* Astreintes de la semaine et interventions déclarées (ligne INT-AST, en lecture seule dans la grille). */}
         <InterventionsFeuille emp={emp} wk={wk} editable={editable} />
-        {horsSemaine && <div className="note-accent">Semaine hors contrat : {horsSemaine}. Aucune feuille de temps.</div>}
-        {!horsSemaine && lignes.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Aucune heure saisie pour cette semaine.</p>}
-        {couverte && !(calc.total > 0) && editable && !correction && <Fine>Semaine couverte par une absence : la feuille se soumet sans heure.</Fine>}
+        {horsSemaine && <div className="note-accent">{t('Week outside the contract: ')}{horsSemaine}{t('. No timesheet.')}</div>}
+        {!horsSemaine && lignes.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>{t('No hours entered for this week.')}</p>}
+        {couverte && !(calc.total > 0) && editable && !correction && <Fine>{t('Week covered by an absence: the timesheet is submitted without hours.')}</Fine>}
 
         {editable && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-            <select className="input" aria-label="Ajouter un projet" value="" disabled={occupe} style={{ width: 'auto', minWidth: 240 }}
+            <select className="input" aria-label={t('Add a project')} value="" disabled={occupe} style={{ width: 'auto', minWidth: 240 }}
               onChange={ev => { const projet = ev.target.value; if (projet) agir(() => run('temps.addLine', { ...base, projet }))(); }}>
-              <option value="">+ Ajouter un projet…</option>
+              <option value="">{t('+ Add a project…')}</option>
               {projOptions.map(p => <option key={p.code} value={p.code}>{p.code} · {p.nom}</option>)}
             </select>
-            {canSuggest && <button type="button" className="btn btn-secondary" disabled={occupe} onClick={agir(() => run('temps.suggest', base))}>{formations ? (keystone ? 'Proposer les heures prévues' : 'Proposer les heures de formation') : 'Proposer depuis Keystone'}</button>}
+            {canSuggest && <button type="button" className="btn btn-secondary" disabled={occupe} onClick={agir(() => run('temps.suggest', base))}>{t(formations ? (keystone ? 'Propose the planned hours' : 'Propose the training hours') : 'Propose from Keystone')}</button>}
             {correction
-              ? <span className="text-muted sub" style={{ marginLeft: 'auto' }}>Correction avant validation : la feuille reste soumise</span>
+              ? <span className="text-muted sub" style={{ marginLeft: 'auto' }}>{t('Correction before approval: the timesheet stays submitted')}</span>
               : <button type="button" className="btn btn-primary" style={{ marginLeft: 'auto' }} disabled={!(calc.total > 0 || couverte) || surAbsence.length > 0 || motifManquant || occupe}
                   onClick={agir(() => run('temps.submit', { ...base, ...(depasse ? { motif: motif.trim() } : {}) }))}>{submitLabel}</button>}
           </div>
@@ -568,13 +569,13 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
             {editable
               ? heuresSurAbsenceMessage(surAbsence, correction ? 'ou renvoyez la feuille avant de la valider' : 'avant de soumettre la feuille')
               : `${[
-                surAbsence.some(x => !x.demi) ? `Absence ${joursAbsenceTexte(surAbsence.filter(x => !x.demi))} : des heures y sont saisies` : '',
-                surAbsence.some(x => x.demi) ? `${demiJourneeTexte(surAbsence.filter(x => x.demi))} : plus d’une demi-journée de travail saisie` : '',
-              ].filter(Boolean).join(' ; ')}${st === 'validee' ? ' — feuille validée, non modifiée rétroactivement' : ''}`}
+                surAbsence.some(x => !x.demi) ? `${t('Absence')} ${joursAbsenceTexte(surAbsence.filter(x => !x.demi))}${t(': hours are entered on it')}` : '',
+                surAbsence.some(x => x.demi) ? `${demiJourneeTexte(surAbsence.filter(x => x.demi))}${t(': more than a half-day of work entered')}` : '',
+              ].filter(Boolean).join(' ; ')}${st === 'validee' ? t(' — timesheet approved, not changed retroactively') : ''}`}
           </div>
         )}
         {enAttente.length > 0 && st !== 'validee' && <div className="note-accent">{demandesEnAttenteMessage(enAttente, canValidate)}</div>}
-        {plusCouverte && <div className="note-accent">Aucune heure et la semaine n’est plus couverte par une absence : renvoyez la feuille pour saisie des heures.</div>}
+        {plusCouverte && <div className="note-accent">{t('No hours and the week is no longer covered by an absence: send the timesheet back for the hours to be entered.')}</div>}
         {calc.warn.length + alertesDurees.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
             {[...calc.warn, ...alertesDurees].map(w => <div key={w} className="note-accent">{w}</div>)}
@@ -582,25 +583,25 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
         )}
         {depasse && editable && !correction && (
           <div className="field">
-            <label htmlFor="ts-motif">{motifLibelle} (obligatoire pour soumettre)</label>
-            <textarea className="input short" id="ts-motif" rows={2} placeholder="Panne, intervention urgente, inventaire…" value={motif} onChange={ev => setMotif(ev.target.value)} style={{ resize: 'vertical' }} />
+            <label htmlFor="ts-motif">{motifLibelle}{t(' (mandatory to submit)')}</label>
+            <textarea className="input short" id="ts-motif" rows={2} placeholder={t('Breakdown, urgent intervention, inventory…')} value={motif} onChange={ev => setMotif(ev.target.value)} style={{ resize: 'vertical' }} />
           </div>
         )}
-        {motifSoumis && (st === 'soumise' || st === 'validee') && <Fine>Motif du dépassement : {motifSoumis}</Fine>}
-        {sh?.motifForfait && st === 'validee' && <Fine>Motif du dépassement du forfait jours : {sh.motifForfait}</Fine>}
+        {motifSoumis && (st === 'soumise' || st === 'validee') && <Fine>{t('Reason for the excess: ')}{motifSoumis}</Fine>}
+        {sh?.motifForfait && st === 'validee' && <Fine>{t('Reason for the annual days package excess: ')}{sh.motifForfait}</Fine>}
         <Fine>{flow}</Fine>
         {/* Réouverture (t131) : administrateur RH, jamais sa propre feuille ; une feuille transmise se régularise par écart. */}
-        {sh?.reouverture && <Fine>{mentionReouverture(sh, iso => fmtShort(new Date(iso)))}{sh.reouverture.motif ? ` — motif : ${sh.reouverture.motif}` : ''}</Fine>}
+        {sh?.reouverture && <Fine>{mentionReouverture(sh, iso => fmtShort(new Date(iso)))}{sh.reouverture.motif ? `${t(' — reason: ')}${sh.reouverture.motif}` : ''}</Fine>}
         {st === 'validee' && admin && emp.id !== soi && (
           <div className="actions-end">
-            <button type="button" className="btn btn-secondary btn-sm" onClick={() => openDialog({ type: 'rouvrirFeuille', empId: emp.id, week: wk })}>Rouvrir la feuille</button>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => openDialog({ type: 'rouvrirFeuille', empId: emp.id, week: wk })}>{t('Reopen the timesheet')}</button>
           </div>
         )}
       </Panel>
 
       <aside className="card elev-sm panel" style={{ flex: '0 1 320px', minWidth: 280 }}>
-        <h3>Récapitulatif paie</h3>
-        {autreRegime && <Fine>{cap(regimeNote)} : {c.libelle}. Contrat actuel : {actuel.libelle}.</Fine>}
+        <h3>{t('Payroll summary')}</h3>
+        {autreRegime && <Fine>{cap(regimeNote)}{t(': ')}{c.libelle}{t('. Current contract: ')}{actuel.libelle}.</Fine>}
         {recap.rows.map(([label, val]) => (
           <div key={label} style={rowStyle}>
             <span className="text-muted">{label}</span><span className="tnum nowrap">{val}</span>
@@ -612,17 +613,17 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
         {canValidate && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', paddingTop: 'var(--space-2)' }}>
             {motifValideur && (
-              <textarea className="input short" rows={2} aria-label={motifLibelle} placeholder={`${motifLibelle} (obligatoire pour valider)`} value={motif} onChange={ev => setMotif(ev.target.value)} style={{ resize: 'vertical' }} />
+              <textarea className="input short" rows={2} aria-label={motifLibelle} placeholder={`${motifLibelle}${t(' (mandatory to approve)')}`} value={motif} onChange={ev => setMotif(ev.target.value)} style={{ resize: 'vertical' }} />
             )}
-            {forfaitDepasse.map(x => <div key={x} className="note-accent">{x} avec cette semaine : motif exigé pour valider.</div>)}
+            {forfaitDepasse.map(x => <div key={x} className="note-accent">{x}{t(' with this week: reason required to approve.')}</div>)}
             {forfaitDepasse.length > 0 && (
-              <textarea className="input short" rows={2} aria-label="Motif du dépassement du forfait jours" placeholder="Motif du dépassement du forfait jours (obligatoire pour valider)" value={motifForfait} onChange={ev => setMotifForfait(ev.target.value)} style={{ resize: 'vertical' }} />
+              <textarea className="input short" rows={2} aria-label={t('Reason for the annual days package excess')} placeholder={t('Reason for the annual days package excess (mandatory to approve)')} value={motifForfait} onChange={ev => setMotifForfait(ev.target.value)} style={{ resize: 'vertical' }} />
             )}
-            <textarea className="input short" rows={2} aria-label="Commentaire" placeholder="Commentaire en cas de renvoi (facultatif)" value={comment} onChange={ev => setComment(ev.target.value)} style={{ resize: 'vertical' }} />
+            <textarea className="input short" rows={2} aria-label={t('Comment')} placeholder={t('Comment if sent back (optional)')} value={comment} onChange={ev => setComment(ev.target.value)} style={{ resize: 'vertical' }} />
             <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
-              <button type="button" className="btn btn-ghost" disabled={occupe} onClick={reject}>Renvoyer</button>
+              <button type="button" className="btn btn-ghost" disabled={occupe} onClick={reject}>{t('Send back')}</button>
               <button type="button" className="btn btn-primary" disabled={surAbsence.length + enAttente.length > 0 || plusCouverte || (motifValideur && motifManquant) || motifForfaitManquant || occupe}
-                onClick={agir(() => run('temps.validate', { ...base, ...(motifValideur ? { motif: motif.trim() } : {}), ...(forfaitDepasse.length ? { motifForfait: motifForfait.trim() } : {}) }))}>Valider la semaine</button>
+                onClick={agir(() => run('temps.validate', { ...base, ...(motifValideur ? { motif: motif.trim() } : {}), ...(forfaitDepasse.length ? { motifForfait: motifForfait.trim() } : {}) }))}>{t('Approve the week')}</button>
             </div>
           </div>
         )}

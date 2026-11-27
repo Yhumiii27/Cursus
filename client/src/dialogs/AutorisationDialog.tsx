@@ -11,15 +11,16 @@ import { CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerifi
 import { Fine, NoteAccent, SectionLabel, Seg } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 /** Information du salarié (art. 13 du RGPD), à porter à sa connaissance avant l'enregistrement. */
 function InfoTitre() {
   return (
     <div className="boxed-lg" role="note" aria-label={INFO_TITRE_SEJOUR.titre} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
       <SectionLabel>{INFO_TITRE_SEJOUR.titre}</SectionLabel>
-      <p className="text-muted fine">À porter à la connaissance du salarié avant d’enregistrer son titre (art. 13 du RGPD) ; texte à faire valider par le délégué à la protection des données.</p>
+      <p className="text-muted fine">{t('To bring to the employee’s attention before recording their permit (art. 13 of the GDPR); text to have validated by the data protection officer.')}</p>
       <ul className="rules">
-        {INFO_TITRE_SEJOUR.points.map(([k, v]) => <li key={k}><span style={{ color: 'var(--color-text)' }}>{k}</span> : {v}</li>)}
+        {INFO_TITRE_SEJOUR.points.map(([k, v]) => <li key={k}><span style={{ color: 'var(--color-text)' }}>{k}</span>{t(': ')}{v}</li>)}
       </ul>
     </div>
   );
@@ -59,51 +60,49 @@ export function AutorisationDialog({ empId }: { empId: number }) {
   };
 
   return (
-    <Dialog title={`Titre de séjour — ${emp.nom}`} width={620} tall onSubmit={confirm} actions={<>
+    <Dialog title={`${t('Residence permit — ')}${emp.nom}`} width={620} tall onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Enregistrer</SubmitButton>
+      <SubmitButton busy={busy}>{t('Save')}</SubmitButton>
     </>}>
       <div className="grid-2">
-        <Field label="Collaborateur"><Static>{emp.nom} · {emp.poste}</Static></Field>
-        <Field label="Embauche"><Static>Entrée le {fmtIso(emp.entree)}</Static></Field>
+        <Field label={t('Employee')}><Static>{emp.nom} · {emp.poste}</Static></Field>
+        <Field label={t('Hiring')}><Static>{t('Started on ')}{fmtIso(emp.entree)}</Static></Field>
       </div>
-      <Field label="Autorisation de travail">
-        <Seg name="titre-requise" label="Autorisation de travail" value={requise} onChange={setRequise} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
-          options={[['non', 'Non requise'], ['oui', 'Titre de séjour']]} />
+      <Field label={t('Work authorisation')}>
+        <Seg name="titre-requise" label={t('Work authorisation')} value={requise} onChange={setRequise} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
+          options={[['non', t('Not required#fem')], ['oui', t('Residence permit')]]} />
       </Field>
       {requise === 'non' ? (
-        <Fine>Ressortissant français, d’un État de l’Union européenne, de l’Espace économique européen ou de la Suisse : aucun titre à suivre{t0 ? ' — le titre enregistré sera effacé' : ''}.</Fine>
+        <Fine>{t('National of France, of a European Union State, of the European Economic Area or of Switzerland: no permit to track')}{t0 ? t(' — the recorded permit will be erased') : ''}.</Fine>
       ) : <>
         <div className="grid-2">
-          <Field label="Type de titre" htmlFor="titre-type" requis erreur={v.erreur(errType)}>
+          <Field label={t('Type of permit')} htmlFor="titre-type" requis erreur={v.erreur(errType)}>
             <select className="input" id="titre-type" value={type} onChange={ev => setType(ev.target.value as TypeTitreSejour | '')}>
-              <option value="">Choisir…</option>
+              <option value="">{t('Choose…')}</option>
               {(Object.keys(TYPES_TITRE_SEJOUR) as TypeTitreSejour[]).map(k => <option key={k} value={k}>{TYPES_TITRE_SEJOUR[k].label}</option>)}
             </select>
           </Field>
-          <Field label="Numéro du titre" htmlFor="titre-numero" requis erreur={numero ? errNumero : v.erreur(errNumero)}>
+          <Field label={t('Permit number')} htmlFor="titre-numero" requis erreur={numero ? errNumero : v.erreur(errNumero)}>
             <input className="input" id="titre-numero" type="text" autoComplete="off" spellCheck={false} maxLength={40} value={numero} onChange={ev => setNumero(ev.target.value)} />
-            <span className="text-muted sub">Registre unique du personnel ; visible du service RH seulement, jamais au journal</span>
+            <span className="text-muted sub">{t('Single staff register; visible to HR only, never in the log')}</span>
           </Field>
           {!permanent && (
-            <Field label="Expire le" htmlFor="titre-expire" requis erreur={expire ? errExpire : v.erreur(errExpire)}>
+            <Field label={t('Expires on')} htmlFor="titre-expire" requis erreur={expire ? errExpire : v.erreur(errExpire)}>
               <input className="input" id="titre-expire" type="date" value={expire} onChange={ev => setExpire(ev.target.value)} />
             </Field>
           )}
-          <Field label="Authentification demandée à la préfecture le" htmlFor="titre-demande" erreur={errDemande}>
+          <Field label={t('Authentication requested from the prefecture on')} htmlFor="titre-demande" erreur={errDemande}>
             <input className="input" id="titre-demande" type="date" max={d.ti} value={demandeLe} onChange={ev => setDemandeLe(ev.target.value)} />
-            <span className="text-muted sub">Embauche : au moins 2 jours ouvrables avant, soit le {fmtIso(limite)} (art. R5221-41)</span>
+            <span className="text-muted sub">{t('Hiring: at least 2 working days before, i.e. on ')}{fmtIso(limite)} (art. R5221-41)</span>
           </Field>
-          <Field label="Réponse de la préfecture le" htmlFor="titre-verif" erreur={errVerif}>
+          <Field label={t('Answer from the prefecture on')} htmlFor="titre-verif" erreur={errVerif}>
             <input className="input" id="titre-verif" type="date" min={demandeLe || undefined} max={d.ti} value={verifieLe} onChange={ev => setVerifieLe(ev.target.value)} />
-            <span className="text-muted sub">Vide sans réponse : passé 2 jours ouvrables, la vérification est réputée faite</span>
+            <span className="text-muted sub">{t('Empty without an answer: after 2 working days, the check is deemed done')}</span>
           </Field>
         </div>
         {r.warnings.map(w => <NoteAccent key={w}>{w}</NoteAccent>)}
         <Fine>
-          Alerte {d.ds.settings.titreSejourAlerte} jours avant l’expiration (demande de renouvellement en préfecture), relance à {d.ds.settings.titreSejourRelance} jours
-          (Paramètres → Contrats). Expiré, le titre rend le salarié non conforme et le passe en « No Go » sur les chantiers ; Keystone ne reçoit qu’une
-          « situation contractuelle à régulariser ». La copie du titre ira dans la GED, pas dans Cursus.
+          {t('Alert ')}{d.ds.settings.titreSejourAlerte}{t(' days before expiry (renewal request at the prefecture), reminder at ')}{d.ds.settings.titreSejourRelance}{t(' days (Settings → Contracts). Once expired, the permit makes the employee non-compliant and switches them to “No Go” on the worksites; Keystone only receives a “contractual situation to regularise”. The copy of the permit will go in the document management system, not in Cursus.')}
         </Fine>
         <InfoTitre />
       </>}

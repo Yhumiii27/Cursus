@@ -3,6 +3,7 @@
 import { fJ, fmtIso } from '../../../shared/format.ts';
 import type { AvenantForfait } from '../../../shared/types.ts';
 import type { Confirmation } from './confirmations.ts';
+import { t } from '../i18n/langue.ts';
 
 /**
  * Annulation d'un avenant : le plafond de l'année revient au forfait ; des jours rachetés déjà transmis à la paie se
@@ -10,18 +11,18 @@ import type { Confirmation } from './confirmations.ts';
  */
 export function annulationAvenantForfait(a: Pick<AvenantForfait, 'id' | 'annee' | 'jours' | 'signeLe' | 'sage' | 'lotId'>, nom: string): Confirmation {
   return {
-    titre: 'Annuler l’avenant de renonciation',
-    question: `Annuler l’avenant de renonciation ${a.annee} de ${nom} (${fJ(a.jours)} rachetés, signé le ${fmtIso(a.signeLe)}) ?`,
+    titre: t('Cancel the waiver amendment'),
+    question: `${t('Cancel the waiver amendment ')}${a.annee}${t(' of #de-name')}${nom} (${fJ(a.jours)}${t(' bought back')}${t(', signed on ')}${fmtIso(a.signeLe)})${t('?#question')}`,
     suites: [
-      `Le plafond ${a.annee} revient au forfait : les feuilles validées au-delà demanderont un motif.`,
-      a.sage ? 'Les jours rachetés sont déjà transmis à la paie : la correction se fait dans Sage.'
-        : a.lotId != null ? `Les jours rachetés sont dans le lot de paie n° ${a.lotId}, import à confirmer : annulez d’abord ce lot (écran Temps).`
-        : 'Les jours rachetés ne partiront pas dans le prochain lot de paie.',
-      'L’avenant reste sur la fiche, marqué annulé.',
+      `${t('The ceiling ')}${a.annee}${t(' goes back to the package: the timesheets approved beyond will require a reason.')}`,
+      a.sage ? t('The days bought back are already passed to payroll: the correction is made in Sage.')
+        : a.lotId != null ? `${t('The days bought back are in payroll batch no. ')}${a.lotId}${t(', import to confirm: cancel this batch first (Time screen).')}`
+        : t('The days bought back will not go in the next payroll batch.'),
+      t('The amendment stays on the sheet, marked cancelled.'),
     ],
-    bouton: 'Annuler l’avenant',
+    bouton: t('Cancel the amendment'),
     action: 'forfait.annulerAvenant',
     payload: { id: a.id },
-    motif: { label: 'Motif de l’annulation', requis: true, aide: 'Le motif est gardé sur l’avenant, visible du service RH, remis au salarié dans la copie de ses données.', placeholder: 'Avenant saisi par erreur, salarié revenu sur sa décision…' },
+    motif: { label: t('Reason for the cancellation'), requis: true, aide: t('The reason is kept on the amendment, visible to HR, given to the employee in the copy of their data.'), placeholder: t('Amendment entered by mistake, employee changed their mind…') },
   };
 }

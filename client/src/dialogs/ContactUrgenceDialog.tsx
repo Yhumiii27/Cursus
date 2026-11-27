@@ -7,6 +7,7 @@ import { CancelButton, Dialog, Field, Static, SubmitButton, useVerification } fr
 import { Fine } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function ContactUrgenceDialog({ empId }: { empId: number }) {
   const d = useDomain();
@@ -32,20 +33,19 @@ export function ContactUrgenceDialog({ empId }: { empId: number }) {
   };
 
   return (
-    <Dialog title="Contact d’urgence" width={480} onSubmit={confirm} actions={<>
+    <Dialog title={t('Emergency contact')} width={480} onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Enregistrer</SubmitButton>
+      <SubmitButton busy={busy}>{t('Save')}</SubmitButton>
     </>}>
-      {espaceRh && <Field label="Collaborateur"><Static>{e.nom} · {e.poste}</Static></Field>}
-      <Field label="Personne à prévenir (et lien)" htmlFor="cu-nom" erreur={nom.trim() ? erreurs.nom ?? null : v.erreur(erreurs.nom)}>
-        <input className="input" id="cu-nom" type="text" autoFocus maxLength={120} value={nom} placeholder="Nadia Benali (sœur)" onChange={ev => setNom(ev.target.value)} />
+      {espaceRh && <Field label={t('Employee')}><Static>{e.nom} · {e.poste}</Static></Field>}
+      <Field label={t('Person to notify (and relationship)')} htmlFor="cu-nom" erreur={nom.trim() ? erreurs.nom ?? null : v.erreur(erreurs.nom)}>
+        <input className="input" id="cu-nom" type="text" autoFocus maxLength={120} value={nom} placeholder={t('Nadia Benali (sister)')} onChange={ev => setNom(ev.target.value)} />
       </Field>
-      <Field label="Téléphone" htmlFor="cu-tel" erreur={tel.trim() ? erreurs.tel ?? null : v.erreur(erreurs.tel)}>
+      <Field label={t('Phone')} htmlFor="cu-tel" erreur={tel.trim() ? erreurs.tel ?? null : v.erreur(erreurs.tel)}>
         <input className="input" id="cu-tel" type="tel" inputMode="tel" maxLength={30} value={tel} placeholder="+33 6 12 34 56 78" onChange={ev => setTel(ev.target.value)} style={{ maxWidth: 240 }} />
       </Field>
       <Fine>
-        Facultatif : utile en déplacement comme sur le site. Seul le service RH le voit, jamais le manager ; videz les deux champs pour le retirer.
-        Mentionné dans la page Confidentialité et compris dans la copie de vos données.
+        {t('Optional: useful when travelling as on site. Only HR sees it, never the manager; empty both fields to remove it. Mentioned on the Privacy page and included in the copy of your data.')}
       </Fine>
     </Dialog>
   );

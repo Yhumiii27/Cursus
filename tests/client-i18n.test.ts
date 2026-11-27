@@ -101,7 +101,7 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
       'client/src/dialogs/ClotureDialog.tsx', 'client/src/dialogs/PlanDialog.tsx', 'client/src/dialogs/ReqFormDialog.tsx',
       'client/src/components/ListeAttente.tsx', 'client/src/components/PasseportPrevention.tsx', 'client/src/components/Evaluations.tsx',
       'client/src/components/elearning/ElearningFormations.tsx', 'client/src/components/organismes/ChoixOrganisme.tsx',
-      'client/src/state/confirmations-attente.ts'],
+      'client/src/state/confirmations-attente.ts', 'client/src/dialogs/ElearningDialogs.tsx', 'client/src/dialogs/ElearningImportDialog.tsx'],
   },
   {
     // Soldes, demandes et absences, règles, natures ; clôtures, fractionnement, informations au retour, monétisations du CET ;
@@ -152,6 +152,32 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
       'client/src/dialogs/TripModifierDialog.tsx', 'client/src/dialogs/TripImportDialog.tsx', 'client/src/dialogs/DetachementDialog.tsx',
       'client/src/dialogs/FormaliteDialog.tsx'],
   },
+  {
+    // Liste et fiche : aptitude, exigences, certifications, formations suivies, pièces, voyages, contrat (sortie et solde,
+    // CDD, titre de séjour, historique, forfaits, mineur, nuit, mandats, contact d'urgence) ; dialogues de la fiche et
+    // confirmations qu'ils ouvrent (avenants, corrections, sortie, retrait de l'équipe, visite).
+    ecran: 'Collaborateurs', fichiers: ['client/src/pages/Collaborateurs.tsx', 'client/src/components/Aptitude.tsx', 'client/src/components/Exigences.tsx',
+      'client/src/components/Sortie.tsx', 'client/src/components/SoldeSortie.tsx', 'client/src/components/ContratFiche.tsx',
+      'client/src/components/HistoriqueContrat.tsx', 'client/src/components/Mineur.tsx', 'client/src/components/TravailNuit.tsx',
+      'client/src/components/Delegation.tsx', 'client/src/components/ContactUrgence.tsx', 'client/src/components/ForfaitJours.tsx',
+      'client/src/components/temps/ForfaitHeuresFiche.tsx', 'client/src/components/Corrections.tsx', 'client/src/components/PiecesFiche.tsx',
+      'client/src/components/CopierLien.tsx', 'client/src/components/FormationsSuivies.tsx', 'client/src/components/PosteChoix.tsx',
+      'client/src/dialogs/CertDialog.tsx', 'client/src/dialogs/VisiteDialog.tsx', 'client/src/dialogs/AvisDialog.tsx', 'client/src/dialogs/SuiviDialog.tsx',
+      'client/src/dialogs/ReqHabDialog.tsx', 'client/src/dialogs/EmployeDialog.tsx', 'client/src/dialogs/FichePropreDialog.tsx',
+      'client/src/dialogs/MembreDialog.tsx', 'client/src/dialogs/AutorisationDialog.tsx', 'client/src/dialogs/AvenantForfaitDialog.tsx',
+      'client/src/dialogs/ContactUrgenceDialog.tsx', 'client/src/dialogs/FormationSuivieDialog.tsx', 'client/src/dialogs/MandatDialog.tsx',
+      'client/src/dialogs/PieceDialog.tsx', 'client/src/dialogs/RenouvelerCddDialog.tsx', 'client/src/dialogs/SortieDialog.tsx',
+      'client/src/state/confirmations-contrats.ts', 'client/src/state/confirmations-forfait.ts', 'client/src/state/confirmations-corrections.ts'],
+  },
+  // Grille de la semaine, file de validation et récapitulatif paie (les panneaux de l'écran gardent leurs propres fichiers).
+  { ecran: 'Temps de travail (grille de la semaine)', fichiers: ['client/src/pages/Temps.tsx'] },
+  {
+    // Cartes, détail de l'équipe, à affecter ; hiérarchie (équipe parente, lecture seule N+2), délégations des validations ;
+    // dialogues de l'équipe, de rattachement et de délégation ; confirmation de la révocation.
+    ecran: 'Équipes & managers', fichiers: ['client/src/pages/Equipes.tsx', 'client/src/components/Hierarchie.tsx', 'client/src/components/Delegations.tsx',
+      'client/src/dialogs/EquipeDialog.tsx', 'client/src/dialogs/EquipeRattachementDialog.tsx', 'client/src/dialogs/DelegationDialog.tsx',
+      'client/src/state/confirmations-delegations.ts'],
+  },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */
@@ -161,6 +187,9 @@ const FICHIERS_MIGRES = [
   'client/src/pages/Login.tsx', 'client/src/layout/Coque.tsx',
   // Écrans entiers (page, composants et dialogues qu'elle ouvre), 26 novembre 2026.
   ...ECRANS_MIGRES.flatMap(e => e.fichiers),
+  // Toutes les confirmations (dialogs/ConfirmerDialog.tsx), 27 novembre 2026 : celles que les écrans migrés n'emportent pas.
+  ...['', '-annulations', '-astreintes', '-declarations', '-entites', '-forfait-heures', '-objectifs', '-opco', '-organismes', '-referentiels']
+    .map(s => `client/src/state/confirmations${s}.ts`),
 ];
 
 /** Chaînes sources d'un fichier : arguments littéraux de t(), libellés du menu et des options, textes de la connexion. */

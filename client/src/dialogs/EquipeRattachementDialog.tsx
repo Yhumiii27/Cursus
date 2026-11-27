@@ -11,6 +11,7 @@ import { Fine } from '../components/ui.tsx';
 import { libelleSite } from '../organigramme-vue.ts';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function EquipeRattachementDialog({ nom }: { nom: string }) {
   const d = useDomain();
@@ -24,7 +25,7 @@ export function EquipeRattachementDialog({ nom }: { nom: string }) {
   const [busy, setBusy] = useState(false);
   const v = useVerification();
   if (!q) {
-    return <Dialog title="Rattachement de l’équipe" width={480} actions={<CancelButton label="Fermer" />}><Bloquant>Cette équipe n’existe plus.</Bloquant></Dialog>;
+    return <Dialog title={t('Attachment of the team')} width={480} actions={<CancelButton label={t('Close')} />}><Bloquant>{t('This team no longer exists.')}</Bloquant></Dialog>;
   }
   const racine = !q.parente;
   const code = normaliserCodeUnite(unite) || null;
@@ -60,37 +61,35 @@ export function EquipeRattachementDialog({ nom }: { nom: string }) {
   const entitesProposees = entites.filter(x => entiteOuverte(x) || x.code === q.entite);
   const sitesProposes = sites.filter(s => s.actif || s.code === q.siteCode);
   return (
-    <Dialog title={`Rattachement de ${q.nom}`} width={520} onSubmit={envoyer}
+    <Dialog title={`${t('Attachment of ')}${q.nom}`} width={520} onSubmit={envoyer}
       actions={<>
         <CancelButton />
-        <SubmitButton busy={busy}>Enregistrer</SubmitButton>
+        <SubmitButton busy={busy}>{t('Save')}</SubmitButton>
       </>}>
       {racine ? (
-        <Field label="Entité (société ou établissement)" htmlFor="rat-entite" erreur={v.erreur(erreurEntite) ?? (entite ? erreurEntite : null)}>
+        <Field label={t('Entity (company or establishment)')} htmlFor="rat-entite" erreur={v.erreur(erreurEntite) ?? (entite ? erreurEntite : null)}>
           <select className="input" id="rat-entite" autoFocus value={entite} onChange={e => setEntite(e.target.value)}>
-            <option value="">Aucune — signalée au service RH</option>
+            <option value="">{t('None — reported to HR')}</option>
             {entitesProposees.map(x => <option key={x.code} value={x.code}>{x.type === 'etablissement' ? `— ${x.nom}` : x.nom}</option>)}
           </select>
         </Field>
       ) : (
-        <Fine>Équipe rattachée à {q.parente} : elle relève de l’entité de son équipe racine{heritee ? ` (${heritee.nom})` : ''}.</Fine>
+        <Fine>{t('Team attached to ')}{q.parente}{t(': it belongs to the entity of its root team')}{heritee ? ` (${heritee.nom})` : ''}.</Fine>
       )}
       <div className="grid-2">
-        <Field label="Site" htmlFor="rat-site" erreur={erreurSite}>
+        <Field label={t('Site')} htmlFor="rat-site" erreur={erreurSite}>
           <select className="input" id="rat-site" autoFocus={!racine} value={site} onChange={e => setSite(e.target.value)}>
-            <option value="">{herite.siteCode ? `Hérité : ${libelleSite(sites, herite.siteCode)}` : 'Aucun'}</option>
+            <option value="">{herite.siteCode ? `${t('Inherited: ')}${libelleSite(sites, herite.siteCode)}` : t('None#masc')}</option>
             {sitesProposes.map(s => <option key={s.code} value={s.code}>{s.libelle}</option>)}
           </select>
         </Field>
-        <Field label="Unité Matrix" htmlFor="rat-unite" erreur={unite.trim() ? erreurUnite : v.erreur(erreurUnite)}>
+        <Field label={t('Matrix unit')} htmlFor="rat-unite" erreur={unite.trim() ? erreurUnite : v.erreur(erreurUnite)}>
           <input className="input" id="rat-unite" type="text" value={unite} maxLength={40} autoComplete="off" spellCheck={false}
-            placeholder={herite.uniteCode ? `Héritée : ${herite.uniteCode}` : 'PRD-MAINT'} onChange={e => setUnite(e.target.value.toUpperCase())} />
+            placeholder={herite.uniteCode ? `${t('Inherited#fem: ')}${herite.uniteCode}` : 'PRD-MAINT'} onChange={e => setUnite(e.target.value.toUpperCase())} />
         </Field>
       </div>
       <Fine>
-        Aucun valideur ne change : les validations suivent les managers et les équipes parentes. Le site et l’unité, vides, sont ceux d’une équipe
-        au-dessus (le site, à défaut, celui de l’entité) ; ceux des membres suivent et partent à Matrix avec leur fiche. Code d’unité au format de
-        l’organigramme de Matrix : PRD, PRD-MAINT, PRD-MAINT-EQ1.
+        {t('No approver changes: the approvals follow the managers and the parent teams. The site and the unit, when empty, are those of a team above (the site, failing that, that of the entity); those of the members follow and go to Matrix with their sheet. Unit code in the format of the Matrix organisation chart: PRD, PRD-MAINT, PRD-MAINT-EQ1.')}
       </Fine>
     </Dialog>
   );

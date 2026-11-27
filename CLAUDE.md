@@ -81,7 +81,7 @@ rechargement.
   dossier OPCO), Indicateurs sociaux (onglets, BDESE, index d'égalité, arrêtés et leurs confirmations, impression, graphiques
   `components/graphiques/`, `ArreteCseDialog`), Mon planning avec `planning-vue.ts` et tous les dialogues de `PlanningDialog.tsx`
   (partagés avec le planning d'équipe), Comptes (et `CompteDialog`, `MotDePasseProvisoireDialog`), Journal (historique de la
-  fiche compris), Messagerie, Déclarer, le cadre de l'Aide et `InstallerApplication.tsx`. Aide d'un motif lue au rendu : `aideMotifCorrection()`, `aideMotifOpco()`
+  fiche compris), Messagerie, Déclarer, le cadre de l'Aide et `InstallerApplication.tsx`, Mise en service. Aide d'un motif lue au rendu : `aideMotifCorrection()`, `aideMotifOpco()`
   (`AIDE_MOTIF_CORRECTION` reste le texte français, pour les tests). Restent en français : le motif prérempli d'une demande
   de formation (texte saisi), les en-têtes des exports CSV et l'exemple de l'import e-learning, les jours abrégés de
   `SessionDialog`, les mois des notes de frais et des heures de délégation (comme les dates), les messages des règles de
@@ -94,7 +94,7 @@ rechargement.
   (`shared/journal.ts`), les statuts, dispositifs et motifs des dossiers OPCO (`shared/rules/opco.ts`) et les panneaux de l'écran Temps hors de la
   grille (`LotsPaie`, `SuiviFeuilles`, `ReposAVerifier`, `AlertesDurees`, `Astreintes`, forfait annuel en heures,
   grille du planning d'équipe `PlanningEquipe.tsx`). Tous les autres écrans restent en français en dur (prochains :
-  Référentiels, Paramètres, Mise en service, Portail, la grille du planning d'équipe).
+  Référentiels, Paramètres, Portail, la grille du planning d'équipe).
 - Table exportée déjà lue par sa valeur (module sans React, test) : `traduites({ clé: 'English source' })` de
   `i18n/langue.ts` rend chaque libellé dans la langue affichée à la lecture (`LIBELLES_ONGLETS_FRAIS`, `MARQUE` du planning
   des missions).

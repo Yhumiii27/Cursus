@@ -5,6 +5,7 @@ import { fmt } from '../../../../shared/format.ts';
 import type { CibleEnvoi, Settings, StatutEnvoi } from '../../../../shared/types.ts';
 import type { EnvoisState } from '../../api.ts';
 import { useStore } from '../../state/store.tsx';
+import { t } from '../../i18n/langue.ts';
 
 export type FiltreEnvoi = StatutEnvoi | 'tous';
 export type FiltreCible = CibleEnvoi | 'toutes';
@@ -42,5 +43,5 @@ export const MONO = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospac
 /** Date et heure locales d'un horodatage ISO : « 10 oct. 2026 à 09:12 ». */
 export const quand = (at: string) => {
   const d = new Date(at);
-  return `${fmt(d)} à ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+  return `${fmt(d)}${t(' at ')}${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
 };

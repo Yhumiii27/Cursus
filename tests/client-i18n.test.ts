@@ -235,6 +235,8 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
   { ecran: 'Déclarer', fichiers: ['client/src/pages/Declarer.tsx'] },
   // Cadre de l'aide et installation de l'application (le guide, shared/aide.ts, reste en français).
   { ecran: 'Aide', fichiers: ['client/src/pages/Aide.tsx', 'client/src/components/InstallerApplication.tsx'] },
+  // Reprise depuis Lucca (types, champs, issues et motifs de shared/rules/reprise.ts en français).
+  { ecran: 'Mise en service', fichiers: ['client/src/pages/MiseEnService.tsx'] },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */

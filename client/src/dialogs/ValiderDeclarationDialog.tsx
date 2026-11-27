@@ -8,6 +8,7 @@ import { present } from '../../../shared/rules/contrats.ts';
 import { CancelButton, Dialog, Field, SubmitButton } from '../components/Dialog.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function ValiderDeclarationDialog({ id }: { id: number }) {
   const d = useDomain();
@@ -28,36 +29,36 @@ export function ValiderDeclarationDialog({ id }: { id: number }) {
     if (r.ok) closeDialog();
   };
   return (
-    <Dialog title={`Valider la déclaration ${refDeclaration(decl.id)}`} width={560} onSubmit={confirm} actions={<>
+    <Dialog title={`${t('Approve the declaration ')}${refDeclaration(decl.id)}`} width={560} onSubmit={confirm} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Valider</SubmitButton>
+      <SubmitButton busy={busy}>{t('Approve')}</SubmitButton>
     </>}>
       <p>
         <strong>{nomComplet(decl)}</strong> — {decl.entreprise}{decl.email ? ` · ${decl.email}` : ''}<br />
-        {d.ds.referentiels.sites?.find(s => s.code === decl.siteCode)?.libelle ?? decl.siteCode} · {decl.du === decl.au ? `le ${fmtIso(decl.du)}` : `du ${fmtIso(decl.du)} au ${fmtIso(decl.au)}`}<br />
+        {d.ds.referentiels.sites?.find(s => s.code === decl.siteCode)?.libelle ?? decl.siteCode} · {decl.du === decl.au ? `${t('on #date')}${fmtIso(decl.du)}` : `${t('from #date')}${fmtIso(decl.du)}${t(' to #date')}${fmtIso(decl.au)}`}<br />
         <span className="text-muted">{decl.objet}</span>
       </p>
-      <Field label="Fiche de la personne" htmlFor="decl-fiche" requis>
+      <Field label={t('Person’s sheet')} htmlFor="decl-fiche" requis>
         <select className="input" id="decl-fiche" value={choix} onChange={ev => setChoix(ev.target.value)}>
-          {!exterieur && <option value="">— choisir la fiche d’intérim —</option>}
+          {!exterieur && <option value="">— {t('choose the temporary work sheet')} —</option>}
           {proposees.length > 0 && (
-            <optgroup label="Proposées (même adresse ou même nom)">
-              {proposees.map(f => <option key={f.id} value={f.id}>{f.nom} · {f.matriculeSite ?? 'sans matricule'}{f.entreprise || f.agence ? ` · ${f.entreprise ?? f.agence}` : ''}</option>)}
+            <optgroup label={t('Proposed (same address or same name)')}>
+              {proposees.map(f => <option key={f.id} value={f.id}>{f.nom} · {f.matriculeSite ?? t('no number')}{f.entreprise || f.agence ? ` · ${f.entreprise ?? f.agence}` : ''}</option>)}
             </optgroup>
           )}
-          {exterieur && <option value="nouvelle">Créer sa fiche d’extérieur (nouveau matricule E)</option>}
+          {exterieur && <option value="nouvelle">{t('Create their outside worker’s sheet (new number E)')}</option>}
           {autres.length > 0 && (
-            <optgroup label={exterieur ? 'Autres extérieurs' : 'Autres intérimaires présents'}>
-              {autres.map(f => <option key={f.id} value={f.id}>{f.nom} · {f.matriculeSite ?? 'sans matricule'}{f.entreprise || f.agence ? ` · ${f.entreprise ?? f.agence}` : ''}</option>)}
+            <optgroup label={t(exterieur ? 'Other outside workers' : 'Other temporary workers present')}>
+              {autres.map(f => <option key={f.id} value={f.id}>{f.nom} · {f.matriculeSite ?? t('no number')}{f.entreprise || f.agence ? ` · ${f.entreprise ?? f.agence}` : ''}</option>)}
             </optgroup>
           )}
         </select>
       </Field>
       <p className="text-muted fine">
         {exterieur
-          ? 'Une personne déjà venue garde sa fiche et son matricule : rattachez-la plutôt que d’en créer une autre.'
-          : 'Un intérimaire est rattaché à sa fiche d’intérim (contrat, agence, équipe) : créez-la d’abord dans l’annuaire s’il n’en a pas.'}
-        {' '}Validée, la venue est publiée au poste de garde.
+          ? t('A person who has already come keeps their sheet and number: attach them rather than create another one.')
+          : t('A temporary worker is attached to their temporary work sheet (contract, agency, team): create it first in the directory if they have none.')}
+        {' '}{t('Once approved, the visit is published at the gatehouse.')}
       </p>
     </Dialog>
   );

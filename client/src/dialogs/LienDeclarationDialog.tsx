@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { CancelButton, Dialog, Field, SubmitButton } from '../components/Dialog.tsx';
 import { useStore } from '../state/store.tsx';
+import { t } from '../i18n/langue.ts';
 
 export function LienDeclarationDialog() {
   const { run, closeDialog } = useStore();
@@ -24,32 +25,31 @@ export function LienDeclarationDialog() {
   };
   if (adresse) {
     return (
-      <Dialog title={`Lien de déclaration — ${entreprise.trim()}`} width={560} actions={<button type="button" className="btn btn-primary" onClick={closeDialog}>J’ai copié le lien</button>}>
-        <p>Transmettez ce lien à {categorie === 'interimaire' ? 'l’agence' : 'l’entreprise'} : il ne sera plus affiché. S’il est perdu, révoquez-le et créez-en un autre.</p>
-        <Field label="Adresse du formulaire" htmlFor="lien-adresse">
+      <Dialog title={`${t('Declaration link')} — ${entreprise.trim()}`} width={560} actions={<button type="button" className="btn btn-primary" onClick={closeDialog}>{t('I have copied the link')}</button>}>
+        <p>{t(categorie === 'interimaire' ? 'Send this link to the agency: it will not be shown again. If it is lost, revoke it and create another one.' : 'Send this link to the company: it will not be shown again. If it is lost, revoke it and create another one.')}</p>
+        <Field label={t('Address of the form')} htmlFor="lien-adresse">
           <input className="input" id="lien-adresse" readOnly value={adresse} onFocus={ev => ev.target.select()} />
         </Field>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={copier}>{copie ? 'Copié' : 'Copier'}</button>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={copier}>{t(copie ? 'Copied' : 'Copy')}</button>
       </Dialog>
     );
   }
   return (
-    <Dialog title="Nouveau lien de déclaration" width={520} onSubmit={creer} actions={<>
+    <Dialog title={t('New declaration link')} width={520} onSubmit={creer} actions={<>
       <CancelButton />
-      <SubmitButton busy={busy}>Créer le lien</SubmitButton>
+      <SubmitButton busy={busy}>{t('Create the link')}</SubmitButton>
     </>}>
-      <Field label="Pour" htmlFor="lien-cat">
+      <Field label={t('For')} htmlFor="lien-cat">
         <select className="input" id="lien-cat" value={categorie} onChange={ev => setCategorie(ev.target.value as 'exterieur' | 'interimaire')}>
-          <option value="exterieur">Une entreprise extérieure</option>
-          <option value="interimaire">Une agence d’intérim</option>
+          <option value="exterieur">{t('An outside company')}</option>
+          <option value="interimaire">{t('A temporary work agency')}</option>
         </select>
       </Field>
-      <Field label={categorie === 'interimaire' ? 'Agence' : 'Entreprise'} htmlFor="lien-ent" requis>
+      <Field label={t(categorie === 'interimaire' ? 'Agency' : 'Company')} htmlFor="lien-ent" requis>
         <input className="input" id="lien-ent" maxLength={120} value={entreprise} onChange={ev => setEntreprise(ev.target.value)} />
       </Field>
       <p className="text-muted fine">
-        Un lien par entreprise ou par agence, permanent jusqu’à sa révocation. Chaque déclaration reçue attend la validation
-        du service RH ; rien n’est publié ni créé avant.
+        {t('One link per company or per agency, permanent until it is revoked. Each declaration received awaits the approval of HR; nothing is published or created before.')}
       </p>
     </Dialog>
   );

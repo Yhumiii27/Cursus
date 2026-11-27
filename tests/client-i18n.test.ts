@@ -196,6 +196,15 @@ const ECRANS_MIGRES: { ecran: string; fichiers: string[] }[] = [
       'client/src/dialogs/Feedback360SolliciterDialog.tsx'],
   },
   { ecran: 'Mes objectifs', fichiers: ['client/src/pages/MesObjectifs.tsx'] },
+  {
+    // Déclarations à valider, présences prévues, extérieurs, intérimaires, liens de déclaration ; dialogues de la fiche
+    // d'extérieur, du lien et de la validation (confirmations : state/confirmations-declarations.ts, déjà repris).
+    ecran: 'Personnes sur site', fichiers: ['client/src/pages/PersonnesSite.tsx', 'client/src/dialogs/ExterieurDialog.tsx',
+      'client/src/dialogs/LienDeclarationDialog.tsx', 'client/src/dialogs/ValiderDeclarationDialog.tsx'],
+  },
+  // Relevés d'heures des intérimaires (panneau de l'écran Temps ; confirmation d'envoi : state/confirmations.ts).
+  { ecran: 'Relevés', fichiers: ['client/src/pages/Releves.tsx'] },
+  { ecran: 'Chantiers', fichiers: ['client/src/pages/Chantiers.tsx'] },
 ];
 
 /** Fichiers passés aux chaînes sources anglaises (CU-N01) : chacun de leurs littéraux de t() a sa traduction. */
@@ -340,4 +349,14 @@ test('Notes de frais : tables de libellés traduites à la lecture, phrase fran�
   choisirLangue('en');
   assert.deepEqual([MARQUE.demande, MARQUE.ferie], ['R', 'H']);
   assert.deepEqual([LIBELLES_ONGLETS_FRAIS.historique, LIBELLES_ONGLETS_FRAIS.controle, t('?#question')], ['History', 'To check', '?']);
+});
+
+test('partie 6 (annuaire, organigramme, entretiens, personnes sur site, relevés, chantiers) : la phrase française d’avant, contextes départagés', () => {
+  assert.deepEqual([t('Closed#fem'), t(' of #date'), t(' of '), t('Set#objective'), t('on #date')], ['Fermée', ' du ', ' sur ', 'Fixé', 'le ']);
+  assert.deepEqual([tn(3, 'other', 'others'), tn(1, 'refusal', 'refusals'), tn(2, 'refusal', 'refusals'), tn(2, 'timesheet approved', 'timesheets approved')],
+    ['3 autres', '1 refus', '2 refus', '2 feuilles validées']);
+  assert.equal(`${t('Collection closed on ')}12/11/2026${t(': ')}${tn(2, 'answer received', 'answers received')}`, 'Collecte close le 12/11/2026 : 2 réponses reçues');
+  choisirLangue('en');
+  assert.deepEqual([t('Organisation chart'), t('Closed#fem'), t(' of #date'), tn(1, 'person', 'people'), tn(2, 'person', 'people')],
+    ['Organisation chart', 'Closed', ' of ', '1 person', '2 people']);
 });
